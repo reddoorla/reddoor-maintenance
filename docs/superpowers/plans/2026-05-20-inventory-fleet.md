@@ -7,6 +7,7 @@
 **Prerequisites:** Foundation, Audits, and Recipes plans complete. Tag `v0.0.3-recipes` exists locally.
 
 **Architecture:**
+
 - A provider is a `() => Promise<Site[]>`. The two built-ins are async functions returning the wrapped list.
 - The CLI resolves `--fleet <value>` to a provider at runtime: JSON file → `fromJsonFile`, anything else (a `.js` or `.mjs` path) → dynamic-import the default export.
 - `resolveSites({ site, fleet, cwd, workdir })` is the one place the fleet-or-single-site decision lives. Every command calls it.
@@ -46,6 +47,7 @@ Files created or modified:
 ## Task 1: `localPath` provider
 
 **Files:**
+
 - Create: `src/inventory/local.ts`
 - Test: `tests/inventory/local.test.ts`
 
@@ -116,6 +118,7 @@ git commit -m "feat(inventory): add localPath provider"
 ## Task 2: `fromJsonFile` provider
 
 **Files:**
+
 - Create: `src/inventory/json.ts`
 - Test: `tests/inventory/json.test.ts`
 
@@ -187,7 +190,10 @@ function validate(raw: unknown): Site[] {
       path: e.path,
       name: typeof e.name === "string" ? e.name : undefined,
       repoUrl: typeof e.repoUrl === "string" ? e.repoUrl : undefined,
-      meta: typeof e.meta === "object" && e.meta !== null ? (e.meta as Record<string, unknown>) : undefined,
+      meta:
+        typeof e.meta === "object" && e.meta !== null
+          ? (e.meta as Record<string, unknown>)
+          : undefined,
     };
   });
 }
@@ -217,6 +223,7 @@ git commit -m "feat(inventory): add fromJsonFile provider with validation"
 ## Task 3: Inventory barrel + public exports
 
 **Files:**
+
 - Create: `src/inventory/index.ts`
 - Modify: `src/index.ts`
 
@@ -289,6 +296,7 @@ git commit -m "feat(inventory): add barrel + public exports for providers"
 This helper resolves a CLI invocation into a `Site[]`. It's the single source of truth for how `[site]` and `--fleet <value>` interact.
 
 **Files:**
+
 - Create: `src/cli/fleet/resolve-sites.ts`
 - Test: `tests/cli/fleet/resolve-sites.test.ts`
 
@@ -346,9 +354,9 @@ describe("cli/fleet/resolveSites", () => {
   });
 
   it("rejects when both [site] and --fleet are provided", async () => {
-    await expect(
-      resolveSites({ site: "/abs", fleet: "/inv.json", cwd: "/cwd" }),
-    ).rejects.toThrow(/cannot combine/i);
+    await expect(resolveSites({ site: "/abs", fleet: "/inv.json", cwd: "/cwd" })).rejects.toThrow(
+      /cannot combine/i,
+    );
   });
 });
 ```
@@ -375,10 +383,9 @@ export type ResolveSitesInput = {
 
 export async function resolveSites(input: ResolveSitesInput): Promise<Site[]> {
   if (input.site && input.fleet) {
-    throw Object.assign(
-      new Error("cannot combine a positional [site] with --fleet"),
-      { exitCode: 2 },
-    );
+    throw Object.assign(new Error("cannot combine a positional [site] with --fleet"), {
+      exitCode: 2,
+    });
   }
 
   if (input.fleet) {
@@ -392,10 +399,9 @@ export async function resolveSites(input: ResolveSitesInput): Promise<Site[]> {
         default?: InventoryProvider;
       };
       if (!mod.default || typeof mod.default !== "function") {
-        throw Object.assign(
-          new Error(`--fleet ${input.fleet}: default export is not a function`),
-          { exitCode: 2 },
-        );
+        throw Object.assign(new Error(`--fleet ${input.fleet}: default export is not a function`), {
+          exitCode: 2,
+        });
       }
       provider = mod.default;
     } else {
@@ -428,12 +434,14 @@ git commit -m "feat(cli): add resolveSites — JSON + JS inventory loading + sin
 ## Task 5: `cloneIfNeeded` — clone-on-demand for fleet mode
 
 **Behavior:**
+
 - If `site.path` exists and is a non-empty directory, return the site as-is.
 - Otherwise, require `site.repoUrl`. Compute `<workdir>/<name>` (using `site.name` or derived from `repoUrl`).
 - If that target directory already exists, return a new `Site` pointing at it.
 - Otherwise: `git clone <repoUrl> <target>`. Return a new `Site` pointing at `target`.
 
 **Files:**
+
 - Create: `src/cli/fleet/clone-if-needed.ts`
 - Test: `tests/cli/fleet/clone-if-needed.test.ts`
 
@@ -479,7 +487,11 @@ describe("cli/fleet/cloneIfNeeded", () => {
       throw new Error(`unexpected: ${cmd}`);
     };
 
-    const site = { path: join(workdir, "missing"), name: "site-a", repoUrl: "git@example.com:a.git" };
+    const site = {
+      path: join(workdir, "missing"),
+      name: "site-a",
+      repoUrl: "git@example.com:a.git",
+    };
     const result = await cloneIfNeeded(site, { workdir, spawn });
 
     expect(cloned).toBe(true);
@@ -502,9 +514,9 @@ describe("cli/fleet/cloneIfNeeded", () => {
     const spawn: SpawnFn = async () => {
       throw new Error("should not spawn");
     };
-    await expect(
-      cloneIfNeeded({ path: "/not-exist" }, { workdir: "/wd", spawn }),
-    ).rejects.toThrow(/repoUrl/);
+    await expect(cloneIfNeeded({ path: "/not-exist" }, { workdir: "/wd", spawn })).rejects.toThrow(
+      /repoUrl/,
+    );
   });
 });
 ```
@@ -543,16 +555,11 @@ async function isNonEmptyDir(path: string): Promise<boolean> {
   }
 }
 
-export async function cloneIfNeeded(
-  site: Site,
-  opts: CloneIfNeededOptions,
-): Promise<Site> {
+export async function cloneIfNeeded(site: Site, opts: CloneIfNeededOptions): Promise<Site> {
   if (await isNonEmptyDir(site.path)) return site;
 
   if (!site.repoUrl) {
-    throw new Error(
-      `site path does not exist (${site.path}) and no repoUrl is set — cannot clone`,
-    );
+    throw new Error(`site path does not exist (${site.path}) and no repoUrl is set — cannot clone`);
   }
 
   const name = site.name ?? deriveNameFromRepoUrl(site.repoUrl);
@@ -592,6 +599,7 @@ git commit -m "feat(cli): add cloneIfNeeded for fleet-mode site materialization"
 ## Task 6: Wire `audit` to fleet
 
 **Files:**
+
 - Modify: `src/cli/commands/audit.ts`
 - Modify: `src/cli/bin.ts`
 - Test: `tests/cli/audit-fleet.test.ts`
@@ -748,17 +756,19 @@ cli
   .option("--json", "Machine-readable JSON output")
   .option("--fleet <inventory>", "Inventory file (.json or .mjs/.js); aggregates across sites")
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
-  .action(async (site, opts: { only?: string; json?: boolean; fleet?: string; workdir?: string }) => {
-    try {
-      const { output, code } = await runAuditCommand(site, opts);
-      console.log(output);
-      process.exit(code);
-    } catch (err) {
-      const e = err as { exitCode?: number; message?: string };
-      console.error(e.message ?? String(err));
-      process.exit(e.exitCode ?? 1);
-    }
-  });
+  .action(
+    async (site, opts: { only?: string; json?: boolean; fleet?: string; workdir?: string }) => {
+      try {
+        const { output, code } = await runAuditCommand(site, opts);
+        console.log(output);
+        process.exit(code);
+      } catch (err) {
+        const e = err as { exitCode?: number; message?: string };
+        console.error(e.message ?? String(err));
+        process.exit(e.exitCode ?? 1);
+      }
+    },
+  );
 ```
 
 - [ ] **Step 5: Build + run test to verify it passes**
@@ -780,6 +790,7 @@ git commit -m "feat(cli): wire --fleet and --workdir into the audit command"
 These three commands all run a recipe per site. The pattern is identical: resolve sites, optionally clone, iterate.
 
 **Files:**
+
 - Modify: `src/cli/commands/sync-configs.ts`
 - Modify: `src/cli/commands/bump-deps.ts`
 - Modify: `src/cli/commands/upgrade.ts`
@@ -884,9 +895,12 @@ export async function runBumpDepsCommand(
 ): Promise<{ output: string; code: number }> {
   const group = (opts.group ?? "minor") as BumpDepsGroup;
   if (!GROUPS.includes(group)) {
-    throw Object.assign(new Error(`unknown --group: ${group}. expected one of ${GROUPS.join(", ")}`), {
-      exitCode: 2,
-    });
+    throw Object.assign(
+      new Error(`unknown --group: ${group}. expected one of ${GROUPS.join(", ")}`),
+      {
+        exitCode: 2,
+      },
+    );
   }
 
   let sites = await resolveSites({
@@ -1009,6 +1023,7 @@ The spec lists three global flags every command should accept. `--workdir` is al
 - `--no-color` is `cac`'s built-in flag — `cac` automatically respects `NO_COLOR`/`--no-color`; no code change needed beyond documenting it in `--help`.
 
 **Files:**
+
 - Modify: `src/cli/bin.ts`
 - Modify: `src/cli/commands/audit.ts`, `sync-configs.ts`, `bump-deps.ts`, `upgrade.ts` — accept `cwd?: string` in their option types, default to `process.cwd()`
 
@@ -1075,6 +1090,7 @@ git commit -m "feat(cli): add --cwd, --verbose, --no-color globals"
 ## Task 8: Initialize changesets
 
 **Files:**
+
 - Create: `.changeset/config.json` (via init, then edit)
 - Modify: `package.json` — add `@changesets/cli` devDep + scripts
 
@@ -1134,6 +1150,7 @@ git commit -m "chore(release): initialize changesets for v0.1.0"
 ## Task 9: Release workflow
 
 **Files:**
+
 - Create: `.github/workflows/release.yml`
 
 - [ ] **Step 1: Write `.github/workflows/release.yml`**
@@ -1221,6 +1238,7 @@ Expected: creates `reddoor-maintenance-0.0.1.tgz` in the repo root.
 
 Inspect: `tar -tzf reddoor-maintenance-0.0.1.tgz | sort`
 Expected entries (at minimum):
+
 - `package/dist/index.js`
 - `package/dist/index.d.ts`
 - `package/dist/cli/bin.js`
@@ -1260,6 +1278,7 @@ git push origin v0.1.0-pre
 - [ ] **Step 2: Watch the release workflow**
 
 In GitHub Actions, observe the `release` job. Two outcomes:
+
 - If there are pending changesets and no version bump yet: the action opens a "Version Packages" PR. Review and merge it; that merge triggers the actual publish.
 - If the changeset has already been versioned in a prior PR: the action publishes immediately.
 

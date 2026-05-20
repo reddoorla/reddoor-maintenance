@@ -44,6 +44,7 @@ Files created in this plan (relative to repo root `/Users/tuckerlemos/Documents/
 ## Task 1: Initialize repo scaffolding
 
 **Files:**
+
 - Create: `.gitignore`
 - Create: `.npmrc`
 - Create: `README.md`
@@ -70,7 +71,7 @@ auto-install-peers=true
 
 - [ ] **Step 3: Write `README.md` skeleton**
 
-```markdown
+````markdown
 # @reddoor/maintenance
 
 Canonical maintenance configs, audits, and recipes for sites built on the reddoor starter.
@@ -82,6 +83,7 @@ See `docs/specs/2026-05-20-package-design.md` for the design and `docs/superpowe
 ```bash
 pnpm add -D @reddoor/maintenance
 ```
+````
 
 ## CLI
 
@@ -90,20 +92,22 @@ pnpm reddoor-maint --help
 ```
 
 (Status: 0.x — under construction.)
-```
+
+````
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add .gitignore .npmrc README.md
 git commit -m "chore: scaffold repo (gitignore, npmrc, readme)"
-```
+````
 
 ---
 
 ## Task 2: TypeScript config
 
 **Files:**
+
 - Create: `tsconfig.json`
 
 - [ ] **Step 1: Write `tsconfig.json`**
@@ -145,6 +149,7 @@ git commit -m "chore: add tsconfig (strict, NodeNext, ES2022)"
 ## Task 3: package.json (deps, exports, bin)
 
 **Files:**
+
 - Create: `package.json`
 
 - [ ] **Step 1: Write `package.json`**
@@ -164,10 +169,7 @@ git commit -m "chore: add tsconfig (strict, NodeNext, ES2022)"
   "engines": {
     "node": ">=20"
   },
-  "files": [
-    "dist",
-    "README.md"
-  ],
+  "files": ["dist", "README.md"],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -246,6 +248,7 @@ git commit -m "chore: add package.json with deps, exports map, and bin"
 ## Task 4: tsup build config
 
 **Files:**
+
 - Create: `tsup.config.ts`
 
 - [ ] **Step 1: Write `tsup.config.ts`**
@@ -285,6 +288,7 @@ git commit -m "chore: add tsup config (ESM + .d.ts, multi-entry)"
 ## Task 5: vitest config
 
 **Files:**
+
 - Create: `vitest.config.ts`
 
 - [ ] **Step 1: Write `vitest.config.ts`**
@@ -316,6 +320,7 @@ git commit -m "chore: add vitest config"
 This is the eslint config the package uses on **itself**. Once `src/configs/eslint.ts` is built (Task 9), we'll switch this to dogfood the exported factory. For now, a minimal flat config so `pnpm lint` works.
 
 **Files:**
+
 - Create: `eslint.config.js`
 - Create: `.prettierrc.json`
 
@@ -380,6 +385,7 @@ git commit -m "chore: bootstrap internal eslint + prettier config"
 ## Task 7: Shared types module
 
 **Files:**
+
 - Create: `src/types.ts`
 - Test: `tests/types.test.ts`
 
@@ -499,6 +505,7 @@ git commit -m "feat(types): add Site, AuditResult, RecipeResult, InventoryProvid
 **Source of truth:** `/Users/tuckerlemos/Documents/GitHub/reddoor-starter/lighthouserc.json`
 
 **Files:**
+
 - Create: `src/configs/lighthouse.ts`
 - Test: `tests/configs/lighthouse.test.ts`
 
@@ -585,6 +592,7 @@ The starter's `eslint.config.js` imports its own `svelte.config.js`. Since consu
 **Source of truth:** `/Users/tuckerlemos/Documents/GitHub/reddoor-starter/eslint.config.js`
 
 **Files:**
+
 - Create: `src/configs/eslint.ts`
 - Test: `tests/configs/eslint.test.ts`
 
@@ -732,6 +740,7 @@ git commit -m "feat(configs): add eslint factory (lifted from starter)"
 The starter has no explicit `.prettierrc`; this codifies what the lint script implies (svelte plugin + defaults).
 
 **Files:**
+
 - Create: `src/configs/prettier.ts`
 - Test: `tests/configs/prettier.test.ts`
 
@@ -805,6 +814,7 @@ git commit -m "feat(configs): add canonical prettier config"
 Lifted from `reddoor-starter/playwright.config.ts` + `reddoor-starter/tests/a11y.spec.ts`. The routes list is exported separately so the `a11y` audit (Plan 2) can read it.
 
 **Files:**
+
 - Create: `src/configs/playwright-a11y.ts`
 - Test: `tests/configs/playwright-a11y.test.ts`
 
@@ -909,6 +919,7 @@ git commit -m "feat(configs): add playwright-a11y config + routes (lifted from s
 For the foundation, the only public surface is the shared types. Audits/recipes/inventory functions will be added in subsequent plans.
 
 **Files:**
+
 - Create: `src/index.ts`
 
 - [ ] **Step 1: Implement `src/index.ts`**
@@ -939,6 +950,7 @@ git commit -m "feat: add public barrel re-exporting shared types"
 The CLI is a `cac` wrapper. For the foundation it ships two trivial commands that print the registered names from the unions. Subsequent plans will add `audit`, `sync-configs`, `bump-deps`, and `upgrade svelte-4-to-5`.
 
 **Files:**
+
 - Create: `src/cli/bin.ts`
 - Test: `tests/cli/list-commands.test.ts`
 
@@ -965,9 +977,7 @@ function runCli(args: string[]): string {
 describe("cli: list commands", () => {
   beforeAll(() => {
     if (!existsSync(binPath)) {
-      throw new Error(
-        `dist/cli/bin.js missing — run \`pnpm build\` before running CLI tests.`,
-      );
+      throw new Error(`dist/cli/bin.js missing — run \`pnpm build\` before running CLI tests.`);
     }
   });
 
@@ -1065,6 +1075,7 @@ git commit -m "feat(cli): add reddoor-maint CLI skeleton with list-audits and li
 Now that `src/configs/eslint.ts` exists, the package can lint itself with its own canonical config (minus the svelte-specific parts, which don't apply to a pure-TS package). This validates the factory works.
 
 **Files:**
+
 - Modify: `eslint.config.js`
 
 - [ ] **Step 1: Replace bootstrap config with a slim dogfooded version**
@@ -1121,6 +1132,7 @@ git commit -m "chore: dogfood the non-svelte slice of the canonical eslint rules
 ## Task 15: CI workflow
 
 **Files:**
+
 - Create: `.github/workflows/ci.yml`
 
 - [ ] **Step 1: Write `.github/workflows/ci.yml`**
@@ -1216,6 +1228,7 @@ console.log("playwright OK:", pw.a11yRoutes.length);
 
 Run: `node /tmp/reddoor-maint-smoke.mjs`
 Expected output (order may vary):
+
 ```
 index keys: []
 lighthouse OK: { minScore: 0.95 }

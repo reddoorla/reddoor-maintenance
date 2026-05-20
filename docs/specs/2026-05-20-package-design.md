@@ -90,16 +90,16 @@ reddoor-maintenance/
 
 ```ts
 export type Site = {
-  path: string;                       // absolute path to a checked-out site
-  name?: string;                      // from inventory provider or inferred
-  repoUrl?: string;                   // optional, used for cloning
-  meta?: Record<string, unknown>;     // free-form provider metadata
+  path: string; // absolute path to a checked-out site
+  name?: string; // from inventory provider or inferred
+  repoUrl?: string; // optional, used for cloning
+  meta?: Record<string, unknown>; // free-form provider metadata
 };
 
 export type AuditResult = {
   audit: string;
-  site: string;                       // site.name ?? site.path
-  status: 'pass' | 'warn' | 'fail' | 'skip';
+  site: string; // site.name ?? site.path
+  status: "pass" | "warn" | "fail" | "skip";
   summary: string;
   details?: unknown;
 };
@@ -107,8 +107,8 @@ export type AuditResult = {
 export type RecipeResult = {
   recipe: string;
   site: string;
-  status: 'applied' | 'noop' | 'failed';
-  commits: string[];                  // SHAs created (empty if noop)
+  status: "applied" | "noop" | "failed";
+  commits: string[]; // SHAs created (empty if noop)
   notes?: string;
 };
 
@@ -120,7 +120,10 @@ export function runAuditsAcross(sites: Site[], which?: AuditName[]): Promise<Aud
 
 // recipes (writes; each opens a branch + commits)
 export function syncConfigs(site: Site, opts?: { which?: ConfigName[] }): Promise<RecipeResult>;
-export function bumpDeps(site: Site, opts?: { group?: 'patch' | 'minor' | 'major' }): Promise<RecipeResult>;
+export function bumpDeps(
+  site: Site,
+  opts?: { group?: "patch" | "minor" | "major" },
+): Promise<RecipeResult>;
 export function upgradeSvelte4to5(site: Site): Promise<RecipeResult>;
 
 // inventory built-ins
@@ -131,10 +134,10 @@ export function fromJsonFile(path: string): InventoryProvider;
 ### Configs (subpath imports)
 
 ```ts
-import lighthouse from '@reddoor/maintenance/configs/lighthouse';
-import eslint from '@reddoor/maintenance/configs/eslint';
-import prettier from '@reddoor/maintenance/configs/prettier';
-import a11y from '@reddoor/maintenance/configs/playwright-a11y';
+import lighthouse from "@reddoor/maintenance/configs/lighthouse";
+import eslint from "@reddoor/maintenance/configs/eslint";
+import prettier from "@reddoor/maintenance/configs/prettier";
+import a11y from "@reddoor/maintenance/configs/playwright-a11y";
 ```
 
 ### Invariants
@@ -192,28 +195,28 @@ Global flags:
 
 ### Audits
 
-| Name | Description |
-|------|-------------|
-| `deps` | Diffs site `package.json` against a baseline version map bundled in the package (`configs/baseline-versions.ts`, refreshed at each package release from the starter's current `package.json`); reports drift by semver bucket. No network. |
-| `lighthouse` | `@lhci/cli autorun` against `npm run build && npm run preview` using the canonical lighthouserc. Reports perf/a11y/best-practices/SEO scores. |
-| `a11y` | Playwright + `@axe-core/playwright` against the routes list exported from `configs/playwright-a11y.ts`; reports violations grouped by impact. |
-| `security` | `pnpm audit --json` (falls back to `npm audit`); filters dev-only unless `--include-dev`. |
-| `lint` | ESLint + Prettier using the canonical configs. |
+| Name         | Description                                                                                                                                                                                                                                |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `deps`       | Diffs site `package.json` against a baseline version map bundled in the package (`configs/baseline-versions.ts`, refreshed at each package release from the starter's current `package.json`); reports drift by semver bucket. No network. |
+| `lighthouse` | `@lhci/cli autorun` against `npm run build && npm run preview` using the canonical lighthouserc. Reports perf/a11y/best-practices/SEO scores.                                                                                              |
+| `a11y`       | Playwright + `@axe-core/playwright` against the routes list exported from `configs/playwright-a11y.ts`; reports violations grouped by impact.                                                                                              |
+| `security`   | `pnpm audit --json` (falls back to `npm audit`); filters dev-only unless `--include-dev`.                                                                                                                                                  |
+| `lint`       | ESLint + Prettier using the canonical configs.                                                                                                                                                                                             |
 
 ### Recipes
 
-| Name | Description |
-|------|-------------|
-| `sync-configs` | Overwrites a known set of files (`eslint.config.js`, prettier config, `lighthouserc.json`, `playwright.config.ts`, `tests/a11y/*`) with templates that re-export from `@reddoor/maintenance/configs/*`. One commit per file group. |
-| `bump-deps` | `pnpm up --latest` (scoped by `--group`); commits the lockfile change. Noop if nothing to bump. |
+| Name                    | Description                                                                                                                                                                                                                                                                                                            |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sync-configs`          | Overwrites a known set of files (`eslint.config.js`, prettier config, `lighthouserc.json`, `playwright.config.ts`, `tests/a11y/*`) with templates that re-export from `@reddoor/maintenance/configs/*`. One commit per file group.                                                                                     |
+| `bump-deps`             | `pnpm up --latest` (scoped by `--group`); commits the lockfile change. Noop if nothing to bump.                                                                                                                                                                                                                        |
 | `upgrade svelte-4-to-5` | 7-commit recipe encoded as TS: (1) bump svelte/kit/vite/vite-plugin-svelte, (2) migrate `svelte.config.js`, (3) codemod runes (use `svelte-migrate` where it works, ast-grep for the rest), (4) Tailwind 3→4, (5) replace deprecated APIs (the top-12 gotchas), (6) run tests + fix imports, (7) final summary commit. |
 
 ### Inventory providers
 
-| Name | Description |
-|------|-------------|
-| `localPath(path)` | Wraps a single local checkout as a `Site[]` of length 1. |
-| `fromJsonFile(path)` | Reads `[{ name, path, repoUrl, meta }]` from JSON. |
+| Name                 | Description                                              |
+| -------------------- | -------------------------------------------------------- |
+| `localPath(path)`    | Wraps a single local checkout as a `Site[]` of length 1. |
+| `fromJsonFile(path)` | Reads `[{ name, path, repoUrl, meta }]` from JSON.       |
 
 ## Testing strategy
 
