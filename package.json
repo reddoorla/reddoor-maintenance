@@ -1,0 +1,77 @@
+{
+  "name": "@reddoor/maintenance",
+  "version": "0.0.1",
+  "description": "Canonical maintenance configs, audits, and recipes for the reddoor stack.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Tucker Lemos",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tucksravin/reddoor-maintenance.git"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./configs/lighthouse": {
+      "types": "./dist/configs/lighthouse.d.ts",
+      "import": "./dist/configs/lighthouse.js"
+    },
+    "./configs/eslint": {
+      "types": "./dist/configs/eslint.d.ts",
+      "import": "./dist/configs/eslint.js"
+    },
+    "./configs/prettier": {
+      "types": "./dist/configs/prettier.d.ts",
+      "import": "./dist/configs/prettier.js"
+    },
+    "./configs/playwright-a11y": {
+      "types": "./dist/configs/playwright-a11y.d.ts",
+      "import": "./dist/configs/playwright-a11y.js"
+    }
+  },
+  "bin": {
+    "reddoor-maint": "./dist/cli/bin.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint . && prettier --check .",
+    "format": "prettier --write .",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build"
+  },
+  "dependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@eslint/js": "^10.0.1",
+    "@lhci/cli": "^0.15.1",
+    "@playwright/test": "^1.59.1",
+    "cac": "^6.7.14",
+    "eslint": "^10.3.0",
+    "eslint-config-prettier": "^10.1.1",
+    "eslint-plugin-svelte": "^3.1.0",
+    "globals": "^17.6.0",
+    "prettier": "^3.1.1",
+    "prettier-plugin-svelte": "^3.2.6",
+    "tinyglobby": "^0.2.10",
+    "typescript-eslint": "^8.59.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.3.0",
+    "tsx": "^4.19.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.1"
+  },
+  "packageManager": "pnpm@10.33.1"
+}
