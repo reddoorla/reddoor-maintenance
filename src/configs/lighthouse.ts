@@ -2,7 +2,10 @@ export const lighthouseConfig = {
   ci: {
     collect: {
       url: ["http://localhost:5173/dev/a11y-fixtures"],
-      startServerCommand: "pnpm vite:dev",
+      // `npm run vite:dev` works on both pnpm and npm sites — pnpm respects
+      // the `run` form too. Keeps this config portable across the fleet
+      // while sites transition to pnpm.
+      startServerCommand: "npm run vite:dev",
       startServerReadyPattern: "ready in",
       startServerReadyTimeout: 120_000,
       numberOfRuns: 1,

@@ -16,10 +16,11 @@ describe("configs/playwright-a11y", () => {
     ]);
   });
 
-  it("uses port 5173 and the starter's webServer command", () => {
+  it("uses port 5173 and a portable webServer command", () => {
     expect(playwrightA11yConfig.use?.baseURL).toBe("http://localhost:5173");
     expect(playwrightA11yConfig.webServer).toMatchObject({
-      command: "pnpm vite:dev",
+      // `npm run ...` works on both pnpm and npm sites.
+      command: "npm run vite:dev",
       url: "http://localhost:5173/dev/a11y-fixtures",
     });
   });

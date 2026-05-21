@@ -7,6 +7,7 @@ import { runAuditCommand } from "./commands/audit.js";
 import { runSyncConfigsCommand } from "./commands/sync-configs.js";
 import { runBumpDepsCommand } from "./commands/bump-deps.js";
 import { runUpgradeCommand } from "./commands/upgrade.js";
+import { runConvertToPnpmCommand } from "./commands/convert-to-pnpm.js";
 import { resolvePackageVersion } from "./version.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -24,6 +25,7 @@ const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {
   "sync-configs": "Overwrite a site's canonical configs to match @reddoorla/maintenance.",
   "bump-deps": "Bump dependencies and commit the lockfile change.",
   "svelte-4-to-5": "Run the 7-commit Svelte 4 → 5 upgrade recipe.",
+  "convert-to-pnpm": "Convert an npm/yarn site to pnpm (lockfile, packageManager, scripts).",
 };
 
 const cli = cac("reddoor-maint");
@@ -144,6 +146,27 @@ cli
     ) => {
       try {
         const { output, code } = await runUpgradeCommand(upgrade, site, opts);
+        console.log(output);
+        process.exit(code);
+      } catch (err) {
+        const e = err as { exitCode?: number; message?: string; stack?: string };
+        console.error(opts.verbose ? (e.stack ?? e.message) : (e.message ?? String(err)));
+        process.exit(e.exitCode ?? 1);
+      }
+    },
+  );
+
+cli
+  .command(
+    "convert-to-pnpm [site]",
+    "Convert an npm/yarn site to pnpm (lockfile, packageManager, scripts).",
+  )
+  .option("--fleet <inventory>", "Inventory file (.json or .mjs/.js)")
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(
+    async (site, opts: { fleet?: string; workdir?: string; cwd?: string; verbose?: boolean }) => {
+      try {
+        const { output, code } = await runConvertToPnpmCommand(site, opts);
         console.log(output);
         process.exit(code);
       } catch (err) {
