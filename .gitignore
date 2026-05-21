@@ -5,3 +5,7 @@ coverage/
 *.log
 .vitest-cache/
 .tsbuildinfo
+tests/fixtures/**/test-results/
+tests/fixtures/**/.lighthouseci/
+tests/fixtures/**/playwright-report/
+.claude/

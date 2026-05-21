@@ -19,5 +19,5 @@
     "ignoreDeprecations": "6.0"
   },
   "include": ["src/**/*", "tests/**/*", "tsup.config.ts", "vitest.config.ts"],
-  "exclude": ["dist", "node_modules"]
+  "exclude": ["dist", "node_modules", "tests/fixtures"]
 }
