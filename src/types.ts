@@ -11,6 +11,7 @@ export type RecipeName =
   | "sync-configs"
   | "bump-deps"
   | "svelte-4-to-5"
+  | "svelte-codemods"
   | "convert-to-pnpm"
   | "onboard";
 

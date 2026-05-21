@@ -42,6 +42,7 @@ describe("types", () => {
     const _ok3: RecipeName = "svelte-4-to-5";
     const _ok4: RecipeName = "convert-to-pnpm";
     const _ok5: RecipeName = "onboard";
+    const _ok6: RecipeName = "svelte-codemods";
   });
 
   it("ConfigName covers v1 configs", () => {
