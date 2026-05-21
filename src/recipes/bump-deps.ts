@@ -33,7 +33,7 @@ export async function bumpDeps(site: Site, opts: BumpDepsOptions = {}): Promise<
     cwd: site.path,
   });
 
-  let parsed: Record<string, unknown> = {};
+  let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(outdated.stdout || "{}") as Record<string, unknown>;
   } catch {
