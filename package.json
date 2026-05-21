@@ -49,7 +49,10 @@
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build"
+    "prepublishOnly": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "pnpm run prepublishOnly && changeset publish"
   },
   "dependencies": {
     "@axe-core/playwright": "^4.11.3",
@@ -67,6 +70,7 @@
     "typescript-eslint": "^8.59.1"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.31.0",
     "@types/node": "^22.0.0",
     "tsup": "^8.3.0",
     "tsx": "^4.19.0",
