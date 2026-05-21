@@ -32,6 +32,19 @@ export async function stageAll(cwd: string): Promise<void> {
   await git(cwd, ["add", "-A"]);
 }
 
+export async function listTrackedFiles(cwd: string): Promise<string[]> {
+  const { stdout } = await git(cwd, ["ls-files"]);
+  return stdout
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+}
+
+export async function removeFromIndex(cwd: string, paths: string[]): Promise<void> {
+  if (paths.length === 0) return;
+  await git(cwd, ["rm", "-r", "--cached", "--", ...paths]);
+}
+
 /**
  * Stages all current changes and commits with `message`. Returns the commit SHA,
  * or `null` if there was nothing to commit.
