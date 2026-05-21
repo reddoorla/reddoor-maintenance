@@ -2,6 +2,7 @@
 import { cac } from "cac";
 import type { AuditName, RecipeName } from "../types.js";
 import { runAuditCommand } from "./commands/audit.js";
+import { runSyncConfigsCommand } from "./commands/sync-configs.js";
 
 const AUDIT_DESCRIPTIONS: Record<AuditName, string> = {
   deps: "Diff site package.json against the bundled baseline version map.",
@@ -44,6 +45,21 @@ cli
       const e = err as { exitCode?: number; message?: string };
       console.error(e.message ?? String(err));
       process.exit(e.exitCode ?? 1);
+    }
+  });
+
+cli
+  .command("sync-configs [site]", "Sync canonical configs into a site.")
+  .option("--only <names>", "Comma-separated config names (e.g. eslint,prettier)")
+  .option("--dry", "Print diff without writing")
+  .action(async (site, opts: { only?: string; dry?: boolean }) => {
+    try {
+      const { output, code } = await runSyncConfigsCommand(site, opts);
+      console.log(output);
+      process.exit(code);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exit(1);
     }
   });
 
