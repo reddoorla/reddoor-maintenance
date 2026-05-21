@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import { ESLint } from "eslint";
 import { check as prettierCheck, resolveConfig as prettierResolveConfig } from "prettier";
 import { glob } from "tinyglobby";
@@ -38,18 +38,20 @@ export async function lintAudit(ctx: AuditContext): Promise<AuditResult> {
   });
 
   const relFiles = await listFiles(site.path);
-  const filesToLint = relFiles.map((f) => join(site.path, f));
 
-  const eslintResults = await eslint.lintFiles(filesToLint);
+  // Pass relative paths to ESLint; its cwd is already site.path. Avoids
+  // dereferencing symlinks on pnpm workspaces.
+  const eslintResults = await eslint.lintFiles(relFiles);
   const eslintErrors = eslintResults.reduce((n, r) => n + r.errorCount, 0);
   const eslintWarnings = eslintResults.reduce((n, r) => n + r.warningCount, 0);
 
   const prettierUnformatted: string[] = [];
-  for (const file of filesToLint) {
-    const source = await readFile(file, "utf-8");
-    const options = (await prettierResolveConfig(file)) ?? {};
-    const ok = await prettierCheck(source, { ...options, filepath: file });
-    if (!ok) prettierUnformatted.push(relative(site.path, file));
+  for (const rel of relFiles) {
+    const absForResolve = join(site.path, rel);
+    const source = await readFile(absForResolve, "utf-8");
+    const options = (await prettierResolveConfig(absForResolve)) ?? {};
+    const ok = await prettierCheck(source, { ...options, filepath: absForResolve });
+    if (!ok) prettierUnformatted.push(rel);
   }
 
   const status: AuditResult["status"] =
@@ -61,7 +63,7 @@ export async function lintAudit(ctx: AuditContext): Promise<AuditResult> {
 
   const summary =
     status === "pass"
-      ? `lint clean across ${filesToLint.length} files`
+      ? `lint clean across ${relFiles.length} files`
       : `${eslintErrors} eslint errors, ${eslintWarnings} warnings, ${prettierUnformatted.length} unformatted`;
 
   return {
@@ -73,7 +75,7 @@ export async function lintAudit(ctx: AuditContext): Promise<AuditResult> {
       eslintErrors,
       eslintWarnings,
       prettierUnformatted,
-      files: filesToLint.length,
+      files: relFiles.length,
     },
   };
 }
