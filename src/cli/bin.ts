@@ -38,17 +38,24 @@ cli
   .command("audit [site]", "Run audits against a site (default: cwd).")
   .option("--only <names>", "Comma-separated audit names (e.g. deps,lighthouse)")
   .option("--json", "Machine-readable JSON output")
-  .action(async (site, opts: { only?: string; json?: boolean }) => {
-    try {
-      const { output, code } = await runAuditCommand(site, opts);
-      console.log(output);
-      process.exit(code);
-    } catch (err) {
-      const e = err as { exitCode?: number; message?: string };
-      console.error(e.message ?? String(err));
-      process.exit(e.exitCode ?? 1);
-    }
-  });
+  .option("--fleet <inventory>", "Inventory file (.json or .mjs/.js); aggregates across sites")
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(
+    async (
+      site,
+      opts: { only?: string; json?: boolean; fleet?: string; workdir?: string },
+    ) => {
+      try {
+        const { output, code } = await runAuditCommand(site, opts);
+        console.log(output);
+        process.exit(code);
+      } catch (err) {
+        const e = err as { exitCode?: number; message?: string };
+        console.error(e.message ?? String(err));
+        process.exit(e.exitCode ?? 1);
+      }
+    },
+  );
 
 cli
   .command("sync-configs [site]", "Sync canonical configs into a site.")

@@ -1,10 +1,13 @@
-import { resolve } from "node:path";
 import { runAudits, ALL_AUDIT_NAMES } from "../../audits/index.js";
 import type { AuditName, AuditResult } from "../../types.js";
+import { resolveSites } from "../fleet/resolve-sites.js";
+import { cloneIfNeeded } from "../fleet/clone-if-needed.js";
 
 export type AuditCommandOptions = {
   only?: string;
   json?: boolean;
+  fleet?: string;
+  workdir?: string;
 };
 
 function parseOnly(value: string | undefined): AuditName[] | undefined {
@@ -19,11 +22,9 @@ function parseOnly(value: string | undefined): AuditName[] | undefined {
 }
 
 function formatTable(results: AuditResult[]): string {
-  const lines: string[] = [];
-  for (const r of results) {
-    lines.push(`${r.audit.padEnd(12)} ${r.status.padEnd(5)} ${r.site}\n  ${r.summary}`);
-  }
-  return lines.join("\n");
+  return results
+    .map((r) => `${r.audit.padEnd(12)} ${r.status.padEnd(5)} ${r.site}\n  ${r.summary}`)
+    .join("\n");
 }
 
 function exitCode(results: AuditResult[]): number {
@@ -34,11 +35,25 @@ export async function runAuditCommand(
   site: string | undefined,
   opts: AuditCommandOptions,
 ): Promise<{ output: string; code: number }> {
-  const sitePath = resolve(site ?? process.cwd());
   const which = parseOnly(opts.only);
-  const results = await runAudits({ path: sitePath }, which);
+
+  let sites = await resolveSites({
+    ...(site !== undefined ? { site } : {}),
+    ...(opts.fleet !== undefined ? { fleet: opts.fleet } : {}),
+    cwd: process.cwd(),
+  });
+
+  if (opts.fleet) {
+    const workdir = opts.workdir ?? `${process.env.HOME ?? ""}/.reddoor-maint/sites`;
+    sites = await Promise.all(sites.map((s) => cloneIfNeeded(s, { workdir })));
+  }
+
+  const results: AuditResult[] = [];
+  for (const s of sites) {
+    const r = await runAudits(s, which);
+    results.push(...r);
+  }
 
   const output = opts.json ? JSON.stringify(results, null, 2) : formatTable(results);
-
   return { output, code: exitCode(results) };
 }
