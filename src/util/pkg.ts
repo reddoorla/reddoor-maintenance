@@ -18,7 +18,22 @@ export async function writePackageJson(path: string, pkg: PackageJsonLike): Prom
   await writeFile(path, content, "utf-8");
 }
 
-export function bumpDep(pkg: PackageJsonLike, name: string, version: string): PackageJsonLike {
+export type BumpDepMode =
+  | "ensure" // default: add to devDependencies if missing
+  | "bump-only"; // never add; only update existing entries
+
+export type BumpDepOptions = {
+  mode?: BumpDepMode;
+};
+
+export function bumpDep(
+  pkg: PackageJsonLike,
+  name: string,
+  version: string,
+  opts: BumpDepOptions = {},
+): PackageJsonLike {
+  const mode = opts.mode ?? "ensure";
+
   const next: PackageJsonLike = {
     ...pkg,
   };
@@ -40,7 +55,10 @@ export function bumpDep(pkg: PackageJsonLike, name: string, version: string): Pa
     next.devDependencies[name] = version;
     return next;
   }
-  // Not present in either: add to devDependencies.
+  // Not present in either map. bump-only leaves the pkg alone so recipes
+  // can express "raise the floor on packages this site already uses" without
+  // also installing every related dep across the fleet.
+  if (mode === "bump-only") return pkg;
   next.devDependencies = { ...(next.devDependencies ?? {}), [name]: version };
   return next;
 }
