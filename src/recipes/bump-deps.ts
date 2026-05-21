@@ -29,6 +29,11 @@ export async function bumpDeps(site: Site, opts: BumpDepsOptions = {}): Promise<
   const group: BumpDepsGroup = opts.group ?? "minor";
   const spawn = opts.spawn ?? defaultSpawn;
 
+  // Ensure the lockfile reflects the current package.json before we ask
+  // pnpm what's outdated. Without this, a desynced lockfile can produce
+  // stale or empty outdated reports.
+  await spawn("pnpm", ["install"], { cwd: site.path, streaming: true });
+
   const outdated = await spawn("pnpm", ["outdated", "--json", ...outdatedFlagsForGroup(group)], {
     cwd: site.path,
   });
@@ -58,7 +63,11 @@ export async function bumpDeps(site: Site, opts: BumpDepsOptions = {}): Promise<
   const branch = branchName("bump-deps");
   await createBranch(site.path, branch);
 
-  await spawn("pnpm", ["up", ...upFlagsForGroup(group)], { cwd: site.path });
+  // Stream pnpm up's output so long-running upgrades don't look frozen.
+  await spawn("pnpm", ["up", ...upFlagsForGroup(group)], {
+    cwd: site.path,
+    streaming: true,
+  });
 
   const sha = await commit(site.path, `chore(deps): bump dependencies (${group})`);
   const shas = sha ? [sha] : [];
