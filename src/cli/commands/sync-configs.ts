@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { syncConfigs } from "../../recipes/sync-configs.js";
 import { ALL_TEMPLATES, templatesByName } from "../../recipes/sync-configs/templates.js";
 import type { ConfigName, RecipeResult } from "../../types.js";
@@ -11,6 +11,7 @@ export type SyncConfigsCommandOptions = {
   dry?: boolean;
   fleet?: string;
   workdir?: string;
+  cwd?: string;
 };
 
 function parseOnly(value?: string): ConfigName[] | undefined {
@@ -42,11 +43,12 @@ export async function runSyncConfigsCommand(
   opts: SyncConfigsCommandOptions,
 ): Promise<{ output: string; code: number }> {
   const which = parseOnly(opts.only);
+  const cwd = opts.cwd ? resolve(opts.cwd) : process.cwd();
 
   let sites = await resolveSites({
     ...(site !== undefined ? { site } : {}),
     ...(opts.fleet !== undefined ? { fleet: opts.fleet } : {}),
-    cwd: process.cwd(),
+    cwd,
   });
 
   if (opts.fleet) {

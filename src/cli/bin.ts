@@ -22,6 +22,9 @@ const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {
 
 const cli = cac("reddoor-maint");
 
+cli.option("--cwd <path>", "Override working directory (default: process.cwd())");
+cli.option("--verbose", "Verbose output (full stack on errors)");
+
 cli.command("list-audits", "Print the available audits.").action(() => {
   for (const [name, desc] of Object.entries(AUDIT_DESCRIPTIONS)) {
     console.log(`${name.padEnd(12)} ${desc}`);
@@ -41,14 +44,24 @@ cli
   .option("--fleet <inventory>", "Inventory file (.json or .mjs/.js); aggregates across sites")
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
-    async (site, opts: { only?: string; json?: boolean; fleet?: string; workdir?: string }) => {
+    async (
+      site,
+      opts: {
+        only?: string;
+        json?: boolean;
+        fleet?: string;
+        workdir?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) => {
       try {
         const { output, code } = await runAuditCommand(site, opts);
         console.log(output);
         process.exit(code);
       } catch (err) {
-        const e = err as { exitCode?: number; message?: string };
-        console.error(e.message ?? String(err));
+        const e = err as { exitCode?: number; message?: string; stack?: string };
+        console.error(opts.verbose ? (e.stack ?? e.message) : (e.message ?? String(err)));
         process.exit(e.exitCode ?? 1);
       }
     },
@@ -61,14 +74,24 @@ cli
   .option("--fleet <inventory>", "Inventory file (.json or .mjs/.js)")
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
-    async (site, opts: { only?: string; dry?: boolean; fleet?: string; workdir?: string }) => {
+    async (
+      site,
+      opts: {
+        only?: string;
+        dry?: boolean;
+        fleet?: string;
+        workdir?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) => {
       try {
         const { output, code } = await runSyncConfigsCommand(site, opts);
         console.log(output);
         process.exit(code);
       } catch (err) {
-        const e = err as { exitCode?: number; message?: string };
-        console.error(e.message ?? String(err));
+        const e = err as { exitCode?: number; message?: string; stack?: string };
+        console.error(opts.verbose ? (e.stack ?? e.message) : (e.message ?? String(err)));
         process.exit(e.exitCode ?? 1);
       }
     },
@@ -79,17 +102,28 @@ cli
   .option("--group <group>", "patch | minor | major", { default: "minor" })
   .option("--fleet <inventory>", "Inventory file (.json or .mjs/.js)")
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
-  .action(async (site, opts: { group?: string; fleet?: string; workdir?: string }) => {
-    try {
-      const { output, code } = await runBumpDepsCommand(site, opts);
-      console.log(output);
-      process.exit(code);
-    } catch (err) {
-      const e = err as { exitCode?: number; message?: string };
-      console.error(e.message ?? String(err));
-      process.exit(e.exitCode ?? 1);
-    }
-  });
+  .action(
+    async (
+      site,
+      opts: {
+        group?: string;
+        fleet?: string;
+        workdir?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) => {
+      try {
+        const { output, code } = await runBumpDepsCommand(site, opts);
+        console.log(output);
+        process.exit(code);
+      } catch (err) {
+        const e = err as { exitCode?: number; message?: string; stack?: string };
+        console.error(opts.verbose ? (e.stack ?? e.message) : (e.message ?? String(err)));
+        process.exit(e.exitCode ?? 1);
+      }
+    },
+  );
 
 cli
   .command("upgrade <upgrade> [site]", "Run a named upgrade recipe (svelte-4-to-5).")
@@ -100,15 +134,15 @@ cli
     async (
       upgrade: string,
       site: string | undefined,
-      opts: { fleet?: string; workdir?: string },
+      opts: { fleet?: string; workdir?: string; cwd?: string; verbose?: boolean },
     ) => {
       try {
         const { output, code } = await runUpgradeCommand(upgrade, site, opts);
         console.log(output);
         process.exit(code);
       } catch (err) {
-        const e = err as { exitCode?: number; message?: string };
-        console.error(e.message ?? String(err));
+        const e = err as { exitCode?: number; message?: string; stack?: string };
+        console.error(opts.verbose ? (e.stack ?? e.message) : (e.message ?? String(err)));
         process.exit(e.exitCode ?? 1);
       }
     },

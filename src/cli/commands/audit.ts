@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { runAudits, ALL_AUDIT_NAMES } from "../../audits/index.js";
 import type { AuditName, AuditResult } from "../../types.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
@@ -8,6 +9,7 @@ export type AuditCommandOptions = {
   json?: boolean;
   fleet?: string;
   workdir?: string;
+  cwd?: string;
 };
 
 function parseOnly(value: string | undefined): AuditName[] | undefined {
@@ -36,11 +38,12 @@ export async function runAuditCommand(
   opts: AuditCommandOptions,
 ): Promise<{ output: string; code: number }> {
   const which = parseOnly(opts.only);
+  const cwd = opts.cwd ? resolve(opts.cwd) : process.cwd();
 
   let sites = await resolveSites({
     ...(site !== undefined ? { site } : {}),
     ...(opts.fleet !== undefined ? { fleet: opts.fleet } : {}),
-    cwd: process.cwd(),
+    cwd,
   });
 
   if (opts.fleet) {

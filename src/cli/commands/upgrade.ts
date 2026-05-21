@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { upgradeSvelte4to5 } from "../../recipes/svelte-5/index.js";
 import type { RecipeResult } from "../../types.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
@@ -8,6 +9,7 @@ const KNOWN_UPGRADES = new Set(["svelte-4-to-5"]);
 export type UpgradeCommandOptions = {
   fleet?: string;
   workdir?: string;
+  cwd?: string;
 };
 
 function formatResult(r: RecipeResult): string {
@@ -29,10 +31,12 @@ export async function runUpgradeCommand(
     );
   }
 
+  const cwd = opts.cwd ? resolve(opts.cwd) : process.cwd();
+
   let sites = await resolveSites({
     ...(site !== undefined ? { site } : {}),
     ...(opts.fleet !== undefined ? { fleet: opts.fleet } : {}),
-    cwd: process.cwd(),
+    cwd,
   });
 
   if (opts.fleet) {

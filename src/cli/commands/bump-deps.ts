@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { bumpDeps, type BumpDepsGroup } from "../../recipes/bump-deps.js";
 import type { RecipeResult } from "../../types.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
@@ -9,6 +10,7 @@ export type BumpDepsCommandOptions = {
   group?: string;
   fleet?: string;
   workdir?: string;
+  cwd?: string;
 };
 
 function formatResult(r: RecipeResult): string {
@@ -28,10 +30,12 @@ export async function runBumpDepsCommand(
     );
   }
 
+  const cwd = opts.cwd ? resolve(opts.cwd) : process.cwd();
+
   let sites = await resolveSites({
     ...(site !== undefined ? { site } : {}),
     ...(opts.fleet !== undefined ? { fleet: opts.fleet } : {}),
-    cwd: process.cwd(),
+    cwd,
   });
 
   if (opts.fleet) {
