@@ -24,6 +24,7 @@ export {
   bumpDeps,
   upgradeSvelte4to5,
   convertToPnpm,
+  onboard,
   ALL_RECIPE_NAMES,
   isRecipeName,
 } from "./recipes/index.js";
@@ -33,6 +34,8 @@ export type {
   BumpDepsOptions,
   UpgradeSvelte4to5Options,
   ConvertToPnpmOptions,
+  OnboardOptions,
+  OnboardAudit,
 } from "./recipes/index.js";
 
 export { localPath, fromJsonFile, type LocalPathOptions } from "./inventory/index.js";

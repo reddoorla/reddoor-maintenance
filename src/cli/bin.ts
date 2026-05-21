@@ -8,6 +8,7 @@ import { runSyncConfigsCommand } from "./commands/sync-configs.js";
 import { runBumpDepsCommand } from "./commands/bump-deps.js";
 import { runUpgradeCommand } from "./commands/upgrade.js";
 import { runConvertToPnpmCommand } from "./commands/convert-to-pnpm.js";
+import { runOnboardCommand } from "./commands/onboard.js";
 import { resolvePackageVersion } from "./version.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -26,6 +27,7 @@ const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {
   "bump-deps": "Bump dependencies and commit the lockfile change.",
   "svelte-4-to-5": "Run the 7-commit Svelte 4 → 5 upgrade recipe.",
   "convert-to-pnpm": "Convert an npm/yarn site to pnpm (lockfile, packageManager, scripts).",
+  onboard: "Install @reddoorla/maintenance + audit deps on a site (preferred first step).",
 };
 
 const cli = cac("reddoor-maint");
@@ -167,6 +169,37 @@ cli
     async (site, opts: { fleet?: string; workdir?: string; cwd?: string; verbose?: boolean }) => {
       try {
         const { output, code } = await runConvertToPnpmCommand(site, opts);
+        console.log(output);
+        process.exit(code);
+      } catch (err) {
+        const e = err as { exitCode?: number; message?: string; stack?: string };
+        console.error(opts.verbose ? (e.stack ?? e.message) : (e.message ?? String(err)));
+        process.exit(e.exitCode ?? 1);
+      }
+    },
+  );
+
+cli
+  .command(
+    "onboard [site]",
+    "Install @reddoorla/maintenance + audit deps on a site (run after convert-to-pnpm).",
+  )
+  .option("--audits <names>", "Comma-separated audit subset: lighthouse,a11y (default: both)")
+  .option("--fleet <inventory>", "Inventory file (.json or .mjs/.js)")
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(
+    async (
+      site,
+      opts: {
+        audits?: string;
+        fleet?: string;
+        workdir?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) => {
+      try {
+        const { output, code } = await runOnboardCommand(site, opts);
         console.log(output);
         process.exit(code);
       } catch (err) {

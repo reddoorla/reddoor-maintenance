@@ -7,7 +7,12 @@ export type Site = {
 
 export type AuditName = "deps" | "lighthouse" | "a11y" | "security" | "lint";
 
-export type RecipeName = "sync-configs" | "bump-deps" | "svelte-4-to-5" | "convert-to-pnpm";
+export type RecipeName =
+  | "sync-configs"
+  | "bump-deps"
+  | "svelte-4-to-5"
+  | "convert-to-pnpm"
+  | "onboard";
 
 export type ConfigName = "lighthouse" | "eslint" | "prettier" | "playwright-a11y";
 
