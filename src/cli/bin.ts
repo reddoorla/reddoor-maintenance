@@ -3,6 +3,7 @@ import { cac } from "cac";
 import type { AuditName, RecipeName } from "../types.js";
 import { runAuditCommand } from "./commands/audit.js";
 import { runSyncConfigsCommand } from "./commands/sync-configs.js";
+import { runBumpDepsCommand } from "./commands/bump-deps.js";
 
 const AUDIT_DESCRIPTIONS: Record<AuditName, string> = {
   deps: "Diff site package.json against the bundled baseline version map.",
@@ -60,6 +61,21 @@ cli
     } catch (err) {
       console.error((err as Error).message);
       process.exit(1);
+    }
+  });
+
+cli
+  .command("bump-deps [site]", "Bump dependencies.")
+  .option("--group <group>", "patch | minor | major", { default: "minor" })
+  .action(async (site, opts: { group?: string }) => {
+    try {
+      const { output, code } = await runBumpDepsCommand(site, opts);
+      console.log(output);
+      process.exit(code);
+    } catch (err) {
+      const e = err as { exitCode?: number; message?: string };
+      console.error(e.message ?? String(err));
+      process.exit(e.exitCode ?? 1);
     }
   });
 
