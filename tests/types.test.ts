@@ -50,5 +50,6 @@ describe("types", () => {
     const _ok3: ConfigName = "prettier";
     const _ok4: ConfigName = "playwright-a11y";
     const _ok5: ConfigName = "svelte";
+    const _ok6: ConfigName = "gitignore";
   });
 });
