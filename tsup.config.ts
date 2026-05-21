@@ -11,6 +11,7 @@ export default defineConfig({
     "src/configs/playwright-a11y.ts",
     "src/util/git.ts",
     "src/util/pkg.ts",
+    "src/recipes/sync-configs.ts",
   ],
   format: ["esm"],
   dts: true,
