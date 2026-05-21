@@ -4,6 +4,7 @@ export default defineConfig({
   entry: [
     "src/index.ts",
     "src/cli/bin.ts",
+    "src/cli/commands/audit.ts",
     "src/configs/lighthouse.ts",
     "src/configs/eslint.ts",
     "src/configs/prettier.ts",
