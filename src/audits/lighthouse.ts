@@ -1,4 +1,4 @@
-import { writeFile, mkdtemp, rm } from "node:fs/promises";
+import { readFile, writeFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AuditResult, Site } from "../types.js";
@@ -6,25 +6,71 @@ import { lighthouseConfig } from "../configs/lighthouse.js";
 import { defaultSpawn } from "./util/spawn.js";
 import type { AuditContext } from "./util/inject.js";
 
+type ManifestEntry = {
+  url: string;
+  summary: Record<string, number>;
+  htmlPath?: string;
+  jsonPath?: string;
+};
+
+type AssertionResult = {
+  name: string;
+  actual: number;
+  expected: number;
+  operator: string;
+  passed: boolean;
+  level: "warn" | "error";
+  auditProperty?: string;
+  auditId?: string;
+};
+
 type NormalizedLhciResult = {
   summary: Record<string, number>;
   assertionsFailed: number;
-  assertions?: Array<{ category: string; level: "warn" | "error"; message: string }>;
+  assertions: Array<{ category: string; level: "warn" | "error"; message: string }>;
 };
 
 function siteLabel(site: Site): string {
   return site.name ?? site.path;
 }
 
-function isFakeShape(stdout: string): NormalizedLhciResult | null {
-  // Tests inject a pre-normalized JSON blob; detect that and pass through.
+async function readJsonMaybe<T>(path: string): Promise<T | null> {
   try {
-    const parsed = JSON.parse(stdout) as NormalizedLhciResult;
-    if (typeof parsed.assertionsFailed === "number" && parsed.summary) return parsed;
+    const raw = await readFile(path, "utf-8");
+    return JSON.parse(raw) as T;
   } catch {
     return null;
   }
-  return null;
+}
+
+function averageSummaries(entries: ManifestEntry[]): Record<string, number> {
+  if (entries.length === 0) return {};
+  const sums: Record<string, number> = {};
+  const counts: Record<string, number> = {};
+  for (const e of entries) {
+    for (const [k, v] of Object.entries(e.summary ?? {})) {
+      if (typeof v !== "number") continue;
+      sums[k] = (sums[k] ?? 0) + v;
+      counts[k] = (counts[k] ?? 0) + 1;
+    }
+  }
+  const out: Record<string, number> = {};
+  for (const k of Object.keys(sums)) {
+    const total = sums[k] ?? 0;
+    const count = counts[k] ?? 1;
+    out[k] = total / count;
+  }
+  return out;
+}
+
+function categoryFromAssertion(a: AssertionResult): string {
+  // `name` looks like "categories:accessibility" or "audits:uses-http2".
+  const colonIdx = a.name.indexOf(":");
+  return colonIdx >= 0 ? a.name.slice(colonIdx + 1) : a.name;
+}
+
+function messageForAssertion(a: AssertionResult): string {
+  return `${a.name} ${a.operator} ${a.expected} (actual: ${a.actual.toFixed(2)})`;
 }
 
 export async function lighthouseAudit(ctx: AuditContext): Promise<AuditResult> {
@@ -32,9 +78,14 @@ export async function lighthouseAudit(ctx: AuditContext): Promise<AuditResult> {
   const site = ctx.site;
   const label = siteLabel(site);
 
-  const dir = await mkdtemp(join(tmpdir(), "reddoor-lhci-"));
-  const configPath = join(dir, "lighthouserc.json");
+  const configDir = await mkdtemp(join(tmpdir(), "reddoor-lhci-"));
+  const configPath = join(configDir, "lighthouserc.json");
   await writeFile(configPath, JSON.stringify(lighthouseConfig), "utf-8");
+
+  const resultsDir = join(site.path, ".lighthouseci");
+  // Clear any stale artifacts before the run so we never confuse a failed
+  // spawn with old results.
+  await rm(resultsDir, { recursive: true, force: true });
 
   let raw;
   try {
@@ -42,7 +93,7 @@ export async function lighthouseAudit(ctx: AuditContext): Promise<AuditResult> {
       cwd: site.path,
     });
   } catch (err) {
-    await rm(dir, { recursive: true, force: true });
+    await rm(configDir, { recursive: true, force: true });
     const e = err as NodeJS.ErrnoException;
     if (e.code === "ENOENT" || /ENOENT/.test(String(err))) {
       return {
@@ -54,27 +105,45 @@ export async function lighthouseAudit(ctx: AuditContext): Promise<AuditResult> {
     }
     throw err;
   }
-  await rm(dir, { recursive: true, force: true });
+  await rm(configDir, { recursive: true, force: true });
 
-  const fake = isFakeShape(raw.stdout);
-  const normalized: NormalizedLhciResult = fake ?? {
-    summary: {},
-    assertionsFailed: raw.code === 0 ? 0 : 1,
-    assertions:
-      raw.code === 0
-        ? []
-        : [{ category: "unknown", level: "error", message: raw.stderr.slice(0, 200) }],
-  };
+  const manifest = await readJsonMaybe<ManifestEntry[]>(join(resultsDir, "manifest.json"));
 
-  const anyError = (normalized.assertions ?? []).some((a) => a.level === "error");
-  const anyWarn = (normalized.assertions ?? []).some((a) => a.level === "warn");
+  if (!manifest || manifest.length === 0) {
+    return {
+      audit: "lighthouse",
+      site: label,
+      status: "fail",
+      summary: `lighthouse: no manifest written (exit ${raw.code})${
+        raw.stderr ? ` — ${raw.stderr.slice(0, 200)}` : ""
+      }`,
+    };
+  }
 
+  const assertionResults =
+    (await readJsonMaybe<AssertionResult[]>(join(resultsDir, "assertion-results.json"))) ?? [];
+
+  const failed = assertionResults.filter((a) => !a.passed);
+  const assertions = failed.map((a) => ({
+    category: categoryFromAssertion(a),
+    level: a.level,
+    message: messageForAssertion(a),
+  }));
+
+  const anyError = assertions.some((a) => a.level === "error");
+  const anyWarn = assertions.some((a) => a.level === "warn");
   const status: AuditResult["status"] = anyError ? "fail" : anyWarn ? "warn" : "pass";
+
+  const normalized: NormalizedLhciResult = {
+    summary: averageSummaries(manifest),
+    assertionsFailed: failed.length,
+    assertions,
+  };
 
   const summary =
     status === "pass"
       ? "lighthouse: all categories passing"
-      : `lighthouse: ${normalized.assertionsFailed} assertion(s) failed`;
+      : `lighthouse: ${failed.length} assertion(s) failed`;
 
   return {
     audit: "lighthouse",

@@ -81,4 +81,46 @@ describe("audits/security", () => {
     });
     expect(result.status).toBe("skip");
   });
+
+  it("surfaces advisory titles and modules from pnpm output", async () => {
+    const result = await securityAudit({
+      site: { path: "/fake" },
+      spawn: fakeSpawn({
+        pnpm: {
+          code: 1,
+          stdout: JSON.stringify({
+            advisories: {
+              "1109537": {
+                id: 1109537,
+                title: "tmp allows arbitrary temporary file write via symlink",
+                module_name: "tmp",
+                severity: "low",
+                vulnerable_versions: "<0.2.4",
+                cves: ["CVE-2025-54798"],
+              },
+              "9999999": {
+                id: 9999999,
+                title: "example high-severity issue",
+                module_name: "example",
+                severity: "high",
+                vulnerable_versions: "*",
+                cves: [],
+              },
+            },
+            metadata: { vulnerabilities: { low: 1, moderate: 0, high: 1, critical: 0 } },
+          }),
+        },
+      }),
+    });
+    expect(result.status).toBe("fail");
+    const details = result.details as {
+      counts: { low: number; high: number };
+      advisories: Array<{ module: string; severity: string; title: string }>;
+    };
+    expect(details.counts.high).toBe(1);
+    expect(details.advisories).toHaveLength(2);
+    const tmp = details.advisories.find((a) => a.module === "tmp");
+    expect(tmp?.severity).toBe("low");
+    expect(tmp?.title).toMatch(/tmp/);
+  });
 });
