@@ -127,19 +127,56 @@ function extractAdvisoriesFromNpm(parsed: NpmAuditJson): AdvisoryEntry[] {
   return [...roots.values()];
 }
 
-async function tryRun(
+type ToolResult =
+  | { kind: "missing" }
+  | { kind: "error"; reason: string }
+  | { kind: "ok"; parsed: PnpmAuditJson & NpmAuditJson };
+
+async function runAuditTool(
   spawn: (cmd: string, args: readonly string[], opts?: { cwd?: string }) => Promise<SpawnResult>,
   cmd: string,
   args: readonly string[],
   cwd: string,
-): Promise<SpawnResult | { missing: true }> {
+): Promise<ToolResult> {
+  let raw: SpawnResult;
   try {
-    return await spawn(cmd, args, { cwd });
+    raw = await spawn(cmd, args, { cwd });
   } catch (err) {
     const e = err as NodeJS.ErrnoException;
-    if (e.code === "ENOENT" || /ENOENT/.test(String(err))) return { missing: true };
-    throw err;
+    if (e.code === "ENOENT" || /ENOENT/.test(String(err))) return { kind: "missing" };
+    return { kind: "error", reason: `spawn failed: ${String(err).slice(0, 200)}` };
   }
+
+  // 0 = clean, 1 = vulns found. Anything else is a real error.
+  if (raw.code !== 0 && raw.code !== 1) {
+    return {
+      kind: "error",
+      reason: `exit ${raw.code}${raw.stderr ? `: ${raw.stderr.slice(0, 150)}` : ""}`,
+    };
+  }
+
+  let parsed: PnpmAuditJson & NpmAuditJson;
+  try {
+    parsed = JSON.parse(raw.stdout || "{}") as PnpmAuditJson & NpmAuditJson;
+  } catch (err) {
+    return { kind: "error", reason: `unparseable JSON: ${String(err).slice(0, 100)}` };
+  }
+
+  // pnpm error envelope: { error: { code, message } }. npm sometimes emits
+  // a top-level error too. Either means the audit didn't actually run.
+  const errEnvelope = (parsed as unknown as { error?: { code?: string } }).error;
+  if (errEnvelope && typeof errEnvelope === "object") {
+    return { kind: "error", reason: errEnvelope.code ?? "error envelope returned" };
+  }
+
+  // Without metadata.vulnerabilities there are no counts to report and we
+  // can't trust the result. Treat as a tool failure so the caller can fall
+  // through to the other audit tool.
+  if (!parsed.metadata?.vulnerabilities) {
+    return { kind: "error", reason: "no metadata.vulnerabilities in output" };
+  }
+
+  return { kind: "ok", parsed };
 }
 
 export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
@@ -148,50 +185,35 @@ export async function securityAudit(ctx: AuditContext): Promise<AuditResult> {
   const label = siteLabel(site);
 
   let used: "pnpm audit" | "npm audit" = "pnpm audit";
-  let raw: SpawnResult | { missing: true } = await tryRun(
-    spawn,
-    "pnpm",
-    ["audit", "--json", "--prod"],
-    site.path,
-  );
+  let result = await runAuditTool(spawn, "pnpm", ["audit", "--json", "--prod"], site.path);
 
-  if ("missing" in raw) {
-    used = "npm audit";
-    raw = await tryRun(spawn, "npm", ["audit", "--json", "--omit=dev"], site.path);
+  // Fall through to npm if pnpm is missing OR pnpm couldn't actually
+  // audit the project (e.g., no pnpm-lock.yaml). Previously we only fell
+  // through on ENOENT, which meant npm-using sites silently reported "pass"
+  // because pnpm returned an error envelope with no metadata.
+  if (result.kind !== "ok") {
+    const pnpmReason = result.kind === "missing" ? "not installed" : result.reason;
+    const npmResult = await runAuditTool(
+      spawn,
+      "npm",
+      ["audit", "--json", "--omit=dev"],
+      site.path,
+    );
+    if (npmResult.kind === "ok") {
+      result = npmResult;
+      used = "npm audit";
+    } else {
+      const npmReason = npmResult.kind === "missing" ? "not installed" : npmResult.reason;
+      return {
+        audit: "security",
+        site: label,
+        status: "skip",
+        summary: `cannot run audit — pnpm: ${pnpmReason}; npm: ${npmReason}`,
+      };
+    }
   }
 
-  if ("missing" in raw) {
-    return {
-      audit: "security",
-      site: label,
-      status: "skip",
-      summary: "neither pnpm nor npm is available on PATH",
-    };
-  }
-
-  // pnpm/npm audit exit codes: 0 = clean, 1 = vulns found. Anything else is a real error.
-  if (raw.code !== 0 && raw.code !== 1) {
-    return {
-      audit: "security",
-      site: label,
-      status: "skip",
-      summary: `${used} exited with code ${raw.code}`,
-      details: { stderr: raw.stderr },
-    };
-  }
-
-  let parsed: PnpmAuditJson & NpmAuditJson;
-  try {
-    parsed = JSON.parse(raw.stdout) as PnpmAuditJson & NpmAuditJson;
-  } catch (err) {
-    return {
-      audit: "security",
-      site: label,
-      status: "skip",
-      summary: `${used} produced unparseable JSON`,
-      details: { error: String(err), stdout: raw.stdout.slice(0, 500) },
-    };
-  }
+  const parsed = result.parsed;
 
   const counts: Counts = {
     low: parsed.metadata?.vulnerabilities?.low ?? 0,
