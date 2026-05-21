@@ -47,4 +47,25 @@ describe("util/pkg", () => {
     const next = bumpDep(pkg, "foo", "^1.0.0");
     expect(next).toEqual(pkg);
   });
+
+  it("bumpDep with mode='bump-only' does NOT add a missing dep", () => {
+    const pkg = { dependencies: { foo: "^1.0.0" } };
+    const next = bumpDep(pkg, "bar", "^1.0.0", { mode: "bump-only" });
+    // bar was not present; bump-only mode must leave the pkg unchanged.
+    expect(next).toEqual(pkg);
+    expect(next.dependencies?.bar).toBeUndefined();
+    expect(next.devDependencies?.bar).toBeUndefined();
+  });
+
+  it("bumpDep with mode='bump-only' still bumps existing deps", () => {
+    const pkg = { devDependencies: { foo: "^1.0.0" } };
+    const next = bumpDep(pkg, "foo", "^2.0.0", { mode: "bump-only" });
+    expect(next.devDependencies?.foo).toBe("^2.0.0");
+  });
+
+  it("bumpDep default mode (ensure) still adds missing deps to devDeps", () => {
+    const pkg = { dependencies: { foo: "^1.0.0" } };
+    const next = bumpDep(pkg, "bar", "^1.0.0");
+    expect(next.devDependencies?.bar).toBe("^1.0.0");
+  });
 });

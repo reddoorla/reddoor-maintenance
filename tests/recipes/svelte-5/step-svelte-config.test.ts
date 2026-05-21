@@ -42,4 +42,41 @@ export default {
     const changed = await migrateSvelteConfig(cwd);
     expect(changed).toBe(false);
   });
+
+  it("removes vitePreprocess from a multi-name import without dropping the other names", async () => {
+    const cwd = await withSvelteConfig(
+      `import { vitePreprocess, sveltePreprocess } from "@sveltejs/vite-plugin-svelte";
+import adapter from "@sveltejs/adapter-netlify";
+
+export default {
+  preprocess: vitePreprocess(),
+  kit: { adapter: adapter() },
+};
+`,
+    );
+    const changed = await migrateSvelteConfig(cwd);
+    expect(changed).toBe(true);
+    const next = await readFile(join(cwd, "svelte.config.js"), "utf-8");
+    expect(next).toContain("sveltePreprocess");
+    expect(next).not.toContain("vitePreprocess");
+    expect(next).not.toContain("preprocess:");
+  });
+
+  it("removes the preprocess key when vitePreprocess is called with arguments", async () => {
+    const cwd = await withSvelteConfig(
+      `import { vitePreprocess } from "@sveltejs/vite-plugin-svelte";
+import adapter from "@sveltejs/adapter-netlify";
+
+export default {
+  preprocess: vitePreprocess({ script: true }),
+  kit: { adapter: adapter() },
+};
+`,
+    );
+    const changed = await migrateSvelteConfig(cwd);
+    expect(changed).toBe(true);
+    const next = await readFile(join(cwd, "svelte.config.js"), "utf-8");
+    expect(next).not.toContain("vitePreprocess");
+    expect(next).not.toContain("preprocess:");
+  });
 });

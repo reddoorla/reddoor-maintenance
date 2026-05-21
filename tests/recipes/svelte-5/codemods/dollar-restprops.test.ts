@@ -21,4 +21,30 @@ describe("codemod: $$restProps → rest in $props()", () => {
     const input = `<div>plain</div>`;
     expect(removeDollarRestProps(input)).toBe(input);
   });
+
+  it("removes a $$Props interface with nested braces in the type body", () => {
+    const input = `<script lang="ts">
+  interface $$Props { config: { nested: { deeply: string } }; name: string }
+  const x = 1;
+</script>`;
+    const out = removeDollarRestProps(input);
+    expect(out).not.toContain("$$Props");
+    expect(out).toContain("const x = 1;");
+  });
+
+  it("removes a $$Props interface that spans multiple lines", () => {
+    const input = `<script lang="ts">
+  interface $$Props {
+    name: string;
+    handlers: {
+      onClick: () => void;
+      onChange: (v: string) => void;
+    };
+  }
+  const x = 1;
+</script>`;
+    const out = removeDollarRestProps(input);
+    expect(out).not.toContain("$$Props");
+    expect(out).toContain("const x = 1;");
+  });
 });

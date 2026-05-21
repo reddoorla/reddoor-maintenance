@@ -32,4 +32,9 @@ describe("inventory/fromJsonFile", () => {
     const path = await withJsonFile([{ name: "a" }]);
     await expect(fromJsonFile(path)()).rejects.toThrow(/path/i);
   });
+
+  it("rejects entries with a relative path so cwd at invocation can't change meaning", async () => {
+    const path = await withJsonFile([{ name: "a", path: "./relative/site" }]);
+    await expect(fromJsonFile(path)()).rejects.toThrow(/absolute/i);
+  });
 });

@@ -82,6 +82,77 @@ describe("audits/security", () => {
     expect(result.status).toBe("skip");
   });
 
+  it("normalizes pnpm severity 'info' to 'low' (not the moderate default)", async () => {
+    const result = await securityAudit({
+      site: { path: "/fake" },
+      spawn: fakeSpawn({
+        pnpm: {
+          code: 1,
+          stdout: JSON.stringify({
+            advisories: {
+              "1": {
+                id: 1,
+                title: "informational notice",
+                module_name: "harmless",
+                severity: "info",
+              },
+            },
+            metadata: { vulnerabilities: { low: 1, moderate: 0, high: 0, critical: 0 } },
+          }),
+        },
+      }),
+    });
+    const details = result.details as { advisories: Array<{ severity: string }> };
+    expect(details.advisories[0]?.severity).toBe("low");
+  });
+
+  it("npm transitive vulnerabilities deduplicate to their root advisory", async () => {
+    const result = await securityAudit({
+      site: { path: "/fake" },
+      spawn: fakeSpawn({
+        // pnpm missing in this scenario; falls through to npm.
+        npm: {
+          code: 1,
+          stdout: JSON.stringify({
+            metadata: { vulnerabilities: { low: 0, moderate: 0, high: 1, critical: 0 } },
+            vulnerabilities: {
+              tmp: {
+                name: "tmp",
+                severity: "high",
+                via: [
+                  {
+                    title: "tmp allows arbitrary write",
+                    url: "https://advisory/123",
+                  },
+                ],
+              },
+              // Transitive: @lhci/cli is vulnerable because it depends on tmp.
+              "@lhci/cli": {
+                name: "@lhci/cli",
+                severity: "high",
+                via: ["tmp"],
+              },
+              // Another transitive layer.
+              "outer-pkg": {
+                name: "outer-pkg",
+                severity: "high",
+                via: ["@lhci/cli"],
+              },
+            },
+          }),
+        },
+      }),
+    });
+    const details = result.details as {
+      advisories: Array<{ module: string; title: string }>;
+    };
+    // Even though three entries appear in npm's vulnerabilities map, they
+    // all root in the same advisory. We surface exactly one canonical entry.
+    expect(details.advisories).toHaveLength(1);
+    expect(details.advisories[0]?.module).toBe("tmp");
+    expect(details.advisories[0]?.title).toMatch(/arbitrary/);
+  });
+
   it("surfaces advisory titles and modules from pnpm output", async () => {
     const result = await securityAudit({
       site: { path: "/fake" },

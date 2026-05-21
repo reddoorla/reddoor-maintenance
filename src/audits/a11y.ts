@@ -52,6 +52,10 @@ import { dirname } from "node:path";
 const pages = ${JSON.stringify(a11yRoutes)};
 const OUTPUT = process.env.REDDOOR_A11Y_OUTPUT;
 
+// Playwright's default per-test timeout is 30s. We loop through every
+// configured route in a single test, so the budget needs to scale.
+test.setTimeout(5 * 60_000);
+
 test("a11y across configured routes", async ({ page }) => {
   const violations = [];
   for (const { path, name } of pages) {

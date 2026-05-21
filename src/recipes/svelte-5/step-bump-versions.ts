@@ -17,8 +17,10 @@ export async function bumpToSvelte5Versions(cwd: string): Promise<boolean> {
   const pkgPath = join(cwd, "package.json");
   const pkg = await readPackageJson(pkgPath);
   let next = pkg;
+  // bump-only: a svelte-4 site that doesn't declare e.g. adapter-netlify
+  // should not get it added during the upgrade.
   for (const [name, version] of Object.entries(SVELTE_5_VERSIONS)) {
-    next = bumpDep(next, name, version);
+    next = bumpDep(next, name, version, { mode: "bump-only" });
   }
   if (next === pkg) return false;
   await writePackageJson(pkgPath, next);
