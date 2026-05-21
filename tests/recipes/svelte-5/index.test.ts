@@ -4,9 +4,9 @@ import { fileURLToPath } from "node:url";
 import { resolve, dirname } from "node:path";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { upgradeSvelte4to5 } from "../../../src/recipes/svelte-5";
-import { copyFixtureToTmp } from "../_helpers/site-tmpdir";
-import type { SpawnFn } from "../../../src/audits/util/spawn";
+import { upgradeSvelte4to5 } from "../../../src/recipes/svelte-5/index.js";
+import { copyFixtureToTmp } from "../_helpers/site-tmpdir.js";
+import type { SpawnFn } from "../../../src/audits/util/spawn.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const preSvelte5 = resolve(here, "../../fixtures/pre-svelte5");

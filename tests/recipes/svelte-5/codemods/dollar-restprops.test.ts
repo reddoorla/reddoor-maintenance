@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { removeDollarRestProps } from "../../../../src/recipes/svelte-5/codemods/dollar-restprops";
+import { removeDollarRestProps } from "../../../../src/recipes/svelte-5/codemods/dollar-restprops.js";
 
 describe("codemod: $$restProps → rest in $props()", () => {
   it("replaces a $$restProps reference with rest", () => {

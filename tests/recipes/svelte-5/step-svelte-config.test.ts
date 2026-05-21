@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtemp, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { migrateSvelteConfig } from "../../../src/recipes/svelte-5/step-svelte-config";
+import { migrateSvelteConfig } from "../../../src/recipes/svelte-5/step-svelte-config.js";
 
 async function withSvelteConfig(contents: string): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "reddoor-svelte5-"));

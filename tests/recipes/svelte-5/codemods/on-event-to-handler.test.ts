@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { onEventToHandler } from "../../../../src/recipes/svelte-5/codemods/on-event-to-handler";
+import { onEventToHandler } from "../../../../src/recipes/svelte-5/codemods/on-event-to-handler.js";
 
 describe("codemod: on:event → onevent", () => {
   it("rewrites a simple on:click", () => {

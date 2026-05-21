@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { exportLetToProps } from "../../../../src/recipes/svelte-5/codemods/dollar-props";
+import { exportLetToProps } from "../../../../src/recipes/svelte-5/codemods/dollar-props.js";
 
 describe("codemod: export let → $props()", () => {
   it("rewrites a single export let", () => {

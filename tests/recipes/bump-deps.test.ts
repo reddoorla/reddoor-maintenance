@@ -3,9 +3,9 @@ import { writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname, join } from "node:path";
-import { bumpDeps } from "../../src/recipes/bump-deps";
-import { copyFixtureToTmp } from "./_helpers/site-tmpdir";
-import type { SpawnFn } from "../../src/audits/util/spawn";
+import { bumpDeps } from "../../src/recipes/bump-deps.js";
+import { copyFixtureToTmp } from "./_helpers/site-tmpdir.js";
+import type { SpawnFn } from "../../src/audits/util/spawn.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pristine = resolve(here, "../fixtures/pristine-starter");
@@ -14,7 +14,7 @@ function spawnSequence(
   responses: Array<{ cmd: string; args?: string[]; result: { code: number; stdout: string } }>,
 ): SpawnFn {
   let i = 0;
-  return async (cmd, args) => {
+  return async (cmd: string, args?: readonly string[]) => {
     const exp = responses[i++];
     if (!exp) throw new Error(`unexpected spawn: ${cmd} ${args?.join(" ")}`);
     return { code: exp.result.code, stdout: exp.result.stdout, stderr: "" };
@@ -49,7 +49,7 @@ describe("recipes/bump-deps", () => {
     const result = await bumpDeps(
       { path: cwd },
       {
-        spawn: async (cmd, _args) => {
+        spawn: async (cmd: string, _args?: readonly string[]) => {
           if (cmd === "pnpm" && _args?.[0] === "outdated") {
             return { code: 0, stdout: outdatedJson, stderr: "" };
           }

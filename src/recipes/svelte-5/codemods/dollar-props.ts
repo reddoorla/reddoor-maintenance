@@ -1,7 +1,7 @@
 const SCRIPT_TS = /<script\b[^>]*lang=["']ts["'][^>]*>([\s\S]*?)<\/script>/;
 const EXPORT_LET = /^\s*export\s+let\s+(\w+)\s*(?::\s*([^=;\n]+))?\s*(?:=\s*([^;\n]+))?;?\s*$/gm;
 
-type Prop = { name: string; type?: string; defaultExpr?: string };
+type Prop = { name: string; type?: string | undefined; defaultExpr?: string | undefined };
 
 function transformScript(scriptBody: string): { body: string; changed: boolean } {
   const props: Prop[] = [];
