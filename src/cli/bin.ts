@@ -41,10 +41,7 @@ cli
   .option("--fleet <inventory>", "Inventory file (.json or .mjs/.js); aggregates across sites")
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
-    async (
-      site,
-      opts: { only?: string; json?: boolean; fleet?: string; workdir?: string },
-    ) => {
+    async (site, opts: { only?: string; json?: boolean; fleet?: string; workdir?: string }) => {
       try {
         const { output, code } = await runAuditCommand(site, opts);
         console.log(output);
@@ -61,21 +58,28 @@ cli
   .command("sync-configs [site]", "Sync canonical configs into a site.")
   .option("--only <names>", "Comma-separated config names (e.g. eslint,prettier)")
   .option("--dry", "Print diff without writing")
-  .action(async (site, opts: { only?: string; dry?: boolean }) => {
-    try {
-      const { output, code } = await runSyncConfigsCommand(site, opts);
-      console.log(output);
-      process.exit(code);
-    } catch (err) {
-      console.error((err as Error).message);
-      process.exit(1);
-    }
-  });
+  .option("--fleet <inventory>", "Inventory file (.json or .mjs/.js)")
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(
+    async (site, opts: { only?: string; dry?: boolean; fleet?: string; workdir?: string }) => {
+      try {
+        const { output, code } = await runSyncConfigsCommand(site, opts);
+        console.log(output);
+        process.exit(code);
+      } catch (err) {
+        const e = err as { exitCode?: number; message?: string };
+        console.error(e.message ?? String(err));
+        process.exit(e.exitCode ?? 1);
+      }
+    },
+  );
 
 cli
   .command("bump-deps [site]", "Bump dependencies.")
   .option("--group <group>", "patch | minor | major", { default: "minor" })
-  .action(async (site, opts: { group?: string }) => {
+  .option("--fleet <inventory>", "Inventory file (.json or .mjs/.js)")
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(async (site, opts: { group?: string; fleet?: string; workdir?: string }) => {
     try {
       const { output, code } = await runBumpDepsCommand(site, opts);
       console.log(output);
@@ -90,17 +94,25 @@ cli
 cli
   .command("upgrade <upgrade> [site]", "Run a named upgrade recipe (svelte-4-to-5).")
   .example("reddoor-maint upgrade svelte-4-to-5 ./my-site")
-  .action(async (upgrade: string, site: string | undefined) => {
-    try {
-      const { output, code } = await runUpgradeCommand(upgrade, site);
-      console.log(output);
-      process.exit(code);
-    } catch (err) {
-      const e = err as { exitCode?: number; message?: string };
-      console.error(e.message ?? String(err));
-      process.exit(e.exitCode ?? 1);
-    }
-  });
+  .option("--fleet <inventory>", "Inventory file (.json or .mjs/.js)")
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(
+    async (
+      upgrade: string,
+      site: string | undefined,
+      opts: { fleet?: string; workdir?: string },
+    ) => {
+      try {
+        const { output, code } = await runUpgradeCommand(upgrade, site, opts);
+        console.log(output);
+        process.exit(code);
+      } catch (err) {
+        const e = err as { exitCode?: number; message?: string };
+        console.error(e.message ?? String(err));
+        process.exit(e.exitCode ?? 1);
+      }
+    },
+  );
 
 cli.help();
 cli.version("0.0.1");

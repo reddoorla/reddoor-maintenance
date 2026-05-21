@@ -28,7 +28,7 @@ describe("cli: audit --fleet", () => {
       "utf-8",
     );
 
-    let stdout = "";
+    let stdout: string;
     let status = 0;
     try {
       stdout = execFileSync(
