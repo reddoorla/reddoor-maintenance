@@ -71,7 +71,7 @@ describe("audits/security", () => {
       }),
     });
     expect(result.status).toBe("pass");
-    expect(result.summary).toMatch(/npm audit/);
+    expect(result.summary).toMatch(/^npm audit/);
   });
 
   it("returns skip when neither pnpm nor npm is available", async () => {
@@ -151,6 +151,71 @@ describe("audits/security", () => {
     expect(details.advisories).toHaveLength(1);
     expect(details.advisories[0]?.module).toBe("tmp");
     expect(details.advisories[0]?.title).toMatch(/arbitrary/);
+  });
+
+  it("falls through to npm audit when pnpm returns its no-lockfile error envelope", async () => {
+    const result = await securityAudit({
+      site: { path: "/fake" },
+      spawn: fakeSpawn({
+        // pnpm responds with an error envelope and no metadata at all when
+        // the project has no pnpm-lock.yaml.
+        pnpm: {
+          code: 1,
+          stdout: JSON.stringify({
+            error: {
+              code: "ERR_PNPM_AUDIT_NO_LOCKFILE",
+              message: "No pnpm-lock.yaml found",
+            },
+          }),
+        },
+        // npm picks up the project's package-lock.json and reports cleanly.
+        npm: {
+          code: 0,
+          stdout: JSON.stringify({
+            metadata: { vulnerabilities: { low: 0, moderate: 0, high: 0, critical: 0 } },
+          }),
+        },
+      }),
+    });
+    expect(result.status).toBe("pass");
+    expect(result.summary).toMatch(/^npm audit/);
+  });
+
+  it("falls through to npm audit when pnpm output lacks metadata.vulnerabilities", async () => {
+    // Defensive: any pnpm output that doesn't include the count summary
+    // means the audit didn't actually run successfully.
+    const result = await securityAudit({
+      site: { path: "/fake" },
+      spawn: fakeSpawn({
+        pnpm: { code: 1, stdout: JSON.stringify({ actions: [], advisories: {} }) },
+        npm: {
+          code: 1,
+          stdout: JSON.stringify({
+            metadata: { vulnerabilities: { low: 0, moderate: 0, high: 2, critical: 0 } },
+          }),
+        },
+      }),
+    });
+    expect(result.status).toBe("fail");
+    expect(result.summary).toMatch(/^npm audit/);
+  });
+
+  it("returns skip when both pnpm and npm fail to audit", async () => {
+    const result = await securityAudit({
+      site: { path: "/fake" },
+      spawn: fakeSpawn({
+        pnpm: {
+          code: 1,
+          stdout: JSON.stringify({
+            error: { code: "ERR_PNPM_AUDIT_NO_LOCKFILE", message: "No pnpm-lock.yaml" },
+          }),
+        },
+        npm: { code: 1, stdout: JSON.stringify({ error: { code: "ENOLOCK" } }) },
+      }),
+    });
+    expect(result.status).toBe("skip");
+    expect(result.summary).toMatch(/pnpm/);
+    expect(result.summary).toMatch(/npm/);
   });
 
   it("surfaces advisory titles and modules from pnpm output", async () => {
