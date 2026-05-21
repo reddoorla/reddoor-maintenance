@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { cac } from "cac";
 import type { AuditName, RecipeName } from "../types.js";
+import { runAuditCommand } from "./commands/audit.js";
 
 const AUDIT_DESCRIPTIONS: Record<AuditName, string> = {
   deps: "Diff site package.json against the bundled baseline version map.",
@@ -29,6 +30,22 @@ cli.command("list-recipes", "Print the available recipes.").action(() => {
     console.log(`${name.padEnd(16)} ${desc}`);
   }
 });
+
+cli
+  .command("audit [site]", "Run audits against a site (default: cwd).")
+  .option("--only <names>", "Comma-separated audit names (e.g. deps,lighthouse)")
+  .option("--json", "Machine-readable JSON output")
+  .action(async (site, opts: { only?: string; json?: boolean }) => {
+    try {
+      const { output, code } = await runAuditCommand(site, opts);
+      console.log(output);
+      process.exit(code);
+    } catch (err) {
+      const e = err as { exitCode?: number; message?: string };
+      console.error(e.message ?? String(err));
+      process.exit(e.exitCode ?? 1);
+    }
+  });
 
 cli.help();
 cli.version("0.0.1");

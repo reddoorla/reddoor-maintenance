@@ -1,0 +1,83 @@
+import { describe, it, expect, beforeAll } from "vitest";
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const binPath = resolve(here, "../../dist/cli/bin.js");
+const fixtures = resolve(here, "../fixtures");
+
+function runCli(
+  args: string[],
+  opts: { allowNonZero?: boolean } = {},
+): {
+  stdout: string;
+  status: number;
+} {
+  try {
+    const stdout = execFileSync(process.execPath, [binPath, ...args], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    return { stdout, status: 0 };
+  } catch (err) {
+    const e = err as { status?: number; stdout?: Buffer | string };
+    if (!opts.allowNonZero) throw err;
+    return {
+      stdout: e.stdout?.toString() ?? "",
+      status: e.status ?? -1,
+    };
+  }
+}
+
+describe("cli: audit command", () => {
+  beforeAll(() => {
+    if (!existsSync(binPath)) throw new Error("run `pnpm build` first");
+  });
+
+  it("--only deps --json against pristine fixture returns pass with exit 0", () => {
+    const { stdout, status } = runCli([
+      "audit",
+      resolve(fixtures, "pristine-starter"),
+      "--only",
+      "deps",
+      "--json",
+    ]);
+    expect(status).toBe(0);
+    const parsed = JSON.parse(stdout) as Array<{ audit: string; status: string }>;
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]?.audit).toBe("deps");
+    expect(parsed[0]?.status).toBe("pass");
+  });
+
+  it("--only deps --json against pre-svelte5 fixture exits 1", () => {
+    const { stdout, status } = runCli(
+      ["audit", resolve(fixtures, "pre-svelte5"), "--only", "deps", "--json"],
+      { allowNonZero: true },
+    );
+    expect(status).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed[0].status).toBe("fail");
+  });
+
+  it("unknown --only value exits 2", () => {
+    const { status } = runCli(
+      ["audit", resolve(fixtures, "pristine-starter"), "--only", "totally-fake"],
+      { allowNonZero: true },
+    );
+    expect(status).toBe(2);
+  });
+
+  it("table output prints one line per audit when --json is omitted", () => {
+    const { stdout, status } = runCli([
+      "audit",
+      resolve(fixtures, "pristine-starter"),
+      "--only",
+      "deps",
+    ]);
+    expect(status).toBe(0);
+    expect(stdout).toMatch(/deps/);
+    expect(stdout).toMatch(/pass/);
+  });
+});
