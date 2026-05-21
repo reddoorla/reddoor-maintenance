@@ -119,4 +119,28 @@ describe("audits/a11y", () => {
     });
     expect(result.status).toBe("skip");
   });
+
+  it("writes a spec with a generous per-test timeout (survives many routes)", async () => {
+    const cwd = await tmpSite();
+    let specContents = "";
+    const { readFile } = await import("node:fs/promises");
+    await a11yAudit({
+      site: { path: cwd },
+      spawn: async (_cmd, args, opts) => {
+        const specPath = args[args.length - 1] as string;
+        specContents = await readFile(specPath, "utf-8");
+        const out = join(opts?.cwd ?? cwd, ".reddoor-a11y");
+        await mkdir(out, { recursive: true });
+        await writeFile(
+          join(out, "results.json"),
+          JSON.stringify({ totalViolations: 0, byImpact: {} }),
+          "utf-8",
+        );
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
+    // Playwright's default per-test timeout is 30s; multi-route loops easily
+    // exceed it. Ensure the generated spec raises the ceiling.
+    expect(specContents).toMatch(/test\.setTimeout\s*\(/);
+  });
 });
