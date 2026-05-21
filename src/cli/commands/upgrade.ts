@@ -1,11 +1,26 @@
 import { resolve } from "node:path";
 import { upgradeSvelte4to5 } from "../../recipes/svelte-5/index.js";
+import type { RecipeResult } from "../../types.js";
+import { resolveSites } from "../fleet/resolve-sites.js";
+import { cloneIfNeeded } from "../fleet/clone-if-needed.js";
 
 const KNOWN_UPGRADES = new Set(["svelte-4-to-5"]);
+
+export type UpgradeCommandOptions = {
+  fleet?: string;
+  workdir?: string;
+  cwd?: string;
+};
+
+function formatResult(r: RecipeResult): string {
+  if (r.status === "noop") return `[${r.site}] noop: ${r.notes ?? ""}`;
+  return `[${r.site}] applied: ${r.commits.length} commit(s)\n${r.notes ?? ""}`;
+}
 
 export async function runUpgradeCommand(
   upgradeName: string | undefined,
   site: string | undefined,
+  opts: UpgradeCommandOptions = {},
 ): Promise<{ output: string; code: number }> {
   if (!upgradeName || !KNOWN_UPGRADES.has(upgradeName)) {
     throw Object.assign(
@@ -16,16 +31,27 @@ export async function runUpgradeCommand(
     );
   }
 
-  const sitePath = resolve(site ?? process.cwd());
+  const cwd = opts.cwd ? resolve(opts.cwd) : process.cwd();
 
-  if (upgradeName === "svelte-4-to-5") {
-    const result = await upgradeSvelte4to5({ path: sitePath });
-    const output =
-      result.status === "noop"
-        ? `noop: ${result.notes ?? "site already on svelte 5"}`
-        : `applied: ${result.commits.length} commit(s)\n${result.notes ?? ""}`;
-    return { output, code: result.status === "failed" ? 1 : 0 };
+  let sites = await resolveSites({
+    ...(site !== undefined ? { site } : {}),
+    ...(opts.fleet !== undefined ? { fleet: opts.fleet } : {}),
+    cwd,
+  });
+
+  if (opts.fleet) {
+    const workdir = opts.workdir ?? `${process.env.HOME ?? ""}/.reddoor-maint/sites`;
+    sites = await Promise.all(sites.map((s) => cloneIfNeeded(s, { workdir })));
   }
 
-  throw new Error(`internal: unhandled upgrade ${upgradeName}`);
+  const results: RecipeResult[] = [];
+  for (const s of sites) {
+    if (upgradeName === "svelte-4-to-5") {
+      results.push(await upgradeSvelte4to5(s));
+    }
+  }
+
+  const output = results.map(formatResult).join("\n");
+  const code = results.some((r) => r.status === "failed") ? 1 : 0;
+  return { output, code };
 }
