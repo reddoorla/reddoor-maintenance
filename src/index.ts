@@ -32,3 +32,5 @@ export type {
   BumpDepsOptions,
   UpgradeSvelte4to5Options,
 } from "./recipes/index.js";
+
+export { localPath, fromJsonFile, type LocalPathOptions } from "./inventory/index.js";
