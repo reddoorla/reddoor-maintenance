@@ -1,4 +1,4 @@
-# `@reddoor/maintenance` Package — Design
+# `@reddoorla/maintenance` Package — Design
 
 **Status:** approved (brainstorm)
 **Author:** Tucker Lemos
@@ -6,7 +6,7 @@
 
 ## Summary
 
-A new public npm package, `@reddoor/maintenance`, that owns the canonical maintenance methods used across all reddoor-built sites. It exposes both a library API and a `reddoor-maint` CLI. The starter and existing client sites depend on it. A separate (future) ops repo wires in an Airtable site inventory and orchestrates fleet-wide runs.
+A new public npm package, `@reddoorla/maintenance`, that owns the canonical maintenance methods used across all reddoor-built sites. It exposes both a library API and a `reddoor-maint` CLI. The starter and existing client sites depend on it. A separate (future) ops repo wires in an Airtable site inventory and orchestrates fleet-wide runs.
 
 ## Motivation
 
@@ -41,7 +41,7 @@ This package extracts those methods into a single source of truth that the start
 
 ### Repo layout
 
-New repo `tucksravin/reddoor-maintenance`, published as `@reddoor/maintenance`.
+New repo `tucksravin/reddoor-maintenance`, published as `@reddoorla/maintenance`.
 
 ```text
 reddoor-maintenance/
@@ -82,7 +82,7 @@ reddoor-maintenance/
 └── tsup.config.ts
 ```
 
-**Build:** `tsup` produces ESM + `.d.ts`. `package.json` `exports` map enables both root and subpath imports (`@reddoor/maintenance/configs/lighthouse`). `bin` field exposes `reddoor-maint`.
+**Build:** `tsup` produces ESM + `.d.ts`. `package.json` `exports` map enables both root and subpath imports (`@reddoorla/maintenance/configs/lighthouse`). `bin` field exposes `reddoor-maint`.
 
 **Engines:** Node `>=20`. pnpm-compatible; no enforced `packageManager` (consumer sites may use npm).
 
@@ -134,10 +134,10 @@ export function fromJsonFile(path: string): InventoryProvider;
 ### Configs (subpath imports)
 
 ```ts
-import lighthouse from "@reddoor/maintenance/configs/lighthouse";
-import eslint from "@reddoor/maintenance/configs/eslint";
-import prettier from "@reddoor/maintenance/configs/prettier";
-import a11y from "@reddoor/maintenance/configs/playwright-a11y";
+import lighthouse from "@reddoorla/maintenance/configs/lighthouse";
+import eslint from "@reddoorla/maintenance/configs/eslint";
+import prettier from "@reddoorla/maintenance/configs/prettier";
+import a11y from "@reddoorla/maintenance/configs/playwright-a11y";
 ```
 
 ### Invariants
@@ -207,7 +207,7 @@ Global flags:
 
 | Name                    | Description                                                                                                                                                                                                                                                                                                            |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sync-configs`          | Overwrites a known set of files (`eslint.config.js`, prettier config, `lighthouserc.json`, `playwright.config.ts`, `tests/a11y/*`) with templates that re-export from `@reddoor/maintenance/configs/*`. One commit per file group.                                                                                     |
+| `sync-configs`          | Overwrites a known set of files (`eslint.config.js`, prettier config, `lighthouserc.json`, `playwright.config.ts`, `tests/a11y/*`) with templates that re-export from `@reddoorla/maintenance/configs/*`. One commit per file group.                                                                                   |
 | `bump-deps`             | `pnpm up --latest` (scoped by `--group`); commits the lockfile change. Noop if nothing to bump.                                                                                                                                                                                                                        |
 | `upgrade svelte-4-to-5` | 7-commit recipe encoded as TS: (1) bump svelte/kit/vite/vite-plugin-svelte, (2) migrate `svelte.config.js`, (3) codemod runes (use `svelte-migrate` where it works, ast-grep for the rest), (4) Tailwind 3→4, (5) replace deprecated APIs (the top-12 gotchas), (6) run tests + fix imports, (7) final summary commit. |
 
@@ -236,7 +236,7 @@ Global flags:
 
 After the package's first publish, the reddoor-starter is updated to:
 
-- Add `"@reddoor/maintenance": "^0.x"` as a dependency.
+- Add `"@reddoorla/maintenance": "^0.x"` as a dependency.
 - Replace `eslint.config.js`, `lighthouserc.json`, prettier config, and the a11y Playwright setup with one-line re-exports from the package.
 - Link to the package from `docs/migration.md`, `docs/accessibility.md`, `docs/security.md`, and `docs/upgrading-from-svelte-4.md` as the canonical reference.
 
@@ -247,5 +247,5 @@ The svelte4-to-5-upgrade skill remains useful as the documentation/intent that i
 None blocking. Future considerations (out of v1 scope):
 
 - Whether to add a plugin/registry surface once the recipe count justifies it.
-- Whether to add a managed Airtable adapter as an optional `@reddoor/maintenance-airtable` companion package once the ops repo's adapter stabilizes.
+- Whether to add a managed Airtable adapter as an optional `@reddoorla/maintenance-airtable` companion package once the ops repo's adapter stabilizes.
 - Whether `sync-configs` should support a "lockfile" mechanism so sites can opt out of specific config groups.

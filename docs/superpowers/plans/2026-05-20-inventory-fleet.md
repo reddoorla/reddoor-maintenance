@@ -1,4 +1,4 @@
-# `@reddoor/maintenance` Inventory + Fleet + Release Implementation Plan
+# `@reddoorla/maintenance` Inventory + Fleet + Release Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -1134,7 +1134,7 @@ Replace the file with:
 
 Run: `pnpm exec changeset add`
 
-When prompted: select `@reddoor/maintenance`, mark as `minor`, summary: `Initial public release: configs, audits, recipes, inventory, CLI.`
+When prompted: select `@reddoorla/maintenance`, mark as `minor`, summary: `Initial public release: configs, audits, recipes, inventory, CLI.`
 
 This writes a file under `.changeset/<random>.md`.
 
@@ -1254,7 +1254,7 @@ Remove the tarball: `rm reddoor-maintenance-0.0.1.tgz`
 - [ ] **Step 3: Confirm changesets recognizes the pending release**
 
 Run: `pnpm exec changeset status`
-Expected: output mentions `@reddoor/maintenance` going to `0.1.0`.
+Expected: output mentions `@reddoorla/maintenance` going to `0.1.0`.
 
 - [ ] **Step 4: Tag the inventory+fleet+release milestone**
 
@@ -1284,13 +1284,13 @@ In GitHub Actions, observe the `release` job. Two outcomes:
 
 - [ ] **Step 3: Confirm npm**
 
-Run (locally): `npm view @reddoor/maintenance version`
+Run (locally): `npm view @reddoorla/maintenance version`
 Expected: `0.1.0`
 
 - [ ] **Step 4: Tag the public release**
 
 ```bash
-git tag -a v0.1.0 -m "First public release of @reddoor/maintenance"
+git tag -a v0.1.0 -m "First public release of @reddoorla/maintenance"
 git push origin v0.1.0
 ```
 
@@ -1303,13 +1303,13 @@ git push origin v0.1.0
 - `cloneIfNeeded` materializes missing sites via `git clone` and is testable with an injected spawn.
 - The `audit`, `sync-configs`, `bump-deps`, and `upgrade` CLI commands all accept `--fleet` and `--workdir` and operate across multiple sites.
 - The release workflow exists and uses changesets to gate version bumps + npm publishes.
-- `@reddoor/maintenance@0.1.0` is published to npm.
+- `@reddoorla/maintenance@0.1.0` is published to npm.
 - Tags `v0.1.0-pre` and `v0.1.0` exist (the latter pushed).
 - All v1 spec requirements are satisfied across Foundation, Audits, Recipes, and Inventory+Fleet+Release plans.
 
 ## Out of scope (deferred future work — explicitly out of v1)
 
 - Plugin / registry surface for third-party recipes.
-- `@reddoor/maintenance-airtable` companion package (the ops repo wires Airtable via the JS escape hatch instead).
+- `@reddoorla/maintenance-airtable` companion package (the ops repo wires Airtable via the JS escape hatch instead).
 - `sync-configs` opt-out lockfile mechanism.
 - Tagged real-tool integration tests for `lhci` and `playwright` (the CI-only test tier the spec mentions). Add these as a follow-up by creating `tests/integration/*.test.ts` files run via a `pnpm test:integration` script and skipped by the default `pnpm test`.

@@ -1,10 +1,10 @@
-# `@reddoor/maintenance` Foundation Implementation Plan
+# `@reddoorla/maintenance` Foundation Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Stand up the publishable `@reddoor/maintenance` npm package skeleton with shared types, canonical configs exported via subpaths, a `reddoor-maint` CLI skeleton, and baseline CI — leaving subsequent plans to add audits, recipes, and inventory.
+**Goal:** Stand up the publishable `@reddoorla/maintenance` npm package skeleton with shared types, canonical configs exported via subpaths, a `reddoor-maint` CLI skeleton, and baseline CI — leaving subsequent plans to add audits, recipes, and inventory.
 
-**Architecture:** Functional-core + thin CLI. `tsup` builds ESM + `.d.ts`. `package.json` `exports` map enables root and subpath imports (`@reddoor/maintenance/configs/lighthouse` etc.). CLI is a `cac` wrapper over (initially empty) library functions. All canonical configs are lifted from `reddoor-starter` and re-exported here as the source of truth.
+**Architecture:** Functional-core + thin CLI. `tsup` builds ESM + `.d.ts`. `package.json` `exports` map enables root and subpath imports (`@reddoorla/maintenance/configs/lighthouse` etc.). CLI is a `cac` wrapper over (initially empty) library functions. All canonical configs are lifted from `reddoor-starter` and re-exported here as the source of truth.
 
 **Tech Stack:** TypeScript (strict, NodeNext), tsup, vitest, cac, pnpm. Node >=20.
 
@@ -22,7 +22,7 @@ Files created in this plan (relative to repo root `/Users/tuckerlemos/Documents/
 - `tsconfig.json` — strict, NodeNext, ESM
 - `tsup.config.ts` — multi-entry build (index + configs + cli)
 - `vitest.config.ts` — node env, `tests/**/*.test.ts`
-- `eslint.config.js` — dogfoods `@reddoor/maintenance/configs/eslint` once available; until then, minimal flat config
+- `eslint.config.js` — dogfoods `@reddoorla/maintenance/configs/eslint` once available; until then, minimal flat config
 - `README.md` — one-paragraph skeleton
 - `src/index.ts` — public barrel (re-exports from `types.ts` only, for now)
 - `src/types.ts` — `Site`, `AuditResult`, `RecipeResult`, `InventoryProvider`, `AuditName`, `RecipeName`, `ConfigName`
@@ -72,7 +72,7 @@ auto-install-peers=true
 - [ ] **Step 3: Write `README.md` skeleton**
 
 ````markdown
-# @reddoor/maintenance
+# @reddoorla/maintenance
 
 Canonical maintenance configs, audits, and recipes for sites built on the reddoor starter.
 
@@ -81,7 +81,7 @@ See `docs/specs/2026-05-20-package-design.md` for the design and `docs/superpowe
 ## Install
 
 ```bash
-pnpm add -D @reddoor/maintenance
+pnpm add -D @reddoorla/maintenance
 ```
 ````
 
@@ -156,7 +156,7 @@ git commit -m "chore: add tsconfig (strict, NodeNext, ES2022)"
 
 ```json
 {
-  "name": "@reddoor/maintenance",
+  "name": "@reddoorla/maintenance",
   "version": "0.0.1",
   "description": "Canonical maintenance configs, audits, and recipes for the reddoor stack.",
   "type": "module",
@@ -1023,7 +1023,7 @@ const AUDIT_DESCRIPTIONS: Record<AuditName, string> = {
 };
 
 const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {
-  "sync-configs": "Overwrite a site's canonical configs to match @reddoor/maintenance.",
+  "sync-configs": "Overwrite a site's canonical configs to match @reddoorla/maintenance.",
   "bump-deps": "Bump dependencies and commit the lockfile change.",
   "svelte-4-to-5": "Run the 7-commit Svelte 4 → 5 upgrade recipe.",
 };

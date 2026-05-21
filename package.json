@@ -1,5 +1,5 @@
 {
-  "name": "@reddoor/maintenance",
+  "name": "@reddoorla/maintenance",
   "version": "0.0.1",
   "description": "Canonical maintenance configs, audits, and recipes for the reddoor stack.",
   "type": "module",

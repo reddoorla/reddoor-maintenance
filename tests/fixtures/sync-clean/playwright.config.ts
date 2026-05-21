@@ -1,1 +1,1 @@
-export { default } from "@reddoor/maintenance/configs/playwright-a11y";
+export { default } from "@reddoorla/maintenance/configs/playwright-a11y";

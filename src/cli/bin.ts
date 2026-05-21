@@ -15,7 +15,7 @@ const AUDIT_DESCRIPTIONS: Record<AuditName, string> = {
 };
 
 const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {
-  "sync-configs": "Overwrite a site's canonical configs to match @reddoor/maintenance.",
+  "sync-configs": "Overwrite a site's canonical configs to match @reddoorla/maintenance.",
   "bump-deps": "Bump dependencies and commit the lockfile change.",
   "svelte-4-to-5": "Run the 7-commit Svelte 4 → 5 upgrade recipe.",
 };

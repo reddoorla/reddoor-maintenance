@@ -25,7 +25,7 @@ describe("recipes/sync-configs", () => {
     expect(result.commits.length).toBeGreaterThan(0);
 
     const eslintCfg = await readFile(join(cwd, "eslint.config.js"), "utf-8");
-    expect(eslintCfg).toContain("@reddoor/maintenance/configs/eslint");
+    expect(eslintCfg).toContain("@reddoorla/maintenance/configs/eslint");
 
     const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
       cwd,
@@ -49,7 +49,7 @@ describe("recipes/sync-configs", () => {
     expect(result.status).toBe("applied");
     expect(result.commits).toHaveLength(1);
     const eslintCfg = await readFile(join(cwd, "eslint.config.js"), "utf-8");
-    expect(eslintCfg).not.toContain("@reddoor/maintenance/configs/eslint");
+    expect(eslintCfg).not.toContain("@reddoorla/maintenance/configs/eslint");
   });
 
   it("refuses to run when the working tree is dirty", async () => {

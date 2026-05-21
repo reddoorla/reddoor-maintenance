@@ -57,7 +57,10 @@ export async function syncConfigs(
   const shas: string[] = [];
   for (const t of diffs) {
     await writeFile(join(site.path, t.path), t.contents, "utf-8");
-    const sha = await commit(site.path, `chore: sync ${t.config} config from @reddoor/maintenance`);
+    const sha = await commit(
+      site.path,
+      `chore: sync ${t.config} config from @reddoorla/maintenance`,
+    );
     if (sha) shas.push(sha);
   }
 

@@ -1,4 +1,4 @@
-# @reddoor/maintenance
+# @reddoorla/maintenance
 
 Canonical maintenance configs, audits, and recipes for sites built on the reddoor starter.
 
@@ -7,7 +7,7 @@ See `docs/specs/2026-05-20-package-design.md` for the design and `docs/superpowe
 ## Install
 
 ```bash
-pnpm add -D @reddoor/maintenance
+pnpm add -D @reddoorla/maintenance
 ```
 
 ## CLI
