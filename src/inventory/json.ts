@@ -1,0 +1,31 @@
+import { readFile } from "node:fs/promises";
+import type { InventoryProvider, Site } from "../types.js";
+
+function validate(raw: unknown): Site[] {
+  if (!Array.isArray(raw)) {
+    throw new Error("inventory JSON must be an array of sites");
+  }
+  return raw.map((entry, i) => {
+    if (!entry || typeof entry !== "object") {
+      throw new Error(`inventory entry ${i} is not an object`);
+    }
+    const e = entry as Record<string, unknown>;
+    if (typeof e.path !== "string" || e.path.length === 0) {
+      throw new Error(`inventory entry ${i} is missing required field: path`);
+    }
+    const site: Site = { path: e.path };
+    if (typeof e.name === "string") site.name = e.name;
+    if (typeof e.repoUrl === "string") site.repoUrl = e.repoUrl;
+    if (typeof e.meta === "object" && e.meta !== null) {
+      site.meta = e.meta as Record<string, unknown>;
+    }
+    return site;
+  });
+}
+
+export function fromJsonFile(path: string): InventoryProvider {
+  return async () => {
+    const raw = JSON.parse(await readFile(path, "utf-8")) as unknown;
+    return validate(raw);
+  };
+}
