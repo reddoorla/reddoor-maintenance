@@ -36,6 +36,10 @@
     "./configs/playwright-a11y": {
       "types": "./dist/configs/playwright-a11y.d.ts",
       "import": "./dist/configs/playwright-a11y.js"
+    },
+    "./configs/svelte": {
+      "types": "./dist/configs/svelte.d.ts",
+      "import": "./dist/configs/svelte.js"
     }
   },
   "bin": {

@@ -50,7 +50,26 @@ const playwrightA11y: ConfigTemplate = {
 `,
 };
 
-export const ALL_TEMPLATES: ConfigTemplate[] = [eslint, prettier, lighthouse, playwrightA11y];
+const svelte: ConfigTemplate = {
+  config: "svelte",
+  path: "svelte.config.js",
+  contents: `import { createSvelteConfig } from "@reddoorla/maintenance/configs/svelte";
+import adapter from "@sveltejs/adapter-auto";
+
+/** @type {import('@sveltejs/kit').Config} */
+export default createSvelteConfig({
+  kit: { adapter: adapter() },
+});
+`,
+};
+
+export const ALL_TEMPLATES: ConfigTemplate[] = [
+  eslint,
+  prettier,
+  lighthouse,
+  playwrightA11y,
+  svelte,
+];
 
 export function templatesByName(which: ConfigName[]): ConfigTemplate[] {
   return ALL_TEMPLATES.filter((t) => which.includes(t.config));

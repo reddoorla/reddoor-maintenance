@@ -49,5 +49,6 @@ describe("types", () => {
     const _ok2: ConfigName = "eslint";
     const _ok3: ConfigName = "prettier";
     const _ok4: ConfigName = "playwright-a11y";
+    const _ok5: ConfigName = "svelte";
   });
 });
