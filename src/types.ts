@@ -14,7 +14,7 @@ export type RecipeName =
   | "convert-to-pnpm"
   | "onboard";
 
-export type ConfigName = "lighthouse" | "eslint" | "prettier" | "playwright-a11y";
+export type ConfigName = "lighthouse" | "eslint" | "prettier" | "playwright-a11y" | "svelte";
 
 export type AuditResult = {
   audit: AuditName;

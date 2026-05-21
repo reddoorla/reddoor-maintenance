@@ -9,6 +9,7 @@ export default defineConfig({
     "src/configs/eslint.ts",
     "src/configs/prettier.ts",
     "src/configs/playwright-a11y.ts",
+    "src/configs/svelte.ts",
     "src/util/git.ts",
     "src/util/pkg.ts",
     "src/recipes/sync-configs.ts",
