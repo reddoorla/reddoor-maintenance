@@ -34,4 +34,25 @@ describe("codemod: export let → $props()", () => {
 </script>`;
     expect(exportLetToProps(input)).toBe(input);
   });
+
+  it("handles plain <script> (no lang='ts') and emits untyped destructuring", () => {
+    const input = `<script>
+    export let text = "";
+    export let href = "#";
+
+    let isActive = false;
+</script>`;
+    const out = exportLetToProps(input);
+    expect(out).toContain(`let { text = "", href = "#" } = $props();`);
+    expect(out).not.toContain("export let");
+    expect(out).not.toContain(": {");
+  });
+
+  it("handles plain <script> with no default values", () => {
+    const input = `<script>
+  export let name;
+</script>`;
+    const out = exportLetToProps(input);
+    expect(out).toContain(`let { name } = $props();`);
+  });
 });
