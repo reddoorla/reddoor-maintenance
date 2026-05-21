@@ -40,6 +40,7 @@ describe("types", () => {
     const _ok: RecipeName = "sync-configs";
     const _ok2: RecipeName = "bump-deps";
     const _ok3: RecipeName = "svelte-4-to-5";
+    const _ok4: RecipeName = "convert-to-pnpm";
   });
 
   it("ConfigName covers v1 configs", () => {

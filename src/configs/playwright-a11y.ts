@@ -25,7 +25,8 @@ export const playwrightA11yConfig: PlaywrightTestConfig = defineConfig({
     },
   ],
   webServer: {
-    command: "pnpm vite:dev",
+    // Portable across pnpm and npm sites — pnpm respects `npm run` too.
+    command: "npm run vite:dev",
     url: "http://localhost:5173/dev/a11y-fixtures",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

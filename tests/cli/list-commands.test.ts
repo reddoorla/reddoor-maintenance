@@ -30,7 +30,7 @@ describe("cli: list commands", () => {
 
   it("list-recipes prints all v1 recipe names", () => {
     const out = runCli(["list-recipes"]);
-    for (const name of ["sync-configs", "bump-deps", "svelte-4-to-5"]) {
+    for (const name of ["sync-configs", "bump-deps", "svelte-4-to-5", "convert-to-pnpm"]) {
       expect(out).toContain(name);
     }
   });

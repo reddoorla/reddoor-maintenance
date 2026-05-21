@@ -23,6 +23,7 @@ export {
   syncConfigs,
   bumpDeps,
   upgradeSvelte4to5,
+  convertToPnpm,
   ALL_RECIPE_NAMES,
   isRecipeName,
 } from "./recipes/index.js";
@@ -31,6 +32,7 @@ export type {
   SyncConfigsOptions,
   BumpDepsOptions,
   UpgradeSvelte4to5Options,
+  ConvertToPnpmOptions,
 } from "./recipes/index.js";
 
 export { localPath, fromJsonFile, type LocalPathOptions } from "./inventory/index.js";
