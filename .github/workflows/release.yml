@@ -28,6 +28,9 @@ jobs:
           cache: pnpm
           registry-url: "https://registry.npmjs.org"
 
+      # npm OIDC trusted publishing requires npm CLI 11.5+; Node 20 ships ~10.x.
+      - run: npm install -g npm@latest
+
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm typecheck
@@ -43,5 +46,7 @@ jobs:
           commit: "chore(release): version packages"
           title: "chore(release): version packages"
         env:
+          # No NPM_TOKEN: trusted publishing uses the OIDC token from id-token: write.
+          # When npm CLI 11.5+ detects the GitHub Actions OIDC env and a trusted
+          # publisher is configured on the package, it mints a short-lived token.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
