@@ -10,6 +10,7 @@ export default defineConfig({
     "src/configs/prettier.ts",
     "src/configs/playwright-a11y.ts",
     "src/util/git.ts",
+    "src/util/pkg.ts",
   ],
   format: ["esm"],
   dts: true,
