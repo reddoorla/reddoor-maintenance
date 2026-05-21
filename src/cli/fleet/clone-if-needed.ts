@@ -1,5 +1,5 @@
 import { stat, readdir, mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import type { Site } from "../../types.js";
 import { defaultSpawn, type SpawnFn } from "../../audits/util/spawn.js";
 
@@ -11,6 +11,19 @@ export type CloneIfNeededOptions = {
 function deriveNameFromRepoUrl(repoUrl: string): string {
   const slash = repoUrl.split("/").pop() ?? repoUrl;
   return slash.replace(/\.git$/, "");
+}
+
+/** Reject names that would let an inventory entry write outside `workdir`. */
+function assertSafeName(name: string): void {
+  if (isAbsolute(name)) {
+    throw new Error(`unsafe site name (absolute path not allowed): ${name}`);
+  }
+  if (name.includes("/") || name.includes("\\")) {
+    throw new Error(`unsafe site name (path separator not allowed): ${name}`);
+  }
+  if (name.split(/[\\/]/).some((seg) => seg === "..")) {
+    throw new Error(`unsafe site name (traversal segment not allowed): ${name}`);
+  }
 }
 
 async function isNonEmptyDir(path: string): Promise<boolean> {
@@ -32,6 +45,7 @@ export async function cloneIfNeeded(site: Site, opts: CloneIfNeededOptions): Pro
   }
 
   const name = site.name ?? deriveNameFromRepoUrl(site.repoUrl);
+  assertSafeName(name);
   const target = join(opts.workdir, name);
   await mkdir(opts.workdir, { recursive: true });
 

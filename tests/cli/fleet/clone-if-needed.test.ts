@@ -67,4 +67,43 @@ describe("cli/fleet/cloneIfNeeded", () => {
       /repoUrl/,
     );
   });
+
+  it("rejects an inventory name with path-traversal segments", async () => {
+    const workdir = await mkdtemp(join(tmpdir(), "reddoor-wd-"));
+    const spawn: SpawnFn = async () => {
+      throw new Error("should NOT have reached spawn");
+    };
+    await expect(
+      cloneIfNeeded(
+        { path: "/missing", name: "../escape", repoUrl: "git@example.com:a.git" },
+        { workdir, spawn },
+      ),
+    ).rejects.toThrow(/unsafe|name|traversal/i);
+  });
+
+  it("rejects an inventory name containing a path separator", async () => {
+    const workdir = await mkdtemp(join(tmpdir(), "reddoor-wd-"));
+    const spawn: SpawnFn = async () => {
+      throw new Error("should not spawn");
+    };
+    await expect(
+      cloneIfNeeded(
+        { path: "/missing", name: "nested/name", repoUrl: "git@example.com:a.git" },
+        { workdir, spawn },
+      ),
+    ).rejects.toThrow(/unsafe|name|separator/i);
+  });
+
+  it("rejects an absolute inventory name", async () => {
+    const workdir = await mkdtemp(join(tmpdir(), "reddoor-wd-"));
+    const spawn: SpawnFn = async () => {
+      throw new Error("should not spawn");
+    };
+    await expect(
+      cloneIfNeeded(
+        { path: "/missing", name: "/tmp/escape", repoUrl: "git@example.com:a.git" },
+        { workdir, spawn },
+      ),
+    ).rejects.toThrow(/unsafe|name|absolute/i);
+  });
 });

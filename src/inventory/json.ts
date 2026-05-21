@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { isAbsolute } from "node:path";
 import type { InventoryProvider, Site } from "../types.js";
 
 function validate(raw: unknown): Site[] {
@@ -12,6 +13,12 @@ function validate(raw: unknown): Site[] {
     const e = entry as Record<string, unknown>;
     if (typeof e.path !== "string" || e.path.length === 0) {
       throw new Error(`inventory entry ${i} is missing required field: path`);
+    }
+    if (!isAbsolute(e.path)) {
+      throw new Error(
+        `inventory entry ${i}: path must be absolute (got "${e.path}"). ` +
+          `Relative paths are rejected so cwd at invocation can't change which site is targeted.`,
+      );
     }
     const site: Site = { path: e.path };
     if (typeof e.name === "string") site.name = e.name;

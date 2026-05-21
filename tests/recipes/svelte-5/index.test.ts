@@ -50,4 +50,32 @@ describe("recipes/svelte-5: upgradeSvelte4to5", () => {
       /working tree/i,
     );
   });
+
+  it("does not add packages the site never declared (only bumps existing)", async () => {
+    const cwd = await copyFixtureToTmp(preSvelte5);
+    // pre-svelte5 fixture intentionally has no @sveltejs/adapter-netlify,
+    // adapter-auto, or typescript-svelte-plugin — see tests/fixtures/pre-svelte5/package.json.
+    const before = JSON.parse(await readFile(join(cwd, "package.json"), "utf-8")) as {
+      devDependencies?: Record<string, string>;
+      dependencies?: Record<string, string>;
+    };
+    const declared = new Set([
+      ...Object.keys(before.devDependencies ?? {}),
+      ...Object.keys(before.dependencies ?? {}),
+    ]);
+
+    await upgradeSvelte4to5({ path: cwd }, { spawn: fakeSpawnOK });
+
+    const after = JSON.parse(await readFile(join(cwd, "package.json"), "utf-8")) as {
+      devDependencies?: Record<string, string>;
+      dependencies?: Record<string, string>;
+    };
+    const present = new Set([
+      ...Object.keys(after.devDependencies ?? {}),
+      ...Object.keys(after.dependencies ?? {}),
+    ]);
+
+    const added = [...present].filter((p) => !declared.has(p));
+    expect(added).toEqual([]);
+  });
 });

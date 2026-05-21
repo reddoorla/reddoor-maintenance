@@ -27,7 +27,10 @@ describe("recipes/bump-deps", () => {
     const result = await bumpDeps(
       { path: cwd },
       {
-        spawn: spawnSequence([{ cmd: "pnpm", result: { code: 0, stdout: "{}" } }]),
+        spawn: spawnSequence([
+          { cmd: "pnpm", args: ["install"], result: { code: 0, stdout: "" } },
+          { cmd: "pnpm", args: ["outdated"], result: { code: 0, stdout: "{}" } },
+        ]),
       },
     );
     expect(result.status).toBe("noop");
@@ -50,6 +53,9 @@ describe("recipes/bump-deps", () => {
       { path: cwd },
       {
         spawn: async (cmd: string, _args?: readonly string[]) => {
+          if (cmd === "pnpm" && _args?.[0] === "install") {
+            return { code: 0, stdout: "", stderr: "" };
+          }
           if (cmd === "pnpm" && _args?.[0] === "outdated") {
             return { code: 0, stdout: outdatedJson, stderr: "" };
           }
@@ -72,6 +78,62 @@ describe("recipes/bump-deps", () => {
     expect(branch).toMatch(/^maint\/bump-deps-\d{8}T\d{6}Z$/);
   });
 
+  it("streams pnpm up output so the user sees progress (passes streaming:true)", async () => {
+    const cwd = await copyFixtureToTmp(pristine);
+    const outdatedJson = JSON.stringify({
+      vite: { current: "8.0.5", wanted: "8.0.10", latest: "8.0.10" },
+    });
+    let upCallStreaming: boolean | undefined;
+
+    await bumpDeps(
+      { path: cwd },
+      {
+        spawn: async (cmd, args, opts) => {
+          if (cmd === "pnpm" && args[0] === "install") {
+            return { code: 0, stdout: "", stderr: "" };
+          }
+          if (cmd === "pnpm" && args[0] === "outdated") {
+            // outdated must NOT be streamed; we need its stdout for parsing.
+            expect(opts?.streaming).not.toBe(true);
+            return { code: 0, stdout: outdatedJson, stderr: "" };
+          }
+          if (cmd === "pnpm" && args[0] === "up") {
+            upCallStreaming = opts?.streaming;
+            await writeFile(join(cwd, "marker.txt"), "bumped", "utf-8");
+            return { code: 0, stdout: "", stderr: "" };
+          }
+          throw new Error(`unexpected spawn: ${cmd} ${args.join(" ")}`);
+        },
+      },
+    );
+
+    expect(upCallStreaming).toBe(true);
+  });
+
+  it("runs pnpm install before the outdated probe so the lockfile is fresh", async () => {
+    const cwd = await copyFixtureToTmp(pristine);
+    const order: string[] = [];
+    await bumpDeps(
+      { path: cwd },
+      {
+        spawn: async (cmd, args) => {
+          order.push(`${cmd} ${args[0] ?? ""}`);
+          if (cmd === "pnpm" && args[0] === "install") {
+            return { code: 0, stdout: "", stderr: "" };
+          }
+          if (cmd === "pnpm" && args[0] === "outdated") {
+            return { code: 0, stdout: "{}", stderr: "" };
+          }
+          return { code: 0, stdout: "", stderr: "" };
+        },
+      },
+    );
+    const installIdx = order.indexOf("pnpm install");
+    const outdatedIdx = order.indexOf("pnpm outdated");
+    expect(installIdx).toBeGreaterThanOrEqual(0);
+    expect(outdatedIdx).toBeGreaterThan(installIdx);
+  });
+
   it("refuses to run when working tree is dirty", async () => {
     const cwd = await copyFixtureToTmp(pristine);
     execFileSync("touch", ["dirty.txt"], { cwd });
@@ -81,7 +143,12 @@ describe("recipes/bump-deps", () => {
     await expect(
       bumpDeps(
         { path: cwd },
-        { spawn: spawnSequence([{ cmd: "pnpm", result: { code: 0, stdout: outdatedJson } }]) },
+        {
+          spawn: spawnSequence([
+            { cmd: "pnpm", args: ["install"], result: { code: 0, stdout: "" } },
+            { cmd: "pnpm", args: ["outdated"], result: { code: 0, stdout: outdatedJson } },
+          ]),
+        },
       ),
     ).rejects.toThrow(/working tree/i);
   });

@@ -56,7 +56,9 @@ function classify(v: Counts) {
 
 function normalizeSeverity(s: unknown): Severity {
   if (s === "low" || s === "moderate" || s === "high" || s === "critical") return s;
-  return "moderate";
+  // npm/pnpm sometimes emit "info" for informational advisories. Map down
+  // rather than defaulting to "moderate" (which would inflate severity).
+  return "low";
 }
 
 function extractAdvisoriesFromPnpm(parsed: PnpmAuditJson): AdvisoryEntry[] {
@@ -74,34 +76,55 @@ function extractAdvisoriesFromPnpm(parsed: PnpmAuditJson): AdvisoryEntry[] {
   return out;
 }
 
+/** Walk an npm v7+ `via` chain to find the root entry whose `via` array
+ * contains a real advisory object (rather than another package name string).
+ * Returns the package name at the root and the advisory detail. */
+function resolveNpmAdvisoryRoot(
+  startName: string,
+  vulnerabilities: NonNullable<NpmAuditJson["vulnerabilities"]>,
+): { rootName: string; detail?: { title?: string; url?: string } } {
+  const seen = new Set<string>();
+  let current = startName;
+  while (!seen.has(current)) {
+    seen.add(current);
+    const entry = vulnerabilities[current];
+    if (!entry || !Array.isArray(entry.via)) return { rootName: current };
+
+    const detailed = entry.via.find(
+      (e): e is { title?: string; url?: string } => typeof e === "object" && e !== null,
+    );
+    if (detailed) return { rootName: current, detail: detailed };
+
+    const next = entry.via.find((e): e is string => typeof e === "string");
+    if (!next || next === current) return { rootName: current };
+    current = next;
+  }
+  return { rootName: current };
+}
+
 function extractAdvisoriesFromNpm(parsed: NpmAuditJson): AdvisoryEntry[] {
-  const out: AdvisoryEntry[] = [];
-  for (const [name, v] of Object.entries(parsed.vulnerabilities ?? {})) {
+  const vulnerabilities = parsed.vulnerabilities ?? {};
+  const roots = new Map<string, AdvisoryEntry>();
+
+  for (const [name, v] of Object.entries(vulnerabilities)) {
     if (!v) continue;
-    // npm's `via` is either a string (name of upstream package) or an array
-    // mixing strings and objects with title/url/cve fields. We try the first
-    // object-shaped entry for the title; otherwise fall back to the package
-    // name itself.
-    let title = name;
-    let url: string | undefined;
-    if (Array.isArray(v.via)) {
-      const detailed = v.via.find(
-        (entry): entry is { title?: string; url?: string } =>
-          typeof entry === "object" && entry !== null,
-      );
-      if (detailed) {
-        title = detailed.title ?? name;
-        url = detailed.url;
-      }
-    }
-    out.push({
-      module: v.name ?? name,
-      severity: normalizeSeverity(v.severity),
+    const { rootName, detail } = resolveNpmAdvisoryRoot(name, vulnerabilities);
+    if (roots.has(rootName)) continue; // already surfaced via another transitive entry
+
+    const rootEntry = vulnerabilities[rootName];
+    const severity = normalizeSeverity(rootEntry?.severity ?? v.severity);
+    const title = detail?.title ?? rootName;
+    const url = detail?.url;
+
+    roots.set(rootName, {
+      module: rootEntry?.name ?? rootName,
+      severity,
       title,
       ...(url ? { url } : {}),
     });
   }
-  return out;
+
+  return [...roots.values()];
 }
 
 async function tryRun(
