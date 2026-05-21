@@ -4,6 +4,7 @@ import type { AuditName, RecipeName } from "../types.js";
 import { runAuditCommand } from "./commands/audit.js";
 import { runSyncConfigsCommand } from "./commands/sync-configs.js";
 import { runBumpDepsCommand } from "./commands/bump-deps.js";
+import { runUpgradeCommand } from "./commands/upgrade.js";
 
 const AUDIT_DESCRIPTIONS: Record<AuditName, string> = {
   deps: "Diff site package.json against the bundled baseline version map.",
@@ -70,6 +71,21 @@ cli
   .action(async (site, opts: { group?: string }) => {
     try {
       const { output, code } = await runBumpDepsCommand(site, opts);
+      console.log(output);
+      process.exit(code);
+    } catch (err) {
+      const e = err as { exitCode?: number; message?: string };
+      console.error(e.message ?? String(err));
+      process.exit(e.exitCode ?? 1);
+    }
+  });
+
+cli
+  .command("upgrade <upgrade> [site]", "Run a named upgrade recipe (svelte-4-to-5).")
+  .example("reddoor-maint upgrade svelte-4-to-5 ./my-site")
+  .action(async (upgrade: string, site: string | undefined) => {
+    try {
+      const { output, code } = await runUpgradeCommand(upgrade, site);
       console.log(output);
       process.exit(code);
     } catch (err) {
