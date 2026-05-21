@@ -9,6 +9,7 @@ export default defineConfig({
     "src/configs/eslint.ts",
     "src/configs/prettier.ts",
     "src/configs/playwright-a11y.ts",
+    "src/util/git.ts",
   ],
   format: ["esm"],
   dts: true,
