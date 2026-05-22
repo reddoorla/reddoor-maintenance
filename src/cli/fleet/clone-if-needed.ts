@@ -26,6 +26,28 @@ function assertSafeName(name: string): void {
   }
 }
 
+/**
+ * Reject repo URLs that don't look like a normal clone target. Without this,
+ * a `repoUrl` starting with `-` would be interpreted by git as a flag
+ * (CVE-2017-1000117 family) — e.g. `--upload-pack=…` allows arbitrary command
+ * execution. Inventory files are usually trusted, but `.mjs`/`.js` inventories
+ * could pull from environments or external sources, so harden the boundary.
+ *
+ * Accepts: `https://`, `http://`, `ssh://`, `git://`, `file://`, and
+ * `[user@]host:path` shorthand (e.g. `git@github.com:org/repo.git`).
+ */
+function assertSafeRepoUrl(repoUrl: string): void {
+  if (
+    !/^(https?|ssh|git|file):\/\//.test(repoUrl) &&
+    !/^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+:/.test(repoUrl)
+  ) {
+    throw new Error(
+      `unsafe repoUrl: must start with a scheme (https://, ssh://, git://, file://) ` +
+        `or use scp-style "user@host:path" (got: ${JSON.stringify(repoUrl)})`,
+    );
+  }
+}
+
 async function isNonEmptyDir(path: string): Promise<boolean> {
   try {
     const s = await stat(path);
@@ -46,6 +68,7 @@ export async function cloneIfNeeded(site: Site, opts: CloneIfNeededOptions): Pro
 
   const name = site.name ?? deriveNameFromRepoUrl(site.repoUrl);
   assertSafeName(name);
+  assertSafeRepoUrl(site.repoUrl);
   const target = join(opts.workdir, name);
   await mkdir(opts.workdir, { recursive: true });
 
@@ -54,7 +77,8 @@ export async function cloneIfNeeded(site: Site, opts: CloneIfNeededOptions): Pro
   }
 
   const spawn = opts.spawn ?? defaultSpawn;
-  const result = await spawn("git", ["clone", site.repoUrl, target], {
+  // `--` separator so git won't treat repoUrl as a flag if validation slips.
+  const result = await spawn("git", ["clone", "--", site.repoUrl, target], {
     cwd: opts.workdir,
     timeoutMs: 5 * 60_000,
   });
