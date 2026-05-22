@@ -129,6 +129,26 @@ describe("recipes/onboard", () => {
     );
   });
 
+  it("pins @reddoorla/maintenance to a caret range matching this package's own version", async () => {
+    // Regression: DEFAULT_PACKAGE_VERSION used to be hardcoded as "^0.2.0" and
+    // went three majors stale before anyone noticed. The default should now
+    // be derived from this package's own version at runtime.
+    const ownPkg = JSON.parse(await readFile(resolve(here, "../../package.json"), "utf-8")) as {
+      version?: string;
+    };
+
+    const cwd = await copyFixtureToTmp(pristine);
+    await addPnpmLock(cwd);
+    // pristine-starter doesn't ship the reddoorla dep, so onboard will add it.
+
+    await onboard({ path: cwd }, { spawn: fakePnpmInstall });
+
+    const after = JSON.parse(await readFile(join(cwd, "package.json"), "utf-8")) as {
+      devDependencies?: Record<string, string>;
+    };
+    expect(after.devDependencies?.["@reddoorla/maintenance"]).toBe(`^${ownPkg.version}`);
+  });
+
   it("returns failed when pnpm install errors", async () => {
     const cwd = await copyFixtureToTmp(pristine);
     await addPnpmLock(cwd);

@@ -106,4 +106,73 @@ describe("cli/fleet/cloneIfNeeded", () => {
       ),
     ).rejects.toThrow(/unsafe|name|absolute/i);
   });
+
+  it("rejects a repoUrl that would be interpreted as a git flag", async () => {
+    const workdir = await mkdtemp(join(tmpdir(), "reddoor-wd-"));
+    const spawn: SpawnFn = async () => {
+      throw new Error("should NOT have reached spawn — argv-injection attempt");
+    };
+    await expect(
+      cloneIfNeeded(
+        { path: "/missing", name: "ok", repoUrl: "--upload-pack=evil" },
+        { workdir, spawn },
+      ),
+    ).rejects.toThrow(/unsafe repoUrl/i);
+  });
+
+  it("rejects a repoUrl with no scheme or scp-style host", async () => {
+    const workdir = await mkdtemp(join(tmpdir(), "reddoor-wd-"));
+    const spawn: SpawnFn = async () => {
+      throw new Error("should not spawn");
+    };
+    await expect(
+      cloneIfNeeded({ path: "/missing", name: "ok", repoUrl: "just-a-string" }, { workdir, spawn }),
+    ).rejects.toThrow(/unsafe repoUrl/i);
+  });
+
+  it("passes `--` separator to git clone (defense in depth)", async () => {
+    const workdir = await mkdtemp(join(tmpdir(), "reddoor-wd-"));
+    let cloneArgs: readonly string[] | null = null;
+    const spawn: SpawnFn = async (_cmd, args) => {
+      cloneArgs = args;
+      const target = args[args.length - 1] as string;
+      await mkdir(target, { recursive: true });
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    await cloneIfNeeded(
+      { path: "/missing", name: "site-a", repoUrl: "https://example.com/a.git" },
+      { workdir, spawn },
+    );
+    expect(cloneArgs).not.toBeNull();
+    expect(cloneArgs!.includes("--")).toBe(true);
+    // `--` must appear before the repoUrl positional.
+    const dashDashIdx = cloneArgs!.indexOf("--");
+    const repoIdx = cloneArgs!.indexOf("https://example.com/a.git");
+    expect(dashDashIdx).toBeLessThan(repoIdx);
+  });
+
+  it("accepts standard scheme URLs and scp-style shorthand", async () => {
+    const workdir = await mkdtemp(join(tmpdir(), "reddoor-wd-"));
+    const spawn: SpawnFn = async (_cmd, args) => {
+      const target = args[args.length - 1] as string;
+      await mkdir(target, { recursive: true });
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const accepted = [
+      "https://github.com/org/repo.git",
+      "http://example.com/repo.git",
+      "ssh://git@example.com/repo.git",
+      "git://example.com/repo.git",
+      "file:///tmp/repo.git",
+      "git@github.com:org/repo.git",
+    ];
+    for (const repoUrl of accepted) {
+      await expect(
+        cloneIfNeeded(
+          { path: "/not-exist-" + repoUrl, name: "x" + accepted.indexOf(repoUrl), repoUrl },
+          { workdir, spawn },
+        ),
+      ).resolves.toBeDefined();
+    }
+  });
 });

@@ -4,6 +4,7 @@ import type { RecipeResult, Site } from "../types.js";
 import { branchName, commit, createBranch, isWorkingTreeClean } from "../util/git.js";
 import { readPackageJson, writePackageJson, bumpDep, type PackageJsonLike } from "../util/pkg.js";
 import { defaultSpawn, type SpawnFn } from "../audits/util/spawn.js";
+import { selfCaretRange } from "../util/self-version.js";
 
 export type OnboardAudit = "lighthouse" | "a11y";
 
@@ -11,15 +12,13 @@ export type OnboardOptions = {
   spawn?: SpawnFn;
   /** Which audit-related deps to ensure. Defaults to all known audits. */
   audits?: OnboardAudit[];
-  /** Version range to pin for @reddoorla/maintenance. Defaults to the
-   *  current minor range. Update on each minor bump. */
+  /** Version range to pin for @reddoorla/maintenance. Defaults to a caret
+   *  range against this package's own version at runtime — no manual
+   *  syncing required at each minor bump. */
   packageVersion?: string;
 };
 
 const PACKAGE_NAME = "@reddoorla/maintenance";
-// Kept in sync with package.json on each minor bump. Caret on the minor
-// lets sites pick up patches without re-onboarding.
-const DEFAULT_PACKAGE_VERSION = "^0.2.0";
 
 const AUDIT_DEPS: Record<OnboardAudit, Array<{ name: string; version: string }>> = {
   lighthouse: [{ name: "@lhci/cli", version: "^0.15.1" }],
@@ -50,7 +49,7 @@ export async function onboard(site: Site, opts: OnboardOptions = {}): Promise<Re
   const label = siteLabel(site);
   const spawn = opts.spawn ?? defaultSpawn;
   const audits = opts.audits ?? (["lighthouse", "a11y"] as OnboardAudit[]);
-  const packageVersion = opts.packageVersion ?? DEFAULT_PACKAGE_VERSION;
+  const packageVersion = opts.packageVersion ?? selfCaretRange(import.meta.url);
 
   // Pre-flight: site must already be on pnpm. We don't auto-convert here;
   // that's the convert-to-pnpm recipe's job, and combining them would
