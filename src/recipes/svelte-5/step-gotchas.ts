@@ -6,6 +6,7 @@ import { exportLetToProps } from "./codemods/dollar-props.js";
 import { removeDollarRestProps } from "./codemods/dollar-restprops.js";
 import { stateEffectSyncToDerived } from "./codemods/state-effect-sync.js";
 import { dollarPropsClass } from "./codemods/dollar-props-class.js";
+import { legacyReactiveToRunes } from "./codemods/legacy-reactive.js";
 
 const SVELTE_GLOBS = ["src/**/*.svelte"];
 const IGNORE = ["node_modules/**", ".svelte-kit/**", "build/**"];
@@ -20,6 +21,7 @@ const CODEMODS: Codemod[] = [
   removeDollarRestProps,
   stateEffectSyncToDerived,
   dollarPropsClass,
+  legacyReactiveToRunes,
 ];
 
 export type CodemodChange = { rel: string; after: string };
