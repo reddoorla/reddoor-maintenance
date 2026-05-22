@@ -23,6 +23,7 @@ export {
   syncConfigs,
   bumpDeps,
   upgradeSvelte4to5,
+  svelteCodemods,
   convertToPnpm,
   onboard,
   ALL_RECIPE_NAMES,

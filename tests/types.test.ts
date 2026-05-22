@@ -1,4 +1,4 @@
-import { describe, it, expectTypeOf } from "vitest";
+import { describe, it, expect, expectTypeOf } from "vitest";
 import type {
   Site,
   AuditResult,
@@ -8,6 +8,7 @@ import type {
   RecipeName,
   ConfigName,
 } from "../src/types.js";
+import { ALL_RECIPE_NAMES, isRecipeName } from "../src/recipes/index.js";
 
 describe("types", () => {
   it("Site requires path, allows optional fields", () => {
@@ -43,6 +44,25 @@ describe("types", () => {
     const _ok4: RecipeName = "convert-to-pnpm";
     const _ok5: RecipeName = "onboard";
     const _ok6: RecipeName = "svelte-codemods";
+  });
+
+  it("ALL_RECIPE_NAMES matches the RecipeName union exactly (no registration drift)", () => {
+    // Regression: svelteCodemods was added to the union but missed in the
+    // runtime array, so isRecipeName("svelte-codemods") silently returned
+    // false. Check every union member is registered.
+    const all: RecipeName[] = [
+      "sync-configs",
+      "bump-deps",
+      "svelte-4-to-5",
+      "svelte-codemods",
+      "convert-to-pnpm",
+      "onboard",
+    ];
+    expect([...ALL_RECIPE_NAMES].sort()).toEqual([...all].sort());
+    for (const name of all) {
+      expect(isRecipeName(name)).toBe(true);
+    }
+    expect(isRecipeName("not-a-recipe")).toBe(false);
   });
 
   it("ConfigName covers v1 configs", () => {
