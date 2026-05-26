@@ -14,21 +14,21 @@ jobs:
       pull-requests: write
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10.33.1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
           cache: pnpm
           registry-url: "https://registry.npmjs.org"
 
-      # npm OIDC trusted publishing requires npm CLI 11.5+; Node 20 ships ~10.x.
+      # npm OIDC trusted publishing requires npm CLI 11.5+; Node 22 ships ~10.x.
       - run: npm install -g npm@latest
 
       - run: pnpm install --frozen-lockfile
