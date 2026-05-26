@@ -17,8 +17,14 @@
  * whenever a local `let X = $state(prop.expr)` captures a prop reference
  * only at init time.
  */
+// `;?` before the closing `}` so the multi-line effect form matches:
+//   $effect(() => {
+//     data;
+//     content = data.page.data;
+//   });
+// as well as the single-line form: $effect(() => { data; content = data.page.data })
 const PATTERN =
-  /let\s+(\w+)\s*=\s*\$state\(\s*([^)]+?)\s*\)\s*;[ \t\r\n]*\$effect\(\s*\(\s*\)\s*=>\s*\{\s*\w+\s*;\s*\1\s*=\s*([^;}]+?)\s*\}\s*\)\s*;?/g;
+  /let\s+(\w+)\s*=\s*\$state\(\s*([^)]+?)\s*\)\s*;[ \t\r\n]*\$effect\(\s*\(\s*\)\s*=>\s*\{\s*\w+\s*;\s*\1\s*=\s*([^;}]+?)\s*;?\s*\}\s*\)\s*;?/g;
 
 export function stateEffectSyncToDerived(source: string): string {
   return source.replace(PATTERN, (full, name: string, initExpr: string, effectExpr: string) => {
