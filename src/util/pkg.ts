@@ -13,8 +13,22 @@ export async function readPackageJson(path: string): Promise<PackageJsonLike> {
   return JSON.parse(raw) as PackageJsonLike;
 }
 
+/** Sniff the indent style (tab vs 2 vs 4 vs N spaces) from existing package.json
+ * content by looking at the first indented `"key"` line. Defaults to two spaces. */
+function detectIndentFromContent(raw: string): string {
+  const match = raw.match(/\n([ \t]+)"/);
+  return match ? (match[1] ?? "  ") : "  ";
+}
+
 export async function writePackageJson(path: string, pkg: PackageJsonLike): Promise<void> {
-  const content = JSON.stringify(pkg, null, 2) + "\n";
+  let indent = "  ";
+  try {
+    const existing = await readFile(path, "utf-8");
+    indent = detectIndentFromContent(existing);
+  } catch {
+    // file doesn't exist yet — first write — keep the 2-space default
+  }
+  const content = JSON.stringify(pkg, null, indent) + "\n";
   await writeFile(path, content, "utf-8");
 }
 

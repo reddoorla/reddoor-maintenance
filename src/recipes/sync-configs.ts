@@ -22,6 +22,23 @@ export type SyncConfigsOptions = {
 
 const GITIGNORE_CONFIG: ConfigName = "gitignore";
 
+/** Runtime enumeration of every `ConfigName`. Mirror of the union in
+ * `src/types.ts`. Used by CLI `--only` validation; a missing entry would
+ * silently accept typos. The type-test in `tests/types.test.ts` guards
+ * against drift between this array and the union. */
+export const ALL_CONFIG_NAMES: ConfigName[] = [
+  "lighthouse",
+  "eslint",
+  "prettier",
+  "playwright-a11y",
+  "svelte",
+  "gitignore",
+];
+
+export function isConfigName(value: string): value is ConfigName {
+  return (ALL_CONFIG_NAMES as string[]).includes(value);
+}
+
 function siteLabel(site: Site): string {
   return site.name ?? site.path;
 }

@@ -5,6 +5,7 @@ import { branchName, commit, createBranch, isWorkingTreeClean } from "../util/gi
 import { readPackageJson, writePackageJson, bumpDep, type PackageJsonLike } from "../util/pkg.js";
 import { defaultSpawn, type SpawnFn } from "../audits/util/spawn.js";
 import { selfCaretRange } from "../util/self-version.js";
+import { baselineVersions } from "../configs/baseline-versions.js";
 
 export type OnboardAudit = "lighthouse" | "a11y";
 
@@ -20,13 +21,33 @@ export type OnboardOptions = {
 
 const PACKAGE_NAME = "@reddoorla/maintenance";
 
-const AUDIT_DEPS: Record<OnboardAudit, Array<{ name: string; version: string }>> = {
-  lighthouse: [{ name: "@lhci/cli", version: "^0.15.1" }],
-  a11y: [
-    { name: "@playwright/test", version: "^1.59.1" },
-    { name: "@axe-core/playwright", version: "^4.11.3" },
-  ],
+const AUDIT_DEP_NAMES: Record<OnboardAudit, string[]> = {
+  lighthouse: ["@lhci/cli"],
+  a11y: ["@playwright/test", "@axe-core/playwright"],
 };
+
+/** Look up each audit dep's version in baselineVersions at module load so
+ * AUDIT_DEPS can't drift from the single source of truth across releases.
+ * Throws at import time if baseline-versions is missing an audit dep —
+ * which would be a programming error (every audit dep name above must
+ * appear in baselineVersions). */
+export const AUDIT_DEPS: Record<
+  OnboardAudit,
+  Array<{ name: string; version: string }>
+> = Object.fromEntries(
+  (Object.entries(AUDIT_DEP_NAMES) as Array<[OnboardAudit, string[]]>).map(([audit, names]) => [
+    audit,
+    names.map((name) => {
+      const version = baselineVersions[name];
+      if (!version) {
+        throw new Error(
+          `baseline-versions is missing audit dep "${name}" — add it to src/configs/baseline-versions.ts`,
+        );
+      }
+      return { name, version };
+    }),
+  ]),
+) as Record<OnboardAudit, Array<{ name: string; version: string }>>;
 
 async function exists(path: string): Promise<boolean> {
   try {
