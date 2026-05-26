@@ -14,7 +14,7 @@ The helper hardcoded `JSON.stringify(pkg, null, 2)`, so any site using tabs or 4
 
 ### Fixed: `bump-deps` checks the working tree clean before running `pnpm install` (item #6)
 
-The pre-flight `pnpm install` (needed so `pnpm outdated` sees a fresh lockfile) ran *before* the clean-tree check, so a desynced lockfile would be silently rewritten on top of whatever else was in the user's tree. The check is now first; `pnpm install` only runs once we know the tree is clean.
+The pre-flight `pnpm install` (needed so `pnpm outdated` sees a fresh lockfile) ran _before_ the clean-tree check, so a desynced lockfile would be silently rewritten on top of whatever else was in the user's tree. The check is now first; `pnpm install` only runs once we know the tree is clean.
 
 ### New: `bump-deps` detects competing lockfiles and refuses to run (item #7)
 
