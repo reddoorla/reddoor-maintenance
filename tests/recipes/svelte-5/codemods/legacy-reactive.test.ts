@@ -123,6 +123,45 @@ describe("codemod: $: reactive statements → $derived / $effect", () => {
     expect(twice).toBe(once);
   });
 
+  it("emits an @migration-task marker on each converted $: { block } so users can audit reactivity", () => {
+    const input = `<script>
+  let justify = "center";
+  $: {
+    justify = float;
+    if (float === "left") justify = "start";
+  }
+</script>`;
+    const out = legacyReactiveToRunes(input);
+    // marker sits on its own line, immediately before the $effect
+    const markerBeforeEffect = /\/\/\s*@migration-task[^\n]*\n[ \t]*\$effect\(\(\)\s*=>\s*\{/;
+    expect(out).toMatch(markerBeforeEffect);
+    // marker should mention the actual risk so users know what to look for
+    expect(out).toMatch(/\$state\b/);
+  });
+
+  it("does NOT emit @migration-task for simple $: var = expr conversions (those are reactive-safe)", () => {
+    const input = `<script>
+  $: x = a + b;
+</script>`;
+    const out = legacyReactiveToRunes(input);
+    expect(out).not.toContain("@migration-task");
+    expect(out).toContain("let x = $derived(a + b);");
+  });
+
+  it("emits a separate @migration-task marker for each block when multiple appear", () => {
+    const input = `<script>
+  $: {
+    a = b;
+  }
+  $: {
+    c = d;
+  }
+</script>`;
+    const out = legacyReactiveToRunes(input);
+    const markerCount = (out.match(/@migration-task/g) ?? []).length;
+    expect(markerCount).toBe(2);
+  });
+
   it("works inside <script lang='ts'> too", () => {
     const input = `<script lang="ts">
   let viewportHeight: number = 0;

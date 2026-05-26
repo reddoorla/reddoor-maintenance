@@ -58,6 +58,15 @@ function findStringClose(source: string, openIdx: number): number {
   return -1;
 }
 
+/** Flag each converted `$effect` block for manual review. The conversion is
+ * syntactically safe (compiles), but if any of the locals the block mutates
+ * was declared as plain `let` (not `$state`), the `$effect` runs once on
+ * mount and never again — code silently loses its reactivity. We can't
+ * detect that automatically (it would require scope analysis on the
+ * declaration sites), so we leave a breadcrumb for the human reviewer. */
+const MIGRATION_MARKER =
+  "// @migration-task: $effect won't trigger UI updates on plain `let` bindings — refine mutated locals to $state or split into per-variable $derived.";
+
 function transformBlocks(body: string): string {
   const out: string[] = [];
   let last = 0;
@@ -73,6 +82,7 @@ function transformBlocks(body: string): string {
     out.push(body.slice(last, m.index));
     out.push(leadingNewline);
     const blockBody = body.slice(openBraceIdx + 1, closeBraceIdx);
+    out.push(`${indent}${MIGRATION_MARKER}\n`);
     out.push(`${indent}$effect(() => {${blockBody}});`);
     last = closeBraceIdx + 1;
     BLOCK_REACTIVE_HEAD.lastIndex = last;
