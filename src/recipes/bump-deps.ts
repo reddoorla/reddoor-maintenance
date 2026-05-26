@@ -1,6 +1,7 @@
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { RecipeResult, Site } from "../types.js";
+import { siteLabel } from "../util/site.js";
 import { branchName, commit, createBranch, isWorkingTreeClean } from "../util/git.js";
 import { defaultSpawn, type SpawnFn } from "../audits/util/spawn.js";
 
@@ -10,10 +11,6 @@ export type BumpDepsOptions = {
   group?: BumpDepsGroup;
   spawn?: SpawnFn;
 };
-
-function siteLabel(site: Site): string {
-  return site.name ?? site.path;
-}
 
 async function exists(path: string): Promise<boolean> {
   try {

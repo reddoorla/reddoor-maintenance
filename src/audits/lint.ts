@@ -4,15 +4,12 @@ import { join } from "node:path";
 import { ESLint } from "eslint";
 import { check as prettierCheck, resolveConfig as prettierResolveConfig } from "prettier";
 import { glob } from "tinyglobby";
-import type { AuditResult, Site } from "../types.js";
+import type { AuditResult } from "../types.js";
+import { siteLabel } from "../util/site.js";
 import type { AuditContext } from "./util/inject.js";
 
 const TARGET_GLOBS = ["**/*.{ts,js,svelte}"];
 const IGNORE = ["node_modules/**", "dist/**", ".svelte-kit/**", "build/**", ".netlify/**"];
-
-function siteLabel(site: Site): string {
-  return site.name ?? site.path;
-}
 
 async function listFiles(cwd: string): Promise<string[]> {
   return glob(TARGET_GLOBS, { cwd, ignore: IGNORE, absolute: false });

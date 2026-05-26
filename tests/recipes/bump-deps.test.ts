@@ -75,7 +75,7 @@ describe("recipes/bump-deps", () => {
       cwd,
       encoding: "utf-8",
     }).trim();
-    expect(branch).toMatch(/^maint\/bump-deps-\d{8}T\d{6}Z$/);
+    expect(branch).toMatch(/^maint\/bump-deps-\d{8}T\d{9}Z$/);
   });
 
   it("streams pnpm up output so the user sees progress (passes streaming:true)", async () => {

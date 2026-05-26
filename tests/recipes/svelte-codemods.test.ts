@@ -77,7 +77,7 @@ describe("recipes/svelte-codemods", () => {
       cwd,
       encoding: "utf-8",
     }).trim();
-    expect(branch).toMatch(/^maint\/svelte-codemods-\d{8}T\d{6}Z$/);
+    expect(branch).toMatch(/^maint\/svelte-codemods-\d{8}T\d{9}Z$/);
   });
 
   it("is idempotent — re-running returns noop", async () => {

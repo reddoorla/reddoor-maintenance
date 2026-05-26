@@ -67,7 +67,7 @@ describe("recipes/onboard", () => {
       cwd,
       encoding: "utf-8",
     }).trim();
-    expect(branch).toMatch(/^maint\/onboard-\d{8}T\d{6}Z$/);
+    expect(branch).toMatch(/^maint\/onboard-\d{8}T\d{9}Z$/);
   });
 
   it("returns noop when every needed dep is already present", async () => {

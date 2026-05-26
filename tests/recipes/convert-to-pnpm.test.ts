@@ -76,7 +76,7 @@ describe("recipes/convert-to-pnpm", () => {
       cwd,
       encoding: "utf-8",
     }).trim();
-    expect(branch).toMatch(/^maint\/convert-to-pnpm-\d{8}T\d{6}Z$/);
+    expect(branch).toMatch(/^maint\/convert-to-pnpm-\d{8}T\d{9}Z$/);
   });
 
   it("rewrites npm references in package.json scripts during conversion", async () => {

@@ -31,7 +31,12 @@
 // Note: lazy `[\s\S]*?` (not `[^}]*`) so default values containing braces
 // — `() => {}`, `{ foo: 1 }`, etc. — don't truncate the match early.
 const PROPS_DESTRUCTURE = /let\s*\{([\s\S]*?)\}(\s*:\s*\{([\s\S]*?)\})?\s*=\s*\$props\(\)/;
-const DOLLAR_PROPS_CLASS = /\$\$props\.class\b/g;
+// Two regexes: a stateless one for "does this string contain $$props.class?"
+// existence checks, and the /g one for the iterating template rewrite. Mixing
+// .test() and .replace() on the same /g regex makes lastIndex management
+// fragile — easy to forget the reset on a future edit.
+const HAS_DOLLAR_PROPS_CLASS = /\$\$props\.class\b/;
+const DOLLAR_PROPS_CLASS_GLOBAL = /\$\$props\.class\b/g;
 const DOLLAR_PROPS_ANY = /\$\$props\b/;
 const SCRIPT_BLOCK = /<script\b[^>]*>[\s\S]*?<\/script>/g;
 const MIGRATION_TASK = /^<!--\s*@migration-task[\s\S]*?-->\s*\n?/gm;
@@ -57,8 +62,7 @@ function restoreScripts(masked: string, blocks: string[]): string {
 export function dollarPropsClass(source: string): string {
   // Bail early if the template doesn't reference $$props.class
   const { masked } = maskScripts(source);
-  if (!DOLLAR_PROPS_CLASS.test(masked)) return source;
-  DOLLAR_PROPS_CLASS.lastIndex = 0;
+  if (!HAS_DOLLAR_PROPS_CLASS.test(masked)) return source;
 
   // Bail if there's no $props() destructuring to extend
   if (!PROPS_DESTRUCTURE.test(source)) return source;
@@ -80,7 +84,7 @@ export function dollarPropsClass(source: string): string {
 
   // Replace $$props.class in template only (re-mask after destructuring update)
   const reMasked = maskScripts(updated);
-  const templateRewritten = reMasked.masked.replace(DOLLAR_PROPS_CLASS, IDENT);
+  const templateRewritten = reMasked.masked.replace(DOLLAR_PROPS_CLASS_GLOBAL, IDENT);
   updated = restoreScripts(templateRewritten, reMasked.blocks);
 
   // Strip @migration-task comments if no $$props references remain anywhere

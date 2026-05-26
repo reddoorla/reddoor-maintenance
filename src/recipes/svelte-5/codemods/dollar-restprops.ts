@@ -29,22 +29,7 @@ function removeInterfaceBlock(source: string): string {
   }
 }
 
-/** Find the index of the closing quote for a string literal that opens at
- * `openIdx`. Handles backslash escapes. Returns -1 if unterminated. */
-function findStringEnd(source: string, openIdx: number): number {
-  const quote = source[openIdx];
-  let i = openIdx + 1;
-  while (i < source.length) {
-    const ch = source[i];
-    if (ch === "\\") {
-      i += 2;
-      continue;
-    }
-    if (ch === quote) return i;
-    i++;
-  }
-  return -1;
-}
+import { findStringEnd } from "../../../util/svelte-source.js";
 
 /** Mask every `'…'`, `"…"`, and template literal in `source` with a placeholder
  * so subsequent regex passes can rewrite identifiers without corrupting string

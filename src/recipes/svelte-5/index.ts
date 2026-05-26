@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import type { RecipeResult, Site } from "../../types.js";
+import { siteLabel } from "../../util/site.js";
 import { branchName, commit, createBranch, isWorkingTreeClean } from "../../util/git.js";
 import { readPackageJson } from "../../util/pkg.js";
 import { defaultSpawn, type SpawnFn } from "../../audits/util/spawn.js";
@@ -14,10 +15,6 @@ import { writeMigrationSummary } from "./step-summary.js";
 export type UpgradeSvelte4to5Options = {
   spawn?: SpawnFn;
 };
-
-function siteLabel(site: Site): string {
-  return site.name ?? site.path;
-}
 
 async function alreadyOnSvelte5(cwd: string): Promise<boolean> {
   try {

@@ -8,10 +8,10 @@ async function git(cwd: string, args: string[]): Promise<{ stdout: string; stder
 }
 
 export function branchName(recipe: string, when: Date = new Date()): string {
-  const iso = when.toISOString().replace(/[-:.]/g, "").replace(/Z$/, "Z");
-  // 2026-05-20T10:30:00.000Z → 20260520T103000000Z; trim millis:
-  const trimmed = iso.replace(/(\d{8}T\d{6})\d+(Z)$/, "$1$2");
-  return `maint/${recipe}-${trimmed}`;
+  // ISO with millisecond precision: 2026-05-20T10:30:00.123Z → 20260520T103000123Z.
+  // Millis (vs. second-precision) shrinks the collision window for parallel runs.
+  const compact = when.toISOString().replace(/[-:.]/g, "");
+  return `maint/${recipe}-${compact}`;
 }
 
 export async function currentBranch(cwd: string): Promise<string> {

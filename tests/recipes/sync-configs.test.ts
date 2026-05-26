@@ -47,7 +47,7 @@ describe("recipes/sync-configs", () => {
       cwd,
       encoding: "utf-8",
     }).trim();
-    expect(branch).toMatch(/^maint\/sync-configs-\d{8}T\d{6}Z$/);
+    expect(branch).toMatch(/^maint\/sync-configs-\d{8}T\d{9}Z$/);
   });
 
   it("running twice on drift leaves the second run as a noop", async () => {

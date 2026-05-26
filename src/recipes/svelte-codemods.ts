@@ -1,12 +1,9 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { RecipeResult, Site } from "../types.js";
+import { siteLabel } from "../util/site.js";
 import { branchName, commit, createBranch, isWorkingTreeClean } from "../util/git.js";
 import { planGotchaCodemods } from "./svelte-5/step-gotchas.js";
-
-function siteLabel(site: Site): string {
-  return site.name ?? site.path;
-}
 
 /**
  * Standalone codemod pass for sites already on Svelte 5.
