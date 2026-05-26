@@ -1,7 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { syncConfigs } from "../../recipes/sync-configs.js";
+import { syncConfigs, ALL_CONFIG_NAMES, isConfigName } from "../../recipes/sync-configs.js";
 import { ALL_TEMPLATES, templatesByName } from "../../recipes/sync-configs/templates.js";
+import {
+  CANONICAL_GITIGNORE_ENTRIES,
+  mergeGitignore,
+} from "../../recipes/sync-configs/gitignore.js";
 import type { ConfigName, RecipeResult } from "../../types.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
 import { cloneIfNeeded } from "../fleet/clone-if-needed.js";
@@ -15,13 +19,39 @@ export type SyncConfigsCommandOptions = {
 };
 
 function parseOnly(value?: string): ConfigName[] | undefined {
-  return value ? (value.split(",").map((s) => s.trim()) as ConfigName[]) : undefined;
+  if (!value) return undefined;
+  const names = value.split(",").map((s) => s.trim());
+  for (const n of names) {
+    if (!isConfigName(n)) {
+      throw Object.assign(
+        new Error(`unknown config in --only: "${n}". Valid: ${ALL_CONFIG_NAMES.join(", ")}`),
+        { exitCode: 2 },
+      );
+    }
+  }
+  return names as ConfigName[];
+}
+
+async function dryPlanGitignore(cwd: string): Promise<string | null> {
+  let existing: string | null;
+  try {
+    existing = await readFile(join(cwd, ".gitignore"), "utf-8");
+  } catch {
+    return "would create .gitignore";
+  }
+  const merge = mergeGitignore(existing, CANONICAL_GITIGNORE_ENTRIES);
+  if (merge.added.length === 0) return null;
+  return `would update .gitignore (${merge.added.length} canonical entries to add)`;
 }
 
 async function dryPlan(cwd: string, which?: ConfigName[]): Promise<string> {
-  const targets = which ? templatesByName(which) : ALL_TEMPLATES;
+  const includeGitignore = which ? which.includes("gitignore") : true;
+  const templateTargets = which
+    ? templatesByName(which.filter((c): c is ConfigName => c !== "gitignore"))
+    : ALL_TEMPLATES;
+
   const lines: string[] = [];
-  for (const t of targets) {
+  for (const t of templateTargets) {
     let existing = "";
     try {
       existing = await readFile(join(cwd, t.path), "utf-8");
@@ -29,6 +59,10 @@ async function dryPlan(cwd: string, which?: ConfigName[]): Promise<string> {
       // missing file => will be created
     }
     if (existing !== t.contents) lines.push(`would update ${t.path} (config: ${t.config})`);
+  }
+  if (includeGitignore) {
+    const gi = await dryPlanGitignore(cwd);
+    if (gi) lines.push(gi);
   }
   return lines.length === 0 ? "no changes needed" : lines.join("\n");
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname, join } from "node:path";
@@ -151,5 +151,83 @@ describe("recipes/bump-deps", () => {
         },
       ),
     ).rejects.toThrow(/working tree/i);
+  });
+
+  it("checks working tree clean BEFORE running pnpm install (no surprise lockfile resync)", async () => {
+    // Regression: the pre-flight pnpm install used to run before the
+    // clean-tree check, which meant a desynced lockfile would be silently
+    // rewritten on top of whatever else was in the tree.
+    const cwd = await copyFixtureToTmp(pristine);
+    await writeFile(join(cwd, "dirty.txt"), "uncommitted work", "utf-8");
+
+    const calls: string[] = [];
+    const spawn: SpawnFn = async (cmd, args) => {
+      calls.push(`${cmd} ${args.join(" ")}`);
+      return { code: 0, stdout: "{}", stderr: "" };
+    };
+
+    await expect(bumpDeps({ path: cwd }, { spawn })).rejects.toThrow(/working tree/i);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("returns failed with remediation when site has package-lock.json but no pnpm-lock.yaml", async () => {
+    const cwd = await copyFixtureToTmp(pristine);
+    await writeFile(
+      join(cwd, "package-lock.json"),
+      JSON.stringify({ name: "test", lockfileVersion: 3 }),
+      "utf-8",
+    );
+    execFileSync("git", ["add", "-A"], { cwd, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "add npm lock"], { cwd, stdio: "ignore" });
+
+    const calls: string[] = [];
+    const spawn: SpawnFn = async (cmd, args) => {
+      calls.push(`${cmd} ${args.join(" ")}`);
+      return { code: 0, stdout: "", stderr: "" };
+    };
+
+    const result = await bumpDeps({ path: cwd }, { spawn });
+    expect(result.status).toBe("failed");
+    expect(result.notes).toMatch(/convert-to-pnpm/i);
+    // No pnpm commands were attempted — we bailed before any spawn.
+    expect(calls).toHaveLength(0);
+  });
+
+  it("returns failed with remediation when site has yarn.lock but no pnpm-lock.yaml", async () => {
+    const cwd = await copyFixtureToTmp(pristine);
+    await writeFile(join(cwd, "yarn.lock"), "# yarn lockfile v1\n", "utf-8");
+    execFileSync("git", ["add", "-A"], { cwd, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "add yarn lock"], { cwd, stdio: "ignore" });
+
+    const result = await bumpDeps(
+      { path: cwd },
+      {
+        spawn: async () => {
+          throw new Error("unexpected spawn — pre-flight should have bailed");
+        },
+      },
+    );
+    expect(result.status).toBe("failed");
+    expect(result.notes).toMatch(/convert-to-pnpm/i);
+  });
+
+  it("allows a site with pnpm-lock.yaml to proceed normally", async () => {
+    // Regression: the PM detection must not block the happy path.
+    const cwd = await copyFixtureToTmp(pristine);
+    await mkdir(join(cwd), { recursive: true });
+    await writeFile(join(cwd, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf-8");
+    execFileSync("git", ["add", "-A"], { cwd, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "add pnpm lock"], { cwd, stdio: "ignore" });
+
+    const result = await bumpDeps(
+      { path: cwd },
+      {
+        spawn: spawnSequence([
+          { cmd: "pnpm", args: ["install"], result: { code: 0, stdout: "" } },
+          { cmd: "pnpm", args: ["outdated"], result: { code: 0, stdout: "{}" } },
+        ]),
+      },
+    );
+    expect(result.status).toBe("noop");
   });
 });

@@ -3,7 +3,8 @@ import { readFile, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname, join } from "node:path";
-import { onboard } from "../../src/recipes/onboard.js";
+import { onboard, AUDIT_DEPS, type OnboardAudit } from "../../src/recipes/onboard.js";
+import { baselineVersions } from "../../src/configs/baseline-versions.js";
 import { copyFixtureToTmp } from "./_helpers/site-tmpdir.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 
@@ -147,6 +148,19 @@ describe("recipes/onboard", () => {
       devDependencies?: Record<string, string>;
     };
     expect(after.devDependencies?.["@reddoorla/maintenance"]).toBe(`^${ownPkg.version}`);
+  });
+
+  it("AUDIT_DEPS sources versions from baseline-versions (no hardcoded drift)", () => {
+    // Regression: AUDIT_DEPS versions used to be hardcoded in onboard.ts
+    // and would silently drift away from src/configs/baseline-versions.ts.
+    // If anyone bumps a baseline version, the onboard recipe must track it
+    // automatically — this test catches a re-introduction of the hardcoded
+    // literals.
+    for (const audit of Object.keys(AUDIT_DEPS) as OnboardAudit[]) {
+      for (const dep of AUDIT_DEPS[audit]) {
+        expect(dep.version).toBe(baselineVersions[dep.name]);
+      }
+    }
   });
 
   it("returns failed when pnpm install errors", async () => {

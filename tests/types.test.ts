@@ -9,6 +9,7 @@ import type {
   ConfigName,
 } from "../src/types.js";
 import { ALL_RECIPE_NAMES, isRecipeName } from "../src/recipes/index.js";
+import { ALL_CONFIG_NAMES, isConfigName } from "../src/recipes/sync-configs.js";
 
 describe("types", () => {
   it("Site requires path, allows optional fields", () => {
@@ -72,5 +73,24 @@ describe("types", () => {
     const _ok4: ConfigName = "playwright-a11y";
     const _ok5: ConfigName = "svelte";
     const _ok6: ConfigName = "gitignore";
+  });
+
+  it("ALL_CONFIG_NAMES matches the ConfigName union exactly (no registration drift)", () => {
+    // Same regression class as the ALL_RECIPE_NAMES drift: the runtime
+    // array must enumerate every union member so CLI --only validation
+    // catches typos rather than silently passing them through.
+    const all: ConfigName[] = [
+      "lighthouse",
+      "eslint",
+      "prettier",
+      "playwright-a11y",
+      "svelte",
+      "gitignore",
+    ];
+    expect([...ALL_CONFIG_NAMES].sort()).toEqual([...all].sort());
+    for (const name of all) {
+      expect(isConfigName(name)).toBe(true);
+    }
+    expect(isConfigName("not-a-config")).toBe(false);
   });
 });
