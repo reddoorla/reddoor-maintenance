@@ -106,6 +106,22 @@ describe("codemod: $state + $effect sync → $derived", () => {
     expect(stateEffectSyncToDerived(input)).toBe(input);
   });
 
+  it("handles the multi-line $effect form with trailing semicolons inside the block", () => {
+    const input = `<script lang="ts">
+  let { data } = $props();
+
+  let content = $state(data.page.data);
+  $effect(() => {
+    data;
+    content = data.page.data;
+  });
+</script>`;
+    const out = stateEffectSyncToDerived(input);
+    expect(out).toContain("let content = $derived(data.page.data);");
+    expect(out).not.toMatch(/\$state\(data\.page\.data\)/);
+    expect(out).not.toMatch(/\$effect\(\(\)\s*=>\s*\{[\s\S]*?content\s*=\s*data\.page\.data/);
+  });
+
   it("does not match when the effect references a different variable name", () => {
     const input = `<script>
   let { data } = $props();
