@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFile, writeFile, stat } from "node:fs/promises";
+import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname, join } from "node:path";
@@ -132,6 +132,48 @@ describe("recipes/convert-to-pnpm", () => {
     await expect(convertToPnpm({ path: cwd }, { spawn: fakePnpmInstall() })).rejects.toThrow(
       /working tree/i,
     );
+  });
+
+  it("removes node_modules before running pnpm install (no phantom-dep contamination from flat npm install)", async () => {
+    const cwd = await copyFixtureToTmp(pristine);
+
+    // Simulate a previously-npm-installed site: lockfile + a populated flat
+    // node_modules that pnpm would otherwise inherit and produce phantom-dep
+    // resolution issues on top of.
+    await writeFile(
+      join(cwd, "package-lock.json"),
+      JSON.stringify({ name: "test", lockfileVersion: 3 }),
+      "utf-8",
+    );
+    await mkdir(join(cwd, "node_modules", "some-stale-dep"), { recursive: true });
+    await writeFile(
+      join(cwd, "node_modules", "some-stale-dep", "marker.txt"),
+      "stale npm install\n",
+      "utf-8",
+    );
+    // gitignore node_modules so the working tree stays clean — recipes refuse
+    // to run on a dirty tree.
+    await writeFile(join(cwd, ".gitignore"), "node_modules\n", "utf-8");
+    execFileSync("git", ["add", "-A"], { cwd, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "add npm lock + stale node_modules"], {
+      cwd,
+      stdio: "ignore",
+    });
+
+    let nodeModulesExistedAtInstall: boolean | null = null;
+    const spawn: SpawnFn = async (cmd, args, opts) => {
+      if (cmd === "pnpm" && args[0] === "install") {
+        const installCwd = opts?.cwd ?? process.cwd();
+        nodeModulesExistedAtInstall = await exists(join(installCwd, "node_modules"));
+        await writeFile(join(installCwd, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf-8");
+        return { code: 0, stdout: "", stderr: "" };
+      }
+      throw new Error(`unexpected spawn: ${cmd} ${args.join(" ")}`);
+    };
+
+    const result = await convertToPnpm({ path: cwd }, { spawn });
+    expect(result.status).toBe("applied");
+    expect(nodeModulesExistedAtInstall).toBe(false);
   });
 
   it("returns failed when pnpm install errors", async () => {

@@ -99,7 +99,14 @@ export async function convertToPnpm(
   const pkgSha = await commit(site.path, "chore(pnpm): pin packageManager + rewrite npm scripts");
   if (pkgSha) shas.push(pkgSha);
 
-  // Step 3: run pnpm install to materialize pnpm-lock.yaml.
+  // Step 3: remove any existing flat node_modules from a prior npm/yarn run
+  // before pnpm installs. Sharing a node_modules across package managers
+  // produces phantom-dep resolution issues (pnpm's nested layout disagrees
+  // with what's already on disk). node_modules is gitignored on every
+  // reddoor site so this doesn't dirty the tree.
+  await rm(join(site.path, "node_modules"), { recursive: true, force: true });
+
+  // Step 4: run pnpm install to materialize pnpm-lock.yaml.
   const installResult = await spawn("pnpm", ["install"], {
     cwd: site.path,
     streaming: true,
