@@ -1,9 +1,10 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { RecipeResult, Site } from "../types.js";
-import { siteLabel } from "../util/site.js";
-import { branchName, commit, createBranch, isWorkingTreeClean } from "../util/git.js";
 import { planGotchaCodemods } from "./svelte-5/step-gotchas.js";
+import { withRecipe } from "./_with-recipe.js";
+
+type Change = { rel: string; after: string };
 
 /**
  * Standalone codemod pass for sites already on Svelte 5.
@@ -17,40 +18,22 @@ import { planGotchaCodemods } from "./svelte-5/step-gotchas.js";
  * when there is something to apply. Re-runs against a clean tree are noop.
  */
 export async function svelteCodemods(site: Site): Promise<RecipeResult> {
-  const label = siteLabel(site);
-
-  const changes = await planGotchaCodemods(site.path);
-  if (changes.length === 0) {
-    return {
-      recipe: "svelte-codemods",
-      site: label,
-      status: "noop",
-      commits: [],
-      notes: "no codemod targets matched",
-    };
-  }
-
-  if (!(await isWorkingTreeClean(site.path))) {
-    throw new Error(`refusing to run: working tree is not clean at ${site.path}`);
-  }
-
-  const branch = branchName("svelte-codemods");
-  await createBranch(site.path, branch);
-
-  for (const c of changes) {
-    await writeFile(join(site.path, c.rel), c.after, "utf-8");
-  }
-
-  const sha = await commit(
-    site.path,
-    `refactor(svelte5): apply codemods (${changes.length} files)`,
-  );
-
-  return {
-    recipe: "svelte-codemods",
-    site: label,
-    status: "applied",
-    commits: sha ? [sha] : [],
-    notes: `branch: ${branch}`,
-  };
+  return withRecipe<Change[]>({
+    name: "svelte-codemods",
+    site,
+    plan: async () => {
+      const changes = await planGotchaCodemods(site.path);
+      if (changes.length === 0) {
+        return { kind: "noop", notes: "no codemod targets matched" };
+      }
+      return { kind: "apply", plan: changes };
+    },
+    apply: async (changes, { commit, cwd }) => {
+      for (const c of changes) {
+        await writeFile(join(cwd, c.rel), c.after, "utf-8");
+      }
+      await commit(`refactor(svelte5): apply codemods (${changes.length} files)`);
+      return { kind: "ok" };
+    },
+  });
 }

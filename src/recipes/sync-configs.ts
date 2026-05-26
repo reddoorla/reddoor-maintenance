@@ -1,21 +1,14 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { RecipeResult, Site, ConfigName } from "../types.js";
-import { siteLabel } from "../util/site.js";
 import { ALL_TEMPLATES, templatesByName, type ConfigTemplate } from "./sync-configs/templates.js";
 import {
   CANONICAL_GITIGNORE_ENTRIES,
   mergeGitignore,
   findTrackedArtifacts,
 } from "./sync-configs/gitignore.js";
-import {
-  branchName,
-  commit,
-  createBranch,
-  isWorkingTreeClean,
-  listTrackedFiles,
-  removeFromIndex,
-} from "../util/git.js";
+import { listTrackedFiles, removeFromIndex } from "../util/git.js";
+import { withRecipe } from "./_with-recipe.js";
 
 export type SyncConfigsOptions = {
   which?: ConfigName[];
@@ -87,56 +80,34 @@ export async function syncConfigs(
   site: Site,
   opts: SyncConfigsOptions = {},
 ): Promise<RecipeResult> {
-  const label = siteLabel(site);
   const requested = opts.which ?? ALL_TEMPLATES.map((t) => t.config).concat(GITIGNORE_CONFIG);
-
   const templateNames = requested.filter((c): c is ConfigName => c !== GITIGNORE_CONFIG);
   const templates = templatesByName(templateNames);
   const includeGitignore = requested.includes(GITIGNORE_CONFIG);
 
-  const templateDiffs = await planTemplateDiffs(site.path, templates);
-  const gitignorePlan: GitignorePlan = includeGitignore
-    ? await planGitignore(site.path)
-    : { kind: "noop" };
-
-  if (templateDiffs.length === 0 && gitignorePlan.kind === "noop") {
-    return {
-      recipe: "sync-configs",
-      site: label,
-      status: "noop",
-      commits: [],
-      notes: "all targeted configs already match",
-    };
-  }
-
-  if (!(await isWorkingTreeClean(site.path))) {
-    throw new Error(`refusing to run: working tree is not clean at ${site.path}`);
-  }
-
-  const branch = branchName("sync-configs");
-  await createBranch(site.path, branch);
-
-  const shas: string[] = [];
-  for (const t of templateDiffs) {
-    await writeFile(join(site.path, t.path), t.contents, "utf-8");
-    const sha = await commit(
-      site.path,
-      `chore: sync ${t.config} config from @reddoorla/maintenance`,
-    );
-    if (sha) shas.push(sha);
-  }
-
-  if (gitignorePlan.kind === "apply") {
-    await applyGitignore(site.path, gitignorePlan);
-    const sha = await commit(site.path, `chore: sync gitignore from @reddoorla/maintenance`);
-    if (sha) shas.push(sha);
-  }
-
-  return {
-    recipe: "sync-configs",
-    site: label,
-    status: "applied",
-    commits: shas,
-    notes: `branch: ${branch}`,
-  };
+  return withRecipe({
+    name: "sync-configs",
+    site,
+    plan: async () => {
+      const templateDiffs = await planTemplateDiffs(site.path, templates);
+      const gitignorePlan: GitignorePlan = includeGitignore
+        ? await planGitignore(site.path)
+        : { kind: "noop" };
+      if (templateDiffs.length === 0 && gitignorePlan.kind === "noop") {
+        return { kind: "noop", notes: "all targeted configs already match" };
+      }
+      return { kind: "apply", plan: { templateDiffs, gitignorePlan } };
+    },
+    apply: async ({ templateDiffs, gitignorePlan }, { commit }) => {
+      for (const t of templateDiffs) {
+        await writeFile(join(site.path, t.path), t.contents, "utf-8");
+        await commit(`chore: sync ${t.config} config from @reddoorla/maintenance`);
+      }
+      if (gitignorePlan.kind === "apply") {
+        await applyGitignore(site.path, gitignorePlan);
+        await commit(`chore: sync gitignore from @reddoorla/maintenance`);
+      }
+      return { kind: "ok" };
+    },
+  });
 }
