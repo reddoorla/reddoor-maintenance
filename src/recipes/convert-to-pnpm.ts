@@ -1,6 +1,7 @@
 import { rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { RecipeResult, Site } from "../types.js";
+import { siteLabel } from "../util/site.js";
 import { branchName, commit, createBranch, isWorkingTreeClean } from "../util/git.js";
 import { readPackageJson, writePackageJson, type PackageJsonLike } from "../util/pkg.js";
 import { defaultSpawn, type SpawnFn } from "../audits/util/spawn.js";
@@ -24,10 +25,6 @@ async function exists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-function siteLabel(site: Site): string {
-  return site.name ?? site.path;
 }
 
 export async function convertToPnpm(

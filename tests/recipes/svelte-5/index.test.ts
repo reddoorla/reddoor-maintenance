@@ -25,7 +25,7 @@ describe("recipes/svelte-5: upgradeSvelte4to5", () => {
       cwd,
       encoding: "utf-8",
     }).trim();
-    expect(branch).toMatch(/^maint\/svelte-4-to-5-\d{8}T\d{6}Z$/);
+    expect(branch).toMatch(/^maint\/svelte-4-to-5-\d{8}T\d{9}Z$/);
 
     const pkg = JSON.parse(await readFile(join(cwd, "package.json"), "utf-8")) as {
       devDependencies?: Record<string, string>;

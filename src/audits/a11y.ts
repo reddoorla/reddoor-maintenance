@@ -1,7 +1,8 @@
 import { readFile, writeFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AuditResult, Site } from "../types.js";
+import type { AuditResult } from "../types.js";
+import { siteLabel } from "../util/site.js";
 import { a11yRoutes } from "../configs/playwright-a11y.js";
 import { defaultSpawn } from "./util/spawn.js";
 import type { AuditContext } from "./util/inject.js";
@@ -24,10 +25,6 @@ type NormalizedA11y = {
 };
 
 const RESULTS_REL = ".reddoor-a11y/results.json";
-
-function siteLabel(site: Site): string {
-  return site.name ?? site.path;
-}
 
 async function readJsonMaybe<T>(path: string): Promise<T | null> {
   try {

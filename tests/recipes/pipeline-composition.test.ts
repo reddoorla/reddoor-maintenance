@@ -125,7 +125,7 @@ describe("recipes/pipeline composition (convert-to-pnpm → onboard → sync-con
       cwd,
       encoding: "utf-8",
     }).trim();
-    expect(branch).toMatch(/^maint\/svelte-codemods-\d{8}T\d{6}Z$/);
+    expect(branch).toMatch(/^maint\/svelte-codemods-\d{8}T\d{9}Z$/);
 
     // Final state: full commit chain visible — at least one commit per recipe
     // (some recipes contribute multiple). The chain establishes the onboarding

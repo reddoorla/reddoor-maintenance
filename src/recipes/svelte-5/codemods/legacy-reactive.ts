@@ -17,6 +17,8 @@
  * Scoped to `<script>` content only — `$:` in template/style text is left
  * alone (it would only ever appear there as literal text anyway).
  */
+import { findStringEnd } from "../../../util/svelte-source.js";
+
 const SCRIPT_BLOCK = /<script\b([^>]*)>([\s\S]*?)<\/script>/g;
 const SIMPLE_REACTIVE = /^([ \t]*)\$:\s*(\w+)\s*=\s*([^;\n]+);?[ \t]*$/gm;
 const BLOCK_REACTIVE_HEAD = /(^|\n)([ \t]*)\$:\s*\{/g;
@@ -28,7 +30,7 @@ function findMatchingClose(source: string, openIdx: number): number {
     const ch = source[i];
     // Skip over string literals so braces inside strings don't fool the counter.
     if (ch === '"' || ch === "'" || ch === "`") {
-      const closeStr = findStringClose(source, i);
+      const closeStr = findStringEnd(source, i);
       if (closeStr === -1) return -1;
       i = closeStr + 1;
       continue;
@@ -38,21 +40,6 @@ function findMatchingClose(source: string, openIdx: number): number {
       depth--;
       if (depth === 0) return i;
     }
-    i++;
-  }
-  return -1;
-}
-
-function findStringClose(source: string, openIdx: number): number {
-  const quote = source[openIdx];
-  let i = openIdx + 1;
-  while (i < source.length) {
-    const ch = source[i];
-    if (ch === "\\") {
-      i += 2;
-      continue;
-    }
-    if (ch === quote) return i;
     i++;
   }
   return -1;

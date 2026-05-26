@@ -1,4 +1,5 @@
-import type { AuditResult, Site } from "../types.js";
+import type { AuditResult } from "../types.js";
+import { siteLabel } from "../util/site.js";
 import { defaultSpawn, type SpawnResult } from "./util/spawn.js";
 import type { AuditContext } from "./util/inject.js";
 
@@ -43,10 +44,6 @@ type NpmAuditJson = {
     }
   >;
 };
-
-function siteLabel(site: Site): string {
-  return site.name ?? site.path;
-}
 
 function classify(v: Counts) {
   if (v.critical > 0 || v.high > 0) return "fail" as const;
@@ -170,9 +167,11 @@ async function runAuditTool(
   }
 
   // Without metadata.vulnerabilities there are no counts to report and we
-  // can't trust the result. Treat as a tool failure so the caller can fall
-  // through to the other audit tool.
-  if (!parsed.metadata?.vulnerabilities) {
+  // can't trust the result. An empty `{}` is just as suspect as a missing
+  // key — counts default to 0 and we'd silently report "pass". Treat both
+  // as a tool failure so the caller can fall through to the other audit.
+  const vulnsMeta = parsed.metadata?.vulnerabilities;
+  if (!vulnsMeta || Object.keys(vulnsMeta).length === 0) {
     return { kind: "error", reason: "no metadata.vulnerabilities in output" };
   }
 

@@ -200,6 +200,26 @@ describe("audits/security", () => {
     expect(result.summary).toMatch(/^npm audit/);
   });
 
+  it("treats metadata.vulnerabilities = {} as a tool error, not a clean pass (false-pass guard)", async () => {
+    // Regression: previously `!parsed.metadata?.vulnerabilities` evaluated
+    // to false on an empty object, so a malformed audit output with
+    // `{ metadata: { vulnerabilities: {} } }` passed the existence check.
+    // counts defaulted to 0 and the result was silently "pass". Reject the
+    // empty-object shape as a tool error so we fall through to the other
+    // audit tool (or surface "skip" if neither tool produced real data).
+    const result = await securityAudit({
+      site: { path: "/fake" },
+      spawn: fakeSpawn({
+        pnpm: {
+          code: 0,
+          stdout: JSON.stringify({ metadata: { vulnerabilities: {} } }),
+        },
+        // No npm → falls through to skip.
+      }),
+    });
+    expect(result.status).toBe("skip");
+  });
+
   it("returns skip when both pnpm and npm fail to audit", async () => {
     const result = await securityAudit({
       site: { path: "/fake" },

@@ -15,9 +15,19 @@ const here = dirname(fileURLToPath(import.meta.url));
 const pristine = resolve(here, "../fixtures/pristine-starter");
 
 describe("util/git", () => {
-  it("branchName produces a maint/<recipe>-<UTC> string", () => {
-    const name = branchName("sync-configs", new Date("2026-05-20T10:30:00Z"));
-    expect(name).toBe("maint/sync-configs-20260520T103000Z");
+  it("branchName produces a maint/<recipe>-<UTC ms-precision> string", () => {
+    const name = branchName("sync-configs", new Date("2026-05-20T10:30:00.123Z"));
+    expect(name).toBe("maint/sync-configs-20260520T103000123Z");
+  });
+
+  it("branchName uses millisecond precision so two same-second invocations don't collide", () => {
+    // Regression: branchName used to be second-precision; parallel runs
+    // (or even two terminals firing within the same second) collided on
+    // the same branch name. Millisecond precision shrinks the collision
+    // window to a single ms.
+    const a = branchName("sync-configs", new Date("2026-05-20T10:30:00.123Z"));
+    const b = branchName("sync-configs", new Date("2026-05-20T10:30:00.456Z"));
+    expect(a).not.toBe(b);
   });
 
   it("currentBranch returns the current branch", async () => {

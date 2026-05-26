@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { RecipeResult, Site, ConfigName } from "../types.js";
+import { siteLabel } from "../util/site.js";
 import { ALL_TEMPLATES, templatesByName, type ConfigTemplate } from "./sync-configs/templates.js";
 import {
   CANONICAL_GITIGNORE_ENTRIES,
@@ -37,10 +38,6 @@ export const ALL_CONFIG_NAMES: ConfigName[] = [
 
 export function isConfigName(value: string): value is ConfigName {
   return (ALL_CONFIG_NAMES as string[]).includes(value);
-}
-
-function siteLabel(site: Site): string {
-  return site.name ?? site.path;
 }
 
 async function readMaybe(path: string): Promise<string | null> {

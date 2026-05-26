@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { AuditResult, Site } from "../types.js";
+import type { AuditResult } from "../types.js";
+import { siteLabel } from "../util/site.js";
 import { baselineVersions } from "../configs/baseline-versions.js";
 import type { AuditContext } from "./util/inject.js";
 
@@ -12,10 +13,6 @@ export type DepsDriftEntry = {
   actual: string;
   drift: Drift;
 };
-
-function siteLabel(site: Site): string {
-  return site.name ?? site.path;
-}
 
 function stripCaret(range: string): string {
   return range.replace(/^[\^~]/, "");

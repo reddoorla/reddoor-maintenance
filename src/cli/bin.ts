@@ -33,6 +33,24 @@ const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {
   onboard: "Install @reddoorla/maintenance + audit deps on a site (preferred first step).",
 };
 
+/** Run a command thunk and exit with its code, falling back to a clean
+ * error message on throw. Wraps the ~10-line try/catch every `.action()`
+ * used to duplicate. `verbose` flips between full stack and message-only. */
+async function runOrExit(
+  fn: () => Promise<{ output: string; code: number }>,
+  opts: { verbose?: boolean },
+): Promise<void> {
+  try {
+    const { output, code } = await fn();
+    console.log(output);
+    process.exit(code);
+  } catch (err) {
+    const e = err as { exitCode?: number; message?: string; stack?: string };
+    console.error(opts.verbose ? (e.stack ?? e.message) : (e.message ?? String(err)));
+    process.exit(e.exitCode ?? 1);
+  }
+}
+
 const cli = cac("reddoor-maint");
 
 cli.option("--cwd <path>", "Override working directory (default: process.cwd())");
@@ -67,17 +85,7 @@ cli
         cwd?: string;
         verbose?: boolean;
       },
-    ) => {
-      try {
-        const { output, code } = await runAuditCommand(site, opts);
-        console.log(output);
-        process.exit(code);
-      } catch (err) {
-        const e = err as { exitCode?: number; message?: string; stack?: string };
-        console.error(opts.verbose ? (e.stack ?? e.message) : (e.message ?? String(err)));
-        process.exit(e.exitCode ?? 1);
-      }
-    },
+    ) => runOrExit(() => runAuditCommand(site, opts), opts),
   );
 
 cli
@@ -97,17 +105,7 @@ cli
         cwd?: string;
         verbose?: boolean;
       },
-    ) => {
-      try {
-        const { output, code } = await runSyncConfigsCommand(site, opts);
-        console.log(output);
-        process.exit(code);
-      } catch (err) {
-        const e = err as { exitCode?: number; message?: string; stack?: string };
-        console.error(opts.verbose ? (e.stack ?? e.message) : (e.message ?? String(err)));
-        process.exit(e.exitCode ?? 1);
-      }
-    },
+    ) => runOrExit(() => runSyncConfigsCommand(site, opts), opts),
   );
 
 cli
@@ -125,17 +123,7 @@ cli
         cwd?: string;
         verbose?: boolean;
       },
-    ) => {
-      try {
-        const { output, code } = await runBumpDepsCommand(site, opts);
-        console.log(output);
-        process.exit(code);
-      } catch (err) {
-        const e = err as { exitCode?: number; message?: string; stack?: string };
-        console.error(opts.verbose ? (e.stack ?? e.message) : (e.message ?? String(err)));
-        process.exit(e.exitCode ?? 1);
-      }
-    },
+    ) => runOrExit(() => runBumpDepsCommand(site, opts), opts),
   );
 
 cli
@@ -148,17 +136,7 @@ cli
       upgrade: string,
       site: string | undefined,
       opts: { fleet?: string; workdir?: string; cwd?: string; verbose?: boolean },
-    ) => {
-      try {
-        const { output, code } = await runUpgradeCommand(upgrade, site, opts);
-        console.log(output);
-        process.exit(code);
-      } catch (err) {
-        const e = err as { exitCode?: number; message?: string; stack?: string };
-        console.error(opts.verbose ? (e.stack ?? e.message) : (e.message ?? String(err)));
-        process.exit(e.exitCode ?? 1);
-      }
-    },
+    ) => runOrExit(() => runUpgradeCommand(upgrade, site, opts), opts),
   );
 
 cli
@@ -169,17 +147,8 @@ cli
   .option("--fleet <inventory>", "Inventory file (.json or .mjs/.js)")
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
-    async (site, opts: { fleet?: string; workdir?: string; cwd?: string; verbose?: boolean }) => {
-      try {
-        const { output, code } = await runConvertToPnpmCommand(site, opts);
-        console.log(output);
-        process.exit(code);
-      } catch (err) {
-        const e = err as { exitCode?: number; message?: string; stack?: string };
-        console.error(opts.verbose ? (e.stack ?? e.message) : (e.message ?? String(err)));
-        process.exit(e.exitCode ?? 1);
-      }
-    },
+    async (site, opts: { fleet?: string; workdir?: string; cwd?: string; verbose?: boolean }) =>
+      runOrExit(() => runConvertToPnpmCommand(site, opts), opts),
   );
 
 cli
@@ -187,17 +156,8 @@ cli
   .option("--fleet <inventory>", "Inventory file (.json or .mjs/.js)")
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
-    async (site, opts: { fleet?: string; workdir?: string; cwd?: string; verbose?: boolean }) => {
-      try {
-        const { output, code } = await runSvelteCodemodsCommand(site, opts);
-        console.log(output);
-        process.exit(code);
-      } catch (err) {
-        const e = err as { exitCode?: number; message?: string; stack?: string };
-        console.error(opts.verbose ? (e.stack ?? e.message) : (e.message ?? String(err)));
-        process.exit(e.exitCode ?? 1);
-      }
-    },
+    async (site, opts: { fleet?: string; workdir?: string; cwd?: string; verbose?: boolean }) =>
+      runOrExit(() => runSvelteCodemodsCommand(site, opts), opts),
   );
 
 cli
@@ -218,17 +178,7 @@ cli
         cwd?: string;
         verbose?: boolean;
       },
-    ) => {
-      try {
-        const { output, code } = await runOnboardCommand(site, opts);
-        console.log(output);
-        process.exit(code);
-      } catch (err) {
-        const e = err as { exitCode?: number; message?: string; stack?: string };
-        console.error(opts.verbose ? (e.stack ?? e.message) : (e.message ?? String(err)));
-        process.exit(e.exitCode ?? 1);
-      }
-    },
+    ) => runOrExit(() => runOnboardCommand(site, opts), opts),
   );
 
 cli.help();
