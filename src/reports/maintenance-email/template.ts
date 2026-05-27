@@ -5,9 +5,11 @@ const BLURRED_TESTS = "https://d3eq0h5l8sxf6t.cloudfront.net/maintenance-email/b
 
 function fmtDate(d: Date | null): string {
   if (!d) return "";
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const yyyy = d.getFullYear();
+  // Airtable date fields are wall-clock YYYY-MM-DD strings parsed as UTC midnight.
+  // Use UTC accessors so the rendered date matches what the operator entered.
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const yyyy = d.getUTCFullYear();
   return `${dd}.${mm}.${yyyy}`;
 }
 
