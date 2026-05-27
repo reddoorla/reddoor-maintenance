@@ -106,7 +106,12 @@ export async function runAuditCommand(
     }
 
     const scores = lighthouseScoresFromResult(lhResult);
-    if (scores.performance === 0 && scores.accessibility === 0 && scores.bestPractices === 0 && scores.seo === 0) {
+    if (
+      scores.performance === 0 &&
+      scores.accessibility === 0 &&
+      scores.bestPractices === 0 &&
+      scores.seo === 0
+    ) {
       throw Object.assign(
         new Error(
           `Lighthouse summary parsed as all-zero scores — refusing to overwrite Websites[${target.name}]. Check the audit ran against a real site.`,
