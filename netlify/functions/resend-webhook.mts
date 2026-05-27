@@ -1,6 +1,7 @@
 import type { Context } from "@netlify/functions";
 import { Webhook } from "svix";
 import Airtable from "airtable";
+import { STATUS_MAP } from "../../src/reports/webhook-events.js";
 
 type ResendEvent = {
   type: string;
@@ -10,18 +11,23 @@ type ResendEvent = {
   };
 };
 
-const STATUS_MAP: Record<string, "delivered" | "bounced" | "complained"> = {
-  "email.delivered": "delivered",
-  "email.bounced": "bounced",
-  "email.complained": "complained",
-};
+/** Escape a string for safe interpolation into an Airtable filterByFormula. */
+function escapeFormula(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
 
 export default async (req: Request, _ctx: Context): Promise<Response> => {
   const secret = process.env.RESEND_WEBHOOK_SECRET;
   const airtablePat = process.env.AIRTABLE_PAT;
   const baseId = process.env.AIRTABLE_BASE_ID;
-  if (!secret) return new Response("RESEND_WEBHOOK_SECRET missing", { status: 500 });
-  if (!airtablePat || !baseId) return new Response("Airtable env missing", { status: 500 });
+  if (!secret) {
+    console.error("[resend-webhook] RESEND_WEBHOOK_SECRET missing");
+    return new Response("RESEND_WEBHOOK_SECRET missing", { status: 500 });
+  }
+  if (!airtablePat || !baseId) {
+    console.error("[resend-webhook] AIRTABLE_PAT or AIRTABLE_BASE_ID missing");
+    return new Response("Airtable env missing", { status: 500 });
+  }
 
   const raw = await req.text();
   const headers = {
@@ -35,30 +41,62 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     const wh = new Webhook(secret);
     event = wh.verify(raw, headers) as ResendEvent;
   } catch (e) {
+    console.warn(`[resend-webhook] signature verification failed: ${(e as Error).message}`);
     return new Response(`signature verification failed: ${(e as Error).message}`, { status: 400 });
   }
 
   const newStatus = STATUS_MAP[event.type];
-  if (!newStatus) return new Response("OK (event ignored)", { status: 200 });
+  if (!newStatus) {
+    console.log(
+      `[resend-webhook] event ignored: type=${event.type} email_id=${event.data.email_id ?? "?"}`,
+    );
+    return new Response("OK (event ignored)", { status: 200 });
+  }
 
   const messageId = event.data.email_id;
   if (typeof messageId !== "string") {
+    console.warn(`[resend-webhook] event missing data.email_id: type=${event.type}`);
     return new Response("event missing data.email_id", { status: 200 });
   }
 
   const base = new Airtable({ apiKey: airtablePat }).base(baseId);
   const found: Array<{ id: string }> = [];
-  await base("Reports")
-    .select({ filterByFormula: `{Resend message ID} = "${messageId}"`, maxRecords: 1 })
-    .eachPage((records, fetchNextPage) => {
-      for (const rec of records) found.push({ id: rec.id });
-      fetchNextPage();
-    });
-
-  if (found.length === 0) {
-    return new Response("OK (no matching report)", { status: 200 });
+  try {
+    await base("Reports")
+      .select({
+        filterByFormula: `{Resend message ID} = "${escapeFormula(messageId)}"`,
+        maxRecords: 1,
+      })
+      .eachPage((records, fetchNextPage) => {
+        for (const rec of records) found.push({ id: rec.id });
+        fetchNextPage();
+      });
+  } catch (e) {
+    console.error(
+      `[resend-webhook] Airtable lookup failed for messageId=${messageId}: ${(e as Error).message}`,
+    );
+    return new Response(`Airtable lookup failed: ${(e as Error).message}`, { status: 500 });
   }
 
-  await base("Reports").update([{ id: found[0]!.id, fields: { "Delivery status": newStatus } }]);
+  if (found.length === 0) {
+    // Return 500 so svix retries — this usually means stampSent hasn't run yet (delivery
+    // raced ahead of the orchestrator's Airtable write). A retry will normally succeed.
+    console.warn(
+      `[resend-webhook] no matching Reports row for messageId=${messageId} type=${event.type} — returning 500 so svix retries`,
+    );
+    return new Response("no matching report (will retry)", { status: 500 });
+  }
+
+  try {
+    await base("Reports").update([{ id: found[0]!.id, fields: { "Delivery status": newStatus } }]);
+    console.log(
+      `[resend-webhook] updated record=${found[0]!.id} → ${newStatus} (messageId=${messageId})`,
+    );
+  } catch (e) {
+    console.error(
+      `[resend-webhook] Airtable update failed for record=${found[0]!.id}: ${(e as Error).message}`,
+    );
+    return new Response(`Airtable update failed: ${(e as Error).message}`, { status: 500 });
+  }
   return new Response("OK", { status: 200 });
 };

@@ -1,13 +1,9 @@
 import { describe, it, expect } from "vitest";
+import { STATUS_MAP } from "../../src/reports/webhook-events.js";
 
-// Mirror the mapping from netlify/functions/resend-webhook.mts. Pinning it here so
-// a typo'd event type in the function gets caught.
-const STATUS_MAP: Record<string, "delivered" | "bounced" | "complained"> = {
-  "email.delivered": "delivered",
-  "email.bounced": "bounced",
-  "email.complained": "complained",
-};
-
+// Imports the real STATUS_MAP from the webhook handler so a drift between code
+// and "expected" mapping fails this test. (Previously this file declared its
+// own copy of STATUS_MAP and asserted on it — drift-blind.)
 describe("Resend webhook event → Delivery status mapping", () => {
   it("maps delivered/bounced/complained", () => {
     expect(STATUS_MAP["email.delivered"]).toBe("delivered");
@@ -18,5 +14,6 @@ describe("Resend webhook event → Delivery status mapping", () => {
   it("ignores unmapped event types (no change to Airtable)", () => {
     expect(STATUS_MAP["email.sent"]).toBeUndefined();
     expect(STATUS_MAP["email.delivery_delayed"]).toBeUndefined();
+    expect(STATUS_MAP["email.opened"]).toBeUndefined();
   });
 });
