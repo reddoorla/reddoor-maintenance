@@ -2,7 +2,7 @@ import type { Context } from "@netlify/functions";
 import { Webhook } from "svix";
 import Airtable from "airtable";
 import { STATUS_MAP } from "../../src/reports/webhook-events.js";
-import { escapeFormulaString } from "../../src/reports/airtable/reports.js";
+import { findReportByMessageId, setDeliveryStatus } from "../../src/reports/airtable/reports.js";
 
 type ResendEvent = {
   type: string;
@@ -56,17 +56,9 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   }
 
   const base = new Airtable({ apiKey: airtablePat }).base(baseId);
-  const found: Array<{ id: string }> = [];
+  let report: Awaited<ReturnType<typeof findReportByMessageId>>;
   try {
-    await base("Reports")
-      .select({
-        filterByFormula: `{Resend message ID} = "${escapeFormulaString(messageId)}"`,
-        maxRecords: 1,
-      })
-      .eachPage((records, fetchNextPage) => {
-        for (const rec of records) found.push({ id: rec.id });
-        fetchNextPage();
-      });
+    report = await findReportByMessageId(base, messageId);
   } catch (e) {
     console.error(
       `[resend-webhook] Airtable lookup failed for messageId=${messageId}: ${(e as Error).message}`,
@@ -74,7 +66,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     return new Response(`Airtable lookup failed: ${(e as Error).message}`, { status: 500 });
   }
 
-  if (found.length === 0) {
+  if (!report) {
     // Return 500 so svix retries — this usually means stampSent hasn't run yet (delivery
     // raced ahead of the orchestrator's Airtable write). A retry will normally succeed.
     console.warn(
@@ -84,13 +76,13 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   }
 
   try {
-    await base("Reports").update([{ id: found[0]!.id, fields: { "Delivery status": newStatus } }]);
+    await setDeliveryStatus(base, report.id, newStatus);
     console.log(
-      `[resend-webhook] updated record=${found[0]!.id} → ${newStatus} (messageId=${messageId})`,
+      `[resend-webhook] updated record=${report.id} → ${newStatus} (messageId=${messageId})`,
     );
   } catch (e) {
     console.error(
-      `[resend-webhook] Airtable update failed for record=${found[0]!.id}: ${(e as Error).message}`,
+      `[resend-webhook] Airtable update failed for record=${report.id}: ${(e as Error).message}`,
     );
     return new Response(`Airtable update failed: ${(e as Error).message}`, { status: 500 });
   }
