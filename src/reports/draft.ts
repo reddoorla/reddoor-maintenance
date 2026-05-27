@@ -5,11 +5,7 @@ import { renderReportHtml } from "./render.js";
 import { siteSlug } from "./airtable/websites.js";
 import type { WebsiteRow } from "./airtable/websites.js";
 import type { ReportRow } from "./airtable/reports.js";
-import {
-  createDraft,
-  setDraftReady,
-  listReportsForSite,
-} from "./airtable/reports.js";
+import { createDraft, setDraftReady, listReportsForSite } from "./airtable/reports.js";
 import type { AirtableBase } from "./airtable/client.js";
 
 export type DraftOptions = {
@@ -57,9 +53,7 @@ export async function draftReportForSite(
   const slug = siteSlug(siteRow.name);
 
   const periodStart =
-    base !== null
-      ? await derivePeriodStart(base, siteRow, reportType, today)
-      : daysAgo(today, 30);
+    base !== null ? await derivePeriodStart(base, siteRow, reportType, today) : daysAgo(today, 30);
 
   const periodEnd = today;
   const completedOn = today;

@@ -72,7 +72,9 @@ describe("renderReportHtml", () => {
   });
 
   it("renders the NOTES section when commentary is non-empty", async () => {
-    const { html } = await renderReportHtml(baseData({ commentary: "Migrated DNS to Cloudflare." }));
+    const { html } = await renderReportHtml(
+      baseData({ commentary: "Migrated DNS to Cloudflare." }),
+    );
     expect(html).toContain(">NOTES<");
     expect(html).toContain("Migrated DNS to Cloudflare.");
   });
@@ -83,7 +85,9 @@ describe("renderReportHtml", () => {
   });
 
   it("formats GA user counts with thousands separators", async () => {
-    const { html } = await renderReportHtml(baseData({ gaUsersCurrent: 12345, gaUsersPrevious: 6789 }));
+    const { html } = await renderReportHtml(
+      baseData({ gaUsersCurrent: 12345, gaUsersPrevious: 6789 }),
+    );
     expect(html).toContain("12,345 Users");
     expect(html).toContain("Last Period: 6,789");
   });

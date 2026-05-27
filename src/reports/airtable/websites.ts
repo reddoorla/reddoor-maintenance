@@ -35,7 +35,8 @@ export function siteSlug(name: string): string {
 
 function mapRow(rec: { id: string; fields: Record<string, unknown> }): WebsiteRow {
   const f = rec.fields;
-  const attachments = (f["Header image"] as Array<{ url: string; filename: string; type: string }> | undefined) ?? [];
+  const attachments =
+    (f["Header image"] as Array<{ url: string; filename: string; type: string }> | undefined) ?? [];
   const header = attachments[0] ?? null;
   return {
     id: rec.id,
@@ -68,7 +69,10 @@ export async function listWebsites(base: AirtableBase): Promise<WebsiteRow[]> {
   return out;
 }
 
-export async function getWebsiteBySlug(base: AirtableBase, slug: string): Promise<WebsiteRow | null> {
+export async function getWebsiteBySlug(
+  base: AirtableBase,
+  slug: string,
+): Promise<WebsiteRow | null> {
   const all = await listWebsites(base);
   return all.find((w) => siteSlug(w.name) === slug) ?? null;
 }

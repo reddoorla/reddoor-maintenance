@@ -32,7 +32,8 @@ export type ReportRow = {
 function mapRow(rec: { id: string; fields: Record<string, unknown> }): ReportRow {
   const f = rec.fields;
   const linkSites = (f["Site"] as string[] | undefined) ?? [];
-  const html = ((f["Rendered HTML"] as Array<{ url: string; filename: string }> | undefined) ?? [])[0] ?? null;
+  const html =
+    ((f["Rendered HTML"] as Array<{ url: string; filename: string }> | undefined) ?? [])[0] ?? null;
   return {
     id: rec.id,
     reportId: String(f["Report ID"] ?? ""),
@@ -61,7 +62,13 @@ function lighthouseFromFields(f: Record<string, unknown>): LighthouseScores | nu
   const a = f["Lighthouse — Accessibility"];
   const b = f["Lighthouse — Best Practices"];
   const s = f["Lighthouse — SEO"];
-  if (typeof p !== "number" || typeof a !== "number" || typeof b !== "number" || typeof s !== "number") return null;
+  if (
+    typeof p !== "number" ||
+    typeof a !== "number" ||
+    typeof b !== "number" ||
+    typeof s !== "number"
+  )
+    return null;
   return { performance: p, accessibility: a, bestPractices: b, seo: s };
 }
 
@@ -112,7 +119,11 @@ export async function attachRenderedHtml(
   ]);
 }
 
-export async function setDraftReady(base: AirtableBase, recordId: string, ready: boolean): Promise<void> {
+export async function setDraftReady(
+  base: AirtableBase,
+  recordId: string,
+  ready: boolean,
+): Promise<void> {
   await base(REPORTS_TABLE).update([{ id: recordId, fields: { "Draft ready": ready } }]);
 }
 
@@ -120,7 +131,8 @@ export async function listSendableReports(base: AirtableBase): Promise<ReportRow
   const out: ReportRow[] = [];
   await base(REPORTS_TABLE)
     .select({
-      filterByFormula: "AND({Draft ready} = TRUE(), {Approved to send} = TRUE(), {Sent at} = BLANK())",
+      filterByFormula:
+        "AND({Draft ready} = TRUE(), {Approved to send} = TRUE(), {Sent at} = BLANK())",
       pageSize: 100,
     })
     .eachPage((records, fetchNextPage) => {
