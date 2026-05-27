@@ -87,13 +87,20 @@ describe("renderReportHtml", () => {
     const { html } = await renderReportHtml(baseData({ reportType: "Testing" }));
     expect(html).toContain("Desktop Browsers");
     expect(html).toContain("Animation Functionality");
-    expect(html).not.toContain("blurredTests");
+    // Maintenance-only blurred-tests CID should NOT appear.
+    expect(html).not.toContain("rd-blurred-tests-jpg");
   });
 
   it("renders the blurred-tests placeholder when reportType is Maintenance", async () => {
     const { html } = await renderReportHtml(baseData({ reportType: "Maintenance" }));
-    expect(html).toContain("blurredTests");
+    expect(html).toContain("rd-blurred-tests-jpg");
     expect(html).not.toContain("Desktop Browsers");
+  });
+
+  it("references the check.png CID in checklist rows (no external CDN URL)", async () => {
+    const { html } = await renderReportHtml(baseData({ reportType: "Maintenance" }));
+    expect(html).toContain("cid:rd-check-png");
+    expect(html).not.toContain("d3eq0h5l8sxf6t.cloudfront.net");
   });
 
   it("shows Last Tested date on Maintenance reports (US format MM.DD.YYYY)", async () => {
