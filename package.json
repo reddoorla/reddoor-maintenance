@@ -79,6 +79,7 @@
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
+    "@netlify/functions": "^5.2.2",
     "@types/mjml": "^4.7.4",
     "@types/node": "^22.0.0",
     "tsup": "^8.3.0",
