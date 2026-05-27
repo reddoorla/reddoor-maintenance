@@ -21,6 +21,7 @@ function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
     rScore: null,
     bpScore: null,
     seoScore: null,
+    lastLighthouseAuditAt: null,
     ...over,
   };
 }

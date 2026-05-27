@@ -1,4 +1,6 @@
+import type { FieldSet } from "airtable";
 import type { AirtableBase } from "./client.js";
+import type { LighthouseScores } from "../types.js";
 
 export const WEBSITES_TABLE = "Websites";
 
@@ -19,11 +21,13 @@ export type WebsiteRow = {
   reportRecipientsCc: string | null;
   /** First attachment in the Header image field (Airtable's signed URL — fetch before expiry). */
   headerImage: { url: string; filename: string; type: string } | null;
-  /** Lighthouse "current state" snapshot, manually kept fresh by the operator. */
+  /** Lighthouse "current state" snapshot, kept fresh by `audit lighthouse --write-airtable`. */
   pScore: number | null;
   rScore: number | null;
   bpScore: number | null;
   seoScore: number | null;
+  /** ISO timestamp set by `audit lighthouse --write-airtable` when scores were last refreshed. */
+  lastLighthouseAuditAt: string | null;
 };
 
 export function siteSlug(name: string): string {
@@ -55,6 +59,7 @@ function mapRow(rec: { id: string; fields: Record<string, unknown> }): WebsiteRo
     rScore: (f["rScore"] as number | undefined) ?? null,
     bpScore: (f["bpScore"] as number | undefined) ?? null,
     seoScore: (f["seoScore"] as number | undefined) ?? null,
+    lastLighthouseAuditAt: (f["Last lighthouse audit at"] as string | undefined) ?? null,
   };
 }
 
@@ -75,4 +80,24 @@ export async function getWebsiteBySlug(
 ): Promise<WebsiteRow | null> {
   const all = await listWebsites(base);
   return all.find((w) => siteSlug(w.name) === slug) ?? null;
+}
+
+/**
+ * Write the four Lighthouse scores + a refreshed-at timestamp onto a Websites row.
+ * Called by `audit lighthouse --write-airtable` after a successful audit run, so
+ * the operator never has to paste numbers manually before drafting a report.
+ */
+export async function updateScores(
+  base: AirtableBase,
+  recordId: string,
+  scores: LighthouseScores,
+): Promise<void> {
+  const fields: FieldSet = {
+    pScore: scores.performance,
+    rScore: scores.accessibility,
+    bpScore: scores.bestPractices,
+    seoScore: scores.seo,
+    "Last lighthouse audit at": new Date().toISOString(),
+  };
+  await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
 }
