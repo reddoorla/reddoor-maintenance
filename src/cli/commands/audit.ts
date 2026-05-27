@@ -85,10 +85,14 @@ export async function runAuditCommand(
         { exitCode: 2 },
       );
     }
-    if (lhResult.status === "fail") {
+    // Only write on real success. "skip" means the audit didn't actually run
+    // (binary missing, no site at path, etc.) — its scores would all be 0 and
+    // we'd silently wipe whatever good data is in Airtable. "fail" means the
+    // audit ran but didn't meet thresholds; same concern.
+    if (lhResult.status !== "pass" && lhResult.status !== "warn") {
       throw Object.assign(
         new Error(
-          `Lighthouse audit failed; refusing to write scores to Airtable. Summary: ${lhResult.summary}`,
+          `Lighthouse audit status='${lhResult.status}' — refusing to write scores to Airtable. Summary: ${lhResult.summary}`,
         ),
         { exitCode: 1 },
       );
@@ -102,6 +106,14 @@ export async function runAuditCommand(
     }
 
     const scores = lighthouseScoresFromResult(lhResult);
+    if (scores.performance === 0 && scores.accessibility === 0 && scores.bestPractices === 0 && scores.seo === 0) {
+      throw Object.assign(
+        new Error(
+          `Lighthouse summary parsed as all-zero scores — refusing to overwrite Websites[${target.name}]. Check the audit ran against a real site.`,
+        ),
+        { exitCode: 1 },
+      );
+    }
     await updateScores(base, target.id, scores);
     output += `\n\n→ wrote scores to Websites[${target.name}]: P=${scores.performance} A=${scores.accessibility} BP=${scores.bestPractices} SEO=${scores.seo}`;
   }

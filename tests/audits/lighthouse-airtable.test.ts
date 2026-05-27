@@ -43,6 +43,15 @@ describe("lighthouseScoresFromResult", () => {
     const bad = { ...lhResult({}), audit: "deps" } as AuditResult;
     expect(() => lighthouseScoresFromResult(bad)).toThrow(/Expected a 'lighthouse'/);
   });
+
+  // Regression: an empty summary (which happens when the audit skipped — no
+  // .lighthouseci/ manifest to parse) extracts to all-zero scores. The CLI
+  // layer must refuse the write to avoid clobbering good Airtable data;
+  // verify the extractor produces the all-zero pattern that the guard checks.
+  it("returns all-zero scores when summary is empty (audit didn't actually run)", () => {
+    const s = lighthouseScoresFromResult(lhResult({}));
+    expect(s).toEqual({ performance: 0, accessibility: 0, bestPractices: 0, seo: 0 });
+  });
 });
 
 describe("resolveSlugFromCwd", () => {
