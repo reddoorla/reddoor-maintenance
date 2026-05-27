@@ -1,0 +1,14 @@
+import mjml2html from "mjml";
+import type { ReportData } from "./types.js";
+import { buildMjml } from "./maintenance-email/template.js";
+
+export type RenderResult = {
+  html: string;
+  warnings: Array<{ line: number; message: string }>;
+};
+
+export async function renderReportHtml(data: ReportData): Promise<RenderResult> {
+  const mjml = buildMjml(data);
+  const out = await mjml2html(mjml, { validationLevel: "strict" });
+  return { html: out.html, warnings: out.errors ?? [] };
+}
