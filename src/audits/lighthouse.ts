@@ -88,6 +88,11 @@ export async function lighthouseAudit(ctx: AuditContext): Promise<AuditResult> {
   try {
     raw = await spawn("npx", ["--yes", "@lhci/cli", "autorun", `--config=${configPath}`], {
       cwd: site.path,
+      // lhci autorun boots the site's dev server, downloads Chrome on first
+      // use, and runs the audit — easily 2–3 min on a cold tree. The shared
+      // 30 s default in runAudits is fine for deps/lint/security but starves
+      // lhci.
+      timeoutMs: 5 * 60_000,
     });
   } catch (err) {
     await rm(configDir, { recursive: true, force: true });
