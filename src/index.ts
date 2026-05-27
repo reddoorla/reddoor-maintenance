@@ -40,3 +40,9 @@ export type {
 } from "./recipes/index.js";
 
 export { localPath, fromJsonFile, type LocalPathOptions } from "./inventory/index.js";
+
+export { draftReportForSite, type DraftOptions, type DraftResult } from "./reports/draft.js";
+export { sendApprovedReports, type OrchestrateOptions } from "./reports/send/orchestrate.js";
+export { renderReportHtml, type RenderResult } from "./reports/render.js";
+export { findDueReports, type DueItem } from "./reports/due.js";
+export type { ReportType, LighthouseScores, ReportData, HeaderImage } from "./reports/types.js";
