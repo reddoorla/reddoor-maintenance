@@ -1,0 +1,6 @@
+[build]
+  command = "echo 'no build — functions only'"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"

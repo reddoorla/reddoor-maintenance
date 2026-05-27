@@ -9,3 +9,5 @@ tests/fixtures/**/test-results/
 tests/fixtures/**/.lighthouseci/
 tests/fixtures/**/playwright-report/
 .claude/
+.env
+reports/

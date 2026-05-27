@@ -10,6 +10,7 @@ import { runUpgradeCommand } from "./commands/upgrade.js";
 import { runConvertToPnpmCommand } from "./commands/convert-to-pnpm.js";
 import { runOnboardCommand } from "./commands/onboard.js";
 import { runSvelteCodemodsCommand } from "./commands/svelte-codemods.js";
+import { runReportCommand } from "./commands/report.js";
 import { resolvePackageVersion } from "./version.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -179,6 +180,30 @@ cli
         verbose?: boolean;
       },
     ) => runOrExit(() => runOnboardCommand(site, opts), opts),
+  );
+
+cli
+  .command("report [site]", "Draft or send maintenance/testing reports.")
+  .option("--due", "Scan all Websites and draft overdue reports.")
+  .option(
+    "--preview",
+    "Single-site dry run; writes reports/<slug>/draft.html, never touches Airtable.",
+  )
+  .option(
+    "--send-ready",
+    "Send all Reports with Draft ready=true AND Approved to send=true AND Sent at IS NULL.",
+  )
+  .action(
+    async (
+      site,
+      opts: {
+        due?: boolean;
+        preview?: boolean;
+        sendReady?: boolean;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) => runOrExit(() => runReportCommand(site, opts), opts),
   );
 
 cli.help();

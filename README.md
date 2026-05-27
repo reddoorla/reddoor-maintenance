@@ -243,6 +243,65 @@ Neither `pnpm audit` nor `npm audit` produced a parseable result. Check that at 
 
 ---
 
+## Reports (per-site maintenance/testing emails)
+
+Generates the monthly/quarterly/yearly client-facing email reports — Lighthouse scores + GA users + the standard checklist + per-client header image — from Airtable as the source of truth, delivered via [Resend](https://resend.com/).
+
+### Required env
+
+```bash
+AIRTABLE_PAT=patXXXX          # Airtable PAT: schema.bases:read, data.records:read+write
+AIRTABLE_BASE_ID=appHG8nLOzULzXOER
+RESEND_API_KEY=re_XXXX
+RESEND_WEBHOOK_SECRET=whsec_XXXX  # only for the deployed webhook
+```
+
+### Operator flow
+
+0. **Prereq: keep Lighthouse scores fresh on the Websites row.** From each site's checkout, run `reddoor-maint audit lighthouse` and paste the four numbers (Performance, Accessibility, Best Practices, SEO) into the Websites row's `pScore` / `rScore` / `bpScore` / `seoScore` fields. The report orchestrator copies these into the new Reports row — drafting a report for a site missing scores fails with a clear error.
+
+1. **Draft overdue reports**
+
+   ```bash
+   reddoor-maint report --due
+   ```
+
+   Scans Websites where `maintenence freq` ≠ `None`, finds (site, type) pairs whose next-due date has passed, creates Reports rows with snapshotted scores + attaches the rendered HTML preview.
+
+2. **Preview a single site without touching Airtable**
+
+   ```bash
+   reddoor-maint report <slug> --preview
+   ```
+
+   Writes `reports/<slug>/draft.html` locally — open in a browser to verify before any side effects. (The header image renders broken in the browser because the CID can only resolve inside an email client; that's expected for a preview.)
+
+3. **Review on Airtable mobile**
+   - Tap the `Rendered HTML` attachment on the Reports row to preview in Safari.
+   - Fill in `GA users (period)` and `GA users (prev period)`.
+   - Optionally add a `Commentary` line; optionally override the subject.
+   - Flip `Approved to send`.
+
+4. **Send approved reports**
+
+   ```bash
+   reddoor-maint report --send-ready
+   ```
+
+   Renders + sends every Reports row with `Draft ready=true && Approved to send=true && Sent at IS NULL`. Stamps `Sent at` + `Delivery status=pending` on each.
+
+5. **Delivery status updates automatically** via the Resend webhook (Netlify Function at `netlify/functions/resend-webhook.mts`) — `Delivery status` flips to `delivered` / `bounced` / `complained` as events arrive.
+
+### Frequency math
+
+Per (site, type): `dueDate = max(last Sent at for this type, Websites.maintenance day fallback) + frequency months`. A site with no Reports row AND no fallback day is due immediately.
+
+### Header images
+
+Each Website row's `Header image` attachment is fetched at send time and embedded inline via CID (Content-ID) in the email — no CDN, no link rot, ~100 KB per send.
+
+---
+
 ## Versioning
 
 Patch / minor / major bumps follow [Changesets](https://github.com/changesets/changesets). The release workflow opens a version-bump PR on every merge to `main` with pending changesets; merging that PR triggers the publish step. Releases are signed via npm OIDC trusted publishing — no long-lived `NPM_TOKEN` lives in CI.
