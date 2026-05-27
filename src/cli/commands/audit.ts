@@ -67,12 +67,10 @@ export async function runAuditCommand(
 
   if (opts.writeAirtable !== undefined) {
     const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
-    const { listWebsites, updateScores, siteSlug } = await import(
-      "../../reports/airtable/websites.js"
-    );
-    const { lighthouseScoresFromResult, resolveSlugFromCwd } = await import(
-      "../../audits/lighthouse-airtable.js"
-    );
+    const { listWebsites, updateScores, siteSlug } =
+      await import("../../reports/airtable/websites.js");
+    const { lighthouseScoresFromResult, resolveSlugFromCwd } =
+      await import("../../audits/lighthouse-airtable.js");
 
     const slug =
       typeof opts.writeAirtable === "string" && opts.writeAirtable.length > 0
