@@ -13,6 +13,26 @@ type ResendEvent = {
 };
 
 export default async (req: Request, _ctx: Context): Promise<Response> => {
+  // Health check — lets an operator curl the deployed URL right after
+  // wiring env vars and confirm (a) the function is reachable and (b) the
+  // three required env vars made it through. Reports presence-only, never
+  // values; operators may share this output in a support ticket.
+  if (req.method === "GET") {
+    const body = {
+      status: "ok",
+      service: "reddoor-resend-webhook",
+      env: {
+        RESEND_WEBHOOK_SECRET: typeof process.env.RESEND_WEBHOOK_SECRET === "string",
+        AIRTABLE_PAT: typeof process.env.AIRTABLE_PAT === "string",
+        AIRTABLE_BASE_ID: typeof process.env.AIRTABLE_BASE_ID === "string",
+      },
+    };
+    return new Response(JSON.stringify(body, null, 2), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
   const secret = process.env.RESEND_WEBHOOK_SECRET;
   const airtablePat = process.env.AIRTABLE_PAT;
   const baseId = process.env.AIRTABLE_BASE_ID;
