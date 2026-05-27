@@ -7,6 +7,8 @@ import { fromJsonFile } from "../../inventory/json.js";
 export type ResolveSitesInput = {
   site?: string;
   fleet?: string;
+  /** Optional workdir for the `--fleet airtable` keyword path (computes site.path as {workdir}/{slug}). */
+  workdir?: string;
   cwd: string;
 };
 
@@ -15,6 +17,14 @@ export async function resolveSites(input: ResolveSitesInput): Promise<Site[]> {
     throw Object.assign(new Error("cannot combine a positional [site] with --fleet"), {
       exitCode: 2,
     });
+  }
+
+  if (input.fleet === "airtable") {
+    const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
+    const { fromAirtableBase } = await import("../../inventory/airtable.js");
+    const base = openBase(readAirtableConfig());
+    const provider = fromAirtableBase(base, input.workdir ? { workdir: input.workdir } : {});
+    return provider();
   }
 
   if (input.fleet) {

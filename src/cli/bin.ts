@@ -73,7 +73,10 @@ cli
   .command("audit [site]", "Run audits against a site (default: cwd).")
   .option("--only <names>", "Comma-separated audit names (e.g. deps,lighthouse)")
   .option("--json", "Machine-readable JSON output")
-  .option("--fleet <inventory>", "Inventory file (.json or .mjs/.js); aggregates across sites")
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "airtable" to read from Websites table',
+  )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .option(
     "--write-airtable [slug]",
@@ -98,7 +101,10 @@ cli
   .command("sync-configs [site]", "Sync canonical configs into a site.")
   .option("--only <names>", "Comma-separated config names (e.g. eslint,prettier)")
   .option("--dry", "Print diff without writing")
-  .option("--fleet <inventory>", "Inventory file (.json or .mjs/.js)")
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "airtable" to read from Websites table',
+  )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
     async (
@@ -117,7 +123,10 @@ cli
 cli
   .command("bump-deps [site]", "Bump dependencies.")
   .option("--group <group>", "patch | minor | major", { default: "minor" })
-  .option("--fleet <inventory>", "Inventory file (.json or .mjs/.js)")
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "airtable" to read from Websites table',
+  )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
     async (
@@ -135,7 +144,10 @@ cli
 cli
   .command("upgrade <upgrade> [site]", "Run a named upgrade recipe (svelte-4-to-5).")
   .example("reddoor-maint upgrade svelte-4-to-5 ./my-site")
-  .option("--fleet <inventory>", "Inventory file (.json or .mjs/.js)")
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "airtable" to read from Websites table',
+  )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
     async (
@@ -150,7 +162,10 @@ cli
     "convert-to-pnpm [site]",
     "Convert an npm/yarn site to pnpm (lockfile, packageManager, scripts).",
   )
-  .option("--fleet <inventory>", "Inventory file (.json or .mjs/.js)")
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "airtable" to read from Websites table',
+  )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
     async (site, opts: { fleet?: string; workdir?: string; cwd?: string; verbose?: boolean }) =>
@@ -159,7 +174,10 @@ cli
 
 cli
   .command("svelte-codemods [site]", "Apply Svelte 5 gotcha codemods to an already-migrated site.")
-  .option("--fleet <inventory>", "Inventory file (.json or .mjs/.js)")
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "airtable" to read from Websites table',
+  )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
     async (site, opts: { fleet?: string; workdir?: string; cwd?: string; verbose?: boolean }) =>
@@ -172,7 +190,10 @@ cli
     "Install @reddoorla/maintenance + audit deps on a site (run after convert-to-pnpm).",
   )
   .option("--audits <names>", "Comma-separated audit subset: lighthouse,a11y (default: both)")
-  .option("--fleet <inventory>", "Inventory file (.json or .mjs/.js)")
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "airtable" to read from Websites table',
+  )
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
     async (

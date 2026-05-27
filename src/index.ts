@@ -39,7 +39,13 @@ export type {
   OnboardAudit,
 } from "./recipes/index.js";
 
-export { localPath, fromJsonFile, type LocalPathOptions } from "./inventory/index.js";
+export {
+  localPath,
+  fromJsonFile,
+  fromAirtableBase,
+  type LocalPathOptions,
+  type AirtableInventoryOptions,
+} from "./inventory/index.js";
 
 export { draftReportForSite, type DraftOptions, type DraftResult } from "./reports/draft.js";
 export { sendApprovedReports, type OrchestrateOptions } from "./reports/send/orchestrate.js";
