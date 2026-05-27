@@ -26,6 +26,9 @@ export {
   svelteCodemods,
   convertToPnpm,
   onboard,
+  a11yFixturesPage,
+  init,
+  DEFAULT_INIT_STEPS,
   ALL_RECIPE_NAMES,
   isRecipeName,
 } from "./recipes/index.js";
@@ -37,6 +40,10 @@ export type {
   ConvertToPnpmOptions,
   OnboardOptions,
   OnboardAudit,
+  InitOptions,
+  InitResult,
+  InitStep,
+  InitStepResult,
 } from "./recipes/index.js";
 
 export {

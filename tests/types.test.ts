@@ -45,6 +45,8 @@ describe("types", () => {
     const _ok4: RecipeName = "convert-to-pnpm";
     const _ok5: RecipeName = "onboard";
     const _ok6: RecipeName = "svelte-codemods";
+    const _ok7: RecipeName = "a11y-fixtures-page";
+    const _ok8: RecipeName = "init";
   });
 
   it("ALL_RECIPE_NAMES matches the RecipeName union exactly (no registration drift)", () => {
@@ -58,6 +60,8 @@ describe("types", () => {
       "svelte-codemods",
       "convert-to-pnpm",
       "onboard",
+      "a11y-fixtures-page",
+      "init",
     ];
     expect([...ALL_RECIPE_NAMES].sort()).toEqual([...all].sort());
     for (const name of all) {

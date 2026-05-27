@@ -11,6 +11,7 @@ import { runConvertToPnpmCommand } from "./commands/convert-to-pnpm.js";
 import { runOnboardCommand } from "./commands/onboard.js";
 import { runSvelteCodemodsCommand } from "./commands/svelte-codemods.js";
 import { runReportCommand } from "./commands/report.js";
+import { runInitCommand } from "./commands/init.js";
 import { resolvePackageVersion } from "./version.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -32,6 +33,9 @@ const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {
     "Apply Svelte 5 gotcha codemods to an already-migrated site (state_referenced_locally, etc.).",
   "convert-to-pnpm": "Convert an npm/yarn site to pnpm (lockfile, packageManager, scripts).",
   onboard: "Install @reddoorla/maintenance + audit deps on a site (preferred first step).",
+  "a11y-fixtures-page":
+    "Write src/routes/dev/a11y-fixtures/+page.svelte (stub for lhci + axe targets).",
+  init: "Run the full onboarding chain (convert-to-pnpm → onboard → sync-configs → svelte-codemods → a11y-fixtures-page → audit).",
 };
 
 /** Run a command thunk and exit with its code, falling back to a clean
@@ -206,6 +210,21 @@ cli
         verbose?: boolean;
       },
     ) => runOrExit(() => runOnboardCommand(site, opts), opts),
+  );
+
+cli
+  .command(
+    "init [site]",
+    "One-shot guided onboarding: convert-to-pnpm → onboard → sync-configs → svelte-codemods → a11y-fixtures-page → audit.",
+  )
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "airtable" to read from Websites table',
+  )
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(
+    async (site, opts: { fleet?: string; workdir?: string; cwd?: string; verbose?: boolean }) =>
+      runOrExit(() => runInitCommand(site, opts), opts),
   );
 
 cli

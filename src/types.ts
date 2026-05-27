@@ -13,7 +13,9 @@ export type RecipeName =
   | "svelte-4-to-5"
   | "svelte-codemods"
   | "convert-to-pnpm"
-  | "onboard";
+  | "onboard"
+  | "a11y-fixtures-page"
+  | "init";
 
 export type ConfigName =
   | "lighthouse"
