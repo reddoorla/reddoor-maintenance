@@ -78,14 +78,32 @@ async function sendOne(
 
   const subject = report.subjectOverride ?? `${site.name} ${report.reportType} Report`;
   const explicitTo = parseAddresses(site.reportRecipientsTo);
-  const fallbackTo = site.pointOfContact ? [site.pointOfContact] : [];
-  const to = explicitTo ?? fallbackTo;
+  // Run pointOfContact through the parser too — operators sometimes paste
+  // "a@x, b@y" into that single-line field.
+  const fallbackTo = parseAddresses(site.pointOfContact);
+  const to = explicitTo ?? fallbackTo ?? [];
   if (to.length === 0) {
     throw new Error(
       `Site '${site.name}' has no recipients (Report recipients (To) AND point of contact are both empty)`,
     );
   }
+  for (const addr of to) {
+    if (!isProbablyEmail(addr)) {
+      throw new Error(
+        `Site '${site.name}' recipient is malformed: ${addr} — fix Report recipients (To) or point of contact in Airtable`,
+      );
+    }
+  }
   const cc = parseAddresses(site.reportRecipientsCc);
+  if (cc) {
+    for (const addr of cc) {
+      if (!isProbablyEmail(addr)) {
+        throw new Error(
+          `Site '${site.name}' CC is malformed: ${addr} — fix Report recipients (CC) in Airtable`,
+        );
+      }
+    }
+  }
 
   const payload: Parameters<ResendClient["send"]>[0] = {
     from: FROM_ADDRESS,
@@ -113,11 +131,41 @@ async function sendOne(
   return result.messageId;
 }
 
-function parseAddresses(field: string | null): string[] | null {
+/**
+ * Split a comma/newline-separated address field into a clean array.
+ * Lowercases (case-insensitive dedupe) and removes empty entries. Returns
+ * null if nothing survives. Does NOT understand `Display Name <email>` —
+ * operators should put a bare address in the Airtable field, or use multiple
+ * lines if needing multiple recipients.
+ */
+export function parseAddresses(field: string | null): string[] | null {
   if (!field) return null;
-  const list = field
-    .split(/[,\n]/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
+  const seen = new Set<string>();
+  const list: string[] = [];
+  for (const raw of field.split(/[,\n]/)) {
+    const trimmed = raw.trim().toLowerCase();
+    if (!trimmed) continue;
+    if (seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    list.push(trimmed);
+  }
   return list.length > 0 ? list : null;
+}
+
+/**
+ * Cheap email shape check — must contain exactly one @, with non-empty
+ * local and domain parts and at least one dot in the domain. We're not
+ * trying to be a full RFC validator; we're trying to catch operator
+ * mistakes like "ops at acme dot com" or a missing @ before they 422
+ * at Resend.
+ */
+export function isProbablyEmail(s: string): boolean {
+  const at = s.indexOf("@");
+  if (at < 1 || at !== s.lastIndexOf("@")) return false;
+  const local = s.slice(0, at);
+  const domain = s.slice(at + 1);
+  if (!local || !domain) return false;
+  if (!domain.includes(".")) return false;
+  if (/\s/.test(s)) return false;
+  return true;
 }
