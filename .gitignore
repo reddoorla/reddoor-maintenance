@@ -10,4 +10,5 @@ tests/fixtures/**/.lighthouseci/
 tests/fixtures/**/playwright-report/
 .claude/
 .env
-reports/
+# Local --preview output (top-level only — must NOT match src/reports/).
+/reports/
