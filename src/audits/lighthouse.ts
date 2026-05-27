@@ -6,6 +6,7 @@ import { siteLabel } from "../util/site.js";
 import { lighthouseConfig } from "../configs/lighthouse.js";
 import { defaultSpawn } from "./util/spawn.js";
 import type { AuditContext } from "./util/inject.js";
+import { readSiteConfig } from "./util/site-config.js";
 
 type ManifestEntry = {
   url: string;
@@ -75,9 +76,20 @@ export async function lighthouseAudit(ctx: AuditContext): Promise<AuditResult> {
   const site = ctx.site;
   const label = siteLabel(site);
 
+  const siteCfg = await readSiteConfig(site.path);
+  const resolvedConfig = siteCfg.lighthouseUrl
+    ? {
+        ...lighthouseConfig,
+        ci: {
+          ...lighthouseConfig.ci,
+          collect: { ...lighthouseConfig.ci.collect, url: [siteCfg.lighthouseUrl] },
+        },
+      }
+    : lighthouseConfig;
+
   const configDir = await mkdtemp(join(tmpdir(), "reddoor-lhci-"));
   const configPath = join(configDir, "lighthouserc.json");
-  await writeFile(configPath, JSON.stringify(lighthouseConfig), "utf-8");
+  await writeFile(configPath, JSON.stringify(resolvedConfig), "utf-8");
 
   const resultsDir = join(site.path, ".lighthouseci");
   // Clear any stale artifacts before the run so we never confuse a failed
@@ -88,6 +100,11 @@ export async function lighthouseAudit(ctx: AuditContext): Promise<AuditResult> {
   try {
     raw = await spawn("npx", ["--yes", "@lhci/cli", "autorun", `--config=${configPath}`], {
       cwd: site.path,
+      // lhci autorun boots the site's dev server, downloads Chrome on first
+      // use, and runs the audit — easily 2–3 min on a cold tree. The shared
+      // 30 s default in runAudits is fine for deps/lint/security but starves
+      // lhci.
+      timeoutMs: 5 * 60_000,
     });
   } catch (err) {
     await rm(configDir, { recursive: true, force: true });
