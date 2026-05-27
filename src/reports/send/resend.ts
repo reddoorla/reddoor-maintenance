@@ -10,8 +10,9 @@ export type ResendSendInput = {
   attachments?: Array<{
     filename: string;
     content: string; // base64
-    content_type?: string;
-    content_id?: string; // for CID inline reference
+    contentType?: string;
+    /** Setting this attaches the file as inline; reference it from HTML as `src="cid:<id>"`. */
+    inlineContentId?: string;
   }>;
 };
 

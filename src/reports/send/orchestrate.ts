@@ -97,8 +97,8 @@ async function sendOne(
       {
         filename: site.headerImage.filename,
         content: Buffer.from(bytes).toString("base64"),
-        content_type: contentType,
-        content_id: cidName,
+        contentType,
+        inlineContentId: cidName,
       },
     ],
   };
