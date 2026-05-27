@@ -12,3 +12,5 @@ tests/fixtures/**/playwright-report/
 .env
 # Local --preview output (top-level only — must NOT match src/reports/).
 /reports/
+# Service account JSONs, OAuth tokens, anything credential-bearing. Never commit.
+secrets/
