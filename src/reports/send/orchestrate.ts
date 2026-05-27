@@ -101,6 +101,10 @@ async function sendOne(
         inlineContentId: cidName,
       },
     ],
+    // Stable across retries of the same row — if Airtable stamping fails after a
+    // successful Resend, the next --send-ready replays with the same key and
+    // Resend returns the original message id rather than sending a duplicate.
+    idempotencyKey: `report:${report.id}`,
   };
   if (cc) payload.cc = cc;
 

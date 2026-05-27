@@ -88,6 +88,9 @@ function ymd(d: Date): string {
 }
 
 export async function createDraft(base: AirtableBase, input: DraftInput): Promise<ReportRow> {
+  // Set Delivery status to "pending" at creation time, NOT at send time. This
+  // matters for H4: if stampSent wrote "pending" after the webhook had already
+  // written "delivered" (race), the operator would see a regressed status.
   const fields: FieldSet = {
     "Report ID": input.reportId,
     Site: [input.siteId],
@@ -99,6 +102,7 @@ export async function createDraft(base: AirtableBase, input: DraftInput): Promis
     "Lighthouse — Accessibility": input.lighthouse.accessibility,
     "Lighthouse — Best Practices": input.lighthouse.bestPractices,
     "Lighthouse — SEO": input.lighthouse.seo,
+    "Delivery status": "pending",
   };
   if (input.lastTestedDate) fields["Last tested date"] = ymd(input.lastTestedDate);
   const created = (await base(REPORTS_TABLE).create([{ fields }])) as Records<FieldSet>;
@@ -156,6 +160,12 @@ export async function listReportsForSite(base: AirtableBase, siteId: string): Pr
   return out;
 }
 
+/**
+ * Mark a row as sent: write `Sent at` and `Resend message ID` only. Crucially
+ * does NOT touch `Delivery status` — that's set to "pending" in createDraft
+ * and updated by the webhook from there. If we wrote "pending" here we could
+ * clobber a "delivered" that the webhook raced ahead and wrote first (H4).
+ */
 export async function stampSent(
   base: AirtableBase,
   recordId: string,
@@ -167,7 +177,6 @@ export async function stampSent(
       id: recordId,
       fields: {
         "Sent at": sentAt.toISOString(),
-        "Delivery status": "pending",
         "Resend message ID": messageId,
       },
     },
