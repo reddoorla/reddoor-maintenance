@@ -113,7 +113,7 @@ For 30 sites this is 30 Airtable list calls. At ~200 ms each that's 6 seconds be
 ### #9 — Inconsistent error handling across subsystems
 
 - **Audits**: catch errors, return `{ status: "fail", summary: "..." }` ([src/audits/index.ts:37-46](src/audits/index.ts))
-- **Recipes**: throw on dirty tree, return structured result otherwise ([src/recipes/_with-recipe.ts:54,79](src/recipes/_with-recipe.ts))
+- **Recipes**: throw on dirty tree, return structured result otherwise ([src/recipes/\_with-recipe.ts:54,79](src/recipes/_with-recipe.ts))
 - **Reports orchestrators**: throw → caught in CLI loop → emit `✗` lines ([src/cli/commands/report.ts:53-58](docs/../../reddoor-maintenance-reports/src/cli/commands/report.ts))
 - **Webhook**: HTTP response codes (necessarily different)
 
@@ -201,7 +201,7 @@ Covered in #4. Listing again so it shows up in the cleanup task list.
 
 ### #22 — README explains how to "paste the four numbers" but not which 4 numbers
 
-[README.md:258](docs/../../reddoor-maintenance-reports/README.md) — Step 0 says "paste the four numbers (Performance, Accessibility, Best Practices, SEO) into the Websites row's `pScore` / `rScore` / `bpScore` / `seoScore` fields." But `audit lighthouse`'s output is a `summary: Record<string, number>` of *fractions* (e.g. `0.87`). The operator has to multiply by 100 and round. README doesn't mention this. Either fix the documentation, OR (better) make Task 7 of the 0.8.0 plan (`--write-airtable`) make this moot.
+[README.md:258](docs/../../reddoor-maintenance-reports/README.md) — Step 0 says "paste the four numbers (Performance, Accessibility, Best Practices, SEO) into the Websites row's `pScore` / `rScore` / `bpScore` / `seoScore` fields." But `audit lighthouse`'s output is a `summary: Record<string, number>` of _fractions_ (e.g. `0.87`). The operator has to multiply by 100 and round. README doesn't mention this. Either fix the documentation, OR (better) make Task 7 of the 0.8.0 plan (`--write-airtable`) make this moot.
 
 ### #23 — README points at `src/configs/baseline-versions.ts` line ref
 
@@ -237,7 +237,7 @@ The `messageId` comes from a Resend-signed webhook event so an injected attack i
 
 ## What's working — keep
 
-- **The `withRecipe` wrapper** ([src/recipes/_with-recipe.ts](src/recipes/_with-recipe.ts), 114 LOC, landed in 0.6.8) is the right abstraction. Every recipe converted to it; the plan/apply split prevents accidental side effects in dry-runs. Don't undo this.
+- **The `withRecipe` wrapper** ([src/recipes/\_with-recipe.ts](src/recipes/_with-recipe.ts), 114 LOC, landed in 0.6.8) is the right abstraction. Every recipe converted to it; the plan/apply split prevents accidental side effects in dry-runs. Don't undo this.
 - **`tests/types.test.ts`** as a runtime-array ↔ TypeScript-union assertion is a clean drift guard. Caught the 0.6.2 registration bug. Worth extending to reports types in 0.8 (`ReportType`, the eventual `ALL_REPORT_NAMES` if reports gain a registry).
 - **`tests/recipes/pipeline-composition.test.ts`** is the highest-leverage test in the repo. Fixture-based, runs an actual 4-recipe pipeline against a real tmp tree with fake spawn. The morning report's debt #16 "highest-leverage test-coverage debt" was paid by this file. Reuse this pattern for reports orchestrator tests in 0.8.
 - **Audit spawn-injection pattern** (`AuditContext = { site, spawn? }` at [src/audits/util/inject.ts](src/audits/util/inject.ts)) lets every audit be unit-tested without touching the network or shelling out. Mirror this for reports — every orchestrator should accept an `AirtableBase` parameter (it does) so tests can pass a fake. The pattern just needs one more level of discipline: the bottom-level fake should be a typed `Pick<AirtableBase, ...>` interface, not `any`.
@@ -314,7 +314,7 @@ Status: speculative. Likely: edge cases in date math, missing recipient fields, 
 
 **Estimated effort:** 1 day for the OAuth path discovery + 1 day for the implementation if discovery is positive + 0.5 day webhook deploy + 0.5 day docs. So 2–3 days if discovery resolves cleanly.
 
-**Risk:** the GA path may not resolve. If after 3 hrs of discovery you can't get *any* path working, ship 0.9.0 with just the webhook deploy + drop GA back to "0.9.1 stretch" and make a call on whether to ship 1.0 without GA. (My recommendation if it comes to that: ship 1.0 with manual GA. It's 10 seconds of typing per report. The "before 1.0" goal is nice-to-have, not blocking.)
+**Risk:** the GA path may not resolve. If after 3 hrs of discovery you can't get _any_ path working, ship 0.9.0 with just the webhook deploy + drop GA back to "0.9.1 stretch" and make a call on whether to ship 1.0 without GA. (My recommendation if it comes to that: ship 1.0 with manual GA. It's 10 seconds of typing per report. The "before 1.0" goal is nice-to-have, not blocking.)
 
 ### 0.9.x — Patches from second-month dogfooding
 
@@ -367,7 +367,7 @@ Some things the above might have over- or under-prioritized.
 
 Per the design memo, both the service-account path (blocked by a "blocking modal" on the GA Property UI) and the OAuth path (blocked by Google Workspace app-access policy) hit dead ends. The current 0.7.0 ships with manual GA entry as a deliberate punt.
 
-If you confirm before 1.0 that GA *can't* be solved within reasonable effort, the question becomes: does 1.0 ship with manual GA entry? You said you want it solved before 1.0 — but if the cost is "wait 3 more months while we negotiate Workspace policy with whoever owns reddoorla.com," that price might not be worth paying. The decision is judgement, but worth flagging up front.
+If you confirm before 1.0 that GA _can't_ be solved within reasonable effort, the question becomes: does 1.0 ship with manual GA entry? You said you want it solved before 1.0 — but if the cost is "wait 3 more months while we negotiate Workspace policy with whoever owns reddoorla.com," that price might not be worth paying. The decision is judgement, but worth flagging up front.
 
 **Concrete first step in 0.9:** spend 2 hours on a focused discovery spike. Try the personal-Google-account path first (it sidesteps the Workspace block entirely if you can OAuth into your contact@tuckerlemos.com account directly without going through reddoorla.com). If that works, 0.9 is straightforward. If it doesn't, escalate to a decision.
 

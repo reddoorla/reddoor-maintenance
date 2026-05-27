@@ -21,6 +21,7 @@ Consequence: every Maintenance/Testing email ships with the header image attache
 **Reproduction:** trigger any real send. Inspect the raw MIME of the delivered message — no `Content-ID: <X>` header on the attachment part. The fake-client contract test at [tests/reports/send/orchestrate.test.ts:23](../reddoor-maintenance-reports/tests/reports/send/orchestrate.test.ts#L23) passes because it captures the misnamed keys on a fake; the SDK is the only thing that knows the names are wrong.
 
 **Fix:** rename in `ResendSendInput` (`resend.ts:10-15`) and the call site (`orchestrate.ts:97-103`):
+
 - `content_type` → `contentType`
 - `content_id` → `inlineContentId`
 
@@ -40,6 +41,7 @@ If Resend returns 200 (email is in flight) and the `stampSent` Airtable call thr
 **Reproduction:** simulate by stubbing `stampSent` to throw after the fake client returns success; run `sendApprovedReports` twice. The second invocation reships.
 
 **Fix:** two complementary moves:
+
 1. **Idempotency key on Resend** — Resend's SDK `CreateEmailRequestOptions extends IdempotentRequest`. Pass a stable key like `report:${recordId}:${reportId}` so a re-send is a no-op on Resend's side regardless of Airtable state.
 2. **Stamp-before-send** — write a `Send in progress` flag (or set `Sent at` to a sentinel ISO) before the Resend call; finalize after. Rollback on Resend rejection.
 
@@ -54,6 +56,7 @@ Two distinct subproblems:
 **(b) `messageId` from the Resend webhook is interpolated raw into a formula.** The webhook is internet-exposed (Netlify Function URL). A signed but malformed `messageId` containing `"` corrupts the formula. Practical exploit is low — Resend signs everything — but the pattern is now codified and will be copied.
 
 **Fix:**
+
 - Add an `escapeFormulaString(s)` helper (escape `\` and `"`); use it at both call sites.
 - For the site-id lookup, drop `FIND/ARRAYJOIN` and use a proper equality check. Since `Site` is `multipleRecordLinks`, Airtable's `ARRAYJOIN({Site}, ",")` produces a single comma-separated string; wrap with sentinels: `FIND(",${escape(siteId)},", "," & ARRAYJOIN({Site}, ",") & ",") > 0`. Or simpler: change the `Site` field to `prefersSingleRecordLink: true` in Airtable and use `{Site} = "${escape(siteId)}"`.
 
@@ -70,6 +73,7 @@ function addMonths(d: Date, n: number): Date {
 ```
 
 Verified empirically (Node REPL):
+
 - `addMonths(2026-01-31, 1)` → **2026-03-03** (should be Feb 28)
 - `addMonths(2026-08-31, 1)` → **2026-10-01** (should be Sep 30)
 - `addMonths(2026-03-31, 3)` → **2026-07-01** (should be Jun 30)
@@ -118,8 +122,9 @@ Same algorithm in Asia/Tokyo (UTC+9) flips the other direction.
 `ymd(d)` = `d.toISOString().slice(0, 10)`. On Dec 31 11pm Pacific, `new Date()` ISO is `2026-01-01T07:00:00Z` → `ymd` returns `"2026-01-01"`. The report row's `Period end`, `Completed on`, and `Report ID` all carry Jan 1. The operator running `--due` again the next day produces a second row with the same `Report ID` — silent collision (no unique constraint on the field).
 
 **Fix:** compute "today" in the operator's locale, e.g.,
+
 ```ts
-new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new Date())
+new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new Date());
 // → "2026-01-01" while still in Pacific Dec 31
 ```
 
@@ -139,6 +144,7 @@ new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new
 **File:** [netlify/functions/resend-webhook.mts:42](../reddoor-maintenance-reports/netlify/functions/resend-webhook.mts#L42), [:46](../reddoor-maintenance-reports/netlify/functions/resend-webhook.mts#L46), [:59](../reddoor-maintenance-reports/netlify/functions/resend-webhook.mts#L59)
 
 Three "OK" early returns with no logging:
+
 - `(event ignored)` — event type wasn't in `STATUS_MAP`. If Resend adds `email.opened` and we want to capture it, we won't notice we missed it.
 - `event missing data.email_id` — silently swallows.
 - `OK (no matching report)` — this is the **most dangerous one**. If `Resend message ID` was never stamped (B2 race) OR if formula injection mangled the lookup (B3), the webhook gives up and returns 200. Resend shows "delivered". Airtable never updates. Operator believes everything works.
@@ -150,6 +156,7 @@ Three "OK" early returns with no logging:
 **File:** [src/reports/airtable/reports.ts:159-175](../reddoor-maintenance-reports/src/reports/airtable/reports.ts#L159-L175)
 
 Order of operations under bad luck:
+
 1. `client.send(payload)` — Resend accepts, fires `email.sent` and possibly `email.delivered` immediately.
 2. Webhook hits the Netlify Function but `stampSent` hasn't written `Resend message ID` yet → "no matching report" branch returns 200; status lost.
 3. `stampSent` finally runs, writes `Delivery status: "pending"`.
@@ -167,6 +174,7 @@ maintenanceFreq: ((f["maintenence freq"] as string | undefined) ?? "None") as Fr
 ```
 
 Two failure modes:
+
 - If a single-select option is renamed to `"Weekly"` (or anything not in `Frequency`), cast succeeds; `MONTHS["Weekly" as keyof typeof MONTHS]` is `undefined`; `addMonths(date, undefined)` produces `Invalid Date`; comparison is `NaN >= NaN` → false → site **silently never due**.
 - The field name `"maintenence freq"` has the typo locked in. If Airtable fixes the typo to `"maintenance freq"`, every site falls back to `"None"` — **same silent failure**, fleet-wide.
 
@@ -217,6 +225,7 @@ Asserts that scores `12`, `34`, `56`, `78` all appear in the HTML. Doesn't verif
 ### H11 — Production data: every Websites row is missing required score and header-image fields
 
 Confirmed via `mcp__airtable__list_records`. Across the entire base:
+
 - **Zero rows** have any of `pScore`, `rScore`, `bpScore`, `seoScore` populated.
 - **Zero rows** have `Header image` set.
 - **Zero rows** have `Report recipients (To)` set (so every send falls back to `point of contact`).
