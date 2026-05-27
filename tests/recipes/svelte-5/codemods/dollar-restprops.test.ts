@@ -107,4 +107,40 @@ describe("codemod: $$restProps → rest in $props()", () => {
     const out = removeDollarRestProps(input);
     expect(out).toBe(input);
   });
+
+  // Regression: the multi-line destructuring shape preserved a trailing comma
+  // after .trim(), and the codemod's `${trimmed}, ...rest` template then
+  // emitted `,, ...rest` — invalid syntax that broke caltex's Accordian.svelte
+  // when running init against the published 0.10.2 package on 2026-05-27.
+  it("does not double up commas when input destructuring has a trailing comma (multi-line shape)", () => {
+    const input = `<script lang="ts">
+  let {
+    labels = ["a", "b"],
+    contents = ["x", "y"],
+  } = $props();
+</script>
+<div {...$$restProps}>x</div>`;
+    const out = removeDollarRestProps(input);
+    expect(out).not.toContain(",,");
+    expect(out).toContain("...rest");
+    // Sanity: the destructuring is still parseable shape — single comma before rest.
+    expect(out).toMatch(/contents = \["x", "y"\],\s*\.\.\.rest/);
+  });
+
+  it("does not double up commas with a TS type annotation on the trailing-comma shape", () => {
+    const input = `<script lang="ts">
+  let {
+    name,
+    children,
+  }: {
+    name: string;
+    children: unknown;
+  } = $props();
+</script>
+<div {...$$restProps}>{name}</div>`;
+    const out = removeDollarRestProps(input);
+    expect(out).not.toContain(",,");
+    expect(out).toContain("...rest");
+    expect(out).toMatch(/\[key: string\]:\s*unknown/);
+  });
 });

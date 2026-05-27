@@ -105,6 +105,11 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
     raw = await spawn("npx", ["--yes", "playwright", "test", "--reporter=line", specPath], {
       cwd: site.path,
       env: { ...process.env, REDDOOR_A11Y_OUTPUT: resultsPath },
+      // playwright on a cold tree downloads Chrome, boots the site's dev
+      // server, and runs axe over every configured route. The shared 30 s
+      // default in runAudits is fine for deps/lint/security but starves
+      // playwright (mirrors the lighthouse fix shipped earlier).
+      timeoutMs: 5 * 60_000,
     });
   } catch (err) {
     await rm(specDir, { recursive: true, force: true });

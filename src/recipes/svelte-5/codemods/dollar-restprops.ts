@@ -77,7 +77,11 @@ function injectRestIntoProps(scriptBody: string): string {
   const destructured = match[1] ?? "";
   if (/\.\.\.\s*\w+/.test(destructured)) return scriptBody; // already has rest
 
-  const trimmed = destructured.trim();
+  // Strip any trailing comma left over from a multi-line destructuring shape
+  // (e.g. `{ foo, bar, }`). Without this, the template literal below emits
+  // `bar,, ...rest` — invalid syntax that the codemod was happily committing
+  // (regression: caltex's Accordian.svelte, 2026-05-27).
+  const trimmed = destructured.trim().replace(/,\s*$/, "");
   const newDestructured = trimmed === "" ? " ...rest " : ` ${trimmed}, ...rest `;
 
   let replacement: string;
