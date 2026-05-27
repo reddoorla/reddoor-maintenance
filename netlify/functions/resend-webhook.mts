@@ -2,6 +2,7 @@ import type { Context } from "@netlify/functions";
 import { Webhook } from "svix";
 import Airtable from "airtable";
 import { STATUS_MAP } from "../../src/reports/webhook-events.js";
+import { escapeFormulaString } from "../../src/reports/airtable/reports.js";
 
 type ResendEvent = {
   type: string;
@@ -10,11 +11,6 @@ type ResendEvent = {
     [k: string]: unknown;
   };
 };
-
-/** Escape a string for safe interpolation into an Airtable filterByFormula. */
-function escapeFormula(s: string): string {
-  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-}
 
 export default async (req: Request, _ctx: Context): Promise<Response> => {
   const secret = process.env.RESEND_WEBHOOK_SECRET;
@@ -64,7 +60,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   try {
     await base("Reports")
       .select({
-        filterByFormula: `{Resend message ID} = "${escapeFormula(messageId)}"`,
+        filterByFormula: `{Resend message ID} = "${escapeFormulaString(messageId)}"`,
         maxRecords: 1,
       })
       .eachPage((records, fetchNextPage) => {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { REPORTS_TABLE } from "../../../src/reports/airtable/reports.js";
+import { REPORTS_TABLE, escapeFormulaString } from "../../../src/reports/airtable/reports.js";
 import { WEBSITES_TABLE, siteSlug } from "../../../src/reports/airtable/websites.js";
 
 describe("airtable constants", () => {
@@ -19,5 +19,21 @@ describe("siteSlug", () => {
   });
   it("collapses runs of separators", () => {
     expect(siteSlug("Foo --- Bar")).toBe("foo-bar");
+  });
+});
+
+describe("escapeFormulaString", () => {
+  it("leaves clean ids alone", () => {
+    expect(escapeFormulaString("recABCDEF000001")).toBe("recABCDEF000001");
+    expect(escapeFormulaString("msg_abc123")).toBe("msg_abc123");
+  });
+  it("escapes double quotes", () => {
+    expect(escapeFormulaString('hello "world"')).toBe('hello \\"world\\"');
+  });
+  it("escapes backslashes (before quotes, so escaped quotes don't double-escape)", () => {
+    expect(escapeFormulaString("path\\to\\thing")).toBe("path\\\\to\\\\thing");
+  });
+  it("handles mixed quotes and backslashes", () => {
+    expect(escapeFormulaString('a\\"b')).toBe('a\\\\\\"b');
   });
 });

@@ -87,6 +87,16 @@ function ymd(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * Escape a string for safe interpolation into an Airtable filterByFormula.
+ * Airtable formulas use SQL-like string literals; we escape backslash and
+ * double quote. Used wherever an externally-supplied string flows into a
+ * formula (e.g. Resend message ids on the webhook path).
+ */
+export function escapeFormulaString(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
 export async function createDraft(base: AirtableBase, input: DraftInput): Promise<ReportRow> {
   // Set Delivery status to "pending" at creation time, NOT at send time. This
   // matters for H4: if stampSent wrote "pending" after the webhook had already
@@ -147,10 +157,14 @@ export async function listSendableReports(base: AirtableBase): Promise<ReportRow
 }
 
 export async function listReportsForSite(base: AirtableBase, siteId: string): Promise<ReportRow[]> {
+  // Anchor with commas so a prefix collision (record id A is a substring of
+  // record id B) can't pull in another site's reports. ARRAYJOIN({Site}, ",")
+  // produces "rec1,rec2,rec3"; wrap both sides with sentinels for safety.
+  const safeId = escapeFormulaString(siteId);
   const out: ReportRow[] = [];
   await base(REPORTS_TABLE)
     .select({
-      filterByFormula: `FIND("${siteId}", ARRAYJOIN({Site})) > 0`,
+      filterByFormula: `FIND(",${safeId},", "," & ARRAYJOIN({Site}, ",") & ",") > 0`,
       pageSize: 100,
     })
     .eachPage((records, fetchNextPage) => {
@@ -198,7 +212,7 @@ export async function findReportByMessageId(
   const rows: ReportRow[] = [];
   await base(REPORTS_TABLE)
     .select({
-      filterByFormula: `{Resend message ID} = "${messageId}"`,
+      filterByFormula: `{Resend message ID} = "${escapeFormulaString(messageId)}"`,
       maxRecords: 1,
     })
     .eachPage((records, fetchNextPage) => {
