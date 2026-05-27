@@ -96,11 +96,11 @@ describe("renderReportHtml", () => {
     expect(html).not.toContain("Desktop Browsers");
   });
 
-  it("shows Last Tested date on Maintenance reports", async () => {
+  it("shows Last Tested date on Maintenance reports (US format MM.DD.YYYY)", async () => {
     const { html } = await renderReportHtml(
       baseData({ reportType: "Maintenance", lastTestedDate: new Date("2025-03-15T00:00:00Z") }),
     );
-    expect(html).toContain("15.03.2025");
+    expect(html).toContain("03.15.2025");
   });
 
   it("omits the NOTES section when commentary is null", async () => {
