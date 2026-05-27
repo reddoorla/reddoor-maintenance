@@ -1,7 +1,10 @@
 import type { ReportData } from "../types.js";
+import { CHECK_CID, BLURRED_CID } from "./assets/index.js";
 
-const CHECK_PNG = "https://d3eq0h5l8sxf6t.cloudfront.net/maintenance-email/check.png";
-const BLURRED_TESTS = "https://d3eq0h5l8sxf6t.cloudfront.net/maintenance-email/blurredTests.jpg";
+// Bundled images: shipped in dist/ via tsup onSuccess copy, attached inline via
+// CID by orchestrate.ts at send time. No external CDN dependency.
+const CHECK_PNG = `cid:${CHECK_CID}`;
+const BLURRED_TESTS = `cid:${BLURRED_CID}`;
 
 function fmtDate(d: Date | null): string {
   if (!d) return "";

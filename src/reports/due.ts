@@ -1,6 +1,17 @@
-import type { WebsiteRow, Frequency } from "./airtable/websites.js";
+import type { WebsiteRow, Frequency, Status } from "./airtable/websites.js";
 import type { ReportRow } from "./airtable/reports.js";
 import type { ReportType } from "./types.js";
+
+/** Statuses where reports are appropriate. Drops "deprecated" and
+ * "probably not our problem" — even if the operator left a freq set, we don't
+ * want to surface those sites in --due output. Sites with status=null pass
+ * through (existing data is partial; better to surface than silently skip). */
+const ELIGIBLE_STATUSES: ReadonlySet<Status> = new Set<Status>([
+  "in development",
+  "launch period",
+  "maintenance",
+  "hosting",
+]);
 
 export type DueItem = {
   site: WebsiteRow;
@@ -68,6 +79,11 @@ export function findDueReports(
   const todayStart = startOfDay(today);
 
   for (const site of websites) {
+    // Skip explicitly-non-active statuses (deprecated, "probably not our problem").
+    // Null status is treated as active for backwards compat with rows that pre-date
+    // the Status convention.
+    if (site.status !== null && !ELIGIBLE_STATUSES.has(site.status)) continue;
+
     for (const type of ["Maintenance", "Testing"] as const) {
       const freq = type === "Maintenance" ? site.maintenanceFreq : site.testingFreq;
       if (freq === "None") continue;

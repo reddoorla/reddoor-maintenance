@@ -121,18 +121,6 @@ export async function createDraft(base: AirtableBase, input: DraftInput): Promis
   return mapRow({ id: rec.id, fields: rec.fields });
 }
 
-export async function attachRenderedHtml(
-  base: AirtableBase,
-  recordId: string,
-  attachment: { url: string; filename: string },
-): Promise<void> {
-  // Airtable's Attachment type requires id/size/type for read shape, but accepts
-  // { url, filename } for creates. Cast to bypass the over-strict typing.
-  await base(REPORTS_TABLE).update([
-    { id: recordId, fields: { "Rendered HTML": [attachment] } as unknown as FieldSet },
-  ]);
-}
-
 export async function setDraftReady(
   base: AirtableBase,
   recordId: string,

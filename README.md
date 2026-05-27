@@ -258,7 +258,13 @@ RESEND_WEBHOOK_SECRET=whsec_XXXX  # only for the deployed webhook
 
 ### Operator flow
 
-0. **Prereq: keep Lighthouse scores fresh on the Websites row.** From each site's checkout, run `reddoor-maint audit lighthouse` and paste the four numbers (Performance, Accessibility, Best Practices, SEO) into the Websites row's `pScore` / `rScore` / `bpScore` / `seoScore` fields. The report orchestrator copies these into the new Reports row — drafting a report for a site missing scores fails with a clear error.
+0. **Prereq: refresh Lighthouse scores on each Websites row.** From each site's checkout:
+
+   ```bash
+   reddoor-maint audit lighthouse --write-airtable
+   ```
+
+   This runs Lighthouse and writes the 4 scores directly to the matching Websites row (slug auto-derived from `package.json#name`; pass `--write-airtable=<slug>` to override), along with a `Last lighthouse audit at` timestamp. The report orchestrator copies these into the new Reports row — drafting a report for a site missing scores fails with a clear error.
 
 1. **Draft overdue reports**
 

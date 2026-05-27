@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { runAudits, ALL_AUDIT_NAMES } from "../../audits/index.js";
+import { runAuditsAcross, ALL_AUDIT_NAMES } from "../../audits/index.js";
 import type { AuditName, AuditResult } from "../../types.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
 import { cloneIfNeeded } from "../fleet/clone-if-needed.js";
@@ -10,6 +10,12 @@ export type AuditCommandOptions = {
   fleet?: string;
   workdir?: string;
   cwd?: string;
+  /**
+   * After running, push the lighthouse scores to the matching Websites row
+   * in Airtable. `true` (no value) = derive slug from cwd/package.json#name;
+   * string = explicit slug (e.g. "med-solutions-of-texas").
+   */
+  writeAirtable?: string | boolean;
 };
 
 function parseOnly(value: string | undefined): AuditName[] | undefined {
@@ -43,6 +49,7 @@ export async function runAuditCommand(
   let sites = await resolveSites({
     ...(site !== undefined ? { site } : {}),
     ...(opts.fleet !== undefined ? { fleet: opts.fleet } : {}),
+    ...(opts.workdir !== undefined ? { workdir: opts.workdir } : {}),
     cwd,
   });
 
@@ -51,12 +58,53 @@ export async function runAuditCommand(
     sites = await Promise.all(sites.map((s) => cloneIfNeeded(s, { workdir })));
   }
 
-  const results: AuditResult[] = [];
-  for (const s of sites) {
-    const r = await runAudits(s, which);
-    results.push(...r);
+  // Run sites in parallel via runAuditsAcross — for a fleet of 30 this is the
+  // difference between minutes and ~max(per-site) seconds.
+  const results: AuditResult[] = await runAuditsAcross(sites, which);
+
+  let output = opts.json ? JSON.stringify(results, null, 2) : formatTable(results);
+
+  if (opts.writeAirtable !== undefined) {
+    const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
+    const { listWebsites, updateScores, siteSlug } =
+      await import("../../reports/airtable/websites.js");
+    const { lighthouseScoresFromResult, resolveSlugFromCwd } =
+      await import("../../audits/lighthouse-airtable.js");
+
+    const slug =
+      typeof opts.writeAirtable === "string" && opts.writeAirtable.length > 0
+        ? opts.writeAirtable
+        : await resolveSlugFromCwd(cwd);
+
+    const lhResult = results.find((r) => r.audit === "lighthouse");
+    if (!lhResult) {
+      throw Object.assign(
+        new Error(
+          "--write-airtable requires a lighthouse result; did you pass --only without lighthouse?",
+        ),
+        { exitCode: 2 },
+      );
+    }
+    if (lhResult.status === "fail") {
+      throw Object.assign(
+        new Error(
+          `Lighthouse audit failed; refusing to write scores to Airtable. Summary: ${lhResult.summary}`,
+        ),
+        { exitCode: 1 },
+      );
+    }
+
+    const base = openBase(readAirtableConfig());
+    const websites = await listWebsites(base);
+    const target = websites.find((w) => siteSlug(w.name) === slug);
+    if (!target) {
+      throw Object.assign(new Error(`No Websites row matched slug "${slug}"`), { exitCode: 2 });
+    }
+
+    const scores = lighthouseScoresFromResult(lhResult);
+    await updateScores(base, target.id, scores);
+    output += `\n\n→ wrote scores to Websites[${target.name}]: P=${scores.performance} A=${scores.accessibility} BP=${scores.bestPractices} SEO=${scores.seo}`;
   }
 
-  const output = opts.json ? JSON.stringify(results, null, 2) : formatTable(results);
   return { output, code: exitCode(results) };
 }

@@ -6,6 +6,7 @@ import { siteSlug } from "./airtable/websites.js";
 import type { WebsiteRow } from "./airtable/websites.js";
 import type { ReportRow } from "./airtable/reports.js";
 import { createDraft, setDraftReady, listReportsForSite } from "./airtable/reports.js";
+import { uploadAttachment } from "./airtable/attachments.js";
 import type { AirtableBase } from "./airtable/client.js";
 
 export type DraftOptions = {
@@ -95,7 +96,8 @@ export async function draftReportForSite(
     lastTestedDate,
   });
 
-  await uploadHtmlAttachment(created.id, html, slug, periodEnd);
+  const htmlFilename = `${slug}-${periodEnd.toISOString().slice(0, 10)}.html`;
+  await uploadAttachment(created.id, "Rendered HTML", html, htmlFilename, "text/html");
   await setDraftReady(base, created.id, true);
 
   return { reportRow: created, htmlPath: null, html };
@@ -114,38 +116,4 @@ async function derivePeriodStart(
     .sort();
   const latest = sameType[sameType.length - 1];
   return latest ? new Date(latest) : daysAgo(today, 30);
-}
-
-/**
- * Airtable attachments can be created from a public URL OR uploaded directly via the
- * content.airtable.com "upload attachment" endpoint, which accepts base64 — we use that
- * because we don't have anywhere public to host the HTML.
- * Docs: https://airtable.com/developers/web/api/upload-attachment
- */
-async function uploadHtmlAttachment(
-  recordId: string,
-  html: string,
-  slug: string,
-  periodEnd: Date,
-): Promise<void> {
-  const apiKey = process.env.AIRTABLE_PAT;
-  const baseId = process.env.AIRTABLE_BASE_ID;
-  const filename = `${slug}-${periodEnd.toISOString().slice(0, 10)}.html`;
-  const body = {
-    contentType: "text/html",
-    file: Buffer.from(html, "utf-8").toString("base64"),
-    filename,
-  };
-  const url = `https://content.airtable.com/v0/${baseId}/${recordId}/Rendered%20HTML/uploadAttachment`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    throw new Error(`Airtable upload failed: ${res.status} ${res.statusText} ${await res.text()}`);
-  }
 }

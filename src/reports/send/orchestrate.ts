@@ -5,6 +5,7 @@ import type { WebsiteRow } from "../airtable/websites.js";
 import type { ReportRow } from "../airtable/reports.js";
 import { fetchAttachmentBytes } from "../airtable/attachments.js";
 import { renderReportHtml } from "../render.js";
+import { loadBundledImages } from "../maintenance-email/assets/index.js";
 import { defaultResendClient, type ResendClient } from "./resend.js";
 
 const FROM_ADDRESS = "Reddoor Reports <reports@reddoorla.com>";
@@ -60,6 +61,7 @@ async function sendOne(
   }
 
   const { bytes, contentType } = await fetchAttachmentBytes(site.headerImage.url);
+  const bundled = await loadBundledImages();
 
   const slug = siteSlug(site.name);
   const cidName = `${slug}-header`;
@@ -117,6 +119,21 @@ async function sendOne(
         content: Buffer.from(bytes).toString("base64"),
         contentType,
         inlineContentId: cidName,
+      },
+      // Bundled images referenced via cid:rd-check-png / cid:rd-blurred-tests-jpg
+      // in the template. Attached inline so the email is self-contained — no
+      // external CDN dependency, no image-blocked broken icons in webmail.
+      {
+        filename: bundled.check.filename,
+        content: Buffer.from(bundled.check.bytes).toString("base64"),
+        contentType: bundled.check.contentType,
+        inlineContentId: bundled.check.cid,
+      },
+      {
+        filename: bundled.blurred.filename,
+        content: Buffer.from(bundled.blurred.bytes).toString("base64"),
+        contentType: bundled.blurred.contentType,
+        inlineContentId: bundled.blurred.cid,
       },
     ],
     // Stable across retries of the same row — if Airtable stamping fails after a

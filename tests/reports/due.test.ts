@@ -8,6 +8,7 @@ function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
     id: "rec_site_1",
     name: "Acme",
     url: "https://acme.example.com",
+    status: "maintenance",
     pointOfContact: "ops@acme.example.com",
     maintenanceFreq: "Monthly",
     testingFreq: "None",
@@ -21,6 +22,7 @@ function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
     rScore: null,
     bpScore: null,
     seoScore: null,
+    lastLighthouseAuditAt: null,
     ...over,
   };
 }
@@ -115,6 +117,47 @@ describe("findDueReports", () => {
     );
     expect(due).toHaveLength(1);
     expect(due[0]!.dueDate.toISOString().slice(0, 10)).toBe("2026-05-26");
+  });
+
+  it("skips sites with status=deprecated (even if freq is set)", () => {
+    const due = findDueReports(
+      [site({ status: "deprecated", maintenanceFreq: "Monthly", maintenanceDay: "2026-01-01" })],
+      [],
+      TODAY,
+    );
+    expect(due).toEqual([]);
+  });
+
+  it("skips sites with status='probably not our problem'", () => {
+    const due = findDueReports(
+      [
+        site({
+          status: "probably not our problem",
+          maintenanceFreq: "Monthly",
+          maintenanceDay: "2026-01-01",
+        }),
+      ],
+      [],
+      TODAY,
+    );
+    expect(due).toEqual([]);
+  });
+
+  it("includes sites with status=launch period or hosting (also eligible)", () => {
+    const due = findDueReports(
+      [
+        site({ id: "rec_a", status: "launch period", maintenanceDay: "2026-01-01" }),
+        site({ id: "rec_b", status: "hosting", maintenanceDay: "2026-01-01" }),
+      ],
+      [],
+      TODAY,
+    );
+    expect(due).toHaveLength(2);
+  });
+
+  it("treats null status as eligible (backwards compat with partial data)", () => {
+    const due = findDueReports([site({ status: null, maintenanceDay: "2026-01-01" })], [], TODAY);
+    expect(due).toHaveLength(1);
   });
 
   it("respects Yearly frequency", () => {
