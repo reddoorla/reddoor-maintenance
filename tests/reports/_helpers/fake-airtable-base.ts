@@ -7,7 +7,11 @@ import type { AirtableBase } from "../../../src/reports/airtable/client.js";
 export type CapturedCall =
   | { kind: "select"; table: string; opts: Record<string, unknown> }
   | { kind: "create"; table: string; records: Array<{ fields: Record<string, unknown> }> }
-  | { kind: "update"; table: string; records: Array<{ id: string; fields: Record<string, unknown> }> };
+  | {
+      kind: "update";
+      table: string;
+      records: Array<{ id: string; fields: Record<string, unknown> }>;
+    };
 
 export type FakeRecord = { id: string; fields: Record<string, unknown> };
 
@@ -39,9 +43,7 @@ export function makeFakeBase(seed: Record<string, FakeRecord[]> = {}): FakeAirta
     };
     return {
       select: (opts: Record<string, unknown> = {}) => ({
-        eachPage: async (
-          cb: (recs: FakeRecord[], next: () => void) => void,
-        ): Promise<void> => {
+        eachPage: async (cb: (recs: FakeRecord[], next: () => void) => void): Promise<void> => {
           calls.push({ kind: "select", table, opts });
           cb(ensure(), () => {});
         },

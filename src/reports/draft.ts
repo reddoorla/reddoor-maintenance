@@ -117,4 +117,3 @@ async function derivePeriodStart(
   const latest = sameType[sameType.length - 1];
   return latest ? new Date(latest) : daysAgo(today, 30);
 }
-
