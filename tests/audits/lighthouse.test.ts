@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { readFile, mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { lighthouseAudit } from "../../src/audits/lighthouse.js";
-import type { SpawnFn } from "../../src/audits/util/spawn.js";
+import type { SpawnFn, SpawnResult } from "../../src/audits/util/spawn.js";
 
 async function tmpSite(): Promise<string> {
   return mkdtemp(join(tmpdir(), "reddoor-lh-"));
@@ -160,5 +160,68 @@ describe("audits/lighthouse", () => {
     });
     expect(result.status).toBe("skip");
     expect(result.summary).toMatch(/lhci/i);
+  });
+
+  describe("per-site URL override", () => {
+    /** A spawn that reads the `--config=<path>` lhci was given (the audit
+     * deletes it after spawn returns, so we must read it now) and writes a
+     * trivial passing manifest. */
+    function capturingSpawn(): { spawn: SpawnFn; getConfigUrls: () => string[] } {
+      let capturedUrls: string[] | undefined;
+      const spawn: SpawnFn = async (_cmd, args, opts): Promise<SpawnResult> => {
+        const cfgArg = args.find((a) => a.startsWith("--config="));
+        if (cfgArg) {
+          const cfgPath = cfgArg.slice("--config=".length);
+          const raw = await readFile(cfgPath, "utf-8");
+          const cfg = JSON.parse(raw) as { ci: { collect: { url: string[] } } };
+          capturedUrls = cfg.ci.collect.url;
+        }
+        const cwd = opts?.cwd ?? process.cwd();
+        const dir = join(cwd, ".lighthouseci");
+        await mkdir(dir, { recursive: true });
+        await writeFile(
+          join(dir, "manifest.json"),
+          JSON.stringify([{ url: "x", summary: { performance: 1, accessibility: 1 } }]),
+          "utf-8",
+        );
+        await writeFile(join(dir, "assertion-results.json"), "[]", "utf-8");
+        return { code: 0, stdout: "", stderr: "" };
+      };
+      const getConfigUrls = () => {
+        if (!capturedUrls) throw new Error("spawn was never called");
+        return capturedUrls;
+      };
+      return { spawn, getConfigUrls };
+    }
+
+    it("uses package.json#reddoor.lighthouseUrl when present", async () => {
+      const cwd = await tmpSite();
+      await writeFile(
+        join(cwd, "package.json"),
+        JSON.stringify({
+          name: "caltex-landing",
+          reddoor: { lighthouseUrl: "http://localhost:5173/" },
+        }),
+      );
+      const { spawn, getConfigUrls } = capturingSpawn();
+      const result = await lighthouseAudit({ site: { path: cwd }, spawn });
+      expect(result.status).toBe("pass");
+      expect(getConfigUrls()).toEqual(["http://localhost:5173/"]);
+    });
+
+    it("falls back to the default URL when package.json has no reddoor key", async () => {
+      const cwd = await tmpSite();
+      await writeFile(join(cwd, "package.json"), JSON.stringify({ name: "untouched" }));
+      const { spawn, getConfigUrls } = capturingSpawn();
+      await lighthouseAudit({ site: { path: cwd }, spawn });
+      expect(getConfigUrls()).toEqual(["http://localhost:5173/dev/a11y-fixtures"]);
+    });
+
+    it("falls back to the default URL when no package.json exists at all", async () => {
+      const cwd = await tmpSite();
+      const { spawn, getConfigUrls } = capturingSpawn();
+      await lighthouseAudit({ site: { path: cwd }, spawn });
+      expect(getConfigUrls()).toEqual(["http://localhost:5173/dev/a11y-fixtures"]);
+    });
   });
 });
