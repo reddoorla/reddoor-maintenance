@@ -75,6 +75,10 @@ cli
   .option("--json", "Machine-readable JSON output")
   .option("--fleet <inventory>", "Inventory file (.json or .mjs/.js); aggregates across sites")
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .option(
+    "--write-airtable [slug]",
+    "After lighthouse runs, write pScore/rScore/bpScore/seoScore + timestamp to the matching Websites row. Slug defaults to cwd's package.json#name.",
+  )
   .action(
     async (
       site,
@@ -85,6 +89,7 @@ cli
         workdir?: string;
         cwd?: string;
         verbose?: boolean;
+        writeAirtable?: string | boolean;
       },
     ) => runOrExit(() => runAuditCommand(site, opts), opts),
   );
