@@ -59,3 +59,12 @@ export { sendApprovedReports, type OrchestrateOptions } from "./reports/send/orc
 export { renderReportHtml, type RenderResult } from "./reports/render.js";
 export { findDueReports, type DueItem } from "./reports/due.js";
 export type { ReportType, LighthouseScores, ReportData, HeaderImage } from "./reports/types.js";
+
+// Exposed so the bundled-assets regression test can invoke the loader in a
+// production-equivalent context (would-be consumers go through dist/index.js).
+export {
+  loadBundledImages,
+  CHECK_CID,
+  BLURRED_CID,
+  type BundledImage,
+} from "./reports/maintenance-email/assets/index.js";
