@@ -35,6 +35,43 @@ describe("renderReportHtml", () => {
     expect(html).not.toContain(">90<");
   });
 
+  // H10 regression: swapping data.lighthouse.performance and .accessibility in
+  // the template would still pass the score-presence test above. This pins the
+  // POSITIONAL contract by checking that each score sits under its labeled
+  // section. Each chunk of the template runs from one section label to the next.
+  it("places each score under the correct section label (positional)", async () => {
+    const { html } = await renderReportHtml(
+      baseData({ lighthouse: { performance: 12, accessibility: 34, bestPractices: 56, seo: 78 } }),
+    );
+    const perfIdx = html.indexOf(">Performance<");
+    const readIdx = html.indexOf(">Readability<");
+    const bpIdx = html.indexOf(">Best Practices<");
+    const seoIdx = html.indexOf(">Site Structure<");
+
+    expect(perfIdx).toBeGreaterThan(-1);
+    expect(readIdx).toBeGreaterThan(perfIdx);
+    expect(bpIdx).toBeGreaterThan(readIdx);
+    expect(seoIdx).toBeGreaterThan(bpIdx);
+
+    // The first occurrence of ">12<" must be between the Performance label
+    // and the next label (Readability). Likewise for the others.
+    const firstPerfScore = html.indexOf(">12<");
+    const firstReadScore = html.indexOf(">34<");
+    const firstBpScore = html.indexOf(">56<");
+    const firstSeoScore = html.indexOf(">78<");
+
+    expect(firstPerfScore).toBeGreaterThan(perfIdx);
+    expect(firstPerfScore).toBeLessThan(readIdx);
+
+    expect(firstReadScore).toBeGreaterThan(readIdx);
+    expect(firstReadScore).toBeLessThan(bpIdx);
+
+    expect(firstBpScore).toBeGreaterThan(bpIdx);
+    expect(firstBpScore).toBeLessThan(seoIdx);
+
+    expect(firstSeoScore).toBeGreaterThan(seoIdx);
+  });
+
   it("labels the third score 'Best Practices' (not duplicate 'Performance')", async () => {
     const { html } = await renderReportHtml(baseData());
     expect(html).toContain("Best Practices");
