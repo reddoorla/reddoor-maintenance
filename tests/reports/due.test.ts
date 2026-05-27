@@ -67,6 +67,8 @@ describe("findDueReports", () => {
   it("uses maintenance day fallback when no Reports row exists", () => {
     const due = findDueReports([site({ maintenanceDay: "2026-04-26" })], [], TODAY);
     expect(due).toHaveLength(1);
+    // The dueDate must equal baseDate + 1 month (not "today" — that would mean the fallback was ignored).
+    expect(due[0]!.dueDate.toISOString().slice(0, 10)).toBe("2026-05-26");
   });
 
   it("does NOT flag as due when last Sent at + freq is in the future", () => {
@@ -77,6 +79,9 @@ describe("findDueReports", () => {
   it("DOES flag as due when last Sent at + freq has passed", () => {
     const due = findDueReports([site()], [report({ sentAt: "2026-03-01T12:00:00.000Z" })], TODAY);
     expect(due).toHaveLength(1);
+    // 2026-03-01 + Monthly = 2026-04-01 (the day it became due).
+    expect(due[0]!.dueDate.toISOString().slice(0, 10)).toBe("2026-04-01");
+    expect(due[0]!.lastSent).toBe("2026-03-01T12:00:00.000Z");
   });
 
   it("picks the most recent Sent at when multiple reports exist", () => {
@@ -109,5 +114,65 @@ describe("findDueReports", () => {
       TODAY,
     );
     expect(due).toHaveLength(1);
+    expect(due[0]!.dueDate.toISOString().slice(0, 10)).toBe("2026-05-26");
+  });
+
+  it("respects Yearly frequency", () => {
+    const due = findDueReports(
+      [site({ maintenanceFreq: "Yearly" })],
+      [report({ sentAt: "2025-05-26T12:00:00.000Z" })],
+      TODAY,
+    );
+    expect(due).toHaveLength(1);
+    expect(due[0]!.dueDate.toISOString().slice(0, 10)).toBe("2026-05-26");
+  });
+
+  // B4 regression: Jan 31 + 1 month should clamp to Feb 28, not roll to Mar 3.
+  it("clamps month-overflow when base date is the 31st (B4)", () => {
+    const due = findDueReports(
+      [site({ maintenanceDay: "2026-01-31" })],
+      [],
+      new Date("2026-03-01T12:00:00Z"),
+    );
+    expect(due).toHaveLength(1);
+    // Naive setMonth gives "2026-03-03"; the clamp gives Feb 28. Today (Mar 1) is past either way,
+    // but we assert on the value so a regression to the naive impl flips the date string.
+    expect(due[0]!.dueDate.toISOString().slice(0, 10)).toBe("2026-02-28");
+  });
+
+  it("clamps month-overflow correctly on leap years", () => {
+    // 2028 is a leap year — Jan 31 + 1mo should clamp to Feb 29.
+    const due = findDueReports(
+      [site({ maintenanceDay: "2028-01-31" })],
+      [],
+      new Date("2028-03-01T12:00:00Z"),
+    );
+    expect(due).toHaveLength(1);
+    expect(due[0]!.dueDate.toISOString().slice(0, 10)).toBe("2028-02-29");
+  });
+
+  // B5 regression: results must not depend on the machine's local timezone.
+  it("uses UTC date math (B5) — result identical regardless of process.env.TZ", () => {
+    const args: Parameters<typeof findDueReports> = [
+      [site({ maintenanceDay: "2026-04-26" })],
+      [],
+      new Date("2026-05-26T07:00:00Z"), // 00:00 PDT
+    ];
+    const original = process.env.TZ;
+
+    process.env.TZ = "UTC";
+    const utcResult = findDueReports(...args);
+
+    process.env.TZ = "America/Los_Angeles";
+    const pdtResult = findDueReports(...args);
+
+    process.env.TZ = "Asia/Tokyo";
+    const jstResult = findDueReports(...args);
+
+    process.env.TZ = original;
+
+    expect(utcResult).toHaveLength(1);
+    expect(pdtResult).toEqual(utcResult);
+    expect(jstResult).toEqual(utcResult);
   });
 });

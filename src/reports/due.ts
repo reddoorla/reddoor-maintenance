@@ -17,15 +17,27 @@ const MONTHS: Record<Exclude<Frequency, "None">, number> = {
   Yearly: 12,
 };
 
+/**
+ * Add `n` calendar months in UTC, clamped to the last day of the target month.
+ * Jan 31 + 1 month = Feb 28 (not Mar 3, which is what naive setMonth produces).
+ * All-UTC accessors mean the result is timezone-independent.
+ */
 function addMonths(d: Date, n: number): Date {
   const out = new Date(d);
-  out.setMonth(out.getMonth() + n);
+  const day = out.getUTCDate();
+  out.setUTCDate(1);
+  out.setUTCMonth(out.getUTCMonth() + n);
+  const lastDayOfTargetMonth = new Date(
+    Date.UTC(out.getUTCFullYear(), out.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  out.setUTCDate(Math.min(day, lastDayOfTargetMonth));
   return out;
 }
 
+/** Truncate to UTC midnight. Avoids local-TZ skew when comparing Airtable date-only fields. */
 function startOfDay(d: Date): Date {
   const out = new Date(d);
-  out.setHours(0, 0, 0, 0);
+  out.setUTCHours(0, 0, 0, 0);
   return out;
 }
 
