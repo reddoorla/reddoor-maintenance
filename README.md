@@ -15,19 +15,26 @@ pnpm reddoor-maint --help
 
 A reddoor site goes through this sequence the first time you adopt the package. Each recipe is idempotent — running it again on an already-onboarded site is a `noop`.
 
-```text
-convert-to-pnpm  →  onboard  →  sync-configs  →  svelte-codemods  →  audit
+```bash
+pnpm reddoor-maint init
 ```
 
-| Step | Recipe            | What it does                                                                                                                                                                                                                  |
-| ---- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1    | `convert-to-pnpm` | Removes `package-lock.json` / `yarn.lock`, pins `packageManager: pnpm@…`, rewrites `npm` references in scripts, runs `pnpm install` to materialise `pnpm-lock.yaml`.                                                          |
-| 2    | `onboard`         | Installs `@reddoorla/maintenance` + the audit deps (`@lhci/cli`, `@playwright/test`, `@axe-core/playwright`) on the site. Pins the maintenance dep to a caret range against this package's own version at runtime.            |
-| 3    | `sync-configs`    | Writes the canonical config templates into the site (eslint, prettier, lighthouserc, playwright config, svelte config) and merges canonical entries into `.gitignore`.                                                        |
-| 4    | `svelte-codemods` | Optional cleanup pass applying the Svelte 5 gotcha codemods (`export let` → `$props()`, `on:event` → `onevent`, `$:` → `$derived`/`$effect`, etc.) for sites that surface new strictness warnings after the original upgrade. |
-| 5    | `audit`           | Runs `deps`, `lighthouse`, `a11y`, `security`, `lint` — see [Audits](#audits).                                                                                                                                                |
+`init` runs the whole chain in order against the current directory (or `init [site]` for an explicit path). It's a thin orchestrator — every underlying recipe still creates its own branch and stops on a dirty tree, so the operator ends up with a stack of `maint/<recipe>-<ts>` branches to PR.
 
-Each recipe refuses to run on a dirty working tree, creates a fresh `maint/<recipe>-<UTC-ms-timestamp>` branch, and emits one or more atomic commits.
+```text
+convert-to-pnpm  →  onboard  →  sync-configs  →  svelte-codemods  →  a11y-fixtures-page  →  audit
+```
+
+| Step | Recipe               | What it does                                                                                                                                                                                                                  |
+| ---- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | `convert-to-pnpm`    | Removes `package-lock.json` / `yarn.lock`, pins `packageManager: pnpm@…`, rewrites `npm` references in scripts, runs `pnpm install` to materialise `pnpm-lock.yaml`.                                                          |
+| 2    | `onboard`            | Installs `@reddoorla/maintenance` + the audit deps (`@lhci/cli`, `@playwright/test`, `@axe-core/playwright`) on the site. Pins the maintenance dep to a caret range against this package's own version at runtime.            |
+| 3    | `sync-configs`       | Writes the canonical config templates into the site (eslint, prettier, lighthouserc, playwright config, svelte config) and merges canonical entries into `.gitignore`.                                                        |
+| 4    | `svelte-codemods`    | Optional cleanup pass applying the Svelte 5 gotcha codemods (`export let` → `$props()`, `on:event` → `onevent`, `$:` → `$derived`/`$effect`, etc.) for sites that surface new strictness warnings after the original upgrade. |
+| 5    | `a11y-fixtures-page` | Writes a starter `src/routes/dev/a11y-fixtures/+page.svelte` if the route doesn't already exist. The hardcoded URL in `lighthouse` and `playwright-a11y` configs targets this route. Operator edits are never clobbered.      |
+| 6    | `audit`              | Runs `deps`, `lighthouse`, `a11y`, `security`, `lint` — see [Audits](#audits).                                                                                                                                                |
+
+Each recipe refuses to run on a dirty working tree, creates a fresh `maint/<recipe>-<UTC-ms-timestamp>` branch, and emits one or more atomic commits. Running individual steps standalone (e.g. `reddoor-maint sync-configs`) still works — `init` is for when you want the whole chain in one command.
 
 ---
 
@@ -37,6 +44,7 @@ Each recipe refuses to run on a dirty working tree, creates a fresh `maint/<reci
 reddoor-maint list-audits       # audit descriptions
 reddoor-maint list-recipes      # recipe descriptions
 
+reddoor-maint init [site]       # full onboarding chain (preferred entrypoint)
 reddoor-maint audit [site]      # run audits
 reddoor-maint sync-configs [site]
 reddoor-maint bump-deps [site]
@@ -72,11 +80,13 @@ Each recipe is `(site, opts?) => Promise<RecipeResult>` and is exported from the
 
 ```ts
 import {
+  init,
   syncConfigs,
   bumpDeps,
   onboard,
   convertToPnpm,
   svelteCodemods,
+  a11yFixturesPage,
   upgradeSvelte4to5,
 } from "@reddoorla/maintenance";
 ```
@@ -112,6 +122,14 @@ Standalone codemod pass for sites already on Svelte 5. Applies the same gotcha c
 ### `upgrade svelte-4-to-5`
 
 The full 7-step Svelte 4 → 5 migration: bump framework versions, migrate `svelte.config.js`, run the official `svelte-migrate` codemod, run `@tailwindcss/upgrade`, apply gotcha codemods over `src/**/*.svelte`, verify with `pnpm install` + `pnpm run check`, and write a `MIGRATION_SVELTE_5.md` summary. Each step is its own commit; the file leaves a record of what ran and what may need manual review.
+
+### `a11y-fixtures-page`
+
+Writes a starter `src/routes/dev/a11y-fixtures/+page.svelte` if the route doesn't already exist. The `lighthouse` and `playwright-a11y` configs both target this URL — newly-onboarded sites need the route to exist for either audit to pass. The template is intentionally generic (semantic landmarks + headings + a relative link); operator edits to an existing page are never clobbered.
+
+### `init`
+
+One-shot guided onboarding: runs `convert-to-pnpm → onboard → sync-configs → svelte-codemods → a11y-fixtures-page → audit` in sequence against a site. Each underlying recipe still creates its own branch — `init` is a thin orchestrator, not a branch-collapser. Stops the chain on the first `failed` recipe or uncaught error; `noop` results continue the chain. Exit code is 1 if any step failed _or_ the final audit pass reports a `fail`.
 
 ---
 
