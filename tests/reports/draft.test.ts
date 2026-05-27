@@ -22,6 +22,7 @@ function siteFixture(over: Partial<WebsiteRow> = {}): WebsiteRow {
     id: "rec_site_acme",
     name: "Acme Co",
     url: "https://acme.example.com",
+    status: "maintenance",
     pointOfContact: "ops@acme.example.com",
     maintenanceFreq: "Monthly",
     testingFreq: "None",

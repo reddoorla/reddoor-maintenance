@@ -6,10 +6,19 @@ export const WEBSITES_TABLE = "Websites";
 
 export type Frequency = "None" | "Monthly" | "Quarterly" | "Yearly";
 
+export type Status =
+  | "in development"
+  | "launch period"
+  | "maintenance"
+  | "hosting"
+  | "probably not our problem"
+  | "deprecated";
+
 export type WebsiteRow = {
   id: string;
   name: string;
   url: string;
+  status: Status | null;
   pointOfContact: string | null;
   maintenanceFreq: Frequency;
   testingFreq: Frequency;
@@ -46,6 +55,7 @@ function mapRow(rec: { id: string; fields: Record<string, unknown> }): WebsiteRo
     id: rec.id,
     name: String(f["Name"] ?? ""),
     url: String(f["url"] ?? ""),
+    status: (f["Status"] as Status | undefined) ?? null,
     pointOfContact: (f["point of contact"] as string | undefined) ?? null,
     maintenanceFreq: ((f["maintenence freq"] as string | undefined) ?? "None") as Frequency,
     testingFreq: ((f["testing freq"] as string | undefined) ?? "None") as Frequency,

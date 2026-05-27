@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { runAudits, ALL_AUDIT_NAMES } from "../../audits/index.js";
+import { runAuditsAcross, ALL_AUDIT_NAMES } from "../../audits/index.js";
 import type { AuditName, AuditResult } from "../../types.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
 import { cloneIfNeeded } from "../fleet/clone-if-needed.js";
@@ -58,11 +58,9 @@ export async function runAuditCommand(
     sites = await Promise.all(sites.map((s) => cloneIfNeeded(s, { workdir })));
   }
 
-  const results: AuditResult[] = [];
-  for (const s of sites) {
-    const r = await runAudits(s, which);
-    results.push(...r);
-  }
+  // Run sites in parallel via runAuditsAcross — for a fleet of 30 this is the
+  // difference between minutes and ~max(per-site) seconds.
+  const results: AuditResult[] = await runAuditsAcross(sites, which);
 
   let output = opts.json ? JSON.stringify(results, null, 2) : formatTable(results);
 
