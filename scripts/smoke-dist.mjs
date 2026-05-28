@@ -119,9 +119,12 @@ const requiredExports = [
   // version helpers — present so consumers can pin to our actual version
   "selfPackageVersion",
   "selfCaretRange",
-  // dashboard — Netlify function imports these for the per-site /s/:slug page
+  // dashboard — Netlify functions import these for the per-site /s/:slug page
+  // (Phase 1) and the fleet homepage at / (Phase 2)
   "renderSiteDashboardHtml",
   "verifyDashboardToken",
+  "renderFleetHomeHtml",
+  "verifyBasicAuth",
 ];
 
 const mod = await import(distUrl);
