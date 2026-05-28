@@ -37,6 +37,7 @@ function siteFixture(over: Partial<WebsiteRow> = {}): WebsiteRow {
     bpScore: 100,
     seoScore: 95,
     lastLighthouseAuditAt: null,
+    dashboardToken: null,
     ...over,
   };
 }
