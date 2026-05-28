@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { a11yAudit } from "../../src/audits/a11y.js";
@@ -123,7 +123,6 @@ describe("audits/a11y", () => {
   it("writes a spec with a generous per-test timeout (survives many routes)", async () => {
     const cwd = await tmpSite();
     let specContents = "";
-    const { readFile } = await import("node:fs/promises");
     await a11yAudit({
       site: { path: cwd },
       spawn: async (_cmd, args, opts) => {
@@ -142,5 +141,56 @@ describe("audits/a11y", () => {
     // Playwright's default per-test timeout is 30s; multi-route loops easily
     // exceed it. Ensure the generated spec raises the ceiling.
     expect(specContents).toMatch(/test\.setTimeout\s*\(/);
+  });
+
+  // Regression for the caltex 2026-05-28 zombie-vite incident: relying on
+  // the site's own playwright.config (port 5173, no strictPort) let the
+  // audit silently probe a stale dev server. Hardening synthesizes its own
+  // config with a freshly-allocated port + `--strictPort`.
+  describe("port hardening (caltex zombie-vite regression)", () => {
+    it("synthesizes a playwright config pinning the dev server to a free port with --strictPort", async () => {
+      const cwd = await tmpSite();
+      let capturedConfigPath: string | undefined;
+      let capturedConfig = "";
+      await a11yAudit({
+        site: { path: cwd },
+        spawn: async (_cmd, args, opts) => {
+          const cfgArg = args.find((a) => a.startsWith("--config="));
+          expect(cfgArg).toBeDefined();
+          capturedConfigPath = cfgArg!.slice("--config=".length);
+          capturedConfig = await readFile(capturedConfigPath, "utf-8");
+          const out = join(opts?.cwd ?? cwd, ".reddoor-a11y");
+          await mkdir(out, { recursive: true });
+          await writeFile(
+            join(out, "results.json"),
+            JSON.stringify({ totalViolations: 0, byImpact: {} }),
+            "utf-8",
+          );
+          return { code: 0, stdout: "", stderr: "" };
+        },
+      });
+      // The synthesized config must force strictPort — without it, vite
+      // happily bumps to a free port and the audit hits a zombie on 5173.
+      expect(capturedConfig).toMatch(/--strictPort\b/);
+      // The vite spawn port and the URL playwright polls must match —
+      // otherwise we'd start vite on N and probe something else.
+      const cmdPortMatch = capturedConfig.match(/--port\s+(\d+)/);
+      expect(cmdPortMatch).not.toBeNull();
+      const cmdPort = Number(cmdPortMatch![1]);
+      const urlPortMatch = capturedConfig.match(/url:\s*"http:\/\/localhost:(\d+)/);
+      expect(urlPortMatch).not.toBeNull();
+      const urlPort = Number(urlPortMatch![1]);
+      const baseUrlPortMatch = capturedConfig.match(/baseURL:\s*"http:\/\/localhost:(\d+)/);
+      expect(baseUrlPortMatch).not.toBeNull();
+      const baseUrlPort = Number(baseUrlPortMatch![1]);
+      expect(cmdPort).toBe(urlPort);
+      expect(cmdPort).toBe(baseUrlPort);
+      // And the port must NOT be the historic 5173 — that's the zombie
+      // failure surface the fix exists to eliminate.
+      expect(cmdPort).not.toBe(5173);
+      // reuseExistingServer:false ensures the audit owns the server lifecycle
+      // (don't piggyback on something already listening).
+      expect(capturedConfig).toMatch(/reuseExistingServer:\s*false/);
+    });
   });
 });

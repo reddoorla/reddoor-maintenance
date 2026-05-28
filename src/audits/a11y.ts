@@ -6,6 +6,7 @@ import { siteLabel } from "../util/site.js";
 import { a11yRoutes } from "../configs/playwright-a11y.js";
 import { defaultSpawn } from "./util/spawn.js";
 import type { AuditContext } from "./util/inject.js";
+import { findFreePort } from "../util/free-port.js";
 
 type Impact = "minor" | "moderate" | "serious" | "critical";
 
@@ -33,6 +34,38 @@ async function readJsonMaybe<T>(path: string): Promise<T | null> {
   } catch {
     return null;
   }
+}
+
+// The audit-controlled playwright config. We synthesize it (rather than
+// rely on the site's playwright.config.ts) so we can pin the dev server
+// port + force `--strictPort` — same fix as the lighthouse audit, same
+// reason (zombie vite processes squatting on 5173 would otherwise eat
+// the audit's request and return stale 404s).
+function buildPlaywrightConfig(port: number): string {
+  return `import { defineConfig } from "@playwright/test";
+
+export default defineConfig({
+  testDir: ".",
+  testMatch: /.*\\.spec\\.ts$/,
+  fullyParallel: true,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 0,
+  reporter: process.env.CI ? "github" : "list",
+  use: {
+    baseURL: "http://localhost:${port}",
+    trace: "on-first-retry",
+  },
+  webServer: {
+    // --strictPort: refuse to bump to a different port if ours is taken,
+    //   so the audit fails loudly instead of probing a zombie.
+    // reuseExistingServer:false: never reuse — we control the lifecycle.
+    command: "npm run vite:dev -- --port ${port} --strictPort",
+    url: "http://localhost:${port}/dev/a11y-fixtures",
+    reuseExistingServer: false,
+    timeout: 120_000,
+  },
+});
+`;
 }
 
 // The spec the audit writes runs all configured routes through axe in a single
@@ -96,21 +129,29 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
   const specPath = join(specDir, "a11y.spec.ts");
   await writeFile(specPath, buildSpec(), "utf-8");
 
+  const port = await findFreePort();
+  const configPath = join(specDir, "playwright.config.ts");
+  await writeFile(configPath, buildPlaywrightConfig(port), "utf-8");
+
   const resultsPath = join(site.path, RESULTS_REL);
   // Clear stale artifacts so a failed spawn never reports old data.
   await rm(join(site.path, ".reddoor-a11y"), { recursive: true, force: true });
 
   let raw;
   try {
-    raw = await spawn("npx", ["--yes", "playwright", "test", "--reporter=line", specPath], {
-      cwd: site.path,
-      env: { ...process.env, REDDOOR_A11Y_OUTPUT: resultsPath },
-      // playwright on a cold tree downloads Chrome, boots the site's dev
-      // server, and runs axe over every configured route. The shared 30 s
-      // default in runAudits is fine for deps/lint/security but starves
-      // playwright (mirrors the lighthouse fix shipped earlier).
-      timeoutMs: 5 * 60_000,
-    });
+    raw = await spawn(
+      "npx",
+      ["--yes", "playwright", "test", `--config=${configPath}`, "--reporter=line", specPath],
+      {
+        cwd: site.path,
+        env: { ...process.env, REDDOOR_A11Y_OUTPUT: resultsPath },
+        // playwright on a cold tree downloads Chrome, boots the site's dev
+        // server, and runs axe over every configured route. The shared 30 s
+        // default in runAudits is fine for deps/lint/security but starves
+        // playwright (mirrors the lighthouse fix shipped earlier).
+        timeoutMs: 5 * 60_000,
+      },
+    );
   } catch (err) {
     await rm(specDir, { recursive: true, force: true });
     const e = err as NodeJS.ErrnoException;
