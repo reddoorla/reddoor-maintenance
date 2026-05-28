@@ -5,10 +5,9 @@
 [functions]
   node_bundler = "esbuild"
 
-# Per-site dashboard. Splat path becomes the slug; query string
-# (notably ?t=<token>) passes through unchanged.
-[[redirects]]
-  from = "/s/:slug"
-  to = "/.netlify/functions/site-dashboard?slug=:slug"
-  status = 200
-  force = true
+# /s/:slug → site-dashboard function path is registered on the function
+# itself via `export const config = { path: [...] }` in
+# netlify/functions/site-dashboard.mts. A [[redirects]] rewrite with
+# status=200 passes the ORIGINAL request URL to the function rather than
+# the rewritten one, so query-string substitution (`slug=:slug`) never
+# reached the handler — every request fell through to the health check.

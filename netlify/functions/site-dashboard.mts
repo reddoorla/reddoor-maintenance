@@ -1,8 +1,18 @@
-import type { Context } from "@netlify/functions";
+import type { Context, Config } from "@netlify/functions";
 import { openBase } from "../../src/reports/airtable/client.js";
 import { getWebsiteBySlug } from "../../src/reports/airtable/websites.js";
 import { listReportsForSite } from "../../src/reports/airtable/reports.js";
 import { verifyDashboardToken, renderSiteDashboardHtml } from "../../src/dashboard/index.js";
+
+// Register the customer-facing /s/:slug path on the function itself rather
+// than via a netlify.toml [[redirects]] rewrite. The rewrite approach (200
+// status) made the function receive the ORIGINAL request URL, not the
+// rewritten one — so `url.searchParams.get("slug")` was always null and
+// every request fell through to the health check. With function-level
+// path routing the slug arrives via ctx.params.
+export const config: Config = {
+  path: ["/s/:slug", "/.netlify/functions/site-dashboard"],
+};
 
 function plainText(body: string, status: number): Response {
   return new Response(body, { status, headers: { "content-type": "text/plain; charset=utf-8" } });
@@ -12,11 +22,12 @@ function html(body: string, status: number): Response {
   return new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8" } });
 }
 
-export default async (req: Request, _ctx: Context): Promise<Response> => {
-  // Health check — same pattern as resend-webhook: GET without ?slug=
-  // returns env presence so operators can curl after deploy.
+export default async (req: Request, ctx: Context): Promise<Response> => {
+  // Health check fires when hit on the function URL with no slug (either
+  // path or query). Same pattern as resend-webhook so operators can curl
+  // after deploy to verify env wiring.
   const url = new URL(req.url);
-  const slug = url.searchParams.get("slug");
+  const slug = ctx.params?.slug ?? url.searchParams.get("slug");
   const token = url.searchParams.get("t");
 
   if (!slug) {
