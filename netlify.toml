@@ -4,3 +4,11 @@
 
 [functions]
   node_bundler = "esbuild"
+
+# Per-site dashboard. Splat path becomes the slug; query string
+# (notably ?t=<token>) passes through unchanged.
+[[redirects]]
+  from = "/s/:slug"
+  to = "/.netlify/functions/site-dashboard?slug=:slug"
+  status = 200
+  force = true
