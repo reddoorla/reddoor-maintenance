@@ -1,18 +1,20 @@
 import { describe, it, expect } from "vitest";
 import { writeAuditsToAirtable } from "../../src/audits/write-audits-to-airtable.js";
 import type { AuditResult } from "../../src/types.js";
+import type { AirtableBase } from "../../src/reports/airtable/client.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 
 type UpdateCall = { table: string; id: string; fields: Record<string, unknown> };
 
-function makeFakeBase(): { base: any; calls: UpdateCall[] } {
+function makeFakeBase(): { base: AirtableBase; calls: UpdateCall[] } {
   const calls: UpdateCall[] = [];
-  const base = (table: string) => ({
+  const tableFn = (table: string) => ({
     update: async (recs: Array<{ id: string; fields: Record<string, unknown> }>) => {
       for (const r of recs) calls.push({ table, id: r.id, fields: r.fields });
       return recs;
     },
   });
+  const base = tableFn as unknown as AirtableBase;
   return { base, calls };
 }
 
