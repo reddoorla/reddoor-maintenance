@@ -50,10 +50,11 @@
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:dist": "node scripts/smoke-dist.mjs",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build",
+    "prepublishOnly": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build && pnpm run test:dist",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "pnpm run prepublishOnly && changeset publish"
