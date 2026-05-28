@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdtemp, rm } from "node:fs/promises";
+import { readFile, writeFile, mkdtemp, rm, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AuditResult } from "../types.js";
@@ -40,6 +40,35 @@ async function readJsonMaybe<T>(path: string): Promise<T | null> {
   } catch {
     return null;
   }
+}
+
+type LhrFile = {
+  requestedUrl: string;
+  finalUrl?: string;
+  categories: Record<string, { score: number | null }>;
+};
+
+/**
+ * Build manifest-equivalent entries by scanning the `.lighthouseci/` dir
+ * for `lhr-*.json` files written by `lhci collect`. We used to read
+ * `manifest.json` directly, but lhci 0.15+ no longer writes it — the
+ * audit would silently return "no manifest written" against a perfectly
+ * healthy run. Reproduced on caltex 2026-05-28 (0.10.5 dogfood).
+ */
+async function readLhrEntries(resultsDir: string): Promise<ManifestEntry[]> {
+  const files = await readdir(resultsDir).catch(() => [] as string[]);
+  const entries: ManifestEntry[] = [];
+  for (const f of files) {
+    if (!f.startsWith("lhr-") || !f.endsWith(".json")) continue;
+    const lhr = await readJsonMaybe<LhrFile>(join(resultsDir, f));
+    if (!lhr || !lhr.categories) continue;
+    const summary: Record<string, number> = {};
+    for (const [k, v] of Object.entries(lhr.categories)) {
+      if (typeof v?.score === "number") summary[k] = v.score;
+    }
+    entries.push({ url: lhr.requestedUrl, summary });
+  }
+  return entries;
 }
 
 function averageSummaries(entries: ManifestEntry[]): Record<string, number> {
@@ -130,14 +159,14 @@ export async function lighthouseAudit(ctx: AuditContext): Promise<AuditResult> {
   }
   await rm(configDir, { recursive: true, force: true });
 
-  const manifest = await readJsonMaybe<ManifestEntry[]>(join(resultsDir, "manifest.json"));
+  const manifest = await readLhrEntries(resultsDir);
 
-  if (!manifest || manifest.length === 0) {
+  if (manifest.length === 0) {
     return {
       audit: "lighthouse",
       site: label,
       status: "fail",
-      summary: `lighthouse: no manifest written (exit ${raw.code})${
+      summary: `lighthouse: no lhr-*.json written (exit ${raw.code})${
         raw.stderr ? ` — ${raw.stderr.slice(0, 200)}` : ""
       }`,
     };

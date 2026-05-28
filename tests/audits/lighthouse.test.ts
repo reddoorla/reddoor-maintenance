@@ -14,6 +14,12 @@ async function tmpSite(): Promise<string> {
  * artifacts the audit reads. `manifest` and `assertionResults` are the parsed
  * forms; the spawn writes them as JSON files inside <cwd>/.lighthouseci/.
  */
+/**
+ * Mimics lhci 0.15+ output: writes one `lhr-<i>.json` per "run" (the audit
+ * now scans the directory rather than reading manifest.json, which lhci no
+ * longer writes). Each entry's `summary` becomes a `categories.X.score`
+ * map in the lhr file.
+ */
 function lhciSpawn(
   manifest: Array<{ url: string; summary: Record<string, number>; htmlPath?: string }>,
   assertionResults?: Array<{
@@ -32,7 +38,18 @@ function lhciSpawn(
     const cwd = opts?.cwd ?? process.cwd();
     const dir = join(cwd, ".lighthouseci");
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, "manifest.json"), JSON.stringify(manifest), "utf-8");
+    let i = 0;
+    for (const entry of manifest) {
+      const categories: Record<string, { score: number }> = {};
+      for (const [k, v] of Object.entries(entry.summary)) {
+        categories[k] = { score: v };
+      }
+      await writeFile(
+        join(dir, `lhr-${Date.now()}-${i++}.json`),
+        JSON.stringify({ requestedUrl: entry.url, finalUrl: entry.url, categories }),
+        "utf-8",
+      );
+    }
     if (assertionResults) {
       await writeFile(
         join(dir, "assertion-results.json"),
@@ -187,9 +204,14 @@ describe("audits/lighthouse", () => {
         const cwd = opts?.cwd ?? process.cwd();
         const dir = join(cwd, ".lighthouseci");
         await mkdir(dir, { recursive: true });
+        // lhci 0.15+ writes lhr-*.json (not manifest.json) — the audit
+        // scans for these.
         await writeFile(
-          join(dir, "manifest.json"),
-          JSON.stringify([{ url: "x", summary: { performance: 1, accessibility: 1 } }]),
+          join(dir, "lhr-1.json"),
+          JSON.stringify({
+            requestedUrl: "x",
+            categories: { performance: { score: 1 }, accessibility: { score: 1 } },
+          }),
           "utf-8",
         );
         await writeFile(join(dir, "assertion-results.json"), "[]", "utf-8");
@@ -284,8 +306,8 @@ describe("audits/lighthouse", () => {
         const cwd2 = opts?.cwd ?? process.cwd();
         await mkdir(join(cwd2, ".lighthouseci"), { recursive: true });
         await writeFile(
-          join(cwd2, ".lighthouseci", "manifest.json"),
-          JSON.stringify([{ url: "x", summary: { performance: 1 } }]),
+          join(cwd2, ".lighthouseci", "lhr-1.json"),
+          JSON.stringify({ requestedUrl: "x", categories: { performance: { score: 1 } } }),
           "utf-8",
         );
         await writeFile(join(cwd2, ".lighthouseci", "assertion-results.json"), "[]", "utf-8");
@@ -304,6 +326,98 @@ describe("audits/lighthouse", () => {
       // we'd start vite on N and audit something else.
       const urlPort = Number(new URL(capturedUrls![0]!).port);
       expect(urlPort).toBe(startPort);
+    });
+  });
+
+  // Regression for the caltex 2026-05-28 (0.10.5) dogfood failure: lhci
+  // 0.15+ no longer writes `manifest.json`. The audit used to read it
+  // directly and report "no manifest written" against perfectly healthy
+  // runs. It now scans for `lhr-*.json` files and builds the equivalent.
+  describe("lhci 0.15+ output (no manifest.json)", () => {
+    it("reads scores from lhr-*.json when manifest.json is absent", async () => {
+      const cwd = await tmpSite();
+      const spawn: SpawnFn = async (_cmd, _args, opts): Promise<SpawnResult> => {
+        const dir = join(opts?.cwd ?? cwd, ".lighthouseci");
+        await mkdir(dir, { recursive: true });
+        // Two runs, no manifest.json — matches what real lhci 0.15.1 writes.
+        await writeFile(
+          join(dir, "lhr-1.json"),
+          JSON.stringify({
+            requestedUrl: "http://localhost:5173/dev/a11y-fixtures",
+            categories: {
+              performance: { score: 0.8 },
+              accessibility: { score: 0.95 },
+              "best-practices": { score: 0.9 },
+              seo: { score: 1 },
+            },
+          }),
+          "utf-8",
+        );
+        await writeFile(
+          join(dir, "lhr-2.json"),
+          JSON.stringify({
+            requestedUrl: "http://localhost:5173/dev/a11y-fixtures",
+            categories: {
+              performance: { score: 0.9 },
+              accessibility: { score: 0.97 },
+              "best-practices": { score: 0.92 },
+              seo: { score: 1 },
+            },
+          }),
+          "utf-8",
+        );
+        await writeFile(join(dir, "assertion-results.json"), "[]", "utf-8");
+        return { code: 0, stdout: "", stderr: "" };
+      };
+      const result = await lighthouseAudit({ site: { path: cwd }, spawn });
+      expect(result.status).toBe("pass");
+      const details = result.details as { summary: Record<string, number> };
+      // Averaged across two lhr files.
+      expect(details.summary.performance).toBeCloseTo(0.85);
+      expect(details.summary.accessibility).toBeCloseTo(0.96);
+    });
+
+    it("reports a clear failure when neither manifest nor lhr-*.json was written", async () => {
+      const cwd = await tmpSite();
+      const spawn: SpawnFn = async (_cmd, _args, opts): Promise<SpawnResult> => {
+        // Empty .lighthouseci/ — simulates lhci failing before writing
+        // any artifacts.
+        await mkdir(join(opts?.cwd ?? cwd, ".lighthouseci"), { recursive: true });
+        return { code: 1, stdout: "", stderr: "vite spawn failed" };
+      };
+      const result = await lighthouseAudit({ site: { path: cwd }, spawn });
+      expect(result.status).toBe("fail");
+      // Error message must reflect the actual filename we look for now,
+      // not the stale "no manifest written" string.
+      expect(result.summary).toMatch(/lhr-\*\.json/);
+      expect(result.summary).toMatch(/vite spawn failed/);
+    });
+
+    it("ignores non-lhr files in .lighthouseci/ (links.json, html reports, etc.)", async () => {
+      const cwd = await tmpSite();
+      const spawn: SpawnFn = async (_cmd, _args, opts): Promise<SpawnResult> => {
+        const dir = join(opts?.cwd ?? cwd, ".lighthouseci");
+        await mkdir(dir, { recursive: true });
+        await writeFile(
+          join(dir, "lhr-1.json"),
+          JSON.stringify({
+            requestedUrl: "http://localhost:5173/x",
+            categories: { accessibility: { score: 1 } },
+          }),
+          "utf-8",
+        );
+        // These are real artifacts lhci writes alongside lhr-*.json; the
+        // scanner must not try to JSON-parse the HTML or pick links.json
+        // up as a phantom run entry.
+        await writeFile(join(dir, "lhr-1.html"), "<html>not json</html>", "utf-8");
+        await writeFile(join(dir, "links.json"), JSON.stringify({ x: "y" }), "utf-8");
+        await writeFile(join(dir, "assertion-results.json"), "[]", "utf-8");
+        return { code: 0, stdout: "", stderr: "" };
+      };
+      const result = await lighthouseAudit({ site: { path: cwd }, spawn });
+      expect(result.status).toBe("pass");
+      const details = result.details as { summary: Record<string, number> };
+      expect(details.summary.accessibility).toBe(1);
     });
   });
 });
