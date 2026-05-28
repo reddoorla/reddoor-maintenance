@@ -35,6 +35,24 @@ function findMatchingClose(source: string, openIdx: number): number {
       i = closeStr + 1;
       continue;
     }
+    // Skip over comments so braces inside `// }` or `/* } */` don't fool the
+    // counter. Regression: the old version silently corrupted source (depth
+    // went off, real closing brace mis-matched) on inputs like `$: { // } ... }`.
+    // The corrupted output still compiles in Svelte 5 — no parser to scream.
+    if (ch === "/") {
+      const next = source[i + 1];
+      if (next === "/") {
+        const eol = source.indexOf("\n", i + 2);
+        i = eol === -1 ? source.length : eol; // step onto newline; outer loop handles it
+        continue;
+      }
+      if (next === "*") {
+        const end = source.indexOf("*/", i + 2);
+        if (end === -1) return -1; // unterminated block comment — bail rather than corrupt
+        i = end + 2;
+        continue;
+      }
+    }
     if (ch === "{") depth++;
     else if (ch === "}") {
       depth--;

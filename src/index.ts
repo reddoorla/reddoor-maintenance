@@ -68,3 +68,9 @@ export {
   BLURRED_CID,
   type BundledImage,
 } from "./reports/maintenance-email/assets/index.js";
+
+// Same reason: lets the dist-resolution regression test exercise the
+// `import.meta.url` walk-up from production bundling context. Without
+// the export, the test would only verify selfPackageVersion against its
+// src/ shape (where vitest evaluates the .ts directly).
+export { selfPackageVersion, selfCaretRange } from "./util/self-version.js";
