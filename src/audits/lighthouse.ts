@@ -7,6 +7,7 @@ import { lighthouseConfig } from "../configs/lighthouse.js";
 import { defaultSpawn } from "./util/spawn.js";
 import type { AuditContext } from "./util/inject.js";
 import { readSiteConfig } from "./util/site-config.js";
+import { findFreePort, withFreePort } from "../util/free-port.js";
 
 type ManifestEntry = {
   url: string;
@@ -77,15 +78,23 @@ export async function lighthouseAudit(ctx: AuditContext): Promise<AuditResult> {
   const label = siteLabel(site);
 
   const siteCfg = await readSiteConfig(site.path);
-  const resolvedConfig = siteCfg.lighthouseUrl
-    ? {
-        ...lighthouseConfig,
-        ci: {
-          ...lighthouseConfig.ci,
-          collect: { ...lighthouseConfig.ci.collect, url: [siteCfg.lighthouseUrl] },
-        },
-      }
-    : lighthouseConfig;
+  // Allocate a free port + force vite to `--strictPort` so the spawned dev
+  // server either binds the port we picked or fails loudly. Without this,
+  // a zombie on 5173 makes vite bump to 5174 while lhci still probes 5173
+  // and audits the wrong server (silently returns "no manifest written").
+  const port = await findFreePort();
+  const baseUrl = siteCfg.lighthouseUrl ?? lighthouseConfig.ci.collect.url[0];
+  const resolvedConfig = {
+    ...lighthouseConfig,
+    ci: {
+      ...lighthouseConfig.ci,
+      collect: {
+        ...lighthouseConfig.ci.collect,
+        url: [withFreePort(baseUrl, port)],
+        startServerCommand: `npm run vite:dev -- --port ${port} --strictPort`,
+      },
+    },
+  };
 
   const configDir = await mkdtemp(join(tmpdir(), "reddoor-lhci-"));
   const configPath = join(configDir, "lighthouserc.json");

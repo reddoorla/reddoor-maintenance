@@ -166,15 +166,23 @@ describe("audits/lighthouse", () => {
     /** A spawn that reads the `--config=<path>` lhci was given (the audit
      * deletes it after spawn returns, so we must read it now) and writes a
      * trivial passing manifest. */
-    function capturingSpawn(): { spawn: SpawnFn; getConfigUrls: () => string[] } {
+    function capturingSpawn(): {
+      spawn: SpawnFn;
+      getConfigUrls: () => string[];
+      getStartServerCommand: () => string;
+    } {
       let capturedUrls: string[] | undefined;
+      let capturedStartServerCommand: string | undefined;
       const spawn: SpawnFn = async (_cmd, args, opts): Promise<SpawnResult> => {
         const cfgArg = args.find((a) => a.startsWith("--config="));
         if (cfgArg) {
           const cfgPath = cfgArg.slice("--config=".length);
           const raw = await readFile(cfgPath, "utf-8");
-          const cfg = JSON.parse(raw) as { ci: { collect: { url: string[] } } };
+          const cfg = JSON.parse(raw) as {
+            ci: { collect: { url: string[]; startServerCommand: string } };
+          };
           capturedUrls = cfg.ci.collect.url;
+          capturedStartServerCommand = cfg.ci.collect.startServerCommand;
         }
         const cwd = opts?.cwd ?? process.cwd();
         const dir = join(cwd, ".lighthouseci");
@@ -191,10 +199,29 @@ describe("audits/lighthouse", () => {
         if (!capturedUrls) throw new Error("spawn was never called");
         return capturedUrls;
       };
-      return { spawn, getConfigUrls };
+      const getStartServerCommand = () => {
+        if (!capturedStartServerCommand) throw new Error("spawn was never called");
+        return capturedStartServerCommand;
+      };
+      return { spawn, getConfigUrls, getStartServerCommand };
     }
 
-    it("uses package.json#reddoor.lighthouseUrl when present", async () => {
+    /**
+     * The audit allocates a dynamic free port (caltex 2026-05-28 zombie-vite
+     * incident). Assertions check `localhost` + path + valid port shape
+     * rather than a literal 5173 string.
+     */
+    function expectLocalhostUrl(actual: string, expectedPath: string): number {
+      const u = new URL(actual);
+      expect(u.hostname).toBe("localhost");
+      expect(u.pathname).toBe(expectedPath);
+      const port = Number(u.port);
+      expect(port).toBeGreaterThan(1024);
+      expect(port).toBeLessThan(65_536);
+      return port;
+    }
+
+    it("uses package.json#reddoor.lighthouseUrl when present (path preserved, port rewritten)", async () => {
       const cwd = await tmpSite();
       await writeFile(
         join(cwd, "package.json"),
@@ -206,7 +233,12 @@ describe("audits/lighthouse", () => {
       const { spawn, getConfigUrls } = capturingSpawn();
       const result = await lighthouseAudit({ site: { path: cwd }, spawn });
       expect(result.status).toBe("pass");
-      expect(getConfigUrls()).toEqual(["http://localhost:5173/"]);
+      const urls = getConfigUrls();
+      expect(urls).toHaveLength(1);
+      const port = expectLocalhostUrl(urls[0]!, "/");
+      // The default 5173 must NOT be passed to lhci — that's the zombie-vite
+      // failure mode this fix exists to prevent.
+      expect(port).not.toBe(5173);
     });
 
     it("falls back to the default URL when package.json has no reddoor key", async () => {
@@ -214,14 +246,64 @@ describe("audits/lighthouse", () => {
       await writeFile(join(cwd, "package.json"), JSON.stringify({ name: "untouched" }));
       const { spawn, getConfigUrls } = capturingSpawn();
       await lighthouseAudit({ site: { path: cwd }, spawn });
-      expect(getConfigUrls()).toEqual(["http://localhost:5173/dev/a11y-fixtures"]);
+      const urls = getConfigUrls();
+      expect(urls).toHaveLength(1);
+      expectLocalhostUrl(urls[0]!, "/dev/a11y-fixtures");
     });
 
     it("falls back to the default URL when no package.json exists at all", async () => {
       const cwd = await tmpSite();
       const { spawn, getConfigUrls } = capturingSpawn();
       await lighthouseAudit({ site: { path: cwd }, spawn });
-      expect(getConfigUrls()).toEqual(["http://localhost:5173/dev/a11y-fixtures"]);
+      const urls = getConfigUrls();
+      expect(urls).toHaveLength(1);
+      expectLocalhostUrl(urls[0]!, "/dev/a11y-fixtures");
+    });
+  });
+
+  // Regression for the caltex 2026-05-28 incident: zombie vite processes on
+  // 5173 caused the audit to silently probe a stale server. Hardening pins
+  // the dev server to a freshly-allocated port and forces `--strictPort` so
+  // vite fails loudly if anything else is squatting on it.
+  describe("port hardening (caltex zombie-vite regression)", () => {
+    it("startServerCommand passes the allocated port + --strictPort to vite, matching the URL port", async () => {
+      const cwd = await tmpSite();
+      let capturedStartCommand: string | undefined;
+      let capturedUrls: string[] | undefined;
+      const spawn: SpawnFn = async (_cmd, args, opts): Promise<SpawnResult> => {
+        const cfgArg = args.find((a) => a.startsWith("--config="));
+        if (cfgArg) {
+          const cfgPath = cfgArg.slice("--config=".length);
+          const raw = await readFile(cfgPath, "utf-8");
+          const cfg = JSON.parse(raw) as {
+            ci: { collect: { url: string[]; startServerCommand: string } };
+          };
+          capturedStartCommand = cfg.ci.collect.startServerCommand;
+          capturedUrls = cfg.ci.collect.url;
+        }
+        const cwd2 = opts?.cwd ?? process.cwd();
+        await mkdir(join(cwd2, ".lighthouseci"), { recursive: true });
+        await writeFile(
+          join(cwd2, ".lighthouseci", "manifest.json"),
+          JSON.stringify([{ url: "x", summary: { performance: 1 } }]),
+          "utf-8",
+        );
+        await writeFile(join(cwd2, ".lighthouseci", "assertion-results.json"), "[]", "utf-8");
+        return { code: 0, stdout: "", stderr: "" };
+      };
+      await lighthouseAudit({ site: { path: cwd }, spawn });
+      expect(capturedStartCommand).toBeDefined();
+      expect(capturedUrls).toBeDefined();
+      // The vite spawn args have to include --strictPort so vite refuses to
+      // bump on collision — without it, a zombie steals the audit.
+      expect(capturedStartCommand!).toMatch(/--strictPort\b/);
+      const portMatch = capturedStartCommand!.match(/--port\s+(\d+)/);
+      expect(portMatch).not.toBeNull();
+      const startPort = Number(portMatch![1]);
+      // And the URL lhci probes must point at the SAME port — otherwise
+      // we'd start vite on N and audit something else.
+      const urlPort = Number(new URL(capturedUrls![0]!).port);
+      expect(urlPort).toBe(startPort);
     });
   });
 });
