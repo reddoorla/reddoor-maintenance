@@ -1,5 +1,4 @@
 import { readFile, writeFile, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AuditResult } from "../types.js";
 import { siteLabel } from "../util/site.js";
@@ -130,7 +129,13 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
   const site = ctx.site;
   const label = siteLabel(site);
 
-  const specDir = await mkdtemp(join(tmpdir(), "reddoor-a11y-spec-"));
+  // specDir lives INSIDE site.path (not /tmp) so the spec's
+  // `import AxeBuilder from "@axe-core/playwright"` resolves via Node's
+  // walk-up — the site's node_modules is the nearest one. A spec written
+  // to /tmp ENOENTs at module resolution before any test runs. Caltex
+  // 2026-05-28 (0.10.6 dogfood), third layer of the same class as the
+  // webServer.cwd bug.
+  const specDir = await mkdtemp(join(site.path, ".reddoor-a11y-spec-"));
   const specPath = join(specDir, "a11y.spec.ts");
   await writeFile(specPath, buildSpec(), "utf-8");
 
