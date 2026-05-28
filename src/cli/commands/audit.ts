@@ -68,7 +68,7 @@ export async function runAuditCommand(
     const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
     const { listWebsites, updateScores, siteSlug } =
       await import("../../reports/airtable/websites.js");
-    const { lighthouseScoresFromResult, resolveSlugFromCwd } =
+    const { lighthouseScoresFromResult, hasRealScores, resolveSlugFromCwd } =
       await import("../../audits/lighthouse-airtable.js");
 
     const slug =
@@ -85,10 +85,13 @@ export async function runAuditCommand(
         { exitCode: 2 },
       );
     }
-    if (lhResult.status === "fail") {
+    // Only refuse on infrastructure failure (empty summary). Assertion
+    // failures still carry real scores — those ARE the signal the
+    // dashboard exists to track over time.
+    if (!hasRealScores(lhResult)) {
       throw Object.assign(
         new Error(
-          `Lighthouse audit failed; refusing to write scores to Airtable. Summary: ${lhResult.summary}`,
+          `Lighthouse audit produced no scores; refusing to write to Airtable. Summary: ${lhResult.summary}`,
         ),
         { exitCode: 1 },
       );
