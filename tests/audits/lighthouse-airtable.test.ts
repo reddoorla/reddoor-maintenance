@@ -3,6 +3,7 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  hasRealScores,
   lighthouseScoresFromResult,
   resolveSlugFromCwd,
 } from "../../src/audits/lighthouse-airtable.js";
@@ -42,6 +43,58 @@ describe("lighthouseScoresFromResult", () => {
   it("throws if given a non-lighthouse AuditResult", () => {
     const bad = { ...lhResult({}), audit: "deps" } as AuditResult;
     expect(() => lighthouseScoresFromResult(bad)).toThrow(/Expected a 'lighthouse'/);
+  });
+});
+
+describe("hasRealScores", () => {
+  // Behavioral contract for `audit --write-airtable`: write iff the audit
+  // actually produced numeric scores. Below-threshold scores ARE real data
+  // worth tracking; only absent/empty summary should block the write.
+  it("returns true when all four lighthouse categories are present", () => {
+    expect(
+      hasRealScores(
+        lhResult({ performance: 0.9, accessibility: 0.95, "best-practices": 0.92, seo: 1 }),
+      ),
+    ).toBe(true);
+  });
+
+  it("returns true even when only one category is present", () => {
+    // Real lhr-*.json output, just an unusually pared-down config.
+    expect(hasRealScores(lhResult({ performance: 0.5 }))).toBe(true);
+  });
+
+  it("returns true for an assertion-failed audit that still has real scores", () => {
+    // Caltex 2026-05-28 case: best-practices = 0.78 below the 0.9 threshold
+    // → status: "fail", but the dashboard NEEDS these numbers.
+    const result: AuditResult = {
+      audit: "lighthouse",
+      site: "caltex",
+      status: "fail",
+      summary: "lighthouse: 2 assertion(s) failed",
+      details: {
+        summary: { performance: 0.89, accessibility: 1, "best-practices": 0.78, seo: 1 },
+      },
+    } as unknown as AuditResult;
+    expect(hasRealScores(result)).toBe(true);
+  });
+
+  it("returns false for an infrastructure-failed audit (no manifest written)", () => {
+    const result: AuditResult = {
+      audit: "lighthouse",
+      site: "caltex",
+      status: "fail",
+      summary: "lighthouse: no lhr-*.json written (exit 1)",
+    } as unknown as AuditResult;
+    expect(hasRealScores(result)).toBe(false);
+  });
+
+  it("returns false for an empty summary object", () => {
+    expect(hasRealScores(lhResult({}))).toBe(false);
+  });
+
+  it("returns false when the audit name is not lighthouse", () => {
+    const bad = { ...lhResult({ performance: 0.5 }), audit: "deps" } as AuditResult;
+    expect(hasRealScores(bad)).toBe(false);
   });
 });
 

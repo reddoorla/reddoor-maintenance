@@ -4,6 +4,31 @@ import type { AuditResult } from "../types.js";
 import type { LighthouseScores } from "../reports/types.js";
 import { siteSlug } from "../reports/airtable/websites.js";
 
+const LIGHTHOUSE_CATEGORIES = ["performance", "accessibility", "best-practices", "seo"] as const;
+
+/**
+ * True when the result carries real lighthouse scores worth persisting.
+ *
+ * The `audit --write-airtable` policy used to refuse on any `status: "fail"`,
+ * but that conflates two very different failure modes:
+ *   1. Infrastructure failure (no lhr-*.json written, spawn timeout, etc.)
+ *      → `details.summary` empty → all-zeros would corrupt the dashboard
+ *   2. Assertion failure (scores below threshold, e.g. best-practices < 0.9)
+ *      → `details.summary` has real numbers → tracking these IS the point
+ *
+ * The dashboard exists to surface drift over time. Refusing to write the
+ * very numbers the dashboard wants to plot — just because one assertion
+ * tripped — defeats the purpose. Write whenever real scores exist.
+ */
+export function hasRealScores(result: AuditResult): boolean {
+  if (result.audit !== "lighthouse") return false;
+  const details = (result.details ?? {}) as { summary?: Record<string, number> };
+  const summary = details.summary ?? {};
+  return LIGHTHOUSE_CATEGORIES.some(
+    (k) => typeof summary[k] === "number" && !Number.isNaN(summary[k]),
+  );
+}
+
 /**
  * Extract the four Lighthouse scores (as integer percentages) from a
  * `lighthouse` AuditResult. LHCI manifest summaries are floats in [0,1];
