@@ -192,5 +192,32 @@ describe("audits/a11y", () => {
       // (don't piggyback on something already listening).
       expect(capturedConfig).toMatch(/reuseExistingServer:\s*false/);
     });
+
+    // Regression for caltex 2026-05-28 (0.10.5) dogfood: the synthesized
+    // config lives in /tmp, so playwright's default webServer.cwd was the
+    // tmp dir. `npm run vite:dev` then ENOENT'd on /tmp/.../package.json
+    // before vite ever started. The config must pin webServer.cwd to the
+    // site's path so npm finds the right project.
+    it("pins webServer.cwd to the site's path so `npm run vite:dev` finds package.json", async () => {
+      const cwd = await tmpSite();
+      let capturedConfig = "";
+      await a11yAudit({
+        site: { path: cwd },
+        spawn: async (_cmd, args, opts) => {
+          const cfgArg = args.find((a) => a.startsWith("--config="));
+          capturedConfig = await readFile(cfgArg!.slice("--config=".length), "utf-8");
+          const out = join(opts?.cwd ?? cwd, ".reddoor-a11y");
+          await mkdir(out, { recursive: true });
+          await writeFile(
+            join(out, "results.json"),
+            JSON.stringify({ totalViolations: 0, byImpact: {} }),
+            "utf-8",
+          );
+          return { code: 0, stdout: "", stderr: "" };
+        },
+      });
+      // JSON.stringify escapes the path → `cwd: "/private/var/.../reddoor-a11y-test-XXX"`.
+      expect(capturedConfig).toContain(`cwd: ${JSON.stringify(cwd)}`);
+    });
   });
 });

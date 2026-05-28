@@ -41,7 +41,7 @@ async function readJsonMaybe<T>(path: string): Promise<T | null> {
 // port + force `--strictPort` — same fix as the lighthouse audit, same
 // reason (zombie vite processes squatting on 5173 would otherwise eat
 // the audit's request and return stale 404s).
-function buildPlaywrightConfig(port: number): string {
+function buildPlaywrightConfig(port: number, sitePath: string): string {
   return `import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
@@ -59,8 +59,13 @@ export default defineConfig({
     // --strictPort: refuse to bump to a different port if ours is taken,
     //   so the audit fails loudly instead of probing a zombie.
     // reuseExistingServer:false: never reuse — we control the lifecycle.
+    // cwd: playwright's default webServer.cwd is the config file's
+    //   directory. Our config lives in /tmp so without this override,
+    //   "npm run vite:dev" tries to read /tmp/.../package.json and
+    //   ENOENTs before vite ever starts. Caltex 2026-05-28 (0.10.5).
     command: "npm run vite:dev -- --port ${port} --strictPort",
     url: "http://localhost:${port}/dev/a11y-fixtures",
+    cwd: ${JSON.stringify(sitePath)},
     reuseExistingServer: false,
     timeout: 120_000,
   },
@@ -131,7 +136,7 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
 
   const port = await findFreePort();
   const configPath = join(specDir, "playwright.config.ts");
-  await writeFile(configPath, buildPlaywrightConfig(port), "utf-8");
+  await writeFile(configPath, buildPlaywrightConfig(port, site.path), "utf-8");
 
   const resultsPath = join(site.path, RESULTS_REL);
   // Clear stale artifacts so a failed spawn never reports old data.
