@@ -28,6 +28,7 @@ export const CANONICAL_GITIGNORE_ENTRIES: readonly string[] = [
   "*.log",
   ".vercel/",
   ".netlify/",
+  ".reddoor-a11y/",
 ];
 
 export type MergeResult = { content: string; added: string[] };
