@@ -37,6 +37,11 @@ export type WebsiteRow = {
   seoScore: number | null;
   /** ISO timestamp set by `audit lighthouse --write-airtable` when scores were last refreshed. */
   lastLighthouseAuditAt: string | null;
+  /** Shared-link gate for the per-site dashboard at /s/<slug>?t=<token>.
+   *  Operator generates and pastes into the "Dashboard Token" Airtable field;
+   *  rotated by replacing the value. `null` means the site has no dashboard
+   *  link yet — the function returns 403 with a clear setup message. */
+  dashboardToken: string | null;
 };
 
 export function siteSlug(name: string): string {
@@ -46,7 +51,7 @@ export function siteSlug(name: string): string {
     .replace(/^-|-$/g, "");
 }
 
-function mapRow(rec: { id: string; fields: Record<string, unknown> }): WebsiteRow {
+export function mapRow(rec: { id: string; fields: Record<string, unknown> }): WebsiteRow {
   const f = rec.fields;
   const attachments =
     (f["Header image"] as Array<{ url: string; filename: string; type: string }> | undefined) ?? [];
@@ -70,6 +75,12 @@ function mapRow(rec: { id: string; fields: Record<string, unknown> }): WebsiteRo
     bpScore: (f["bpScore"] as number | undefined) ?? null,
     seoScore: (f["seoScore"] as number | undefined) ?? null,
     lastLighthouseAuditAt: (f["Last lighthouse audit at"] as string | undefined) ?? null,
+    dashboardToken: (() => {
+      const raw = f["Dashboard Token"];
+      if (typeof raw !== "string") return null;
+      const trimmed = raw.trim();
+      return trimmed.length > 0 ? trimmed : null;
+    })(),
   };
 }
 
