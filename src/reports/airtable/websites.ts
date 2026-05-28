@@ -139,3 +139,43 @@ export async function updateScores(
   };
   await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
 }
+
+/** Persist a11y violation count. */
+export async function updateA11yCounts(
+  base: AirtableBase,
+  recordId: string,
+  counts: { violations: number },
+): Promise<void> {
+  const fields: FieldSet = {
+    "A11y Violations": counts.violations,
+  };
+  await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+}
+
+/** Persist deps drift counts. */
+export async function updateDepsCounts(
+  base: AirtableBase,
+  recordId: string,
+  counts: { drifted: number; majorBehind: number },
+): Promise<void> {
+  const fields: FieldSet = {
+    "Deps Drifted": counts.drifted,
+    "Deps Major Behind": counts.majorBehind,
+  };
+  await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+}
+
+/** Persist security vulnerability counts by severity. */
+export async function updateSecurityCounts(
+  base: AirtableBase,
+  recordId: string,
+  counts: { critical: number; high: number; moderate: number; low: number },
+): Promise<void> {
+  const fields: FieldSet = {
+    "Security Vulns Critical": counts.critical,
+    "Security Vulns High": counts.high,
+    "Security Vulns Moderate": counts.moderate,
+    "Security Vulns Low": counts.low,
+  };
+  await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+}
