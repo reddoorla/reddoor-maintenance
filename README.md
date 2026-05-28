@@ -2,7 +2,14 @@
 
 Canonical maintenance configs, audits, and recipes for the reddoor SvelteKit + Prismic fleet.
 
-A single CLI (`reddoor-maint`) that runs **audits** to inspect a site, **recipes** to mutate one (branch-isolated, idempotent, never on a dirty tree), and ships the **canonical configs** every reddoor site shares (eslint, prettier, lighthouse, playwright-a11y, svelte). Designed to run against either a single local site or a fleet declared in an inventory file.
+A single CLI (`reddoor-maint`) covering the full operator workflow:
+
+- **Audits** inspect a site (lighthouse, a11y, security, lint, deps).
+- **Recipes** mutate one (branch-isolated, idempotent, never on a dirty tree) — start with [`init`](#init) for fresh sites.
+- **Reports** ([per-site monthly/quarterly emails](#reports-per-site-maintenancetesting-emails)) draft + send client-facing maintenance + testing summaries, backed by Airtable as the source of truth and Resend for delivery.
+- **Canonical configs** (eslint, prettier, lighthouserc, playwright-a11y, svelte) ship as importable presets every reddoor site shares.
+
+Designed to run against either a single local site or a fleet declared in an inventory file.
 
 ```bash
 pnpm add -D @reddoorla/maintenance
@@ -46,6 +53,7 @@ reddoor-maint list-recipes      # recipe descriptions
 
 reddoor-maint init [site]       # full onboarding chain (preferred entrypoint)
 reddoor-maint audit [site]      # run audits
+reddoor-maint report [site]     # draft / send per-site maintenance + testing emails (see Reports)
 reddoor-maint sync-configs [site]
 reddoor-maint bump-deps [site]
 reddoor-maint convert-to-pnpm [site]
@@ -76,7 +84,7 @@ reddoor-maint upgrade svelte-4-to-5 [site]
 
 ## Recipes
 
-Each recipe is `(site, opts?) => Promise<RecipeResult>` and is exported from the package entry as a library function too:
+Each recipe is `(site, opts?) => Promise<RecipeResult>` and is also exported from the package entry as a library function:
 
 ```ts
 import {
@@ -99,13 +107,11 @@ Shared contract — every recipe:
 - **Is idempotent** — re-running on the already-applied state returns `{ status: "noop", commits: [] }` without creating a branch.
 - **Returns a `RecipeResult`** — `{ recipe, site, status: "applied" | "noop" | "failed", commits: string[], notes?: string }`.
 
-### `sync-configs`
+### `init`
 
-Writes the canonical config templates into the site (eslint, prettier, lighthouserc, playwright config, svelte config) and merges the canonical entries into `.gitignore`. Each config is its own commit. `--dry` reports the planned diff (including gitignore drift) without writing. `--only <name>[,<name>]` restricts to a subset.
+One-shot guided onboarding — the recommended entrypoint for a fresh site. Runs `convert-to-pnpm → onboard → sync-configs → svelte-codemods → a11y-fixtures-page → audit` in sequence. Each underlying recipe still creates its own branch — `init` is a thin orchestrator, not a branch-collapser. Stops the chain on the first `failed` recipe or uncaught error; `noop` results continue the chain. Exit code is 1 if any step failed _or_ the final audit pass reports a `fail`.
 
-### `bump-deps`
-
-Pre-flights that the site is on pnpm (refuses with a clear remediation if `package-lock.json` or `yarn.lock` is present without `pnpm-lock.yaml`), runs `pnpm install` to ensure the lockfile is current, then `pnpm outdated --json` to decide whether anything needs upgrading. If yes: creates a branch and runs `pnpm up` scoped to the requested `--group` (patch / minor / major), then commits the result. `noop` if nothing's out of date.
+The remaining sections describe each step `init` invokes (in chain order), plus the standalone recipes that aren't part of onboarding.
 
 ### `convert-to-pnpm`
 
@@ -115,21 +121,25 @@ Removes the npm or yarn lockfile, pins `packageManager: pnpm@X.Y.Z` in `package.
 
 Adds `@reddoorla/maintenance` + the audit deps (`@lhci/cli`, `@playwright/test`, `@axe-core/playwright`) to the site's `devDependencies` if they're missing. Audit dep versions come from `src/configs/baseline-versions.ts` so they can't drift from the rest of the package. The maintenance dep is pinned to a caret range against this package's own version at runtime — no manual syncing required at each minor bump. Refuses with `{ status: "failed", notes: "run convert-to-pnpm first" }` if the site has no `pnpm-lock.yaml`.
 
+### `sync-configs`
+
+Writes the canonical config templates into the site (eslint, prettier, lighthouserc, playwright config, svelte config) and merges the canonical entries into `.gitignore`. Each config is its own commit. `--dry` reports the planned diff (including gitignore drift) without writing. `--only <name>[,<name>]` restricts to a subset.
+
 ### `svelte-codemods`
 
 Standalone codemod pass for sites already on Svelte 5. Applies the same gotcha codemods the full `svelte-4-to-5` recipe runs (`export let` → `$props()`, `on:event` → `onevent`, `$:` → `$derived`/`$effect`, `$$props.class` rewrite, `$$restProps` → destructured `...rest`, `$state` + `$effect` → `$derived`). Useful when post-upgrade Svelte 5 surfaces new strictness warnings and the fleet needs a clean re-application.
-
-### `upgrade svelte-4-to-5`
-
-The full 7-step Svelte 4 → 5 migration: bump framework versions, migrate `svelte.config.js`, run the official `svelte-migrate` codemod, run `@tailwindcss/upgrade`, apply gotcha codemods over `src/**/*.svelte`, verify with `pnpm install` + `pnpm run check`, and write a `MIGRATION_SVELTE_5.md` summary. Each step is its own commit; the file leaves a record of what ran and what may need manual review.
 
 ### `a11y-fixtures-page`
 
 Writes a starter `src/routes/dev/a11y-fixtures/+page.svelte` if the route doesn't already exist. The `lighthouse` and `playwright-a11y` configs both target this URL — newly-onboarded sites need the route to exist for either audit to pass. The template is intentionally generic (semantic landmarks + headings + a relative link); operator edits to an existing page are never clobbered.
 
-### `init`
+### `bump-deps` _(standalone — not part of `init`)_
 
-One-shot guided onboarding: runs `convert-to-pnpm → onboard → sync-configs → svelte-codemods → a11y-fixtures-page → audit` in sequence against a site. Each underlying recipe still creates its own branch — `init` is a thin orchestrator, not a branch-collapser. Stops the chain on the first `failed` recipe or uncaught error; `noop` results continue the chain. Exit code is 1 if any step failed _or_ the final audit pass reports a `fail`.
+Pre-flights that the site is on pnpm (refuses with a clear remediation if `package-lock.json` or `yarn.lock` is present without `pnpm-lock.yaml`), runs `pnpm install` to ensure the lockfile is current, then `pnpm outdated --json` to decide whether anything needs upgrading. If yes: creates a branch and runs `pnpm up` scoped to the requested `--group` (patch / minor / major), then commits the result. `noop` if nothing's out of date.
+
+### `upgrade svelte-4-to-5` _(standalone — not part of `init`)_
+
+The full 7-step Svelte 4 → 5 migration: bump framework versions, migrate `svelte.config.js`, run the official `svelte-migrate` codemod, run `@tailwindcss/upgrade`, apply gotcha codemods over `src/**/*.svelte`, verify with `pnpm install` + `pnpm run check`, and write a `MIGRATION_SVELTE_5.md` summary. Each step is its own commit; the file leaves a record of what ran and what may need manual review.
 
 ---
 
@@ -190,21 +200,29 @@ Pass `--fleet <path>` to run a command against multiple sites declared in an inv
 
 ## Library usage
 
-The package's main entry exports every recipe and audit so you can wire them into custom tooling (CI jobs, scheduled scripts, alternative CLIs):
+The package's main entry exports every recipe, audit, and report function so you can wire them into custom tooling (CI jobs, scheduled scripts, alternative CLIs):
 
 ```ts
 import {
   // recipes
-  syncConfigs,
-  bumpDeps,
+  init,
   convertToPnpm,
   onboard,
+  syncConfigs,
   svelteCodemods,
+  a11yFixturesPage,
+  bumpDeps,
   upgradeSvelte4to5,
 
   // audits
   runAudits,
   ALL_AUDIT_NAMES,
+
+  // reports (per-site maintenance / testing emails)
+  draftReportForSite,
+  sendApprovedReports,
+  renderReportHtml,
+  findDueReports,
 
   // recipe registry
   ALL_RECIPE_NAMES,
