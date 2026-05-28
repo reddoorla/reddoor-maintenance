@@ -83,7 +83,7 @@ describe("renderFleetHomeHtml", () => {
     ]);
     // Em-dash (or similar) for unset scores, NOT the literal "null"
     expect(html).not.toContain(">null<");
-    expect(html).toMatch(/—|–|-/);
+    expect(html).toMatch(/<td class="score">—<\/td>/);
   });
 
   it("renders a friendly empty state when the fleet has zero sites", () => {
