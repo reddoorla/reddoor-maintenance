@@ -37,6 +37,16 @@ export type WebsiteRow = {
   seoScore: number | null;
   /** ISO timestamp set by `audit lighthouse --write-airtable` when scores were last refreshed. */
   lastLighthouseAuditAt: string | null;
+  /** Last-known counts from non-lighthouse audits, written by
+   *  `audit --write-airtable`. `null` = never audited (or this audit
+   *  type was skipped on the last run). 0 = audited, clean. */
+  a11yViolations: number | null;
+  depsDrifted: number | null;
+  depsMajorBehind: number | null;
+  securityVulnsCritical: number | null;
+  securityVulnsHigh: number | null;
+  securityVulnsModerate: number | null;
+  securityVulnsLow: number | null;
   /** Shared-link gate for the per-site dashboard at /s/<slug>?t=<token>.
    *  Operator generates and pastes into the "Dashboard Token" Airtable field;
    *  rotated by replacing the value. `null` means the site has no dashboard
@@ -75,6 +85,13 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     bpScore: (f["bpScore"] as number | undefined) ?? null,
     seoScore: (f["seoScore"] as number | undefined) ?? null,
     lastLighthouseAuditAt: (f["Last lighthouse audit at"] as string | undefined) ?? null,
+    a11yViolations: (f["A11y Violations"] as number | undefined) ?? null,
+    depsDrifted: (f["Deps Drifted"] as number | undefined) ?? null,
+    depsMajorBehind: (f["Deps Major Behind"] as number | undefined) ?? null,
+    securityVulnsCritical: (f["Security Vulns Critical"] as number | undefined) ?? null,
+    securityVulnsHigh: (f["Security Vulns High"] as number | undefined) ?? null,
+    securityVulnsModerate: (f["Security Vulns Moderate"] as number | undefined) ?? null,
+    securityVulnsLow: (f["Security Vulns Low"] as number | undefined) ?? null,
     dashboardToken: (() => {
       const raw = f["Dashboard Token"];
       if (typeof raw !== "string") return null;

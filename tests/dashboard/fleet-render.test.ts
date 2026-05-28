@@ -22,6 +22,13 @@ function siteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     bpScore: 90,
     seoScore: 100,
     lastLighthouseAuditAt: "2026-05-27T18:00:00Z",
+    a11yViolations: null,
+    depsDrifted: null,
+    depsMajorBehind: null,
+    securityVulnsCritical: null,
+    securityVulnsHigh: null,
+    securityVulnsModerate: null,
+    securityVulnsLow: null,
     dashboardToken: "tok",
     ...over,
   };

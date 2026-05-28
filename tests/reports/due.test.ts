@@ -23,6 +23,13 @@ function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
     bpScore: null,
     seoScore: null,
     lastLighthouseAuditAt: null,
+    a11yViolations: null,
+    depsDrifted: null,
+    depsMajorBehind: null,
+    securityVulnsCritical: null,
+    securityVulnsHigh: null,
+    securityVulnsModerate: null,
+    securityVulnsLow: null,
     dashboardToken: null,
     ...over,
   };
