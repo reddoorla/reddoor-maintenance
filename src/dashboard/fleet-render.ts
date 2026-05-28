@@ -108,9 +108,8 @@ h1 { margin: 0 0 0.25rem; font-size: 1.75rem; }
 .card-head { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; align-items: baseline; }
 .card-head .site { font-weight: 600; font-size: 1.05rem; }
 .card-head .url { color: #666; font-size: 0.85rem; }
-.card-head .setup, .card-head .audited { margin-left: auto; color: #666; font-size: 0.85rem; }
+.card-head .setup, .card-head .audited { color: #666; font-size: 0.85rem; }
 .card-head .setup { margin-left: auto; }
-.card-head .audited { margin-left: 0; }
 .card-metrics { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; margin-top: 0.5rem; font-variant-numeric: tabular-nums; }
 .cluster { display: inline-flex; gap: 0.5rem; align-items: baseline; }
 .cluster.lighthouse .score { display: inline-block; min-width: 2.25rem; text-align: right; }

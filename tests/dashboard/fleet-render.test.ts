@@ -136,6 +136,11 @@ describe("renderFleetHomeHtml — metrics row", () => {
     expect(html).toMatch(/<span class="metric deps">5 drifted \(1 major\)<\/span>/);
   });
 
+  it("renders deps with '(0 major)' when there is non-major drift only", () => {
+    const html = renderFleetHomeHtml([siteRow({ depsDrifted: 5, depsMajorBehind: 0 })]);
+    expect(html).toMatch(/<span class="metric deps">5 drifted \(0 major\)<\/span>/);
+  });
+
   it("renders deps as '0' when clean", () => {
     const html = renderFleetHomeHtml([siteRow({ depsDrifted: 0, depsMajorBehind: 0 })]);
     expect(html).toMatch(/<span class="metric deps">0<\/span>/);
