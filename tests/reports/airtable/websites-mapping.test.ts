@@ -6,9 +6,6 @@ function row(fields: Record<string, unknown>) {
     id: "recTEST",
     fields: {
       Name: "Acme",
-      URL: "https://acme.example.com",
-      "Maintenance Frequency": "Monthly",
-      "Testing Frequency": "None",
       ...fields,
     },
   });
