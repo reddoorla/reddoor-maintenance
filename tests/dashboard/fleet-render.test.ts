@@ -59,15 +59,6 @@ describe("renderFleetHomeHtml", () => {
     expect(html).toContain('href="/s/caltex?t=abc123"');
   });
 
-  it("renders sites without a dashboardToken as inactive (no link, visible badge)", () => {
-    const html = renderFleetHomeHtml([siteRow({ name: "Unconfigured Co", dashboardToken: null })]);
-    expect(html).toContain(">Unconfigured Co<");
-    // No href to a /s/... path for this site
-    expect(html).not.toMatch(/href="\/s\/unconfigured-co/);
-    // A clear "no token" marker so the operator knows to set it
-    expect(html).toMatch(/no token/i);
-  });
-
   it("renders lighthouse score numbers per row when scores are present", () => {
     const html = renderFleetHomeHtml([
       siteRow({ pScore: 73, rScore: 100, bpScore: 78, seoScore: 100 }),
@@ -86,7 +77,7 @@ describe("renderFleetHomeHtml", () => {
     expect(html).toMatch(/<td class="score">—<\/td>/);
   });
 
-  it("renders a friendly empty state when the fleet has zero sites", () => {
+  it("renders a friendly empty state when no sites are passed in (caller filtered them all out)", () => {
     const html = renderFleetHomeHtml([]);
     expect(html).toMatch(/no sites/i);
   });

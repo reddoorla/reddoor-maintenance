@@ -52,11 +52,12 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
 
   const base = openBase({ apiKey, baseId });
   const websites = await listWebsites(base);
-  // Stable display order: alphabetical by name. Matches what someone
-  // would naturally scan for a known site. Operator can re-sort by
-  // clicking column headers in a later phase.
-  const sorted = [...websites].sort((a, b) =>
-    a.name.toLowerCase().localeCompare(b.name.toLowerCase()),
-  );
-  return html(renderFleetHomeHtml(sorted), 200);
+  // The Websites table tracks every project — many aren't on the Reddoor
+  // maintenance stack (deprecated, hosting-only, in-dev for other teams).
+  // dashboardToken is the explicit opt-in: only sites with a token set
+  // belong on the fleet view. Alphabetical sort for stable scan order.
+  const visible = websites
+    .filter((w) => w.dashboardToken !== null)
+    .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+  return html(renderFleetHomeHtml(visible), 200);
 };

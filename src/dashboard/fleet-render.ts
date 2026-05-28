@@ -27,10 +27,12 @@ function scoreCell(value: number | null): string {
 
 function siteHrefCell(site: WebsiteRow): string {
   const name = escapeHtml(site.name);
-  if (!site.dashboardToken) {
-    return `<td class="site"><span class="name">${name}</span> <span class="badge">no token</span></td>`;
-  }
-  const href = `/s/${escapeHtml(siteSlug(site.name))}?t=${escapeHtml(site.dashboardToken)}`;
+  // Caller is responsible for filtering — render assumes every site has a
+  // dashboardToken (anything in Airtable without one isn't on the Reddoor
+  // stack and shouldn't appear). The `?? ""` is a defensive nudge if a
+  // misuse ever slips through; non-null guarantee belongs upstream.
+  const token = site.dashboardToken ?? "";
+  const href = `/s/${escapeHtml(siteSlug(site.name))}?t=${escapeHtml(token)}`;
   return `<td class="site"><a href="${href}">${name}</a></td>`;
 }
 
@@ -59,25 +61,20 @@ td { padding: 0.65rem 0.5rem; border-bottom: 1px solid #eee; }
 td.site a { font-weight: 500; }
 td.url { color: #666; font-size: 0.85rem; }
 td.score { text-align: right; font-variant-numeric: tabular-nums; min-width: 3.5rem; }
-.badge { display: inline-block; margin-left: 0.5rem; padding: 0.1rem 0.5rem; font-size: 0.75rem; border-radius: 3px; background: #f0f0f0; color: #999; }
-@media (prefers-color-scheme: dark) { .badge { background: #2a2a2a; color: #777; } }
 .empty { color: #999; padding: 2rem; text-align: center; border: 1px dashed #ccc; border-radius: 6px; }
 `;
 
 /**
  * Render the fleet homepage as a single HTML document. Pure function:
  * no Airtable access, no env reads, no I/O. The Netlify function handler
- * fetches and gates, then hands here. Same style vocabulary as
- * renderSiteDashboardHtml so the two pages feel like one product.
- *
- * Sites without a dashboardToken render as plain text plus a "no token"
- * badge — visible-but-inactive, so the homepage doubles as a per-site
- * setup-progress view.
+ * filters the Websites rows (drops anything without a dashboardToken — those
+ * aren't on the Reddoor stack), sorts, and hands here. Same style vocabulary
+ * as renderSiteDashboardHtml so the two pages feel like one product.
  */
 export function renderFleetHomeHtml(sites: WebsiteRow[]): string {
   const body =
     sites.length === 0
-      ? `<div class="empty">No sites in the Websites table yet.</div>`
+      ? `<div class="empty">No sites to display.</div>`
       : `<table>
           <thead><tr>
             <th>Site</th>
@@ -100,7 +97,7 @@ export function renderFleetHomeHtml(sites: WebsiteRow[]): string {
 </head>
 <body>
   <h1>Reddoor fleet</h1>
-  <div class="meta">${sites.length} site${sites.length === 1 ? "" : "s"} in the Websites table.</div>
+  <div class="meta">${sites.length} site${sites.length === 1 ? "" : "s"} on the Reddoor stack.</div>
   ${body}
 </body>
 </html>`;
