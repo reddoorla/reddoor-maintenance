@@ -219,5 +219,39 @@ describe("audits/a11y", () => {
       // JSON.stringify escapes the path → `cwd: "/private/var/.../reddoor-a11y-test-XXX"`.
       expect(capturedConfig).toContain(`cwd: ${JSON.stringify(cwd)}`);
     });
+
+    // Regression for caltex 2026-05-28 (0.10.6) dogfood: the spec file
+    // does `import AxeBuilder from "@axe-core/playwright"`. Node resolves
+    // from the spec's directory and walks up looking for node_modules. A
+    // spec in /tmp finds no node_modules and the audit fails before any
+    // test runs. Writing the specDir INSIDE site.path lets the walk-up
+    // resolve to the site's installed dependencies.
+    it("writes the specDir inside site.path so spec imports resolve via the site's node_modules", async () => {
+      const cwd = await tmpSite();
+      let capturedSpecPath: string | undefined;
+      let capturedConfigPath: string | undefined;
+      await a11yAudit({
+        site: { path: cwd },
+        spawn: async (_cmd, args, opts) => {
+          capturedSpecPath = args[args.length - 1] as string;
+          const cfgArg = args.find((a) => a.startsWith("--config="));
+          capturedConfigPath = cfgArg!.slice("--config=".length);
+          const out = join(opts?.cwd ?? cwd, ".reddoor-a11y");
+          await mkdir(out, { recursive: true });
+          await writeFile(
+            join(out, "results.json"),
+            JSON.stringify({ totalViolations: 0, byImpact: {} }),
+            "utf-8",
+          );
+          return { code: 0, stdout: "", stderr: "" };
+        },
+      });
+      expect(capturedSpecPath).toBeDefined();
+      expect(capturedConfigPath).toBeDefined();
+      // Both spec + synthesized config must live inside site.path so they
+      // share the site's node_modules during module resolution.
+      expect(capturedSpecPath!.startsWith(cwd + "/")).toBe(true);
+      expect(capturedConfigPath!.startsWith(cwd + "/")).toBe(true);
+    });
   });
 });
