@@ -25,7 +25,7 @@ function safeUrl(raw: string): string {
 
 function scoreTile(label: string, value: number | null): string {
   const display = value === null ? "—" : String(value);
-  return `<div class="tile"><div class="tile-label">${escapeHtml(label)}</div><div class="tile-value">${escapeHtml(display)}</div></div>`;
+  return `<div class="tile"><div class="tile-value">${escapeHtml(display)}</div><div class="tile-label">${escapeHtml(label)}</div></div>`;
 }
 
 function reportRow(r: ReportRow): string {

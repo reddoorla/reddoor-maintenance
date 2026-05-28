@@ -77,23 +77,36 @@ describe("renderSiteDashboardHtml", () => {
     expect(html).toContain('href="https://acme.example.com"');
   });
 
-  it("renders all 4 lighthouse scores under their correct labels (positional)", () => {
+  it("pairs each lighthouse score with its correct label inside the same tile", () => {
     const html = renderSiteDashboardHtml(
       siteRow({ pScore: 12, rScore: 34, bpScore: 56, seoScore: 78 }),
       [],
     );
-    const perfIdx = html.indexOf(">Performance<");
-    const accIdx = html.indexOf(">Accessibility<");
-    const bpIdx = html.indexOf(">Best Practices<");
-    const seoIdx = html.indexOf(">SEO<");
-    expect(perfIdx).toBeGreaterThan(-1);
-    expect(accIdx).toBeGreaterThan(-1);
-    expect(bpIdx).toBeGreaterThan(-1);
-    expect(seoIdx).toBeGreaterThan(-1);
-    expect(html.slice(perfIdx, accIdx)).toContain(">12<");
-    expect(html.slice(accIdx, bpIdx)).toContain(">34<");
-    expect(html.slice(bpIdx, seoIdx)).toContain(">56<");
-    expect(html.slice(seoIdx)).toContain(">78<");
+    // Each tile is one <div class="tile">…</div> block. Within each tile both
+    // the value and the label appear. Verify the pairings structurally so
+    // the test doesn't rely on DOM order between value and label (which is
+    // a UX/CSS decision, not a behavioral one).
+    const tilePairs: Array<[string, string]> = [
+      ["12", "Performance"],
+      ["34", "Accessibility"],
+      ["56", "Best Practices"],
+      ["78", "SEO"],
+    ];
+    for (const [value, label] of tilePairs) {
+      // Tile body bounded by <div class="tile"> … </div>; both children
+      // must appear inside one tile body.
+      const tilePattern = new RegExp(
+        `<div class="tile">[^]*?>${value}<[^]*?>${label}<[^]*?<\\/div>\\s*<\\/div>|` +
+          `<div class="tile">[^]*?>${label}<[^]*?>${value}<[^]*?<\\/div>\\s*<\\/div>`,
+      );
+      expect(html).toMatch(tilePattern);
+    }
+    // And the big-number-on-top requirement: value-div must come before
+    // label-div inside each tile so the CSS hierarchy (2rem value, 0.85rem
+    // label) renders correctly.
+    expect(html).toMatch(
+      /<div class="tile"><div class="tile-value"[^>]*>12<\/div><div class="tile-label"[^>]*>Performance<\/div><\/div>/,
+    );
   });
 
   it("renders a placeholder when scores are null (site never audited)", () => {
