@@ -17,15 +17,15 @@ Both are worth a focused spike tomorrow. After that, the road-to-1.0 work is mos
 
 ## What shipped today (2026-05-27)
 
-| Version | PR    | What                                                                                                  |
-| ------- | ----- | ----------------------------------------------------------------------------------------------------- |
-| 0.9.0   | #43   | feat(audit): per-site lighthouse URL via `package.json#reddoor.lighthouseUrl` (+ 5-min lhci timeout)  |
-| —       | #42   | docs: archive 0.7/0.8 paper trail + 0.9.0 scope sketch                                                |
-| —       | #45   | chore: gitignore `secrets/` + record GA Data API spike outcome (DEFERRED)                             |
-| 0.10.0  | #46   | feat(recipes): `reddoor-maint init` — one-shot guided onboarding + `a11y-fixtures-page` recipe        |
-| 0.10.1  | #48   | feat(webhook): GET health-check + Netlify deploy procedure in README                                  |
-| 0.10.2  | #50   | fix(reports): bundled-assets loader walks up to find dir (0.10.0–0.10.1 ENOENT hotfix)                |
-| 0.10.3  | #52   | fix(codemod, audit): dollar-restprops trailing-comma + a11y spawn timeout                             |
+| Version | PR  | What                                                                                                 |
+| ------- | --- | ---------------------------------------------------------------------------------------------------- |
+| 0.9.0   | #43 | feat(audit): per-site lighthouse URL via `package.json#reddoor.lighthouseUrl` (+ 5-min lhci timeout) |
+| —       | #42 | docs: archive 0.7/0.8 paper trail + 0.9.0 scope sketch                                               |
+| —       | #45 | chore: gitignore `secrets/` + record GA Data API spike outcome (DEFERRED)                            |
+| 0.10.0  | #46 | feat(recipes): `reddoor-maint init` — one-shot guided onboarding + `a11y-fixtures-page` recipe       |
+| 0.10.1  | #48 | feat(webhook): GET health-check + Netlify deploy procedure in README                                 |
+| 0.10.2  | #50 | fix(reports): bundled-assets loader walks up to find dir (0.10.0–0.10.1 ENOENT hotfix)               |
+| 0.10.3  | #52 | fix(codemod, audit): dollar-restprops trailing-comma + a11y spawn timeout                            |
 
 391 → 393 tests across the day. No open PRs, no open issues. Release pipeline is healthy — every merge auto-opens a version-packages PR and OIDC publishes when that merges.
 
@@ -39,7 +39,7 @@ Both are worth a focused spike tomorrow. After that, the road-to-1.0 work is mos
   - Accordian.svelte committed with valid syntax (single comma + rest)
   - a11y audit error shape changed from `spawn timeout after 30000ms: npx` to `no results written (exit 1)` — proves the timeout fix lets playwright actually run; the remaining failure is caltex's dev-server (Tucker's separate work).
 
-- **Caltex merge state (synced to GitHub):** Two new maint/* branches merged into caltex `main` via `--no-ff`. svelte-codemods commit produces valid Accordian.svelte. a11y-fixtures-page route now exists at `/dev/a11y-fixtures`. The old morning-run duplicate branch was deleted.
+- **Caltex merge state (synced to GitHub):** Two new maint/\* branches merged into caltex `main` via `--no-ff`. svelte-codemods commit produces valid Accordian.svelte. a11y-fixtures-page route now exists at `/dev/a11y-fixtures`. The old morning-run duplicate branch was deleted.
 
 ---
 
