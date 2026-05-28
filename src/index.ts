@@ -74,3 +74,5 @@ export {
 // the export, the test would only verify selfPackageVersion against its
 // src/ shape (where vitest evaluates the .ts directly).
 export { selfPackageVersion, selfCaretRange } from "./util/self-version.js";
+
+export { renderSiteDashboardHtml, verifyDashboardToken } from "./dashboard/index.js";
