@@ -170,4 +170,64 @@ describe("codemod: $: reactive statements → $derived / $effect", () => {
     const out = legacyReactiveToRunes(input);
     expect(out).toContain("let fillHeight = $derived(viewportHeight > 100);");
   });
+
+  // Regression class identified in tonight's 2026-05-27 deep review:
+  // findMatchingClose counts braces but ignored comments, so a `}` inside a
+  // `// line comment` or `/* block comment */` was counted toward the depth
+  // counter. Result: either consume code AFTER the reactive block (depth
+  // reaches 0 too early) OR drop code from INSIDE the block (matching brace
+  // miscounted). The corrupted output compiles cleanly because Svelte is
+  // lenient — there's no parser error to signal the corruption.
+  it("handles `}` inside a line comment without misclosing the block", () => {
+    const input = `<script>
+  let count = 0;
+  $: {
+    // closing brace: }
+    count = count + 1;
+  }
+  let after = "must survive";
+</script>`;
+    const out = legacyReactiveToRunes(input);
+    expect(out).toContain('let after = "must survive";');
+    // The `count = ...` line must be INSIDE the converted $effect body, not
+    // orphaned after a truncated block (which is what the buggy version would
+    // produce — depth reaches 0 at the comment's `}`, the real assignment ends
+    // up floating in the trailing source).
+    expect(out).toMatch(/\$effect\(\(\) => \{[\s\S]*count = count \+ 1;[\s\S]*\}\);/);
+  });
+
+  it("handles `}` inside a block comment without misclosing the block", () => {
+    const input = `<script>
+  let count = 0;
+  $: {
+    /* this block comment has a brace: } and a nested { for fun */
+    count = count + 1;
+  }
+  let after = "must survive";
+</script>`;
+    const out = legacyReactiveToRunes(input);
+    expect(out).toContain('let after = "must survive";');
+    expect(out).toMatch(/\$effect\(\(\) => \{[\s\S]*count = count \+ 1;[\s\S]*\}\);/);
+  });
+
+  it("handles `{` inside a line comment without overrunning the block", () => {
+    // The other direction: a stray `{` in a comment would inflate depth and
+    // make findMatchingClose walk past the real closing brace, eating code
+    // that follows.
+    const input = `<script>
+  let count = 0;
+  $: {
+    // opening brace: {
+    count = count + 1;
+  }
+  let after = "must survive";
+</script>`;
+    const out = legacyReactiveToRunes(input);
+    expect(out).toContain("$effect(() =>");
+    expect(out).toContain('let after = "must survive";');
+    // The migration marker should appear EXACTLY once — if depth was inflated,
+    // findMatchingClose would have returned -1 and the block wouldn't convert.
+    const markerCount = (out.match(/@migration-task/g) ?? []).length;
+    expect(markerCount).toBe(1);
+  });
 });
