@@ -25,7 +25,7 @@ BAZ=qux
   });
 
   it("strips surrounding double or single quotes", () => {
-    expect(parseEnvFile('FOO="bar baz"\nBAZ=\'qux quux\'')).toEqual({
+    expect(parseEnvFile("FOO=\"bar baz\"\nBAZ='qux quux'")).toEqual({
       FOO: "bar baz",
       BAZ: "qux quux",
     });
