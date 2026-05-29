@@ -166,3 +166,95 @@ describe("renderSiteDashboardHtml", () => {
     expect(html).not.toMatch(/href="javascript:/i);
   });
 });
+
+describe("renderSiteDashboardHtml — site health section", () => {
+  it("includes a 'Site Health' heading", () => {
+    const html = renderSiteDashboardHtml(siteRow(), []);
+    expect(html).toMatch(/<h2[^>]*>Site Health<\/h2>/);
+  });
+
+  it("renders the empty state when all health metrics are null", () => {
+    const html = renderSiteDashboardHtml(siteRow(), []);
+    expect(html).toMatch(/no health data yet/i);
+  });
+
+  it("renders the three health tiles (a11y, deps, security) with correct labels", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow({
+        a11yViolations: 3,
+        depsDrifted: 5,
+        depsMajorBehind: 1,
+        securityVulnsCritical: 1,
+        securityVulnsHigh: 2,
+        securityVulnsModerate: 0,
+        securityVulnsLow: 0,
+      }),
+      [],
+    );
+    expect(html).toMatch(
+      /<div class="tile"><div class="tile-value"[^>]*>3<\/div><div class="tile-label"[^>]*>Accessibility issues<\/div>/,
+    );
+    expect(html).toMatch(
+      /<div class="tile"><div class="tile-value"[^>]*>5<\/div><div class="tile-label"[^>]*>Dependency updates<\/div>/,
+    );
+    expect(html).toMatch(
+      /<div class="tile"><div class="tile-value"[^>]*>3<\/div><div class="tile-label"[^>]*>Security alerts<\/div>/,
+    );
+  });
+
+  it("shows a 'N major behind' sub-line on the deps tile only when there is major drift", () => {
+    const withMajor = renderSiteDashboardHtml(
+      siteRow({ a11yViolations: 0, depsDrifted: 5, depsMajorBehind: 1 }),
+      [],
+    );
+    expect(withMajor).toMatch(/<div class="tile-sub"[^>]*>1 major behind<\/div>/);
+
+    const noMajor = renderSiteDashboardHtml(
+      siteRow({ a11yViolations: 0, depsDrifted: 5, depsMajorBehind: 0 }),
+      [],
+    );
+    expect(noMajor).not.toMatch(/major behind/);
+  });
+
+  it("shows severity breakdown on the security tile when there are vulns", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow({
+        a11yViolations: 0,
+        depsDrifted: 0,
+        depsMajorBehind: 0,
+        securityVulnsCritical: 1,
+        securityVulnsHigh: 2,
+        securityVulnsModerate: 3,
+        securityVulnsLow: 4,
+      }),
+      [],
+    );
+    expect(html).toMatch(/<div class="tile-sub"[^>]*>1C \/ 2H \/ 3M \/ 4L<\/div>/);
+  });
+
+  it("hides the severity breakdown when total vulns is 0", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow({
+        a11yViolations: 0,
+        depsDrifted: 0,
+        depsMajorBehind: 0,
+        securityVulnsCritical: 0,
+        securityVulnsHigh: 0,
+        securityVulnsModerate: 0,
+        securityVulnsLow: 0,
+      }),
+      [],
+    );
+    expect(html).not.toMatch(/\dC \/ \dH \/ \dM \/ \dL/);
+  });
+
+  it("shows the audited timestamp as relative time when lastLighthouseAuditAt is set", () => {
+    const html = renderSiteDashboardHtml(siteRow(), []);
+    expect(html).toMatch(/<div class="audited"[^>]*>Last audited [^<]*ago<\/div>/);
+  });
+
+  it("omits the audited line entirely when lastLighthouseAuditAt is null", () => {
+    const html = renderSiteDashboardHtml(siteRow({ lastLighthouseAuditAt: null }), []);
+    expect(html).not.toMatch(/class="audited"/);
+  });
+});
