@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cac } from "cac";
 import type { AuditName, RecipeName } from "../types.js";
+import { loadCredentialsIntoEnv } from "../util/credentials.js";
 import { runAuditCommand } from "./commands/audit.js";
 import { runSyncConfigsCommand } from "./commands/sync-configs.js";
 import { runBumpDepsCommand } from "./commands/bump-deps.js";
@@ -13,6 +14,13 @@ import { runSvelteCodemodsCommand } from "./commands/svelte-codemods.js";
 import { runReportCommand } from "./commands/report.js";
 import { runInitCommand } from "./commands/init.js";
 import { resolvePackageVersion } from "./version.js";
+
+// Load credentials from ~/.config/reddoor-maint/credentials.env before any
+// command runs, so AIRTABLE_PAT/AIRTABLE_BASE_ID/RESEND_API_KEY/etc. are
+// available from any cwd. Shell-exported env vars still win. Silent on
+// missing file — commands that need the credentials will fail with their
+// own clear error.
+loadCredentialsIntoEnv();
 
 const here = dirname(fileURLToPath(import.meta.url));
 const version = resolvePackageVersion(here);

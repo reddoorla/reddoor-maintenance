@@ -1,15 +1,25 @@
 import Airtable from "airtable";
+import { defaultCredentialsPath } from "../../util/credentials.js";
 
 export type AirtableConfig = {
   apiKey: string;
   baseId: string;
 };
 
+function missing(name: string): Error {
+  return Object.assign(
+    new Error(
+      `${name} not set. Export it in your shell or put it in ${defaultCredentialsPath()} as ${name}=...`,
+    ),
+    { exitCode: 2 },
+  );
+}
+
 export function readAirtableConfig(): AirtableConfig {
   const apiKey = process.env.AIRTABLE_PAT;
   const baseId = process.env.AIRTABLE_BASE_ID;
-  if (!apiKey) throw Object.assign(new Error("AIRTABLE_PAT not set"), { exitCode: 2 });
-  if (!baseId) throw Object.assign(new Error("AIRTABLE_BASE_ID not set"), { exitCode: 2 });
+  if (!apiKey) throw missing("AIRTABLE_PAT");
+  if (!baseId) throw missing("AIRTABLE_BASE_ID");
   return { apiKey, baseId };
 }
 
