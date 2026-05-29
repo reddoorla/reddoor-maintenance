@@ -81,7 +81,12 @@ export async function runAuditCommand(
 
     const lines = summary.writes.map((w) => {
       if (w.audit === "lighthouse") {
-        const s = w.counts as { performance: number; accessibility: number; bestPractices: number; seo: number };
+        const s = w.counts as {
+          performance: number;
+          accessibility: number;
+          bestPractices: number;
+          seo: number;
+        };
         return `  lighthouse: P=${s.performance} A=${s.accessibility} BP=${s.bestPractices} SEO=${s.seo}`;
       }
       if (w.audit === "a11y") {

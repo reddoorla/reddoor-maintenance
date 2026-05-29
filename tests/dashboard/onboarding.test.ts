@@ -73,12 +73,8 @@ describe("onboardingStatus", () => {
   });
 
   it("treats empty-string fields as not-set", () => {
-    expect(
-      onboardingStatus(row({ reportRecipientsTo: "" })).checks.recipients,
-    ).toBe(false);
-    expect(
-      onboardingStatus(row({ pointOfContact: "  " })).checks.poc,
-    ).toBe(false);
+    expect(onboardingStatus(row({ reportRecipientsTo: "" })).checks.recipients).toBe(false);
+    expect(onboardingStatus(row({ pointOfContact: "  " })).checks.poc).toBe(false);
   });
 
   it("counts partial onboarding correctly", () => {

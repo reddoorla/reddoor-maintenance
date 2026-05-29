@@ -26,14 +26,19 @@ describe("hasA11yCounts", () => {
   });
 
   it("returns false when the audit name is not a11y", () => {
-    const bad = { ...a11yResult({ totalViolations: 0, byImpact: {} }), audit: "deps" } as AuditResult;
+    const bad = {
+      ...a11yResult({ totalViolations: 0, byImpact: {} }),
+      audit: "deps",
+    } as AuditResult;
     expect(hasA11yCounts(bad)).toBe(false);
   });
 });
 
 describe("a11yCountsFromResult", () => {
   it("returns the total violation count", () => {
-    expect(a11yCountsFromResult(a11yResult({ totalViolations: 3, byImpact: { serious: 3 } }))).toEqual({
+    expect(
+      a11yCountsFromResult(a11yResult({ totalViolations: 3, byImpact: { serious: 3 } })),
+    ).toEqual({
       violations: 3,
     });
   });
@@ -45,7 +50,10 @@ describe("a11yCountsFromResult", () => {
   });
 
   it("throws if given a non-a11y AuditResult", () => {
-    const bad = { ...a11yResult({ totalViolations: 0, byImpact: {} }), audit: "deps" } as AuditResult;
+    const bad = {
+      ...a11yResult({ totalViolations: 0, byImpact: {} }),
+      audit: "deps",
+    } as AuditResult;
     expect(() => a11yCountsFromResult(bad)).toThrow(/Expected an 'a11y'/);
   });
 });

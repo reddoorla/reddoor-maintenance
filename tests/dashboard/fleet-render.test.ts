@@ -56,7 +56,7 @@ describe("renderFleetHomeHtml — document shell", () => {
 });
 
 describe("renderFleetHomeHtml — card per site", () => {
-  it("emits one <article class=\"card\"> per site", () => {
+  it('emits one <article class="card"> per site', () => {
     const html = renderFleetHomeHtml([
       siteRow({ id: "rec1", name: "Acme Co" }),
       siteRow({ id: "rec2", name: "Beta Inc" }),
@@ -82,9 +82,7 @@ describe("renderFleetHomeHtml — header row (setup + audited)", () => {
   });
 
   it("shows the partial fraction when the site is missing some onboarding signals", () => {
-    const html = renderFleetHomeHtml([
-      siteRow({ pointOfContact: null, reportRecipientsTo: null }),
-    ]);
+    const html = renderFleetHomeHtml([siteRow({ pointOfContact: null, reportRecipientsTo: null })]);
     expect(html).toContain(">2/4<");
   });
 

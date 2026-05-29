@@ -12,9 +12,12 @@ export function hasSecurityCounts(result: AuditResult): boolean {
   return !!details && typeof details.counts === "object";
 }
 
-export function securityCountsFromResult(
-  result: AuditResult,
-): { critical: number; high: number; moderate: number; low: number } {
+export function securityCountsFromResult(result: AuditResult): {
+  critical: number;
+  high: number;
+  moderate: number;
+  low: number;
+} {
   if (result.audit !== "security") {
     throw new Error(`Expected a 'security' AuditResult, got '${result.audit}'`);
   }

@@ -82,9 +82,12 @@ const depsResult = (drifts: Array<"same" | "patch" | "minor" | "major" | "newer"
     })),
   }) as unknown as AuditResult;
 
-const secResult = (
-  counts: { low: number; moderate: number; high: number; critical: number },
-): AuditResult =>
+const secResult = (counts: {
+  low: number;
+  moderate: number;
+  high: number;
+  critical: number;
+}): AuditResult =>
   ({
     audit: "security",
     site: "acme",
@@ -129,12 +132,7 @@ describe("writeAuditsToAirtable", () => {
         secResult({ low: 4, moderate: 3, high: 2, critical: 1 }),
       ],
     });
-    expect(summary.writes.map((w) => w.audit)).toEqual([
-      "lighthouse",
-      "a11y",
-      "deps",
-      "security",
-    ]);
+    expect(summary.writes.map((w) => w.audit)).toEqual(["lighthouse", "a11y", "deps", "security"]);
     expect(calls).toHaveLength(4);
     const merged = Object.assign({}, ...calls.map((c) => c.fields));
     expect(merged).toMatchObject({
@@ -219,9 +217,7 @@ describe("writeAuditsToAirtable", () => {
         base,
         websites: [row({ name: "Beta" })], // slugs to "beta", not "acme"
         slug: "acme",
-        results: [
-          lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
-        ],
+        results: [lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 })],
       }),
     ).rejects.toMatchObject({
       message: expect.stringMatching(/No Websites row matched slug "acme"/),

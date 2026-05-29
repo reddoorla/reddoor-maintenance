@@ -25,7 +25,10 @@ describe("hasSecurityCounts", () => {
   });
 
   it("returns false when the audit name is not security", () => {
-    const bad = { ...secResult({ low: 0, moderate: 0, high: 0, critical: 0 }), audit: "deps" } as AuditResult;
+    const bad = {
+      ...secResult({ low: 0, moderate: 0, high: 0, critical: 0 }),
+      audit: "deps",
+    } as AuditResult;
     expect(hasSecurityCounts(bad)).toBe(false);
   });
 });
@@ -44,7 +47,10 @@ describe("securityCountsFromResult", () => {
   });
 
   it("throws if given a non-security AuditResult", () => {
-    const bad = { ...secResult({ low: 0, moderate: 0, high: 0, critical: 0 }), audit: "deps" } as AuditResult;
+    const bad = {
+      ...secResult({ low: 0, moderate: 0, high: 0, critical: 0 }),
+      audit: "deps",
+    } as AuditResult;
     expect(() => securityCountsFromResult(bad)).toThrow(/Expected a 'security'/);
   });
 });

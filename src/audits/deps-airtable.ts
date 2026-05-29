@@ -7,9 +7,10 @@ export function hasDepsCounts(result: AuditResult): boolean {
   return Array.isArray(result.details);
 }
 
-export function depsCountsFromResult(
-  result: AuditResult,
-): { drifted: number; majorBehind: number } {
+export function depsCountsFromResult(result: AuditResult): {
+  drifted: number;
+  majorBehind: number;
+} {
   if (result.audit !== "deps") {
     throw new Error(`Expected a 'deps' AuditResult, got '${result.audit}'`);
   }

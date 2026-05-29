@@ -9,6 +9,7 @@
 **Tech Stack:** TypeScript (ESM, NodeNext), vitest, Airtable JS client, Netlify Functions v2 (no change to function layer).
 
 **Spec decisions locked 2026-05-28 (do not re-litigate):**
+
 - Layout: **card per site, two-row** — header line then metrics line.
 - Setup score = **4 checks**: first audit done, `Report recipients (To)` set, `maintenence freq` (sic) ≠ "None", `point of contact` set. Onboarded = 4/4.
 - Deps signal = **"N drifted (M major)"** where drifted is parity with existing `deps.ts` summary text (any drift ≠ "same", which includes "newer" — same rule as the CLI summary).
@@ -17,6 +18,7 @@
 - Click-to-trigger audit is **deferred post-1.0** — out of scope here.
 
 **Out of scope:**
+
 - Per-audit-type `last audited at` timestamps. (One signal from lighthouse covers the operator need.)
 - Tile changes on `/s/<slug>?t=<token>`.
 - Extending `baseline-versions.ts` with release-date metadata for a "days behind" view.
@@ -77,6 +79,7 @@ If a test fails before any code change, **stop and report** — do not start the
 ## Task 2: Extend `WebsiteRow` with new optional metric fields + map them
 
 **Files:**
+
 - Modify: `src/reports/airtable/websites.ts`
 - Test: `tests/reports/airtable/websites-mapping.test.ts`
 
@@ -134,16 +137,16 @@ Expected: FAIL — property does not exist on `WebsiteRow`.
 In `src/reports/airtable/websites.ts`, add to the `WebsiteRow` type (right above `dashboardToken`):
 
 ```typescript
-  /** Last-known counts from non-lighthouse audits, written by
-   *  `audit --write-airtable`. `null` = never audited (or this audit
-   *  type was skipped on the last run). 0 = audited, clean. */
-  a11yViolations: number | null;
-  depsDrifted: number | null;
-  depsMajorBehind: number | null;
-  securityVulnsCritical: number | null;
-  securityVulnsHigh: number | null;
-  securityVulnsModerate: number | null;
-  securityVulnsLow: number | null;
+/** Last-known counts from non-lighthouse audits, written by
+ *  `audit --write-airtable`. `null` = never audited (or this audit
+ *  type was skipped on the last run). 0 = audited, clean. */
+a11yViolations: number | null;
+depsDrifted: number | null;
+depsMajorBehind: number | null;
+securityVulnsCritical: number | null;
+securityVulnsHigh: number | null;
+securityVulnsModerate: number | null;
+securityVulnsLow: number | null;
 ```
 
 In `mapRow`, add (above the `dashboardToken` line):
@@ -186,6 +189,7 @@ git commit -m "feat(airtable): map a11y/deps/security count fields onto WebsiteR
 ## Task 3: Add the a11y airtable extractor
 
 **Files:**
+
 - Create: `src/audits/a11y-airtable.ts`
 - Test: `tests/audits/a11y-airtable.test.ts`
 
@@ -222,14 +226,19 @@ describe("hasA11yCounts", () => {
   });
 
   it("returns false when the audit name is not a11y", () => {
-    const bad = { ...a11yResult({ totalViolations: 0, byImpact: {} }), audit: "deps" } as AuditResult;
+    const bad = {
+      ...a11yResult({ totalViolations: 0, byImpact: {} }),
+      audit: "deps",
+    } as AuditResult;
     expect(hasA11yCounts(bad)).toBe(false);
   });
 });
 
 describe("a11yCountsFromResult", () => {
   it("returns the total violation count", () => {
-    expect(a11yCountsFromResult(a11yResult({ totalViolations: 3, byImpact: { serious: 3 } }))).toEqual({
+    expect(
+      a11yCountsFromResult(a11yResult({ totalViolations: 3, byImpact: { serious: 3 } })),
+    ).toEqual({
       violations: 3,
     });
   });
@@ -241,7 +250,10 @@ describe("a11yCountsFromResult", () => {
   });
 
   it("throws if given a non-a11y AuditResult", () => {
-    const bad = { ...a11yResult({ totalViolations: 0, byImpact: {} }), audit: "deps" } as AuditResult;
+    const bad = {
+      ...a11yResult({ totalViolations: 0, byImpact: {} }),
+      audit: "deps",
+    } as AuditResult;
     expect(() => a11yCountsFromResult(bad)).toThrow(/Expected an 'a11y'/);
   });
 });
@@ -302,6 +314,7 @@ git commit -m "feat(audits): a11y-airtable extractor (predicate + counts)"
 ## Task 4: Add the deps airtable extractor
 
 **Files:**
+
 - Create: `src/audits/deps-airtable.ts`
 - Test: `tests/audits/deps-airtable.test.ts`
 
@@ -397,9 +410,10 @@ export function hasDepsCounts(result: AuditResult): boolean {
   return Array.isArray(result.details);
 }
 
-export function depsCountsFromResult(
-  result: AuditResult,
-): { drifted: number; majorBehind: number } {
+export function depsCountsFromResult(result: AuditResult): {
+  drifted: number;
+  majorBehind: number;
+} {
   if (result.audit !== "deps") {
     throw new Error(`Expected a 'deps' AuditResult, got '${result.audit}'`);
   }
@@ -431,6 +445,7 @@ git commit -m "feat(audits): deps-airtable extractor (drifted + majorBehind)"
 ## Task 5: Add the security airtable extractor
 
 **Files:**
+
 - Create: `src/audits/security-airtable.ts`
 - Test: `tests/audits/security-airtable.test.ts`
 
@@ -466,7 +481,10 @@ describe("hasSecurityCounts", () => {
   });
 
   it("returns false when the audit name is not security", () => {
-    const bad = { ...secResult({ low: 0, moderate: 0, high: 0, critical: 0 }), audit: "deps" } as AuditResult;
+    const bad = {
+      ...secResult({ low: 0, moderate: 0, high: 0, critical: 0 }),
+      audit: "deps",
+    } as AuditResult;
     expect(hasSecurityCounts(bad)).toBe(false);
   });
 });
@@ -485,7 +503,10 @@ describe("securityCountsFromResult", () => {
   });
 
   it("throws if given a non-security AuditResult", () => {
-    const bad = { ...secResult({ low: 0, moderate: 0, high: 0, critical: 0 }), audit: "deps" } as AuditResult;
+    const bad = {
+      ...secResult({ low: 0, moderate: 0, high: 0, critical: 0 }),
+      audit: "deps",
+    } as AuditResult;
     expect(() => securityCountsFromResult(bad)).toThrow(/Expected a 'security'/);
   });
 });
@@ -516,9 +537,12 @@ export function hasSecurityCounts(result: AuditResult): boolean {
   return !!details && typeof details.counts === "object";
 }
 
-export function securityCountsFromResult(
-  result: AuditResult,
-): { critical: number; high: number; moderate: number; low: number } {
+export function securityCountsFromResult(result: AuditResult): {
+  critical: number;
+  high: number;
+  moderate: number;
+  low: number;
+} {
   if (result.audit !== "security") {
     throw new Error(`Expected a 'security' AuditResult, got '${result.audit}'`);
   }
@@ -546,6 +570,7 @@ git commit -m "feat(audits): security-airtable extractor (severity counts)"
 ## Task 6: Add Airtable updater functions for the three new audit types
 
 **Files:**
+
 - Modify: `src/reports/airtable/websites.ts`
 
 There is no unit test for these in the existing codebase — the existing `updateScores` is exercised indirectly via the CLI test against a real Airtable; mocking the Airtable client isn't worth the seam here. We get coverage via the orchestrator test in Task 7 which uses a fake `AirtableBase`.
@@ -614,6 +639,7 @@ git commit -m "feat(airtable): updateA11yCounts / updateDepsCounts / updateSecur
 ## Task 7: Add the audit-airtable orchestrator
 
 **Files:**
+
 - Create: `src/audits/write-audits-to-airtable.ts`
 - Test: `tests/audits/write-audits-to-airtable.test.ts`
 
@@ -706,9 +732,12 @@ const depsResult = (drifts: Array<"same" | "patch" | "minor" | "major" | "newer"
     })),
   }) as unknown as AuditResult;
 
-const secResult = (
-  counts: { low: number; moderate: number; high: number; critical: number },
-): AuditResult =>
+const secResult = (counts: {
+  low: number;
+  moderate: number;
+  high: number;
+  critical: number;
+}): AuditResult =>
   ({
     audit: "security",
     site: "acme",
@@ -753,12 +782,7 @@ describe("writeAuditsToAirtable", () => {
         secResult({ low: 4, moderate: 3, high: 2, critical: 1 }),
       ],
     });
-    expect(summary.writes.map((w) => w.audit)).toEqual([
-      "lighthouse",
-      "a11y",
-      "deps",
-      "security",
-    ]);
+    expect(summary.writes.map((w) => w.audit)).toEqual(["lighthouse", "a11y", "deps", "security"]);
     expect(calls).toHaveLength(4);
     const merged = Object.assign({}, ...calls.map((c) => c.fields));
     expect(merged).toMatchObject({
@@ -843,9 +867,7 @@ describe("writeAuditsToAirtable", () => {
         base,
         websites: [row({ name: "Beta" })], // slugs to "beta", not "acme"
         slug: "acme",
-        results: [
-          lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
-        ],
+        results: [lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 })],
       }),
     ).rejects.toMatchObject({
       message: expect.stringMatching(/No Websites row matched slug "acme"/),
@@ -974,6 +996,7 @@ git commit -m "feat(audits): writeAuditsToAirtable orchestrator (testable seam)"
 ## Task 8: Wire orchestrator into `audit --write-airtable`
 
 **Files:**
+
 - Modify: `src/cli/commands/audit.ts`
 
 - [ ] **Step 1: Replace the inline write block with a call to the orchestrator**
@@ -981,38 +1004,43 @@ git commit -m "feat(audits): writeAuditsToAirtable orchestrator (testable seam)"
 In `src/cli/commands/audit.ts`, find the block that starts with `if (opts.writeAirtable !== undefined) {` and replace it (lines 67–110 in the current source) with:
 
 ```typescript
-  if (opts.writeAirtable !== undefined) {
-    const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
-    const { listWebsites } = await import("../../reports/airtable/websites.js");
-    const { resolveSlugFromCwd } = await import("../../audits/lighthouse-airtable.js");
-    const { writeAuditsToAirtable } = await import("../../audits/write-audits-to-airtable.js");
+if (opts.writeAirtable !== undefined) {
+  const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
+  const { listWebsites } = await import("../../reports/airtable/websites.js");
+  const { resolveSlugFromCwd } = await import("../../audits/lighthouse-airtable.js");
+  const { writeAuditsToAirtable } = await import("../../audits/write-audits-to-airtable.js");
 
-    const slug =
-      typeof opts.writeAirtable === "string" && opts.writeAirtable.length > 0
-        ? opts.writeAirtable
-        : await resolveSlugFromCwd(cwd);
+  const slug =
+    typeof opts.writeAirtable === "string" && opts.writeAirtable.length > 0
+      ? opts.writeAirtable
+      : await resolveSlugFromCwd(cwd);
 
-    const base = openBase(readAirtableConfig());
-    const websites = await listWebsites(base);
-    const summary = await writeAuditsToAirtable({ base, websites, slug, results });
+  const base = openBase(readAirtableConfig());
+  const websites = await listWebsites(base);
+  const summary = await writeAuditsToAirtable({ base, websites, slug, results });
 
-    const lines = summary.writes.map((w) => {
-      if (w.audit === "lighthouse") {
-        const s = w.counts as { performance: number; accessibility: number; bestPractices: number; seo: number };
-        return `  lighthouse: P=${s.performance} A=${s.accessibility} BP=${s.bestPractices} SEO=${s.seo}`;
-      }
-      if (w.audit === "a11y") {
-        return `  a11y: ${(w.counts as { violations: number }).violations} violations`;
-      }
-      if (w.audit === "deps") {
-        const c = w.counts as { drifted: number; majorBehind: number };
-        return `  deps: ${c.drifted} drifted (${c.majorBehind} major)`;
-      }
-      const c = w.counts as { critical: number; high: number; moderate: number; low: number };
-      return `  security: ${c.critical}C/${c.high}H/${c.moderate}M/${c.low}L`;
-    });
-    output += `\n\n→ wrote to Websites[${summary.siteName}]:\n${lines.join("\n")}`;
-  }
+  const lines = summary.writes.map((w) => {
+    if (w.audit === "lighthouse") {
+      const s = w.counts as {
+        performance: number;
+        accessibility: number;
+        bestPractices: number;
+        seo: number;
+      };
+      return `  lighthouse: P=${s.performance} A=${s.accessibility} BP=${s.bestPractices} SEO=${s.seo}`;
+    }
+    if (w.audit === "a11y") {
+      return `  a11y: ${(w.counts as { violations: number }).violations} violations`;
+    }
+    if (w.audit === "deps") {
+      const c = w.counts as { drifted: number; majorBehind: number };
+      return `  deps: ${c.drifted} drifted (${c.majorBehind} major)`;
+    }
+    const c = w.counts as { critical: number; high: number; moderate: number; low: number };
+    return `  security: ${c.critical}C/${c.high}H/${c.moderate}M/${c.low}L`;
+  });
+  output += `\n\n→ wrote to Websites[${summary.siteName}]:\n${lines.join("\n")}`;
+}
 ```
 
 The `lighthouseScoresFromResult` / `hasRealScores` imports that used to live in this file are removed — they are now used inside the orchestrator. The `resolveSlugFromCwd` import stays (used here to derive the slug before calling the orchestrator).
@@ -1043,6 +1071,7 @@ git commit -m "refactor(audit): wire writeAuditsToAirtable orchestrator into --w
 ## Task 9: Add `onboardingStatus` derivation
 
 **Files:**
+
 - Create: `src/dashboard/onboarding.ts`
 - Test: `tests/dashboard/onboarding.test.ts`
 
@@ -1126,12 +1155,8 @@ describe("onboardingStatus", () => {
   });
 
   it("treats empty-string fields as not-set", () => {
-    expect(
-      onboardingStatus(row({ reportRecipientsTo: "" })).checks.recipients,
-    ).toBe(false);
-    expect(
-      onboardingStatus(row({ pointOfContact: "  " })).checks.poc,
-    ).toBe(false);
+    expect(onboardingStatus(row({ reportRecipientsTo: "" })).checks.recipients).toBe(false);
+    expect(onboardingStatus(row({ pointOfContact: "  " })).checks.poc).toBe(false);
   });
 
   it("counts partial onboarding correctly", () => {
@@ -1207,6 +1232,7 @@ git commit -m "feat(dashboard): onboardingStatus 4-point derivation"
 ## Task 10: Add `relativeTimeFromNow` helper
 
 **Files:**
+
 - Create: `src/dashboard/relative-time.ts`
 - Test: `tests/dashboard/relative-time.test.ts`
 
@@ -1318,6 +1344,7 @@ git commit -m "feat(dashboard): relativeTimeFromNow helper"
 ## Task 11: Rewrite `renderFleetHomeHtml` to card layout
 
 **Files:**
+
 - Modify: `src/dashboard/fleet-render.ts`
 - Modify: `tests/dashboard/fleet-render.test.ts`
 
@@ -1386,7 +1413,7 @@ describe("renderFleetHomeHtml — document shell", () => {
 });
 
 describe("renderFleetHomeHtml — card per site", () => {
-  it("emits one <article class=\"card\"> per site", () => {
+  it('emits one <article class="card"> per site', () => {
     const html = renderFleetHomeHtml([
       siteRow({ id: "rec1", name: "Acme Co" }),
       siteRow({ id: "rec2", name: "Beta Inc" }),
@@ -1412,9 +1439,7 @@ describe("renderFleetHomeHtml — header row (setup + audited)", () => {
   });
 
   it("shows the partial fraction when the site is missing some onboarding signals", () => {
-    const html = renderFleetHomeHtml([
-      siteRow({ pointOfContact: null, reportRecipientsTo: null }),
-    ]);
+    const html = renderFleetHomeHtml([siteRow({ pointOfContact: null, reportRecipientsTo: null })]);
     expect(html).toContain(">2/4<");
   });
 
@@ -1725,6 +1750,7 @@ git commit -m "feat(dashboard): card layout with a11y/deps/sec metrics + setup/a
 ## Task 12: Add the changeset
 
 **Files:**
+
 - Create: `.changeset/dashboard-phase-2c-fleet-tiles.md`
 
 - [ ] **Step 1: Write the changeset**
@@ -1825,22 +1851,23 @@ EOF
 
 **Spec coverage:**
 
-| Locked decision | Task |
-|---|---|
-| Card per site, two-row layout | Task 11 |
-| Setup = 4 checks (first audit / recipients / schedule / poc) | Task 9 (derivation), Task 11 (render) |
-| Deps = "N drifted (M major)" with parity to existing summary | Task 4 (extract), Task 11 (render) |
-| Audited = single canonical timestamp from `lastLighthouseAuditAt` | Task 10 (helper), Task 11 (render) |
-| Metrics only on fleet page; `/s/<slug>` untouched | No `render.ts` modifications anywhere |
-| a11y violations (count) | Tasks 3, 6, 7, 11 |
-| Outdated deps (count + major-version count) | Tasks 4, 6, 7, 11 |
-| Security vulns (count, by severity) | Tasks 5, 6, 7, 11 |
-| Click-to-trigger audit | OUT OF SCOPE (post-1.0) |
-| Operator must create new Airtable columns | Task 12 (changeset), Task 13 (PR body) |
+| Locked decision                                                   | Task                                   |
+| ----------------------------------------------------------------- | -------------------------------------- |
+| Card per site, two-row layout                                     | Task 11                                |
+| Setup = 4 checks (first audit / recipients / schedule / poc)      | Task 9 (derivation), Task 11 (render)  |
+| Deps = "N drifted (M major)" with parity to existing summary      | Task 4 (extract), Task 11 (render)     |
+| Audited = single canonical timestamp from `lastLighthouseAuditAt` | Task 10 (helper), Task 11 (render)     |
+| Metrics only on fleet page; `/s/<slug>` untouched                 | No `render.ts` modifications anywhere  |
+| a11y violations (count)                                           | Tasks 3, 6, 7, 11                      |
+| Outdated deps (count + major-version count)                       | Tasks 4, 6, 7, 11                      |
+| Security vulns (count, by severity)                               | Tasks 5, 6, 7, 11                      |
+| Click-to-trigger audit                                            | OUT OF SCOPE (post-1.0)                |
+| Operator must create new Airtable columns                         | Task 12 (changeset), Task 13 (PR body) |
 
 **Placeholder scan:** no `TBD` / `implement later` / "handle edge cases" / "similar to Task N" anywhere. Each step shows the actual code.
 
 **Type consistency:**
+
 - `WebsiteRow` field names: `a11yViolations`, `depsDrifted`, `depsMajorBehind`, `securityVulnsCritical`, `securityVulnsHigh`, `securityVulnsModerate`, `securityVulnsLow` — consistent across Tasks 2, 7, 9, 11, and all test fixtures.
 - Airtable field names: `"A11y Violations"`, `"Deps Drifted"`, `"Deps Major Behind"`, `"Security Vulns Critical/High/Moderate/Low"` — consistent across Tasks 2 (mapRow), 6 (updaters), and 7 (orchestrator test).
 - Predicate / extractor pair names: `hasA11yCounts` / `a11yCountsFromResult`, `hasDepsCounts` / `depsCountsFromResult`, `hasSecurityCounts` / `securityCountsFromResult`. Consistent with the existing `hasRealScores` / `lighthouseScoresFromResult` pair.
@@ -1849,11 +1876,13 @@ EOF
 - Setup-check property names: `firstAudit`, `recipients`, `schedule`, `poc`. Consistent across Task 9 tests and implementation.
 
 **Coverage of failure modes preserved from existing CLI:**
+
 - exit 2 when `--only` ran without lighthouse → Task 7 test + impl.
 - exit 1 when lighthouse produced no real scores → Task 7 test + impl.
 - exit 2 when no Websites row matched slug → Task 7 test + impl.
 
 **Risks / known gaps the implementer should flag if they hit them:**
+
 - The CSS for `.card-head` uses `margin-left: auto` on `.setup` then `0` on `.audited` — that's intentional (push setup to the right, audited follows it). If flex wraps awkwardly on narrow viewports, leave the rough version and note it; visual polish isn't blocking.
 - The `siteRow()` test fixture in Task 11 now requires 7 new fields to type-check. If Task 2 doesn't update the test fixture, Task 11 will hit a TS error in Step 1. Task 2 Step 5 explicitly addresses this.
 - `pnpm lint` (Task 13 Step 2) may auto-fix the new files' formatting. If it does, run it again until clean, then commit any formatter changes as their own commit (`chore: prettier`).
