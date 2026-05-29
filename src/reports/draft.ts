@@ -37,8 +37,12 @@ function scoresFromWebsite(siteRow: WebsiteRow): LighthouseScores {
 }
 
 function daysAgo(today: Date, n: number): Date {
+  // UTC accessors to stay TZ-consistent with `due.ts` (and avoid landing
+  // Airtable's `Period start` on a different calendar day than the operator
+  // expects on late-night runs near a month boundary). See morning brief
+  // 2026-05-29 (M1) for context.
   const out = new Date(today);
-  out.setDate(out.getDate() - n);
+  out.setUTCDate(out.getUTCDate() - n);
   return out;
 }
 

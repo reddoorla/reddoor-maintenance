@@ -160,6 +160,22 @@ export async function runAuditCommand(
   const which = parseOnly(opts.only) ?? ALL_AUDIT_NAMES;
   const cwd = opts.cwd ? resolve(opts.cwd) : process.cwd();
 
+  // --write-airtable is single-site only. With --fleet, results pool across
+  // sites and the cwd-derived slug would silently overwrite one site's
+  // dashboard row with another's pooled results — dashboard-wrong, not
+  // crash-loud. Refuse fast before running any audits so the operator
+  // doesn't burn 5+ minutes per site to discover the misuse.
+  if (opts.writeAirtable !== undefined && opts.fleet !== undefined) {
+    throw Object.assign(
+      new Error(
+        "--write-airtable is not supported with --fleet. " +
+          "Each site has its own Airtable row; run per-site instead: " +
+          "`cd <site>/ && reddoor-maint audit --write-airtable`.",
+      ),
+      { exitCode: 2 },
+    );
+  }
+
   let sites = await resolveSites({
     ...(site !== undefined ? { site } : {}),
     ...(opts.fleet !== undefined ? { fleet: opts.fleet } : {}),
