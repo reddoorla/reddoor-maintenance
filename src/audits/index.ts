@@ -26,25 +26,32 @@ function timedSpawn(timeoutMs: number): SpawnFn {
     defaultSpawn(cmd, args, { ...opts, timeoutMs: opts.timeoutMs ?? timeoutMs });
 }
 
+/** Single-audit runner with the same error-to-result conversion that
+ *  `runAudits` applies. Exposed so the CLI can wrap each audit in its
+ *  own progress task (listr2) and surface per-audit completion timing,
+ *  while keeping audit implementations UI-free. */
+export async function runOneAudit(site: Site, name: AuditName): Promise<AuditResult> {
+  if (!(name in REGISTRY)) throw new Error(`unknown audit: ${name}`);
+  const spawn = timedSpawn(DEFAULT_AUDIT_TIMEOUT_MS);
+  const label = site.name ?? site.path;
+  try {
+    return await REGISTRY[name]({ site, spawn });
+  } catch (err) {
+    return {
+      audit: name,
+      site: label,
+      status: "fail",
+      summary: `${name}: unexpected error — ${String(err)}`,
+    };
+  }
+}
+
 export async function runAudits(site: Site, which?: AuditName[]): Promise<AuditResult[]> {
   const names = which ?? ALL_AUDIT_NAMES;
   for (const n of names) {
     if (!(n in REGISTRY)) throw new Error(`unknown audit: ${n}`);
   }
-  const spawn = timedSpawn(DEFAULT_AUDIT_TIMEOUT_MS);
-  const label = site.name ?? site.path;
-  return Promise.all(
-    names.map((n) =>
-      REGISTRY[n]({ site, spawn }).catch(
-        (err): AuditResult => ({
-          audit: n,
-          site: label,
-          status: "fail",
-          summary: `${n}: unexpected error — ${String(err)}`,
-        }),
-      ),
-    ),
-  );
+  return Promise.all(names.map((n) => runOneAudit(site, n)));
 }
 
 export async function runAuditsAcross(sites: Site[], which?: AuditName[]): Promise<AuditResult[]> {

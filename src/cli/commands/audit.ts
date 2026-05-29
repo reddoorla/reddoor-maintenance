@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
-import { runAuditsAcross, ALL_AUDIT_NAMES } from "../../audits/index.js";
-import type { AuditName, AuditResult } from "../../types.js";
+import { Listr } from "listr2";
+import { runOneAudit, ALL_AUDIT_NAMES } from "../../audits/index.js";
+import type { AuditName, AuditResult, Site } from "../../types.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
 import { cloneIfNeeded } from "../fleet/clone-if-needed.js";
 
@@ -39,11 +40,124 @@ function exitCode(results: AuditResult[]): number {
   return results.some((r) => r.status === "fail") ? 1 : 0;
 }
 
+function formatDuration(ms: number): string {
+  if (ms < 1_000) return `${ms}ms`;
+  const totalSeconds = Math.round(ms / 1_000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${m}m${s.toString().padStart(2, "0")}s`;
+}
+
+type Renderer = "default" | "silent";
+
+/** Build the audit-progress task list. Single-site → each audit is a sibling
+ *  task. Fleet → each site is a task whose `output` shows X/N audits done as
+ *  they complete (audits-per-site still run in parallel). Results are pushed
+ *  into the shared `results` array; tasks throw on `fail` status so listr2
+ *  paints them red, but `exitOnError: false` keeps other tasks running. */
+function buildAuditTasks(
+  sites: Site[],
+  which: AuditName[],
+  results: AuditResult[],
+  renderer: Renderer,
+) {
+  const singleSite = sites.length === 1;
+
+  if (singleSite) {
+    const site = sites[0]!;
+    return new Listr(
+      which.map((name) => ({
+        title: name,
+        task: async (_ctx, task) => {
+          const start = Date.now();
+          const result = await runOneAudit(site, name);
+          results.push(result);
+          const elapsed = formatDuration(Date.now() - start);
+          task.title = `${name}: ${result.summary} (${elapsed})`;
+          if (result.status === "fail") throw new Error(result.summary);
+        },
+      })),
+      { concurrent: true, exitOnError: false, renderer },
+    );
+  }
+
+  return new Listr(
+    sites.map((site) => {
+      const label = site.name ?? site.path;
+      return {
+        title: label,
+        task: async (_ctx, task) => {
+          const start = Date.now();
+          let done = 0;
+          task.output = `0/${which.length} audits`;
+          const settled = await Promise.all(
+            which.map(async (name) => {
+              const r = await runOneAudit(site, name);
+              results.push(r);
+              done += 1;
+              task.output = `${done}/${which.length} audits`;
+              return r;
+            }),
+          );
+          const elapsed = formatDuration(Date.now() - start);
+          const failed = settled.filter((r) => r.status === "fail").length;
+          const warned = settled.filter((r) => r.status === "warn").length;
+          const note =
+            failed > 0
+              ? `${failed} failed`
+              : warned > 0
+                ? `${warned} warning${warned === 1 ? "" : "s"}`
+                : "all green";
+          task.title = `${label}: ${note} (${elapsed})`;
+          if (failed > 0) throw new Error(`${label}: ${failed} audit(s) failed`);
+        },
+      };
+    }),
+    { concurrent: true, exitOnError: false, renderer },
+  );
+}
+
+type WriteSummary = Awaited<
+  ReturnType<typeof import("../../audits/write-audits-to-airtable.js").writeAuditsToAirtable>
+>;
+
+function formatWriteSummary(summary: WriteSummary): string {
+  const lines = summary.writes.map((w) => {
+    if (w.audit === "lighthouse") {
+      const s = w.counts as {
+        performance: number;
+        accessibility: number;
+        bestPractices: number;
+        seo: number;
+      };
+      return `  lighthouse: P=${s.performance} A=${s.accessibility} BP=${s.bestPractices} SEO=${s.seo}`;
+    }
+    if (w.audit === "a11y") {
+      return `  a11y: ${(w.counts as { violations: number }).violations} violations`;
+    }
+    if (w.audit === "deps") {
+      const c = w.counts as { drifted: number; majorBehind: number };
+      return `  deps: ${c.drifted} drifted (${c.majorBehind} major)`;
+    }
+    const c = w.counts as { critical: number; high: number; moderate: number; low: number };
+    return `  security: ${c.critical}C/${c.high}H/${c.moderate}M/${c.low}L`;
+  });
+  return `→ wrote to Websites[${summary.siteName}]:\n${lines.join("\n")}`;
+}
+
+/** Listr renderer choice. `--json` → silent so stdout stays clean for piping.
+ *  Otherwise listr's `default` renderer auto-falls back to `simple` in
+ *  non-TTY contexts (CI, log capture, our own integration tests). */
+function rendererFor(json: boolean | undefined): Renderer {
+  return json ? "silent" : "default";
+}
+
 export async function runAuditCommand(
   site: string | undefined,
   opts: AuditCommandOptions,
 ): Promise<{ output: string; code: number }> {
-  const which = parseOnly(opts.only);
+  const which = parseOnly(opts.only) ?? ALL_AUDIT_NAMES;
   const cwd = opts.cwd ? resolve(opts.cwd) : process.cwd();
 
   let sites = await resolveSites({
@@ -58,9 +172,9 @@ export async function runAuditCommand(
     sites = await Promise.all(sites.map((s) => cloneIfNeeded(s, { workdir })));
   }
 
-  // Run sites in parallel via runAuditsAcross — for a fleet of 30 this is the
-  // difference between minutes and ~max(per-site) seconds.
-  const results: AuditResult[] = await runAuditsAcross(sites, which);
+  const results: AuditResult[] = [];
+  const renderer = rendererFor(opts.json);
+  await buildAuditTasks(sites, which, results, renderer).run();
 
   let output = opts.json ? JSON.stringify(results, null, 2) : formatTable(results);
 
@@ -75,31 +189,25 @@ export async function runAuditCommand(
         ? opts.writeAirtable
         : await resolveSlugFromCwd(cwd);
 
-    const base = openBase(readAirtableConfig());
-    const websites = await listWebsites(base);
-    const summary = await writeAuditsToAirtable({ base, websites, slug, results });
+    let writeSummary: WriteSummary | null = null;
+    await new Listr(
+      [
+        {
+          title: `Write to Airtable[${slug}]`,
+          task: async (_ctx, task) => {
+            const base = openBase(readAirtableConfig());
+            task.output = "loading Websites…";
+            const websites = await listWebsites(base);
+            task.output = "writing scores…";
+            writeSummary = await writeAuditsToAirtable({ base, websites, slug, results });
+            task.title = `Wrote to Websites[${writeSummary.siteName}] (${writeSummary.writes.length} audit type${writeSummary.writes.length === 1 ? "" : "s"})`;
+          },
+        },
+      ],
+      { renderer },
+    ).run();
 
-    const lines = summary.writes.map((w) => {
-      if (w.audit === "lighthouse") {
-        const s = w.counts as {
-          performance: number;
-          accessibility: number;
-          bestPractices: number;
-          seo: number;
-        };
-        return `  lighthouse: P=${s.performance} A=${s.accessibility} BP=${s.bestPractices} SEO=${s.seo}`;
-      }
-      if (w.audit === "a11y") {
-        return `  a11y: ${(w.counts as { violations: number }).violations} violations`;
-      }
-      if (w.audit === "deps") {
-        const c = w.counts as { drifted: number; majorBehind: number };
-        return `  deps: ${c.drifted} drifted (${c.majorBehind} major)`;
-      }
-      const c = w.counts as { critical: number; high: number; moderate: number; low: number };
-      return `  security: ${c.critical}C/${c.high}H/${c.moderate}M/${c.low}L`;
-    });
-    output += `\n\n→ wrote to Websites[${summary.siteName}]:\n${lines.join("\n")}`;
+    if (writeSummary) output += `\n\n${formatWriteSummary(writeSummary)}`;
   }
 
   return { output, code: exitCode(results) };

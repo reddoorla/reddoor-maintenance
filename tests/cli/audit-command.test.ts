@@ -80,4 +80,20 @@ describe("cli: audit command", () => {
     expect(stdout).toMatch(/deps/);
     expect(stdout).toMatch(/pass/);
   });
+
+  it("emits listr2 progress markers alongside the result table in non-TTY mode", () => {
+    // Regression guard for the listr2 spinner integration: in a non-TTY
+    // context (execFileSync), listr2's simple renderer prints `❯ deps`
+    // when the task starts and `✔ deps: ... (Nms)` when it completes.
+    // We assert both a progress marker AND the table line are present.
+    const { stdout, status } = runCli([
+      "audit",
+      resolve(fixtures, "pristine-starter"),
+      "--only",
+      "deps",
+    ]);
+    expect(status).toBe(0);
+    expect(stdout).toMatch(/[✔❯] deps/);
+    expect(stdout).toMatch(/deps\s+pass\s+pristine-starter/);
+  });
 });
