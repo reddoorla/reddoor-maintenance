@@ -69,6 +69,25 @@ describe("cli: audit command", () => {
     expect(status).toBe(2);
   });
 
+  it("--write-airtable combined with --fleet exits 2 before running any audits", () => {
+    // Fleet pools AuditResult[] across sites and the cwd-derived slug would
+    // silently overwrite one site's dashboard with another's results.
+    // Refuse fast so the operator doesn't burn fleet audit time discovering it.
+    const { stdout, status } = runCli(
+      [
+        "audit",
+        "--fleet",
+        resolve(fixtures, "pristine-starter") + "/inventory.json",
+        "--write-airtable",
+      ],
+      { allowNonZero: true },
+    );
+    expect(status).toBe(2);
+    // Error goes to stderr; stdout should be clean of audit output (no spinners,
+    // no result table) because we threw before any audit ran.
+    expect(stdout).not.toMatch(/[✔❯] (deps|lighthouse|a11y|security|lint)/);
+  });
+
   it("table output prints one line per audit when --json is omitted", () => {
     const { stdout, status } = runCli([
       "audit",
