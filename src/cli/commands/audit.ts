@@ -66,47 +66,40 @@ export async function runAuditCommand(
 
   if (opts.writeAirtable !== undefined) {
     const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
-    const { listWebsites, updateScores, siteSlug } =
-      await import("../../reports/airtable/websites.js");
-    const { lighthouseScoresFromResult, hasRealScores, resolveSlugFromCwd } =
-      await import("../../audits/lighthouse-airtable.js");
+    const { listWebsites } = await import("../../reports/airtable/websites.js");
+    const { resolveSlugFromCwd } = await import("../../audits/lighthouse-airtable.js");
+    const { writeAuditsToAirtable } = await import("../../audits/write-audits-to-airtable.js");
 
     const slug =
       typeof opts.writeAirtable === "string" && opts.writeAirtable.length > 0
         ? opts.writeAirtable
         : await resolveSlugFromCwd(cwd);
 
-    const lhResult = results.find((r) => r.audit === "lighthouse");
-    if (!lhResult) {
-      throw Object.assign(
-        new Error(
-          "--write-airtable requires a lighthouse result; did you pass --only without lighthouse?",
-        ),
-        { exitCode: 2 },
-      );
-    }
-    // Only refuse on infrastructure failure (empty summary). Assertion
-    // failures still carry real scores — those ARE the signal the
-    // dashboard exists to track over time.
-    if (!hasRealScores(lhResult)) {
-      throw Object.assign(
-        new Error(
-          `Lighthouse audit produced no scores; refusing to write to Airtable. Summary: ${lhResult.summary}`,
-        ),
-        { exitCode: 1 },
-      );
-    }
-
     const base = openBase(readAirtableConfig());
     const websites = await listWebsites(base);
-    const target = websites.find((w) => siteSlug(w.name) === slug);
-    if (!target) {
-      throw Object.assign(new Error(`No Websites row matched slug "${slug}"`), { exitCode: 2 });
-    }
+    const summary = await writeAuditsToAirtable({ base, websites, slug, results });
 
-    const scores = lighthouseScoresFromResult(lhResult);
-    await updateScores(base, target.id, scores);
-    output += `\n\n→ wrote scores to Websites[${target.name}]: P=${scores.performance} A=${scores.accessibility} BP=${scores.bestPractices} SEO=${scores.seo}`;
+    const lines = summary.writes.map((w) => {
+      if (w.audit === "lighthouse") {
+        const s = w.counts as {
+          performance: number;
+          accessibility: number;
+          bestPractices: number;
+          seo: number;
+        };
+        return `  lighthouse: P=${s.performance} A=${s.accessibility} BP=${s.bestPractices} SEO=${s.seo}`;
+      }
+      if (w.audit === "a11y") {
+        return `  a11y: ${(w.counts as { violations: number }).violations} violations`;
+      }
+      if (w.audit === "deps") {
+        const c = w.counts as { drifted: number; majorBehind: number };
+        return `  deps: ${c.drifted} drifted (${c.majorBehind} major)`;
+      }
+      const c = w.counts as { critical: number; high: number; moderate: number; low: number };
+      return `  security: ${c.critical}C/${c.high}H/${c.moderate}M/${c.low}L`;
+    });
+    output += `\n\n→ wrote to Websites[${summary.siteName}]:\n${lines.join("\n")}`;
   }
 
   return { output, code: exitCode(results) };

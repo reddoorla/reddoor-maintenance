@@ -1,5 +1,7 @@
 import type { WebsiteRow } from "../reports/airtable/websites.js";
 import { siteSlug } from "../reports/airtable/websites.js";
+import { onboardingStatus } from "./onboarding.js";
+import { relativeTimeFromNow } from "./relative-time.js";
 
 function escapeHtml(s: string): string {
   return s
@@ -20,31 +22,77 @@ function safeUrl(raw: string): string {
   return "#";
 }
 
-function scoreCell(value: number | null): string {
-  const display = value === null ? "—" : String(value);
-  return `<td class="score">${escapeHtml(display)}</td>`;
+const DASH = "—";
+
+function scoreSpan(category: "perf" | "a11y-lh" | "bp" | "seo", value: number | null): string {
+  const display = value === null ? DASH : String(value);
+  return `<span class="score ${category}">${escapeHtml(display)}</span>`;
 }
 
-function siteHrefCell(site: WebsiteRow): string {
+function a11ySpan(value: number | null): string {
+  const display = value === null ? DASH : String(value);
+  return `<span class="metric a11y">${escapeHtml(display)}</span>`;
+}
+
+function depsSpan(drifted: number | null, majorBehind: number | null): string {
+  if (drifted === null || majorBehind === null) {
+    return `<span class="metric deps">${DASH}</span>`;
+  }
+  const display = drifted === 0 ? "0" : `${drifted} drifted (${majorBehind} major)`;
+  return `<span class="metric deps">${escapeHtml(display)}</span>`;
+}
+
+function securitySpan(
+  critical: number | null,
+  high: number | null,
+  moderate: number | null,
+  low: number | null,
+): string {
+  if (critical === null || high === null || moderate === null || low === null) {
+    return `<span class="metric sec">${DASH}</span>`;
+  }
+  const total = critical + high + moderate + low;
+  const display = total === 0 ? "0" : `${critical}C/${high}H/${moderate}M/${low}L`;
+  return `<span class="metric sec">${escapeHtml(display)}</span>`;
+}
+
+function card(site: WebsiteRow): string {
   const name = escapeHtml(site.name);
   // Caller is responsible for filtering — render assumes every site has a
-  // dashboardToken (anything in Airtable without one isn't on the Reddoor
-  // stack and shouldn't appear). The `?? ""` is a defensive nudge if a
-  // misuse ever slips through; non-null guarantee belongs upstream.
+  // dashboardToken. The `?? ""` is a defensive nudge if a misuse ever slips through.
   const token = site.dashboardToken ?? "";
   const href = `/s/${escapeHtml(siteSlug(site.name))}?t=${escapeHtml(token)}`;
-  return `<td class="site"><a href="${href}">${name}</a></td>`;
-}
+  const onboarding = onboardingStatus(site);
+  const audited = relativeTimeFromNow(site.lastLighthouseAuditAt);
+  const safeSiteUrl = escapeHtml(safeUrl(site.url));
+  const visibleUrl = escapeHtml(site.url);
 
-function siteRow(site: WebsiteRow): string {
-  return `<tr>
-    ${siteHrefCell(site)}
-    <td><a href="${escapeHtml(safeUrl(site.url))}" class="url" target="_blank" rel="noopener">${escapeHtml(site.url)}</a></td>
-    ${scoreCell(site.pScore)}
-    ${scoreCell(site.rScore)}
-    ${scoreCell(site.bpScore)}
-    ${scoreCell(site.seoScore)}
-  </tr>`;
+  return `<article class="card">
+    <header class="card-head">
+      <a class="site" href="${href}">${name}</a>
+      <a class="url" href="${safeSiteUrl}" target="_blank" rel="noopener">${visibleUrl}</a>
+      <span class="setup">Setup: <strong>${onboarding.score}/${onboarding.total}</strong></span>
+      <span class="audited">Audited: <strong>${escapeHtml(audited)}</strong></span>
+    </header>
+    <div class="card-metrics">
+      <span class="cluster lighthouse">
+        ${scoreSpan("perf", site.pScore)}
+        ${scoreSpan("a11y-lh", site.rScore)}
+        ${scoreSpan("bp", site.bpScore)}
+        ${scoreSpan("seo", site.seoScore)}
+      </span>
+      <span class="cluster health">
+        <span class="metric-label">a11y</span> ${a11ySpan(site.a11yViolations)}
+        <span class="metric-label">deps</span> ${depsSpan(site.depsDrifted, site.depsMajorBehind)}
+        <span class="metric-label">sec</span> ${securitySpan(
+          site.securityVulnsCritical,
+          site.securityVulnsHigh,
+          site.securityVulnsModerate,
+          site.securityVulnsLow,
+        )}
+      </span>
+    </div>
+  </article>`;
 }
 
 const STYLES = `
@@ -52,40 +100,35 @@ const STYLES = `
 body { font: 16px/1.5 system-ui, -apple-system, sans-serif; max-width: 1100px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
 @media (prefers-color-scheme: dark) { body { color: #e8e8e8; background: #111; } a { color: #6cb6ff; } }
 h1 { margin: 0 0 0.25rem; font-size: 1.75rem; }
-.meta { color: #666; margin-bottom: 2rem; }
-table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
-th { text-align: left; padding: 0.5rem; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: #666; border-bottom: 2px solid #ddd; }
-@media (prefers-color-scheme: dark) { th { border-color: #333; } }
-td { padding: 0.65rem 0.5rem; border-bottom: 1px solid #eee; }
-@media (prefers-color-scheme: dark) { td { border-color: #2a2a2a; } }
-td.site a { font-weight: 500; }
-td.url { color: #666; font-size: 0.85rem; }
-td.score { text-align: right; font-variant-numeric: tabular-nums; min-width: 3.5rem; }
+.meta { color: #666; margin-bottom: 1.5rem; }
 .empty { color: #999; padding: 2rem; text-align: center; border: 1px dashed #ccc; border-radius: 6px; }
+.cards { display: flex; flex-direction: column; gap: 0.75rem; }
+.card { border: 1px solid #e5e5e5; border-radius: 8px; padding: 0.9rem 1.1rem; }
+@media (prefers-color-scheme: dark) { .card { border-color: #2a2a2a; background: #181818; } }
+.card-head { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; align-items: baseline; }
+.card-head .site { font-weight: 600; font-size: 1.05rem; }
+.card-head .url { color: #666; font-size: 0.85rem; }
+.card-head .setup, .card-head .audited { color: #666; font-size: 0.85rem; }
+.card-head .setup { margin-left: auto; }
+.card-metrics { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; margin-top: 0.5rem; font-variant-numeric: tabular-nums; }
+.cluster { display: inline-flex; gap: 0.5rem; align-items: baseline; }
+.cluster.lighthouse .score { display: inline-block; min-width: 2.25rem; text-align: right; }
+.metric-label { color: #999; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.metric { font-feature-settings: "tnum"; }
 `;
 
 /**
  * Render the fleet homepage as a single HTML document. Pure function:
  * no Airtable access, no env reads, no I/O. The Netlify function handler
- * filters the Websites rows (drops anything without a dashboardToken — those
- * aren't on the Reddoor stack), sorts, and hands here. Same style vocabulary
- * as renderSiteDashboardHtml so the two pages feel like one product.
+ * filters Websites rows (drops anything without a dashboardToken), sorts,
+ * and hands here. One <article class="card"> per site, with a header row
+ * (name · url · setup · audited) and a metrics row (lighthouse · a11y · deps · sec).
  */
 export function renderFleetHomeHtml(sites: WebsiteRow[]): string {
   const body =
     sites.length === 0
       ? `<div class="empty">No sites to display.</div>`
-      : `<table>
-          <thead><tr>
-            <th>Site</th>
-            <th>URL</th>
-            <th>Perf</th>
-            <th>A11y</th>
-            <th>BP</th>
-            <th>SEO</th>
-          </tr></thead>
-          <tbody>${sites.map(siteRow).join("")}</tbody>
-        </table>`;
+      : `<div class="cards">${sites.map(card).join("")}</div>`;
 
   return `<!doctype html>
 <html lang="en">
