@@ -6,6 +6,7 @@ import type { ReportRow } from "../airtable/reports.js";
 import { fetchAttachmentBytes } from "../airtable/attachments.js";
 import { renderReportHtml } from "../render.js";
 import { loadBundledImages } from "../maintenance-email/assets/index.js";
+import { prepareHeaderImage } from "../maintenance-email/header-image.js";
 import { defaultResendClient, type ResendClient } from "./resend.js";
 
 const FROM_ADDRESS = "Reddoor Reports <reports@reddoorla.com>";
@@ -60,7 +61,10 @@ async function sendOne(
     throw new Error(`Report ${report.reportId} has no Lighthouse scores`);
   }
 
-  const { bytes, contentType } = await fetchAttachmentBytes(site.headerImage.url);
+  const original = await fetchAttachmentBytes(site.headerImage.url);
+  // Downscale the (often multi-MB / 2400px+) Airtable header to email display size, and get
+  // back display dims + a placeholder color so the template can reserve the box.
+  const header = await prepareHeaderImage(original.bytes);
   const bundled = await loadBundledImages();
 
   const slug = siteSlug(site.name);
@@ -76,6 +80,9 @@ async function sendOne(
     lastTestedDate: report.lastTestedDate ? new Date(report.lastTestedDate) : null,
     commentary: report.commentary,
     headerImageCid: cidName,
+    headerWidth: header.displayWidth,
+    headerHeight: header.displayHeight,
+    headerBgColor: header.placeholderColor,
   });
 
   const subject = report.subjectOverride ?? `${site.name} ${report.reportType} Report`;
@@ -115,9 +122,9 @@ async function sendOne(
     html,
     attachments: [
       {
-        filename: site.headerImage.filename,
-        content: Buffer.from(bytes).toString("base64"),
-        contentType,
+        filename: `${cidName}.jpg`,
+        content: Buffer.from(header.bytes).toString("base64"),
+        contentType: header.contentType,
         inlineContentId: cidName,
       },
       // Bundled images referenced via cid:rd-check-png / cid:rd-blurred-tests-jpg

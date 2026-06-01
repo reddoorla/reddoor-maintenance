@@ -72,6 +72,19 @@ function captureClient(): { client: ResendClient; captured: ResendSendInput[] } 
   return { client, captured };
 }
 
+// Header image processing is exercised in header-image.test.ts. Here we stub it so the
+// orchestrator runs against deterministic prepared output without real sharp work (the
+// fetch stub returns placeholder bytes, not a decodable image).
+vi.mock("../../../src/reports/maintenance-email/header-image.js", () => ({
+  prepareHeaderImage: vi.fn(async () => ({
+    bytes: new Uint8Array([255, 216, 255]),
+    contentType: "image/jpeg",
+    displayWidth: 600,
+    displayHeight: 800,
+    placeholderColor: "#cccccc",
+  })),
+}));
+
 // Helper: openBase reads from env; tests need to inject a fake. Patch via vi.mock.
 vi.mock("../../../src/reports/airtable/client.js", async () => {
   const actual = await vi.importActual<typeof import("../../../src/reports/airtable/client.js")>(
@@ -190,7 +203,9 @@ describe("sendApprovedReports", () => {
     const check = atts.find((a) => a.inlineContentId === "rd-check-png");
     const blurred = atts.find((a) => a.inlineContentId === "rd-blurred-tests-jpg");
     expect(header).toBeDefined();
-    expect(header!.filename).toBe("acme.jpg");
+    // Re-encoded to JPEG under a CID-derived name (orig may have been .png/.webp).
+    expect(header!.filename).toBe("acme-co-header.jpg");
+    expect(header!.contentType).toBe("image/jpeg");
     expect(check).toBeDefined();
     expect(blurred).toBeDefined();
   });
