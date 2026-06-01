@@ -31,4 +31,14 @@ export type ReportData = {
   commentary: string | null;
   /** Used in the header `mj-image src`; the email attaches the bytes with this CID. */
   headerImageCid: string;
+  /**
+   * Header display dimensions (CSS px) and placeholder color. When all three are present,
+   * the template renders the header with an explicit width/height (reserves the box, so the
+   * email doesn't reflow when the image loads) and a `container-background-color` placeholder.
+   * Absent (e.g. local preview), the header falls back to a bare `<mj-image>`.
+   * Produced by `prepareHeaderImage` in the send path.
+   */
+  headerWidth?: number;
+  headerHeight?: number;
+  headerBgColor?: string;
 };

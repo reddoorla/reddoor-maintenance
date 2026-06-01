@@ -58,8 +58,14 @@ prepareHeaderImage(bytes, { displayWidth = 600 }) →
 When all three are present, the header renders:
 
 ```html
-<mj-image href="{siteUrl}" src="cid:{cid}" width="{headerWidth}px" height="{headerHeight}px"
-          alt="{siteName} maintenance report" container-background-color="{headerBgColor}" />
+<mj-image
+  href="{siteUrl}"
+  src="cid:{cid}"
+  width="{headerWidth}px"
+  height="{headerHeight}px"
+  alt="{siteName} maintenance report"
+  container-background-color="{headerBgColor}"
+/>
 ```
 
 Explicit `height` reserves the box; `container-background-color` is the loading/blocked

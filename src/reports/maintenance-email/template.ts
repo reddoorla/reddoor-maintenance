@@ -107,9 +107,20 @@ function commentarySection(text: string): string {
     </mj-section>`;
 }
 
+function headerImageTag(data: ReportData): string {
+  const src = `cid:${data.headerImageCid}`;
+  const alt = `${data.siteName} maintenance report`;
+  // Reserve the box (explicit height stops reflow when the image paints) and show a
+  // matched placeholder color while it loads / if the client blocks images. Only when the
+  // send path supplied dimensions; otherwise fall back to the bare image (e.g. local preview).
+  if (data.headerWidth && data.headerHeight && data.headerBgColor) {
+    return `<mj-image href="${data.siteUrl}" src="${src}" alt="${alt}" width="${data.headerWidth}px" height="${data.headerHeight}px" container-background-color="${data.headerBgColor}" />`;
+  }
+  return `<mj-image href="${data.siteUrl}" src="${src}" alt="${alt}" />`;
+}
+
 export function buildMjml(data: ReportData): string {
   const isTesting = data.reportType === "Testing";
-  const headerSrc = `cid:${data.headerImageCid}`;
   const previewText = `Checked up on ${data.siteName}`;
 
   return `<mjml>
@@ -124,7 +135,7 @@ export function buildMjml(data: ReportData): string {
   <mj-body background-color="white">
     <mj-section background-color="#F4F4F4" padding-top="0px" padding-bottom="0px" padding-left="0px" padding-right="0px">
       <mj-column>
-        <mj-image href="${data.siteUrl}" src="${headerSrc}" />
+        ${headerImageTag(data)}
       </mj-column>
     </mj-section>
     <mj-section background-color="white">

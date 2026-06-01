@@ -83,6 +83,25 @@ describe("renderReportHtml", () => {
     expect(html).toContain('src="cid:client-xyz-header"');
   });
 
+  it("reserves the header box and sets a placeholder when dimensions are supplied", async () => {
+    const { html, warnings } = await renderReportHtml(
+      baseData({ headerWidth: 600, headerHeight: 800, headerBgColor: "#cfc3a8" }),
+    );
+    expect(warnings).toEqual([]);
+    // Explicit height reserves space (stops reflow); MJML emits it as a style/attr.
+    expect(html).toContain("800px");
+    // Placeholder color shows while the image loads or if the client blocks images.
+    expect(html).toContain("#cfc3a8");
+    // Alt text for blocked-image clients.
+    expect(html).toContain('alt="Acme Co maintenance report"');
+  });
+
+  it("falls back to a bare header (no placeholder color) when dimensions are absent", async () => {
+    const { html } = await renderReportHtml(baseData());
+    expect(html).toContain('alt="Acme Co maintenance report"');
+    expect(html).not.toContain("container-background-color");
+  });
+
   it("renders the testing checklist when reportType is Testing", async () => {
     const { html } = await renderReportHtml(baseData({ reportType: "Testing" }));
     expect(html).toContain("Desktop Browsers");
