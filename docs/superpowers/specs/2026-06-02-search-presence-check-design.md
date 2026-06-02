@@ -77,14 +77,19 @@ fetchSearchPresence({ keyPath, subject, property?, host, query }, periodStart, p
 ```
 
 - Builds a `JWT` (scope `webmasters.readonly`, `subject`) once, reused for resolution and query.
-- **Resolves the property:** uses `property` verbatim when given; otherwise calls `sites.list`
-  and matches `host` against the visible properties (Domain or URL-prefix), preferring the
-  `sc-domain:` form on a tie. Returns `{false, null}` if nothing matches.
-- POSTs the searchAnalytics query for `query` over `periodStart..periodEnd`, returns the rounded
-  average position (or `{false, null}` when no row). The explicit period matches the report
-  window and is passed in by the caller, exactly like `fetchPeriodUsers`.
-- A small exported `resolveProperty(entries, host)` helper keeps the host-matching logic unit-
-  testable without a live `sites.list` call.
+- **Resolves the property:** uses `property` verbatim when given (operator's choice is final, no
+  fallback); otherwise calls `sites.list` and collects **all** properties matching `host`
+  (Domain and URL-prefix), Domain form first. Returns `{false, null}` if nothing matches.
+- **Queries each candidate in order until one returns data.** A freshly-verified Domain property
+  has no backfilled history (Search Console only collects data from a property's creation date),
+  so `sc-domain:` can be empty while a long-lived URL-prefix property has data — live verify on
+  erpfunds.com hit exactly this. Trying the Domain form first then falling back on an empty result
+  is self-correcting and costs one extra call only when the first candidate has no rows.
+- Each query POSTs the searchAnalytics request for `query` over `periodStart..periodEnd`; returns
+  the rounded average position once a candidate yields a row, else `{false, null}`. The explicit
+  period matches the report window and is passed in by the caller, exactly like `fetchPeriodUsers`.
+- A small exported `resolvePropertyCandidates(entries, host)` helper keeps the host-matching/
+  ordering logic unit-testable without a live `sites.list` call.
 
 ### Per-site property — `WebsiteRow` + Airtable
 
@@ -95,8 +100,9 @@ fetchSearchPresence({ keyPath, subject, property?, host, query }, periodStart, p
 - **When blank, auto-resolve** rather than assuming a form: call `sites.list`, normalize each
   visible property's host (strip `sc-domain:` / scheme / `www.` / trailing slash) and match it
   against the site's host. This accepts **both** property types — a site verified only as a
-  URL-prefix resolves correctly. If multiple match (e.g. erpfunds.com is verified as both),
-  prefer the `sc-domain:` form (broadest coverage). No match → skip the check (one-line warn).
+  URL-prefix resolves correctly. If multiple match (e.g. erpfunds.com is verified as both), all
+  matches are tried in order (Domain first) until one returns data (see client section above).
+  No match → skip the check (one-line warn).
 
 ### `src/reports/draft.ts` — soft-fetch (near-copy of `fetchGaUsers`)
 
@@ -141,8 +147,9 @@ template: enrich "Google Indexed" row      Airtable: "Search found page 1" + "Se
 
 - `fetchSearchPresence` (mocked `JWT.request`): parses average position → rounded rank + page-1
   boolean; no-row → `{false, null}`; throws on non-OK.
-- `resolveProperty`: explicit column used verbatim; blank → matches a Domain property; blank →
-  matches a URL-prefix property; both present → prefers `sc-domain:`; no match → `null`.
+- `resolvePropertyCandidates`: Domain form first, then URL-prefix; lone URL-prefix returned; no
+  match → `[]`. `fetchSearchPresence`: explicit property never falls back; auto-resolved empty
+  first candidate falls back to the next; all-empty → `{false, null}`.
 - `draft.ts` `fetchSearch`: null when unconfigured / no query / API throws; value otherwise.
 - `createDraft` / `mapRow` round-trip the two Reports fields (checkbox written true _and_ false).
 - `render` / template: enriched row when `searchPosition` set; plain row when absent.
