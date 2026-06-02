@@ -45,6 +45,7 @@ export function fromAirtableBase(
           meta: { airtableRowId: w.id, displayName: w.name },
         };
         if (w.url) site.repoUrl = w.url;
+        if (w.gitRepo) site.gitRepo = w.gitRepo;
         return site;
       });
   };

@@ -2,6 +2,8 @@ export type Site = {
   path: string;
   name?: string;
   repoUrl?: string;
+  /** GitHub repo identity as `owner/repo`, when known (from Airtable). */
+  gitRepo?: string;
   meta?: Record<string, unknown>;
 };
 

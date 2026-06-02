@@ -17,6 +17,7 @@ function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
     ga4PropertyId: null,
     searchQuery: null,
     searchConsoleProperty: null,
+    gitRepo: null,
     reportRecipientsTo: null,
     reportRecipientsCc: null,
     headerImage: null,
