@@ -13,7 +13,7 @@ vi.mock("google-auth-library", () => ({
 
 import {
   fetchSearchPresence,
-  resolveProperty,
+  resolvePropertyCandidates,
   bareHost,
 } from "../../../src/reports/search/client.js";
 import { JWT } from "google-auth-library";
@@ -46,22 +46,25 @@ describe("bareHost", () => {
   });
 });
 
-describe("resolveProperty", () => {
+describe("resolvePropertyCandidates", () => {
   const entries = [
     { siteUrl: "https://www.erpfunds.com/" },
     { siteUrl: "sc-domain:erpfunds.com" },
     { siteUrl: "https://other.com/" },
   ];
-  it("prefers the sc-domain form when both match", () => {
-    expect(resolveProperty(entries, "erpfunds.com")).toBe("sc-domain:erpfunds.com");
+  it("returns all matching properties, Domain (sc-domain:) form first", () => {
+    expect(resolvePropertyCandidates(entries, "erpfunds.com")).toEqual([
+      "sc-domain:erpfunds.com",
+      "https://www.erpfunds.com/",
+    ]);
   });
-  it("falls back to a URL-prefix property when no Domain property exists", () => {
-    expect(resolveProperty([{ siteUrl: "https://www.only-prefix.com/" }], "only-prefix.com")).toBe(
-      "https://www.only-prefix.com/",
-    );
+  it("returns a lone URL-prefix property when no Domain property exists", () => {
+    expect(
+      resolvePropertyCandidates([{ siteUrl: "https://www.only-prefix.com/" }], "only-prefix.com"),
+    ).toEqual(["https://www.only-prefix.com/"]);
   });
-  it("returns null when nothing matches", () => {
-    expect(resolveProperty(entries, "nope.com")).toBeNull();
+  it("returns an empty list when nothing matches", () => {
+    expect(resolvePropertyCandidates(entries, "nope.com")).toEqual([]);
   });
 });
 
@@ -106,18 +109,34 @@ describe("fetchSearchPresence", () => {
     expect(request.mock.calls[1]![0].url).toContain(encodeURIComponent("sc-domain:erpfunds.com"));
   });
 
-  it("returns not-found without querying when no property resolves", async () => {
-    request.mockResolvedValueOnce(ok({ siteEntry: [{ siteUrl: "sc-domain:other.com" }] }));
+  it("falls back to the next matching property when the first has no data for the query", async () => {
+    // A real case: a freshly-verified Domain property has no history, but the long-lived
+    // URL-prefix property does. Try the Domain form first, fall back to the URL-prefix.
+    request
+      .mockResolvedValueOnce(
+        ok({
+          siteEntry: [
+            { siteUrl: "https://www.erpfunds.com/" },
+            { siteUrl: "sc-domain:erpfunds.com" },
+          ],
+        }),
+      ) // sites.list
+      .mockResolvedValueOnce(ok({ rows: [] })) // sc-domain: no data
+      .mockResolvedValueOnce(ok({ rows: [{ position: 2 }] })); // url-prefix: found
     const out = await fetchSearchPresence(
-      { keyPath, subject: "s@x.com", host: "erpfunds.com", query: "q" },
+      { keyPath, subject: "s@x.com", host: "erpfunds.com", query: "erp funds" },
       start,
       end,
     );
-    expect(out).toEqual({ foundOnPage1: false, position: null });
-    expect(request).toHaveBeenCalledTimes(1); // sites.list only, no query
+    expect(out).toEqual({ foundOnPage1: true, position: 2 });
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(request.mock.calls[1]![0].url).toContain(encodeURIComponent("sc-domain:erpfunds.com"));
+    expect(request.mock.calls[2]![0].url).toContain(
+      encodeURIComponent("https://www.erpfunds.com/"),
+    );
   });
 
-  it("returns not-found when the query has no rows (zero impressions)", async () => {
+  it("does NOT fall back when an explicit property is given (operator's choice is final)", async () => {
     request.mockResolvedValueOnce(ok({ rows: [] }));
     const out = await fetchSearchPresence(
       {
@@ -131,6 +150,39 @@ describe("fetchSearchPresence", () => {
       end,
     );
     expect(out).toEqual({ foundOnPage1: false, position: null });
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns not-found without querying when no property resolves", async () => {
+    request.mockResolvedValueOnce(ok({ siteEntry: [{ siteUrl: "sc-domain:other.com" }] }));
+    const out = await fetchSearchPresence(
+      { keyPath, subject: "s@x.com", host: "erpfunds.com", query: "q" },
+      start,
+      end,
+    );
+    expect(out).toEqual({ foundOnPage1: false, position: null });
+    expect(request).toHaveBeenCalledTimes(1); // sites.list only, no query
+  });
+
+  it("returns not-found when every matching property has no rows", async () => {
+    request
+      .mockResolvedValueOnce(
+        ok({
+          siteEntry: [
+            { siteUrl: "sc-domain:erpfunds.com" },
+            { siteUrl: "https://www.erpfunds.com/" },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(ok({ rows: [] }))
+      .mockResolvedValueOnce(ok({ rows: [] }));
+    const out = await fetchSearchPresence(
+      { keyPath, subject: "s@x.com", host: "erpfunds.com", query: "q" },
+      start,
+      end,
+    );
+    expect(out).toEqual({ foundOnPage1: false, position: null });
+    expect(request).toHaveBeenCalledTimes(3);
   });
 
   it("treats an average position worse than 10 as not on page 1", async () => {
@@ -176,7 +228,13 @@ describe("fetchSearchPresence", () => {
     request.mockRejectedValueOnce(new Error("403 PERMISSION_DENIED"));
     await expect(
       fetchSearchPresence(
-        { keyPath, subject: "s@x.com", property: "sc-domain:x.com", host: "x.com", query: "q" },
+        {
+          keyPath,
+          subject: "s@x.com",
+          property: "sc-domain:x.com",
+          host: "x.com",
+          query: "q",
+        },
         start,
         end,
       ),

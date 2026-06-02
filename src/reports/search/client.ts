@@ -40,16 +40,18 @@ export function bareHost(s: string): string {
 }
 
 /**
- * Pick the Search Console property matching `host` from the list the identity can see.
- * Accepts Domain (`sc-domain:`) and URL-prefix properties; prefers the Domain form on a tie
- * (broadest coverage). Returns null when nothing matches.
+ * All Search Console properties matching `host`, ordered for query fallback: Domain
+ * (`sc-domain:`) forms first (broadest coverage), then URL-prefix forms. A site can be verified
+ * as both; a freshly-created Domain property has no backfilled history, so its data can be empty
+ * even while a long-lived URL-prefix property has data — hence we return every match and let the
+ * caller try them in order until one returns data. Empty list = nothing matches.
  */
-export function resolveProperty(entries: SiteEntry[], host: string): string | null {
+export function resolvePropertyCandidates(entries: SiteEntry[], host: string): string[] {
   const target = bareHost(host);
-  const matches = entries.filter((e) => bareHost(e.siteUrl) === target);
-  if (matches.length === 0) return null;
-  const domain = matches.find((e) => e.siteUrl.toLowerCase().startsWith("sc-domain:"));
-  return (domain ?? matches[0]!).siteUrl;
+  const matches = entries.filter((e) => bareHost(e.siteUrl) === target).map((e) => e.siteUrl);
+  const domains = matches.filter((s) => s.toLowerCase().startsWith("sc-domain:"));
+  const prefixes = matches.filter((s) => !s.toLowerCase().startsWith("sc-domain:"));
+  return [...domains, ...prefixes];
 }
 
 /** UTC YYYY-MM-DD — matches the rest of the reports pipeline. */
@@ -59,9 +61,10 @@ function ymd(d: Date): string {
 
 /**
  * Query Google Search Console for the average position of `query` on the site over the report
- * period, via a domain-wide-delegation service account impersonating `subject`. Resolves the
- * property from `property` (verbatim) or auto-discovers it via `sites.list`. Throws on any
- * auth/API error — the caller (draftReportForSite) soft-fails.
+ * period, via a domain-wide-delegation service account impersonating `subject`. Uses `property`
+ * verbatim when given (operator's choice is final — no fallback); otherwise auto-discovers all
+ * matching properties via `sites.list` and tries them in order (Domain first) until one returns
+ * data. Throws on any auth/API error — the caller (draftReportForSite) soft-fails.
  */
 export async function fetchSearchPresence(
   q: SearchPresenceQuery,
@@ -79,33 +82,41 @@ export async function fetchSearchPresence(
     subject: q.subject,
   });
 
-  let property = q.property?.trim() || null;
-  if (!property) {
+  const explicit = q.property?.trim();
+  let candidates: string[];
+  if (explicit) {
+    candidates = [explicit];
+  } else {
     const list = await jwt.request<{ siteEntry?: SiteEntry[] }>({
       url: `${SC_BASE}/sites`,
       method: "GET",
     });
-    property = resolveProperty(list.data.siteEntry ?? [], q.host);
-    if (!property) return { foundOnPage1: false, position: null };
+    candidates = resolvePropertyCandidates(list.data.siteEntry ?? [], q.host);
+    if (candidates.length === 0) return { foundOnPage1: false, position: null };
   }
 
-  const res = await jwt.request<{ rows?: Array<{ position?: number }> }>({
-    url: `${SC_BASE}/sites/${encodeURIComponent(property)}/searchAnalytics/query`,
-    method: "POST",
-    data: {
-      startDate: ymd(periodStart),
-      endDate: ymd(periodEnd),
-      dimensions: ["query"],
-      dimensionFilterGroups: [
-        {
-          filters: [{ dimension: "query", operator: "equals", expression: q.query.toLowerCase() }],
-        },
-      ],
-      rowLimit: 1,
-    },
-  });
-
-  const pos = res.data.rows?.[0]?.position;
-  if (typeof pos !== "number") return { foundOnPage1: false, position: null };
-  return { foundOnPage1: pos <= PAGE_1_MAX_POSITION, position: Math.round(pos) };
+  for (const property of candidates) {
+    const res = await jwt.request<{ rows?: Array<{ position?: number }> }>({
+      url: `${SC_BASE}/sites/${encodeURIComponent(property)}/searchAnalytics/query`,
+      method: "POST",
+      data: {
+        startDate: ymd(periodStart),
+        endDate: ymd(periodEnd),
+        dimensions: ["query"],
+        dimensionFilterGroups: [
+          {
+            filters: [
+              { dimension: "query", operator: "equals", expression: q.query.toLowerCase() },
+            ],
+          },
+        ],
+        rowLimit: 1,
+      },
+    });
+    const pos = res.data.rows?.[0]?.position;
+    if (typeof pos === "number") {
+      return { foundOnPage1: pos <= PAGE_1_MAX_POSITION, position: Math.round(pos) };
+    }
+  }
+  return { foundOnPage1: false, position: null };
 }
