@@ -107,16 +107,34 @@ function commentarySection(text: string): string {
     </mj-section>`;
 }
 
+function hasHeaderDims(
+  data: ReportData,
+): data is ReportData & { headerWidth: number; headerHeight: number; headerBgColor: string } {
+  return Boolean(data.headerWidth && data.headerHeight && data.headerBgColor);
+}
+
 function headerImageTag(data: ReportData): string {
   const src = `cid:${data.headerImageCid}`;
   const alt = `${data.siteName} maintenance report`;
-  // Reserve the box (explicit height stops reflow when the image paints) and show a
-  // matched placeholder color while it loads / if the client blocks images. Only when the
-  // send path supplied dimensions; otherwise fall back to the bare image (e.g. local preview).
-  if (data.headerWidth && data.headerHeight && data.headerBgColor) {
-    return `<mj-image href="${data.siteUrl}" src="${src}" alt="${alt}" width="${data.headerWidth}px" height="${data.headerHeight}px" container-background-color="${data.headerBgColor}" />`;
+  // Reserve the box and show a matched placeholder while the image loads / if blocked.
+  // Critically, we do NOT set an mj-image `height` — MJML would emit `height:<px>` while
+  // keeping `width:100%`, locking the height while the width scales and distorting the
+  // image at any rendered width != the design width (mobile, narrow panes). Instead the
+  // image stays `height:auto` (proportional) and the box is reserved via `aspect-ratio`
+  // in the head <mj-style> below (see headerStyleBlock). `container-background-color` is
+  // the placeholder; the bare fallback (no dims, e.g. local preview) keeps today's behavior.
+  if (hasHeaderDims(data)) {
+    return `<mj-image href="${data.siteUrl}" src="${src}" alt="${alt}" width="${data.headerWidth}px" css-class="rd-header" container-background-color="${data.headerBgColor}" />`;
   }
   return `<mj-image href="${data.siteUrl}" src="${src}" alt="${alt}" />`;
+}
+
+function headerStyleBlock(data: ReportData): string {
+  if (!hasHeaderDims(data)) return "";
+  // Reserve the header's vertical space by aspect ratio so it scales proportionally with
+  // its fluid (width:100%) width — no fixed pixel height, so it never squishes.
+  // `height:auto !important` defends against any client honoring MJML's inline height.
+  return `<mj-style>.rd-header img { height: auto !important; aspect-ratio: ${data.headerWidth} / ${data.headerHeight}; }</mj-style>`;
 }
 
 export function buildMjml(data: ReportData): string {
@@ -131,6 +149,7 @@ export function buildMjml(data: ReportData): string {
       <mj-image padding="0px" />
     </mj-attributes>
     <mj-preview>${previewText}</mj-preview>
+    ${headerStyleBlock(data)}
   </mj-head>
   <mj-body background-color="white">
     <mj-section background-color="#F4F4F4" padding-top="0px" padding-bottom="0px" padding-left="0px" padding-right="0px">
