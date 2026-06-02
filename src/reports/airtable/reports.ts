@@ -81,6 +81,10 @@ export type DraftInput = {
   completedOn: Date;
   lighthouse: LighthouseScores;
   lastTestedDate: Date | null;
+  /** GA "Users" for the period / previous period. Omitted when GA is not configured
+   *  for the site or the fetch failed — the operator fills the fields manually. */
+  gaUsersCurrent?: number;
+  gaUsersPrevious?: number;
 };
 
 function ymd(d: Date): string {
@@ -115,6 +119,10 @@ export async function createDraft(base: AirtableBase, input: DraftInput): Promis
     "Delivery status": "pending",
   };
   if (input.lastTestedDate) fields["Last tested date"] = ymd(input.lastTestedDate);
+  // GA fields are written only when supplied (GA configured + fetch succeeded). When
+  // omitted the row keeps them blank for manual entry — the pre-GA behavior.
+  if (input.gaUsersCurrent !== undefined) fields["GA users (period)"] = input.gaUsersCurrent;
+  if (input.gaUsersPrevious !== undefined) fields["GA users (prev period)"] = input.gaUsersPrevious;
   const created = (await base(REPORTS_TABLE).create([{ fields }])) as Records<FieldSet>;
   const rec = created[0];
   if (!rec) throw new Error("Airtable create returned no records");
