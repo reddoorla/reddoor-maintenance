@@ -83,17 +83,27 @@ describe("renderReportHtml", () => {
     expect(html).toContain('src="cid:client-xyz-header"');
   });
 
-  it("reserves the header box and sets a placeholder when dimensions are supplied", async () => {
+  it("reserves the header box via aspect-ratio (proportional, never distorts) + placeholder", async () => {
     const { html, warnings } = await renderReportHtml(
       baseData({ headerWidth: 600, headerHeight: 800, headerBgColor: "#cfc3a8" }),
     );
     expect(warnings).toEqual([]);
-    // Explicit height reserves space (stops reflow); MJML emits it as a style/attr.
-    expect(html).toContain("800px");
+    // Space is reserved by aspect-ratio (not a fixed pixel height).
+    expect(html).toMatch(/aspect-ratio:\s*600\s*\/\s*800/);
     // Placeholder color shows while the image loads or if the client blocks images.
     expect(html).toContain("#cfc3a8");
     // Alt text for blocked-image clients.
     expect(html).toContain('alt="Acme Co maintenance report"');
+
+    // REGRESSION (squished header, 2026-06-01): the header <img> must scale
+    // proportionally. A fixed pixel height combined with MJML's width:100% locks
+    // the height while the width scales, distorting the image at any width != 600px
+    // (mobile, narrow reading panes). The inline style MUST be height:auto and MUST
+    // NOT contain a fixed pixel height.
+    const i = html.indexOf("cid:acme-header");
+    const imgTag = html.slice(html.lastIndexOf("<img", i), html.indexOf("/>", i) + 2);
+    expect(imgTag).toMatch(/height:\s*auto/);
+    expect(imgTag).not.toMatch(/height:\s*\d+px/);
   });
 
   it("falls back to a bare header (no placeholder color) when dimensions are absent", async () => {
