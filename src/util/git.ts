@@ -57,3 +57,28 @@ export async function commit(cwd: string, message: string): Promise<string | nul
   const { stdout: sha } = await git(cwd, ["rev-parse", "HEAD"]);
   return sha.trim();
 }
+
+/** Derive `owner/repo` from a git remote URL (https or scp-style). Null if unparseable. */
+export function parseOwnerRepo(remoteUrl: string): string | null {
+  const trimmed = remoteUrl
+    .trim()
+    .replace(/\.git$/, "")
+    .replace(/\/$/, "");
+  // scp-style: git@github.com:owner/repo
+  const scp = trimmed.match(/^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+:(.+)$/);
+  const path = scp ? scp[1]! : trimmed.replace(/^https?:\/\/[^/]+\//, "");
+  const segments = path.split("/").filter(Boolean);
+  if (segments.length < 2) return null;
+  return `${segments[segments.length - 2]}/${segments[segments.length - 1]}`;
+}
+
+/** `origin` remote URL for a checkout, trimmed. Throws (via git) if there's no origin. */
+export async function getRemoteUrl(cwd: string): Promise<string> {
+  const { stdout } = await git(cwd, ["remote", "get-url", "origin"]);
+  return stdout.trim();
+}
+
+/** Push a branch to origin, setting upstream. Throws on non-zero (execFile rejects). */
+export async function push(cwd: string, branch: string): Promise<void> {
+  await git(cwd, ["push", "-u", "origin", branch]);
+}
