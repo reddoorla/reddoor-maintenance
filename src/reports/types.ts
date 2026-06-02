@@ -28,6 +28,9 @@ export type ReportData = {
    *  `| undefined` is explicit so callers can pass `undefined` under exactOptionalPropertyTypes. */
   gaUsersCurrent?: number | undefined;
   gaUsersPrevious?: number | undefined;
+  /** Site's rounded average Google position for its query, when on page 1 (from Search Console).
+   *  `undefined` = not on page 1, not checked, or unconfigured — rendered as today's plain check. */
+  searchPosition?: number | undefined;
   /** Only used when reportType === "Maintenance"; the date shown next to the blurred-testing image. */
   lastTestedDate: Date | null;
   /** Optional free-text rendered as a section above the footer. */

@@ -97,6 +97,8 @@ async function sendOne(
     lighthouse: report.lighthouse,
     gaUsersCurrent: report.gaUsersCurrent ?? undefined,
     gaUsersPrevious: report.gaUsersPrevious ?? undefined,
+    searchPosition:
+      report.searchFoundPage1 && report.searchPosition !== null ? report.searchPosition : undefined,
     lastTestedDate: report.lastTestedDate ? new Date(report.lastTestedDate) : null,
     commentary: report.commentary,
     headerImageCid: cidName,

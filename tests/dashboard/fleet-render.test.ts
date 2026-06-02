@@ -15,6 +15,7 @@ function siteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     testingDay: "2026-04-10",
     ga4PropertyId: null,
     searchQuery: null,
+    searchConsoleProperty: null,
     reportRecipientsTo: "tucker@reddoorla.com",
     reportRecipientsCc: null,
     headerImage: null,

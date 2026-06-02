@@ -10,6 +10,8 @@ import { uploadAttachment } from "./airtable/attachments.js";
 import type { AirtableBase } from "./airtable/client.js";
 import { readGaConfig } from "./ga/config.js";
 import { fetchPeriodUsers } from "./ga/client.js";
+import { fetchSearchPresence } from "./search/client.js";
+import type { SearchPresence } from "./search/client.js";
 
 export type DraftOptions = {
   /** Where to write the local preview HTML when `previewOnly`. Defaults to `reports/<slug>/draft.html`. */
@@ -71,6 +73,7 @@ export async function draftReportForSite(
   // the draft still proceeds (operator fills them manually) — GA is an enhancement, not a
   // gate. Rendered with the fetched numbers so the review HTML matches the Airtable fields.
   const gaUsers = base !== null ? await fetchGaUsers(siteRow, periodStart, periodEnd) : null;
+  const search = base !== null ? await fetchSearch(siteRow, periodStart, periodEnd) : null;
 
   const cidName = `${slug}-header`;
   const { html } = await renderReportHtml({
@@ -81,6 +84,7 @@ export async function draftReportForSite(
     lighthouse: scores,
     gaUsersCurrent: gaUsers?.current,
     gaUsersPrevious: gaUsers?.previous,
+    searchPosition: search?.foundOnPage1 ? (search.position ?? undefined) : undefined,
     lastTestedDate,
     commentary: null,
     headerImageCid: cidName,
@@ -106,6 +110,10 @@ export async function draftReportForSite(
     lighthouse: scores,
     lastTestedDate,
     ...(gaUsers ? { gaUsersCurrent: gaUsers.current, gaUsersPrevious: gaUsers.previous } : {}),
+    ...(search ? { searchFoundPage1: search.foundOnPage1 } : {}),
+    ...(search?.foundOnPage1 && search.position !== null
+      ? { searchPosition: search.position }
+      : {}),
   });
 
   const htmlFilename = `${slug}-${periodEnd.toISOString().slice(0, 10)}.html`;
@@ -136,6 +144,37 @@ async function fetchGaUsers(
     );
   } catch (e) {
     console.warn(`⚠ GA skipped for ${siteRow.name}: ${(e as Error).message}`);
+    return null;
+  }
+}
+
+/**
+ * Fetch the site's Google search presence for the period, soft-failing to null. Returns null
+ * when GA/SA isn't configured (`readGaConfig()` null — search shares the SA credentials), the
+ * site has no `searchQuery`, or the Search Console API errors (logging a one-line warning).
+ * Never throws, so a search problem can never block a draft.
+ */
+async function fetchSearch(
+  siteRow: WebsiteRow,
+  periodStart: Date,
+  periodEnd: Date,
+): Promise<SearchPresence | null> {
+  const cfg = readGaConfig();
+  if (!cfg || !siteRow.searchQuery) return null;
+  try {
+    return await fetchSearchPresence(
+      {
+        keyPath: cfg.keyPath,
+        subject: cfg.subject,
+        property: siteRow.searchConsoleProperty ?? undefined,
+        host: siteRow.url,
+        query: siteRow.searchQuery,
+      },
+      periodStart,
+      periodEnd,
+    );
+  } catch (e) {
+    console.warn(`⚠ Search presence skipped for ${siteRow.name}: ${(e as Error).message}`);
     return null;
   }
 }

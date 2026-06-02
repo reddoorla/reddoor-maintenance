@@ -17,6 +17,8 @@ export type ReportRow = {
   lighthouse: LighthouseScores | null;
   gaUsersCurrent: number | null;
   gaUsersPrevious: number | null;
+  searchFoundPage1: boolean | null;
+  searchPosition: number | null;
   lastTestedDate: string | null;
   commentary: string | null;
   subjectOverride: string | null;
@@ -45,6 +47,9 @@ function mapRow(rec: { id: string; fields: Record<string, unknown> }): ReportRow
     lighthouse: lighthouseFromFields(f),
     gaUsersCurrent: (f["GA users (period)"] as number | undefined) ?? null,
     gaUsersPrevious: (f["GA users (prev period)"] as number | undefined) ?? null,
+    searchFoundPage1:
+      typeof f["Search found page 1"] === "boolean" ? (f["Search found page 1"] as boolean) : null,
+    searchPosition: (f["Search position"] as number | undefined) ?? null,
     lastTestedDate: (f["Last tested date"] as string | undefined) ?? null,
     commentary: (f["Commentary"] as string | undefined) ?? null,
     subjectOverride: (f["Subject override"] as string | undefined) ?? null,
@@ -85,6 +90,10 @@ export type DraftInput = {
    *  for the site or the fetch failed — the operator fills the fields manually. */
   gaUsersCurrent?: number;
   gaUsersPrevious?: number;
+  /** Search-presence result. `searchFoundPage1` is written whenever the check ran (true or
+   *  false — false is the operator-only negative signal). `searchPosition` only when found. */
+  searchFoundPage1?: boolean;
+  searchPosition?: number;
 };
 
 function ymd(d: Date): string {
@@ -123,6 +132,8 @@ export async function createDraft(base: AirtableBase, input: DraftInput): Promis
   // omitted the row keeps them blank for manual entry — the pre-GA behavior.
   if (input.gaUsersCurrent !== undefined) fields["GA users (period)"] = input.gaUsersCurrent;
   if (input.gaUsersPrevious !== undefined) fields["GA users (prev period)"] = input.gaUsersPrevious;
+  if (input.searchFoundPage1 !== undefined) fields["Search found page 1"] = input.searchFoundPage1;
+  if (input.searchPosition !== undefined) fields["Search position"] = input.searchPosition;
   const created = (await base(REPORTS_TABLE).create([{ fields }])) as Records<FieldSet>;
   const rec = created[0];
   if (!rec) throw new Error("Airtable create returned no records");

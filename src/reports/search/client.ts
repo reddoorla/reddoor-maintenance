@@ -1,52 +1,121 @@
-import type { SearchApiConfig } from "./config.js";
+import { readFileSync } from "node:fs";
+import { JWT } from "google-auth-library";
 
-export type SearchPresenceQuery = SearchApiConfig & {
-  /** The search term (operator-supplied, e.g. the business name). */
+const WEBMASTERS_READONLY = "https://www.googleapis.com/auth/webmasters.readonly";
+const SC_BASE = "https://searchconsole.googleapis.com/webmasters/v3";
+/** Average-position threshold for "on page 1" (10 organic results per page). */
+const PAGE_1_MAX_POSITION = 10;
+
+export type SearchPresenceQuery = {
+  /** Path to the service-account JSON key (same one GA uses). */
+  keyPath: string;
+  /** Workspace user to impersonate via domain-wide delegation. */
+  subject: string;
+  /** Explicit Search Console property (`sc-domain:...` or `https://.../`). Overrides auto-resolution. */
+  property?: string | undefined;
+  /** Site host, used to auto-resolve the property from `sites.list` when `property` is absent. */
+  host: string;
+  /** Operator-supplied query string (e.g. the business name). */
   query: string;
-  /** The site's URL or bare domain — used to find the site in the results. */
-  siteUrl: string;
 };
 
 export type SearchPresence = {
-  /** True when the site's domain appears anywhere in the top 10 organic results. */
+  /** True when the average position for the query is on page 1 (<= 10). */
   foundOnPage1: boolean;
-  /** 1-based position of the first matching result, or null if not on page 1. */
+  /** Rounded average position, or null when not found / no data. */
   position: number | null;
 };
 
-const ENDPOINT = "https://www.googleapis.com/customsearch/v1";
+type SiteEntry = { siteUrl: string };
 
-/** Reduce a URL or bare host to a comparable hostname: no scheme, no path, no leading `www.`. */
-function bareHost(urlOrHost: string): string {
-  const noScheme = urlOrHost.trim().replace(/^https?:\/\//i, "");
-  const host = noScheme.split("/")[0]!.split("?")[0]!;
-  return host.toLowerCase().replace(/^www\./, "");
+/** Reduce any property string or URL to a bare host: no `sc-domain:`, scheme, `www.`, path, lowercased. */
+export function bareHost(s: string): string {
+  return s
+    .trim()
+    .replace(/^sc-domain:/i, "")
+    .replace(/^https?:\/\//i, "")
+    .split("/")[0]!
+    .replace(/^www\./i, "")
+    .toLowerCase();
 }
 
 /**
- * Google the `query` via the Custom Search JSON API and report whether `siteUrl`'s domain
- * appears in the top 10 organic results. Throws on a non-OK response (quota, bad key, etc.)
- * so the caller can soft-fail. De-personalized/de-localized — a national-ranking proxy.
+ * All Search Console properties matching `host`, ordered for query fallback: Domain
+ * (`sc-domain:`) forms first (broadest coverage), then URL-prefix forms. A site can be verified
+ * as both; a freshly-created Domain property has no backfilled history, so its data can be empty
+ * even while a long-lived URL-prefix property has data — hence we return every match and let the
+ * caller try them in order until one returns data. Empty list = nothing matches.
  */
-export async function fetchSearchPresence(q: SearchPresenceQuery): Promise<SearchPresence> {
-  const url = new URL(ENDPOINT);
-  url.searchParams.set("key", q.apiKey);
-  url.searchParams.set("cx", q.engineId);
-  url.searchParams.set("q", q.query);
-  url.searchParams.set("num", "10");
+export function resolvePropertyCandidates(entries: SiteEntry[], host: string): string[] {
+  const target = bareHost(host);
+  const matches = entries.filter((e) => bareHost(e.siteUrl) === target).map((e) => e.siteUrl);
+  const domains = matches.filter((s) => s.toLowerCase().startsWith("sc-domain:"));
+  const prefixes = matches.filter((s) => !s.toLowerCase().startsWith("sc-domain:"));
+  return [...domains, ...prefixes];
+}
 
-  const resp = await fetch(url.toString());
-  if (!resp.ok) {
-    throw new Error(`Custom Search API returned ${resp.status}`);
+/** UTC YYYY-MM-DD — matches the rest of the reports pipeline. */
+function ymd(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Query Google Search Console for the average position of `query` on the site over the report
+ * period, via a domain-wide-delegation service account impersonating `subject`. Uses `property`
+ * verbatim when given (operator's choice is final — no fallback); otherwise auto-discovers all
+ * matching properties via `sites.list` and tries them in order (Domain first) until one returns
+ * data. Throws on any auth/API error — the caller (draftReportForSite) soft-fails.
+ */
+export async function fetchSearchPresence(
+  q: SearchPresenceQuery,
+  periodStart: Date,
+  periodEnd: Date,
+): Promise<SearchPresence> {
+  const key = JSON.parse(readFileSync(q.keyPath, "utf8")) as {
+    client_email: string;
+    private_key: string;
+  };
+  const jwt = new JWT({
+    email: key.client_email,
+    key: key.private_key,
+    scopes: [WEBMASTERS_READONLY],
+    subject: q.subject,
+  });
+
+  const explicit = q.property?.trim();
+  let candidates: string[];
+  if (explicit) {
+    candidates = [explicit];
+  } else {
+    const list = await jwt.request<{ siteEntry?: SiteEntry[] }>({
+      url: `${SC_BASE}/sites`,
+      method: "GET",
+    });
+    candidates = resolvePropertyCandidates(list.data.siteEntry ?? [], q.host);
+    if (candidates.length === 0) return { foundOnPage1: false, position: null };
   }
-  const data = (await resp.json()) as { items?: Array<{ link?: string }> };
-  const items = data.items ?? [];
-  const target = bareHost(q.siteUrl);
 
-  for (let i = 0; i < items.length; i++) {
-    const link = items[i]?.link;
-    if (link && bareHost(link) === target) {
-      return { foundOnPage1: true, position: i + 1 };
+  for (const property of candidates) {
+    const res = await jwt.request<{ rows?: Array<{ position?: number }> }>({
+      url: `${SC_BASE}/sites/${encodeURIComponent(property)}/searchAnalytics/query`,
+      method: "POST",
+      data: {
+        startDate: ymd(periodStart),
+        endDate: ymd(periodEnd),
+        dimensions: ["query"],
+        dimensionFilterGroups: [
+          {
+            filters: [
+              { dimension: "query", operator: "equals", expression: q.query.toLowerCase() },
+            ],
+          },
+        ],
+        rowLimit: 1,
+      },
+    });
+    const pos = res.data.rows?.[0]?.position;
+    if (typeof pos === "number") {
+      return { foundOnPage1: pos <= PAGE_1_MAX_POSITION, position: Math.round(pos) };
     }
   }
   return { foundOnPage1: false, position: null };

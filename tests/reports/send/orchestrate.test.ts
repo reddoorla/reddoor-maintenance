@@ -220,6 +220,18 @@ describe("sendApprovedReports", () => {
     expect(captured[0]!.idempotencyKey).toBe("report:rec_report_1");
   });
 
+  it("re-renders the stored page-1 rank into the sent email", async () => {
+    vi.mocked(openBase).mockReturnValue(
+      makeFakeBase({
+        Reports: [reportRow({ "Search found page 1": true, "Search position": 4 })],
+        Websites: [siteRow()],
+      }),
+    );
+    const { client, captured } = captureClient();
+    await sendApprovedReports({ resend: client });
+    expect(captured[0]!.html).toContain("Page 1 Google Result (#4)");
+  });
+
   it("logs site-not-found failure when a report's siteId has no matching Website", async () => {
     vi.mocked(openBase).mockReturnValue(
       makeFakeBase({
