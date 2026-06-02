@@ -12,6 +12,26 @@ import { defaultResendClient, type ResendClient } from "./resend.js";
 const FROM_ADDRESS = "Reddoor Reports <reports@reddoorla.com>";
 const REPLY_TO = "info@reddoorla.com";
 
+const MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+/** "May 2026" — UTC month/year, consistent with the rest of the reports pipeline's dates. */
+function monthYear(d: Date): string {
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
 export type OrchestrateOptions = {
   resend?: ResendClient;
 };
@@ -75,8 +95,8 @@ async function sendOne(
     reportType: report.reportType,
     completedOn: report.completedOn ? new Date(report.completedOn) : new Date(),
     lighthouse: report.lighthouse,
-    gaUsersCurrent: report.gaUsersCurrent ?? 0,
-    gaUsersPrevious: report.gaUsersPrevious ?? 0,
+    gaUsersCurrent: report.gaUsersCurrent ?? undefined,
+    gaUsersPrevious: report.gaUsersPrevious ?? undefined,
     lastTestedDate: report.lastTestedDate ? new Date(report.lastTestedDate) : null,
     commentary: report.commentary,
     headerImageCid: cidName,
@@ -85,7 +105,9 @@ async function sendOne(
     headerBgColor: header.placeholderColor,
   });
 
-  const subject = report.subjectOverride ?? `${site.name} ${report.reportType} Report`;
+  const reportDate = report.completedOn ? new Date(report.completedOn) : new Date();
+  const subject =
+    report.subjectOverride ?? `${site.name} — ${monthYear(reportDate)} ${report.reportType} Report`;
   const explicitTo = parseAddresses(site.reportRecipientsTo);
   // Run pointOfContact through the parser too — operators sometimes paste
   // "a@x, b@y" into that single-line field.

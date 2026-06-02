@@ -21,6 +21,50 @@ function fmtUsers(n: number): string {
   return n.toLocaleString("en-US");
 }
 
+/**
+ * Escape operator/site-controlled strings before interpolating into the MJML markup.
+ * MJML parses as XML with `validationLevel: "strict"`, so a raw `&`, `<`, `>`, or `"`
+ * in a site name (e.g. "Brown & Co"), URL, or commentary throws at render time and blocks
+ * the send. Apply to every interpolation of siteName / siteUrl / commentary.
+ */
+function escapeXml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+const TREND_UP = "#2E7D32"; // positive green — growth reads as good
+const TREND_NEUTRAL = "#757575"; // muted grey — dips/flat aren't failures (and brand red is reserved)
+
+function trendText(color: string, text: string): string {
+  return `<mj-text color="${color}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">${text}</mj-text>`;
+}
+
+/**
+ * The line under "{N} Users": a directional trend vs the previous period when both numbers
+ * are real, else a graceful fallback. `undefined` means GA was unavailable (distinct from a
+ * real 0). Up = green; down/flat = muted grey (a traffic dip isn't a failure).
+ */
+function analyticsTrendLine(cur: number | undefined, prev: number | undefined): string {
+  if (cur === undefined || prev === undefined) {
+    // GA unavailable for one/both — show the prior count if we have it, else an em dash.
+    return trendText(TREND_NEUTRAL, `Last Period: ${prev !== undefined ? fmtUsers(prev) : "—"}`);
+  }
+  if (prev === 0) {
+    return cur > 0
+      ? trendText(TREND_UP, "▲ New this period (0 last period)")
+      : trendText(TREND_NEUTRAL, "Last Period: 0");
+  }
+  const pct = Math.round(((cur - prev) / prev) * 100);
+  const range = `(${fmtUsers(prev)} → ${fmtUsers(cur)})`;
+  if (pct > 0) return trendText(TREND_UP, `▲ ${pct}% vs last period ${range}`);
+  if (pct < 0) return trendText(TREND_NEUTRAL, `▼ ${Math.abs(pct)}% vs last period ${range}`);
+  return trendText(TREND_NEUTRAL, `No change vs last period (${fmtUsers(prev)})`);
+}
+
 function maintenanceChecksSection(): string {
   const rows = [
     "Reviewed Logs",
@@ -102,7 +146,7 @@ function commentarySection(text: string): string {
     <mj-section background-color="white">
       <mj-column>
         <mj-text color="#C00" font-size="20px" font-weight="700" padding-top="55px">NOTES</mj-text>
-        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">${text.replace(/\n/g, "<br/>")}</mj-text>
+        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">${escapeXml(text).replace(/\n/g, "<br/>")}</mj-text>
       </mj-column>
     </mj-section>`;
 }
@@ -115,7 +159,8 @@ function hasHeaderDims(
 
 function headerImageTag(data: ReportData): string {
   const src = `cid:${data.headerImageCid}`;
-  const alt = `${data.siteName} maintenance report`;
+  const alt = `${escapeXml(data.siteName)} maintenance report`;
+  const href = escapeXml(data.siteUrl);
   // Reserve the box and show a matched placeholder while the image loads / if blocked.
   // Critically, we do NOT set an mj-image `height` — MJML would emit `height:<px>` while
   // keeping `width:100%`, locking the height while the width scales and distorting the
@@ -124,9 +169,9 @@ function headerImageTag(data: ReportData): string {
   // in the head <mj-style> below (see headerStyleBlock). `container-background-color` is
   // the placeholder; the bare fallback (no dims, e.g. local preview) keeps today's behavior.
   if (hasHeaderDims(data)) {
-    return `<mj-image href="${data.siteUrl}" src="${src}" alt="${alt}" width="${data.headerWidth}px" css-class="rd-header" container-background-color="${data.headerBgColor}" />`;
+    return `<mj-image href="${href}" src="${src}" alt="${alt}" width="${data.headerWidth}px" css-class="rd-header" container-background-color="${data.headerBgColor}" />`;
   }
-  return `<mj-image href="${data.siteUrl}" src="${src}" alt="${alt}" />`;
+  return `<mj-image href="${href}" src="${src}" alt="${alt}" />`;
 }
 
 function headerStyleBlock(data: ReportData): string {
@@ -139,7 +184,7 @@ function headerStyleBlock(data: ReportData): string {
 
 export function buildMjml(data: ReportData): string {
   const isTesting = data.reportType === "Testing";
-  const previewText = `Checked up on ${data.siteName}`;
+  const previewText = `Checked up on ${escapeXml(data.siteName)}`;
 
   return `<mjml>
   <mj-head>
@@ -190,8 +235,8 @@ export function buildMjml(data: ReportData): string {
     <mj-section background-color="white">
       <mj-column>
         <mj-text color="#C00" font-size="20px" font-weight="700" padding-top="75px">ANALYTICS</mj-text>
-        <mj-text color="#C00" font-size="44px" font-weight="400">${fmtUsers(data.gaUsersCurrent)} Users</mj-text>
-        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">Last Period: ${fmtUsers(data.gaUsersPrevious)}</mj-text>
+        <mj-text color="#C00" font-size="44px" font-weight="400">${data.gaUsersCurrent !== undefined ? fmtUsers(data.gaUsersCurrent) : "—"} Users</mj-text>
+        ${analyticsTrendLine(data.gaUsersCurrent, data.gaUsersPrevious)}
         <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" padding-top="24px" padding-bottom="36px" line-height="20px">Contact us if you are interested in more in-depth data or have questions about SEO.</mj-text>
       </mj-column>
     </mj-section>
