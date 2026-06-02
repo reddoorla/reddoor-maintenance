@@ -38,6 +38,7 @@ function siteFixture(over: Partial<WebsiteRow> = {}): WebsiteRow {
     maintenanceDay: "2026-04-26",
     testingDay: null,
     ga4PropertyId: null,
+    searchQuery: null,
     reportRecipientsTo: null,
     reportRecipientsCc: null,
     headerImage: null,
