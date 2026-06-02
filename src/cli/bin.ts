@@ -94,6 +94,7 @@ cli
     "--write-airtable [slug]",
     "After lighthouse runs, write pScore/rScore/bpScore/seoScore + timestamp to the matching Websites row. Slug defaults to cwd's package.json#name.",
   )
+  .option("--fail-on-violations", "Exit non-zero if any a11y violations are found (for CI gates)")
   .action(
     async (
       site,
@@ -105,6 +106,7 @@ cli
         cwd?: string;
         verbose?: boolean;
         writeAirtable?: string | boolean;
+        failOnViolations?: boolean;
       },
     ) => runOrExit(() => runAuditCommand(site, opts), opts),
   );
