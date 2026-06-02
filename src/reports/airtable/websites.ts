@@ -26,6 +26,9 @@ export type WebsiteRow = {
   maintenanceDay: string | null;
   testingDay: string | null;
   ga4PropertyId: string | null;
+  /** Operator-supplied query for the Google search-presence check (e.g. the business name).
+   *  Null = no query set → the check is skipped for this site. */
+  searchQuery: string | null;
   reportRecipientsTo: string | null;
   reportRecipientsCc: string | null;
   /** First attachment in the Header image field (Airtable's signed URL — fetch before expiry). */
@@ -77,6 +80,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     maintenanceDay: (f["maintenance day"] as string | undefined) ?? null,
     testingDay: (f["testing day"] as string | undefined) ?? null,
     ga4PropertyId: (f["GA4 property ID"] as string | undefined) ?? null,
+    searchQuery: (f["Search query"] as string | undefined) ?? null,
     reportRecipientsTo: (f["Report recipients (To)"] as string | undefined) ?? null,
     reportRecipientsCc: (f["Report recipients (CC)"] as string | undefined) ?? null,
     headerImage: header,

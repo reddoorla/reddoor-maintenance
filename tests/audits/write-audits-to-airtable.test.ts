@@ -30,6 +30,7 @@ function row(over: Partial<WebsiteRow> = {}): WebsiteRow {
     maintenanceDay: null,
     testingDay: null,
     ga4PropertyId: null,
+    searchQuery: null,
     reportRecipientsTo: null,
     reportRecipientsCc: null,
     headerImage: null,
