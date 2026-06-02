@@ -8,6 +8,12 @@ import { makeFakeBase } from "./_helpers/fake-airtable-base.js";
 vi.mock("../../src/reports/ga/client.js", () => ({ fetchPeriodUsers: vi.fn() }));
 import { fetchPeriodUsers } from "../../src/reports/ga/client.js";
 
+// The Search Console client also talks to Google over the network; mock it. Search
+// presence reuses the GA service-account credentials, so the search branch runs whenever
+// readGaConfig() is configured (GA_SUBJECT set) and the site has a searchQuery.
+vi.mock("../../src/reports/search/client.js", () => ({ fetchSearchPresence: vi.fn() }));
+import { fetchSearchPresence } from "../../src/reports/search/client.js";
+
 // uploadAttachment in src/reports/airtable/attachments.ts uses fetch directly
 // to talk to content.airtable.com. Stub global fetch in beforeEach so we don't
 // hit the network.
@@ -24,6 +30,7 @@ beforeEach(() => {
   delete process.env.GA_SUBJECT;
   delete process.env.GA_SA_KEY_PATH;
   vi.mocked(fetchPeriodUsers).mockReset();
+  vi.mocked(fetchSearchPresence).mockReset();
 });
 
 function siteFixture(over: Partial<WebsiteRow> = {}): WebsiteRow {
@@ -216,6 +223,26 @@ describe("draftReportForSite", () => {
       const base = makeFakeBase({ Reports: [] });
       await draftReportForSite(base, siteFixture({ ga4PropertyId: "471880366" }), "Maintenance");
       expect(fetchPeriodUsers).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("search presence", () => {
+    it("renders the rank and writes the search fields when found on page 1", async () => {
+      // Search reuses the GA service-account creds, so the branch runs only when configured.
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({ foundOnPage1: true, position: 3 });
+      const base = makeFakeBase({ Reports: [] });
+
+      const result = await draftReportForSite(
+        base,
+        siteFixture({ searchQuery: "erp funds", searchConsoleProperty: null }),
+        "Maintenance",
+      );
+
+      expect(result.html).toContain("Page 1 Google Result (#3)");
+      const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
+      expect(fields["Search found page 1"]).toBe(true);
+      expect(fields["Search position"]).toBe(3);
     });
   });
 });
