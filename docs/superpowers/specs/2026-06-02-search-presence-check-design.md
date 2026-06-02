@@ -72,22 +72,31 @@ credentials), matching how `fetchGaUsers` already works.
 ### `src/reports/search/client.ts` (rewrite)
 
 ```text
-fetchSearchPresence({ keyPath, subject, property, query }, periodStart, periodEnd)
+fetchSearchPresence({ keyPath, subject, property?, host, query }, periodStart, periodEnd)
   → Promise<{ foundOnPage1: boolean, position: number | null }>
 ```
 
-- Builds a `JWT` (scope `webmasters.readonly`, `subject`), POSTs the searchAnalytics query for
-  `query` over `periodStart..periodEnd`, returns the rounded average position (or `{false,
-  null}` when no row). The explicit period (start/end `Date`s) matches the report window and is
-  passed in by the caller, exactly like `fetchPeriodUsers`.
+- Builds a `JWT` (scope `webmasters.readonly`, `subject`) once, reused for resolution and query.
+- **Resolves the property:** uses `property` verbatim when given; otherwise calls `sites.list`
+  and matches `host` against the visible properties (Domain or URL-prefix), preferring the
+  `sc-domain:` form on a tie. Returns `{false, null}` if nothing matches.
+- POSTs the searchAnalytics query for `query` over `periodStart..periodEnd`, returns the rounded
+  average position (or `{false, null}` when no row). The explicit period matches the report
+  window and is passed in by the caller, exactly like `fetchPeriodUsers`.
+- A small exported `resolveProperty(entries, host)` helper keeps the host-matching logic unit-
+  testable without a live `sites.list` call.
 
 ### Per-site property — `WebsiteRow` + Airtable
 
 - Keep the existing **"Search query"** column → `searchQuery` (the query string to filter on).
 - Add an **optional** column **"Search Console property"** → `searchConsoleProperty: string | null`.
-  Used verbatim when set (handles `sc-domain:erpfunds.com` or `https://www.erpfunds.com/`);
-  when blank, default to `sc-domain:<bareHost>` derived from the site URL. erpfunds.com is
-  verified as both forms, so the `sc-domain:` default works.
+  Used **verbatim** when set — supports either a Domain property (`sc-domain:erpfunds.com`) or a
+  URL-prefix property (`https://www.erpfunds.com/`).
+- **When blank, auto-resolve** rather than assuming a form: call `sites.list`, normalize each
+  visible property's host (strip `sc-domain:` / scheme / `www.` / trailing slash) and match it
+  against the site's host. This accepts **both** property types — a site verified only as a
+  URL-prefix resolves correctly. If multiple match (e.g. erpfunds.com is verified as both),
+  prefer the `sc-domain:` form (broadest coverage). No match → skip the check (one-line warn).
 
 ### `src/reports/draft.ts` — soft-fetch (near-copy of `fetchGaUsers`)
 
@@ -132,7 +141,8 @@ template: enrich "Google Indexed" row      Airtable: "Search found page 1" + "Se
 
 - `fetchSearchPresence` (mocked `JWT.request`): parses average position → rounded rank + page-1
   boolean; no-row → `{false, null}`; throws on non-OK.
-- Property resolution: explicit column used verbatim; blank → `sc-domain:<host>` default.
+- `resolveProperty`: explicit column used verbatim; blank → matches a Domain property; blank →
+  matches a URL-prefix property; both present → prefers `sc-domain:`; no match → `null`.
 - `draft.ts` `fetchSearch`: null when unconfigured / no query / API throws; value otherwise.
 - `createDraft` / `mapRow` round-trip the two Reports fields (checkbox written true _and_ false).
 - `render` / template: enriched row when `searchPosition` set; plain row when absent.
