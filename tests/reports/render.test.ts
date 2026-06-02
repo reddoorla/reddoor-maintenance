@@ -225,4 +225,16 @@ describe("renderReportHtml", () => {
     const { html } = await renderReportHtml(baseData({ siteName: "Med Solutions of Texas" }));
     expect(html).toContain("Checked up on Med Solutions of Texas");
   });
+
+  it("enriches the Google Indexed row with the rank when on page 1", async () => {
+    const { html } = await renderReportHtml(baseData({ searchPosition: 2 }));
+    expect(html).toContain("Page 1 Google Result (#2)");
+    expect(html).not.toContain("Google Indexed");
+  });
+
+  it("renders the plain Google Indexed row when no search position", async () => {
+    const { html } = await renderReportHtml(baseData({ searchPosition: undefined }));
+    expect(html).toContain("Google Indexed");
+    expect(html).not.toContain("Page 1 Google Result");
+  });
 });

@@ -65,12 +65,14 @@ function analyticsTrendLine(cur: number | undefined, prev: number | undefined): 
   return trendText(TREND_NEUTRAL, `No change vs last period (${fmtUsers(prev)})`);
 }
 
-function maintenanceChecksSection(): string {
+function maintenanceChecksSection(searchPosition?: number): string {
+  const googleLabel =
+    searchPosition !== undefined ? `Page 1 Google Result (#${searchPosition})` : "Google Indexed";
   const rows = [
     "Reviewed Logs",
     "CMS Checked",
     "DNS Checked",
-    "Google Indexed",
+    googleLabel,
     "Reviewed Certificate",
     "Security Updates",
   ];
@@ -210,7 +212,7 @@ export function buildMjml(data: ReportData): string {
         <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">Includes checking the hosting, DNS, Content Management System (CMS, if applicable), search indexing and security of the site for major flaws and updating as necessary.</mj-text>
       </mj-column>
     </mj-section>
-    ${maintenanceChecksSection()}
+    ${maintenanceChecksSection(data.searchPosition)}
     <mj-section background-color="#F4F4F4">
       <mj-column>
         <mj-text color="#C00" font-size="20px" font-weight="700" padding-top="55px">LIGHTHOUSE SCORES*</mj-text>
