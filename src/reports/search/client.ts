@@ -97,7 +97,9 @@ export async function fetchSearchPresence(
       endDate: ymd(periodEnd),
       dimensions: ["query"],
       dimensionFilterGroups: [
-        { filters: [{ dimension: "query", operator: "equals", expression: q.query.toLowerCase() }] },
+        {
+          filters: [{ dimension: "query", operator: "equals", expression: q.query.toLowerCase() }],
+        },
       ],
       rowLimit: 1,
     },

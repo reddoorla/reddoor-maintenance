@@ -152,11 +152,21 @@ describe("fetchSearchPresence", () => {
   it("builds the JWT with the webmasters.readonly scope + impersonation subject", async () => {
     request.mockResolvedValueOnce(ok({ rows: [{ position: 1 }] }));
     await fetchSearchPresence(
-      { keyPath, subject: "imp@reddoorla.com", property: "sc-domain:x.com", host: "x.com", query: "q" },
+      {
+        keyPath,
+        subject: "imp@reddoorla.com",
+        property: "sc-domain:x.com",
+        host: "x.com",
+        query: "q",
+      },
       start,
       end,
     );
-    const opts = vi.mocked(JWT).mock.calls[0]![0] as { subject: string; scopes: string[]; email: string };
+    const opts = vi.mocked(JWT).mock.calls[0]![0] as {
+      subject: string;
+      scopes: string[];
+      email: string;
+    };
     expect(opts.subject).toBe("imp@reddoorla.com");
     expect(opts.scopes).toContain("https://www.googleapis.com/auth/webmasters.readonly");
     expect(opts.email).toBe("sa@proj.iam.gserviceaccount.com");
