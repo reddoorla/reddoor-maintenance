@@ -8,6 +8,8 @@ import type { ReportRow } from "./airtable/reports.js";
 import { createDraft, setDraftReady, listReportsForSite } from "./airtable/reports.js";
 import { uploadAttachment } from "./airtable/attachments.js";
 import type { AirtableBase } from "./airtable/client.js";
+import { readGaConfig } from "./ga/config.js";
+import { fetchPeriodUsers } from "./ga/client.js";
 
 export type DraftOptions = {
   /** Where to write the local preview HTML when `previewOnly`. Defaults to `reports/<slug>/draft.html`. */
@@ -65,6 +67,11 @@ export async function draftReportForSite(
   const lastTestedDate =
     reportType === "Maintenance" && siteRow.testingDay ? new Date(siteRow.testingDay) : null;
 
+  // GA enrichment (real path only). Soft-fail: any GA problem leaves the numbers null so
+  // the draft still proceeds (operator fills them manually) — GA is an enhancement, not a
+  // gate. Rendered with the fetched numbers so the review HTML matches the Airtable fields.
+  const gaUsers = base !== null ? await fetchGaUsers(siteRow, periodStart, periodEnd) : null;
+
   const cidName = `${slug}-header`;
   const { html } = await renderReportHtml({
     siteName: siteRow.name,
@@ -72,8 +79,8 @@ export async function draftReportForSite(
     reportType,
     completedOn,
     lighthouse: scores,
-    gaUsersCurrent: 0,
-    gaUsersPrevious: 0,
+    gaUsersCurrent: gaUsers?.current ?? 0,
+    gaUsersPrevious: gaUsers?.previous ?? 0,
     lastTestedDate,
     commentary: null,
     headerImageCid: cidName,
@@ -98,6 +105,7 @@ export async function draftReportForSite(
     completedOn,
     lighthouse: scores,
     lastTestedDate,
+    ...(gaUsers ? { gaUsersCurrent: gaUsers.current, gaUsersPrevious: gaUsers.previous } : {}),
   });
 
   const htmlFilename = `${slug}-${periodEnd.toISOString().slice(0, 10)}.html`;
@@ -105,6 +113,31 @@ export async function draftReportForSite(
   await setDraftReady(base, created.id, true);
 
   return { reportRow: created, htmlPath: null, html };
+}
+
+/**
+ * Fetch GA "Users" for the period, soft-failing to null. Returns null (no enrichment) when
+ * GA isn't configured (`GA_SUBJECT` unset), the site has no GA4 property ID, or the GA API
+ * errors — logging a one-line warning in the error case. Never throws, so a GA problem can
+ * never block a draft; the operator can always enter the numbers by hand.
+ */
+async function fetchGaUsers(
+  siteRow: WebsiteRow,
+  periodStart: Date,
+  periodEnd: Date,
+): Promise<{ current: number; previous: number } | null> {
+  const cfg = readGaConfig();
+  if (!cfg || !siteRow.ga4PropertyId) return null;
+  try {
+    return await fetchPeriodUsers(
+      { propertyId: siteRow.ga4PropertyId, subject: cfg.subject, keyPath: cfg.keyPath },
+      periodStart,
+      periodEnd,
+    );
+  } catch (e) {
+    console.warn(`⚠ GA skipped for ${siteRow.name}: ${(e as Error).message}`);
+    return null;
+  }
 }
 
 async function derivePeriodStart(

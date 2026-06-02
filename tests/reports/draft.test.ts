@@ -3,6 +3,11 @@ import { draftReportForSite } from "../../src/reports/draft.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import { makeFakeBase } from "./_helpers/fake-airtable-base.js";
 
+// The GA client talks to Google over the network; mock it. readGaConfig is NOT mocked —
+// it reads process.env, which the tests control (GA_SUBJECT set/unset).
+vi.mock("../../src/reports/ga/client.js", () => ({ fetchPeriodUsers: vi.fn() }));
+import { fetchPeriodUsers } from "../../src/reports/ga/client.js";
+
 // uploadAttachment in src/reports/airtable/attachments.ts uses fetch directly
 // to talk to content.airtable.com. Stub global fetch in beforeEach so we don't
 // hit the network.
@@ -15,6 +20,10 @@ beforeEach(() => {
   }) as unknown as typeof global.fetch;
   process.env.AIRTABLE_PAT = "pat_test";
   process.env.AIRTABLE_BASE_ID = "app_test";
+  // Default GA OFF so the bulk of tests exercise the pre-GA behavior.
+  delete process.env.GA_SUBJECT;
+  delete process.env.GA_SA_KEY_PATH;
+  vi.mocked(fetchPeriodUsers).mockReset();
 });
 
 function siteFixture(over: Partial<WebsiteRow> = {}): WebsiteRow {
@@ -156,5 +165,55 @@ describe("draftReportForSite", () => {
     const diffMs = new Date(periodEnd).getTime() - new Date(periodStart).getTime();
     const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
     expect(diffDays).toBe(30);
+  });
+
+  describe("GA enrichment", () => {
+    it("writes GA users into the row when configured and the site has a property ID", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchPeriodUsers).mockResolvedValue({ current: 666, previous: 540 });
+      const base = makeFakeBase({ Reports: [] });
+
+      await draftReportForSite(base, siteFixture({ ga4PropertyId: "471880366" }), "Maintenance");
+
+      const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
+      expect(fields["GA users (period)"]).toBe(666);
+      expect(fields["GA users (prev period)"]).toBe(540);
+      // Queried the site's property.
+      expect(vi.mocked(fetchPeriodUsers).mock.calls[0]![0].propertyId).toBe("471880366");
+    });
+
+    it("soft-fails: a GA error leaves the fields unwritten but still creates the draft", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchPeriodUsers).mockRejectedValue(new Error("7 PERMISSION_DENIED"));
+      const base = makeFakeBase({ Reports: [] });
+
+      const result = await draftReportForSite(
+        base,
+        siteFixture({ ga4PropertyId: "471880366" }),
+        "Maintenance",
+      );
+
+      expect(result.reportRow).not.toBeNull(); // draft still created
+      const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
+      expect(fields["GA users (period)"]).toBeUndefined();
+      expect(fields["GA users (prev period)"]).toBeUndefined();
+    });
+
+    it("skips GA (never calls the API) when the site has no property ID", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      const base = makeFakeBase({ Reports: [] });
+
+      await draftReportForSite(base, siteFixture({ ga4PropertyId: null }), "Maintenance");
+
+      expect(fetchPeriodUsers).not.toHaveBeenCalled();
+      const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
+      expect(fields["GA users (period)"]).toBeUndefined();
+    });
+
+    it("skips GA when GA_SUBJECT is unset even if the site has a property ID", async () => {
+      const base = makeFakeBase({ Reports: [] });
+      await draftReportForSite(base, siteFixture({ ga4PropertyId: "471880366" }), "Maintenance");
+      expect(fetchPeriodUsers).not.toHaveBeenCalled();
+    });
   });
 });
