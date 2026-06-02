@@ -112,6 +112,61 @@ describe("renderReportHtml", () => {
     expect(html).not.toContain("container-background-color");
   });
 
+  it("escapes special chars in siteName / siteUrl / commentary (no MJML break)", async () => {
+    const { html, warnings } = await renderReportHtml(
+      baseData({
+        siteName: "Brown & Co <Web>",
+        siteUrl: 'https://x.com/?a=1&b="2"',
+        commentary: 'Patched <header> & "footer"',
+        headerWidth: 600,
+        headerHeight: 800,
+        headerBgColor: "#cccccc",
+      }),
+    );
+    // Strict MJML render must not choke on the special characters.
+    expect(warnings).toEqual([]);
+    // siteName ampersand is escaped wherever it interpolates (alt, preview text).
+    expect(html).toContain("Brown &amp; Co");
+    expect(html).not.toContain("Brown & Co <Web>");
+    // siteUrl ampersand/quote escaped in the header href attribute.
+    expect(html).toContain("a=1&amp;b=");
+    // commentary is escaped before the newline→<br/> substitution.
+    expect(html).toContain("Patched &lt;header&gt; &amp;");
+  });
+
+  describe("analytics trend", () => {
+    it("shows ▲ percent + range when users grew", async () => {
+      const { html } = await renderReportHtml(
+        baseData({ gaUsersCurrent: 679, gaUsersPrevious: 549 }),
+      );
+      expect(html).toContain("▲ 24% vs last period (549 → 679)");
+      expect(html).toContain("#2E7D32"); // positive green
+    });
+
+    it("shows ▼ percent in muted grey when users dropped", async () => {
+      const { html } = await renderReportHtml(
+        baseData({ gaUsersCurrent: 400, gaUsersPrevious: 500 }),
+      );
+      expect(html).toContain("▼ 20% vs last period (500 → 400)");
+    });
+
+    it("shows 'New this period' when the previous period was a real 0", async () => {
+      const { html } = await renderReportHtml(
+        baseData({ gaUsersCurrent: 120, gaUsersPrevious: 0 }),
+      );
+      expect(html).toContain("New this period");
+    });
+
+    it("renders an em dash and no trend when GA is unavailable (undefined)", async () => {
+      const { html } = await renderReportHtml(
+        baseData({ gaUsersCurrent: undefined, gaUsersPrevious: undefined }),
+      );
+      expect(html).toContain("— Users");
+      expect(html).toContain("Last Period: —");
+      expect(html).not.toContain("vs last period");
+    });
+  });
+
   it("renders the testing checklist when reportType is Testing", async () => {
     const { html } = await renderReportHtml(baseData({ reportType: "Testing" }));
     expect(html).toContain("Desktop Browsers");
@@ -162,7 +217,8 @@ describe("renderReportHtml", () => {
       baseData({ gaUsersCurrent: 12345, gaUsersPrevious: 6789 }),
     );
     expect(html).toContain("12,345 Users");
-    expect(html).toContain("Last Period: 6,789");
+    // Both counts carry thousands separators — now shown in the trend range line.
+    expect(html).toContain("(6,789 → 12,345)");
   });
 
   it("uses the site name in the preview text", async () => {

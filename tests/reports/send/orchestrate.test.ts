@@ -183,13 +183,14 @@ describe("sendApprovedReports", () => {
     expect(captured[0]!.subject).toBe("Custom Subject");
   });
 
-  it("defaults Subject to `{Site name} {Report type} Report`", async () => {
+  it("defaults Subject to `{Site name} — {Month YYYY} {Report type} Report`", async () => {
     vi.mocked(openBase).mockReturnValue(
       makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] }),
     );
     const { client, captured } = captureClient();
     await sendApprovedReports({ resend: client });
-    expect(captured[0]!.subject).toBe("Acme Co Maintenance Report");
+    // reportRow fixture: Completed on = 2026-05-26 → "May 2026".
+    expect(captured[0]!.subject).toBe("Acme Co — May 2026 Maintenance Report");
   });
 
   it("attaches the per-site header with the expected CID + bundled images (B1 contract)", async () => {

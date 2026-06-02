@@ -23,8 +23,11 @@ export type ReportData = {
   reportType: ReportType;
   completedOn: Date;
   lighthouse: LighthouseScores;
-  gaUsersCurrent: number;
-  gaUsersPrevious: number;
+  /** GA "Users" for the period / previous period. `undefined` = GA unavailable (not
+   *  configured, no property ID, or fetch failed) — rendered as "—", distinct from a real 0.
+   *  `| undefined` is explicit so callers can pass `undefined` under exactOptionalPropertyTypes. */
+  gaUsersCurrent?: number | undefined;
+  gaUsersPrevious?: number | undefined;
   /** Only used when reportType === "Maintenance"; the date shown next to the blurred-testing image. */
   lastTestedDate: Date | null;
   /** Optional free-text rendered as a section above the footer. */
