@@ -1,0 +1,8 @@
+[build]
+    command = "pnpm build"
+    publish = "build/"
+    functions = "functions/"
+
+[build.environment]
+    NODE_VERSION = "22"
+    COREPACK_INTEGRITY_KEYS = "0"

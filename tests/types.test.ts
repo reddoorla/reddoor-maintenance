@@ -83,6 +83,7 @@ describe("types", () => {
     const _ok8: ConfigName = "renovate-action";
     const _ok9: ConfigName = "renovate-config";
     const _ok10: ConfigName = "prettier-ignore";
+    const _ok11: ConfigName = "netlify";
   });
 
   it("ALL_CONFIG_NAMES matches the ConfigName union exactly (no registration drift)", () => {
@@ -100,6 +101,7 @@ describe("types", () => {
       "ci",
       "renovate-action",
       "renovate-config",
+      "netlify",
     ];
     expect([...ALL_CONFIG_NAMES].sort()).toEqual([...all].sort());
     for (const name of all) {

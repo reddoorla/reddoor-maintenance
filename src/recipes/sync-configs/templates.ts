@@ -147,6 +147,20 @@ const renovateConfig: ConfigTemplate = {
 `,
 };
 
+const netlify: ConfigTemplate = {
+  config: "netlify",
+  path: "netlify.toml",
+  contents: `[build]
+    command = "pnpm build"
+    publish = "build/"
+    functions = "functions/"
+
+[build.environment]
+    NODE_VERSION = "22"
+    COREPACK_INTEGRITY_KEYS = "0"
+`,
+};
+
 export const ALL_TEMPLATES: ConfigTemplate[] = [
   eslint,
   prettier,
@@ -157,6 +171,7 @@ export const ALL_TEMPLATES: ConfigTemplate[] = [
   ci,
   renovateAction,
   renovateConfig,
+  netlify,
 ];
 
 export function templatesByName(which: ConfigName[]): ConfigTemplate[] {
