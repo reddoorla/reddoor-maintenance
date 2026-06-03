@@ -17,6 +17,7 @@ export type RecipeName =
   | "convert-to-pnpm"
   | "onboard"
   | "a11y-fixtures-page"
+  | "self-updating"
   | "init";
 
 export type ConfigName =

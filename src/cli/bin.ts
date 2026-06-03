@@ -43,6 +43,8 @@ const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {
   onboard: "Install @reddoorla/maintenance + audit deps on a site (preferred first step).",
   "a11y-fixtures-page":
     "Write src/routes/dev/a11y-fixtures/+page.svelte (stub for lhci + axe targets).",
+  "self-updating":
+    "Bootstrap CI + Renovate + auto-merge per repo (writes workflows, opens PR, sets RENOVATE_TOKEN).",
   init: "Run the full onboarding chain (convert-to-pnpm → onboard → sync-configs → svelte-codemods → a11y-fixtures-page → audit).",
 };
 
