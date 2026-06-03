@@ -30,7 +30,8 @@ export type ConfigName =
   | "gitignore"
   | "ci"
   | "renovate-action"
-  | "renovate-config";
+  | "renovate-config"
+  | "netlify";
 
 export type AuditResult = {
   audit: AuditName;

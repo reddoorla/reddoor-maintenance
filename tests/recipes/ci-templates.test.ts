@@ -15,6 +15,15 @@ describe("CI/Renovate canonical templates", () => {
     expect(contents).toContain("pnpm-lock.yaml");
     expect(contents).toContain(".svelte-kit/");
   });
+  it("ships a netlify.toml pinning Node 22 (not 22.12, which breaks eslint 10)", () => {
+    const byPath = Object.fromEntries(ALL_TEMPLATES.map((t) => [t.config, t.path]));
+    expect(byPath["netlify"]).toBe("netlify.toml");
+    const contents = templatesByName(["netlify"])[0]!.contents;
+    expect(contents).toContain('NODE_VERSION = "22"');
+    expect(contents).not.toContain("22.12");
+    expect(contents).toContain("COREPACK_INTEGRITY_KEYS");
+    expect(contents).toContain('command = "pnpm build"');
+  });
   it("ci.yml runs the four-layer gate including a11y with --fail-on-violations", () => {
     const ci = templatesByName(["ci"])[0]!.contents;
     expect(ci).toContain("prettier --check");
