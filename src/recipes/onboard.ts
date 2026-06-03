@@ -26,6 +26,28 @@ const AUDIT_DEP_NAMES: Record<OnboardAudit, string[]> = {
   a11y: ["@playwright/test", "@axe-core/playwright"],
 };
 
+/** Framework deps onboard ensures for every site, independent of which audits
+ * are requested. The sync-configs svelte.config.js template does
+ * `import adapter from "@sveltejs/adapter-netlify"`, so a site that lacks the
+ * adapter declared can't build once configs are synced — onboard closes that
+ * gap at the same time it adds the maintenance package. */
+const FRAMEWORK_DEP_NAMES = ["@sveltejs/adapter-netlify"];
+
+/** Resolve framework dep versions from baselineVersions at module load so they
+ * can't drift from the single source of truth — mirrors AUDIT_DEPS. Throws at
+ * import time if a name is missing there (a programming error). */
+export const FRAMEWORK_DEPS: Array<{ name: string; version: string }> = FRAMEWORK_DEP_NAMES.map(
+  (name) => {
+    const version = baselineVersions[name];
+    if (!version) {
+      throw new Error(
+        `baseline-versions is missing framework dep "${name}" — add it to src/configs/baseline-versions.ts`,
+      );
+    }
+    return { name, version };
+  },
+);
+
 /** Look up each audit dep's version in baselineVersions at module load so
  * AUDIT_DEPS can't drift from the single source of truth across releases.
  * Throws at import time if baseline-versions is missing an audit dep —
@@ -95,6 +117,9 @@ export async function onboard(site: Site, opts: OnboardOptions = {}): Promise<Re
       if (!isDeclared(pkg, PACKAGE_NAME)) {
         toAdd.push({ name: PACKAGE_NAME, version: packageVersion });
       }
+      for (const dep of FRAMEWORK_DEPS) {
+        if (!isDeclared(pkg, dep.name)) toAdd.push(dep);
+      }
       for (const audit of audits) {
         for (const dep of AUDIT_DEPS[audit]) {
           if (!isDeclared(pkg, dep.name)) toAdd.push(dep);
@@ -104,7 +129,7 @@ export async function onboard(site: Site, opts: OnboardOptions = {}): Promise<Re
       if (toAdd.length === 0) {
         return {
           kind: "noop",
-          notes: `site already has ${PACKAGE_NAME} and audit deps (${audits.join("+")})`,
+          notes: `site already has ${PACKAGE_NAME}, framework deps, and audit deps (${audits.join("+")})`,
         };
       }
       return { kind: "apply", plan: { pkg, toAdd } };
