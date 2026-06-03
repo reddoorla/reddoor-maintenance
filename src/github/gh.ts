@@ -79,6 +79,10 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
       const out = await gh(["api", `repos/${repo}`, "--jq", ".default_branch"]);
       return out.trim();
     },
+    // filesOnBranch and branchProtectionContexts call `spawn` directly (not the
+    // throwing `gh()` helper) because a 404 is an expected, meaningful answer —
+    // "file/protection absent" — not an error. The remaining readers use `gh()`
+    // since a non-200 there is a genuine failure (e.g. missing token scope).
     async filesOnBranch(repo, branch, paths) {
       const present: string[] = [];
       for (const p of paths) {

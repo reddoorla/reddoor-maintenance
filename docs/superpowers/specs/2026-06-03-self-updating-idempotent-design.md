@@ -1,7 +1,9 @@
 # self-updating: idempotent "ensure end-state" recipe — Design
 
 **Date:** 2026-06-03
-**Status:** approved, pre-implementation
+**Status:** implemented (PR on `feat/self-updating-idempotent`)
+
+> Implementation note: the file-presence reader shipped as `filesOnBranch(repo, branch, paths)` — taking the branch explicitly rather than the spec's original `filesOnDefaultBranch(repo, paths)`, since `base` is already resolved. Same behavior, more general signature.
 
 ## Problem
 
