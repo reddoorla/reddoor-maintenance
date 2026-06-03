@@ -65,11 +65,11 @@ const svelte: ConfigTemplate = {
   config: "svelte",
   path: "svelte.config.js",
   contents: `import { createSvelteConfig } from "@reddoorla/maintenance/configs/svelte";
-import adapter from "@sveltejs/adapter-auto";
+import adapter from "@sveltejs/adapter-netlify";
 
 /** @type {import('@sveltejs/kit').Config} */
 export default createSvelteConfig({
-  kit: { adapter: adapter() },
+  kit: { adapter: adapter({ edge: false, split: false }) },
 });
 `,
 };
