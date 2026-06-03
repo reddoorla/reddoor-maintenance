@@ -82,6 +82,7 @@ describe("types", () => {
     const _ok7: ConfigName = "ci";
     const _ok8: ConfigName = "renovate-action";
     const _ok9: ConfigName = "renovate-config";
+    const _ok10: ConfigName = "prettier-ignore";
   });
 
   it("ALL_CONFIG_NAMES matches the ConfigName union exactly (no registration drift)", () => {
@@ -92,6 +93,7 @@ describe("types", () => {
       "lighthouse",
       "eslint",
       "prettier",
+      "prettier-ignore",
       "playwright-a11y",
       "svelte",
       "gitignore",
