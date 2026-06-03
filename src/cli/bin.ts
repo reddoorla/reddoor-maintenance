@@ -7,6 +7,7 @@ import { loadCredentialsIntoEnv } from "../util/credentials.js";
 import { runAuditCommand } from "./commands/audit.js";
 import { runSyncConfigsCommand } from "./commands/sync-configs.js";
 import { runBumpDepsCommand } from "./commands/bump-deps.js";
+import { runSelfUpdatingCommand } from "./commands/self-updating.js";
 import { runUpgradeCommand } from "./commands/upgrade.js";
 import { runConvertToPnpmCommand } from "./commands/convert-to-pnpm.js";
 import { runOnboardCommand } from "./commands/onboard.js";
@@ -43,6 +44,8 @@ const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {
   onboard: "Install @reddoorla/maintenance + audit deps on a site (preferred first step).",
   "a11y-fixtures-page":
     "Write src/routes/dev/a11y-fixtures/+page.svelte (stub for lhci + axe targets).",
+  "self-updating":
+    "Bootstrap CI + Renovate + auto-merge per repo (writes workflows, opens PR, sets RENOVATE_TOKEN).",
   init: "Run the full onboarding chain (convert-to-pnpm → onboard → sync-configs → svelte-codemods → a11y-fixtures-page → audit).",
 };
 
@@ -94,6 +97,7 @@ cli
     "--write-airtable [slug]",
     "After lighthouse runs, write pScore/rScore/bpScore/seoScore + timestamp to the matching Websites row. Slug defaults to cwd's package.json#name.",
   )
+  .option("--fail-on-violations", "Exit non-zero if any a11y violations are found (for CI gates)")
   .action(
     async (
       site,
@@ -105,6 +109,7 @@ cli
         cwd?: string;
         verbose?: boolean;
         writeAirtable?: string | boolean;
+        failOnViolations?: boolean;
       },
     ) => runOrExit(() => runAuditCommand(site, opts), opts),
   );
@@ -151,6 +156,27 @@ cli
         verbose?: boolean;
       },
     ) => runOrExit(() => runBumpDepsCommand(site, opts), opts),
+  );
+
+cli
+  .command(
+    "self-updating [site]",
+    "Bootstrap a repo to keep itself updated (CI + Renovate + auto-merge).",
+  )
+  .option("--dry", "List what would be enabled without writing or opening PRs")
+  .option("--fleet <inventory>", 'Inventory file (.json or .mjs/.js), or "airtable"')
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(
+    async (
+      site,
+      opts: {
+        dry?: boolean;
+        fleet?: string;
+        workdir?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) => runOrExit(() => runSelfUpdatingCommand(site, opts), opts),
   );
 
 cli

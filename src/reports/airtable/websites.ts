@@ -32,6 +32,9 @@ export type WebsiteRow = {
   /** Explicit Search Console property for this site (`sc-domain:...` or `https://.../`).
    *  Null = auto-resolve from the SA's visible properties by host. */
   searchConsoleProperty: string | null;
+  /** GitHub repo identity as `owner/repo`. Null = no git wiring → self-update ops skip
+   *  (or, for local runs, fall back to the checkout's origin remote). */
+  gitRepo: string | null;
   reportRecipientsTo: string | null;
   reportRecipientsCc: string | null;
   /** First attachment in the Header image field (Airtable's signed URL — fetch before expiry). */
@@ -85,6 +88,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     ga4PropertyId: (f["GA4 property ID"] as string | undefined) ?? null,
     searchQuery: (f["Search query"] as string | undefined) ?? null,
     searchConsoleProperty: (f["Search Console property"] as string | undefined) ?? null,
+    gitRepo: (f["Git repo"] as string | undefined) ?? null,
     reportRecipientsTo: (f["Report recipients (To)"] as string | undefined) ?? null,
     reportRecipientsCc: (f["Report recipients (CC)"] as string | undefined) ?? null,
     headerImage: header,

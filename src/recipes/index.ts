@@ -47,6 +47,7 @@ export const ALL_RECIPE_NAMES: RecipeName[] = [
   "convert-to-pnpm",
   "onboard",
   "a11y-fixtures-page",
+  "self-updating",
   "init",
 ];
 

@@ -2,6 +2,8 @@ export type Site = {
   path: string;
   name?: string;
   repoUrl?: string;
+  /** GitHub repo identity as `owner/repo`, when known (from Airtable). */
+  gitRepo?: string;
   meta?: Record<string, unknown>;
 };
 
@@ -15,6 +17,7 @@ export type RecipeName =
   | "convert-to-pnpm"
   | "onboard"
   | "a11y-fixtures-page"
+  | "self-updating"
   | "init";
 
 export type ConfigName =
@@ -23,7 +26,10 @@ export type ConfigName =
   | "prettier"
   | "playwright-a11y"
   | "svelte"
-  | "gitignore";
+  | "gitignore"
+  | "ci"
+  | "renovate-action"
+  | "renovate-config";
 
 export type AuditResult = {
   audit: AuditName;

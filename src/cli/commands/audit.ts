@@ -17,6 +17,8 @@ export type AuditCommandOptions = {
    * string = explicit slug (e.g. "med-solutions-of-texas").
    */
   writeAirtable?: string | boolean;
+  /** Exit non-zero if any a11y violations are found (overrides warn). For CI gates. */
+  failOnViolations?: boolean;
 };
 
 function parseOnly(value: string | undefined): AuditName[] | undefined {
@@ -36,8 +38,19 @@ function formatTable(results: AuditResult[]): string {
     .join("\n");
 }
 
-function exitCode(results: AuditResult[]): number {
-  return results.some((r) => r.status === "fail") ? 1 : 0;
+export function auditExitCode(results: AuditResult[], failOnViolations: boolean): number {
+  if (results.some((r) => r.status === "fail")) return 1;
+  if (failOnViolations) {
+    const a11yViolations = results
+      .filter((r) => r.audit === "a11y")
+      .reduce(
+        (n, r) =>
+          n + ((r.details as { totalViolations?: number } | undefined)?.totalViolations ?? 0),
+        0,
+      );
+    if (a11yViolations > 0) return 1;
+  }
+  return 0;
 }
 
 function formatDuration(ms: number): string {
@@ -226,5 +239,5 @@ export async function runAuditCommand(
     if (writeSummary) output += `\n\n${formatWriteSummary(writeSummary)}`;
   }
 
-  return { output, code: exitCode(results) };
+  return { output, code: auditExitCode(results, opts.failOnViolations === true) };
 }

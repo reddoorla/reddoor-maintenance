@@ -1,5 +1,5 @@
-import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { join, dirname } from "node:path";
 import type { RecipeResult, Site, ConfigName } from "../types.js";
 import { ALL_TEMPLATES, templatesByName, type ConfigTemplate } from "./sync-configs/templates.js";
 import {
@@ -27,6 +27,9 @@ export const ALL_CONFIG_NAMES: ConfigName[] = [
   "playwright-a11y",
   "svelte",
   "gitignore",
+  "ci",
+  "renovate-action",
+  "renovate-config",
 ];
 
 export function isConfigName(value: string): value is ConfigName {
@@ -100,7 +103,9 @@ export async function syncConfigs(
     },
     apply: async ({ templateDiffs, gitignorePlan }, { commit }) => {
       for (const t of templateDiffs) {
-        await writeFile(join(site.path, t.path), t.contents, "utf-8");
+        const dest = join(site.path, t.path);
+        await mkdir(dirname(dest), { recursive: true });
+        await writeFile(dest, t.contents, "utf-8");
         await commit(`chore: sync ${t.config} config from @reddoorla/maintenance`);
       }
       if (gitignorePlan.kind === "apply") {
