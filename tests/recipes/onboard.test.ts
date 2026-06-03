@@ -3,7 +3,12 @@ import { readFile, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname, join } from "node:path";
-import { onboard, AUDIT_DEPS, type OnboardAudit } from "../../src/recipes/onboard.js";
+import {
+  onboard,
+  AUDIT_DEPS,
+  FRAMEWORK_DEPS,
+  type OnboardAudit,
+} from "../../src/recipes/onboard.js";
 import { baselineVersions } from "../../src/configs/baseline-versions.js";
 import { copyFixtureToTmp } from "./_helpers/site-tmpdir.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
@@ -68,6 +73,41 @@ describe("recipes/onboard", () => {
       encoding: "utf-8",
     }).trim();
     expect(branch).toMatch(/^maint\/onboard-\d{8}T\d{9}Z$/);
+  });
+
+  it("ensures @sveltejs/adapter-netlify (the synced svelte.config imports it) even when missing", async () => {
+    // Regression: the sync-configs svelte.config.js template imports
+    // @sveltejs/adapter-netlify, so a site can't build without it declared.
+    // onboard must add it like any other framework dep — independent of audits.
+    const cwd = await copyFixtureToTmp(pristine);
+    await addPnpmLock(cwd);
+
+    const pkgPath = join(cwd, "package.json");
+    const pkg = JSON.parse(await readFile(pkgPath, "utf-8")) as {
+      devDependencies?: Record<string, string>;
+    };
+    delete pkg.devDependencies?.["@sveltejs/adapter-netlify"];
+    await writeFile(pkgPath, JSON.stringify(pkg, null, 2) + "\n", "utf-8");
+    execFileSync("git", ["add", "-A"], { cwd, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "strip adapter-netlify"], { cwd, stdio: "ignore" });
+
+    const result = await onboard({ path: cwd }, { spawn: fakePnpmInstall });
+    expect(result.status).toBe("applied");
+
+    const after = JSON.parse(await readFile(pkgPath, "utf-8")) as {
+      devDependencies?: Record<string, string>;
+    };
+    expect(after.devDependencies?.["@sveltejs/adapter-netlify"]).toBe(
+      baselineVersions["@sveltejs/adapter-netlify"],
+    );
+  });
+
+  it("FRAMEWORK_DEPS sources versions from baseline-versions (no hardcoded drift)", () => {
+    // Same drift guard as AUDIT_DEPS: framework dep versions must track
+    // src/configs/baseline-versions.ts, never be hardcoded literals.
+    for (const dep of FRAMEWORK_DEPS) {
+      expect(dep.version).toBe(baselineVersions[dep.name]);
+    }
   });
 
   it("returns noop when every needed dep is already present", async () => {
