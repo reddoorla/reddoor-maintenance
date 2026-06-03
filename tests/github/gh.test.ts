@@ -1,12 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { makeGitHub } from "../../src/github/gh.js";
-import type { SpawnFn, SpawnResult } from "../../src/audits/util/spawn.js";
+import type { SpawnFn, SpawnResult, SpawnOptions } from "../../src/audits/util/spawn.js";
 
 function fakeSpawn(result: Partial<SpawnResult>): {
   spawn: SpawnFn;
-  calls: Array<{ cmd: string; args: string[]; opts: any }>;
+  calls: Array<{ cmd: string; args: string[]; opts: SpawnOptions }>;
 } {
-  const calls: Array<{ cmd: string; args: string[]; opts: any }> = [];
+  const calls: Array<{ cmd: string; args: string[]; opts: SpawnOptions }> = [];
   const spawn: SpawnFn = async (cmd, args, opts) => {
     calls.push({ cmd, args: [...args], opts: opts ?? {} });
     return { code: 0, stdout: "", stderr: "", ...result };
@@ -40,7 +40,7 @@ describe("makeGitHub", () => {
       "--body",
       "b",
     ]);
-    expect(calls[0]!.opts.env.GH_TOKEN).toBe("T");
+    expect(calls[0]!.opts.env?.GH_TOKEN).toBe("T");
   });
 
   it("enableRepoAutoMerge PATCHes allow_auto_merge", async () => {
