@@ -8,12 +8,15 @@ import type { GitHub } from "../../src/github/gh.js";
 
 function gitInit(dir: string) {
   execFileSync("git", ["init", "-q"], { cwd: dir });
+  // Persist identity at repo level (not just inline on the init commit) so the
+  // recipe's own commit later inherits it. Inline -c covers only that one commit,
+  // which left CI runners with no global identity failing on the recipe's commit.
+  execFileSync("git", ["config", "user.email", "test@reddoor.local"], { cwd: dir });
+  execFileSync("git", ["config", "user.name", "reddoor-test"], { cwd: dir });
   execFileSync("git", ["remote", "add", "origin", "https://github.com/o/r.git"], { cwd: dir });
   writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "r", scripts: {} }));
   execFileSync("git", ["add", "-A"], { cwd: dir });
-  execFileSync("git", ["-c", "user.email=t@t.co", "-c", "user.name=t", "commit", "-qm", "init"], {
-    cwd: dir,
-  });
+  execFileSync("git", ["commit", "-qm", "init"], { cwd: dir });
 }
 
 function fakeGitHub(): { gh: GitHub; calls: string[] } {
