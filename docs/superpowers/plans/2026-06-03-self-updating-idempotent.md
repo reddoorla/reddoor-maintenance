@@ -15,6 +15,7 @@
 ### Task 1: Add five remote-read methods to the GitHub interface
 
 **Files:**
+
 - Modify: `src/github/gh.ts` (the `GitHub` type + `makeGitHub` return object)
 - Test: `tests/github/gh.test.ts`
 
@@ -28,7 +29,10 @@ Add these tests inside the `describe("makeGitHub", …)` block in `tests/github/
 it("filesOnBranch returns the subset of paths that exist (code 0)", async () => {
   const { spawn, calls } = fakeSpawn({ code: 0 });
   const gh = makeGitHub({ token: "T", spawn });
-  const present = await gh.filesOnBranch("o/r", "main", [".github/workflows/ci.yml", "renovate.json"]);
+  const present = await gh.filesOnBranch("o/r", "main", [
+    ".github/workflows/ci.yml",
+    "renovate.json",
+  ]);
   expect(present).toEqual([".github/workflows/ci.yml", "renovate.json"]);
   expect(calls[0]!.args).toEqual(["api", "repos/o/r/contents/.github/workflows/ci.yml?ref=main"]);
   expect(calls[1]!.args).toEqual(["api", "repos/o/r/contents/renovate.json?ref=main"]);
@@ -36,13 +40,17 @@ it("filesOnBranch returns the subset of paths that exist (code 0)", async () => 
 
 it("filesOnBranch treats non-zero (404) as absent", async () => {
   const { spawn } = fakeSpawn({ code: 1 });
-  const present = await makeGitHub({ token: "T", spawn }).filesOnBranch("o/r", "main", ["renovate.json"]);
+  const present = await makeGitHub({ token: "T", spawn }).filesOnBranch("o/r", "main", [
+    "renovate.json",
+  ]);
   expect(present).toEqual([]);
 });
 
 it("branchProtectionContexts parses required contexts; [] on 404", async () => {
   const ok = fakeSpawn({ code: 0, stdout: "ci\nbuild\n" });
-  expect(await makeGitHub({ token: "T", spawn: ok.spawn }).branchProtectionContexts("o/r", "main")).toEqual(["ci", "build"]);
+  expect(
+    await makeGitHub({ token: "T", spawn: ok.spawn }).branchProtectionContexts("o/r", "main"),
+  ).toEqual(["ci", "build"]);
   expect(ok.calls[0]!.args).toEqual([
     "api",
     "repos/o/r/branches/main/protection",
@@ -50,15 +58,26 @@ it("branchProtectionContexts parses required contexts; [] on 404", async () => {
     ".required_status_checks.contexts[]?",
   ]);
   const missing = fakeSpawn({ code: 1, stderr: "Not Found" });
-  expect(await makeGitHub({ token: "T", spawn: missing.spawn }).branchProtectionContexts("o/r", "main")).toEqual([]);
+  expect(
+    await makeGitHub({ token: "T", spawn: missing.spawn }).branchProtectionContexts("o/r", "main"),
+  ).toEqual([]);
 });
 
 it("secretExists checks the secret name list", async () => {
   const has = fakeSpawn({ code: 0, stdout: "RENOVATE_TOKEN\nOTHER\n" });
-  expect(await makeGitHub({ token: "T", spawn: has.spawn }).secretExists("o/r", "RENOVATE_TOKEN")).toBe(true);
-  expect(has.calls[0]!.args).toEqual(["api", "repos/o/r/actions/secrets", "--jq", ".secrets[].name"]);
+  expect(
+    await makeGitHub({ token: "T", spawn: has.spawn }).secretExists("o/r", "RENOVATE_TOKEN"),
+  ).toBe(true);
+  expect(has.calls[0]!.args).toEqual([
+    "api",
+    "repos/o/r/actions/secrets",
+    "--jq",
+    ".secrets[].name",
+  ]);
   const none = fakeSpawn({ code: 0, stdout: "OTHER\n" });
-  expect(await makeGitHub({ token: "T", spawn: none.spawn }).secretExists("o/r", "RENOVATE_TOKEN")).toBe(false);
+  expect(
+    await makeGitHub({ token: "T", spawn: none.spawn }).secretExists("o/r", "RENOVATE_TOKEN"),
+  ).toBe(false);
 });
 
 it("autoMergeEnabled reads .allow_auto_merge", async () => {
@@ -81,7 +100,9 @@ it("findOpenSelfUpdatingPR returns the first matching PR url or null", async () 
     '.[] | select(.head.ref | startswith("maint/self-updating-")) | .html_url',
   ]);
   const none = fakeSpawn({ code: 0, stdout: "" });
-  expect(await makeGitHub({ token: "T", spawn: none.spawn }).findOpenSelfUpdatingPR("o/r")).toBeNull();
+  expect(
+    await makeGitHub({ token: "T", spawn: none.spawn }).findOpenSelfUpdatingPR("o/r"),
+  ).toBeNull();
 });
 ```
 
@@ -95,11 +116,11 @@ Expected: FAIL — the new methods don't exist on `GitHub` (type error / `is not
 In `src/github/gh.ts`, add to the `GitHub` type (after `defaultBranch`):
 
 ```ts
-  filesOnBranch: (repo: string, branch: string, paths: string[]) => Promise<string[]>;
-  branchProtectionContexts: (repo: string, branch: string) => Promise<string[]>;
-  secretExists: (repo: string, name: string) => Promise<boolean>;
-  autoMergeEnabled: (repo: string) => Promise<boolean>;
-  findOpenSelfUpdatingPR: (repo: string) => Promise<string | null>;
+filesOnBranch: (repo: string, branch: string, paths: string[]) => Promise<string[]>;
+branchProtectionContexts: (repo: string, branch: string) => Promise<string[]>;
+secretExists: (repo: string, name: string) => Promise<boolean>;
+autoMergeEnabled: (repo: string) => Promise<boolean>;
+findOpenSelfUpdatingPR: (repo: string) => Promise<string | null>;
 ```
 
 - [ ] **Step 4: Implement the methods in `makeGitHub`**
@@ -173,6 +194,7 @@ git commit -m "feat(github): add remote-read methods for idempotent self-updatin
 ### Task 2: Rewrite the selfUpdating recipe to ensure end-state
 
 **Files:**
+
 - Modify: `src/recipes/self-updating/index.ts` (full rewrite of the recipe body)
 - Test: `tests/recipes/self-updating.test.ts` (extend `fakeGitHub`, replace the scenarios)
 
@@ -397,7 +419,11 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
 
   const repo = await resolveRepo(site);
   if (!repo) {
-    return resultOf(site, "failed", "no Git repo (set Airtable 'Git repo' or add an origin remote)");
+    return resultOf(
+      site,
+      "failed",
+      "no Git repo (set Airtable 'Git repo' or add an origin remote)",
+    );
   }
 
   const cfg = readGitHubConfig();
@@ -428,7 +454,10 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
           await mkdir(dirname(dest), { recursive: true });
           await writeFile(dest, t.contents, "utf-8");
         }
-        const sha = await gitCommit(site.path, "ci: enable self-updating (CI + Renovate auto-merge)");
+        const sha = await gitCommit(
+          site.path,
+          "ci: enable self-updating (CI + Renovate auto-merge)",
+        );
         if (sha) commits.push(sha);
         await (deps.pushBranch ?? gitPush)(site.path, branch);
         const pr = await github.openPullRequest(repo, {
@@ -487,6 +516,7 @@ git commit -m "feat(recipes): make self-updating idempotent (ensure end-state)"
 ### Task 3: Changeset
 
 **Files:**
+
 - Create: `.changeset/self-updating-idempotent.md`
 
 - [ ] **Step 1: Write the changeset**

@@ -30,7 +30,7 @@ The root cause is that one local check conflates "files present locally" with
 ## Goal
 
 Make `self-updating` an **idempotent operation that drives a repo toward a known
-end-state**, checking *remote* state and acting only on what's missing. Running
+end-state**, checking _remote_ state and acting only on what's missing. Running
 it any number of times converges to: the three CI files on the default branch +
 auto-merge on + branch protection requiring `ci` + the `RENOVATE_TOKEN` secret.
 
@@ -47,13 +47,13 @@ missing:
 All are thin `gh api` wrappers (private `gh()` helper already throws on non-zero;
 the existence checks tolerate 404 the way `repoExists` does).
 
-| Method | Returns | Implementation |
-|---|---|---|
-| `filesOnDefaultBranch(repo, paths)` | `string[]` (subset of `paths` present) | `GET repos/{repo}/contents/{path}?ref={base}` per path; 404 → absent |
-| `branchProtectionContexts(repo, branch)` | `string[]` | `GET repos/{repo}/branches/{branch}/protection`; read `.required_status_checks.contexts`; 404 → `[]` |
-| `secretExists(repo, name)` | `boolean` | `GET repos/{repo}/actions/secrets`; check `.secrets[].name` |
-| `autoMergeEnabled(repo)` | `boolean` | `GET repos/{repo}`; read `.allow_auto_merge` |
-| `findOpenSelfUpdatingPR(repo)` | `string \| null` | `GET repos/{repo}/pulls?state=open`; first whose head ref starts with `maint/self-updating-`; return its URL |
+| Method                                   | Returns                                | Implementation                                                                                               |
+| ---------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `filesOnDefaultBranch(repo, paths)`      | `string[]` (subset of `paths` present) | `GET repos/{repo}/contents/{path}?ref={base}` per path; 404 → absent                                         |
+| `branchProtectionContexts(repo, branch)` | `string[]`                             | `GET repos/{repo}/branches/{branch}/protection`; read `.required_status_checks.contexts`; 404 → `[]`         |
+| `secretExists(repo, name)`               | `boolean`                              | `GET repos/{repo}/actions/secrets`; check `.secrets[].name`                                                  |
+| `autoMergeEnabled(repo)`                 | `boolean`                              | `GET repos/{repo}`; read `.allow_auto_merge`                                                                 |
+| `findOpenSelfUpdatingPR(repo)`           | `string \| null`                       | `GET repos/{repo}/pulls?state=open`; first whose head ref starts with `maint/self-updating-`; return its URL |
 
 Existing methods (`openPullRequest`, `enableRepoAutoMerge`, `protectBranch`,
 `setRepoSecret`, `repoExists`, `defaultBranch`) are unchanged.
@@ -123,7 +123,7 @@ selfUpdating(site, deps = {}):
 Each ensure step is independently guarded by its own remote check, so a run that
 fails partway (e.g. secret call errors after protection succeeds) is recoverable:
 re-running re-checks remote state and completes only the remaining steps. This is
-the Important #2 fix. No new retry machinery — idempotency *is* the recovery.
+the Important #2 fix. No new retry machinery — idempotency _is_ the recovery.
 
 ### Testing
 

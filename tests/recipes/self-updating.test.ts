@@ -37,6 +37,11 @@ function fakeGitHub(): { gh: GitHub; calls: string[] } {
     },
     repoExists: async () => true,
     defaultBranch: async () => "main",
+    filesOnBranch: async (_repo, _branch, paths) => paths,
+    branchProtectionContexts: async () => [],
+    secretExists: async () => false,
+    autoMergeEnabled: async () => false,
+    findOpenSelfUpdatingPR: async () => null,
   };
   return { gh, calls };
 }

@@ -102,4 +102,86 @@ describe("makeGitHub", () => {
       "boom",
     );
   });
+
+  it("filesOnBranch returns the subset of paths that exist (code 0)", async () => {
+    const { spawn, calls } = fakeSpawn({ code: 0 });
+    const gh = makeGitHub({ token: "T", spawn });
+    const present = await gh.filesOnBranch("o/r", "main", [
+      ".github/workflows/ci.yml",
+      "renovate.json",
+    ]);
+    expect(present).toEqual([".github/workflows/ci.yml", "renovate.json"]);
+    expect(calls[0]!.args).toEqual(["api", "repos/o/r/contents/.github/workflows/ci.yml?ref=main"]);
+    expect(calls[1]!.args).toEqual(["api", "repos/o/r/contents/renovate.json?ref=main"]);
+  });
+
+  it("filesOnBranch treats non-zero (404) as absent", async () => {
+    const { spawn } = fakeSpawn({ code: 1 });
+    const present = await makeGitHub({ token: "T", spawn }).filesOnBranch("o/r", "main", [
+      "renovate.json",
+    ]);
+    expect(present).toEqual([]);
+  });
+
+  it("branchProtectionContexts parses required contexts; [] on 404", async () => {
+    const ok = fakeSpawn({ code: 0, stdout: "ci\nbuild\n" });
+    expect(
+      await makeGitHub({ token: "T", spawn: ok.spawn }).branchProtectionContexts("o/r", "main"),
+    ).toEqual(["ci", "build"]);
+    expect(ok.calls[0]!.args).toEqual([
+      "api",
+      "repos/o/r/branches/main/protection",
+      "--jq",
+      ".required_status_checks.contexts[]?",
+    ]);
+    const missing = fakeSpawn({ code: 1, stderr: "Not Found" });
+    expect(
+      await makeGitHub({ token: "T", spawn: missing.spawn }).branchProtectionContexts(
+        "o/r",
+        "main",
+      ),
+    ).toEqual([]);
+  });
+
+  it("secretExists checks the secret name list", async () => {
+    const has = fakeSpawn({ code: 0, stdout: "RENOVATE_TOKEN\nOTHER\n" });
+    expect(
+      await makeGitHub({ token: "T", spawn: has.spawn }).secretExists("o/r", "RENOVATE_TOKEN"),
+    ).toBe(true);
+    expect(has.calls[0]!.args).toEqual([
+      "api",
+      "repos/o/r/actions/secrets",
+      "--jq",
+      ".secrets[].name",
+    ]);
+    const none = fakeSpawn({ code: 0, stdout: "OTHER\n" });
+    expect(
+      await makeGitHub({ token: "T", spawn: none.spawn }).secretExists("o/r", "RENOVATE_TOKEN"),
+    ).toBe(false);
+  });
+
+  it("autoMergeEnabled reads .allow_auto_merge", async () => {
+    const on = fakeSpawn({ code: 0, stdout: "true\n" });
+    expect(await makeGitHub({ token: "T", spawn: on.spawn }).autoMergeEnabled("o/r")).toBe(true);
+    expect(on.calls[0]!.args).toEqual(["api", "repos/o/r", "--jq", ".allow_auto_merge"]);
+    const off = fakeSpawn({ code: 0, stdout: "false\n" });
+    expect(await makeGitHub({ token: "T", spawn: off.spawn }).autoMergeEnabled("o/r")).toBe(false);
+  });
+
+  it("findOpenSelfUpdatingPR returns the first matching PR url or null", async () => {
+    const found = fakeSpawn({ code: 0, stdout: "https://github.com/o/r/pull/9\n" });
+    expect(await makeGitHub({ token: "T", spawn: found.spawn }).findOpenSelfUpdatingPR("o/r")).toBe(
+      "https://github.com/o/r/pull/9",
+    );
+    expect(found.calls[0]!.args).toEqual([
+      "api",
+      "repos/o/r/pulls?state=open",
+      "--jq",
+      '.[] | select(.head.ref | startswith("maint/self-updating-")) | .html_url',
+    ]);
+    const none = fakeSpawn({ code: 0, stdout: "" });
+    expect(
+      await makeGitHub({ token: "T", spawn: none.spawn }).findOpenSelfUpdatingPR("o/r"),
+    ).toBeNull();
+  });
 });
