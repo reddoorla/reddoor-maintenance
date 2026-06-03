@@ -1,9 +1,17 @@
-import { mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { RecipeResult, Site } from "../../types.js";
-import { withRecipe } from "../_with-recipe.js";
 import { templatesByName } from "../sync-configs/templates.js";
-import { getRemoteUrl, parseOwnerRepo, push as gitPush } from "../../util/git.js";
+import {
+  getRemoteUrl,
+  parseOwnerRepo,
+  push as gitPush,
+  branchName,
+  createBranch,
+  commit as gitCommit,
+  isWorkingTreeClean,
+} from "../../util/git.js";
+import { siteLabel } from "../../util/site.js";
 import { readGitHubConfig } from "../../github/config.js";
 import { makeGitHub, type GitHub } from "../../github/gh.js";
 
@@ -15,12 +23,13 @@ export type SelfUpdatingDeps = {
   renovateToken?: string;
 };
 
-async function readMaybe(path: string): Promise<string | null> {
-  try {
-    return await readFile(path, "utf-8");
-  } catch {
-    return null;
-  }
+function resultOf(
+  site: Site,
+  status: RecipeResult["status"],
+  notes: string,
+  commits: string[] = [],
+): RecipeResult {
+  return { recipe: "self-updating", site: siteLabel(site), status, commits, notes };
 }
 
 async function resolveRepo(site: Site): Promise<string | null> {
@@ -34,55 +43,80 @@ async function resolveRepo(site: Site): Promise<string | null> {
 
 export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Promise<RecipeResult> {
   const templates = templatesByName([...SELF_UPDATING_CONFIGS]);
+  const paths = templates.map((t) => t.path);
 
-  return withRecipe<{ repo: string; renovateToken: string }>({
-    name: "self-updating",
-    site,
-    plan: async () => {
-      const repo = await resolveRepo(site);
-      if (!repo) {
-        return {
-          kind: "failed",
-          notes: "no Git repo (set Airtable 'Git repo' or add an origin remote)",
-        };
+  const repo = await resolveRepo(site);
+  if (!repo) {
+    return resultOf(
+      site,
+      "failed",
+      "no Git repo (set Airtable 'Git repo' or add an origin remote)",
+    );
+  }
+
+  const cfg = readGitHubConfig();
+  const renovateToken = deps.renovateToken ?? cfg?.renovateToken;
+  if (!deps.github && !cfg) return resultOf(site, "failed", "GITHUB_TOKEN not set");
+  if (!renovateToken) return resultOf(site, "failed", "no RENOVATE_TOKEN available");
+  const github = deps.github ?? makeGitHub({ token: cfg!.token });
+
+  const base = await github.defaultBranch(repo).catch(() => "main");
+  const actions: string[] = [];
+  const commits: string[] = [];
+
+  try {
+    // A. CI files on the default branch.
+    const present = await github.filesOnBranch(repo, base, paths);
+    if (present.length < paths.length) {
+      const existingPR = await github.findOpenSelfUpdatingPR(repo);
+      if (existingPR) {
+        actions.push(`bootstrap PR already open: ${existingPR}`);
+      } else {
+        if (!(await isWorkingTreeClean(site.path))) {
+          return resultOf(site, "failed", "working tree not clean — commit or stash first");
+        }
+        const branch = branchName("self-updating");
+        await createBranch(site.path, branch);
+        for (const t of templates) {
+          const dest = join(site.path, t.path);
+          await mkdir(dirname(dest), { recursive: true });
+          await writeFile(dest, t.contents, "utf-8");
+        }
+        const sha = await gitCommit(
+          site.path,
+          "ci: enable self-updating (CI + Renovate auto-merge)",
+        );
+        if (sha) commits.push(sha);
+        await (deps.pushBranch ?? gitPush)(site.path, branch);
+        const pr = await github.openPullRequest(repo, {
+          head: branch,
+          base,
+          title: "Enable self-updating (CI + Renovate)",
+          body: "Adds the unified CI gate, nightly Renovate, and auto-merge for patch/minor updates.",
+        });
+        actions.push(`opened PR ${pr.url}`);
       }
+    }
 
-      const cfg = readGitHubConfig();
-      const renovateToken = deps.renovateToken ?? cfg?.renovateToken;
-      if (!deps.github && !cfg) return { kind: "failed", notes: "GITHUB_TOKEN not set" };
-      if (!renovateToken) return { kind: "failed", notes: "no RENOVATE_TOKEN available" };
+    // B. Repo settings — check-then-ensure, each independent (self-healing).
+    if (!(await github.autoMergeEnabled(repo))) {
+      await github.enableRepoAutoMerge(repo);
+      actions.push("enabled auto-merge");
+    }
+    if (!(await github.branchProtectionContexts(repo, base)).includes("ci")) {
+      await github.protectBranch(repo, base, ["ci"]);
+      actions.push(`required ci check on ${base}`);
+    }
+    if (!(await github.secretExists(repo, "RENOVATE_TOKEN"))) {
+      await github.setRepoSecret(repo, "RENOVATE_TOKEN", renovateToken);
+      actions.push("set RENOVATE_TOKEN secret");
+    }
+  } catch (err) {
+    const done = actions.length ? ` (completed: ${actions.join("; ")})` : "";
+    return resultOf(site, "failed", `${(err as Error).message}${done}`, commits);
+  }
 
-      let drift = false;
-      for (const t of templates) {
-        if ((await readMaybe(join(site.path, t.path))) !== t.contents) drift = true;
-      }
-      if (!drift) return { kind: "noop", notes: "self-updating files already in place" };
-      return { kind: "apply", plan: { repo, renovateToken } };
-    },
-    apply: async (planned, { commit, branch, cwd }) => {
-      for (const t of templates) {
-        const dest = join(cwd, t.path);
-        await mkdir(dirname(dest), { recursive: true });
-        await writeFile(dest, t.contents, "utf-8");
-      }
-      await commit("ci: enable self-updating (CI + Renovate auto-merge)");
-
-      const push = deps.pushBranch ?? gitPush;
-      await push(cwd, branch);
-
-      const github = deps.github ?? makeGitHub({ token: readGitHubConfig()!.token });
-      const base = await github.defaultBranch(planned.repo).catch(() => "main");
-      const pr = await github.openPullRequest(planned.repo, {
-        head: branch,
-        base,
-        title: "Enable self-updating (CI + Renovate)",
-        body: "Adds the unified CI gate, nightly Renovate, and auto-merge for patch/minor updates.",
-      });
-      await github.enableRepoAutoMerge(planned.repo);
-      await github.protectBranch(planned.repo, base, ["ci"]);
-      await github.setRepoSecret(planned.repo, "RENOVATE_TOKEN", planned.renovateToken);
-
-      return { kind: "ok", notes: `self-updating enabled — PR ${pr.url}` };
-    },
-  });
+  return actions.length
+    ? resultOf(site, "applied", actions.join("; "), commits)
+    : resultOf(site, "noop", "already self-updating", commits);
 }
