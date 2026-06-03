@@ -31,6 +31,7 @@ export const ALL_CONFIG_NAMES: ConfigName[] = [
   "ci",
   "renovate-action",
   "renovate-config",
+  "netlify",
 ];
 
 export function isConfigName(value: string): value is ConfigName {
