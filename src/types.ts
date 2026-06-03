@@ -25,7 +25,10 @@ export type ConfigName =
   | "prettier"
   | "playwright-a11y"
   | "svelte"
-  | "gitignore";
+  | "gitignore"
+  | "ci"
+  | "renovate-action"
+  | "renovate-config";
 
 export type AuditResult = {
   audit: AuditName;

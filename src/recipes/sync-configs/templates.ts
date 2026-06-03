@@ -63,12 +63,88 @@ export default createSvelteConfig({
 `,
 };
 
+const ci: ConfigTemplate = {
+  config: "ci",
+  path: ".github/workflows/ci.yml",
+  contents: `name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec prettier --check .
+      - run: pnpm exec eslint .
+      - run: pnpm exec svelte-kit sync && pnpm exec svelte-check --tsconfig ./tsconfig.json
+      - run: pnpm build
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm exec reddoor-maint audit --only a11y --fail-on-violations
+      - name: Test (if present)
+        run: |
+          if node -e "process.exit(require('./package.json').scripts?.test ? 0 : 1)"; then
+            pnpm test
+          else
+            echo "no test script — skipping"
+          fi
+`,
+};
+
+const renovateAction: ConfigTemplate = {
+  config: "renovate-action",
+  path: ".github/workflows/renovate.yml",
+  contents: `name: renovate
+on:
+  schedule:
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+jobs:
+  renovate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: renovatebot/github-action@v40
+        with:
+          token: \${{ secrets.RENOVATE_TOKEN }}
+        env:
+          RENOVATE_REPOSITORIES: \${{ github.repository }}
+`,
+};
+
+const renovateConfig: ConfigTemplate = {
+  config: "renovate-config",
+  path: "renovate.json",
+  contents: `{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "schedule": ["before 7am on monday"],
+  "packageRules": [
+    { "matchUpdateTypes": ["patch", "minor"], "automerge": true, "platformAutomerge": true },
+    { "matchUpdateTypes": ["major"], "automerge": false }
+  ]
+}
+`,
+};
+
 export const ALL_TEMPLATES: ConfigTemplate[] = [
   eslint,
   prettier,
   lighthouse,
   playwrightA11y,
   svelte,
+  ci,
+  renovateAction,
+  renovateConfig,
 ];
 
 export function templatesByName(which: ConfigName[]): ConfigTemplate[] {
