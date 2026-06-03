@@ -113,7 +113,8 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
     }
   } catch (err) {
     const done = actions.length ? ` (completed: ${actions.join("; ")})` : "";
-    return resultOf(site, "failed", `${(err as Error).message}${done}`, commits);
+    const message = err instanceof Error ? err.message : String(err);
+    return resultOf(site, "failed", `${message}${done}`, commits);
   }
 
   return actions.length
