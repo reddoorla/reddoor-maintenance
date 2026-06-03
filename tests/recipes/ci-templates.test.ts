@@ -8,6 +8,13 @@ describe("CI/Renovate canonical templates", () => {
     expect(byPath["renovate-action"]).toBe(".github/workflows/renovate.yml");
     expect(byPath["renovate-config"]).toBe("renovate.json");
   });
+  it("ships a .prettierignore so `prettier --check .` ignores the lockfile and generated dirs", () => {
+    const byPath = Object.fromEntries(ALL_TEMPLATES.map((t) => [t.config, t.path]));
+    expect(byPath["prettier-ignore"]).toBe(".prettierignore");
+    const contents = templatesByName(["prettier-ignore"])[0]!.contents;
+    expect(contents).toContain("pnpm-lock.yaml");
+    expect(contents).toContain(".svelte-kit/");
+  });
   it("ci.yml runs the four-layer gate including a11y with --fail-on-violations", () => {
     const ci = templatesByName(["ci"])[0]!.contents;
     expect(ci).toContain("prettier --check");

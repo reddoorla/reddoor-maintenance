@@ -28,6 +28,17 @@ const prettier: ConfigTemplate = {
 `,
 };
 
+const prettierIgnore: ConfigTemplate = {
+  config: "prettier-ignore",
+  path: ".prettierignore",
+  contents: `pnpm-lock.yaml
+.svelte-kit/
+build/
+.netlify/
+dist/
+`,
+};
+
 const lighthouse: ConfigTemplate = {
   config: "lighthouse",
   path: "lighthouserc.json",
@@ -139,6 +150,7 @@ const renovateConfig: ConfigTemplate = {
 export const ALL_TEMPLATES: ConfigTemplate[] = [
   eslint,
   prettier,
+  prettierIgnore,
   lighthouse,
   playwrightA11y,
   svelte,

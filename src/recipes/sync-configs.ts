@@ -24,6 +24,7 @@ export const ALL_CONFIG_NAMES: ConfigName[] = [
   "lighthouse",
   "eslint",
   "prettier",
+  "prettier-ignore",
   "playwright-a11y",
   "svelte",
   "gitignore",
