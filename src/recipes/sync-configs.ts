@@ -15,6 +15,21 @@ export type SyncConfigsOptions = {
 };
 
 const GITIGNORE_CONFIG: ConfigName = "gitignore";
+const SVELTE_CONFIG: ConfigName = "svelte";
+
+/** A site's `svelte.config.js` is "compliant" — and left untouched by sync —
+ * once it builds on the canonical helpers (createSvelteConfig + adapter-netlify).
+ *
+ * Unlike the other exact-match templates, svelte.config legitimately carries
+ * site-specific `kit.alias` and `compilerOptions`; an exact overwrite would
+ * clobber those on every sync (it silently dropped MSOT's $utils alias,
+ * 2026-06-04). So once a config is on the canonical pattern we preserve it as-is
+ * and only rewrite a genuinely off-pattern (or missing) config. The canonical
+ * `createSvelteConfig` is unopinionated about aliases, so additive customization
+ * is safe to keep. */
+function isSvelteConfigCompliant(contents: string): boolean {
+  return contents.includes("createSvelteConfig") && contents.includes("@sveltejs/adapter-netlify");
+}
 
 /** Runtime enumeration of every `ConfigName`. Mirror of the union in
  * `src/types.ts`. Used by CLI `--only` validation; a missing entry would
@@ -53,7 +68,14 @@ async function planTemplateDiffs(
   const diffs: ConfigTemplate[] = [];
   for (const t of templates) {
     const existing = await readMaybe(join(cwd, t.path));
-    if (existing !== t.contents) diffs.push(t);
+    if (existing === t.contents) continue;
+    // svelte.config is compliance-checked, not exact-matched: an existing config
+    // already on the canonical pattern is left alone so its aliases/compilerOptions
+    // survive. A missing (null) or off-pattern config still gets the canonical template.
+    if (t.config === SVELTE_CONFIG && existing !== null && isSvelteConfigCompliant(existing)) {
+      continue;
+    }
+    diffs.push(t);
   }
   return diffs;
 }

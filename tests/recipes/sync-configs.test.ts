@@ -73,6 +73,44 @@ describe("recipes/sync-configs", () => {
     execFileSync("touch", ["dirty.txt"], { cwd });
     await expect(syncConfigs({ path: cwd })).rejects.toThrow(/working tree/i);
   });
+
+  it("leaves a compliant svelte.config untouched, preserving custom aliases", async () => {
+    // A site on the canonical pattern (createSvelteConfig + adapter-netlify) may add
+    // its own kit.alias. Exact-match sync would clobber those every run; compliance
+    // checking preserves them. Regression for the MSOT $utils alias loss (2026-06-04).
+    const cwd = await copyFixtureToTmp(drift);
+    const compliant = `import { createSvelteConfig } from "@reddoorla/maintenance/configs/svelte";
+import adapter from "@sveltejs/adapter-netlify";
+
+export default createSvelteConfig({
+  kit: {
+    adapter: adapter({ edge: false, split: false }),
+    alias: { $utils: "src/lib/utils" },
+  },
+});
+`;
+    await writeCommitted(cwd, "svelte.config.js", compliant);
+
+    const result = await syncConfigs({ path: cwd }, { which: ["svelte"] });
+    expect(result.status).toBe("noop");
+
+    const after = await readFile(join(cwd, "svelte.config.js"), "utf-8");
+    expect(after).toBe(compliant);
+    expect(after).toContain("$utils");
+  });
+
+  it("overwrites a non-compliant svelte.config with the canonical template", async () => {
+    // sync-drift ships `export default { kit: {} }` — no createSvelteConfig, no
+    // adapter-netlify — so it's off-pattern and must be brought to canonical.
+    const cwd = await copyFixtureToTmp(drift);
+    const result = await syncConfigs({ path: cwd }, { which: ["svelte"] });
+    expect(result.status).toBe("applied");
+    expect(result.commits).toHaveLength(1);
+
+    const after = await readFile(join(cwd, "svelte.config.js"), "utf-8");
+    expect(after).toContain("createSvelteConfig");
+    expect(after).toContain("@sveltejs/adapter-netlify");
+  });
 });
 
 describe("recipes/sync-configs gitignore handling", () => {
