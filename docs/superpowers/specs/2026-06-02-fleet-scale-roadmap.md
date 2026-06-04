@@ -213,6 +213,21 @@ is the "behavioral / how I use Airtable" integration for wording — copy become
 of one. Getting real sites in — with repo URLs, schedules, recipients — runs alongside M1–M2 and
 gates the 1.0 "real fleet for a month" bar.
 
+**Parallel track (fleet consistency): migrate all site contact forms Netlify Forms → Resend.**
+_Added 2026-06-04._ Today each site's contact form rides Netlify Forms (the `data-netlify="true"`
+hidden-form + honeypot machinery, and the `adapter({ edge: false })` constraint that exists
+_solely_ because "edge functions don't support Netlify forms" — see espada/gallerysonder
+svelte.config). Resend is already the fleet's email transport (`RESEND_API_KEY` in
+`~/.config/reddoor-maint/credentials.env`, used by the report/mailer path), so moving form
+submissions onto it gives **one email system fleet-wide**: consistent deliverability, sender
+domain, and templating, and it drops the Netlify-Forms dependency. Scope per site: a SvelteKit
+form action / `+server.ts` endpoint that POSTs to Resend, remove the `data-netlify` attributes +
+hidden honeypot form, and **re-evaluate `edge: false`** (the forms constraint that pinned it may no
+longer apply once forms leave Netlify). This is cross-cutting like onboarding — runs as its own
+pass across the fleet, ideally folded into a recipe once the per-site shape stabilizes. Candidate
+to schedule after the onboarding PRs land and M1 self-updating is wired (so each form-migration PR
+flows through the now-green CI + auto-merge path).
+
 ---
 
 ## 7. Timeline (honest, part-time)
