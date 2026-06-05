@@ -209,6 +209,78 @@ flip to maintenance, with a "launched" milestone tracked alongside the onboardin
 per-site overrides (check names, intro/footer, contact), shared across launch + maintenance. This
 is the "behavioral / how I use Airtable" integration for wording — copy becomes data you control.
 
+**M7 — Shared PLUMBING package + fleet conformance: fix-once-apply-all** _(decided 2026-06-04; supersedes the recipe-deprecation brief's provisional "starter-as-canonical" lean)._
+M1 is done (9/9 self-updating). The next structural move comes from a hard requirement Tucker
+named: a fix made once must reach every site, with **minimal total work he personally does.**
+Today it can't — shared code is copy-pasted and already divergent (`ContentWidth.svelte` is
+**78 / 28 / 7 lines** across starter / reddoor-website / gallerysonder; the rfp/security docs and
+configs are per-clone copies; the starter doesn't even depend on `@reddoorla/maintenance` while
+every fleet site does). **Decision: the starter stays the clone skeleton; a shared package becomes
+the "brain" that all sites — including the starter — depend on; Renovate + `self-updating` (already
+live) propagate every fix.** Self-updating is the conveyor belt; this package is what rides it.
+
+**Scope boundary — PLUMBING, not design.** The shared package carries only what every Reddoor site
+must have *identically regardless of design*: configs, the CI workflow, the conformance test suite +
+test helpers, security/CSP, the `/dev` a11y fixtures, Prismic/analytics plumbing, and the shared
+docs/context. **Design components stay per-site, forever.** A shared UI/design-component library is
+explicitly **PARKED** — Tucker tried one and it cost more than it saved (faster to write a new
+component than to rewire against a shared one), and post-LLM that trade only got cheaper. Revisit
+only if the *same design bug* is fixed twice across sites. The principle: **shared plumbing,
+bespoke presentation** (and its test mirror: **shared harness, bespoke cases**).
+
+Sequencing, cheap/independent first:
+
+- **M7.0 — Starter hygiene (quick wins, independent, ~1–2 hrs).** Add `pnpm.onlyBuiltDependencies`
+  (sharp/esbuild), drop `@sveltejs/adapter-auto`, flip the `dev` script `npm:`→`pnpm:`, make the
+  starter public, add Renovate + run `self-updating` so the starter dogfoods its own loop and is
+  an always-green reference.
+- **M7.1 — One CI (reusable workflow, ~half day).** Author a canonical reusable GitHub Actions
+  workflow (`reddoorla/workflows/ci@v1`) that runs the conformance suite (fast profile); repoint
+  the starter + 9 fleet `ci.yml` to a ~3-line caller; Renovate pins `@v1`. Collapses the
+  `verify`-vs-`ci` job-name mismatch into one definition; "fix CI once" becomes real.
+- **M7.2 — Configs into the package (~half day).** Enrich `createSvelteConfig` to compose the
+  starter's richness (CSP, the `$`-alias set, the placeholder-tolerant prerender handler) via
+  options/defaults; starter adopts `@reddoorla/maintenance`. Retire `sync-configs`' svelte/eslint
+  templates — configs propagate via the package, not a clobbering sync.
+- **M7.3 — Shared docs/context + plumbing components (~half day).** Move rfp-handbook /
+  accessibility / security / migration docs into one versioned source the package exposes (the
+  `export:rfp-pdf` script already points at `docs/`). Extract only true *plumbing* components/routes
+  that are identical everywhere — `/dev` a11y fixtures, a CSP-report endpoint, the Prismic
+  client/preview plumbing, analytics wiring — NOT presentational components.
+- **M7.4 — Fleet conformance suite + site test harness (the testing model).** One **conformance
+  contract** every site must pass, shipped in the package, run in two profiles: **`--fast`** (per-PR,
+  against the local build) and **`--full`** (scheduled, against the *deployed URL*). Invariants:
+  a11y on `/dev` fixtures + real routes, non-empty `<title>` + single `<main>` + `lang` + no
+  `user-scalable=no`, sitemap/robots/canonical/OG/JSON-LD present-and-valid, CSP + security headers
+  served, build/SSR/prerender clean, internal-link integrity, contact-form endpoint contract. Plus
+  **test helpers** (`axeRoute`, `renderSlice`, a mock Prismic client, a route-manifest walker) so
+  *site-specific* tests stay thin — the package ships the harness, each site ships its own cases.
+  Adding an invariant once → every site enforces it on the next Renovate bump.
+- **M7.5 — Re-home the heavy audits → scheduled + deployed-URL (lever 3).** The conformance
+  `--full` profile *is* the audit: run it on a schedule against the live Netlify URL (rolling
+  subset, not all N nightly), write results to Airtable → feed the monthly client report **and** an
+  operator "what needs me" digest. Auditing the deployed URL instead of a spawned dev server
+  **deletes the brittlest subsystem's whole bug class** (ports/zombies/specDir/webServer.cwd — the
+  audit code is historically the repo's highest-fix-rate area, almost all of it server-spawn
+  fallout). This is the rare change that *cuts* upkeep while lighting up the client-reporting +
+  don't-let-me-forget-a-site purpose. (Roadmap M2 + M5, re-grounded.)
+- **M7.6 — Deprecate the migration recipes (cleanup, ~half day).** Archive (tag or `src/legacy/`,
+  **not** hard-delete) `svelte-4-to-5` + its 8 step files, the 5 codemods, `convert-to-pnpm`,
+  `a11y-fixtures-page`, `bump-deps`; prune `ALL_RECIPE_NAMES` + the `RecipeName` union together
+  (type-test guards the drift); shrink `onboard`/`init` to a thin "adopt an external/legacy repo"
+  path. Safe once nothing new needs migrating.
+
+**PARKED — shared design-component library.** Not on the path. Only revisit if the same design bug
+is fixed twice across sites. (Tried before; didn't earn its keep.)
+
+Dependency order: M7.0 + M7.1 are independent quick wins; M7.2 precedes retiring the config
+templates; M7.6 can land any time; **M7.4 (conformance) is the keystone** and unifies "tests" and
+"audits" into one contract with a fast and full profile. Open sub-decision for the package shape:
+keep everything in `@reddoorla/maintenance` vs split a sibling for the Svelte-importable bits
+(plumbing components/helpers have a Svelte peer-dep surface the CLI doesn't) — resolve via a short
+brainstorm before M7.3/M7.4. Full rationale + pros/cons in
+`docs/morning-reports/MORNING_REPORT_2026-06-05-recipe-deprecation.md`.
+
 **Parallel track (data, not code): populate the fleet.** None of this is testable against a fleet
 of one. Getting real sites in — with repo URLs, schedules, recipients — runs alongside M1–M2 and
 gates the 1.0 "real fleet for a month" bar.
