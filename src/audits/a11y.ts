@@ -94,6 +94,16 @@ test("a11y across configured routes", async ({ page }) => {
   const violations = [];
   for (const { path, name } of pages) {
     await page.goto(path);
+    // Snap CSS transitions/animations to their resting state before axe runs.
+    // AnimateIn-style fixtures transition opacity 0->1; sampling mid-transition
+    // makes axe compute color-contrast against semi-transparent text, yielding a
+    // flaky "serious" color-contrast violation (~1/3 of runs on /dev/animate-in).
+    // Disabling transitions/animations forces the final, rendered state
+    // deterministically -- which is also what users (and prefers-reduced-motion
+    // users) actually see, so it's the correct thing to assert.
+    await page.addStyleTag({
+      content: "*,*::before,*::after{transition:none!important;animation:none!important;}",
+    });
     const results = await new AxeBuilder({ page })
       .withTags(["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"])
       .analyze();
