@@ -220,12 +220,12 @@ the "brain" that all sites — including the starter — depend on; Renovate + `
 live) propagate every fix.** Self-updating is the conveyor belt; this package is what rides it.
 
 **Scope boundary — PLUMBING, not design.** The shared package carries only what every Reddoor site
-must have *identically regardless of design*: configs, the CI workflow, the conformance test suite +
+must have _identically regardless of design_: configs, the CI workflow, the conformance test suite +
 test helpers, security/CSP, the `/dev` a11y fixtures, Prismic/analytics plumbing, and the shared
 docs/context. **Design components stay per-site, forever.** A shared UI/design-component library is
 explicitly **PARKED** — Tucker tried one and it cost more than it saved (faster to write a new
 component than to rewire against a shared one), and post-LLM that trade only got cheaper. Revisit
-only if the *same design bug* is fixed twice across sites. The principle: **shared plumbing,
+only if the _same design bug_ is fixed twice across sites. The principle: **shared plumbing,
 bespoke presentation** (and its test mirror: **shared harness, bespoke cases**).
 
 Sequencing, cheap/independent first:
@@ -244,25 +244,25 @@ Sequencing, cheap/independent first:
   templates — configs propagate via the package, not a clobbering sync.
 - **M7.3 — Shared docs/context + plumbing components (~half day).** Move rfp-handbook /
   accessibility / security / migration docs into one versioned source the package exposes (the
-  `export:rfp-pdf` script already points at `docs/`). Extract only true *plumbing* components/routes
+  `export:rfp-pdf` script already points at `docs/`). Extract only true _plumbing_ components/routes
   that are identical everywhere — `/dev` a11y fixtures, a CSP-report endpoint, the Prismic
   client/preview plumbing, analytics wiring — NOT presentational components.
 - **M7.4 — Fleet conformance suite + site test harness (the testing model).** One **conformance
   contract** every site must pass, shipped in the package, run in two profiles: **`--fast`** (per-PR,
-  against the local build) and **`--full`** (scheduled, against the *deployed URL*). Invariants:
+  against the local build) and **`--full`** (scheduled, against the _deployed URL_). Invariants:
   a11y on `/dev` fixtures + real routes, non-empty `<title>` + single `<main>` + `lang` + no
   `user-scalable=no`, sitemap/robots/canonical/OG/JSON-LD present-and-valid, CSP + security headers
   served, build/SSR/prerender clean, internal-link integrity, contact-form endpoint contract. Plus
   **test helpers** (`axeRoute`, `renderSlice`, a mock Prismic client, a route-manifest walker) so
-  *site-specific* tests stay thin — the package ships the harness, each site ships its own cases.
+  _site-specific_ tests stay thin — the package ships the harness, each site ships its own cases.
   Adding an invariant once → every site enforces it on the next Renovate bump.
 - **M7.5 — Re-home the heavy audits → scheduled + deployed-URL (lever 3).** The conformance
-  `--full` profile *is* the audit: run it on a schedule against the live Netlify URL (rolling
+  `--full` profile _is_ the audit: run it on a schedule against the live Netlify URL (rolling
   subset, not all N nightly), write results to Airtable → feed the monthly client report **and** an
   operator "what needs me" digest. Auditing the deployed URL instead of a spawned dev server
   **deletes the brittlest subsystem's whole bug class** (ports/zombies/specDir/webServer.cwd — the
   audit code is historically the repo's highest-fix-rate area, almost all of it server-spawn
-  fallout). This is the rare change that *cuts* upkeep while lighting up the client-reporting +
+  fallout). This is the rare change that _cuts_ upkeep while lighting up the client-reporting +
   don't-let-me-forget-a-site purpose. (Roadmap M2 + M5, re-grounded.)
 - **M7.6 — Deprecate the migration recipes (cleanup, ~half day).** Archive (tag or `src/legacy/`,
   **not** hard-delete) `svelte-4-to-5` + its 8 step files, the 5 codemods, `convert-to-pnpm`,
