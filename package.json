@@ -7,7 +7,7 @@
   "author": "Tucker Lemos",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tucksravin/reddoor-maintenance.git"
+    "url": "git+https://github.com/reddoorla/reddoor-maintenance.git"
   },
   "engines": {
     "node": ">=20"
