@@ -17,6 +17,12 @@ import { makeGitHub, type GitHub } from "../../github/gh.js";
 
 const SELF_UPDATING_CONFIGS = ["ci", "renovate-action", "renovate-config"] as const;
 
+// Reusable-workflow jobs report their check as "<caller-job> / <reusable-job>".
+// The thin `ci` caller (job `ci`) calls reddoorla/.github's reusable workflow (job `ci`),
+// so the required context is "ci / ci", NOT "ci". (Provisional — verified empirically on the
+// starter during M7.1 rollout; correct here if the live checks API reports a different string.)
+const REQUIRED_CHECK = "ci / ci";
+
 export type SelfUpdatingDeps = {
   github?: GitHub;
   pushBranch?: (cwd: string, branch: string) => Promise<void>;
@@ -103,9 +109,12 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
       await github.enableRepoAutoMerge(repo);
       actions.push("enabled auto-merge");
     }
-    if (!(await github.branchProtectionContexts(repo, base)).includes("ci")) {
-      await github.protectBranch(repo, base, ["ci"]);
-      actions.push(`required ci check on ${base}`);
+    if (!(await github.branchProtectionContexts(repo, base)).includes(REQUIRED_CHECK)) {
+      // protectBranch issues a full PUT that REPLACES required-status-check contexts (not merges).
+      // Pre-existing required contexts on a repo are dropped — acceptable here because this recipe
+      // only ever needs the single CI context, and M7.1 rollout verifies contexts per-repo.
+      await github.protectBranch(repo, base, [REQUIRED_CHECK]);
+      actions.push(`required "${REQUIRED_CHECK}" check on ${base}`);
     }
     if (!(await github.secretExists(repo, "RENOVATE_TOKEN"))) {
       await github.setRepoSecret(repo, "RENOVATE_TOKEN", renovateToken);

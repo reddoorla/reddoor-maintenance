@@ -74,6 +74,9 @@ export default createSvelteConfig({
 `,
 };
 
+// The `ci:` job name below + the reusable workflow's `ci` job name produce the
+// branch-protection check context "ci / ci" — kept in sync with REQUIRED_CHECK in
+// src/recipes/self-updating/index.ts. Renaming this job means updating that constant.
 const ci: ConfigTemplate = {
   config: "ci",
   path: ".github/workflows/ci.yml",
@@ -82,32 +85,9 @@ on:
   pull_request:
   push:
     branches: [main]
-permissions:
-  contents: read
 jobs:
   ci:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm exec prettier --check .
-      - run: pnpm exec eslint .
-      - run: pnpm exec svelte-kit sync && pnpm exec svelte-check --tsconfig ./tsconfig.json
-      - run: pnpm build
-      - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm exec reddoor-maint audit --only a11y --fail-on-violations
-      - name: Test (if present)
-        run: |
-          if node -e "process.exit(require('./package.json').scripts?.test ? 0 : 1)"; then
-            pnpm test
-          else
-            echo "no test script — skipping"
-          fi
+    uses: reddoorla/.github/.github/workflows/ci.yml@78c4da64b675f0f474961f12715f2a4c09d46eb5 # v1.0.0
 `,
 };
 
@@ -137,12 +117,7 @@ const renovateConfig: ConfigTemplate = {
   path: "renovate.json",
   contents: `{
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
-  "schedule": ["before 7am on monday"],
-  "packageRules": [
-    { "matchUpdateTypes": ["patch", "minor"], "automerge": true, "platformAutomerge": true },
-    { "matchUpdateTypes": ["major"], "automerge": false }
-  ]
+  "extends": ["github>reddoorla/.github:renovate-config"]
 }
 `,
 };

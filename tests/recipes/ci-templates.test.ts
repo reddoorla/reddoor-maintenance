@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { ALL_TEMPLATES, templatesByName } from "../../src/recipes/sync-configs/templates.js";
 
 describe("CI/Renovate canonical templates", () => {
@@ -24,31 +27,39 @@ describe("CI/Renovate canonical templates", () => {
     expect(contents).toContain("COREPACK_INTEGRITY_KEYS");
     expect(contents).toContain('command = "pnpm build"');
   });
-  it("ci.yml runs the four-layer gate including a11y with --fail-on-violations", () => {
+  it("ci.yml is a thin caller of the org reusable workflow", () => {
     const ci = templatesByName(["ci"])[0]!.contents;
-    expect(ci).toContain("prettier --check");
-    expect(ci).toContain("eslint");
-    expect(ci).toContain("build");
-    expect(ci).toContain("reddoor-maint audit --only a11y --fail-on-violations");
-    expect(ci).not.toContain("lighthouse");
+    expect(ci).toMatch(
+      /uses:\s+reddoorla\/\.github\/\.github\/workflows\/ci\.yml@[0-9a-f]{40} # v/,
+    );
+    expect(ci).toContain("on:");
+    expect(ci).toContain("pull_request");
+    expect(ci).not.toContain("reddoor-maint audit");
+    expect(ci).not.toContain("pnpm build");
   });
-  it("renovate.json auto-merges patch/minor but not major", () => {
+
+  it("renovate.json is a thin shim extending the org preset", () => {
     const cfg = JSON.parse(templatesByName(["renovate-config"])[0]!.contents);
-    const rules = cfg.packageRules as Array<Record<string, unknown>>;
-    const patchMinor = rules.find(
-      (r) =>
-        Array.isArray(r.matchUpdateTypes) && (r.matchUpdateTypes as string[]).includes("minor"),
-    );
-    const major = rules.find(
-      (r) =>
-        Array.isArray(r.matchUpdateTypes) && (r.matchUpdateTypes as string[]).includes("major"),
-    );
-    expect(patchMinor!.automerge).toBe(true);
-    expect(major!.automerge).toBe(false);
+    expect(cfg.extends).toContain("github>reddoorla/.github:renovate-config");
+    expect(cfg.packageRules).toBeUndefined();
   });
   it("renovate.yml emits literal GitHub Actions expressions", () => {
     const contents = templatesByName(["renovate-action"])[0]!.contents;
     expect(contents).toContain("${{ secrets.RENOVATE_TOKEN }}");
     expect(contents).toContain("${{ github.repository }}");
+  });
+
+  it("sync-clean fixtures stay byte-identical to the ci/renovate templates", () => {
+    const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+    const ciFixture = readFileSync(
+      join(root, "tests/fixtures/sync-clean/.github/workflows/ci.yml"),
+      "utf-8",
+    );
+    const renovateFixture = readFileSync(
+      join(root, "tests/fixtures/sync-clean/renovate.json"),
+      "utf-8",
+    );
+    expect(ciFixture).toBe(templatesByName(["ci"])[0]!.contents);
+    expect(renovateFixture).toBe(templatesByName(["renovate-config"])[0]!.contents);
   });
 });
