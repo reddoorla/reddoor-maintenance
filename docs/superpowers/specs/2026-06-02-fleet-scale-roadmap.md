@@ -266,16 +266,25 @@ Sequencing, cheap/independent first:
   (sharp/esbuild), drop `@sveltejs/adapter-auto`, flip the `dev` script `npm:`→`pnpm:`, make the
   starter public, add Renovate + run `self-updating` so the starter dogfoods its own loop and is
   an always-green reference.
-- **M7.1 — One CI (reusable workflow, ~half day).** Author a canonical reusable GitHub Actions
-  workflow (`reddoorla/workflows/ci@v1`) that runs the conformance suite (fast profile); repoint
-  the starter + 9 fleet `ci.yml` to a ~3-line caller; Renovate pins `@v1`. Collapses the
-  `verify`-vs-`ci` job-name mismatch into one definition; "fix CI once" becomes real.
+- **M7.1 — One CI (reusable workflow, ~half day). ✅ DONE 2026-06-08.** Author a canonical reusable
+  GitHub Actions workflow (`reddoorla/workflows/ci@v1`) that runs the conformance suite (fast
+  profile); repoint the starter + 9 fleet `ci.yml` to a ~3-line caller; Renovate pins `@v1`.
+  Collapses the `verify`-vs-`ci` job-name mismatch into one definition; "fix CI once" becomes real.
   **Research: done (2026-06-08).** Prior-art pass + design + plan landed and revised this bullet: the
   reusable workflow lives in **`reddoorla/.github`** (not `reddoorla/workflows`), callers **SHA-pin +
   Renovate bumps the SHA** (not a moving `@v1`), scope extended to fold the org Renovate preset in, and
   the real risk is the `ci → ci / ci` check-context rename. See
   `docs/superpowers/specs/2026-06-08-m7-1-reusable-ci-and-renovate-preset-design.md` +
   `docs/superpowers/plans/2026-06-08-m7-1-reusable-ci-and-renovate-preset.md`.
+  **Rollout complete:** `reddoorla/.github` v1.0.0 @ `78c4da6`; `@reddoorla/maintenance@0.28.0`
+  ships the thin-shim `ci`/`renovate-config` templates; `self-updating` requires `"ci / ci"`. All
+  self-updating site repos migrated to the thin caller + `ci / ci` protection — caltex, espada,
+  medical-solutions-of-texas, revogen, vineyard-custom-homes, alamo-anatomy, erp-industrial,
+  reddoor-website, gallerysonder, la-homelessness-initiative — plus the starter. (la-homelessness
+  was onboarded at reddoor 0.23.0 before the thin-shim templates existed and carried the old inline
+  CI; finished 2026-06-08 via PR #3.) Verified check context is `ci / ci` empirically across the
+  fleet. The only non-onboarded repo left, `data-dynamiq`, is a separate stale-repo onboard (M7.6 /
+  onboarding path), not an M7.1 swap.
 - **M7.2 — Configs into the package (~half day).** Enrich `createSvelteConfig` to compose the
   starter's richness (CSP, the `$`-alias set, the placeholder-tolerant prerender handler) via
   options/defaults; starter adopts `@reddoorla/maintenance`. Retire `sync-configs`' svelte/eslint
