@@ -170,6 +170,20 @@ Each milestone is a ~1–2 week part-time chunk that ships something usable. The
 driven by dependencies: you can't automate recurrence until audits scale; you can't safely
 auto-update until per-repo CI exists; you can't do any of it at 200 until repo identity is real.
 
+**Research-first cadence (standing rule, added 2026-06-08).** Every milestone _opens_ with a
+prior-art / verification research pass before any building — and so does every stage of a
+milestone's implementation plan. This is internal tooling for a niche problem (fleet-of-separate-repos
+maintenance), and the M7.1 pass proved the value: a one-shot research sweep confirmed the whole model
+is the mainstream pattern, corrected one decision (SHA-pin reusable workflows, not a moving `@v1`),
+and surfaced a free improvement (collapse per-repo `renovate.json` into one org preset). A research
+step answers, for that specific milestone: **(1)** is there an established tool/pattern we should
+adopt or borrow rather than hand-roll? **(2)** what does the authoritative source (vendor docs / spec)
+actually say about the APIs/behaviors we're about to depend on — verified, not remembered? **(3)**
+what's the failure mode others hit here? Use the `deep-research` skill for anything broad/ambiguous,
+WebFetch/WebSearch for a targeted check. If a finding contradicts the milestone's assumption, STOP and
+reconcile before building. The per-milestone `**Research first:**` riders below name the concrete
+questions to start from (not an exhaustive list — the point is to look before building).
+
 **M1 — Git/CI foundation + self-updating repos _(the keystone)_.**
 Add a real `Git repo` field to Airtable + `gh` auth; build the **bootstrap-CI-+-Renovate recipe**;
 make existing recipes push + open PRs. Result: onboard a repo → it starts keeping itself current,
@@ -183,6 +197,10 @@ lighthouse to avoid 200 local checkouts, and stagger/roll them so scores stay fr
 single multi-hour batch. Write results to Airtable as today. Removes the throughput wall and the
 "cd into 200 checkouts" problem. (Closes the old "trigger audit" gap as a byproduct — a dashboard
 button just dispatches the same workflow.)
+**Research first:** GitHub Actions matrix concurrency limits + minute cost at fleet scale; deployed-URL
+Lighthouse options (self-hosted Lighthouse-CI server vs Google PageSpeed Insights API) and their rate
+limits; how other teams stagger/roll scheduled audits so a subset runs nightly rather than one
+multi-hour batch.
 
 **M3 — Scheduled recurrence + the approval-only loop.**
 A scheduler drafts due reports automatically (cron → the existing draft pipeline). Add a
@@ -190,17 +208,28 @@ A scheduler drafts due reports automatically (cron → the existing draft pipeli
 write action) and a digest email that lists what's waiting. Result: "the only thing I do is look
 and hit yes" becomes literally true. Keeps your Airtable `Approved to send` gate as the safety
 interlock.
+**Research first:** scheduled-workflow reliability gotchas (GitHub cron can be delayed/skipped on
+low-activity repos — what triggers do production schedulers use instead?); idempotency patterns so a
+cron re-fire doesn't draft duplicate reports; one-click approve-and-send UX prior art (and how to keep
+the send action auditable).
 
 **M4 — Operator command center (dashboard reframe).**
 Retire the client token model; one password over everything. Add triage ("3 critical vulns, 12
 stale > 30d, 5 failing update PRs"), filtering/sorting (by staleness, severity, due-this-week,
 onboarding %), pagination for 200, and surface the M1 git/CI status per site. This is where you
 live day to day.
+**Research first:** operator "command center" / triage-dashboard prior art at ~200 rows
+(filter/sort/pagination patterns that don't melt down); single-password auth hardening for an
+internet-facing ops view (session handling, brute-force protection); whether an existing fleet-status
+surface (e.g. a Backstage-style catalog) is worth borrowing vs. a bespoke page.
 
 **M5 — Alerting ("ping me when something big changes").**
 A digest + urgent alerts over email (reusing Resend; you clarified the "text flow" is _copy_, not
 SMS — so no Twilio for now). Define "big" as: new critical/high vuln, an auto-update PR failing
 CI, a lighthouse regression past threshold, a delivery bounce/complaint. Thresholds are your call.
+**Research first:** Resend bounce/complaint webhooks + suppression handling (we already use Resend —
+verify the deliverability-event API); alert-fatigue / dedupe patterns (digest vs. urgent, grouping,
+snooze) so "ping me" stays signal, not noise; what thresholds comparable monitoring tools default to.
 
 **M6 — Launch flow + copy/templating flow.**
 A first-class **launch**: onboard → bootstrap (M1) → first audit → a distinct **launch email** →
@@ -208,6 +237,9 @@ flip to maintenance, with a "launched" milestone tracked alongside the onboardin
 **copy flow**: extract the hardcoded email strings into a copy layer with Airtable-driven
 per-site overrides (check names, intro/footer, contact), shared across launch + maintenance. This
 is the "behavioral / how I use Airtable" integration for wording — copy becomes data you control.
+**Research first:** copy-as-data / content-layer patterns (how i18n libraries and headless-content
+setups model per-instance string overrides with a shared default); launch-state modeling (how others
+represent a site's lifecycle transition) so "launched" composes cleanly with the onboarding 4/4.
 
 **M7 — Shared PLUMBING package + fleet conformance: fix-once-apply-all** _(decided 2026-06-04; supersedes the recipe-deprecation brief's provisional "starter-as-canonical" lean)._
 M1 is done (9/9 self-updating). The next structural move comes from a hard requirement Tucker
@@ -238,15 +270,29 @@ Sequencing, cheap/independent first:
   workflow (`reddoorla/workflows/ci@v1`) that runs the conformance suite (fast profile); repoint
   the starter + 9 fleet `ci.yml` to a ~3-line caller; Renovate pins `@v1`. Collapses the
   `verify`-vs-`ci` job-name mismatch into one definition; "fix CI once" becomes real.
+  **Research: done (2026-06-08).** Prior-art pass + design + plan landed and revised this bullet: the
+  reusable workflow lives in **`reddoorla/.github`** (not `reddoorla/workflows`), callers **SHA-pin +
+  Renovate bumps the SHA** (not a moving `@v1`), scope extended to fold the org Renovate preset in, and
+  the real risk is the `ci → ci / ci` check-context rename. See
+  `docs/superpowers/specs/2026-06-08-m7-1-reusable-ci-and-renovate-preset-design.md` +
+  `docs/superpowers/plans/2026-06-08-m7-1-reusable-ci-and-renovate-preset.md`.
 - **M7.2 — Configs into the package (~half day).** Enrich `createSvelteConfig` to compose the
   starter's richness (CSP, the `$`-alias set, the placeholder-tolerant prerender handler) via
   options/defaults; starter adopts `@reddoorla/maintenance`. Retire `sync-configs`' svelte/eslint
   templates — configs propagate via the package, not a clobbering sync.
+  **Research first:** how mature shared-config packages expose composable factory configs from npm
+  (exports map, `createXConfig(options)` patterns) without a clobbering file sync; CSP-in-adapter
+  approaches for SvelteKit/adapter-netlify; whether the package-shape decision (single
+  `@reddoorla/maintenance`, settled 2026-06-05) still holds once Svelte-importable config ships.
 - **M7.3 — Shared docs/context + plumbing components (~half day).** Move rfp-handbook /
   accessibility / security / migration docs into one versioned source the package exposes (the
   `export:rfp-pdf` script already points at `docs/`). Extract only true _plumbing_ components/routes
   that are identical everywhere — `/dev` a11y fixtures, a CSP-report endpoint, the Prismic
   client/preview plumbing, analytics wiring — NOT presentational components.
+  **Research first:** shipping Svelte components/routes from an npm package (the peer-dep surface the
+  CLI doesn't have, `exports` for `.svelte` files, whether consuming sites compile them); versioned
+  docs distribution patterns (single source → PDF + in-repo); confirm what's truly identical fleet-wide
+  before extracting (anything with per-site variance stays per-site).
 - **M7.4 — Fleet conformance suite + site test harness (the testing model).** One **conformance
   contract** every site must pass, shipped in the package, run in two profiles: **`--fast`** (per-PR,
   against the local build) and **`--full`** (scheduled, against the _deployed URL_). Invariants:
@@ -256,6 +302,11 @@ Sequencing, cheap/independent first:
   **test helpers** (`axeRoute`, `renderSlice`, a mock Prismic client, a route-manifest walker) so
   _site-specific_ tests stay thin — the package ships the harness, each site ships its own cases.
   Adding an invariant once → every site enforces it on the next Renovate bump.
+  **Research first (the keystone — do a full `deep-research` pass):** conformance/contract-test prior
+  art — the 2026-06-08 sweep already surfaced OpenSSF Scorecard (free, SARIF→Security tab) and Spotify
+  Soundcheck (commercial); re-verify whether emitting our results as **SARIF to each repo's Security
+  tab** is worth it, deployed-URL test-harness patterns (Playwright/axe against a live URL), and how
+  others structure a shared harness + per-site cases without coupling.
 - **M7.5 — Re-home the heavy audits → scheduled + deployed-URL (lever 3).** The conformance
   `--full` profile _is_ the audit: run it on a schedule against the live Netlify URL (rolling
   subset, not all N nightly), write results to Airtable → feed the monthly client report **and** an
@@ -264,11 +315,18 @@ Sequencing, cheap/independent first:
   audit code is historically the repo's highest-fix-rate area, almost all of it server-spawn
   fallout). This is the rare change that _cuts_ upkeep while lighting up the client-reporting +
   don't-let-me-forget-a-site purpose. (Roadmap M2 + M5, re-grounded.)
+  **Research first:** deployed-URL auditing tooling against live Netlify URLs (PageSpeed Insights API
+  vs. Lighthouse-CI) and their rate limits; rolling-subset scheduling so a slice runs nightly rather
+  than all N; reliable Airtable write patterns at fleet scale (rate limits, idempotent upserts).
 - **M7.6 — Deprecate the migration recipes (cleanup, ~half day).** Archive (tag or `src/legacy/`,
   **not** hard-delete) `svelte-4-to-5` + its 8 step files, the 5 codemods, `convert-to-pnpm`,
   `a11y-fixtures-page`, `bump-deps`; prune `ALL_RECIPE_NAMES` + the `RecipeName` union together
   (type-test guards the drift); shrink `onboard`/`init` to a thin "adopt an external/legacy repo"
   path. Safe once nothing new needs migrating.
+  **Research first:** the 2026-06-08 sweep flagged **multi-gitter** and **all-repos** as the standard
+  tools for one-off fleet sweeps the package/template can't express — evaluate whether adopting one of
+  them replaces the bespoke migration recipes outright (vs. keeping a thin `onboard` path); safe
+  archival patterns (tag/`src/legacy/`) so history isn't lost.
 
 **PARKED — shared design-component library.** Not on the path. Only revisit if the same design bug
 is fixed twice across sites. (Tried before; didn't earn its keep.)
