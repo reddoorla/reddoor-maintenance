@@ -74,6 +74,9 @@ export default createSvelteConfig({
 `,
 };
 
+// The `ci:` job name below + the reusable workflow's `ci` job name produce the
+// branch-protection check context "ci / ci" — kept in sync with REQUIRED_CHECK in
+// src/recipes/self-updating/index.ts. Renaming this job means updating that constant.
 const ci: ConfigTemplate = {
   config: "ci",
   path: ".github/workflows/ci.yml",

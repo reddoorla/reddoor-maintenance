@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { ALL_TEMPLATES, templatesByName } from "../../src/recipes/sync-configs/templates.js";
 
 describe("CI/Renovate canonical templates", () => {
@@ -44,5 +47,19 @@ describe("CI/Renovate canonical templates", () => {
     const contents = templatesByName(["renovate-action"])[0]!.contents;
     expect(contents).toContain("${{ secrets.RENOVATE_TOKEN }}");
     expect(contents).toContain("${{ github.repository }}");
+  });
+
+  it("sync-clean fixtures stay byte-identical to the ci/renovate templates", () => {
+    const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+    const ciFixture = readFileSync(
+      join(root, "tests/fixtures/sync-clean/.github/workflows/ci.yml"),
+      "utf-8",
+    );
+    const renovateFixture = readFileSync(
+      join(root, "tests/fixtures/sync-clean/renovate.json"),
+      "utf-8",
+    );
+    expect(ciFixture).toBe(templatesByName(["ci"])[0]!.contents);
+    expect(renovateFixture).toBe(templatesByName(["renovate-config"])[0]!.contents);
   });
 });

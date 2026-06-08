@@ -110,6 +110,9 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
       actions.push("enabled auto-merge");
     }
     if (!(await github.branchProtectionContexts(repo, base)).includes(REQUIRED_CHECK)) {
+      // protectBranch issues a full PUT that REPLACES required-status-check contexts (not merges).
+      // Pre-existing required contexts on a repo are dropped — acceptable here because this recipe
+      // only ever needs the single CI context, and M7.1 rollout verifies contexts per-repo.
       await github.protectBranch(repo, base, [REQUIRED_CHECK]);
       actions.push(`required "${REQUIRED_CHECK}" check on ${base}`);
     }
