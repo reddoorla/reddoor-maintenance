@@ -1,5 +1,22 @@
 # @reddoorla/maintenance
 
+## 0.27.2
+
+### Patch Changes
+
+- b93590c: fix(audit/a11y): eliminate flaky color-contrast violation on animated routes
+
+  The a11y audit sampled pages while CSS transitions were still running, so axe
+  computed color-contrast against semi-transparent text mid-fade — producing a
+  flaky "serious" color-contrast violation (~1/3 of runs on `/dev/animate-in`).
+  The audit now disables transitions/animations before running axe, asserting the
+  resting state users (and `prefers-reduced-motion` users) actually see. Verified
+  8/8 clean over repeated runs that previously flaked ~1-in-3.
+
+- 5420a09: fix(sync-configs): bump renovate workflow pin `renovatebot/github-action@v40` → `@v46.1.14`
+
+  The `@v40` major tag no longer resolves (the action ships full-version tags only, now at v46.x), so the synced renovate workflow failed at action-resolution on every fleet repo. Pin to a current, resolvable version; Renovate self-maintains it going forward.
+
 ## 0.27.1
 
 ### Patch Changes
