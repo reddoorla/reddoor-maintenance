@@ -63,7 +63,7 @@ describe("selfUpdating recipe", () => {
     expect(push).toHaveBeenCalledOnce();
     expect(calls).toContain("pr:o/r");
     expect(calls).toContain("automerge:o/r");
-    expect(calls).toContain("protect:o/r:main:ci");
+    expect(calls).toContain("protect:o/r:main:ci / ci");
     expect(calls).toContain("secret:o/r:RENOVATE_TOKEN");
     expect(r.notes).toContain("https://github.com/o/r/pull/1");
     expect(r.commits).toHaveLength(1);
@@ -75,7 +75,7 @@ describe("selfUpdating recipe", () => {
     const { gh, calls } = fakeGitHub({
       filesOnBranch: async () => ALL_PATHS,
       autoMergeEnabled: async () => true,
-      branchProtectionContexts: async () => ["ci"],
+      branchProtectionContexts: async () => ["ci / ci"],
       secretExists: async () => true,
     });
     const push = vi.fn(async () => {});
@@ -95,7 +95,7 @@ describe("selfUpdating recipe", () => {
     const { gh, calls } = fakeGitHub({
       filesOnBranch: async () => [ALL_PATHS[0]!], // only 1 of 3 present
       autoMergeEnabled: async () => true,
-      branchProtectionContexts: async () => ["ci"],
+      branchProtectionContexts: async () => ["ci / ci"],
       secretExists: async () => true,
     });
     const push = vi.fn(async () => {});
@@ -130,7 +130,7 @@ describe("selfUpdating recipe", () => {
     const { gh, calls } = fakeGitHub({
       filesOnBranch: async () => ALL_PATHS, // no bootstrap
       autoMergeEnabled: async () => false, // → enableRepoAutoMerge succeeds (1 action)
-      branchProtectionContexts: async () => ["ci"],
+      branchProtectionContexts: async () => ["ci / ci"],
       secretExists: async () => false, // → setRepoSecret runs, and throws
       setRepoSecret: async () => {
         throw new Error("boom");
@@ -152,7 +152,7 @@ describe("selfUpdating recipe", () => {
     const { gh, calls } = fakeGitHub({
       filesOnBranch: async () => ALL_PATHS,
       autoMergeEnabled: async () => true,
-      branchProtectionContexts: async () => ["ci"],
+      branchProtectionContexts: async () => ["ci / ci"],
       secretExists: async () => false,
     });
     const r = await selfUpdating(
@@ -177,7 +177,7 @@ describe("selfUpdating recipe", () => {
       { github: gh, pushBranch: vi.fn(async () => {}), renovateToken: "RT" },
     );
     expect(r.status).toBe("applied");
-    expect(calls).toEqual(["protect:o/r:main:ci"]);
+    expect(calls).toEqual(["protect:o/r:main:ci / ci"]);
   });
 
   it("does not open a second PR when a self-updating PR is already open", async () => {
@@ -187,7 +187,7 @@ describe("selfUpdating recipe", () => {
       filesOnBranch: async () => [],
       findOpenSelfUpdatingPR: async () => "https://github.com/o/r/pull/9",
       autoMergeEnabled: async () => true,
-      branchProtectionContexts: async () => ["ci"],
+      branchProtectionContexts: async () => ["ci / ci"],
       secretExists: async () => true,
     });
     const push = vi.fn(async () => {});
