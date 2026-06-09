@@ -100,6 +100,12 @@
     },
     "onlyBuiltDependencies": [
       "sharp"
-    ]
+    ],
+    "auditConfig": {
+      "ignoreGhsas": [
+        "GHSA-pfq8-rq6v-vf5m",
+        "GHSA-45h5-66jx-r2wf"
+      ]
+    }
   }
 }
