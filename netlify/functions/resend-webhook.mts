@@ -6,11 +6,20 @@ import { findReportByMessageId, setDeliveryStatus } from "../../src/reports/airt
 
 type ResendEvent = {
   type: string;
+  created_at?: string;
   data: {
     email_id?: string;
     [k: string]: unknown;
   };
 };
+
+// How long after an event was created we keep retrying an unmatched lookup.
+// Inside this window an unmatched event is almost always the stampSent race
+// (delivery beat the orchestrator's Airtable write) so we 500 → svix retries.
+// Past it the race has long resolved, so an unmatched event is a genuine orphan
+// (email sent outside this pipeline, or a deleted Reports row) and retrying is
+// futile — we 200 to stop svix hammering the function for hours/days.
+const ORPHAN_RETRY_WINDOW_MS = 10 * 60 * 1000;
 
 export default async (req: Request, _ctx: Context): Promise<Response> => {
   // Health check — lets an operator curl the deployed URL right after
@@ -87,8 +96,20 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   }
 
   if (!report) {
-    // Return 500 so svix retries — this usually means stampSent hasn't run yet (delivery
-    // raced ahead of the orchestrator's Airtable write). A retry will normally succeed.
+    // Within ORPHAN_RETRY_WINDOW_MS of the event's creation this is almost
+    // certainly the stampSent race (delivery beat the orchestrator's Airtable
+    // write) → 500 so svix retries and a later attempt succeeds. Past the window
+    // the race has resolved, so this is a genuine orphan and retrying is futile →
+    // 200 to stop svix retrying for hours. A missing/unparseable created_at can't
+    // be aged, so we conservatively keep the retry behaviour.
+    const createdMs = event.created_at ? Date.parse(event.created_at) : NaN;
+    const ageMs = Number.isNaN(createdMs) ? 0 : Date.now() - createdMs;
+    if (ageMs > ORPHAN_RETRY_WINDOW_MS) {
+      console.warn(
+        `[resend-webhook] orphan event (no Reports row, age=${Math.round(ageMs / 1000)}s) for messageId=${messageId} type=${event.type} — returning 200, not retrying`,
+      );
+      return new Response("no matching report (orphan, not retrying)", { status: 200 });
+    }
     console.warn(
       `[resend-webhook] no matching Reports row for messageId=${messageId} type=${event.type} — returning 500 so svix retries`,
     );
