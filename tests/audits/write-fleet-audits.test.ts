@@ -58,9 +58,26 @@ describe("writeFleetAuditsToAirtable", () => {
     expect(out.failed[0]!.slug).toBe("ghost-site");
     expect(out.failed[0]!.error).toMatch(/No Websites row matched/);
   });
+
+  it("files a lighthouse-ran-but-no-real-scores site under failed, still writing healthy sites", async () => {
+    const base = makeFakeBase({ Websites: websites });
+    const results = [
+      lhResult("acme-co", { performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
+      lhResult("beta-corp", {}), // lighthouse ran but produced no real scores
+    ];
+    const out = await writeFleetAuditsToAirtable({
+      base,
+      websites: await loadWebsites(base),
+      results,
+    });
+    expect(out.written.map((w) => w.siteName)).toEqual(["Acme Co"]);
+    expect(out.failed).toHaveLength(1);
+    expect(out.failed[0]!.slug).toBe("beta-corp");
+    expect(out.failed[0]!.error).toMatch(/produced no scores/i);
+  });
 });
 
-// listWebsites reads the seeded Websites table off the fake base.
+// loadWebsites: reads the seeded Websites table off the fake base via listWebsites.
 async function loadWebsites(base: ReturnType<typeof makeFakeBase>) {
   const { listWebsites } = await import("../../src/reports/airtable/websites.js");
   return listWebsites(base as never);

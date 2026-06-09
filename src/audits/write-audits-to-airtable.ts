@@ -112,6 +112,10 @@ export async function writeFleetAuditsToAirtable(args: {
 
   const written: WriteSummary[] = [];
   const failed: FleetWriteResult["failed"] = [];
+  // Serial on purpose: Airtable's ~5 req/sec limit + up to 4 update calls per
+  // site means a Promise.all fan-out would burst and trip 429s (silently filed
+  // as failures). Below a few dozen sites, serial trades wall-clock for safety.
+  // (morning-brief 2026-06-09 MEDIUM-3.) Add a bounded pool when the fleet grows.
   for (const [slug, siteResults] of bySlug) {
     try {
       written.push(await writeAuditsToAirtable({ base, websites, slug, results: siteResults }));
