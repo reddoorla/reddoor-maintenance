@@ -100,7 +100,7 @@ cli
   .option("--fail-on-violations", "Exit non-zero if any a11y violations are found (for CI gates)")
   .option(
     "--url <url>",
-    "Audit this deployed URL directly instead of a local dev server (lighthouse only; single-site).",
+    "Audit this deployed URL with lighthouse (no dev server); single-site. Pair with --only lighthouse — other audits still use the local checkout.",
   )
   .action(
     async (

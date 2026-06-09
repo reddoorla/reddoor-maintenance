@@ -231,7 +231,6 @@ async function deployedLighthouse(
   await writeFile(configPath, JSON.stringify(resolvedConfig), "utf-8");
 
   const resultsDir = join(workDir, ".lighthouseci");
-  await rm(resultsDir, { recursive: true, force: true });
 
   let raw: SpawnResult;
   try {

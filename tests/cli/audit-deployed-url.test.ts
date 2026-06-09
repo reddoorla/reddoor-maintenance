@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { applyDeployedUrl } from "../../src/cli/commands/audit.js";
-import type { Site } from "../../src/types.js";
+import { applyDeployedUrl, deployedUrlNotice } from "../../src/cli/commands/audit.js";
+import type { AuditName, Site } from "../../src/types.js";
 
 describe("applyDeployedUrl", () => {
   it("returns sites unchanged when url is undefined", () => {
@@ -41,5 +41,27 @@ describe("applyDeployedUrl", () => {
       expect((e as Error).message).toMatch(/not a valid url/i);
       expect((e as { exitCode?: number }).exitCode).toBe(2);
     }
+  });
+});
+
+describe("deployedUrlNotice", () => {
+  it("returns null when no --url is given", () => {
+    expect(deployedUrlNotice(["lighthouse", "deps"] as AuditName[], undefined, "/repo")).toBeNull();
+  });
+
+  it("returns null when only lighthouse ran (the intended pairing)", () => {
+    expect(deployedUrlNotice(["lighthouse"] as AuditName[], "https://x/", "/repo")).toBeNull();
+  });
+
+  it("names the non-lighthouse audits that ran against the local checkout", () => {
+    const note = deployedUrlNotice(
+      ["lighthouse", "deps", "a11y"] as AuditName[],
+      "https://x/",
+      "/repo/site",
+    );
+    expect(note).toMatch(/--url only affects lighthouse/i);
+    expect(note).toContain("deps");
+    expect(note).toContain("a11y");
+    expect(note).toContain("/repo/site");
   });
 });

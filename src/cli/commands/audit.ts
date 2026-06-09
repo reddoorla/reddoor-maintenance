@@ -168,6 +168,21 @@ function rendererFor(json: boolean | undefined): Renderer {
   return json ? "silent" : "default";
 }
 
+/** When `--url` is set but audits other than lighthouse also ran (those use the
+ *  local checkout, not the deployed URL), return a one-line operator notice;
+ *  null when there's nothing to warn about. Keeps the mixed-provenance result
+ *  table from silently confusing the operator. */
+export function deployedUrlNotice(
+  which: AuditName[],
+  url: string | undefined,
+  cwd: string,
+): string | null {
+  if (url === undefined) return null;
+  const others = which.filter((n) => n !== "lighthouse");
+  if (others.length === 0) return null;
+  return `note: --url only affects lighthouse; ${others.join(", ")} ran against the local checkout at ${cwd}`;
+}
+
 /** Apply a single-site `--url` to the resolved sites. Returns the input
  *  untouched when no url is given; otherwise requires exactly one site and
  *  stamps `deployedUrl` on it so the lighthouse audit takes its deployed path.
@@ -272,6 +287,9 @@ export async function runAuditCommand(
 
     if (writeSummary) output += `\n\n${formatWriteSummary(writeSummary)}`;
   }
+
+  const notice = deployedUrlNotice(which, opts.url, cwd);
+  if (notice && !opts.json) output += `\n\n${notice}`;
 
   return { output, code: auditExitCode(results, opts.failOnViolations === true) };
 }
