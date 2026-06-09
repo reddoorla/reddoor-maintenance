@@ -183,6 +183,15 @@ export function deployedUrlNotice(
   return `note: --url only affects lighthouse; ${others.join(", ")} ran against the local checkout at ${cwd}`;
 }
 
+/** A fleet site needs a local checkout unless every requested audit can run
+ *  against its deployed URL. Today only lighthouse has a deployed mode, so a
+ *  site is checkout-free exactly when it has a `deployedUrl` and lighthouse is
+ *  the only requested audit. */
+export function auditNeedsCheckout(site: Site, which: AuditName[]): boolean {
+  const deployedCapable = site.deployedUrl !== undefined && which.every((n) => n === "lighthouse");
+  return !deployedCapable;
+}
+
 /** Apply a single-site `--url` to the resolved sites. Returns the input
  *  untouched when no url is given; otherwise requires exactly one site and
  *  stamps `deployedUrl` on it so the lighthouse audit takes its deployed path.
@@ -247,7 +256,11 @@ export async function runAuditCommand(
 
   if (opts.fleet) {
     const workdir = opts.workdir ?? `${process.env.HOME ?? ""}/.reddoor-maint/sites`;
-    sites = await Promise.all(sites.map((s) => cloneIfNeeded(s, { workdir })));
+    sites = await Promise.all(
+      sites.map((s) =>
+        auditNeedsCheckout(s, which) ? cloneIfNeeded(s, { workdir }) : Promise.resolve(s),
+      ),
+    );
   }
 
   const results: AuditResult[] = [];
