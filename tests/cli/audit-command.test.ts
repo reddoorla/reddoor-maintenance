@@ -69,16 +69,18 @@ describe("cli: audit command", () => {
     expect(status).toBe(2);
   });
 
-  it("--write-airtable combined with --fleet exits 2 before running any audits", () => {
-    // Fleet pools AuditResult[] across sites and the cwd-derived slug would
-    // silently overwrite one site's dashboard with another's results.
-    // Refuse fast so the operator doesn't burn fleet audit time discovering it.
+  it("--write-airtable=<slug> combined with --fleet exits 2 before running any audits", () => {
+    // An explicit --write-airtable=<slug> names ONE row, but with --fleet each
+    // site's slug comes from the inventory — the combination is ambiguous, so we
+    // refuse fast (before reading the inventory or running any audit). Boolean
+    // --write-airtable + --fleet IS allowed: fleet write-back routes each
+    // result to its own row by slug (see writeFleetAuditsToAirtable).
     const { stdout, status } = runCli(
       [
         "audit",
         "--fleet",
         resolve(fixtures, "pristine-starter") + "/inventory.json",
-        "--write-airtable",
+        "--write-airtable=somesite",
       ],
       { allowNonZero: true },
     );
