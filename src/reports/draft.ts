@@ -191,5 +191,12 @@ async function derivePeriodStart(
     .map((r) => r.periodEnd!)
     .sort();
   const latest = sameType[sameType.length - 1];
-  return latest ? new Date(latest) : daysAgo(today, 30);
+  if (!latest) return daysAgo(today, 30);
+  // Half-open periods. The prior report's GA/Search windows are inclusive of its
+  // periodEnd, so starting this report on the *same* day double-counts that
+  // boundary day across two consecutive reports (and inflates the headline Users
+  // count). Start the next day instead. UTC to stay TZ-consistent with daysAgo.
+  const start = new Date(latest);
+  start.setUTCDate(start.getUTCDate() + 1);
+  return start;
 }

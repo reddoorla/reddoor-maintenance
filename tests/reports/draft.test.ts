@@ -145,7 +145,10 @@ describe("draftReportForSite", () => {
     await unlink("/tmp/draft-test-preview.html");
   });
 
-  it("derives periodStart from the latest prior Reports row's periodEnd", async () => {
+  it("derives periodStart as the day AFTER the latest prior report's periodEnd (half-open)", async () => {
+    // The prior report already covered through its periodEnd inclusively, so this
+    // report starts the next day. Without the +1 the boundary day (here 2026-04-26)
+    // is double-counted in both reports' inclusive GA/Search windows.
     const base = makeFakeBase({
       Reports: [
         {
@@ -163,7 +166,7 @@ describe("draftReportForSite", () => {
     });
     await draftReportForSite(base, siteFixture(), "Maintenance");
     const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
-    expect(fields["Period start"]).toBe("2026-04-26");
+    expect(fields["Period start"]).toBe("2026-04-27");
   });
 
   it("falls back to 30-days-ago for periodStart when no prior reports exist", async () => {
