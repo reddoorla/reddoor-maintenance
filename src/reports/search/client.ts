@@ -115,7 +115,9 @@ export async function fetchSearchPresence(
     });
     const pos = res.data.rows?.[0]?.position;
     if (typeof pos === "number") {
-      return { foundOnPage1: pos <= PAGE_1_MAX_POSITION, position: Math.round(pos) };
+      // Search Console can average below 1; floor to 1 so the template never
+      // renders a nonsensical "#0" (positions are 1-indexed).
+      return { foundOnPage1: pos <= PAGE_1_MAX_POSITION, position: Math.max(1, Math.round(pos)) };
     }
   }
   return { foundOnPage1: false, position: null };
