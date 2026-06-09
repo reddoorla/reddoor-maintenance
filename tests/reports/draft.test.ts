@@ -228,6 +228,31 @@ describe("draftReportForSite", () => {
       await draftReportForSite(base, siteFixture({ ga4PropertyId: "471880366" }), "Maintenance");
       expect(fetchPeriodUsers).not.toHaveBeenCalled();
     });
+
+    it("flags a 'ga' soft-failure when GA is configured but the API errors", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchPeriodUsers).mockRejectedValue(new Error("7 PERMISSION_DENIED"));
+      const base = makeFakeBase({ Reports: [] });
+      const result = await draftReportForSite(
+        base,
+        siteFixture({ ga4PropertyId: "471880366" }),
+        "Maintenance",
+      );
+      expect(result.softFailures).toContain("ga");
+    });
+
+    it("records NO soft-failure when GA is simply not configured (a legitimate skip, not an outage)", async () => {
+      // GA_SUBJECT unset in beforeEach → readGaConfig null → skip. A skip must not
+      // count as a soft-failure, or every un-instrumented site would trip the
+      // fleet-scale outage warning.
+      const base = makeFakeBase({ Reports: [] });
+      const result = await draftReportForSite(
+        base,
+        siteFixture({ ga4PropertyId: "471880366" }),
+        "Maintenance",
+      );
+      expect(result.softFailures).toEqual([]);
+    });
   });
 
   describe("search presence", () => {
@@ -247,6 +272,18 @@ describe("draftReportForSite", () => {
       const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
       expect(fields["Search found page 1"]).toBe(true);
       expect(fields["Search position"]).toBe(3);
+    });
+
+    it("flags a 'search' soft-failure when the Search API errors", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockRejectedValue(new Error("backend error"));
+      const base = makeFakeBase({ Reports: [] });
+      const result = await draftReportForSite(
+        base,
+        siteFixture({ searchQuery: "erp funds" }),
+        "Maintenance",
+      );
+      expect(result.softFailures).toContain("search");
     });
   });
 });

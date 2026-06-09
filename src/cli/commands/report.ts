@@ -49,13 +49,22 @@ async function runDueDraft(): Promise<{ output: string; code: number }> {
   if (due.length === 0) return { output: "No reports due.", code: 0 };
 
   const lines: string[] = [];
+  let softFailedSites = 0;
   for (const item of due) {
     try {
       const result = await draftReportForSite(base, item.site, item.reportType);
       lines.push(`✓ drafted: ${result.reportRow?.reportId}`);
+      // Count sites (not individual GA/Search failures) so a fleet-wide enrichment
+      // outage is one obvious line at the bottom, not 200 buried console.warns.
+      if (result.softFailures.length > 0) softFailedSites++;
     } catch (e) {
       lines.push(`✗ failed: ${item.site.name} ${item.reportType} — ${(e as Error).message}`);
     }
+  }
+  if (softFailedSites > 0) {
+    lines.push(
+      `⚠ ${softFailedSites} site${softFailedSites === 1 ? "" : "s"} had GA/Search enrichment fail — drafted with blank analytics; check the logs above`,
+    );
   }
   return { output: lines.join("\n"), code: lines.some((l) => l.startsWith("✗")) ? 1 : 0 };
 }
