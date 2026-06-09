@@ -220,17 +220,13 @@ export async function runAuditCommand(
   const which = parseOnly(opts.only) ?? ALL_AUDIT_NAMES;
   const cwd = opts.cwd ? resolve(opts.cwd) : process.cwd();
 
-  // --write-airtable is single-site only. With --fleet, results pool across
-  // sites and the cwd-derived slug would silently overwrite one site's
-  // dashboard row with another's pooled results — dashboard-wrong, not
-  // crash-loud. Refuse fast before running any audits so the operator
-  // doesn't burn 5+ minutes per site to discover the misuse.
-  if (opts.writeAirtable !== undefined && opts.fleet !== undefined) {
+  // A literal --write-airtable=<slug> is single-site (the slug names one row).
+  // Boolean --write-airtable + --fleet is fine: each site's slug comes from the
+  // inventory, so there's no cwd-derived-slug ambiguity.
+  if (typeof opts.writeAirtable === "string" && opts.fleet !== undefined) {
     throw Object.assign(
       new Error(
-        "--write-airtable is not supported with --fleet. " +
-          "Each site has its own Airtable row; run per-site instead: " +
-          "`cd <site>/ && reddoor-maint audit --write-airtable`.",
+        "--write-airtable=<slug> is single-site; with --fleet each site's slug comes from the inventory. Use --write-airtable (no slug) + --fleet.",
       ),
       { exitCode: 2 },
     );
@@ -272,33 +268,45 @@ export async function runAuditCommand(
   if (opts.writeAirtable !== undefined) {
     const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
     const { listWebsites } = await import("../../reports/airtable/websites.js");
-    const { resolveSlugFromCwd } = await import("../../audits/lighthouse-airtable.js");
-    const { writeAuditsToAirtable } = await import("../../audits/write-audits-to-airtable.js");
 
-    const slug =
-      typeof opts.writeAirtable === "string" && opts.writeAirtable.length > 0
-        ? opts.writeAirtable
-        : await resolveSlugFromCwd(cwd);
-
-    let writeSummary: WriteSummary | null = null;
-    await new Listr(
-      [
-        {
-          title: `Write to Airtable[${slug}]`,
-          task: async (_ctx, task) => {
-            const base = openBase(readAirtableConfig());
-            task.output = "loading Websites…";
-            const websites = await listWebsites(base);
-            task.output = "writing scores…";
-            writeSummary = await writeAuditsToAirtable({ base, websites, slug, results });
-            task.title = `Wrote to Websites[${writeSummary.siteName}] (${writeSummary.writes.length} audit type${writeSummary.writes.length === 1 ? "" : "s"})`;
+    if (opts.fleet !== undefined) {
+      const { writeFleetAuditsToAirtable } =
+        await import("../../audits/write-audits-to-airtable.js");
+      const base = openBase(readAirtableConfig());
+      const websites = await listWebsites(base);
+      const fleetWrite = await writeFleetAuditsToAirtable({ base, websites, results });
+      output += `\n\n→ wrote ${fleetWrite.written.length} site(s) to Airtable`;
+      if (fleetWrite.failed.length > 0) {
+        output += `\n⚠ ${fleetWrite.failed.length} site(s) not written: ${fleetWrite.failed
+          .map((f) => `${f.slug} (${f.error})`)
+          .join("; ")}`;
+      }
+    } else {
+      const { resolveSlugFromCwd } = await import("../../audits/lighthouse-airtable.js");
+      const { writeAuditsToAirtable } = await import("../../audits/write-audits-to-airtable.js");
+      const slug =
+        typeof opts.writeAirtable === "string" && opts.writeAirtable.length > 0
+          ? opts.writeAirtable
+          : await resolveSlugFromCwd(cwd);
+      let writeSummary: WriteSummary | null = null;
+      await new Listr(
+        [
+          {
+            title: `Write to Airtable[${slug}]`,
+            task: async (_ctx, task) => {
+              const base = openBase(readAirtableConfig());
+              task.output = "loading Websites…";
+              const websites = await listWebsites(base);
+              task.output = "writing scores…";
+              writeSummary = await writeAuditsToAirtable({ base, websites, slug, results });
+              task.title = `Wrote to Websites[${writeSummary.siteName}] (${writeSummary.writes.length} audit type${writeSummary.writes.length === 1 ? "" : "s"})`;
+            },
           },
-        },
-      ],
-      { renderer },
-    ).run();
-
-    if (writeSummary) output += `\n\n${formatWriteSummary(writeSummary)}`;
+        ],
+        { renderer },
+      ).run();
+      if (writeSummary) output += `\n\n${formatWriteSummary(writeSummary)}`;
+    }
   }
 
   const notice = deployedUrlNotice(which, opts.url, cwd);
