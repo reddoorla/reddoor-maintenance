@@ -7,7 +7,7 @@ import { fetchAttachmentBytes } from "../airtable/attachments.js";
 import { renderReportHtml } from "../render.js";
 import { loadBundledImages } from "../maintenance-email/assets/index.js";
 import { prepareHeaderImage } from "../maintenance-email/header-image.js";
-import { defaultResendClient, type ResendClient } from "./resend.js";
+import { defaultResendClient, type ResendClient, type ResendSendInput } from "./resend.js";
 
 const FROM_ADDRESS = "Reddoor Reports <reports@reddoorla.com>";
 const REPLY_TO = "info@reddoorla.com";
@@ -30,6 +30,24 @@ const MONTHS = [
 /** "May 2026" — UTC month/year, consistent with the rest of the reports pipeline's dates. */
 function monthYear(d: Date): string {
   return `${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
+type InlineAttachment = NonNullable<ResendSendInput["attachments"]>[number];
+
+/** Build a Resend inline (CID-referenced) attachment from raw bytes — the header
+ *  image and both bundled images share this exact shape. */
+function toInlineAttachment(a: {
+  bytes: Uint8Array;
+  filename: string;
+  contentType: string;
+  cid: string;
+}): InlineAttachment {
+  return {
+    filename: a.filename,
+    content: Buffer.from(a.bytes).toString("base64"),
+    contentType: a.contentType,
+    inlineContentId: a.cid,
+  };
 }
 
 export type OrchestrateOptions = {
@@ -78,7 +96,11 @@ async function sendOne(
     throw new Error(`Site '${site.name}' has no Header image set on the Websites row`);
   }
   if (!report.lighthouse) {
-    throw new Error(`Report ${report.reportId} has no Lighthouse scores`);
+    throw new Error(
+      `Report ${report.reportId} has no Lighthouse scores — all four cells ` +
+        `(Lighthouse — Performance / Accessibility / Best Practices / SEO) must be numeric ` +
+        `on the Reports row; one non-numeric or blank cell nulls all four`,
+    );
   }
 
   const original = await fetchAttachmentBytes(site.headerImage.url);
@@ -123,7 +145,8 @@ async function sendOne(
   for (const addr of to) {
     if (!isProbablyEmail(addr)) {
       throw new Error(
-        `Site '${site.name}' recipient is malformed: ${addr} — fix Report recipients (To) or point of contact in Airtable`,
+        `Site '${site.name}' recipient is malformed: ${addr} — use a bare address only ` +
+          `(no \`Name <addr>\` display-name syntax); fix Report recipients (To) or point of contact in Airtable`,
       );
     }
   }
@@ -145,27 +168,27 @@ async function sendOne(
     subject,
     html,
     attachments: [
-      {
+      toInlineAttachment({
+        bytes: header.bytes,
         filename: `${cidName}.jpg`,
-        content: Buffer.from(header.bytes).toString("base64"),
         contentType: header.contentType,
-        inlineContentId: cidName,
-      },
+        cid: cidName,
+      }),
       // Bundled images referenced via cid:rd-check-png / cid:rd-blurred-tests-jpg
       // in the template. Attached inline so the email is self-contained — no
       // external CDN dependency, no image-blocked broken icons in webmail.
-      {
+      toInlineAttachment({
+        bytes: bundled.check.bytes,
         filename: bundled.check.filename,
-        content: Buffer.from(bundled.check.bytes).toString("base64"),
         contentType: bundled.check.contentType,
-        inlineContentId: bundled.check.cid,
-      },
-      {
+        cid: bundled.check.cid,
+      }),
+      toInlineAttachment({
+        bytes: bundled.blurred.bytes,
         filename: bundled.blurred.filename,
-        content: Buffer.from(bundled.blurred.bytes).toString("base64"),
         contentType: bundled.blurred.contentType,
-        inlineContentId: bundled.blurred.cid,
-      },
+        cid: bundled.blurred.cid,
+      }),
     ],
     // Stable across retries of the same row — if Airtable stamping fails after a
     // successful Resend, the next --send-ready replays with the same key and
