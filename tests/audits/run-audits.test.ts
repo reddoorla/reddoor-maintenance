@@ -1,34 +1,50 @@
-import { describe, it, expect } from "vitest";
-import { fileURLToPath } from "node:url";
-import { resolve, dirname } from "node:path";
+import { describe, it, expect, vi } from "vitest";
+import { resolve } from "node:path";
+
+// run-audits is an ORCHESTRATION layer: it validates the requested audit names,
+// dispatches each to its registered runner, and aggregates the results. The
+// behavior of the individual audits is covered by their own test files
+// (deps.test.ts, lint.test.ts, security.test.ts, lighthouse.test.ts,
+// a11y.test.ts). So we mock the five audit modules to fast stubs and assert only
+// the dispatch/validation/aggregation behavior.
+//
+// This used to invoke the real lhci + playwright audits against a fixture — a
+// single 124s test that *was* the whole suite (morning brief 2026-06-09,
+// MEDIUM-5). Mocking the registry keeps the exact same assertions while
+// reclaiming ~2 min per `pnpm test`.
+function stubAudit(name: string) {
+  return vi.fn(async (ctx: { site: { name?: string; path: string } }) => ({
+    audit: name,
+    site: ctx.site.name ?? ctx.site.path,
+    status: "pass",
+    summary: "",
+  }));
+}
+
+vi.mock("../../src/audits/deps.js", () => ({ depsAudit: stubAudit("deps") }));
+vi.mock("../../src/audits/lint.js", () => ({ lintAudit: stubAudit("lint") }));
+vi.mock("../../src/audits/security.js", () => ({ securityAudit: stubAudit("security") }));
+vi.mock("../../src/audits/lighthouse.js", () => ({ lighthouseAudit: stubAudit("lighthouse") }));
+vi.mock("../../src/audits/a11y.js", () => ({ a11yAudit: stubAudit("a11y") }));
+
 import { runAudits, runAuditsAcross } from "../../src/audits/index.js";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const fixtures = resolve(here, "../fixtures");
-
 describe("runAudits", () => {
-  it("runs only the deps audit when `which` is restricted", async () => {
-    const results = await runAudits({ path: resolve(fixtures, "pristine-starter") }, ["deps"]);
+  it("dispatches only the requested audit when `which` is restricted", async () => {
+    const results = await runAudits({ path: "/fixtures/pristine-starter" }, ["deps"]);
     expect(results).toHaveLength(1);
     expect(results[0]?.audit).toBe("deps");
   });
 
-  // Integration: invokes real lhci + real playwright against the fixture.
-  // Previously completed in ~55s because the lighthouse / a11y audits both
-  // bailed early on bugs (manifest.json absent in lhci 0.15+; webServer.cwd
-  // defaulting to /tmp ENOENT'd before vite started). With those fixed
-  // (2026-05-28) the audits actually run end-to-end — chromium download +
-  // axe + real lhci ≈ several minutes on a cold cache. Test purpose is
-  // unchanged: assert all 5 audit names dispatched, regardless of status.
-  it("runs all audits when `which` is undefined", async () => {
-    const results = await runAudits({ path: resolve(fixtures, "pristine-starter") });
+  it("dispatches all five audits when `which` is undefined", async () => {
+    const results = await runAudits({ path: "/fixtures/pristine-starter" });
     const names = results.map((r) => r.audit).sort();
     expect(names).toEqual(["a11y", "deps", "lighthouse", "lint", "security"]);
-  }, 600_000);
+  });
 
   it("rejects an unknown audit name with a usage error", async () => {
     await expect(() =>
-      runAudits({ path: resolve(fixtures, "pristine-starter") }, ["nope" as never]),
+      runAudits({ path: "/fixtures/pristine-starter" }, ["nope" as never]),
     ).rejects.toThrow(/unknown audit/i);
   });
 });
@@ -37,8 +53,8 @@ describe("runAuditsAcross", () => {
   it("aggregates results from multiple sites", async () => {
     const results = await runAuditsAcross(
       [
-        { path: resolve(fixtures, "pristine-starter"), name: "a" },
-        { path: resolve(fixtures, "drifted-configs"), name: "b" },
+        { path: resolve("/fixtures/pristine-starter"), name: "a" },
+        { path: resolve("/fixtures/drifted-configs"), name: "b" },
       ],
       ["deps"],
     );
