@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { applyDeployedUrl, deployedUrlNotice } from "../../src/cli/commands/audit.js";
+import {
+  applyDeployedUrl,
+  deployedUrlNotice,
+  auditNeedsCheckout,
+} from "../../src/cli/commands/audit.js";
 import type { AuditName, Site } from "../../src/types.js";
 
 describe("applyDeployedUrl", () => {
@@ -63,5 +67,23 @@ describe("deployedUrlNotice", () => {
     expect(note).toContain("deps");
     expect(note).toContain("a11y");
     expect(note).toContain("/repo/site");
+  });
+});
+
+describe("auditNeedsCheckout", () => {
+  it("is false for a deployedUrl site auditing lighthouse only (no checkout needed)", () => {
+    expect(auditNeedsCheckout({ path: "/x", deployedUrl: "https://x/" }, ["lighthouse"])).toBe(
+      false,
+    );
+  });
+
+  it("is true when a non-lighthouse audit is also requested", () => {
+    expect(
+      auditNeedsCheckout({ path: "/x", deployedUrl: "https://x/" }, ["lighthouse", "deps"]),
+    ).toBe(true);
+  });
+
+  it("is true when the site has no deployedUrl", () => {
+    expect(auditNeedsCheckout({ path: "/x" }, ["lighthouse"])).toBe(true);
   });
 });

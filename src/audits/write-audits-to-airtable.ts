@@ -86,3 +86,42 @@ export async function writeAuditsToAirtable(args: {
 
   return { siteName: target.name, writes };
 }
+
+export type FleetWriteResult = {
+  written: WriteSummary[];
+  failed: Array<{ slug: string; error: string }>;
+};
+
+/** Write each site's pooled audit results back to its own Websites row,
+ *  best-effort. Results are grouped by `result.site` (the slug the fleet
+ *  inventory stamped as Site.name). A per-site failure (no scores, no matching
+ *  row) is collected — not thrown — so one bad site never aborts the batch. */
+export async function writeFleetAuditsToAirtable(args: {
+  base: AirtableBase;
+  websites: WebsiteRow[];
+  results: AuditResult[];
+}): Promise<FleetWriteResult> {
+  const { base, websites, results } = args;
+
+  const bySlug = new Map<string, AuditResult[]>();
+  for (const r of results) {
+    const arr = bySlug.get(r.site) ?? [];
+    arr.push(r);
+    bySlug.set(r.site, arr);
+  }
+
+  const written: WriteSummary[] = [];
+  const failed: FleetWriteResult["failed"] = [];
+  // Serial on purpose: Airtable's ~5 req/sec limit + up to 4 update calls per
+  // site means a Promise.all fan-out would burst and trip 429s (silently filed
+  // as failures). Below a few dozen sites, serial trades wall-clock for safety.
+  // (morning-brief 2026-06-09 MEDIUM-3.) Add a bounded pool when the fleet grows.
+  for (const [slug, siteResults] of bySlug) {
+    try {
+      written.push(await writeAuditsToAirtable({ base, websites, slug, results: siteResults }));
+    } catch (e) {
+      failed.push({ slug, error: (e as Error).message });
+    }
+  }
+  return { written, failed };
+}

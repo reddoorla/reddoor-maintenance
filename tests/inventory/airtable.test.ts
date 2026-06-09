@@ -12,99 +12,73 @@ describe("fromAirtableBase", () => {
       Websites: [
         {
           id: "rec_1",
-          fields: { Name: "Acme", url: "https://acme.example.com", "maintenence freq": "Monthly" },
+          fields: { Name: "Acme", url: "https://acme.example.com", Status: "maintenance" },
         },
       ],
     });
-    const provider = fromAirtableBase(base);
-    await expect(provider()).rejects.toThrow(/workdir/);
+    await expect(fromAirtableBase(base)()).rejects.toThrow(/workdir/);
   });
 
-  it("returns one Site per active Websites row", async () => {
+  it("returns one Site per maintenance/launch site, with deployedUrl from url and no repoUrl", async () => {
     const base = makeFakeBase({
       Websites: [
         {
           id: "rec_1",
-          fields: {
-            Name: "Acme Co",
-            url: "https://acme.example.com",
-            "maintenence freq": "Monthly",
-          },
+          fields: { Name: "Acme Co", url: "https://acme.example.com", Status: "maintenance" },
         },
         {
           id: "rec_2",
-          fields: {
-            Name: "Beta Corp",
-            url: "https://beta.example.com",
-            "maintenence freq": "Quarterly",
-          },
+          fields: { Name: "Beta Corp", url: "https://beta.example.com", Status: "launch period" },
         },
       ],
     });
-    const provider = fromAirtableBase(base, { workdir: "/tmp/sites" });
-    const sites = await provider();
+    const sites = await fromAirtableBase(base, { workdir: "/tmp/sites" })();
     expect(sites).toHaveLength(2);
     expect(sites[0]!.name).toBe("acme-co");
     expect(sites[0]!.path).toBe("/tmp/sites/acme-co");
+    expect(sites[0]!.deployedUrl).toBe("https://acme.example.com");
+    expect(sites[0]!.repoUrl).toBeUndefined(); // production URL must NOT become a clone source
     expect(sites[0]!.meta?.airtableRowId).toBe("rec_1");
     expect(sites[0]!.meta?.displayName).toBe("Acme Co");
-    expect(sites[0]!.repoUrl).toBe("https://acme.example.com");
   });
 
-  it("excludes sites with both frequencies = None", async () => {
+  it("excludes sites whose Status is not maintenance or launch period", async () => {
     const base = makeFakeBase({
       Websites: [
         {
-          id: "rec_active",
-          fields: {
-            Name: "Active",
-            url: "x",
-            "maintenence freq": "Monthly",
-            "testing freq": "None",
-          },
+          id: "rec_m",
+          fields: { Name: "Live", url: "https://live.example", Status: "maintenance" },
         },
         {
-          id: "rec_inactive",
-          fields: {
-            Name: "Inactive",
-            url: "y",
-            "maintenence freq": "None",
-            "testing freq": "None",
-          },
+          id: "rec_dep",
+          fields: { Name: "Old", url: "https://old.example", Status: "deprecated" },
         },
-      ],
-    });
-    const provider = fromAirtableBase(base, { workdir: "/tmp" });
-    const sites = await provider();
-    expect(sites.map((s) => s.name)).toEqual(["active"]);
-  });
-
-  it("includes sites whose ONLY active frequency is testing", async () => {
-    const base = makeFakeBase({
-      Websites: [
         {
-          id: "rec_test_only",
-          fields: {
-            Name: "TestOnly",
-            url: "z",
-            "maintenence freq": "None",
-            "testing freq": "Yearly",
-          },
+          id: "rec_host",
+          fields: { Name: "Hosted", url: "https://hosted.example", Status: "hosting" },
         },
       ],
     });
     const sites = await fromAirtableBase(base, { workdir: "/tmp" })();
-    expect(sites.map((s) => s.name)).toEqual(["testonly"]);
+    expect(sites.map((s) => s.name)).toEqual(["live"]);
+  });
+
+  it("excludes a maintenance site that has no url", async () => {
+    const base = makeFakeBase({
+      Websites: [
+        { id: "rec_nourl", fields: { Name: "NoUrl", Status: "maintenance" } },
+        { id: "rec_ok", fields: { Name: "Ok", url: "https://ok.example", Status: "maintenance" } },
+      ],
+    });
+    const sites = await fromAirtableBase(base, { workdir: "/tmp" })();
+    expect(sites.map((s) => s.name)).toEqual(["ok"]);
   });
 
   it("reads workdir from REDDOOR_FLEET_WORKDIR env when no explicit option", async () => {
     process.env.REDDOOR_FLEET_WORKDIR = "/tmp/env-workdir";
     const base = makeFakeBase({
       Websites: [
-        {
-          id: "r",
-          fields: { Name: "x", url: "y", "maintenence freq": "Monthly" },
-        },
+        { id: "r", fields: { Name: "x", url: "https://x.example", Status: "maintenance" } },
       ],
     });
     const sites = await fromAirtableBase(base)();
@@ -115,26 +89,10 @@ describe("fromAirtableBase", () => {
     process.env.REDDOOR_FLEET_WORKDIR = "/tmp/env-workdir";
     const base = makeFakeBase({
       Websites: [
-        {
-          id: "r",
-          fields: { Name: "x", url: "y", "maintenence freq": "Monthly" },
-        },
+        { id: "r", fields: { Name: "x", url: "https://x.example", Status: "maintenance" } },
       ],
     });
     const sites = await fromAirtableBase(base, { workdir: "/tmp/explicit" })();
     expect(sites[0]!.path).toBe("/tmp/explicit/x");
-  });
-
-  it("omits repoUrl when Websites.url is empty", async () => {
-    const base = makeFakeBase({
-      Websites: [
-        {
-          id: "r",
-          fields: { Name: "Foo", "maintenence freq": "Monthly" },
-        },
-      ],
-    });
-    const sites = await fromAirtableBase(base, { workdir: "/tmp" })();
-    expect(sites[0]!.repoUrl).toBeUndefined();
   });
 });
