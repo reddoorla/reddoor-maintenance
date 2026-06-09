@@ -94,6 +94,24 @@ describe("fetchSearchPresence", () => {
     expect(call.data.dimensionFilterGroups[0].filters[0].expression).toBe("erp funds");
   });
 
+  it("floors a sub-1 average position to 1 so the email never renders '#0'", async () => {
+    // Search Console can return an averaged position below 1 (e.g. 0.4); Math.round
+    // would yield 0 and the template renders "Page 1 Google Result (#0)".
+    request.mockResolvedValueOnce(ok({ rows: [{ position: 0.4 }] }));
+    const out = await fetchSearchPresence(
+      {
+        keyPath,
+        subject: "tucker@reddoorla.com",
+        property: "sc-domain:erpfunds.com",
+        host: "erpfunds.com",
+        query: "erp funds",
+      },
+      start,
+      end,
+    );
+    expect(out).toEqual({ foundOnPage1: true, position: 1 });
+  });
+
   it("auto-resolves the property via sites.list when none is given", async () => {
     request
       .mockResolvedValueOnce(ok({ siteEntry: [{ siteUrl: "sc-domain:erpfunds.com" }] })) // sites.list
