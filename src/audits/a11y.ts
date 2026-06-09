@@ -2,7 +2,7 @@ import { readFile, writeFile, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { AuditResult } from "../types.js";
 import { siteLabel } from "../util/site.js";
-import { a11yRoutes } from "../configs/playwright-a11y.js";
+import { a11yRoutes, smokeRoutes } from "../configs/playwright-a11y.js";
 import { defaultSpawn } from "./util/spawn.js";
 import type { AuditContext } from "./util/inject.js";
 import { findFreePort } from "../util/free-port.js";
@@ -84,15 +84,32 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 const pages = ${JSON.stringify(a11yRoutes)};
+const smokePages = ${JSON.stringify(smokeRoutes)};
 const OUTPUT = process.env.REDDOOR_A11Y_OUTPUT;
 
 // Playwright's default per-test timeout is 30s. We loop through every
 // configured route in a single test, so the budget needs to scale.
 test.setTimeout(5 * 60_000);
 
-test("a11y across configured routes", async ({ page }) => {
+test("a11y + hydration across configured routes", async ({ page }) => {
   const violations = [];
+
+  // Capture uncaught client-side exceptions across every route we visit. A page
+  // that builds + SSRs cleanly can still throw on hydrate and blank itself
+  // (data-dynamiq: a Svelte 4->5 run() referenced a $state declared after it) --
+  // axe never sees that, so we listen for it directly and tag the route in scope.
+  let currentRoute = "";
+  page.on("pageerror", (err) => {
+    violations.push({
+      id: "client-error",
+      impact: "critical",
+      route: currentRoute,
+      help: String(err && err.message ? err.message : err),
+    });
+  });
+
   for (const { path, name } of pages) {
+    currentRoute = name;
     await page.goto(path);
     // Snap CSS transitions/animations to their resting state before axe runs.
     // AnimateIn-style fixtures transition opacity 0->1; sampling mid-transition
@@ -118,6 +135,19 @@ test("a11y across configured routes", async ({ page }) => {
       });
     }
   }
+
+  // Hydration smoke check: load real routes (the homepage) and fail on any
+  // uncaught client-side error. No axe here -- real routes carry pre-existing
+  // a11y debt we don't gate on; we only assert they don't crash on hydrate.
+  // HTTP/SSR errors don't fire 'pageerror', so a data-less CI homepage that
+  // renders empty-but-valid won't false-fail -- only a real client crash does.
+  for (const { path, name } of smokePages) {
+    currentRoute = name;
+    await page.goto(path);
+    // Let hydration + first effects run so a TDZ/ReferenceError surfaces.
+    await page.waitForTimeout(2000);
+  }
+
   const byImpact = {};
   for (const v of violations) {
     byImpact[v.impact] = (byImpact[v.impact] ?? 0) + 1;
@@ -206,7 +236,7 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
   const status: AuditResult["status"] = hasSerious ? "fail" : hasAny ? "warn" : "pass";
   const summary =
     status === "pass"
-      ? `a11y: 0 violations across ${a11yRoutes.length} routes`
+      ? `a11y: 0 violations across ${a11yRoutes.length} routes (+${smokeRoutes.length} hydration smoke)`
       : `a11y: ${artifact.totalViolations} violations`;
 
   return {

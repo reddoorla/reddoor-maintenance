@@ -143,6 +143,49 @@ describe("audits/a11y", () => {
     expect(specContents).toMatch(/test\.setTimeout\s*\(/);
   });
 
+  // Regression for the data-dynamiq 2026-06-09 blank-screen incident: build +
+  // SSR succeeded, but client hydration threw a TDZ ReferenceError (a Svelte
+  // 4->5 `run()` referencing a $state declared after it), wiping the page. axe
+  // over /dev fixtures never saw it. The audit now smoke-loads `/` and fails on
+  // any uncaught client-side exception.
+  it("smoke-checks the homepage for client-side (hydration) errors", async () => {
+    const cwd = await tmpSite();
+    let specContents = "";
+    await a11yAudit({
+      site: { path: cwd },
+      spawn: async (_cmd, args, opts) => {
+        specContents = await readFile(args[args.length - 1] as string, "utf-8");
+        const out = join(opts?.cwd ?? cwd, ".reddoor-a11y");
+        await mkdir(out, { recursive: true });
+        await writeFile(
+          join(out, "results.json"),
+          JSON.stringify({ totalViolations: 0, byImpact: {} }),
+          "utf-8",
+        );
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
+    // Registers an uncaught-exception listener and navigates the homepage.
+    expect(specContents).toMatch(/pageerror/);
+    expect(specContents).toMatch(/"path":\s*"\/"/);
+  });
+
+  it("fails when a client-error (hydration) violation is reported", async () => {
+    const cwd = await tmpSite();
+    const result = await a11yAudit({
+      site: { path: cwd },
+      spawn: playwrightSpawn(
+        {
+          totalViolations: 1,
+          byImpact: { critical: 1 },
+          violations: [{ id: "client-error", impact: "critical", route: "home" }],
+        },
+        1,
+      ),
+    });
+    expect(result.status).toBe("fail");
+  });
+
   // Regression for the caltex 2026-05-28 zombie-vite incident: relying on
   // the site's own playwright.config (port 5173, no strictPort) let the
   // audit silently probe a stale dev server. Hardening synthesizes its own
