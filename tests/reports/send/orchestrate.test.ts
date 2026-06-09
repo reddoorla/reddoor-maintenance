@@ -171,6 +171,36 @@ describe("sendApprovedReports", () => {
     expect(res.output).toContain("no Header image");
   });
 
+  it("explains that a malformed recipient must be a bare address (no `Name <addr>`)", async () => {
+    vi.mocked(openBase).mockReturnValue(
+      makeFakeBase({
+        Reports: [reportRow()],
+        Websites: [siteRow({ "Report recipients (To)": "Acme Ops <ops@acme.example.com>" })],
+      }),
+    );
+    const { client } = captureClient();
+    const res = await sendApprovedReports({ resend: client });
+    expect(res.code).toBe(1);
+    expect(res.output).toContain("malformed");
+    expect(res.output).toMatch(/bare address only/i);
+  });
+
+  it("names the four Lighthouse cells when one is non-numeric", async () => {
+    vi.mocked(openBase).mockReturnValue(
+      makeFakeBase({
+        // A non-numeric cell nulls the whole LighthouseScores object — the send-time
+        // error should point the operator at the four cells, not just say "no scores".
+        Reports: [reportRow({ "Lighthouse — Performance": "n/a" })],
+        Websites: [siteRow()],
+      }),
+    );
+    const { client } = captureClient();
+    const res = await sendApprovedReports({ resend: client });
+    expect(res.code).toBe(1);
+    expect(res.output).toMatch(/Lighthouse/);
+    expect(res.output).toMatch(/numeric/i);
+  });
+
   it("uses Subject override when present", async () => {
     vi.mocked(openBase).mockReturnValue(
       makeFakeBase({

@@ -70,6 +70,12 @@ export function siteSlug(name: string): string {
     .replace(/^-|-$/g, "");
 }
 
+// NOTE: every `f["..."]` key below is a load-bearing magic string that must match
+// the live Airtable "Websites" column name EXACTLY — including the legacy
+// misspelling `"maintenence freq"`, the mixed-case `"GA4 property ID"`, and the
+// lowercase `"url"` / `"point of contact"`. A column rename in Airtable silently
+// returns undefined here (→ null), which degrades quietly (GA skipped, recipients
+// empty) with no error. If you rename a column, change it here too.
 export function mapRow(rec: { id: string; fields: Record<string, unknown> }): WebsiteRow {
   const f = rec.fields;
   const attachments =

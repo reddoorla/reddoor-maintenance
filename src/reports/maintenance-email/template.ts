@@ -250,7 +250,7 @@ export function buildMjml(data: ReportData): string {
         <mj-text font-family="helvetica, sans-serif" font-size="24px" font-weight="300" line-height="30px">Just hit reply.</mj-text>
         <mj-text font-family="helvetica, sans-serif" font-size="24px" font-weight="300" padding-top="0px" line-height="30px" padding-bottom="36px">We're here to help in any way we can.</mj-text>
         <mj-divider border-width="1px" border-style="solid" border-color="#CCCCCC" padding="0" />
-        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" padding-top="24px" line-height="20px" font-style="italic">Copyright ${new Date().getFullYear()} Reddoor Creative, LLC. All rights reserved.</mj-text>
+        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" padding-top="24px" line-height="20px" font-style="italic">Copyright ${new Date().getUTCFullYear()} Reddoor Creative, LLC. All rights reserved.</mj-text>
         <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="700" line-height="16px" padding-top="0" padding-bottom="0px">Our mailing address is:</mj-text>
         <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" line-height="16px" padding-top="0" padding-bottom="0px">Reddoor Creative, LLC</mj-text>
         <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" line-height="16px" padding-top="0" padding-bottom="0px">29027 Dapper Dan</mj-text>
