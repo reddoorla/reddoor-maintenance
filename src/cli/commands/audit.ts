@@ -19,6 +19,8 @@ export type AuditCommandOptions = {
   writeAirtable?: string | boolean;
   /** Exit non-zero if any a11y violations are found (overrides warn). For CI gates. */
   failOnViolations?: boolean;
+  /** Audit this deployed URL directly (lighthouse only; single-site). */
+  url?: string;
 };
 
 function parseOnly(value: string | undefined): AuditName[] | undefined {
@@ -166,6 +168,20 @@ function rendererFor(json: boolean | undefined): Renderer {
   return json ? "silent" : "default";
 }
 
+/** Apply a single-site `--url` to the resolved sites. Returns the input
+ *  untouched when no url is given; otherwise requires exactly one site and
+ *  stamps `deployedUrl` on it so the lighthouse audit takes its deployed path. */
+export function applyDeployedUrl(sites: Site[], url: string | undefined): Site[] {
+  if (url === undefined) return sites;
+  if (sites.length !== 1) {
+    throw Object.assign(
+      new Error(`--url expects exactly one site, but ${sites.length} resolved.`),
+      { exitCode: 2 },
+    );
+  }
+  return [{ ...sites[0]!, deployedUrl: url }];
+}
+
 export async function runAuditCommand(
   site: string | undefined,
   opts: AuditCommandOptions,
@@ -189,12 +205,21 @@ export async function runAuditCommand(
     );
   }
 
+  if (opts.url !== undefined && opts.fleet !== undefined) {
+    throw Object.assign(
+      new Error("--url is single-site only and cannot be combined with --fleet."),
+      { exitCode: 2 },
+    );
+  }
+
   let sites = await resolveSites({
     ...(site !== undefined ? { site } : {}),
     ...(opts.fleet !== undefined ? { fleet: opts.fleet } : {}),
     ...(opts.workdir !== undefined ? { workdir: opts.workdir } : {}),
     cwd,
   });
+
+  sites = applyDeployedUrl(sites, opts.url);
 
   if (opts.fleet) {
     const workdir = opts.workdir ?? `${process.env.HOME ?? ""}/.reddoor-maint/sites`;

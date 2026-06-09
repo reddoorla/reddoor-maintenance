@@ -98,6 +98,10 @@ cli
     "After lighthouse runs, write pScore/rScore/bpScore/seoScore + timestamp to the matching Websites row. Slug defaults to cwd's package.json#name.",
   )
   .option("--fail-on-violations", "Exit non-zero if any a11y violations are found (for CI gates)")
+  .option(
+    "--url <url>",
+    "Audit this deployed URL directly instead of a local dev server (lighthouse only; single-site).",
+  )
   .action(
     async (
       site,
@@ -110,6 +114,7 @@ cli
         verbose?: boolean;
         writeAirtable?: string | boolean;
         failOnViolations?: boolean;
+        url?: string;
       },
     ) => runOrExit(() => runAuditCommand(site, opts), opts),
   );
