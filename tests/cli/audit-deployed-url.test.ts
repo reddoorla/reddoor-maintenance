@@ -32,4 +32,14 @@ describe("applyDeployedUrl", () => {
       expect((e as { exitCode?: number }).exitCode).toBe(2);
     }
   });
+
+  it("rejects a malformed --url with exitCode 2 before stamping", () => {
+    try {
+      applyDeployedUrl([{ path: "/a" }], "not-a-url");
+      throw new Error("should have thrown");
+    } catch (e) {
+      expect((e as Error).message).toMatch(/not a valid url/i);
+      expect((e as { exitCode?: number }).exitCode).toBe(2);
+    }
+  });
 });

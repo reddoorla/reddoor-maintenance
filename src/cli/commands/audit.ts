@@ -170,7 +170,9 @@ function rendererFor(json: boolean | undefined): Renderer {
 
 /** Apply a single-site `--url` to the resolved sites. Returns the input
  *  untouched when no url is given; otherwise requires exactly one site and
- *  stamps `deployedUrl` on it so the lighthouse audit takes its deployed path. */
+ *  stamps `deployedUrl` on it so the lighthouse audit takes its deployed path.
+ *  The `--url`+`--fleet` combination is rejected earlier in `runAuditCommand`;
+ *  this length guard also covers any future multi-site single-run resolver. */
 export function applyDeployedUrl(sites: Site[], url: string | undefined): Site[] {
   if (url === undefined) return sites;
   if (sites.length !== 1) {
@@ -178,6 +180,11 @@ export function applyDeployedUrl(sites: Site[], url: string | undefined): Site[]
       new Error(`--url expects exactly one site, but ${sites.length} resolved.`),
       { exitCode: 2 },
     );
+  }
+  try {
+    new URL(url);
+  } catch {
+    throw Object.assign(new Error(`--url is not a valid URL: ${url}`), { exitCode: 2 });
   }
   return [{ ...sites[0]!, deployedUrl: url }];
 }
@@ -207,7 +214,9 @@ export async function runAuditCommand(
 
   if (opts.url !== undefined && opts.fleet !== undefined) {
     throw Object.assign(
-      new Error("--url is single-site only and cannot be combined with --fleet."),
+      new Error(
+        "--url is single-site only and cannot be combined with --fleet. Audit a single site instead.",
+      ),
       { exitCode: 2 },
     );
   }
