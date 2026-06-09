@@ -11,17 +11,17 @@ export type AirtableInventoryOptions = {
   workdir?: string;
 };
 
+/** Only sites we actively run/report on get fleet-audited. */
+const AUDITABLE_STATUSES = new Set<string>(["maintenance", "launch period"]);
+
 /**
  * Read sites from the Airtable Websites table as an InventoryProvider.
  * Each row becomes one Site; `path` is computed as `{workdir}/{slug}`.
- * Sites where BOTH maintenance freq AND testing freq are "None" are excluded
- * (they're inactive — no scheduled audits or reports).
- *
- * Note: `repoUrl` is set to the production URL (Websites.url). For sites
- * cloned via `--workdir` semantics this is wrong — the convention should be
- * tightened (e.g. add a `repo` field to Websites) when fleet-clone-from-
- * airtable becomes a real flow. For local audits where the site is already
- * checked out at `path`, the `repoUrl` is unused.
+ * Only `maintenance` / `launch period` sites that have a `url` are included
+ * (the live sites we audit + report on). The production URL is exposed as
+ * `Site.deployedUrl` so the lighthouse audit can run against it with no
+ * checkout. `repoUrl` is intentionally NOT set from `url` — a clone source
+ * must come from `gitRepo` (`owner/repo`), never the production URL.
  */
 export function fromAirtableBase(
   base: AirtableBase,
@@ -36,15 +36,15 @@ export function fromAirtableBase(
     }
     const websites = await listWebsites(base);
     return websites
-      .filter((w) => w.maintenanceFreq !== "None" || w.testingFreq !== "None")
+      .filter((w) => AUDITABLE_STATUSES.has(w.status ?? "") && w.url.length > 0)
       .map((w) => {
         const slug = siteSlug(w.name);
         const site: Site = {
           path: `${workdir}/${slug}`,
           name: slug,
+          deployedUrl: w.url,
           meta: { airtableRowId: w.id, displayName: w.name },
         };
-        if (w.url) site.repoUrl = w.url;
         if (w.gitRepo) site.gitRepo = w.gitRepo;
         return site;
       });
