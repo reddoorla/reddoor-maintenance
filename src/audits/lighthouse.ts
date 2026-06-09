@@ -213,6 +213,8 @@ async function deployedLighthouse(
   const workDir = await mkdtemp(join(tmpdir(), "reddoor-lh-deployed-"));
   const resolvedConfig = {
     ci: {
+      // Deliberately NOT spread from lighthouseConfig.ci.collect: deployed mode
+      // must omit startServerCommand and the dev-server settings entirely.
       collect: {
         url: [deployedUrl],
         // 3 runs to damp Lighthouse's run-to-run variance; parseLhciResults
@@ -252,9 +254,11 @@ async function deployedLighthouse(
     throw err;
   }
 
-  const result = await parseLhciResults(resultsDir, label, raw);
-  await rm(workDir, { recursive: true, force: true });
-  return result;
+  try {
+    return await parseLhciResults(resultsDir, label, raw);
+  } finally {
+    await rm(workDir, { recursive: true, force: true });
+  }
 }
 
 export async function lighthouseAudit(ctx: AuditContext): Promise<AuditResult> {
