@@ -329,6 +329,94 @@ describe("audits/lighthouse", () => {
     });
   });
 
+  describe("deployed-URL mode (no dev server)", () => {
+    /** A spawn that captures the lhci `ci` config block and the cwd it ran in,
+     * then writes a 3-run passing result so the audit's parser succeeds. */
+    function captureCiSpawn(): {
+      spawn: SpawnFn;
+      getCi: () => {
+        collect: {
+          url: string[];
+          numberOfRuns: number;
+          startServerCommand?: string;
+          settings: { preset: string };
+        };
+        upload: { target: string };
+      };
+      getCwd: () => string | undefined;
+    } {
+      let ci: ReturnType<ReturnType<typeof captureCiSpawn>["getCi"]> | undefined;
+      let cwdUsed: string | undefined;
+      const spawn: SpawnFn = async (_cmd, args, opts): Promise<SpawnResult> => {
+        const cfgArg = args.find((a) => a.startsWith("--config="));
+        if (cfgArg) {
+          const raw = await readFile(cfgArg.slice("--config=".length), "utf-8");
+          ci = (JSON.parse(raw) as { ci: typeof ci }).ci;
+        }
+        cwdUsed = opts?.cwd;
+        const dir = join(opts?.cwd ?? process.cwd(), ".lighthouseci");
+        await mkdir(dir, { recursive: true });
+        for (let i = 0; i < 3; i++) {
+          await writeFile(
+            join(dir, `lhr-${i}.json`),
+            JSON.stringify({
+              requestedUrl: "https://www.caltexmedical.com/",
+              categories: {
+                performance: { score: 0.92 },
+                accessibility: { score: 1 },
+                "best-practices": { score: 0.78 },
+                seo: { score: 0.92 },
+              },
+            }),
+            "utf-8",
+          );
+        }
+        await writeFile(join(dir, "assertion-results.json"), "[]", "utf-8");
+        return { code: 0, stdout: "", stderr: "" };
+      };
+      return {
+        spawn,
+        getCi: () => {
+          if (!ci) throw new Error("spawn was never called with a --config");
+          return ci;
+        },
+        getCwd: () => cwdUsed,
+      };
+    }
+
+    it("audits the deployed URL directly with no startServerCommand", async () => {
+      const { spawn, getCi } = captureCiSpawn();
+      const result = await lighthouseAudit({
+        site: { path: "/does/not/exist", deployedUrl: "https://www.caltexmedical.com/" },
+        spawn,
+      });
+      expect(result.status).toBe("pass");
+      const ci = getCi();
+      expect(ci.collect.url).toEqual(["https://www.caltexmedical.com/"]);
+      expect(ci.collect.startServerCommand).toBeUndefined();
+      expect(ci.collect.numberOfRuns).toBe(3);
+      expect(ci.collect.settings.preset).toBe("desktop");
+      const details = result.details as { summary: Record<string, number> };
+      expect(details.summary["best-practices"]).toBeCloseTo(0.78);
+    });
+
+    it("never uses site.path as the lhci cwd (no checkout required)", async () => {
+      const { spawn, getCwd } = captureCiSpawn();
+      await lighthouseAudit({
+        site: { path: "/does/not/exist/checkout", deployedUrl: "https://x.example/" },
+        spawn,
+      });
+      expect(getCwd()).toBeDefined();
+      expect(getCwd()).not.toBe("/does/not/exist/checkout");
+    });
+
+    it("uploads to the filesystem, never public storage (no 200 public uploads at fleet scale)", async () => {
+      const { spawn, getCi } = captureCiSpawn();
+      await lighthouseAudit({ site: { path: "/x", deployedUrl: "https://x.example/" }, spawn });
+      expect(getCi().upload.target).toBe("filesystem");
+    });
+  });
+
   // Regression for the caltex 2026-05-28 (0.10.5) dogfood failure: lhci
   // 0.15+ no longer writes `manifest.json`. The audit used to read it
   // directly and report "no manifest written" against perfectly healthy

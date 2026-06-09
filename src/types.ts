@@ -4,6 +4,9 @@ export type Site = {
   repoUrl?: string;
   /** GitHub repo identity as `owner/repo`, when known (from Airtable). */
   gitRepo?: string;
+  /** Deployed/production URL. When set, the lighthouse audit runs against this
+   *  URL directly (no checkout, no dev server) instead of a local vite server. */
+  deployedUrl?: string;
   meta?: Record<string, unknown>;
 };
 

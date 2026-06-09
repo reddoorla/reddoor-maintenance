@@ -1,10 +1,11 @@
 import { readFile, writeFile, mkdtemp, rm, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AuditResult } from "../types.js";
+import type { AuditResult, Site } from "../types.js";
 import { siteLabel } from "../util/site.js";
 import { lighthouseConfig } from "../configs/lighthouse.js";
 import { defaultSpawn } from "./util/spawn.js";
+import type { SpawnFn, SpawnResult } from "./util/spawn.js";
 import type { AuditContext } from "./util/inject.js";
 import { readSiteConfig } from "./util/site-config.js";
 import { findFreePort, withFreePort } from "../util/free-port.js";
@@ -101,64 +102,13 @@ function messageForAssertion(a: AssertionResult): string {
   return `${a.name} ${a.operator} ${a.expected} (actual: ${a.actual.toFixed(2)})`;
 }
 
-export async function lighthouseAudit(ctx: AuditContext): Promise<AuditResult> {
-  const spawn = ctx.spawn ?? defaultSpawn;
-  const site = ctx.site;
-  const label = siteLabel(site);
-
-  const siteCfg = await readSiteConfig(site.path);
-  // Allocate a free port + force vite to `--strictPort` so the spawned dev
-  // server either binds the port we picked or fails loudly. Without this,
-  // a zombie on 5173 makes vite bump to 5174 while lhci still probes 5173
-  // and audits the wrong server (silently returns "no manifest written").
-  const port = await findFreePort();
-  const baseUrl = siteCfg.lighthouseUrl ?? lighthouseConfig.ci.collect.url[0];
-  const resolvedConfig = {
-    ...lighthouseConfig,
-    ci: {
-      ...lighthouseConfig.ci,
-      collect: {
-        ...lighthouseConfig.ci.collect,
-        url: [withFreePort(baseUrl, port)],
-        startServerCommand: `npm run vite:dev -- --port ${port} --strictPort`,
-      },
-    },
-  };
-
-  const configDir = await mkdtemp(join(tmpdir(), "reddoor-lhci-"));
-  const configPath = join(configDir, "lighthouserc.json");
-  await writeFile(configPath, JSON.stringify(resolvedConfig), "utf-8");
-
-  const resultsDir = join(site.path, ".lighthouseci");
-  // Clear any stale artifacts before the run so we never confuse a failed
-  // spawn with old results.
-  await rm(resultsDir, { recursive: true, force: true });
-
-  let raw;
-  try {
-    raw = await spawn("npx", ["--yes", "@lhci/cli", "autorun", `--config=${configPath}`], {
-      cwd: site.path,
-      // lhci autorun boots the site's dev server, downloads Chrome on first
-      // use, and runs the audit — easily 2–3 min on a cold tree. The shared
-      // 30 s default in runAudits is fine for deps/lint/security but starves
-      // lhci.
-      timeoutMs: 5 * 60_000,
-    });
-  } catch (err) {
-    await rm(configDir, { recursive: true, force: true });
-    const e = err as NodeJS.ErrnoException;
-    if (e.code === "ENOENT" || /ENOENT/.test(String(err))) {
-      return {
-        audit: "lighthouse",
-        site: label,
-        status: "skip",
-        summary: "npx/@lhci/cli not available",
-      };
-    }
-    throw err;
-  }
-  await rm(configDir, { recursive: true, force: true });
-
+/** Shared tail: scan `.lighthouseci/` for lhr-*.json + assertion-results.json and
+ *  build the AuditResult. Identical for the checkout and deployed paths. */
+async function parseLhciResults(
+  resultsDir: string,
+  label: string,
+  raw: SpawnResult,
+): Promise<AuditResult> {
   const manifest = await readLhrEntries(resultsDir);
 
   if (manifest.length === 0) {
@@ -197,11 +147,125 @@ export async function lighthouseAudit(ctx: AuditContext): Promise<AuditResult> {
       ? "lighthouse: all categories passing"
       : `lighthouse: ${failed.length} assertion(s) failed`;
 
-  return {
-    audit: "lighthouse",
-    site: label,
-    status,
-    summary,
-    details: normalized,
+  return { audit: "lighthouse", site: label, status, summary, details: normalized };
+}
+
+/** Checkout mode (unchanged behavior): boot the site's vite dev server on a
+ *  pinned free port and audit the local fixtures/override URL. */
+async function checkoutLighthouse(spawn: SpawnFn, site: Site, label: string): Promise<AuditResult> {
+  const siteCfg = await readSiteConfig(site.path);
+  // Allocate a free port + force vite to `--strictPort` so the spawned dev
+  // server either binds the port we picked or fails loudly (caltex 2026-05-28
+  // zombie-vite incident).
+  const port = await findFreePort();
+  const baseUrl = siteCfg.lighthouseUrl ?? lighthouseConfig.ci.collect.url[0];
+  const resolvedConfig = {
+    ...lighthouseConfig,
+    ci: {
+      ...lighthouseConfig.ci,
+      collect: {
+        ...lighthouseConfig.ci.collect,
+        url: [withFreePort(baseUrl, port)],
+        startServerCommand: `npm run vite:dev -- --port ${port} --strictPort`,
+      },
+    },
   };
+
+  const configDir = await mkdtemp(join(tmpdir(), "reddoor-lhci-"));
+  const configPath = join(configDir, "lighthouserc.json");
+  await writeFile(configPath, JSON.stringify(resolvedConfig), "utf-8");
+
+  const resultsDir = join(site.path, ".lighthouseci");
+  await rm(resultsDir, { recursive: true, force: true });
+
+  let raw: SpawnResult;
+  try {
+    raw = await spawn("npx", ["--yes", "@lhci/cli", "autorun", `--config=${configPath}`], {
+      cwd: site.path,
+      timeoutMs: 5 * 60_000,
+    });
+  } catch (err) {
+    await rm(configDir, { recursive: true, force: true });
+    const e = err as NodeJS.ErrnoException;
+    if (e.code === "ENOENT" || /ENOENT/.test(String(err))) {
+      return {
+        audit: "lighthouse",
+        site: label,
+        status: "skip",
+        summary: "npx/@lhci/cli not available",
+      };
+    }
+    throw err;
+  }
+  await rm(configDir, { recursive: true, force: true });
+
+  return parseLhciResults(resultsDir, label, raw);
+}
+
+/** Deployed mode: audit a production URL directly — no checkout, no dev server.
+ *  Runs in a throwaway tmp cwd; uploads to the filesystem so fleet runs never
+ *  push 200 public reports to temporary-public-storage. */
+async function deployedLighthouse(
+  spawn: SpawnFn,
+  deployedUrl: string,
+  label: string,
+): Promise<AuditResult> {
+  const workDir = await mkdtemp(join(tmpdir(), "reddoor-lh-deployed-"));
+  const resolvedConfig = {
+    ci: {
+      // Deliberately NOT spread from lighthouseConfig.ci.collect: deployed mode
+      // must omit startServerCommand and the dev-server settings entirely.
+      collect: {
+        url: [deployedUrl],
+        // 3 runs to damp Lighthouse's run-to-run variance; parseLhciResults
+        // averages the lhr files. (Median is a tracked future refinement.)
+        numberOfRuns: 3,
+        settings: { preset: "desktop", skipAudits: ["uses-http2"] },
+      },
+      assert: lighthouseConfig.ci.assert,
+      upload: { target: "filesystem", outputDir: join(workDir, "lhci-report") },
+    },
+  };
+
+  const configPath = join(workDir, "lighthouserc.json");
+  await writeFile(configPath, JSON.stringify(resolvedConfig), "utf-8");
+
+  const resultsDir = join(workDir, ".lighthouseci");
+
+  let raw: SpawnResult;
+  try {
+    raw = await spawn("npx", ["--yes", "@lhci/cli", "autorun", `--config=${configPath}`], {
+      cwd: workDir,
+      // No dev-server boot: ~30s/run × 3 + first-use Chrome download headroom.
+      timeoutMs: 3 * 60_000,
+    });
+  } catch (err) {
+    await rm(workDir, { recursive: true, force: true });
+    const e = err as NodeJS.ErrnoException;
+    if (e.code === "ENOENT" || /ENOENT/.test(String(err))) {
+      return {
+        audit: "lighthouse",
+        site: label,
+        status: "skip",
+        summary: "npx/@lhci/cli not available",
+      };
+    }
+    throw err;
+  }
+
+  try {
+    return await parseLhciResults(resultsDir, label, raw);
+  } finally {
+    await rm(workDir, { recursive: true, force: true });
+  }
+}
+
+export async function lighthouseAudit(ctx: AuditContext): Promise<AuditResult> {
+  const spawn = ctx.spawn ?? defaultSpawn;
+  const site = ctx.site;
+  const label = siteLabel(site);
+
+  return site.deployedUrl
+    ? deployedLighthouse(spawn, site.deployedUrl, label)
+    : checkoutLighthouse(spawn, site, label);
 }
