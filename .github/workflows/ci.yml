@@ -25,5 +25,20 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm build
-      - run: pnpm test
+      # Coverage-gated test run (enforces the floor in vitest.config.ts). Plain
+      # `pnpm test` stays fast for local TDD; CI runs the suite once, with coverage.
+      - run: pnpm test:coverage
       - run: pnpm test:dist
+
+      # Catch any build/test/audit that leaves files in the working tree — the
+      # orphan-artifact class (e.g. the a11y .reddoor-a11y-spec-* dirs). dist/,
+      # coverage/, .vitest-cache/ are gitignored, so a dirty tree here is a real
+      # leak. (2026-06-10 autonomy hardening.)
+      - name: Working tree clean after build + tests
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::build/tests left the working tree dirty:"
+            git status --porcelain
+            git diff
+            exit 1
+          fi
