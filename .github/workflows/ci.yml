@@ -25,5 +25,24 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm build
-      - run: pnpm test
+      # Coverage-gated test run (enforces the floor in vitest.config.ts). Plain
+      # `pnpm test` stays fast for local TDD; CI runs the suite once, with coverage.
+      - run: pnpm test:coverage
       - run: pnpm test:dist
+
+      # Test-suite tripwire: fail if build+tests left the tree dirty. dist/,
+      # coverage/, .vitest-cache/ are gitignored, so anything here is a real leak
+      # — e.g. a test that writes into the repo instead of os.tmpdir(). NOTE this
+      # does NOT exercise the fleet a11y orphan (.reddoor-a11y-spec-*): that class
+      # only occurs in local `audit` runs against a real checkout, not in unit
+      # tests here nor in fleet-lighthouse.yml (lighthouse-only, deployed URLs,
+      # /tmp workdir). It's backstopped by the gitignore entry + try/finally in
+      # src/audits/a11y.ts. (2026-06-10 autonomy hardening.)
+      - name: Working tree clean after build + tests
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::build/tests left the working tree dirty:"
+            git status --porcelain
+            git diff
+            exit 1
+          fi
