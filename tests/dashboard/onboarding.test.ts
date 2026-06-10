@@ -29,6 +29,7 @@ function row(over: Partial<WebsiteRow> = {}): WebsiteRow {
     a11yViolations: null,
     depsDrifted: null,
     depsMajorBehind: null,
+    depsOutdated: null,
     securityVulnsCritical: null,
     securityVulnsHigh: null,
     securityVulnsModerate: null,

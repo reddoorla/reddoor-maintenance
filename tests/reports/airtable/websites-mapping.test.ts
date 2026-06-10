@@ -44,6 +44,11 @@ describe("websites/mapRow → new metric fields", () => {
     expect(row({}).depsMajorBehind).toBeNull();
   });
 
+  it("maps Deps Outdated (the real installed-version drift signal)", () => {
+    expect(row({ "Deps Outdated": 7 }).depsOutdated).toBe(7);
+    expect(row({}).depsOutdated).toBeNull();
+  });
+
   it("maps the four Security Vulns severity counts", () => {
     const r = row({
       "Security Vulns Critical": 1,
