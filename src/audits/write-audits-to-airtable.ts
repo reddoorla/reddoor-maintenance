@@ -92,6 +92,26 @@ export type FleetWriteResult = {
   failed: Array<{ slug: string; error: string }>;
 };
 
+/** Render the fleet write-back outcome for the CLI/CI. Beyond the human-readable
+ *  lines, it emits a single deterministic, machine-parseable line —
+ *  `FLEET_WRITE_SUMMARY wrote=N failed=M total=T` — that the nightly workflow
+ *  greps to decide pass/fail. Keying CI on this line (not the prose, and not a
+ *  "wrote ≥ 1" heuristic) lets the gate tolerate a single known flake while
+ *  still reding on a total or mass write-back failure. */
+export function formatFleetWriteSummary(result: FleetWriteResult): string {
+  const wrote = result.written.length;
+  const failed = result.failed.length;
+  const total = wrote + failed;
+  let out = `→ wrote ${wrote} site(s) to Airtable`;
+  if (failed > 0) {
+    out += `\n⚠ ${failed} site(s) not written: ${result.failed
+      .map((f) => `${f.slug} (${f.error})`)
+      .join("; ")}`;
+  }
+  out += `\nFLEET_WRITE_SUMMARY wrote=${wrote} failed=${failed} total=${total}`;
+  return out;
+}
+
 /** Write each site's pooled audit results back to its own Websites row,
  *  best-effort. Results are grouped by `result.site` (the slug the fleet
  *  inventory stamped as Site.name). A per-site failure (no scores, no matching
