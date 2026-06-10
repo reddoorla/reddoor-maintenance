@@ -34,11 +34,18 @@ function a11ySpan(value: number | null): string {
   return `<span class="metric a11y">${escapeHtml(display)}</span>`;
 }
 
-function depsSpan(drifted: number | null, majorBehind: number | null): string {
+function depsSpan(
+  drifted: number | null,
+  majorBehind: number | null,
+  outdated: number | null,
+): string {
   if (drifted === null || majorBehind === null) {
     return `<span class="metric deps">${DASH}</span>`;
   }
-  const display = drifted === 0 ? "0" : `${drifted} drifted (${majorBehind} major)`;
+  // Declared-range drift vs baseline, plus the real outdated-install count when
+  // it was determined (null = not checked this run → omit, don't imply clean).
+  const driftPart = drifted === 0 ? "0" : `${drifted} drifted (${majorBehind} major)`;
+  const display = outdated === null ? driftPart : `${driftPart} · ${outdated} outdated`;
   return `<span class="metric deps">${escapeHtml(display)}</span>`;
 }
 
@@ -83,7 +90,7 @@ function card(site: WebsiteRow): string {
       </span>
       <span class="cluster health">
         <span class="metric-label">a11y</span> ${a11ySpan(site.a11yViolations)}
-        <span class="metric-label">deps</span> ${depsSpan(site.depsDrifted, site.depsMajorBehind)}
+        <span class="metric-label">deps</span> ${depsSpan(site.depsDrifted, site.depsMajorBehind, site.depsOutdated)}
         <span class="metric-label">sec</span> ${securitySpan(
           site.securityVulnsCritical,
           site.securityVulnsHigh,

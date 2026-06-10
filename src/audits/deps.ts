@@ -4,6 +4,8 @@ import type { AuditResult } from "../types.js";
 import { siteLabel } from "../util/site.js";
 import { baselineVersions } from "../configs/baseline-versions.js";
 import type { AuditContext } from "./util/inject.js";
+import { defaultSpawn } from "./util/spawn.js";
+import { scanOutdated, type OutdatedCounts } from "./deps-outdated.js";
 
 export type Drift = "same" | "patch" | "minor" | "major" | "newer";
 
@@ -12,6 +14,18 @@ export type DepsDriftEntry = {
   baseline: string;
   actual: string;
   drift: Drift;
+};
+
+/** The deps audit reports TWO signals:
+ *  - `entries`: declared-range drift vs the canonical baseline (what the
+ *    package.json *asks for*, caret-stripped) — the long-standing signal.
+ *  - `outdated`: real installed-version drift vs the registry's latest, from
+ *    the committed lockfile (null when it can't be determined). Added so the
+ *    "Deps Drifted" dashboard number stops being the only — and misleading —
+ *    deps signal. */
+export type DepsDetails = {
+  entries: DepsDriftEntry[];
+  outdated: OutdatedCounts | null;
 };
 
 function stripCaret(range: string): string {
@@ -60,11 +74,11 @@ export async function depsAudit(ctx: AuditContext): Promise<AuditResult> {
     ...(pkg.devDependencies ?? {}),
   };
 
-  const details: DepsDriftEntry[] = [];
+  const entries: DepsDriftEntry[] = [];
   for (const [name, baseline] of Object.entries(baselineVersions)) {
     const actual = installed[name];
     if (!actual) continue;
-    details.push({
+    entries.push({
       pkg: name,
       baseline,
       actual,
@@ -72,24 +86,31 @@ export async function depsAudit(ctx: AuditContext): Promise<AuditResult> {
     });
   }
 
-  const anyMajor = details.some((d) => d.drift === "major");
-  const anyMinor = details.some((d) => d.drift === "minor");
-  const anyNewer = details.some((d) => d.drift === "newer");
+  const anyMajor = entries.some((d) => d.drift === "major");
+  const anyMinor = entries.some((d) => d.drift === "minor");
+  const anyNewer = entries.some((d) => d.drift === "newer");
 
+  // Status stays driven by the declared-range baseline drift (unchanged
+  // behavior). The outdated count is an independent, informational signal.
   const status: AuditResult["status"] = anyMajor ? "fail" : anyMinor || anyNewer ? "warn" : "pass";
 
-  const summary =
+  const driftSummary =
     status === "pass"
-      ? `all ${details.length} tracked deps in line with baseline`
+      ? `all ${entries.length} tracked deps in line with baseline`
       : status === "warn"
-        ? `${details.filter((d) => d.drift !== "same").length} of ${details.length} tracked deps drifted`
-        : `${details.filter((d) => d.drift === "major").length} deps lagging by a major version`;
+        ? `${entries.filter((d) => d.drift !== "same").length} of ${entries.length} tracked deps drifted`
+        : `${entries.filter((d) => d.drift === "major").length} deps lagging by a major version`;
+
+  const outdated = await scanOutdated(ctx.site.path, ctx.spawn ?? defaultSpawn);
+  const summary = outdated
+    ? `${driftSummary}; ${outdated.outdated} outdated install(s) (${outdated.major} major)`
+    : driftSummary;
 
   return {
     audit: "deps",
     site: siteLabel(ctx.site),
     status,
     summary,
-    details,
+    details: { entries, outdated } satisfies DepsDetails,
   };
 }

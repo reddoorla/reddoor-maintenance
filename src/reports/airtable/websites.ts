@@ -50,8 +50,12 @@ export type WebsiteRow = {
    *  `audit --write-airtable`. `null` = never audited (or this audit
    *  type was skipped on the last run). 0 = audited, clean. */
   a11yViolations: number | null;
+  /** Declared-range drift vs the Reddoor baseline (what package.json asks for). */
   depsDrifted: number | null;
   depsMajorBehind: number | null;
+  /** Real installed-version drift: deps behind the registry's latest, from the
+   *  committed lockfile (`pnpm outdated`). Null = not determined this run. */
+  depsOutdated: number | null;
   securityVulnsCritical: number | null;
   securityVulnsHigh: number | null;
   securityVulnsModerate: number | null;
@@ -106,6 +110,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     a11yViolations: (f["A11y Violations"] as number | undefined) ?? null,
     depsDrifted: (f["Deps Drifted"] as number | undefined) ?? null,
     depsMajorBehind: (f["Deps Major Behind"] as number | undefined) ?? null,
+    depsOutdated: (f["Deps Outdated"] as number | undefined) ?? null,
     securityVulnsCritical: (f["Security Vulns Critical"] as number | undefined) ?? null,
     securityVulnsHigh: (f["Security Vulns High"] as number | undefined) ?? null,
     securityVulnsModerate: (f["Security Vulns Moderate"] as number | undefined) ?? null,
@@ -170,16 +175,21 @@ export async function updateA11yCounts(
   await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
 }
 
-/** Persist deps drift counts. */
+/** Persist deps drift counts (declared-range drift + real outdated installs). */
 export async function updateDepsCounts(
   base: AirtableBase,
   recordId: string,
-  counts: { drifted: number; majorBehind: number },
+  counts: { drifted: number; majorBehind: number; outdated: number | null },
 ): Promise<void> {
   const fields: FieldSet = {
     "Deps Drifted": counts.drifted,
     "Deps Major Behind": counts.majorBehind,
   };
+  // Only write the outdated count when it was determined — a null (no/stale
+  // lockfile this run) must not clobber a previously-good value.
+  if (counts.outdated !== null) {
+    fields["Deps Outdated"] = counts.outdated;
+  }
   await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
 }
 

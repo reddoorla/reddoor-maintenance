@@ -29,6 +29,7 @@ function siteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     a11yViolations: 0,
     depsDrifted: 0,
     depsMajorBehind: 0,
+    depsOutdated: null,
     securityVulnsCritical: 0,
     securityVulnsHigh: 0,
     securityVulnsModerate: 0,
@@ -150,6 +151,28 @@ describe("renderFleetHomeHtml — metrics row", () => {
   it("renders deps as '—' when never audited", () => {
     const html = renderFleetHomeHtml([siteRow({ depsDrifted: null, depsMajorBehind: null })]);
     expect(html).toMatch(/<span class="metric deps">—<\/span>/);
+  });
+
+  it("appends the outdated-install count to deps when it was determined", () => {
+    const html = renderFleetHomeHtml([
+      siteRow({ depsDrifted: 5, depsMajorBehind: 1, depsOutdated: 3 }),
+    ]);
+    expect(html).toMatch(/<span class="metric deps">5 drifted \(1 major\) · 3 outdated<\/span>/);
+  });
+
+  it("shows the outdated count even when declared-range drift is clean", () => {
+    const html = renderFleetHomeHtml([
+      siteRow({ depsDrifted: 0, depsMajorBehind: 0, depsOutdated: 2 }),
+    ]);
+    expect(html).toMatch(/<span class="metric deps">0 · 2 outdated<\/span>/);
+  });
+
+  it("omits the outdated part when it wasn't determined (null), not implying clean", () => {
+    const html = renderFleetHomeHtml([
+      siteRow({ depsDrifted: 5, depsMajorBehind: 1, depsOutdated: null }),
+    ]);
+    expect(html).toMatch(/<span class="metric deps">5 drifted \(1 major\)<\/span>/);
+    expect(html).not.toContain("outdated");
   });
 
   it("renders security as 'C/H/M/L' format when there are vulns", () => {

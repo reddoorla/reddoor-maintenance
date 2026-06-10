@@ -45,6 +45,7 @@ function row(over: Partial<WebsiteRow> = {}): WebsiteRow {
     a11yViolations: null,
     depsDrifted: null,
     depsMajorBehind: null,
+    depsOutdated: null,
     securityVulnsCritical: null,
     securityVulnsHigh: null,
     securityVulnsModerate: null,
@@ -71,18 +72,24 @@ const a11yResult = (totalViolations: number): AuditResult =>
     details: { totalViolations, byImpact: {} },
   }) as unknown as AuditResult;
 
-const depsResult = (drifts: Array<"same" | "patch" | "minor" | "major" | "newer">): AuditResult =>
+const depsResult = (
+  drifts: Array<"same" | "patch" | "minor" | "major" | "newer">,
+  outdated: { outdated: number; major: number } | null = null,
+): AuditResult =>
   ({
     audit: "deps",
     site: "acme",
     status: "pass",
     summary: "ok",
-    details: drifts.map((drift, i) => ({
-      pkg: `pkg${i}`,
-      baseline: "1.0.0",
-      actual: "1.0.0",
-      drift,
-    })),
+    details: {
+      entries: drifts.map((drift, i) => ({
+        pkg: `pkg${i}`,
+        baseline: "1.0.0",
+        actual: "1.0.0",
+        drift,
+      })),
+      outdated,
+    },
   }) as unknown as AuditResult;
 
 const secResult = (counts: {
@@ -148,6 +155,36 @@ describe("writeAuditsToAirtable", () => {
       "Security Vulns Moderate": 3,
       "Security Vulns Low": 4,
     });
+  });
+
+  it("writes the real outdated-install count to the Deps Outdated field when determined", async () => {
+    const { base, calls } = makeFakeBase();
+    await writeAuditsToAirtable({
+      base,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
+        depsResult(["minor"], { outdated: 4, major: 1 }),
+      ],
+    });
+    const merged = Object.assign({}, ...calls.map((c) => c.fields));
+    expect(merged["Deps Outdated"]).toBe(4);
+  });
+
+  it("omits Deps Outdated from the write when the deps audit couldn't determine it (preserves prior)", async () => {
+    const { base, calls } = makeFakeBase();
+    await writeAuditsToAirtable({
+      base,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
+        depsResult(["minor"], null),
+      ],
+    });
+    const merged = Object.assign({}, ...calls.map((c) => c.fields));
+    expect("Deps Outdated" in merged).toBe(false);
   });
 
   it("skips audit types whose result is missing or skipped (predicate false)", async () => {
