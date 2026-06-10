@@ -157,10 +157,12 @@ gives them the standard CI. This is the guardrail that prevents "self-updating" 
 5. **Move copy out of code into a managed layer** (Airtable-driven, per-site-overridable). This
    is your "text/copy flow," and it's also what lets the wording stop lying at scale (not every
    site has a CMS; "Readability" vs "Accessibility"; per-site contact/footer).
-6. **Reverse the dashboard audience** (already decided): retire the client token model entirely
-   — [`dashboardToken`](../../../src/reports/airtable/websites.ts), the `/s/<slug>?t=<token>`
-   route, and [`verifyDashboardToken`](../../../src/dashboard/auth.ts) all become dead; one
-   operator password ([basic-auth](../../../src/dashboard/basic-auth.ts)) gates everything.
+6. **Reverse the dashboard audience** — ✅ DONE 2026-06-10: the client token model is retired.
+   `/s/<slug>` and `/` are both gated by one operator password
+   ([basic-auth](../../../src/dashboard/basic-auth.ts)); `verifyDashboardToken` and
+   `src/dashboard/auth.ts` are deleted and the `?t=<token>` links are gone.
+   [`dashboardToken`](../../../src/reports/airtable/websites.ts) is retained only as a
+   fleet-homepage visibility flag (non-null = listed; no longer a secret).
 
 ---
 
@@ -214,10 +216,10 @@ cron re-fire doesn't draft duplicate reports; one-click approve-and-send UX prio
 the send action auditable).
 
 **M4 — Operator command center (dashboard reframe).**
-Retire the client token model; one password over everything. Add triage ("3 critical vulns, 12
-stale > 30d, 5 failing update PRs"), filtering/sorting (by staleness, severity, due-this-week,
-onboarding %), pagination for 200, and surface the M1 git/CI status per site. This is where you
-live day to day.
+Token retirement is ✅ DONE (2026-06-10 — one operator password gates everything; see §5.6).
+Remaining M4 scope: triage ("3 critical vulns, 12 stale > 30d, 5 failing update PRs"),
+filtering/sorting (by staleness, severity, due-this-week, onboarding %), pagination for 200, and
+surface the M1 git/CI status per site. This is where you live day to day.
 **Research first:** operator "command center" / triage-dashboard prior art at ~200 rows
 (filter/sort/pagination patterns that don't melt down); single-password auth hardening for an
 internet-facing ops view (session handling, brute-force protection); whether an existing fleet-status

@@ -58,10 +58,10 @@ function securitySpan(
 
 function card(site: WebsiteRow): string {
   const name = escapeHtml(site.name);
-  // Caller is responsible for filtering — render assumes every site has a
-  // dashboardToken. The `?? ""` is a defensive nudge if a misuse ever slips through.
-  const token = site.dashboardToken ?? "";
-  const href = `/s/${escapeHtml(siteSlug(site.name))}?t=${escapeHtml(token)}`;
+  // The per-site dashboard at /s/<slug> is operator-only, gated by the shared
+  // dashboard password (no per-site token). dashboardToken is now just the
+  // fleet-homepage visibility flag; the caller filters on it.
+  const href = `/s/${escapeHtml(siteSlug(site.name))}`;
   const onboarding = onboardingStatus(site);
   const audited = relativeTimeFromNow(site.lastLighthouseAuditAt);
   const safeSiteUrl = escapeHtml(safeUrl(site.url));

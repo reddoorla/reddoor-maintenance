@@ -72,9 +72,10 @@ describe("renderFleetHomeHtml — card per site", () => {
     expect(html).toContain(">Gamma LLC<");
   });
 
-  it("links the site name to /s/<slug>?t=<token>", () => {
+  it("links the site name to /s/<slug> with no token (operator-only dashboard)", () => {
     const html = renderFleetHomeHtml([siteRow({ name: "CalTex", dashboardToken: "abc123" })]);
-    expect(html).toContain('href="/s/caltex?t=abc123"');
+    expect(html).toContain('href="/s/caltex"');
+    expect(html).not.toContain("?t=");
   });
 });
 
@@ -197,12 +198,5 @@ describe("renderFleetHomeHtml — escaping & safety", () => {
     expect(html).not.toContain("<script>alert(1)</script>");
     expect(html).toContain("&lt;script&gt;");
     expect(html).not.toMatch(/href="javascript:/i);
-  });
-
-  it("escapes the dashboard token in the href", () => {
-    const html = renderFleetHomeHtml([siteRow({ name: "Acme", dashboardToken: 'a"b&c' })]);
-    expect(html).not.toMatch(/href="[^"]*"[^"]*b&c/);
-    expect(html).toContain("&amp;");
-    expect(html).toContain("&quot;");
   });
 });

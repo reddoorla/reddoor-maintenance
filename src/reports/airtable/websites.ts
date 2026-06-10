@@ -56,10 +56,10 @@ export type WebsiteRow = {
   securityVulnsHigh: number | null;
   securityVulnsModerate: number | null;
   securityVulnsLow: number | null;
-  /** Shared-link gate for the per-site dashboard at /s/<slug>?t=<token>.
-   *  Operator generates and pastes into the "Dashboard Token" Airtable field;
-   *  rotated by replacing the value. `null` means the site has no dashboard
-   *  link yet — the function returns 403 with a clear setup message. */
+  /** Fleet-homepage VISIBILITY flag (the per-site token gate was retired
+   *  2026-06-10 — the dashboard is operator-only, gated by DASHBOARD_PASSWORD).
+   *  A non-null value opts the site into the `/` fleet view; `null` hides it.
+   *  Any truthy marker works; the value is no longer a secret. */
   dashboardToken: string | null;
 };
 

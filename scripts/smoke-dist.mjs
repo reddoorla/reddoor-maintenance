@@ -120,9 +120,9 @@ const requiredExports = [
   "selfPackageVersion",
   "selfCaretRange",
   // dashboard — Netlify functions import these for the per-site /s/:slug page
-  // (Phase 1) and the fleet homepage at / (Phase 2)
+  // and the fleet homepage at /. Both are now gated by verifyBasicAuth (the
+  // operator password); the per-site token model was retired 2026-06-10.
   "renderSiteDashboardHtml",
-  "verifyDashboardToken",
   "renderFleetHomeHtml",
   "verifyBasicAuth",
 ];
