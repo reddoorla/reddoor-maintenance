@@ -16,6 +16,7 @@ export type SyncConfigsOptions = {
 
 const GITIGNORE_CONFIG: ConfigName = "gitignore";
 const SVELTE_CONFIG: ConfigName = "svelte";
+const NETLIFY_CONFIG: ConfigName = "netlify";
 
 /** A site's `svelte.config.js` is "compliant" — and left untouched by sync —
  * once it builds on the canonical helpers (createSvelteConfig + adapter-netlify).
@@ -29,6 +30,25 @@ const SVELTE_CONFIG: ConfigName = "svelte";
  * is safe to keep. */
 function isSvelteConfigCompliant(contents: string): boolean {
   return contents.includes("createSvelteConfig") && contents.includes("@sveltejs/adapter-netlify");
+}
+
+/** Any of the baseline security headers — the marker that a netlify.toml is
+ * deliberately hardened (vs. e.g. a cache-control-only `[[headers]]` block). */
+const SECURITY_HEADER_RE =
+  /Strict-Transport-Security|Content-Security-Policy|X-Frame-Options|X-Content-Type-Options|Referrer-Policy|Permissions-Policy|Cross-Origin-Opener-Policy/i;
+
+/** A site's `netlify.toml` is "compliant" — and left untouched by sync — once it
+ * carries a `[[headers]]` block AND a security header (HSTS/CSP/X-Frame-Options/…).
+ *
+ * Like svelte.config, netlify.toml legitimately holds site-specific config
+ * (custom CSP, redirects, per-route headers). The canonical template ships the
+ * baseline security headers, but an exact overwrite would CLOBBER a site's own
+ * hardening — that bug stripped gallerysonder's headers on a routine sync
+ * (2026-06-10). So a genuinely-hardened file is left alone, while a missing,
+ * header-less (previously-stripped), OR merely cache-header file is non-compliant
+ * and gets the canonical template, which backfills the security baseline. */
+function isNetlifyConfigCompliant(contents: string): boolean {
+  return contents.includes("[[headers]]") && SECURITY_HEADER_RE.test(contents);
 }
 
 /** Runtime enumeration of every `ConfigName`. Mirror of the union in
@@ -73,6 +93,12 @@ async function planTemplateDiffs(
     // already on the canonical pattern is left alone so its aliases/compilerOptions
     // survive. A missing (null) or off-pattern config still gets the canonical template.
     if (t.config === SVELTE_CONFIG && existing !== null && isSvelteConfigCompliant(existing)) {
+      continue;
+    }
+    // netlify.toml is likewise compliance-checked: a file that already carries
+    // `[[headers]]` is hardened and left alone (an exact overwrite would strip
+    // its security headers). A header-less / missing file gets the template.
+    if (t.config === NETLIFY_CONFIG && existing !== null && isNetlifyConfigCompliant(existing)) {
       continue;
     }
     diffs.push(t);

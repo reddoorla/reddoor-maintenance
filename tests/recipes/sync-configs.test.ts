@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname, join } from "node:path";
 import { syncConfigs } from "../../src/recipes/sync-configs.js";
+import { templatesByName } from "../../src/recipes/sync-configs/templates.js";
 import { copyFixtureToTmp } from "./_helpers/site-tmpdir.js";
 
 function gitListFiles(cwd: string): string[] {
@@ -110,6 +111,95 @@ export default createSvelteConfig({
     const after = await readFile(join(cwd, "svelte.config.js"), "utf-8");
     expect(after).toContain("createSvelteConfig");
     expect(after).toContain("@sveltejs/adapter-netlify");
+  });
+
+  it("ships security headers in the canonical netlify template", () => {
+    // Regression guard: the template once shipped header-less and a sync STRIPPED
+    // live sites' security headers (gallerysonder, 2026-06-10). Never again.
+    const [netlify] = templatesByName(["netlify"]);
+    for (const header of [
+      "Strict-Transport-Security",
+      "X-Content-Type-Options",
+      "X-Frame-Options",
+      "Referrer-Policy",
+      "Permissions-Policy",
+      "Cross-Origin-Opener-Policy",
+    ]) {
+      expect(netlify?.contents).toContain(header);
+    }
+  });
+
+  it("leaves a netlify.toml that already has [[headers]] untouched (preserves custom security config)", async () => {
+    // A hardened netlify.toml (e.g. a site-specific CSP) must survive sync — an
+    // exact overwrite would strip it. Regression for the gallerysonder header
+    // loss (2026-06-10): compliance check, not exact-match, like svelte.config.
+    const cwd = await copyFixtureToTmp(drift);
+    const custom = `[build]
+    command = "pnpm run build"
+    publish = "build/"
+
+[[headers]]
+    for = "/*"
+    [headers.values]
+        Content-Security-Policy = "frame-ancestors 'self' https://example.com"
+        Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
+`;
+    await writeCommitted(cwd, "netlify.toml", custom);
+
+    const result = await syncConfigs({ path: cwd }, { which: ["netlify"] });
+    expect(result.status).toBe("noop");
+
+    const after = await readFile(join(cwd, "netlify.toml"), "utf-8");
+    expect(after).toBe(custom);
+    expect(after).toContain("frame-ancestors");
+  });
+
+  it("backfills the security headers onto a header-less netlify.toml (the stripped state)", async () => {
+    // The old template shipped no headers, so a prior sync left sites stripped.
+    // A header-less file is non-compliant → it gets the upgraded template back.
+    const cwd = await copyFixtureToTmp(drift);
+    const stripped = `[build]
+    command = "pnpm build"
+    publish = "build/"
+    functions = "functions/"
+
+[build.environment]
+    NODE_VERSION = "22"
+    COREPACK_INTEGRITY_KEYS = "0"
+`;
+    await writeCommitted(cwd, "netlify.toml", stripped);
+
+    const result = await syncConfigs({ path: cwd }, { which: ["netlify"] });
+    expect(result.status).toBe("applied");
+
+    const after = await readFile(join(cwd, "netlify.toml"), "utf-8");
+    expect(after).toContain("[[headers]]");
+    expect(after).toContain("Strict-Transport-Security");
+    expect(after).toContain("X-Frame-Options");
+  });
+
+  it("backfills security headers onto a netlify.toml whose only [[headers]] block is non-security (cache-only)", async () => {
+    // "Compliant" must mean "has a security baseline", not merely "has a
+    // [[headers]] block" — a cache-control-only file (a common hand-addition)
+    // is NOT hardened and must still receive HSTS/X-Frame-Options/etc.
+    const cwd = await copyFixtureToTmp(drift);
+    const cacheOnly = `[build]
+    command = "pnpm build"
+    publish = "build/"
+
+[[headers]]
+    for = "/_app/immutable/*"
+    [headers.values]
+        Cache-Control = "public, max-age=31536000, immutable"
+`;
+    await writeCommitted(cwd, "netlify.toml", cacheOnly);
+
+    const result = await syncConfigs({ path: cwd }, { which: ["netlify"] });
+    expect(result.status).toBe("applied");
+
+    const after = await readFile(join(cwd, "netlify.toml"), "utf-8");
+    expect(after).toContain("Strict-Transport-Security");
+    expect(after).toContain("X-Frame-Options");
   });
 });
 
