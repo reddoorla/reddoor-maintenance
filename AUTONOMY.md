@@ -93,11 +93,36 @@ safe:
 4. **Journal** — append what + why to [`docs/autonomy-journal.md`](docs/autonomy-journal.md)
    so the whole run is reviewable fast.
 
-## Permissions
+## Permissions & sandbox
 
 `.claude/settings.json` (local, gitignored) encodes these tiers as allow / ask /
-deny rules: GREEN commands are `allow`ed (no prompt); RED commands are in `ask`
-(forces a prompt) or `deny` (blocked). Because the machine is not sandboxed, a
-determined process could route around `ask`; the agent does not. For a hard
-boundary, run the agent in a sandbox that restricts network egress (block the
-npm-publish endpoint) — that converts the RED gates from declared to enforced.
+deny rules: GREEN commands are `allow`ed (a broad `Bash(*)`, so command _shape_ —
+e.g. `&&`-chains — never reintroduces prompts); RED commands are in `ask`
+(publish / release / deploy / secrets — forces a prompt, so they pause for a human
+while the operator is away) or `deny` (force-push, `reset --hard`, `rm -rf`,
+credential reads — blocked).
+
+The OS-level **sandbox is enabled** (`sandbox.enabled: true`, macOS Seatbelt;
+enabled purely via settings — the `/sandbox` panel is a terminal TUI the VS Code
+extension doesn't render, and isn't required). It contains every Bash subprocess:
+`pnpm install` / `build` / `test` and the dependency code they run get filesystem
+access limited to the project + caches (`~/Library/pnpm`,
+`~/Library/Caches/ms-playwright`, `~/.npm`) and network limited to an allowlist
+(github, npm, airtable, googleapis, resend). This closes the supply-chain hole — an
+auto-merged Renovate dependency can't read `~/.ssh` / `~/.aws`, escape the workdir,
+or phone home off-allowlist. Two conventions keep the workload functional under it:
+
+- **`gh` is in `excludedCommands`** — Go-based CLIs fail TLS verification under
+  Seatbelt (per the docs), so `gh` runs unsandboxed.
+- **Audits run with the Bash `dangerouslyDisableSandbox` flag** — they fetch
+  arbitrary deployed client domains (incompatible with a tight egress allowlist,
+  and a partial allowlist would corrupt scores). An audit is a read-only public
+  fetch, so this is low-risk.
+
+Limits (from the docs, not hedging): the proxy filters by hostname without TLS
+inspection, so a broad allow like `github.com` is domain-frontable — strong
+risk-_reduction_, not a vault. `Bash(*)` also lets the agent self-escape via
+`dangerouslyDisableSandbox`, so the sandbox is a hard wall for
+**subprocesses/dependencies** and a soft one for the agent (the contract is the
+agent's control). For a true hard wall around the agent too, run it in a dev
+container / VM.
