@@ -30,10 +30,14 @@ jobs:
       - run: pnpm test:coverage
       - run: pnpm test:dist
 
-      # Catch any build/test/audit that leaves files in the working tree — the
-      # orphan-artifact class (e.g. the a11y .reddoor-a11y-spec-* dirs). dist/,
-      # coverage/, .vitest-cache/ are gitignored, so a dirty tree here is a real
-      # leak. (2026-06-10 autonomy hardening.)
+      # Test-suite tripwire: fail if build+tests left the tree dirty. dist/,
+      # coverage/, .vitest-cache/ are gitignored, so anything here is a real leak
+      # — e.g. a test that writes into the repo instead of os.tmpdir(). NOTE this
+      # does NOT exercise the fleet a11y orphan (.reddoor-a11y-spec-*): that class
+      # only occurs in local `audit` runs against a real checkout, not in unit
+      # tests here nor in fleet-lighthouse.yml (lighthouse-only, deployed URLs,
+      # /tmp workdir). It's backstopped by the gitignore entry + try/finally in
+      # src/audits/a11y.ts. (2026-06-10 autonomy hardening.)
       - name: Working tree clean after build + tests
         run: |
           if [ -n "$(git status --porcelain)" ]; then

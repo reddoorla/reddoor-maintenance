@@ -12,6 +12,11 @@ export default defineConfig({
     coverage: {
       // Run via `pnpm test:coverage` (the CI gate); plain `pnpm test` stays fast.
       provider: "v8",
+      // `include` makes vitest 4 count EVERY matching src file — even ones no
+      // test imports (they score 0%) — by default (the old `all` flag is gone).
+      // So a new untested file pulls the global number down and trips the floor;
+      // the floor isn't limited to the test import graph. (Verified: the number
+      // is identical with/without forcing all, i.e. all src is already counted.)
       include: ["src/**/*.ts"],
       reporter: ["text-summary"],
       // A regression FLOOR a few points under the current numbers (S 81 / B 70 /
