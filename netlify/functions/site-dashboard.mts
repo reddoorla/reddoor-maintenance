@@ -2,7 +2,7 @@ import type { Context, Config } from "@netlify/functions";
 import { openBase } from "../../src/reports/airtable/client.js";
 import { getWebsiteBySlug } from "../../src/reports/airtable/websites.js";
 import { listReportsForSite } from "../../src/reports/airtable/reports.js";
-import { verifyDashboardToken, renderSiteDashboardHtml } from "../../src/dashboard/index.js";
+import { verifyBasicAuth, renderSiteDashboardHtml } from "../../src/dashboard/index.js";
 
 // Register the customer-facing /s/:slug path on the function itself rather
 // than via a netlify.toml [[redirects]] rewrite. The rewrite approach (200
@@ -14,8 +14,11 @@ export const config: Config = {
   path: ["/s/:slug", "/.netlify/functions/site-dashboard"],
 };
 
-function plainText(body: string, status: number): Response {
-  return new Response(body, { status, headers: { "content-type": "text/plain; charset=utf-8" } });
+function plainText(body: string, status: number, extraHeaders: HeadersInit = {}): Response {
+  return new Response(body, {
+    status,
+    headers: { "content-type": "text/plain; charset=utf-8", ...extraHeaders },
+  });
 }
 
 function html(body: string, status: number): Response {
@@ -28,7 +31,6 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   // after deploy to verify env wiring.
   const url = new URL(req.url);
   const slug = ctx.params?.slug ?? url.searchParams.get("slug");
-  const token = url.searchParams.get("t");
 
   if (!slug) {
     return Response.json(
@@ -51,25 +53,30 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     return plainText("Airtable env missing", 500);
   }
 
+  // Operator-only: gate the per-site dashboard with the same shared password as
+  // the fleet homepage, and the SAME Basic realm so the browser reuses creds
+  // when the operator clicks through from /. The per-site token model is retired
+  // — dashboardToken is now just the fleet-homepage visibility flag. Gate BEFORE
+  // any Airtable read so an unauthenticated probe can't fetch a site.
+  const password = process.env.DASHBOARD_PASSWORD;
+  if (!password) {
+    console.error("[site-dashboard] DASHBOARD_PASSWORD missing");
+    return plainText(
+      "Site dashboard is unconfigured. Set DASHBOARD_PASSWORD in the Netlify site env.",
+      503,
+    );
+  }
+  if (!verifyBasicAuth(req.headers.get("authorization"), password)) {
+    return plainText("Authentication required.", 401, {
+      "www-authenticate": 'Basic realm="Reddoor fleet"',
+    });
+  }
+
   const base = openBase({ apiKey, baseId });
 
   const site = await getWebsiteBySlug(base, slug);
   if (!site) {
     return plainText(`No site found for slug '${slug}'.`, 404);
-  }
-
-  if (!site.dashboardToken) {
-    return plainText(
-      `Site '${site.name}' has no Dashboard Token set in Airtable. ` +
-        `Open the Websites table, find the row, and populate the "Dashboard Token" field.`,
-      403,
-    );
-  }
-
-  if (!verifyDashboardToken(token, site.dashboardToken)) {
-    // 404 (not 403) so the URL space doesn't leak which sites have valid
-    // tokens vs. which are wrong-tokened — both look the same to a probe.
-    return plainText(`Not found.`, 404);
   }
 
   const reports = await listReportsForSite(base, site.id);
