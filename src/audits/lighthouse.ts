@@ -236,8 +236,12 @@ async function deployedLighthouse(
   try {
     raw = await spawn("npx", ["--yes", "@lhci/cli", "autorun", `--config=${configPath}`], {
       cwd: workDir,
-      // No dev-server boot: ~30s/run × 3 + first-use Chrome download headroom.
-      timeoutMs: 3 * 60_000,
+      // 3 serial cold runs of a slow deployed site (lhci's own maxWaitForLoad
+      // ~45-60s each) + first-use Chrome download can plausibly exceed 3 min →
+      // SIGTERM → no lhr-*.json → spurious "no scores". Match the 5-min budget
+      // the checkout path already gives (erp-industrials nightly flake,
+      // morning-brief 2026-06-10 MEDIUM-F).
+      timeoutMs: 5 * 60_000,
     });
   } catch (err) {
     await rm(workDir, { recursive: true, force: true });
