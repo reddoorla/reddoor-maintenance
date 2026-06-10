@@ -1,5 +1,19 @@
 # @reddoorla/maintenance
 
+## 0.30.0
+
+### Minor Changes
+
+- 4a9fd77: feat(dashboard): retire the per-site token model — the operator password gates `/s/<slug>` and `/`. `verifyDashboardToken` is removed; `dashboardToken` is now a fleet-homepage visibility flag only.
+- 4a9fd77: feat(deps): add a real outdated-install signal alongside the declared-range "Deps Drifted" number. The deps audit now also reports how many installs are behind the registry's latest (`pnpm outdated`, best-effort), written to a new `Deps Outdated` Airtable field and shown on the dashboard.
+
+### Patch Changes
+
+- 4a9fd77: fix(fleet): `cloneIfNeeded` derives a clone URL from `gitRepo` (`https://github.com/<owner/repo>.git`, strict-validated) when no `repoUrl` is set, unbreaking checkout-based `--fleet airtable` recipes. The JSON inventory provider now also carries `gitRepo`/`deployedUrl`.
+- 4a9fd77: fix(fleet): the fleet write-back now emits a machine-readable `FLEET_WRITE_SUMMARY wrote=N failed=M total=T` line so the nightly workflow can gate on real outcomes (red on total/mass write-back failure, warn on a tolerated single flake) instead of a "wrote ≥ 1" heuristic.
+- 4a9fd77: fix(audits): kill the whole process group on a spawn timeout (detached when a timeout is set + `process.kill(-pid)` with SIGTERM→SIGKILL escalation), so a timed-out audit no longer orphans vite/Chromium. Timeout-less streaming calls stay attached so Ctrl-C still works. Also caps captured stdout/stderr.
+- 4a9fd77: fix(sync-configs): the canonical `netlify.toml` template now ships the baseline security headers, and a `[[headers]]`-aware carve-out stops `sync-configs` from stripping a site's own security config (a header-less file is backfilled; a hardened one is left alone).
+
 ## 0.29.0
 
 ### Minor Changes
