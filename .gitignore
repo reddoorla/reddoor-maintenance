@@ -14,3 +14,6 @@ tests/fixtures/**/playwright-report/
 /reports/
 # Service account JSONs, OAuth tokens, anything credential-bearing. Never commit.
 secrets/
+# a11y audit's transient spec dir; cleaned on catchable exits, gitignored as the
+# backstop for a timeout-SIGKILL that orphans it mid-run.
+.reddoor-a11y-spec-*/

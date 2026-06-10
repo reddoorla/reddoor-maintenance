@@ -25,6 +25,16 @@ describe("CANONICAL_GITIGNORE_ENTRIES", () => {
       ]),
     );
   });
+
+  // The a11y audit writes a transient `.reddoor-a11y-spec-<rand>/` dir INSIDE
+  // the site checkout (so the spec's `import @axe-core/playwright` resolves via
+  // the site's node_modules). It's cleaned on the catchable paths, but a
+  // timeout-SIGKILL of the parent leaves it behind — untracked files in a repo
+  // whose self-updating CI checks for a clean tree. The fleet must ignore it.
+  // (morning-brief 2026-06-10 MEDIUM-D; recurred from 06-05 M3.)
+  it("ignores the a11y audit's transient spec dirs across the fleet", () => {
+    expect(CANONICAL_GITIGNORE_ENTRIES).toContain(".reddoor-a11y-spec-*/");
+  });
 });
 
 describe("mergeGitignore", () => {

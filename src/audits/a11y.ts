@@ -176,74 +176,82 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
   // 2026-05-28 (0.10.6 dogfood), third layer of the same class as the
   // webServer.cwd bug.
   const specDir = await mkdtemp(join(site.path, ".reddoor-a11y-spec-"));
-  const specPath = join(specDir, "a11y.spec.ts");
-  await writeFile(specPath, buildSpec(), "utf-8");
-
-  const port = await findFreePort();
-  const configPath = join(specDir, "playwright.config.ts");
-  await writeFile(configPath, buildPlaywrightConfig(port, site.path), "utf-8");
-
-  const resultsPath = join(site.path, RESULTS_REL);
-  // Clear stale artifacts so a failed spawn never reports old data.
-  await rm(join(site.path, ".reddoor-a11y"), { recursive: true, force: true });
-
-  let raw;
+  // Everything past mkdtemp is wrapped so the transient specDir is removed on
+  // EVERY catchable exit — success, skip-return, or any throw (a failed
+  // writeFile/findFreePort used to orphan it). A timeout-SIGKILL of the parent
+  // can't be caught here; `.reddoor-a11y-spec-*/` is fleet-gitignored as the
+  // backstop for that. (2026-06-10 MEDIUM-D; recurred from 06-05 M3.)
   try {
-    raw = await spawn(
-      "npx",
-      ["--yes", "playwright", "test", `--config=${configPath}`, "--reporter=line", specPath],
-      {
-        cwd: site.path,
-        env: { ...process.env, REDDOOR_A11Y_OUTPUT: resultsPath },
-        // playwright on a cold tree downloads Chrome, boots the site's dev
-        // server, and runs axe over every configured route. The shared 30 s
-        // default in runAudits is fine for deps/lint/security but starves
-        // playwright (mirrors the lighthouse fix shipped earlier).
-        timeoutMs: 5 * 60_000,
-      },
-    );
-  } catch (err) {
-    await rm(specDir, { recursive: true, force: true });
-    const e = err as NodeJS.ErrnoException;
-    if (e.code === "ENOENT" || /ENOENT/.test(String(err))) {
+    const specPath = join(specDir, "a11y.spec.ts");
+    await writeFile(specPath, buildSpec(), "utf-8");
+
+    const port = await findFreePort();
+    const configPath = join(specDir, "playwright.config.ts");
+    await writeFile(configPath, buildPlaywrightConfig(port, site.path), "utf-8");
+
+    const resultsPath = join(site.path, RESULTS_REL);
+    // Clear stale artifacts so a failed spawn never reports old data.
+    await rm(join(site.path, ".reddoor-a11y"), { recursive: true, force: true });
+
+    let raw;
+    try {
+      raw = await spawn(
+        "npx",
+        ["--yes", "playwright", "test", `--config=${configPath}`, "--reporter=line", specPath],
+        {
+          cwd: site.path,
+          env: { ...process.env, REDDOOR_A11Y_OUTPUT: resultsPath },
+          // playwright on a cold tree downloads Chrome, boots the site's dev
+          // server, and runs axe over every configured route. The shared 30 s
+          // default in runAudits is fine for deps/lint/security but starves
+          // playwright (mirrors the lighthouse fix shipped earlier).
+          timeoutMs: 5 * 60_000,
+        },
+      );
+    } catch (err) {
+      const e = err as NodeJS.ErrnoException;
+      if (e.code === "ENOENT" || /ENOENT/.test(String(err))) {
+        return {
+          audit: "a11y",
+          site: label,
+          status: "skip",
+          summary: "npx/playwright not available",
+        };
+      }
+      throw err;
+    }
+
+    const artifact = await readJsonMaybe<NormalizedA11y>(resultsPath);
+
+    if (!artifact) {
       return {
         audit: "a11y",
         site: label,
-        status: "skip",
-        summary: "npx/playwright not available",
+        status: "fail",
+        summary: `a11y: no results written (exit ${raw.code})${
+          raw.stderr ? ` — ${raw.stderr.slice(0, 200)}` : ""
+        }`,
       };
     }
-    throw err;
-  }
-  await rm(specDir, { recursive: true, force: true });
 
-  const artifact = await readJsonMaybe<NormalizedA11y>(resultsPath);
+    const hasSerious =
+      (artifact.byImpact.serious ?? 0) > 0 || (artifact.byImpact.critical ?? 0) > 0;
+    const hasAny = artifact.totalViolations > 0;
 
-  if (!artifact) {
+    const status: AuditResult["status"] = hasSerious ? "fail" : hasAny ? "warn" : "pass";
+    const summary =
+      status === "pass"
+        ? `a11y: 0 violations across ${a11yRoutes.length} routes (+${smokeRoutes.length} hydration smoke)`
+        : `a11y: ${artifact.totalViolations} violations`;
+
     return {
       audit: "a11y",
       site: label,
-      status: "fail",
-      summary: `a11y: no results written (exit ${raw.code})${
-        raw.stderr ? ` — ${raw.stderr.slice(0, 200)}` : ""
-      }`,
+      status,
+      summary,
+      details: artifact,
     };
+  } finally {
+    await rm(specDir, { recursive: true, force: true });
   }
-
-  const hasSerious = (artifact.byImpact.serious ?? 0) > 0 || (artifact.byImpact.critical ?? 0) > 0;
-  const hasAny = artifact.totalViolations > 0;
-
-  const status: AuditResult["status"] = hasSerious ? "fail" : hasAny ? "warn" : "pass";
-  const summary =
-    status === "pass"
-      ? `a11y: 0 violations across ${a11yRoutes.length} routes (+${smokeRoutes.length} hydration smoke)`
-      : `a11y: ${artifact.totalViolations} violations`;
-
-  return {
-    audit: "a11y",
-    site: label,
-    status,
-    summary,
-    details: artifact,
-  };
 }
