@@ -29,6 +29,10 @@ export const CANONICAL_GITIGNORE_ENTRIES: readonly string[] = [
   ".vercel/",
   ".netlify/",
   ".reddoor-a11y/",
+  // The a11y audit's transient spec dir, written inside the checkout and
+  // normally cleaned, but a timeout-SIGKILL of the parent orphans it. Ignored
+  // fleet-wide so it never dirties a self-updating repo's tree (2026-06-10 M-D).
+  ".reddoor-a11y-spec-*/",
 ];
 
 export type MergeResult = { content: string; added: string[] };

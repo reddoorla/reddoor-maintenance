@@ -17,3 +17,4 @@ test-results/
 .vercel/
 .netlify/
 .reddoor-a11y/
+.reddoor-a11y-spec-*/
