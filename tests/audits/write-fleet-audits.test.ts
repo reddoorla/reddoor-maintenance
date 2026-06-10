@@ -63,11 +63,38 @@ describe("writeFleetAuditsToAirtable", () => {
     expect(out.failed[0]!.error).toMatch(/No Websites row matched/);
   });
 
-  it("files a lighthouse-ran-but-no-real-scores site under failed, still writing healthy sites", async () => {
+  it("files a no-real-scores site under failed but STILL writes its a11y/deps/security (MEDIUM-E)", async () => {
     const base = makeFakeBase({ Websites: websites });
-    const results = [
+    const results: AuditResult[] = [
       lhResult("acme-co", { performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
       lhResult("beta-corp", {}), // lighthouse ran but produced no real scores
+      // beta-corp's OTHER audits are valid — a lighthouse miss must not discard
+      // them. This case failed on the pre-fix early-gate code (threw before any
+      // write); it guards against that regression at the fleet level.
+      {
+        audit: "a11y",
+        site: "beta-corp",
+        status: "warn",
+        summary: "",
+        details: { totalViolations: 2, byImpact: {} },
+      } as unknown as AuditResult,
+      {
+        audit: "deps",
+        site: "beta-corp",
+        status: "pass",
+        summary: "",
+        details: {
+          entries: [{ pkg: "x", baseline: "1.0.0", actual: "1.0.0", drift: "minor" }],
+          outdated: null,
+        },
+      } as unknown as AuditResult,
+      {
+        audit: "security",
+        site: "beta-corp",
+        status: "fail",
+        summary: "",
+        details: { counts: { low: 0, moderate: 0, high: 1, critical: 0 }, advisories: [] },
+      } as unknown as AuditResult,
     ];
     const out = await writeFleetAuditsToAirtable({
       base,
@@ -78,6 +105,19 @@ describe("writeFleetAuditsToAirtable", () => {
     expect(out.failed).toHaveLength(1);
     expect(out.failed[0]!.slug).toBe("beta-corp");
     expect(out.failed[0]!.error).toMatch(/produced no scores/i);
+    // beta-corp's non-LH audits WERE written to its row (recB) despite the miss.
+    const betaFields: Record<string, unknown> = {};
+    for (const c of base.__calls) {
+      if (c.kind === "update" && c.records[0]?.id === "recB") {
+        Object.assign(betaFields, c.records[0].fields);
+      }
+    }
+    expect(betaFields).toMatchObject({
+      "A11y Violations": 2,
+      "Deps Drifted": 1,
+      "Security Vulns High": 1,
+    });
+    expect("pScore" in betaFields).toBe(false); // no lighthouse scores (the miss)
   });
 });
 
