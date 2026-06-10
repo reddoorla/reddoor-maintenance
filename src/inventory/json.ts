@@ -23,6 +23,10 @@ function validate(raw: unknown): Site[] {
     const site: Site = { path: e.path };
     if (typeof e.name === "string") site.name = e.name;
     if (typeof e.repoUrl === "string") site.repoUrl = e.repoUrl;
+    // Carry gitRepo/deployedUrl like the Airtable provider does, so a JSON
+    // inventory can drive checkout (clone-from-gitRepo) and deployed-URL audits.
+    if (typeof e.gitRepo === "string") site.gitRepo = e.gitRepo;
+    if (typeof e.deployedUrl === "string") site.deployedUrl = e.deployedUrl;
     if (typeof e.meta === "object" && e.meta !== null) {
       site.meta = e.meta as Record<string, unknown>;
     }

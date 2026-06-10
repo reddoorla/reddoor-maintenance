@@ -175,4 +175,83 @@ describe("cli/fleet/cloneIfNeeded", () => {
       ).resolves.toBeDefined();
     }
   });
+
+  it("derives the clone URL from gitRepo (owner/repo) when repoUrl is absent", async () => {
+    const workdir = await mkdtemp(join(tmpdir(), "reddoor-wd-"));
+    let clonedUrl: string | null = null;
+    const spawn: SpawnFn = async (_cmd, args) => {
+      // git clone -- <url> <target>: the url is the positional right after `--`.
+      clonedUrl = args[args.indexOf("--") + 1] as string;
+      const target = args[args.length - 1] as string;
+      await mkdir(target, { recursive: true });
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const site = { path: "/not-exist", name: "caltex", gitRepo: "reddoorla/caltex" };
+    const result = await cloneIfNeeded(site, { workdir, spawn });
+    expect(clonedUrl).toBe("https://github.com/reddoorla/caltex.git");
+    expect(result.path).toBe(join(workdir, "caltex"));
+  });
+
+  it("prefers an explicit repoUrl over gitRepo when both are set", async () => {
+    const workdir = await mkdtemp(join(tmpdir(), "reddoor-wd-"));
+    let clonedUrl: string | null = null;
+    const spawn: SpawnFn = async (_cmd, args) => {
+      clonedUrl = args[args.indexOf("--") + 1] as string;
+      const target = args[args.length - 1] as string;
+      await mkdir(target, { recursive: true });
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const site = {
+      path: "/not-exist",
+      name: "x",
+      repoUrl: "git@example.com:a.git",
+      gitRepo: "owner/repo",
+    };
+    await cloneIfNeeded(site, { workdir, spawn });
+    expect(clonedUrl).toBe("git@example.com:a.git");
+  });
+
+  it("derives the site name from the gitRepo URL when name is absent", async () => {
+    const workdir = await mkdtemp(join(tmpdir(), "reddoor-wd-"));
+    const spawn: SpawnFn = async (_cmd, args) => {
+      const target = args[args.length - 1] as string;
+      await mkdir(target, { recursive: true });
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const result = await cloneIfNeeded(
+      { path: "/not-exist", gitRepo: "owner/cool-repo" },
+      { workdir, spawn },
+    );
+    expect(result.path).toBe(join(workdir, "cool-repo"));
+  });
+
+  it("mentions gitRepo in the error when neither repoUrl nor gitRepo is set", async () => {
+    const spawn: SpawnFn = async () => {
+      throw new Error("should not spawn");
+    };
+    await expect(cloneIfNeeded({ path: "/not-exist" }, { workdir: "/wd", spawn })).rejects.toThrow(
+      /gitRepo/,
+    );
+  });
+
+  it("rejects a gitRepo that isn't a clean owner/repo (no host, extra path, or argv smuggling)", async () => {
+    const workdir = await mkdtemp(join(tmpdir(), "reddoor-wd-"));
+    const spawn: SpawnFn = async () => {
+      throw new Error("should NOT have reached spawn — bad gitRepo");
+    };
+    const bad = [
+      "noslash",
+      "owner/repo/extra",
+      "https://evil.com/x",
+      "owner repo",
+      "owner/",
+      "git@github.com:owner/repo",
+      "--upload-pack=evil/x",
+    ];
+    for (const gitRepo of bad) {
+      await expect(
+        cloneIfNeeded({ path: "/missing", name: "ok", gitRepo }, { workdir, spawn }),
+      ).rejects.toThrow(/unsafe gitRepo|owner\/repo/i);
+    }
+  });
 });

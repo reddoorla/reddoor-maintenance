@@ -59,16 +59,42 @@ async function isNonEmptyDir(path: string): Promise<boolean> {
   }
 }
 
+/** GitHub repo identity `owner/repo`: exactly two `[\w.-]` segments. Constrained
+ *  so it can't smuggle a scheme, host, extra path segment, traversal, or an argv
+ *  flag into the derived clone URL below. */
+const GIT_REPO_RE = /^[\w.-]+\/[\w.-]+$/;
+
+/**
+ * Resolve the URL to clone from. An explicit `repoUrl` wins; otherwise derive
+ * one from `gitRepo` (`owner/repo` → `https://github.com/owner/repo.git`). The
+ * Airtable inventory deliberately sets `gitRepo` and NOT `repoUrl` (a clone
+ * source must never be the production `url`), so without this derivation every
+ * checkout-based fleet recipe throws on the first site with an empty workdir.
+ *
+ * Returns `undefined` when neither is set; throws on a malformed `gitRepo`.
+ */
+function resolveCloneUrl(site: Site): string | undefined {
+  if (site.repoUrl) return site.repoUrl;
+  if (!site.gitRepo) return undefined;
+  if (!GIT_REPO_RE.test(site.gitRepo)) {
+    throw new Error(`unsafe gitRepo: expected "owner/repo" (got: ${JSON.stringify(site.gitRepo)})`);
+  }
+  return `https://github.com/${site.gitRepo}.git`;
+}
+
 export async function cloneIfNeeded(site: Site, opts: CloneIfNeededOptions): Promise<Site> {
   if (await isNonEmptyDir(site.path)) return site;
 
-  if (!site.repoUrl) {
-    throw new Error(`site path does not exist (${site.path}) and no repoUrl is set — cannot clone`);
+  const repoUrl = resolveCloneUrl(site);
+  if (!repoUrl) {
+    throw new Error(
+      `site path does not exist (${site.path}) and no repoUrl or gitRepo is set — cannot clone`,
+    );
   }
 
-  const name = site.name ?? deriveNameFromRepoUrl(site.repoUrl);
+  const name = site.name ?? deriveNameFromRepoUrl(repoUrl);
   assertSafeName(name);
-  assertSafeRepoUrl(site.repoUrl);
+  assertSafeRepoUrl(repoUrl);
   const target = join(opts.workdir, name);
   await mkdir(opts.workdir, { recursive: true });
 
@@ -78,7 +104,7 @@ export async function cloneIfNeeded(site: Site, opts: CloneIfNeededOptions): Pro
 
   const spawn = opts.spawn ?? defaultSpawn;
   // `--` separator so git won't treat repoUrl as a flag if validation slips.
-  const result = await spawn("git", ["clone", "--", site.repoUrl, target], {
+  const result = await spawn("git", ["clone", "--", repoUrl, target], {
     cwd: opts.workdir,
     timeoutMs: 5 * 60_000,
   });
