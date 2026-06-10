@@ -6,3 +6,26 @@
 [build.environment]
     NODE_VERSION = "22"
     COREPACK_INTEGRITY_KEYS = "0"
+
+# Baseline security headers for all responses. CSP is emitted per-response by
+# SvelteKit (see `kit.csp` in svelte.config.js) so it is intentionally omitted
+# here to avoid conflicting duplicates.
+[[headers]]
+    for = "/*"
+    [headers.values]
+        Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
+        X-Content-Type-Options = "nosniff"
+        X-Frame-Options = "SAMEORIGIN"
+        Referrer-Policy = "strict-origin-when-cross-origin"
+        Permissions-Policy = "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+        Cross-Origin-Opener-Policy = "same-origin"
+
+[[headers]]
+    for = "/favicon.png"
+    [headers.values]
+        Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+    for = "/_app/immutable/*"
+    [headers.values]
+        Cache-Control = "public, max-age=31536000, immutable"
