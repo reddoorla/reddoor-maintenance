@@ -3,6 +3,7 @@ import {
   applyDeployedUrl,
   deployedUrlNotice,
   auditNeedsCheckout,
+  parseConcurrency,
 } from "../../src/cli/commands/audit.js";
 import type { AuditName, Site } from "../../src/types.js";
 
@@ -85,5 +86,27 @@ describe("auditNeedsCheckout", () => {
 
   it("is true when the site has no deployedUrl", () => {
     expect(auditNeedsCheckout({ path: "/x" }, ["lighthouse"])).toBe(true);
+  });
+});
+
+describe("parseConcurrency", () => {
+  it("returns true (all-parallel) when unset", () => {
+    expect(parseConcurrency(undefined)).toBe(true);
+  });
+
+  it("parses a positive integer", () => {
+    expect(parseConcurrency("1")).toBe(1);
+    expect(parseConcurrency("4")).toBe(4);
+  });
+
+  it("rejects zero, negatives, and non-integers with exitCode 2", () => {
+    for (const bad of ["0", "-2", "abc", "1.5"]) {
+      try {
+        parseConcurrency(bad);
+        throw new Error(`should have thrown for ${bad}`);
+      } catch (e) {
+        expect((e as { exitCode?: number }).exitCode).toBe(2);
+      }
+    }
   });
 });
