@@ -25,7 +25,13 @@ type WriteSummary = {
  *
  *  Throws (with .exitCode set) on the failure modes the CLI surfaces today:
  *   - 2: --only ran without lighthouse, or no Websites row matched the slug
- *   - 1: lighthouse ran but produced no real scores (infrastructure failure) */
+ *   - 1: lighthouse ran but produced no real scores (infrastructure failure).
+ *        The a11y/deps/security writes still complete FIRST — a Lighthouse
+ *        miss flags the site without discarding its other audit data.
+ *
+ *  Precedence note: the Websites-row lookup (exitCode 2) is checked BEFORE the
+ *  no-scores gate (exitCode 1), so the rare no-row + no-scores combo surfaces
+ *  as exitCode 2. */
 export async function writeAuditsToAirtable(args: {
   base: AirtableBase;
   websites: WebsiteRow[];
@@ -43,15 +49,6 @@ export async function writeAuditsToAirtable(args: {
       { exitCode: 2 },
     );
   }
-  if (!hasRealScores(lhResult)) {
-    throw Object.assign(
-      new Error(
-        `Lighthouse audit produced no scores; refusing to write to Airtable. Summary: ${lhResult.summary}`,
-      ),
-      { exitCode: 1 },
-    );
-  }
-
   const target = websites.find((w) => siteSlug(w.name) === slug);
   if (!target) {
     throw Object.assign(new Error(`No Websites row matched slug "${slug}"`), { exitCode: 2 });
@@ -59,9 +56,18 @@ export async function writeAuditsToAirtable(args: {
 
   const writes: WriteSummary["writes"] = [];
 
-  const scores = lighthouseScoresFromResult(lhResult);
-  await updateScores(base, target.id, scores);
-  writes.push({ audit: "lighthouse", counts: scores });
+  // Lighthouse is the most timeout-prone audit. A Lighthouse miss must NOT
+  // discard the site's valid a11y/deps/security results (morning-brief
+  // 2026-06-10 MEDIUM-E): write Lighthouse scores only when real, write the
+  // other audits unconditionally, then throw on a Lighthouse miss AFTER the
+  // non-Lighthouse data is safely persisted — so the site is still flagged
+  // (exitCode 1 / collected in FleetWriteResult.failed) without data loss.
+  const lhHasScores = hasRealScores(lhResult);
+  if (lhHasScores) {
+    const scores = lighthouseScoresFromResult(lhResult);
+    await updateScores(base, target.id, scores);
+    writes.push({ audit: "lighthouse", counts: scores });
+  }
 
   const a11y = results.find((r) => r.audit === "a11y");
   if (a11y && hasA11yCounts(a11y)) {
@@ -82,6 +88,20 @@ export async function writeAuditsToAirtable(args: {
     const counts = securityCountsFromResult(sec);
     await updateSecurityCounts(base, target.id, counts);
     writes.push({ audit: "security", counts });
+  }
+
+  if (!lhHasScores) {
+    // Enumerate what WAS persisted so the failure (surfaced to the single-site
+    // CLI operator via console.error) reads as a partial write, not a total one.
+    const persisted = writes.map((w) => w.audit);
+    throw Object.assign(
+      new Error(
+        `Lighthouse audit produced no scores; ${
+          persisted.length ? `wrote ${persisted.join("/")} but refused Lighthouse` : "wrote nothing"
+        }. Summary: ${lhResult.summary}`,
+      ),
+      { exitCode: 1 },
+    );
   }
 
   return { siteName: target.name, writes };

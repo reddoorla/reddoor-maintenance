@@ -235,6 +235,50 @@ describe("writeAuditsToAirtable", () => {
     });
   });
 
+  // morning-brief 2026-06-10 MEDIUM-E: a Lighthouse Chrome-timeout (erp's
+  // nightly fate) used to throw BEFORE any write, discarding that site's valid
+  // a11y/deps/security results. The non-Lighthouse audits must be persisted
+  // first; the function still throws exit-code-1 so the site is flagged.
+  it("persists a11y/deps/security even when lighthouse has no scores, then still throws exit-code-1", async () => {
+    const { base, calls } = makeFakeBase();
+    await expect(
+      writeAuditsToAirtable({
+        base,
+        websites: [row()],
+        slug: "acme",
+        results: [
+          {
+            audit: "lighthouse",
+            site: "acme",
+            status: "fail",
+            summary: "lighthouse: no lhr-*.json written (exit 1)",
+          } as unknown as AuditResult,
+          a11yResult(3),
+          depsResult(["minor", "major"]),
+          secResult({ low: 1, moderate: 2, high: 1, critical: 0 }),
+        ],
+      }),
+    ).rejects.toMatchObject({
+      // The thrown error enumerates what WAS persisted, so the single-site CLI
+      // operator (who sees `console.error(e.message)`) doesn't read the failure
+      // as "nothing written".
+      message: expect.stringMatching(
+        /produced no scores; wrote a11y\/deps\/security but refused Lighthouse/,
+      ),
+      exitCode: 1,
+    });
+    // The good non-Lighthouse data was written despite the Lighthouse miss.
+    const merged = Object.assign({}, ...calls.map((c) => c.fields));
+    expect(merged).toMatchObject({
+      "A11y Violations": 3,
+      "Deps Drifted": 2,
+      "Security Vulns High": 1,
+      "Security Vulns Moderate": 2,
+    });
+    // ...but no Lighthouse scores were written.
+    expect("pScore" in merged).toBe(false);
+  });
+
   it("throws exit-code-2 when lighthouse result is absent (operator passed --only without lighthouse)", async () => {
     const { base } = makeFakeBase();
     await expect(
