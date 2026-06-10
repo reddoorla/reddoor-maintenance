@@ -37,4 +37,18 @@ describe("inventory/fromJsonFile", () => {
     const path = await withJsonFile([{ name: "a", path: "./relative/site" }]);
     await expect(fromJsonFile(path)()).rejects.toThrow(/absolute/i);
   });
+
+  it("carries gitRepo and deployedUrl through so fleet recipes can clone/audit from them", async () => {
+    const path = await withJsonFile([
+      {
+        name: "caltex",
+        path: "/abs/caltex",
+        gitRepo: "reddoorla/caltex",
+        deployedUrl: "https://caltex.example.com",
+      },
+    ]);
+    const sites = await fromJsonFile(path)();
+    expect(sites[0]?.gitRepo).toBe("reddoorla/caltex");
+    expect(sites[0]?.deployedUrl).toBe("https://caltex.example.com");
+  });
 });
