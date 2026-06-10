@@ -415,6 +415,32 @@ describe("audits/lighthouse", () => {
       await lighthouseAudit({ site: { path: "/x", deployedUrl: "https://x.example/" }, spawn });
       expect(getCi().upload.target).toBe("filesystem");
     });
+
+    // Regression for the erp-industrials reproducible nightly flake
+    // (morning-brief 2026-06-10 MEDIUM-F): 3 serial cold lhci runs
+    // (~45-60s each + first-use Chrome download) can exceed a 3-min wall
+    // clock → SIGTERM → no lhr-*.json → "no scores". The deployed path must
+    // get the SAME 5-min budget the checkout path already has.
+    it("gives the deployed audit the same 5-minute budget as the checkout path", async () => {
+      let capturedTimeoutMs: number | undefined;
+      const spawn: SpawnFn = async (_cmd, _args, opts): Promise<SpawnResult> => {
+        capturedTimeoutMs = opts?.timeoutMs;
+        const dir = join(opts?.cwd ?? process.cwd(), ".lighthouseci");
+        await mkdir(dir, { recursive: true });
+        await writeFile(
+          join(dir, "lhr-0.json"),
+          JSON.stringify({
+            requestedUrl: "https://x.example/",
+            categories: { performance: { score: 1 } },
+          }),
+          "utf-8",
+        );
+        await writeFile(join(dir, "assertion-results.json"), "[]", "utf-8");
+        return { code: 0, stdout: "", stderr: "" };
+      };
+      await lighthouseAudit({ site: { path: "/x", deployedUrl: "https://x.example/" }, spawn });
+      expect(capturedTimeoutMs).toBe(5 * 60_000);
+    });
   });
 
   // Regression for the caltex 2026-05-28 (0.10.5) dogfood failure: lhci
