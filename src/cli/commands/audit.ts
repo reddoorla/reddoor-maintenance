@@ -290,17 +290,12 @@ export async function runAuditCommand(
     const { listWebsites } = await import("../../reports/airtable/websites.js");
 
     if (opts.fleet !== undefined) {
-      const { writeFleetAuditsToAirtable } =
+      const { writeFleetAuditsToAirtable, formatFleetWriteSummary } =
         await import("../../audits/write-audits-to-airtable.js");
       const base = openBase(readAirtableConfig());
       const websites = await listWebsites(base);
       const fleetWrite = await writeFleetAuditsToAirtable({ base, websites, results });
-      output += `\n\n→ wrote ${fleetWrite.written.length} site(s) to Airtable`;
-      if (fleetWrite.failed.length > 0) {
-        output += `\n⚠ ${fleetWrite.failed.length} site(s) not written: ${fleetWrite.failed
-          .map((f) => `${f.slug} (${f.error})`)
-          .join("; ")}`;
-      }
+      output += `\n\n${formatFleetWriteSummary(fleetWrite)}`;
     } else {
       const { resolveSlugFromCwd } = await import("../../audits/lighthouse-airtable.js");
       const { writeAuditsToAirtable } = await import("../../audits/write-audits-to-airtable.js");
