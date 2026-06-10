@@ -1,0 +1,60 @@
+name: fleet-lighthouse
+
+# Nightly fleet-wide Lighthouse against each active site's DEPLOYED URL (no
+# checkout), writing the real-site scores back to its Airtable row. This repo is
+# the central scheduler (it's active, so GitHub's 60-day cron-disable never
+# triggers — unlike a per-site cron). Sequential (--concurrency 1): ~10 sites ×
+# Lighthouse on a 2-core runner saturates if run in parallel.
+on:
+  schedule:
+    - cron: "0 8 * * *" # 08:00 UTC (~midnight PT), nightly
+  workflow_dispatch: {} # manual run from the Actions tab
+
+# Never overlap a manual run with the scheduled one.
+concurrency:
+  group: fleet-lighthouse
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.1
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - name: Fleet Lighthouse audit + Airtable write-back
+        env:
+          AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
+          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+        run: |
+          set -o pipefail
+          # Every deployed site reports `fail` (real-site scores trip the
+          # assertion gates), so the CLI exits non-zero BY DESIGN — that is not a
+          # job failure. We tolerate the exit code and instead assert the
+          # write-back actually happened. A genuine infra error (no creds,
+          # Airtable down) never prints the "wrote N" line, so the grep fails the
+          # job and surfaces the real problem.
+          node dist/cli/bin.js audit \
+            --fleet airtable \
+            --only lighthouse \
+            --write-airtable \
+            --concurrency 1 \
+            --workdir /tmp/fleet-audit | tee /tmp/audit.out || true
+          if ! grep -qE "→ wrote [1-9][0-9]* site" /tmp/audit.out; then
+            echo "::error::fleet Lighthouse run wrote 0 sites — check Airtable creds / API"
+            exit 1
+          fi

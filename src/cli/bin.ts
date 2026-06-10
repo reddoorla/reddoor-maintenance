@@ -102,6 +102,10 @@ cli
     "--url <url>",
     "Audit this deployed URL with lighthouse (no dev server); single-site. Pair with --only lighthouse — other audits still use the local checkout.",
   )
+  .option(
+    "--concurrency <n>",
+    "Max sites to audit in parallel in --fleet mode (default: all at once). Use 1 for sequential (CI).",
+  )
   .action(
     async (
       site,
@@ -115,6 +119,7 @@ cli
         writeAirtable?: string | boolean;
         failOnViolations?: boolean;
         url?: string;
+        concurrency?: string;
       },
     ) => runOrExit(() => runAuditCommand(site, opts), opts),
   );

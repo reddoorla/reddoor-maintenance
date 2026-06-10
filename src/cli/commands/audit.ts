@@ -21,6 +21,9 @@ export type AuditCommandOptions = {
   failOnViolations?: boolean;
   /** Audit this deployed URL directly (lighthouse only; single-site). */
   url?: string;
+  /** Max sites to audit in parallel (fleet mode). Unset = all at once;
+   *  `1` = sequential (used by the nightly CI workflow). */
+  concurrency?: string;
 };
 
 function parseOnly(value: string | undefined): AuditName[] | undefined {
@@ -66,6 +69,22 @@ function formatDuration(ms: number): string {
 
 type Renderer = "default" | "silent";
 
+/** Parse the `--concurrency <n>` flag into a Listr `concurrent` value. Unset →
+ *  `true` (all sites in parallel, the interactive default). A positive integer
+ *  bounds how many sites audit at once — `--concurrency 1` runs sequentially,
+ *  which is what the nightly CI workflow uses so ~10 deployed-Lighthouse runs
+ *  don't saturate a 2-core runner (one flaked locally at full parallelism). */
+export function parseConcurrency(value: string | undefined): boolean | number {
+  if (value === undefined) return true;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1) {
+    throw Object.assign(new Error(`--concurrency must be a positive integer, got "${value}"`), {
+      exitCode: 2,
+    });
+  }
+  return n;
+}
+
 /** Build the audit-progress task list. Single-site → each audit is a sibling
  *  task. Fleet → each site is a task whose `output` shows X/N audits done as
  *  they complete (audits-per-site still run in parallel). Results are pushed
@@ -76,6 +95,7 @@ function buildAuditTasks(
   which: AuditName[],
   results: AuditResult[],
   renderer: Renderer,
+  concurrency: boolean | number,
 ) {
   const singleSite = sites.length === 1;
 
@@ -129,7 +149,7 @@ function buildAuditTasks(
         },
       };
     }),
-    { concurrent: true, exitOnError: false, renderer },
+    { concurrent: concurrency, exitOnError: false, renderer },
   );
 }
 
@@ -261,7 +281,7 @@ export async function runAuditCommand(
 
   const results: AuditResult[] = [];
   const renderer = rendererFor(opts.json);
-  await buildAuditTasks(sites, which, results, renderer).run();
+  await buildAuditTasks(sites, which, results, renderer, parseConcurrency(opts.concurrency)).run();
 
   let output = opts.json ? JSON.stringify(results, null, 2) : formatTable(results);
 
