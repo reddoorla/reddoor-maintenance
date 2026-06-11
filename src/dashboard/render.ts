@@ -65,6 +65,21 @@ function isPendingApproval(r: ReportRow): boolean {
   return r.draftReady && !r.approvedToSend && r.sentAt === null;
 }
 
+function pendingRow(r: ReportRow): string {
+  const type = escapeHtml(r.reportType);
+  const period = r.period ? escapeHtml(r.period) : "—";
+  return `<li><strong>${type}</strong> <span class="muted">${period}</span> <button class="approve" data-report-id="${escapeHtml(r.id)}" data-approve-url="/api/reports/${encodeURIComponent(r.id)}/approve">Approve</button></li>`;
+}
+
+function pendingSection(reports: ReportRow[]): string {
+  const pending = reports.filter(isPendingApproval);
+  if (pending.length === 0) return "";
+  return `<div class="section pending">
+    <h2>Pending your yes (${pending.length})</h2>
+    <ul class="pending-list">${pending.map(pendingRow).join("")}</ul>
+  </div>`;
+}
+
 function reportRow(r: ReportRow): string {
   const date = r.completedOn ? escapeHtml(r.completedOn) : "—";
   const type = escapeHtml(r.reportType);
@@ -161,6 +176,7 @@ export function renderSiteDashboardHtml(site: WebsiteRow, reports: ReportRow[]):
   <h1>${name}</h1>
   <div class="meta"><a href="${escapeHtml(urlSafe)}">${escapeHtml(site.url)}</a></div>
   ${auditedLine}
+  ${pendingSection(reports)}
 
   <div class="section">
     <h2>Lighthouse</h2>

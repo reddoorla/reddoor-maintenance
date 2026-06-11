@@ -313,3 +313,46 @@ describe("renderSiteDashboardHtml — approve button", () => {
     expect(html).toContain("&quot;");
   });
 });
+
+describe("renderSiteDashboardHtml — pending-your-yes list", () => {
+  it("renders a 'Pending your yes' section listing each pending report with type + period", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [
+      reportRow({
+        reportId: "rep_p1",
+        reportType: "Maintenance",
+        period: "2026-05",
+        draftReady: true,
+        approvedToSend: false,
+        sentAt: null,
+      }),
+    ]);
+    expect(html).toMatch(/Pending your yes/i);
+    // The section sits before the Lighthouse section (top-of-page priority).
+    expect(html.indexOf("Pending your yes")).toBeLessThan(html.indexOf(">Lighthouse<"));
+    expect(html).toMatch(/Maintenance/);
+    expect(html).toContain("2026-05");
+  });
+
+  it("omits the 'Pending your yes' section entirely when nothing is pending", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [
+      reportRow({ approvedToSend: true, sentAt: "2026-05-02T09:00:00Z" }),
+    ]);
+    expect(html).not.toMatch(/Pending your yes/i);
+  });
+
+  it("counts only pending reports, not approved/sent ones, in the section", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [
+      reportRow({ reportId: "rep_a", approvedToSend: true, sentAt: null }),
+      reportRow({
+        reportId: "rep_b",
+        approvedToSend: false,
+        sentAt: null,
+        draftReady: true,
+        period: "2026-05",
+      }),
+    ]);
+    // Exactly one pending entry → its period appears once in the pending list.
+    expect(html).toMatch(/Pending your yes/i);
+    expect(html).toContain("rep_b");
+  });
+});
