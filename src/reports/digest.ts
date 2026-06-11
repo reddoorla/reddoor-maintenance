@@ -18,17 +18,32 @@ export type ReadyItem = {
   dashboardUrl: string;
 };
 
+/** Severity of a "Needs attention" entry. `critical` sorts above `warning`. */
+export type AttentionSeverity = "critical" | "warning";
+
+/** Set by `diffAttention` before render: how this item changed since the prior digest. */
+export type AttentionStatus = "new" | "worse" | "standing";
+
 /**
- * One "Needs attention" entry. The M5 SEAM: M5 plugs detectors (Renovate failures,
- * new vulns, lighthouse regressions, delivery bounces) in by pushing typed items here.
- * `kind` is a discriminant so M5 can add variants without breaking the renderer; for M3
- * we render the generic title+url shape, which covers open `*-failing` tracking issues.
+ * One "Needs attention" entry. The M5 SEAM, now carrying the fields the hybrid
+ * snapshot needs: a stable `key` for diffing, a `metric` for NEW/WORSE comparison,
+ * a `severity` for ordering, and `siteName` for the (component-3) grouped render.
+ * For now `attentionSection` still renders each item flat by `title`/`url`.
  */
 export type AttentionItem = {
-  kind: string;
+  /** Stable identity for diffing: `vuln:<siteId>`, `delivery:<reportId>`. */
+  key: string;
+  kind: "vuln" | "delivery" | "renovate" | "lighthouse";
+  /** Grouping key in the (component-3) render. */
+  siteName: string;
   title: string;
   /** Optional URL rendered as a hyperlink on the title. */
   url?: string;
+  severity: AttentionSeverity;
+  /** Comparable magnitude for NEW/WORSE (vuln count; 1 for binary events). */
+  metric: number;
+  /** Set by `diffAttention` before render. */
+  status?: AttentionStatus;
 };
 
 /** Input shape for `renderDigestHtml`. Both arrays are required; callers pass `[]` for

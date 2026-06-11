@@ -54,7 +54,15 @@ describe("renderDigestHtml", () => {
     const html = renderDigestHtml(
       sections({
         needsAttention: [
-          { kind: "tracking-issue", title: "daily-reports-failing", url: "https://github.com/x/1" },
+          {
+            key: "vuln:rec1",
+            kind: "vuln",
+            siteName: "Acme Co",
+            title: "daily-reports-failing",
+            url: "https://github.com/x/1",
+            severity: "critical",
+            metric: 3,
+          },
         ],
       }),
     );
@@ -72,7 +80,17 @@ describe("renderDigestHtml", () => {
     const html = renderDigestHtml(
       sections({
         readyForYourYes: [],
-        needsAttention: [{ kind: "tracking-issue", title: "bad-link", url: "javascript:alert(1)" }],
+        needsAttention: [
+          {
+            key: "delivery:rec2",
+            kind: "delivery",
+            siteName: "Acme Co",
+            title: "bad-link",
+            url: "javascript:alert(1)",
+            severity: "warning",
+            metric: 1,
+          },
+        ],
       }),
     );
     expect(html).toContain("bad-link");
@@ -99,6 +117,27 @@ describe("renderDigestHtml", () => {
   });
 
   // ── dashboardUrl https guard ────────────────────────────────────────────────
+
+  it("renders an AttentionItem with the M5-extended shape by title + https url", () => {
+    const html = renderDigestHtml(
+      sections({
+        readyForYourYes: [],
+        needsAttention: [
+          {
+            key: "vuln:recX",
+            kind: "vuln",
+            siteName: "Acme Co",
+            title: "3 critical/high vulns",
+            url: "https://reddoor-maintenance.netlify.app/s/acme-co",
+            severity: "critical",
+            metric: 3,
+          },
+        ],
+      }),
+    );
+    expect(html).toContain("3 critical/high vulns");
+    expect(html).toContain('href="https://reddoor-maintenance.netlify.app/s/acme-co"');
+  });
 
   it("does not emit an href when ReadyItem.dashboardUrl is not https:// (XSS guard)", () => {
     const html = renderDigestHtml(
