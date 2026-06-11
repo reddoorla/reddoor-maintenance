@@ -87,4 +87,47 @@ describe("audits/deps", () => {
     expect(outdated).toBeNull();
     expect(result.summary).not.toMatch(/outdated/i);
   });
+
+  // LOW-4 (2026-06-10 brief): the readFile try/catch doesn't cover JSON.parse, so a
+  // corrupt package.json threw a raw SyntaxError past the clean skip-path into the
+  // generic catch — an ugly fail. It should fail cleanly with a clear message.
+  it("fails with a clear message on a corrupt (non-JSON) package.json", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "reddoor-deps-corrupt-"));
+    await writeFile(join(dir, "package.json"), "{ not valid json ", "utf-8");
+    const result = await depsAudit({ site: { path: dir } });
+    expect(result.audit).toBe("deps");
+    expect(result.status).toBe("fail");
+    expect(result.summary).toMatch(/not valid json|invalid json|parse/i);
+  });
+
+  // LOW-3 (2026-06-10 brief): parseSemver coerces non-semver specs ("*", "latest",
+  // "workspace:*", "npm:"-aliases, git/URL) to NaN, which compareSemver then
+  // mis-classifies as drift. Non-comparable specs must be skipped, not flagged.
+  it("does not mis-flag non-semver specs (*, workspace:*) as drift", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "reddoor-deps-nonsemver-"));
+    await writeFile(
+      join(dir, "package.json"),
+      JSON.stringify({ dependencies: { svelte: "workspace:*", vite: "*" } }),
+      "utf-8",
+    );
+    const result = await depsAudit({ site: { path: dir } });
+    const { entries } = result.details as { entries: Array<{ pkg: string; drift: string }> };
+    // Non-comparable specs are skipped entirely (no bogus minor/major entry).
+    expect(entries.find((d) => d.pkg === "svelte")).toBeUndefined();
+    expect(entries.find((d) => d.pkg === "vite")).toBeUndefined();
+    expect(result.status).not.toBe("fail");
+  });
+
+  // Guard: a real caret/tilde range is still compared (the fix must not skip valid specs).
+  it("still compares ordinary caret ranges (regression guard for the non-semver skip)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "reddoor-deps-caret-"));
+    await writeFile(
+      join(dir, "package.json"),
+      JSON.stringify({ dependencies: { svelte: "^4.0.0" } }),
+      "utf-8",
+    );
+    const result = await depsAudit({ site: { path: dir } });
+    const { entries } = result.details as { entries: Array<{ pkg: string; drift: string }> };
+    expect(entries.find((d) => d.pkg === "svelte")?.drift).toBe("major");
+  });
 });
