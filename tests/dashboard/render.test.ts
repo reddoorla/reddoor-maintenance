@@ -66,6 +66,8 @@ function reportRow(over: Partial<ReportRow> = {}): ReportRow {
       filename: "rep_001.html",
     },
     resendMessageId: "msg_001",
+    approvedAt: null,
+    approvedBy: null,
     ...over,
   };
 }

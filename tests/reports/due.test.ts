@@ -63,6 +63,8 @@ function report(over: Partial<ReportRow> = {}): ReportRow {
     deliveryStatus: "delivered",
     renderedHtmlAttachment: null,
     resendMessageId: "msg_1",
+    approvedAt: null,
+    approvedBy: null,
     ...over,
   };
 }

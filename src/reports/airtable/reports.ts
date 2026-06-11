@@ -27,6 +27,8 @@ export type ReportRow = {
   draftReady: boolean;
   approvedToSend: boolean;
   sentAt: string | null;
+  approvedAt: string | null;
+  approvedBy: string | null;
   deliveryStatus: DeliveryStatus;
   renderedHtmlAttachment: { url: string; filename: string } | null;
   /** Read out of the Resend response and stored in a hidden field; needed for webhook reconciliation. */
@@ -59,6 +61,8 @@ function mapRow(rec: { id: string; fields: Record<string, unknown> }): ReportRow
     draftReady: Boolean(f["Draft ready"]),
     approvedToSend: Boolean(f["Approved to send"]),
     sentAt: (f["Sent at"] as string | undefined) ?? null,
+    approvedAt: (f["Approved At"] as string | undefined) ?? null,
+    approvedBy: (f["Approved By"] as string | undefined) ?? null,
     deliveryStatus: ((f["Delivery status"] as string | undefined) ?? "pending") as DeliveryStatus,
     renderedHtmlAttachment: html,
     resendMessageId: (f["Resend message ID"] as string | undefined) ?? null,
@@ -221,6 +225,29 @@ export async function setDeliveryStatus(
   status: DeliveryStatus,
 ): Promise<void> {
   await base(REPORTS_TABLE).update([{ id: recordId, fields: { "Delivery status": status } }]);
+}
+
+/**
+ * Stamp the approval on a Reports row: flips `Approved to send` TRUE and records
+ * who/when for the audit trail. The caller (approveReport handler) is responsible
+ * for idempotency — this is the raw write. Never touches `Sent at`.
+ */
+export async function approveReportRow(
+  base: AirtableBase,
+  recordId: string,
+  approvedAt: Date,
+  approvedBy: string,
+): Promise<void> {
+  await base(REPORTS_TABLE).update([
+    {
+      id: recordId,
+      fields: {
+        "Approved to send": true,
+        "Approved At": approvedAt.toISOString(),
+        "Approved By": approvedBy,
+      },
+    },
+  ]);
 }
 
 export async function findReportByMessageId(
