@@ -4,6 +4,7 @@ import {
   REPORTS_TABLE,
   escapeFormulaString,
   createDraft,
+  findReportByPeriod,
 } from "../../../src/reports/airtable/reports.js";
 import { WEBSITES_TABLE, siteSlug } from "../../../src/reports/airtable/websites.js";
 import { makeFakeBase } from "../_helpers/fake-airtable-base.js";
@@ -73,5 +74,57 @@ describe("createDraft Period field", () => {
     const base = makeFakeBase({ Reports: [] });
     const row = await createDraft(base, { ...baseInput, period: "2026-05" });
     expect(row.period).toBe("2026-05");
+  });
+});
+
+describe("findReportByPeriod", () => {
+  it("builds a formula matching Site + Report type + Period and returns the row", async () => {
+    // The fake base does NOT evaluate filterByFormula — it returns whatever is seeded.
+    // So we (a) seed the matching row and assert it maps back, and (b) assert the formula
+    // string we send is the AND of the three anchored conditions.
+    const base = makeFakeBase({
+      Reports: [
+        {
+          id: "rec_existing",
+          fields: {
+            "Report ID": "Acme — Maintenance — 2026-05-26",
+            Site: ["rec_site_acme"],
+            "Report type": "Maintenance",
+            Period: "2026-05",
+          },
+        },
+      ],
+    });
+
+    const row = await findReportByPeriod(base, "rec_site_acme", "Maintenance", "2026-05");
+
+    expect(row?.id).toBe("rec_existing");
+    expect(row?.period).toBe("2026-05");
+
+    const select = base.__calls.find((c) => c.kind === "select")!;
+    const formula = (select.opts as { filterByFormula: string }).filterByFormula;
+    expect(formula).toContain('{Report type} = "Maintenance"');
+    expect(formula).toContain('{Period} = "2026-05"');
+    // Site is a linked field — matched via the anchored ARRAYJOIN pattern used elsewhere.
+    expect(formula).toContain("ARRAYJOIN({Site}");
+    expect(formula).toContain("rec_site_acme");
+  });
+
+  it("returns null when nothing is seeded", async () => {
+    const base = makeFakeBase({ Reports: [] });
+    const row = await findReportByPeriod(base, "rec_site_acme", "Maintenance", "2026-05");
+    expect(row).toBeNull();
+  });
+
+  it("escapes the period and report type to be formula-safe", async () => {
+    const base = makeFakeBase({ Reports: [] });
+    await findReportByPeriod(base, "rec_x", "Maintenance", '2026-05" OR TRUE()="');
+    const formula = (
+      base.__calls.find((c) => c.kind === "select")!.opts as {
+        filterByFormula: string;
+      }
+    ).filterByFormula;
+    // The injected quote must be escaped, not break out of the literal.
+    expect(formula).toContain('2026-05\\" OR TRUE()=\\"');
   });
 });

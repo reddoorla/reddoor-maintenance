@@ -234,3 +234,31 @@ export async function findReportByMessageId(
     });
   return rows[0] ?? null;
 }
+
+/**
+ * Find the Reports row for a `(site, reportType, period)` triple, or null. The
+ * idempotency lookup behind search-before-create drafting. `Site` is a linked field,
+ * so it's matched with the same comma-anchored ARRAYJOIN pattern as listReportsForSite
+ * (a prefix collision on record ids can't pull another site's row). reportType and
+ * period flow through escapeFormulaString — they're our own values today, but escaping
+ * keeps the formula injection-safe if their source ever changes.
+ */
+export async function findReportByPeriod(
+  base: AirtableBase,
+  siteId: string,
+  reportType: ReportType,
+  period: string,
+): Promise<ReportRow | null> {
+  const safeSite = escapeFormulaString(siteId);
+  const safeType = escapeFormulaString(reportType);
+  const safePeriod = escapeFormulaString(period);
+  const formula = `AND(FIND(",${safeSite},", "," & ARRAYJOIN({Site}, ",") & ",") > 0, {Report type} = "${safeType}", {Period} = "${safePeriod}")`;
+  const rows: ReportRow[] = [];
+  await base(REPORTS_TABLE)
+    .select({ filterByFormula: formula, maxRecords: 1 })
+    .eachPage((records, fetchNextPage) => {
+      for (const rec of records) rows.push(mapRow({ id: rec.id, fields: rec.fields }));
+      fetchNextPage();
+    });
+  return rows[0] ?? null;
+}
