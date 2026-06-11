@@ -5,6 +5,8 @@ import {
   escapeFormulaString,
   createDraft,
   findReportByPeriod,
+  listAllReports,
+  listReportsForSite,
 } from "../../../src/reports/airtable/reports.js";
 import { WEBSITES_TABLE, siteSlug } from "../../../src/reports/airtable/websites.js";
 import { makeFakeBase } from "../_helpers/fake-airtable-base.js";
@@ -77,13 +79,57 @@ describe("createDraft Period field", () => {
   });
 });
 
+describe("listAllReports / listReportsForSite", () => {
+  // Two rows, two different sites. The fake does NOT evaluate filterByFormula, so
+  // any site-scoping the production code does must happen CLIENT-side to show up here.
+  const seed = {
+    Reports: [
+      {
+        id: "rec_r_acme",
+        fields: { "Report ID": "A", Site: ["rec_site_acme"], "Report type": "Maintenance" },
+      },
+      {
+        id: "rec_r_other",
+        fields: { "Report ID": "B", Site: ["rec_site_other"], "Report type": "Maintenance" },
+      },
+    ],
+  };
+
+  it("listAllReports fetches every row with no record-id filterByFormula", async () => {
+    const base = makeFakeBase(seed);
+    const rows = await listAllReports(base);
+    expect(rows.map((r) => r.id)).toEqual(["rec_r_acme", "rec_r_other"]);
+    const select = base.__calls.find((c) => c.kind === "select")!;
+    const formula = (select.opts as { filterByFormula?: string }).filterByFormula ?? "";
+    // Linked-record fields render as primary-field NAMES in formulas, so a record-id
+    // filter can never match — the query must not attempt one.
+    expect(formula).not.toContain("ARRAYJOIN");
+    expect(formula).not.toMatch(/\brec/);
+  });
+
+  it("listReportsForSite filters client-side by siteId, never via a record-id formula", async () => {
+    const base = makeFakeBase(seed);
+    const rows = await listReportsForSite(base, "rec_site_acme");
+    expect(rows.map((r) => r.id)).toEqual(["rec_r_acme"]);
+    for (const call of base.__calls.filter((c) => c.kind === "select")) {
+      const formula = (call.opts as { filterByFormula?: string }).filterByFormula ?? "";
+      expect(formula).not.toContain("ARRAYJOIN");
+      expect(formula).not.toContain("rec_site_acme");
+    }
+  });
+});
+
 describe("findReportByPeriod", () => {
-  it("builds a formula matching Site + Report type + Period and returns the row", async () => {
-    // The fake base does NOT evaluate filterByFormula — it returns whatever is seeded.
-    // So we (a) seed the matching row and assert it maps back, and (b) assert the formula
-    // string we send is the AND of the three anchored conditions.
+  it("filters server-side on Report type + Period only, matching the site client-side", async () => {
+    // The fake base does NOT evaluate filterByFormula — it returns ALL seeded rows.
+    // Seeding a same-type/same-period row for a DIFFERENT site therefore proves the
+    // client-side siteId match does real work: only it can keep rec_wrong_site out.
     const base = makeFakeBase({
       Reports: [
+        {
+          id: "rec_wrong_site",
+          fields: { Site: ["rec_site_other"], "Report type": "Maintenance", Period: "2026-05" },
+        },
         {
           id: "rec_existing",
           fields: {
@@ -105,9 +151,24 @@ describe("findReportByPeriod", () => {
     const formula = (select.opts as { filterByFormula: string }).filterByFormula;
     expect(formula).toContain('{Report type} = "Maintenance"');
     expect(formula).toContain('{Period} = "2026-05"');
-    // Site is a linked field — matched via the anchored ARRAYJOIN pattern used elsewhere.
-    expect(formula).toContain("ARRAYJOIN({Site}");
-    expect(formula).toContain("rec_site_acme");
+    // {Site} renders as linked-row NAMES in formulas, never record ids — the formula
+    // must not mention the site at all (live-proven: an id comparison matches nothing).
+    expect(formula).not.toContain("ARRAYJOIN");
+    expect(formula).not.toContain("{Site}");
+    expect(formula).not.toContain("rec_site_acme");
+  });
+
+  it("returns null when the only same-type/same-period row belongs to a DIFFERENT site", async () => {
+    const base = makeFakeBase({
+      Reports: [
+        {
+          id: "rec_wrong_site",
+          fields: { Site: ["rec_site_other"], "Report type": "Maintenance", Period: "2026-05" },
+        },
+      ],
+    });
+    const row = await findReportByPeriod(base, "rec_site_acme", "Maintenance", "2026-05");
+    expect(row).toBeNull();
   });
 
   it("returns null when nothing is seeded", async () => {
@@ -126,17 +187,5 @@ describe("findReportByPeriod", () => {
     ).filterByFormula;
     // The injected quote must be escaped, not break out of the literal.
     expect(formula).toContain('2026-05\\" OR TRUE()=\\"');
-  });
-
-  it("escapes siteId to be formula-safe inside the ARRAYJOIN clause", async () => {
-    const base = makeFakeBase({ Reports: [] });
-    await findReportByPeriod(base, 'rec" OR TRUE', "Maintenance", "2026-05");
-    const formula = (
-      base.__calls.find((c) => c.kind === "select")!.opts as {
-        filterByFormula: string;
-      }
-    ).filterByFormula;
-    // The injected quote inside siteId must be escaped within ARRAYJOIN, not break out of the string.
-    expect(formula).toContain('rec\\" OR TRUE');
   });
 });

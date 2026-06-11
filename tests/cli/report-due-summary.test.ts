@@ -15,7 +15,7 @@ vi.mock("../../src/reports/airtable/websites.js", () => ({
   siteSlug: (n: string) => n,
 }));
 vi.mock("../../src/reports/airtable/reports.js", () => ({
-  listReportsForSite: async () => [],
+  listAllReports: async () => [],
 }));
 vi.mock("../../src/reports/due.js", () => ({
   findDueReports: () => [

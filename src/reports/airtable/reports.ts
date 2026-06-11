@@ -169,22 +169,27 @@ export async function listSendableReports(base: AirtableBase): Promise<ReportRow
   return out;
 }
 
-export async function listReportsForSite(base: AirtableBase, siteId: string): Promise<ReportRow[]> {
-  // Anchor with commas so a prefix collision (record id A is a substring of
-  // record id B) can't pull in another site's reports. ARRAYJOIN({Site}, ",")
-  // produces "rec1,rec2,rec3"; wrap both sides with sentinels for safety.
-  const safeId = escapeFormulaString(siteId);
+/**
+ * Fetch every Reports row, unfiltered. Site-scoped callers filter the result in
+ * memory: the `Site` linked-record field CANNOT be formula-filtered by record id
+ * (see findReportByPeriod's doc for why), and the fleet's Reports table is small
+ * enough that one paged fetch-all beats N broken-or-per-site queries.
+ */
+export async function listAllReports(base: AirtableBase): Promise<ReportRow[]> {
   const out: ReportRow[] = [];
   await base(REPORTS_TABLE)
-    .select({
-      filterByFormula: `FIND(",${safeId},", "," & ARRAYJOIN({Site}, ",") & ",") > 0`,
-      pageSize: 100,
-    })
+    .select({ pageSize: 100 })
     .eachPage((records, fetchNextPage) => {
       for (const rec of records) out.push(mapRow({ id: rec.id, fields: rec.fields }));
       fetchNextPage();
     });
   return out;
+}
+
+export async function listReportsForSite(base: AirtableBase, siteId: string): Promise<ReportRow[]> {
+  // Client-side match on the mapped siteId (mapRow reads the record id from the
+  // REST response, where it IS present) — record ids can't appear in formulas.
+  return (await listAllReports(base)).filter((r) => r.siteId === siteId);
 }
 
 /**
@@ -237,11 +242,17 @@ export async function findReportByMessageId(
 
 /**
  * Find the Reports row for a `(site, reportType, period)` triple, or null. The
- * idempotency lookup behind search-before-create drafting. `Site` is a linked field,
- * so it's matched with the same comma-anchored ARRAYJOIN pattern as listReportsForSite
- * (a prefix collision on record ids can't pull another site's row). reportType and
- * period flow through escapeFormulaString — they're our own values today, but escaping
- * keeps the formula injection-safe if their source ever changes.
+ * idempotency lookup behind search-before-create drafting.
+ *
+ * The site is matched CLIENT-side, never in the formula: Airtable's formula layer
+ * renders linked-record fields ({Site}) as the linked rows' PRIMARY-FIELD NAMES,
+ * not record ids, so any formula comparing {Site} or ARRAYJOIN({Site}) against a
+ * `recXXX` id matches NOTHING (live-proven against the real base — do not
+ * reintroduce that idiom). Record ids exist only in the REST response, where
+ * mapRow reads them. So the formula filters on the real scalar fields (Report
+ * type + Period — escaped, keeping it injection-safe if their source ever
+ * changes), and the first mapped row whose siteId matches wins. The candidate
+ * set is at most one row per site for the (type, period), so this stays small.
  */
 export async function findReportByPeriod(
   base: AirtableBase,
@@ -249,16 +260,15 @@ export async function findReportByPeriod(
   reportType: ReportType,
   period: string,
 ): Promise<ReportRow | null> {
-  const safeSite = escapeFormulaString(siteId);
   const safeType = escapeFormulaString(reportType);
   const safePeriod = escapeFormulaString(period);
-  const formula = `AND(FIND(",${safeSite},", "," & ARRAYJOIN({Site}, ",") & ",") > 0, {Report type} = "${safeType}", {Period} = "${safePeriod}")`;
+  const formula = `AND({Report type} = "${safeType}", {Period} = "${safePeriod}")`;
   const rows: ReportRow[] = [];
   await base(REPORTS_TABLE)
-    .select({ filterByFormula: formula, maxRecords: 1 })
+    .select({ filterByFormula: formula, pageSize: 100 })
     .eachPage((records, fetchNextPage) => {
       for (const rec of records) rows.push(mapRow({ id: rec.id, fields: rec.fields }));
       fetchNextPage();
     });
-  return rows[0] ?? null;
+  return rows.find((r) => r.siteId === siteId) ?? null;
 }

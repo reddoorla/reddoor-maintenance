@@ -163,6 +163,26 @@ describe("draftDueReports period guard", () => {
     expect(res.code).toBe(0);
   });
 
+  it("fetches reports with ONE unfiltered select — no per-site record-id formulas", async () => {
+    // Linked-record fields ({Site}) render as primary-field NAMES in filterByFormula,
+    // so a per-site `FIND(",recXXX,", ARRAYJOIN({Site}))` formula matches NOTHING against
+    // the live base (live-proven). The fix is one fetch-all + client-side filtering —
+    // which also kills the N+1 (one select for the whole fleet, not one per site).
+    vi.mocked(listWebsites).mockResolvedValue([
+      siteRow(),
+      siteRow({ id: "rec_site_two", name: "Two Co" }),
+    ]);
+    const base = makeFakeBase({ Reports: [] });
+    await draftDueReports(base, TODAY);
+    const selects = base.__calls
+      .filter((c) => c.kind === "select")
+      .filter((c) => c.table === "Reports");
+    expect(selects).toHaveLength(1);
+    const formula = (selects[0]!.opts as { filterByFormula?: string }).filterByFormula ?? "";
+    expect(formula).not.toContain("ARRAYJOIN");
+    expect(formula).not.toMatch(/rec_site/);
+  });
+
   it("does NOT skip when an existing row is for a DIFFERENT period", async () => {
     vi.mocked(listWebsites).mockResolvedValue([siteRow()]);
     const base = makeFakeBase({

@@ -1,6 +1,6 @@
 import { openBase, readAirtableConfig, type AirtableBase } from "../../reports/airtable/client.js";
 import { listWebsites, siteSlug } from "../../reports/airtable/websites.js";
-import { listReportsForSite } from "../../reports/airtable/reports.js";
+import { listAllReports } from "../../reports/airtable/reports.js";
 import { findDueReports, reportPeriodKey } from "../../reports/due.js";
 import { draftReportForSite } from "../../reports/draft.js";
 
@@ -46,11 +46,10 @@ export async function draftDueReports(
   today: Date,
 ): Promise<{ output: string; code: number }> {
   const websites = await listWebsites(base);
-  const reports = [];
-  for (const w of websites) {
-    const rs = await listReportsForSite(base, w.id);
-    reports.push(...rs);
-  }
+  // ONE unfiltered fetch for the whole fleet. Per-site queries can't be pushed to
+  // Airtable anyway (linked-record fields aren't formula-filterable by record id),
+  // and findDueReports + the period guard below match on siteId in memory.
+  const reports = await listAllReports(base);
   const due = findDueReports(websites, reports, today);
 
   if (due.length === 0) return { output: "No reports due.", code: 0 };
