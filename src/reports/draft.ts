@@ -60,6 +60,16 @@ function daysAgo(today: Date, n: number): Date {
   return out;
 }
 
+/**
+ * Render and create an Airtable draft for one site.
+ *
+ * No idempotency guard here — the recurrence guard lives in draftDueReports
+ * (cli/commands/report.ts), keyed on reportPeriodKey(dueDate).  The manual
+ * single-site path intentionally always drafts (an operator asking for a draft
+ * gets one).  findReportByPeriod (airtable/reports.ts) is the real-Airtable
+ * point lookup available to dashboard/digest callers that need the same
+ * idempotency guarantee outside the CLI batch loop.
+ */
 export async function draftReportForSite(
   base: AirtableBase | null,
   siteRow: WebsiteRow,

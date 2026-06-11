@@ -130,6 +130,37 @@ describe("draftDueReports period guard", () => {
     const res = await draftDueReports(base, TODAY);
     expect(draftReportForSite).not.toHaveBeenCalled();
     expect(res.output).toMatch(/skipped|already drafted/i);
+    // Cron contract: a skip is not an error; exit 0 so the scheduler doesn't page.
+    expect(res.code).toBe(0);
+  });
+
+  it("drafts a new period for a never-sent site whose stale draft is from an earlier month (intended: recurrence follows the due month, stale drafts stay pending)", async () => {
+    // Semantic pin — this test documents INTENDED behaviour, not a regression fix.
+    // A site with no prior sends and no maintenanceDay is due on TODAY (2026-05-26),
+    // so its period key is 2026-05.  An existing draft for the PREVIOUS period (2026-04)
+    // must NOT block the new draft — the guard keys on YYYY-MM, not just the existence
+    // of any draft.  This path already works (different-period branch in draftDueReports);
+    // the test exists to pin the semantics so a future refactor can't silently regress it.
+    vi.mocked(listWebsites).mockResolvedValue([siteRow()]);
+    const base = makeFakeBase({
+      Reports: [
+        {
+          id: "rec_stale",
+          fields: {
+            Site: ["rec_site_acme"],
+            "Report type": "Maintenance",
+            Period: "2026-04", // previous month — must not block the 2026-05 draft
+          },
+        },
+      ],
+    });
+    // TODAY = 2026-05-26, so dueDate = today, period = 2026-05
+    const res = await draftDueReports(base, TODAY);
+    expect(draftReportForSite).toHaveBeenCalledTimes(1);
+    expect(draftReportForSite).toHaveBeenCalledWith(base, expect.anything(), "Maintenance", {
+      period: "2026-05",
+    });
+    expect(res.code).toBe(0);
   });
 
   it("does NOT skip when an existing row is for a DIFFERENT period", async () => {

@@ -77,6 +77,10 @@ export async function draftDueReports(
       // into a later month than the dueDate.
       const result = await draftReportForSite(base, item.site, item.reportType, { period });
       lines.push(`✓ drafted: ${result.reportRow?.reportId}`);
+      // Keep the in-memory snapshot current so the guard's `.some()` check on the
+      // NEXT iteration of this same run catches a row we JUST created — rather than
+      // relying on findDueReports never emitting two items for the same (site, type).
+      if (result.reportRow) reports.push(result.reportRow);
       // Count sites (not individual GA/Search failures) so a fleet-wide enrichment
       // outage is one obvious line at the bottom, not 200 buried console.warns.
       if (result.softFailures.length > 0) softFailedSites++;
