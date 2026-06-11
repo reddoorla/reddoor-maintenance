@@ -32,6 +32,14 @@ function stripCaret(range: string): string {
   return range.replace(/^[\^~]/, "");
 }
 
+/** A spec we can drift-compare against a semver baseline: a plain version or
+ *  caret/tilde range like "5.55.10", "^5.55.10", "~5.0.0". Excludes "*",
+ *  "latest", "workspace:*", "npm:"-aliases, and git/URL/file specs — those used
+ *  to parse to NaN and produce bogus drift, so they're skipped instead. */
+function isComparableRange(spec: string): boolean {
+  return /^[\^~]?\d/.test(spec.trim());
+}
+
 function parseSemver(v: string): [number, number, number] {
   const cleaned = stripCaret(v).split("-")[0] ?? "0.0.0";
   const parts = cleaned.split(".").map((n) => Number.parseInt(n, 10));
@@ -65,10 +73,21 @@ export async function depsAudit(ctx: AuditContext): Promise<AuditResult> {
     };
   }
 
-  const pkg = JSON.parse(pkgRaw) as {
-    dependencies?: Record<string, string>;
-    devDependencies?: Record<string, string>;
-  };
+  let pkg: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
+  try {
+    pkg = JSON.parse(pkgRaw) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+  } catch (err) {
+    return {
+      audit: "deps",
+      site: siteLabel(ctx.site),
+      status: "fail",
+      summary: `package.json is not valid JSON: ${(err as Error).message}`,
+      details: { error: String(err) },
+    };
+  }
   const installed: Record<string, string> = {
     ...(pkg.dependencies ?? {}),
     ...(pkg.devDependencies ?? {}),
@@ -78,6 +97,9 @@ export async function depsAudit(ctx: AuditContext): Promise<AuditResult> {
   for (const [name, baseline] of Object.entries(baselineVersions)) {
     const actual = installed[name];
     if (!actual) continue;
+    // Skip non-semver specs ("*", "workspace:*", "npm:"-aliases, git/URL): they
+    // can't be drift-compared and used to yield NaN-driven bogus drift (LOW-3).
+    if (!isComparableRange(actual)) continue;
     entries.push({
       pkg: name,
       baseline,
