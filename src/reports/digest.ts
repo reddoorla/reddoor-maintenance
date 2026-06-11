@@ -1,5 +1,10 @@
 // src/reports/digest.ts
 import type { ReportType } from "./types.js";
+import { openBase, readAirtableConfig, type AirtableBase } from "./airtable/client.js";
+import { listAllReports } from "./airtable/reports.js";
+import type { ReportRow } from "./airtable/reports.js";
+import { listWebsites, siteSlug } from "./airtable/websites.js";
+import { defaultResendClient, type ResendClient } from "./send/resend.js";
 
 /** One report awaiting the operator's "yes" — site, type, period, and a link to its
  *  dashboard page (the digest LINKS to the dashboard; it never carries the approve action,
@@ -88,6 +93,81 @@ function attentionSection(items: AttentionItem[]): string {
     })
     .join("");
   return `${heading}<table role="presentation" style="border-collapse:collapse;margin:0">${rows}</table>`;
+}
+
+const FROM_ADDRESS = "Reddoor Reports <reports@reddoorla.com>";
+/** Single-operator fleet — fallback when OPERATOR_EMAIL is unset. */
+const DIGEST_OPERATOR_FALLBACK = "info@reddoorla.com";
+
+/** UTC "YYYY-MM-DD" — the Resend idempotency key suffix, so a same-day cron re-fire dedupes. */
+function digestDateKey(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * The gate for "Ready for your yes": Draft ready ∧ ¬Approved to send ∧ Sent at BLANK.
+ *
+ * Implemented as `listAllReports(base).filter(...)` (the authorized deviation from the plan's
+ * draft, which pre-dated Slice 1's merged fix): `listAllReports` already calls `mapRow`, which
+ * handles `Period` correctly, so no local `rawToReportRow` duplicate is needed. The JS filter
+ * does real work — the test fake does NOT evaluate `filterByFormula` — so correctness is
+ * test-provable here.
+ *
+ * Exported: the fleet homepage (Task 3.5b) reuses it for the pending-approval count.
+ */
+export async function listPendingApproval(base: AirtableBase): Promise<ReportRow[]> {
+  return (await listAllReports(base)).filter(
+    (r) => r.draftReady && !r.approvedToSend && r.sentAt === null,
+  );
+}
+
+export type DigestRunOptions = {
+  resend?: ResendClient;
+  /** Dashboard origin for the /s/<slug> links, e.g. "https://reddoor-maintenance.netlify.app". */
+  baseUrl: string;
+};
+
+export async function runDigest(
+  options: DigestRunOptions,
+): Promise<{ output: string; code: number }> {
+  const base = openBase(readAirtableConfig());
+  const websites = await listWebsites(base);
+  const sites = new Map(websites.map((w) => [w.id, w]));
+
+  const pending = await listPendingApproval(base);
+
+  const readyForYourYes: ReadyItem[] = [];
+  for (const r of pending) {
+    const site = sites.get(r.siteId);
+    if (!site) continue; // orphan report → skip rather than render a broken link
+    readyForYourYes.push({
+      siteName: site.name,
+      reportType: r.reportType,
+      period: r.period ?? "—",
+      dashboardUrl: `${options.baseUrl.replace(/\/$/, "")}/s/${siteSlug(site.name)}`,
+    });
+  }
+
+  // M5 fills this; M3 ships it empty (renders the "all clear" line).
+  const needsAttention: AttentionItem[] = [];
+
+  // No-noise default: skip entirely when there's nothing to report.
+  if (readyForYourYes.length === 0 && needsAttention.length === 0) {
+    return { output: "Digest skipped (nothing ready, nothing needs attention).", code: 0 };
+  }
+
+  const html = renderDigestHtml({ readyForYourYes, needsAttention });
+  const client = options.resend ?? defaultResendClient();
+  const to = [process.env.OPERATOR_EMAIL?.trim() || DIGEST_OPERATOR_FALLBACK];
+  const today = new Date();
+  const result = await client.send({
+    from: FROM_ADDRESS,
+    to,
+    subject: `Your fleet today — ${readyForYourYes.length} ready for your yes`,
+    html,
+    idempotencyKey: `digest-${digestDateKey(today)}`,
+  });
+  return { output: `Digest sent to ${to.join(", ")} (${result.messageId})`, code: 0 };
 }
 
 /** Pure render of the unified daily operator digest. No IO — the caller (runDigest)
