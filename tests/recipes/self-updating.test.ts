@@ -41,6 +41,7 @@ function fakeGitHub(over: GitHubOverrides = {}): { gh: GitHub; calls: string[] }
     secretExists: async () => false,
     autoMergeEnabled: async () => false,
     findOpenSelfUpdatingPR: async () => null,
+    openPullRequests: async () => [],
     ...over,
   };
   return { gh, calls };
