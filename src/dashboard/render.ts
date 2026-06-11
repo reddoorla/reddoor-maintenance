@@ -156,12 +156,21 @@ export function renderSiteDashboardHtml(site: WebsiteRow, reports: ReportRow[]):
     ? `<div class="audited">Last audited ${escapeHtml(relativeTimeFromNow(site.lastLighthouseAuditAt))}</div>`
     : "";
 
+  // The report-history TABLE is the only place the "recent 6" slice belongs:
+  // long enough to show a quarter of monthly reports plus the latest testing
+  // report, short enough to keep the page a single scroll. The pending list +
+  // approve buttons above intentionally see the FULL `reports` set — an OLD
+  // pending report that falls outside this slice must still be approvable
+  // (and must not disagree with the fleet banner, which counts ALL reports).
+  const recentReports = [...reports]
+    .sort((a, b) => (b.completedOn ?? "").localeCompare(a.completedOn ?? ""))
+    .slice(0, 6);
   const reportsSection =
-    reports.length === 0
+    recentReports.length === 0
       ? `<div class="empty">No reports yet.</div>`
       : `<table>
           <thead><tr><th>Completed</th><th>Type</th><th>ID</th><th>Report</th><th></th></tr></thead>
-          <tbody>${reports.map(reportRow).join("")}</tbody>
+          <tbody>${recentReports.map(reportRow).join("")}</tbody>
         </table>`;
 
   return `<!doctype html>

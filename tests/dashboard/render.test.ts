@@ -355,4 +355,67 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
     expect(html).toMatch(/Pending your yes/i);
     expect(html).toContain("rep_b");
   });
+
+  it("surfaces a pending report even when it is the OLDEST of 7+ (not in the recent slice)", () => {
+    // 6 newer, already-sent reports + 1 OLD pending one. The recent-6 history
+    // slice would drop the old pending report; the pending list + approve button
+    // must still see it because they operate on the FULL report set.
+    const sent = (n: number) =>
+      reportRow({
+        id: `recSENT${n}`,
+        reportId: `rep_sent_${n}`,
+        completedOn: `2026-0${n}-01`,
+        approvedToSend: true,
+        sentAt: "2026-06-02T09:00:00Z",
+      });
+    const oldPending = reportRow({
+      id: "recOLDPENDING",
+      reportId: "rep_old_pending",
+      reportType: "Maintenance",
+      period: "2025-12",
+      completedOn: "2025-12-01", // oldest by completedOn
+      draftReady: true,
+      approvedToSend: false,
+      sentAt: null,
+    });
+    const html = renderSiteDashboardHtml(siteRow(), [
+      sent(1),
+      sent(2),
+      sent(3),
+      sent(4),
+      sent(5),
+      sent(6),
+      oldPending,
+    ]);
+    // Pending list shows it.
+    expect(html).toMatch(/Pending your yes \(1\)/);
+    expect(html).toContain("2025-12");
+    // Approve button targets its record id.
+    expect(html).toMatch(/data-report-id="recOLDPENDING"/);
+    expect(html).toContain("/api/reports/recOLDPENDING/approve");
+  });
+
+  it("trims the report-history table to the 6 most recent (by completedOn) but not the pending list", () => {
+    // 7 sent reports → history table caps at 6 newest; the 7th (oldest) is dropped
+    // from the table. The canonical slice lives in render, not the adapter.
+    const reports = Array.from({ length: 7 }, (_n, i) =>
+      reportRow({
+        id: `recHIST${i}`,
+        reportId: `rep_hist_${i}`,
+        // i=0 oldest (2026-01), i=6 newest (2026-07)
+        completedOn: `2026-0${i + 1}-01`,
+        approvedToSend: true,
+        sentAt: "2026-06-02T09:00:00Z",
+      }),
+    );
+    const html = renderSiteDashboardHtml(siteRow(), reports);
+    // The history <tbody> renders exactly 6 rows.
+    const tbody = html.slice(html.indexOf("<tbody>"), html.indexOf("</tbody>"));
+    expect((tbody.match(/<tr>/g) ?? []).length).toBe(6);
+    // The oldest (rep_hist_0) is trimmed out of the table.
+    expect(tbody).not.toContain("rep_hist_0");
+    // The 6 newest are present.
+    expect(tbody).toContain("rep_hist_6");
+    expect(tbody).toContain("rep_hist_1");
+  });
 });

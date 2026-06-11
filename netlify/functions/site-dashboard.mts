@@ -79,13 +79,12 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     return plainText(`No site found for slug '${slug}'.`, 404);
   }
 
+  // Pass the FULL report set to the renderer. The "recent 6" history-table
+  // slice is canonical inside renderSiteDashboardHtml — the adapter stays thin.
+  // Pre-slicing here would hide an OLD pending report from the approve list +
+  // its button while the fleet banner (which counts ALL reports) still shows it,
+  // leaving an unapprovable report and a banner/page disagreement.
   const reports = await listReportsForSite(base, site.id);
-  // Show most recent 6 — long enough to show a quarter of monthly reports
-  // plus the most recent testing report, short enough that the page stays
-  // a single scroll.
-  const recent = [...reports]
-    .sort((a, b) => (b.completedOn ?? "").localeCompare(a.completedOn ?? ""))
-    .slice(0, 6);
 
-  return html(renderSiteDashboardHtml(site, recent), 200);
+  return html(renderSiteDashboardHtml(site, reports), 200);
 };
