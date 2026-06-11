@@ -82,6 +82,19 @@ describe("approveReport — idempotency and guards", () => {
     expect(d.approveReportRow).not.toHaveBeenCalled();
   });
 
+  it("is a no-op when the row is not draft-ready (a hand-crafted POST cannot pre-approve it)", async () => {
+    // The spec gate is draftReady ∧ ¬approved ∧ ¬sent. A not-yet-draft-ready row
+    // (not sent, not approved) must not be approvable via a hand-crafted authed POST.
+    const d = deps({
+      getReportById: vi
+        .fn()
+        .mockResolvedValue(reportRow({ draftReady: false, approvedToSend: false, sentAt: null })),
+    });
+    const res = await approveReport(d, "recREP1");
+    expect(res).toEqual({ status: "noop", reportId: "recREP1", reason: "not-draft-ready" });
+    expect(d.approveReportRow).not.toHaveBeenCalled();
+  });
+
   it("checks sent before approved so an approved-and-sent row reports already-sent", async () => {
     const d = deps({
       getReportById: vi

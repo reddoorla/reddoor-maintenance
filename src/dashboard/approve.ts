@@ -5,7 +5,11 @@ export const APPROVED_BY = "dashboard";
 
 export type ApproveResult =
   | { status: "approved"; reportId: string }
-  | { status: "noop"; reportId: string; reason: "already-approved" | "already-sent" }
+  | {
+      status: "noop";
+      reportId: string;
+      reason: "already-approved" | "already-sent" | "not-draft-ready";
+    }
   | { status: "not-found"; reportId: string };
 
 /**
@@ -29,6 +33,10 @@ export async function approveReport(deps: ApproveDeps, reportId: string): Promis
   if (!report) return { status: "not-found", reportId };
   if (report.sentAt !== null) return { status: "noop", reportId, reason: "already-sent" };
   if (report.approvedToSend) return { status: "noop", reportId, reason: "already-approved" };
+  // The spec gate is draftReady ∧ ¬approved ∧ ¬sent: a not-yet-draft-ready row
+  // must never be approvable, even via a hand-crafted authed POST. Without this
+  // guard such a POST would pre-approve a row before its draft was prepared.
+  if (!report.draftReady) return { status: "noop", reportId, reason: "not-draft-ready" };
   await deps.approveReportRow(reportId, deps.now(), APPROVED_BY);
   return { status: "approved", reportId };
 }
