@@ -93,11 +93,44 @@ safe:
 4. **Journal** — append what + why to [`docs/autonomy-journal.md`](docs/autonomy-journal.md)
    so the whole run is reviewable fast.
 
-## Permissions
+## Permissions & sandbox
 
 `.claude/settings.json` (local, gitignored) encodes these tiers as allow / ask /
-deny rules: GREEN commands are `allow`ed (no prompt); RED commands are in `ask`
-(forces a prompt) or `deny` (blocked). Because the machine is not sandboxed, a
-determined process could route around `ask`; the agent does not. For a hard
-boundary, run the agent in a sandbox that restricts network egress (block the
-npm-publish endpoint) — that converts the RED gates from declared to enforced.
+deny rules: GREEN commands are `allow`ed (a broad `Bash(*)`, so command _shape_ —
+e.g. `&&`-chains — never reintroduces prompts); RED commands are in `ask`
+(publish / release / deploy / secrets — forces a prompt, so they pause for a human
+while the operator is away) or `deny` (force-push, `reset --hard`, `rm -rf`,
+credential reads — blocked).
+
+The OS-level **sandbox is enabled** (`sandbox.enabled: true`, macOS Seatbelt;
+enabled purely via settings — the `/sandbox` panel is a terminal TUI the VS Code
+extension doesn't render, and isn't required). Sandboxed commands get filesystem
+access limited to the project + caches (`~/Library/pnpm`,
+`~/Library/Caches/ms-playwright`, `~/.npm`) and network limited to an allowlist
+(github, npm, airtable, googleapis, resend).
+
+**What it actually contains (the honest scope):** the primary supply-chain vector
+— **`pnpm install` / `pnpm add`**, i.e. dependency **postinstall scripts** — runs
+sandboxed, so an auto-merged Renovate dependency's install hooks can't read
+`~/.ssh` / `~/.aws`, escape the workdir, or phone home off-allowlist. That's the
+threat that matters for a Renovate-auto-merge fleet. The rest of the dev loop is in
+`excludedCommands` (runs **unsandboxed**), because Seatbelt is incompatible with it:
+
+- **`gh`, `git`** — Go-TLS fails under Seatbelt (`gh`), and the sandbox denies
+  `.git/config` writes (breaks `git push -u`).
+- **`pnpm test` / `build` / `exec`, `node`, `npx`** — the test suite binds a
+  localhost port (`findFreePort` → `listen` EPERM under Seatbelt) and writes to
+  `/tmp`; neither is allowlistable. These run our own trusted code, so unsandboxing
+  them is acceptable (the supply-chain risk is the _install_, not our tests).
+- **Audits** run with the Bash `dangerouslyDisableSandbox` flag — they fetch
+  arbitrary deployed client domains (a tight egress allowlist would block them or
+  corrupt scores). A read-only public fetch, so low-risk.
+
+Limits (from the docs, not hedging): so the sandbox is really **install-time
+containment**, not full subprocess isolation; dependency code that runs at
+_test/build_ time (not just install) is not contained. The proxy also filters by
+hostname without TLS inspection (a broad allow like `github.com` is
+domain-frontable), and `Bash(*)` lets the agent self-escape via
+`dangerouslyDisableSandbox`. For a true hard wall — full isolation of all
+dependency execution and the agent itself — run the whole agent in a dev
+container / VM (the docs' own recommendation for unattended runs).
