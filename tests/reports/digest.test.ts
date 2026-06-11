@@ -79,4 +79,42 @@ describe("renderDigestHtml", () => {
     expect(html).not.toContain("href");
     expect(html).not.toContain("javascript:");
   });
+
+  // ── email-safety invariant pins ─────────────────────────────────────────────
+
+  it('email-safety: html contains <meta charset="utf-8">', () => {
+    const html = renderDigestHtml(sections());
+    expect(html).toContain('<meta charset="utf-8">');
+  });
+
+  it('email-safety: outer layout table uses width="600"', () => {
+    const html = renderDigestHtml(sections());
+    expect(html).toContain('width="600"');
+  });
+
+  it("email-safety: anchor style contains font-family:helvetica", () => {
+    // The ANCHOR_STYLE constant is inlined into every <a> tag; check a real link.
+    const html = renderDigestHtml(sections());
+    expect(html).toContain("font-family:helvetica");
+  });
+
+  // ── dashboardUrl https guard ────────────────────────────────────────────────
+
+  it("does not emit an href when ReadyItem.dashboardUrl is not https:// (XSS guard)", () => {
+    const html = renderDigestHtml(
+      sections({
+        readyForYourYes: [
+          {
+            siteName: "Acme Co",
+            reportType: "Maintenance",
+            period: "2026-05",
+            dashboardUrl: "javascript:alert(1)",
+          },
+        ],
+      }),
+    );
+    expect(html).toContain("Acme Co");
+    expect(html).not.toContain("href");
+    expect(html).not.toContain("javascript:");
+  });
 });

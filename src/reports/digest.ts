@@ -62,15 +62,19 @@ function readySection(items: ReadyItem[]): string {
     return `${heading}<p style="color:${GREY};font-family:helvetica,sans-serif;font-size:16px;margin:0">Nothing waiting on you.</p>`;
   }
   const rows = items
-    .map(
-      (it) => `
+    .map((it) => {
+      const safeUrl = it.dashboardUrl.startsWith("https://") ? it.dashboardUrl : undefined;
+      const link = safeUrl
+        ? `<a href="${esc(safeUrl)}" style="${ANCHOR_STYLE}">review &amp; approve</a>`
+        : `review &amp; approve`;
+      return `
       <tr>
         <td style="color:${GREY};font-family:helvetica,sans-serif;font-size:16px;line-height:24px;padding-bottom:8px">
           <strong style="color:#222">${esc(it.siteName)}</strong> — ${esc(it.reportType)} (${esc(it.period)})
-          — <a href="${esc(it.dashboardUrl)}" style="${ANCHOR_STYLE}">review &amp; approve</a>
+          — ${link}
         </td>
-      </tr>`,
-    )
+      </tr>`;
+    })
     .join("");
   return `${heading}<table role="presentation" style="border-collapse:collapse;margin:0">${rows}</table>`;
 }
@@ -178,6 +182,11 @@ export async function runDigest(
     });
     return { output: `Digest sent to ${to.join(", ")} (${result.messageId})`, code: 0 };
   } catch (err) {
+    // Re-throw config errors (exitCode=2: missing env vars, bad config) so runOrExit
+    // surfaces them with the correct process exit code rather than collapsing to 1.
+    if (typeof (err as { exitCode?: unknown }).exitCode === "number") {
+      throw err;
+    }
     const message = err instanceof Error ? err.message : String(err);
     return { output: `digest failed: ${message}`, code: 1 };
   }

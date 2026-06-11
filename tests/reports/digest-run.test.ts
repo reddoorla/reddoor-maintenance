@@ -322,39 +322,57 @@ describe("runDigest", () => {
     expect(result.output).toBe("digest failed: network error");
   });
 
-  it("returns code 1 and a tidy message when listWebsites rejects", async () => {
-    // Inject a base whose Websites select throws
+  // ── exitCode passthrough ────────────────────────────────────────────────────
+
+  it("re-throws errors that carry a numeric exitCode property (config errors propagate)", async () => {
+    const configError = Object.assign(new Error("missing RESEND_API_KEY"), { exitCode: 2 });
     const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
-    // Poison the Websites table by making listWebsites blow up via a proxy
-    const poisonedBase = new Proxy(base as unknown as Record<string | symbol, unknown>, {
-      get(target, prop) {
-        const val = target[prop];
-        if (prop === "table") {
-          // Return a function that, for "Websites", returns a table whose select throws
-          return (name: string) => {
-            const tbl = (target["table"] as (n: string) => unknown)(name);
-            if (name === "Websites") {
-              return new Proxy(tbl as Record<string | symbol, unknown>, {
-                get(t2, p2) {
-                  if (p2 === "select") {
-                    return () => ({
-                      firstPage: async () => {
-                        throw new Error("airtable down");
-                      },
-                    });
-                  }
-                  return t2[p2];
-                },
-              });
-            }
-            return tbl;
+    const badClient: ResendClient = {
+      async send() {
+        throw configError;
+      },
+    };
+    await expect(
+      runDigest({ base, resend: badClient, baseUrl: "https://reddoor-maintenance.netlify.app" }),
+    ).rejects.toThrow("missing RESEND_API_KEY");
+  });
+
+  it("returns {code:1} for a plain Error with no exitCode (runtime errors are swallowed)", async () => {
+    const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
+    const result = await runDigest({
+      base,
+      resend: rejectClient("network error"),
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
+    expect(result.code).toBe(1);
+    expect(result.output).toBe("digest failed: network error");
+  });
+
+  it("returns code 1 and a tidy message when listWebsites rejects", async () => {
+    // Poison the base so that any call to the Websites table's select.eachPage throws.
+    // listWebsites calls: base("Websites").select(...).eachPage(cb)
+    // The AirtableBase type is a callable (table-name → table API), so we wrap it.
+    const goodBase = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
+    const poisonedBase = new Proxy(goodBase, {
+      apply(_target, _this, [name]: [string]) {
+        const tbl = goodBase(name);
+        if (name === "Websites") {
+          return {
+            ...tbl,
+            select: () => ({
+              eachPage: async () => {
+                throw new Error("airtable down");
+              },
+            }),
           };
         }
-        return val;
+        return tbl;
       },
     });
+    const { client } = captureClient();
     const result = await runDigest({
-      base: poisonedBase as unknown as typeof base,
+      base: poisonedBase as unknown as typeof goodBase,
+      resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
     expect(result.code).toBe(1);
