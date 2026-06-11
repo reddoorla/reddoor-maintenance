@@ -127,4 +127,16 @@ describe("findReportByPeriod", () => {
     // The injected quote must be escaped, not break out of the literal.
     expect(formula).toContain('2026-05\\" OR TRUE()=\\"');
   });
+
+  it("escapes siteId to be formula-safe inside the ARRAYJOIN clause", async () => {
+    const base = makeFakeBase({ Reports: [] });
+    await findReportByPeriod(base, 'rec" OR TRUE', "Maintenance", "2026-05");
+    const formula = (
+      base.__calls.find((c) => c.kind === "select")!.opts as {
+        filterByFormula: string;
+      }
+    ).filterByFormula;
+    // The injected quote inside siteId must be escaped within ARRAYJOIN, not break out of the string.
+    expect(formula).toContain('rec\\" OR TRUE');
+  });
 });
