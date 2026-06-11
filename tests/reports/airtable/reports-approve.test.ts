@@ -56,8 +56,10 @@ describe("getReportById", () => {
     expect(row!.reportType).toBe("Maintenance");
   });
 
-  it("returns null when find throws (Airtable NOT_FOUND / bad id)", async () => {
-    const find = vi.fn().mockRejectedValue(new Error("NOT_FOUND"));
+  it("returns null when find throws a 404-shaped NOT_FOUND (missing / bad id)", async () => {
+    // The Airtable SDK sets .statusCode on its errors; 404 is the genuine not-found.
+    const err = Object.assign(new Error("Record not found"), { statusCode: 404 });
+    const find = vi.fn().mockRejectedValue(err);
     const base = ((_table: string) => ({ find })) as unknown as AirtableBase;
 
     const row = await getReportById(base, "recNOPE");
@@ -65,10 +67,26 @@ describe("getReportById", () => {
     expect(row).toBeNull();
   });
 
-  it("returns null when find throws any error (not just NOT_FOUND)", async () => {
-    const find = vi.fn().mockRejectedValue(new Error("RECORD_INVALID"));
+  it("returns null when find throws an error named NOT_FOUND (no statusCode)", async () => {
+    const err = Object.assign(new Error("NOT_FOUND"), { error: "NOT_FOUND" });
+    const find = vi.fn().mockRejectedValue(err);
     const base = ((_table: string) => ({ find })) as unknown as AirtableBase;
 
-    expect(await getReportById(base, "recBAD")).toBeNull();
+    expect(await getReportById(base, "recNOPE")).toBeNull();
+  });
+
+  it("rethrows a 500-shaped error (outage / bad-PAT) instead of masking it as not-found", async () => {
+    const err = Object.assign(new Error("Internal server error"), { statusCode: 500 });
+    const find = vi.fn().mockRejectedValue(err);
+    const base = ((_table: string) => ({ find })) as unknown as AirtableBase;
+
+    await expect(getReportById(base, "recREP1")).rejects.toThrow("Internal server error");
+  });
+
+  it("rethrows a generic (non-Airtable) error rather than swallowing it as a 404", async () => {
+    const find = vi.fn().mockRejectedValue(new Error("kaboom"));
+    const base = ((_table: string) => ({ find })) as unknown as AirtableBase;
+
+    await expect(getReportById(base, "recREP1")).rejects.toThrow("kaboom");
   });
 });

@@ -251,10 +251,25 @@ export async function approveReportRow(
 }
 
 /**
+ * True when an `.find` rejection is a GENUINE not-found, not a transient failure.
+ * The Airtable SDK stamps `.statusCode` (404) and/or `.error` ("NOT_FOUND") on
+ * its errors. Anything else (429 rate-limit, 500 outage, bad-PAT 401, network
+ * error) must NOT be masked as a 404 — see getReportById.
+ */
+function isNotFoundError(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const e = err as { statusCode?: unknown; error?: unknown; name?: unknown; message?: unknown };
+  if (e.statusCode === 404) return true;
+  const tag = String(e.error ?? e.name ?? e.message ?? "");
+  return tag === "NOT_FOUND" || /not found/i.test(tag);
+}
+
+/**
  * Fetch one Reports row by its Airtable record id, or null if it doesn't exist.
- * Airtable's `.find` throws an error whose message contains "NOT_FOUND" for a
- * missing or invalid record id — we treat any throw as not-found so the caller
- * gets a clean null rather than a propagated Airtable error.
+ * Only a GENUINE not-found (404 / NOT_FOUND) collapses to null; every other
+ * failure (outage, 429, bad PAT, network error) is rethrown so the adapter
+ * surfaces a 500 instead of a misleading 404. Swallowing all throws previously
+ * turned an Airtable outage into a "no such report".
  */
 export async function getReportById(
   base: AirtableBase,
@@ -263,9 +278,9 @@ export async function getReportById(
   try {
     const rec = await base(REPORTS_TABLE).find(recordId);
     return mapRow({ id: rec.id, fields: rec.fields as Record<string, unknown> });
-  } catch {
-    // Airtable `.find` throws NOT_FOUND for a missing/bad record id — treat as null.
-    return null;
+  } catch (err) {
+    if (isNotFoundError(err)) return null;
+    throw err;
   }
 }
 
