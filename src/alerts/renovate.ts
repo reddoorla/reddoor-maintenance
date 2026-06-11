@@ -36,7 +36,9 @@ export type OpenPullRequestsProbe = (repo: string) => Promise<PullRequestSummary
 
 function siteLabel(site: Site): string {
   const display = site.meta?.["displayName"];
-  return typeof display === "string" && display.length > 0 ? display : (site.name ?? "unknown");
+  if (typeof display === "string" && display.length > 0) return display;
+  if (typeof site.name === "string" && site.name.length > 0) return site.name;
+  return "unknown";
 }
 
 /**

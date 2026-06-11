@@ -85,4 +85,37 @@ describe("alerts/renovate collectRenovateFailures", () => {
     expect(findings).toHaveLength(1);
     expect(findings[0]).toMatchObject({ repo: "reddoorla/beta", pr: { number: 21 } });
   });
+
+  it("collects every failing renovate PR when a repo has more than one", async () => {
+    const oneSite: Site[] = [
+      {
+        path: "/w/alpha",
+        name: "alpha",
+        gitRepo: "reddoorla/alpha",
+        meta: { displayName: "Alpha Co" },
+      },
+    ];
+    const probe = async () => [
+      pr({ number: 11, headRef: "renovate/npm-vite", ciState: "failing", url: "u11" }),
+      pr({ number: 13, headRef: "renovate/npm-svelte", ciState: "failing", url: "u13" }),
+      pr({ number: 12, headRef: "renovate/npm-zod", ciState: "passing", url: "u12" }),
+    ];
+    const { findings } = await collectRenovateFailures(oneSite, probe);
+    expect(findings.map((f) => f.pr.number).sort()).toEqual([11, 13]);
+  });
+
+  it("labels a finding by site name when displayName is missing/empty, else 'unknown'", async () => {
+    const probe = async () => [pr({ number: 9, headRef: "renovate/x", ciState: "failing" })];
+    const missing = await collectRenovateFailures(
+      [{ path: "/w/x", name: "slug-name", gitRepo: "reddoorla/x", meta: {} }],
+      probe,
+    );
+    expect(missing.findings[0]!.site).toBe("slug-name");
+
+    const empty = await collectRenovateFailures(
+      [{ path: "/w/x", name: "", gitRepo: "reddoorla/x", meta: { displayName: "" } }],
+      probe,
+    );
+    expect(empty.findings[0]!.site).toBe("unknown");
+  });
 });

@@ -166,7 +166,10 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
       return first ?? null;
     },
     async openPullRequests(repo) {
-      const [owner, name] = repo.split("/");
+      const [owner, name, ...rest] = repo.split("/");
+      if (!owner || !name || rest.length > 0) {
+        throw new Error(`openPullRequests: expected "owner/repo", got "${repo}"`);
+      }
       const query =
         "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){" +
         "pullRequests(states:OPEN,first:100){nodes{number title url headRefName " +

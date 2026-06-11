@@ -94,6 +94,49 @@ describe("makeGitHub", () => {
     expect(calls[0]!.opts.env?.GH_TOKEN).toBe("T");
   });
 
+  it("openPullRequests normalizes every rollup state", async () => {
+    const node = (state: string | null) => ({
+      number: 1,
+      title: "t",
+      url: "u",
+      headRefName: "h",
+      commits: { nodes: [{ commit: { statusCheckRollup: state === null ? null : { state } } }] },
+    });
+    const stdout = JSON.stringify({
+      data: {
+        repository: {
+          pullRequests: {
+            nodes: [
+              node("SUCCESS"),
+              node("FAILURE"),
+              node("ERROR"),
+              node("PENDING"),
+              node("EXPECTED"),
+              node(null),
+            ],
+          },
+        },
+      },
+    });
+    const { spawn } = fakeSpawn({ stdout });
+    const prs = await makeGitHub({ token: "T", spawn }).openPullRequests("o/r");
+    expect(prs.map((p) => p.ciState)).toEqual([
+      "passing",
+      "failing",
+      "failing",
+      "pending",
+      "pending",
+      "none",
+    ]);
+  });
+
+  it("openPullRequests rejects a malformed repo identifier", async () => {
+    const { spawn } = fakeSpawn({ stdout: "{}" });
+    await expect(makeGitHub({ token: "T", spawn }).openPullRequests("not-a-repo")).rejects.toThrow(
+      /owner\/repo/,
+    );
+  });
+
   it("enableRepoAutoMerge PATCHes allow_auto_merge", async () => {
     const { spawn, calls } = fakeSpawn({});
     await makeGitHub({ token: "T", spawn }).enableRepoAutoMerge("o/r");
