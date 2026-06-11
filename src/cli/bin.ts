@@ -282,6 +282,10 @@ cli
     "--send-ready",
     "Send all Reports with Draft ready=true AND Approved to send=true AND Sent at IS NULL.",
   )
+  .option(
+    "--digest",
+    "Email the operator one daily digest of reports ready for approval (skips when empty).",
+  )
   .action(
     async (
       site,
@@ -289,6 +293,7 @@ cli
         due?: boolean;
         preview?: boolean;
         sendReady?: boolean;
+        digest?: boolean;
         cwd?: string;
         verbose?: boolean;
       },
