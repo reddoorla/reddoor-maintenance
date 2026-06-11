@@ -56,6 +56,37 @@ describe("approve-report adapter — env + method gating", () => {
     expect(res.status).toBe(405);
   });
 
+  it("403s a cross-site POST (Sec-Fetch-Site: cross-site) before touching the handler", async () => {
+    const res = await approveReportFn(
+      post("recREP1", { authorization: AUTH, "sec-fetch-site": "cross-site" }),
+      // @ts-expect-error — minimal Context
+      { params: { id: "recREP1" } },
+    );
+    expect(res.status).toBe(403);
+    expect(approveMock).not.toHaveBeenCalled();
+  });
+
+  it("proceeds for a same-origin POST (Sec-Fetch-Site: same-origin)", async () => {
+    approveMock.mockResolvedValue({ status: "approved", reportId: "recREP1" });
+    const res = await approveReportFn(
+      post("recREP1", { authorization: AUTH, "sec-fetch-site": "same-origin" }),
+      // @ts-expect-error — minimal Context
+      { params: { id: "recREP1" } },
+    );
+    expect(res.status).toBe(200);
+    expect(approveMock).toHaveBeenCalledWith(expect.anything(), "recREP1");
+  });
+
+  it("proceeds when Sec-Fetch-Site is absent (older browsers / non-browser clients)", async () => {
+    approveMock.mockResolvedValue({ status: "approved", reportId: "recREP1" });
+    // @ts-expect-error — minimal Context
+    const res = await approveReportFn(post("recREP1", { authorization: AUTH }), {
+      params: { id: "recREP1" },
+    });
+    expect(res.status).toBe(200);
+    expect(approveMock).toHaveBeenCalledWith(expect.anything(), "recREP1");
+  });
+
   it("401s an unauthenticated POST and never touches the handler", async () => {
     // @ts-expect-error — minimal Context
     const res = await approveReportFn(post("recREP1"), { params: { id: "recREP1" } });

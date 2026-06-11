@@ -47,6 +47,18 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
 
   if (req.method !== "POST") return plainText("Method not allowed", 405);
 
+  // CSRF defense: this is a state-changing endpoint reachable with the ambient
+  // Basic-auth creds the browser replays cross-site. Conservative same-origin
+  // guard — if Sec-Fetch-Site is PRESENT it must be "same-origin" or "none"
+  // (the legit inline fetch from /s/:slug and address-bar/bookmark loads send
+  // those); anything else ("cross-site"/"same-site") is rejected. If the header
+  // is ABSENT (older browsers, non-browser clients) we proceed and fall back to
+  // Basic auth. Placed before auth so a forged cross-site POST is cut early.
+  const secFetchSite = req.headers.get("sec-fetch-site");
+  if (secFetchSite !== null && secFetchSite !== "same-origin" && secFetchSite !== "none") {
+    return plainText("Cross-site request rejected", 403);
+  }
+
   // Auth BEFORE any Airtable read, same realm as site-dashboard.mts so the
   // browser reuses creds when the inline fetch fires from /s/:slug.
   const password = process.env.DASHBOARD_PASSWORD;
