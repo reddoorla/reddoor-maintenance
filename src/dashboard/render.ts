@@ -61,6 +61,10 @@ function securitySub(site: WebsiteRow): string | null {
   return `${c}C / ${h}H / ${m}M / ${l}L`;
 }
 
+function isPendingApproval(r: ReportRow): boolean {
+  return r.draftReady && !r.approvedToSend && r.sentAt === null;
+}
+
 function reportRow(r: ReportRow): string {
   const date = r.completedOn ? escapeHtml(r.completedOn) : "—";
   const type = escapeHtml(r.reportType);
@@ -68,7 +72,10 @@ function reportRow(r: ReportRow): string {
   const link = r.renderedHtmlAttachment
     ? `<a href="${escapeHtml(safeUrl(r.renderedHtmlAttachment.url))}">view</a>`
     : `<span class="muted">no attachment</span>`;
-  return `<tr><td>${date}</td><td>${type}</td><td><code>${id}</code></td><td>${link}</td></tr>`;
+  const action = isPendingApproval(r)
+    ? `<button class="approve" data-report-id="${escapeHtml(r.id)}" data-approve-url="/api/reports/${encodeURIComponent(r.id)}/approve">Approve</button>`
+    : "";
+  return `<tr><td>${date}</td><td>${type}</td><td><code>${id}</code></td><td>${link}</td><td>${action}</td></tr>`;
 }
 
 const STYLES = `
@@ -92,6 +99,10 @@ th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #eee; }
 @media (prefers-color-scheme: dark) { th, td { border-color: #2a2a2a; } }
 .muted { color: #999; }
 .empty { color: #999; padding: 1rem; border: 1px dashed #ccc; border-radius: 6px; text-align: center; }
+button.approve { font: inherit; padding: 0.35rem 0.85rem; border: 1px solid #2c7; border-radius: 6px; background: #2c7; color: #fff; cursor: pointer; }
+button.approve:disabled { opacity: 0.6; cursor: default; }
+.pending-list { list-style: none; padding: 0; margin: 0; }
+.pending-list li { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; border-bottom: 1px solid #eee; }
 `;
 
 /**
@@ -134,7 +145,7 @@ export function renderSiteDashboardHtml(site: WebsiteRow, reports: ReportRow[]):
     reports.length === 0
       ? `<div class="empty">No reports yet.</div>`
       : `<table>
-          <thead><tr><th>Completed</th><th>Type</th><th>ID</th><th>Report</th></tr></thead>
+          <thead><tr><th>Completed</th><th>Type</th><th>ID</th><th>Report</th><th></th></tr></thead>
           <tbody>${reports.map(reportRow).join("")}</tbody>
         </table>`;
 
@@ -165,6 +176,16 @@ export function renderSiteDashboardHtml(site: WebsiteRow, reports: ReportRow[]):
     <h2>Reports</h2>
     ${reportsSection}
   </div>
+  <script>
+    document.querySelectorAll("button.approve").forEach((b) => {
+      b.addEventListener("click", async () => {
+        b.disabled = true;
+        const res = await fetch(b.dataset.approveUrl, { method: "POST" });
+        b.textContent = res.ok ? "Approved" : "Failed";
+        if (!res.ok) b.disabled = false;
+      });
+    });
+  </script>
 </body>
 </html>`;
 }

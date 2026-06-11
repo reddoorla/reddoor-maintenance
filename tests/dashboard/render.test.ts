@@ -267,3 +267,49 @@ describe("renderSiteDashboardHtml — site health section", () => {
     expect(html).not.toMatch(/class="audited"/);
   });
 });
+
+describe("renderSiteDashboardHtml — approve button", () => {
+  // A report that is Draft-ready, not yet approved, not yet sent: the one state
+  // where the operator's "yes" is pending.
+  const pending = () =>
+    reportRow({
+      reportId: "rep_pending",
+      draftReady: true,
+      approvedToSend: false,
+      sentAt: null,
+      approvedAt: null,
+      approvedBy: null,
+    });
+
+  it("renders an Approve button that POSTs to the approve endpoint for a pending report", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [pending()]);
+    // The button carries the Airtable record id (recREP1) so the inline fetch
+    // can target /api/reports/:id/approve.
+    expect(html).toMatch(/data-report-id="recREP1"/);
+    expect(html).toContain("/api/reports/recREP1/approve");
+    expect(html).toMatch(/Approve/);
+  });
+
+  it("does NOT render an Approve button for an already-approved report", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [
+      reportRow({ approvedToSend: true, sentAt: null }),
+    ]);
+    expect(html).not.toMatch(/\/api\/reports\/[^/]+\/approve/);
+  });
+
+  it("does NOT render an Approve button for an already-sent report", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [
+      reportRow({ approvedToSend: true, sentAt: "2026-05-02T09:00:00Z" }),
+    ]);
+    expect(html).not.toMatch(/\/api\/reports\/[^/]+\/approve/);
+  });
+
+  it("escapes the record id in the approve URL/attribute (no markup injection from Airtable ids)", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [
+      pending(),
+      reportRow({ id: 'rec"><img src=x>', reportId: "rep_x", approvedToSend: false, sentAt: null }),
+    ]);
+    expect(html).not.toContain('rec"><img src=x>');
+    expect(html).toContain("&quot;");
+  });
+});
