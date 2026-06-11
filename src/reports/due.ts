@@ -106,3 +106,16 @@ export function findDueReports(
 
   return out;
 }
+
+/**
+ * The UTC `YYYY-MM` of a `dueDate` from {@link findDueReports} — the per-recurrence
+ * idempotency key for drafting. Monthly recurrences land in distinct months; quarterly
+ * and yearly land in distinct due-months too, so this uniquely names one draft per cycle.
+ * UTC accessors keep it timezone-independent, consistent with the rest of this module.
+ */
+export function reportPeriodKey(dueDate: Date): string {
+  if (Number.isNaN(dueDate.getTime())) throw new TypeError("reportPeriodKey: invalid Date");
+  const year = dueDate.getUTCFullYear();
+  const month = String(dueDate.getUTCMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+}

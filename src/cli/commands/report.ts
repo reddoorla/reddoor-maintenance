@@ -1,7 +1,7 @@
-import { openBase, readAirtableConfig } from "../../reports/airtable/client.js";
+import { openBase, readAirtableConfig, type AirtableBase } from "../../reports/airtable/client.js";
 import { listWebsites, siteSlug } from "../../reports/airtable/websites.js";
-import { listReportsForSite } from "../../reports/airtable/reports.js";
-import { findDueReports } from "../../reports/due.js";
+import { listAllReports } from "../../reports/airtable/reports.js";
+import { findDueReports, reportPeriodKey } from "../../reports/due.js";
 import { draftReportForSite } from "../../reports/draft.js";
 
 export type ReportCommandOptions = {
@@ -38,28 +38,57 @@ export async function runReportCommand(
 
 async function runDueDraft(): Promise<{ output: string; code: number }> {
   const base = openBase(readAirtableConfig());
+  return draftDueReports(base, new Date());
+}
+
+export async function draftDueReports(
+  base: AirtableBase,
+  today: Date,
+): Promise<{ output: string; code: number }> {
   const websites = await listWebsites(base);
-  const reports = [];
-  for (const w of websites) {
-    const rs = await listReportsForSite(base, w.id);
-    reports.push(...rs);
-  }
-  const due = findDueReports(websites, reports, new Date());
+  // ONE unfiltered fetch for the whole fleet. Per-site queries can't be pushed to
+  // Airtable anyway (linked-record fields aren't formula-filterable by record id),
+  // and findDueReports + the period guard below match on siteId in memory.
+  const reports = await listAllReports(base);
+  const due = findDueReports(websites, reports, today);
 
   if (due.length === 0) return { output: "No reports due.", code: 0 };
 
   const lines: string[] = [];
   let softFailedSites = 0;
+  let skipped = 0;
   for (const item of due) {
+    // Idempotency: a re-run must not re-draft a (site, type) already drafted this
+    // recurrence. The dueDate's YYYY-MM is the stable per-cycle key. Match against the
+    // reports we already fetched — no extra query on the hot path.
+    const period = reportPeriodKey(item.dueDate);
+    const already = reports.some(
+      (r) => r.siteId === item.site.id && r.reportType === item.reportType && r.period === period,
+    );
+    if (already) {
+      skipped++;
+      lines.push(`• skipped (already drafted ${period}): ${item.site.name} ${item.reportType}`);
+      continue;
+    }
     try {
-      const result = await draftReportForSite(base, item.site, item.reportType);
+      // Pass the SAME key the guard searches by, so the stamped Period always
+      // matches a future run's reportPeriodKey(dueDate) — even if this run lags
+      // into a later month than the dueDate.
+      const result = await draftReportForSite(base, item.site, item.reportType, { period });
       lines.push(`✓ drafted: ${result.reportRow?.reportId}`);
+      // Keep the in-memory snapshot current so the guard's `.some()` check on the
+      // NEXT iteration of this same run catches a row we JUST created — rather than
+      // relying on findDueReports never emitting two items for the same (site, type).
+      if (result.reportRow) reports.push(result.reportRow);
       // Count sites (not individual GA/Search failures) so a fleet-wide enrichment
       // outage is one obvious line at the bottom, not 200 buried console.warns.
       if (result.softFailures.length > 0) softFailedSites++;
     } catch (e) {
       lines.push(`✗ failed: ${item.site.name} ${item.reportType} — ${(e as Error).message}`);
     }
+  }
+  if (skipped > 0) {
+    lines.push(`• ${skipped} already drafted this period`);
   }
   if (softFailedSites > 0) {
     lines.push(

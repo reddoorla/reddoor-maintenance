@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { findDueReports } from "../../src/reports/due.js";
+import { findDueReports, reportPeriodKey } from "../../src/reports/due.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
 
@@ -45,6 +45,7 @@ function report(over: Partial<ReportRow> = {}): ReportRow {
     reportId: "Acme — Maintenance — 2026-04-01",
     siteId: "rec_site_1",
     reportType: "Maintenance",
+    period: null,
     periodStart: null,
     periodEnd: null,
     completedOn: null,
@@ -231,5 +232,31 @@ describe("findDueReports", () => {
     expect(utcResult).toHaveLength(1);
     expect(pdtResult).toEqual(utcResult);
     expect(jstResult).toEqual(utcResult);
+  });
+});
+
+describe("reportPeriodKey", () => {
+  it("returns the UTC YYYY-MM of the due date", () => {
+    expect(reportPeriodKey(new Date("2026-05-26T12:00:00Z"))).toBe("2026-05");
+  });
+
+  it("uses UTC, not local time, near a month boundary", () => {
+    // 2026-06-01T00:00 UTC is still May 31 in PDT — must report 2026-06, not 2026-05.
+    expect(reportPeriodKey(new Date("2026-06-01T00:30:00Z"))).toBe("2026-06");
+  });
+
+  it("zero-pads single-digit months", () => {
+    expect(reportPeriodKey(new Date("2026-01-15T12:00:00Z"))).toBe("2026-01");
+  });
+
+  it("matches the dueDate that findDueReports produces (stable dedup key)", () => {
+    const due = findDueReports([site()], [report({ sentAt: "2026-03-01T12:00:00.000Z" })], TODAY);
+    expect(due).toHaveLength(1);
+    // dueDate = 2026-04-01 → period 2026-04
+    expect(reportPeriodKey(due[0]!.dueDate)).toBe("2026-04");
+  });
+
+  it("throws on an Invalid Date instead of minting a NaN-NaN key", () => {
+    expect(() => reportPeriodKey(new Date("not-a-date"))).toThrow(TypeError);
   });
 });

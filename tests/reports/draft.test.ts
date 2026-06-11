@@ -181,6 +181,27 @@ describe("draftReportForSite", () => {
     expect(diffDays).toBe(30);
   });
 
+  it("stamps Period with an explicitly passed period key (the dueDate's YYYY-MM)", async () => {
+    // CRITICAL idempotency invariant: the stamped Period MUST equal the key the
+    // draftDueReports guard searches by — reportPeriodKey(dueDate) — NOT the run
+    // month. If the cron lags into the month after the dueDate month, a run-month
+    // stamp would never match the guard's search key and every later run would
+    // draft a duplicate. So the caller passes the key down explicitly.
+    const base = makeFakeBase({ Reports: [] });
+    await draftReportForSite(base, siteFixture(), "Maintenance", { period: "2026-05" });
+    const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
+    expect(fields["Period"]).toBe("2026-05");
+  });
+
+  it("falls back to the periodEnd's YYYY-MM when no period is passed (manual one-off draft)", async () => {
+    const base = makeFakeBase({ Reports: [] });
+    await draftReportForSite(base, siteFixture(), "Maintenance");
+    const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
+    // Period field must be derived from periodEnd's YYYY-MM (not just match the shape).
+    // This pins the fallback's *source*, not merely its format.
+    expect(fields["Period"]).toBe((fields["Period end"] as string).slice(0, 7));
+  });
+
   describe("GA enrichment", () => {
     it("writes GA users into the row when configured and the site has a property ID", async () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
