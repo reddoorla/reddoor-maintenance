@@ -17,6 +17,7 @@ concurrency:
 
 permissions:
   contents: read
+  issues: write # open/close the nightly-failure tracking issue (M5 alerting)
 
 jobs:
   audit:
@@ -91,3 +92,35 @@ jobs:
             echo "::error::fleet Lighthouse: $failed/$total site(s) failed to write (>25%) — investigate (not a single-site flake)."
             exit 1
           fi
+
+      # M5 alerting (MEDIUM-I): a red nightly is otherwise only GitHub's best-effort
+      # email to the last pusher. File/reopen a single deduped tracking issue so a
+      # failure is durably visible, and auto-close it once the run goes green again.
+      # continue-on-error so the alert machinery can NEVER turn a run's status red.
+      - name: Open/update the nightly-failure tracking issue
+        if: failure()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          label="nightly-failure"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body=$(printf 'The nightly **fleet-lighthouse** run failed.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          gh label create "$label" --color B60205 --description "Nightly fleet-lighthouse run failed" 2>/dev/null || true
+          existing=$(gh issue list --label "$label" --state open --json number --jq '.[0].number // empty' || true)
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+          else
+            gh issue create --title "Nightly fleet audit failing" --label "$label" --body "$body"
+          fi
+
+      - name: Close the nightly-failure issue on recovery
+        if: success()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          label="nightly-failure"
+          for n in $(gh issue list --label "$label" --state open --json number --jq '.[].number' || true); do
+            gh issue close "$n" --comment "Recovered — the nightly fleet-lighthouse run is green again." && echo "closed #$n"
+          done
