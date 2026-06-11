@@ -114,6 +114,7 @@ export function findDueReports(
  * UTC accessors keep it timezone-independent, consistent with the rest of this module.
  */
 export function reportPeriodKey(dueDate: Date): string {
+  if (Number.isNaN(dueDate.getTime())) throw new TypeError("reportPeriodKey: invalid Date");
   const year = dueDate.getUTCFullYear();
   const month = String(dueDate.getUTCMonth() + 1).padStart(2, "0");
   return `${year}-${month}`;

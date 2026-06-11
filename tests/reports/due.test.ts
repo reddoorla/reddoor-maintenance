@@ -254,4 +254,8 @@ describe("reportPeriodKey", () => {
     // dueDate = 2026-04-01 → period 2026-04
     expect(reportPeriodKey(due[0]!.dueDate)).toBe("2026-04");
   });
+
+  it("throws on an Invalid Date instead of minting a NaN-NaN key", () => {
+    expect(() => reportPeriodKey(new Date("not-a-date"))).toThrow(TypeError);
+  });
 });
