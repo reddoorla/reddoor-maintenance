@@ -2,6 +2,7 @@ import type { Context, Config } from "@netlify/functions";
 import { openBase } from "../../src/reports/airtable/client.js";
 import { listWebsites } from "../../src/reports/airtable/websites.js";
 import { verifyBasicAuth, renderFleetHomeHtml } from "../../src/dashboard/index.js";
+import { listPendingApproval } from "../../src/reports/digest.js";
 
 // Owns the root path. The per-site dashboard function continues to own
 // /s/:slug; the resend-webhook function continues to own its own path.
@@ -59,5 +60,14 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   const visible = websites
     .filter((w) => w.dashboardToken !== null)
     .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-  return html(renderFleetHomeHtml(visible), 200);
+  // Defensive: the homepage must still render if the Reports query hiccups.
+  let pendingCount = 0;
+  try {
+    pendingCount = (await listPendingApproval(base)).filter(
+      (r) => r.draftReady && !r.approvedToSend && r.sentAt === null,
+    ).length;
+  } catch {
+    // banner simply absent — the per-site pages still show their own pending lists
+  }
+  return html(renderFleetHomeHtml(visible, pendingCount), 200);
 };
