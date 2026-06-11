@@ -29,6 +29,24 @@ function isSilenced(warning: { code?: string }): boolean {
 }
 
 /**
+ * Canonical `$lib` aliases shared across the reddoor fleet. Injecting these as
+ * defaults means a synced site no longer has to redeclare them (and the
+ * sync-configs svelte template no longer clobbers them with a thinner config).
+ * Sites can override any entry or add their own — see the merge in
+ * createSvelteConfig.
+ */
+const CANONICAL_ALIASES: Record<string, string> = {
+  $components: "src/lib/components",
+  "$components/*": "src/lib/components/*",
+  $utils: "src/lib/utils",
+  "$utils/*": "src/lib/utils/*",
+  $stores: "src/lib/stores",
+  "$stores/*": "src/lib/stores/*",
+  $assets: "src/lib/assets",
+  "$assets/*": "src/lib/assets/*",
+};
+
+/**
  * Compose a Svelte/Kit config with reddoor's canonical compilerOptions
  * layered in. Sites pass their site-specific bits (`kit.adapter`,
  * `preprocess`, etc.) and get back a complete config with the canonical
@@ -49,8 +67,17 @@ export function createSvelteConfig(siteConfig: SvelteConfigLike = {}): SvelteCon
   const siteCompiler = siteConfig.compilerOptions ?? {};
   const siteFilter = siteCompiler.warningFilter;
 
+  const siteKit = (siteConfig.kit ?? {}) as Record<string, unknown>;
+  const siteAlias = (siteKit.alias ?? {}) as Record<string, string>;
+
   return {
     ...siteConfig,
+    kit: {
+      ...siteKit,
+      // Canonical aliases first, site entries last so a site can override any
+      // single alias or add its own without losing the fleet defaults.
+      alias: { ...CANONICAL_ALIASES, ...siteAlias },
+    },
     compilerOptions: {
       ...siteCompiler,
       warningFilter: (warning) => {
