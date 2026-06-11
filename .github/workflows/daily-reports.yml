@@ -1,0 +1,138 @@
+name: daily-reports
+
+# M3 daily approval-only loop. One run per day: DRAFT due reports (idempotent —
+# skip site+period already drafted), SEND approved-but-unsent (existing gate),
+# then email the operator DIGEST. This repo is the central scheduler; it's
+# active, so GitHub's 60-day cron auto-disable never fires — but the keepalive
+# step below is a belt-and-suspenders against a quiet stretch. Cron minute is
+# :23 (non-:00) to dodge the documented top-of-hour scheduler load spike.
+on:
+  schedule:
+    - cron: "23 9 * * *" # 09:23 UTC daily, offset off the top of the hour
+  workflow_dispatch: {} # manual run from the Actions tab
+
+# Single-flight: a once-daily job can't realistically overlap, but this closes
+# the search-then-create drafting race (Airtable has no atomic upsert) and stops
+# a manual run colliding with the scheduled one.
+concurrency:
+  group: m3-daily
+  cancel-in-progress: false
+
+permissions:
+  contents: read # checkout only — nothing in this workflow pushes
+  actions: write # inline keepalive re-enables this workflow via the REST API
+  issues: write # open/close the daily-reports-failing tracking issue
+
+jobs:
+  daily:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.1
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      # 1. DRAFT — scan all Websites, draft anything overdue. Idempotent: the
+      # slice-1 Period guard skips a (site, reportType) already drafted this
+      # cycle, so a cron re-fire is a no-op. continue-on-error: a draft failure
+      # must not block sending reports already approved — but the outcome-gate
+      # step at the bottom re-fails the run afterwards so the spec's "any step
+      # failing opens the tracking issue" still holds (no silent draft breakage).
+      - name: Draft due reports
+        id: draft
+        continue-on-error: true
+        timeout-minutes: 15
+        env:
+          AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
+          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+        run: node dist/cli/bin.js report --due
+
+      # 2. SEND — existing gate (Draft ready ∧ Approved to send ∧ Sent at BLANK).
+      # At-least-once: a failed send leaves Sent at null → retried tomorrow; the
+      # Resend idempotency key (report:<id>) + the durable Sent at prevent dupes.
+      - name: Send approved reports
+        timeout-minutes: 15
+        env:
+          AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
+          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        run: node dist/cli/bin.js report --send-ready
+
+      # 3. DIGEST — one "your fleet today" email to the operator (report
+      # --digest, shipped in #163; skips itself when there's nothing to say).
+      - name: Email the operator digest
+        timeout-minutes: 10
+        env:
+          AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
+          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          # Both optional — the CLI falls back to info@reddoorla.com and
+          # https://reddoor-maintenance.netlify.app when unset/empty. Set the
+          # repo Actions *variables* (not secrets) to override.
+          OPERATOR_EMAIL: ${{ vars.OPERATOR_EMAIL }}
+          DASHBOARD_BASE_URL: ${{ vars.DASHBOARD_BASE_URL }}
+        run: node dist/cli/bin.js report --digest
+
+      # Keepalive (inline, dependency-free): re-enabling an already-enabled
+      # workflow is a no-op that still resets GitHub's 60-day auto-disable
+      # timer for scheduled workflows on quiet repos. continue-on-error so
+      # this hygiene step can never redden the run.
+      - name: Keep the scheduled workflow alive
+        if: success()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/daily-reports.yml/enable"
+
+      # Outcome gate: the draft step's continue-on-error lets send/digest
+      # proceed past a drafting failure, but it also keeps the job green —
+      # which would stop the failure() tracking issue below from ever firing.
+      # Re-fail the run here (after send/digest/keepalive have had their turn)
+      # so a draft failure is still durably visible.
+      - name: Fail the run if drafting failed
+        if: steps.draft.outcome == 'failure'
+        run: |
+          echo "::error::report --due failed earlier in this run (send/digest were allowed to proceed)"
+          exit 1
+
+      # M5 alerting (#152 pattern): a red daily run is otherwise only GitHub's
+      # best-effort email to the last pusher. File/reopen one deduped tracking
+      # issue so a failure is durably visible; auto-close on recovery.
+      # continue-on-error so the alert machinery can NEVER turn a run red.
+      - name: Open/update the daily-reports-failing tracking issue
+        if: failure()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Daily reports run failing"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body=$(printf 'The daily **daily-reports** run failed.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          existing=$(gh issue list --state open --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close the daily-reports-failing issue on recovery
+        if: success()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Daily reports run failing"
+          for n in $(gh issue list --state open --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+            gh issue close "$n" --comment "Recovered — the daily-reports run is green again." && echo "closed #$n"
+          done
