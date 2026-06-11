@@ -125,49 +125,62 @@ export type DigestRunOptions = {
   resend?: ResendClient;
   /** Dashboard origin for the /s/<slug> links, e.g. "https://reddoor-maintenance.netlify.app". */
   baseUrl: string;
+  /**
+   * Inject a pre-opened Airtable base (tests, server handlers).
+   * When omitted, `openBase(readAirtableConfig())` is called from the environment.
+   */
+  base?: AirtableBase;
 };
 
 export async function runDigest(
   options: DigestRunOptions,
 ): Promise<{ output: string; code: number }> {
-  const base = openBase(readAirtableConfig());
-  const websites = await listWebsites(base);
-  const sites = new Map(websites.map((w) => [w.id, w]));
-
-  const pending = await listPendingApproval(base);
-
-  const readyForYourYes: ReadyItem[] = [];
-  for (const r of pending) {
-    const site = sites.get(r.siteId);
-    if (!site) continue; // orphan report → skip rather than render a broken link
-    readyForYourYes.push({
-      siteName: site.name,
-      reportType: r.reportType,
-      period: r.period ?? "—",
-      dashboardUrl: `${options.baseUrl.replace(/\/$/, "")}/s/${siteSlug(site.name)}`,
-    });
-  }
-
-  // M5 fills this; M3 ships it empty (renders the "all clear" line).
-  const needsAttention: AttentionItem[] = [];
-
-  // No-noise default: skip entirely when there's nothing to report.
-  if (readyForYourYes.length === 0 && needsAttention.length === 0) {
-    return { output: "Digest skipped (nothing ready, nothing needs attention).", code: 0 };
-  }
-
-  const html = renderDigestHtml({ readyForYourYes, needsAttention });
-  const client = options.resend ?? defaultResendClient();
-  const to = [process.env.OPERATOR_EMAIL?.trim() || DIGEST_OPERATOR_FALLBACK];
+  // Capture clock BEFORE any await so the idempotency key can't roll past midnight mid-run.
   const today = new Date();
-  const result = await client.send({
-    from: FROM_ADDRESS,
-    to,
-    subject: `Your fleet today — ${readyForYourYes.length} ready for your yes`,
-    html,
-    idempotencyKey: `digest-${digestDateKey(today)}`,
-  });
-  return { output: `Digest sent to ${to.join(", ")} (${result.messageId})`, code: 0 };
+  try {
+    const base = options.base ?? openBase(readAirtableConfig());
+    const websites = await listWebsites(base);
+    const sites = new Map(websites.map((w) => [w.id, w]));
+
+    const pending = await listPendingApproval(base);
+
+    const readyForYourYes: ReadyItem[] = [];
+    for (const r of pending) {
+      const site = sites.get(r.siteId);
+      if (!site) continue; // orphan report → skip rather than render a broken link
+      readyForYourYes.push({
+        siteName: site.name,
+        reportType: r.reportType,
+        period: r.period ?? "—",
+        dashboardUrl: `${options.baseUrl.replace(/\/$/, "")}/s/${siteSlug(site.name)}`,
+      });
+    }
+
+    // M5 fills this; M3 ships it empty (renders the "all clear" line).
+    const needsAttention: AttentionItem[] = [];
+
+    // No-noise default: skip entirely when there's nothing to report.
+    if (readyForYourYes.length === 0 && needsAttention.length === 0) {
+      return { output: "Digest skipped (nothing ready, nothing needs attention).", code: 0 };
+    }
+
+    const html = renderDigestHtml({ readyForYourYes, needsAttention });
+    const client = options.resend ?? defaultResendClient();
+    const to = [process.env.OPERATOR_EMAIL?.trim() || DIGEST_OPERATOR_FALLBACK];
+    const n = readyForYourYes.length;
+    const reportWord = n === 1 ? "report" : "reports";
+    const result = await client.send({
+      from: FROM_ADDRESS,
+      to,
+      subject: `Your fleet — ${digestDateKey(today)}: ${n} ${reportWord} ready for your yes`,
+      html,
+      idempotencyKey: `digest-${digestDateKey(today)}`,
+    });
+    return { output: `Digest sent to ${to.join(", ")} (${result.messageId})`, code: 0 };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { output: `digest failed: ${message}`, code: 1 };
+  }
 }
 
 /** Pure render of the unified daily operator digest. No IO — the caller (runDigest)

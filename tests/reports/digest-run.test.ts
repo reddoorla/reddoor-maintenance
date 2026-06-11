@@ -3,7 +3,8 @@ import { runDigest, listPendingApproval } from "../../src/reports/digest.js";
 import type { ResendClient, ResendSendInput } from "../../src/reports/send/resend.js";
 import { makeFakeBase, type FakeRecord } from "./_helpers/fake-airtable-base.js";
 
-// Helper: openBase reads from env; tests need to inject a fake. Patch via vi.mock.
+// The vi.mock is kept narrowly for the ONE env-config-path test below.
+// All other runDigest tests use direct base injection via DigestRunOptions.base.
 vi.mock("../../src/reports/airtable/client.js", async () => {
   const actual = await vi.importActual<typeof import("../../src/reports/airtable/client.js")>(
     "../../src/reports/airtable/client.js",
@@ -116,6 +117,15 @@ function captureClient(): { client: ResendClient; captured: ResendSendInput[] } 
   return { client, captured };
 }
 
+/** A Resend client whose send() always rejects — for error-contract tests. */
+function rejectClient(message = "network error"): ResendClient {
+  return {
+    async send() {
+      throw new Error(message);
+    },
+  };
+}
+
 // ── listPendingApproval ──────────────────────────────────────────────────────
 
 describe("listPendingApproval", () => {
@@ -158,31 +168,41 @@ describe("listPendingApproval", () => {
 // ── runDigest ────────────────────────────────────────────────────────────────
 
 describe("runDigest", () => {
-  it("skips when there is nothing pending and nothing needing attention", async () => {
-    vi.mocked(openBase).mockReturnValue(makeFakeBase({ Reports: [], Websites: [] }));
+  // ── env-config path (one test kept to cover openBase(readAirtableConfig())) ──
+
+  it("uses openBase(readAirtableConfig()) when no base is injected", async () => {
+    const fakeBase = makeFakeBase({ Reports: [], Websites: [] });
+    vi.mocked(openBase).mockReturnValue(fakeBase);
+    // Call without the `base` option — must reach the env-config branch
     const result = await runDigest({ baseUrl: "https://reddoor-maintenance.netlify.app" });
+    expect(vi.mocked(openBase)).toHaveBeenCalled();
+    expect(result.code).toBe(0);
+  });
+
+  // ── direct injection (all other tests) ─────────────────────────────────────
+
+  it("skips when there is nothing pending and nothing needing attention", async () => {
+    const base = makeFakeBase({ Reports: [], Websites: [] });
+    const result = await runDigest({ base, baseUrl: "https://reddoor-maintenance.netlify.app" });
     expect(result.code).toBe(0);
     expect(result.output).toContain("skipped");
   });
 
   it("skips when only non-pending reports exist (all approved/sent/unready)", async () => {
-    vi.mocked(openBase).mockReturnValue(
-      makeFakeBase({
-        Reports: [approvedReport(), sentReport(), unreadyReport()],
-        Websites: [siteRow()],
-      }),
-    );
-    const result = await runDigest({ baseUrl: "https://reddoor-maintenance.netlify.app" });
+    const base = makeFakeBase({
+      Reports: [approvedReport(), sentReport(), unreadyReport()],
+      Websites: [siteRow()],
+    });
+    const result = await runDigest({ base, baseUrl: "https://reddoor-maintenance.netlify.app" });
     expect(result.code).toBe(0);
     expect(result.output).toContain("skipped");
   });
 
   it("sends a digest when a ready report exists", async () => {
-    vi.mocked(openBase).mockReturnValue(
-      makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] }),
-    );
+    const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
     const { client, captured } = captureClient();
     const result = await runDigest({
+      base,
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -191,17 +211,57 @@ describe("runDigest", () => {
     const sent = captured[0]!;
     expect(sent.from).toBe("Reddoor Reports <reports@reddoorla.com>");
     expect(sent.to).toEqual(["tucker@reddoorla.com"]);
-    expect(sent.subject).toContain("1 ready");
     expect(sent.idempotencyKey).toMatch(/^digest-\d{4}-\d{2}-\d{2}$/);
     expect(sent.html).toContain("Acme Co");
   });
 
-  it("includes the correct dashboard URL for the site", async () => {
-    vi.mocked(openBase).mockReturnValue(
-      makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] }),
-    );
+  it("subject is dated and uses correct singular form for 1 report", async () => {
+    const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
     const { client, captured } = captureClient();
     await runDigest({
+      base,
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
+    // Expected: "Your fleet — YYYY-MM-DD: 1 report ready for your yes"
+    expect(captured[0]!.subject).toMatch(
+      /^Your fleet — \d{4}-\d{2}-\d{2}: 1 report ready for your yes$/,
+    );
+  });
+
+  it("subject uses plural form for 2+ reports", async () => {
+    // Second site + second report
+    const site2: FakeRecord = {
+      id: "rec_site_beta",
+      fields: { Name: "Beta Ltd", url: "https://beta.example.com" },
+    };
+    const report2 = readyReport({
+      "Report ID": "Beta Ltd — Maintenance — 2026-06",
+      Site: ["rec_site_beta"],
+      Period: "2026-06",
+    });
+    report2.id = "rec_report_ready_2";
+    const base = makeFakeBase({
+      Reports: [readyReport(), report2],
+      Websites: [siteRow(), site2],
+    });
+    const { client, captured } = captureClient();
+    await runDigest({
+      base,
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
+    // Expected: "Your fleet — YYYY-MM-DD: 2 reports ready for your yes"
+    expect(captured[0]!.subject).toMatch(
+      /^Your fleet — \d{4}-\d{2}-\d{2}: 2 reports ready for your yes$/,
+    );
+  });
+
+  it("includes the correct dashboard URL for the site", async () => {
+    const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
+    const { client, captured } = captureClient();
+    await runDigest({
+      base,
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -209,11 +269,10 @@ describe("runDigest", () => {
   });
 
   it("strips trailing slash from baseUrl before building dashboard links", async () => {
-    vi.mocked(openBase).mockReturnValue(
-      makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] }),
-    );
+    const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
     const { client, captured } = captureClient();
     await runDigest({
+      base,
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app/",
     });
@@ -224,19 +283,18 @@ describe("runDigest", () => {
 
   it("skips orphan reports whose site row is missing", async () => {
     // Report points at rec_site_acme but Websites table is empty
-    vi.mocked(openBase).mockReturnValue(makeFakeBase({ Reports: [readyReport()], Websites: [] }));
-    const result = await runDigest({ baseUrl: "https://reddoor-maintenance.netlify.app" });
+    const base = makeFakeBase({ Reports: [readyReport()], Websites: [] });
+    const result = await runDigest({ base, baseUrl: "https://reddoor-maintenance.netlify.app" });
     // No site → no ReadyItems → skipped
     expect(result.code).toBe(0);
     expect(result.output).toContain("skipped");
   });
 
   it("returns the Resend message id in the output string", async () => {
-    vi.mocked(openBase).mockReturnValue(
-      makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] }),
-    );
+    const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
     const { client } = captureClient();
     const result = await runDigest({
+      base,
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
     });
@@ -245,11 +303,61 @@ describe("runDigest", () => {
 
   it("falls back to the constant when OPERATOR_EMAIL is unset", async () => {
     delete process.env.OPERATOR_EMAIL;
-    vi.mocked(openBase).mockReturnValue(
-      makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] }),
-    );
+    const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
     const { client, captured } = captureClient();
-    await runDigest({ resend: client, baseUrl: "https://reddoor-maintenance.netlify.app" });
+    await runDigest({ base, resend: client, baseUrl: "https://reddoor-maintenance.netlify.app" });
     expect(captured[0]!.to).toEqual(["info@reddoorla.com"]);
+  });
+
+  // ── error contract ──────────────────────────────────────────────────────────
+
+  it("returns code 1 and a tidy message when resend.send rejects", async () => {
+    const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
+    const result = await runDigest({
+      base,
+      resend: rejectClient("network error"),
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
+    expect(result.code).toBe(1);
+    expect(result.output).toBe("digest failed: network error");
+  });
+
+  it("returns code 1 and a tidy message when listWebsites rejects", async () => {
+    // Inject a base whose Websites select throws
+    const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
+    // Poison the Websites table by making listWebsites blow up via a proxy
+    const poisonedBase = new Proxy(base as unknown as Record<string | symbol, unknown>, {
+      get(target, prop) {
+        const val = target[prop];
+        if (prop === "table") {
+          // Return a function that, for "Websites", returns a table whose select throws
+          return (name: string) => {
+            const tbl = (target["table"] as (n: string) => unknown)(name);
+            if (name === "Websites") {
+              return new Proxy(tbl as Record<string | symbol, unknown>, {
+                get(t2, p2) {
+                  if (p2 === "select") {
+                    return () => ({
+                      firstPage: async () => {
+                        throw new Error("airtable down");
+                      },
+                    });
+                  }
+                  return t2[p2];
+                },
+              });
+            }
+            return tbl;
+          };
+        }
+        return val;
+      },
+    });
+    const result = await runDigest({
+      base: poisonedBase as unknown as typeof base,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
+    expect(result.code).toBe(1);
+    expect(result.output).toMatch(/^digest failed: /);
   });
 });
