@@ -99,4 +99,103 @@ describe("configs/svelte", () => {
     expect(kit.prerender).toBe(prerender);
     expect(kit.alias?.$assets).toBe("src/lib/assets");
   });
+
+  // --- opt-in CSP -------------------------------------------------------
+  type Kit = {
+    csp?: { mode?: string; directives?: Record<string, string[]>; [k: string]: unknown };
+    prerender?: { handleHttpError?: (d: unknown) => void; [k: string]: unknown };
+  };
+
+  it("does not inject kit.csp by default (never silently forces a policy)", () => {
+    const config = createSvelteConfig({});
+    expect((config.kit as Kit).csp).toBeUndefined();
+  });
+
+  it("csp:true injects the baseline Prismic+Vimeo CSP (mode auto, report-uri)", () => {
+    const config = createSvelteConfig({ csp: true });
+    const csp = (config.kit as Kit).csp!;
+    expect(csp.mode).toBe("auto");
+    expect(csp.directives?.["default-src"]).toEqual(["self"]);
+    expect(csp.directives?.["script-src"]).toEqual([
+      "self",
+      "https://static.cdn.prismic.io",
+      "https://player.vimeo.com",
+    ]);
+    expect(csp.directives?.["report-uri"]).toEqual(["/api/csp-report"]);
+  });
+
+  it("returns directive arrays decoupled from the shared baseline (mutating one config never poisons the next)", () => {
+    const a = createSvelteConfig({ csp: true });
+    (a.kit as Kit).csp!.directives!["script-src"]!.push("https://evil.example");
+    const b = createSvelteConfig({ csp: true });
+    expect((b.kit as Kit).csp!.directives!["script-src"]).toEqual([
+      "self",
+      "https://static.cdn.prismic.io",
+      "https://player.vimeo.com",
+    ]);
+  });
+
+  it("csp:{directives} extends the baseline — overrides the named directive, keeps the rest", () => {
+    const config = createSvelteConfig({
+      csp: { directives: { "script-src": ["self", "https://plausible.io"] } },
+    });
+    const csp = (config.kit as Kit).csp!;
+    // overridden directive
+    expect(csp.directives?.["script-src"]).toEqual(["self", "https://plausible.io"]);
+    // untouched baseline directive still present
+    expect(csp.directives?.["img-src"]).toEqual([
+      "self",
+      "data:",
+      "https://images.prismic.io",
+      "https://*.prismic.io",
+    ]);
+  });
+
+  it("an explicit kit.csp wins over the csp option (escape hatch)", () => {
+    const config = createSvelteConfig({ csp: true, kit: { csp: { mode: "hash" } } });
+    expect((config.kit as Kit).csp?.mode).toBe("hash");
+  });
+
+  it("the csp option never leaks onto the returned config as a top-level field", () => {
+    const config = createSvelteConfig({ csp: true });
+    expect((config as Record<string, unknown>).csp).toBeUndefined();
+  });
+
+  // --- opt-in prerender placeholder tolerance ---------------------------
+  it("does not inject prerender.handleHttpError by default", () => {
+    const config = createSvelteConfig({});
+    expect((config.kit as Kit).prerender).toBeUndefined();
+  });
+
+  it("placeholder:true injects a handleHttpError that tolerates 404 but throws other statuses", () => {
+    const config = createSvelteConfig({ placeholder: true });
+    const handle = (config.kit as Kit).prerender?.handleHttpError;
+    expect(handle).toBeTypeOf("function");
+    expect(handle!({ status: 404, path: "/blog/x" })).toBeUndefined();
+    expect(() => handle!({ status: 500, path: "/y", message: "boom" })).toThrow(/500 \/y.*boom/);
+  });
+
+  it("placeholder handler folds the referrer into the thrown message when present", () => {
+    const config = createSvelteConfig({ placeholder: true });
+    const handle = (config.kit as Kit).prerender?.handleHttpError;
+    expect(() => handle!({ status: 500, path: "/y", message: "boom", referrer: "/from" })).toThrow(
+      /500 \/y \(linked from \/from\): boom/,
+    );
+  });
+
+  it("placeholder:true preserves a site-provided prerender field and lets its handleHttpError win", () => {
+    const siteHandle = () => undefined;
+    const config = createSvelteConfig({
+      placeholder: true,
+      kit: { prerender: { handleHttpError: siteHandle, entries: ["*"] } },
+    });
+    const prerender = (config.kit as Kit).prerender!;
+    expect(prerender.entries).toEqual(["*"]);
+    expect(prerender.handleHttpError).toBe(siteHandle);
+  });
+
+  it("the placeholder option never leaks onto the returned config as a top-level field", () => {
+    const config = createSvelteConfig({ placeholder: true });
+    expect((config as Record<string, unknown>).placeholder).toBeUndefined();
+  });
 });
