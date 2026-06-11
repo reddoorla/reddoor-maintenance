@@ -18,6 +18,8 @@ export type DraftOptions = {
   previewPath?: string;
   /** If true: render locally only, never touch Airtable. */
   previewOnly?: boolean;
+  /** UTC "YYYY-MM" recurrence key; falls back to periodEnd's month when omitted. */
+  period?: string;
 };
 
 /** An enrichment fetch that *errored* (not one that was legitimately skipped
@@ -63,7 +65,6 @@ export async function draftReportForSite(
   siteRow: WebsiteRow,
   reportType: ReportType,
   options: DraftOptions = {},
-  period?: string, // UTC "YYYY-MM"; defaults to periodEnd's month for manual one-off drafts
 ): Promise<DraftResult> {
   const scores = scoresFromWebsite(siteRow);
 
@@ -123,7 +124,7 @@ export async function draftReportForSite(
     reportId,
     siteId: siteRow.id,
     reportType,
-    period: period ?? periodEnd.toISOString().slice(0, 7),
+    period: options.period ?? periodEnd.toISOString().slice(0, 7),
     periodStart,
     periodEnd,
     completedOn,

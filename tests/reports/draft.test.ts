@@ -188,7 +188,7 @@ describe("draftReportForSite", () => {
     // stamp would never match the guard's search key and every later run would
     // draft a duplicate. So the caller passes the key down explicitly.
     const base = makeFakeBase({ Reports: [] });
-    await draftReportForSite(base, siteFixture(), "Maintenance", {}, "2026-05");
+    await draftReportForSite(base, siteFixture(), "Maintenance", { period: "2026-05" });
     const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
     expect(fields["Period"]).toBe("2026-05");
   });
@@ -197,9 +197,9 @@ describe("draftReportForSite", () => {
     const base = makeFakeBase({ Reports: [] });
     await draftReportForSite(base, siteFixture(), "Maintenance");
     const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
-    // Period field should be set to the current month (periodEnd's YYYY-MM)
-    expect(typeof fields["Period"]).toBe("string");
-    expect(fields["Period"]).toMatch(/^\d{4}-\d{2}$/);
+    // Period field must be derived from periodEnd's YYYY-MM (not just match the shape).
+    // This pins the fallback's *source*, not merely its format.
+    expect(fields["Period"]).toBe((fields["Period end"] as string).slice(0, 7));
   });
 
   describe("GA enrichment", () => {
