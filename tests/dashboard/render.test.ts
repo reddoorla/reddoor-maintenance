@@ -45,6 +45,7 @@ function reportRow(over: Partial<ReportRow> = {}): ReportRow {
     reportId: "rep_001",
     siteId: "recSITE",
     reportType: "Maintenance",
+    period: null,
     periodStart: "2026-04-01",
     periodEnd: "2026-04-30",
     completedOn: "2026-05-01",

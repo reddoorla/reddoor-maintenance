@@ -11,6 +11,8 @@ export type ReportRow = {
   reportId: string;
   siteId: string;
   reportType: ReportType;
+  /** UTC `YYYY-MM` recurrence key (idempotency for search-before-create). Null on legacy rows. */
+  period: string | null;
   periodStart: string | null;
   periodEnd: string | null;
   completedOn: string | null;
@@ -41,6 +43,7 @@ function mapRow(rec: { id: string; fields: Record<string, unknown> }): ReportRow
     reportId: String(f["Report ID"] ?? ""),
     siteId: linkSites[0] ?? "",
     reportType: ((f["Report type"] as string | undefined) ?? "Maintenance") as ReportType,
+    period: (f["Period"] as string | undefined) ?? null,
     periodStart: (f["Period start"] as string | undefined) ?? null,
     periodEnd: (f["Period end"] as string | undefined) ?? null,
     completedOn: (f["Completed on"] as string | undefined) ?? null,
@@ -81,6 +84,8 @@ export type DraftInput = {
   reportId: string;
   siteId: string;
   reportType: ReportType;
+  /** UTC `YYYY-MM` recurrence key. Omitted on legacy callers; written only when supplied. */
+  period?: string;
   periodStart: Date;
   periodEnd: Date;
   completedOn: Date;
@@ -134,6 +139,7 @@ export async function createDraft(base: AirtableBase, input: DraftInput): Promis
   if (input.gaUsersPrevious !== undefined) fields["GA users (prev period)"] = input.gaUsersPrevious;
   if (input.searchFoundPage1 !== undefined) fields["Search found page 1"] = input.searchFoundPage1;
   if (input.searchPosition !== undefined) fields["Search position"] = input.searchPosition;
+  if (input.period !== undefined) fields["Period"] = input.period;
   const created = (await base(REPORTS_TABLE).create([{ fields }])) as Records<FieldSet>;
   const rec = created[0];
   if (!rec) throw new Error("Airtable create returned no records");
