@@ -19,7 +19,8 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write # keepalive-workflow re-enables the cron via the Actions API
+  contents: read # checkout only — nothing in this workflow pushes
+  actions: write # inline keepalive re-enables this workflow via the REST API
   issues: write # open/close the daily-reports-failing tracking issue
 
 jobs:
@@ -80,13 +81,16 @@ jobs:
           DASHBOARD_BASE_URL: ${{ vars.DASHBOARD_BASE_URL }}
         run: node dist/cli/bin.js report --digest
 
-      # Keepalive (API mode — no dummy commits): re-enable the scheduled trigger
-      # if GitHub auto-disabled it after a quiet stretch. The one *silent* failure
-      # mode for a cron that can go dormant.
+      # Keepalive (inline, dependency-free): re-enabling an already-enabled
+      # workflow is a no-op that still resets GitHub's 60-day auto-disable
+      # timer for scheduled workflows on quiet repos. continue-on-error so
+      # this hygiene step can never redden the run.
       - name: Keep the scheduled workflow alive
-        uses: gautamkrishnar/keepalive-workflow@v2
-        with:
-          use_api: true
+        if: success()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/daily-reports.yml/enable"
 
       # M5 alerting (#152 pattern): a red daily run is otherwise only GitHub's
       # best-effort email to the last pusher. File/reopen one deduped tracking
