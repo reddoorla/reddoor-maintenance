@@ -1,7 +1,8 @@
 // tests/alerts/digest-collectors.test.ts
 import { describe, it, expect } from "vitest";
-import { collectVulnAlerts } from "../../src/alerts/digest-collectors.js";
+import { collectVulnAlerts, collectDeliveryFailures } from "../../src/alerts/digest-collectors.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import type { ReportRow } from "../../src/reports/airtable/reports.js";
 
 const BASE = "https://reddoor-maintenance.netlify.app";
 
@@ -113,5 +114,101 @@ describe("collectVulnAlerts", () => {
     );
     expect(items[0]!.title).toMatch(/3/);
     expect(items[0]!.title).toMatch(/critical\/high/i);
+  });
+});
+
+function report(over: Partial<ReportRow> = {}): ReportRow {
+  return {
+    id: "rec_report_1",
+    reportId: "Acme Co — Maintenance — 2026-06",
+    siteId: "rec_site_acme",
+    reportType: "Maintenance",
+    period: "2026-06",
+    periodStart: null,
+    periodEnd: null,
+    completedOn: null,
+    lighthouse: null,
+    gaUsersCurrent: null,
+    gaUsersPrevious: null,
+    searchFoundPage1: null,
+    searchPosition: null,
+    lastTestedDate: null,
+    commentary: null,
+    subjectOverride: null,
+    draftReady: true,
+    approvedToSend: true,
+    sentAt: "2026-06-01T10:00:00.000Z",
+    approvedAt: null,
+    approvedBy: null,
+    deliveryStatus: "bounced",
+    renderedHtmlAttachment: null,
+    resendMessageId: null,
+    ...over,
+  };
+}
+
+describe("collectDeliveryFailures", () => {
+  const byId = new Map<string, WebsiteRow>([["rec_site_acme", site()]]);
+
+  it("flags a bounced report: key delivery:<reportId-recordId>, metric 1, severity warning, site url", () => {
+    const items = collectDeliveryFailures([report({ deliveryStatus: "bounced" })], byId, BASE);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      key: "delivery:rec_report_1",
+      kind: "delivery",
+      siteName: "Acme Co",
+      severity: "warning",
+      metric: 1,
+      url: `${BASE}/s/acme-co`,
+    });
+  });
+
+  it("ranks a complaint above a bounce: severity critical", () => {
+    const items = collectDeliveryFailures([report({ deliveryStatus: "complained" })], byId, BASE);
+    expect(items[0]!.severity).toBe("critical");
+  });
+
+  it("ignores delivered and pending reports (only bounced/complained qualify)", () => {
+    const items = collectDeliveryFailures(
+      [
+        report({ id: "rec_a", deliveryStatus: "delivered" }),
+        report({ id: "rec_b", deliveryStatus: "pending" }),
+      ],
+      byId,
+      BASE,
+    );
+    expect(items).toEqual([]);
+  });
+
+  it("skips an orphan report whose site is not in the map (no broken link)", () => {
+    const items = collectDeliveryFailures(
+      [report({ siteId: "rec_missing", deliveryStatus: "bounced" })],
+      byId,
+      BASE,
+    );
+    expect(items).toEqual([]);
+  });
+
+  it("keys on the report record id so two failures on the same site stay distinct", () => {
+    const items = collectDeliveryFailures(
+      [
+        report({ id: "rec_x", deliveryStatus: "bounced" }),
+        report({ id: "rec_y", deliveryStatus: "complained" }),
+      ],
+      byId,
+      BASE,
+    );
+    expect(items.map((i) => i.key)).toEqual(["delivery:rec_x", "delivery:rec_y"]);
+  });
+
+  it("title names the failure mode for the operator", () => {
+    const bounced = collectDeliveryFailures([report({ deliveryStatus: "bounced" })], byId, BASE);
+    const complained = collectDeliveryFailures(
+      [report({ id: "rec_c", deliveryStatus: "complained" })],
+      byId,
+      BASE,
+    );
+    expect(bounced[0]!.title).toMatch(/bounce/i);
+    expect(complained[0]!.title).toMatch(/complaint|complained/i);
   });
 });
