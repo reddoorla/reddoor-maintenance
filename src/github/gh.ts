@@ -1,5 +1,33 @@
 import { defaultSpawn, type SpawnFn } from "../audits/util/spawn.js";
 
+/** Aggregate CI state of a PR's head commit, normalized from GitHub's rollup. */
+export type CiState = "passing" | "failing" | "pending" | "none";
+
+/** A minimal open-PR summary with its head-commit CI rollup state. */
+export type PullRequestSummary = {
+  number: number;
+  title: string;
+  url: string;
+  headRef: string;
+  ciState: CiState;
+};
+
+/** Map GitHub's `statusCheckRollup.state` enum to our normalized CiState. */
+function mapRollupState(state: string | null | undefined): CiState {
+  switch (state) {
+    case "SUCCESS":
+      return "passing";
+    case "FAILURE":
+    case "ERROR":
+      return "failing";
+    case "PENDING":
+    case "EXPECTED":
+      return "pending";
+    default:
+      return "none"; // null/undefined = no checks reported
+  }
+}
+
 export type GitHub = {
   openPullRequest: (
     repo: string,
@@ -15,6 +43,8 @@ export type GitHub = {
   secretExists: (repo: string, name: string) => Promise<boolean>;
   autoMergeEnabled: (repo: string) => Promise<boolean>;
   findOpenSelfUpdatingPR: (repo: string) => Promise<string | null>;
+  /** All open PRs on a repo with each head commit's normalized CI rollup state. */
+  openPullRequests: (repo: string) => Promise<PullRequestSummary[]>;
 };
 
 export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
@@ -134,6 +164,51 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
         .map((l) => l.trim())
         .find((l) => l.length > 0);
       return first ?? null;
+    },
+    async openPullRequests(repo) {
+      const [owner, name, ...rest] = repo.split("/");
+      if (!owner || !name || rest.length > 0) {
+        throw new Error(`openPullRequests: expected "owner/repo", got "${repo}"`);
+      }
+      const query =
+        "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){" +
+        "pullRequests(states:OPEN,first:100,orderBy:{field:CREATED_AT,direction:DESC}){nodes{number title url headRefName " +
+        "commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}}}";
+      const out = await gh([
+        "api",
+        "graphql",
+        "-f",
+        `query=${query}`,
+        "-F",
+        `owner=${owner}`,
+        "-F",
+        `name=${name}`,
+      ]);
+      const parsed = JSON.parse(out) as {
+        data?: {
+          repository?: {
+            pullRequests?: {
+              nodes?: Array<{
+                number: number;
+                title: string;
+                url: string;
+                headRefName: string;
+                commits?: {
+                  nodes?: Array<{ commit?: { statusCheckRollup?: { state?: string } } }>;
+                };
+              }>;
+            };
+          };
+        };
+      };
+      const nodes = parsed.data?.repository?.pullRequests?.nodes ?? [];
+      return nodes.map((n) => ({
+        number: n.number,
+        title: n.title,
+        url: n.url,
+        headRef: n.headRefName,
+        ciState: mapRollupState(n.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state),
+      }));
     },
   };
 }
