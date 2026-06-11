@@ -33,7 +33,9 @@ function isSilenced(warning: { code?: string }): boolean {
  * defaults means a synced site no longer has to redeclare them (and the
  * sync-configs svelte template no longer clobbers them with a thinner config).
  * Sites can override any entry or add their own — see the merge in
- * createSvelteConfig.
+ * createSvelteConfig. Override an alias's bare and `/*` forms together: setting
+ * only `$components` while leaving the canonical `$components/*` in place would
+ * split `import "$components"` and `import "$components/Foo"` across two roots.
  */
 const CANONICAL_ALIASES: Record<string, string> = {
   $components: "src/lib/components",
