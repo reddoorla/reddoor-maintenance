@@ -103,15 +103,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          label="nightly-failure"
+          # Identify the tracking issue by exact TITLE (not a label) so the only
+          # permission needed is `issues: write` — no `gh label create`, which can
+          # require broader scope. Filter the listing locally for an exact match.
+          title="Nightly fleet audit failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           body=$(printf 'The nightly **fleet-lighthouse** run failed.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
-          gh label create "$label" --color B60205 --description "Nightly fleet-lighthouse run failed" 2>/dev/null || true
-          existing=$(gh issue list --label "$label" --state open --json number --jq '.[0].number // empty' || true)
+          existing=$(gh issue list --state open --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
           else
-            gh issue create --title "Nightly fleet audit failing" --label "$label" --body "$body"
+            gh issue create --title "$title" --body "$body"
           fi
 
       - name: Close the nightly-failure issue on recovery
@@ -120,7 +123,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          label="nightly-failure"
-          for n in $(gh issue list --label "$label" --state open --json number --jq '.[].number' || true); do
+          title="Nightly fleet audit failing"
+          for n in $(gh issue list --state open --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
             gh issue close "$n" --comment "Recovered — the nightly fleet-lighthouse run is green again." && echo "closed #$n"
           done
