@@ -25,9 +25,10 @@ const NETLIFY_CONFIG: ConfigName = "netlify";
  * site-specific `kit.alias` and `compilerOptions`; an exact overwrite would
  * clobber those on every sync (it silently dropped MSOT's $utils alias,
  * 2026-06-04). So once a config is on the canonical pattern we preserve it as-is
- * and only rewrite a genuinely off-pattern (or missing) config. The canonical
- * `createSvelteConfig` is unopinionated about aliases, so additive customization
- * is safe to keep. */
+ * and only rewrite a genuinely off-pattern (or missing) config. `createSvelteConfig`
+ * now provides the canonical `$lib` aliases itself, and a site's own `kit.alias`
+ * overrides per key (and may add more), so a site's additive customization is safe
+ * to preserve. */
 function isSvelteConfigCompliant(contents: string): boolean {
   return contents.includes("createSvelteConfig") && contents.includes("@sveltejs/adapter-netlify");
 }
