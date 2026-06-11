@@ -8,13 +8,25 @@ export type ReportCommandOptions = {
   due?: boolean;
   preview?: boolean;
   sendReady?: boolean;
+  digest?: boolean;
   cwd?: string;
 };
+
+/** Dashboard origin for digest /s/<slug> links. DASHBOARD_BASE_URL overrides the
+ *  production default; the trailing slash (if any) is trimmed by runDigest. */
+function dashboardBaseUrl(): string {
+  return process.env.DASHBOARD_BASE_URL?.trim() || "https://reddoor-maintenance.netlify.app";
+}
 
 export async function runReportCommand(
   slug: string | undefined,
   opts: ReportCommandOptions,
 ): Promise<{ output: string; code: number }> {
+  if (opts.digest) {
+    const { runDigest } = await import("../../reports/digest.js");
+    return runDigest({ baseUrl: dashboardBaseUrl() });
+  }
+
   if (opts.sendReady) {
     const { sendApprovedReports } = await import("../../reports/send/orchestrate.js");
     return sendApprovedReports();
@@ -29,7 +41,7 @@ export async function runReportCommand(
   }
 
   throw Object.assign(
-    new Error("Usage: reddoor-maint report [<slug>] [--due] [--preview] [--send-ready]"),
+    new Error("Usage: reddoor-maint report [<slug>] [--due] [--preview] [--send-ready] [--digest]"),
     {
       exitCode: 2,
     },
