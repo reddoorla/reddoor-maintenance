@@ -66,6 +66,8 @@ function reportRow(over: Partial<ReportRow> = {}): ReportRow {
       filename: "rep_001.html",
     },
     resendMessageId: "msg_001",
+    approvedAt: null,
+    approvedBy: null,
     ...over,
   };
 }
@@ -263,5 +265,171 @@ describe("renderSiteDashboardHtml — site health section", () => {
   it("omits the audited line entirely when lastLighthouseAuditAt is null", () => {
     const html = renderSiteDashboardHtml(siteRow({ lastLighthouseAuditAt: null }), []);
     expect(html).not.toMatch(/class="audited"/);
+  });
+});
+
+describe("renderSiteDashboardHtml — approve button", () => {
+  // A report that is Draft-ready, not yet approved, not yet sent: the one state
+  // where the operator's "yes" is pending.
+  const pending = () =>
+    reportRow({
+      reportId: "rep_pending",
+      draftReady: true,
+      approvedToSend: false,
+      sentAt: null,
+      approvedAt: null,
+      approvedBy: null,
+    });
+
+  it("renders an Approve button that POSTs to the approve endpoint for a pending report", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [pending()]);
+    // The button carries the Airtable record id (recREP1) so the inline fetch
+    // can target /api/reports/:id/approve.
+    expect(html).toMatch(/data-report-id="recREP1"/);
+    expect(html).toContain("/api/reports/recREP1/approve");
+    expect(html).toMatch(/Approve/);
+  });
+
+  it("does NOT render an Approve button for an already-approved report", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [
+      reportRow({ approvedToSend: true, sentAt: null }),
+    ]);
+    expect(html).not.toMatch(/\/api\/reports\/[^/]+\/approve/);
+  });
+
+  it("does NOT render an Approve button for an already-sent report", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [
+      reportRow({ approvedToSend: true, sentAt: "2026-05-02T09:00:00Z" }),
+    ]);
+    expect(html).not.toMatch(/\/api\/reports\/[^/]+\/approve/);
+  });
+
+  it("escapes the record id in the approve URL/attribute (no markup injection from Airtable ids)", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [
+      pending(),
+      reportRow({ id: 'rec"><img src=x>', reportId: "rep_x", approvedToSend: false, sentAt: null }),
+    ]);
+    expect(html).not.toContain('rec"><img src=x>');
+    expect(html).toContain("&quot;");
+  });
+
+  it("wraps the inline approve fetch in try/catch so a network rejection re-enables the button", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [pending()]);
+    // Isolate the inline <script>.
+    const script = html.slice(html.indexOf("<script>"), html.indexOf("</script>"));
+    // The fetch must be inside a try/catch (a bare rejection would leave the
+    // button permanently disabled reading "Approve").
+    expect(script).toMatch(/try\s*\{/);
+    expect(script).toMatch(/catch\b/);
+    // The catch handler re-enables the button and surfaces a failure label,
+    // matching the !res.ok recovery path.
+    expect(script).toMatch(/catch[\s\S]*?(b\.disabled\s*=\s*false)/);
+    expect(script).toMatch(/catch[\s\S]*?(b\.textContent\s*=\s*"Failed")/);
+  });
+});
+
+describe("renderSiteDashboardHtml — pending-your-yes list", () => {
+  it("renders a 'Pending your yes' section listing each pending report with type + period", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [
+      reportRow({
+        reportId: "rep_p1",
+        reportType: "Maintenance",
+        period: "2026-05",
+        draftReady: true,
+        approvedToSend: false,
+        sentAt: null,
+      }),
+    ]);
+    expect(html).toMatch(/Pending your yes/i);
+    // The section sits before the Lighthouse section (top-of-page priority).
+    expect(html.indexOf("Pending your yes")).toBeLessThan(html.indexOf(">Lighthouse<"));
+    expect(html).toMatch(/Maintenance/);
+    expect(html).toContain("2026-05");
+  });
+
+  it("omits the 'Pending your yes' section entirely when nothing is pending", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [
+      reportRow({ approvedToSend: true, sentAt: "2026-05-02T09:00:00Z" }),
+    ]);
+    expect(html).not.toMatch(/Pending your yes/i);
+  });
+
+  it("counts only pending reports, not approved/sent ones, in the section", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [
+      reportRow({ reportId: "rep_a", approvedToSend: true, sentAt: null }),
+      reportRow({
+        reportId: "rep_b",
+        approvedToSend: false,
+        sentAt: null,
+        draftReady: true,
+        period: "2026-05",
+      }),
+    ]);
+    // Exactly one pending entry → its period appears once in the pending list.
+    expect(html).toMatch(/Pending your yes/i);
+    expect(html).toContain("rep_b");
+  });
+
+  it("surfaces a pending report even when it is the OLDEST of 7+ (not in the recent slice)", () => {
+    // 6 newer, already-sent reports + 1 OLD pending one. The recent-6 history
+    // slice would drop the old pending report; the pending list + approve button
+    // must still see it because they operate on the FULL report set.
+    const sent = (n: number) =>
+      reportRow({
+        id: `recSENT${n}`,
+        reportId: `rep_sent_${n}`,
+        completedOn: `2026-0${n}-01`,
+        approvedToSend: true,
+        sentAt: "2026-06-02T09:00:00Z",
+      });
+    const oldPending = reportRow({
+      id: "recOLDPENDING",
+      reportId: "rep_old_pending",
+      reportType: "Maintenance",
+      period: "2025-12",
+      completedOn: "2025-12-01", // oldest by completedOn
+      draftReady: true,
+      approvedToSend: false,
+      sentAt: null,
+    });
+    const html = renderSiteDashboardHtml(siteRow(), [
+      sent(1),
+      sent(2),
+      sent(3),
+      sent(4),
+      sent(5),
+      sent(6),
+      oldPending,
+    ]);
+    // Pending list shows it.
+    expect(html).toMatch(/Pending your yes \(1\)/);
+    expect(html).toContain("2025-12");
+    // Approve button targets its record id.
+    expect(html).toMatch(/data-report-id="recOLDPENDING"/);
+    expect(html).toContain("/api/reports/recOLDPENDING/approve");
+  });
+
+  it("trims the report-history table to the 6 most recent (by completedOn) but not the pending list", () => {
+    // 7 sent reports → history table caps at 6 newest; the 7th (oldest) is dropped
+    // from the table. The canonical slice lives in render, not the adapter.
+    const reports = Array.from({ length: 7 }, (_n, i) =>
+      reportRow({
+        id: `recHIST${i}`,
+        reportId: `rep_hist_${i}`,
+        // i=0 oldest (2026-01), i=6 newest (2026-07)
+        completedOn: `2026-0${i + 1}-01`,
+        approvedToSend: true,
+        sentAt: "2026-06-02T09:00:00Z",
+      }),
+    );
+    const html = renderSiteDashboardHtml(siteRow(), reports);
+    // The history <tbody> renders exactly 6 rows.
+    const tbody = html.slice(html.indexOf("<tbody>"), html.indexOf("</tbody>"));
+    expect((tbody.match(/<tr>/g) ?? []).length).toBe(6);
+    // The oldest (rep_hist_0) is trimmed out of the table.
+    expect(tbody).not.toContain("rep_hist_0");
+    // The 6 newest are present.
+    expect(tbody).toContain("rep_hist_6");
+    expect(tbody).toContain("rep_hist_1");
   });
 });

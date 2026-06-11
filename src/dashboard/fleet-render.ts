@@ -131,7 +131,13 @@ h1 { margin: 0 0 0.25rem; font-size: 1.75rem; }
  * and hands here. One <article class="card"> per site, with a header row
  * (name · url · setup · audited) and a metrics row (lighthouse · a11y · deps · sec).
  */
-export function renderFleetHomeHtml(sites: WebsiteRow[]): string {
+export function renderFleetHomeHtml(sites: WebsiteRow[], pendingApproval = 0): string {
+  // "N pending your yes" — the M3 daily-glance hook. Inline-styled so this stays a
+  // one-line addition; the M4 cockpit pass owns real triage styling.
+  const pendingBanner =
+    pendingApproval > 0
+      ? `<div class="pending-banner" style="background:#fff3cd;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-weight:600">&#x23F3; ${pendingApproval} report${pendingApproval === 1 ? "" : "s"} pending your yes</div>`
+      : "";
   const body =
     sites.length === 0
       ? `<div class="empty">No sites to display.</div>`
@@ -148,7 +154,7 @@ export function renderFleetHomeHtml(sites: WebsiteRow[]): string {
 <body>
   <h1>Reddoor fleet</h1>
   <div class="meta">${sites.length} site${sites.length === 1 ? "" : "s"} on the Reddoor stack.</div>
-  ${body}
+  ${pendingBanner}${body}
 </body>
 </html>`;
 }

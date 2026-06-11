@@ -223,3 +223,20 @@ describe("renderFleetHomeHtml — escaping & safety", () => {
     expect(html).not.toMatch(/href="javascript:/i);
   });
 });
+
+describe("fleet homepage pending-approval banner", () => {
+  it("shows the count when reports are pending approval", () => {
+    const html = renderFleetHomeHtml([], 3);
+    expect(html).toContain("3 reports pending your yes");
+  });
+
+  it("singularizes for one", () => {
+    const html = renderFleetHomeHtml([], 1);
+    expect(html).toContain("1 report pending your yes");
+  });
+
+  it("renders no banner when nothing is pending (or the arg is omitted)", () => {
+    expect(renderFleetHomeHtml([])).not.toContain("pending your yes");
+    expect(renderFleetHomeHtml([], 0)).not.toContain("pending your yes");
+  });
+});

@@ -27,6 +27,8 @@ export type ReportRow = {
   draftReady: boolean;
   approvedToSend: boolean;
   sentAt: string | null;
+  approvedAt: string | null;
+  approvedBy: string | null;
   deliveryStatus: DeliveryStatus;
   renderedHtmlAttachment: { url: string; filename: string } | null;
   /** Read out of the Resend response and stored in a hidden field; needed for webhook reconciliation. */
@@ -59,6 +61,8 @@ function mapRow(rec: { id: string; fields: Record<string, unknown> }): ReportRow
     draftReady: Boolean(f["Draft ready"]),
     approvedToSend: Boolean(f["Approved to send"]),
     sentAt: (f["Sent at"] as string | undefined) ?? null,
+    approvedAt: (f["Approved At"] as string | undefined) ?? null,
+    approvedBy: (f["Approved By"] as string | undefined) ?? null,
     deliveryStatus: ((f["Delivery status"] as string | undefined) ?? "pending") as DeliveryStatus,
     renderedHtmlAttachment: html,
     resendMessageId: (f["Resend message ID"] as string | undefined) ?? null,
@@ -221,6 +225,63 @@ export async function setDeliveryStatus(
   status: DeliveryStatus,
 ): Promise<void> {
   await base(REPORTS_TABLE).update([{ id: recordId, fields: { "Delivery status": status } }]);
+}
+
+/**
+ * Stamp the approval on a Reports row: flips `Approved to send` TRUE and records
+ * who/when for the audit trail. The caller (approveReport handler) is responsible
+ * for idempotency — this is the raw write. Never touches `Sent at`.
+ */
+export async function approveReportRow(
+  base: AirtableBase,
+  recordId: string,
+  approvedAt: Date,
+  approvedBy: string,
+): Promise<void> {
+  await base(REPORTS_TABLE).update([
+    {
+      id: recordId,
+      fields: {
+        "Approved to send": true,
+        "Approved At": approvedAt.toISOString(),
+        "Approved By": approvedBy,
+      },
+    },
+  ]);
+}
+
+/**
+ * True when an `.find` rejection is a GENUINE not-found, not a transient failure.
+ * The Airtable SDK stamps `.statusCode` (404) and/or `.error` ("NOT_FOUND") on
+ * its errors. Anything else (429 rate-limit, 500 outage, bad-PAT 401, network
+ * error) must NOT be masked as a 404 — see getReportById.
+ */
+function isNotFoundError(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const e = err as { statusCode?: unknown; error?: unknown; name?: unknown; message?: unknown };
+  if (e.statusCode === 404) return true;
+  const tag = String(e.error ?? e.name ?? e.message ?? "");
+  return tag === "NOT_FOUND" || /not found/i.test(tag);
+}
+
+/**
+ * Fetch one Reports row by its Airtable record id, or null if it doesn't exist.
+ * Only a GENUINE not-found (404 / NOT_FOUND) collapses to null; every other
+ * failure (outage, 429, bad PAT, network error) is rethrown so the adapter
+ * surfaces a 500 instead of a misleading 404. Swallowing all throws previously
+ * turned an Airtable outage into a "no such report".
+ */
+export async function getReportById(
+  base: AirtableBase,
+  recordId: string,
+): Promise<ReportRow | null> {
+  try {
+    const rec = await base(REPORTS_TABLE).find(recordId);
+    return mapRow({ id: rec.id, fields: rec.fields as Record<string, unknown> });
+  } catch (err) {
+    if (isNotFoundError(err)) return null;
+    throw err;
+  }
 }
 
 export async function findReportByMessageId(

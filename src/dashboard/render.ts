@@ -61,6 +61,25 @@ function securitySub(site: WebsiteRow): string | null {
   return `${c}C / ${h}H / ${m}M / ${l}L`;
 }
 
+function isPendingApproval(r: ReportRow): boolean {
+  return r.draftReady && !r.approvedToSend && r.sentAt === null;
+}
+
+function pendingRow(r: ReportRow): string {
+  const type = escapeHtml(r.reportType);
+  const period = r.period ? escapeHtml(r.period) : "—";
+  return `<li><strong>${type}</strong> <span class="muted">${period}</span> <button class="approve" data-report-id="${escapeHtml(r.id)}" data-approve-url="/api/reports/${encodeURIComponent(r.id)}/approve">Approve</button></li>`;
+}
+
+function pendingSection(reports: ReportRow[]): string {
+  const pending = reports.filter(isPendingApproval);
+  if (pending.length === 0) return "";
+  return `<div class="section pending">
+    <h2>Pending your yes (${pending.length})</h2>
+    <ul class="pending-list">${pending.map(pendingRow).join("")}</ul>
+  </div>`;
+}
+
 function reportRow(r: ReportRow): string {
   const date = r.completedOn ? escapeHtml(r.completedOn) : "—";
   const type = escapeHtml(r.reportType);
@@ -68,7 +87,10 @@ function reportRow(r: ReportRow): string {
   const link = r.renderedHtmlAttachment
     ? `<a href="${escapeHtml(safeUrl(r.renderedHtmlAttachment.url))}">view</a>`
     : `<span class="muted">no attachment</span>`;
-  return `<tr><td>${date}</td><td>${type}</td><td><code>${id}</code></td><td>${link}</td></tr>`;
+  const action = isPendingApproval(r)
+    ? `<button class="approve" data-report-id="${escapeHtml(r.id)}" data-approve-url="/api/reports/${encodeURIComponent(r.id)}/approve">Approve</button>`
+    : "";
+  return `<tr><td>${date}</td><td>${type}</td><td><code>${id}</code></td><td>${link}</td><td>${action}</td></tr>`;
 }
 
 const STYLES = `
@@ -92,6 +114,10 @@ th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #eee; }
 @media (prefers-color-scheme: dark) { th, td { border-color: #2a2a2a; } }
 .muted { color: #999; }
 .empty { color: #999; padding: 1rem; border: 1px dashed #ccc; border-radius: 6px; text-align: center; }
+button.approve { font: inherit; padding: 0.35rem 0.85rem; border: 1px solid #2c7; border-radius: 6px; background: #2c7; color: #fff; cursor: pointer; }
+button.approve:disabled { opacity: 0.6; cursor: default; }
+.pending-list { list-style: none; padding: 0; margin: 0; }
+.pending-list li { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; border-bottom: 1px solid #eee; }
 `;
 
 /**
@@ -130,12 +156,21 @@ export function renderSiteDashboardHtml(site: WebsiteRow, reports: ReportRow[]):
     ? `<div class="audited">Last audited ${escapeHtml(relativeTimeFromNow(site.lastLighthouseAuditAt))}</div>`
     : "";
 
+  // The report-history TABLE is the only place the "recent 6" slice belongs:
+  // long enough to show a quarter of monthly reports plus the latest testing
+  // report, short enough to keep the page a single scroll. The pending list +
+  // approve buttons above intentionally see the FULL `reports` set — an OLD
+  // pending report that falls outside this slice must still be approvable
+  // (and must not disagree with the fleet banner, which counts ALL reports).
+  const recentReports = [...reports]
+    .sort((a, b) => (b.completedOn ?? "").localeCompare(a.completedOn ?? ""))
+    .slice(0, 6);
   const reportsSection =
-    reports.length === 0
+    recentReports.length === 0
       ? `<div class="empty">No reports yet.</div>`
       : `<table>
-          <thead><tr><th>Completed</th><th>Type</th><th>ID</th><th>Report</th></tr></thead>
-          <tbody>${reports.map(reportRow).join("")}</tbody>
+          <thead><tr><th>Completed</th><th>Type</th><th>ID</th><th>Report</th><th></th></tr></thead>
+          <tbody>${recentReports.map(reportRow).join("")}</tbody>
         </table>`;
 
   return `<!doctype html>
@@ -150,6 +185,7 @@ export function renderSiteDashboardHtml(site: WebsiteRow, reports: ReportRow[]):
   <h1>${name}</h1>
   <div class="meta"><a href="${escapeHtml(urlSafe)}">${escapeHtml(site.url)}</a></div>
   ${auditedLine}
+  ${pendingSection(reports)}
 
   <div class="section">
     <h2>Lighthouse</h2>
@@ -165,6 +201,23 @@ export function renderSiteDashboardHtml(site: WebsiteRow, reports: ReportRow[]):
     <h2>Reports</h2>
     ${reportsSection}
   </div>
+  <script>
+    document.querySelectorAll("button.approve").forEach((b) => {
+      b.addEventListener("click", async () => {
+        b.disabled = true;
+        try {
+          const res = await fetch(b.dataset.approveUrl, { method: "POST" });
+          b.textContent = res.ok ? "Approved" : "Failed";
+          if (!res.ok) b.disabled = false;
+        } catch {
+          // Network rejection (offline, DNS, abort): mirror the !res.ok path so
+          // the button doesn't sit permanently disabled reading "Approve".
+          b.textContent = "Failed";
+          b.disabled = false;
+        }
+      });
+    });
+  </script>
 </body>
 </html>`;
 }
