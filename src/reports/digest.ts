@@ -48,6 +48,9 @@ function esc(s: string): string {
 const GREY = "#757575";
 const RED = "#C00";
 
+/** Shared anchor style — Gmail does not inherit font-family into <a> tags. */
+const ANCHOR_STYLE = `color:${RED};font-family:helvetica,sans-serif`;
+
 function readySection(items: ReadyItem[]): string {
   const heading = `<h2 style="color:${RED};font-family:helvetica,sans-serif;font-size:20px;font-weight:700;margin:32px 0 8px">Ready for your yes</h2>`;
   if (items.length === 0) {
@@ -56,13 +59,15 @@ function readySection(items: ReadyItem[]): string {
   const rows = items
     .map(
       (it) => `
-      <li style="color:${GREY};font-family:helvetica,sans-serif;font-size:16px;line-height:24px;margin-bottom:8px">
-        <strong style="color:#222">${esc(it.siteName)}</strong> — ${esc(it.reportType)} (${esc(it.period)})
-        — <a href="${esc(it.dashboardUrl)}" style="color:${RED}">review &amp; approve</a>
-      </li>`,
+      <tr>
+        <td style="color:${GREY};font-family:helvetica,sans-serif;font-size:16px;line-height:24px;padding-bottom:8px">
+          <strong style="color:#222">${esc(it.siteName)}</strong> — ${esc(it.reportType)} (${esc(it.period)})
+          — <a href="${esc(it.dashboardUrl)}" style="${ANCHOR_STYLE}">review &amp; approve</a>
+        </td>
+      </tr>`,
     )
     .join("");
-  return `${heading}<ul style="padding-left:20px;margin:0">${rows}</ul>`;
+  return `${heading}<table role="presentation" style="border-collapse:collapse;margin:0">${rows}</table>`;
 }
 
 function attentionSection(items: AttentionItem[]): string {
@@ -72,13 +77,17 @@ function attentionSection(items: AttentionItem[]): string {
   }
   const rows = items
     .map((it) => {
-      const label = it.url
-        ? `<a href="${esc(it.url)}" style="color:${RED}">${esc(it.title)}</a>`
+      const safeUrl = it.url?.startsWith("https://") ? it.url : undefined;
+      const label = safeUrl
+        ? `<a href="${esc(safeUrl)}" style="${ANCHOR_STYLE}">${esc(it.title)}</a>`
         : esc(it.title);
-      return `<li style="color:${GREY};font-family:helvetica,sans-serif;font-size:16px;line-height:24px;margin-bottom:8px">${label}</li>`;
+      return `
+      <tr>
+        <td style="color:${GREY};font-family:helvetica,sans-serif;font-size:16px;line-height:24px;padding-bottom:8px">${label}</td>
+      </tr>`;
     })
     .join("");
-  return `${heading}<ul style="padding-left:20px;margin:0">${rows}</ul>`;
+  return `${heading}<table role="presentation" style="border-collapse:collapse;margin:0">${rows}</table>`;
 }
 
 /** Pure render of the unified daily operator digest. No IO — the caller (runDigest)
@@ -86,10 +95,23 @@ function attentionSection(items: AttentionItem[]): string {
 export function renderDigestHtml(sections: DigestSections): string {
   return `<!doctype html>
 <html>
-  <body style="margin:0;padding:24px;background:#ffffff">
-    <h1 style="color:${RED};font-family:helvetica,sans-serif;font-size:24px;font-weight:700;margin:0 0 8px">Your fleet today</h1>
-    ${readySection(sections.readyForYourYes)}
-    ${attentionSection(sections.needsAttention)}
+  <head><meta charset="utf-8"></head>
+  <body style="margin:0;padding:0;background:#ffffff">
+    <table width="100%" style="border-collapse:collapse">
+      <tr>
+        <td align="center" style="padding:24px">
+          <table width="600" style="border-collapse:collapse">
+            <tr>
+              <td>
+                <h1 style="color:${RED};font-family:helvetica,sans-serif;font-size:24px;font-weight:700;margin:0 0 8px">Your fleet today</h1>
+                ${readySection(sections.readyForYourYes)}
+                ${attentionSection(sections.needsAttention)}
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
   </body>
 </html>`;
 }

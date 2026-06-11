@@ -67,4 +67,16 @@ describe("renderDigestHtml", () => {
     expect(html).toContain("Ready for your yes");
     expect(html).toMatch(/nothing waiting/i);
   });
+
+  it("does not emit an href when AttentionItem.url is not https:// (XSS guard)", () => {
+    const html = renderDigestHtml(
+      sections({
+        readyForYourYes: [],
+        needsAttention: [{ kind: "tracking-issue", title: "bad-link", url: "javascript:alert(1)" }],
+      }),
+    );
+    expect(html).toContain("bad-link");
+    expect(html).not.toContain("href");
+    expect(html).not.toContain("javascript:");
+  });
 });
