@@ -1,5 +1,19 @@
 # @reddoorla/maintenance
 
+## 0.31.0
+
+### Minor Changes
+
+- e6417c9: feat(configs): `createSvelteConfig` composes the starter's richness. It now always injects the fleet's canonical `$components/$utils/$stores/$assets` aliases (a site can override per key or add its own), and gains two opt-in options: `csp` (`true` for the baseline Prismic+Vimeo policy, or `{ directives }` to extend it per-directive) and `placeholder` (`true` tolerates 404s during prerender for an un-wired clone). CSP and prerender tolerance are opt-in so adopting the helper never silently changes a site's behavior; an explicit `kit.csp` remains an escape hatch.
+
+### Patch Changes
+
+- a236e87: fix(a11y): the audit's transient `.reddoor-a11y-spec-*` dir is now removed on every catchable exit (try/finally), and `.reddoor-a11y-spec-*/` is in the canonical gitignore — so a timeout-killed run never leaves untracked files in a fleet repo's tree.
+- a236e87: fix(airtable): a Lighthouse miss no longer discards a site's a11y/deps/security results — those are written first, then the run still surfaces the Lighthouse failure (so the fleet gate keeps its signal without losing the other audits' data).
+- a236e87: fix(lighthouse): deployed-URL audits get the same 5-minute spawn budget as the checkout path (was 3), so a slow site's three cold runs don't time out into a spurious "no scores".
+- a236e87: fix(deps): the audit guards `JSON.parse` (a corrupt package.json now fails cleanly with a clear message) and skips non-semver specs (`*`, `latest`, `workspace:*`, `npm:`-aliases, git/URL) that previously parsed to NaN and produced bogus drift.
+- a236e87: fix(airtable): `getWebsiteBySlug` narrows the fetch with a `filterByFormula` (replicating `siteSlug` on `{Name}`, capped at one record) instead of paging the whole table per request, and validates the slug to keep URL input out of the formula.
+
 ## 0.30.0
 
 ### Minor Changes
