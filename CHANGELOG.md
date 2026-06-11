@@ -1,5 +1,16 @@
 # @reddoorla/maintenance
 
+## 0.32.0
+
+### Minor Changes
+
+- 6b0229d: feat(dashboard): one-click approve — the M3 loop closes. Each pending report on `/s/<slug>` (and a "Pending your yes" list at the top, plus a fleet-wide count banner on `/`) gets an Approve button that POSTs to the new basic-auth-gated `/api/reports/:id/approve` Netlify function. The click is a decoupled, audited flag-flip — `Approved to send = TRUE` + `Approved At`/`Approved By` stamped, never a send — and is idempotent (already-approved and already-sent rows are safe no-ops; nothing can un-approve). The next daily run's `--send-ready` step does the actual sending.
+- 113145e: feat(reports): `report --due` is now idempotent — a re-run never double-drafts. Each due (site, type) is keyed by the UTC `YYYY-MM` of its due date (`reportPeriodKey`), stamped onto the new Reports `Period` field at draft time, and skipped when a row for that key already exists. Skips surface in the output and never trip a non-zero exit, so a cron re-fire is a safe no-op. The manual single-site `report <slug>` path intentionally still always drafts.
+
+  Also fixes a pre-existing live-Airtable break this work surfaced: report queries filtered linked-record `{Site}` fields by record id inside `filterByFormula`, which Airtable renders as primary-field _names_ — so the filter matched nothing, `lastSent` was never found, and dueness was computed from fallbacks. Reports are now fetched unfiltered (one paged query instead of N) and matched by record id client-side, so `report --due` dueness is correct against the real base for the first time.
+
+- a64cd04: feat(reports): `report --digest` — one daily "your fleet today" operator email. A "Ready for your yes" section lists every draft-ready, unapproved, unsent report with a link to its dashboard page; a typed "Needs attention" section ships as the M5 alerting seam (empty for now, renders "all clear"). Skips the send entirely when there is nothing to report (no-noise default), dedupes same-day re-fires via a `digest-<date>` Resend idempotency key, and sends to `OPERATOR_EMAIL` (fallback `info@reddoorla.com`). Dashboard origin from `DASHBOARD_BASE_URL` (fallback the live Netlify origin). Email-client-safe HTML (charset, table layout, https-only links).
+
 ## 0.31.0
 
 ### Minor Changes
