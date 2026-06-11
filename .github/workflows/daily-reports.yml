@@ -44,8 +44,11 @@ jobs:
       # 1. DRAFT — scan all Websites, draft anything overdue. Idempotent: the
       # slice-1 Period guard skips a (site, reportType) already drafted this
       # cycle, so a cron re-fire is a no-op. continue-on-error: a draft failure
-      # for one site must not block sending reports already approved.
+      # must not block sending reports already approved — but the outcome-gate
+      # step at the bottom re-fails the run afterwards so the spec's "any step
+      # failing opens the tracking issue" still holds (no silent draft breakage).
       - name: Draft due reports
+        id: draft
         continue-on-error: true
         timeout-minutes: 15
         env:
@@ -64,10 +67,8 @@ jobs:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
         run: node dist/cli/bin.js report --send-ready
 
-      # 3. DIGEST — one "your fleet today" email to the operator. The --digest
-      # flag is built in slice 4; this step is wired now so the workflow is
-      # complete on slice-4 merge. NOTE: --digest does NOT exist until slice 4
-      # lands — see reviewer notes for the ordering dependency.
+      # 3. DIGEST — one "your fleet today" email to the operator (report
+      # --digest, shipped in #163; skips itself when there's nothing to say).
       - name: Email the operator digest
         timeout-minutes: 10
         env:
@@ -91,6 +92,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/daily-reports.yml/enable"
+
+      # Outcome gate: the draft step's continue-on-error lets send/digest
+      # proceed past a drafting failure, but it also keeps the job green —
+      # which would stop the failure() tracking issue below from ever firing.
+      # Re-fail the run here (after send/digest/keepalive have had their turn)
+      # so a draft failure is still durably visible.
+      - name: Fail the run if drafting failed
+        if: steps.draft.outcome == 'failure'
+        run: |
+          echo "::error::report --due failed earlier in this run (send/digest were allowed to proceed)"
+          exit 1
 
       # M5 alerting (#152 pattern): a red daily run is otherwise only GitHub's
       # best-effort email to the last pusher. File/reopen one deduped tracking
