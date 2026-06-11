@@ -126,7 +126,7 @@ function placeholderHttpErrorHandler({
 /** reddoor-specific options that get transformed into `kit.*`, not passed through. */
 export type ReddoorSvelteOptions = {
   /** Inject the baseline CSP (`true`) or the baseline extended with these fields. */
-  csp?: boolean | CspObject;
+  csp?: true | CspObject;
   /** Tolerate 404s during prerender — for un-wired placeholder clones only. */
   placeholder?: boolean;
 };
@@ -149,7 +149,8 @@ export type ReddoorSvelteOptions = {
  *    that wants the starter's CSP parity must pass `csp`. An explicit `kit.csp`
  *    always wins as an escape hatch.
  *  - `placeholder: true` tolerates 404s during prerender (for an un-wired
- *    placeholder clone only); the site computes the placeholder signal itself.
+ *    placeholder clone only) — like `csp`, a site that wants the starter's
+ *    prerender-tolerance parity must pass it; the site computes the signal itself.
  *
  * @example
  *   import { createSvelteConfig } from "@reddoorla/maintenance/configs/svelte";
@@ -187,7 +188,7 @@ export function createSvelteConfig(
   if (siteKit.csp !== undefined) {
     kit.csp = siteKit.csp;
   } else if (csp) {
-    kit.csp = buildCsp(csp === true ? true : csp);
+    kit.csp = buildCsp(csp);
   }
 
   // Prerender placeholder tolerance: opt-in. A site-provided handler wins.

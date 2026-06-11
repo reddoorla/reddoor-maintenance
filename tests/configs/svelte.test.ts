@@ -151,6 +151,16 @@ describe("configs/svelte", () => {
     ]);
   });
 
+  it("csp:{mode,...} flows non-directive fields through over the baseline", () => {
+    const config = createSvelteConfig({
+      csp: { mode: "hash", directives: { "connect-src": ["self", "https://api.example"] } },
+    });
+    const csp = (config.kit as Kit).csp!;
+    expect(csp.mode).toBe("hash"); // mode override flows through ...rest
+    expect(csp.directives?.["connect-src"]).toEqual(["self", "https://api.example"]); // extended
+    expect(csp.directives?.["default-src"]).toEqual(["self"]); // untouched baseline kept
+  });
+
   it("an explicit kit.csp wins over the csp option (escape hatch)", () => {
     const config = createSvelteConfig({ csp: true, kit: { csp: { mode: "hash" } } });
     expect((config.kit as Kit).csp?.mode).toBe("hash");
@@ -173,6 +183,8 @@ describe("configs/svelte", () => {
     expect(handle).toBeTypeOf("function");
     expect(handle!({ status: 404, path: "/blog/x" })).toBeUndefined();
     expect(() => handle!({ status: 500, path: "/y", message: "boom" })).toThrow(/500 \/y.*boom/);
+    // a missing status must throw too — only a real 404 is tolerated
+    expect(() => handle!({ path: "/z", message: "no status" })).toThrow();
   });
 
   it("placeholder handler folds the referrer into the thrown message when present", () => {
