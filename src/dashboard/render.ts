@@ -205,9 +205,16 @@ export function renderSiteDashboardHtml(site: WebsiteRow, reports: ReportRow[]):
     document.querySelectorAll("button.approve").forEach((b) => {
       b.addEventListener("click", async () => {
         b.disabled = true;
-        const res = await fetch(b.dataset.approveUrl, { method: "POST" });
-        b.textContent = res.ok ? "Approved" : "Failed";
-        if (!res.ok) b.disabled = false;
+        try {
+          const res = await fetch(b.dataset.approveUrl, { method: "POST" });
+          b.textContent = res.ok ? "Approved" : "Failed";
+          if (!res.ok) b.disabled = false;
+        } catch {
+          // Network rejection (offline, DNS, abort): mirror the !res.ok path so
+          // the button doesn't sit permanently disabled reading "Approve".
+          b.textContent = "Failed";
+          b.disabled = false;
+        }
       });
     });
   </script>

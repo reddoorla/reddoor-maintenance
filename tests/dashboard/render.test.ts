@@ -312,6 +312,20 @@ describe("renderSiteDashboardHtml — approve button", () => {
     expect(html).not.toContain('rec"><img src=x>');
     expect(html).toContain("&quot;");
   });
+
+  it("wraps the inline approve fetch in try/catch so a network rejection re-enables the button", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [pending()]);
+    // Isolate the inline <script>.
+    const script = html.slice(html.indexOf("<script>"), html.indexOf("</script>"));
+    // The fetch must be inside a try/catch (a bare rejection would leave the
+    // button permanently disabled reading "Approve").
+    expect(script).toMatch(/try\s*\{/);
+    expect(script).toMatch(/catch\b/);
+    // The catch handler re-enables the button and surfaces a failure label,
+    // matching the !res.ok recovery path.
+    expect(script).toMatch(/catch[\s\S]*?(b\.disabled\s*=\s*false)/);
+    expect(script).toMatch(/catch[\s\S]*?(b\.textContent\s*=\s*"Failed")/);
+  });
 });
 
 describe("renderSiteDashboardHtml — pending-your-yes list", () => {
