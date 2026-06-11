@@ -61,11 +61,11 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     .filter((w) => w.dashboardToken !== null)
     .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
   // Defensive: the homepage must still render if the Reports query hiccups.
+  // listPendingApproval already applies the draftReady ∧ ¬approvedToSend ∧
+  // sentAt===null gate — rely on its contract rather than re-filtering here.
   let pendingCount = 0;
   try {
-    pendingCount = (await listPendingApproval(base)).filter(
-      (r) => r.draftReady && !r.approvedToSend && r.sentAt === null,
-    ).length;
+    pendingCount = (await listPendingApproval(base)).length;
   } catch {
     // banner simply absent — the per-site pages still show their own pending lists
   }
