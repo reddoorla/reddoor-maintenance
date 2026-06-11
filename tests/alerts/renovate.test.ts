@@ -21,7 +21,10 @@ function pr(over: Partial<PullRequestSummary>): PullRequestSummary {
 describe("alerts/renovate classifiers", () => {
   it("isRenovatePR recognizes renovate head branches and rejects others", () => {
     expect(isRenovatePR(pr({ headRef: "renovate/npm-vite-7.x" }))).toBe(true);
-    expect(isRenovatePR(pr({ headRef: "renovate-major-svelte" }))).toBe(true);
+    // grouped majors are still slash-prefixed (`renovate/<group-slug>`), not a separate shape
+    expect(isRenovatePR(pr({ headRef: "renovate/major-svelte" }))).toBe(true);
+    // bare `renovate-` matches a custom non-slash branchPrefix (defensive; see RENOVATE_HEAD_PREFIXES)
+    expect(isRenovatePR(pr({ headRef: "renovate-npm-vite" }))).toBe(true);
     expect(isRenovatePR(pr({ headRef: "maint/self-updating-abc" }))).toBe(false);
     expect(isRenovatePR(pr({ headRef: "feature/login" }))).toBe(false);
   });

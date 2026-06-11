@@ -91,6 +91,10 @@ describe("makeGitHub", () => {
     const joined = calls[0]!.args.join(" ");
     expect(joined).toContain("owner=o");
     expect(joined).toContain("name=r");
+    // pin the query shape the mock can't vouch for: rollup field, page cap, newest-first
+    expect(joined).toContain("statusCheckRollup");
+    expect(joined).toContain("first:100");
+    expect(joined).toContain("orderBy:{field:CREATED_AT,direction:DESC}");
     expect(calls[0]!.opts.env?.GH_TOKEN).toBe("T");
   });
 

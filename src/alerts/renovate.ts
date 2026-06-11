@@ -2,9 +2,13 @@ import type { PullRequestSummary } from "../github/gh.js";
 import type { Site } from "../types.js";
 
 /**
- * Renovate cuts branches like `renovate/npm-vite-7.x` (and `renovate-major-*`
- * for grouped majors). Match both shapes so a failing update PR is caught
- * regardless of grouping.
+ * Renovate's default `branchPrefix` is `renovate/`, so every update branch on a
+ * default-config repo is `renovate/<topic>` — grouped majors included (they're
+ * `renovate/<group-slug>`, still slash-prefixed, not a separate shape). We also
+ * match a bare `renovate-` prefix to defensively catch a repo that sets a custom
+ * non-slash `branchPrefix`; the tradeoff is that a human branch named `renovate-foo`
+ * is misclassified — an acceptable bias for an alerting tool that should prefer
+ * over-matching to silently missing a broken update.
  */
 const RENOVATE_HEAD_PREFIXES = ["renovate/", "renovate-"];
 

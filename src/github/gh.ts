@@ -172,7 +172,7 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
       }
       const query =
         "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){" +
-        "pullRequests(states:OPEN,first:100){nodes{number title url headRefName " +
+        "pullRequests(states:OPEN,first:100,orderBy:{field:CREATED_AT,direction:DESC}){nodes{number title url headRefName " +
         "commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}}}";
       const out = await gh([
         "api",
