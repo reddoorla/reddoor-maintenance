@@ -250,6 +250,25 @@ export async function approveReportRow(
   ]);
 }
 
+/**
+ * Fetch one Reports row by its Airtable record id, or null if it doesn't exist.
+ * Airtable's `.find` throws an error whose message contains "NOT_FOUND" for a
+ * missing or invalid record id — we treat any throw as not-found so the caller
+ * gets a clean null rather than a propagated Airtable error.
+ */
+export async function getReportById(
+  base: AirtableBase,
+  recordId: string,
+): Promise<ReportRow | null> {
+  try {
+    const rec = await base(REPORTS_TABLE).find(recordId);
+    return mapRow({ id: rec.id, fields: rec.fields as Record<string, unknown> });
+  } catch {
+    // Airtable `.find` throws NOT_FOUND for a missing/bad record id — treat as null.
+    return null;
+  }
+}
+
 export async function findReportByMessageId(
   base: AirtableBase,
   messageId: string,
