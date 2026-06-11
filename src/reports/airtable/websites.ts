@@ -139,8 +139,29 @@ export async function getWebsiteBySlug(
   base: AirtableBase,
   slug: string,
 ): Promise<WebsiteRow | null> {
-  const all = await listWebsites(base);
-  return all.find((w) => siteSlug(w.name) === slug) ?? null;
+  // Slugs are siteSlug() output: [a-z0-9] segments joined by single hyphens.
+  // Reject anything else — it can't match a real row, and it keeps URL-supplied
+  // input out of the filter formula below (formula-injection guard).
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return null;
+
+  // Narrow the fetch to the slug-matching row server-side instead of paging the
+  // whole table per request (MEDIUM-H). The formula replicates siteSlug() on
+  // {Name} — lowercase → non-alnum runs to "-" → strip leading/trailing "-" —
+  // verified against the live base. maxRecords caps it (slug collisions keep the
+  // prior first-match-wins behavior).
+  const formula = `REGEX_REPLACE(REGEX_REPLACE(LOWER({Name}),"[^a-z0-9]+","-"),"^-|-$","")=${JSON.stringify(
+    slug,
+  )}`;
+  const rows: WebsiteRow[] = [];
+  await base(WEBSITES_TABLE)
+    .select({ filterByFormula: formula, maxRecords: 1 })
+    .eachPage((records, fetchNextPage) => {
+      for (const rec of records) rows.push(mapRow({ id: rec.id, fields: rec.fields }));
+      fetchNextPage();
+    });
+  // Confirm the match in JS too: keeps the function correct if the formula and
+  // siteSlug() ever drift, and under test fakes that don't evaluate the formula.
+  return rows.find((w) => siteSlug(w.name) === slug) ?? null;
 }
 
 /**
