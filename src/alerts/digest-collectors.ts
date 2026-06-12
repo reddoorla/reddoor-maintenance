@@ -36,6 +36,51 @@ export function collectVulnAlerts(sites: WebsiteRow[], baseUrl: string): Attenti
   return items;
 }
 
+/** Absolute floor below which a Lighthouse category is "Needs attention" (Tucker's call). */
+const LIGHTHOUSE_FLOOR = 75;
+
+/** The four Lighthouse categories, each mapped to its WebsiteRow score field, URL slug,
+ *  and the human label rendered in the digest title. Order is the operator's reading order. */
+const LIGHTHOUSE_CATEGORIES: ReadonlyArray<{
+  field: "pScore" | "rScore" | "bpScore" | "seoScore";
+  slug: string;
+  label: string;
+}> = [
+  { field: "pScore", slug: "performance", label: "Performance" },
+  { field: "rScore", slug: "accessibility", label: "Accessibility" },
+  { field: "bpScore", slug: "best-practices", label: "Best Practices" },
+  { field: "seoScore", slug: "seo", label: "SEO" },
+];
+
+/**
+ * One attention item per Lighthouse category below the absolute floor (75) for each site.
+ * PURE: takes already-fetched Websites rows. Categories are Performance/Accessibility/
+ * Best-Practices/SEO. A null score (never audited) or a score >= 75 is skipped. The
+ * `metric` is the DEFICIT (`100 - score`): a lower score → higher metric, so a category
+ * that drops further diffs as WORSE and one that first crosses below 75 diffs as NEW —
+ * which is how `diffAttention`'s "WORSE on increase" rule reads an inverted score. `key`
+ * is `lighthouse:<siteId>:<categorySlug>`, so the four categories stay distinct per site.
+ */
+export function collectLighthouseAlerts(sites: WebsiteRow[], baseUrl: string): AttentionItem[] {
+  const items: AttentionItem[] = [];
+  for (const s of sites) {
+    for (const cat of LIGHTHOUSE_CATEGORIES) {
+      const score = s[cat.field];
+      if (score === null || score >= LIGHTHOUSE_FLOOR) continue;
+      items.push({
+        key: `lighthouse:${s.id}:${cat.slug}`,
+        kind: "lighthouse",
+        siteName: s.name,
+        title: `Lighthouse ${cat.label} ${score} (below ${LIGHTHOUSE_FLOOR})`,
+        url: dashboardUrl(baseUrl, s.name),
+        severity: "warning",
+        metric: 100 - score,
+      });
+    }
+  }
+  return items;
+}
+
 /**
  * One attention item per report whose `deliveryStatus` is a failure (`bounced` or
  * `complained` — `delivered`/`pending` are ignored). PURE: takes already-fetched
