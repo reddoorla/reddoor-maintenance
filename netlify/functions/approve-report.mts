@@ -13,6 +13,13 @@ import { approveReport, verifyBasicAuth } from "../../src/dashboard/index.js";
 // routing the record id arrives in ctx.params.id.
 export const config: Config = {
   path: ["/api/reports/:id/approve", "/.netlify/functions/approve-report"],
+  // Tighter than the read-only dashboards (fleet-homepage is 60/min): this is a
+  // state-changing POST behind ambient Basic-auth creds, so cap it harder.
+  rateLimit: {
+    windowSize: 60,
+    windowLimit: 30,
+    aggregateBy: ["ip"],
+  },
 };
 
 function plainText(
@@ -24,6 +31,59 @@ function plainText(
     status,
     headers: { "content-type": "text/plain; charset=utf-8", ...extraHeaders },
   });
+}
+
+// The request's own host, preferring the Host header (authoritative behind
+// Netlify) and falling back to the deployment URL parsed from req.url.
+function requestHost(req: Request): string | null {
+  const hostHeader = req.headers.get("host");
+  if (hostHeader) return hostHeader.toLowerCase();
+  try {
+    return new URL(req.url).host.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+// Parse the host out of an absolute Origin/Referer URL; null if absent/garbage.
+function originHost(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value).host.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * CSRF verdict for a state-changing POST reachable with ambient Basic-auth creds.
+ *
+ * Returns true (allow) only for a same-origin signal or the total absence of any
+ * cross-site signal (legacy/non-browser clients); false (reject with 403) on any
+ * cross-site signal.
+ *
+ *  1. Sec-Fetch-Site present → must be "same-origin"/"none"; anything else
+ *     ("cross-site"/"same-site") is a cross-site signal → reject.
+ *  2. Sec-Fetch-Site absent but Origin (or, lacking it, the Referer's origin)
+ *     present → its host must equal the request's own host → reject on mismatch.
+ *  3. No Sec-Fetch AND no Origin AND no Referer → legacy/non-browser client with
+ *     no cross-site signal at all → allow (still gated by Basic auth downstream).
+ */
+function isCsrfAllowed(req: Request): boolean {
+  const secFetchSite = req.headers.get("sec-fetch-site");
+  if (secFetchSite !== null) {
+    return secFetchSite === "same-origin" || secFetchSite === "none";
+  }
+  // Fallback when Sec-Fetch-Site is absent: compare Origin (then Referer) host
+  // against the request's own host.
+  const claimedHost =
+    originHost(req.headers.get("origin")) ?? originHost(req.headers.get("referer"));
+  if (claimedHost === null) {
+    // No cross-site signal at all — legacy/non-browser client. Allow.
+    return true;
+  }
+  const ownHost = requestHost(req);
+  return ownHost !== null && claimedHost === ownHost;
 }
 
 export default async (req: Request, ctx: Context): Promise<Response> => {
@@ -48,14 +108,14 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   if (req.method !== "POST") return plainText("Method not allowed", 405);
 
   // CSRF defense: this is a state-changing endpoint reachable with the ambient
-  // Basic-auth creds the browser replays cross-site. Conservative same-origin
-  // guard — if Sec-Fetch-Site is PRESENT it must be "same-origin" or "none"
-  // (the legit inline fetch from /s/:slug and address-bar/bookmark loads send
-  // those); anything else ("cross-site"/"same-site") is rejected. If the header
-  // is ABSENT (older browsers, non-browser clients) we proceed and fall back to
-  // Basic auth. Placed before auth so a forged cross-site POST is cut early.
-  const secFetchSite = req.headers.get("sec-fetch-site");
-  if (secFetchSite !== null && secFetchSite !== "same-origin" && secFetchSite !== "none") {
+  // Basic-auth creds the browser replays cross-site. Sec-Fetch-Site is the
+  // primary signal (the legit inline fetch from /s/:slug and address-bar loads
+  // send "same-origin"/"none"); when it's absent we fall back to checking the
+  // Origin/Referer host against our own. Only a request with NO cross-site
+  // signal at all (no Sec-Fetch, no Origin, no Referer — legacy/non-browser)
+  // is allowed through to Basic auth. Placed before auth so a forged cross-site
+  // POST is cut early.
+  if (!isCsrfAllowed(req)) {
     return plainText("Cross-site request rejected", 403);
   }
 

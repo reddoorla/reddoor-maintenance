@@ -77,12 +77,55 @@ describe("approve-report adapter — env + method gating", () => {
     expect(approveMock).toHaveBeenCalledWith(expect.anything(), "recREP1");
   });
 
-  it("proceeds when Sec-Fetch-Site is absent (older browsers / non-browser clients)", async () => {
+  it("proceeds when no cross-site signal at all (no Sec-Fetch, no Origin, no Referer — legacy/non-browser)", async () => {
     approveMock.mockResolvedValue({ status: "approved", reportId: "recREP1" });
     // @ts-expect-error — minimal Context
     const res = await approveReportFn(post("recREP1", { authorization: AUTH }), {
       params: { id: "recREP1" },
     });
+    expect(res.status).toBe(200);
+    expect(approveMock).toHaveBeenCalledWith(expect.anything(), "recREP1");
+  });
+
+  it("proceeds when Sec-Fetch-Site is absent but the Origin host matches the request host", async () => {
+    // post() builds a request to https://x/... so the request host is "x".
+    approveMock.mockResolvedValue({ status: "approved", reportId: "recREP1" });
+    const res = await approveReportFn(
+      post("recREP1", { authorization: AUTH, origin: "https://x" }),
+      // @ts-expect-error — minimal Context
+      { params: { id: "recREP1" } },
+    );
+    expect(res.status).toBe(200);
+    expect(approveMock).toHaveBeenCalledWith(expect.anything(), "recREP1");
+  });
+
+  it("403s when Sec-Fetch-Site is absent and the Origin host is a different origin", async () => {
+    const res = await approveReportFn(
+      post("recREP1", { authorization: AUTH, origin: "https://evil.example.com" }),
+      // @ts-expect-error — minimal Context
+      { params: { id: "recREP1" } },
+    );
+    expect(res.status).toBe(403);
+    expect(approveMock).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the Referer origin when Origin is absent (cross-origin Referer → 403)", async () => {
+    const res = await approveReportFn(
+      post("recREP1", { authorization: AUTH, referer: "https://evil.example.com/some/path" }),
+      // @ts-expect-error — minimal Context
+      { params: { id: "recREP1" } },
+    );
+    expect(res.status).toBe(403);
+    expect(approveMock).not.toHaveBeenCalled();
+  });
+
+  it("proceeds when Origin is absent but the Referer origin matches the request host", async () => {
+    approveMock.mockResolvedValue({ status: "approved", reportId: "recREP1" });
+    const res = await approveReportFn(
+      post("recREP1", { authorization: AUTH, referer: "https://x/s/acme" }),
+      // @ts-expect-error — minimal Context
+      { params: { id: "recREP1" } },
+    );
     expect(res.status).toBe(200);
     expect(approveMock).toHaveBeenCalledWith(expect.anything(), "recREP1");
   });

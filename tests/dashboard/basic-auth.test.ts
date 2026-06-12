@@ -17,6 +17,17 @@ describe("verifyBasicAuth", () => {
     expect(verifyBasicAuth(basic("admin", "wrong"), "s3cret")).toBe(false);
   });
 
+  it("returns false (does not throw) when provided/expected share JS length but differ in UTF-8 byte length", () => {
+    // "abcd" is 4 bytes; "abcé" is 4 JS chars but 5 UTF-8 bytes (é = 2 bytes).
+    // A JS-length-only guard would let these reach timingSafeEqual, which throws
+    // a RangeError on a buffer-length mismatch → an uncaught 500. Must return false.
+    const expected = "abcd";
+    const provided = "abcé";
+    expect(provided.length).toBe(expected.length); // equal JS length
+    expect(() => verifyBasicAuth(basic("admin", provided), expected)).not.toThrow();
+    expect(verifyBasicAuth(basic("admin", provided), expected)).toBe(false);
+  });
+
   it("rejects when the Authorization header is missing", () => {
     expect(verifyBasicAuth(null, "s3cret")).toBe(false);
     expect(verifyBasicAuth(undefined, "s3cret")).toBe(false);

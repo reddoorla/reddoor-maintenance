@@ -12,6 +12,13 @@ import { verifyBasicAuth, renderSiteDashboardHtml } from "../../src/dashboard/in
 // path routing the slug arrives via ctx.params.
 export const config: Config = {
   path: ["/s/:slug", "/.netlify/functions/site-dashboard"],
+  // Same shape as the fleet homepage: a Basic-auth-gated read endpoint, capped
+  // per-IP so a credential-guessing or scraping loop can't hammer Airtable.
+  rateLimit: {
+    windowSize: 60,
+    windowLimit: 60,
+    aggregateBy: ["ip"],
+  },
 };
 
 function plainText(body: string, status: number, extraHeaders: HeadersInit = {}): Response {
