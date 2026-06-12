@@ -398,3 +398,37 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
     expect(html).toMatch(/f === 'pending'[^]*?return;/);
   });
 });
+
+describe("renderCockpitHtml — GitHub-signal chips & filters (slice 2b)", () => {
+  it("renders prs/ci filter chips", () => {
+    const html = renderCockpitHtml(model([siteRow()]));
+    expect(html).toContain('data-filter="prs"');
+    expect(html).toContain('data-filter="ci"');
+  });
+
+  it("a Renovate-failing card carries the prs signal + its chip", () => {
+    const html = renderCockpitHtml(
+      model([siteRow({ id: "a", name: "Reno", renovateFailingCis: 2 })]),
+    );
+    expect(html).toMatch(/data-signals="[^"]*prs[^"]*"/);
+    expect(html).toMatch(/2 Renovate PRs failing CI/);
+  });
+
+  it("a CI-red card carries the ci signal + its chip", () => {
+    const html = renderCockpitHtml(
+      model([siteRow({ id: "b", name: "CiRed", defaultBranchCi: "failing" })]),
+    );
+    expect(html).toMatch(/data-signals="[^"]*ci[^"]*"/);
+    expect(html).toMatch(/Default-branch CI failing/);
+  });
+
+  it("the summary headline shows the PRs-failing and CI-red counts", () => {
+    const html = renderCockpitHtml(
+      model([
+        siteRow({ id: "a", name: "Reno", renovateFailingCis: 2, defaultBranchCi: "failing" }),
+      ]),
+    );
+    expect(html).toMatch(/2 PRs failing/);
+    expect(html).toMatch(/1 CI red/);
+  });
+});

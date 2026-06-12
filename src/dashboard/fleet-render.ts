@@ -155,7 +155,16 @@ const TIER_META: Record<Tier, { emoji: string; label: string; open: boolean }> =
   healthy: { emoji: "🟢", label: "Healthy", open: false },
 };
 
-const FILTERS = ["all", "vulns", "lighthouse", "delivery", "stale", "pending"] as const;
+const FILTERS = [
+  "all",
+  "vulns",
+  "lighthouse",
+  "delivery",
+  "prs",
+  "ci",
+  "stale",
+  "pending",
+] as const;
 
 function summaryBar(model: CockpitModel): string {
   const s = model.summary;
@@ -163,6 +172,8 @@ function summaryBar(model: CockpitModel): string {
     `${s.criticalHighVulns} critical/high vuln${s.criticalHighVulns === 1 ? "" : "s"}`,
     `${s.lighthouseBelowFloor} Lighthouse<75`,
     `${s.deliveryFailures} delivery`,
+    `${s.renovateFailing} PRs failing`,
+    `${s.ciRed} CI red`,
     `${s.pending} pending`,
   ].join(" · ");
   const chips = FILTERS.map(
@@ -233,7 +244,9 @@ function chips(c: SiteCard): string {
  *  watch-band Lighthouse card still matches the "lighthouse" filter. */
 function signalsAttr(c: SiteCard): string {
   const kinds = new Set<string>();
-  for (const it of c.items) kinds.add(it.kind === "vuln" ? "vulns" : it.kind);
+  for (const it of c.items) {
+    kinds.add(it.kind === "vuln" ? "vulns" : it.kind === "renovate" ? "prs" : it.kind);
+  }
   for (const sig of c.watchSignals) kinds.add(sig);
   return [...kinds].join(" ");
 }
