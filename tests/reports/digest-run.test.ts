@@ -520,6 +520,24 @@ describe("runDigest", () => {
     warn.mockRestore();
   });
 
+  it("shows WORSE badge when prior metric is lower than current critical+high count", async () => {
+    // prior metric 1; site now has critical=2 + high=1 → total 3 → WORSE
+    const prior = JSON.stringify({
+      "vuln:rec_site_acme": { metric: 1, firstFlaggedAt: "2026-06-10" },
+    });
+    const base = makeFakeBase({
+      Reports: [],
+      Websites: [vulnSiteRow({ "Security Vulns Critical": 2, "Security Vulns High": 1 })],
+      "Digest State": [{ id: "rec_state", fields: { Snapshot: prior } }],
+    });
+    const { client, captured } = captureClient();
+    await runDigest({ base, resend: client, baseUrl: "https://reddoor-maintenance.netlify.app" });
+    expect(captured).toHaveLength(1);
+    const html = captured[0]!.html;
+    expect(html).toContain("Acme Co");
+    expect(html).toMatch(/\bWORSE\b/);
+  });
+
   it("clears a resolved key from the snapshot even when the digest skips (no-noise)", async () => {
     // prior had a vuln; today nothing is flagged and nothing is ready → skip, but the
     // snapshot must be written back EMPTY so a later recurrence diffs as NEW (spec §10).
