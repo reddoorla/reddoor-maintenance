@@ -75,6 +75,9 @@ jobs:
           AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          # Fleet-read token for the M5 Renovate-failing-CI sweep. When unset the
+          # digest simply skips that sweep (buildRenovateProbe returns undefined).
+          RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
           # Both optional — the CLI falls back to info@reddoorla.com and
           # https://reddoor-maintenance.netlify.app when unset/empty. Set the
           # repo Actions *variables* (not secrets) to override.
