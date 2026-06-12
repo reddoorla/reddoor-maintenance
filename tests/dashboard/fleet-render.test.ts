@@ -370,10 +370,10 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
     expect(html).toMatch(/data-signals="[^"]*lighthouse[^"]*"/);
   });
 
-  it("an audit-stale site carries the 'stale' filter signal (not the lighthouse one)", () => {
-    // Healthy scores but the last audit is >30d before NOW → watch via staleness only.
+  it("a commit-stale site carries the 'stale' filter signal (not the lighthouse one)", () => {
+    // Healthy scores but the last commit is >30d before NOW → watch via staleness only.
     const html = renderCockpitHtml(
-      model([siteRow({ id: "s", name: "Stale", lastLighthouseAuditAt: "2026-01-01T00:00:00Z" })]),
+      model([siteRow({ id: "s", name: "Stale", lastCommitAt: "2026-01-01T00:00:00Z" })]),
     );
     expect(html).toMatch(/data-signals="[^"]*stale[^"]*"/);
     expect(html).not.toMatch(/data-signals="[^"]*lighthouse[^"]*"/);
