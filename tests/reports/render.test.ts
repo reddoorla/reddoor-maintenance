@@ -275,7 +275,9 @@ describe("renderReportHtml", () => {
     const { html, warnings } = await renderReportHtml(baseData({ reportType: "Launch" }));
     expect(warnings).toEqual([]);
     expect(html).toContain("LAUNCHED");
-    expect(html).toContain(DEFAULT_COPY.launchBody);
+    // launchBody contains apostrophes ("We've", "Here's") that escape to entities,
+    // so assert a special-char-free substring of it instead of the raw string.
+    expect(html).toContain("Your site is live");
     expect(html).toContain(DEFAULT_COPY.launchSetupItems[0]!);
     // purpose-built: no maintenance/checks/analytics sections
     expect(html).not.toContain("MAINTENANCE CHECKS");

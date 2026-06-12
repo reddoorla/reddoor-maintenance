@@ -16,13 +16,13 @@ const GREY = "#757575";
 export function buildLaunchMjml(data: ReportData): string {
   const copy = data.copy ?? DEFAULT_COPY;
   const previewText = `${escapeXml(data.siteName)} is live`;
-  // launchHeading/launchBody/launchSetupItems are default-only copy (resolveCopy
-  // leaves them untouched — never site-controlled), so they render verbatim. contact
-  // / footer ARE per-site overridable and stay escaped below.
+  // All copy — launchHeading/launchBody/launchSetupItems included — is escaped
+  // (spec §3.3: all copy escaped). It keeps strict MJML from choking on a stray
+  // `&`/`<` if the default copy ever gains one, matching contact/footer below.
   const setupRows = copy.launchSetupItems
     .map(
       (item) => `
-      <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="4px" padding-bottom="4px">• ${item}</mj-text>`,
+      <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="4px" padding-bottom="4px">• ${escapeXml(item)}</mj-text>`,
     )
     .join("");
   const contactRows = copy.contact
@@ -54,9 +54,9 @@ export function buildLaunchMjml(data: ReportData): string {
     </mj-section>
     <mj-section background-color="white">
       <mj-column>
-        <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="75px">${copy.launchHeading}</mj-text>
+        <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="75px">${escapeXml(copy.launchHeading)}</mj-text>
         <mj-text color="${RED}" font-size="44px" font-weight="400">${fmtDate(data.completedOn)}</mj-text>
-        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="20px">${copy.launchBody}</mj-text>
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="20px">${escapeXml(copy.launchBody)}</mj-text>
         ${setupRows}
       </mj-column>
     </mj-section>
