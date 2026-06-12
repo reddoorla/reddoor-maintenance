@@ -358,3 +358,39 @@ describe("renderCockpitHtml — cockpit cards", () => {
     expect(html).toMatch(/querySelectorAll|addEventListener/);
   });
 });
+
+describe("renderCockpitHtml — filter signals & all-clear", () => {
+  it("a watch-band Lighthouse site carries the 'lighthouse' filter signal", () => {
+    // pScore 80 ∈ [75,85) with the other categories healthy → watch via Lighthouse.
+    const html = renderCockpitHtml(model([siteRow({ id: "w", name: "Mid", pScore: 80 })]));
+    expect(html).toMatch(/data-signals="[^"]*lighthouse[^"]*"/);
+  });
+
+  it("an audit-stale site carries the 'stale' filter signal (not the lighthouse one)", () => {
+    // Healthy scores but the last audit is >30d before NOW → watch via staleness only.
+    const html = renderCockpitHtml(
+      model([siteRow({ id: "s", name: "Stale", lastLighthouseAuditAt: "2026-01-01T00:00:00Z" })]),
+    );
+    expect(html).toMatch(/data-signals="[^"]*stale[^"]*"/);
+    expect(html).not.toMatch(/data-signals="[^"]*lighthouse[^"]*"/);
+  });
+
+  it("renders the all-clear banner when nothing needs attention", () => {
+    const html = renderCockpitHtml(model([siteRow()]));
+    expect(html).toContain("all-clear");
+    expect(html).toMatch(/all clear/i);
+  });
+
+  it("omits the all-clear banner when a site is on the attention tier", () => {
+    const html = renderCockpitHtml(
+      model([siteRow({ id: "a", name: "Bad", securityVulnsCritical: 1 })]),
+    );
+    expect(html).not.toMatch(/class="all-clear"/);
+  });
+
+  it("the filter script short-circuits 'pending' so it never hides triage cards", () => {
+    const html = renderCockpitHtml(model([siteRow()]));
+    // The pending branch must return before the card-hiding loop.
+    expect(html).toMatch(/f === 'pending'[^]*?return;/);
+  });
+});

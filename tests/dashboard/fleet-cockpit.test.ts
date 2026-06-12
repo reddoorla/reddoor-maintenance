@@ -231,3 +231,20 @@ describe("buildCockpitModel", () => {
     expect(m.summary.deliveryFailures).toBe(1);
   });
 });
+
+describe("assignTier — structured watchSignals", () => {
+  it("tags 'lighthouse' for a watch-band score and 'stale' for an old audit", () => {
+    const both = assignTier(
+      site({ pScore: 80, lastLighthouseAuditAt: "2026-01-01T00:00:00Z" }),
+      [],
+      NOW,
+    );
+    expect(both.watchSignals).toContain("lighthouse");
+    expect(both.watchSignals).toContain("stale");
+  });
+
+  it("is empty for attention and healthy sites", () => {
+    expect(assignTier(site(), [item()], NOW).watchSignals).toEqual([]);
+    expect(assignTier(site(), [], NOW).watchSignals).toEqual([]);
+  });
+});

@@ -37,30 +37,37 @@ const WATCH_CATEGORIES: ReadonlyArray<{
  * needs the watch band). Otherwise 🟡 watch when a Lighthouse category sits in
  * [75,85) or the last audit is older than 30 days (a NULL audit is NOT stale — it's
  * an onboarding gap, surfaced by the Setup score, not a regression). Else 🟢 healthy.
+ *
+ * `watchReasons` are the human labels for the card; `watchSignals` are the STRUCTURED
+ * filter tags ("lighthouse" / "stale") the client filter keys off — derived here so
+ * the renderer never has to regex-sniff a human string whose wording may change.
  */
 export function assignTier(
   site: WebsiteRow,
   items: AttentionItem[],
   now: Date,
-): { tier: Tier; watchReasons: string[] } {
-  if (items.length > 0) return { tier: "attention", watchReasons: [] };
+): { tier: Tier; watchReasons: string[]; watchSignals: string[] } {
+  if (items.length > 0) return { tier: "attention", watchReasons: [], watchSignals: [] };
 
   const watchReasons: string[] = [];
+  const signals = new Set<string>();
   for (const cat of WATCH_CATEGORIES) {
     const score = site[cat.field];
     if (score !== null && score >= LIGHTHOUSE_FLOOR && score < LIGHTHOUSE_WATCH_HIGH) {
       watchReasons.push(`${cat.label} ${score}`);
+      signals.add("lighthouse");
     }
   }
   if (site.lastLighthouseAuditAt !== null) {
     const ageMs = now.getTime() - Date.parse(site.lastLighthouseAuditAt);
     if (Number.isFinite(ageMs) && ageMs > AUDIT_STALE_DAYS * MS_PER_DAY) {
       watchReasons.push(`audited ${relativeTimeFromNow(site.lastLighthouseAuditAt, now)}`);
+      signals.add("stale");
     }
   }
   return watchReasons.length > 0
-    ? { tier: "watch", watchReasons }
-    : { tier: "healthy", watchReasons: [] };
+    ? { tier: "watch", watchReasons, watchSignals: [...signals] }
+    : { tier: "healthy", watchReasons: [], watchSignals: [] };
 }
 
 export type SiteCard = {
@@ -68,8 +75,10 @@ export type SiteCard = {
   tier: Tier;
   /** This site's tagged attention items (status already set), critical-first. */
   items: AttentionItem[];
-  /** Why the site is on Watch (empty unless tier === "watch"). */
+  /** Why the site is on Watch — human labels (empty unless tier === "watch"). */
   watchReasons: string[];
+  /** Structured watch tags ("lighthouse" / "stale") for the client filter. */
+  watchSignals: string[];
 };
 
 export type PendingEntry = {
@@ -125,6 +134,9 @@ export function buildCockpitModel(
   // Read-only diff: tag NEW/WORSE exactly as the email does; discard `next`.
   const { tagged } = diffAttention(rawItems, priorSnapshot, now.toISOString().slice(0, 10));
 
+  // Group by siteName (the collectors set siteName from the row). This relies on the
+  // fleet-wide name→slug uniqueness invariant the /s/<slug> lookup already assumes; if
+  // two visible sites ever shared a name they'd share a card. Acceptable for slice 1.
   const bySite = new Map<string, AttentionItem[]>();
   for (const it of tagged) {
     const bucket = bySite.get(it.siteName);
@@ -136,8 +148,8 @@ export function buildCockpitModel(
     const items = (bySite.get(site.name) ?? []).sort(
       (a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity],
     );
-    const { tier, watchReasons } = assignTier(site, items, now);
-    return { site, tier, items, watchReasons };
+    const { tier, watchReasons, watchSignals } = assignTier(site, items, now);
+    return { site, tier, items, watchReasons, watchSignals };
   });
 
   cards.sort((a, b) => {

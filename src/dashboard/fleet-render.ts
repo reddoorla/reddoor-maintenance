@@ -145,6 +145,8 @@ details.tier > summary { cursor:pointer; font-weight:700; font-size:1.05rem; pad
 @media (prefers-color-scheme: dark) { .chip { background:#222; } }
 .chip.critical { background:#fdecea; color:#b00; }
 .badge { font-weight:700; color:#C00; font-size:0.72rem; margin-right:0.25rem; }
+.all-clear { background:#e8f5e9; color:#1b7a2f; padding:0.6rem 1rem; border-radius:8px; margin-bottom:1.25rem; font-weight:600; }
+@media (prefers-color-scheme: dark) { .all-clear { background:#10240f; color:#7fce85; } }
 `;
 
 const TIER_META: Record<Tier, { emoji: string; label: string; open: boolean }> = {
@@ -174,6 +176,17 @@ function summaryBar(model: CockpitModel): string {
     </div>
     <div class="summary heads">${escapeHtml(heads)}</div>
     <div class="filters">${chips}</div>`;
+}
+
+/** Affirmative all-clear when nothing is on the 🔴 tier (spec §5.2/§12) — so a
+ *  healthy or empty fleet reads as "all clear", not three bare "None." rows. */
+function allClearBanner(model: CockpitModel): string {
+  if (model.summary.attention > 0) return "";
+  const msg =
+    model.cards.length === 0
+      ? "No sites on the fleet view yet."
+      : "All clear — nothing needs your attention.";
+  return `<div class="all-clear">✓ ${escapeHtml(msg)}</div>`;
 }
 
 function approveStrip(model: CockpitModel): string {
@@ -214,20 +227,14 @@ function chips(c: SiteCard): string {
   return items.length ? `<div class="chips">${items.join("")}</div>` : "";
 }
 
-/** Space-separated signal kinds for the client filter (+ "stale" for audit-stale watch). */
+/** Space-separated signal tags for the client filter. Attention-item kinds
+ *  ("vulns"/"lighthouse"/"delivery") plus the structured watch signals
+ *  ("lighthouse" for a sub-floor-band score, "stale" for an old audit) — so a
+ *  watch-band Lighthouse card still matches the "lighthouse" filter. */
 function signalsAttr(c: SiteCard): string {
-  const kinds = new Set<string>(
-    c.items.map((it) =>
-      it.kind === "vuln"
-        ? "vulns"
-        : it.kind === "lighthouse"
-          ? "lighthouse"
-          : it.kind === "delivery"
-            ? "delivery"
-            : it.kind,
-    ),
-  );
-  if (c.watchReasons.some((r) => /ago/.test(r))) kinds.add("stale");
+  const kinds = new Set<string>();
+  for (const it of c.items) kinds.add(it.kind === "vuln" ? "vulns" : it.kind);
+  for (const sig of c.watchSignals) kinds.add(sig);
   return [...kinds].join(" ");
 }
 
@@ -235,10 +242,13 @@ function cockpitCard(c: SiteCard): string {
   const base = card(c.site); // existing header + metrics markup
   const pill = `<span class="pill ${c.tier}">${PILL_LABEL[c.tier]}</span>`;
   const extra = `${pill}${chips(c)}`;
-  // Inject the pill + chips before the article's closing tag, and add the filter hook.
+  const opening = `<article class="card" data-signals="${signalsAttr(c)}">`;
+  // Inject the pill + chips before the article's closing tag, and add the filter
+  // hook. Function replacers so a `$` in escaped chip text can't be read as a
+  // String.replace special ($&, $1, …).
   return base
-    .replace('<article class="card">', `<article class="card" data-signals="${signalsAttr(c)}">`)
-    .replace("</article>", `${extra}</article>`);
+    .replace('<article class="card">', () => opening)
+    .replace("</article>", () => `${extra}</article>`);
 }
 
 const FILTER_SCRIPT = `<script>
@@ -250,12 +260,14 @@ const FILTER_SCRIPT = `<script>
     b.addEventListener('click', function(){
       var f = b.getAttribute('data-filter');
       btns.forEach(function(x){ x.setAttribute('aria-pressed', x===b ? 'true':'false'); });
+      // "pending" lives on the approve strip, not on tier cards — just jump to it,
+      // never hide the triage cards (else the whole board blanks).
+      if (f === 'pending') { var s = document.querySelector('.approve-strip'); if (s) s.scrollIntoView({behavior:'smooth'}); return; }
       if (f !== 'all') details.forEach(function(d){ d.open = true; });
       cards.forEach(function(c){
         var sig = (c.getAttribute('data-signals')||'').split(' ');
         c.style.display = (f==='all' || sig.indexOf(f)!==-1) ? '' : 'none';
       });
-      if (f === 'pending') { var s = document.querySelector('.approve-strip'); if (s) s.scrollIntoView({behavior:'smooth'}); }
     });
   });
   // approve buttons: mirror the per-site dashboard's inline POST.
@@ -307,6 +319,7 @@ export function renderCockpitHtml(model: CockpitModel): string {
   <h1>Reddoor fleet cockpit</h1>
   <div class="meta">${total} site${total === 1 ? "" : "s"} on the Reddoor stack.</div>
   ${summaryBar(model)}
+  ${allClearBanner(model)}
   ${approveStrip(model)}
   ${sections}
   ${FILTER_SCRIPT}
