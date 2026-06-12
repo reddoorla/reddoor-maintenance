@@ -3,8 +3,9 @@ import type { ReportType } from "./types.js";
 import { openBase, readAirtableConfig, type AirtableBase } from "./airtable/client.js";
 import { listAllReports } from "./airtable/reports.js";
 import type { ReportRow } from "./airtable/reports.js";
-import { listWebsites, siteSlug } from "./airtable/websites.js";
+import { listWebsites, siteSlug, type WebsiteRow } from "./airtable/websites.js";
 import { defaultResendClient, type ResendClient } from "./send/resend.js";
+import { collectVulnAlerts, collectDeliveryFailures } from "../alerts/digest-collectors.js";
 
 /** One report awaiting the operator's "yes" — site, type, period, and a link to its
  *  dashboard page (the digest LINKS to the dashboard; it never carries the approve action,
@@ -138,6 +139,42 @@ export async function listPendingApproval(base: AirtableBase): Promise<ReportRow
   return (await listAllReports(base)).filter(
     (r) => r.draftReady && !r.approvedToSend && r.sentAt === null,
   );
+}
+
+// ── collectAttention (IO wrapper, sibling to runDigest) ──────────────────────
+
+export type CollectAttentionDeps = {
+  base: AirtableBase;
+  /** Same baseUrl value runDigest threads; used for the /s/<slug> links. */
+  baseUrl: string;
+};
+
+/** Run a single collector under a try/catch: a thrown collector logs and yields []
+ *  so one broken signal never blanks the whole "Needs attention" section. */
+function runCollector(label: string, fn: () => AttentionItem[]): AttentionItem[] {
+  try {
+    return fn();
+  } catch (e) {
+    console.warn(`⚠ attention collector "${label}" failed: ${(e as Error).message}`);
+    return [];
+  }
+}
+
+/**
+ * Fetch the free signals once (listAllReports + listWebsites), build the
+ * sitesById map the delivery collector needs, and run each pure collector
+ * isolated. Returns the union of items; diffing/badging happens in runDigest.
+ */
+export async function collectAttention(deps: CollectAttentionDeps): Promise<AttentionItem[]> {
+  const [reports, websites] = await Promise.all([
+    listAllReports(deps.base),
+    listWebsites(deps.base),
+  ]);
+  const sitesById = new Map<string, WebsiteRow>(websites.map((w) => [w.id, w]));
+  return [
+    ...runCollector("vuln", () => collectVulnAlerts(websites, deps.baseUrl)),
+    ...runCollector("delivery", () => collectDeliveryFailures(reports, sitesById, deps.baseUrl)),
+  ];
 }
 
 export type DigestRunOptions = {
