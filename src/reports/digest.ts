@@ -3,8 +3,10 @@ import type { ReportType } from "./types.js";
 import { openBase, readAirtableConfig, type AirtableBase } from "./airtable/client.js";
 import { listAllReports } from "./airtable/reports.js";
 import type { ReportRow } from "./airtable/reports.js";
-import { listWebsites, siteSlug } from "./airtable/websites.js";
+import { listWebsites, siteSlug, type WebsiteRow } from "./airtable/websites.js";
 import { defaultResendClient, type ResendClient } from "./send/resend.js";
+import { collectVulnAlerts, collectDeliveryFailures } from "../alerts/digest-collectors.js";
+import { diffAttention, readDigestState, writeDigestState } from "../alerts/digest-state.js";
 
 /** One report awaiting the operator's "yes" — site, type, period, and a link to its
  *  dashboard page (the digest LINKS to the dashboard; it never carries the approve action,
@@ -18,17 +20,32 @@ export type ReadyItem = {
   dashboardUrl: string;
 };
 
+/** Severity of a "Needs attention" entry. `critical` sorts above `warning`. */
+export type AttentionSeverity = "critical" | "warning";
+
+/** Set by `diffAttention` before render: how this item changed since the prior digest. */
+export type AttentionStatus = "new" | "worse" | "standing";
+
 /**
- * One "Needs attention" entry. The M5 SEAM: M5 plugs detectors (Renovate failures,
- * new vulns, lighthouse regressions, delivery bounces) in by pushing typed items here.
- * `kind` is a discriminant so M5 can add variants without breaking the renderer; for M3
- * we render the generic title+url shape, which covers open `*-failing` tracking issues.
+ * One "Needs attention" entry. The M5 SEAM, now carrying the fields the hybrid
+ * snapshot needs: a stable `key` for diffing, a `metric` for NEW/WORSE comparison,
+ * a `severity` for ordering, and `siteName` for the (component-3) grouped render.
+ * For now `attentionSection` still renders each item flat by `title`/`url`.
  */
 export type AttentionItem = {
-  kind: string;
+  /** Stable identity for diffing: `vuln:<siteId>`, `delivery:<reportId>`. */
+  key: string;
+  kind: "vuln" | "delivery" | "renovate" | "lighthouse";
+  /** Grouping key in the (component-3) render. */
+  siteName: string;
   title: string;
   /** Optional URL rendered as a hyperlink on the title. */
   url?: string;
+  severity: AttentionSeverity;
+  /** Comparable magnitude for NEW/WORSE (vuln count; 1 for binary events). */
+  metric: number;
+  /** Set by `diffAttention` before render. */
+  status?: AttentionStatus;
 };
 
 /** Input shape for `renderDigestHtml`. Both arrays are required; callers pass `[]` for
@@ -79,24 +96,58 @@ function readySection(items: ReadyItem[]): string {
   return `${heading}<table role="presentation" style="border-collapse:collapse;margin:0">${rows}</table>`;
 }
 
+const SEVERITY_ORDER: Record<AttentionSeverity, number> = { critical: 0, warning: 1 };
+
+/** Render the per-item status badge ("NEW"/"WORSE"); standing items get nothing. */
+function attentionBadge(status?: AttentionStatus): string {
+  if (status === "new")
+    return `<strong style="color:${RED};font-family:helvetica,sans-serif">NEW</strong> `;
+  if (status === "worse")
+    return `<strong style="color:${RED};font-family:helvetica,sans-serif">WORSE</strong> `;
+  return "";
+}
+
 function attentionSection(items: AttentionItem[]): string {
   const heading = `<h2 style="color:${RED};font-family:helvetica,sans-serif;font-size:20px;font-weight:700;margin:32px 0 8px">Needs attention</h2>`;
   if (items.length === 0) {
     return `${heading}<p style="color:${GREY};font-family:helvetica,sans-serif;font-size:16px;margin:0">All clear — nothing needs attention.</p>`;
   }
-  const rows = items
-    .map((it) => {
-      const safeUrl = it.url?.startsWith("https://") ? it.url : undefined;
-      const label = safeUrl
-        ? `<a href="${esc(safeUrl)}" style="${ANCHOR_STYLE}">${esc(it.title)}</a>`
-        : esc(it.title);
+
+  // Group by siteName, preserving first-seen site order; sort within a site by
+  // severity (critical first).
+  const bySite = new Map<string, AttentionItem[]>();
+  for (const it of items) {
+    const bucket = bySite.get(it.siteName);
+    if (bucket) bucket.push(it);
+    else bySite.set(it.siteName, [it]);
+  }
+
+  const groups = [...bySite.entries()]
+    .map(([siteName, siteItems]) => {
+      const sorted = [...siteItems].sort(
+        (a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity],
+      );
+      const rows = sorted
+        .map((it) => {
+          const safeUrl = it.url?.startsWith("https://") ? it.url : undefined;
+          const titleHtml = safeUrl
+            ? `<a href="${esc(safeUrl)}" style="${ANCHOR_STYLE}">${esc(it.title)}</a>`
+            : esc(it.title);
+          return `
+          <tr>
+            <td style="color:${GREY};font-family:helvetica,sans-serif;font-size:16px;line-height:24px;padding-bottom:8px">${attentionBadge(it.status)}${titleHtml}</td>
+          </tr>`;
+        })
+        .join("");
       return `
       <tr>
-        <td style="color:${GREY};font-family:helvetica,sans-serif;font-size:16px;line-height:24px;padding-bottom:8px">${label}</td>
-      </tr>`;
+        <td style="color:#222;font-family:helvetica,sans-serif;font-size:16px;font-weight:700;padding:8px 0 4px">${esc(siteName)}</td>
+      </tr>
+      ${rows}`;
     })
     .join("");
-  return `${heading}<table role="presentation" style="border-collapse:collapse;margin:0">${rows}</table>`;
+
+  return `${heading}<table role="presentation" style="border-collapse:collapse;margin:0">${groups}</table>`;
 }
 
 const FROM_ADDRESS = "Reddoor Reports <reports@reddoorla.com>";
@@ -123,6 +174,42 @@ export async function listPendingApproval(base: AirtableBase): Promise<ReportRow
   return (await listAllReports(base)).filter(
     (r) => r.draftReady && !r.approvedToSend && r.sentAt === null,
   );
+}
+
+// ── collectAttention (IO wrapper, sibling to runDigest) ──────────────────────
+
+export type CollectAttentionDeps = {
+  base: AirtableBase;
+  /** Same baseUrl value runDigest threads; used for the /s/<slug> links. */
+  baseUrl: string;
+};
+
+/** Run a single collector under a try/catch: a thrown collector logs and yields []
+ *  so one broken signal never blanks the whole "Needs attention" section. */
+function runCollector(label: string, fn: () => AttentionItem[]): AttentionItem[] {
+  try {
+    return fn();
+  } catch (e) {
+    console.warn(`⚠ attention collector "${label}" failed: ${(e as Error).message}`);
+    return [];
+  }
+}
+
+/**
+ * Fetch the free signals once (listAllReports + listWebsites), build the
+ * sitesById map the delivery collector needs, and run each pure collector
+ * isolated. Returns the union of items; diffing/badging happens in runDigest.
+ */
+export async function collectAttention(deps: CollectAttentionDeps): Promise<AttentionItem[]> {
+  const [reports, websites] = await Promise.all([
+    listAllReports(deps.base),
+    listWebsites(deps.base),
+  ]);
+  const sitesById = new Map<string, WebsiteRow>(websites.map((w) => [w.id, w]));
+  return [
+    ...runCollector("vuln", () => collectVulnAlerts(websites, deps.baseUrl)),
+    ...runCollector("delivery", () => collectDeliveryFailures(reports, sitesById, deps.baseUrl)),
+  ];
 }
 
 export type DigestRunOptions = {
@@ -160,11 +247,22 @@ export async function runDigest(
       });
     }
 
-    // M5 fills this; M3 ships it empty (renders the "all clear" line).
-    const needsAttention: AttentionItem[] = [];
+    // M5: collect the free signals (isolated), diff against yesterday's snapshot.
+    const collected = await collectAttention({ base, baseUrl: options.baseUrl });
+    const prior = await readDigestState(base);
+    const { tagged, next } = diffAttention(collected, prior, digestDateKey(today));
+    const needsAttention = tagged;
 
     // No-noise default: skip entirely when there's nothing to report.
     if (readyForYourYes.length === 0 && needsAttention.length === 0) {
+      // On a skip, `collected` is [] so `next` is {} — still persist it so a key that
+      // resolved on a quiet day clears and a later recurrence diffs as NEW (spec §10).
+      // Wrapped: a write failure can't fail the skip.
+      try {
+        await writeDigestState(base, next);
+      } catch (e) {
+        console.warn(`⚠ digest state write failed: ${(e as Error).message}`);
+      }
       return { output: "Digest skipped (nothing ready, nothing needs attention).", code: 0 };
     }
 
@@ -180,6 +278,15 @@ export async function runDigest(
       html,
       idempotencyKey: `digest-${digestDateKey(today)}`,
     });
+    // Persist the next snapshot AFTER a successful send. A write failure is caught +
+    // logged: the digest already went out, tomorrow re-news at worst. (The send-FAILURE
+    // path never reaches here — the outer catch returns code 1 with no write, preserving
+    // the NEW badge for the retry.)
+    try {
+      await writeDigestState(base, next);
+    } catch (e) {
+      console.warn(`⚠ digest state write failed: ${(e as Error).message}`);
+    }
     return { output: `Digest sent to ${to.join(", ")} (${result.messageId})`, code: 0 };
   } catch (err) {
     // Re-throw config errors (exitCode=2: missing env vars, bad config) so runOrExit

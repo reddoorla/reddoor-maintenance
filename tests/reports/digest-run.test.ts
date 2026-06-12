@@ -106,6 +106,43 @@ function unreadyReport(over: Partial<FakeRecord["fields"]> = {}): FakeRecord {
   };
 }
 
+/** A site carrying a critical vuln — collectVulnAlerts flags it. */
+function vulnSiteRow(over: Partial<FakeRecord["fields"]> = {}): FakeRecord {
+  return {
+    id: "rec_site_acme",
+    fields: {
+      Name: "Acme Co",
+      url: "https://acme.example.com",
+      "Security Vulns Critical": 1,
+      ...over,
+    },
+  };
+}
+
+/** A vulnSiteRow with critical+high both 0 — collectVulnAlerts skips it. */
+function cleanSiteRow(over: Partial<FakeRecord["fields"]> = {}): FakeRecord {
+  return vulnSiteRow({
+    "Security Vulns Critical": 0,
+    "Security Vulns High": 0,
+    ...over,
+  });
+}
+
+/** A bounced report — collectDeliveryFailures flags it. */
+function bouncedReport(over: Partial<FakeRecord["fields"]> = {}): FakeRecord {
+  return {
+    id: "rec_report_bounced",
+    fields: {
+      "Report ID": "Acme Co — Maintenance — 2026-06",
+      Site: ["rec_site_acme"],
+      "Report type": "Maintenance",
+      Period: "2026-06",
+      "Delivery status": "bounced",
+      ...over,
+    },
+  };
+}
+
 function captureClient(): { client: ResendClient; captured: ResendSendInput[] } {
   const captured: ResendSendInput[] = [];
   const client: ResendClient = {
@@ -377,5 +414,150 @@ describe("runDigest", () => {
     });
     expect(result.code).toBe(1);
     expect(result.output).toMatch(/^digest failed: /);
+  });
+
+  // ── attention wiring ─────────────────────────────────────────────────────────
+
+  it("surfaces a vuln + a delivery item, both NEW, on the first run (no prior state)", async () => {
+    const base = makeFakeBase({
+      Reports: [bouncedReport()],
+      Websites: [vulnSiteRow()],
+      // "Digest State" absent → readDigestState returns {} → everything NEW
+    });
+    const { client, captured } = captureClient();
+    const result = await runDigest({
+      base,
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
+    expect(result.code).toBe(0);
+    expect(captured).toHaveLength(1);
+    const html = captured[0]!.html;
+    expect(html).toContain("Needs attention");
+    // Both signals present and badged NEW on first sight.
+    expect(html).toContain("Acme Co");
+    expect(html).toMatch(/NEW/);
+    expect(html).not.toMatch(/all clear/i);
+  });
+
+  it("sends the digest on attention alone, even with nothing pending approval", async () => {
+    // No ready reports — only a vuln. The no-noise skip must NOT fire.
+    const base = makeFakeBase({ Reports: [], Websites: [vulnSiteRow()] });
+    const { client, captured } = captureClient();
+    const result = await runDigest({
+      base,
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
+    expect(result.code).toBe(0);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]!.html).toContain("Acme Co");
+  });
+
+  it("writes the next snapshot to Digest State after sending", async () => {
+    const base = makeFakeBase({ Reports: [bouncedReport()], Websites: [vulnSiteRow()] });
+    const { client } = captureClient();
+    await runDigest({ base, resend: client, baseUrl: "https://reddoor-maintenance.netlify.app" });
+    // A create OR update against "Digest State" must have happened (singleton get-or-create).
+    const stateWrites = base.__calls.filter(
+      (c) => c.table === "Digest State" && (c.kind === "create" || c.kind === "update"),
+    );
+    expect(stateWrites.length).toBeGreaterThanOrEqual(1);
+    const row = base.__records.get("Digest State")!.at(-1)!;
+    const snap = JSON.parse(String(row.fields["Snapshot"]));
+    expect(snap["vuln:rec_site_acme"]).toBeDefined();
+    expect(snap["delivery:rec_report_bounced"]).toBeDefined();
+  });
+
+  it("second run with prior state seeded shows STANDING (no NEW/WORSE badge)", async () => {
+    const prior = JSON.stringify({
+      "vuln:rec_site_acme": { metric: 1, firstFlaggedAt: "2026-06-10" },
+      "delivery:rec_report_bounced": { metric: 1, firstFlaggedAt: "2026-06-10" },
+    });
+    const base = makeFakeBase({
+      Reports: [bouncedReport()],
+      Websites: [vulnSiteRow()],
+      "Digest State": [{ id: "rec_state", fields: { Snapshot: prior } }],
+    });
+    const { client, captured } = captureClient();
+    await runDigest({ base, resend: client, baseUrl: "https://reddoor-maintenance.netlify.app" });
+    const html = captured[0]!.html;
+    expect(html).toContain("Acme Co"); // standing problem still rendered
+    expect(html).not.toMatch(/\bNEW\b/);
+    expect(html).not.toMatch(/\bWORSE\b/);
+  });
+
+  it("a state write failure is caught and logged; the run still reports success", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const good = makeFakeBase({ Reports: [bouncedReport()], Websites: [vulnSiteRow()] });
+    // Poison only the "Digest State" writes (create+update both throw).
+    const poisoned = new Proxy(good, {
+      apply(_t, _this, [name]: [string]) {
+        const tbl = good(name);
+        if (name === "Digest State") {
+          return {
+            ...tbl,
+            create: async () => {
+              throw new Error("state write down");
+            },
+            update: async () => {
+              throw new Error("state write down");
+            },
+          };
+        }
+        return tbl;
+      },
+    });
+    const { client, captured } = captureClient();
+    const result = await runDigest({
+      base: poisoned as unknown as typeof good,
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
+    expect(result.code).toBe(0); // the email already went out
+    expect(captured).toHaveLength(1);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("shows WORSE badge when prior metric is lower than current critical+high count", async () => {
+    // prior metric 1; site now has critical=2 + high=1 → total 3 → WORSE
+    const prior = JSON.stringify({
+      "vuln:rec_site_acme": { metric: 1, firstFlaggedAt: "2026-06-10" },
+    });
+    const base = makeFakeBase({
+      Reports: [],
+      Websites: [vulnSiteRow({ "Security Vulns Critical": 2, "Security Vulns High": 1 })],
+      "Digest State": [{ id: "rec_state", fields: { Snapshot: prior } }],
+    });
+    const { client, captured } = captureClient();
+    await runDigest({ base, resend: client, baseUrl: "https://reddoor-maintenance.netlify.app" });
+    expect(captured).toHaveLength(1);
+    const html = captured[0]!.html;
+    expect(html).toContain("Acme Co");
+    expect(html).toMatch(/\bWORSE\b/);
+  });
+
+  it("clears a resolved key from the snapshot even when the digest skips (no-noise)", async () => {
+    // prior had a vuln; today nothing is flagged and nothing is ready → skip, but the
+    // snapshot must be written back EMPTY so a later recurrence diffs as NEW (spec §10).
+    const prior = JSON.stringify({
+      "vuln:rec_site_acme": { metric: 1, firstFlaggedAt: "2026-06-10" },
+    });
+    const base = makeFakeBase({
+      Reports: [],
+      Websites: [cleanSiteRow()], // no vulns now
+      "Digest State": [{ id: "rec_state", fields: { Snapshot: prior } }],
+    });
+    const { client, captured } = captureClient();
+    const result = await runDigest({
+      base,
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
+    expect(result.output).toMatch(/skipped/i);
+    expect(captured).toHaveLength(0); // no email
+    const row = base.__records.get("Digest State")!.at(-1)!;
+    expect(JSON.parse(String(row.fields["Snapshot"]))).toEqual({}); // resolved key cleared
   });
 });
