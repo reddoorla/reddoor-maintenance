@@ -95,24 +95,58 @@ function readySection(items: ReadyItem[]): string {
   return `${heading}<table role="presentation" style="border-collapse:collapse;margin:0">${rows}</table>`;
 }
 
+const SEVERITY_ORDER: Record<AttentionSeverity, number> = { critical: 0, warning: 1 };
+
+/** Render the per-item status badge ("NEW"/"WORSE"); standing items get nothing. */
+function attentionBadge(status?: AttentionStatus): string {
+  if (status === "new")
+    return `<strong style="color:${RED};font-family:helvetica,sans-serif">NEW</strong> `;
+  if (status === "worse")
+    return `<strong style="color:${RED};font-family:helvetica,sans-serif">WORSE</strong> `;
+  return "";
+}
+
 function attentionSection(items: AttentionItem[]): string {
   const heading = `<h2 style="color:${RED};font-family:helvetica,sans-serif;font-size:20px;font-weight:700;margin:32px 0 8px">Needs attention</h2>`;
   if (items.length === 0) {
     return `${heading}<p style="color:${GREY};font-family:helvetica,sans-serif;font-size:16px;margin:0">All clear — nothing needs attention.</p>`;
   }
-  const rows = items
-    .map((it) => {
-      const safeUrl = it.url?.startsWith("https://") ? it.url : undefined;
-      const label = safeUrl
-        ? `<a href="${esc(safeUrl)}" style="${ANCHOR_STYLE}">${esc(it.title)}</a>`
-        : esc(it.title);
+
+  // Group by siteName, preserving first-seen site order; sort within a site by
+  // severity (critical first).
+  const bySite = new Map<string, AttentionItem[]>();
+  for (const it of items) {
+    const bucket = bySite.get(it.siteName);
+    if (bucket) bucket.push(it);
+    else bySite.set(it.siteName, [it]);
+  }
+
+  const groups = [...bySite.entries()]
+    .map(([siteName, siteItems]) => {
+      const sorted = [...siteItems].sort(
+        (a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity],
+      );
+      const rows = sorted
+        .map((it) => {
+          const safeUrl = it.url?.startsWith("https://") ? it.url : undefined;
+          const titleHtml = safeUrl
+            ? `<a href="${esc(safeUrl)}" style="${ANCHOR_STYLE}">${esc(it.title)}</a>`
+            : esc(it.title);
+          return `
+          <tr>
+            <td style="color:${GREY};font-family:helvetica,sans-serif;font-size:16px;line-height:24px;padding-bottom:8px">${attentionBadge(it.status)}${titleHtml}</td>
+          </tr>`;
+        })
+        .join("");
       return `
       <tr>
-        <td style="color:${GREY};font-family:helvetica,sans-serif;font-size:16px;line-height:24px;padding-bottom:8px">${label}</td>
-      </tr>`;
+        <td style="color:#222;font-family:helvetica,sans-serif;font-size:16px;font-weight:700;padding:8px 0 4px">${esc(siteName)}</td>
+      </tr>
+      ${rows}`;
     })
     .join("");
-  return `${heading}<table role="presentation" style="border-collapse:collapse;margin:0">${rows}</table>`;
+
+  return `${heading}<table role="presentation" style="border-collapse:collapse;margin:0">${groups}</table>`;
 }
 
 const FROM_ADDRESS = "Reddoor Reports <reports@reddoorla.com>";

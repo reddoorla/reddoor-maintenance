@@ -156,4 +156,131 @@ describe("renderDigestHtml", () => {
     expect(html).not.toContain("href");
     expect(html).not.toContain("javascript:");
   });
+
+  // ── attention grouping + badging (component 3) ──────────────────────────────
+
+  it("groups two attention items under one site heading", () => {
+    const html = renderDigestHtml(
+      sections({
+        readyForYourYes: [],
+        needsAttention: [
+          {
+            key: "vuln:s1",
+            kind: "vuln",
+            siteName: "Acme Co",
+            title: "2 critical/high vulns",
+            url: "https://reddoor-maintenance.netlify.app/s/acme-co",
+            severity: "critical",
+            metric: 2,
+            status: "new",
+          },
+          {
+            key: "delivery:r1",
+            kind: "delivery",
+            siteName: "Acme Co",
+            title: "report bounced",
+            url: "https://reddoor-maintenance.netlify.app/s/acme-co",
+            severity: "warning",
+            metric: 1,
+            status: "standing",
+          },
+        ],
+      }),
+    );
+    // One site heading, both titles under it.
+    expect((html.match(/Acme Co/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(html).toContain("2 critical/high vulns");
+    expect(html).toContain("report bounced");
+    // critical sorts before warning within the site → vuln title appears first.
+    expect(html.indexOf("2 critical/high vulns")).toBeLessThan(html.indexOf("report bounced"));
+  });
+
+  it("badges NEW and WORSE from item.status, omits a badge for standing", () => {
+    const html = renderDigestHtml(
+      sections({
+        readyForYourYes: [],
+        needsAttention: [
+          {
+            key: "vuln:s1",
+            kind: "vuln",
+            siteName: "Acme Co",
+            title: "new vuln",
+            severity: "critical",
+            metric: 1,
+            status: "new",
+          },
+          {
+            key: "vuln:s2",
+            kind: "vuln",
+            siteName: "Beta Ltd",
+            title: "worse vuln",
+            severity: "critical",
+            metric: 5,
+            status: "worse",
+          },
+          {
+            key: "vuln:s3",
+            kind: "vuln",
+            siteName: "Gamma Inc",
+            title: "standing vuln",
+            severity: "warning",
+            metric: 1,
+            status: "standing",
+          },
+        ],
+      }),
+    );
+    expect(html).toMatch(/NEW/);
+    expect(html).toMatch(/WORSE/);
+    // The standing row carries neither badge token adjacent to its title.
+    const standingRow = html.slice(
+      html.indexOf("standing vuln") - 60,
+      html.indexOf("standing vuln"),
+    );
+    expect(standingRow).not.toMatch(/\bNEW\b|\bWORSE\b/);
+  });
+
+  it("WORSE badge when a metric climbs (status='worse' rendered as WORSE)", () => {
+    const html = renderDigestHtml(
+      sections({
+        readyForYourYes: [],
+        needsAttention: [
+          {
+            key: "vuln:s1",
+            kind: "vuln",
+            siteName: "Acme Co",
+            title: "5 critical/high vulns",
+            severity: "critical",
+            metric: 5,
+            status: "worse",
+          },
+        ],
+      }),
+    );
+    expect(html).toContain("5 critical/high vulns");
+    expect(html).toMatch(/WORSE/);
+  });
+
+  it("still emits no href for a non-https attention url after grouping (XSS guard holds)", () => {
+    const html = renderDigestHtml(
+      sections({
+        readyForYourYes: [],
+        needsAttention: [
+          {
+            key: "vuln:s1",
+            kind: "vuln",
+            siteName: "Acme Co",
+            title: "bad-link",
+            url: "javascript:alert(1)",
+            severity: "critical",
+            metric: 1,
+            status: "new",
+          },
+        ],
+      }),
+    );
+    expect(html).toContain("bad-link");
+    expect(html).not.toContain("href");
+    expect(html).not.toContain("javascript:");
+  });
 });
