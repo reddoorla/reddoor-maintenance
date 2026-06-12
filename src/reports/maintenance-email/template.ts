@@ -1,4 +1,5 @@
 import type { ReportData } from "../types.js";
+import { DEFAULT_COPY, type ResolvedCopy } from "../copy.js";
 import { CHECK_CID, BLURRED_CID } from "./assets/index.js";
 
 // Bundled images: shipped in dist/ via tsup onSuccess copy, attached inline via
@@ -65,17 +66,12 @@ function analyticsTrendLine(cur: number | undefined, prev: number | undefined): 
   return trendText(TREND_NEUTRAL, `No change vs last period (${fmtUsers(prev)})`);
 }
 
-function maintenanceChecksSection(searchPosition?: number): string {
+function maintenanceChecksSection(copy: ResolvedCopy, searchPosition?: number): string {
   const googleLabel =
-    searchPosition !== undefined ? `Page 1 Google Result (#${searchPosition})` : "Google Indexed";
-  const rows = [
-    "Reviewed Logs",
-    "CMS Checked",
-    "DNS Checked",
-    googleLabel,
-    "Reviewed Certificate",
-    "Security Updates",
-  ];
+    searchPosition !== undefined
+      ? `Page 1 Google Result (#${searchPosition})`
+      : copy.maintenanceChecks[3];
+  const rows = copy.maintenanceChecks.map((label, i) => (i === 3 ? googleLabel : label));
   return rows
     .map(
       (label, i) => `
@@ -93,15 +89,8 @@ function maintenanceChecksSection(searchPosition?: number): string {
     .join("");
 }
 
-function testingChecklistSection(): string {
-  const rows = [
-    "Desktop Browsers",
-    "Mobile Browsers",
-    "Package Updates",
-    "Bottlenecks",
-    "Form Functionality",
-    "Animation Functionality",
-  ];
+function testingChecklistSection(copy: ResolvedCopy): string {
+  const rows = copy.testingChecklist;
   return rows
     .map(
       (label, i) => `
@@ -133,21 +122,21 @@ function maintenanceTestingPlaceholder(lastTested: Date | null): string {
     </mj-section>`;
 }
 
-function testingIntroSection(): string {
+function testingIntroSection(copy: ResolvedCopy): string {
   return `
     <mj-section background-color="#F4F4F4">
       <mj-column>
         <mj-text color="#C00" font-size="20px" font-weight="700" padding-top="75px">TESTING</mj-text>
-        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">Testing includes checks similar to those at launch: testing on common browsers and operating systems, at different screen sizes, and checking every function, and updating all packages for performance rather than just those needed for security.</mj-text>
+        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">${escapeXml(copy.testingIntro)}</mj-text>
       </mj-column>
     </mj-section>`;
 }
 
-function commentarySection(text: string): string {
+function commentarySection(text: string, copy: ResolvedCopy): string {
   return `
     <mj-section background-color="white">
       <mj-column>
-        <mj-text color="#C00" font-size="20px" font-weight="700" padding-top="55px">NOTES</mj-text>
+        <mj-text color="#C00" font-size="20px" font-weight="700" padding-top="55px">${escapeXml(copy.notesHeader)}</mj-text>
         <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">${escapeXml(text).replace(/\n/g, "<br/>")}</mj-text>
       </mj-column>
     </mj-section>`;
@@ -185,6 +174,7 @@ function headerStyleBlock(data: ReportData): string {
 }
 
 export function buildMjml(data: ReportData): string {
+  const copy = data.copy ?? DEFAULT_COPY;
   const isTesting = data.reportType === "Testing";
   const previewText = `Checked up on ${escapeXml(data.siteName)}`;
 
@@ -209,10 +199,10 @@ export function buildMjml(data: ReportData): string {
         <mj-text color="#C00" font-size="20px" font-weight="700" padding-top="75px">COMPLETED ON</mj-text>
         <mj-text color="#C00" font-size="44px" font-weight="400">${fmtDate(data.completedOn)}</mj-text>
         <mj-text color="#C00" font-size="20px" font-weight="700" padding-top="75px">MAINTENANCE CHECKS</mj-text>
-        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">Includes checking the hosting, DNS, Content Management System (CMS, if applicable), search indexing and security of the site for major flaws and updating as necessary.</mj-text>
+        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">${escapeXml(copy.maintenanceIntro)}</mj-text>
       </mj-column>
     </mj-section>
-    ${maintenanceChecksSection(data.searchPosition)}
+    ${maintenanceChecksSection(copy, data.searchPosition)}
     <mj-section background-color="#F4F4F4">
       <mj-column>
         <mj-text color="#C00" font-size="20px" font-weight="700" padding-top="55px">LIGHTHOUSE SCORES*</mj-text>
@@ -239,22 +229,30 @@ export function buildMjml(data: ReportData): string {
         <mj-text color="#C00" font-size="20px" font-weight="700" padding-top="75px">ANALYTICS</mj-text>
         <mj-text color="#C00" font-size="44px" font-weight="400">${data.gaUsersCurrent !== undefined ? fmtUsers(data.gaUsersCurrent) : "—"} Users</mj-text>
         ${analyticsTrendLine(data.gaUsersCurrent, data.gaUsersPrevious)}
-        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" padding-top="24px" padding-bottom="36px" line-height="20px">Contact us if you are interested in more in-depth data or have questions about SEO.</mj-text>
+        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" padding-top="24px" padding-bottom="36px" line-height="20px">${escapeXml(copy.seoCta)}</mj-text>
       </mj-column>
     </mj-section>
-    ${isTesting ? testingIntroSection() + testingChecklistSection() : maintenanceTestingPlaceholder(data.lastTestedDate)}
-    ${data.commentary ? commentarySection(data.commentary) : ""}
+    ${isTesting ? testingIntroSection(copy) + testingChecklistSection(copy) : maintenanceTestingPlaceholder(data.lastTestedDate)}
+    ${data.commentary ? commentarySection(data.commentary, copy) : ""}
     <mj-section background-color="white">
       <mj-column padding-top="36px">
         <mj-text color="#C00" font-family="helvetica, sans-serif" font-size="24px" font-weight="700" padding-top="36px" line-height="36px">Any questions, concerns or requests?</mj-text>
-        <mj-text font-family="helvetica, sans-serif" font-size="24px" font-weight="300" line-height="30px">Just hit reply.</mj-text>
-        <mj-text font-family="helvetica, sans-serif" font-size="24px" font-weight="300" padding-top="0px" line-height="30px" padding-bottom="36px">We're here to help in any way we can.</mj-text>
+        ${copy.contact
+          .map((line, i) =>
+            i === copy.contact.length - 1
+              ? `<mj-text font-family="helvetica, sans-serif" font-size="24px" font-weight="300" padding-top="0px" line-height="30px" padding-bottom="36px">${escapeXml(line)}</mj-text>`
+              : `<mj-text font-family="helvetica, sans-serif" font-size="24px" font-weight="300" line-height="30px">${escapeXml(line)}</mj-text>`,
+          )
+          .join("\n        ")}
         <mj-divider border-width="1px" border-style="solid" border-color="#CCCCCC" padding="0" />
         <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" padding-top="24px" line-height="20px" font-style="italic">Copyright ${new Date().getUTCFullYear()} Reddoor Creative, LLC. All rights reserved.</mj-text>
         <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="700" line-height="16px" padding-top="0" padding-bottom="0px">Our mailing address is:</mj-text>
-        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" line-height="16px" padding-top="0" padding-bottom="0px">Reddoor Creative, LLC</mj-text>
-        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" line-height="16px" padding-top="0" padding-bottom="0px">29027 Dapper Dan</mj-text>
-        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" line-height="16px" padding-top="0" padding-bottom="0px">Fair Oaks Ranch, TX 78015</mj-text>
+        ${[copy.footerOrg, ...copy.footerAddress]
+          .map(
+            (line) =>
+              `<mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" line-height="16px" padding-top="0" padding-bottom="0px">${escapeXml(line)}</mj-text>`,
+          )
+          .join("\n        ")}
       </mj-column>
     </mj-section>
   </mj-body>

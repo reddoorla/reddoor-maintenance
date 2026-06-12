@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { renderReportHtml } from "../../src/reports/render.js";
 import type { ReportData } from "../../src/reports/types.js";
+import { DEFAULT_COPY } from "../../src/reports/copy.js";
 
 function baseData(over: Partial<ReportData> = {}): ReportData {
   return {
@@ -236,5 +237,17 @@ describe("renderReportHtml", () => {
     const { html } = await renderReportHtml(baseData({ searchPosition: undefined }));
     expect(html).toContain("Google Indexed");
     expect(html).not.toContain("Page 1 Google Result");
+  });
+
+  // Byte-identical: a report with no `copy` renders exactly as before (the existing
+  // assertions already pin this — keep them green). Add an override check:
+  it("a per-site copy override changes only that string", async () => {
+    const base = baseData();
+    const { html } = await renderReportHtml({
+      ...base,
+      copy: { ...DEFAULT_COPY, maintenanceIntro: "ZZZ-CUSTOM-INTRO" },
+    });
+    expect(html).toContain("ZZZ-CUSTOM-INTRO");
+    expect(html).not.toContain(DEFAULT_COPY.maintenanceIntro);
   });
 });
