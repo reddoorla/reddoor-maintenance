@@ -43,7 +43,7 @@ export type AttentionStatus = "new" | "worse" | "standing";
 export type AttentionItem = {
   /** Stable identity for diffing: `vuln:<siteId>`, `delivery:<reportId>`. */
   key: string;
-  kind: "vuln" | "delivery" | "renovate" | "lighthouse";
+  kind: "vuln" | "delivery" | "renovate" | "lighthouse" | "ci";
   /** Grouping key in the (component-3) render. */
   siteName: string;
   title: string;

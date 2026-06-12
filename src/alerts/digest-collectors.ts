@@ -115,6 +115,52 @@ export function collectDeliveryFailures(
 }
 
 /**
+ * One attention item per site carrying failing Renovate PRs, read from the
+ * slice-2a-persisted `renovateFailingCis` field (NOT the live sweep — that's
+ * `renovateFindingsToAttention`, used by the digest). PURE. `metric` is the
+ * count (a rising count diffs WORSE); severity `warning`. Null/0 → skipped.
+ */
+export function collectRenovateAlerts(sites: WebsiteRow[], baseUrl: string): AttentionItem[] {
+  const items: AttentionItem[] = [];
+  for (const s of sites) {
+    const n = s.renovateFailingCis ?? 0;
+    if (n <= 0) continue;
+    items.push({
+      key: `renovate:${s.id}`,
+      kind: "renovate",
+      siteName: s.name,
+      title: `${n} Renovate ${n === 1 ? "PR" : "PRs"} failing CI`,
+      url: dashboardUrl(baseUrl, s.name),
+      severity: "warning",
+      metric: n,
+    });
+  }
+  return items;
+}
+
+/**
+ * One attention item per site whose persisted default-branch CI rollup is
+ * `failing` (slice 2a). PURE. `metric` 1 (binary); severity `warning`. Any other
+ * state (passing/pending/none) or null is skipped.
+ */
+export function collectCiAlerts(sites: WebsiteRow[], baseUrl: string): AttentionItem[] {
+  const items: AttentionItem[] = [];
+  for (const s of sites) {
+    if (s.defaultBranchCi !== "failing") continue;
+    items.push({
+      key: `ci:${s.id}`,
+      kind: "ci",
+      siteName: s.name,
+      title: "Default-branch CI failing",
+      url: dashboardUrl(baseUrl, s.name),
+      severity: "warning",
+      metric: 1,
+    });
+  }
+  return items;
+}
+
+/**
  * Map the renovate sweep result into attention items. PURE — takes the already-fetched
  * `RenovateFailuresResult` (the IO sweep lives in `collectRenovateFailures`). One item
  * per failing-CI Renovate PR (key `renovate:<repo>#<number>`, severity `warning`,
