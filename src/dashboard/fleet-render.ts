@@ -176,8 +176,24 @@ function summaryBar(model: CockpitModel): string {
     <div class="filters">${chips}</div>`;
 }
 
-function approveStrip(_model: CockpitModel): string {
-  return ""; // Task 4
+function approveStrip(model: CockpitModel): string {
+  if (model.pending.length === 0) return "";
+  const rows = model.pending
+    .map((p) => {
+      const href = `/s/${escapeHtml(p.slug)}`;
+      const url = `/api/reports/${encodeURIComponent(p.reportId)}/approve`;
+      return `<div class="approve-row" data-signal="pending">
+        <strong>${escapeHtml(p.siteName)}</strong>
+        <span class="muted">${escapeHtml(p.reportType)} ${escapeHtml(p.period)}</span>
+        <button class="approve" data-report-id="${escapeHtml(p.reportId)}" data-approve-url="${url}">Approve</button>
+        <a href="${href}">open ▸</a>
+      </div>`;
+    })
+    .join("");
+  return `<section class="approve-strip" data-tier="pending">
+    <h2>Approve (${model.pending.length}) — your daily yes</h2>
+    ${rows}
+  </section>`;
 }
 
 function cockpitCard(c: SiteCard): string {

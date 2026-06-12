@@ -83,9 +83,7 @@ describe("renderCockpitHtml — card per site", () => {
   });
 
   it("links the site name to /s/<slug> with no token (operator-only dashboard)", () => {
-    const html = renderCockpitHtml(
-      model([siteRow({ name: "CalTex", dashboardToken: "abc123" })]),
-    );
+    const html = renderCockpitHtml(model([siteRow({ name: "CalTex", dashboardToken: "abc123" })]));
     expect(html).toContain('href="/s/caltex"');
     expect(html).not.toContain("?t=");
   });
@@ -273,5 +271,43 @@ describe("renderCockpitHtml — summary bar", () => {
       ),
     );
     expect(html).toMatch(/3[^<]*vuln/i); // criticalHighVulns = 3
+  });
+});
+
+describe("renderCockpitHtml — approve strip", () => {
+  it("renders an approve button per pending report, mirroring the per-site endpoint", () => {
+    const m = buildCockpitModel(
+      [siteRow({ id: "recSITE", name: "Acme Co" })],
+      [
+        {
+          id: "r1",
+          siteId: "recSITE",
+          reportType: "Maintenance",
+          period: "2026-05",
+          periodStart: null,
+          periodEnd: null,
+          gaUsersCurrent: null,
+          gaUsersPrevious: null,
+          draftReady: true,
+          approvedToSend: false,
+          sentAt: null,
+          deliveryStatus: "pending",
+        } as never,
+      ],
+      {},
+      BASE,
+      NOW,
+    );
+    const html = renderCockpitHtml(m);
+    expect(html).toContain("Acme Co");
+    expect(html).toContain('data-approve-url="/api/reports/r1/approve"');
+    expect(html).toContain('class="approve"');
+    expect(html).toMatch(/your daily yes|approve \(1\)/i);
+  });
+
+  it("renders no approve strip when nothing is pending", () => {
+    const html = renderCockpitHtml(model([siteRow()]));
+    // No rendered strip element (the .approve-strip CSS in STYLES is always present).
+    expect(html).not.toContain('<section class="approve-strip"');
   });
 });
