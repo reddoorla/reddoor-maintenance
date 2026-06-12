@@ -77,6 +77,6 @@ export { selfPackageVersion, selfCaretRange } from "./util/self-version.js";
 
 export {
   renderSiteDashboardHtml,
-  renderFleetHomeHtml,
+  renderCockpitHtml,
   verifyBasicAuth,
 } from "./dashboard/index.js";

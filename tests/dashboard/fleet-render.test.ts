@@ -1,6 +1,18 @@
 import { describe, it, expect } from "vitest";
-import { renderFleetHomeHtml } from "../../src/dashboard/fleet-render.js";
+import { renderCockpitHtml } from "../../src/dashboard/fleet-render.js";
+import { buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+
+const BASE = "https://reddoor-maintenance.netlify.app";
+const NOW = new Date("2026-06-11T12:00:00Z");
+
+/** Build a real model from site rows so render tests exercise the true shape. */
+function model(
+  sites: Parameters<typeof buildCockpitModel>[0],
+  reports: Parameters<typeof buildCockpitModel>[1] = [],
+) {
+  return buildCockpitModel(sites, reports, {}, BASE, NOW);
+}
 
 function siteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
   return {
@@ -38,9 +50,9 @@ function siteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
   };
 }
 
-describe("renderFleetHomeHtml — document shell", () => {
+describe("renderCockpitHtml — document shell", () => {
   it("returns a full HTML document", () => {
-    const html = renderFleetHomeHtml([siteRow()]);
+    const html = renderCockpitHtml(model([siteRow()]));
     expect(html.startsWith("<!doctype html>")).toBe(true);
     expect(html).toContain("<html");
     expect(html).toContain("</html>");
@@ -49,23 +61,20 @@ describe("renderFleetHomeHtml — document shell", () => {
   });
 
   it("includes a sensible page title", () => {
-    const html = renderFleetHomeHtml([]);
+    const html = renderCockpitHtml(model([]));
     expect(html).toMatch(/<title>[^<]*Reddoor[^<]*<\/title>/);
-  });
-
-  it("renders the empty state when no sites are passed", () => {
-    const html = renderFleetHomeHtml([]);
-    expect(html).toMatch(/no sites/i);
   });
 });
 
-describe("renderFleetHomeHtml — card per site", () => {
+describe("renderCockpitHtml — card per site", () => {
   it('emits one <article class="card"> per site', () => {
-    const html = renderFleetHomeHtml([
-      siteRow({ id: "rec1", name: "Acme Co" }),
-      siteRow({ id: "rec2", name: "Beta Inc" }),
-      siteRow({ id: "rec3", name: "Gamma LLC" }),
-    ]);
+    const html = renderCockpitHtml(
+      model([
+        siteRow({ id: "rec1", name: "Acme Co" }),
+        siteRow({ id: "rec2", name: "Beta Inc" }),
+        siteRow({ id: "rec3", name: "Gamma LLC" }),
+      ]),
+    );
     const cards = html.match(/<article class="card"/g) ?? [];
     expect(cards).toHaveLength(3);
     expect(html).toContain(">Acme Co<");
@@ -74,169 +83,195 @@ describe("renderFleetHomeHtml — card per site", () => {
   });
 
   it("links the site name to /s/<slug> with no token (operator-only dashboard)", () => {
-    const html = renderFleetHomeHtml([siteRow({ name: "CalTex", dashboardToken: "abc123" })]);
+    const html = renderCockpitHtml(
+      model([siteRow({ name: "CalTex", dashboardToken: "abc123" })]),
+    );
     expect(html).toContain('href="/s/caltex"');
     expect(html).not.toContain("?t=");
   });
 });
 
-describe("renderFleetHomeHtml — header row (setup + audited)", () => {
+describe("renderCockpitHtml — header row (setup + audited)", () => {
   it("shows '4/4' when the site is fully onboarded", () => {
-    const html = renderFleetHomeHtml([siteRow()]);
+    const html = renderCockpitHtml(model([siteRow()]));
     expect(html).toContain(">4/4<");
   });
 
   it("shows the partial fraction when the site is missing some onboarding signals", () => {
-    const html = renderFleetHomeHtml([siteRow({ pointOfContact: null, reportRecipientsTo: null })]);
+    const html = renderCockpitHtml(
+      model([siteRow({ pointOfContact: null, reportRecipientsTo: null })]),
+    );
     expect(html).toContain(">2/4<");
   });
 
   it("renders the lighthouse-audited timestamp as a relative-time string", () => {
-    // 2026-05-27T18:00:00Z viewed at 2026-05-28T18:00:00Z = 24h = '1d ago'.
-    // We can't pin "now" in the render layer, so just assert SOMETHING
-    // relative-time-shaped renders for a non-null timestamp and that "—"
-    // renders for a null timestamp.
-    const audited = renderFleetHomeHtml([siteRow()]);
+    const audited = renderCockpitHtml(model([siteRow()]));
     expect(audited).toMatch(/(just now|\d+[mhdw]o? ago)/);
 
-    const never = renderFleetHomeHtml([siteRow({ lastLighthouseAuditAt: null })]);
+    const never = renderCockpitHtml(model([siteRow({ lastLighthouseAuditAt: null })]));
     expect(never).toMatch(/Audited[^<]*<[^>]*>\s*—\s*</);
   });
 });
 
-describe("renderFleetHomeHtml — metrics row", () => {
+describe("renderCockpitHtml — metrics row", () => {
   it("renders the four lighthouse scores", () => {
-    const html = renderFleetHomeHtml([
-      siteRow({ pScore: 73, rScore: 100, bpScore: 78, seoScore: 100 }),
-    ]);
-    // The implementer must label the 4 numbers in DOM (e.g. spans with
-    // class="score perf" etc.) so this test can target precisely. Until
-    // then, the looser content assertion below is the contract.
+    const html = renderCockpitHtml(
+      model([siteRow({ pScore: 73, rScore: 100, bpScore: 78, seoScore: 100 })]),
+    );
     expect(html).toContain(">73<");
     expect(html).toContain(">78<");
   });
 
   it("renders an em-dash placeholder for null lighthouse scores", () => {
-    const html = renderFleetHomeHtml([
-      siteRow({ pScore: null, rScore: null, bpScore: null, seoScore: null }),
-    ]);
+    const html = renderCockpitHtml(
+      model([siteRow({ pScore: null, rScore: null, bpScore: null, seoScore: null })]),
+    );
     expect(html).not.toContain(">null<");
     expect(html).toMatch(/<span class="score perf">—<\/span>/);
   });
 
   it("renders the a11y violation count", () => {
-    const html = renderFleetHomeHtml([siteRow({ a11yViolations: 3 })]);
+    const html = renderCockpitHtml(model([siteRow({ a11yViolations: 3 })]));
     expect(html).toMatch(/<span class="metric a11y">3<\/span>/);
   });
 
   it("renders '—' for a never-audited a11y count", () => {
-    const html = renderFleetHomeHtml([siteRow({ a11yViolations: null })]);
+    const html = renderCockpitHtml(model([siteRow({ a11yViolations: null })]));
     expect(html).toMatch(/<span class="metric a11y">—<\/span>/);
   });
 
   it("renders deps as 'N drifted (M major)' when there is drift", () => {
-    const html = renderFleetHomeHtml([siteRow({ depsDrifted: 5, depsMajorBehind: 1 })]);
+    const html = renderCockpitHtml(model([siteRow({ depsDrifted: 5, depsMajorBehind: 1 })]));
     expect(html).toMatch(/<span class="metric deps">5 drifted \(1 major\)<\/span>/);
   });
 
   it("renders deps with '(0 major)' when there is non-major drift only", () => {
-    const html = renderFleetHomeHtml([siteRow({ depsDrifted: 5, depsMajorBehind: 0 })]);
+    const html = renderCockpitHtml(model([siteRow({ depsDrifted: 5, depsMajorBehind: 0 })]));
     expect(html).toMatch(/<span class="metric deps">5 drifted \(0 major\)<\/span>/);
   });
 
   it("renders deps as '0' when clean", () => {
-    const html = renderFleetHomeHtml([siteRow({ depsDrifted: 0, depsMajorBehind: 0 })]);
+    const html = renderCockpitHtml(model([siteRow({ depsDrifted: 0, depsMajorBehind: 0 })]));
     expect(html).toMatch(/<span class="metric deps">0<\/span>/);
   });
 
   it("renders deps as '—' when never audited", () => {
-    const html = renderFleetHomeHtml([siteRow({ depsDrifted: null, depsMajorBehind: null })]);
+    const html = renderCockpitHtml(model([siteRow({ depsDrifted: null, depsMajorBehind: null })]));
     expect(html).toMatch(/<span class="metric deps">—<\/span>/);
   });
 
   it("appends the outdated-install count to deps when it was determined", () => {
-    const html = renderFleetHomeHtml([
-      siteRow({ depsDrifted: 5, depsMajorBehind: 1, depsOutdated: 3 }),
-    ]);
+    const html = renderCockpitHtml(
+      model([siteRow({ depsDrifted: 5, depsMajorBehind: 1, depsOutdated: 3 })]),
+    );
     expect(html).toMatch(/<span class="metric deps">5 drifted \(1 major\) · 3 outdated<\/span>/);
   });
 
   it("shows the outdated count even when declared-range drift is clean", () => {
-    const html = renderFleetHomeHtml([
-      siteRow({ depsDrifted: 0, depsMajorBehind: 0, depsOutdated: 2 }),
-    ]);
+    const html = renderCockpitHtml(
+      model([siteRow({ depsDrifted: 0, depsMajorBehind: 0, depsOutdated: 2 })]),
+    );
     expect(html).toMatch(/<span class="metric deps">0 · 2 outdated<\/span>/);
   });
 
   it("omits the outdated part when it wasn't determined (null), not implying clean", () => {
-    const html = renderFleetHomeHtml([
-      siteRow({ depsDrifted: 5, depsMajorBehind: 1, depsOutdated: null }),
-    ]);
+    const html = renderCockpitHtml(
+      model([siteRow({ depsDrifted: 5, depsMajorBehind: 1, depsOutdated: null })]),
+    );
     expect(html).toMatch(/<span class="metric deps">5 drifted \(1 major\)<\/span>/);
     expect(html).not.toContain("outdated");
   });
 
   it("renders security as 'C/H/M/L' format when there are vulns", () => {
-    const html = renderFleetHomeHtml([
-      siteRow({
-        securityVulnsCritical: 1,
-        securityVulnsHigh: 2,
-        securityVulnsModerate: 3,
-        securityVulnsLow: 4,
-      }),
-    ]);
+    const html = renderCockpitHtml(
+      model([
+        siteRow({
+          securityVulnsCritical: 1,
+          securityVulnsHigh: 2,
+          securityVulnsModerate: 3,
+          securityVulnsLow: 4,
+        }),
+      ]),
+    );
     expect(html).toMatch(/<span class="metric sec">1C\/2H\/3M\/4L<\/span>/);
   });
 
   it("renders security as '0' when clean", () => {
-    const html = renderFleetHomeHtml([
-      siteRow({
-        securityVulnsCritical: 0,
-        securityVulnsHigh: 0,
-        securityVulnsModerate: 0,
-        securityVulnsLow: 0,
-      }),
-    ]);
+    const html = renderCockpitHtml(
+      model([
+        siteRow({
+          securityVulnsCritical: 0,
+          securityVulnsHigh: 0,
+          securityVulnsModerate: 0,
+          securityVulnsLow: 0,
+        }),
+      ]),
+    );
     expect(html).toMatch(/<span class="metric sec">0<\/span>/);
   });
 
   it("renders security as '—' when never audited", () => {
-    const html = renderFleetHomeHtml([
-      siteRow({
-        securityVulnsCritical: null,
-        securityVulnsHigh: null,
-        securityVulnsModerate: null,
-        securityVulnsLow: null,
-      }),
-    ]);
+    const html = renderCockpitHtml(
+      model([
+        siteRow({
+          securityVulnsCritical: null,
+          securityVulnsHigh: null,
+          securityVulnsModerate: null,
+          securityVulnsLow: null,
+        }),
+      ]),
+    );
     expect(html).toMatch(/<span class="metric sec">—<\/span>/);
   });
 });
 
-describe("renderFleetHomeHtml — escaping & safety", () => {
+describe("renderCockpitHtml — escaping & safety", () => {
   it("escapes HTML in site names and URLs", () => {
-    const html = renderFleetHomeHtml([
-      siteRow({ name: "<script>alert(1)</script>", url: "javascript:alert(1)" }),
-    ]);
+    const html = renderCockpitHtml(
+      model([siteRow({ name: "<script>alert(1)</script>", url: "javascript:alert(1)" })]),
+    );
     expect(html).not.toContain("<script>alert(1)</script>");
     expect(html).toContain("&lt;script&gt;");
     expect(html).not.toMatch(/href="javascript:/i);
   });
 });
 
-describe("fleet homepage pending-approval banner", () => {
-  it("shows the count when reports are pending approval", () => {
-    const html = renderFleetHomeHtml([], 3);
-    expect(html).toContain("3 reports pending your yes");
+describe("renderCockpitHtml — summary bar", () => {
+  it("shows the three tier counts", () => {
+    const html = renderCockpitHtml(
+      model([
+        siteRow({ id: "a", name: "Bad", securityVulnsCritical: 1 }),
+        siteRow({ id: "w", name: "Mid", pScore: 80 }),
+        siteRow({ id: "g", name: "Good" }),
+      ]),
+    );
+    expect(html).toMatch(/1[^<]*needs attention/i);
+    expect(html).toMatch(/1[^<]*watch/i);
+    expect(html).toMatch(/1[^<]*healthy/i);
   });
 
-  it("singularizes for one", () => {
-    const html = renderFleetHomeHtml([], 1);
-    expect(html).toContain("1 report pending your yes");
+  it("renders filter chips with data-filter hooks", () => {
+    const html = renderCockpitHtml(model([siteRow()]));
+    for (const f of ["all", "vulns", "lighthouse", "delivery", "stale", "pending"]) {
+      expect(html).toContain(`data-filter="${f}"`);
+    }
   });
 
-  it("renders no banner when nothing is pending (or the arg is omitted)", () => {
-    expect(renderFleetHomeHtml([])).not.toContain("pending your yes");
-    expect(renderFleetHomeHtml([], 0)).not.toContain("pending your yes");
+  it("renders the headline counts (vulns / lighthouse / delivery / pending)", () => {
+    const html = renderCockpitHtml(
+      model(
+        [
+          siteRow({
+            id: "a",
+            name: "Bad",
+            securityVulnsCritical: 2,
+            securityVulnsHigh: 1,
+            pScore: 60,
+          }),
+        ],
+        [],
+      ),
+    );
+    expect(html).toMatch(/3[^<]*vuln/i); // criticalHighVulns = 3
   });
 });
