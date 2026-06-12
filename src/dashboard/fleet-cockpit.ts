@@ -1,6 +1,15 @@
 // src/dashboard/fleet-cockpit.ts
 import type { WebsiteRow } from "../reports/airtable/websites.js";
+import { siteSlug } from "../reports/airtable/websites.js";
 import type { AttentionItem } from "../reports/digest.js";
+import type { ReportRow } from "../reports/airtable/reports.js";
+import type { ReportType } from "../reports/types.js";
+import {
+  collectVulnAlerts,
+  collectDeliveryFailures,
+  collectLighthouseAlerts,
+} from "../alerts/digest-collectors.js";
+import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 
 export type Tier = "attention" | "watch" | "healthy";
@@ -52,4 +61,124 @@ export function assignTier(
   return watchReasons.length > 0
     ? { tier: "watch", watchReasons }
     : { tier: "healthy", watchReasons: [] };
+}
+
+export type SiteCard = {
+  site: WebsiteRow;
+  tier: Tier;
+  /** This site's tagged attention items (status already set), critical-first. */
+  items: AttentionItem[];
+  /** Why the site is on Watch (empty unless tier === "watch"). */
+  watchReasons: string[];
+};
+
+export type PendingEntry = {
+  reportId: string;
+  siteName: string;
+  slug: string;
+  reportType: ReportType;
+  period: string;
+};
+
+export type CockpitSummary = {
+  attention: number;
+  watch: number;
+  healthy: number;
+  criticalHighVulns: number;
+  lighthouseBelowFloor: number;
+  deliveryFailures: number;
+  pending: number;
+};
+
+export type CockpitModel = {
+  summary: CockpitSummary;
+  /** All visible sites, ordered: attention (worst-first) → watch (A-Z) → healthy (A-Z). */
+  cards: SiteCard[];
+  pending: PendingEntry[];
+};
+
+const SEVERITY_RANK: Record<AttentionItem["severity"], number> = { critical: 0, warning: 1 };
+const TIER_RANK: Record<Tier, number> = { attention: 0, watch: 1, healthy: 2 };
+
+/**
+ * Assemble the render-ready cockpit model from already-fetched Airtable rows. PURE
+ * (`now` injected). Filters to dashboardToken-visible sites, runs the M5 collectors
+ * over them, tags NEW/WORSE via diffAttention against the prior digest snapshot
+ * (READ-ONLY — the returned `next` is discarded; only the daily digest writes state),
+ * tiers each site, computes the summary, and resolves the pending-approval list.
+ */
+export function buildCockpitModel(
+  websites: WebsiteRow[],
+  reports: ReportRow[],
+  priorSnapshot: DigestSnapshot,
+  baseUrl: string,
+  now: Date,
+): CockpitModel {
+  const visible = websites.filter((w) => w.dashboardToken !== null);
+  const sitesById = new Map<string, WebsiteRow>(visible.map((w) => [w.id, w]));
+
+  const rawItems: AttentionItem[] = [
+    ...collectVulnAlerts(visible, baseUrl),
+    ...collectLighthouseAlerts(visible, baseUrl),
+    ...collectDeliveryFailures(reports, sitesById, baseUrl),
+  ];
+  // Read-only diff: tag NEW/WORSE exactly as the email does; discard `next`.
+  const { tagged } = diffAttention(rawItems, priorSnapshot, now.toISOString().slice(0, 10));
+
+  const bySite = new Map<string, AttentionItem[]>();
+  for (const it of tagged) {
+    const bucket = bySite.get(it.siteName);
+    if (bucket) bucket.push(it);
+    else bySite.set(it.siteName, [it]);
+  }
+
+  const cards: SiteCard[] = visible.map((site) => {
+    const items = (bySite.get(site.name) ?? []).sort(
+      (a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity],
+    );
+    const { tier, watchReasons } = assignTier(site, items, now);
+    return { site, tier, items, watchReasons };
+  });
+
+  cards.sort((a, b) => {
+    if (TIER_RANK[a.tier] !== TIER_RANK[b.tier]) return TIER_RANK[a.tier] - TIER_RANK[b.tier];
+    if (a.tier === "attention") {
+      const sevA = a.items.some((i) => i.severity === "critical") ? 0 : 1;
+      const sevB = b.items.some((i) => i.severity === "critical") ? 0 : 1;
+      if (sevA !== sevB) return sevA - sevB;
+      const metA = a.items.reduce((s, i) => s + i.metric, 0);
+      const metB = b.items.reduce((s, i) => s + i.metric, 0);
+      if (metA !== metB) return metB - metA;
+    }
+    return a.site.name.toLowerCase().localeCompare(b.site.name.toLowerCase());
+  });
+
+  const pending: PendingEntry[] = [];
+  // Mirror listPendingApproval's predicate. Resolve against ALL websites (a pending
+  // approval is never dropped just because the site is hidden from the fleet view).
+  const allById = new Map<string, WebsiteRow>(websites.map((w) => [w.id, w]));
+  for (const r of reports) {
+    if (!(r.draftReady && !r.approvedToSend && r.sentAt === null)) continue;
+    const s = allById.get(r.siteId);
+    if (!s) continue; // orphan → skip rather than render a broken link
+    pending.push({
+      reportId: r.id,
+      siteName: s.name,
+      slug: siteSlug(s.name),
+      reportType: r.reportType,
+      period: r.period ?? "—",
+    });
+  }
+
+  const summary: CockpitSummary = {
+    attention: cards.filter((c) => c.tier === "attention").length,
+    watch: cards.filter((c) => c.tier === "watch").length,
+    healthy: cards.filter((c) => c.tier === "healthy").length,
+    criticalHighVulns: tagged.filter((i) => i.kind === "vuln").reduce((s, i) => s + i.metric, 0),
+    lighthouseBelowFloor: tagged.filter((i) => i.kind === "lighthouse").length,
+    deliveryFailures: tagged.filter((i) => i.kind === "delivery").length,
+    pending: pending.length,
+  };
+
+  return { summary, cards, pending };
 }
