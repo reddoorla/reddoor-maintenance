@@ -93,6 +93,18 @@ jobs:
             exit 1
           fi
 
+      # M4 slice 2a: sweep three GitHub-sourced signals (Renovate-failing-CI count,
+      # default-branch CI state, last-commit date) per repo-backed site into Airtable
+      # so the cockpit reads them with zero request-path GitHub calls. `if: always()`
+      # so a Lighthouse flake never skips the GitHub sweep.
+      - name: Sweep GitHub signals to Airtable
+        if: always()
+        env:
+          AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
+          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+          RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+        run: node dist/cli/bin.js github-signals --fleet --write-airtable
+
       # M5 alerting (MEDIUM-I): a red nightly is otherwise only GitHub's best-effort
       # email to the last pusher. File/reopen a single deduped tracking issue so a
       # failure is durably visible, and auto-close it once the run goes green again.
