@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import type { ReportType, LighthouseScores } from "./types.js";
 import { renderReportHtml } from "./render.js";
 import { siteSlug } from "./airtable/websites.js";
+import { resolveCopy } from "./copy.js";
 import type { WebsiteRow } from "./airtable/websites.js";
 import type { ReportRow } from "./airtable/reports.js";
 import { createDraft, setDraftReady, listReportsForSite } from "./airtable/reports.js";
@@ -117,6 +118,7 @@ export async function draftReportForSite(
     searchPosition: search?.foundOnPage1 ? (search.position ?? undefined) : undefined,
     lastTestedDate,
     commentary: null,
+    copy: resolveCopy(siteRow),
     headerImageCid: cidName,
   });
 

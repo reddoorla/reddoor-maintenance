@@ -5,6 +5,7 @@ import type { WebsiteRow } from "../airtable/websites.js";
 import type { ReportRow } from "../airtable/reports.js";
 import { fetchAttachmentBytes } from "../airtable/attachments.js";
 import { renderReportHtml } from "../render.js";
+import { resolveCopy } from "../copy.js";
 import { loadBundledImages } from "../maintenance-email/assets/index.js";
 import { prepareHeaderImage } from "../maintenance-email/header-image.js";
 import { defaultResendClient, type ResendClient, type ResendSendInput } from "./resend.js";
@@ -123,6 +124,7 @@ async function sendOne(
       report.searchFoundPage1 && report.searchPosition !== null ? report.searchPosition : undefined,
     lastTestedDate: report.lastTestedDate ? new Date(report.lastTestedDate) : null,
     commentary: report.commentary,
+    copy: resolveCopy(site),
     headerImageCid: cidName,
     headerWidth: header.displayWidth,
     headerHeight: header.displayHeight,
