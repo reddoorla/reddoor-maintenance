@@ -52,16 +52,22 @@ function override(v: string | null): string | null {
  * overrides applied. Only maintenanceIntro/contact/footer are per-site (M6a §2);
  * everything else is the shared default. PURE.
  */
+/** Split an operator override into lines: tolerate CRLF, drop blank lines (a stray
+ *  blank in the Airtable cell shouldn't render an empty address row). */
+function splitLines(s: string): string[] {
+  return s.split(/\r?\n/).filter((l) => l.trim().length > 0);
+}
+
 export function resolveCopy(site: WebsiteRow): ResolvedCopy {
   const intro = override(site.copyIntro);
   const contact = override(site.copyContact);
   const footer = override(site.copyFooter);
-  const footerLines = footer ? footer.split("\n") : null;
+  const footerLines = footer ? splitLines(footer) : null;
   return {
     ...DEFAULT_COPY,
     maintenanceIntro: intro ?? DEFAULT_COPY.maintenanceIntro,
-    contact: contact ? contact.split("\n") : DEFAULT_COPY.contact,
-    footerOrg: footerLines ? (footerLines[0] ?? DEFAULT_COPY.footerOrg) : DEFAULT_COPY.footerOrg,
+    contact: contact ? splitLines(contact) : DEFAULT_COPY.contact,
+    footerOrg: footerLines?.[0] ?? DEFAULT_COPY.footerOrg,
     footerAddress: footerLines ? footerLines.slice(1) : DEFAULT_COPY.footerAddress,
   };
 }

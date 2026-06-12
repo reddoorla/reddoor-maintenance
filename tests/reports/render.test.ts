@@ -250,4 +250,24 @@ describe("renderReportHtml", () => {
     expect(html).toContain("ZZZ-CUSTOM-INTRO");
     expect(html).not.toContain(DEFAULT_COPY.maintenanceIntro);
   });
+
+  // The closing contact block is operator-overridable copy, so ALL of it (default
+  // and override alike) is now HTML-escaped — the default apostrophe renders as its
+  // entity. Pins the intended escaping (pre-M6a the default rendered a raw '; the
+  // glyph is visually identical). Without this the byte change would be unpinned.
+  it("renders the default contact block, HTML-escaped (no raw apostrophe)", async () => {
+    const { html } = await renderReportHtml(baseData());
+    expect(html).toContain("here to help in any way we can.");
+    expect(html).toContain("Just hit reply.");
+    expect(html).not.toContain("We're here to help"); // the raw ' is escaped to an entity
+  });
+
+  it("escapes a per-site contact override (operator text is safe in strict MJML)", async () => {
+    const { html } = await renderReportHtml({
+      ...baseData(),
+      copy: { ...DEFAULT_COPY, contact: ["Reach us at <a> & co"] },
+    });
+    expect(html).toContain("Reach us at &lt;a&gt; &amp; co");
+    expect(html).not.toContain("Reach us at <a> & co");
+  });
 });

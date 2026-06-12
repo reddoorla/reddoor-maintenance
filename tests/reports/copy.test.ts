@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_COPY, resolveCopy, type ResolvedCopy } from "../../src/reports/copy.js";
+import { DEFAULT_COPY, resolveCopy } from "../../src/reports/copy.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 
 // Minimal WebsiteRow with the 3 copy override fields; controller provides the full factory.
