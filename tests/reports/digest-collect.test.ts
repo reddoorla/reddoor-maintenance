@@ -2,32 +2,21 @@ import { describe, it, expect, vi } from "vitest";
 import { collectAttention } from "../../src/reports/digest.js";
 import { listWebsites } from "../../src/reports/airtable/websites.js";
 import { listAllReports } from "../../src/reports/airtable/reports.js";
-import type { OpenPullRequestsProbe } from "../../src/alerts/renovate.js";
-import type { PullRequestSummary } from "../../src/github/gh.js";
 import { makeFakeBase, type FakeRecord } from "./_helpers/fake-airtable-base.js";
 
 const BASE_URL = "https://reddoor-maintenance.netlify.app";
 
-function failingRenovatePR(over: Partial<PullRequestSummary> = {}): PullRequestSummary {
-  return {
-    number: 7,
-    title: "chore(deps): bump vite to 7.1.0",
-    url: "https://github.com/reddoorla/acme/pull/7",
-    headRef: "renovate/npm-vite",
-    ciState: "failing",
-    ...over,
-  };
-}
-
-/** A site row carrying a Git repo, so the renovate sweep includes it. */
-function repoSite(over: Partial<FakeRecord["fields"]> = {}): FakeRecord {
+/** A site row carrying the nightly-persisted GitHub-signal fields the renovate/ci
+ *  collectors read (NOT a live sweep — those fields are written by github-signals). */
+function signalSite(over: Partial<FakeRecord["fields"]> = {}): FakeRecord {
   return {
     id: "rec_site_acme",
     fields: {
       Name: "Acme Co",
       url: "https://acme.example.com",
       "Security Vulns Critical": 2,
-      "Git repo": "reddoorla/acme",
+      "Renovate Failing CIs": 1,
+      "Default Branch CI": "failing",
       ...over,
     },
   };
@@ -101,44 +90,34 @@ describe("collectAttention", () => {
     vi.restoreAllMocks();
   });
 
-  it("sweeps Renovate when a probe is injected: a failing PR appears alongside vuln + delivery", async () => {
-    const base = makeFakeBase({ Reports: [bouncedReport()], Websites: [repoSite()] });
-    const renovateProbe: OpenPullRequestsProbe = async (repo) =>
-      repo === "reddoorla/acme" ? [failingRenovatePR()] : [];
-    const items = await collectAttention({ base, baseUrl: BASE_URL, renovateProbe });
+  it("emits renovate + ci items from the PERSISTED fields, keyed by siteId (cockpit-aligned)", async () => {
+    // The github-signals nightly sweep persists `Renovate Failing CIs` + `Default
+    // Branch CI`; the digest reads those, NOT a live GitHub sweep. The keys are
+    // `renovate:<siteId>` / `ci:<siteId>` — the SAME keys buildCockpitModel emits,
+    // which is what lets the shared Digest State snapshot badge NEW/WORSE correctly.
+    const base = makeFakeBase({ Reports: [bouncedReport()], Websites: [signalSite()] });
+    const items = await collectAttention({ base, baseUrl: BASE_URL });
     const keys = items.map((i) => i.key).sort();
     expect(keys).toContain("vuln:rec_site_acme");
     expect(keys).toContain("delivery:rec_report_bounced");
-    expect(keys).toContain("renovate:reddoorla/acme#7");
+    expect(keys).toContain("renovate:rec_site_acme");
+    expect(keys).toContain("ci:rec_site_acme");
     const ren = items.find((i) => i.kind === "renovate")!;
-    expect(ren.title).toBe("Renovate update failing CI: chore(deps): bump vite to 7.1.0");
+    expect(ren.title).toBe("1 Renovate PR failing CI");
     expect(ren.severity).toBe("warning");
+    const ci = items.find((i) => i.kind === "ci")!;
+    expect(ci.title).toBe("Default-branch CI failing");
   });
 
-  it("emits NO renovate items when no probe is injected (no-token path)", async () => {
-    const base = makeFakeBase({ Reports: [bouncedReport()], Websites: [repoSite()] });
+  it("emits NO renovate/ci items for a site whose persisted fields are clean/absent", async () => {
+    // No "Renovate Failing CIs" / "Default Branch CI" → null → both collectors skip.
+    const base = makeFakeBase({ Reports: [bouncedReport()], Websites: [vulnSite()] });
     const items = await collectAttention({ base, baseUrl: BASE_URL });
     expect(items.some((i) => i.kind === "renovate")).toBe(false);
+    expect(items.some((i) => i.kind === "ci")).toBe(false);
     // The other collectors still contribute.
     expect(items.some((i) => i.kind === "vuln")).toBe(true);
     expect(items.some((i) => i.kind === "delivery")).toBe(true);
-  });
-
-  it("adapts WebsiteRow→Site: a site with null gitRepo is skipped by the detector (no probe call for it)", async () => {
-    // Acme has a repo; Beta has no "Git repo" → gitRepo null → must not be probed.
-    const beta: FakeRecord = {
-      id: "rec_site_beta",
-      fields: { Name: "Beta Ltd", url: "https://beta.example.com" },
-    };
-    const base = makeFakeBase({ Reports: [], Websites: [repoSite(), beta] });
-    const probed: string[] = [];
-    const renovateProbe: OpenPullRequestsProbe = async (repo) => {
-      probed.push(repo);
-      return [failingRenovatePR()];
-    };
-    const items = await collectAttention({ base, baseUrl: BASE_URL, renovateProbe });
-    expect(probed).toEqual(["reddoorla/acme"]); // beta (null gitRepo) never probed
-    expect(items.some((i) => i.key === "renovate:reddoorla/acme#7")).toBe(true);
   });
 
   it("issues ZERO Reports/Websites selects when both arrays are pre-fetched (dedup seam)", async () => {
@@ -162,19 +141,36 @@ describe("collectAttention", () => {
     expect(keys).toContain("delivery:rec_report_bounced");
   });
 
-  it("isolates a renovate-probe outage: a throwing probe yields no renovate items + warns; vuln/delivery unaffected", async () => {
-    const base = makeFakeBase({ Reports: [bouncedReport()], Websites: [repoSite()] });
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const renovateProbe: OpenPullRequestsProbe = async () => {
-      throw new Error("gh graphql 502");
-    };
-    const items = await collectAttention({ base, baseUrl: BASE_URL, renovateProbe });
-    // A single-site sweep whose only repo throws → that repo is `skipped`, so the
-    // sweep returns a `renovate:skipped` note (not a hard collector failure). The
-    // other collectors are untouched.
-    expect(items.some((i) => i.kind === "vuln")).toBe(true);
-    expect(items.some((i) => i.kind === "delivery")).toBe(true);
-    expect(items.find((i) => i.key === "renovate:skipped")).toBeDefined();
-    warn.mockRestore();
+  it("digest and cockpit produce the SAME renovate/ci keys for one site (key-space pinned)", async () => {
+    // The crux of the fix: the digest path (collectAttention) and the cockpit path
+    // (buildCockpitModel) must emit IDENTICAL diff keys for the same site, so the
+    // Digest State snapshot the digest writes lets the cockpit badge NEW/WORSE. If
+    // these key-spaces ever diverge again, this assertion breaks.
+    const siteId = "rec_site_acme";
+    const base = makeFakeBase({
+      Reports: [],
+      Websites: [
+        signalSite({
+          // dashboardToken makes the site cockpit-visible
+          "Dashboard Token": "tok_acme",
+          "Renovate Failing CIs": 2,
+          "Default Branch CI": "failing",
+        }),
+      ],
+    });
+    const digestItems = await collectAttention({ base, baseUrl: BASE_URL });
+
+    // Same fake rows → cockpit path.
+    const websites = await listWebsites(base);
+    const { buildCockpitModel } = await import("../../src/dashboard/fleet-cockpit.js");
+    const cockpit = buildCockpitModel(websites, [], {}, BASE_URL, new Date());
+    const cockpitKeys = cockpit.cards.flatMap((c) => c.items.map((i) => i.key));
+
+    // The digest must emit renovate:<siteId> and ci:<siteId> for this site …
+    expect(digestItems.map((i) => i.key)).toContain(`renovate:${siteId}`);
+    expect(digestItems.map((i) => i.key)).toContain(`ci:${siteId}`);
+    // … and those must be the EXACT keys the cockpit produces for the same site.
+    expect(cockpitKeys).toContain(`renovate:${siteId}`);
+    expect(cockpitKeys).toContain(`ci:${siteId}`);
   });
 });

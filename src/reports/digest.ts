@@ -9,12 +9,10 @@ import {
   collectVulnAlerts,
   collectDeliveryFailures,
   collectLighthouseAlerts,
-  renovateFindingsToAttention,
-  buildRenovateProbe,
+  collectRenovateAlerts,
+  collectCiAlerts,
 } from "../alerts/digest-collectors.js";
-import { collectRenovateFailures, type OpenPullRequestsProbe } from "../alerts/renovate.js";
 import { diffAttention, readDigestState, writeDigestState } from "../alerts/digest-state.js";
-import type { Site } from "../types.js";
 
 /** One report awaiting the operator's "yes" — site, type, period, and a link to its
  *  dashboard page (the digest LINKS to the dashboard; it never carries the approve action,
@@ -208,9 +206,6 @@ export type CollectAttentionDeps = {
   base: AirtableBase;
   /** Same baseUrl value runDigest threads; used for the /s/<slug> links. */
   baseUrl: string;
-  /** Live GitHub probe for the Renovate-failing-CI sweep. When omitted (e.g. a
-   *  local/no-token run), the renovate sweep is skipped entirely. */
-  renovateProbe?: OpenPullRequestsProbe;
   /** Pre-fetched Websites rows. When supplied (runDigest already read them),
    *  collectAttention reuses them instead of issuing a second `listWebsites`. */
   websites?: WebsiteRow[];
@@ -230,53 +225,32 @@ function runCollector(label: string, fn: () => AttentionItem[]): AttentionItem[]
   }
 }
 
-/** Async sibling of runCollector for the renovate sweep (a GitHub fetch): a thrown
- *  collector logs and yields [] so a GH outage never blanks the whole section. */
-async function runCollectorAsync(
-  label: string,
-  fn: () => Promise<AttentionItem[]>,
-): Promise<AttentionItem[]> {
-  try {
-    return await fn();
-  } catch (e) {
-    console.warn(`⚠ attention collector "${label}" failed: ${(e as Error).message}`);
-    return [];
-  }
-}
-
 /**
  * Fetch the free signals once (listAllReports + listWebsites) — or reuse the
  * `reports`/`websites` arrays runDigest already read, so a single run reads each
  * table once — build the sitesById map the delivery collector needs, and run each
- * pure collector isolated. When a `renovateProbe` is supplied, also sweep the
- * fleet for Renovate update PRs failing CI (adapting the WebsiteRow[] to the
- * minimal Site shape the detector needs). Returns the union of items;
- * diffing/badging happens in runDigest.
+ * pure collector isolated. Returns the union of items; diffing/badging happens in
+ * runDigest.
+ *
+ * The Renovate + CI signals come from the SAME persisted collectors the operator
+ * cockpit (`buildCockpitModel`) runs — `collectRenovateAlerts` (key
+ * `renovate:<siteId>`) and `collectCiAlerts` (key `ci:<siteId>`), reading the
+ * nightly-persisted `renovateFailingCis`/`defaultBranchCi` fields. This is the
+ * key-space unification: because the digest writes the shared Digest State
+ * snapshot with these same keys, the cockpit's NEW/WORSE diff finds them and the
+ * two surfaces agree (the prior live per-PR `renovate:<repo>#<n>` sweep never
+ * matched the cockpit's keys, so its cards badged NEW forever).
  */
 export async function collectAttention(deps: CollectAttentionDeps): Promise<AttentionItem[]> {
   const reports = deps.reports ?? (await listAllReports(deps.base));
   const websites = deps.websites ?? (await listWebsites(deps.base));
   const sitesById = new Map<string, WebsiteRow>(websites.map((w) => [w.id, w]));
-  const renovate = deps.renovateProbe
-    ? await runCollectorAsync("renovate", async () => {
-        // Adapt WebsiteRow → the minimal Site shape the detector reads. A null
-        // gitRepo is OMITTED (exactOptionalPropertyTypes forbids an explicit
-        // `undefined`); the detector's `if (!repo) continue` skips it either way.
-        const sites: Site[] = websites.map((w) => ({
-          path: "",
-          name: w.name,
-          meta: {},
-          ...(w.gitRepo ? { gitRepo: w.gitRepo } : {}),
-        }));
-        const result = await collectRenovateFailures(sites, deps.renovateProbe!);
-        return renovateFindingsToAttention(result);
-      })
-    : [];
   return [
     ...runCollector("vuln", () => collectVulnAlerts(websites, deps.baseUrl)),
     ...runCollector("delivery", () => collectDeliveryFailures(reports, sitesById, deps.baseUrl)),
     ...runCollector("lighthouse", () => collectLighthouseAlerts(websites, deps.baseUrl)),
-    ...renovate,
+    ...runCollector("renovate", () => collectRenovateAlerts(websites, deps.baseUrl)),
+    ...runCollector("ci", () => collectCiAlerts(websites, deps.baseUrl)),
   ];
 }
 
@@ -320,16 +294,14 @@ export async function runDigest(
     }
 
     // M5: collect the free signals (isolated), diff against yesterday's snapshot.
-    // The renovate sweep needs a GitHub token; `buildRenovateProbe` returns undefined
-    // on a no-token run, in which case the property is OMITTED (exactOptionalPropertyTypes)
-    // and collectAttention skips the sweep cleanly.
-    const renovateProbe = buildRenovateProbe();
+    // Renovate + CI come from the persisted collectors (the same ones the cockpit
+    // runs), so the snapshot this digest writes carries the `renovate:<siteId>` /
+    // `ci:<siteId>` keys the cockpit diffs against — no live GitHub sweep here.
     const collected = await collectAttention({
       base,
       baseUrl: options.baseUrl,
       websites,
       reports,
-      ...(renovateProbe ? { renovateProbe } : {}),
     });
     const prior = await readDigestState(base);
     const { tagged, next } = diffAttention(collected, prior, digestDateKey(today));
