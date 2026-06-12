@@ -168,6 +168,24 @@ function digestDateKey(d: Date): string {
 }
 
 /**
+ * True when a thrown send error is Resend's same-key + DIFFERENT-body 409
+ * (`invalid_idempotent_request`). The ResendClient (send/resend.ts) discards the
+ * status/name and only surfaces the message string, so we match defensively on the
+ * stable message substring "idempotency key has been used" (case-insensitive); a
+ * `name`/`statusCode` of 409/`invalid_idempotent_request` is also accepted if a
+ * future client happens to preserve it. A same-key + SAME-body re-send is deduped
+ * by Resend (returns the original id) and never reaches here.
+ */
+function isIdempotencyConflict(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  if (/idempotency key has been used/i.test(message)) return true;
+  const e = err as { name?: unknown; statusCode?: unknown };
+  if (e.name === "invalid_idempotent_request") return true;
+  if (e.statusCode === 409) return true;
+  return false;
+}
+
+/**
  * The gate for "Ready for your yes": Draft ready ∧ ¬Approved to send ∧ Sent at BLANK.
  *
  * Implemented as `listAllReports(base).filter(...)` (the authorized deviation from the plan's
@@ -335,13 +353,39 @@ export async function runDigest(
     const to = [process.env.OPERATOR_EMAIL?.trim() || DIGEST_OPERATOR_FALLBACK];
     const n = readyForYourYes.length;
     const reportWord = n === 1 ? "report" : "reports";
-    const result = await client.send({
-      from: FROM_ADDRESS,
-      to,
-      subject: `Your fleet — ${digestDateKey(today)}: ${n} ${reportWord} ready for your yes`,
-      html,
-      idempotencyKey: `digest-${digestDateKey(today)}`,
-    });
+    let result: Awaited<ReturnType<typeof client.send>>;
+    try {
+      result = await client.send({
+        from: FROM_ADDRESS,
+        to,
+        subject: `Your fleet — ${digestDateKey(today)}: ${n} ${reportWord} ready for your yes`,
+        html,
+        idempotencyKey: `digest-${digestDateKey(today)}`,
+      });
+    } catch (err) {
+      // A same-UTC-day re-run whose content changed re-sends with the same
+      // `digest-<date>` idempotency key but a DIFFERENT body. Resend rejects that
+      // with a 409 (`invalid_idempotent_request`) — "This idempotency key has been
+      // used ... but the request body was modified ...". The operator already got
+      // today's digest on the first send, so re-sending a changed version same-day
+      // would just be a duplicate: treat it as an "already sent today" no-op.
+      //
+      // ResendClient (send/resend.ts) wraps the API error as a plain Error and only
+      // preserves the *message* string (no name/statusCode), so the message
+      // substring is the only reliable discriminator — match defensively on it.
+      // Any OTHER send error re-throws to the outer catch → {code:1}, so a genuine
+      // Resend/network failure still fails loudly.
+      if (isIdempotencyConflict(err)) {
+        // Do NOT write the snapshot: the first send already persisted it; writing
+        // this run's `next` would diff against the first run's snapshot and mis-badge.
+        return {
+          output:
+            "Digest already sent today (content changed since the first send) — skipped to avoid a duplicate.",
+          code: 0,
+        };
+      }
+      throw err;
+    }
     // Persist the next snapshot AFTER a successful send. A write failure is caught +
     // logged: the digest already went out, tomorrow re-news at worst. (The send-FAILURE
     // path never reaches here — the outer catch returns code 1 with no write, preserving
