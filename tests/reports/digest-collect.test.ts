@@ -61,6 +61,29 @@ describe("collectAttention", () => {
     expect(keys).toContain("delivery:rec_report_bounced");
   });
 
+  it("surfaces a low-Lighthouse-score site alongside vuln + delivery", async () => {
+    // Acme carries a critical vuln (vuln item), a bounced report (delivery item),
+    // AND a Performance score below the 75 floor (lighthouse item).
+    const acme: FakeRecord = {
+      id: "rec_site_acme",
+      fields: {
+        Name: "Acme Co",
+        url: "https://acme.example.com",
+        "Security Vulns Critical": 2,
+        pScore: 55,
+      },
+    };
+    const base = makeFakeBase({ Reports: [bouncedReport()], Websites: [acme] });
+    const items = await collectAttention({ base, baseUrl: BASE_URL });
+    const keys = items.map((i) => i.key).sort();
+    expect(keys).toContain("vuln:rec_site_acme");
+    expect(keys).toContain("delivery:rec_report_bounced");
+    expect(keys).toContain("lighthouse:rec_site_acme:performance");
+    const lh = items.find((i) => i.kind === "lighthouse")!;
+    expect(lh.title).toBe("Lighthouse Performance 55 (below 75)");
+    expect(lh.metric).toBe(45); // 100 - 55
+  });
+
   it("isolates a failing collector: a throw in one yields [] for it, the other still returns", async () => {
     const base = makeFakeBase({ Reports: [bouncedReport()], Websites: [vulnSite()] });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
