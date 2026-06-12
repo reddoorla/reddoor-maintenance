@@ -1,5 +1,6 @@
 import type { WebsiteRow } from "../reports/airtable/websites.js";
 import { siteSlug } from "../reports/airtable/websites.js";
+import type { CockpitModel, SiteCard, Tier } from "./fleet-cockpit.js";
 import { onboardingStatus } from "./onboarding.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 
@@ -122,39 +123,206 @@ h1 { margin: 0 0 0.25rem; font-size: 1.75rem; }
 .cluster.lighthouse .score { display: inline-block; min-width: 2.25rem; text-align: right; }
 .metric-label { color: #999; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
 .metric { font-feature-settings: "tnum"; }
+.summary { display:flex; flex-wrap:wrap; gap:0.5rem 1.25rem; align-items:baseline; margin-bottom:0.5rem; }
+.summary .tier { font-weight:700; }
+.summary .heads { color:#666; font-size:0.9rem; }
+.filters { display:flex; flex-wrap:wrap; gap:0.4rem; margin-bottom:1.25rem; }
+.filters button { font:inherit; font-size:0.85rem; padding:0.25rem 0.7rem; border:1px solid #ccc; border-radius:999px; background:transparent; color:inherit; cursor:pointer; }
+.filters button[aria-pressed="true"] { background:#1a1a1a; color:#fff; border-color:#1a1a1a; }
+@media (prefers-color-scheme: dark) { .filters button[aria-pressed="true"] { background:#e8e8e8; color:#111; } }
+details.tier { margin:0.75rem 0; }
+details.tier > summary { cursor:pointer; font-weight:700; font-size:1.05rem; padding:0.35rem 0; list-style:none; }
+.approve-strip { border:1px solid #ffe08a; background:#fff8e1; border-radius:8px; padding:0.75rem 1rem; margin-bottom:1.25rem; }
+@media (prefers-color-scheme: dark) { .approve-strip { background:#241f00; border-color:#5a4d00; } }
+.approve-strip h2 { font-size:1rem; margin:0 0 0.5rem; }
+.approve-row { display:flex; flex-wrap:wrap; gap:0.5rem 1rem; align-items:center; padding:0.25rem 0; }
+.pill { font-size:0.75rem; padding:0.1rem 0.5rem; border-radius:999px; font-weight:700; }
+.pill.attention { background:#fdecea; color:#b00; }
+.pill.watch { background:#fff4e5; color:#a65a00; }
+.pill.healthy { background:#e8f5e9; color:#1b7a2f; }
+.chips { display:flex; flex-wrap:wrap; gap:0.4rem; margin-top:0.5rem; }
+.chip { font-size:0.8rem; padding:0.1rem 0.5rem; border-radius:6px; background:#f0f0f0; }
+@media (prefers-color-scheme: dark) { .chip { background:#222; } }
+.chip.critical { background:#fdecea; color:#b00; }
+.badge { font-weight:700; color:#C00; font-size:0.72rem; margin-right:0.25rem; }
+.all-clear { background:#e8f5e9; color:#1b7a2f; padding:0.6rem 1rem; border-radius:8px; margin-bottom:1.25rem; font-weight:600; }
+@media (prefers-color-scheme: dark) { .all-clear { background:#10240f; color:#7fce85; } }
 `;
 
+const TIER_META: Record<Tier, { emoji: string; label: string; open: boolean }> = {
+  attention: { emoji: "🔴", label: "Needs attention", open: true },
+  watch: { emoji: "🟡", label: "Watch", open: false },
+  healthy: { emoji: "🟢", label: "Healthy", open: false },
+};
+
+const FILTERS = ["all", "vulns", "lighthouse", "delivery", "stale", "pending"] as const;
+
+function summaryBar(model: CockpitModel): string {
+  const s = model.summary;
+  const heads = [
+    `${s.criticalHighVulns} critical/high vuln${s.criticalHighVulns === 1 ? "" : "s"}`,
+    `${s.lighthouseBelowFloor} Lighthouse<75`,
+    `${s.deliveryFailures} delivery`,
+    `${s.pending} pending`,
+  ].join(" · ");
+  const chips = FILTERS.map(
+    (f) =>
+      `<button type="button" data-filter="${f}" aria-pressed="${f === "all" ? "true" : "false"}">${f}</button>`,
+  ).join("");
+  return `<div class="summary">
+      <span class="tier">🔴 ${s.attention} needs attention</span>
+      <span class="tier">🟡 ${s.watch} watch</span>
+      <span class="tier">🟢 ${s.healthy} healthy</span>
+    </div>
+    <div class="summary heads">${escapeHtml(heads)}</div>
+    <div class="filters">${chips}</div>`;
+}
+
+/** Affirmative all-clear when nothing is on the 🔴 tier (spec §5.2/§12) — so a
+ *  healthy or empty fleet reads as "all clear", not three bare "None." rows. */
+function allClearBanner(model: CockpitModel): string {
+  if (model.summary.attention > 0) return "";
+  const msg =
+    model.cards.length === 0
+      ? "No sites on the fleet view yet."
+      : "All clear — nothing needs your attention.";
+  return `<div class="all-clear">✓ ${escapeHtml(msg)}</div>`;
+}
+
+function approveStrip(model: CockpitModel): string {
+  if (model.pending.length === 0) return "";
+  const rows = model.pending
+    .map((p) => {
+      const href = `/s/${escapeHtml(p.slug)}`;
+      const url = `/api/reports/${encodeURIComponent(p.reportId)}/approve`;
+      return `<div class="approve-row" data-signal="pending">
+        <strong>${escapeHtml(p.siteName)}</strong>
+        <span class="muted">${escapeHtml(p.reportType)} ${escapeHtml(p.period)}</span>
+        <button class="approve" data-report-id="${escapeHtml(p.reportId)}" data-approve-url="${url}">Approve</button>
+        <a href="${href}">open ▸</a>
+      </div>`;
+    })
+    .join("");
+  return `<section class="approve-strip" data-tier="pending">
+    <h2>Approve (${model.pending.length}) — your daily yes</h2>
+    ${rows}
+  </section>`;
+}
+
+const PILL_LABEL: Record<Tier, string> = { attention: "failing", watch: "watch", healthy: "ok" };
+
+function attentionBadge(status?: string): string {
+  if (status === "new") return `<span class="badge">NEW</span>`;
+  if (status === "worse") return `<span class="badge">WORSE</span>`;
+  return "";
+}
+
+function chips(c: SiteCard): string {
+  const items = c.items.map((it) => {
+    const cls = it.severity === "critical" ? "chip critical" : "chip";
+    return `<span class="${cls}">${attentionBadge(it.status)}${escapeHtml(it.title)}</span>`;
+  });
+  for (const reason of c.watchReasons)
+    items.push(`<span class="chip">${escapeHtml(reason)}</span>`);
+  return items.length ? `<div class="chips">${items.join("")}</div>` : "";
+}
+
+/** Space-separated signal tags for the client filter. Attention-item kinds
+ *  ("vulns"/"lighthouse"/"delivery") plus the structured watch signals
+ *  ("lighthouse" for a sub-floor-band score, "stale" for an old audit) — so a
+ *  watch-band Lighthouse card still matches the "lighthouse" filter. */
+function signalsAttr(c: SiteCard): string {
+  const kinds = new Set<string>();
+  for (const it of c.items) kinds.add(it.kind === "vuln" ? "vulns" : it.kind);
+  for (const sig of c.watchSignals) kinds.add(sig);
+  return [...kinds].join(" ");
+}
+
+function cockpitCard(c: SiteCard): string {
+  const base = card(c.site); // existing header + metrics markup
+  const pill = `<span class="pill ${c.tier}">${PILL_LABEL[c.tier]}</span>`;
+  const extra = `${pill}${chips(c)}`;
+  const opening = `<article class="card" data-signals="${signalsAttr(c)}">`;
+  // Inject the pill + chips before the article's closing tag, and add the filter
+  // hook. Function replacers so a `$` in escaped chip text can't be read as a
+  // String.replace special ($&, $1, …).
+  return base
+    .replace('<article class="card">', () => opening)
+    .replace("</article>", () => `${extra}</article>`);
+}
+
+const FILTER_SCRIPT = `<script>
+(function(){
+  var btns = document.querySelectorAll('.filters button');
+  var cards = document.querySelectorAll('.cards .card');
+  var details = document.querySelectorAll('details.tier');
+  btns.forEach(function(b){
+    b.addEventListener('click', function(){
+      var f = b.getAttribute('data-filter');
+      btns.forEach(function(x){ x.setAttribute('aria-pressed', x===b ? 'true':'false'); });
+      // "pending" lives on the approve strip, not on tier cards — just jump to it,
+      // never hide the triage cards (else the whole board blanks).
+      if (f === 'pending') { var s = document.querySelector('.approve-strip'); if (s) s.scrollIntoView({behavior:'smooth'}); return; }
+      if (f !== 'all') details.forEach(function(d){ d.open = true; });
+      cards.forEach(function(c){
+        var sig = (c.getAttribute('data-signals')||'').split(' ');
+        c.style.display = (f==='all' || sig.indexOf(f)!==-1) ? '' : 'none';
+      });
+    });
+  });
+  // approve buttons: mirror the per-site dashboard's inline POST.
+  document.querySelectorAll('button.approve').forEach(function(b){
+    b.addEventListener('click', async function(){
+      b.disabled = true; b.textContent = 'Approving…';
+      try { var res = await fetch(b.dataset.approveUrl, { method: 'POST' });
+        b.textContent = res.ok ? 'Approved ✓' : 'Failed'; }
+      catch(e){ b.textContent = 'Failed'; b.disabled = false; }
+    });
+  });
+})();
+</script>`;
+
 /**
- * Render the fleet homepage as a single HTML document. Pure function:
- * no Airtable access, no env reads, no I/O. The Netlify function handler
- * filters Websites rows (drops anything without a dashboardToken), sorts,
- * and hands here. One <article class="card"> per site, with a header row
- * (name · url · setup · audited) and a metrics row (lighthouse · a11y · deps · sec).
+ * Render the fleet cockpit as a single HTML document. Pure function: no Airtable
+ * access, no env reads, no I/O. The Netlify function handler builds the
+ * CockpitModel (visible-site filter, tiering, NEW/WORSE badging, pending list)
+ * and hands it here. Renders the doc shell + summary bar + filter chips + pinned
+ * approve strip + three <details> tier sections of cards.
  */
-export function renderFleetHomeHtml(sites: WebsiteRow[], pendingApproval = 0): string {
-  // "N pending your yes" — the M3 daily-glance hook. Inline-styled so this stays a
-  // one-line addition; the M4 cockpit pass owns real triage styling.
-  const pendingBanner =
-    pendingApproval > 0
-      ? `<div class="pending-banner" style="background:#fff3cd;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-weight:600">&#x23F3; ${pendingApproval} report${pendingApproval === 1 ? "" : "s"} pending your yes</div>`
-      : "";
-  const body =
-    sites.length === 0
-      ? `<div class="empty">No sites to display.</div>`
-      : `<div class="cards">${sites.map(card).join("")}</div>`;
+export function renderCockpitHtml(model: CockpitModel): string {
+  const total = model.cards.length;
+  const tiers: Tier[] = ["attention", "watch", "healthy"];
+  const sections = tiers
+    .map((tier) => {
+      const cards = model.cards.filter((c) => c.tier === tier);
+      const meta = TIER_META[tier];
+      const body =
+        cards.length === 0
+          ? `<div class="empty">None.</div>`
+          : `<div class="cards">${cards.map(cockpitCard).join("")}</div>`;
+      return `<details class="tier" data-tier="${tier}"${meta.open ? " open" : ""}>
+        <summary>${meta.emoji} ${meta.label} (${cards.length})</summary>
+        ${body}
+      </details>`;
+    })
+    .join("");
 
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Reddoor maintenance — fleet</title>
+  <title>Reddoor maintenance — fleet cockpit</title>
   <style>${STYLES}</style>
 </head>
 <body>
-  <h1>Reddoor fleet</h1>
-  <div class="meta">${sites.length} site${sites.length === 1 ? "" : "s"} on the Reddoor stack.</div>
-  ${pendingBanner}${body}
+  <h1>Reddoor fleet cockpit</h1>
+  <div class="meta">${total} site${total === 1 ? "" : "s"} on the Reddoor stack.</div>
+  ${summaryBar(model)}
+  ${allClearBanner(model)}
+  ${approveStrip(model)}
+  ${sections}
+  ${FILTER_SCRIPT}
 </body>
 </html>`;
 }

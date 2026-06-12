@@ -1,8 +1,10 @@
 import type { Context, Config } from "@netlify/functions";
 import { openBase } from "../../src/reports/airtable/client.js";
 import { listWebsites } from "../../src/reports/airtable/websites.js";
-import { verifyBasicAuth, renderFleetHomeHtml } from "../../src/dashboard/index.js";
-import { listPendingApproval } from "../../src/reports/digest.js";
+import { listAllReports } from "../../src/reports/airtable/reports.js";
+import { readDigestState } from "../../src/alerts/digest-state.js";
+import { verifyBasicAuth, renderCockpitHtml } from "../../src/dashboard/index.js";
+import { buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
 
 // Owns the root path. The per-site dashboard function continues to own
 // /s/:slug; the resend-webhook function continues to own its own path.
@@ -11,6 +13,11 @@ import { listPendingApproval } from "../../src/reports/digest.js";
 // Netlify dashboard settings, so the gate ships with the code.
 export const config: Config = {
   path: ["/"],
+  rateLimit: {
+    windowSize: 60,
+    windowLimit: 60,
+    aggregateBy: ["ip"],
+  },
 };
 
 function plainText(body: string, status: number, extraHeaders: HeadersInit = {}): Response {
@@ -52,22 +59,23 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   }
 
   const base = openBase({ apiKey, baseId });
+  // Fetch the three inputs once; each defensive so one hiccup can't blank the page.
   const websites = await listWebsites(base);
-  // The Websites table tracks every project — many aren't on the Reddoor
-  // maintenance stack (deprecated, hosting-only, in-dev for other teams).
-  // dashboardToken is the explicit opt-in: only sites with a token set
-  // belong on the fleet view. Alphabetical sort for stable scan order.
-  const visible = websites
-    .filter((w) => w.dashboardToken !== null)
-    .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-  // Defensive: the homepage must still render if the Reports query hiccups.
-  // listPendingApproval already applies the draftReady ∧ ¬approvedToSend ∧
-  // sentAt===null gate — rely on its contract rather than re-filtering here.
-  let pendingCount = 0;
+  let reports: Awaited<ReturnType<typeof listAllReports>> = [];
   try {
-    pendingCount = (await listPendingApproval(base)).length;
+    reports = await listAllReports(base);
   } catch {
-    // banner simply absent — the per-site pages still show their own pending lists
+    // approve strip + delivery signals simply absent — triage still renders
   }
-  return html(renderFleetHomeHtml(visible, pendingCount), 200);
+  let prior: Awaited<ReturnType<typeof readDigestState>> = {};
+  try {
+    prior = await readDigestState(base);
+  } catch {
+    // everything badges as not-NEW (the {} initial); never crashes the page
+  }
+  const baseUrl = (
+    process.env.DASHBOARD_BASE_URL?.trim() || "https://reddoor-maintenance.netlify.app"
+  ).replace(/\/$/, "");
+  const model = buildCockpitModel(websites, reports, prior, baseUrl, new Date());
+  return html(renderCockpitHtml(model), 200);
 };

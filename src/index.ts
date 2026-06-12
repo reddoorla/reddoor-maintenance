@@ -75,8 +75,4 @@ export {
 // src/ shape (where vitest evaluates the .ts directly).
 export { selfPackageVersion, selfCaretRange } from "./util/self-version.js";
 
-export {
-  renderSiteDashboardHtml,
-  renderFleetHomeHtml,
-  verifyBasicAuth,
-} from "./dashboard/index.js";
+export { renderSiteDashboardHtml, renderCockpitHtml, verifyBasicAuth } from "./dashboard/index.js";
