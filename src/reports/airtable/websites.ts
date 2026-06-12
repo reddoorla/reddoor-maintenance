@@ -65,6 +65,10 @@ export type WebsiteRow = {
    *  A non-null value opts the site into the `/` fleet view; `null` hides it.
    *  Any truthy marker works; the value is no longer a secret. */
   dashboardToken: string | null;
+  /** Per-site copy overrides (M6a). Blank → null → the DEFAULT_COPY value. */
+  copyIntro: string | null;
+  copyContact: string | null;
+  copyFooter: string | null;
   /** GitHub-signals sweep (slice 2a), written nightly by `github-signals --fleet`. */
   renovateFailingCis: number | null;
   defaultBranchCi: string | null; // "passing" | "failing" | "pending" | "none"
@@ -77,6 +81,14 @@ export function siteSlug(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
+}
+
+/** Blank-trim-to-null: a non-string or whitespace-only value becomes null,
+ *  otherwise the trimmed string (mirrors the dashboardToken handling). */
+function trimToNull(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 // NOTE: every `f["..."]` key below is a load-bearing magic string that must match
@@ -126,6 +138,9 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
       const trimmed = raw.trim();
       return trimmed.length > 0 ? trimmed : null;
     })(),
+    copyIntro: trimToNull(f["Copy — Intro"]),
+    copyContact: trimToNull(f["Copy — Contact"]),
+    copyFooter: trimToNull(f["Copy — Footer"]),
     renovateFailingCis: (f["Renovate Failing CIs"] as number | undefined) ?? null,
     defaultBranchCi: (f["Default Branch CI"] as string | undefined) ?? null,
     lastCommitAt: (f["Last Commit At"] as string | undefined) ?? null,
