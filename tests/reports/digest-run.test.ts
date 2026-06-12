@@ -163,6 +163,23 @@ function rejectClient(message = "network error"): ResendClient {
   };
 }
 
+/**
+ * A Resend client whose send() rejects with the real idempotency-conflict error
+ * Resend returns on a same-key + DIFFERENT-body re-send within 24h. Mirrors the
+ * message ResendClient surfaces (resend.ts wraps it as `Resend error: <message>`).
+ */
+function idempotencyConflictClient(): ResendClient {
+  return {
+    async send() {
+      throw new Error(
+        "Resend error: This idempotency key has been used with this HTTP method and endpoint " +
+          "within the last 24 hours, but the request body was modified and doesn't match the " +
+          "original request.",
+      );
+    },
+  };
+}
+
 // ── listPendingApproval ──────────────────────────────────────────────────────
 
 describe("listPendingApproval", () => {
@@ -357,6 +374,51 @@ describe("runDigest", () => {
     });
     expect(result.code).toBe(1);
     expect(result.output).toBe("digest failed: network error");
+  });
+
+  // ── idempotency-conflict graceful skip ───────────────────────────────────────
+
+  it("treats a same-day Resend idempotency-conflict as a graceful skip (code 0), not a failure", async () => {
+    // Second same-UTC-day run whose content changed → Resend 409
+    // (invalid_idempotent_request). The operator already got today's digest on the
+    // first send; re-sending a changed body would just be a duplicate, so skip.
+    const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
+    const result = await runDigest({
+      base,
+      resend: idempotencyConflictClient(),
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
+    expect(result.code).toBe(0);
+    expect(result.output).toMatch(/already sent today/i);
+  });
+
+  it("does NOT write the Digest State snapshot on an idempotency-conflict skip", async () => {
+    // The FIRST send already persisted the snapshot; writing this run's `next` would
+    // diff against the first run's snapshot and mis-badge. No state write must occur.
+    const base = makeFakeBase({ Reports: [bouncedReport()], Websites: [vulnSiteRow()] });
+    const result = await runDigest({
+      base,
+      resend: idempotencyConflictClient(),
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
+    expect(result.code).toBe(0);
+    const stateWrites = base.__calls.filter(
+      (c) => c.table === "Digest State" && (c.kind === "create" || c.kind === "update"),
+    );
+    expect(stateWrites).toHaveLength(0);
+  });
+
+  it("a GENERIC send error still propagates to code 1 (must fail loudly, not skip)", async () => {
+    // A real Resend/network failure (no idempotency-key wording) must NOT be swallowed
+    // as a skip — it still falls through to the outer catch → {code:1}.
+    const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
+    const result = await runDigest({
+      base,
+      resend: rejectClient("Resend 500"),
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
+    expect(result.code).toBe(1);
+    expect(result.output).toBe("digest failed: Resend 500");
   });
 
   // ── exitCode passthrough ────────────────────────────────────────────────────
