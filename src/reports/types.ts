@@ -35,6 +35,8 @@ export type ReportData = {
   lastTestedDate: Date | null;
   /** Optional free-text rendered as a section above the footer. */
   commentary: string | null;
+  /** Resolved per-site copy (M6a). Omitted → the template falls back to DEFAULT_COPY. */
+  copy?: import("./copy.js").ResolvedCopy;
   /** Used in the header `mj-image src`; the email attaches the bytes with this CID. */
   headerImageCid: string;
   /**

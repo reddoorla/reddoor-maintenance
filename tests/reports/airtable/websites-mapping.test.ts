@@ -29,6 +29,32 @@ describe("websites/mapRow → dashboardToken", () => {
   });
 });
 
+describe("websites/mapRow → copy override fields", () => {
+  it("maps non-empty Copy — Intro/Contact/Footer (em-dash column names)", () => {
+    const r = row({
+      "Copy — Intro": "custom intro",
+      "Copy — Contact": "custom contact",
+      "Copy — Footer": "custom footer",
+    });
+    expect(r.copyIntro).toBe("custom intro");
+    expect(r.copyContact).toBe("custom contact");
+    expect(r.copyFooter).toBe("custom footer");
+  });
+
+  it("returns null when the copy fields are absent", () => {
+    const r = row({});
+    expect(r.copyIntro).toBeNull();
+    expect(r.copyContact).toBeNull();
+    expect(r.copyFooter).toBeNull();
+  });
+
+  it("trims and treats blank copy fields as null (mirrors dashboardToken)", () => {
+    expect(row({ "Copy — Intro": "" }).copyIntro).toBeNull();
+    expect(row({ "Copy — Contact": "   \n" }).copyContact).toBeNull();
+    expect(row({ "Copy — Footer": "  body  " }).copyFooter).toBe("body");
+  });
+});
+
 describe("websites/mapRow → new metric fields", () => {
   it("maps A11y Violations", () => {
     expect(row({ "A11y Violations": 3 }).a11yViolations).toBe(3);

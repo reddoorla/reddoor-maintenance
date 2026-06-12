@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { renderReportHtml } from "../../src/reports/render.js";
 import type { ReportData } from "../../src/reports/types.js";
+import { DEFAULT_COPY } from "../../src/reports/copy.js";
 
 function baseData(over: Partial<ReportData> = {}): ReportData {
   return {
@@ -236,5 +237,37 @@ describe("renderReportHtml", () => {
     const { html } = await renderReportHtml(baseData({ searchPosition: undefined }));
     expect(html).toContain("Google Indexed");
     expect(html).not.toContain("Page 1 Google Result");
+  });
+
+  // Byte-identical: a report with no `copy` renders exactly as before (the existing
+  // assertions already pin this — keep them green). Add an override check:
+  it("a per-site copy override changes only that string", async () => {
+    const base = baseData();
+    const { html } = await renderReportHtml({
+      ...base,
+      copy: { ...DEFAULT_COPY, maintenanceIntro: "ZZZ-CUSTOM-INTRO" },
+    });
+    expect(html).toContain("ZZZ-CUSTOM-INTRO");
+    expect(html).not.toContain(DEFAULT_COPY.maintenanceIntro);
+  });
+
+  // The closing contact block is operator-overridable copy, so ALL of it (default
+  // and override alike) is now HTML-escaped — the default apostrophe renders as its
+  // entity. Pins the intended escaping (pre-M6a the default rendered a raw '; the
+  // glyph is visually identical). Without this the byte change would be unpinned.
+  it("renders the default contact block, HTML-escaped (no raw apostrophe)", async () => {
+    const { html } = await renderReportHtml(baseData());
+    expect(html).toContain("here to help in any way we can.");
+    expect(html).toContain("Just hit reply.");
+    expect(html).not.toContain("We're here to help"); // the raw ' is escaped to an entity
+  });
+
+  it("escapes a per-site contact override (operator text is safe in strict MJML)", async () => {
+    const { html } = await renderReportHtml({
+      ...baseData(),
+      copy: { ...DEFAULT_COPY, contact: ["Reach us at <a> & co"] },
+    });
+    expect(html).toContain("Reach us at &lt;a&gt; &amp; co");
+    expect(html).not.toContain("Reach us at <a> & co");
   });
 });
