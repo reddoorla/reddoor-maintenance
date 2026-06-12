@@ -4,6 +4,8 @@ import {
   collectVulnAlerts,
   collectDeliveryFailures,
   collectLighthouseAlerts,
+  collectRenovateAlerts,
+  collectCiAlerts,
 } from "../../src/alerts/digest-collectors.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
@@ -314,5 +316,59 @@ describe("collectDeliveryFailures", () => {
     );
     expect(bounced[0]!.title).toMatch(/bounce/i);
     expect(complained[0]!.title).toMatch(/complaint|complained/i);
+  });
+});
+
+describe("collectRenovateAlerts (persisted field)", () => {
+  it("flags a site with failing Renovate PRs: key, kind, metric=count, warning, dashboard url", () => {
+    const items = collectRenovateAlerts(
+      [site({ id: "rec1", name: "Acme Co", renovateFailingCis: 3 })],
+      BASE,
+    );
+    expect(items).toEqual([
+      {
+        key: "renovate:rec1",
+        kind: "renovate",
+        siteName: "Acme Co",
+        title: "3 Renovate PRs failing CI",
+        url: `${BASE}/s/acme-co`,
+        severity: "warning",
+        metric: 3,
+      },
+    ]);
+  });
+
+  it("singularizes one and skips zero/null", () => {
+    expect(collectRenovateAlerts([site({ renovateFailingCis: 1 })], BASE)[0]!.title).toBe(
+      "1 Renovate PR failing CI",
+    );
+    expect(collectRenovateAlerts([site({ renovateFailingCis: 0 })], BASE)).toEqual([]);
+    expect(collectRenovateAlerts([site({ renovateFailingCis: null })], BASE)).toEqual([]);
+  });
+});
+
+describe("collectCiAlerts (persisted field)", () => {
+  it("flags a site whose default-branch CI is failing", () => {
+    const items = collectCiAlerts(
+      [site({ id: "rec1", name: "Acme Co", defaultBranchCi: "failing" })],
+      BASE,
+    );
+    expect(items).toEqual([
+      {
+        key: "ci:rec1",
+        kind: "ci",
+        siteName: "Acme Co",
+        title: "Default-branch CI failing",
+        url: `${BASE}/s/acme-co`,
+        severity: "warning",
+        metric: 1,
+      },
+    ]);
+  });
+
+  it("ignores passing/pending/none/null", () => {
+    for (const v of ["passing", "pending", "none", null]) {
+      expect(collectCiAlerts([site({ defaultBranchCi: v })], BASE)).toEqual([]);
+    }
   });
 });

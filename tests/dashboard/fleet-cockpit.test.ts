@@ -72,14 +72,14 @@ describe("assignTier", () => {
     expect(r.watchReasons).toContain("Performance 80");
   });
 
-  it("is 'watch' when the last audit is older than 30 days", () => {
-    const r = assignTier(site({ lastLighthouseAuditAt: "2026-04-01T00:00:00Z" }), [], NOW);
+  it("is 'watch' when the last commit is older than 30 days", () => {
+    const r = assignTier(site({ lastCommitAt: "2026-04-01T00:00:00Z" }), [], NOW);
     expect(r.tier).toBe("watch");
     expect(r.watchReasons.some((s) => /ago/.test(s))).toBe(true);
   });
 
-  it("does NOT treat a never-audited (null) site as audit-stale", () => {
-    const r = assignTier(site({ lastLighthouseAuditAt: null }), [], NOW);
+  it("does NOT treat a site with no last commit (null) as stale", () => {
+    const r = assignTier(site({ lastCommitAt: null }), [], NOW);
     expect(r.tier).toBe("healthy");
   });
 
@@ -237,12 +237,8 @@ describe("buildCockpitModel", () => {
 });
 
 describe("assignTier — structured watchSignals", () => {
-  it("tags 'lighthouse' for a watch-band score and 'stale' for an old audit", () => {
-    const both = assignTier(
-      site({ pScore: 80, lastLighthouseAuditAt: "2026-01-01T00:00:00Z" }),
-      [],
-      NOW,
-    );
+  it("tags 'lighthouse' for a watch-band score and 'stale' for an old commit", () => {
+    const both = assignTier(site({ pScore: 80, lastCommitAt: "2026-01-01T00:00:00Z" }), [], NOW);
     expect(both.watchSignals).toContain("lighthouse");
     expect(both.watchSignals).toContain("stale");
   });
@@ -250,5 +246,44 @@ describe("assignTier — structured watchSignals", () => {
   it("is empty for attention and healthy sites", () => {
     expect(assignTier(site(), [item()], NOW).watchSignals).toEqual([]);
     expect(assignTier(site(), [], NOW).watchSignals).toEqual([]);
+  });
+});
+
+describe("buildCockpitModel — GitHub signals (slice 2b)", () => {
+  it("tiers a Renovate-failing site and a CI-red site as attention, and counts them", () => {
+    const m = buildCockpitModel(
+      [
+        site({ id: "a", name: "Reno", renovateFailingCis: 2 }),
+        site({ id: "b", name: "CiRed", defaultBranchCi: "failing" }),
+      ],
+      [],
+      {},
+      BASE,
+      NOW,
+    );
+    expect(m.cards.find((c) => c.site.name === "Reno")!.tier).toBe("attention");
+    expect(m.cards.find((c) => c.site.name === "CiRed")!.tier).toBe("attention");
+    expect(m.summary).toMatchObject({ renovateFailing: 2, ciRed: 1, attention: 2 });
+  });
+
+  it("uses lastCommitAt (not audit age) for Watch staleness; null commit is not stale", () => {
+    const stale = buildCockpitModel(
+      [site({ id: "s", name: "Stale", lastCommitAt: "2026-01-01T00:00:00Z" })],
+      [],
+      {},
+      BASE,
+      NOW,
+    );
+    expect(stale.cards[0]!.tier).toBe("watch");
+    expect(stale.cards[0]!.watchSignals).toContain("stale");
+
+    const noCommit = buildCockpitModel(
+      [site({ id: "n", name: "NoCommit", lastCommitAt: null })],
+      [],
+      {},
+      BASE,
+      NOW,
+    );
+    expect(noCommit.cards[0]!.tier).toBe("healthy");
   });
 });

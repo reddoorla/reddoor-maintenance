@@ -8,6 +8,8 @@ import {
   collectVulnAlerts,
   collectDeliveryFailures,
   collectLighthouseAlerts,
+  collectRenovateAlerts,
+  collectCiAlerts,
 } from "../alerts/digest-collectors.js";
 import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
 import { relativeTimeFromNow } from "./relative-time.js";
@@ -17,7 +19,7 @@ export type Tier = "attention" | "watch" | "healthy";
 /** Watch-tier thresholds (the soft band beneath the M5 alert floor). */
 const LIGHTHOUSE_FLOOR = 75; // mirrors collectLighthouseAlerts — at/above is not an attention item
 const LIGHTHOUSE_WATCH_HIGH = 85; // [75,85) = "near the floor" → watch
-const AUDIT_STALE_DAYS = 30;
+const STALE_DAYS = 30;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 const WATCH_CATEGORIES: ReadonlyArray<{
@@ -35,8 +37,8 @@ const WATCH_CATEGORIES: ReadonlyArray<{
  * injected for testability. Any attention item → 🔴 attention (items already encode
  * the M5 thresholds, so a sub-75 Lighthouse score arrives here as an item and never
  * needs the watch band). Otherwise 🟡 watch when a Lighthouse category sits in
- * [75,85) or the last audit is older than 30 days (a NULL audit is NOT stale — it's
- * an onboarding gap, surfaced by the Setup score, not a regression). Else 🟢 healthy.
+ * [75,85) or the last commit to `main` is older than 30 days (a NULL commit is NOT
+ * stale — it's a missing GitHub signal, not a regression). Else 🟢 healthy.
  *
  * `watchReasons` are the human labels for the card; `watchSignals` are the STRUCTURED
  * filter tags ("lighthouse" / "stale") the client filter keys off — derived here so
@@ -58,10 +60,10 @@ export function assignTier(
       signals.add("lighthouse");
     }
   }
-  if (site.lastLighthouseAuditAt !== null) {
-    const ageMs = now.getTime() - Date.parse(site.lastLighthouseAuditAt);
-    if (Number.isFinite(ageMs) && ageMs > AUDIT_STALE_DAYS * MS_PER_DAY) {
-      watchReasons.push(`audited ${relativeTimeFromNow(site.lastLighthouseAuditAt, now)}`);
+  if (site.lastCommitAt !== null) {
+    const ageMs = now.getTime() - Date.parse(site.lastCommitAt);
+    if (Number.isFinite(ageMs) && ageMs > STALE_DAYS * MS_PER_DAY) {
+      watchReasons.push(`last commit ${relativeTimeFromNow(site.lastCommitAt, now)}`);
       signals.add("stale");
     }
   }
@@ -96,6 +98,8 @@ export type CockpitSummary = {
   criticalHighVulns: number;
   lighthouseBelowFloor: number;
   deliveryFailures: number;
+  renovateFailing: number;
+  ciRed: number;
   pending: number;
 };
 
@@ -130,6 +134,8 @@ export function buildCockpitModel(
     ...collectVulnAlerts(visible, baseUrl),
     ...collectLighthouseAlerts(visible, baseUrl),
     ...collectDeliveryFailures(reports, sitesById, baseUrl),
+    ...collectRenovateAlerts(visible, baseUrl),
+    ...collectCiAlerts(visible, baseUrl),
   ];
   // Read-only diff: tag NEW/WORSE exactly as the email does; discard `next`.
   const { tagged } = diffAttention(rawItems, priorSnapshot, now.toISOString().slice(0, 10));
@@ -189,6 +195,8 @@ export function buildCockpitModel(
     criticalHighVulns: tagged.filter((i) => i.kind === "vuln").reduce((s, i) => s + i.metric, 0),
     lighthouseBelowFloor: tagged.filter((i) => i.kind === "lighthouse").length,
     deliveryFailures: tagged.filter((i) => i.kind === "delivery").length,
+    renovateFailing: tagged.filter((i) => i.kind === "renovate").reduce((s, i) => s + i.metric, 0),
+    ciRed: tagged.filter((i) => i.kind === "ci").length,
     pending: pending.length,
   };
 
