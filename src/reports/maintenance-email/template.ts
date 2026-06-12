@@ -7,7 +7,7 @@ import { CHECK_CID, BLURRED_CID } from "./assets/index.js";
 const CHECK_PNG = `cid:${CHECK_CID}`;
 const BLURRED_TESTS = `cid:${BLURRED_CID}`;
 
-function fmtDate(d: Date | null): string {
+export function fmtDate(d: Date | null): string {
   if (!d) return "";
   // Airtable date fields are wall-clock YYYY-MM-DD strings parsed as UTC midnight.
   // Use UTC accessors so the rendered date matches what the operator entered.
@@ -28,7 +28,7 @@ function fmtUsers(n: number): string {
  * in a site name (e.g. "Brown & Co"), URL, or commentary throws at render time and blocks
  * the send. Apply to every interpolation of siteName / siteUrl / commentary.
  */
-function escapeXml(s: string): string {
+export function escapeXml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -148,7 +148,7 @@ function hasHeaderDims(
   return Boolean(data.headerWidth && data.headerHeight && data.headerBgColor);
 }
 
-function headerImageTag(data: ReportData): string {
+export function headerImageTag(data: ReportData): string {
   const src = `cid:${data.headerImageCid}`;
   const alt = `${escapeXml(data.siteName)} maintenance report`;
   const href = escapeXml(data.siteUrl);
@@ -165,7 +165,7 @@ function headerImageTag(data: ReportData): string {
   return `<mj-image href="${href}" src="${src}" alt="${alt}" />`;
 }
 
-function headerStyleBlock(data: ReportData): string {
+export function headerStyleBlock(data: ReportData): string {
   if (!hasHeaderDims(data)) return "";
   // Reserve the header's vertical space by aspect ratio so it scales proportionally with
   // its fluid (width:100%) width — no fixed pixel height, so it never squishes.

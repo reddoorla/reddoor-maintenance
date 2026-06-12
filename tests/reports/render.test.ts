@@ -270,4 +270,27 @@ describe("renderReportHtml", () => {
     expect(html).toContain("Reach us at &lt;a&gt; &amp; co");
     expect(html).not.toContain("Reach us at <a> & co");
   });
+
+  it("renders a purpose-built launch email (no maintenance sections)", async () => {
+    const { html, warnings } = await renderReportHtml(baseData({ reportType: "Launch" }));
+    expect(warnings).toEqual([]);
+    expect(html).toContain("LAUNCHED");
+    expect(html).toContain(DEFAULT_COPY.launchBody);
+    expect(html).toContain(DEFAULT_COPY.launchSetupItems[0]!);
+    // purpose-built: no maintenance/checks/analytics sections
+    expect(html).not.toContain("MAINTENANCE CHECKS");
+    expect(html).not.toContain("LIGHTHOUSE SCORES");
+    expect(html).not.toContain("ANALYTICS");
+    // still carries the shared copy layer (contact + footer)
+    expect(html).toContain("Just hit reply.");
+    expect(html).toContain(DEFAULT_COPY.footerOrg);
+  });
+
+  it("honors a per-site contact/footer override on the launch email", async () => {
+    const { html } = await renderReportHtml({
+      ...baseData({ reportType: "Launch" }),
+      copy: { ...DEFAULT_COPY, footerOrg: "Beta LLC" },
+    });
+    expect(html).toContain("Beta LLC");
+  });
 });
