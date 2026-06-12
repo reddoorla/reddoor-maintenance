@@ -6,6 +6,7 @@ import type { ReportRow } from "./airtable/reports.js";
 import { listWebsites, siteSlug, type WebsiteRow } from "./airtable/websites.js";
 import { defaultResendClient, type ResendClient } from "./send/resend.js";
 import { collectVulnAlerts, collectDeliveryFailures } from "../alerts/digest-collectors.js";
+import { diffAttention, readDigestState, writeDigestState } from "../alerts/digest-state.js";
 
 /** One report awaiting the operator's "yes" — site, type, period, and a link to its
  *  dashboard page (the digest LINKS to the dashboard; it never carries the approve action,
@@ -246,11 +247,22 @@ export async function runDigest(
       });
     }
 
-    // M5 fills this; M3 ships it empty (renders the "all clear" line).
-    const needsAttention: AttentionItem[] = [];
+    // M5: collect the free signals (isolated), diff against yesterday's snapshot.
+    const collected = await collectAttention({ base, baseUrl: options.baseUrl });
+    const prior = await readDigestState(base);
+    const { tagged, next } = diffAttention(collected, prior, digestDateKey(today));
+    const needsAttention = tagged;
 
     // No-noise default: skip entirely when there's nothing to report.
     if (readyForYourYes.length === 0 && needsAttention.length === 0) {
+      // On a skip, `collected` is [] so `next` is {} — still persist it so a key that
+      // resolved on a quiet day clears and a later recurrence diffs as NEW (spec §10).
+      // Wrapped: a write failure can't fail the skip.
+      try {
+        await writeDigestState(base, next);
+      } catch (e) {
+        console.warn(`⚠ digest state write failed: ${(e as Error).message}`);
+      }
       return { output: "Digest skipped (nothing ready, nothing needs attention).", code: 0 };
     }
 
@@ -266,6 +278,15 @@ export async function runDigest(
       html,
       idempotencyKey: `digest-${digestDateKey(today)}`,
     });
+    // Persist the next snapshot AFTER a successful send. A write failure is caught +
+    // logged: the digest already went out, tomorrow re-news at worst. (The send-FAILURE
+    // path never reaches here — the outer catch returns code 1 with no write, preserving
+    // the NEW badge for the retry.)
+    try {
+      await writeDigestState(base, next);
+    } catch (e) {
+      console.warn(`⚠ digest state write failed: ${(e as Error).message}`);
+    }
     return { output: `Digest sent to ${to.join(", ")} (${result.messageId})`, code: 0 };
   } catch (err) {
     // Re-throw config errors (exitCode=2: missing env vars, bad config) so runOrExit
