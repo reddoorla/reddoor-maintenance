@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Webhook } from "svix";
-import { STATUS_MAP } from "../../src/reports/webhook-events.js";
+import { STATUS_MAP, isStatusDowngrade } from "../../src/reports/webhook-events.js";
 import resendWebhook from "../../netlify/functions/resend-webhook.mjs";
 
 // The webhook handler talks to Airtable via these two functions; mock the whole
@@ -25,6 +25,28 @@ describe("Resend webhook event → Delivery status mapping", () => {
     expect(STATUS_MAP["email.sent"]).toBeUndefined();
     expect(STATUS_MAP["email.delivery_delayed"]).toBeUndefined();
     expect(STATUS_MAP["email.opened"]).toBeUndefined();
+  });
+});
+
+describe("isStatusDowngrade — monotonic delivery-status ordering", () => {
+  it("flags a terminal failure being overwritten by delivered/pending as a downgrade", () => {
+    expect(isStatusDowngrade("bounced", "delivered")).toBe(true);
+    expect(isStatusDowngrade("bounced", "pending")).toBe(true);
+    expect(isStatusDowngrade("complained", "delivered")).toBe(true);
+    expect(isStatusDowngrade("complained", "pending")).toBe(true);
+    expect(isStatusDowngrade("delivered", "pending")).toBe(true);
+  });
+
+  it("allows forward moves and same-rank rewrites (not a downgrade)", () => {
+    expect(isStatusDowngrade("pending", "delivered")).toBe(false);
+    expect(isStatusDowngrade("pending", "bounced")).toBe(false);
+    expect(isStatusDowngrade("pending", "complained")).toBe(false);
+    expect(isStatusDowngrade("delivered", "bounced")).toBe(false);
+    expect(isStatusDowngrade("delivered", "complained")).toBe(false);
+    // bounced and complained share a rank — neither downgrades the other.
+    expect(isStatusDowngrade("bounced", "complained")).toBe(false);
+    expect(isStatusDowngrade("complained", "bounced")).toBe(false);
+    expect(isStatusDowngrade("delivered", "delivered")).toBe(false);
   });
 });
 
@@ -160,6 +182,42 @@ describe("Resend webhook signed-POST path", () => {
     expect(res.status).toBe(200);
     expect(findReportMock).toHaveBeenCalledWith(expect.anything(), "msgId_xyz");
     expect(setStatusMock).toHaveBeenCalledWith(expect.anything(), "recReport123", "delivered");
+  });
+
+  // Build a matched report row carrying a specific current Delivery status, so
+  // the handler's monotonic guard has something to compare against.
+  function reportWith(status: string): Awaited<ReturnType<typeof findReportByMessageId>> {
+    return { id: "recReport123", deliveryStatus: status } as Awaited<
+      ReturnType<typeof findReportByMessageId>
+    >;
+  }
+
+  it("does NOT downgrade a terminal 'bounced' when a late 'delivered' arrives (200, no write)", async () => {
+    findReportMock.mockResolvedValue(reportWith("bounced"));
+    const res = await post(resendEvent("email.delivered"));
+    expect(res.status).toBe(200);
+    expect(setStatusMock).not.toHaveBeenCalled();
+  });
+
+  it("does NOT downgrade a terminal 'complained' when a late 'delivered' arrives (200, no write)", async () => {
+    findReportMock.mockResolvedValue(reportWith("complained"));
+    const res = await post(resendEvent("email.delivered"));
+    expect(res.status).toBe(200);
+    expect(setStatusMock).not.toHaveBeenCalled();
+  });
+
+  it("still applies pending → delivered (forward move writes)", async () => {
+    findReportMock.mockResolvedValue(reportWith("pending"));
+    const res = await post(resendEvent("email.delivered"));
+    expect(res.status).toBe(200);
+    expect(setStatusMock).toHaveBeenCalledWith(expect.anything(), "recReport123", "delivered");
+  });
+
+  it("still applies pending → bounced (forward move writes)", async () => {
+    findReportMock.mockResolvedValue(reportWith("pending"));
+    const res = await post(resendEvent("email.bounced"));
+    expect(res.status).toBe(200);
+    expect(setStatusMock).toHaveBeenCalledWith(expect.anything(), "recReport123", "bounced");
   });
 
   it("rejects a tampered/invalid signature with 400", async () => {

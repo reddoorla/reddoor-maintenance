@@ -12,9 +12,12 @@ import { timingSafeEqual } from "node:crypto";
  * - wrong password
  * - expected password missing (DASHBOARD_PASSWORD not configured)
  *
- * Wrong-password compare is constant-time; lengths are checked first
- * (timingSafeEqual throws on mismatch, and the length itself doesn't
- * leak — operator's password length is fixed per deploy).
+ * Wrong-password compare is constant-time; BYTE lengths are checked first
+ * (timingSafeEqual throws a RangeError on a buffer-length mismatch, and the
+ * length itself doesn't leak — operator's password length is fixed per deploy).
+ * Comparing JS-string lengths instead of byte lengths could let an equal-char
+ * but unequal-byte password (a multibyte char) reach timingSafeEqual and throw,
+ * turning a wrong password into an uncaught 500.
  */
 export function verifyBasicAuth(
   authHeader: string | null | undefined,
@@ -35,6 +38,13 @@ export function verifyBasicAuth(
   const colonIdx = decoded.indexOf(":");
   if (colonIdx === -1) return false;
   const provided = decoded.slice(colonIdx + 1);
-  if (provided.length !== expectedPassword.length) return false;
-  return timingSafeEqual(Buffer.from(provided, "utf-8"), Buffer.from(expectedPassword, "utf-8"));
+  // Compare BYTE lengths, not JS-string lengths: timingSafeEqual compares the
+  // underlying buffers and throws a RangeError if they differ in byte length.
+  // Two strings can share a JS length but differ in UTF-8 byte length (e.g. a
+  // multibyte char), so a JS-length guard would let mismatched buffers through
+  // and crash the handler with a 500.
+  const a = Buffer.from(provided, "utf-8");
+  const b = Buffer.from(expectedPassword, "utf-8");
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
 }

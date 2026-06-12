@@ -1,8 +1,18 @@
-import type { Context } from "@netlify/functions";
+import type { Context, Config } from "@netlify/functions";
 import { Webhook } from "svix";
 import Airtable from "airtable";
-import { STATUS_MAP } from "../../src/reports/webhook-events.js";
+import { STATUS_MAP, isStatusDowngrade } from "../../src/reports/webhook-events.js";
 import { findReportByMessageId, setDeliveryStatus } from "../../src/reports/airtable/reports.js";
+
+// Modest per-IP cap. The legitimate caller is svix (Resend) at low volume; this
+// only blunts a flood of forged/unsigned POSTs before signature verification.
+export const config: Config = {
+  rateLimit: {
+    windowSize: 60,
+    windowLimit: 60,
+    aggregateBy: ["ip"],
+  },
+};
 
 type ResendEvent = {
   type: string;
@@ -89,10 +99,11 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   try {
     report = await findReportByMessageId(base, messageId);
   } catch (e) {
+    // Don't echo raw Airtable/internal error text to the caller; log it instead.
     console.error(
       `[resend-webhook] Airtable lookup failed for messageId=${messageId}: ${(e as Error).message}`,
     );
-    return new Response(`Airtable lookup failed: ${(e as Error).message}`, { status: 500 });
+    return new Response("internal error", { status: 500 });
   }
 
   if (!report) {
@@ -116,16 +127,28 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     return new Response("no matching report (will retry)", { status: 500 });
   }
 
+  // Monotonic write: a retried or out-of-order webhook (e.g. a `delivered`
+  // arriving after a `bounced`/`complained`) must never clobber a terminal
+  // failure the cockpit/digest rely on. We already hold the row's current
+  // status, so skip the write here rather than read-modify-write in Airtable.
+  if (isStatusDowngrade(report.deliveryStatus, newStatus)) {
+    console.log(
+      `[resend-webhook] skipping downgrade record=${report.id} ${report.deliveryStatus} → ${newStatus} (messageId=${messageId})`,
+    );
+    return new Response("OK (no downgrade)", { status: 200 });
+  }
+
   try {
     await setDeliveryStatus(base, report.id, newStatus);
     console.log(
       `[resend-webhook] updated record=${report.id} → ${newStatus} (messageId=${messageId})`,
     );
   } catch (e) {
+    // Don't echo raw Airtable/internal error text to the caller; log it instead.
     console.error(
       `[resend-webhook] Airtable update failed for record=${report.id}: ${(e as Error).message}`,
     );
-    return new Response(`Airtable update failed: ${(e as Error).message}`, { status: 500 });
+    return new Response("internal error", { status: 500 });
   }
   return new Response("OK", { status: 200 });
 };
