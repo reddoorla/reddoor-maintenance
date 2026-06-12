@@ -239,9 +239,9 @@ function chips(c: SiteCard): string {
 }
 
 /** Space-separated signal tags for the client filter. Attention-item kinds
- *  ("vulns"/"lighthouse"/"delivery") plus the structured watch signals
- *  ("lighthouse" for a sub-floor-band score, "stale" for an old audit) — so a
- *  watch-band Lighthouse card still matches the "lighthouse" filter. */
+ *  ("vulns"/"lighthouse"/"delivery"/"prs" from renovate/"ci") plus the structured
+ *  watch signals ("lighthouse" for a sub-floor-band score, "stale" for an old
+ *  commit) — so a watch-band Lighthouse card still matches the "lighthouse" filter. */
 function signalsAttr(c: SiteCard): string {
   const kinds = new Set<string>();
   for (const it of c.items) {

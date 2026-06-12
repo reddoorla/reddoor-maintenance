@@ -4,8 +4,9 @@ import {
   collectVulnAlerts,
   collectDeliveryFailures,
   collectLighthouseAlerts,
+  collectRenovateAlerts,
+  collectCiAlerts,
 } from "../../src/alerts/digest-collectors.js";
-import { collectRenovateAlerts, collectCiAlerts } from "../../src/alerts/digest-collectors.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
 
@@ -320,7 +321,10 @@ describe("collectDeliveryFailures", () => {
 
 describe("collectRenovateAlerts (persisted field)", () => {
   it("flags a site with failing Renovate PRs: key, kind, metric=count, warning, dashboard url", () => {
-    const items = collectRenovateAlerts([site({ id: "rec1", name: "Acme Co", renovateFailingCis: 3 })], BASE);
+    const items = collectRenovateAlerts(
+      [site({ id: "rec1", name: "Acme Co", renovateFailingCis: 3 })],
+      BASE,
+    );
     expect(items).toEqual([
       {
         key: "renovate:rec1",
@@ -335,7 +339,9 @@ describe("collectRenovateAlerts (persisted field)", () => {
   });
 
   it("singularizes one and skips zero/null", () => {
-    expect(collectRenovateAlerts([site({ renovateFailingCis: 1 })], BASE)[0]!.title).toBe("1 Renovate PR failing CI");
+    expect(collectRenovateAlerts([site({ renovateFailingCis: 1 })], BASE)[0]!.title).toBe(
+      "1 Renovate PR failing CI",
+    );
     expect(collectRenovateAlerts([site({ renovateFailingCis: 0 })], BASE)).toEqual([]);
     expect(collectRenovateAlerts([site({ renovateFailingCis: null })], BASE)).toEqual([]);
   });
@@ -343,7 +349,10 @@ describe("collectRenovateAlerts (persisted field)", () => {
 
 describe("collectCiAlerts (persisted field)", () => {
   it("flags a site whose default-branch CI is failing", () => {
-    const items = collectCiAlerts([site({ id: "rec1", name: "Acme Co", defaultBranchCi: "failing" })], BASE);
+    const items = collectCiAlerts(
+      [site({ id: "rec1", name: "Acme Co", defaultBranchCi: "failing" })],
+      BASE,
+    );
     expect(items).toEqual([
       {
         key: "ci:rec1",

@@ -37,7 +37,7 @@
 In `src/reports/digest.ts`, change `AttentionItem`'s `kind`:
 
 ```ts
-  kind: "vuln" | "delivery" | "renovate" | "lighthouse" | "ci";
+kind: "vuln" | "delivery" | "renovate" | "lighthouse" | "ci";
 ```
 
 - [ ] **Step 2: Write the failing tests**
@@ -49,7 +49,10 @@ import { collectRenovateAlerts, collectCiAlerts } from "../../src/alerts/digest-
 
 describe("collectRenovateAlerts (persisted field)", () => {
   it("flags a site with failing Renovate PRs: key, kind, metric=count, warning, dashboard url", () => {
-    const items = collectRenovateAlerts([site({ id: "rec1", name: "Acme Co", renovateFailingCis: 3 })], BASE);
+    const items = collectRenovateAlerts(
+      [site({ id: "rec1", name: "Acme Co", renovateFailingCis: 3 })],
+      BASE,
+    );
     expect(items).toEqual([
       {
         key: "renovate:rec1",
@@ -64,7 +67,9 @@ describe("collectRenovateAlerts (persisted field)", () => {
   });
 
   it("singularizes one and skips zero/null", () => {
-    expect(collectRenovateAlerts([site({ renovateFailingCis: 1 })], BASE)[0]!.title).toBe("1 Renovate PR failing CI");
+    expect(collectRenovateAlerts([site({ renovateFailingCis: 1 })], BASE)[0]!.title).toBe(
+      "1 Renovate PR failing CI",
+    );
     expect(collectRenovateAlerts([site({ renovateFailingCis: 0 })], BASE)).toEqual([]);
     expect(collectRenovateAlerts([site({ renovateFailingCis: null })], BASE)).toEqual([]);
   });
@@ -72,7 +77,10 @@ describe("collectRenovateAlerts (persisted field)", () => {
 
 describe("collectCiAlerts (persisted field)", () => {
   it("flags a site whose default-branch CI is failing", () => {
-    const items = collectCiAlerts([site({ id: "rec1", name: "Acme Co", defaultBranchCi: "failing" })], BASE);
+    const items = collectCiAlerts(
+      [site({ id: "rec1", name: "Acme Co", defaultBranchCi: "failing" })],
+      BASE,
+    );
     expect(items).toEqual([
       {
         key: "ci:rec1",
@@ -192,11 +200,23 @@ describe("buildCockpitModel — GitHub signals (slice 2b)", () => {
   });
 
   it("uses lastCommitAt (not audit age) for Watch staleness; null commit is not stale", () => {
-    const stale = buildCockpitModel([site({ id: "s", name: "Stale", lastCommitAt: "2026-01-01T00:00:00Z" })], [], {}, BASE, NOW);
+    const stale = buildCockpitModel(
+      [site({ id: "s", name: "Stale", lastCommitAt: "2026-01-01T00:00:00Z" })],
+      [],
+      {},
+      BASE,
+      NOW,
+    );
     expect(stale.cards[0]!.tier).toBe("watch");
     expect(stale.cards[0]!.watchSignals).toContain("stale");
 
-    const noCommit = buildCockpitModel([site({ id: "n", name: "NoCommit", lastCommitAt: null })], [], {}, BASE, NOW);
+    const noCommit = buildCockpitModel(
+      [site({ id: "n", name: "NoCommit", lastCommitAt: null })],
+      [],
+      {},
+      BASE,
+      NOW,
+    );
     expect(noCommit.cards[0]!.tier).toBe("healthy");
   });
 });
@@ -228,25 +248,25 @@ import {
 (b) Add them to the `rawItems` union in `buildCockpitModel`:
 
 ```ts
-  const rawItems: AttentionItem[] = [
-    ...collectVulnAlerts(visible, baseUrl),
-    ...collectLighthouseAlerts(visible, baseUrl),
-    ...collectDeliveryFailures(reports, sitesById, baseUrl),
-    ...collectRenovateAlerts(visible, baseUrl),
-    ...collectCiAlerts(visible, baseUrl),
-  ];
+const rawItems: AttentionItem[] = [
+  ...collectVulnAlerts(visible, baseUrl),
+  ...collectLighthouseAlerts(visible, baseUrl),
+  ...collectDeliveryFailures(reports, sitesById, baseUrl),
+  ...collectRenovateAlerts(visible, baseUrl),
+  ...collectCiAlerts(visible, baseUrl),
+];
 ```
 
 (c) Switch `assignTier`'s staleness from `lastLighthouseAuditAt` to `lastCommitAt` (rename the watch-reason label too):
 
 ```ts
-  if (site.lastCommitAt !== null) {
-    const ageMs = now.getTime() - Date.parse(site.lastCommitAt);
-    if (Number.isFinite(ageMs) && ageMs > AUDIT_STALE_DAYS * MS_PER_DAY) {
-      watchReasons.push(`last commit ${relativeTimeFromNow(site.lastCommitAt, now)}`);
-      signals.add("stale");
-    }
+if (site.lastCommitAt !== null) {
+  const ageMs = now.getTime() - Date.parse(site.lastCommitAt);
+  if (Number.isFinite(ageMs) && ageMs > AUDIT_STALE_DAYS * MS_PER_DAY) {
+    watchReasons.push(`last commit ${relativeTimeFromNow(site.lastCommitAt, now)}`);
+    signals.add("stale");
   }
+}
 ```
 
 (Rename the `AUDIT_STALE_DAYS` constant to `STALE_DAYS` if you like; keep the value 30. Update its one reference.)
@@ -254,8 +274,8 @@ import {
 (d) Add the two counts to `CockpitSummary` (the type + the computed object):
 
 ```ts
-  renovateFailing: number;
-  ciRed: number;
+renovateFailing: number;
+ciRed: number;
 ```
 
 ```ts
@@ -294,20 +314,26 @@ describe("renderCockpitHtml — GitHub-signal chips & filters (slice 2b)", () =>
   });
 
   it("a Renovate-failing card carries the prs signal + its chip", () => {
-    const html = renderCockpitHtml(model([siteRow({ id: "a", name: "Reno", renovateFailingCis: 2 })]));
+    const html = renderCockpitHtml(
+      model([siteRow({ id: "a", name: "Reno", renovateFailingCis: 2 })]),
+    );
     expect(html).toMatch(/data-signals="[^"]*prs[^"]*"/);
     expect(html).toMatch(/2 Renovate PRs failing CI/);
   });
 
   it("a CI-red card carries the ci signal + its chip", () => {
-    const html = renderCockpitHtml(model([siteRow({ id: "b", name: "CiRed", defaultBranchCi: "failing" })]));
+    const html = renderCockpitHtml(
+      model([siteRow({ id: "b", name: "CiRed", defaultBranchCi: "failing" })]),
+    );
     expect(html).toMatch(/data-signals="[^"]*ci[^"]*"/);
     expect(html).toMatch(/Default-branch CI failing/);
   });
 
   it("the summary headline shows the PRs-failing and CI-red counts", () => {
     const html = renderCockpitHtml(
-      model([siteRow({ id: "a", name: "Reno", renovateFailingCis: 2, defaultBranchCi: "failing" })]),
+      model([
+        siteRow({ id: "a", name: "Reno", renovateFailingCis: 2, defaultBranchCi: "failing" }),
+      ]),
     );
     expect(html).toMatch(/2 PRs failing/);
     expect(html).toMatch(/1 CI red/);
@@ -327,7 +353,16 @@ In `src/dashboard/fleet-render.ts`:
 (a) Extend `FILTERS`:
 
 ```ts
-const FILTERS = ["all", "vulns", "lighthouse", "delivery", "prs", "ci", "stale", "pending"] as const;
+const FILTERS = [
+  "all",
+  "vulns",
+  "lighthouse",
+  "delivery",
+  "prs",
+  "ci",
+  "stale",
+  "pending",
+] as const;
 ```
 
 (b) Map the new kinds in `signalsAttr` — `renovate` → `prs`, `ci` → `ci` (vuln stays `vulns`; lighthouse/delivery already map by kind):
