@@ -8,6 +8,7 @@ import { defaultResendClient, type ResendClient } from "./send/resend.js";
 import {
   collectVulnAlerts,
   collectDeliveryFailures,
+  collectLighthouseAlerts,
   renovateFindingsToAttention,
   buildRenovateProbe,
 } from "../alerts/digest-collectors.js";
@@ -251,6 +252,7 @@ export async function collectAttention(deps: CollectAttentionDeps): Promise<Atte
   return [
     ...runCollector("vuln", () => collectVulnAlerts(websites, deps.baseUrl)),
     ...runCollector("delivery", () => collectDeliveryFailures(reports, sitesById, deps.baseUrl)),
+    ...runCollector("lighthouse", () => collectLighthouseAlerts(websites, deps.baseUrl)),
     ...renovate,
   ];
 }

@@ -1,6 +1,10 @@
 // tests/alerts/digest-collectors.test.ts
 import { describe, it, expect } from "vitest";
-import { collectVulnAlerts, collectDeliveryFailures } from "../../src/alerts/digest-collectors.js";
+import {
+  collectVulnAlerts,
+  collectDeliveryFailures,
+  collectLighthouseAlerts,
+} from "../../src/alerts/digest-collectors.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
 
@@ -114,6 +118,102 @@ describe("collectVulnAlerts", () => {
     );
     expect(items[0]!.title).toMatch(/3/);
     expect(items[0]!.title).toMatch(/critical\/high/i);
+  });
+});
+
+describe("collectLighthouseAlerts", () => {
+  it("flags a category below 75: key, kind, metric=100-score, severity warning, dashboard url", () => {
+    const items = collectLighthouseAlerts([site({ pScore: 60 })], BASE);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      key: "lighthouse:rec_site_acme:performance",
+      kind: "lighthouse",
+      siteName: "Acme Co",
+      severity: "warning",
+      metric: 40, // 100 - 60
+      url: `${BASE}/s/acme-co`,
+    });
+    expect(items[0]!.title).toBe("Lighthouse Performance 60 (below 75)");
+  });
+
+  it("threshold boundary: 74 flags, 75 does NOT, 76 does NOT", () => {
+    expect(collectLighthouseAlerts([site({ pScore: 74 })], BASE)).toHaveLength(1);
+    expect(collectLighthouseAlerts([site({ pScore: 75 })], BASE)).toEqual([]);
+    expect(collectLighthouseAlerts([site({ pScore: 76 })], BASE)).toEqual([]);
+  });
+
+  it("skips a null score (never audited)", () => {
+    const items = collectLighthouseAlerts([site({ pScore: null })], BASE);
+    expect(items).toEqual([]);
+  });
+
+  it("metric is 100 - score so a lower score sorts as a deeper deficit", () => {
+    const items = collectLighthouseAlerts([site({ rScore: 30 })], BASE);
+    expect(items[0]!.metric).toBe(70); // 100 - 30
+  });
+
+  it("emits one item per category below 75 for a single site (all four)", () => {
+    const items = collectLighthouseAlerts(
+      [site({ pScore: 50, rScore: 60, bpScore: 70, seoScore: 40 })],
+      BASE,
+    );
+    expect(items.map((i) => i.key)).toEqual([
+      "lighthouse:rec_site_acme:performance",
+      "lighthouse:rec_site_acme:accessibility",
+      "lighthouse:rec_site_acme:best-practices",
+      "lighthouse:rec_site_acme:seo",
+    ]);
+    // Each carries the right deficit metric.
+    expect(items.map((i) => i.metric)).toEqual([50, 40, 30, 60]);
+  });
+
+  it("flags only the categories below 75, leaving the healthy ones out", () => {
+    const items = collectLighthouseAlerts(
+      [site({ pScore: 95, rScore: 70, bpScore: 90, seoScore: 74 })],
+      BASE,
+    );
+    expect(items.map((i) => i.key)).toEqual([
+      "lighthouse:rec_site_acme:accessibility",
+      "lighthouse:rec_site_acme:seo",
+    ]);
+  });
+
+  it("titles each category with its human label and the below-75 framing", () => {
+    const items = collectLighthouseAlerts(
+      [site({ pScore: 10, rScore: 20, bpScore: 30, seoScore: 40 })],
+      BASE,
+    );
+    expect(items.map((i) => i.title)).toEqual([
+      "Lighthouse Performance 10 (below 75)",
+      "Lighthouse Accessibility 20 (below 75)",
+      "Lighthouse Best Practices 30 (below 75)",
+      "Lighthouse SEO 40 (below 75)",
+    ]);
+  });
+
+  it("groups by the site name for the (component-3) render", () => {
+    const items = collectLighthouseAlerts([site({ name: "Brown & Co", pScore: 50 })], BASE);
+    expect(items[0]!.siteName).toBe("Brown & Co");
+  });
+
+  it("strips a trailing slash from baseUrl (no //s/ in the link)", () => {
+    const items = collectLighthouseAlerts([site({ pScore: 50 })], `${BASE}/`);
+    expect(items[0]!.url).toBe(`${BASE}/s/acme-co`);
+    expect(items[0]!.url).not.toContain("//s/");
+  });
+
+  it("emits items per site across multiple sites", () => {
+    const items = collectLighthouseAlerts(
+      [
+        site({ id: "rec_a", name: "Acme Co", pScore: 50 }),
+        site({ id: "rec_b", name: "Beta Ltd", seoScore: 60 }),
+      ],
+      BASE,
+    );
+    expect(items.map((i) => i.key)).toEqual([
+      "lighthouse:rec_a:performance",
+      "lighthouse:rec_b:seo",
+    ]);
   });
 });
 
