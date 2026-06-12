@@ -123,7 +123,7 @@ const requiredExports = [
   // and the fleet homepage at /. Both are now gated by verifyBasicAuth (the
   // operator password); the per-site token model was retired 2026-06-10.
   "renderSiteDashboardHtml",
-  "renderFleetHomeHtml",
+  "renderCockpitHtml",
   "verifyBasicAuth",
 ];
 
