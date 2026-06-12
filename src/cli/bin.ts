@@ -14,6 +14,7 @@ import { runOnboardCommand } from "./commands/onboard.js";
 import { runSvelteCodemodsCommand } from "./commands/svelte-codemods.js";
 import { runReportCommand } from "./commands/report.js";
 import { runInitCommand } from "./commands/init.js";
+import { runGitHubSignalsCommand } from "./commands/github-signals.js";
 import { resolvePackageVersion } from "./version.js";
 
 // Load credentials from ~/.config/reddoor-maint/credentials.env before any
@@ -298,6 +299,21 @@ cli
         verbose?: boolean;
       },
     ) => runOrExit(() => runReportCommand(site, opts), opts),
+  );
+
+cli
+  .command(
+    "github-signals",
+    "Sweep the fleet for GitHub signals (Renovate-failing/CI/last-commit) and write Airtable.",
+  )
+  .option("--fleet", "Run across every site in the Airtable inventory.")
+  .option("--write-airtable", "Write each site's signals back to its Websites row.")
+  .action(
+    async (opts: { fleet?: boolean; writeAirtable?: boolean; cwd?: string; verbose?: boolean }) =>
+      runOrExit(
+        () => runGitHubSignalsCommand({ fleet: opts.fleet, writeAirtable: opts.writeAirtable }),
+        opts,
+      ),
   );
 
 cli.help();

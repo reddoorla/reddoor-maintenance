@@ -45,6 +45,8 @@ export type GitHub = {
   findOpenSelfUpdatingPR: (repo: string) => Promise<string | null>;
   /** All open PRs on a repo with each head commit's normalized CI rollup state. */
   openPullRequests: (repo: string) => Promise<PullRequestSummary[]>;
+  /** The default branch's latest-commit date + normalized CI rollup, one query. */
+  defaultBranchStatus: (repo: string) => Promise<{ ciState: CiState; lastCommitAt: string | null }>;
 };
 
 export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
@@ -209,6 +211,39 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
         headRef: n.headRefName,
         ciState: mapRollupState(n.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state),
       }));
+    },
+    async defaultBranchStatus(repo) {
+      const [owner, name, ...rest] = repo.split("/");
+      if (!owner || !name || rest.length > 0) {
+        throw new Error(`defaultBranchStatus: expected "owner/repo", got "${repo}"`);
+      }
+      const query =
+        "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){" +
+        "defaultBranchRef{target{... on Commit{committedDate statusCheckRollup{state}}}}}}";
+      const out = await gh([
+        "api",
+        "graphql",
+        "-f",
+        `query=${query}`,
+        "-F",
+        `owner=${owner}`,
+        "-F",
+        `name=${name}`,
+      ]);
+      const parsed = JSON.parse(out) as {
+        data?: {
+          repository?: {
+            defaultBranchRef?: {
+              target?: { committedDate?: string; statusCheckRollup?: { state?: string } | null };
+            } | null;
+          };
+        };
+      };
+      const target = parsed.data?.repository?.defaultBranchRef?.target;
+      return {
+        ciState: mapRollupState(target?.statusCheckRollup?.state),
+        lastCommitAt: target?.committedDate ?? null,
+      };
     },
   };
 }

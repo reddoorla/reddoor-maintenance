@@ -39,6 +39,10 @@ function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
     securityVulnsModerate: 0,
     securityVulnsLow: 0,
     dashboardToken: "tok",
+    renovateFailingCis: null,
+    defaultBranchCi: null,
+    lastCommitAt: null,
+    githubSignalsAt: null,
     ...over,
   };
 }

@@ -65,6 +65,11 @@ export type WebsiteRow = {
    *  A non-null value opts the site into the `/` fleet view; `null` hides it.
    *  Any truthy marker works; the value is no longer a secret. */
   dashboardToken: string | null;
+  /** GitHub-signals sweep (slice 2a), written nightly by `github-signals --fleet`. */
+  renovateFailingCis: number | null;
+  defaultBranchCi: string | null; // "passing" | "failing" | "pending" | "none"
+  lastCommitAt: string | null;
+  githubSignalsAt: string | null;
 };
 
 export function siteSlug(name: string): string {
@@ -121,6 +126,10 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
       const trimmed = raw.trim();
       return trimmed.length > 0 ? trimmed : null;
     })(),
+    renovateFailingCis: (f["Renovate Failing CIs"] as number | undefined) ?? null,
+    defaultBranchCi: (f["Default Branch CI"] as string | undefined) ?? null,
+    lastCommitAt: (f["Last Commit At"] as string | undefined) ?? null,
+    githubSignalsAt: (f["GitHub Signals At"] as string | undefined) ?? null,
   };
 }
 
@@ -226,5 +235,29 @@ export async function updateSecurityCounts(
     "Security Vulns Moderate": counts.moderate,
     "Security Vulns Low": counts.low,
   };
+  await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+}
+
+/** Persist the GitHub-signals sweep onto a Websites row (slice 2a). A null
+ *  `lastCommitAt` is OMITTED so a not-determined-this-run value never clobbers a
+ *  previously-good timestamp (mirrors updateDepsCounts' outdated handling). */
+export async function updateGitHubSignals(
+  base: AirtableBase,
+  recordId: string,
+  signals: {
+    renovateFailingCis: number;
+    ciState: string;
+    lastCommitAt: string | null;
+    sweptAt: string;
+  },
+): Promise<void> {
+  const fields: FieldSet = {
+    "Renovate Failing CIs": signals.renovateFailingCis,
+    "Default Branch CI": signals.ciState,
+    "GitHub Signals At": signals.sweptAt,
+  };
+  if (signals.lastCommitAt !== null) {
+    fields["Last Commit At"] = signals.lastCommitAt;
+  }
   await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
 }

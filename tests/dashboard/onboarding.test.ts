@@ -34,6 +34,10 @@ function row(over: Partial<WebsiteRow> = {}): WebsiteRow {
     securityVulnsHigh: null,
     securityVulnsModerate: null,
     securityVulnsLow: null,
+    renovateFailingCis: null,
+    defaultBranchCi: null,
+    lastCommitAt: null,
+    githubSignalsAt: null,
     ...over,
   };
 }
