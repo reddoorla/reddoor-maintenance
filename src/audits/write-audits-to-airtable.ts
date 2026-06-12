@@ -15,7 +15,10 @@ import { hasSecurityCounts, securityCountsFromResult } from "./security-airtable
 
 type WriteSummary = {
   siteName: string;
-  writes: Array<{ audit: "lighthouse" | "a11y" | "deps" | "security"; counts: object }>;
+  writes: Array<{
+    audit: "lighthouse" | "a11y" | "deps" | "security" | "github-signals";
+    counts: object;
+  }>;
 };
 
 /** Orchestrates the per-audit Airtable writes for `audit --write-airtable`.

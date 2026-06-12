@@ -99,6 +99,7 @@ jobs:
       # so a Lighthouse flake never skips the GitHub sweep.
       - name: Sweep GitHub signals to Airtable
         if: always()
+        continue-on-error: true
         env:
           AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}

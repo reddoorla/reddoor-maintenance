@@ -30,11 +30,13 @@ export async function collectGitHubSignals(
   for (const s of sites) {
     const repo = s.gitRepo;
     if (!repo) continue;
+    const name = s.name;
+    if (!name) continue;
     try {
       const prs = await deps.openPullRequests(repo);
       const status = await deps.defaultBranchStatus(repo);
       rows.push({
-        site: s.name,
+        site: name,
         repo,
         renovateFailingCis: prs.filter(isFailingRenovatePR).length,
         ciState: status.ciState,

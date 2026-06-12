@@ -42,7 +42,7 @@ describe("collectGitHubSignals", () => {
   });
 
   it("skips sites without a gitRepo", async () => {
-    const rows = await collectGitHubSignals([site({ gitRepo: null })], {
+    const rows = await collectGitHubSignals([site({ gitRepo: "" })], {
       openPullRequests: async () => [],
       defaultBranchStatus: async () => ({ ciState: "passing", lastCommitAt: null }),
     });

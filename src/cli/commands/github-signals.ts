@@ -48,9 +48,10 @@ export async function runGitHubSignalsCommand(opts: {
 
   const sweptAt = new Date().toISOString();
   const result: FleetWriteResult = { written: [], failed: [] };
+  const byRepo = new Map(websites.filter((w) => w.gitRepo).map((w) => [w.gitRepo, w]));
   // Serial: Airtable's ~5 req/sec limit (matches writeFleetAuditsToAirtable).
   for (const row of rows) {
-    const target = websites.find((w) => siteSlug(w.name) === siteSlug(row.site));
+    const target = byRepo.get(row.repo);
     if (!target) {
       result.failed.push({ slug: siteSlug(row.site), error: "no Websites row matched" });
       continue;
@@ -64,7 +65,7 @@ export async function runGitHubSignalsCommand(opts: {
       });
       result.written.push({
         siteName: target.name,
-        writes: [{ audit: "github-signals", counts: row } as never],
+        writes: [{ audit: "github-signals", counts: row }],
       });
     } catch (e) {
       result.failed.push({ slug: siteSlug(row.site), error: (e as Error).message });
