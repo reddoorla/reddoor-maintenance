@@ -193,6 +193,12 @@ export type CollectAttentionDeps = {
   /** Live GitHub probe for the Renovate-failing-CI sweep. When omitted (e.g. a
    *  local/no-token run), the renovate sweep is skipped entirely. */
   renovateProbe?: OpenPullRequestsProbe;
+  /** Pre-fetched Websites rows. When supplied (runDigest already read them),
+   *  collectAttention reuses them instead of issuing a second `listWebsites`. */
+  websites?: WebsiteRow[];
+  /** Pre-fetched Reports rows. When supplied (runDigest already read them),
+   *  collectAttention reuses them instead of issuing a second `listAllReports`. */
+  reports?: ReportRow[];
 };
 
 /** Run a single collector under a try/catch: a thrown collector logs and yields []
@@ -221,18 +227,17 @@ async function runCollectorAsync(
 }
 
 /**
- * Fetch the free signals once (listAllReports + listWebsites), build the
- * sitesById map the delivery collector needs, and run each pure collector
- * isolated. When a `renovateProbe` is supplied, also sweep the fleet for
- * Renovate update PRs failing CI (adapting the already-fetched WebsiteRow[]
- * to the minimal Site shape the detector needs). Returns the union of items;
+ * Fetch the free signals once (listAllReports + listWebsites) — or reuse the
+ * `reports`/`websites` arrays runDigest already read, so a single run reads each
+ * table once — build the sitesById map the delivery collector needs, and run each
+ * pure collector isolated. When a `renovateProbe` is supplied, also sweep the
+ * fleet for Renovate update PRs failing CI (adapting the WebsiteRow[] to the
+ * minimal Site shape the detector needs). Returns the union of items;
  * diffing/badging happens in runDigest.
  */
 export async function collectAttention(deps: CollectAttentionDeps): Promise<AttentionItem[]> {
-  const [reports, websites] = await Promise.all([
-    listAllReports(deps.base),
-    listWebsites(deps.base),
-  ]);
+  const reports = deps.reports ?? (await listAllReports(deps.base));
+  const websites = deps.websites ?? (await listWebsites(deps.base));
   const sitesById = new Map<string, WebsiteRow>(websites.map((w) => [w.id, w]));
   const renovate = deps.renovateProbe
     ? await runCollectorAsync("renovate", async () => {
@@ -275,10 +280,14 @@ export async function runDigest(
   const today = new Date();
   try {
     const base = options.base ?? openBase(readAirtableConfig());
+    // Read each table ONCE for the whole run, then thread the arrays into
+    // collectAttention so it doesn't re-fetch (was: listWebsites ×2, listAllReports
+    // ×2). Pending is derived in-line with listPendingApproval's exact predicate.
+    const reports = await listAllReports(base);
     const websites = await listWebsites(base);
     const sites = new Map(websites.map((w) => [w.id, w]));
 
-    const pending = await listPendingApproval(base);
+    const pending = reports.filter((r) => r.draftReady && !r.approvedToSend && r.sentAt === null);
 
     const readyForYourYes: ReadyItem[] = [];
     for (const r of pending) {
@@ -300,6 +309,8 @@ export async function runDigest(
     const collected = await collectAttention({
       base,
       baseUrl: options.baseUrl,
+      websites,
+      reports,
       ...(renovateProbe ? { renovateProbe } : {}),
     });
     const prior = await readDigestState(base);
