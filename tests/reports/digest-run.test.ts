@@ -416,6 +416,24 @@ describe("runDigest", () => {
     expect(result.output).toMatch(/^digest failed: /);
   });
 
+  // ── fetch dedup ────────────────────────────────────────────────────────────
+
+  it("fetches Websites once and Reports once for the whole run (no duplicate reads)", async () => {
+    // A ready report + a vuln site → the full path runs: ready-list, attention
+    // collect, and state read all execute. Reports/Websites must each be SELECTed
+    // exactly once across the entire run.
+    const base = makeFakeBase({ Reports: [readyReport()], Websites: [vulnSiteRow()] });
+    const { client } = captureClient();
+    await runDigest({ base, resend: client, baseUrl: "https://reddoor-maintenance.netlify.app" });
+
+    const websiteSelects = base.__calls.filter(
+      (c) => c.kind === "select" && c.table === "Websites",
+    );
+    const reportSelects = base.__calls.filter((c) => c.kind === "select" && c.table === "Reports");
+    expect(websiteSelects).toHaveLength(1);
+    expect(reportSelects).toHaveLength(1);
+  });
+
   // ── attention wiring ─────────────────────────────────────────────────────────
 
   it("surfaces a vuln + a delivery item, both NEW, on the first run (no prior state)", async () => {

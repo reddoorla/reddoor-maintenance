@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { collectAttention } from "../../src/reports/digest.js";
+import { listWebsites } from "../../src/reports/airtable/websites.js";
+import { listAllReports } from "../../src/reports/airtable/reports.js";
 import type { OpenPullRequestsProbe } from "../../src/alerts/renovate.js";
 import type { PullRequestSummary } from "../../src/github/gh.js";
 import { makeFakeBase, type FakeRecord } from "./_helpers/fake-airtable-base.js";
@@ -137,6 +139,27 @@ describe("collectAttention", () => {
     const items = await collectAttention({ base, baseUrl: BASE_URL, renovateProbe });
     expect(probed).toEqual(["reddoorla/acme"]); // beta (null gitRepo) never probed
     expect(items.some((i) => i.key === "renovate:reddoorla/acme#7")).toBe(true);
+  });
+
+  it("issues ZERO Reports/Websites selects when both arrays are pre-fetched (dedup seam)", async () => {
+    // Materialize real rows from a throwaway base (the only fetch here).
+    const seedBase = makeFakeBase({ Reports: [bouncedReport()], Websites: [vulnSite()] });
+    const reports = await listAllReports(seedBase);
+    const websites = await listWebsites(seedBase);
+
+    // A FRESH base whose tables are empty — if collectAttention re-fetches, the
+    // selects show up in __calls AND the seeded rows vanish (items would be empty).
+    const base = makeFakeBase({});
+    const items = await collectAttention({ base, baseUrl: BASE_URL, websites, reports });
+
+    // The pre-fetched arrays must be used: no select against either table.
+    const selects = base.__calls.filter((c) => c.kind === "select");
+    expect(selects).toEqual([]);
+
+    // And the items must derive from the injected arrays, not the empty base.
+    const keys = items.map((i) => i.key).sort();
+    expect(keys).toContain("vuln:rec_site_acme");
+    expect(keys).toContain("delivery:rec_report_bounced");
   });
 
   it("isolates a renovate-probe outage: a throwing probe yields no renovate items + warns; vuln/delivery unaffected", async () => {
