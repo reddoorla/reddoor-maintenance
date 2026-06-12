@@ -45,6 +45,7 @@ function row(over: Partial<WebsiteRow> = {}): WebsiteRow {
     copyIntro: null,
     copyContact: null,
     copyFooter: null,
+    launchedAt: null,
     a11yViolations: null,
     depsDrifted: null,
     depsMajorBehind: null,
