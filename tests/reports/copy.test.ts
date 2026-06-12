@@ -41,4 +41,11 @@ describe("resolveCopy", () => {
     const c = resolveCopy(site({ copyIntro: "   " }));
     expect(c.maintenanceIntro).toBe(DEFAULT_COPY.maintenanceIntro);
   });
+
+  it("exposes launch copy defaults", () => {
+    expect(DEFAULT_COPY.launchHeading).toBe("LAUNCHED");
+    expect(typeof DEFAULT_COPY.launchBody).toBe("string");
+    expect(Array.isArray(DEFAULT_COPY.launchSetupItems)).toBe(true);
+    expect(DEFAULT_COPY.launchSetupItems.length).toBeGreaterThan(0);
+  });
 });

@@ -1,4 +1,4 @@
-export type ReportType = "Maintenance" | "Testing";
+export type ReportType = "Maintenance" | "Testing" | "Launch";
 
 export type LighthouseScores = {
   performance: number;
