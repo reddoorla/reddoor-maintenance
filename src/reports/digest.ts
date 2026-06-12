@@ -5,8 +5,15 @@ import { listAllReports } from "./airtable/reports.js";
 import type { ReportRow } from "./airtable/reports.js";
 import { listWebsites, siteSlug, type WebsiteRow } from "./airtable/websites.js";
 import { defaultResendClient, type ResendClient } from "./send/resend.js";
-import { collectVulnAlerts, collectDeliveryFailures } from "../alerts/digest-collectors.js";
+import {
+  collectVulnAlerts,
+  collectDeliveryFailures,
+  renovateFindingsToAttention,
+  buildRenovateProbe,
+} from "../alerts/digest-collectors.js";
+import { collectRenovateFailures, type OpenPullRequestsProbe } from "../alerts/renovate.js";
 import { diffAttention, readDigestState, writeDigestState } from "../alerts/digest-state.js";
+import type { Site } from "../types.js";
 
 /** One report awaiting the operator's "yes" — site, type, period, and a link to its
  *  dashboard page (the digest LINKS to the dashboard; it never carries the approve action,
@@ -182,6 +189,9 @@ export type CollectAttentionDeps = {
   base: AirtableBase;
   /** Same baseUrl value runDigest threads; used for the /s/<slug> links. */
   baseUrl: string;
+  /** Live GitHub probe for the Renovate-failing-CI sweep. When omitted (e.g. a
+   *  local/no-token run), the renovate sweep is skipped entirely. */
+  renovateProbe?: OpenPullRequestsProbe;
 };
 
 /** Run a single collector under a try/catch: a thrown collector logs and yields []
@@ -195,10 +205,27 @@ function runCollector(label: string, fn: () => AttentionItem[]): AttentionItem[]
   }
 }
 
+/** Async sibling of runCollector for the renovate sweep (a GitHub fetch): a thrown
+ *  collector logs and yields [] so a GH outage never blanks the whole section. */
+async function runCollectorAsync(
+  label: string,
+  fn: () => Promise<AttentionItem[]>,
+): Promise<AttentionItem[]> {
+  try {
+    return await fn();
+  } catch (e) {
+    console.warn(`⚠ attention collector "${label}" failed: ${(e as Error).message}`);
+    return [];
+  }
+}
+
 /**
  * Fetch the free signals once (listAllReports + listWebsites), build the
  * sitesById map the delivery collector needs, and run each pure collector
- * isolated. Returns the union of items; diffing/badging happens in runDigest.
+ * isolated. When a `renovateProbe` is supplied, also sweep the fleet for
+ * Renovate update PRs failing CI (adapting the already-fetched WebsiteRow[]
+ * to the minimal Site shape the detector needs). Returns the union of items;
+ * diffing/badging happens in runDigest.
  */
 export async function collectAttention(deps: CollectAttentionDeps): Promise<AttentionItem[]> {
   const [reports, websites] = await Promise.all([
@@ -206,9 +233,25 @@ export async function collectAttention(deps: CollectAttentionDeps): Promise<Atte
     listWebsites(deps.base),
   ]);
   const sitesById = new Map<string, WebsiteRow>(websites.map((w) => [w.id, w]));
+  const renovate = deps.renovateProbe
+    ? await runCollectorAsync("renovate", async () => {
+        // Adapt WebsiteRow → the minimal Site shape the detector reads. A null
+        // gitRepo is OMITTED (exactOptionalPropertyTypes forbids an explicit
+        // `undefined`); the detector's `if (!repo) continue` skips it either way.
+        const sites: Site[] = websites.map((w) => ({
+          path: "",
+          name: w.name,
+          meta: {},
+          ...(w.gitRepo ? { gitRepo: w.gitRepo } : {}),
+        }));
+        const result = await collectRenovateFailures(sites, deps.renovateProbe!);
+        return renovateFindingsToAttention(result);
+      })
+    : [];
   return [
     ...runCollector("vuln", () => collectVulnAlerts(websites, deps.baseUrl)),
     ...runCollector("delivery", () => collectDeliveryFailures(reports, sitesById, deps.baseUrl)),
+    ...renovate,
   ];
 }
 
@@ -248,7 +291,15 @@ export async function runDigest(
     }
 
     // M5: collect the free signals (isolated), diff against yesterday's snapshot.
-    const collected = await collectAttention({ base, baseUrl: options.baseUrl });
+    // The renovate sweep needs a GitHub token; `buildRenovateProbe` returns undefined
+    // on a no-token run, in which case the property is OMITTED (exactOptionalPropertyTypes)
+    // and collectAttention skips the sweep cleanly.
+    const renovateProbe = buildRenovateProbe();
+    const collected = await collectAttention({
+      base,
+      baseUrl: options.baseUrl,
+      ...(renovateProbe ? { renovateProbe } : {}),
+    });
     const prior = await readDigestState(base);
     const { tagged, next } = diffAttention(collected, prior, digestDateKey(today));
     const needsAttention = tagged;

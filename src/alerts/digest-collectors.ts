@@ -2,6 +2,8 @@
 import type { AttentionItem } from "../reports/digest.js";
 import { siteSlug, type WebsiteRow } from "../reports/airtable/websites.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
+import type { OpenPullRequestsProbe, RenovateFailuresResult } from "./renovate.js";
+import { makeGitHub } from "../github/gh.js";
 
 /** Build the same `/s/<slug>` dashboard link the M3 ready-section uses, trailing-slash-safe. */
 function dashboardUrl(baseUrl: string, siteName: string): string {
@@ -65,4 +67,50 @@ export function collectDeliveryFailures(
     });
   }
   return items;
+}
+
+/**
+ * Map the renovate sweep result into attention items. PURE — takes the already-fetched
+ * `RenovateFailuresResult` (the IO sweep lives in `collectRenovateFailures`). One item
+ * per failing-CI Renovate PR (key `renovate:<repo>#<number>`, severity `warning`,
+ * `metric` 1 — a binary event). When the sweep couldn't reach some repos, append ONE
+ * roll-up note keyed `renovate:skipped` whose `metric` is the skipped count, so it
+ * diffs as WORSE when MORE repos fail to check (a widening blind spot, not a new alert).
+ */
+export function renovateFindingsToAttention(result: RenovateFailuresResult): AttentionItem[] {
+  const items: AttentionItem[] = [];
+  for (const f of result.findings) {
+    items.push({
+      key: `renovate:${f.repo}#${f.pr.number}`,
+      kind: "renovate",
+      siteName: f.site,
+      title: `Renovate update failing CI: ${f.pr.title}`,
+      url: f.pr.url,
+      severity: "warning",
+      metric: 1,
+    });
+  }
+  if (result.skipped.length > 0) {
+    items.push({
+      key: "renovate:skipped",
+      kind: "renovate",
+      siteName: "Fleet checks",
+      title: `Couldn't check ${result.skipped.length} repo(s) for failing Renovate PRs`,
+      severity: "warning",
+      metric: result.skipped.length,
+    });
+  }
+  return items;
+}
+
+/**
+ * Build the live GitHub probe the renovate sweep needs, or `undefined` when no token
+ * is available. Reads `RENOVATE_TOKEN` (the org secret with fleet read access),
+ * falling back to `GH_TOKEN`; a local/no-token run gets `undefined` so the renovate
+ * sweep is simply skipped (no error, no empty section noise).
+ */
+export function buildRenovateProbe(): OpenPullRequestsProbe | undefined {
+  const token = process.env.RENOVATE_TOKEN?.trim() || process.env.GH_TOKEN?.trim();
+  if (!token) return undefined;
+  return makeGitHub({ token }).openPullRequests;
 }
