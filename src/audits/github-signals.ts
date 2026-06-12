@@ -20,7 +20,7 @@ export type GitHubSignalsDeps = {
 /** Per repo-backed site: count its failing Renovate PRs + read its default-branch
  *  status. Sites without `gitRepo` are skipped (not errors). A repo whose probe
  *  throws is reported via `onSkip` and produces no row — one GitHub hiccup never
- *  sinks the sweep (mirrors `collectRenovateFailures`). PURE over `deps`. */
+ *  sinks the sweep. PURE over `deps`. */
 export async function collectGitHubSignals(
   sites: Site[],
   deps: GitHubSignalsDeps,
