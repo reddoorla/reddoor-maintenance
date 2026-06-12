@@ -274,4 +274,75 @@ describe("sendApprovedReports", () => {
     expect(res.code).toBe(1);
     expect(res.output).toContain("Site row not found for id=rec_orphan");
   });
+
+  it("flips Status → maintenance + stamps Launched at after a Launch report sends (M6b)", async () => {
+    const base = makeFakeBase({
+      Reports: [reportRow({ "Report type": "Launch" })],
+      Websites: [siteRow({ Status: "launch" })],
+    });
+    vi.mocked(openBase).mockReturnValue(base);
+    const { client } = captureClient();
+    const res = await sendApprovedReports({ resend: client });
+    expect(res.code).toBe(0);
+    expect(res.output).toContain("✓ sent:");
+    expect(res.output).toContain("flipped to maintenance");
+
+    // The flip writes Status + Launched at to the Websites row (NOT the Reports row).
+    const flip = base.__calls.find(
+      (c) =>
+        c.kind === "update" &&
+        c.table === "Websites" &&
+        c.records[0]!.fields["Status"] !== undefined,
+    );
+    expect(flip).toBeDefined();
+    expect(flip!.kind === "update" && flip!.records[0]!.id).toBe("rec_site_acme");
+    expect(flip!.kind === "update" && flip!.records[0]!.fields["Status"]).toBe("maintenance");
+    expect(flip!.kind === "update" && flip!.records[0]!.fields["Launched at"]).toBeDefined();
+  });
+
+  it("does NOT flip Status for a non-Launch (Maintenance) report", async () => {
+    const base = makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] });
+    vi.mocked(openBase).mockReturnValue(base);
+    const { client } = captureClient();
+    await sendApprovedReports({ resend: client });
+    const flip = base.__calls.find(
+      (c) =>
+        c.kind === "update" &&
+        c.table === "Websites" &&
+        c.records[0]!.fields["Status"] !== undefined,
+    );
+    expect(flip).toBeUndefined();
+  });
+
+  it("does not fail the already-sent email when the launch flip errors (M6b)", async () => {
+    const base = makeFakeBase({
+      Reports: [reportRow({ "Report type": "Launch" })],
+      Websites: [siteRow({ Status: "launch" })],
+    });
+    // Wrap the table factory so only the Websites update (the Status flip) throws.
+    // The send + Reports stamp must still succeed; the flip failure becomes a warning,
+    // not a hard failure, because the email already went out.
+    const inner = base as unknown as (t: string) => Record<string, unknown>;
+    const patched = ((t: string) => {
+      const tbl = inner(t);
+      if (t === "Websites") {
+        return {
+          ...tbl,
+          update: async () => {
+            throw new Error("Status field write blew up");
+          },
+        };
+      }
+      return tbl;
+    }) as unknown as typeof base;
+    patched.__calls = base.__calls;
+    patched.__records = base.__records;
+    vi.mocked(openBase).mockReturnValue(patched);
+    const { client } = captureClient();
+    const res = await sendApprovedReports({ resend: client });
+    expect(res.code).toBe(0);
+    expect(res.output).toContain("✓ sent:");
+    expect(res.output).toContain("launch flip failed");
+    expect(res.output).toContain("Status field write blew up");
+  });
 });

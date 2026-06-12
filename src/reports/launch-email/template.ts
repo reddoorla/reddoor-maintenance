@@ -1,0 +1,76 @@
+import type { ReportData } from "../types.js";
+import { DEFAULT_COPY } from "../copy.js";
+import {
+  escapeXml,
+  fmtDate,
+  headerImageTag,
+  headerStyleBlock,
+} from "../maintenance-email/template.js";
+
+const RED = "#C00";
+const GREY = "#757575";
+
+/** Purpose-built go-live email: header · LAUNCHED + date · message · what-we-set-up
+ *  · contact · footer. Reuses the M6a copy layer (contact/footer honor per-site
+ *  overrides). No maintenance checklist / Lighthouse / analytics. */
+export function buildLaunchMjml(data: ReportData): string {
+  const copy = data.copy ?? DEFAULT_COPY;
+  const previewText = `${escapeXml(data.siteName)} is live`;
+  // All copy — launchHeading/launchBody/launchSetupItems included — is escaped
+  // (spec §3.3: all copy escaped). It keeps strict MJML from choking on a stray
+  // `&`/`<` if the default copy ever gains one, matching contact/footer below.
+  const setupRows = copy.launchSetupItems
+    .map(
+      (item) => `
+      <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="4px" padding-bottom="4px">• ${escapeXml(item)}</mj-text>`,
+    )
+    .join("");
+  const contactRows = copy.contact
+    .map(
+      (line) => `
+      <mj-text font-family="helvetica, sans-serif" font-size="24px" font-weight="300" line-height="30px">${escapeXml(line)}</mj-text>`,
+    )
+    .join("");
+  const footerAddressRows = copy.footerAddress
+    .map(
+      (line) => `
+      <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" line-height="16px" padding-top="0" padding-bottom="0px">${escapeXml(line)}</mj-text>`,
+    )
+    .join("");
+
+  return `<mjml>
+  <mj-head>
+    <mj-attributes>
+      <mj-text font-family="helvetica, sans-serif" padding-left="5px" padding-right="5px" />
+      <mj-section padding-left="11%" padding-right="11%"/>
+      <mj-image padding="0px" />
+    </mj-attributes>
+    <mj-preview>${previewText}</mj-preview>
+    ${headerStyleBlock(data)}
+  </mj-head>
+  <mj-body background-color="white">
+    <mj-section background-color="#F4F4F4" padding-top="0px" padding-bottom="0px" padding-left="0px" padding-right="0px">
+      <mj-column>${headerImageTag(data)}</mj-column>
+    </mj-section>
+    <mj-section background-color="white">
+      <mj-column>
+        <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="75px">${escapeXml(copy.launchHeading)}</mj-text>
+        <mj-text color="${RED}" font-size="44px" font-weight="400">${fmtDate(data.completedOn)}</mj-text>
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="20px">${escapeXml(copy.launchBody)}</mj-text>
+        ${setupRows}
+      </mj-column>
+    </mj-section>
+    <mj-section background-color="white">
+      <mj-column padding-top="36px">
+        <mj-text color="${RED}" font-family="helvetica, sans-serif" font-size="24px" font-weight="700" padding-top="36px" line-height="36px">Any questions, concerns or requests?</mj-text>
+        ${contactRows}
+        <mj-divider border-width="1px" border-style="solid" border-color="#CCCCCC" padding="0" />
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" padding-top="24px" line-height="20px" font-style="italic">Copyright ${new Date().getUTCFullYear()} ${escapeXml(copy.footerOrg)}. All rights reserved.</mj-text>
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="12px" font-weight="700" line-height="16px" padding-top="0" padding-bottom="0px">Our mailing address is:</mj-text>
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" line-height="16px" padding-top="0" padding-bottom="0px">${escapeXml(copy.footerOrg)}</mj-text>
+        ${footerAddressRows}
+      </mj-column>
+    </mj-section>
+  </mj-body>
+</mjml>`;
+}

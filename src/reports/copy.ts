@@ -10,6 +10,9 @@ export type ResolvedCopy = {
   contact: string[]; // closing invitation lines
   footerOrg: string;
   footerAddress: string[];
+  launchHeading: string;
+  launchBody: string;
+  launchSetupItems: string[];
 };
 
 export const DEFAULT_COPY: ResolvedCopy = {
@@ -38,6 +41,14 @@ export const DEFAULT_COPY: ResolvedCopy = {
   contact: ["Just hit reply.", "We're here to help in any way we can."],
   footerOrg: "Reddoor Creative, LLC",
   footerAddress: ["29027 Dapper Dan", "Fair Oaks Ranch, TX 78015"],
+  launchHeading: "LAUNCHED",
+  launchBody:
+    "Your site is live. We've set it up on the Reddoor stack with hosting, security, and automatic maintenance so it stays fast and healthy. Here's what's in place:",
+  launchSetupItems: [
+    "Hosting, DNS, and SSL configured",
+    "Continuous integration + automatic dependency updates",
+    "Analytics and uptime monitoring",
+  ],
 };
 
 /** Trim an override to null when blank (mirrors dashboardToken). */

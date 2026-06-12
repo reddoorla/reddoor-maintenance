@@ -48,6 +48,7 @@ function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
     copyIntro: null,
     copyContact: null,
     copyFooter: null,
+    launchedAt: null,
     renovateFailingCis: null,
     defaultBranchCi: null,
     lastCommitAt: null,

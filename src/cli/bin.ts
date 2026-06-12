@@ -14,6 +14,7 @@ import { runOnboardCommand } from "./commands/onboard.js";
 import { runSvelteCodemodsCommand } from "./commands/svelte-codemods.js";
 import { runReportCommand } from "./commands/report.js";
 import { runInitCommand } from "./commands/init.js";
+import { runLaunchCommand } from "./commands/launch.js";
 import { runGitHubSignalsCommand } from "./commands/github-signals.js";
 import { resolvePackageVersion } from "./version.js";
 
@@ -270,6 +271,15 @@ cli
   .action(
     async (site, opts: { fleet?: string; workdir?: string; cwd?: string; verbose?: boolean }) =>
       runOrExit(() => runInitCommand(site, opts), opts),
+  );
+
+cli
+  .command(
+    "launch <site>",
+    "Bootstrap + first-audit a site, then draft its launch email for approval.",
+  )
+  .action(async (site: string, opts: { cwd?: string; verbose?: boolean }) =>
+    runOrExit(() => runLaunchCommand(site, opts), opts),
   );
 
 cli

@@ -69,6 +69,8 @@ export type WebsiteRow = {
   copyIntro: string | null;
   copyContact: string | null;
   copyFooter: string | null;
+  /** Go-live timestamp, stamped when a Launch report sends (M6b). Null = not yet launched. */
+  launchedAt: string | null;
   /** GitHub-signals sweep (slice 2a), written nightly by `github-signals --fleet`. */
   renovateFailingCis: number | null;
   defaultBranchCi: string | null; // "passing" | "failing" | "pending" | "none"
@@ -141,6 +143,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     copyIntro: trimToNull(f["Copy — Intro"]),
     copyContact: trimToNull(f["Copy — Contact"]),
     copyFooter: trimToNull(f["Copy — Footer"]),
+    launchedAt: (f["Launched at"] as string | undefined) ?? null,
     renovateFailingCis: (f["Renovate Failing CIs"] as number | undefined) ?? null,
     defaultBranchCi: (f["Default Branch CI"] as string | undefined) ?? null,
     lastCommitAt: (f["Last Commit At"] as string | undefined) ?? null,
@@ -274,5 +277,16 @@ export async function updateGitHubSignals(
   if (signals.lastCommitAt !== null) {
     fields["Last Commit At"] = signals.lastCommitAt;
   }
+  await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+}
+
+/** Mark a site launched: flip Status → maintenance + stamp Launched at (M6b).
+ *  The first code that writes Status. Called after a Launch report sends. */
+export async function updateLaunched(
+  base: AirtableBase,
+  recordId: string,
+  at: string,
+): Promise<void> {
+  const fields: FieldSet = { Status: "maintenance", "Launched at": at };
   await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
 }
