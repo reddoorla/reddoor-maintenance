@@ -1,6 +1,6 @@
 import { openBase, readAirtableConfig } from "../airtable/client.js";
 import { listSendableReports, stampSent } from "../airtable/reports.js";
-import { listWebsites, siteSlug } from "../airtable/websites.js";
+import { listWebsites, siteSlug, updateLaunched } from "../airtable/websites.js";
 import type { WebsiteRow } from "../airtable/websites.js";
 import type { ReportRow } from "../airtable/reports.js";
 import { fetchAttachmentBytes } from "../airtable/attachments.js";
@@ -79,6 +79,14 @@ export async function sendApprovedReports(
     try {
       const messageId = await sendOne(client, base, site, report);
       lines.push(`✓ sent: ${report.reportId} (${messageId})`);
+      if (report.reportType === "Launch") {
+        try {
+          await updateLaunched(base, site.id, new Date().toISOString());
+          lines.push(`  ↳ launched: ${site.name} flipped to maintenance`);
+        } catch (e) {
+          lines.push(`  ⚠ launch flip failed for ${site.name}: ${(e as Error).message}`);
+        }
+      }
     } catch (e) {
       lines.push(`✗ ${report.reportId} — ${(e as Error).message}`);
       anyFailed = true;
