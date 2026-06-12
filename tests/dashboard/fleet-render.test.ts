@@ -311,3 +311,50 @@ describe("renderCockpitHtml — approve strip", () => {
     expect(html).not.toContain('<section class="approve-strip"');
   });
 });
+
+describe("renderCockpitHtml — cockpit cards", () => {
+  it("puts a status pill and the site's attention chips on the card, with data-signals", () => {
+    const html = renderCockpitHtml(
+      model([
+        siteRow({
+          id: "a",
+          name: "Bad",
+          securityVulnsCritical: 2,
+          securityVulnsHigh: 1,
+          pScore: 60,
+        }),
+      ]),
+    );
+    expect(html).toMatch(/class="pill attention"/);
+    expect(html).toContain('data-signals="'); // present on the card
+    expect(html).toMatch(/2 critical\/high|3 critical\/high/); // vuln chip text from the collector title
+    expect(html).toMatch(/Lighthouse Performance 60/); // lighthouse chip
+  });
+
+  it("renders a NEW badge for a freshly-flagged item and WORSE for a risen metric", () => {
+    const newHtml = renderCockpitHtml(
+      model([siteRow({ id: "a", name: "Bad", securityVulnsCritical: 1 })]), // prior {} → NEW
+    );
+    expect(newHtml).toMatch(/class="badge">NEW/);
+
+    const worse = buildCockpitModel(
+      [siteRow({ id: "a", name: "Bad", securityVulnsCritical: 3 })],
+      [],
+      { "vuln:a": { metric: 1, firstFlaggedAt: "2026-06-01" } },
+      BASE,
+      NOW,
+    );
+    expect(renderCockpitHtml(worse)).toMatch(/class="badge">WORSE/);
+  });
+
+  it("shows the watch reasons on a watch-tier card", () => {
+    const html = renderCockpitHtml(model([siteRow({ id: "w", name: "Mid", pScore: 80 })]));
+    expect(html).toMatch(/Performance 80/);
+  });
+
+  it("includes the filter script with the data-filter wiring", () => {
+    const html = renderCockpitHtml(model([siteRow()]));
+    expect(html).toContain("data-filter");
+    expect(html).toMatch(/querySelectorAll|addEventListener/);
+  });
+});

@@ -196,11 +196,79 @@ function approveStrip(model: CockpitModel): string {
   </section>`;
 }
 
-function cockpitCard(c: SiteCard): string {
-  return card(c.site); // Task 5 adds the status pill, chips, and NEW/WORSE badges
+const PILL_LABEL: Record<Tier, string> = { attention: "failing", watch: "watch", healthy: "ok" };
+
+function attentionBadge(status?: string): string {
+  if (status === "new") return `<span class="badge">NEW</span>`;
+  if (status === "worse") return `<span class="badge">WORSE</span>`;
+  return "";
 }
 
-const FILTER_SCRIPT = ""; // Task 5
+function chips(c: SiteCard): string {
+  const items = c.items.map((it) => {
+    const cls = it.severity === "critical" ? "chip critical" : "chip";
+    return `<span class="${cls}">${attentionBadge(it.status)}${escapeHtml(it.title)}</span>`;
+  });
+  for (const reason of c.watchReasons)
+    items.push(`<span class="chip">${escapeHtml(reason)}</span>`);
+  return items.length ? `<div class="chips">${items.join("")}</div>` : "";
+}
+
+/** Space-separated signal kinds for the client filter (+ "stale" for audit-stale watch). */
+function signalsAttr(c: SiteCard): string {
+  const kinds = new Set<string>(
+    c.items.map((it) =>
+      it.kind === "vuln"
+        ? "vulns"
+        : it.kind === "lighthouse"
+          ? "lighthouse"
+          : it.kind === "delivery"
+            ? "delivery"
+            : it.kind,
+    ),
+  );
+  if (c.watchReasons.some((r) => /ago/.test(r))) kinds.add("stale");
+  return [...kinds].join(" ");
+}
+
+function cockpitCard(c: SiteCard): string {
+  const base = card(c.site); // existing header + metrics markup
+  const pill = `<span class="pill ${c.tier}">${PILL_LABEL[c.tier]}</span>`;
+  const extra = `${pill}${chips(c)}`;
+  // Inject the pill + chips before the article's closing tag, and add the filter hook.
+  return base
+    .replace('<article class="card">', `<article class="card" data-signals="${signalsAttr(c)}">`)
+    .replace("</article>", `${extra}</article>`);
+}
+
+const FILTER_SCRIPT = `<script>
+(function(){
+  var btns = document.querySelectorAll('.filters button');
+  var cards = document.querySelectorAll('.cards .card');
+  var details = document.querySelectorAll('details.tier');
+  btns.forEach(function(b){
+    b.addEventListener('click', function(){
+      var f = b.getAttribute('data-filter');
+      btns.forEach(function(x){ x.setAttribute('aria-pressed', x===b ? 'true':'false'); });
+      if (f !== 'all') details.forEach(function(d){ d.open = true; });
+      cards.forEach(function(c){
+        var sig = (c.getAttribute('data-signals')||'').split(' ');
+        c.style.display = (f==='all' || sig.indexOf(f)!==-1) ? '' : 'none';
+      });
+      if (f === 'pending') { var s = document.querySelector('.approve-strip'); if (s) s.scrollIntoView({behavior:'smooth'}); }
+    });
+  });
+  // approve buttons: mirror the per-site dashboard's inline POST.
+  document.querySelectorAll('button.approve').forEach(function(b){
+    b.addEventListener('click', async function(){
+      b.disabled = true; b.textContent = 'Approving…';
+      try { var res = await fetch(b.dataset.approveUrl, { method: 'POST' });
+        b.textContent = res.ok ? 'Approved ✓' : 'Failed'; }
+      catch(e){ b.textContent = 'Failed'; b.disabled = false; }
+    });
+  });
+})();
+</script>`;
 
 /**
  * Render the fleet cockpit as a single HTML document. Pure function: no Airtable
