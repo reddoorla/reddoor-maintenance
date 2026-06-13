@@ -9,6 +9,7 @@ import { resolveCopy } from "../copy.js";
 import { loadBundledImages } from "../maintenance-email/assets/index.js";
 import { prepareHeaderImage } from "../maintenance-email/header-image.js";
 import { defaultResendClient, type ResendClient, type ResendSendInput } from "./resend.js";
+import { isIdempotencyConflict } from "./idempotency.js";
 
 const FROM_ADDRESS = "Reddoor Reports <reports@reddoorla.com>";
 const REPLY_TO = "info@reddoorla.com";
@@ -207,7 +208,33 @@ async function sendOne(
   };
   if (cc) payload.cc = cc;
 
-  const result = await client.send(payload);
+  let result: Awaited<ReturnType<ResendClient["send"]>>;
+  try {
+    result = await client.send(payload);
+  } catch (err) {
+    // The send path is at-least-once: client.send succeeds → stampSent writes
+    // `Sent at` (the ONLY thing that removes the row from listSendableReports). If
+    // stampSent threw on a PRIOR run (an Airtable blip), `Sent at` stayed null and
+    // the row replays here. By replay time the rendered body has usually changed
+    // (operator Commentary edit, `report --due` rewrote scores, or the header
+    // re-encodes non-deterministically), so Resend rejects the same-key
+    // (`report:<id>`) / different-body re-send with a 409 (`invalid_idempotent_request`).
+    //
+    // That 409 means the email ALREADY WENT OUT under this key on the prior run.
+    // Do NOT re-throw and do NOT re-send (re-throwing leaves the row unstamped, and
+    // after the 24h key TTL a SECOND real email would go out). Instead stamp the row
+    // so it stops replaying, then return success so the caller runs the Launch flip —
+    // which self-heals a launch that sent-but-never-flipped on the prior run.
+    //
+    // Any OTHER error (real network/Resend failure) re-throws, exactly as before, so
+    // a genuine failure still fails loudly and the row replays next run.
+    if (isIdempotencyConflict(err)) {
+      await stampSent(base, report.id, new Date(), "idempotent-conflict");
+      console.log(`↻ already sent (idempotency conflict), stamped: ${report.reportId}`);
+      return "idempotent-conflict";
+    }
+    throw err;
+  }
   await stampSent(base, report.id, new Date(), result.messageId);
   return result.messageId;
 }
