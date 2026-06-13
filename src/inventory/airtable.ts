@@ -38,8 +38,18 @@ export function fromAirtableBase(
     const websites = await listWebsites(base);
     return websites
       .filter((w) => AUDITABLE_STATUSES.has(w.status ?? "") && w.url.length > 0)
-      .map((w) => {
+      .flatMap((w) => {
         const slug = siteSlug(w.name);
+        // An empty slug (a Name with no slug-able characters) can't form a stable
+        // path and — fatally — can't be matched back to its Websites row on
+        // write-back: every empty-slug site would collapse under the "" key and
+        // mis-write or fail. Skip it loudly rather than silently mis-map it.
+        if (slug.length === 0) {
+          console.warn(
+            `[inventory] skipping "${w.name}" (row ${w.id}): Name has no slug-able characters (empty slug)`,
+          );
+          return [];
+        }
         const site: Site = {
           path: `${workdir}/${slug}`,
           name: slug,
@@ -57,7 +67,7 @@ export function fromAirtableBase(
           );
         }
         if (w.gitRepo) site.gitRepo = w.gitRepo;
-        return site;
+        return [site];
       });
   };
 }

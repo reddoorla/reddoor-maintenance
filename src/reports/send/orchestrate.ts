@@ -234,7 +234,12 @@ async function sendOne(
     // Any OTHER error (real network/Resend failure) re-throws, exactly as before, so
     // a genuine failure still fails loudly and the row replays next run.
     if (isIdempotencyConflict(err)) {
-      await stampSent(base, report.id, new Date(), "idempotent-conflict");
+      // Stamp `Sent at` ONLY — the original send's messageId is unrecoverable on
+      // the 409 path, so we leave `Resend message ID` null rather than writing a
+      // sentinel that would masquerade as a real id and orphan webhook lookups.
+      // Still return the sentinel string so the caller logs the already-sent path
+      // and runs the Launch flip.
+      await stampSent(base, report.id, new Date(), null);
       console.log(`↻ already sent (idempotency conflict), stamped: ${report.reportId}`);
       return "idempotent-conflict";
     }

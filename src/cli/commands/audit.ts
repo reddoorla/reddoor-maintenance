@@ -303,6 +303,12 @@ export async function runAuditCommand(
   const skipNotice = formatSkippedNotice(skippedPrep);
   if (skipNotice && !opts.json) output += `\n\n${skipNotice}`;
 
+  // Did any site fail to write back to Airtable? The fleet writer collects
+  // per-site failures instead of throwing, so without this the command would
+  // exit 0 while rows silently failed to persist — automation keying on `$?`
+  // would see a clean run. (The single-site writer throws on failure, so it's
+  // already non-zero via the propagated error.)
+  let writeBackFailed = false;
   if (opts.writeAirtable !== undefined) {
     const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
     const { listWebsites } = await import("../../reports/airtable/websites.js");
@@ -313,7 +319,11 @@ export async function runAuditCommand(
       const base = openBase(readAirtableConfig());
       const websites = await listWebsites(base);
       const fleetWrite = await writeFleetAuditsToAirtable({ base, websites, results });
-      output += `\n\n${formatFleetWriteSummary(fleetWrite)}`;
+      if (fleetWrite.failed.length > 0) writeBackFailed = true;
+      // Gate on !json: the write-summary is human text; appending it after the
+      // results array would corrupt `--json` output (the other notices already
+      // guard this way). The write itself still happens regardless of --json.
+      if (!opts.json) output += `\n\n${formatFleetWriteSummary(fleetWrite)}`;
     } else {
       const { resolveSlugFromCwd } = await import("../../audits/lighthouse-airtable.js");
       const { writeAuditsToAirtable } = await import("../../audits/write-audits-to-airtable.js");
@@ -338,12 +348,16 @@ export async function runAuditCommand(
         ],
         { renderer },
       ).run();
-      if (writeSummary) output += `\n\n${formatWriteSummary(writeSummary)}`;
+      if (writeSummary && !opts.json) output += `\n\n${formatWriteSummary(writeSummary)}`;
     }
   }
 
   const notice = deployedUrlNotice(which, opts.url, cwd);
   if (notice && !opts.json) output += `\n\n${notice}`;
 
-  return { output, code: auditExitCode(results, opts.failOnViolations === true) };
+  const code = Math.max(
+    auditExitCode(results, opts.failOnViolations === true),
+    writeBackFailed ? 1 : 0,
+  );
+  return { output, code };
 }
