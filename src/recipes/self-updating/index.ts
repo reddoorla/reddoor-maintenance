@@ -8,7 +8,9 @@ import {
   isOwnerRepo,
   push as gitPush,
   branchName,
+  checkoutBranch,
   createBranch,
+  currentBranch,
   commit as gitCommit,
   isWorkingTreeClean,
 } from "../../util/git.js";
@@ -115,6 +117,15 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
         if (!(await isWorkingTreeClean(site.path))) {
           return resultOf(site, "failed", "working tree not clean — commit or stash first");
         }
+        // Capture the operator's branch BEFORE creating the maint branch so we
+        // can return them to it after the push (#2). Best-effort capture: if it
+        // fails we just skip the restore rather than guess.
+        let original: string | null = null;
+        try {
+          original = await currentBranch(site.path);
+        } catch {
+          original = null;
+        }
         const branch = branchName("self-updating");
         await createBranch(site.path, branch);
         for (const t of templates) {
@@ -135,6 +146,20 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
           body: "Adds the unified CI gate, nightly Renovate, and auto-merge for patch/minor updates.",
         });
         actions.push(`opened PR ${pr.url}`);
+        // The maint branch is pushed and the PR is open; bring the local
+        // checkout back to where the operator started (#2). Best-effort — a
+        // restore failure must not undo the successful PR/commit work.
+        if (original !== null && original !== branch) {
+          try {
+            await checkoutBranch(site.path, original);
+          } catch (err) {
+            console.warn(
+              `warning: could not restore branch ${original} after self-updating: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            );
+          }
+        }
       }
     }
 
@@ -143,11 +168,16 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
       await github.enableRepoAutoMerge(repo);
       actions.push("enabled auto-merge");
     }
-    if (!(await github.branchProtectionContexts(repo, base)).includes(REQUIRED_CHECK)) {
-      // protectBranch issues a full PUT that REPLACES required-status-check contexts (not merges).
-      // Pre-existing required contexts on a repo are dropped — acceptable here because this recipe
-      // only ever needs the single CI context, and M7.1 rollout verifies contexts per-repo.
-      await github.protectBranch(repo, base, [REQUIRED_CHECK]);
+    const existingContexts = await github.branchProtectionContexts(repo, base);
+    if (!existingContexts.includes(REQUIRED_CHECK)) {
+      // protectBranch issues a full PUT that REPLACES required-status-check contexts.
+      // Send the UNION of the branch's existing required contexts + our REQUIRED_CHECK
+      // so we ADD the CI gate without silently dropping any other checks the repo
+      // already requires. (When the branch has no protection yet, existingContexts is
+      // [] and this is just [REQUIRED_CHECK] — the original behavior.) Dedupe defends
+      // against REQUIRED_CHECK already appearing among the existing contexts.
+      const contexts = [...new Set([...existingContexts, REQUIRED_CHECK])];
+      await github.protectBranch(repo, base, contexts);
       actions.push(`required "${REQUIRED_CHECK}" check on ${base}`);
     }
     if (!(await github.secretExists(repo, "RENOVATE_TOKEN"))) {
