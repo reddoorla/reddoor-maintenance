@@ -191,6 +191,38 @@ describe("sendApprovedReports", () => {
     expect(res.output).toContain("no recipients");
   });
 
+  it("validates recipients BEFORE the expensive header fetch/render (fails fast, no fetch)", async () => {
+    // A misconfigured-recipients site is a guaranteed failure; recipient resolution
+    // now runs before fetchAttachmentBytes + sharp + MJML render, so the header is
+    // never fetched. Assert global.fetch (the header fetch) is not called.
+    vi.mocked(openBase).mockReturnValue(
+      makeFakeBase({
+        Reports: [reportRow()],
+        Websites: [siteRow({ "Report recipients (To)": "", "point of contact": null })],
+      }),
+    );
+    const { client } = captureClient();
+    const res = await sendApprovedReports({ resend: client });
+    expect(res.code).toBe(1);
+    expect(res.output).toContain("no recipients");
+    // The expensive path (header fetch) never ran for the bad-recipients site.
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed recipient BEFORE fetching the header (no expensive work)", async () => {
+    vi.mocked(openBase).mockReturnValue(
+      makeFakeBase({
+        Reports: [reportRow()],
+        Websites: [siteRow({ "Report recipients (To)": "Acme Ops <ops@acme.example.com>" })],
+      }),
+    );
+    const { client } = captureClient();
+    const res = await sendApprovedReports({ resend: client });
+    expect(res.code).toBe(1);
+    expect(res.output).toContain("malformed");
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
   it("fails the report when Header image is missing", async () => {
     vi.mocked(openBase).mockReturnValue(
       makeFakeBase({

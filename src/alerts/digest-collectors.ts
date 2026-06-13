@@ -9,6 +9,29 @@ function dashboardUrl(baseUrl: string, siteName: string): string {
 }
 
 /**
+ * A GitHub-signals sweep older than this (or never run) is no longer trustworthy:
+ * a repo whose nightly probe THREW stops being re-swept, so its persisted
+ * `Default Branch CI` / `Renovate Failing CIs` freeze at their last value forever
+ * — a phantom 🔴 that can never clear. 3 days ≈ 3× the daily sweep interval, so a
+ * single missed/flaky run doesn't drop a real signal. The CI/Renovate collectors
+ * (only) skip a site whose `githubSignalsAt` is staler than this. Vuln/Lighthouse/
+ * delivery signals come from other sweeps and are unaffected.
+ */
+const GITHUB_SIGNALS_STALE_DAYS = 3;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/** True when a site's GitHub-signals sweep is too old (or never ran) to trust the
+ *  persisted CI/Renovate fields. A null `githubSignalsAt` (never swept) is stale —
+ *  there's no sweep to vouch for the values. A future timestamp (now - swept < 0)
+ *  is fresh. `now` is injected so the gate is testable. */
+function gitHubSignalsStale(swept: string | null, now: Date): boolean {
+  if (swept === null) return true;
+  const ageMs = now.getTime() - Date.parse(swept);
+  if (!Number.isFinite(ageMs)) return true; // unparseable timestamp → don't trust it
+  return ageMs > GITHUB_SIGNALS_STALE_DAYS * MS_PER_DAY;
+}
+
+/**
  * One attention item per site carrying current critical+high vulns (medium/low omitted
  * per the locked threshold). PURE: takes already-fetched Websites rows. `metric` is the
  * critical+high count (so a rising count diffs as WORSE); `severity` is `critical` when
@@ -117,11 +140,18 @@ export function collectDeliveryFailures(
  * slice-2a-persisted `renovateFailingCis` field (the nightly github-signals sweep
  * populates it). PURE. Keyed `renovate:<siteId>` so the digest and the cockpit
  * share one diff key. `metric` is the count (a rising count diffs WORSE); severity
- * `warning`. Null/0 → skipped.
+ * `warning`. Null/0 → skipped. A site whose `githubSignalsAt` is >3 days stale (or
+ * null) is ALSO skipped — a repo that stopped being swept must not show a phantom
+ * count forever (`now` injected, defaults to wall-clock).
  */
-export function collectRenovateAlerts(sites: WebsiteRow[], baseUrl: string): AttentionItem[] {
+export function collectRenovateAlerts(
+  sites: WebsiteRow[],
+  baseUrl: string,
+  now: Date = new Date(),
+): AttentionItem[] {
   const items: AttentionItem[] = [];
   for (const s of sites) {
+    if (gitHubSignalsStale(s.githubSignalsAt, now)) continue;
     const n = s.renovateFailingCis ?? 0;
     if (n <= 0) continue;
     items.push({
@@ -140,11 +170,18 @@ export function collectRenovateAlerts(sites: WebsiteRow[], baseUrl: string): Att
 /**
  * One attention item per site whose persisted default-branch CI rollup is
  * `failing` (slice 2a). PURE. `metric` 1 (binary); severity `warning`. Any other
- * state (passing/pending/none) or null is skipped.
+ * state (passing/pending/none) or null is skipped. A site whose `githubSignalsAt`
+ * is >3 days stale (or null) is ALSO skipped — a repo that stopped being swept must
+ * not show a phantom 🔴 forever (`now` injected, defaults to wall-clock).
  */
-export function collectCiAlerts(sites: WebsiteRow[], baseUrl: string): AttentionItem[] {
+export function collectCiAlerts(
+  sites: WebsiteRow[],
+  baseUrl: string,
+  now: Date = new Date(),
+): AttentionItem[] {
   const items: AttentionItem[] = [];
   for (const s of sites) {
+    if (gitHubSignalsStale(s.githubSignalsAt, now)) continue;
     if (s.defaultBranchCi !== "failing") continue;
     items.push({
       key: `ci:${s.id}`,

@@ -119,9 +119,9 @@ describe("writeAuditsToAirtable", () => {
       ],
     });
     expect(summary.writes.map((w) => w.audit)).toEqual(["lighthouse", "a11y", "deps", "security"]);
-    expect(calls).toHaveLength(4);
-    const merged = Object.assign({}, ...calls.map((c) => c.fields));
-    expect(merged).toMatchObject({
+    // ONE atomic update carrying every audit's fields (not four separate updates).
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.fields).toMatchObject({
       pScore: 90,
       "A11y Violations": 3,
       "Deps Drifted": 4,
@@ -183,9 +183,16 @@ describe("writeAuditsToAirtable", () => {
       ],
     });
     expect(summary.writes.map((w) => w.audit)).toEqual(["lighthouse", "deps"]);
-    expect(calls.map((c) => Object.keys(c.fields).join(","))).toEqual([
-      "pScore,rScore,bpScore,seoScore,Last lighthouse audit at",
-      "Deps Drifted,Deps Major Behind",
+    // One merged write carrying only the audits that ran (lighthouse + deps).
+    expect(calls).toHaveLength(1);
+    expect(Object.keys(calls[0]!.fields)).toEqual([
+      "pScore",
+      "rScore",
+      "bpScore",
+      "seoScore",
+      "Last lighthouse audit at",
+      "Deps Drifted",
+      "Deps Major Behind",
     ]);
   });
 
@@ -243,8 +250,10 @@ describe("writeAuditsToAirtable", () => {
       ),
       exitCode: 1,
     });
-    // The good non-Lighthouse data was written despite the Lighthouse miss.
-    const merged = Object.assign({}, ...calls.map((c) => c.fields));
+    // The good non-Lighthouse data was written despite the Lighthouse miss — and
+    // ATOMICALLY: exactly one update carries all of it (no half-written row).
+    expect(calls).toHaveLength(1);
+    const merged = calls[0]!.fields;
     expect(merged).toMatchObject({
       "A11y Violations": 3,
       "Deps Drifted": 2,

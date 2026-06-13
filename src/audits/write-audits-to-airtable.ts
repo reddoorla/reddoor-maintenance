@@ -1,13 +1,8 @@
 import type { AuditResult } from "../types.js";
 import type { AirtableBase } from "../reports/airtable/client.js";
-import {
-  type WebsiteRow,
-  siteSlug,
-  updateScores,
-  updateA11yCounts,
-  updateDepsCounts,
-  updateSecurityCounts,
-} from "../reports/airtable/websites.js";
+import { type WebsiteRow, siteSlug, updateAuditFields } from "../reports/airtable/websites.js";
+import type { A11yCounts, DepsCounts, SecurityCounts } from "../reports/airtable/websites.js";
+import type { LighthouseScores } from "../reports/types.js";
 import { hasRealScores, lighthouseScoresFromResult } from "./lighthouse-airtable.js";
 import { hasA11yCounts, a11yCountsFromResult } from "./a11y-airtable.js";
 import { hasDepsCounts, depsCountsFromResult } from "./deps-airtable.js";
@@ -58,39 +53,55 @@ export async function writeAuditsToAirtable(args: {
   }
 
   const writes: WriteSummary["writes"] = [];
+  const audits: {
+    scores?: LighthouseScores;
+    a11y?: A11yCounts;
+    deps?: DepsCounts;
+    security?: SecurityCounts;
+  } = {};
 
-  // Lighthouse is the most timeout-prone audit. A Lighthouse miss must NOT
-  // discard the site's valid a11y/deps/security results (morning-brief
-  // 2026-06-10 MEDIUM-E): write Lighthouse scores only when real, write the
-  // other audits unconditionally, then throw on a Lighthouse miss AFTER the
-  // non-Lighthouse data is safely persisted — so the site is still flagged
-  // (exitCode 1 / collected in FleetWriteResult.failed) without data loss.
+  // Collect every audit that produced real values into ONE merged input, then do a
+  // SINGLE atomic Airtable update (was: up to four sequential updates on the same
+  // row — a mid-sequence failure left it half-written yet reported fully failed, at
+  // 4× the request volume). Lighthouse is the most timeout-prone audit: a Lighthouse
+  // miss must NOT discard the site's valid a11y/deps/security results (morning-brief
+  // 2026-06-10 MEDIUM-E). So include Lighthouse scores only when real, include the
+  // other audits whenever present, write all of them in one update, then — if
+  // Lighthouse missed — throw AFTER that atomic write so the site is still flagged
+  // (exitCode 1 / collected in FleetWriteResult.failed) without losing its other data.
   const lhHasScores = hasRealScores(lhResult);
   if (lhHasScores) {
     const scores = lighthouseScoresFromResult(lhResult);
-    await updateScores(base, target.id, scores);
+    audits.scores = scores;
     writes.push({ audit: "lighthouse", counts: scores });
   }
 
   const a11y = results.find((r) => r.audit === "a11y");
   if (a11y && hasA11yCounts(a11y)) {
     const counts = a11yCountsFromResult(a11y);
-    await updateA11yCounts(base, target.id, counts);
+    audits.a11y = counts;
     writes.push({ audit: "a11y", counts });
   }
 
   const deps = results.find((r) => r.audit === "deps");
   if (deps && hasDepsCounts(deps)) {
     const counts = depsCountsFromResult(deps);
-    await updateDepsCounts(base, target.id, counts);
+    audits.deps = counts;
     writes.push({ audit: "deps", counts });
   }
 
   const sec = results.find((r) => r.audit === "security");
   if (sec && hasSecurityCounts(sec)) {
     const counts = securityCountsFromResult(sec);
-    await updateSecurityCounts(base, target.id, counts);
+    audits.security = counts;
     writes.push({ audit: "security", counts });
+  }
+
+  // One atomic write of everything that ran. Skip the call only if there is nothing
+  // to write at all (no real scores AND no other audit produced values) — an empty
+  // update is a wasted request.
+  if (Object.keys(audits).length > 0) {
+    await updateAuditFields(base, target.id, audits);
   }
 
   if (!lhHasScores) {
@@ -155,10 +166,11 @@ export async function writeFleetAuditsToAirtable(args: {
 
   const written: WriteSummary[] = [];
   const failed: FleetWriteResult["failed"] = [];
-  // Serial on purpose: Airtable's ~5 req/sec limit + up to 4 update calls per
-  // site means a Promise.all fan-out would burst and trip 429s (silently filed
-  // as failures). Below a few dozen sites, serial trades wall-clock for safety.
-  // (morning-brief 2026-06-09 MEDIUM-3.) Add a bounded pool when the fleet grows.
+  // Serial on purpose: even at one (now atomic) update call per site, Airtable's
+  // ~5 req/sec limit means a Promise.all fan-out across the fleet would burst and
+  // trip 429s (silently filed as failures). Below a few dozen sites, serial trades
+  // wall-clock for safety. (morning-brief 2026-06-09 MEDIUM-3.) Add a bounded pool
+  // when the fleet grows.
   for (const [slug, siteResults] of bySlug) {
     try {
       written.push(await writeAuditsToAirtable({ base, websites, slug, results: siteResults }));

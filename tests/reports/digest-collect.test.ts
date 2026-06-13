@@ -7,7 +7,10 @@ import { makeFakeBase, type FakeRecord } from "./_helpers/fake-airtable-base.js"
 const BASE_URL = "https://reddoor-maintenance.netlify.app";
 
 /** A site row carrying the nightly-persisted GitHub-signal fields the renovate/ci
- *  collectors read (NOT a live sweep — those fields are written by github-signals). */
+ *  collectors read (NOT a live sweep — those fields are written by github-signals).
+ *  `GitHub Signals At` is stamped fresh (now) so the staleness gate the collectors
+ *  apply treats the persisted CI/Renovate values as trustworthy. collectAttention
+ *  here uses the wall-clock `now`, so a real-time fresh timestamp is correct. */
 function signalSite(over: Partial<FakeRecord["fields"]> = {}): FakeRecord {
   return {
     id: "rec_site_acme",
@@ -17,6 +20,7 @@ function signalSite(over: Partial<FakeRecord["fields"]> = {}): FakeRecord {
       "Security Vulns Critical": 2,
       "Renovate Failing CIs": 1,
       "Default Branch CI": "failing",
+      "GitHub Signals At": new Date().toISOString(),
       ...over,
     },
   };
@@ -107,6 +111,23 @@ describe("collectAttention", () => {
     expect(ren.severity).toBe("warning");
     const ci = items.find((i) => i.kind === "ci")!;
     expect(ci.title).toBe("Default-branch CI failing");
+  });
+
+  it("ignores renovate/ci on a site whose GitHub-signals sweep is stale (injected now)", async () => {
+    // A repo that stopped being swept keeps its last CI/Renovate values forever.
+    // With an injected `now` 5 days after the (here, ~4-day-old) sweep, the gate
+    // drops the CI/Renovate items so the operator doesn't see a phantom alert.
+    const sweptAt = "2026-06-01T00:00:00Z";
+    const now = new Date("2026-06-06T00:00:00Z"); // 5 days later → > 3-day floor
+    const base = makeFakeBase({
+      Reports: [],
+      Websites: [signalSite({ "GitHub Signals At": sweptAt })],
+    });
+    const items = await collectAttention({ base, baseUrl: BASE_URL, now });
+    expect(items.some((i) => i.kind === "renovate")).toBe(false);
+    expect(items.some((i) => i.kind === "ci")).toBe(false);
+    // The vuln collector (a different sweep) is unaffected and still contributes.
+    expect(items.some((i) => i.kind === "vuln")).toBe(true);
   });
 
   it("emits NO renovate/ci items for a site whose persisted fields are clean/absent", async () => {

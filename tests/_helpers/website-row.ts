@@ -49,7 +49,11 @@ export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     renovateFailingCis: null,
     defaultBranchCi: null,
     lastCommitAt: null,
-    githubSignalsAt: null,
+    // Default to a freshly-swept timestamp so the GitHub-signal collectors
+    // (collectCiAlerts / collectRenovateAlerts, which now ignore a >3-day-stale
+    // sweep) flag the signal fields the factory's callers set. A test exercising
+    // the staleness gate overrides this with an old/null value via `over`.
+    githubSignalsAt: new Date().toISOString(),
     ...over,
   };
 }

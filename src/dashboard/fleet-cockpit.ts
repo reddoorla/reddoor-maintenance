@@ -135,8 +135,8 @@ export function buildCockpitModel(
     ...collectVulnAlerts(visible, baseUrl),
     ...collectLighthouseAlerts(visible, baseUrl),
     ...collectDeliveryFailures(reports, sitesById, baseUrl),
-    ...collectRenovateAlerts(visible, baseUrl),
-    ...collectCiAlerts(visible, baseUrl),
+    ...collectRenovateAlerts(visible, baseUrl, now),
+    ...collectCiAlerts(visible, baseUrl, now),
   ];
   // Read-only diff: tag NEW/WORSE exactly as the email does; discard `next`.
   const { tagged } = diffAttention(rawItems, priorSnapshot, now.toISOString().slice(0, 10));

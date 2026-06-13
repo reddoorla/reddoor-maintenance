@@ -135,6 +135,37 @@ describe("renderReportHtml", () => {
     expect(html).toContain("Patched &lt;header&gt; &amp;");
   });
 
+  it("drops a non-http(s) siteUrl from the header href (no javascript: scheme)", async () => {
+    const { html, warnings } = await renderReportHtml(
+      baseData({
+        siteUrl: "javascript:alert(1)",
+        headerWidth: 600,
+        headerHeight: 800,
+        headerBgColor: "#cccccc",
+      }),
+    );
+    expect(warnings).toEqual([]);
+    // The dangerous scheme must NOT survive into an href.
+    expect(html).not.toContain("javascript:alert");
+    expect(html).not.toContain('href="javascript:');
+    // It falls back to a neutral "#" href instead of linking the payload.
+    expect(html).toContain('href="#"');
+  });
+
+  it("drops a data: siteUrl from the launch header href too (shared headerImageTag)", async () => {
+    const { html, warnings } = await renderReportHtml(
+      baseData({ reportType: "Launch", siteUrl: "data:text/html,<script>1</script>" }),
+    );
+    expect(warnings).toEqual([]);
+    expect(html).not.toContain("data:text/html");
+    expect(html).not.toContain('href="data:');
+  });
+
+  it("keeps a valid https siteUrl as the header href", async () => {
+    const { html } = await renderReportHtml(baseData({ siteUrl: "https://acme.example.com" }));
+    expect(html).toContain('href="https://acme.example.com"');
+  });
+
   describe("analytics trend", () => {
     it("shows ▲ percent + range when users grew", async () => {
       const { html } = await renderReportHtml(

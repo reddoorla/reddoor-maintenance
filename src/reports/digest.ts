@@ -153,6 +153,11 @@ export type CollectAttentionDeps = {
   /** Pre-fetched Reports rows. When supplied (runDigest already read them),
    *  collectAttention reuses them instead of issuing a second `listAllReports`. */
   reports?: ReportRow[];
+  /** Clock for the GitHub-signals staleness gate (collectCiAlerts /
+   *  collectRenovateAlerts skip a >3-day-stale sweep). Defaults to wall-clock;
+   *  runDigest threads its run-start `today` so a quiet repo's frozen CI/Renovate
+   *  signal stops badging once its sweep goes stale. */
+  now?: Date;
 };
 
 /** Run a single collector under a try/catch: a thrown collector logs and yields []
@@ -185,13 +190,14 @@ function runCollector(label: string, fn: () => AttentionItem[]): AttentionItem[]
 export async function collectAttention(deps: CollectAttentionDeps): Promise<AttentionItem[]> {
   const reports = deps.reports ?? (await listAllReports(deps.base));
   const websites = deps.websites ?? (await listWebsites(deps.base));
+  const now = deps.now ?? new Date();
   const sitesById = new Map<string, WebsiteRow>(websites.map((w) => [w.id, w]));
   return [
     ...runCollector("vuln", () => collectVulnAlerts(websites, deps.baseUrl)),
     ...runCollector("delivery", () => collectDeliveryFailures(reports, sitesById, deps.baseUrl)),
     ...runCollector("lighthouse", () => collectLighthouseAlerts(websites, deps.baseUrl)),
-    ...runCollector("renovate", () => collectRenovateAlerts(websites, deps.baseUrl)),
-    ...runCollector("ci", () => collectCiAlerts(websites, deps.baseUrl)),
+    ...runCollector("renovate", () => collectRenovateAlerts(websites, deps.baseUrl, now)),
+    ...runCollector("ci", () => collectCiAlerts(websites, deps.baseUrl, now)),
   ];
 }
 
@@ -243,6 +249,7 @@ export async function runDigest(
       baseUrl: options.baseUrl,
       websites,
       reports,
+      now: today,
     });
     const prior = await readDigestState(base);
     const { tagged, next } = diffAttention(collected, prior, digestDateKey(today));

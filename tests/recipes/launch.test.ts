@@ -137,6 +137,52 @@ describe("recipes/launch", () => {
     expect(draftReadyUpdate).toBeDefined();
   });
 
+  it("refreshes the reused Launch row's Lighthouse scores with the fresh audit (no stale email)", async () => {
+    const today = new Date();
+    const period = today.toISOString().slice(0, 7);
+    // Seed an existing Launch row carrying STALE scores from a prior run.
+    const base = makeFakeBase({
+      Websites: websitesSeed().Websites,
+      Reports: [
+        {
+          id: "rec_existing_launch",
+          fields: {
+            "Report ID": "Acme Co — Launch — existing",
+            Site: ["rec_site_acme"],
+            "Report type": "Launch",
+            Period: period,
+            "Lighthouse — Performance": 10,
+            "Lighthouse — Accessibility": 20,
+            "Lighthouse — Best Practices": 30,
+            "Lighthouse — SEO": 40,
+          },
+        },
+      ],
+    });
+
+    await launch(siteOf(), deps(base));
+
+    // The reuse path updates the existing row's Lighthouse cells to the fresh audit
+    // (lighthouseResult: 87/91/100/95) — NOT a second create.
+    const scoreUpdate = base.__calls.find(
+      (c) =>
+        c.kind === "update" &&
+        c.table === "Reports" &&
+        c.records[0]!.id === "rec_existing_launch" &&
+        c.records[0]!.fields["Lighthouse — Performance"] !== undefined,
+    );
+    expect(scoreUpdate).toBeDefined();
+    if (!scoreUpdate || scoreUpdate.kind !== "update") throw new Error("expected a score update");
+    expect(scoreUpdate.records[0]!.fields).toMatchObject({
+      "Lighthouse — Performance": 87,
+      "Lighthouse — Accessibility": 91,
+      "Lighthouse — Best Practices": 100,
+      "Lighthouse — SEO": 95,
+    });
+    // Completed on is refreshed too (today, YYYY-MM-DD).
+    expect(scoreUpdate.records[0]!.fields["Completed on"]).toBe(today.toISOString().slice(0, 10));
+  });
+
   it("still completes (and flips Draft ready) when the preview upload fails", async () => {
     // A preview-upload hiccup must not fail the launch — it's wrapped in try/catch.
     global.fetch = vi.fn().mockResolvedValue({

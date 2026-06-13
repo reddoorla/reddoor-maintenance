@@ -8,7 +8,12 @@ import { openBase, readAirtableConfig } from "../reports/airtable/client.js";
 import type { AirtableBase } from "../reports/airtable/client.js";
 import { listWebsites, siteSlug } from "../reports/airtable/websites.js";
 import type { WebsiteRow } from "../reports/airtable/websites.js";
-import { createDraft, findReportByPeriod, setDraftReady } from "../reports/airtable/reports.js";
+import {
+  createDraft,
+  findReportByPeriod,
+  setDraftReady,
+  updateReportScores,
+} from "../reports/airtable/reports.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
 import { uploadAttachment } from "../reports/airtable/attachments.js";
 import { renderReportHtml } from "../reports/render.js";
@@ -117,7 +122,17 @@ export async function launch(site: Site, deps: LaunchDeps = {}): Promise<LaunchR
     // of stacking a second draft. findReportByPeriod is the same idempotency
     // lookup draft.ts documents (dashboard/digest point lookup).
     const existing = await findReportByPeriod(base, target.id, "Launch", period);
-    report = existing ?? (await createDraft(base, draftInputFor(target, scores, today, period)));
+    if (existing) {
+      // Reuse path: the row was created on a prior run with THAT run's scores. This
+      // re-run just produced fresh audit scores AND will re-render the preview from
+      // them — so refresh the row's Lighthouse cells (+ Completed on) to match,
+      // otherwise the sent email (which reads the row) ships stale scores. The
+      // create path already writes fresh scores via createDraft.
+      await updateReportScores(base, existing.id, scores, today);
+      report = existing;
+    } else {
+      report = await createDraft(base, draftInputFor(target, scores, today, period));
+    }
   } catch (err) {
     steps.push({ name: "draft", result: errorOf(err) });
     return stop();

@@ -191,6 +191,52 @@ export async function getWebsiteBySlug(
   return rows.find((w) => siteSlug(w.name) === slug) ?? null;
 }
 
+// ── audit-field builders ─────────────────────────────────────────────────────
+// One source of truth for the column-name → value mappings of each audit type.
+// The per-audit `updateXxxCounts` writers delegate to these (for their other
+// callers), and `updateAuditFields` merges whichever are present into ONE write —
+// so the field-name magic strings live in exactly one place.
+
+export type A11yCounts = { violations: number };
+export type DepsCounts = { drifted: number; majorBehind: number; outdated: number | null };
+export type SecurityCounts = { critical: number; high: number; moderate: number; low: number };
+
+function scoreFields(scores: LighthouseScores): FieldSet {
+  return {
+    pScore: scores.performance,
+    rScore: scores.accessibility,
+    bpScore: scores.bestPractices,
+    seoScore: scores.seo,
+    "Last lighthouse audit at": new Date().toISOString(),
+  };
+}
+
+function a11yFields(counts: A11yCounts): FieldSet {
+  return { "A11y Violations": counts.violations };
+}
+
+function depsFields(counts: DepsCounts): FieldSet {
+  const fields: FieldSet = {
+    "Deps Drifted": counts.drifted,
+    "Deps Major Behind": counts.majorBehind,
+  };
+  // Only write the outdated count when it was determined — a null (no/stale
+  // lockfile this run) must not clobber a previously-good value.
+  if (counts.outdated !== null) {
+    fields["Deps Outdated"] = counts.outdated;
+  }
+  return fields;
+}
+
+function securityFields(counts: SecurityCounts): FieldSet {
+  return {
+    "Security Vulns Critical": counts.critical,
+    "Security Vulns High": counts.high,
+    "Security Vulns Moderate": counts.moderate,
+    "Security Vulns Low": counts.low,
+  };
+}
+
 /**
  * Write the four Lighthouse scores + a refreshed-at timestamp onto a Websites row.
  * Called by `audit lighthouse --write-airtable` after a successful audit run, so
@@ -201,59 +247,62 @@ export async function updateScores(
   recordId: string,
   scores: LighthouseScores,
 ): Promise<void> {
-  const fields: FieldSet = {
-    pScore: scores.performance,
-    rScore: scores.accessibility,
-    bpScore: scores.bestPractices,
-    seoScore: scores.seo,
-    "Last lighthouse audit at": new Date().toISOString(),
-  };
-  await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+  await base(WEBSITES_TABLE).update([{ id: recordId, fields: scoreFields(scores) }]);
 }
 
 /** Persist a11y violation count. */
 export async function updateA11yCounts(
   base: AirtableBase,
   recordId: string,
-  counts: { violations: number },
+  counts: A11yCounts,
 ): Promise<void> {
-  const fields: FieldSet = {
-    "A11y Violations": counts.violations,
-  };
-  await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+  await base(WEBSITES_TABLE).update([{ id: recordId, fields: a11yFields(counts) }]);
 }
 
 /** Persist deps drift counts (declared-range drift + real outdated installs). */
 export async function updateDepsCounts(
   base: AirtableBase,
   recordId: string,
-  counts: { drifted: number; majorBehind: number; outdated: number | null },
+  counts: DepsCounts,
 ): Promise<void> {
-  const fields: FieldSet = {
-    "Deps Drifted": counts.drifted,
-    "Deps Major Behind": counts.majorBehind,
-  };
-  // Only write the outdated count when it was determined — a null (no/stale
-  // lockfile this run) must not clobber a previously-good value.
-  if (counts.outdated !== null) {
-    fields["Deps Outdated"] = counts.outdated;
-  }
-  await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+  await base(WEBSITES_TABLE).update([{ id: recordId, fields: depsFields(counts) }]);
 }
 
 /** Persist security vulnerability counts by severity. */
 export async function updateSecurityCounts(
   base: AirtableBase,
   recordId: string,
-  counts: { critical: number; high: number; moderate: number; low: number },
+  counts: SecurityCounts,
 ): Promise<void> {
-  const fields: FieldSet = {
-    "Security Vulns Critical": counts.critical,
-    "Security Vulns High": counts.high,
-    "Security Vulns Moderate": counts.moderate,
-    "Security Vulns Low": counts.low,
-  };
+  await base(WEBSITES_TABLE).update([{ id: recordId, fields: securityFields(counts) }]);
+}
+
+/**
+ * Persist all of a single audit run's results to one Websites row in ONE atomic
+ * `update()` — instead of up to four sequential updates on the same id (which left
+ * a row half-written on a mid-sequence failure and quadrupled the request volume).
+ * Pass only the audit slices that produced real values; each present slice is merged
+ * via the SAME field mappings the per-audit writers use. Omit a slice (or pass
+ * undefined) to leave those columns untouched. Returns the merged FieldSet so the
+ * caller can enumerate what was written.
+ */
+export async function updateAuditFields(
+  base: AirtableBase,
+  recordId: string,
+  audits: {
+    scores?: LighthouseScores;
+    a11y?: A11yCounts;
+    deps?: DepsCounts;
+    security?: SecurityCounts;
+  },
+): Promise<FieldSet> {
+  const fields: FieldSet = {};
+  if (audits.scores) Object.assign(fields, scoreFields(audits.scores));
+  if (audits.a11y) Object.assign(fields, a11yFields(audits.a11y));
+  if (audits.deps) Object.assign(fields, depsFields(audits.deps));
+  if (audits.security) Object.assign(fields, securityFields(audits.security));
   await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+  return fields;
 }
 
 /** Persist the GitHub-signals sweep onto a Websites row (slice 2a). A null
