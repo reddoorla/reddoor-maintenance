@@ -214,6 +214,58 @@ export function auditNeedsCheckout(site: Site, which: AuditName[]): boolean {
   return !deployedCapable;
 }
 
+/** A site that couldn't be prepared for auditing, with the reason. */
+export type SkippedSite = { site: string; reason: string };
+export type FleetPrepResult = { prepared: Site[]; skipped: SkippedSite[] };
+
+type CloneFn = (site: Site, opts: { workdir: string }) => Promise<Site>;
+
+/** Prepare every fleet site for auditing, tolerating per-site failures.
+ *
+ *  A deployed-capable site (deployedUrl + lighthouse-only) passes through with
+ *  no clone; any other site is cloned into `workdir`. The critical property is
+ *  ISOLATION: a per-site prep failure (no clone source, clone error, wrong-repo
+ *  guard) is CAUGHT and recorded in `skipped` rather than thrown. A single
+ *  malformed inventory row therefore can never abort the whole nightly run — it
+ *  used to (2026-06-13): one site with no deployed URL and no repo threw inside
+ *  a bare `Promise.all`, rejecting prep for the ENTIRE fleet so nothing was
+ *  audited or written back, reding the cron. Each site is prepared independently
+ *  (parallel, as before) so one slow/failed clone can't serialize the rest. */
+export async function prepareFleetSites(
+  sites: Site[],
+  which: AuditName[],
+  opts: { workdir: string; clone?: CloneFn },
+): Promise<FleetPrepResult> {
+  const clone = opts.clone ?? cloneIfNeeded;
+  const settled = await Promise.all(
+    sites.map(async (site): Promise<{ ok: true; site: Site } | ({ ok: false } & SkippedSite)> => {
+      if (!auditNeedsCheckout(site, which)) return { ok: true, site };
+      try {
+        return { ok: true, site: await clone(site, { workdir: opts.workdir }) };
+      } catch (e) {
+        return { ok: false, site: site.name ?? site.path, reason: (e as Error).message };
+      }
+    }),
+  );
+  const prepared: Site[] = [];
+  const skipped: SkippedSite[] = [];
+  for (const r of settled) {
+    if (r.ok) prepared.push(r.site);
+    else skipped.push({ site: r.site, reason: r.reason });
+  }
+  return { prepared, skipped };
+}
+
+/** One-line operator notice for sites dropped during fleet prep; null when none
+ *  were skipped. The leading "⚠ … site(s) skipped" token is what the nightly
+ *  workflow greps to raise a `::warning::` annotation, so a tolerated skip stays
+ *  visible in the Actions UI rather than buried in the log. */
+export function formatSkippedNotice(skipped: SkippedSite[]): string | null {
+  if (skipped.length === 0) return null;
+  const detail = skipped.map((s) => `${s.site} (${s.reason})`).join("; ");
+  return `⚠ ${skipped.length} site(s) skipped (could not prepare for audit): ${detail}`;
+}
+
 /** Apply a single-site `--url` to the resolved sites. Returns the input
  *  untouched when no url is given; otherwise requires exactly one site and
  *  stamps `deployedUrl` on it so the lighthouse audit takes its deployed path.
@@ -275,13 +327,12 @@ export async function runAuditCommand(
 
   sites = applyDeployedUrl(sites, opts.url);
 
+  let skippedPrep: SkippedSite[] = [];
   if (opts.fleet) {
     const workdir = opts.workdir ?? fleetWorkdir();
-    sites = await Promise.all(
-      sites.map((s) =>
-        auditNeedsCheckout(s, which) ? cloneIfNeeded(s, { workdir }) : Promise.resolve(s),
-      ),
-    );
+    const prep = await prepareFleetSites(sites, which, { workdir });
+    sites = prep.prepared;
+    skippedPrep = prep.skipped;
   }
 
   const results: AuditResult[] = [];
@@ -289,6 +340,13 @@ export async function runAuditCommand(
   await buildAuditTasks(sites, which, results, renderer, parseConcurrency(opts.concurrency)).run();
 
   let output = opts.json ? JSON.stringify(results, null, 2) : formatTable(results);
+
+  // Surface any site that couldn't be prepared (no auditable target, clone
+  // failure) — visibly, but without reding the run. One misconfigured inventory
+  // row is an operator fix, not an outage; the other sites still audited and
+  // wrote back. "No silent caps": a dropped site is never invisible.
+  const skipNotice = formatSkippedNotice(skippedPrep);
+  if (skipNotice && !opts.json) output += `\n\n${skipNotice}`;
 
   if (opts.writeAirtable !== undefined) {
     const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
