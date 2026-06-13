@@ -16,6 +16,8 @@ pnpm add -D @reddoorla/maintenance
 pnpm reddoor-maint --help
 ```
 
+> **Standing the whole system up** (Airtable, the Netlify dashboard, the cron secrets, the daily approve loop, launching) — see the end-to-end **[setup walkthrough](docs/SETUP.md)**. This README is the per-command reference.
+
 ---
 
 ## The onboarding flow
