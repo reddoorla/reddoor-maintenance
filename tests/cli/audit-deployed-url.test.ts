@@ -43,8 +43,20 @@ describe("applyDeployedUrl", () => {
       applyDeployedUrl([{ path: "/a" }], "not-a-url");
       throw new Error("should have thrown");
     } catch (e) {
-      expect((e as Error).message).toMatch(/not a valid url/i);
+      expect((e as Error).message).toMatch(/http\(s\) url/i);
       expect((e as { exitCode?: number }).exitCode).toBe(2);
+    }
+  });
+
+  it("rejects a non-http(s) --url scheme (file:// SSRF / local-file vector)", () => {
+    for (const bad of ["file:///etc/passwd", "gopher://internal/", "data:text/html,x"]) {
+      try {
+        applyDeployedUrl([{ path: "/a" }], bad);
+        throw new Error(`should have thrown for ${bad}`);
+      } catch (e) {
+        expect((e as Error).message).toMatch(/http\(s\) url/i);
+        expect((e as { exitCode?: number }).exitCode).toBe(2);
+      }
     }
   });
 });

@@ -1,6 +1,7 @@
 import type { Site, InventoryProvider } from "../types.js";
 import type { AirtableBase } from "../reports/airtable/client.js";
 import { listWebsites, siteSlug } from "../reports/airtable/websites.js";
+import { isHttpUrl } from "../util/url.js";
 
 export type AirtableInventoryOptions = {
   /**
@@ -42,9 +43,19 @@ export function fromAirtableBase(
         const site: Site = {
           path: `${workdir}/${slug}`,
           name: slug,
-          deployedUrl: w.url,
           meta: { airtableRowId: w.id, displayName: w.name },
         };
+        // Scheme-allowlist the Airtable `url` before exposing it as the
+        // deployed-audit target (it's handed straight to Chrome/lhci). A
+        // `file://`/`gopher://`/internal-host value would be a local-file read
+        // or SSRF — skip the deployed audit for that site rather than trust it.
+        if (isHttpUrl(w.url)) {
+          site.deployedUrl = w.url;
+        } else {
+          console.warn(
+            `[inventory] skipping deployed audit for "${w.name}": url is not http(s): ${JSON.stringify(w.url)}`,
+          );
+        }
         if (w.gitRepo) site.gitRepo = w.gitRepo;
         return site;
       });

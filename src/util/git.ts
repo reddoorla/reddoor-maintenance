@@ -58,6 +58,35 @@ export async function commit(cwd: string, message: string): Promise<string | nul
   return sha.trim();
 }
 
+/**
+ * Strict GitHub repo identity: exactly two `[A-Za-z0-9._-]` segments separated
+ * by a single slash. Rejects a scheme, host, extra path segment, traversal
+ * (`..`), whitespace, or an argv flag — anything that could retarget a `gh`
+ * write at an unintended (attacker/typo-controlled) repo.
+ */
+export const OWNER_REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+
+/** True when `repo` is a clean `owner/repo` (see {@link OWNER_REPO_RE}). The
+ *  explicit `..` reject covers traversal segments the char-class would otherwise
+ *  admit (`.` is a legal repo char, so `../evil` matches the shape regex). */
+export function isOwnerRepo(repo: string): boolean {
+  if (repo.includes("..")) return false;
+  return OWNER_REPO_RE.test(repo);
+}
+
+/**
+ * True when two repo references name the same `owner/repo`. Each side may be a
+ * full remote URL (https or scp-style), or already an `owner/repo`. Used to
+ * verify an existing checkout's `origin` matches the site's expected repo
+ * before reusing it. Returns false if either side is unparseable.
+ */
+export function sameOwnerRepo(a: string, b: string): boolean {
+  const na = isOwnerRepo(a.trim()) ? a.trim() : parseOwnerRepo(a);
+  const nb = isOwnerRepo(b.trim()) ? b.trim() : parseOwnerRepo(b);
+  if (na === null || nb === null) return false;
+  return na.toLowerCase() === nb.toLowerCase();
+}
+
 /** Derive `owner/repo` from a git remote URL (https or scp-style). Null if unparseable. */
 export function parseOwnerRepo(remoteUrl: string): string | null {
   const trimmed = remoteUrl

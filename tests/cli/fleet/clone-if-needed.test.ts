@@ -254,4 +254,60 @@ describe("cli/fleet/cloneIfNeeded", () => {
       ).rejects.toThrow(/unsafe gitRepo|owner\/repo/i);
     }
   });
+
+  it("reuses an existing checkout when its origin matches the site's gitRepo", async () => {
+    const path = await existingDir();
+    const remoteSpawn: SpawnFn = async (cmd, args) => {
+      expect(cmd).toBe("git");
+      expect([...args]).toEqual(["-C", path, "remote", "get-url", "origin"]);
+      return { code: 0, stdout: "https://github.com/reddoorla/caltex.git\n", stderr: "" };
+    };
+    const site = { path, name: "caltex", gitRepo: "reddoorla/caltex" };
+    const result = await cloneIfNeeded(site, { workdir: "/never", spawn: remoteSpawn });
+    expect(result).toEqual(site);
+  });
+
+  it("accepts a scp-style origin that resolves to the same owner/repo", async () => {
+    const path = await existingDir();
+    const remoteSpawn: SpawnFn = async () => ({
+      code: 0,
+      stdout: "git@github.com:reddoorla/caltex.git\n",
+      stderr: "",
+    });
+    const site = { path, name: "caltex", gitRepo: "reddoorla/caltex" };
+    await expect(cloneIfNeeded(site, { workdir: "/never", spawn: remoteSpawn })).resolves.toEqual(
+      site,
+    );
+  });
+
+  it("throws (never operates on the wrong repo) when the existing checkout's origin mismatches", async () => {
+    const path = await existingDir();
+    // Slug collision: this path belongs to a different repo than the site says.
+    const remoteSpawn: SpawnFn = async () => ({
+      code: 0,
+      stdout: "https://github.com/someone-else/other-repo.git\n",
+      stderr: "",
+    });
+    const site = { path, name: "caltex", gitRepo: "reddoorla/caltex" };
+    await expect(cloneIfNeeded(site, { workdir: "/never", spawn: remoteSpawn })).rejects.toThrow(
+      /wrong repo|refusing to reuse/i,
+    );
+  });
+
+  it("does not verify origin when the site carries no expected repo identity", async () => {
+    const path = await existingDir();
+    const spawn: SpawnFn = async () => {
+      throw new Error("should not spawn — no identity to verify against");
+    };
+    const site = { path, name: "ok" };
+    await expect(cloneIfNeeded(site, { workdir: "/never", spawn })).resolves.toEqual(site);
+  });
+
+  it("tolerates a reused dir that isn't a git checkout (no origin) — clone path handles it", async () => {
+    const path = await existingDir();
+    // `git remote get-url origin` exits non-zero when there's no origin.
+    const spawn: SpawnFn = async () => ({ code: 1, stdout: "", stderr: "no such remote" });
+    const site = { path, name: "caltex", gitRepo: "reddoorla/caltex" };
+    await expect(cloneIfNeeded(site, { workdir: "/never", spawn })).resolves.toEqual(site);
+  });
 });
