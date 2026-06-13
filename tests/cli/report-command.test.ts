@@ -111,10 +111,11 @@ describe("draftDueReports period guard", () => {
     expect(res.output).toMatch(/drafted/);
   });
 
-  it("SKIPS a (site, type) already drafted for that period (idempotent re-run)", async () => {
+  it("SKIPS a (site, type) already drafted-AND-READY for that period (idempotent re-run)", async () => {
     vi.mocked(listWebsites).mockResolvedValue([siteRow()]);
-    // A row already exists for this site+type with Period = 2026-05 (the dueDate's YYYY-MM
-    // when no prior Sent at → dueDate is today, 2026-05-26).
+    // A READY row already exists for this site+type with Period = 2026-05 (the dueDate's
+    // YYYY-MM when no prior Sent at → dueDate is today, 2026-05-26). Draft ready = true
+    // means it's truly done → skip.
     const base = makeFakeBase({
       Reports: [
         {
@@ -123,6 +124,7 @@ describe("draftDueReports period guard", () => {
             Site: ["rec_site_acme"],
             "Report type": "Maintenance",
             Period: "2026-05",
+            "Draft ready": true,
           },
         },
       ],
@@ -134,22 +136,22 @@ describe("draftDueReports period guard", () => {
     expect(res.code).toBe(0);
   });
 
-  it("drafts a new period for a never-sent site whose stale draft is from an earlier month (intended: recurrence follows the due month, stale drafts stay pending)", async () => {
+  it("drafts a new period when the prior period's draft was SENT (recurrence follows the due month)", async () => {
     // Semantic pin — this test documents INTENDED behaviour, not a regression fix.
-    // A site with no prior sends and no maintenanceDay is due on TODAY (2026-05-26),
-    // so its period key is 2026-05.  An existing draft for the PREVIOUS period (2026-04)
-    // must NOT block the new draft — the guard keys on YYYY-MM, not just the existence
-    // of any draft.  This path already works (different-period branch in draftDueReports);
-    // the test exists to pin the semantics so a future refactor can't silently regress it.
+    // A site with a prior SENT report (period 2026-04) is now due again at TODAY
+    // (2026-05-26), period key 2026-05. A SENT earlier-period draft must NOT block the
+    // new draft — the guard keys on YYYY-MM, and the pile-up guard (Fix #2) only blocks
+    // when the prior draft is still UNSENT.
     vi.mocked(listWebsites).mockResolvedValue([siteRow()]);
     const base = makeFakeBase({
       Reports: [
         {
-          id: "rec_stale",
+          id: "rec_prior_sent",
           fields: {
             Site: ["rec_site_acme"],
             "Report type": "Maintenance",
-            Period: "2026-04", // previous month — must not block the 2026-05 draft
+            Period: "2026-04", // previous month, already sent — must not block 2026-05
+            "Sent at": "2026-04-26T10:00:00.000Z",
           },
         },
       ],
@@ -183,17 +185,102 @@ describe("draftDueReports period guard", () => {
     expect(formula).not.toMatch(/rec_site/);
   });
 
-  it("does NOT skip when an existing row is for a DIFFERENT period", async () => {
+  it("does NOT skip (same-period) when an existing SENT row is for a DIFFERENT period", async () => {
     vi.mocked(listWebsites).mockResolvedValue([siteRow()]);
     const base = makeFakeBase({
       Reports: [
         {
           id: "rec_old",
-          fields: { Site: ["rec_site_acme"], "Report type": "Maintenance", Period: "2026-04" },
+          fields: {
+            Site: ["rec_site_acme"],
+            "Report type": "Maintenance",
+            Period: "2026-04",
+            // SENT so the pile-up guard (Fix #2) doesn't block — this test pins the
+            // SAME-period skip's period sensitivity, not the pending-pile-up rule.
+            "Sent at": "2026-04-26T10:00:00.000Z",
+          },
         },
       ],
     });
     await draftDueReports(base, TODAY);
     expect(draftReportForSite).toHaveBeenCalledTimes(1);
+  });
+
+  it("COMPLETES a half-made (not-ready) row for this period instead of skipping (Fix #1)", async () => {
+    vi.mocked(listWebsites).mockResolvedValue([siteRow()]);
+    // A row exists for THIS period (2026-05) but Draft ready is false — a crash
+    // between createDraft and setDraftReady. It must be completed in place, not
+    // skipped forever (skip → never sendable, since listSendable needs Draft ready).
+    const base = makeFakeBase({
+      Reports: [
+        {
+          id: "rec_halfmade",
+          fields: {
+            Site: ["rec_site_acme"],
+            "Report type": "Maintenance",
+            Period: "2026-05",
+            // no "Draft ready" → mapRow → draftReady false
+          },
+        },
+      ],
+    });
+    const res = await draftDueReports(base, TODAY);
+    expect(draftReportForSite).toHaveBeenCalledTimes(1);
+    // Completed via the completeRowId path against the EXISTING row id — no createDraft.
+    expect(draftReportForSite).toHaveBeenCalledWith(
+      base,
+      expect.anything(),
+      "Maintenance",
+      expect.objectContaining({ period: "2026-05", completeRowId: "rec_halfmade" }),
+    );
+    expect(res.output).toMatch(/completed half-made draft/i);
+    expect(res.code).toBe(0);
+  });
+
+  it("does NOT create a NEW-period draft while an EARLIER-period draft is unsent (pile-up guard, Fix #2)", async () => {
+    vi.mocked(listWebsites).mockResolvedValue([siteRow()]);
+    // Site is due now (2026-05) but already has an UNSENT 2026-04 draft pending
+    // approval. Don't accrue another — skip the new-period draft.
+    const base = makeFakeBase({
+      Reports: [
+        {
+          id: "rec_pending",
+          fields: {
+            Site: ["rec_site_acme"],
+            "Report type": "Maintenance",
+            Period: "2026-04",
+            "Draft ready": true, // ready but never approved/sent (sentAt null)
+          },
+        },
+      ],
+    });
+    const res = await draftDueReports(base, TODAY);
+    expect(draftReportForSite).not.toHaveBeenCalled();
+    expect(res.output).toMatch(/already has an unsent 2026-04 draft pending approval/i);
+    expect(res.code).toBe(0);
+  });
+
+  it("DOES create the new-period draft once the earlier pending draft has been sent (Fix #2 boundary)", async () => {
+    vi.mocked(listWebsites).mockResolvedValue([siteRow()]);
+    const base = makeFakeBase({
+      Reports: [
+        {
+          id: "rec_prior",
+          fields: {
+            Site: ["rec_site_acme"],
+            "Report type": "Maintenance",
+            Period: "2026-04",
+            "Draft ready": true,
+            "Sent at": "2026-04-26T10:00:00.000Z", // sent → no longer pending
+          },
+        },
+      ],
+    });
+    const res = await draftDueReports(base, TODAY);
+    expect(draftReportForSite).toHaveBeenCalledTimes(1);
+    expect(draftReportForSite).toHaveBeenCalledWith(base, expect.anything(), "Maintenance", {
+      period: "2026-05",
+    });
+    expect(res.code).toBe(0);
   });
 });

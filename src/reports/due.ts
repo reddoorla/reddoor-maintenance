@@ -85,8 +85,23 @@ export function findDueReports(
     if (site.status !== null && !ELIGIBLE_STATUSES.has(site.status)) continue;
 
     for (const type of ["Maintenance", "Testing"] as const) {
-      const freq = type === "Maintenance" ? site.maintenanceFreq : site.testingFreq;
-      if (freq === "None") continue;
+      const rawFreq = type === "Maintenance" ? site.maintenanceFreq : site.testingFreq;
+      // Normalize obvious whitespace so a trailing-space typo ("Quarterly ") still
+      // schedules. The LOUD warning below is the real safety net for genuine
+      // casing/spelling mistakes ("monthly", "Quaterly").
+      const freq = (typeof rawFreq === "string" ? rawFreq.trim() : rawFreq) as Frequency;
+      // Intentional silent skip — "None" (and the empty/blank default) means "no
+      // schedule", not a mistake.
+      if (freq === "None" || freq === ("" as Frequency)) continue;
+      // A non-empty, non-None value that doesn't match a known schedule used to
+      // silently produce no due date — the site just vanished from the loop. Warn
+      // LOUDLY so a casing/typo Airtable value is fixable instead of invisible.
+      if (!(freq in MONTHS)) {
+        console.warn(
+          `⚠ ${site.name}: unrecognized ${type === "Maintenance" ? "maintenance" : "testing"} frequency '${rawFreq}' — not scheduling; fix the Airtable value`,
+        );
+        continue;
+      }
 
       const lastSent = lastSentForType(reports, site.id, type);
       const fallback = type === "Maintenance" ? site.maintenanceDay : site.testingDay;

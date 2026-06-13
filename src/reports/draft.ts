@@ -21,6 +21,15 @@ export type DraftOptions = {
   previewOnly?: boolean;
   /** UTC "YYYY-MM" recurrence key; falls back to periodEnd's month when omitted. */
   period?: string;
+  /** Airtable record id of an EXISTING (not-ready) row to COMPLETE in place rather
+   *  than creating a new one. When set, we skip createDraft and only re-render →
+   *  upload the HTML attachment → flip Draft ready on this row. Used by the --due
+   *  re-draft path to finish a draft whose createDraft succeeded but whose
+   *  setDraftReady never ran (a crash mid-sequence wedged the period). */
+  completeRowId?: string;
+  /** The mapped ReportRow being completed, returned as `reportRow` from the
+   *  complete path so callers keep the same shape they get on the create path. */
+  existingRow?: ReportRow;
 };
 
 /** An enrichment fetch that *errored* (not one that was legitimately skipped
@@ -131,6 +140,18 @@ export async function draftReportForSite(
 
   if (base === null) throw new Error("base required when previewOnly=false");
 
+  // "Finish an existing row" path (the --due re-draft wedge fix). When the caller
+  // hands us a row that was created but never made Draft-ready — a crash between
+  // createDraft and setDraftReady leaves exactly this — we DON'T createDraft again
+  // (that would duplicate the period). We re-attach the rendered HTML and flip the
+  // ready flag against the EXISTING row, completing the half-made draft in place.
+  // The row's other fields (scores, period, dates) were already written at create
+  // time; the only pieces a crash drops are the attachment + the ready flag.
+  if (options.completeRowId) {
+    await finishDraftRow(base, options.completeRowId, slug, periodEnd, html);
+    return { reportRow: options.existingRow ?? null, htmlPath: null, html, softFailures };
+  }
+
   const reportId = `${siteRow.name} — ${reportType} — ${periodEnd.toISOString().slice(0, 10)}`;
   const created = await createDraft(base, {
     reportId,
@@ -149,11 +170,24 @@ export async function draftReportForSite(
       : {}),
   });
 
-  const htmlFilename = `${slug}-${periodEnd.toISOString().slice(0, 10)}.html`;
-  await uploadAttachment(created.id, "Rendered HTML", html, htmlFilename, "text/html");
-  await setDraftReady(base, created.id, true);
+  await finishDraftRow(base, created.id, slug, periodEnd, html);
 
   return { reportRow: created, htmlPath: null, html, softFailures };
+}
+
+/** Attach the rendered HTML and flip Draft ready=true on an existing Reports row.
+ *  Shared by both the create path and the "complete a half-made row" path so the
+ *  upload + ready-flag steps are identical (and re-runnable) either way. */
+async function finishDraftRow(
+  base: AirtableBase,
+  rowId: string,
+  slug: string,
+  periodEnd: Date,
+  html: string,
+): Promise<void> {
+  const htmlFilename = `${slug}-${periodEnd.toISOString().slice(0, 10)}.html`;
+  await uploadAttachment(rowId, "Rendered HTML", html, htmlFilename, "text/html");
+  await setDraftReady(base, rowId, true);
 }
 
 /** Result of an enrichment fetch: the value (null if unavailable) plus whether

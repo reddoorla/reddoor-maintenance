@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { findDueReports, reportPeriodKey } from "../../src/reports/due.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
@@ -217,6 +217,53 @@ describe("findDueReports", () => {
     );
     expect(due).toHaveLength(1);
     expect(due[0]!.dueDate.toISOString().slice(0, 10)).toBe("2028-02-29");
+  });
+
+  describe("unrecognized frequency (Fix #3 — no silent drop)", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("logs a LOUD warning and produces no due entry for a casing/typo frequency", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      // "monthly" (lowercase) is not a known schedule value — it used to silently
+      // make the site vanish from the loop with no error.
+      const due = findDueReports(
+        [site({ maintenanceFreq: "monthly" as never, maintenanceDay: "2026-01-01" })],
+        [],
+        TODAY,
+      );
+      expect(due).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]![0]).toMatch(/unrecognized maintenance frequency 'monthly'/);
+    });
+
+    it("warns on a trailing-space-only typo but still does NOT drop a known value", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      // Trailing whitespace is normalized → "Quarterly" still schedules (no warning,
+      // a due entry is produced).
+      const due = findDueReports(
+        [site({ maintenanceFreq: "Quarterly " as never, maintenanceDay: "2026-02-26" })],
+        [],
+        TODAY,
+      );
+      expect(due).toHaveLength(1);
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("a known frequency still schedules and never warns", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const due = findDueReports([site({ maintenanceDay: "2026-04-26" })], [], TODAY);
+      expect(due).toHaveLength(1);
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("keeps 'None' SILENT — that's an intentional no-schedule, not a mistake", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const due = findDueReports([site({ maintenanceFreq: "None" })], [], TODAY);
+      expect(due).toEqual([]);
+      expect(warn).not.toHaveBeenCalled();
+    });
   });
 
   // B5 regression: results must not depend on the machine's local timezone.
