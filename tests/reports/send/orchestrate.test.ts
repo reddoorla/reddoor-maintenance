@@ -72,6 +72,39 @@ function captureClient(): { client: ResendClient; captured: ResendSendInput[] } 
   return { client, captured };
 }
 
+/**
+ * A ResendClient whose send() rejects with the real same-key/different-body 409
+ * error string (`invalid_idempotent_request`) the way defaultResendClient wraps it
+ * — `new Error("Resend error: This idempotency key has been used ...")`. Mirrors
+ * the digest-run test's `idempotencyConflictClient`. `captured` records the
+ * attempt(s) so a test can assert no SECOND send happens.
+ */
+function idempotencyConflictClient(): { client: ResendClient; captured: ResendSendInput[] } {
+  const captured: ResendSendInput[] = [];
+  const client: ResendClient = {
+    async send(input) {
+      captured.push(input);
+      throw new Error(
+        "Resend error: This idempotency key has been used with this HTTP method and endpoint " +
+          "but the request body has changed.",
+      );
+    },
+  };
+  return { client, captured };
+}
+
+/** A ResendClient whose send() rejects with a generic (non-409) failure. */
+function genericErrorClient(): { client: ResendClient; captured: ResendSendInput[] } {
+  const captured: ResendSendInput[] = [];
+  const client: ResendClient = {
+    async send(input) {
+      captured.push(input);
+      throw new Error("Resend error: Internal server error");
+    },
+  };
+  return { client, captured };
+}
+
 // Header image processing is exercised in header-image.test.ts. Here we stub it so the
 // orchestrator runs against deterministic prepared output without real sharp work (the
 // fetch stub returns placeholder bytes, not a decodable image).
@@ -312,6 +345,72 @@ describe("sendApprovedReports", () => {
         c.records[0]!.fields["Status"] !== undefined,
     );
     expect(flip).toBeUndefined();
+  });
+
+  // ── send-durability: Resend 409 idempotency-conflict in sendOne ──────────────
+  it("catches a Resend 409 idempotency-conflict, stamps Sent at (stops the replay), and returns success — no second send", async () => {
+    // A prior run sent the email under report:<id> but failed to stampSent, so the
+    // row replayed with a changed body and Resend rejected the same-key/different-body
+    // re-send with a 409. sendOne must NOT re-throw and must NOT re-send: instead it
+    // stamps the row (so it stops replaying) and reports success.
+    const base = makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] });
+    vi.mocked(openBase).mockReturnValue(base);
+    const { client, captured } = idempotencyConflictClient();
+    const res = await sendApprovedReports({ resend: client });
+
+    expect(res.code).toBe(0);
+    // Treated as a success by the caller (so the Launch flip runs); the
+    // conflict-resolved messageId marks it as the already-sent path.
+    expect(res.output).toContain("✓ sent:");
+    expect(res.output).toContain("idempotent-conflict");
+    // Exactly ONE send attempt — the 409 path must not fire a second client.send.
+    expect(captured).toHaveLength(1);
+
+    // The row got stamped (Sent at written) so listSendableReports won't replay it.
+    const updates = base.__calls.filter((c) => c.kind === "update");
+    const stamp = updates.find((u) => u.records[0]!.fields["Sent at"] !== undefined);
+    expect(stamp).toBeDefined();
+    expect(stamp!.records[0]!.id).toBe("rec_report_1");
+  });
+
+  it("re-throws a generic (non-409) send error so the run reds and the row is NOT stamped", async () => {
+    const base = makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] });
+    vi.mocked(openBase).mockReturnValue(base);
+    const { client } = genericErrorClient();
+    const res = await sendApprovedReports({ resend: client });
+
+    expect(res.code).toBe(1);
+    expect(res.output).toContain("✗");
+    expect(res.output).toContain("Internal server error");
+
+    // A genuine failure must leave Sent at blank so the row replays next run.
+    const updates = base.__calls.filter((c) => c.kind === "update");
+    const stamp = updates.find((u) => u.records[0]!.fields["Sent at"] !== undefined);
+    expect(stamp).toBeUndefined();
+  });
+
+  it("self-heals a stranded Launch on the 409 path: the conflict-resolved send still flips Status → maintenance", async () => {
+    const base = makeFakeBase({
+      Reports: [reportRow({ "Report type": "Launch" })],
+      Websites: [siteRow({ Status: "launch" })],
+    });
+    vi.mocked(openBase).mockReturnValue(base);
+    const { client } = idempotencyConflictClient();
+    const res = await sendApprovedReports({ resend: client });
+
+    expect(res.code).toBe(0);
+    expect(res.output).toContain("flipped to maintenance");
+
+    // The Launch flip runs after the (conflict-resolved) success, so a launch that
+    // sent-but-never-flipped on the prior run reconciles here.
+    const flip = base.__calls.find(
+      (c) =>
+        c.kind === "update" &&
+        c.table === "Websites" &&
+        c.records[0]!.fields["Status"] !== undefined,
+    );
+    expect(flip).toBeDefined();
+    expect(flip!.kind === "update" && flip!.records[0]!.fields["Status"]).toBe("maintenance");
   });
 
   it("does not fail the already-sent email when the launch flip errors (M6b)", async () => {

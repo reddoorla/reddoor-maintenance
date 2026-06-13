@@ -5,6 +5,7 @@ import { listAllReports } from "./airtable/reports.js";
 import type { ReportRow } from "./airtable/reports.js";
 import { listWebsites, siteSlug, type WebsiteRow } from "./airtable/websites.js";
 import { defaultResendClient, type ResendClient } from "./send/resend.js";
+import { isIdempotencyConflict } from "./send/idempotency.js";
 import {
   collectVulnAlerts,
   collectDeliveryFailures,
@@ -163,24 +164,6 @@ const DIGEST_OPERATOR_FALLBACK = "info@reddoorla.com";
 /** UTC "YYYY-MM-DD" — the Resend idempotency key suffix, so a same-day cron re-fire dedupes. */
 function digestDateKey(d: Date): string {
   return d.toISOString().slice(0, 10);
-}
-
-/**
- * True when a thrown send error is Resend's same-key + DIFFERENT-body 409
- * (`invalid_idempotent_request`). The ResendClient (send/resend.ts) discards the
- * status/name and only surfaces the message string, so we match defensively on the
- * stable message substring "idempotency key has been used" (case-insensitive); a
- * `name`/`statusCode` of 409/`invalid_idempotent_request` is also accepted if a
- * future client happens to preserve it. A same-key + SAME-body re-send is deduped
- * by Resend (returns the original id) and never reaches here.
- */
-function isIdempotencyConflict(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err);
-  if (/idempotency key has been used/i.test(message)) return true;
-  const e = err as { name?: unknown; statusCode?: unknown };
-  if (e.name === "invalid_idempotent_request") return true;
-  if (e.statusCode === 409) return true;
-  return false;
 }
 
 /**
