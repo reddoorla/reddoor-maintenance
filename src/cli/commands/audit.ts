@@ -5,6 +5,7 @@ import type { AuditName, AuditResult, Site } from "../../types.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
 import { cloneIfNeeded } from "../fleet/clone-if-needed.js";
 import { isHttpUrl } from "../../util/url.js";
+import { fleetWorkdir } from "../../util/fleet-workdir.js";
 
 export type AuditCommandOptions = {
   only?: string;
@@ -275,7 +276,7 @@ export async function runAuditCommand(
   sites = applyDeployedUrl(sites, opts.url);
 
   if (opts.fleet) {
-    const workdir = opts.workdir ?? `${process.env.HOME ?? ""}/.reddoor-maint/sites`;
+    const workdir = opts.workdir ?? fleetWorkdir();
     sites = await Promise.all(
       sites.map((s) =>
         auditNeedsCheckout(s, which) ? cloneIfNeeded(s, { workdir }) : Promise.resolve(s),

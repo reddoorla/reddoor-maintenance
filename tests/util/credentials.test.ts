@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -43,13 +43,43 @@ BAZ=qux
 
   it("rejects keys that don't match the dotenv identifier shape", () => {
     // Lines without `=`, lines starting with `=`, and keys with invalid
-    // characters (`-`, `.`, leading digit) are silently dropped — the
-    // file is a credential bag, not a config DSL.
+    // characters (`-`, `.`, leading digit) are dropped — the file is a
+    // credential bag, not a config DSL. (They now also warn; see below.)
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     expect(parseEnvFile("no-equals\n=value\nFOO-BAR=baz\n1FOO=baz")).toEqual({});
+    warn.mockRestore();
   });
 
   it("handles CRLF line endings", () => {
     expect(parseEnvFile("FOO=bar\r\nBAZ=qux\r\n")).toEqual({ FOO: "bar", BAZ: "qux" });
+  });
+
+  it("parses `export KEY=value` lines (common hand-edit)", () => {
+    expect(parseEnvFile('export AIRTABLE_PAT=pat123\nexport BAZ="q u x"')).toEqual({
+      AIRTABLE_PAT: "pat123",
+      BAZ: "q u x",
+    });
+  });
+
+  it("still parses a plain KEY=value alongside an exported one", () => {
+    expect(parseEnvFile("FOO=bar\nexport BAZ=qux")).toEqual({ FOO: "bar", BAZ: "qux" });
+  });
+
+  it("warns (with line number) on an unparseable non-blank, non-comment line", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // Line 2 is malformed (no `=`); line 1 and 3 are fine.
+    expect(parseEnvFile("FOO=bar\nthis is broken\nBAZ=qux")).toEqual({ FOO: "bar", BAZ: "qux" });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0]).toContain("line 2");
+    expect(warn.mock.calls[0]![0]).toContain("this is broken");
+    warn.mockRestore();
+  });
+
+  it("does NOT warn on blank lines or comments", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    parseEnvFile("\n# a comment\n\nFOO=bar\n");
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });
 

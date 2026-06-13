@@ -51,17 +51,28 @@ const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {
   init: "Run the full onboarding chain (convert-to-pnpm → onboard → sync-configs → svelte-codemods → a11y-fixtures-page → audit).",
 };
 
-/** Run a command thunk and exit with its code, falling back to a clean
- * error message on throw. Wraps the ~10-line try/catch every `.action()`
- * used to duplicate. `verbose` flips between full stack and message-only. */
-async function runOrExit(
+/** Run a command thunk and surface its result, falling back to a clean error
+ * message on throw. Wraps the ~10-line try/catch every `.action()` used to
+ * duplicate. `verbose` flips between full stack and message-only.
+ *
+ * On success it sets `process.exitCode` and RETURNS rather than calling
+ * `process.exit()` right after `console.log()`. `process.exit()` does not wait
+ * for stdout to flush when stdout is a pipe, so a large `--json` payload piped
+ * to another process would get truncated mid-write. Setting `exitCode` and
+ * returning lets Node drain stdout and exit naturally with the right code. A
+ * non-zero `code` still yields a non-zero process exit.
+ *
+ * The error path keeps `process.exit()` — error messages are small (one line),
+ * always go to stderr, and exiting immediately is the desired fail-fast. */
+export async function runOrExit(
   fn: () => Promise<{ output: string; code: number }>,
   opts: { verbose?: boolean },
 ): Promise<void> {
   try {
     const { output, code } = await fn();
     console.log(output);
-    process.exit(code);
+    process.exitCode = code;
+    return;
   } catch (err) {
     const e = err as { exitCode?: number; message?: string; stack?: string };
     console.error(opts.verbose ? (e.stack ?? e.message) : (e.message ?? String(err)));
@@ -328,5 +339,20 @@ cli
 
 cli.help();
 cli.version(version);
+
+// A typo'd / unrecognized subcommand (e.g. `reddoor-maint auditt`) otherwise
+// falls through cac with no matched command and exits 0 — a cron/CI typo would
+// "succeed" silently. cac emits `command:*` at the end of parse() exactly when
+// a positional arg was given but matched no command (a bare `reddoor-maint`,
+// `--help`, and `--version` do NOT trigger it: they have no leading positional
+// or are handled before this fires). Turn that into a clear stderr error +
+// non-zero exit. process.argv[2] is the first positional, i.e. the bad command.
+cli.on("command:*", () => {
+  const unknown = cli.args[0] ?? process.argv[2] ?? "";
+  console.error(
+    `error: unknown command '${unknown}'. Run 'reddoor-maint --help' to see available commands.`,
+  );
+  process.exit(1);
+});
 
 cli.parse();

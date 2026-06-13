@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { init, type InitResult, type InitStepResult } from "../../recipes/init.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
 import { cloneIfNeeded } from "../fleet/clone-if-needed.js";
+import { fleetWorkdir } from "../../util/fleet-workdir.js";
 
 export type InitCommandOptions = {
   fleet?: string;
@@ -56,7 +57,7 @@ export async function runInitCommand(
   });
 
   if (opts.fleet) {
-    const workdir = opts.workdir ?? `${process.env.HOME ?? ""}/.reddoor-maint/sites`;
+    const workdir = opts.workdir ?? fleetWorkdir();
     sites = await Promise.all(sites.map((s) => cloneIfNeeded(s, { workdir })));
   }
 
