@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { resolveSites } from "../fleet/resolve-sites.js";
 import { cloneIfNeeded } from "../fleet/clone-if-needed.js";
+import { fleetWorkdir } from "../../util/fleet-workdir.js";
 import { selfUpdating } from "../../recipes/self-updating/index.js";
 import type { RecipeResult } from "../../types.js";
 
@@ -30,7 +31,7 @@ export async function runSelfUpdatingCommand(
   });
 
   if (opts.fleet) {
-    const workdir = opts.workdir ?? `${process.env.HOME ?? ""}/.reddoor-maint/sites`;
+    const workdir = opts.workdir ?? fleetWorkdir();
     sites = await Promise.all(sites.map((s) => cloneIfNeeded(s, { workdir })));
   }
 

@@ -9,6 +9,7 @@ import {
 import type { ConfigName, RecipeResult } from "../../types.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
 import { cloneIfNeeded } from "../fleet/clone-if-needed.js";
+import { fleetWorkdir } from "../../util/fleet-workdir.js";
 
 export type SyncConfigsCommandOptions = {
   only?: string;
@@ -86,7 +87,7 @@ export async function runSyncConfigsCommand(
   });
 
   if (opts.fleet) {
-    const workdir = opts.workdir ?? `${process.env.HOME ?? ""}/.reddoor-maint/sites`;
+    const workdir = opts.workdir ?? fleetWorkdir();
     sites = await Promise.all(sites.map((s) => cloneIfNeeded(s, { workdir })));
   }
 

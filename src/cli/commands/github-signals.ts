@@ -8,6 +8,15 @@ import {
   type FleetWriteResult,
 } from "../../audits/write-audits-to-airtable.js";
 
+/** Exit code for a fleet github-signals run. Exit 1 when failures are the
+ *  MAJORITY of the fleet (`failed > written`), not only on a total wipeout —
+ *  a run where 11/12 repos failed but 1 wrote should still signal an outage.
+ *  All-success or a minority of flakes (e.g. 1/12 failed) stays exit 0. The
+ *  no-token clean-skip returns 0 separately (before any probe runs). */
+export function githubSignalsExitCode(written: number, failed: number): number {
+  return failed > written ? 1 : 0;
+}
+
 /** `github-signals --fleet --write-airtable`: sweep every repo-backed site for its
  *  Renovate-failing count + default-branch CI state + last-commit date, write each
  *  row serially (Airtable ~5 req/sec), and emit FLEET_WRITE_SUMMARY for CI. A
@@ -73,8 +82,12 @@ export async function runGitHubSignalsCommand(opts: {
   }
   for (const repo of skipped) result.failed.push({ slug: repo, error: "probe failed (skipped)" });
 
+  // Exit non-zero when failures are the MAJORITY of the fleet, not only on a
+  // total wipeout. A run where 11/12 repos failed but 1 wrote used to return 0,
+  // masking a large outage. The nightly cron step is `continue-on-error`, so a
+  // non-zero here is an operator-visibility signal, not a red build.
   return {
     output: formatFleetWriteSummary(result),
-    code: result.failed.length > 0 && result.written.length === 0 ? 1 : 0,
+    code: githubSignalsExitCode(result.written.length, result.failed.length),
   };
 }

@@ -10,18 +10,27 @@ export function defaultCredentialsPath(): string {
 }
 
 /** Parse a tiny subset of dotenv: `KEY=value` per line, `# comments`,
- *  blank lines. Quoted values strip the surrounding quotes. Unknown
- *  shapes (no `=`, leading whitespace before `=`, etc.) are skipped
- *  silently — this is a credentials file, not a config language. */
+ *  blank lines. A leading `export ` token is stripped (dotenv does this),
+ *  so a hand-edited `export AIRTABLE_PAT=…` parses instead of being dropped.
+ *  Quoted values strip the surrounding quotes. A non-blank, non-comment line
+ *  that still doesn't parse (no `=`, bad key) is skipped with a one-line
+ *  stderr warning naming the line number — this is a credentials file, so a
+ *  silent drop turns into a confusing "missing credential" downstream. */
 export function parseEnvFile(contents: string): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const rawLine of contents.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
+  const lines = contents.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i]!.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    // Strip a leading `export ` so `export KEY=value` (a common hand-edit)
+    // parses the same as `KEY=value`.
+    const line = trimmed.replace(/^export\s+/, "");
     const eq = line.indexOf("=");
-    if (eq <= 0) continue;
-    const key = line.slice(0, eq).trim();
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+    const key = eq > 0 ? line.slice(0, eq).trim() : "";
+    if (eq <= 0 || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+      console.warn(`credentials: skipping unparseable line ${i + 1}: ${trimmed}`);
+      continue;
+    }
     let value = line.slice(eq + 1).trim();
     if (
       (value.startsWith('"') && value.endsWith('"')) ||

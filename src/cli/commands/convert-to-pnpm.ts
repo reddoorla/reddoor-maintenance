@@ -3,6 +3,7 @@ import { convertToPnpm } from "../../recipes/convert-to-pnpm.js";
 import type { RecipeResult } from "../../types.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
 import { cloneIfNeeded } from "../fleet/clone-if-needed.js";
+import { fleetWorkdir } from "../../util/fleet-workdir.js";
 
 export type ConvertToPnpmCommandOptions = {
   fleet?: string;
@@ -29,7 +30,7 @@ export async function runConvertToPnpmCommand(
   });
 
   if (opts.fleet) {
-    const workdir = opts.workdir ?? `${process.env.HOME ?? ""}/.reddoor-maint/sites`;
+    const workdir = opts.workdir ?? fleetWorkdir();
     sites = await Promise.all(sites.map((s) => cloneIfNeeded(s, { workdir })));
   }
 
