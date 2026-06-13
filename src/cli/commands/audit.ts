@@ -125,7 +125,7 @@ function buildAuditTasks(
 
   return new Listr(
     sites.map((site) => {
-      const label = site.name ?? site.path;
+      const label = site.name || site.path; // `||`: empty slug must fall back to path, not blank
       return {
         title: label,
         task: async (_ctx, task) => {
