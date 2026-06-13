@@ -3,6 +3,7 @@ import { openBase } from "../../src/reports/airtable/client.js";
 import { getWebsiteBySlug } from "../../src/reports/airtable/websites.js";
 import { listReportsForSite } from "../../src/reports/airtable/reports.js";
 import { verifyBasicAuth, renderSiteDashboardHtml } from "../../src/dashboard/index.js";
+import { resolveSlug } from "../../src/dashboard/handler-helpers.js";
 
 // Register the customer-facing /s/:slug path on the function itself rather
 // than via a netlify.toml [[redirects]] rewrite. The rewrite approach (200
@@ -21,7 +22,11 @@ export const config: Config = {
   },
 };
 
-function plainText(body: string, status: number, extraHeaders: HeadersInit = {}): Response {
+function plainText(
+  body: string,
+  status: number,
+  extraHeaders: Record<string, string> = {},
+): Response {
   return new Response(body, {
     status,
     headers: { "content-type": "text/plain; charset=utf-8", ...extraHeaders },
@@ -37,7 +42,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   // path or query). Same pattern as resend-webhook so operators can curl
   // after deploy to verify env wiring.
   const url = new URL(req.url);
-  const slug = ctx.params?.slug ?? url.searchParams.get("slug");
+  const slug = resolveSlug(ctx.params?.slug, url.searchParams.get("slug"));
 
   if (!slug) {
     return Response.json(

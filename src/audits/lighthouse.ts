@@ -99,7 +99,11 @@ function categoryFromAssertion(a: AssertionResult): string {
 }
 
 function messageForAssertion(a: AssertionResult): string {
-  return `${a.name} ${a.operator} ${a.expected} (actual: ${a.actual.toFixed(2)})`;
+  // `a.actual` is parsed from external lhci/Lighthouse JSON; a malformed or
+  // missing value (not a number) would make `.toFixed` throw and crash the whole
+  // audit. Guard it and fall back to a readable string instead.
+  const actual = typeof a.actual === "number" ? a.actual.toFixed(2) : "n/a";
+  return `${a.name} ${a.operator} ${a.expected} (actual: ${actual})`;
 }
 
 /** Shared tail: scan `.lighthouseci/` for lhr-*.json + assertion-results.json and

@@ -1,7 +1,11 @@
 import type { Context, Config } from "@netlify/functions";
 import { Webhook } from "svix";
 import Airtable from "airtable";
-import { STATUS_MAP, isStatusDowngrade } from "../../src/reports/webhook-events.js";
+import {
+  STATUS_MAP,
+  isStatusDowngrade,
+  classifyUnmatchedEvent,
+} from "../../src/reports/webhook-events.js";
 import { findReportByMessageId, setDeliveryStatus } from "../../src/reports/airtable/reports.js";
 
 // Modest per-IP cap. The legitimate caller is svix (Resend) at low volume; this
@@ -23,13 +27,9 @@ type ResendEvent = {
   };
 };
 
-// How long after an event was created we keep retrying an unmatched lookup.
-// Inside this window an unmatched event is almost always the stampSent race
-// (delivery beat the orchestrator's Airtable write) so we 500 → svix retries.
-// Past it the race has long resolved, so an unmatched event is a genuine orphan
-// (email sent outside this pipeline, or a deleted Reports row) and retrying is
-// futile — we 200 to stop svix hammering the function for hours/days.
-const ORPHAN_RETRY_WINDOW_MS = 10 * 60 * 1000;
+// ORPHAN_RETRY_WINDOW_MS + the aging decision (classifyUnmatchedEvent) live in
+// src/reports/webhook-events.ts so the race-window logic is unit-tested without
+// booting this handler.
 
 export default async (req: Request, _ctx: Context): Promise<Response> => {
   // Health check — lets an operator curl the deployed URL right after
@@ -113,9 +113,8 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     // the race has resolved, so this is a genuine orphan and retrying is futile →
     // 200 to stop svix retrying for hours. A missing/unparseable created_at can't
     // be aged, so we conservatively keep the retry behaviour.
-    const createdMs = event.created_at ? Date.parse(event.created_at) : NaN;
-    const ageMs = Number.isNaN(createdMs) ? 0 : Date.now() - createdMs;
-    if (ageMs > ORPHAN_RETRY_WINDOW_MS) {
+    const { decision, ageMs } = classifyUnmatchedEvent(event.created_at, Date.now());
+    if (decision === "orphan") {
       console.warn(
         `[resend-webhook] orphan event (no Reports row, age=${Math.round(ageMs / 1000)}s) for messageId=${messageId} type=${event.type} — returning 200, not retrying`,
       );
