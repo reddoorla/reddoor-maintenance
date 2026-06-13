@@ -282,4 +282,46 @@ describe("makeGitHub", () => {
       await makeGitHub({ token: "T", spawn: none.spawn }).findOpenSelfUpdatingPR("o/r"),
     ).toBeNull();
   });
+
+  describe("URL-segment guard (defense in depth)", () => {
+    it("accepts legit branch names and file paths", async () => {
+      // A realistic maint branch + a nested workflow path must not trip the guard.
+      const a = fakeSpawn({ code: 0, stdout: "ci\n" });
+      await expect(
+        makeGitHub({ token: "T", spawn: a.spawn }).branchProtectionContexts(
+          "o/r",
+          "maint/self-updating-x",
+        ),
+      ).resolves.toBeDefined();
+      const b = fakeSpawn({ code: 0 });
+      await expect(
+        makeGitHub({ token: "T", spawn: b.spawn }).filesOnBranch("o/r", "main", [
+          ".github/workflows/ci.yml",
+        ]),
+      ).resolves.toEqual([".github/workflows/ci.yml"]);
+    });
+
+    it("rejects a branch with traversal / structural chars before hitting gh", async () => {
+      for (const branch of ["../../secrets", "main?x=1", "ma in", "/leading", "a#b", "a\\b"]) {
+        const { spawn, calls } = fakeSpawn({ code: 0 });
+        await expect(
+          makeGitHub({ token: "T", spawn }).protectBranch("o/r", branch, ["ci"]),
+        ).rejects.toThrow(/unsafe branch/i);
+        expect(calls).toEqual([]); // never reached the gh call
+        await expect(
+          makeGitHub({ token: "T", spawn }).branchProtectionContexts("o/r", branch),
+        ).rejects.toThrow(/unsafe branch/i);
+      }
+    });
+
+    it("rejects a file path with traversal / structural chars before hitting gh", async () => {
+      for (const path of ["../etc/passwd", ".github/wf.yml?ref=evil", "/abs", "a b", "x#y"]) {
+        const { spawn, calls } = fakeSpawn({ code: 0 });
+        await expect(
+          makeGitHub({ token: "T", spawn }).filesOnBranch("o/r", "main", [path]),
+        ).rejects.toThrow(/unsafe path/i);
+        expect(calls).toEqual([]);
+      }
+    });
+  });
 });

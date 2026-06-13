@@ -4,6 +4,7 @@ import { runOneAudit, ALL_AUDIT_NAMES } from "../../audits/index.js";
 import type { AuditName, AuditResult, Site } from "../../types.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
 import { cloneIfNeeded } from "../fleet/clone-if-needed.js";
+import { isHttpUrl } from "../../util/url.js";
 
 export type AuditCommandOptions = {
   only?: string;
@@ -225,10 +226,13 @@ export function applyDeployedUrl(sites: Site[], url: string | undefined): Site[]
       { exitCode: 2 },
     );
   }
-  try {
-    new URL(url);
-  } catch {
-    throw Object.assign(new Error(`--url is not a valid URL: ${url}`), { exitCode: 2 });
+  // Scheme-allowlist: the URL is handed straight to Chrome/lhci, so only
+  // http(s) is safe (a file:///gopher:// value would be a local-file read /
+  // SSRF). Same predicate the inventory paths use.
+  if (!isHttpUrl(url)) {
+    throw Object.assign(new Error(`--url must be an http(s) URL (got: ${JSON.stringify(url)})`), {
+      exitCode: 2,
+    });
   }
   return [{ ...sites[0]!, deployedUrl: url }];
 }

@@ -12,6 +12,30 @@ export type PullRequestSummary = {
   ciState: CiState;
 };
 
+/**
+ * Reject a value before it's interpolated into a `gh api` URL path. The
+ * `owner/repo` split methods already validate shape; this is the defense-in-depth
+ * guard for the `branch` and file-`path` segments. An unexpected value (`..`, a
+ * leading `/`, whitespace, or a URL-structural char like `?#%` or a backslash)
+ * could otherwise retarget the endpoint (escape the intended path, smuggle a
+ * query string, or traverse). Conservative by design — legit branch names like
+ * `maint/self-updating-x` and paths like `.github/workflows/ci.yml` pass.
+ *
+ * Both branch refs (`maint/self-updating-x`) and file paths
+ * (`.github/workflows/ci.yml`) legitimately contain `/`, so a single slash is
+ * allowed; what's rejected is `..`, a leading `/`, whitespace, or a
+ * URL-structural char (`?`, `#`, `%`, backslash) that could escape or retarget
+ * the endpoint.
+ */
+function assertUrlSegment(kind: "branch" | "path", value: string): void {
+  const structural = /[\s?#%\\]|\.\./;
+  if (value.length === 0 || value.startsWith("/") || structural.test(value)) {
+    throw new Error(
+      `unsafe ${kind} for gh api path (illegal characters or traversal): ${JSON.stringify(value)}`,
+    );
+  }
+}
+
 /** Map GitHub's `statusCheckRollup.state` enum to our normalized CiState. */
 function mapRollupState(state: string | null | undefined): CiState {
   switch (state) {
@@ -81,6 +105,7 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
       await gh(["api", "-X", "PATCH", `repos/${repo}`, "-F", "allow_auto_merge=true"]);
     },
     async protectBranch(repo, branch, requiredChecks) {
+      assertUrlSegment("branch", branch);
       const args = [
         "api",
         "-X",
@@ -116,8 +141,10 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
     // "file/protection absent" — not an error. The remaining readers use `gh()`
     // since a non-200 there is a genuine failure (e.g. missing token scope).
     async filesOnBranch(repo, branch, paths) {
+      assertUrlSegment("branch", branch);
       const present: string[] = [];
       for (const p of paths) {
+        assertUrlSegment("path", p);
         const r = await spawn("gh", [`api`, `repos/${repo}/contents/${p}?ref=${branch}`], {
           env,
           timeoutMs: 60_000,
@@ -127,6 +154,7 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
       return present;
     },
     async branchProtectionContexts(repo, branch) {
+      assertUrlSegment("branch", branch);
       const r = await spawn(
         "gh",
         [

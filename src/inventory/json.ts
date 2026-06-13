@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import type { InventoryProvider, Site } from "../types.js";
+import { isHttpUrl } from "../util/url.js";
 
 function validate(raw: unknown): Site[] {
   if (!Array.isArray(raw)) {
@@ -26,7 +27,18 @@ function validate(raw: unknown): Site[] {
     // Carry gitRepo/deployedUrl like the Airtable provider does, so a JSON
     // inventory can drive checkout (clone-from-gitRepo) and deployed-URL audits.
     if (typeof e.gitRepo === "string") site.gitRepo = e.gitRepo;
-    if (typeof e.deployedUrl === "string") site.deployedUrl = e.deployedUrl;
+    // Scheme-allowlist deployedUrl before it can reach Chrome/lhci (same SSRF /
+    // local-file gate as the Airtable provider). A non-http(s) value is dropped
+    // with a warning rather than trusted into the deployed audit.
+    if (typeof e.deployedUrl === "string") {
+      if (isHttpUrl(e.deployedUrl)) {
+        site.deployedUrl = e.deployedUrl;
+      } else {
+        console.warn(
+          `[inventory] entry ${i}: ignoring deployedUrl that is not http(s): ${JSON.stringify(e.deployedUrl)}`,
+        );
+      }
+    }
     if (typeof e.meta === "object" && e.meta !== null) {
       site.meta = e.meta as Record<string, unknown>;
     }

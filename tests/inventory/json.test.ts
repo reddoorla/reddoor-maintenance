@@ -51,4 +51,17 @@ describe("inventory/fromJsonFile", () => {
     expect(sites[0]?.gitRepo).toBe("reddoorla/caltex");
     expect(sites[0]?.deployedUrl).toBe("https://caltex.example.com");
   });
+
+  it("drops a non-http(s) deployedUrl (SSRF / local-file gate) but keeps the site", async () => {
+    const path = await withJsonFile([
+      { name: "evil", path: "/abs/evil", deployedUrl: "file:///etc/passwd" },
+      { name: "notaurl", path: "/abs/notaurl", deployedUrl: "notaurl" },
+      { name: "ok", path: "/abs/ok", deployedUrl: "https://ok.example.com" },
+    ]);
+    const sites = await fromJsonFile(path)();
+    expect(sites).toHaveLength(3);
+    expect(sites[0]?.deployedUrl).toBeUndefined();
+    expect(sites[1]?.deployedUrl).toBeUndefined();
+    expect(sites[2]?.deployedUrl).toBe("https://ok.example.com");
+  });
 });

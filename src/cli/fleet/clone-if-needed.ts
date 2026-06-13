@@ -2,6 +2,7 @@ import { stat, readdir, mkdir } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import type { Site } from "../../types.js";
 import { defaultSpawn, type SpawnFn } from "../../audits/util/spawn.js";
+import { sameOwnerRepo } from "../../util/git.js";
 
 export type CloneIfNeededOptions = {
   workdir: string;
@@ -59,6 +60,49 @@ async function isNonEmptyDir(path: string): Promise<boolean> {
   }
 }
 
+/**
+ * The repo identity (`owner/repo` or a clone URL) the site is *expected* to be.
+ * `gitRepo` (Airtable's `owner/repo`) is canonical; fall back to `repoUrl`.
+ * `undefined` when the inventory carries neither — there's nothing to verify
+ * against, so a reused checkout can't be checked (we keep current behavior).
+ */
+function expectedRepoRef(site: Site): string | undefined {
+  return site.gitRepo ?? site.repoUrl ?? undefined;
+}
+
+/**
+ * Verify an existing checkout at `path` is the SAME repo as the site expects.
+ * The `siteSlug` that derives the path is lossy (distinct site names can
+ * collapse to one slug → one path), so without this a fleet run could read,
+ * audit, or commit against the WRONG repo's working tree.
+ *
+ * Reads `git -C <path> remote get-url origin` (via the injected spawn so tests
+ * can fake it) and compares `owner/repo` on both sides, normalizing scheme,
+ * host, `.git`, and case. Throws on a mismatch — never silently proceeds.
+ * No-ops when the site carries no expected identity, or the dir isn't a git
+ * checkout (no origin) — those are handled by the normal clone path.
+ */
+async function assertCheckoutMatches(site: Site, path: string, spawn: SpawnFn): Promise<void> {
+  const expected = expectedRepoRef(site);
+  if (!expected) return; // nothing to verify against
+
+  const r = await spawn("git", ["-C", path, "remote", "get-url", "origin"], {
+    timeoutMs: 30_000,
+  });
+  // Not a git checkout / no origin remote → can't verify; let the clone path
+  // (or the caller) deal with a non-repo directory rather than guessing.
+  if (r.code !== 0) return;
+  const origin = r.stdout.trim();
+  if (origin.length === 0) return;
+
+  if (!sameOwnerRepo(origin, expected)) {
+    throw new Error(
+      `checkout at ${path} is the wrong repo: origin is ${JSON.stringify(origin)} ` +
+        `but site expects ${JSON.stringify(expected)} (slug collision?) — refusing to reuse it`,
+    );
+  }
+}
+
 /** GitHub repo identity `owner/repo`: exactly two `[\w.-]` segments. Constrained
  *  so it can't smuggle a scheme, host, extra path segment, traversal, or an argv
  *  flag into the derived clone URL below. */
@@ -83,7 +127,15 @@ function resolveCloneUrl(site: Site): string | undefined {
 }
 
 export async function cloneIfNeeded(site: Site, opts: CloneIfNeededOptions): Promise<Site> {
-  if (await isNonEmptyDir(site.path)) return site;
+  const spawn = opts.spawn ?? defaultSpawn;
+
+  if (await isNonEmptyDir(site.path)) {
+    // Reusing an existing checkout: confirm it's actually this site's repo
+    // before any audit/recipe operates on it (slug collisions can point two
+    // sites at the same path). Throws on mismatch.
+    await assertCheckoutMatches(site, site.path, spawn);
+    return site;
+  }
 
   const repoUrl = resolveCloneUrl(site);
   if (!repoUrl) {
@@ -99,10 +151,11 @@ export async function cloneIfNeeded(site: Site, opts: CloneIfNeededOptions): Pro
   await mkdir(opts.workdir, { recursive: true });
 
   if (await isNonEmptyDir(target)) {
+    // Same guard for the workdir/<name> reuse path.
+    await assertCheckoutMatches(site, target, spawn);
     return { ...site, name, path: target };
   }
 
-  const spawn = opts.spawn ?? defaultSpawn;
   // `--` separator so git won't treat repoUrl as a flag if validation slips.
   const result = await spawn("git", ["clone", "--", repoUrl, target], {
     cwd: opts.workdir,

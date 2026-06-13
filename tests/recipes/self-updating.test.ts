@@ -211,4 +211,20 @@ describe("selfUpdating recipe", () => {
     expect(r.status).toBe("failed");
     expect(r.notes).toContain("no Git repo");
   });
+
+  it("refuses a malformed gitRepo without making any gh call (token-to-attacker-repo guard)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls } = fakeGitHub();
+    for (const gitRepo of ["../evil", "o", "o/r/x", "o /r", "https://github.com/o/r"]) {
+      const r = await selfUpdating(
+        { path: dir, name: "r", gitRepo },
+        { github: gh, pushBranch: vi.fn(async () => {}), renovateToken: "RT" },
+      );
+      expect(r.status).toBe("failed");
+      expect(r.notes).toMatch(/malformed repo identity/);
+    }
+    // No mutating gh call should have run for any malformed value.
+    expect(calls).toEqual([]);
+  });
 });
