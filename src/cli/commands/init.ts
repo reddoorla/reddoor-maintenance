@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { init, type InitResult, type InitStepResult } from "../../recipes/init.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
-import { cloneIfNeeded } from "../fleet/clone-if-needed.js";
+import { prepareFleetSites, appendSkipNotice, type SkippedSite } from "../fleet/prepare-sites.js";
 import { fleetWorkdir } from "../../util/fleet-workdir.js";
 
 export type InitCommandOptions = {
@@ -56,9 +56,12 @@ export async function runInitCommand(
     cwd,
   });
 
+  let skipped: SkippedSite[] = [];
   if (opts.fleet) {
     const workdir = opts.workdir ?? fleetWorkdir();
-    sites = await Promise.all(sites.map((s) => cloneIfNeeded(s, { workdir })));
+    const prep = await prepareFleetSites(sites, { workdir });
+    sites = prep.prepared;
+    skipped = prep.skipped;
   }
 
   const results: InitResult[] = [];
@@ -66,5 +69,5 @@ export async function runInitCommand(
 
   const output = results.map(formatResult).join("\n\n");
   const code = results.some((r) => exitCodeFor(r) !== 0) ? 1 : 0;
-  return { output, code };
+  return { output: appendSkipNotice(output, skipped), code };
 }

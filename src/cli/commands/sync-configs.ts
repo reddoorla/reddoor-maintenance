@@ -8,7 +8,7 @@ import {
 } from "../../recipes/sync-configs/gitignore.js";
 import type { ConfigName, RecipeResult } from "../../types.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
-import { cloneIfNeeded } from "../fleet/clone-if-needed.js";
+import { prepareFleetSites, appendSkipNotice, type SkippedSite } from "../fleet/prepare-sites.js";
 import { fleetWorkdir } from "../../util/fleet-workdir.js";
 
 export type SyncConfigsCommandOptions = {
@@ -86,9 +86,12 @@ export async function runSyncConfigsCommand(
     cwd,
   });
 
+  let skipped: SkippedSite[] = [];
   if (opts.fleet) {
     const workdir = opts.workdir ?? fleetWorkdir();
-    sites = await Promise.all(sites.map((s) => cloneIfNeeded(s, { workdir })));
+    const prep = await prepareFleetSites(sites, { workdir });
+    sites = prep.prepared;
+    skipped = prep.skipped;
   }
 
   if (opts.dry) {
@@ -96,7 +99,7 @@ export async function runSyncConfigsCommand(
     for (const s of sites) {
       blocks.push(`[${s.name ?? s.path}]\n` + (await dryPlan(s.path, which)));
     }
-    return { output: blocks.join("\n\n"), code: 0 };
+    return { output: appendSkipNotice(blocks.join("\n\n"), skipped), code: 0 };
   }
 
   const results: RecipeResult[] = [];
@@ -104,5 +107,5 @@ export async function runSyncConfigsCommand(
 
   const output = results.map(formatResult).join("\n");
   const code = results.some((r) => r.status === "failed") ? 1 : 0;
-  return { output, code };
+  return { output: appendSkipNotice(output, skipped), code };
 }

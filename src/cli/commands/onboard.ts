@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { onboard, type OnboardAudit } from "../../recipes/onboard.js";
 import type { RecipeResult } from "../../types.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
-import { cloneIfNeeded } from "../fleet/clone-if-needed.js";
+import { prepareFleetSites, appendSkipNotice, type SkippedSite } from "../fleet/prepare-sites.js";
 import { fleetWorkdir } from "../../util/fleet-workdir.js";
 
 export type OnboardCommandOptions = {
@@ -47,9 +47,12 @@ export async function runOnboardCommand(
     cwd,
   });
 
+  let skipped: SkippedSite[] = [];
   if (opts.fleet) {
     const workdir = opts.workdir ?? fleetWorkdir();
-    sites = await Promise.all(sites.map((s) => cloneIfNeeded(s, { workdir })));
+    const prep = await prepareFleetSites(sites, { workdir });
+    sites = prep.prepared;
+    skipped = prep.skipped;
   }
 
   const results: RecipeResult[] = [];
@@ -59,5 +62,5 @@ export async function runOnboardCommand(
 
   const output = results.map(formatResult).join("\n");
   const code = results.some((r) => r.status === "failed") ? 1 : 0;
-  return { output, code };
+  return { output: appendSkipNotice(output, skipped), code };
 }

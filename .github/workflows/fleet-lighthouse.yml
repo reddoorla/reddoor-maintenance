@@ -84,7 +84,7 @@ jobs:
           # is dropped from the run rather than crashing it (resilient fleet prep).
           # Raise it as a warning so the misconfigured Airtable row gets fixed —
           # it never reaches the write-back `failed` count above.
-          skipped=$(grep -oE "⚠ [0-9]+ site\(s\) skipped \(could not prepare for audit\):.*" /tmp/audit.out | tail -n1 || true)
+          skipped=$(grep -oE "⚠ [0-9]+ site\(s\) skipped \(could not prepare\):.*" /tmp/audit.out | tail -n1 || true)
           if [ -n "$skipped" ]; then
             echo "::warning::fleet Lighthouse: $skipped"
           fi

@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { resolveSites } from "../fleet/resolve-sites.js";
-import { cloneIfNeeded } from "../fleet/clone-if-needed.js";
+import { prepareFleetSites, appendSkipNotice, type SkippedSite } from "../fleet/prepare-sites.js";
 import { fleetWorkdir } from "../../util/fleet-workdir.js";
 import { selfUpdating } from "../../recipes/self-updating/index.js";
 import type { RecipeResult } from "../../types.js";
@@ -30,14 +30,20 @@ export async function runSelfUpdatingCommand(
     cwd,
   });
 
+  let skipped: SkippedSite[] = [];
   if (opts.fleet) {
     const workdir = opts.workdir ?? fleetWorkdir();
-    sites = await Promise.all(sites.map((s) => cloneIfNeeded(s, { workdir })));
+    const prep = await prepareFleetSites(sites, { workdir });
+    sites = prep.prepared;
+    skipped = prep.skipped;
   }
 
   if (opts.dry) {
     return {
-      output: sites.map((s) => `[${s.name ?? s.path}] would enable self-updating`).join("\n"),
+      output: appendSkipNotice(
+        sites.map((s) => `[${s.name ?? s.path}] would enable self-updating`).join("\n"),
+        skipped,
+      ),
       code: 0,
     };
   }
@@ -46,7 +52,7 @@ export async function runSelfUpdatingCommand(
   for (const s of sites) results.push(await selfUpdating(s));
 
   return {
-    output: results.map(formatResult).join("\n"),
+    output: appendSkipNotice(results.map(formatResult).join("\n"), skipped),
     code: results.some((r) => r.status === "failed") ? 1 : 0,
   };
 }
