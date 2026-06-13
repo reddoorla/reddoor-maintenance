@@ -81,6 +81,14 @@ describe("classifyUnmatchedEvent — orphan-vs-retry aging", () => {
     expect(classifyUnmatchedEvent("not-a-date", NOW)).toEqual({ decision: "retry", ageMs: 0 });
   });
 
+  it("clamps a FUTURE created_at to age 0 (no negative age → no stretched-out retry)", () => {
+    // Clock skew / spoofed timestamp 11 min in the future. Without the clamp,
+    // ageMs went negative and `ageMs > windowMs` was always false → "retry"
+    // stretched out by the whole future offset. Clamped to 0 → normal window.
+    const future = new Date(NOW + 11 * 60_000).toISOString();
+    expect(classifyUnmatchedEvent(future, NOW)).toEqual({ decision: "retry", ageMs: 0 });
+  });
+
   it("honours a custom window", () => {
     const createdAt = new Date(NOW - 5000).toISOString();
     expect(classifyUnmatchedEvent(createdAt, NOW, 1000).decision).toBe("orphan");

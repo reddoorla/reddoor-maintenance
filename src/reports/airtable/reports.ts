@@ -4,6 +4,21 @@ import type { ReportType, LighthouseScores } from "../types.js";
 
 export const REPORTS_TABLE = "Reports";
 
+const REPORT_TYPES: readonly ReportType[] = ["Maintenance", "Testing", "Launch"];
+
+/** Coerce the Airtable `Report type` (a single-select string) to a known
+ *  ReportType. A bare `as ReportType` cast is a compile-time lie: if the
+ *  single-select gains an unexpected option, the bad value flows to render.ts,
+ *  where `reportType === "Launch"` silently falls through to the Maintenance
+ *  template. Validate at the boundary; warn + default to "Maintenance" so an
+ *  unknown type is VISIBLE in the logs rather than silently mis-templated. */
+function toReportType(raw: string | undefined): ReportType {
+  if (raw && (REPORT_TYPES as readonly string[]).includes(raw)) return raw as ReportType;
+  if (raw)
+    console.warn(`[reports] unknown Report type ${JSON.stringify(raw)} — treating as Maintenance`);
+  return "Maintenance";
+}
+
 export type DeliveryStatus = "pending" | "delivered" | "bounced" | "complained";
 
 export type ReportRow = {
@@ -54,7 +69,7 @@ function mapRow(rec: { id: string; fields: Record<string, unknown> }): ReportRow
     id: rec.id,
     reportId: String(f["Report ID"] ?? ""),
     siteId: linkSites[0] ?? "",
-    reportType: ((f["Report type"] as string | undefined) ?? "Maintenance") as ReportType,
+    reportType: toReportType(f["Report type"] as string | undefined),
     period: (f["Period"] as string | undefined) ?? null,
     periodStart: (f["Period start"] as string | undefined) ?? null,
     periodEnd: (f["Period end"] as string | undefined) ?? null,

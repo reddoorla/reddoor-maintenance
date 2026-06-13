@@ -229,14 +229,19 @@ export async function runDigest(
     const pending = reports.filter(isPendingApproval);
 
     const readyForYourYes: ReadyItem[] = [];
+    const baseUrl = options.baseUrl.replace(/\/$/, "");
     for (const r of pending) {
       const site = sites.get(r.siteId);
       if (!site) continue; // orphan report → skip rather than render a broken link
+      // An empty Name slugs to "" → `/s/` is a dead link (getWebsiteBySlug can't
+      // match it). Fall back to the fleet homepage so the operator still lands
+      // somewhere usable instead of a 404.
+      const slug = siteSlug(site.name);
       readyForYourYes.push({
         siteName: site.name,
         reportType: r.reportType,
         period: r.period ?? "—",
-        dashboardUrl: `${options.baseUrl.replace(/\/$/, "")}/s/${siteSlug(site.name)}`,
+        dashboardUrl: slug ? `${baseUrl}/s/${slug}` : baseUrl,
       });
     }
 
