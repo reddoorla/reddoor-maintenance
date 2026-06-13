@@ -74,14 +74,60 @@ export async function draftDueReports(
     // recurrence. The dueDate's YYYY-MM is the stable per-cycle key. Match against the
     // reports we already fetched — no extra query on the hot path.
     const period = reportPeriodKey(item.dueDate);
-    const already = reports.some(
+    const existing = reports.find(
       (r) => r.siteId === item.site.id && r.reportType === item.reportType && r.period === period,
     );
-    if (already) {
-      skipped++;
-      lines.push(`• skipped (already drafted ${period}): ${item.site.name} ${item.reportType}`);
+
+    // A row already exists for THIS period. Two cases:
+    //   - Draft ready → truly done, skip (the idempotent re-run path).
+    //   - NOT ready → a crash between createDraft and setDraftReady wedged it: the
+    //     row exists (so we never re-draft) yet it's never sendable (listSendable
+    //     needs Draft ready). COMPLETE it in place instead of skipping forever —
+    //     re-render → re-upload the HTML → flip Draft ready on the EXISTING row.
+    if (existing) {
+      if (existing.draftReady) {
+        skipped++;
+        lines.push(`• skipped (already drafted ${period}): ${item.site.name} ${item.reportType}`);
+        continue;
+      }
+      try {
+        const result = await draftReportForSite(base, item.site, item.reportType, {
+          period,
+          completeRowId: existing.id,
+          existingRow: existing,
+        });
+        existing.draftReady = true;
+        lines.push(
+          `✓ completed half-made draft: ${result.reportRow?.reportId ?? existing.reportId}`,
+        );
+        if (result.softFailures.length > 0) softFailedSites++;
+      } catch (e) {
+        lines.push(`✗ failed: ${item.site.name} ${item.reportType} — ${(e as Error).message}`);
+      }
       continue;
     }
+
+    // Pile-up guard: don't accrue a fresh new-period draft every recurrence for a
+    // site nobody ever approves. The period key follows the DUE month, so each
+    // recurrence wants a new (later-period) draft — but if a PRIOR draft is still
+    // unsent (pending approval), a new one just stacks. Skip creating the new one
+    // while an earlier-period draft for this (site, type) sits unsent.
+    const pendingEarlier = reports.find(
+      (r) =>
+        r.siteId === item.site.id &&
+        r.reportType === item.reportType &&
+        r.sentAt === null &&
+        r.period !== null &&
+        r.period < period,
+    );
+    if (pendingEarlier) {
+      skipped++;
+      lines.push(
+        `• skipped: ${item.site.name} ${item.reportType} already has an unsent ${pendingEarlier.period} draft pending approval`,
+      );
+      continue;
+    }
+
     try {
       // Pass the SAME key the guard searches by, so the stamped Period always
       // matches a future run's reportPeriodKey(dueDate) — even if this run lags
@@ -100,7 +146,7 @@ export async function draftDueReports(
     }
   }
   if (skipped > 0) {
-    lines.push(`• ${skipped} already drafted this period`);
+    lines.push(`• ${skipped} already drafted or pending this period`);
   }
   if (softFailedSites > 0) {
     lines.push(

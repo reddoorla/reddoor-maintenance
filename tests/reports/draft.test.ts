@@ -210,6 +210,35 @@ describe("draftReportForSite", () => {
     expect(fields["Period"]).toBe((fields["Period end"] as string).slice(0, 7));
   });
 
+  describe("complete an existing (half-made) row — Fix #1", () => {
+    it("re-attaches HTML + flips Draft ready on the EXISTING row, with NO second createDraft", async () => {
+      const base = makeFakeBase({ Reports: [] });
+      const result = await draftReportForSite(base, siteFixture(), "Maintenance", {
+        period: "2026-05",
+        completeRowId: "rec_halfmade",
+        existingRow: {
+          id: "rec_halfmade",
+          reportId: "Acme Co — Maintenance — 2026-05-26",
+        } as never,
+      });
+
+      // No createDraft on the complete path — that would duplicate the period.
+      expect(base.__calls.filter((c) => c.kind === "create")).toHaveLength(0);
+      // setDraftReady runs against the EXISTING row id (the missing ready flag).
+      const updates = base.__calls.filter((c) => c.kind === "update");
+      expect(updates).toHaveLength(1);
+      expect(updates[0]!.records[0]!.id).toBe("rec_halfmade");
+      expect(updates[0]!.records[0]!.fields).toMatchObject({ "Draft ready": true });
+      // The HTML attachment is re-uploaded (the missing attachment) — goes via fetch.
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      const fetchUrl = vi.mocked(global.fetch).mock.calls[0]![0] as string;
+      expect(fetchUrl).toContain("/rec_halfmade/");
+      expect(fetchUrl).toContain("uploadAttachment");
+      // reportRow comes back as the existing row so callers keep the same shape.
+      expect(result.reportRow?.id).toBe("rec_halfmade");
+    });
+  });
+
   describe("GA enrichment", () => {
     it("writes GA users into the row when configured and the site has a property ID", async () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
