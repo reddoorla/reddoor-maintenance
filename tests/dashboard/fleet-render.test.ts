@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { renderCockpitHtml } from "../../src/dashboard/fleet-render.js";
 import { buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 const BASE = "https://reddoor-maintenance.netlify.app";
 const NOW = new Date("2026-06-11T12:00:00Z");
@@ -15,47 +16,28 @@ function model(
 }
 
 function siteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
-  return {
-    id: "recSITE",
-    name: "Acme Co",
-    url: "https://acme.example.com",
-    status: "maintenance",
+  return makeWebsiteRow({
     pointOfContact: "Tucker",
     maintenanceFreq: "Monthly",
     testingFreq: "Quarterly",
     maintenanceDay: "2026-05-01",
     testingDay: "2026-04-10",
-    ga4PropertyId: null,
-    searchQuery: null,
-    searchConsoleProperty: null,
-    gitRepo: null,
     reportRecipientsTo: "tucker@reddoorla.com",
-    reportRecipientsCc: null,
-    headerImage: null,
     pScore: 87,
     rScore: 95,
     bpScore: 90,
     seoScore: 100,
     lastLighthouseAuditAt: "2026-05-27T18:00:00Z",
     dashboardToken: "tok",
-    copyIntro: null,
-    copyContact: null,
-    copyFooter: null,
-    launchedAt: null,
     a11yViolations: 0,
     depsDrifted: 0,
     depsMajorBehind: 0,
-    depsOutdated: null,
     securityVulnsCritical: 0,
     securityVulnsHigh: 0,
     securityVulnsModerate: 0,
     securityVulnsLow: 0,
-    renovateFailingCis: null,
-    defaultBranchCi: null,
-    lastCommitAt: null,
-    githubSignalsAt: null,
     ...over,
-  };
+  });
 }
 
 describe("renderCockpitHtml — document shell", () => {

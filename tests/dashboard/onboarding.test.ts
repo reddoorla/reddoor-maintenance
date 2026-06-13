@@ -1,49 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { onboardingStatus } from "../../src/dashboard/onboarding.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 function row(over: Partial<WebsiteRow> = {}): WebsiteRow {
-  return {
+  return makeWebsiteRow({
     id: "recX",
     name: "Acme",
-    url: "https://acme.example.com",
-    status: "maintenance",
-    pointOfContact: null,
-    maintenanceFreq: "None",
-    testingFreq: "None",
-    maintenanceDay: null,
-    testingDay: null,
-    ga4PropertyId: null,
-    searchQuery: null,
-    searchConsoleProperty: null,
-    gitRepo: null,
-    reportRecipientsTo: null,
-    reportRecipientsCc: null,
-    headerImage: null,
-    pScore: null,
-    rScore: null,
-    bpScore: null,
-    seoScore: null,
-    lastLighthouseAuditAt: null,
     dashboardToken: "tok",
-    copyIntro: null,
-    copyContact: null,
-    copyFooter: null,
-    launchedAt: null,
-    a11yViolations: null,
-    depsDrifted: null,
-    depsMajorBehind: null,
-    depsOutdated: null,
-    securityVulnsCritical: null,
-    securityVulnsHigh: null,
-    securityVulnsModerate: null,
-    securityVulnsLow: null,
-    renovateFailingCis: null,
-    defaultBranchCi: null,
-    lastCommitAt: null,
-    githubSignalsAt: null,
     ...over,
-  };
+  });
 }
 
 describe("onboardingStatus", () => {

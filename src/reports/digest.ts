@@ -1,7 +1,6 @@
 // src/reports/digest.ts
-import type { ReportType } from "./types.js";
 import { openBase, readAirtableConfig, type AirtableBase } from "./airtable/client.js";
-import { listAllReports } from "./airtable/reports.js";
+import { listAllReports, isPendingApproval } from "./airtable/reports.js";
 import type { ReportRow } from "./airtable/reports.js";
 import { listWebsites, siteSlug, type WebsiteRow } from "./airtable/websites.js";
 import { defaultResendClient, type ResendClient } from "./send/resend.js";
@@ -14,65 +13,26 @@ import {
   collectCiAlerts,
 } from "../alerts/digest-collectors.js";
 import { diffAttention, readDigestState, writeDigestState } from "../alerts/digest-state.js";
+import { escapeHtml as esc } from "../util/html.js";
+import type {
+  AttentionItem,
+  AttentionSeverity,
+  AttentionStatus,
+  ReadyItem,
+  DigestSections,
+} from "../alerts/attention.js";
 
-/** One report awaiting the operator's "yes" — site, type, period, and a link to its
- *  dashboard page (the digest LINKS to the dashboard; it never carries the approve action,
- *  because email scanners pre-fetch links and would trip accidental approvals). */
-export type ReadyItem = {
-  siteName: string;
-  reportType: ReportType;
-  /** "YYYY-MM" — the Period key from the Reports row. */
-  period: string;
-  /** Absolute URL to /s/<slug> on the dashboard. */
-  dashboardUrl: string;
-};
-
-/** Severity of a "Needs attention" entry. `critical` sorts above `warning`. */
-export type AttentionSeverity = "critical" | "warning";
-
-/** Set by `diffAttention` before render: how this item changed since the prior digest. */
-export type AttentionStatus = "new" | "worse" | "standing";
-
-/**
- * One "Needs attention" entry. The M5 SEAM, now carrying the fields the hybrid
- * snapshot needs: a stable `key` for diffing, a `metric` for NEW/WORSE comparison,
- * a `severity` for ordering, and `siteName` for the (component-3) grouped render.
- * For now `attentionSection` still renders each item flat by `title`/`url`.
- */
-export type AttentionItem = {
-  /** Stable identity for diffing: `vuln:<siteId>`, `delivery:<reportId>`. */
-  key: string;
-  kind: "vuln" | "delivery" | "renovate" | "lighthouse" | "ci";
-  /** Grouping key in the (component-3) render. */
-  siteName: string;
-  title: string;
-  /** Optional URL rendered as a hyperlink on the title. */
-  url?: string;
-  severity: AttentionSeverity;
-  /** Comparable magnitude for NEW/WORSE (vuln count; 1 for binary events). */
-  metric: number;
-  /** Set by `diffAttention` before render. */
-  status?: AttentionStatus;
-};
-
-/** Input shape for `renderDigestHtml`. Both arrays are required; callers pass `[]` for
- *  empty sections — the renderer handles the empty-state copy. */
-export type DigestSections = {
-  readyForYourYes: ReadyItem[];
-  needsAttention: AttentionItem[];
-};
-
-/** Escape a string before interpolating into the digest HTML. Mirrors the report
- *  template's escapeXml — site names (e.g. "Brown & Co") and operator text must not
- *  break the markup or inject. */
-function esc(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+// The attention/digest contract lives in `../alerts/attention.ts` (a dependency-free
+// types module) so the `alerts/*` collectors can depend on it without importing back
+// from this renderer/IO module — see attention.ts for the cycle it breaks. Re-exported
+// here so existing `from "./digest.js"` type importers keep resolving.
+export type {
+  AttentionItem,
+  AttentionSeverity,
+  AttentionStatus,
+  ReadyItem,
+  DigestSections,
+} from "../alerts/attention.js";
 
 const GREY = "#757575";
 const RED = "#C00";
@@ -178,9 +138,7 @@ function digestDateKey(d: Date): string {
  * Exported: the fleet homepage (Task 3.5b) reuses it for the pending-approval count.
  */
 export async function listPendingApproval(base: AirtableBase): Promise<ReportRow[]> {
-  return (await listAllReports(base)).filter(
-    (r) => r.draftReady && !r.approvedToSend && r.sentAt === null,
-  );
+  return (await listAllReports(base)).filter(isPendingApproval);
 }
 
 // ── collectAttention (IO wrapper, sibling to runDigest) ──────────────────────
@@ -262,7 +220,7 @@ export async function runDigest(
     const websites = await listWebsites(base);
     const sites = new Map(websites.map((w) => [w.id, w]));
 
-    const pending = reports.filter((r) => r.draftReady && !r.approvedToSend && r.sentAt === null);
+    const pending = reports.filter(isPendingApproval);
 
     const readyForYourYes: ReadyItem[] = [];
     for (const r of pending) {

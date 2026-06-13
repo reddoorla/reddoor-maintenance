@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { draftReportForSite } from "../../src/reports/draft.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import { makeFakeBase } from "./_helpers/fake-airtable-base.js";
+import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 // The GA client talks to Google over the network; mock it. readGaConfig is NOT mocked —
 // it reads process.env, which the tests control (GA_SUBJECT set/unset).
@@ -34,47 +35,17 @@ beforeEach(() => {
 });
 
 function siteFixture(over: Partial<WebsiteRow> = {}): WebsiteRow {
-  return {
+  return makeWebsiteRow({
     id: "rec_site_acme",
-    name: "Acme Co",
-    url: "https://acme.example.com",
-    status: "maintenance",
     pointOfContact: "ops@acme.example.com",
     maintenanceFreq: "Monthly",
-    testingFreq: "None",
     maintenanceDay: "2026-04-26",
-    testingDay: null,
-    ga4PropertyId: null,
-    searchQuery: null,
-    searchConsoleProperty: null,
-    gitRepo: null,
-    reportRecipientsTo: null,
-    reportRecipientsCc: null,
-    headerImage: null,
     pScore: 87,
     rScore: 91,
     bpScore: 100,
     seoScore: 95,
-    lastLighthouseAuditAt: null,
-    a11yViolations: null,
-    depsDrifted: null,
-    depsMajorBehind: null,
-    depsOutdated: null,
-    securityVulnsCritical: null,
-    securityVulnsHigh: null,
-    securityVulnsModerate: null,
-    securityVulnsLow: null,
-    dashboardToken: null,
-    copyIntro: null,
-    copyContact: null,
-    copyFooter: null,
-    launchedAt: null,
-    renovateFailingCis: null,
-    defaultBranchCi: null,
-    lastCommitAt: null,
-    githubSignalsAt: null,
     ...over,
-  };
+  });
 }
 
 describe("draftReportForSite", () => {

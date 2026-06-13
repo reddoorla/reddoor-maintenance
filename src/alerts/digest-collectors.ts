@@ -1,5 +1,5 @@
 // src/alerts/digest-collectors.ts
-import type { AttentionItem } from "../reports/digest.js";
+import type { AttentionItem } from "./attention.js";
 import { siteSlug, type WebsiteRow } from "../reports/airtable/websites.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
 

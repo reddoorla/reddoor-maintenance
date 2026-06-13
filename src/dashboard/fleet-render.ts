@@ -3,25 +3,7 @@ import { siteSlug } from "../reports/airtable/websites.js";
 import type { CockpitModel, SiteCard, Tier } from "./fleet-cockpit.js";
 import { onboardingStatus } from "./onboarding.js";
 import { relativeTimeFromNow } from "./relative-time.js";
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function safeUrl(raw: string): string {
-  try {
-    const u = new URL(raw);
-    if (u.protocol === "http:" || u.protocol === "https:") return raw;
-  } catch {
-    // fall through
-  }
-  return "#";
-}
+import { escapeHtml, safeUrl } from "../util/html.js";
 
 const DASH = "—";
 

@@ -1,7 +1,7 @@
 // src/alerts/digest-state.ts
 import type { FieldSet } from "airtable";
 import type { AirtableBase } from "../reports/airtable/client.js";
-import type { AttentionItem } from "../reports/digest.js";
+import type { AttentionItem } from "./attention.js";
 
 /**
  * The persisted prior-run snapshot: stable item `key` → its last metric + the
