@@ -5,6 +5,7 @@ import {
   approveReportRow,
 } from "../../src/reports/airtable/reports.js";
 import { approveReport, verifyBasicAuth } from "../../src/dashboard/index.js";
+import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 
 // Path-route the customer-facing /api/reports/:id/approve on the function
 // itself (same reason as site-dashboard.mts: a netlify.toml [[redirects]] 200
@@ -33,58 +34,9 @@ function plainText(
   });
 }
 
-// The request's own host, preferring the Host header (authoritative behind
-// Netlify) and falling back to the deployment URL parsed from req.url.
-function requestHost(req: Request): string | null {
-  const hostHeader = req.headers.get("host");
-  if (hostHeader) return hostHeader.toLowerCase();
-  try {
-    return new URL(req.url).host.toLowerCase();
-  } catch {
-    return null;
-  }
-}
-
-// Parse the host out of an absolute Origin/Referer URL; null if absent/garbage.
-function originHost(value: string | null): string | null {
-  if (!value) return null;
-  try {
-    return new URL(value).host.toLowerCase();
-  } catch {
-    return null;
-  }
-}
-
-/**
- * CSRF verdict for a state-changing POST reachable with ambient Basic-auth creds.
- *
- * Returns true (allow) only for a same-origin signal or the total absence of any
- * cross-site signal (legacy/non-browser clients); false (reject with 403) on any
- * cross-site signal.
- *
- *  1. Sec-Fetch-Site present → must be "same-origin"/"none"; anything else
- *     ("cross-site"/"same-site") is a cross-site signal → reject.
- *  2. Sec-Fetch-Site absent but Origin (or, lacking it, the Referer's origin)
- *     present → its host must equal the request's own host → reject on mismatch.
- *  3. No Sec-Fetch AND no Origin AND no Referer → legacy/non-browser client with
- *     no cross-site signal at all → allow (still gated by Basic auth downstream).
- */
-function isCsrfAllowed(req: Request): boolean {
-  const secFetchSite = req.headers.get("sec-fetch-site");
-  if (secFetchSite !== null) {
-    return secFetchSite === "same-origin" || secFetchSite === "none";
-  }
-  // Fallback when Sec-Fetch-Site is absent: compare Origin (then Referer) host
-  // against the request's own host.
-  const claimedHost =
-    originHost(req.headers.get("origin")) ?? originHost(req.headers.get("referer"));
-  if (claimedHost === null) {
-    // No cross-site signal at all — legacy/non-browser client. Allow.
-    return true;
-  }
-  const ownHost = requestHost(req);
-  return ownHost !== null && claimedHost === ownHost;
-}
+// CSRF helpers (isCsrfAllowed / requestHost / originHost) now live in
+// src/dashboard/csrf.ts so the decision logic is unit-tested without booting
+// this handler. The handler stays thin glue over them.
 
 export default async (req: Request, ctx: Context): Promise<Response> => {
   // GET health check — presence-only, mirrors resend-webhook.mts and

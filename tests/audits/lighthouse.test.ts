@@ -157,6 +157,52 @@ describe("audits/lighthouse", () => {
     expect(details.assertions.some((a) => a.level === "error")).toBe(true);
   });
 
+  it("does not crash on a malformed assertion whose `actual` is not a number", async () => {
+    // External lhci JSON is untrusted: a missing/non-numeric `actual` must not
+    // make `.toFixed` throw and take down the whole audit. Write the artifacts
+    // directly so we can inject a malformed assertion shape the typed lhciSpawn
+    // helper can't express.
+    const cwd = await tmpSite();
+    const malformedSpawn: SpawnFn = async (_cmd, _args, opts): Promise<SpawnResult> => {
+      const dir = join(opts?.cwd ?? process.cwd(), ".lighthouseci");
+      await mkdir(dir, { recursive: true });
+      await writeFile(
+        join(dir, `lhr-${Date.now()}-0.json`),
+        JSON.stringify({
+          requestedUrl: "http://localhost:5173/dev/a11y-fixtures",
+          finalUrl: "http://localhost:5173/dev/a11y-fixtures",
+          categories: { performance: { score: 0.5 } },
+        }),
+        "utf-8",
+      );
+      await writeFile(
+        join(dir, "assertion-results.json"),
+        JSON.stringify([
+          {
+            name: "categories:performance",
+            // malformed: `actual` absent / non-numeric (null here)
+            actual: null,
+            expected: 0.7,
+            operator: ">=",
+            passed: false,
+            level: "error",
+          },
+        ]),
+        "utf-8",
+      );
+      return { code: 1, stdout: "", stderr: "" };
+    };
+
+    const result = await lighthouseAudit({ site: { path: cwd }, spawn: malformedSpawn });
+    expect(result.status).toBe("fail");
+    const details = result.details as {
+      assertions: Array<{ level: string; category: string; message: string }>;
+    };
+    expect(details.assertions).toHaveLength(1);
+    // The guard substitutes a readable fallback instead of throwing on .toFixed.
+    expect(details.assertions[0]!.message).toContain("actual: n/a");
+  });
+
   it("fails with no-output diagnostic when lhci exits non-zero without writing manifest", async () => {
     const cwd = await tmpSite();
     const result = await lighthouseAudit({

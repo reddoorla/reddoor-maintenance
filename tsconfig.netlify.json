@@ -1,0 +1,22 @@
+{
+  // Typecheck the Netlify handlers, which the base tsconfig deliberately
+  // excludes (its `include` is src/tests only). Without this, a renamed src
+  // export that breaks a handler import compiles fine locally and only blows
+  // up in CI's test:dist (the #180 incident). `pnpm typecheck` runs this too.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // `.mts` handlers import the Netlify runtime types. `skipLibCheck` (inherited)
+    // keeps us from type-checking the dep's own .d.ts internals.
+    "types": ["node", "@netlify/functions"],
+    // The handlers run on the Netlify Web-Fetch runtime and use the platform
+    // globals `Request`/`Response`/`Headers`/`HeadersInit`/`URL`. The base lib
+    // is ES2022 only (correct for the Node library code), so add DOM here to
+    // supply those web types — without it tsc can't see `HeadersInit` et al.
+    "lib": ["ES2022", "DOM"]
+  },
+  // The handlers import deep src/ paths; the base `include` already covers src,
+  // but a project that only lists the .mts entrypoints still pulls in every
+  // src module they reference transitively. List both so tsc has full context.
+  "include": ["netlify/functions/**/*.mts", "src/**/*"],
+  "exclude": ["dist", "node_modules", "tests/fixtures"]
+}

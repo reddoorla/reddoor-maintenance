@@ -5,6 +5,7 @@ import { listAllReports } from "../../src/reports/airtable/reports.js";
 import { readDigestState } from "../../src/alerts/digest-state.js";
 import { verifyBasicAuth, renderCockpitHtml } from "../../src/dashboard/index.js";
 import { buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
+import { resolveDashboardBaseUrl } from "../../src/dashboard/handler-helpers.js";
 
 // Owns the root path. The per-site dashboard function continues to own
 // /s/:slug; the resend-webhook function continues to own its own path.
@@ -20,7 +21,11 @@ export const config: Config = {
   },
 };
 
-function plainText(body: string, status: number, extraHeaders: HeadersInit = {}): Response {
+function plainText(
+  body: string,
+  status: number,
+  extraHeaders: Record<string, string> = {},
+): Response {
   return new Response(body, {
     status,
     headers: { "content-type": "text/plain; charset=utf-8", ...extraHeaders },
@@ -73,9 +78,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   } catch {
     // everything badges as not-NEW (the {} initial); never crashes the page
   }
-  const baseUrl = (
-    process.env.DASHBOARD_BASE_URL?.trim() || "https://reddoor-maintenance.netlify.app"
-  ).replace(/\/$/, "");
+  const baseUrl = resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL);
   const model = buildCockpitModel(websites, reports, prior, baseUrl, new Date());
   return html(renderCockpitHtml(model), 200);
 };

@@ -42,3 +42,35 @@ const STATUS_RANK: Record<DeliveryStatus, number> = {
 export function isStatusDowngrade(current: DeliveryStatus, incoming: DeliveryStatus): boolean {
   return STATUS_RANK[incoming] < STATUS_RANK[current];
 }
+
+/**
+ * How long after an event was created we keep retrying an UNMATCHED Reports
+ * lookup. Inside this window an unmatched event is almost always the stampSent
+ * race (delivery beat the orchestrator's Airtable write) → 500 so svix retries.
+ * Past it the race has resolved, so an unmatched event is a genuine orphan
+ * (email sent outside this pipeline, or a deleted Reports row) → 200 to stop
+ * svix hammering the function for hours/days.
+ */
+export const ORPHAN_RETRY_WINDOW_MS = 10 * 60 * 1000;
+
+/**
+ * Decide whether an unmatched webhook event should be RETRIED or treated as a
+ * terminal orphan. Pure decision extracted from resend-webhook.mts so the
+ * race-window aging is unit-tested without booting the handler.
+ *
+ * - `createdAt` is the event's `created_at` (may be undefined / unparseable).
+ * - A missing/unparseable timestamp can't be aged, so we conservatively keep
+ *   the retry behaviour ("retry"), exactly as the handler did inline.
+ *
+ * Returns "retry" (→ 500, svix retries) when within the window, "orphan"
+ * (→ 200, stop retrying) once the window has elapsed.
+ */
+export function classifyUnmatchedEvent(
+  createdAt: string | undefined,
+  now: number,
+  windowMs: number = ORPHAN_RETRY_WINDOW_MS,
+): { decision: "retry" | "orphan"; ageMs: number } {
+  const createdMs = createdAt ? Date.parse(createdAt) : NaN;
+  const ageMs = Number.isNaN(createdMs) ? 0 : now - createdMs;
+  return { decision: ageMs > windowMs ? "orphan" : "retry", ageMs };
+}

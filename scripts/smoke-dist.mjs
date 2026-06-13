@@ -12,7 +12,7 @@
 //   - CLI subcommand dynamic-import paths broken by bundling
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -69,6 +69,14 @@ const expectedSubcommands = [
   "onboard",
   "init",
   "report",
+  // The heaviest dynamic-import commands — exactly the ones whose deep
+  // src/ import paths are most likely to break under bundling and slip past
+  // vitest (which runs against source). `launch` takes a required <site>
+  // positional but cac still short-circuits `launch --help` to exit 0 (unlike
+  // `upgrade`, whose <upgrade> arg cac validates first — hence the skip below).
+  "self-updating",
+  "launch",
+  "github-signals",
 ];
 
 await check("CLI --help exits 0 and lists all expected commands", () => {
@@ -162,6 +170,75 @@ await check("loadBundledImages returns two non-empty buffers without ENOENT", as
     throw new Error(`CID mismatch: ${checkPng.cid}, ${blurred.cid}`);
   }
 });
+
+// Netlify-handler import resolution. The .mts handlers import deep `../../src/*`
+// paths (Netlify bundles them from source at deploy, so they are NOT dist
+// consumers and can't be `import()`-ed here). The failure mode this guards is
+// the #180 incident: a renamed/moved src export breaks a handler import and
+// surfaces only at deploy. We statically resolve each handler's `../../src/...`
+// imports — verifying (a) the target file exists and (b) each named import is
+// actually exported by it. `pnpm typecheck` (now incl. tsconfig.netlify.json)
+// is the primary guard; this re-asserts it in the built-artifact gate so a
+// release that skipped typecheck still can't ship a broken handler import.
+const fnDir = resolve(repoRoot, "netlify/functions");
+const handlerFiles = existsSync(fnDir) ? readdirSync(fnDir).filter((f) => f.endsWith(".mts")) : [];
+
+// Parse `import { a, b } from "../../src/x.js"` and `import x from "..."`
+// (default) and `import { a } from "..."` forms; we only care about src paths.
+function srcImportsOf(handlerSource) {
+  const out = [];
+  const re =
+    /import\s+(?:([A-Za-z0-9_$]+)\s*,?\s*)?(?:\{([^}]*)\})?\s*from\s*["'](\.\.\/\.\.\/src\/[^"']+)["']/g;
+  let m;
+  while ((m = re.exec(handlerSource)) !== null) {
+    const named = (m[2] ?? "")
+      .split(",")
+      .map((s) =>
+        s
+          .trim()
+          .split(/\s+as\s+/)[0]
+          .trim(),
+      )
+      .filter(Boolean)
+      // `import type { X }` members: tsc checks those; the runtime export check
+      // would false-positive on type-only exports, so drop a leading `type `.
+      .map((s) => s.replace(/^type\s+/, ""))
+      .filter((s) => s.length > 0);
+    out.push({ specifier: m[3], named });
+  }
+  return out;
+}
+
+for (const file of handlerFiles) {
+  await check(`Netlify handler '${file}' resolves all its src/ imports`, () => {
+    const handlerSrc = readFileSync(resolve(fnDir, file), "utf-8");
+    const imports = srcImportsOf(handlerSrc);
+    if (imports.length === 0) return; // a glue-only handler with no src imports
+    for (const imp of imports) {
+      // `../../src/x.js` (ESM specifier) → on disk it's `src/x.ts`.
+      const rel = imp.specifier.replace(/^\.\.\/\.\.\//, "").replace(/\.js$/, ".ts");
+      const target = resolve(repoRoot, rel);
+      if (!existsSync(target)) {
+        throw new Error(`${file} imports ${imp.specifier} but ${rel} does not exist`);
+      }
+      const targetSrc = readFileSync(target, "utf-8");
+      for (const name of imp.named) {
+        // Match `export { name }`, `export const/function/class/type name`, and
+        // re-export barrels `export { name } from "..."`. A renamed export trips
+        // this exactly like the #180 incident did in CI.
+        const exported =
+          new RegExp(
+            `export\\s+(?:async\\s+)?(?:const|let|var|function|class|type|interface|enum)\\s+${name}\\b`,
+          ).test(targetSrc) || new RegExp(`export\\s*\\{[^}]*\\b${name}\\b`).test(targetSrc);
+        if (!exported) {
+          throw new Error(
+            `${file} imports {${name}} from ${imp.specifier} but it is not exported by ${rel}`,
+          );
+        }
+      }
+    }
+  });
+}
 
 if (failures.length) {
   process.stderr.write(`\nsmoke-dist: ${failures.length} failure(s)\n`);

@@ -183,6 +183,39 @@ describe("defaultSpawn output handling", () => {
     child.emit("close", 0);
     await expect(p).resolves.toEqual({ code: 0, stdout: "", stderr: "" });
   });
+
+  it("decodes a multibyte UTF-8 char split across two chunks without corruption", async () => {
+    // "café — π" → UTF-8 bytes where the é (0xC3 0xA9), the em-dash (0xE2 0x80
+    // 0x94) and π (0xCF 0x80) are multibyte. Split the buffer at byte 4, which
+    // lands INSIDE the é's 2-byte sequence — the old `String(chunk)` path would
+    // emit U+FFFD for the dangling half of each split char.
+    const full = Buffer.from("café — π", "utf-8");
+    const splitAt = 4; // mid-é (é starts at byte 3: "caf" = 3 bytes)
+    const s = makeSpawn({ spawnImpl, killImpl });
+    const p = s("unicode", []);
+    child.stdout.emit("data", full.subarray(0, splitAt));
+    child.stdout.emit("data", full.subarray(splitAt));
+    child.emit("close", 0);
+    const r = await p;
+    expect(r.stdout).toBe("café — π");
+    expect(r.stdout).not.toContain("�");
+  });
+
+  it("flushes a final truncated multibyte sequence on close rather than dropping it", async () => {
+    // Emit only the FIRST byte of é (0xC3) and then close. The decoder buffers
+    // it; `.end()` flushes the now-incomplete sequence as the replacement char
+    // (correct, lossless-until-flush behaviour) instead of silently losing it.
+    const eAcute = Buffer.from("é", "utf-8");
+    const s = makeSpawn({ spawnImpl, killImpl });
+    const p = s("partial", []);
+    child.stdout.emit("data", Buffer.from("ab"));
+    child.stdout.emit("data", eAcute.subarray(0, 1)); // dangling first byte
+    child.emit("close", 0);
+    const r = await p;
+    // "ab" survives intact; the dangling byte is flushed as U+FFFD, not dropped.
+    expect(r.stdout.startsWith("ab")).toBe(true);
+    expect(r.stdout).toBe("ab�");
+  });
 });
 
 // Real subprocesses (no spawnImpl/killImpl injection): proves the actual reap

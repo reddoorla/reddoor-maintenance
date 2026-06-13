@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Webhook } from "svix";
-import { STATUS_MAP, isStatusDowngrade } from "../../src/reports/webhook-events.js";
+import {
+  STATUS_MAP,
+  isStatusDowngrade,
+  classifyUnmatchedEvent,
+  ORPHAN_RETRY_WINDOW_MS,
+} from "../../src/reports/webhook-events.js";
 import resendWebhook from "../../netlify/functions/resend-webhook.mjs";
 
 // The webhook handler talks to Airtable via these two functions; mock the whole
@@ -47,6 +52,39 @@ describe("isStatusDowngrade — monotonic delivery-status ordering", () => {
     expect(isStatusDowngrade("bounced", "complained")).toBe(false);
     expect(isStatusDowngrade("complained", "bounced")).toBe(false);
     expect(isStatusDowngrade("delivered", "delivered")).toBe(false);
+  });
+});
+
+describe("classifyUnmatchedEvent — orphan-vs-retry aging", () => {
+  const NOW = Date.parse("2026-06-12T12:00:00.000Z");
+
+  it("retries inside the race window (delivery beat the Airtable write)", () => {
+    const createdAt = new Date(NOW - 1000).toISOString(); // 1s ago
+    const { decision, ageMs } = classifyUnmatchedEvent(createdAt, NOW);
+    expect(decision).toBe("retry");
+    expect(ageMs).toBe(1000);
+  });
+
+  it("treats an event older than the window as a terminal orphan", () => {
+    const createdAt = new Date(NOW - (ORPHAN_RETRY_WINDOW_MS + 1)).toISOString();
+    const { decision } = classifyUnmatchedEvent(createdAt, NOW);
+    expect(decision).toBe("orphan");
+  });
+
+  it("retries exactly at the window boundary (strictly-greater check)", () => {
+    const createdAt = new Date(NOW - ORPHAN_RETRY_WINDOW_MS).toISOString();
+    expect(classifyUnmatchedEvent(createdAt, NOW).decision).toBe("retry");
+  });
+
+  it("conservatively retries when created_at is missing or unparseable (can't be aged)", () => {
+    expect(classifyUnmatchedEvent(undefined, NOW)).toEqual({ decision: "retry", ageMs: 0 });
+    expect(classifyUnmatchedEvent("not-a-date", NOW)).toEqual({ decision: "retry", ageMs: 0 });
+  });
+
+  it("honours a custom window", () => {
+    const createdAt = new Date(NOW - 5000).toISOString();
+    expect(classifyUnmatchedEvent(createdAt, NOW, 1000).decision).toBe("orphan");
+    expect(classifyUnmatchedEvent(createdAt, NOW, 10_000).decision).toBe("retry");
   });
 });
 

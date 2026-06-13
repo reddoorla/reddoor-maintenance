@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 
 export type SpawnResult = { code: number; stdout: string; stderr: string };
 
@@ -70,9 +71,22 @@ export function makeSpawn(internals: SpawnInternals = {}): SpawnFn {
 
       let stdout = "";
       let stderr = "";
+      // Decode each stream through a StringDecoder so a multibyte UTF-8 char
+      // split across two `data` chunks isn't corrupted: the decoder holds the
+      // partial trailing bytes until the rest arrives, instead of the old
+      // `String(chunk)` which decoded each chunk in isolation (and replaced the
+      // split char with U+FFFD). Flushed via `.end()` on close.
+      const outDecoder = new StringDecoder("utf-8");
+      const errDecoder = new StringDecoder("utf-8");
       if (!streaming) {
-        child.stdout?.on("data", (chunk) => (stdout = cap(stdout, String(chunk))));
-        child.stderr?.on("data", (chunk) => (stderr = cap(stderr, String(chunk))));
+        child.stdout?.on(
+          "data",
+          (chunk: Buffer) => (stdout = cap(stdout, outDecoder.write(chunk))),
+        );
+        child.stderr?.on(
+          "data",
+          (chunk: Buffer) => (stderr = cap(stderr, errDecoder.write(chunk))),
+        );
       }
 
       /** Signal the child's whole process group; ignore if it's already gone.
@@ -111,6 +125,12 @@ export function makeSpawn(internals: SpawnInternals = {}): SpawnFn {
       });
       child.on("close", (code) => {
         clearTimers();
+        if (!streaming) {
+          // Flush any bytes the decoder buffered mid-character (e.g. a truncated
+          // final UTF-8 sequence). `.end()` returns "" when nothing is pending.
+          stdout = cap(stdout, outDecoder.end());
+          stderr = cap(stderr, errDecoder.end());
+        }
         resolve({ code: code ?? -1, stdout, stderr });
       });
     });
