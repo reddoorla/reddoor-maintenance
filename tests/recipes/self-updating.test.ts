@@ -109,6 +109,31 @@ describe("selfUpdating recipe", () => {
     expect(currentBranchOf(dir)).toBe("work");
   });
 
+  it("restores the operator's branch even when the PUSH FAILS (no stranded checkout)", async () => {
+    // Regression for round-3 #4: the restore used to live only on the success
+    // path, so a push failure after createBranch left the checkout parked on the
+    // maint branch with an unpushed commit — and the retry then failed at
+    // createBranch ("branch already exists"). The restore now runs in a `finally`.
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    execFileSync("git", ["checkout", "-q", "-b", "work"], { cwd: dir });
+    expect(currentBranchOf(dir)).toBe("work");
+
+    const { gh } = fakeGitHub();
+    const push = vi.fn(async () => {
+      throw new Error("push rejected: remote unreachable");
+    });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: push, renovateToken: "RT" },
+    );
+    expect(r.status).toBe("failed");
+    expect(push).toHaveBeenCalledOnce();
+    // Critical: despite the failure, the checkout is back on `work`, not stranded
+    // on the maint branch — so a retry can re-create the branch cleanly.
+    expect(currentBranchOf(dir)).toBe("work");
+  });
+
   it("fully wired: no mutating calls, noop", async () => {
     const dir = mkdtempSync(join(tmpdir(), "su-"));
     gitInit(dir);

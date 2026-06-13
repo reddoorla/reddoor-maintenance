@@ -105,6 +105,12 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
   const base = await github.defaultBranch(repo).catch(() => "main");
   const actions: string[] = [];
   const commits: string[] = [];
+  // Hoisted so the `finally` can restore the operator's branch even when a
+  // failure (push/PR error) aborts AFTER we created + checked out the maint
+  // branch. `maintBranch` stays null until createBranch succeeds, so the
+  // restore is a no-op on every path that never left the operator's branch.
+  let original: string | null = null;
+  let maintBranch: string | null = null;
 
   try {
     // A. CI files on the default branch.
@@ -117,17 +123,16 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
         if (!(await isWorkingTreeClean(site.path))) {
           return resultOf(site, "failed", "working tree not clean — commit or stash first");
         }
-        // Capture the operator's branch BEFORE creating the maint branch so we
-        // can return them to it after the push (#2). Best-effort capture: if it
-        // fails we just skip the restore rather than guess.
-        let original: string | null = null;
+        // Capture the operator's branch BEFORE creating the maint branch so the
+        // `finally` can return them to it (#2). Best-effort capture: if it fails
+        // we just skip the restore rather than guess.
         try {
           original = await currentBranch(site.path);
         } catch {
           original = null;
         }
-        const branch = branchName("self-updating");
-        await createBranch(site.path, branch);
+        maintBranch = branchName("self-updating");
+        await createBranch(site.path, maintBranch);
         for (const t of templates) {
           const dest = join(site.path, t.path);
           await mkdir(dirname(dest), { recursive: true });
@@ -138,28 +143,16 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
           "ci: enable self-updating (CI + Renovate auto-merge)",
         );
         if (sha) commits.push(sha);
-        await (deps.pushBranch ?? gitPush)(site.path, branch);
+        await (deps.pushBranch ?? gitPush)(site.path, maintBranch);
         const pr = await github.openPullRequest(repo, {
-          head: branch,
+          head: maintBranch,
           base,
           title: "Enable self-updating (CI + Renovate)",
           body: "Adds the unified CI gate, nightly Renovate, and auto-merge for patch/minor updates.",
         });
         actions.push(`opened PR ${pr.url}`);
-        // The maint branch is pushed and the PR is open; bring the local
-        // checkout back to where the operator started (#2). Best-effort — a
-        // restore failure must not undo the successful PR/commit work.
-        if (original !== null && original !== branch) {
-          try {
-            await checkoutBranch(site.path, original);
-          } catch (err) {
-            console.warn(
-              `warning: could not restore branch ${original} after self-updating: ${
-                err instanceof Error ? err.message : String(err)
-              }`,
-            );
-          }
-        }
+        // (Branch restore happens in the `finally` below — on success AND on a
+        // failure that aborts after createBranch.)
       }
     }
 
@@ -188,6 +181,23 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
     const done = actions.length ? ` (completed: ${actions.join("; ")})` : "";
     const message = err instanceof Error ? err.message : String(err);
     return resultOf(site, "failed", `${message}${done}`, commits);
+  } finally {
+    // Restore the operator's branch whenever we created + checked out a maint
+    // branch — on SUCCESS and, critically, on FAILURE. Without this, a push/PR
+    // error after createBranch strands the checkout on the maint branch with an
+    // unpushed commit, and the retry then fails at createBranch ("branch already
+    // exists"). Best-effort: a restore failure must not mask the real outcome.
+    if (maintBranch !== null && original !== null && original !== maintBranch) {
+      try {
+        await checkoutBranch(site.path, original);
+      } catch (err) {
+        console.warn(
+          `warning: could not restore branch ${original} after self-updating: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
   }
 
   return actions.length
