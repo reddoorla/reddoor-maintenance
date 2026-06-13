@@ -6,6 +6,30 @@
 
 > Every item is `- [ ]` so this doubles as the fix checklist.
 
+## Resolution (2026-06-12) — RESOLVED
+
+All confirmed findings were addressed across 11 PRs (#193 registry, #194–#203 fixes), each merged head-SHA-gated with the full gate (lint · typecheck · test · build · test:dist). Test count rose 922 → 1074, and `pnpm typecheck` now also covers the `netlify/functions/*.mts` handlers (the gap that let #180 through).
+
+| PR   | Batch                      | Covered                                                                                                                                           |
+| ---- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #194 | dashboard/webhook security | basic-auth byte-compare crash, rate-limit auth endpoints, monotonic webhook status, CSRF origin fallback, generic webhook errors                  |
+| #195 | cockpit signal key-space   | renovate/ci NEW-forever badges (unify digest+cockpit keys; −430 dead lines)                                                                       |
+| #196 | send idempotency           | sendOne Resend-409 handling, launch flip self-heal                                                                                                |
+| #197 | M3 ledger                  | `--due` wedge (complete half-made drafts), pending pile-up dedup, frequency warning                                                               |
+| #198 | input validation / SSRF    | deployed-Lighthouse url allowlist, clone origin-check, repo validation before token writes, gh path guards                                        |
+| #199 | recipe safety              | restore-on-failure, restore-to-original-branch, branch-protection context merge                                                                   |
+| #200 | CLI robustness             | stdout-truncation, unknown-command exit, HOME-unset workdir, exit codes, `export=` creds                                                          |
+| #201 | tech debt + email          | shared html-escape util, makeWebsiteRow factory, AttentionItem contract module, escape email labels, footerOrg, predicate dedup                   |
+| #202 | test coverage              | typecheck the `.mts` handlers, expand smoke-dist, Resend client test, Lighthouse guard, spawn UTF-8                                               |
+| #203 | cleanup tail               | stale GitHub-signal clearing, atomic audit write-back, fresh launch scores, header href scheme, attachment content-type, recipient-validate-first |
+
+**Deliberately NOT changed (with rationale):**
+
+- _"init stacks each recipe's branch off the previous"_ — **intended design**: the onboarding pipeline composes by stacking each step on the prior's committed files (pinned by `pipeline-composition.test.ts`); restoring there would break onboarding. (#199 preserves it.)
+- _"`digest.ts` too large"_ — **largely mitigated**: #195 removed ~430 lines (renovate live-sweep) and #201 moved the attention contract out; a further split is deferred as low-value.
+- _"all audits for a site run concurrently on the same checkout"_ — the **fleet path is already serial** (M2 design); only single-site operator-run audits overlap. A concurrency-model change is deferred pending a real conflict.
+- A handful of truly-trivial/edge lows left as-is with reasons: `findReportByPeriod` first-match (a duplicate period is already a data error), `writeDigestState` get-or-create race (single-writer in practice), `openPullRequests` `first:100` (no fleet repo has >100 open Renovate PRs), `github-signals` byRepo collision (sites don't share repos), CC-identical-to-To, and the basic-auth length "leak" (password length is non-secret + fixed per deploy — the crash was the real bug, fixed in #194).
+
 ## HIGH (8)
 
 ### R01 · verifyBasicAuth throws (uncaught 500) on a same-JS-length but different-UTF-8-byte-length password — unauthenticated DoS + operator lockout
