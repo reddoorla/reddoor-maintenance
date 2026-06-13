@@ -1,6 +1,24 @@
 import type { ReportData } from "../types.js";
 import { DEFAULT_COPY, type ResolvedCopy } from "../copy.js";
 import { CHECK_CID, BLURRED_CID } from "./assets/index.js";
+import { escapeHtml } from "../../util/html.js";
+
+/**
+ * Escape operator/site-controlled strings before interpolating into the MJML markup.
+ * MJML parses as XML with `validationLevel: "strict"`. Under mjml@4.18 a raw `&`, `<`,
+ * or `>` does NOT throw — it passes straight through into the rendered output, so an
+ * unescaped value (e.g. a site name "Brown & Co", a URL, or commentary) silently
+ * injects HTML/markup into the email. A raw `"` inside an ATTRIBUTE value (e.g. the
+ * image `href`/`alt`) is the one that throws — it terminates the attribute and trips a
+ * parse error that blocks the send. So we escape for two reasons: prevent
+ * HTML/markup injection in text, and prevent the attribute-quote parse error. Apply
+ * to every interpolation of siteName / siteUrl / commentary / copy.
+ *
+ * This IS `src/util/html.ts`'s `escapeHtml` (the strict-XML set is identical),
+ * re-exported under the name the email templates import (the launch template imports
+ * `escapeXml` from here).
+ */
+export const escapeXml = escapeHtml;
 
 // Bundled images: shipped in dist/ via tsup onSuccess copy, attached inline via
 // CID by orchestrate.ts at send time. No external CDN dependency.
@@ -20,21 +38,6 @@ export function fmtDate(d: Date | null): string {
 
 function fmtUsers(n: number): string {
   return n.toLocaleString("en-US");
-}
-
-/**
- * Escape operator/site-controlled strings before interpolating into the MJML markup.
- * MJML parses as XML with `validationLevel: "strict"`, so a raw `&`, `<`, `>`, or `"`
- * in a site name (e.g. "Brown & Co"), URL, or commentary throws at render time and blocks
- * the send. Apply to every interpolation of siteName / siteUrl / commentary.
- */
-export function escapeXml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 const TREND_UP = "#2E7D32"; // positive green — growth reads as good
@@ -70,7 +73,7 @@ function maintenanceChecksSection(copy: ResolvedCopy, searchPosition?: number): 
   const googleLabel =
     searchPosition !== undefined
       ? `Page 1 Google Result (#${searchPosition})`
-      : copy.maintenanceChecks[3];
+      : (copy.maintenanceChecks[3] ?? "");
   const rows = copy.maintenanceChecks.map((label, i) => (i === 3 ? googleLabel : label));
   return rows
     .map(
@@ -78,7 +81,7 @@ function maintenanceChecksSection(copy: ResolvedCopy, searchPosition?: number): 
     <mj-section background-color="white" padding="0px"${i === rows.length - 1 ? ' padding-bottom="36px"' : ""}>
       <mj-group>
         <mj-column padding-left="0px" width="90%"${i < rows.length - 1 ? ' border-bottom="solid #CCCCCC 1px"' : ""}>
-          <mj-text height="25px" padding-left="0px" color="#757575" padding-top="20px" padding-bottom="7.5px" font-size="16px">${label}</mj-text>
+          <mj-text height="25px" padding-left="0px" color="#757575" padding-top="20px" padding-bottom="7.5px" font-size="16px">${escapeXml(label)}</mj-text>
         </mj-column>
         <mj-column width="10%"${i < rows.length - 1 ? ' border-bottom="solid #CCCCCC 1px"' : ""} padding-top="15px">
           <mj-image align="right" padding-right="0px" width="20px" height="20px" padding-top="2.5px" padding-bottom="15px" src="${CHECK_PNG}" />
@@ -97,7 +100,7 @@ function testingChecklistSection(copy: ResolvedCopy): string {
     <mj-section background-color="#F4F4F4" padding="0px"${i === rows.length - 1 ? ' padding-bottom="60px"' : ""}>
       <mj-group>
         <mj-column width="90%" padding-left="0px"${i < rows.length - 1 ? ' border-bottom="solid #CCCCCC 1px"' : ""}>
-          <mj-text height="25px" padding-left="0px" color="#757575" padding-top="20px" padding-bottom="7.5px" font-size="16px">${label}</mj-text>
+          <mj-text height="25px" padding-left="0px" color="#757575" padding-top="20px" padding-bottom="7.5px" font-size="16px">${escapeXml(label)}</mj-text>
         </mj-column>
         <mj-column width="10%"${i < rows.length - 1 ? ' border-bottom="solid #CCCCCC 1px"' : ""} padding-top="15px">
           <mj-image align="right" padding-right="0px" width="20px" height="20px" padding-top="2.5px" padding-bottom="15px" src="${CHECK_PNG}" />
@@ -245,7 +248,7 @@ export function buildMjml(data: ReportData): string {
           )
           .join("\n        ")}
         <mj-divider border-width="1px" border-style="solid" border-color="#CCCCCC" padding="0" />
-        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" padding-top="24px" line-height="20px" font-style="italic">Copyright ${new Date().getUTCFullYear()} Reddoor Creative, LLC. All rights reserved.</mj-text>
+        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" padding-top="24px" line-height="20px" font-style="italic">Copyright ${new Date().getUTCFullYear()} ${escapeXml(copy.footerOrg)}. All rights reserved.</mj-text>
         <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="700" line-height="16px" padding-top="0" padding-bottom="0px">Our mailing address is:</mj-text>
         ${[copy.footerOrg, ...copy.footerAddress]
           .map(

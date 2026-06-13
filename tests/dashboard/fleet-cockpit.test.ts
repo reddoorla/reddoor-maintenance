@@ -1,30 +1,18 @@
 import { describe, it, expect } from "vitest";
 import { assignTier, buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
-import type { AttentionItem } from "../../src/reports/digest.js";
+import type { AttentionItem } from "../../src/alerts/attention.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
 import type { DigestSnapshot } from "../../src/alerts/digest-state.js";
+import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 const NOW = new Date("2026-06-11T12:00:00Z");
 
 function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
-  return {
-    id: "recSITE",
-    name: "Acme Co",
-    url: "https://acme.example.com",
-    status: "maintenance",
+  return makeWebsiteRow({
     pointOfContact: "Tucker",
     maintenanceFreq: "Monthly",
-    testingFreq: "None",
-    maintenanceDay: null,
-    testingDay: null,
-    ga4PropertyId: null,
-    searchQuery: null,
-    searchConsoleProperty: null,
-    gitRepo: null,
     reportRecipientsTo: "t@x.com",
-    reportRecipientsCc: null,
-    headerImage: null,
     pScore: 95,
     rScore: 95,
     bpScore: 95,
@@ -33,22 +21,13 @@ function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
     a11yViolations: 0,
     depsDrifted: 0,
     depsMajorBehind: 0,
-    depsOutdated: null,
     securityVulnsCritical: 0,
     securityVulnsHigh: 0,
     securityVulnsModerate: 0,
     securityVulnsLow: 0,
     dashboardToken: "tok",
-    copyIntro: null,
-    copyContact: null,
-    copyFooter: null,
-    launchedAt: null,
-    renovateFailingCis: null,
-    defaultBranchCi: null,
-    lastCommitAt: null,
-    githubSignalsAt: null,
     ...over,
-  };
+  });
 }
 
 function item(over: Partial<AttentionItem> = {}): AttentionItem {

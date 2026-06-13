@@ -1,28 +1,8 @@
 import type { WebsiteRow } from "../reports/airtable/websites.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
+import { isPendingApproval } from "../reports/airtable/reports.js";
 import { relativeTimeFromNow } from "./relative-time.js";
-
-/** Minimal HTML-escape; not for XML/attribute-edge cases, just for text + safe
- *  attribute interpolation here. */
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-/** Allow only http(s) URLs in href context; everything else collapses to "#". */
-function safeUrl(raw: string): string {
-  try {
-    const u = new URL(raw);
-    if (u.protocol === "http:" || u.protocol === "https:") return raw;
-  } catch {
-    // fall through
-  }
-  return "#";
-}
+import { escapeHtml, safeUrl } from "../util/html.js";
 
 function scoreTile(label: string, value: number | null): string {
   const display = value === null ? "—" : String(value);
@@ -59,10 +39,6 @@ function securitySub(site: WebsiteRow): string | null {
   const m = site.securityVulnsModerate ?? 0;
   const l = site.securityVulnsLow ?? 0;
   return `${c}C / ${h}H / ${m}M / ${l}L`;
-}
-
-function isPendingApproval(r: ReportRow): boolean {
-  return r.draftReady && !r.approvedToSend && r.sentAt === null;
 }
 
 function pendingRow(r: ReportRow): string {

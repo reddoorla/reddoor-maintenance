@@ -1,7 +1,8 @@
 // src/dashboard/fleet-cockpit.ts
 import type { WebsiteRow } from "../reports/airtable/websites.js";
 import { siteSlug } from "../reports/airtable/websites.js";
-import type { AttentionItem } from "../reports/digest.js";
+import type { AttentionItem } from "../alerts/attention.js";
+import { isPendingApproval } from "../reports/airtable/reports.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
 import type { ReportType } from "../reports/types.js";
 import {
@@ -176,7 +177,7 @@ export function buildCockpitModel(
   // approval is never dropped just because the site is hidden from the fleet view).
   const allById = new Map<string, WebsiteRow>(websites.map((w) => [w.id, w]));
   for (const r of reports) {
-    if (!(r.draftReady && !r.approvedToSend && r.sentAt === null)) continue;
+    if (!isPendingApproval(r)) continue;
     const s = allById.get(r.siteId);
     if (!s) continue; // orphan → skip rather than render a broken link
     pending.push({

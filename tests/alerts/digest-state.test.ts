@@ -7,7 +7,7 @@ import {
   DIGEST_STATE_TABLE,
   type DigestSnapshot,
 } from "../../src/alerts/digest-state.js";
-import type { AttentionItem } from "../../src/reports/digest.js";
+import type { AttentionItem } from "../../src/alerts/attention.js";
 import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
 
 const TODAY = "2026-06-11";

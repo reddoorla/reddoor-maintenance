@@ -35,6 +35,16 @@ export type ReportRow = {
   resendMessageId: string | null;
 };
 
+/**
+ * The "Ready for your yes" gate: Draft ready ∧ ¬Approved to send ∧ Sent at BLANK.
+ * The single source of truth for "pending the operator's approval" — `listPendingApproval`,
+ * `runDigest`'s ready-list, the per-site dashboard, and the fleet cockpit all key off this
+ * one predicate so the surfaces can't drift.
+ */
+export function isPendingApproval(r: ReportRow): boolean {
+  return r.draftReady && !r.approvedToSend && r.sentAt === null;
+}
+
 function mapRow(rec: { id: string; fields: Record<string, unknown> }): ReportRow {
   const f = rec.fields;
   const linkSites = (f["Site"] as string[] | undefined) ?? [];

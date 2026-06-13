@@ -2,49 +2,16 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { findDueReports, reportPeriodKey } from "../../src/reports/due.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
+import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
-  return {
+  return makeWebsiteRow({
     id: "rec_site_1",
     name: "Acme",
-    url: "https://acme.example.com",
-    status: "maintenance",
     pointOfContact: "ops@acme.example.com",
     maintenanceFreq: "Monthly",
-    testingFreq: "None",
-    maintenanceDay: null,
-    testingDay: null,
-    ga4PropertyId: null,
-    searchQuery: null,
-    searchConsoleProperty: null,
-    gitRepo: null,
-    reportRecipientsTo: null,
-    reportRecipientsCc: null,
-    headerImage: null,
-    pScore: null,
-    rScore: null,
-    bpScore: null,
-    seoScore: null,
-    lastLighthouseAuditAt: null,
-    a11yViolations: null,
-    depsDrifted: null,
-    depsMajorBehind: null,
-    depsOutdated: null,
-    securityVulnsCritical: null,
-    securityVulnsHigh: null,
-    securityVulnsModerate: null,
-    securityVulnsLow: null,
-    dashboardToken: null,
-    copyIntro: null,
-    copyContact: null,
-    copyFooter: null,
-    launchedAt: null,
-    renovateFailingCis: null,
-    defaultBranchCi: null,
-    lastCommitAt: null,
-    githubSignalsAt: null,
     ...over,
-  };
+  });
 }
 
 function report(over: Partial<ReportRow> = {}): ReportRow {
