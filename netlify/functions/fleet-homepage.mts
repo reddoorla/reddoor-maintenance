@@ -5,7 +5,7 @@ import { listAllReports } from "../../src/reports/airtable/reports.js";
 import { readDigestState } from "../../src/alerts/digest-state.js";
 import { verifyBasicAuth, renderCockpitHtml } from "../../src/dashboard/index.js";
 import { buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
-import { resolveDashboardBaseUrl } from "../../src/dashboard/handler-helpers.js";
+import { resolveDashboardBaseUrl, handlerError } from "../../src/dashboard/handler-helpers.js";
 
 // Owns the root path. The per-site dashboard function continues to own
 // /s/:slug; the resend-webhook function continues to own its own path.
@@ -63,22 +63,29 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     });
   }
 
-  const base = openBase({ apiKey, baseId });
-  // Fetch the three inputs once; each defensive so one hiccup can't blank the page.
-  const websites = await listWebsites(base);
-  let reports: Awaited<ReturnType<typeof listAllReports>> = [];
   try {
-    reports = await listAllReports(base);
-  } catch {
-    // approve strip + delivery signals simply absent — triage still renders
+    const base = openBase({ apiKey, baseId });
+    // Fetch the three inputs once. reports + digest are each defensive so one
+    // hiccup can't blank the page; websites is the cockpit's core data, so a
+    // failure there can't degrade to an empty (misleading "0 sites") page —
+    // instead the whole try falls to handlerError for a clean retry-able 502.
+    const websites = await listWebsites(base);
+    let reports: Awaited<ReturnType<typeof listAllReports>> = [];
+    try {
+      reports = await listAllReports(base);
+    } catch {
+      // approve strip + delivery signals simply absent — triage still renders
+    }
+    let prior: Awaited<ReturnType<typeof readDigestState>> = {};
+    try {
+      prior = await readDigestState(base);
+    } catch {
+      // everything badges as not-NEW (the {} initial); never crashes the page
+    }
+    const baseUrl = resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL);
+    const model = buildCockpitModel(websites, reports, prior, baseUrl, new Date());
+    return html(renderCockpitHtml(model), 200);
+  } catch (err) {
+    return handlerError("fleet-homepage", err);
   }
-  let prior: Awaited<ReturnType<typeof readDigestState>> = {};
-  try {
-    prior = await readDigestState(base);
-  } catch {
-    // everything badges as not-NEW (the {} initial); never crashes the page
-  }
-  const baseUrl = resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL);
-  const model = buildCockpitModel(websites, reports, prior, baseUrl, new Date());
-  return html(renderCockpitHtml(model), 200);
 };

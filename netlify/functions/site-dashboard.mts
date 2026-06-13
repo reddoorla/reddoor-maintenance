@@ -3,7 +3,7 @@ import { openBase } from "../../src/reports/airtable/client.js";
 import { getWebsiteBySlug } from "../../src/reports/airtable/websites.js";
 import { listReportsForSite } from "../../src/reports/airtable/reports.js";
 import { verifyBasicAuth, renderSiteDashboardHtml } from "../../src/dashboard/index.js";
-import { resolveSlug } from "../../src/dashboard/handler-helpers.js";
+import { resolveSlug, handlerError } from "../../src/dashboard/handler-helpers.js";
 
 // Register the customer-facing /s/:slug path on the function itself rather
 // than via a netlify.toml [[redirects]] rewrite. The rewrite approach (200
@@ -84,19 +84,25 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     });
   }
 
-  const base = openBase({ apiKey, baseId });
+  try {
+    const base = openBase({ apiKey, baseId });
 
-  const site = await getWebsiteBySlug(base, slug);
-  if (!site) {
-    return plainText(`No site found for slug '${slug}'.`, 404);
+    const site = await getWebsiteBySlug(base, slug);
+    if (!site) {
+      // A genuine miss returns inside the try — only a THROWN Airtable failure
+      // reaches handlerError below, so "not found" stays a 404, not a 502.
+      return plainText(`No site found for slug '${slug}'.`, 404);
+    }
+
+    // Pass the FULL report set to the renderer. The "recent 6" history-table
+    // slice is canonical inside renderSiteDashboardHtml — the adapter stays thin.
+    // Pre-slicing here would hide an OLD pending report from the approve list +
+    // its button while the fleet banner (which counts ALL reports) still shows it,
+    // leaving an unapprovable report and a banner/page disagreement.
+    const reports = await listReportsForSite(base, site.id);
+
+    return html(renderSiteDashboardHtml(site, reports), 200);
+  } catch (err) {
+    return handlerError("site-dashboard", err);
   }
-
-  // Pass the FULL report set to the renderer. The "recent 6" history-table
-  // slice is canonical inside renderSiteDashboardHtml — the adapter stays thin.
-  // Pre-slicing here would hide an OLD pending report from the approve list +
-  // its button while the fleet banner (which counts ALL reports) still shows it,
-  // leaving an unapprovable report and a banner/page disagreement.
-  const reports = await listReportsForSite(base, site.id);
-
-  return html(renderSiteDashboardHtml(site, reports), 200);
 };

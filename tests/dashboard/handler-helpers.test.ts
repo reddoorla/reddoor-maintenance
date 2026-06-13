@@ -1,5 +1,9 @@
-import { describe, it, expect } from "vitest";
-import { resolveDashboardBaseUrl, resolveSlug } from "../../src/dashboard/handler-helpers.js";
+import { describe, it, expect, vi } from "vitest";
+import {
+  resolveDashboardBaseUrl,
+  resolveSlug,
+  handlerError,
+} from "../../src/dashboard/handler-helpers.js";
 
 describe("resolveDashboardBaseUrl", () => {
   it("falls back to the canonical Netlify URL when unset", () => {
@@ -27,5 +31,33 @@ describe("resolveSlug", () => {
   });
   it("returns null when neither is present (→ health check)", () => {
     expect(resolveSlug(undefined, null)).toBeNull();
+  });
+});
+
+describe("handlerError", () => {
+  it("returns a generic 502 that does NOT leak the error message/stack", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const secret = "Airtable 500: token=SECRET_xyz at /internal/path";
+    const res = handlerError("site-dashboard", new Error(secret));
+    const body = await res.text();
+
+    expect(res.status).toBe(502);
+    expect(res.headers.get("content-type")).toMatch(/text\/plain/);
+    expect(body).not.toContain(secret); // no detail leaked to the client
+    expect(body).not.toMatch(/SECRET_xyz|Airtable|stack/i);
+    expect(body).toMatch(/temporarily unavailable/i);
+    // but the real detail IS logged server-side for the operator
+    expect(spy).toHaveBeenCalledOnce();
+    expect(spy.mock.calls[0]![0]).toContain(secret);
+    expect(spy.mock.calls[0]![0]).toContain("site-dashboard");
+    spy.mockRestore();
+  });
+
+  it("handles a non-Error throw without crashing", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = handlerError("approve-report", "string failure");
+    expect(res.status).toBe(502);
+    expect(await res.text()).toMatch(/temporarily unavailable/i);
+    spy.mockRestore();
   });
 });

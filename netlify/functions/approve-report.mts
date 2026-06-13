@@ -6,6 +6,7 @@ import {
 } from "../../src/reports/airtable/reports.js";
 import { approveReport, verifyBasicAuth } from "../../src/dashboard/index.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
+import { handlerError } from "../../src/dashboard/handler-helpers.js";
 
 // Path-route the customer-facing /api/reports/:id/approve on the function
 // itself (same reason as site-dashboard.mts: a netlify.toml [[redirects]] 200
@@ -94,18 +95,26 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   const id = ctx.params?.id;
   if (!id) return plainText("Missing report id", 400);
 
-  const base = openBase({ apiKey, baseId });
-  const result = await approveReport(
-    {
-      getReportById: (rid) => getReportByIdAirtable(base, rid),
-      approveReportRow: (rid, at, by) => approveReportRow(base, rid, at, by),
-      now: () => new Date(),
-    },
-    id,
-  );
+  try {
+    const base = openBase({ apiKey, baseId });
+    const result = await approveReport(
+      {
+        getReportById: (rid) => getReportByIdAirtable(base, rid),
+        approveReportRow: (rid, at, by) => approveReportRow(base, rid, at, by),
+        now: () => new Date(),
+      },
+      id,
+    );
 
-  if (result.status === "not-found") {
-    return Response.json(result, { status: 404 });
+    if (result.status === "not-found") {
+      return Response.json(result, { status: 404 });
+    }
+    return Response.json(result, { status: 200 });
+  } catch (err) {
+    // An Airtable 429/500 mid-approve must not surface as an unhandled 500 with
+    // an indeterminate body — return a clean retry-able error. approveReport
+    // itself is idempotent (a second approve of an already-approved row is a
+    // no-op), so a retry after a transient failure is safe.
+    return handlerError("approve-report", err);
   }
-  return Response.json(result, { status: 200 });
 };
