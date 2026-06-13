@@ -28,6 +28,16 @@ describe("inventory/fromJsonFile", () => {
     await expect(fromJsonFile(path)()).rejects.toThrow(/array/i);
   });
 
+  it("rejects MALFORMED JSON with the file path in the message (not a bare SyntaxError)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "reddoor-inv-"));
+    const path = join(dir, "inventory.json");
+    await writeFile(path, "{ bad json", "utf-8"); // not valid JSON
+    const err = await fromJsonFile(path)().catch((e) => e as Error);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain(path); // operator can see WHICH file
+    expect((err as Error).message).toMatch(/could not parse inventory file/i);
+  });
+
   it("rejects with a clear message when a site is missing path", async () => {
     const path = await withJsonFile([{ name: "a" }]);
     await expect(fromJsonFile(path)()).rejects.toThrow(/path/i);

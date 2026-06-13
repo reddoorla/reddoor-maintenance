@@ -48,7 +48,19 @@ function validate(raw: unknown): Site[] {
 
 export function fromJsonFile(path: string): InventoryProvider {
   return async () => {
-    const raw = JSON.parse(await readFile(path, "utf-8")) as unknown;
+    const text = await readFile(path, "utf-8");
+    let raw: unknown;
+    try {
+      raw = JSON.parse(text);
+    } catch (e) {
+      // A bare JSON.parse SyntaxError ("Unexpected token … at position N") names
+      // neither the file nor that it's the inventory — useless to an operator
+      // running a fleet command. Rethrow with the path for an actionable message,
+      // preserving the original SyntaxError as `cause`.
+      throw new Error(`could not parse inventory file ${path}: ${(e as Error).message}`, {
+        cause: e,
+      });
+    }
     return validate(raw);
   };
 }

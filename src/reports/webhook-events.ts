@@ -71,6 +71,10 @@ export function classifyUnmatchedEvent(
   windowMs: number = ORPHAN_RETRY_WINDOW_MS,
 ): { decision: "retry" | "orphan"; ageMs: number } {
   const createdMs = createdAt ? Date.parse(createdAt) : NaN;
-  const ageMs = Number.isNaN(createdMs) ? 0 : now - createdMs;
+  // Clamp to >= 0: a FUTURE `created_at` (clock skew, spoofed timestamp) would
+  // make `now - createdMs` negative, so `ageMs > windowMs` is always false →
+  // "retry" stretched out by the full future offset. Treating a future event as
+  // age 0 keeps it within the normal retry window instead.
+  const ageMs = Number.isNaN(createdMs) ? 0 : Math.max(0, now - createdMs);
   return { decision: ageMs > windowMs ? "orphan" : "retry", ageMs };
 }

@@ -117,6 +117,21 @@ describe("listAllReports / listReportsForSite", () => {
       expect(formula).not.toContain("rec_site_acme");
     }
   });
+
+  it("maps a known Report type through, and an UNKNOWN single-select option to Maintenance", async () => {
+    const base = makeFakeBase({
+      Reports: [
+        { id: "rec_launch", fields: { "Report ID": "L", "Report type": "Launch" } },
+        { id: "rec_bogus", fields: { "Report ID": "Q", "Report type": "Quarterly" } },
+        { id: "rec_blank", fields: { "Report ID": "Z" } },
+      ],
+    });
+    const byId = Object.fromEntries((await listAllReports(base)).map((r) => [r.id, r.reportType]));
+    expect(byId["rec_launch"]).toBe("Launch");
+    // An unexpected option must NOT slip through and silently mis-template the email.
+    expect(byId["rec_bogus"]).toBe("Maintenance");
+    expect(byId["rec_blank"]).toBe("Maintenance");
+  });
 });
 
 describe("findReportByPeriod", () => {

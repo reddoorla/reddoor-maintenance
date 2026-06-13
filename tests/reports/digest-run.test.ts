@@ -269,6 +269,24 @@ describe("runDigest", () => {
     expect(sent.html).toContain("Acme Co");
   });
 
+  it("links a pending item to the fleet homepage (not a dead /s/) when the site Name slugs to empty", async () => {
+    // "!!!" → siteSlug "" → a `/s/` link would be a 404 (getWebsiteBySlug can't
+    // match an empty slug). The digest must fall back to the base homepage.
+    const base = makeFakeBase({
+      Reports: [readyReport()],
+      Websites: [siteRow({ Name: "!!!" })],
+    });
+    const { client, captured } = captureClient();
+    await runDigest({
+      base,
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
+    const html = captured[0]!.html;
+    expect(html).toContain('href="https://reddoor-maintenance.netlify.app"');
+    expect(html).not.toContain("/s/"); // no malformed empty-slug link
+  });
+
   it("subject is dated and uses correct singular form for 1 report", async () => {
     const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
     const { client, captured } = captureClient();
