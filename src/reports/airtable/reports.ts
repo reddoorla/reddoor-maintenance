@@ -168,6 +168,31 @@ export async function setDraftReady(
   await base(REPORTS_TABLE).update([{ id: recordId, fields: { "Draft ready": ready } }]);
 }
 
+/**
+ * Overwrite the four `Lighthouse — *` score cells (and, when supplied, `Completed
+ * on`) on an EXISTING Reports row. The launch re-run path uses this: it reuses the
+ * already-created Launch row but must refresh its scores to match the freshly-run
+ * audit — otherwise the re-rendered preview shows new scores while the row (and the
+ * eventually-sent email, which reads the row) keeps the stale ones. The create path
+ * already writes fresh scores via `createDraft`; this is its update-side mirror, using
+ * the same exact field names so the two stay in lockstep.
+ */
+export async function updateReportScores(
+  base: AirtableBase,
+  recordId: string,
+  scores: LighthouseScores,
+  completedOn?: Date,
+): Promise<void> {
+  const fields: FieldSet = {
+    "Lighthouse — Performance": scores.performance,
+    "Lighthouse — Accessibility": scores.accessibility,
+    "Lighthouse — Best Practices": scores.bestPractices,
+    "Lighthouse — SEO": scores.seo,
+  };
+  if (completedOn) fields["Completed on"] = ymd(completedOn);
+  await base(REPORTS_TABLE).update([{ id: recordId, fields }]);
+}
+
 export async function listSendableReports(base: AirtableBase): Promise<ReportRow[]> {
   const out: ReportRow[] = [];
   await base(REPORTS_TABLE)

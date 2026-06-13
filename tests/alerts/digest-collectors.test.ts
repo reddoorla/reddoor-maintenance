@@ -288,11 +288,18 @@ describe("collectDeliveryFailures", () => {
   });
 });
 
+// A fixed "now" + helpers for the GitHub-signals staleness gate (shared by the
+// Renovate + CI describes). Fresh = swept just now; stale = >3 days before NOW.
+const NOW = new Date("2026-06-11T12:00:00Z");
+const FRESH = "2026-06-11T06:00:00Z"; // 6h ago — well within the 3-day window
+const STALE = "2026-06-07T00:00:00Z"; // ~4.5 days before NOW — past the 3-day floor
+
 describe("collectRenovateAlerts (persisted field)", () => {
   it("flags a site with failing Renovate PRs: key, kind, metric=count, warning, dashboard url", () => {
     const items = collectRenovateAlerts(
-      [site({ id: "rec1", name: "Acme Co", renovateFailingCis: 3 })],
+      [site({ id: "rec1", name: "Acme Co", renovateFailingCis: 3, githubSignalsAt: FRESH })],
       BASE,
+      NOW,
     );
     expect(items).toEqual([
       {
@@ -308,19 +315,44 @@ describe("collectRenovateAlerts (persisted field)", () => {
   });
 
   it("singularizes one and skips zero/null", () => {
-    expect(collectRenovateAlerts([site({ renovateFailingCis: 1 })], BASE)[0]!.title).toBe(
-      "1 Renovate PR failing CI",
-    );
-    expect(collectRenovateAlerts([site({ renovateFailingCis: 0 })], BASE)).toEqual([]);
-    expect(collectRenovateAlerts([site({ renovateFailingCis: null })], BASE)).toEqual([]);
+    expect(
+      collectRenovateAlerts(
+        [site({ renovateFailingCis: 1, githubSignalsAt: FRESH })],
+        BASE,
+        NOW,
+      )[0]!.title,
+    ).toBe("1 Renovate PR failing CI");
+    expect(
+      collectRenovateAlerts([site({ renovateFailingCis: 0, githubSignalsAt: FRESH })], BASE, NOW),
+    ).toEqual([]);
+    expect(
+      collectRenovateAlerts(
+        [site({ renovateFailingCis: null, githubSignalsAt: FRESH })],
+        BASE,
+        NOW,
+      ),
+    ).toEqual([]);
+  });
+
+  it("ignores a site whose GitHub-signals sweep is >3 days stale (phantom count never clears)", () => {
+    expect(
+      collectRenovateAlerts([site({ renovateFailingCis: 3, githubSignalsAt: STALE })], BASE, NOW),
+    ).toEqual([]);
+  });
+
+  it("ignores a site that was never swept (null githubSignalsAt → no signal to trust)", () => {
+    expect(
+      collectRenovateAlerts([site({ renovateFailingCis: 3, githubSignalsAt: null })], BASE, NOW),
+    ).toEqual([]);
   });
 });
 
 describe("collectCiAlerts (persisted field)", () => {
   it("flags a site whose default-branch CI is failing", () => {
     const items = collectCiAlerts(
-      [site({ id: "rec1", name: "Acme Co", defaultBranchCi: "failing" })],
+      [site({ id: "rec1", name: "Acme Co", defaultBranchCi: "failing", githubSignalsAt: FRESH })],
       BASE,
+      NOW,
     );
     expect(items).toEqual([
       {
@@ -337,7 +369,32 @@ describe("collectCiAlerts (persisted field)", () => {
 
   it("ignores passing/pending/none/null", () => {
     for (const v of ["passing", "pending", "none", null]) {
-      expect(collectCiAlerts([site({ defaultBranchCi: v })], BASE)).toEqual([]);
+      expect(
+        collectCiAlerts([site({ defaultBranchCi: v, githubSignalsAt: FRESH })], BASE, NOW),
+      ).toEqual([]);
     }
+  });
+
+  it("ignores a failing CI whose GitHub-signals sweep is >3 days stale (phantom 🔴 never clears)", () => {
+    expect(
+      collectCiAlerts([site({ defaultBranchCi: "failing", githubSignalsAt: STALE })], BASE, NOW),
+    ).toEqual([]);
+  });
+
+  it("ignores a failing CI on a never-swept site (null githubSignalsAt)", () => {
+    expect(
+      collectCiAlerts([site({ defaultBranchCi: "failing", githubSignalsAt: null })], BASE, NOW),
+    ).toEqual([]);
+  });
+
+  it("flags a failing CI exactly at the freshness boundary (just under 3 days)", () => {
+    // 3 days minus a minute before NOW — still fresh, so the alert fires.
+    const justFresh = new Date(NOW.getTime() - (3 * 24 * 60 * 60 * 1000 - 60_000)).toISOString();
+    const items = collectCiAlerts(
+      [site({ id: "rec1", defaultBranchCi: "failing", githubSignalsAt: justFresh })],
+      BASE,
+      NOW,
+    );
+    expect(items).toHaveLength(1);
   });
 });

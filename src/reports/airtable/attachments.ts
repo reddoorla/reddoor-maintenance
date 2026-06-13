@@ -1,3 +1,19 @@
+/** Cheap HTML sniff: an Airtable signed-URL "200" that is really a login/error page
+ *  starts with `<!doctype html`, `<html`, or `<head` after an optional UTF-8 BOM /
+ *  leading whitespace. We only need to catch the common error-page case, not parse
+ *  HTML. */
+function looksLikeHtml(bytes: Uint8Array): boolean {
+  // Inspect the first ~64 bytes as ASCII (1 byte → 1 char; enough for a doctype /
+  // opening tag). Skip a leading UTF-8 BOM (bytes EF BB BF) by index, then strip any
+  // leading ASCII whitespace, and match the common HTML openers case-insensitively.
+  const start = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? 3 : 0;
+  const head = Buffer.from(bytes.slice(start, start + 64))
+    .toString("ascii")
+    .replace(/^[\s]+/, "")
+    .toLowerCase();
+  return head.startsWith("<!doctype html") || head.startsWith("<html") || head.startsWith("<head");
+}
+
 export async function fetchAttachmentBytes(
   url: string,
 ): Promise<{ bytes: Uint8Array; contentType: string }> {
@@ -9,7 +25,19 @@ export async function fetchAttachmentBytes(
   }
   const contentType = res.headers.get("content-type") ?? "application/octet-stream";
   const ab = await res.arrayBuffer();
-  return { bytes: new Uint8Array(ab), contentType };
+  const bytes = new Uint8Array(ab);
+  // Sanity-gate the body: a 200 that is actually an HTML error/login page (expired
+  // signed URL, auth wall) would otherwise be attached as the "image" and ship a
+  // broken header. Accept an explicit image/* content-type; otherwise reject anything
+  // that sniffs as HTML — so the send fails loudly rather than emailing a broken image.
+  const isImageType = contentType.toLowerCase().startsWith("image/");
+  if (!isImageType && looksLikeHtml(bytes)) {
+    throw new Error(
+      `Airtable attachment did not return image data (content-type="${contentType}", ` +
+        `body looks like an HTML page — the signed URL may have expired) (url=${url})`,
+    );
+  }
+  return { bytes, contentType };
 }
 
 /**

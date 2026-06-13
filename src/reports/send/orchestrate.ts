@@ -113,6 +113,39 @@ async function sendOne(
     );
   }
 
+  // Resolve + validate recipients BEFORE the expensive work (header fetch + sharp
+  // downscale + full MJML render). A misconfigured-recipients site is a guaranteed
+  // failure, so fail fast here rather than after burning that work. Same checks +
+  // messages as before — only the position moved.
+  const explicitTo = parseAddresses(site.reportRecipientsTo);
+  // Run pointOfContact through the parser too — operators sometimes paste
+  // "a@x, b@y" into that single-line field.
+  const fallbackTo = parseAddresses(site.pointOfContact);
+  const to = explicitTo ?? fallbackTo ?? [];
+  if (to.length === 0) {
+    throw new Error(
+      `Site '${site.name}' has no recipients (Report recipients (To) AND point of contact are both empty)`,
+    );
+  }
+  for (const addr of to) {
+    if (!isProbablyEmail(addr)) {
+      throw new Error(
+        `Site '${site.name}' recipient is malformed: ${addr} — use a bare address only ` +
+          `(no \`Name <addr>\` display-name syntax); fix Report recipients (To) or point of contact in Airtable`,
+      );
+    }
+  }
+  const cc = parseAddresses(site.reportRecipientsCc);
+  if (cc) {
+    for (const addr of cc) {
+      if (!isProbablyEmail(addr)) {
+        throw new Error(
+          `Site '${site.name}' CC is malformed: ${addr} — fix Report recipients (CC) in Airtable`,
+        );
+      }
+    }
+  }
+
   const original = await fetchAttachmentBytes(site.headerImage.url);
   // Downscale the (often multi-MB / 2400px+) Airtable header to email display size, and get
   // back display dims + a placeholder color so the template can reserve the box.
@@ -143,34 +176,6 @@ async function sendOne(
   const reportDate = report.completedOn ? new Date(report.completedOn) : new Date();
   const subject =
     report.subjectOverride ?? `${site.name} — ${monthYear(reportDate)} ${report.reportType} Report`;
-  const explicitTo = parseAddresses(site.reportRecipientsTo);
-  // Run pointOfContact through the parser too — operators sometimes paste
-  // "a@x, b@y" into that single-line field.
-  const fallbackTo = parseAddresses(site.pointOfContact);
-  const to = explicitTo ?? fallbackTo ?? [];
-  if (to.length === 0) {
-    throw new Error(
-      `Site '${site.name}' has no recipients (Report recipients (To) AND point of contact are both empty)`,
-    );
-  }
-  for (const addr of to) {
-    if (!isProbablyEmail(addr)) {
-      throw new Error(
-        `Site '${site.name}' recipient is malformed: ${addr} — use a bare address only ` +
-          `(no \`Name <addr>\` display-name syntax); fix Report recipients (To) or point of contact in Airtable`,
-      );
-    }
-  }
-  const cc = parseAddresses(site.reportRecipientsCc);
-  if (cc) {
-    for (const addr of cc) {
-      if (!isProbablyEmail(addr)) {
-        throw new Error(
-          `Site '${site.name}' CC is malformed: ${addr} — fix Report recipients (CC) in Airtable`,
-        );
-      }
-    }
-  }
 
   const payload: Parameters<ResendClient["send"]>[0] = {
     from: FROM_ADDRESS,

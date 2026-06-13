@@ -2,6 +2,7 @@ import type { ReportData } from "../types.js";
 import { DEFAULT_COPY, type ResolvedCopy } from "../copy.js";
 import { CHECK_CID, BLURRED_CID } from "./assets/index.js";
 import { escapeHtml } from "../../util/html.js";
+import { isHttpUrl } from "../../util/url.js";
 
 /**
  * Escape operator/site-controlled strings before interpolating into the MJML markup.
@@ -154,7 +155,11 @@ function hasHeaderDims(
 export function headerImageTag(data: ReportData): string {
   const src = `cid:${data.headerImageCid}`;
   const alt = `${escapeXml(data.siteName)} maintenance report`;
-  const href = escapeXml(data.siteUrl);
+  // escapeXml only escapes markup chars — it does NOT neutralize a dangerous URL
+  // scheme. A `javascript:`/`data:` siteUrl would survive escaping and become a live
+  // header href. Gate on isHttpUrl (the same http(s) allowlist the audit path uses)
+  // and DROP a non-http(s) href entirely (fall back to "#") rather than linking it.
+  const href = isHttpUrl(data.siteUrl) ? escapeXml(data.siteUrl) : "#";
   // Reserve the box and show a matched placeholder while the image loads / if blocked.
   // Critically, we do NOT set an mj-image `height` — MJML would emit `height:<px>` while
   // keeping `width:100%`, locking the height while the width scales and distorting the
