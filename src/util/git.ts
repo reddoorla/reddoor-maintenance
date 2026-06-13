@@ -28,6 +28,33 @@ export async function createBranch(cwd: string, name: string): Promise<void> {
   await git(cwd, ["checkout", "-b", name]);
 }
 
+/** Check out an existing branch. Throws (via git) if the branch is missing or
+ *  the checkout is blocked (e.g. uncommitted changes that would be overwritten). */
+export async function checkoutBranch(cwd: string, name: string): Promise<void> {
+  await git(cwd, ["checkout", name]);
+}
+
+/**
+ * Force-check-out an existing branch, DISCARDING any uncommitted changes on the
+ * current branch. Used by the recipe failure path to return the operator to
+ * their original branch even when a recipe left the work-in-progress branch
+ * dirty. Only ever called with the operator's ORIGINAL branch as `name`. Does
+ * not run `git clean`, so untracked operator files are left untouched.
+ */
+export async function forceCheckoutBranch(cwd: string, name: string): Promise<void> {
+  await git(cwd, ["checkout", "-f", name]);
+}
+
+/**
+ * Delete a local branch with `-D` (force). Used by the recipe failure path to
+ * remove the branch the recipe itself created so a re-run starts clean. Callers
+ * MUST only ever pass the recipe-created branch here, never the operator's
+ * original branch.
+ */
+export async function deleteBranch(cwd: string, name: string): Promise<void> {
+  await git(cwd, ["branch", "-D", name]);
+}
+
 export async function stageAll(cwd: string): Promise<void> {
   await git(cwd, ["add", "-A"]);
 }

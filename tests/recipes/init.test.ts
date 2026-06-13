@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
+import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import { init, type InitStep } from "../../src/recipes/init.js";
+import { withRecipe } from "../../src/recipes/_with-recipe.js";
 import type { RecipeResult, AuditResult, Site } from "../../src/types.js";
 
 function siteOf(): Site {
@@ -145,5 +150,55 @@ describe("recipes/init", () => {
   it("falls back to site.path when no name is provided", async () => {
     const result = await init({ path: "/abs/no/name" }, { steps: [ok("onboard")] });
     expect(result.site).toBe("/abs/no/name");
+  });
+
+  it("composes applied steps in one checkout: each step builds on the prior's committed files", async () => {
+    // Real git: two recipe steps each create+commit via withRecipe against the SAME
+    // checkout. APPLIED recipes intentionally stay on their maint branch (they do NOT
+    // restore to base) so the next step composes on top — the verified fleet
+    // onboarding model (convert-to-pnpm → onboard → sync-configs → svelte-codemods).
+    // Proven by: both files present in the final working tree + a 2-commit chain over
+    // base + each step branching off the prior (not a fresh base each time).
+    const dir = mkdtempSync(join(tmpdir(), "init-"));
+    execFileSync("git", ["init", "-q", "--initial-branch=main"], { cwd: dir });
+    execFileSync("git", ["config", "user.email", "test@reddoor.local"], { cwd: dir });
+    execFileSync("git", ["config", "user.name", "reddoor-test"], { cwd: dir });
+    writeFileSync(join(dir, "README.md"), "hi\n");
+    execFileSync("git", ["add", "-A"], { cwd: dir });
+    execFileSync("git", ["commit", "-qm", "init"], { cwd: dir });
+
+    const realStep = (name: RecipeResult["recipe"], file: string): InitStep => ({
+      name,
+      run: async (site) => ({
+        kind: "recipe",
+        result: await withRecipe<null>({
+          name,
+          site,
+          plan: async () => ({ kind: "apply", plan: null }),
+          apply: async (_p, { commit }) => {
+            writeFileSync(join(site.path, file), "x\n");
+            await commit(`add ${file}`);
+            return { kind: "ok" };
+          },
+        }),
+      }),
+    });
+
+    const result = await init(
+      { path: dir, name: "r" },
+      { steps: [realStep("convert-to-pnpm", "a.txt"), realStep("sync-configs", "b.txt")] },
+    );
+    expect(result.complete).toBe(true);
+
+    // Both files composed into the same final working tree.
+    expect(existsSync(join(dir, "a.txt"))).toBe(true);
+    expect(existsSync(join(dir, "b.txt"))).toBe(true);
+
+    // 2 commits stacked over base (composition, not two parallel base-rooted branches).
+    const chain = execFileSync("git", ["rev-list", "--count", "HEAD", "^main"], {
+      cwd: dir,
+      encoding: "utf-8",
+    }).trim();
+    expect(Number(chain)).toBe(2);
   });
 });
