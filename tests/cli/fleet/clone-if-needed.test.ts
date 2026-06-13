@@ -94,6 +94,21 @@ describe("cli/fleet/cloneIfNeeded", () => {
     ).rejects.toThrow(/unsafe|name|separator/i);
   });
 
+  it("rejects an empty derived name (would collapse join(workdir, '') to the workdir root)", async () => {
+    const workdir = await mkdtemp(join(tmpdir(), "reddoor-wd-"));
+    const spawn: SpawnFn = async () => {
+      throw new Error("should NOT have reached spawn");
+    };
+    // No name; the repoUrl's last segment is bare ".git", so deriveNameFromRepoUrl
+    // yields "". assertSafeName must reject it rather than clone into workdir root.
+    await expect(
+      cloneIfNeeded(
+        { path: "/missing", repoUrl: "https://github.com/owner/.git" },
+        { workdir, spawn },
+      ),
+    ).rejects.toThrow(/unsafe site name \(empty\)/i);
+  });
+
   it("rejects an absolute inventory name", async () => {
     const workdir = await mkdtemp(join(tmpdir(), "reddoor-wd-"));
     const spawn: SpawnFn = async () => {

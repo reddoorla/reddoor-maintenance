@@ -6,6 +6,8 @@ export type LocalPathOptions = {
 };
 
 export function localPath(path: string, opts: LocalPathOptions = {}): InventoryProvider {
-  const site: Site = { path, name: opts.name ?? basename(path) };
+  // `||` not `??`: an explicit empty `--name ""` should fall back to the path's
+  // basename, not become a blank site name.
+  const site: Site = { path, name: opts.name || basename(path) };
   return async () => [site];
 }

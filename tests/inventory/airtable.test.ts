@@ -96,6 +96,24 @@ describe("fromAirtableBase", () => {
     expect(sites[0]!.path).toBe("/tmp/explicit/x");
   });
 
+  it("skips a row whose Name has no slug-able characters (empty slug can't map back on write-back)", async () => {
+    const base = makeFakeBase({
+      Websites: [
+        // "!!!" → siteSlug "" : un-pathable and un-matchable on write-back.
+        {
+          id: "rec_empty",
+          fields: { Name: "!!!", url: "https://x.example", Status: "maintenance" },
+        },
+        {
+          id: "rec_ok",
+          fields: { Name: "Real Site", url: "https://real.example", Status: "maintenance" },
+        },
+      ],
+    });
+    const sites = await fromAirtableBase(base, { workdir: "/tmp" })();
+    expect(sites.map((s) => s.name)).toEqual(["real-site"]);
+  });
+
   it("drops a non-http(s) url as deployedUrl (SSRF / local-file gate) but keeps the site", async () => {
     const base = makeFakeBase({
       Websites: [

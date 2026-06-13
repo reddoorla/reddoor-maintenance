@@ -232,24 +232,31 @@ export async function listReportsForSite(base: AirtableBase, siteId: string): Pr
 }
 
 /**
- * Mark a row as sent: write `Sent at` and `Resend message ID` only. Crucially
- * does NOT touch `Delivery status` — that's set to "pending" in createDraft
- * and updated by the webhook from there. If we wrote "pending" here we could
- * clobber a "delivered" that the webhook raced ahead and wrote first (H4).
+ * Mark a row as sent: write `Sent at` and (when known) `Resend message ID`.
+ * Crucially does NOT touch `Delivery status` — that's set to "pending" in
+ * createDraft and updated by the webhook from there. If we wrote "pending" here
+ * we could clobber a "delivered" that the webhook raced ahead and wrote first (H4).
+ *
+ * `messageId` may be `null`: the 409 idempotency-conflict path has no recoverable
+ * id (the original send's id was lost when the prior run's stamp failed), so it
+ * passes null and we write ONLY `Sent at`. Writing a sentinel string like
+ * "idempotent-conflict" into the id column would masquerade as a real Resend id
+ * and silently orphan `findReportByMessageId` lookups; leaving it null is honest —
+ * the row still stops replaying (Sent at is set), delivery tracking for that one
+ * report is simply degraded (the id is genuinely unknowable on that path).
  */
 export async function stampSent(
   base: AirtableBase,
   recordId: string,
   sentAt: Date,
-  messageId: string,
+  messageId: string | null,
 ): Promise<void> {
+  const fields: Record<string, string> = { "Sent at": sentAt.toISOString() };
+  if (messageId !== null) fields["Resend message ID"] = messageId;
   await base(REPORTS_TABLE).update([
     {
       id: recordId,
-      fields: {
-        "Sent at": sentAt.toISOString(),
-        "Resend message ID": messageId,
-      },
+      fields,
     },
   ]);
 }

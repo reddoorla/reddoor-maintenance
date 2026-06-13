@@ -97,7 +97,7 @@ export async function runSyncConfigsCommand(
   if (opts.dry) {
     const blocks: string[] = [];
     for (const s of sites) {
-      blocks.push(`[${s.name ?? s.path}]\n` + (await dryPlan(s.path, which)));
+      blocks.push(`[${s.name || s.path}]\n` + (await dryPlan(s.path, which)));
     }
     return { output: appendSkipNotice(blocks.join("\n\n"), skipped), code: 0 };
   }

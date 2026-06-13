@@ -16,6 +16,12 @@ function deriveNameFromRepoUrl(repoUrl: string): string {
 
 /** Reject names that would let an inventory entry write outside `workdir`. */
 function assertSafeName(name: string): void {
+  if (name.length === 0) {
+    // `join(workdir, "")` collapses to the workdir root — the clone would land
+    // there (and two empty-named sites would collide). An empty name is never a
+    // legitimate checkout dir.
+    throw new Error("unsafe site name (empty)");
+  }
   if (isAbsolute(name)) {
     throw new Error(`unsafe site name (absolute path not allowed): ${name}`);
   }
@@ -144,7 +150,7 @@ export async function cloneIfNeeded(site: Site, opts: CloneIfNeededOptions): Pro
     );
   }
 
-  const name = site.name ?? deriveNameFromRepoUrl(repoUrl);
+  const name = site.name || deriveNameFromRepoUrl(repoUrl); // `||`: empty name derives from the repo
   assertSafeName(name);
   assertSafeRepoUrl(repoUrl);
   const target = join(opts.workdir, name);

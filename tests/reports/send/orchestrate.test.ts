@@ -403,6 +403,10 @@ describe("sendApprovedReports", () => {
     const stamp = updates.find((u) => u.records[0]!.fields["Sent at"] !== undefined);
     expect(stamp).toBeDefined();
     expect(stamp!.records[0]!.id).toBe("rec_report_1");
+    // The message id is unrecoverable on the 409 path, so the column must be left
+    // unset — NOT stamped with a sentinel that would masquerade as a real Resend
+    // id and orphan findReportByMessageId webhook lookups.
+    expect(stamp!.records[0]!.fields["Resend message ID"]).toBeUndefined();
   });
 
   it("re-throws a generic (non-409) send error so the run reds and the row is NOT stamped", async () => {

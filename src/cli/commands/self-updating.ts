@@ -41,7 +41,7 @@ export async function runSelfUpdatingCommand(
   if (opts.dry) {
     return {
       output: appendSkipNotice(
-        sites.map((s) => `[${s.name ?? s.path}] would enable self-updating`).join("\n"),
+        sites.map((s) => `[${s.name || s.path}] would enable self-updating`).join("\n"),
         skipped,
       ),
       code: 0,
