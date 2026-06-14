@@ -125,9 +125,7 @@ export async function listRecentSubmissions(
       for (const rec of records) out.push(mapRow({ id: rec.id, fields: rec.fields }));
       fetchNextPage();
     });
-  return out
-    .sort((a, b) => (b.submittedAt ?? "").localeCompare(a.submittedAt ?? ""))
-    .slice(0, max);
+  return out.sort((a, b) => (b.submittedAt ?? "").localeCompare(a.submittedAt ?? "")).slice(0, max);
 }
 
 export async function listNewSubmissions(base: AirtableBase): Promise<SubmissionRow[]> {

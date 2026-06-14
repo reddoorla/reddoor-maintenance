@@ -10,16 +10,20 @@ describe("renderSiteDashboardHtml — submissions", () => {
   });
 
   it("lists submissions with escaped content and status buttons", () => {
-    const html = renderSiteDashboardHtml(makeWebsiteRow(), [], [
-      makeSubmissionRow({
-        id: "recSUB",
-        formType: "contact",
-        name: "Jane <x>",
-        email: "jane@x.com",
-        message: "Hi & bye",
-        status: "new",
-      }),
-    ]);
+    const html = renderSiteDashboardHtml(
+      makeWebsiteRow(),
+      [],
+      [
+        makeSubmissionRow({
+          id: "recSUB",
+          formType: "contact",
+          name: "Jane <x>",
+          email: "jane@x.com",
+          message: "Hi & bye",
+          status: "new",
+        }),
+      ],
+    );
     expect(html).toContain("Form submissions (1)");
     expect(html).toContain("Jane &lt;x&gt;");
     expect(html).toContain("Hi &amp; bye");

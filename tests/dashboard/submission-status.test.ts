@@ -7,7 +7,9 @@ import { makeSubmissionRow } from "../_helpers/submission-row.js";
 
 function deps(over: Partial<SubmissionStatusDeps> = {}): SubmissionStatusDeps {
   return {
-    getSubmissionById: vi.fn().mockResolvedValue(makeSubmissionRow({ id: "recSUB", status: "new" })),
+    getSubmissionById: vi
+      .fn()
+      .mockResolvedValue(makeSubmissionRow({ id: "recSUB", status: "new" })),
     setSubmissionStatusRow: vi.fn().mockResolvedValue(undefined),
     ...over,
   };

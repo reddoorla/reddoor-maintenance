@@ -3,7 +3,11 @@ import { normalizeSubmission } from "../../src/forms/payload.js";
 
 describe("normalizeSubmission", () => {
   it("folds firstName+lastName into name and lowercases email", () => {
-    const r = normalizeSubmission({ firstName: "Jane", lastName: "Doe", email: "JANE@Example.com" });
+    const r = normalizeSubmission({
+      firstName: "Jane",
+      lastName: "Doe",
+      email: "JANE@Example.com",
+    });
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.value.name).toBe("Jane Doe");
