@@ -109,7 +109,7 @@ Reusing the verified `reddoorla.com` domain and the existing `src/reports/send/r
   - Subject: "We got your message."
   - Body may reuse the per-site `Copy Intro` / `Copy Contact` / `Copy Footer` Websites fields.
 - **Operator:** no per-submission email. Operator reviews via the dashboard.
-- Notification result is stamped to `Notify status` (`sent` / `failed`) with the `Resend message id`.
+- Notification result is stamped to `Notify status` (`sent` / `failed` / `skipped` — `skipped` when the site has no point-of-contact to notify) with the `Resend message id`.
 
 ## Dashboard surface
 
