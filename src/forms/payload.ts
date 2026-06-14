@@ -1,4 +1,4 @@
-import { SUBMISSION_FORM_TYPES, type FormType } from "../reports/airtable/submissions.js";
+import { SUBMISSION_FORM_TYPES, type FormType } from "./types.js";
 
 /** The JSON wire format a fleet site forwards to the ingest endpoint. */
 export type SubmissionPayload = {

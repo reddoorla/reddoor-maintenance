@@ -1,16 +1,11 @@
 import type { FieldSet, Records } from "airtable";
 import type { AirtableBase } from "./client.js";
+import { SUBMISSION_FORM_TYPES, type FormType } from "../../forms/types.js";
 
 export const SUBMISSIONS_TABLE = "Submissions";
 
-export const SUBMISSION_FORM_TYPES = [
-  "contact",
-  "inquiry",
-  "newsletter",
-  "rsvp",
-  "reserve",
-] as const;
-export type FormType = (typeof SUBMISSION_FORM_TYPES)[number];
+export { SUBMISSION_FORM_TYPES };
+export type { FormType };
 
 export const SUBMISSION_STATUSES = ["new", "read", "archived", "spam"] as const;
 export type SubmissionStatus = (typeof SUBMISSION_STATUSES)[number];
