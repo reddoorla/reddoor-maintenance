@@ -1,5 +1,11 @@
 # @reddoorla/maintenance
 
+## 0.34.0
+
+### Minor Changes
+
+- 7f02928: Add the `@reddoorla/maintenance/forms` subpath: `submitToIngest` + `screenSubmission` (and `SubmissionPayload`/`FormType`) for fleet SvelteKit sites to forward contact-form submissions to the dashboard ingest endpoint.
+
 ## 0.33.0
 
 ### Minor Changes
