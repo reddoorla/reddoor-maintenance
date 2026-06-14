@@ -24,6 +24,15 @@ describe("buildPocNotification", () => {
     const none = makeWebsiteRow({ pointOfContact: null, reportRecipientsTo: null });
     expect(buildPocNotification(none, makeSubmissionRow())).toBeNull();
   });
+
+  it("escapes HTML in the body and strips quotes/newlines from the From display name", () => {
+    const site = makeWebsiteRow({ name: 'Acme "Co"\r\n<x>', pointOfContact: "owner@acme.com" });
+    const input = buildPocNotification(site, makeSubmissionRow({ message: "<script>alert(1)</script>" }))!;
+    expect(input.html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(input.html).not.toContain("<script>");
+    expect(input.from).not.toContain('"');
+    expect(input.from).not.toMatch(/[\r\n]/);
+  });
 });
 
 describe("buildAutoresponder", () => {
