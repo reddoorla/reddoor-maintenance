@@ -49,4 +49,22 @@ describe("normalizeSubmission", () => {
     expect(normalizeSubmission("nope").ok).toBe(false);
     expect(normalizeSubmission(null).ok).toBe(false);
   });
+
+  it("folds a single name half without a stray space", () => {
+    const r = normalizeSubmission({ firstName: "Jane", email: "a@b.co" });
+    expect(r.ok && r.value.name).toBe("Jane");
+  });
+
+  it("drops prototype-pollution keys from extraFields (untrusted boundary)", () => {
+    const r = normalizeSubmission({
+      email: "a@b.co",
+      extra: { ["__proto__"]: { polluted: true }, constructor: "x", safe: 1 },
+      prototype: "y",
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value.extraFields).toEqual({ safe: 1 });
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    }
+  });
 });

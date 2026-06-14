@@ -43,6 +43,11 @@ const KNOWN_KEYS = new Set([
   "extra",
 ]);
 
+// Keys that, copied as own-properties into the captured object, could surprise a
+// downstream consumer (template/DB layer). This is an untrusted boundary, so the
+// extraFields merge drops them rather than trusting the caller.
+const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 function str(v: unknown): string {
@@ -76,9 +81,13 @@ export function normalizeSubmission(payload: unknown): NormalizeResult {
 
   const extraFields: Record<string, unknown> = {};
   const extra = p.extra;
-  if (typeof extra === "object" && extra !== null) Object.assign(extraFields, extra);
+  if (typeof extra === "object" && extra !== null) {
+    for (const [k, v] of Object.entries(extra)) {
+      if (!DANGEROUS_KEYS.has(k)) extraFields[k] = v;
+    }
+  }
   for (const [k, v] of Object.entries(p)) {
-    if (!KNOWN_KEYS.has(k)) extraFields[k] = v;
+    if (!KNOWN_KEYS.has(k) && !DANGEROUS_KEYS.has(k)) extraFields[k] = v;
   }
 
   const value: NormalizedSubmission = {

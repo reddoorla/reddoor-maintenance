@@ -23,4 +23,7 @@ describe("bearerToken", () => {
     expect(bearerToken("Basic abc")).toBeNull();
     expect(bearerToken(null)).toBeNull();
   });
+  it("returns null for a bearer prefix with no token", () => {
+    expect(bearerToken("Bearer ")).toBeNull();
+  });
 });
