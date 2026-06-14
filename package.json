@@ -21,6 +21,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./forms": {
+      "types": "./dist/forms/index.d.ts",
+      "import": "./dist/forms/index.js"
+    },
     "./configs/lighthouse": {
       "types": "./dist/configs/lighthouse.d.ts",
       "import": "./dist/configs/lighthouse.js"
