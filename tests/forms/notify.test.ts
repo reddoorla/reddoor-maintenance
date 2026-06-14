@@ -3,6 +3,7 @@ import {
   buildPocNotification,
   buildAutoresponder,
   notifySubmission,
+  makeNotify,
 } from "../../src/forms/notify.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import { makeSubmissionRow } from "../_helpers/submission-row.js";
@@ -78,5 +79,27 @@ describe("notifySubmission", () => {
     const out = await notifySubmission({ send }, site, makeSubmissionRow({ email: "l@x.com" }));
     expect(out.status).toBe("skipped");
     expect(send).toHaveBeenCalledTimes(1); // autoresponder only
+  });
+});
+
+describe("makeNotify", () => {
+  it("marks the notification failed without sending when the Resend client is unavailable", async () => {
+    const notify = makeNotify(null);
+    const out = await notify(
+      makeWebsiteRow({ pointOfContact: "owner@acme.com" }),
+      makeSubmissionRow({ email: "l@x.com" }),
+    );
+    expect(out).toEqual({ status: "failed", messageId: null });
+  });
+
+  it("delegates to notifySubmission when a send fn is provided", async () => {
+    const send = vi.fn().mockResolvedValue({ messageId: "msg_9" });
+    const notify = makeNotify(send);
+    const out = await notify(
+      makeWebsiteRow({ pointOfContact: "owner@acme.com" }),
+      makeSubmissionRow({ email: "l@x.com" }),
+    );
+    expect(out).toEqual({ status: "sent", messageId: "msg_9" });
+    expect(send).toHaveBeenCalled();
   });
 });
