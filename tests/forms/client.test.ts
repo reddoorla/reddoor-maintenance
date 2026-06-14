@@ -25,7 +25,9 @@ describe("submitToIngest", () => {
   });
 
   it("returns an error result for a non-2xx response", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(401, { ok: false, error: "unauthorized" }));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(401, { ok: false, error: "unauthorized" }));
     const out = await submitToIngest({
       url: "https://dash/api/forms/reddoor",
       token: "bad",

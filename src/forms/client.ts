@@ -59,8 +59,7 @@ export async function submitToIngest(opts: SubmitToIngestOptions): Promise<Inges
   if (res.ok && obj && obj.ok === true) {
     return { ok: true, id: String(obj.id ?? "") };
   }
-  const error =
-    obj && typeof obj.error === "string" ? obj.error : `ingest failed (${res.status})`;
+  const error = obj && typeof obj.error === "string" ? obj.error : `ingest failed (${res.status})`;
   return { ok: false, status: res.status, error };
 }
 
@@ -80,7 +79,11 @@ export function screenSubmission(input: ScreenInput): ScreenResult {
   if (typeof input.botField === "string" && input.botField.trim().length > 0) {
     return { ok: false, reason: "honeypot" };
   }
-  if (typeof input.elapsedMs === "number" && input.elapsedMs >= 0 && input.elapsedMs < MIN_FILL_MS) {
+  if (
+    typeof input.elapsedMs === "number" &&
+    input.elapsedMs >= 0 &&
+    input.elapsedMs < MIN_FILL_MS
+  ) {
     return { ok: false, reason: "too-fast" };
   }
   return { ok: true };
