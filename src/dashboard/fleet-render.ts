@@ -1,6 +1,6 @@
 import type { WebsiteRow } from "../reports/airtable/websites.js";
 import { siteSlug } from "../reports/airtable/websites.js";
-import type { CockpitModel, SiteCard, Tier } from "./fleet-cockpit.js";
+import type { CockpitModel, SiteCard, Tier, SubmissionEntry } from "./fleet-cockpit.js";
 import { onboardingStatus } from "./onboarding.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 import { escapeHtml, safeUrl } from "../util/html.js";
@@ -146,6 +146,7 @@ const FILTERS = [
   "ci",
   "stale",
   "pending",
+  "submissions",
 ] as const;
 
 function summaryBar(model: CockpitModel): string {
@@ -157,6 +158,7 @@ function summaryBar(model: CockpitModel): string {
     `${s.renovateFailing} PRs failing`,
     `${s.ciRed} CI red`,
     `${s.pending} pending`,
+    `${s.newSubmissions ?? 0} new`,
   ].join(" · ");
   const chips = FILTERS.map(
     (f) =>
@@ -202,6 +204,33 @@ function approveStrip(model: CockpitModel): string {
   </section>`;
 }
 
+function submissionsStrip(model: CockpitModel): string {
+  const subs: SubmissionEntry[] = model.submissions ?? [];
+  if (subs.length === 0) return "";
+  const rows = subs
+    .map((sub) => {
+      const href = `/s/${escapeHtml(sub.slug)}`;
+      const when = sub.submittedAt ? escapeHtml(relativeTimeFromNow(sub.submittedAt)) : "";
+      const who = escapeHtml(sub.name || sub.email);
+      return `<div class="approve-row" data-signal="submissions">
+        <strong>${escapeHtml(sub.siteName)}</strong>
+        <span class="muted">${escapeHtml(sub.formType)} — ${who}</span>
+        <span class="muted">${when}</span>
+        <a href="${href}">open ▸</a>
+      </div>`;
+    })
+    .join("");
+  return `<section class="approve-strip subm-strip" data-tier="submissions">
+    <h2>📥 New submissions (${subs.length})</h2>
+    ${rows}
+  </section>`;
+}
+
+function submBadge(c: SiteCard): string {
+  const n = c.newSubmissions ?? 0;
+  return n > 0 ? `<span class="chip">📥 ${n} new</span>` : "";
+}
+
 const PILL_LABEL: Record<Tier, string> = { attention: "failing", watch: "watch", healthy: "ok" };
 
 function attentionBadge(status?: string): string {
@@ -236,7 +265,7 @@ function signalsAttr(c: SiteCard): string {
 function cockpitCard(c: SiteCard): string {
   const base = card(c.site); // existing header + metrics markup
   const pill = `<span class="pill ${c.tier}">${PILL_LABEL[c.tier]}</span>`;
-  const extra = `${pill}${chips(c)}`;
+  const extra = `${pill}${chips(c)}${submBadge(c)}`;
   const opening = `<article class="card" data-signals="${signalsAttr(c)}">`;
   // Inject the pill + chips before the article's closing tag, and add the filter
   // hook. Function replacers so a `$` in escaped chip text can't be read as a
@@ -258,6 +287,7 @@ const FILTER_SCRIPT = `<script>
       // "pending" lives on the approve strip, not on tier cards — just jump to it,
       // never hide the triage cards (else the whole board blanks).
       if (f === 'pending') { var s = document.querySelector('.approve-strip'); if (s) s.scrollIntoView({behavior:'smooth'}); return; }
+      if (f === 'submissions') { var ss = document.querySelector('[data-tier="submissions"]'); if (ss) ss.scrollIntoView({behavior:'smooth'}); return; }
       if (f !== 'all') details.forEach(function(d){ d.open = true; });
       cards.forEach(function(c){
         var sig = (c.getAttribute('data-signals')||'').split(' ');
@@ -316,6 +346,7 @@ export function renderCockpitHtml(model: CockpitModel): string {
   ${summaryBar(model)}
   ${allClearBanner(model)}
   ${approveStrip(model)}
+  ${submissionsStrip(model)}
   ${sections}
   ${FILTER_SCRIPT}
 </body>
