@@ -111,3 +111,19 @@ export async function notifySubmission(
   }
   return outcome;
 }
+
+/**
+ * Build the ingest `notify` dependency from a Resend send fn — or `null` when the
+ * Resend client couldn't even be constructed (e.g. `RESEND_API_KEY` unset). A null
+ * send marks the notification `failed` WITHOUT attempting it, so a Resend
+ * misconfiguration degrades to a captured-but-unemailed lead rather than aborting
+ * ingest and losing it. Mirrors the in-flight failure isolation in notifySubmission.
+ */
+export function makeNotify(
+  send: NotifyDeps["send"] | null,
+): (site: WebsiteRow, submission: SubmissionRow) => Promise<NotifyOutcome> {
+  return (site, submission) =>
+    send
+      ? notifySubmission({ send }, site, submission)
+      : Promise.resolve({ status: "failed", messageId: null });
+}

@@ -3,9 +3,9 @@ import { openBase } from "../../src/reports/airtable/client.js";
 import { getWebsiteBySlug } from "../../src/reports/airtable/websites.js";
 import { createSubmission, stampNotified } from "../../src/reports/airtable/submissions.js";
 import { ingestSubmission } from "../../src/forms/ingest.js";
-import { notifySubmission } from "../../src/forms/notify.js";
+import { makeNotify } from "../../src/forms/notify.js";
 import { verifyFormsToken, bearerToken } from "../../src/forms/token.js";
-import { defaultResendClient } from "../../src/reports/send/resend.js";
+import { defaultResendClient, type ResendClient } from "../../src/reports/send/resend.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
 
 // Public, token-gated ingest. Path-routed on the function (same reason as
@@ -78,13 +78,23 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
 
   try {
     const base = openBase({ apiKey, baseId });
-    const resend = defaultResendClient();
+    // Construct the Resend client defensively: a missing/broken RESEND_API_KEY
+    // must NOT abort ingest (defaultResendClient throws when the key is unset).
+    // null send → makeNotify marks the notification failed while the submission
+    // is still persisted — capture the lead, never 502 it away.
+    let send: ResendClient["send"] | null = null;
+    try {
+      send = defaultResendClient().send;
+    } catch (err) {
+      console.error(
+        `[form-ingest] Resend unconfigured; submissions captured but not emailed: ${String(err)}`,
+      );
+    }
     const result = await ingestSubmission(
       {
         getWebsiteBySlug: (s) => getWebsiteBySlug(base, s),
         createSubmission: (input) => createSubmission(base, input),
-        notify: (site, submission) =>
-          notifySubmission({ send: (i) => resend.send(i) }, site, submission),
+        notify: makeNotify(send),
         stampNotified: (id, status, messageId) => stampNotified(base, id, status, messageId),
         now: () => new Date(),
       },
