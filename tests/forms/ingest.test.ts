@@ -34,6 +34,20 @@ describe("ingestSubmission", () => {
     const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: "hi" });
     expect(r).toEqual({ status: "accepted", submissionId: "recSUB", notifyStatus: "sent" });
     expect(d.createSubmission).toHaveBeenCalledTimes(1);
+    // Pin the field mapping: siteId from the resolved site, submittedAt from now(),
+    // defined optional fields present, undefined ones omitted.
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        siteId: "recSITE",
+        email: "a@b.co",
+        message: "hi",
+        submittedAt: new Date("2026-06-14T12:00:00Z"),
+      }),
+    );
+    // undefined optional fields are omitted, not passed as undefined
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.not.objectContaining({ phone: expect.anything() }),
+    );
     expect(d.stampNotified).toHaveBeenCalledWith("recSUB", "sent", "msg_1");
   });
 

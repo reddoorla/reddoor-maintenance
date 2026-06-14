@@ -45,9 +45,11 @@ export async function ingestSubmission(
     formType: n.formType,
     name: n.name,
     email: n.email,
+    extraFields: n.extraFields,
+    // Optional fields spread only when present — exactOptionalPropertyTypes
+    // forbids assigning `undefined` to an optional `phone?: string` etc.
     ...(n.phone !== undefined ? { phone: n.phone } : {}),
     ...(n.message !== undefined ? { message: n.message } : {}),
-    ...(n.extraFields !== undefined ? { extraFields: n.extraFields } : {}),
     ...(n.sourceUrl !== undefined ? { sourceUrl: n.sourceUrl } : {}),
     ...(n.utm !== undefined ? { utm: n.utm } : {}),
     submittedAt: deps.now(),
