@@ -30,18 +30,18 @@ Replace the fragmented form layer with **one pipeline**: every fleet form submit
 
 ## Decisions
 
-| Decision | Choice | Rationale |
-|---|---|---|
-| Architecture | **Hybrid** — same-origin site form action forwards server-to-server to a central dashboard ingest endpoint | No CORS; works without JS; secrets stay in the dashboard; sites stay thin |
-| Notifications | **POC notify + autoresponder to submitter**; operator watches the dashboard (no per-submission email) | Scales to ~200 sites without inbox flood; client gets the lead directly |
-| Storage | **Airtable `Submissions` table** in the existing base | Consistent, already wired into the dashboard, mobile-reviewable, zero new infra |
-| Ingest auth | **Single shared `FORMS_INGEST_TOKEN`** | Server-side only, never exposed; per-site tokens are a future hardening |
-| Sender | **Single `forms@reddoorla.com`** on the already-verified domain | Per-site domains add verification overhead; defer |
-| Airtable `Site` field | **Linked record → Websites** | Joins to POC/copy fields; consistent with Reports |
+| Decision              | Choice                                                                                                     | Rationale                                                                       |
+| --------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Architecture          | **Hybrid** — same-origin site form action forwards server-to-server to a central dashboard ingest endpoint | No CORS; works without JS; secrets stay in the dashboard; sites stay thin       |
+| Notifications         | **POC notify + autoresponder to submitter**; operator watches the dashboard (no per-submission email)      | Scales to ~200 sites without inbox flood; client gets the lead directly         |
+| Storage               | **Airtable `Submissions` table** in the existing base                                                      | Consistent, already wired into the dashboard, mobile-reviewable, zero new infra |
+| Ingest auth           | **Single shared `FORMS_INGEST_TOKEN`**                                                                     | Server-side only, never exposed; per-site tokens are a future hardening         |
+| Sender                | **Single `forms@reddoorla.com`** on the already-verified domain                                            | Per-site domains add verification overhead; defer                               |
+| Airtable `Site` field | **Linked record → Websites**                                                                               | Joins to POC/copy fields; consistent with Reports                               |
 
 ## Architecture
 
-```
+```text
 [site <form>]  --same-origin POST-->  [site +page.server.ts action]
    honeypot (visible)                    1. honeypot check (drop bots silently, return success)
                                          2. timing check (reject implausibly fast fills)
@@ -66,29 +66,29 @@ The public-facing surface is each **site's own form action** (same-origin). The 
 
 New table in the existing base (same base as Websites/Reports).
 
-| Field | Type | Notes |
-|---|---|---|
-| `Submission ID` | autonumber | primary field |
-| `Site` | link → Websites | which site the form is on |
-| `Form type` | single-select | `contact` / `inquiry` / `newsletter` / `rsvp` / `reserve` (extensible) |
-| `Name` | single line text | normalized from `name` or `first_name` + `last_name` |
-| `Email` | email | submitter email (used as Reply-To on the POC notification) |
-| `Phone` | single line text | optional |
-| `Message` | long text | optional |
-| `Extra fields` | long text (JSON) | any per-form fields not mapped above (company, product, event, guests, dates, …) so no data is lost despite inconsistent fleet field names |
-| `Source URL` | url | the page the form was on |
-| `UTM` | single line text | UTM params if present (gallerysonder already captures these) |
-| `Submitted at` | dateTime | server-stamped at ingest |
-| `Status` | single-select | `new` / `read` / `archived` / `spam` (default `new`) |
-| `Notify status` | single-select | `sent` / `failed` / `skipped` |
-| `Resend message id` | single line text | id of the POC notification email |
+| Field               | Type             | Notes                                                                                                                                      |
+| ------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Submission ID`     | autonumber       | primary field                                                                                                                              |
+| `Site`              | link → Websites  | which site the form is on                                                                                                                  |
+| `Form type`         | single-select    | `contact` / `inquiry` / `newsletter` / `rsvp` / `reserve` (extensible)                                                                     |
+| `Name`              | single line text | normalized from `name` or `first_name` + `last_name`                                                                                       |
+| `Email`             | email            | submitter email (used as Reply-To on the POC notification)                                                                                 |
+| `Phone`             | single line text | optional                                                                                                                                   |
+| `Message`           | long text        | optional                                                                                                                                   |
+| `Extra fields`      | long text (JSON) | any per-form fields not mapped above (company, product, event, guests, dates, …) so no data is lost despite inconsistent fleet field names |
+| `Source URL`        | url              | the page the form was on                                                                                                                   |
+| `UTM`               | single line text | UTM params if present (gallerysonder already captures these)                                                                               |
+| `Submitted at`      | dateTime         | server-stamped at ingest                                                                                                                   |
+| `Status`            | single-select    | `new` / `read` / `archived` / `spam` (default `new`)                                                                                       |
+| `Notify status`     | single-select    | `sent` / `failed` / `skipped`                                                                                                              |
+| `Resend message id` | single line text | id of the POC notification email                                                                                                           |
 
 The `Extra fields` JSON blob is the central YAGNI move: it absorbs each site's idiosyncratic fields without a schema change per site. The normalizer maps known synonyms into the typed columns and dumps the rest into `Extra fields`.
 
 ## Security model
 
 - **Ingest auth:** `FORMS_INGEST_TOKEN` compared constant-time (reuse the `timingSafeEqual` approach from `src/dashboard/basic-auth.ts`).
-- **Rate limiting:** the ingest endpoint limits **per site slug** (the per-IP limit used by other handlers is wrong here — the caller is the site's Netlify egress IP). The visible-form throttle is honeypot + minimum fill-time at the site action.
+- **Rate limiting:** the per-IP limit used by other handlers is wrong here — the caller is the site's Netlify egress IP. The ideal is a **per site slug** limit, but Netlify's built-in `rateLimit.aggregateBy` cannot key on a path param, so Phase 1 ships a coarse per-IP backstop (120/min) plus the token gate; true per-slug limiting (via Netlify Blobs) is deferred (see Future enhancements). The visible-form throttle is honeypot + minimum fill-time at the site action.
 - **Honeypot:** keep the existing `bot-field` convention; a filled honeypot returns a success response without writing/sending (bots get no signal).
 - **Timing check:** a hidden timestamp planted on render; submissions faster than a small threshold are dropped as bots.
 - **Status endpoint** (`/api/submissions/:id/status`): operator-only — Basic-Auth (`DASHBOARD_PASSWORD`) + CSRF (Sec-Fetch-Site / Origin-Referer), mirroring `approve-report.mts`.
