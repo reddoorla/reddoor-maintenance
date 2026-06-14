@@ -2,6 +2,7 @@ import type { Context, Config } from "@netlify/functions";
 import { openBase } from "../../src/reports/airtable/client.js";
 import { listWebsites } from "../../src/reports/airtable/websites.js";
 import { listAllReports } from "../../src/reports/airtable/reports.js";
+import { listNewSubmissions } from "../../src/reports/airtable/submissions.js";
 import { readDigestState } from "../../src/alerts/digest-state.js";
 import { verifyBasicAuth, renderCockpitHtml } from "../../src/dashboard/index.js";
 import { buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
@@ -82,8 +83,14 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     } catch {
       // everything badges as not-NEW (the {} initial); never crashes the page
     }
+    let newSubmissions: Awaited<ReturnType<typeof listNewSubmissions>> = [];
+    try {
+      newSubmissions = await listNewSubmissions(base);
+    } catch {
+      // submissions strip simply absent — triage still renders
+    }
     const baseUrl = resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL);
-    const model = buildCockpitModel(websites, reports, prior, baseUrl, new Date());
+    const model = buildCockpitModel(websites, reports, prior, baseUrl, new Date(), newSubmissions);
     return html(renderCockpitHtml(model), 200);
   } catch (err) {
     return handlerError("fleet-homepage", err);

@@ -5,6 +5,7 @@ import type { AttentionItem } from "../alerts/attention.js";
 import { isPendingApproval } from "../reports/airtable/reports.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
 import type { ReportType } from "../reports/types.js";
+import type { SubmissionRow, FormType } from "../reports/airtable/submissions.js";
 import {
   collectVulnAlerts,
   collectDeliveryFailures,
@@ -82,6 +83,8 @@ export type SiteCard = {
   watchReasons: string[];
   /** Structured watch tags ("lighthouse" / "stale") for the client filter. */
   watchSignals: string[];
+  /** Count of NEW submissions for this site (optional; populated by buildCockpitModel). */
+  newSubmissions?: number;
 };
 
 export type PendingEntry = {
@@ -90,6 +93,16 @@ export type PendingEntry = {
   slug: string;
   reportType: ReportType;
   period: string;
+};
+
+export type SubmissionEntry = {
+  submissionId: string;
+  siteName: string;
+  slug: string;
+  formType: FormType;
+  name: string;
+  email: string;
+  submittedAt: string | null;
 };
 
 export type CockpitSummary = {
@@ -102,6 +115,8 @@ export type CockpitSummary = {
   renovateFailing: number;
   ciRed: number;
   pending: number;
+  /** Count of NEW submissions across the fleet (optional for back-compat). */
+  newSubmissions?: number;
 };
 
 export type CockpitModel = {
@@ -109,6 +124,8 @@ export type CockpitModel = {
   /** All visible sites, ordered: attention (worst-first) → watch (A-Z) → healthy (A-Z). */
   cards: SiteCard[];
   pending: PendingEntry[];
+  /** NEW submissions across the fleet, newest-first (optional for back-compat). */
+  submissions?: SubmissionEntry[];
 };
 
 const SEVERITY_RANK: Record<AttentionItem["severity"], number> = { critical: 0, warning: 1 };
@@ -127,9 +144,17 @@ export function buildCockpitModel(
   priorSnapshot: DigestSnapshot,
   baseUrl: string,
   now: Date,
+  newSubmissions: SubmissionRow[] = [],
 ): CockpitModel {
   const visible = websites.filter((w) => w.dashboardToken !== null);
   const sitesById = new Map<string, WebsiteRow>(visible.map((w) => [w.id, w]));
+
+  // Per-site NEW-submission counts, keyed by Websites record id. Used for the
+  // per-card badge below; the strip resolves entries against ALL sites.
+  const subCountBySite = new Map<string, number>();
+  for (const sub of newSubmissions) {
+    subCountBySite.set(sub.siteId, (subCountBySite.get(sub.siteId) ?? 0) + 1);
+  }
 
   const rawItems: AttentionItem[] = [
     ...collectVulnAlerts(visible, baseUrl),
@@ -156,7 +181,14 @@ export function buildCockpitModel(
       (a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity],
     );
     const { tier, watchReasons, watchSignals } = assignTier(site, items, now);
-    return { site, tier, items, watchReasons, watchSignals };
+    return {
+      site,
+      tier,
+      items,
+      watchReasons,
+      watchSignals,
+      newSubmissions: subCountBySite.get(site.id) ?? 0,
+    };
   });
 
   cards.sort((a, b) => {
@@ -189,6 +221,21 @@ export function buildCockpitModel(
     });
   }
 
+  const submissions: SubmissionEntry[] = [];
+  for (const sub of newSubmissions) {
+    const s = allById.get(sub.siteId);
+    if (!s) continue; // orphan submission → skip rather than render a broken link
+    submissions.push({
+      submissionId: sub.id,
+      siteName: s.name,
+      slug: siteSlug(s.name),
+      formType: sub.formType,
+      name: sub.name,
+      email: sub.email,
+      submittedAt: sub.submittedAt,
+    });
+  }
+
   const summary: CockpitSummary = {
     attention: cards.filter((c) => c.tier === "attention").length,
     watch: cards.filter((c) => c.tier === "watch").length,
@@ -199,7 +246,8 @@ export function buildCockpitModel(
     renovateFailing: tagged.filter((i) => i.kind === "renovate").reduce((s, i) => s + i.metric, 0),
     ciRed: tagged.filter((i) => i.kind === "ci").length,
     pending: pending.length,
+    newSubmissions: submissions.length,
   };
 
-  return { summary, cards, pending };
+  return { summary, cards, pending, submissions };
 }

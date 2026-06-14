@@ -2,6 +2,7 @@ import type { Context, Config } from "@netlify/functions";
 import { openBase } from "../../src/reports/airtable/client.js";
 import { getWebsiteBySlug } from "../../src/reports/airtable/websites.js";
 import { listReportsForSite } from "../../src/reports/airtable/reports.js";
+import { listSubmissionsForSite } from "../../src/reports/airtable/submissions.js";
 import { verifyBasicAuth, renderSiteDashboardHtml } from "../../src/dashboard/index.js";
 import { resolveSlug, handlerError } from "../../src/dashboard/handler-helpers.js";
 
@@ -101,7 +102,14 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     // leaving an unapprovable report and a banner/page disagreement.
     const reports = await listReportsForSite(base, site.id);
 
-    return html(renderSiteDashboardHtml(site, reports), 200);
+    let submissions: Awaited<ReturnType<typeof listSubmissionsForSite>> = [];
+    try {
+      submissions = await listSubmissionsForSite(base, site.id);
+    } catch {
+      // submissions section simply absent — the rest of the page still renders
+    }
+
+    return html(renderSiteDashboardHtml(site, reports, submissions), 200);
   } catch (err) {
     return handlerError("site-dashboard", err);
   }
