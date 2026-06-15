@@ -34,6 +34,40 @@ function notifyRecipient(site: WebsiteRow): string | null {
   return pocAddress(site);
 }
 
+/** Humanize an extraFields key for display: "appointment_date" → "Appointment date". */
+function humanizeKey(k: string): string {
+  const spaced = k.replace(/[_-]+/g, " ").trim();
+  return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1) : k;
+}
+
+function formatValue(v: unknown): string {
+  if (v === null || v === undefined) return "—";
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  return JSON.stringify(v);
+}
+
+/**
+ * Parse the stored `extraFields` JSON into label/value pairs for the email. This
+ * is the site-specific context a recipient most needs — the artwork an inquiry is
+ * about, the event an rsvp is for, the company on a contact — which would
+ * otherwise only live in the Airtable record. Bad JSON or a non-object yields no
+ * rows (never throws); empty-string values are dropped.
+ */
+function extraFieldRows(raw: string | null): Array<[string, string]> {
+  if (!raw) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [];
+  return Object.entries(parsed as Record<string, unknown>)
+    .filter(([, v]) => !(typeof v === "string" && v.trim() === ""))
+    .map(([k, v]) => [humanizeKey(k), formatValue(v)] as [string, string]);
+}
+
 function fieldsTable(submission: SubmissionRow): string {
   const rows: Array<[string, string]> = [
     ["Form", submission.formType],
@@ -41,6 +75,10 @@ function fieldsTable(submission: SubmissionRow): string {
     ["Email", submission.email || "—"],
   ];
   if (submission.phone) rows.push(["Phone", submission.phone]);
+  // Site-specific context (the artwork an inquiry is about, the event an rsvp is
+  // for, etc.) lives in extraFields — surface it so the recipient sees what the
+  // submitter was looking at, not just their name and email.
+  rows.push(...extraFieldRows(submission.extraFields));
   if (submission.sourceUrl) rows.push(["Page", submission.sourceUrl]);
   if (submission.utm) rows.push(["UTM", submission.utm]);
   const body = rows
