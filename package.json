@@ -107,20 +107,9 @@
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"
   },
-  "packageManager": "pnpm@10.33.1",
-  "pnpm": {
-    "overrides": {
-      "tmp@<0.2.6": ">=0.2.6",
-      "uuid@<11.1.1": ">=11.1.1"
-    },
-    "onlyBuiltDependencies": [
-      "sharp"
-    ],
-    "auditConfig": {
-      "ignoreGhsas": [
-        "GHSA-pfq8-rq6v-vf5m",
-        "GHSA-45h5-66jx-r2wf"
-      ]
-    }
+  "packageManager": "pnpm@11.7.0",
+  "overrides": {
+    "tmp@<0.2.6": ">=0.2.6",
+    "uuid@<11.1.1": ">=11.1.1"
   }
 }
