@@ -151,4 +151,47 @@ describe("createIngestAction", () => {
     expect(result).toEqual({ success: true });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("redirects on success when redirectTo is set", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true, id: "recX" }));
+    const action = createIngestAction({
+      formType: "contact",
+      getConfig: okConfig,
+      buildPayload: (form) => ({ email: form.get("email")?.toString() }),
+      redirectTo: "/thank-you",
+      now,
+    });
+    await expect(action(fakeEvent({ email: "a@b.co", ts: goodTs }, fetchMock))).rejects.toMatchObject(
+      { status: 303, location: "/thank-you" },
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("redirects a bot-screened submission too (no signal to bots)", async () => {
+    const fetchMock = vi.fn();
+    const action = createIngestAction({
+      formType: "contact",
+      getConfig: okConfig,
+      buildPayload: () => ({}),
+      redirectTo: "/thank-you",
+      now,
+    });
+    await expect(
+      action(fakeEvent({ email: "a@b.co", ts: goodTs, "bot-field": "bot" }, fetchMock)),
+    ).rejects.toMatchObject({ status: 303, location: "/thank-you" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does NOT redirect on ingest failure (stays on page with the error)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(502, { ok: false, error: "down" }));
+    const action = createIngestAction({
+      formType: "contact",
+      getConfig: okConfig,
+      buildPayload: (form) => ({ email: form.get("email")?.toString() }),
+      redirectTo: "/thank-you",
+      now,
+    });
+    const result = await action(fakeEvent({ email: "a@b.co", ts: goodTs }, fetchMock));
+    expect((result as { status?: number }).status).toBe(502);
+  });
 });

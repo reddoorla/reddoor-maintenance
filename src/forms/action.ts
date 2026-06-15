@@ -1,4 +1,4 @@
-import { fail, type ActionFailure, type RequestEvent } from "@sveltejs/kit";
+import { fail, redirect, type ActionFailure, type RequestEvent } from "@sveltejs/kit";
 import { submitToIngest, screenSubmission, type SubmissionPayload } from "./client.js";
 
 /** Endpoint + token for the dashboard ingest, read per-request from site env. */
@@ -24,6 +24,9 @@ export type CreateIngestActionOptions = {
   errorMessage?: string;
   /** Injectable clock for tests. Default Date.now. */
   now?: () => number;
+  /** If set, a successful OR bot-screened submission throws redirect(303, redirectTo)
+   *  instead of returning {success:true} (e.g. a dedicated /thank-you page). */
+  redirectTo?: string;
 };
 
 export type IngestActionData = { success: true } | ActionFailure<{ error: string }>;
@@ -59,7 +62,7 @@ export function createIngestAction(
       botField: form.get(botFieldName)?.toString() ?? null,
       elapsedMs: elapsedMs(form.get(tsFieldName), now),
     });
-    if (!screen.ok) return { success: true };
+    if (!screen.ok) return succeed();
 
     const { url, token } = opts.getConfig();
     if (!url || !token) {
@@ -77,8 +80,16 @@ export function createIngestAction(
       console.error(`[forms-ingest] ${opts.formType} → ${result.status}: ${result.error}`);
       return fail(502, { error: failed });
     }
-    return { success: true };
+    return succeed();
   };
+
+  // Single success path: redirect when configured (e.g. a dedicated /thank-you
+  // page), otherwise return the SvelteKit-shaped success. `redirect()` throws, so
+  // the trailing `return` keeps the `{ success: true }` type.
+  function succeed(): { success: true } {
+    if (opts.redirectTo) redirect(303, opts.redirectTo);
+    return { success: true };
+  }
 }
 
 // `FormDataEntryValue` is a DOM-lib global; this package compiles with only the
