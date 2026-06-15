@@ -172,8 +172,8 @@ describe("collectAttention", () => {
       Reports: [],
       Websites: [
         signalSite({
-          // dashboardToken makes the site cockpit-visible
-          "Dashboard Token": "tok_acme",
+          // a maintenance Status makes the site cockpit-visible
+          Status: "maintenance",
           "Renovate Failing CIs": 2,
           "Default Branch CI": "failing",
         }),

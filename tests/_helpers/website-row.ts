@@ -41,7 +41,6 @@ export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     securityVulnsHigh: null,
     securityVulnsModerate: null,
     securityVulnsLow: null,
-    dashboardToken: null,
     copyIntro: null,
     copyContact: null,
     copyFooter: null,

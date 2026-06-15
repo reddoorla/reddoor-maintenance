@@ -28,7 +28,6 @@ function siteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     bpScore: 90,
     seoScore: 100,
     lastLighthouseAuditAt: "2026-05-27T18:00:00Z",
-    dashboardToken: "tok",
     a11yViolations: 0,
     depsDrifted: 0,
     depsMajorBehind: 0,
@@ -73,7 +72,7 @@ describe("renderCockpitHtml — card per site", () => {
   });
 
   it("links the site name to /s/<slug> with no token (operator-only dashboard)", () => {
-    const html = renderCockpitHtml(model([siteRow({ name: "CalTex", dashboardToken: "abc123" })]));
+    const html = renderCockpitHtml(model([siteRow({ name: "CalTex" })]));
     expect(html).toContain('href="/s/caltex"');
     expect(html).not.toContain("?t=");
   });

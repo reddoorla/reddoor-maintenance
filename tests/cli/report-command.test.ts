@@ -80,7 +80,6 @@ function siteRow(over = {}) {
     securityVulnsHigh: null,
     securityVulnsModerate: null,
     securityVulnsLow: null,
-    dashboardToken: null,
     ...over,
   } as unknown as Parameters<typeof draftReportForSite>[1];
 }
