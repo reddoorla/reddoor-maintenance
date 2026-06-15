@@ -6,6 +6,15 @@ import { escapeHtml } from "../util/html.js";
 const FORMS_FROM = "forms@reddoorla.com";
 const FALLBACK_REPLY_TO = "info@reddoorla.com";
 
+// Single-operator fleet fallback when OPERATOR_EMAIL is unset. Deliberately the
+// monitored personal inbox (not the digest's info@ alias) — a missed pre-launch
+// LEAD is higher-stakes than a missed digest, so it should land somewhere watched.
+const OPERATOR_FALLBACK = "tucker@reddoorla.com";
+
+function operatorEmail(): string {
+  return process.env.OPERATOR_EMAIL?.trim() || OPERATOR_FALLBACK;
+}
+
 /** Strip characters that would break an RFC 5322 display name. */
 function displayName(raw: string): string {
   return raw.replace(/["\r\n]/g, "").trim() || "Reddoor";
@@ -13,6 +22,16 @@ function displayName(raw: string): string {
 
 function pocAddress(site: WebsiteRow): string | null {
   return site.pointOfContact ?? site.reportRecipientsTo ?? null;
+}
+
+/**
+ * Where a submission notification goes. Pre-launch sites (anything not yet in
+ * "maintenance") route to the operator, who is monitoring them; once a site is in
+ * maintenance, leads go to its client POC (null → notify skips).
+ */
+function notifyRecipient(site: WebsiteRow): string | null {
+  if (site.status !== "maintenance") return operatorEmail();
+  return pocAddress(site);
 }
 
 function fieldsTable(submission: SubmissionRow): string {
@@ -38,7 +57,7 @@ export function buildPocNotification(
   site: WebsiteRow,
   submission: SubmissionRow,
 ): ResendSendInput | null {
-  const to = pocAddress(site);
+  const to = notifyRecipient(site);
   if (!to) return null;
   const input: ResendSendInput = {
     from: `${displayName(site.name)} Forms <${FORMS_FROM}>`,
@@ -65,7 +84,7 @@ export function buildAutoresponder(
   return {
     from: `${displayName(site.name)} <${FORMS_FROM}>`,
     to: [submission.email],
-    replyTo: pocAddress(site) ?? FALLBACK_REPLY_TO,
+    replyTo: notifyRecipient(site) ?? FALLBACK_REPLY_TO,
     subject: "We got your message",
     html: `<p>${escapeHtml(intro)}</p><p>${escapeHtml(contact)}</p><p>${escapeHtml(footer)}</p>`,
   };
