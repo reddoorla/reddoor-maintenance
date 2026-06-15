@@ -22,6 +22,12 @@ export type IngestDeps = {
     submission: SubmissionRow,
     site: WebsiteRow,
   ) => Promise<{ ok: boolean; status: number }>;
+  /** Optional: add a newsletter submitter to the site's Mailchimp audience
+   *  (best-effort). Omitted where unused. */
+  addToMailchimp?: (
+    site: WebsiteRow,
+    submission: SubmissionRow,
+  ) => Promise<{ ok: boolean; status: number }>;
 };
 
 export type IngestResult =
@@ -75,17 +81,24 @@ export async function ingestSubmission(
     console.error(`[ingest] stampNotified failed: ${String(err)}`);
   }
 
-  // Best-effort fan-out: newsletter signups also flow to a per-site webhook
-  // (e.g. Zapier → mailing list) when configured. A failure here is swallowed
-  // and logged — the lead is already persisted; never turn it into a 502.
-  if (n.formType === "newsletter" && site.newsletterWebhook && deps.forwardNewsletter) {
-    try {
-      const fwd = await deps.forwardNewsletter(site.newsletterWebhook, row, site);
-      if (!fwd.ok) {
-        console.error(`[ingest] newsletter webhook → ${fwd.status} for ${site.name}`);
+  // Newsletter fan-out: each configured destination fires best-effort and is
+  // swallowed+logged — the lead is already persisted; never turn it into a 502.
+  if (n.formType === "newsletter") {
+    if (site.newsletterWebhook && deps.forwardNewsletter) {
+      try {
+        const fwd = await deps.forwardNewsletter(site.newsletterWebhook, row, site);
+        if (!fwd.ok) console.error(`[ingest] newsletter webhook → ${fwd.status} for ${site.name}`);
+      } catch (err) {
+        console.error(`[ingest] newsletter webhook threw: ${String(err)}`);
       }
-    } catch (err) {
-      console.error(`[ingest] newsletter webhook threw: ${String(err)}`);
+    }
+    if (site.mailchimpApiKey && site.mailchimpAudienceId && deps.addToMailchimp) {
+      try {
+        const mc = await deps.addToMailchimp(site, row);
+        if (!mc.ok) console.error(`[ingest] mailchimp add → ${mc.status} for ${site.name}`);
+      } catch (err) {
+        console.error(`[ingest] mailchimp add threw: ${String(err)}`);
+      }
     }
   }
   return { status: "accepted", submissionId: row.id, notifyStatus: notify.status };
