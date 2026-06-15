@@ -58,4 +58,55 @@ describe("ingestSubmission", () => {
     if (r.status === "accepted") expect(r.notifyStatus).toBe("failed");
     expect(d.stampNotified).toHaveBeenCalledWith("recSUB", "failed", null);
   });
+
+  it("forwards a newsletter submission to the site webhook when configured", async () => {
+    const site = makeWebsiteRow({ id: "recSITE", newsletterWebhook: "https://hooks.zapier.com/x" });
+    const row = makeSubmissionRow({ id: "recSUB", formType: "newsletter" });
+    const forwardNewsletter = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    const d = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(site),
+      createSubmission: vi.fn().mockResolvedValue(row),
+      forwardNewsletter,
+    });
+    const r = await ingestSubmission(d, "acme", { formType: "newsletter", email: "a@b.co" });
+    expect(r.status).toBe("accepted");
+    expect(forwardNewsletter).toHaveBeenCalledTimes(1);
+    expect(forwardNewsletter).toHaveBeenCalledWith("https://hooks.zapier.com/x", row, site);
+  });
+
+  it("does not forward a non-newsletter submission even when a webhook is set", async () => {
+    const site = makeWebsiteRow({ id: "recSITE", newsletterWebhook: "https://hooks.zapier.com/x" });
+    const forwardNewsletter = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    const d = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(site),
+      forwardNewsletter,
+    });
+    const r = await ingestSubmission(d, "acme", { formType: "contact", email: "a@b.co" });
+    expect(r.status).toBe("accepted");
+    expect(forwardNewsletter).not.toHaveBeenCalled();
+  });
+
+  it("does not forward a newsletter submission when the site has no webhook", async () => {
+    const site = makeWebsiteRow({ id: "recSITE", newsletterWebhook: null });
+    const forwardNewsletter = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    const d = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(site),
+      forwardNewsletter,
+    });
+    const r = await ingestSubmission(d, "acme", { formType: "newsletter", email: "a@b.co" });
+    expect(r.status).toBe("accepted");
+    expect(forwardNewsletter).not.toHaveBeenCalled();
+  });
+
+  it("swallows a webhook forward failure — the lead is still accepted", async () => {
+    const site = makeWebsiteRow({ id: "recSITE", newsletterWebhook: "https://hooks.zapier.com/x" });
+    const forwardNewsletter = vi.fn().mockRejectedValue(new Error("network down"));
+    const d = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(site),
+      forwardNewsletter,
+    });
+    const r = await ingestSubmission(d, "acme", { formType: "newsletter", email: "a@b.co" });
+    expect(r.status).toBe("accepted");
+    expect(forwardNewsletter).toHaveBeenCalledTimes(1);
+  });
 });
