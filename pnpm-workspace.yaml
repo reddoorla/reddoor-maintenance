@@ -1,0 +1,8 @@
+# pnpm 11 reads settings from here (the package.json "pnpm" field is no longer read).
+allowBuilds:
+  # sharp runs a native build script — must be explicitly allowed in pnpm 11.
+  sharp: true
+  # esbuild and protobufjs also run build scripts (native bindings).
+  esbuild: true
+  protobufjs: true
+minimumReleaseAge: 0
