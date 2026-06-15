@@ -88,9 +88,19 @@ function trimToNull(raw: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-/** Sites shown on the operator dashboard cockpit: actively-maintained or pre-launch. */
+/**
+ * Active sites: actively-maintained or pre-launch. Single source of truth for
+ * "is this a live site" — the operator cockpit shows these, and the fleet
+ * audit/report path runs against these. A `null` status (not-yet-active) is
+ * deliberately excluded.
+ */
+export const ACTIVE_STATUSES: ReadonlySet<Status> = new Set<Status>([
+  "maintenance",
+  "launch period",
+]);
+
 export function isDashboardVisible(site: WebsiteRow): boolean {
-  return site.status === "maintenance" || site.status === "launch period";
+  return site.status !== null && ACTIVE_STATUSES.has(site.status);
 }
 
 // NOTE: every `f["..."]` key below is a load-bearing magic string that must match
