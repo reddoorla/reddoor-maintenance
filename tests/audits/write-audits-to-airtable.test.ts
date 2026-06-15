@@ -25,7 +25,6 @@ function row(over: Partial<WebsiteRow> = {}): WebsiteRow {
     name: "Acme",
     maintenanceFreq: "Monthly",
     testingFreq: "Quarterly",
-    dashboardToken: "tok",
     ...over,
   });
 }

@@ -69,8 +69,8 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   // Operator-only: gate the per-site dashboard with the same shared password as
   // the fleet homepage, and the SAME Basic realm so the browser reuses creds
   // when the operator clicks through from /. The per-site token model is retired
-  // — dashboardToken is now just the fleet-homepage visibility flag. Gate BEFORE
-  // any Airtable read so an unauthenticated probe can't fetch a site.
+  // — cockpit visibility is now Status-based. Gate BEFORE any Airtable read so an
+  // unauthenticated probe can't fetch a site.
   const password = process.env.DASHBOARD_PASSWORD;
   if (!password) {
     console.error("[site-dashboard] DASHBOARD_PASSWORD missing");

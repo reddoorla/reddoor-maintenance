@@ -11,24 +11,6 @@ function row(fields: Record<string, unknown>) {
   });
 }
 
-describe("websites/mapRow → dashboardToken", () => {
-  it("maps a non-empty Dashboard Token to dashboardToken", () => {
-    expect(row({ "Dashboard Token": "abc123xyz" }).dashboardToken).toBe("abc123xyz");
-  });
-
-  it("returns null when the Dashboard Token field is absent", () => {
-    expect(row({}).dashboardToken).toBeNull();
-  });
-
-  it("returns null when the Dashboard Token field is the empty string", () => {
-    expect(row({ "Dashboard Token": "" }).dashboardToken).toBeNull();
-  });
-
-  it("trims surrounding whitespace (operators occasionally paste with newlines)", () => {
-    expect(row({ "Dashboard Token": "  tok  \n" }).dashboardToken).toBe("tok");
-  });
-});
-
 describe("websites/mapRow → copy override fields", () => {
   it("maps non-empty Copy — Intro/Contact/Footer (em-dash column names)", () => {
     const r = row({
@@ -48,7 +30,7 @@ describe("websites/mapRow → copy override fields", () => {
     expect(r.copyFooter).toBeNull();
   });
 
-  it("trims and treats blank copy fields as null (mirrors dashboardToken)", () => {
+  it("trims and treats blank copy fields as null", () => {
     expect(row({ "Copy — Intro": "" }).copyIntro).toBeNull();
     expect(row({ "Copy — Contact": "   \n" }).copyContact).toBeNull();
     expect(row({ "Copy — Footer": "  body  " }).copyFooter).toBe("body");

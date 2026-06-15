@@ -49,8 +49,8 @@ function securitySpan(
 function card(site: WebsiteRow): string {
   const name = escapeHtml(site.name);
   // The per-site dashboard at /s/<slug> is operator-only, gated by the shared
-  // dashboard password (no per-site token). dashboardToken is now just the
-  // fleet-homepage visibility flag; the caller filters on it.
+  // dashboard password (no per-site token). Cockpit visibility is Status-based;
+  // the caller filters the fleet view.
   const href = `/s/${escapeHtml(siteSlug(site.name))}`;
   const onboarding = onboardingStatus(site);
   const audited = relativeTimeFromNow(site.lastLighthouseAuditAt);

@@ -1,6 +1,6 @@
 import type { Site, InventoryProvider } from "../types.js";
 import type { AirtableBase } from "../reports/airtable/client.js";
-import { listWebsites, siteSlug } from "../reports/airtable/websites.js";
+import { listWebsites, siteSlug, ACTIVE_STATUSES } from "../reports/airtable/websites.js";
 import { isHttpUrl } from "../util/url.js";
 
 export type AirtableInventoryOptions = {
@@ -11,9 +11,6 @@ export type AirtableInventoryOptions = {
    */
   workdir?: string;
 };
-
-/** Only sites we actively run/report on get fleet-audited. */
-const AUDITABLE_STATUSES = new Set<string>(["maintenance", "launch period"]);
 
 /**
  * Read sites from the Airtable Websites table as an InventoryProvider.
@@ -37,7 +34,7 @@ export function fromAirtableBase(
     }
     const websites = await listWebsites(base);
     return websites
-      .filter((w) => AUDITABLE_STATUSES.has(w.status ?? "") && w.url.length > 0)
+      .filter((w) => w.status !== null && ACTIVE_STATUSES.has(w.status) && w.url.length > 0)
       .flatMap((w) => {
         const slug = siteSlug(w.name);
         // An empty slug (a Name with no slug-able characters) can't form a stable

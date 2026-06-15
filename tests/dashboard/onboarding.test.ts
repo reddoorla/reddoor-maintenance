@@ -7,7 +7,6 @@ function row(over: Partial<WebsiteRow> = {}): WebsiteRow {
   return makeWebsiteRow({
     id: "recX",
     name: "Acme",
-    dashboardToken: "tok",
     ...over,
   });
 }

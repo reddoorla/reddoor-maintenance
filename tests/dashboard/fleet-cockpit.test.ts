@@ -25,7 +25,6 @@ function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
     securityVulnsHigh: 0,
     securityVulnsModerate: 0,
     securityVulnsLow: 0,
-    dashboardToken: "tok",
     ...over,
   });
 }
@@ -102,18 +101,21 @@ function report(over: Partial<ReportRow> = {}): ReportRow {
 }
 
 describe("buildCockpitModel", () => {
-  it("only includes dashboardToken-visible sites", () => {
+  it("only includes Status-visible sites (maintenance or launch period)", () => {
     const m = buildCockpitModel(
       [
-        site({ id: "a", name: "Visible", dashboardToken: "t" }),
-        site({ id: "b", name: "Hidden", dashboardToken: null }),
+        site({ id: "a", name: "Maintained", status: "maintenance" }),
+        site({ id: "b", name: "Launching", status: "launch period" }),
+        site({ id: "c", name: "Hosted", status: "hosting" }),
+        site({ id: "d", name: "Deprecated", status: "deprecated" }),
+        site({ id: "e", name: "NoStatus", status: null }),
       ],
       [],
       {},
       BASE,
       NOW,
     );
-    expect(m.cards.map((c) => c.site.name)).toEqual(["Visible"]);
+    expect(m.cards.map((c) => c.site.name).sort()).toEqual(["Launching", "Maintained"]);
   });
 
   it("tiers a vuln site as attention and a clean site as healthy", () => {

@@ -15,7 +15,6 @@ function siteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     bpScore: 90,
     seoScore: 100,
     lastLighthouseAuditAt: "2026-05-27T18:00:00Z",
-    dashboardToken: "tok",
     ...over,
   });
 }

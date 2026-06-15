@@ -1,6 +1,6 @@
 // src/dashboard/fleet-cockpit.ts
 import type { WebsiteRow } from "../reports/airtable/websites.js";
-import { siteSlug } from "../reports/airtable/websites.js";
+import { siteSlug, isDashboardVisible } from "../reports/airtable/websites.js";
 import type { AttentionItem } from "../alerts/attention.js";
 import { isPendingApproval } from "../reports/airtable/reports.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
@@ -133,7 +133,8 @@ const TIER_RANK: Record<Tier, number> = { attention: 0, watch: 1, healthy: 2 };
 
 /**
  * Assemble the render-ready cockpit model from already-fetched Airtable rows. PURE
- * (`now` injected). Filters to dashboardToken-visible sites, runs the M5 collectors
+ * (`now` injected). Filters to dashboard-visible sites (maintenance or launch period),
+ * runs the M5 collectors
  * over them, tags NEW/WORSE via diffAttention against the prior digest snapshot
  * (READ-ONLY — the returned `next` is discarded; only the daily digest writes state),
  * tiers each site, computes the summary, and resolves the pending-approval list.
@@ -146,7 +147,7 @@ export function buildCockpitModel(
   now: Date,
   newSubmissions: SubmissionRow[] = [],
 ): CockpitModel {
-  const visible = websites.filter((w) => w.dashboardToken !== null);
+  const visible = websites.filter(isDashboardVisible);
   const sitesById = new Map<string, WebsiteRow>(visible.map((w) => [w.id, w]));
 
   // Per-site NEW-submission counts, keyed by Websites record id. Used for the

@@ -60,11 +60,6 @@ export type WebsiteRow = {
   securityVulnsHigh: number | null;
   securityVulnsModerate: number | null;
   securityVulnsLow: number | null;
-  /** Fleet-homepage VISIBILITY flag (the per-site token gate was retired
-   *  2026-06-10 — the dashboard is operator-only, gated by DASHBOARD_PASSWORD).
-   *  A non-null value opts the site into the `/` fleet view; `null` hides it.
-   *  Any truthy marker works; the value is no longer a secret. */
-  dashboardToken: string | null;
   /** Per-site copy overrides (M6a). Blank → null → the DEFAULT_COPY value. */
   copyIntro: string | null;
   copyContact: string | null;
@@ -86,11 +81,26 @@ export function siteSlug(name: string): string {
 }
 
 /** Blank-trim-to-null: a non-string or whitespace-only value becomes null,
- *  otherwise the trimmed string (mirrors the dashboardToken handling). */
+ *  otherwise the trimmed string. */
 function trimToNull(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const trimmed = raw.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+/**
+ * Active sites: actively-maintained or pre-launch. Single source of truth for
+ * "is this a live site" — the operator cockpit shows these, and the fleet
+ * audit/report path runs against these. A `null` status (not-yet-active) is
+ * deliberately excluded.
+ */
+export const ACTIVE_STATUSES: ReadonlySet<Status> = new Set<Status>([
+  "maintenance",
+  "launch period",
+]);
+
+export function isDashboardVisible(site: WebsiteRow): boolean {
+  return site.status !== null && ACTIVE_STATUSES.has(site.status);
 }
 
 // NOTE: every `f["..."]` key below is a load-bearing magic string that must match
@@ -134,12 +144,6 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     securityVulnsHigh: (f["Security Vulns High"] as number | undefined) ?? null,
     securityVulnsModerate: (f["Security Vulns Moderate"] as number | undefined) ?? null,
     securityVulnsLow: (f["Security Vulns Low"] as number | undefined) ?? null,
-    dashboardToken: (() => {
-      const raw = f["Dashboard Token"];
-      if (typeof raw !== "string") return null;
-      const trimmed = raw.trim();
-      return trimmed.length > 0 ? trimmed : null;
-    })(),
     copyIntro: trimToNull(f["Copy — Intro"]),
     copyContact: trimToNull(f["Copy — Contact"]),
     copyFooter: trimToNull(f["Copy — Footer"]),

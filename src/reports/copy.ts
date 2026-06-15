@@ -51,7 +51,7 @@ export const DEFAULT_COPY: ResolvedCopy = {
   ],
 };
 
-/** Trim an override to null when blank (mirrors dashboardToken). */
+/** Trim an override to null when blank (mirrors the trim-to-null handling). */
 function override(v: string | null): string | null {
   if (typeof v !== "string") return null;
   const t = v.trim();
