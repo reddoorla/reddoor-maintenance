@@ -87,9 +87,18 @@
     "tinyglobby": "^0.2.10",
     "typescript-eslint": "^8.59.1"
   },
+  "peerDependencies": {
+    "@sveltejs/kit": "^2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@sveltejs/kit": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
     "@netlify/functions": "^5.2.2",
+    "@sveltejs/kit": "^2.61.1",
     "@types/mjml": "^4.7.4",
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^4.1.8",
