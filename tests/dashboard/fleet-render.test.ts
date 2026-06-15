@@ -47,6 +47,7 @@ describe("renderCockpitHtml — document shell", () => {
     expect(html).toContain("</html>");
     expect(html).toContain('<meta charset="utf-8"');
     expect(html).toContain('<meta name="viewport"');
+    expect(html).toContain('rel="icon"'); // reddoor favicon
   });
 
   it("includes a sensible page title", () => {

@@ -4,6 +4,7 @@ import type { CockpitModel, SiteCard, Tier, SubmissionEntry } from "./fleet-cock
 import { onboardingStatus } from "./onboarding.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 import { escapeHtml, safeUrl } from "../util/html.js";
+import { FAVICON_LINK } from "./favicon.js";
 
 const DASH = "—";
 
@@ -337,6 +338,7 @@ export function renderCockpitHtml(model: CockpitModel): string {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  ${FAVICON_LINK}
   <title>Reddoor maintenance — fleet cockpit</title>
   <style>${STYLES}</style>
 </head>
