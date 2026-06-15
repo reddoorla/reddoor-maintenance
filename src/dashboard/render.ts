@@ -4,6 +4,7 @@ import { isPendingApproval } from "../reports/airtable/reports.js";
 import type { SubmissionRow } from "../reports/airtable/submissions.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 import { escapeHtml, safeUrl } from "../util/html.js";
+import { FAVICON_LINK } from "./favicon.js";
 
 function scoreTile(label: string, value: number | null): string {
   const display = value === null ? "—" : String(value);
@@ -201,6 +202,7 @@ export function renderSiteDashboardHtml(
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  ${FAVICON_LINK}
   <title>${name} — Reddoor maintenance</title>
   <style>${STYLES}</style>
 </head>
