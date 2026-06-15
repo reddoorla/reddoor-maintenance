@@ -6,7 +6,9 @@ import { escapeHtml } from "../util/html.js";
 const FORMS_FROM = "forms@reddoorla.com";
 const FALLBACK_REPLY_TO = "info@reddoorla.com";
 
-/** Single-operator fleet fallback when OPERATOR_EMAIL is unset (pre-launch leads). */
+// Single-operator fleet fallback when OPERATOR_EMAIL is unset. Deliberately the
+// monitored personal inbox (not the digest's info@ alias) — a missed pre-launch
+// LEAD is higher-stakes than a missed digest, so it should land somewhere watched.
 const OPERATOR_FALLBACK = "tucker@reddoorla.com";
 
 function operatorEmail(): string {

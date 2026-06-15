@@ -94,6 +94,14 @@ describe("buildPocNotification — status-aware recipient", () => {
     expect(out?.to).toEqual(["tucker@reddoorla.com"]);
   });
 
+  it("routes a null-status site to the operator fallback", () => {
+    const out = buildPocNotification(
+      makeWebsiteRow({ name: "X", status: null }),
+      makeSubmissionRow({ formType: "contact", email: "lead@x.co" }),
+    );
+    expect(out?.to).toEqual(["tucker@reddoorla.com"]);
+  });
+
   it("honors OPERATOR_EMAIL for a non-maintenance site", () => {
     process.env.OPERATOR_EMAIL = "ops@reddoorla.com";
     const out = buildPocNotification(makeWebsiteRow({ status: "hosting" }), sub);

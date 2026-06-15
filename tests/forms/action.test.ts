@@ -194,4 +194,18 @@ describe("createIngestAction", () => {
     const result = await action(fakeEvent({ email: "a@b.co", ts: goodTs }, fetchMock));
     expect((result as { status?: number }).status).toBe(502);
   });
+
+  it("does NOT redirect when redirectTo is set but env config is missing (returns fail 500)", async () => {
+    const fetchMock = vi.fn();
+    const action = createIngestAction({
+      formType: "contact",
+      getConfig: () => ({}),
+      buildPayload: () => ({}),
+      redirectTo: "/thank-you",
+      now,
+    });
+    const result = await action(fakeEvent({ email: "a@b.co", ts: goodTs }, fetchMock));
+    expect((result as { status?: number }).status).toBe(500);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
