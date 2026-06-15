@@ -60,11 +60,6 @@ export type WebsiteRow = {
   securityVulnsHigh: number | null;
   securityVulnsModerate: number | null;
   securityVulnsLow: number | null;
-  /** Fleet-homepage VISIBILITY flag (the per-site token gate was retired
-   *  2026-06-10 — the dashboard is operator-only, gated by DASHBOARD_PASSWORD).
-   *  A non-null value opts the site into the `/` fleet view; `null` hides it.
-   *  Any truthy marker works; the value is no longer a secret. */
-  dashboardToken: string | null;
   /** Per-site copy overrides (M6a). Blank → null → the DEFAULT_COPY value. */
   copyIntro: string | null;
   copyContact: string | null;
@@ -86,11 +81,16 @@ export function siteSlug(name: string): string {
 }
 
 /** Blank-trim-to-null: a non-string or whitespace-only value becomes null,
- *  otherwise the trimmed string (mirrors the dashboardToken handling). */
+ *  otherwise the trimmed string. */
 function trimToNull(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const trimmed = raw.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+/** Sites shown on the operator dashboard cockpit: actively-maintained or pre-launch. */
+export function isDashboardVisible(site: WebsiteRow): boolean {
+  return site.status === "maintenance" || site.status === "launch period";
 }
 
 // NOTE: every `f["..."]` key below is a load-bearing magic string that must match
@@ -134,12 +134,6 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     securityVulnsHigh: (f["Security Vulns High"] as number | undefined) ?? null,
     securityVulnsModerate: (f["Security Vulns Moderate"] as number | undefined) ?? null,
     securityVulnsLow: (f["Security Vulns Low"] as number | undefined) ?? null,
-    dashboardToken: (() => {
-      const raw = f["Dashboard Token"];
-      if (typeof raw !== "string") return null;
-      const trimmed = raw.trim();
-      return trimmed.length > 0 ? trimmed : null;
-    })(),
     copyIntro: trimToNull(f["Copy — Intro"]),
     copyContact: trimToNull(f["Copy — Contact"]),
     copyFooter: trimToNull(f["Copy — Footer"]),
