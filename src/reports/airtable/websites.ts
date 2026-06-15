@@ -69,6 +69,10 @@ export type WebsiteRow = {
   /** Optional per-site webhook (e.g. Zapier Catch Hook). When set, the ingest
    *  POSTs newsletter-formType submissions here (best-effort). Blank → null. */
   newsletterWebhook: string | null;
+  /** Per-site Mailchimp (newsletter). Both must be set for the direct add;
+   *  blank → skipped. The API key is `key-dc` format; dc is derived from it. */
+  mailchimpApiKey: string | null;
+  mailchimpAudienceId: string | null;
   /** GitHub-signals sweep (slice 2a), written nightly by `github-signals --fleet`. */
   renovateFailingCis: number | null;
   defaultBranchCi: string | null; // "passing" | "failing" | "pending" | "none"
@@ -152,6 +156,8 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     copyFooter: trimToNull(f["Copy — Footer"]),
     launchedAt: (f["Launched at"] as string | undefined) ?? null,
     newsletterWebhook: trimToNull(f["Newsletter Webhook"]),
+    mailchimpApiKey: trimToNull(f["Mailchimp API Key"]),
+    mailchimpAudienceId: trimToNull(f["Mailchimp Audience ID"]),
     renovateFailingCis: (f["Renovate Failing CIs"] as number | undefined) ?? null,
     defaultBranchCi: (f["Default Branch CI"] as string | undefined) ?? null,
     lastCommitAt: (f["Last Commit At"] as string | undefined) ?? null,
