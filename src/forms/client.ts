@@ -4,17 +4,22 @@ import { SUBMISSION_FORM_TYPES, type FormType } from "./types.js";
  * The JSON a fleet site forwards to the dashboard ingest endpoint. Typed fields
  * are optional; the index signature lets a site include its own extra fields
  * (e.g. `company`) which the dashboard normalizer captures into `extraFields`.
+ *
+ * Each typed field allows `string | undefined` (not just `string`) so a
+ * `buildPayload` mapping can use the idiomatic `form.get("name")?.toString()`
+ * pattern under `exactOptionalPropertyTypes` without a cast — an absent field
+ * and an explicit `undefined` both serialize away in the JSON body.
  */
 export type SubmissionPayload = {
-  formType?: FormType | string;
-  name?: string;
-  firstName?: string;
-  lastName?: string;
-  email?: string;
-  phone?: string;
-  message?: string;
-  sourceUrl?: string;
-  utm?: string;
+  formType?: FormType | string | undefined;
+  name?: string | undefined;
+  firstName?: string | undefined;
+  lastName?: string | undefined;
+  email?: string | undefined;
+  phone?: string | undefined;
+  message?: string | undefined;
+  sourceUrl?: string | undefined;
+  utm?: string | undefined;
   [key: string]: unknown;
 };
 
