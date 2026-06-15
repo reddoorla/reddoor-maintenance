@@ -9,7 +9,10 @@ export type CreateIngestActionOptions = {
   formType: string;
   /** Read at call time so SvelteKit's dynamic private env resolves per-request. */
   getConfig: () => IngestActionConfig;
-  /** Map this form's fields to a payload. `formType` is injected by the factory. */
+  /**
+   * Map this form's fields to a payload. The factory's `formType` is always
+   * authoritative and cannot be overridden by `buildPayload`.
+   */
   buildPayload: (form: FormData, event: RequestEvent) => SubmissionPayload;
   /** Honeypot input name. Default "bot-field". */
   botFieldName?: string;
@@ -42,7 +45,13 @@ export function createIngestAction(
     opts.errorMessage ?? "Something went wrong sending your message. Please try again.";
 
   return async (event) => {
-    const form = await event.request.formData();
+    let form: FormData;
+    try {
+      form = await event.request.formData();
+    } catch {
+      console.error(`[forms-ingest] ${opts.formType}: could not parse form body`);
+      return fail(400, { error: failed });
+    }
 
     // Bot screen: a filled honeypot OR an implausibly fast fill is silently
     // accepted (return success, do NOT forward) so bots get no signal.
@@ -53,15 +62,21 @@ export function createIngestAction(
     if (!screen.ok) return { success: true };
 
     const { url, token } = opts.getConfig();
-    if (!url || !token) return fail(500, { error: unavailable });
+    if (!url || !token) {
+      console.error(`[forms-ingest] config missing for formType=${opts.formType}`);
+      return fail(500, { error: unavailable });
+    }
 
     const result = await submitToIngest({
       url,
       token,
       fetch: event.fetch,
-      payload: { formType: opts.formType, ...opts.buildPayload(form, event) },
+      payload: { ...opts.buildPayload(form, event), formType: opts.formType },
     });
-    if (!result.ok) return fail(502, { error: failed });
+    if (!result.ok) {
+      console.error(`[forms-ingest] ${opts.formType} → ${result.status}: ${result.error}`);
+      return fail(502, { error: failed });
+    }
     return { success: true };
   };
 }

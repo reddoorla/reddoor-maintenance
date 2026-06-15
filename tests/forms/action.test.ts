@@ -122,4 +122,33 @@ describe("createIngestAction", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(JSON.parse(fetchMock.mock.calls[0]![1].body as string).formType).toBe("newsletter");
   });
+
+  it("uses the injected formType even when buildPayload tries to override it", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true, id: "recZ" }));
+    const action = createIngestAction({
+      formType: "contact",
+      getConfig: okConfig,
+      buildPayload: () => ({ formType: "evil", email: "a@b.co" }),
+      now,
+    });
+    const result = await action(fakeEvent({ email: "a@b.co", ts: goodTs }, fetchMock));
+    expect(result).toEqual({ success: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body as string).formType).toBe("contact");
+  });
+
+  it("does not screen out a whitespace-only honeypot (still forwards)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true, id: "recW" }));
+    const action = createIngestAction({
+      formType: "contact",
+      getConfig: okConfig,
+      buildPayload: (form) => ({ email: form.get("email")?.toString() }),
+      now,
+    });
+    const result = await action(
+      fakeEvent({ email: "a@b.co", ts: goodTs, "bot-field": "   " }, fetchMock),
+    );
+    expect(result).toEqual({ success: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
