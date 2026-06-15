@@ -15,6 +15,13 @@ export type IngestDeps = {
   ) => Promise<{ status: NotifyStatus; messageId: string | null }>;
   stampNotified: (id: string, status: NotifyStatus, messageId: string | null) => Promise<void>;
   now: () => Date;
+  /** Optional: POST a newsletter submission to the site's configured webhook
+   *  (best-effort). Omitted in tests/handlers that don't need it. */
+  forwardNewsletter?: (
+    webhookUrl: string,
+    submission: SubmissionRow,
+    site: WebsiteRow,
+  ) => Promise<{ ok: boolean; status: number }>;
 };
 
 export type IngestResult =
@@ -66,6 +73,20 @@ export async function ingestSubmission(
     await deps.stampNotified(row.id, notify.status, notify.messageId);
   } catch (err) {
     console.error(`[ingest] stampNotified failed: ${String(err)}`);
+  }
+
+  // Best-effort fan-out: newsletter signups also flow to a per-site webhook
+  // (e.g. Zapier → mailing list) when configured. A failure here is swallowed
+  // and logged — the lead is already persisted; never turn it into a 502.
+  if (n.formType === "newsletter" && site.newsletterWebhook && deps.forwardNewsletter) {
+    try {
+      const fwd = await deps.forwardNewsletter(site.newsletterWebhook, row, site);
+      if (!fwd.ok) {
+        console.error(`[ingest] newsletter webhook → ${fwd.status} for ${site.name}`);
+      }
+    } catch (err) {
+      console.error(`[ingest] newsletter webhook threw: ${String(err)}`);
+    }
   }
   return { status: "accepted", submissionId: row.id, notifyStatus: notify.status };
 }

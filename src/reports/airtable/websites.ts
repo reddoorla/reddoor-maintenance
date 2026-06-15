@@ -66,6 +66,9 @@ export type WebsiteRow = {
   copyFooter: string | null;
   /** Go-live timestamp, stamped when a Launch report sends (M6b). Null = not yet launched. */
   launchedAt: string | null;
+  /** Optional per-site webhook (e.g. Zapier Catch Hook). When set, the ingest
+   *  POSTs newsletter-formType submissions here (best-effort). Blank → null. */
+  newsletterWebhook: string | null;
   /** GitHub-signals sweep (slice 2a), written nightly by `github-signals --fleet`. */
   renovateFailingCis: number | null;
   defaultBranchCi: string | null; // "passing" | "failing" | "pending" | "none"
@@ -148,6 +151,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     copyContact: trimToNull(f["Copy — Contact"]),
     copyFooter: trimToNull(f["Copy — Footer"]),
     launchedAt: (f["Launched at"] as string | undefined) ?? null,
+    newsletterWebhook: trimToNull(f["Newsletter Webhook"]),
     renovateFailingCis: (f["Renovate Failing CIs"] as number | undefined) ?? null,
     defaultBranchCi: (f["Default Branch CI"] as string | undefined) ?? null,
     lastCommitAt: (f["Last Commit At"] as string | undefined) ?? null,

@@ -3,6 +3,7 @@ import { openBase } from "../../src/reports/airtable/client.js";
 import { getWebsiteBySlug } from "../../src/reports/airtable/websites.js";
 import { createSubmission, stampNotified } from "../../src/reports/airtable/submissions.js";
 import { ingestSubmission } from "../../src/forms/ingest.js";
+import { forwardNewsletterToWebhook } from "../../src/forms/webhook.js";
 import { makeNotify } from "../../src/forms/notify.js";
 import { verifyFormsToken, bearerToken } from "../../src/forms/token.js";
 import { defaultResendClient, type ResendClient } from "../../src/reports/send/resend.js";
@@ -97,6 +98,8 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
         notify: makeNotify(send),
         stampNotified: (id, status, messageId) => stampNotified(base, id, status, messageId),
         now: () => new Date(),
+        forwardNewsletter: (url, submission, site) =>
+          forwardNewsletterToWebhook(url, submission, site),
       },
       slug,
       payload,
