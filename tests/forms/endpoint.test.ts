@@ -150,4 +150,27 @@ describe("createIngestEndpoint", () => {
       guests: "2",
     });
   });
+
+  it("returns 400 on a parseable-but-non-object body (e.g. a bare number)", async () => {
+    const fetchMock = vi.fn();
+    const endpoint = createIngestEndpoint({
+      getConfig: okConfig,
+      buildPayload: () => ({ formType: "contact" }),
+    });
+    const res = await endpoint(fakeEvent(42, fetchMock));
+    expect(res.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 (not 500) when buildPayload throws on malformed input", async () => {
+    const fetchMock = vi.fn();
+    const endpoint = createIngestEndpoint({
+      getConfig: okConfig,
+      // A careless mapping that assumes `name` is present and a string.
+      buildPayload: (body) => ({ formType: "contact", name: (body.name as string).trim() }),
+    });
+    const res = await endpoint(fakeEvent({ formType: "contact" }, fetchMock));
+    expect(res.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

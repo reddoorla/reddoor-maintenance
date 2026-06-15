@@ -67,10 +67,19 @@ export function createIngestEndpoint(
     const screen = screenSubmission({ botField: str(body[botFieldName]) ?? null });
     if (!screen.ok) return json({ ok: true });
 
-    const payload: SubmissionPayload = {
-      ...opts.buildPayload(body, event),
-      ...(opts.formType ? { formType: opts.formType } : {}),
-    };
+    // buildPayload runs on untrusted JSON; a careless field access (e.g.
+    // `body.name.trim()` on a non-string) would otherwise escape as a 500. Treat
+    // a throw as a malformed request (400), keeping the "never 500s" guarantee.
+    let payload: SubmissionPayload;
+    try {
+      payload = {
+        ...opts.buildPayload(body, event),
+        ...(opts.formType ? { formType: opts.formType } : {}),
+      };
+    } catch (err) {
+      console.error(`[forms-ingest] buildPayload threw: ${String(err)}`);
+      return json({ ok: false, error: failed }, { status: 400 });
+    }
     if (!isFormType(payload.formType)) {
       console.error(`[forms-ingest] invalid formType: ${String(payload.formType)}`);
       return json({ ok: false, error: failed }, { status: 400 });
