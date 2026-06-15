@@ -6,3 +6,9 @@ allowBuilds:
   esbuild: true
   protobufjs: true
 minimumReleaseAge: 0
+
+# Carried over from the old package.json "pnpm.auditConfig" (pnpm 11 reads it here now).
+auditConfig:
+  ignoreGhsas:
+    - GHSA-pfq8-rq6v-vf5m
+    - GHSA-45h5-66jx-r2wf
