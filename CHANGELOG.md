@@ -1,5 +1,21 @@
 # @reddoorla/maintenance
 
+## 0.39.0
+
+### Minor Changes
+
+- f55a128: Submission notification emails now include the submission's `extraFields` — the
+  site-specific context a recipient most needs (the artwork an inquiry is about,
+  the event an rsvp is for, the company on a contact). Previously these were
+  stored in Airtable but omitted from the email; now they render as labeled rows
+  (HTML-escaped, empty values dropped, malformed JSON tolerated).
+
+### Patch Changes
+
+- 59da053: Add the reddoor mark as a favicon on the dashboard pages (fleet cockpit + per-site
+  dashboard), inlined as a data-URI so the function-rendered HTML carries the brand
+  with no static-asset request.
+
 ## 0.38.0
 
 ### Minor Changes
