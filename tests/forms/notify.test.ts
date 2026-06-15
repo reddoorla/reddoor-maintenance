@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   buildPocNotification,
   buildAutoresponder,
@@ -79,6 +79,41 @@ describe("notifySubmission", () => {
     const out = await notifySubmission({ send }, site, makeSubmissionRow({ email: "l@x.com" }));
     expect(out.status).toBe("skipped");
     expect(send).toHaveBeenCalledTimes(1); // autoresponder only
+  });
+});
+
+describe("buildPocNotification — status-aware recipient", () => {
+  afterEach(() => {
+    delete process.env.OPERATOR_EMAIL;
+  });
+
+  const sub = makeSubmissionRow({ formType: "contact", name: "A", email: "lead@x.co" });
+
+  it("routes a non-maintenance (launch period) site to the operator fallback", () => {
+    const out = buildPocNotification(makeWebsiteRow({ status: "launch period" }), sub);
+    expect(out?.to).toEqual(["tucker@reddoorla.com"]);
+  });
+
+  it("honors OPERATOR_EMAIL for a non-maintenance site", () => {
+    process.env.OPERATOR_EMAIL = "ops@reddoorla.com";
+    const out = buildPocNotification(makeWebsiteRow({ status: "hosting" }), sub);
+    expect(out?.to).toEqual(["ops@reddoorla.com"]);
+  });
+
+  it("routes a maintenance site to its POC", () => {
+    const out = buildPocNotification(
+      makeWebsiteRow({ status: "maintenance", pointOfContact: "client@site.com" }),
+      sub,
+    );
+    expect(out?.to).toEqual(["client@site.com"]);
+  });
+
+  it("skips (null) a maintenance site with no POC", () => {
+    const out = buildPocNotification(
+      makeWebsiteRow({ status: "maintenance", pointOfContact: null, reportRecipientsTo: null }),
+      sub,
+    );
+    expect(out).toBeNull();
   });
 });
 
