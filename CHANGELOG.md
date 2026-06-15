@@ -1,5 +1,14 @@
 # @reddoorla/maintenance
 
+## 0.37.0
+
+### Minor Changes
+
+- 2624486: Add `createIngestEndpoint` — a JSON `POST`-handler factory for client-driven
+  forms (modals/lightboxes/fetch), the sibling of `createIngestAction`. Screens
+  the honeypot, validates `formType` against `SUBMISSION_FORM_TYPES`, forwards to
+  the dashboard ingest, and returns `{ ok }`-shaped JSON.
+
 ## 0.36.1
 
 ### Patch Changes
