@@ -26,6 +26,37 @@ describe("buildPocNotification", () => {
     expect(buildPocNotification(none, makeSubmissionRow())).toBeNull();
   });
 
+  it("renders extraFields (the artwork an inquiry is about) into the email, dropping empty values", () => {
+    const site = makeWebsiteRow({ pointOfContact: "owner@acme.com" });
+    const sub = makeSubmissionRow({
+      formType: "inquiry",
+      email: "lead@x.com",
+      extraFields: JSON.stringify({
+        piece: "Untitled (2025)",
+        artist: "Jane Doe",
+        appointment_date: "", // empty → dropped
+      }),
+    });
+    const input = buildPocNotification(site, sub)!;
+    expect(input.html).toContain("Piece");
+    expect(input.html).toContain("Untitled (2025)");
+    expect(input.html).toContain("Artist");
+    expect(input.html).toContain("Jane Doe");
+    expect(input.html).not.toContain("Appointment date");
+  });
+
+  it("escapes HTML in extraFields and tolerates malformed JSON without throwing", () => {
+    const site = makeWebsiteRow({ pointOfContact: "owner@acme.com" });
+    const evil = buildPocNotification(
+      site,
+      makeSubmissionRow({ extraFields: JSON.stringify({ note: "<img src=x onerror=alert(1)>" }) }),
+    )!;
+    expect(evil.html).toContain("&lt;img src=x");
+    expect(evil.html).not.toContain("<img src=x");
+    const bad = buildPocNotification(site, makeSubmissionRow({ extraFields: "{not json" }))!;
+    expect(bad.html).toContain("New contact submission"); // malformed JSON → still renders, no extra rows
+  });
+
   it("escapes HTML in the body and strips quotes/newlines from the From display name", () => {
     const site = makeWebsiteRow({ name: 'Acme "Co"\r\n<x>', pointOfContact: "owner@acme.com" });
     const input = buildPocNotification(
