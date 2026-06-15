@@ -20,12 +20,12 @@ data-dynamiq's modal.
 
 The four forms (all hidden in `+layout.svelte`, triggered elsewhere):
 
-| form-name | formType | trigger | notable fields (beyond name/email) |
-|---|---|---|---|
-| `contact` | `contact` | TitleBlock slice (inline "Inquire" expand) | company, phone, appointment_date, appointment_time, message |
-| `inquiry` | `inquiry` | Lightbox artwork modal | phone, message, piece, artist, role |
-| `news` | `newsletter` | NewsletterSignup scroll-modal | (name optional) |
-| `rsvp` | `rsvp` | `/rsvp/[uid]` page | event, guests |
+| form-name | formType     | trigger                                    | notable fields (beyond name/email)                          |
+| --------- | ------------ | ------------------------------------------ | ----------------------------------------------------------- |
+| `contact` | `contact`    | TitleBlock slice (inline "Inquire" expand) | company, phone, appointment_date, appointment_time, message |
+| `inquiry` | `inquiry`    | Lightbox artwork modal                     | phone, message, piece, artist, role                         |
+| `news`    | `newsletter` | NewsletterSignup scroll-modal              | (name optional)                                             |
+| `rsvp`    | `rsvp`       | `/rsvp/[uid]` page                         | event, guests                                               |
 
 All four already carry a honeypot (`bot-field`) and five UTM hidden inputs
 (`utm_source/medium/campaign/term/content`) bound to params captured at layout
@@ -165,7 +165,7 @@ per-form fallback message (`info@gallerysonder.com`) on any `success: false`.
 2. PR-B (gallerysonder) on `^0.37.0`: migrate → CI green → merge → deploy.
 3. PR-C (data-dynamiq) on `^0.37.0`: retrofit → CI green → merge → deploy.
 4. Operator sets gallerysonder Netlify env: `FORMS_INGEST_URL =
-   https://reddoor-maintenance.netlify.app/api/forms/sonder` (**slug must be
+https://reddoor-maintenance.netlify.app/api/forms/sonder` (**slug must be
    `sonder`** — the alamo lesson) + `FORMS_INGEST_TOKEN`.
 5. **Verify guard**: flip Sonder Status → `launch period` so test notifications
    route to the operator, not Josh. POST one of each of the four formTypes to

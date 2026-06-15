@@ -9,9 +9,10 @@
 **Tech Stack:** TypeScript, SvelteKit 2 (Svelte 5), `@sveltejs/kit` (`json`, `RequestEvent`), vitest, tsup, changesets, adapter-netlify.
 
 **Three PRs, with a release gate:**
+
 - **PR-A** (reddoor-maintenance): `createIngestEndpoint` + tests + barrel export → merge → **0.37.0** release (human-gated) → npm publish.
-- **PR-B** (gallerysonder): migrate, consuming `^0.37.0`. *Blocked on the 0.37.0 publish.*
-- **PR-C** (data-dynamiq): retrofit, consuming `^0.37.0`. *Blocked on the 0.37.0 publish.*
+- **PR-B** (gallerysonder): migrate, consuming `^0.37.0`. _Blocked on the 0.37.0 publish._
+- **PR-C** (data-dynamiq): retrofit, consuming `^0.37.0`. _Blocked on the 0.37.0 publish._
 
 Reference spec: `docs/superpowers/specs/2026-06-15-fleet-forms-phase2b-gallerysonder-design.md`.
 
@@ -24,6 +25,7 @@ Branch off `main`: `feat/forms-ingest-endpoint`. Commit the spec + this plan fir
 ### Task 1: `createIngestEndpoint` factory (TDD)
 
 **Files:**
+
 - Create: `src/forms/endpoint.ts`
 - Test: `tests/forms/endpoint.test.ts`
 
@@ -306,6 +308,7 @@ git commit -m "feat(forms): add createIngestEndpoint — JSON sibling of createI
 ### Task 2: Export from the barrel + full verify + changeset
 
 **Files:**
+
 - Modify: `src/forms/index.ts`
 - Create: `.changeset/<name>.md`
 
@@ -314,15 +317,13 @@ git commit -m "feat(forms): add createIngestEndpoint — JSON sibling of createI
 In `src/forms/index.ts`, after the `createIngestAction` export block, add:
 
 ```ts
-export {
-  createIngestEndpoint,
-  type CreateIngestEndpointOptions,
-} from "./endpoint.js";
+export { createIngestEndpoint, type CreateIngestEndpointOptions } from "./endpoint.js";
 ```
 
 - [ ] **Step 2: Full pre-merge verification gate**
 
 Run each; all must pass:
+
 ```bash
 pnpm lint
 pnpm typecheck
@@ -330,6 +331,7 @@ pnpm test
 pnpm build
 pnpm test:dist
 ```
+
 Expected: all green. (`test:dist` confirms `createIngestEndpoint` is reachable from the built barrel — a renamed/missing public export would fail here, not in `build`.)
 
 - [ ] **Step 3: Add a changeset**
@@ -367,6 +369,7 @@ Repo: `/Users/tuckerlemos/Documents/GitHub/gallerysonder`. Branch off `main`: `f
 ### Task 3: Rewrite the client util
 
 **Files:**
+
 - Modify: `src/lib/utils/forms.ts`
 
 - [ ] **Step 1: Replace `submitNetlifyForm` with `submitForm`**
@@ -375,19 +378,19 @@ Replace the whole file with (note: gallerysonder uses **tab** indentation):
 
 ```ts
 export interface FormSubmissionResult {
-	success: boolean;
-	status: number;
+  success: boolean;
+  status: number;
 }
 
 // Legacy `form-name` marker → ingest formType. Only `news` differs.
 const FORM_TYPE_BY_NAME: Record<string, string> = {
-	contact: 'contact',
-	inquiry: 'inquiry',
-	news: 'newsletter',
-	rsvp: 'rsvp'
+  contact: "contact",
+  inquiry: "inquiry",
+  news: "newsletter",
+  rsvp: "rsvp",
 };
 
-const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'];
+const UTM_KEYS = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"];
 
 /**
  * Forward a hidden form's data to the central dashboard ingest endpoint
@@ -400,56 +403,56 @@ const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_c
  * fallbacks fire.
  */
 export async function submitForm(formElement: HTMLFormElement): Promise<FormSubmissionResult> {
-	const formData = new FormData(formElement);
-	const entries: Record<string, string> = {};
-	for (const [key, value] of formData.entries()) {
-		if (typeof value === 'string') entries[key] = value;
-	}
+  const formData = new FormData(formElement);
+  const entries: Record<string, string> = {};
+  for (const [key, value] of formData.entries()) {
+    if (typeof value === "string") entries[key] = value;
+  }
 
-	const formName = entries['form-name'] ?? '';
-	const formType = FORM_TYPE_BY_NAME[formName] ?? formName;
+  const formName = entries["form-name"] ?? "";
+  const formType = FORM_TYPE_BY_NAME[formName] ?? formName;
 
-	// Fold UTM hidden inputs (defaulted to 'none' at mount) into one query string,
-	// dropping empties/'none'; lands in the ingest `utm` column.
-	const utmParams = new URLSearchParams();
-	for (const key of UTM_KEYS) {
-		const value = entries[key];
-		if (value && value !== 'none') utmParams.set(key, value);
-		delete entries[key];
-	}
-	delete entries['form-name'];
+  // Fold UTM hidden inputs (defaulted to 'none' at mount) into one query string,
+  // dropping empties/'none'; lands in the ingest `utm` column.
+  const utmParams = new URLSearchParams();
+  for (const key of UTM_KEYS) {
+    const value = entries[key];
+    if (value && value !== "none") utmParams.set(key, value);
+    delete entries[key];
+  }
+  delete entries["form-name"];
 
-	const payload: Record<string, string> = {
-		...entries,
-		formType,
-		sourceUrl: window.location.href
-	};
-	const utm = utmParams.toString();
-	if (utm) payload.utm = utm;
+  const payload: Record<string, string> = {
+    ...entries,
+    formType,
+    sourceUrl: window.location.href,
+  };
+  const utm = utmParams.toString();
+  if (utm) payload.utm = utm;
 
-	try {
-		const response = await fetch('/api/forms', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(payload)
-		});
-		return { success: response.ok, status: response.status };
-	} catch {
-		// Network error / offline — surface as a failure so the email fallback fires.
-		return { success: false, status: 0 };
-	}
+  try {
+    const response = await fetch("/api/forms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return { success: response.ok, status: response.status };
+  } catch {
+    // Network error / offline — surface as a failure so the email fallback fires.
+    return { success: false, status: 0 };
+  }
 }
 
 export function populateHiddenForm(formId: string, fieldValues: Record<string, string>): boolean {
-	const form = document.getElementById(formId) as HTMLFormElement;
-	if (!form) return false;
+  const form = document.getElementById(formId) as HTMLFormElement;
+  if (!form) return false;
 
-	Object.entries(fieldValues).forEach(([name, value]) => {
-		const field = form.querySelector(`[name="${name}"]`) as HTMLInputElement | HTMLTextAreaElement;
-		if (field) field.value = value;
-	});
+  Object.entries(fieldValues).forEach(([name, value]) => {
+    const field = form.querySelector(`[name="${name}"]`) as HTMLInputElement | HTMLTextAreaElement;
+    if (field) field.value = value;
+  });
 
-	return true;
+  return true;
 }
 ```
 
@@ -463,6 +466,7 @@ git commit -m "feat(forms): submitForm posts JSON to the dashboard ingest (was N
 ### Task 4: Add the ingest endpoint
 
 **Files:**
+
 - Create: `src/routes/api/forms/+server.ts`
 
 - [ ] **Step 1: Create the endpoint**
@@ -482,7 +486,15 @@ const str = (v: unknown): string | undefined => (typeof v === "string" ? v : und
 // site-specific and bundled into `extra` for the dashboard's Extra fields JSON.
 const CONTROL_KEYS = new Set(["bot-field", "ts", "form-name"]);
 const TYPED_KEYS = new Set([
-  "formType", "name", "firstName", "lastName", "email", "phone", "message", "sourceUrl", "utm",
+  "formType",
+  "name",
+  "firstName",
+  "lastName",
+  "email",
+  "phone",
+  "message",
+  "sourceUrl",
+  "utm",
 ]);
 
 export const POST: RequestHandler = createIngestEndpoint({
@@ -516,6 +528,7 @@ git commit -m "feat(forms): add /api/forms multi-type ingest endpoint (createIng
 ### Task 5: Strip Netlify Forms wiring + rename the 4 triggers + bump dep
 
 **Files:**
+
 - Modify: `src/routes/+layout.svelte`
 - Modify: `src/lib/slices/TitleBlock/index.svelte`
 - Modify: `src/lib/components/Lightbox.svelte`
@@ -535,6 +548,7 @@ formType marker), the `bot-field` honeypot input, the UTM hidden inputs, and the
 
 In `TitleBlock/index.svelte`, `Lightbox.svelte`, `NewsletterSignup.svelte`, and
 `rsvp/[uid]/+page.svelte`:
+
 - change `import { populateHiddenForm, submitNetlifyForm } from '$lib/utils/forms'`
   → `import { populateHiddenForm, submitForm } from '$lib/utils/forms'`
 - change the call `submitNetlifyForm(form)` → `submitForm(form)`
@@ -559,7 +573,9 @@ pnpm lint
 pnpm check
 pnpm build
 ```
+
 Expected: all green. Then:
+
 ```bash
 git add -- src/routes/+layout.svelte "src/lib/slices/TitleBlock/index.svelte" src/lib/components/Lightbox.svelte src/lib/components/NewsletterSignup.svelte "src/routes/[[preview=preview]]/rsvp/[uid]/+page.svelte" package.json pnpm-lock.yaml
 git commit -m "feat(forms): drop Netlify Forms wiring, route all 4 forms through /api/forms"
@@ -583,6 +599,7 @@ Repo: `/Users/tuckerlemos/Documents/GitHub/data-dynamiq`. Branch off `main`: `re
 ### Task 6: Rewrite the endpoint onto the helper
 
 **Files:**
+
 - Modify: `src/routes/api/contact/+server.ts`
 - Modify: `package.json`
 
@@ -642,24 +659,24 @@ Merge once CI green + reviews clean. Then redeploy + re-verify.
 ## Post-merge: env wiring, live-verify, Airtable audit (operator + controller)
 
 - [ ] **gallerysonder Netlify env** (operator): set `FORMS_INGEST_URL =
-  https://reddoor-maintenance.netlify.app/api/forms/sonder` (**slug `sonder`** — must
-  match the SITE; the alamo lesson) + `FORMS_INGEST_TOKEN = <shared token>`. Redeploy.
+https://reddoor-maintenance.netlify.app/api/forms/sonder` (**slug `sonder`** — must
+      match the SITE; the alamo lesson) + `FORMS_INGEST_TOKEN = <shared token>`. Redeploy.
 
 - [ ] **Live-verify gallerysonder** (controller): flip Sonder Status → `launch period`
-  (record `recSUY16OKTY7NUNb`) so test notifications route to the operator, not Josh.
-  POST one of each formType (`contact`, `inquiry`, `newsletter`, `rsvp`) to
-  `https://gallerysonder.com/api/forms` with a UTM-bearing payload. For each, confirm
-  the `Submissions` row links `Site → recSUY16OKTY7NUNb`, has the right `formType`,
-  populated `utm` + `Source URL`, and `Notify status: sent`. Delete the test rows.
-  Restore Status → `maintenance`.
+      (record `recSUY16OKTY7NUNb`) so test notifications route to the operator, not Josh.
+      POST one of each formType (`contact`, `inquiry`, `newsletter`, `rsvp`) to
+      `https://gallerysonder.com/api/forms` with a UTM-bearing payload. For each, confirm
+      the `Submissions` row links `Site → recSUY16OKTY7NUNb`, has the right `formType`,
+      populated `utm` + `Source URL`, and `Notify status: sent`. Delete the test rows.
+      Restore Status → `maintenance`.
 
 - [ ] **Airtable field audit** (controller): confirm the Sonder Websites record is
-  dashboard-correct (Status, POC, url, Git repo, slug derivation) — consistent with
-  the per-site audit done for alamo/data-dynamiq.
+      dashboard-correct (Status, POC, url, Git repo, slug derivation) — consistent with
+      the per-site audit done for alamo/data-dynamiq.
 
 - [ ] **Re-verify data-dynamiq** (controller): same flip-guard (its POC is set), POST a
-  contact submission, confirm the row + notify, delete, restore.
+      contact submission, confirm the row + notify, delete, restore.
 
 - [ ] **Memory**: update `fleet-forms-pipeline-phase1.md` + `MEMORY.md` — Phase 2b
-  COMPLETE (all sites migrated), `createIngestEndpoint` shipped (0.37.0), data-dynamiq
-  retrofitted, gallerysonder live-verified.
+      COMPLETE (all sites migrated), `createIngestEndpoint` shipped (0.37.0), data-dynamiq
+      retrofitted, gallerysonder live-verified.
