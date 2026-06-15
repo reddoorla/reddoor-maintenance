@@ -161,9 +161,9 @@ describe("createIngestAction", () => {
       redirectTo: "/thank-you",
       now,
     });
-    await expect(action(fakeEvent({ email: "a@b.co", ts: goodTs }, fetchMock))).rejects.toMatchObject(
-      { status: 303, location: "/thank-you" },
-    );
+    await expect(
+      action(fakeEvent({ email: "a@b.co", ts: goodTs }, fetchMock)),
+    ).rejects.toMatchObject({ status: 303, location: "/thank-you" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
