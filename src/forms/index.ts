@@ -21,3 +21,4 @@ export {
   type IngestActionConfig,
   type IngestActionData,
 } from "./action.js";
+export { createIngestEndpoint, type CreateIngestEndpointOptions } from "./endpoint.js";
