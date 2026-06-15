@@ -45,6 +45,7 @@ export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     copyContact: null,
     copyFooter: null,
     launchedAt: null,
+    newsletterWebhook: null,
     renovateFailingCis: null,
     defaultBranchCi: null,
     lastCommitAt: null,
