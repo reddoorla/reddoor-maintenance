@@ -4,6 +4,7 @@ import { getWebsiteBySlug } from "../../src/reports/airtable/websites.js";
 import { createSubmission, stampNotified } from "../../src/reports/airtable/submissions.js";
 import { ingestSubmission } from "../../src/forms/ingest.js";
 import { forwardNewsletterToWebhook } from "../../src/forms/webhook.js";
+import { addMailchimpMember } from "../../src/forms/mailchimp.js";
 import { makeNotify } from "../../src/forms/notify.js";
 import { verifyFormsToken, bearerToken } from "../../src/forms/token.js";
 import { defaultResendClient, type ResendClient } from "../../src/reports/send/resend.js";
@@ -100,6 +101,13 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
         now: () => new Date(),
         forwardNewsletter: (url, submission, site) =>
           forwardNewsletterToWebhook(url, submission, site),
+        addToMailchimp: (site, submission) =>
+          addMailchimpMember({
+            apiKey: site.mailchimpApiKey ?? "",
+            audienceId: site.mailchimpAudienceId ?? "",
+            email: submission.email,
+            name: submission.name,
+          }),
       },
       slug,
       payload,

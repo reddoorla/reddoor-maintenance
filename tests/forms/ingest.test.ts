@@ -109,4 +109,84 @@ describe("ingestSubmission", () => {
     expect(r.status).toBe("accepted");
     expect(forwardNewsletter).toHaveBeenCalledTimes(1);
   });
+
+  it("adds a newsletter submitter to Mailchimp when both fields are set", async () => {
+    const site = makeWebsiteRow({
+      id: "recSITE",
+      mailchimpApiKey: "abc123-us21",
+      mailchimpAudienceId: "aud1",
+    });
+    const row = makeSubmissionRow({ id: "recSUB", formType: "newsletter" });
+    const addToMailchimp = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    const d = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(site),
+      createSubmission: vi.fn().mockResolvedValue(row),
+      addToMailchimp,
+    });
+    const r = await ingestSubmission(d, "acme", { formType: "newsletter", email: "a@b.co" });
+    expect(r.status).toBe("accepted");
+    expect(addToMailchimp).toHaveBeenCalledTimes(1);
+    expect(addToMailchimp).toHaveBeenCalledWith(site, row);
+  });
+
+  it("does not add a non-newsletter submission to Mailchimp even when configured", async () => {
+    const site = makeWebsiteRow({
+      id: "recSITE",
+      mailchimpApiKey: "abc123-us21",
+      mailchimpAudienceId: "aud1",
+    });
+    const addToMailchimp = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    const d = deps({ getWebsiteBySlug: vi.fn().mockResolvedValue(site), addToMailchimp });
+    const r = await ingestSubmission(d, "acme", { formType: "contact", email: "a@b.co" });
+    expect(r.status).toBe("accepted");
+    expect(addToMailchimp).not.toHaveBeenCalled();
+  });
+
+  it("does not add to Mailchimp when only one of the two fields is set", async () => {
+    const site = makeWebsiteRow({
+      id: "recSITE",
+      mailchimpApiKey: null,
+      mailchimpAudienceId: "aud1",
+    });
+    const addToMailchimp = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    const d = deps({ getWebsiteBySlug: vi.fn().mockResolvedValue(site), addToMailchimp });
+    const r = await ingestSubmission(d, "acme", { formType: "newsletter", email: "a@b.co" });
+    expect(r.status).toBe("accepted");
+    expect(addToMailchimp).not.toHaveBeenCalled();
+  });
+
+  it("swallows a Mailchimp add failure — the lead is still accepted", async () => {
+    const site = makeWebsiteRow({
+      id: "recSITE",
+      mailchimpApiKey: "abc123-us21",
+      mailchimpAudienceId: "aud1",
+    });
+    const addToMailchimp = vi.fn().mockRejectedValue(new Error("mailchimp down"));
+    const d = deps({ getWebsiteBySlug: vi.fn().mockResolvedValue(site), addToMailchimp });
+    const r = await ingestSubmission(d, "acme", { formType: "newsletter", email: "a@b.co" });
+    expect(r.status).toBe("accepted");
+    expect(addToMailchimp).toHaveBeenCalledTimes(1);
+  });
+
+  it("fires BOTH the webhook and Mailchimp when both are configured", async () => {
+    const site = makeWebsiteRow({
+      id: "recSITE",
+      newsletterWebhook: "https://hooks.zapier.com/x",
+      mailchimpApiKey: "abc123-us21",
+      mailchimpAudienceId: "aud1",
+    });
+    const row = makeSubmissionRow({ id: "recSUB", formType: "newsletter" });
+    const forwardNewsletter = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    const addToMailchimp = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    const d = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(site),
+      createSubmission: vi.fn().mockResolvedValue(row),
+      forwardNewsletter,
+      addToMailchimp,
+    });
+    const r = await ingestSubmission(d, "acme", { formType: "newsletter", email: "a@b.co" });
+    expect(r.status).toBe("accepted");
+    expect(forwardNewsletter).toHaveBeenCalledWith("https://hooks.zapier.com/x", row, site);
+    expect(addToMailchimp).toHaveBeenCalledWith(site, row);
+  });
 });
