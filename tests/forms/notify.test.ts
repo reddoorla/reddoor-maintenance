@@ -4,7 +4,9 @@ import {
   buildAutoresponder,
   notifySubmission,
   makeNotify,
+  resolveRecipients,
 } from "../../src/forms/notify.js";
+import type { NotifyRouting } from "../../src/reports/airtable/websites.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import { makeSubmissionRow } from "../_helpers/submission-row.js";
 
@@ -175,5 +177,95 @@ describe("makeNotify", () => {
     );
     expect(out).toEqual({ status: "sent", messageId: "msg_9" });
     expect(send).toHaveBeenCalled();
+  });
+});
+
+describe("resolveRecipients — field-based routing", () => {
+  afterEach(() => {
+    delete process.env.OPERATOR_EMAIL;
+  });
+
+  const routing: NotifyRouting = {
+    field: "interest",
+    routes: {
+      Leasing: "lease@erp.com",
+      "Investor Relations": "invest@erp.com",
+      Both: ["a@erp.com", "b@erp.com"],
+    },
+    default: "fallback@erp.com",
+    cc: ["tucker@reddoorla.com"],
+  };
+  const routed = (over: Partial<Parameters<typeof makeWebsiteRow>[0]> = {}) =>
+    makeWebsiteRow({ status: "maintenance", notifyRouting: routing, ...over });
+  const withInterest = (interest: string) =>
+    makeSubmissionRow({
+      formType: "contact",
+      email: "lead@x.co",
+      extraFields: JSON.stringify({ interest }),
+    });
+
+  it("routes by the interest field value and applies CC", () => {
+    expect(resolveRecipients(routed(), withInterest("Leasing"))).toEqual({
+      to: ["lease@erp.com"],
+      cc: ["tucker@reddoorla.com"],
+    });
+  });
+
+  it("uses the default recipient when the value matches no route", () => {
+    expect(resolveRecipients(routed(), withInterest("Nope"))).toEqual({
+      to: ["fallback@erp.com"],
+      cc: ["tucker@reddoorla.com"],
+    });
+  });
+
+  it("supports an array route (multiple recipients)", () => {
+    expect(resolveRecipients(routed(), withInterest("Both"))).toEqual({
+      to: ["a@erp.com", "b@erp.com"],
+      cc: ["tucker@reddoorla.com"],
+    });
+  });
+
+  it("ignores routing for a pre-launch site (operator only, no CC)", () => {
+    expect(resolveRecipients(routed({ status: "launch period" }), withInterest("Leasing"))).toEqual(
+      {
+        to: ["tucker@reddoorla.com"],
+        cc: [],
+      },
+    );
+  });
+
+  it("falls through to the POC when routing yields nothing and no default is set", () => {
+    const noDefault: NotifyRouting = { field: "interest", routes: { Leasing: "lease@erp.com" } };
+    const out = resolveRecipients(
+      makeWebsiteRow({
+        status: "maintenance",
+        notifyRouting: noDefault,
+        pointOfContact: "poc@erp.com",
+      }),
+      withInterest("Unknown"),
+    );
+    expect(out).toEqual({ to: ["poc@erp.com"], cc: [] });
+  });
+
+  it("keeps single-POC behavior when no routing is configured", () => {
+    expect(
+      resolveRecipients(
+        makeWebsiteRow({ status: "maintenance", pointOfContact: "poc@erp.com" }),
+        makeSubmissionRow({ extraFields: null }),
+      ),
+    ).toEqual({ to: ["poc@erp.com"], cc: [] });
+  });
+
+  it("buildPocNotification emits CC only when present and addresses the routed recipient", () => {
+    const out = buildPocNotification(routed(), withInterest("Investor Relations"))!;
+    expect(out.to).toEqual(["invest@erp.com"]);
+    expect(out.cc).toEqual(["tucker@reddoorla.com"]);
+    expect(out.replyTo).toBe("lead@x.co");
+
+    const plain = buildPocNotification(
+      makeWebsiteRow({ status: "maintenance", pointOfContact: "poc@x.com" }),
+      makeSubmissionRow({ email: "lead@x.co" }),
+    )!;
+    expect(plain.cc).toBeUndefined();
   });
 });

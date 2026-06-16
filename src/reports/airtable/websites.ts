@@ -14,6 +14,26 @@ export type Status =
   | "probably not our problem"
   | "deprecated";
 
+/**
+ * Per-site notification routing. When present on a `maintenance` site, the form
+ * notification is addressed by the value of a submission field (`field`, read from
+ * `extraFields`) — e.g. route a contact form's `interest` to a different recipient
+ * per option, always CC-ing a shared address. Absent (`null`) → the site keeps the
+ * default single-POC behavior. Recipients live HERE (server-side Airtable config),
+ * never supplied by the submitting site, so the ingest can't be turned into an open
+ * relay.
+ */
+export type NotifyRouting = {
+  /** The `extraFields` key whose value selects a route, e.g. "interest". */
+  field: string;
+  /** Field-value → recipient address(es). */
+  routes: Record<string, string | string[]>;
+  /** Recipient(s) when the value matches no route. */
+  default?: string | string[];
+  /** Address(es) CC'd on every routed (maintenance) send. */
+  cc?: string[];
+};
+
 export type WebsiteRow = {
   id: string;
   name: string;
@@ -78,6 +98,7 @@ export type WebsiteRow = {
   defaultBranchCi: string | null; // "passing" | "failing" | "pending" | "none"
   lastCommitAt: string | null;
   githubSignalsAt: string | null;
+  notifyRouting: NotifyRouting | null;
 };
 
 export function siteSlug(name: string): string {
@@ -93,6 +114,35 @@ function trimToNull(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const trimmed = raw.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+/**
+ * Parse the Websites `Notify Routing` JSON into a NotifyRouting, defensively: a
+ * non-string, blank, malformed-JSON, or wrong-shape value yields null (the site
+ * then keeps default single-POC routing) — never throws. Mirrors the pipeline's
+ * "a bad Airtable string degrades quietly" rule.
+ */
+export function parseNotifyRouting(raw: unknown): NotifyRouting | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const o = parsed as Record<string, unknown>;
+  if (typeof o.field !== "string" || !o.field.trim()) return null;
+  if (!o.routes || typeof o.routes !== "object" || Array.isArray(o.routes)) return null;
+  const routing: NotifyRouting = {
+    field: o.field,
+    routes: o.routes as Record<string, string | string[]>,
+  };
+  if (o.default !== undefined) routing.default = o.default as string | string[];
+  if (Array.isArray(o.cc)) routing.cc = o.cc.filter((x): x is string => typeof x === "string");
+  return routing;
 }
 
 /**
@@ -156,6 +206,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     copyFooter: trimToNull(f["Copy — Footer"]),
     launchedAt: (f["Launched at"] as string | undefined) ?? null,
     newsletterWebhook: trimToNull(f["Newsletter Webhook"]),
+    notifyRouting: parseNotifyRouting(f["Notify Routing"]),
     mailchimpApiKey: trimToNull(f["Mailchimp API Key"]),
     mailchimpAudienceId: trimToNull(f["Mailchimp Audience ID"]),
     renovateFailingCis: (f["Renovate Failing CIs"] as number | undefined) ?? null,

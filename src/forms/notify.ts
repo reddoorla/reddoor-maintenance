@@ -24,14 +24,49 @@ function pocAddress(site: WebsiteRow): string | null {
   return site.pointOfContact ?? site.reportRecipientsTo ?? null;
 }
 
+/** Coerce a string|string[] recipient config into a clean, de-duped address list. */
+function normalizeRecipients(v: string | string[] | undefined): string[] {
+  const arr = Array.isArray(v) ? v : v ? [v] : [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of arr) {
+    if (typeof raw !== "string") continue;
+    const t = raw.trim();
+    if (t && !seen.has(t)) {
+      seen.add(t);
+      out.push(t);
+    }
+  }
+  return out;
+}
+
+export type Recipients = { to: string[]; cc: string[] };
+
 /**
- * Where a submission notification goes. Pre-launch sites (anything not yet in
- * "maintenance") route to the operator, who is monitoring them; once a site is in
- * maintenance, leads go to its client POC (null → notify skips).
+ * Where a submission notification goes.
+ * - Pre-launch (status !== "maintenance"): the operator only — no routing, no CC.
+ *   Preserves the verify guard (flip a site to "launch period" to route tests to
+ *   yourself).
+ * - Maintenance + a `Notify Routing` config: address by the routing field's value
+ *   (`extraFields[field]`) → its matched route, else the config `default`; CC from
+ *   the config. If nothing resolves, fall through to the single POC.
+ * - Maintenance, no routing: the single site POC (pointOfContact ?? reportRecipientsTo).
+ * Returns null only when nothing resolves — the lead is still persisted; notify skips.
  */
-function notifyRecipient(site: WebsiteRow): string | null {
-  if (site.status !== "maintenance") return operatorEmail();
-  return pocAddress(site);
+export function resolveRecipients(site: WebsiteRow, submission: SubmissionRow): Recipients | null {
+  if (site.status !== "maintenance") {
+    return { to: [operatorEmail()], cc: [] };
+  }
+  const routing = site.notifyRouting;
+  if (routing) {
+    const value = parseExtraFields(submission.extraFields)[routing.field];
+    const match = typeof value === "string" ? routing.routes[value] : undefined;
+    const to = normalizeRecipients(match ?? routing.default);
+    if (to.length > 0) return { to, cc: normalizeRecipients(routing.cc) };
+    // routing matched nothing → fall through to the POC below
+  }
+  const poc = pocAddress(site);
+  return poc ? { to: [poc], cc: [] } : null;
 }
 
 /** Humanize an extraFields key for display: "appointment_date" → "Appointment date". */
@@ -54,16 +89,23 @@ function formatValue(v: unknown): string {
  * otherwise only live in the Airtable record. Bad JSON or a non-object yields no
  * rows (never throws); empty-string values are dropped.
  */
-function extraFieldRows(raw: string | null): Array<[string, string]> {
-  if (!raw) return [];
-  let parsed: unknown;
+/** Parse the stored `extraFields` JSON into a plain object — bad JSON or a
+ *  non-object yields {} (never throws). Shared by the email renderer and routing. */
+function parseExtraFields(raw: string | null): Record<string, unknown> {
+  if (!raw) return {};
   try {
-    parsed = JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
   } catch {
-    return [];
+    /* malformed JSON → no fields */
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [];
-  return Object.entries(parsed as Record<string, unknown>)
+  return {};
+}
+
+function extraFieldRows(raw: string | null): Array<[string, string]> {
+  return Object.entries(parseExtraFields(raw))
     .filter(([, v]) => !(typeof v === "string" && v.trim() === ""))
     .map(([k, v]) => [humanizeKey(k), formatValue(v)] as [string, string]);
 }
@@ -95,16 +137,17 @@ export function buildPocNotification(
   site: WebsiteRow,
   submission: SubmissionRow,
 ): ResendSendInput | null {
-  const to = notifyRecipient(site);
-  if (!to) return null;
+  const recipients = resolveRecipients(site, submission);
+  if (!recipients || recipients.to.length === 0) return null;
   const input: ResendSendInput = {
     from: `${displayName(site.name)} Forms <${FORMS_FROM}>`,
-    to: [to],
+    to: recipients.to,
     subject: `New ${submission.formType} from ${site.name}`,
     html: `<h2>New ${escapeHtml(submission.formType)} submission — ${escapeHtml(
       site.name,
     )}</h2>${fieldsTable(submission)}`,
   };
+  if (recipients.cc.length > 0) input.cc = recipients.cc;
   // Reply straight to the lead.
   if (submission.email) input.replyTo = submission.email;
   return input;
@@ -122,7 +165,7 @@ export function buildAutoresponder(
   return {
     from: `${displayName(site.name)} <${FORMS_FROM}>`,
     to: [submission.email],
-    replyTo: notifyRecipient(site) ?? FALLBACK_REPLY_TO,
+    replyTo: resolveRecipients(site, submission)?.to[0] ?? FALLBACK_REPLY_TO,
     subject: "We got your message",
     html: `<p>${escapeHtml(intro)}</p><p>${escapeHtml(contact)}</p><p>${escapeHtml(footer)}</p>`,
   };
