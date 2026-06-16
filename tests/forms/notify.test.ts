@@ -256,6 +256,47 @@ describe("resolveRecipients — field-based routing", () => {
     ).toEqual({ to: ["poc@erp.com"], cc: [] });
   });
 
+  it("degrades a whitespace-only or non-string route value to the POC", () => {
+    const blankRoute: NotifyRouting = { field: "interest", routes: { Leasing: "   " } };
+    expect(
+      resolveRecipients(
+        makeWebsiteRow({
+          status: "maintenance",
+          notifyRouting: blankRoute,
+          pointOfContact: "poc@erp.com",
+        }),
+        withInterest("Leasing"),
+      ),
+    ).toEqual({ to: ["poc@erp.com"], cc: [] });
+
+    // A non-string route value (operator JSON typo) must not become a recipient.
+    const badType = { field: "interest", routes: { Leasing: 42 } } as unknown as NotifyRouting;
+    expect(
+      resolveRecipients(
+        makeWebsiteRow({
+          status: "maintenance",
+          notifyRouting: badType,
+          pointOfContact: "poc@erp.com",
+        }),
+        withInterest("Leasing"),
+      ),
+    ).toEqual({ to: ["poc@erp.com"], cc: [] });
+  });
+
+  it("de-dupes repeated recipients in routes and cc", () => {
+    const dupes: NotifyRouting = {
+      field: "interest",
+      routes: { Both: ["a@erp.com", "a@erp.com", "b@erp.com"] },
+      cc: ["tucker@reddoorla.com", "tucker@reddoorla.com"],
+    };
+    expect(
+      resolveRecipients(
+        makeWebsiteRow({ status: "maintenance", notifyRouting: dupes }),
+        withInterest("Both"),
+      ),
+    ).toEqual({ to: ["a@erp.com", "b@erp.com"], cc: ["tucker@reddoorla.com"] });
+  });
+
   it("buildPocNotification emits CC only when present and addresses the routed recipient", () => {
     const out = buildPocNotification(routed(), withInterest("Investor Relations"))!;
     expect(out.to).toEqual(["invest@erp.com"]);
