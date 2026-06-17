@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isHttpUrl } from "../../src/util/url.js";
+import { isHttpUrl, isNetlifyAppUrl } from "../../src/util/url.js";
 
 describe("isHttpUrl", () => {
   it("accepts http and https URLs", () => {
@@ -20,5 +20,29 @@ describe("isHttpUrl", () => {
     expect(isHttpUrl("")).toBe(false);
     expect(isHttpUrl("   ")).toBe(false);
     expect(isHttpUrl("/relative/path")).toBe(false);
+  });
+});
+
+describe("isNetlifyAppUrl", () => {
+  it("matches a *.netlify.app host (the default no-custom-domain deploy URL)", () => {
+    expect(isNetlifyAppUrl("https://vineyard-custom-homes.netlify.app")).toBe(true);
+    expect(isNetlifyAppUrl("https://branch--site.netlify.app/path")).toBe(true);
+    expect(isNetlifyAppUrl("https://netlify.app")).toBe(true);
+  });
+
+  it("does NOT match a real custom domain", () => {
+    expect(isNetlifyAppUrl("https://acme.example.com")).toBe(false);
+    expect(isNetlifyAppUrl("https://lahomelessnessawareness.org/")).toBe(false);
+  });
+
+  it("is not fooled by a netlify.app substring in a different domain", () => {
+    expect(isNetlifyAppUrl("https://foo.netlify.app.evil.com")).toBe(false);
+    expect(isNetlifyAppUrl("https://netlify.app.evil.com")).toBe(false);
+  });
+
+  it("returns false for a missing or unparseable URL", () => {
+    expect(isNetlifyAppUrl("")).toBe(false);
+    expect(isNetlifyAppUrl("   ")).toBe(false);
+    expect(isNetlifyAppUrl("notaurl")).toBe(false);
   });
 });
