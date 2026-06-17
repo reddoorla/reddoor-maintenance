@@ -3,14 +3,40 @@ import { listWebsites, siteSlug } from "../../reports/airtable/websites.js";
 import { listAllReports } from "../../reports/airtable/reports.js";
 import { findDueReports, reportPeriodKey } from "../../reports/due.js";
 import { draftReportForSite } from "../../reports/draft.js";
+import type { ReportType } from "../../reports/types.js";
 
 export type ReportCommandOptions = {
   due?: boolean;
   preview?: boolean;
   sendReady?: boolean;
   digest?: boolean;
+  type?: string;
   cwd?: string;
 };
+
+/**
+ * Parse the single-site `--type` flag. Only Maintenance and Testing are draftable
+ * this way — Launch has the `launch <site>` command and Announcement has
+ * `announce <site>`, each with its own purpose-built flow. Case-insensitive;
+ * defaults to Maintenance (the historical single-site behaviour). Throws an
+ * exitCode-2 usage error on anything else. PURE.
+ */
+export function parseSingleSiteReportType(raw: string | undefined): ReportType {
+  if (raw === undefined || raw.trim() === "") return "Maintenance";
+  const norm = raw.trim().toLowerCase();
+  if (norm === "maintenance") return "Maintenance";
+  if (norm === "testing") return "Testing";
+  const hint =
+    norm === "launch"
+      ? " — use the `launch <site>` command"
+      : norm === "announcement"
+        ? " — use the `announce <site>` command"
+        : "";
+  throw Object.assign(
+    new Error(`--type must be Maintenance or Testing (got ${JSON.stringify(raw)})${hint}`),
+    { exitCode: 2 },
+  );
+}
 
 /** Dashboard origin for digest /s/<slug> links. DASHBOARD_BASE_URL overrides the
  *  production default; the trailing slash (if any) is trimmed by runDigest. */
@@ -37,11 +63,16 @@ export async function runReportCommand(
   }
 
   if (slug) {
-    return runSingleSiteDraft(slug, { previewOnly: Boolean(opts.preview) });
+    // Validate the type BEFORE any Airtable access so a bad --type fails fast (and
+    // without needing credentials).
+    const reportType = parseSingleSiteReportType(opts.type);
+    return runSingleSiteDraft(slug, { previewOnly: Boolean(opts.preview), reportType });
   }
 
   throw Object.assign(
-    new Error("Usage: reddoor-maint report [<slug>] [--due] [--preview] [--send-ready] [--digest]"),
+    new Error(
+      "Usage: reddoor-maint report [<slug>] [--type <Maintenance|Testing>] [--due] [--preview] [--send-ready] [--digest]",
+    ),
     {
       exitCode: 2,
     },
@@ -158,7 +189,7 @@ export async function draftDueReports(
 
 async function runSingleSiteDraft(
   slug: string,
-  opts: { previewOnly: boolean },
+  opts: { previewOnly: boolean; reportType: ReportType },
 ): Promise<{ output: string; code: number }> {
   const base = openBase(readAirtableConfig());
   const websites = await listWebsites(base);
@@ -166,7 +197,7 @@ async function runSingleSiteDraft(
   if (!site) {
     throw Object.assign(new Error(`No Websites row matched slug "${slug}"`), { exitCode: 2 });
   }
-  const result = await draftReportForSite(opts.previewOnly ? null : base, site, "Maintenance", {
+  const result = await draftReportForSite(opts.previewOnly ? null : base, site, opts.reportType, {
     previewOnly: opts.previewOnly,
   });
   if (opts.previewOnly) {

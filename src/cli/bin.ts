@@ -306,6 +306,7 @@ cli
 cli
   .command("report [site]", "Draft or send maintenance/testing reports.")
   .option("--due", "Scan all Websites and draft overdue reports.")
+  .option("--type <type>", "Single-site draft report type: Maintenance (default) or Testing.")
   .option(
     "--preview",
     "Single-site dry run; writes reports/<slug>/draft.html, never touches Airtable.",
@@ -323,6 +324,7 @@ cli
       site,
       opts: {
         due?: boolean;
+        type?: string;
         preview?: boolean;
         sendReady?: boolean;
         digest?: boolean;
