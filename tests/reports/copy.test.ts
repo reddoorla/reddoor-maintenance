@@ -51,8 +51,9 @@ describe("resolveCopy", () => {
   });
 
   it("exposes announcement copy defaults", () => {
-    expect(DEFAULT_COPY.announceHeading).toBe("YOUR MONTHLY REPORT");
+    expect(DEFAULT_COPY.announceHeading).toBe("YOUR ONGOING SITE CARE");
     expect(DEFAULT_COPY.announceMonitorItems).toHaveLength(4);
+    expect(DEFAULT_COPY.announceCadenceHeading).toBe("WHAT TO EXPECT");
   });
 
   it("passes the announce* keys through resolveCopy unchanged", () => {
@@ -64,6 +65,9 @@ describe("resolveCopy", () => {
     expect(c.announceImprovementResend).toBe(DEFAULT_COPY.announceImprovementResend);
     expect(c.announceImprovementSvelte5).toBe(DEFAULT_COPY.announceImprovementSvelte5);
     expect(c.announceCadence).toBe(DEFAULT_COPY.announceCadence);
+    expect(c.announceCadenceHeading).toBe(DEFAULT_COPY.announceCadenceHeading);
+    expect(c.announceTestingLabel).toBe(DEFAULT_COPY.announceTestingLabel);
+    expect(c.announceMaintenanceLabel).toBe(DEFAULT_COPY.announceMaintenanceLabel);
     expect(c.announceOpenDoor).toBe(DEFAULT_COPY.announceOpenDoor);
   });
 });

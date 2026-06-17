@@ -15,6 +15,9 @@ export type ResolvedCopy = {
   launchSetupItems: string[];
   announceHeading: string;
   announceBody: string;
+  announceCadenceHeading: string;
+  announceTestingLabel: string;
+  announceMaintenanceLabel: string;
   announceMonitorItems: string[];
   announcePreviewLabel: string;
   announceImprovementResend: string;
@@ -57,16 +60,20 @@ export const DEFAULT_COPY: ResolvedCopy = {
     "Continuous integration + automatic dependency updates",
     "Analytics and uptime monitoring",
   ],
-  announceHeading: "YOUR MONTHLY REPORT",
+  announceHeading: "YOUR ONGOING SITE CARE",
   announceBody:
-    "We've set up ongoing monitoring and maintenance for your site. Each month we quietly check that everything's healthy and up to date — and now you'll get a short report so you can see it at a glance.",
+    "We've completed a full test of your site and set it up for ongoing care to keep it fast, secure, and healthy. Here's what you can expect from us going forward:",
+  announceCadenceHeading: "WHAT TO EXPECT",
+  announceTestingLabel: "Full site testing",
+  announceMaintenanceLabel: "Routine maintenance",
   announceMonitorItems: ["Performance", "Accessibility", "Security", "Uptime"],
-  announcePreviewLabel: "A snapshot of your latest scores:",
+  announcePreviewLabel: "From your latest full site test:",
   announceImprovementResend:
     "Your contact forms now deliver straight to your inbox through reliable infrastructure, so no inquiry slips through the cracks.",
   announceImprovementSvelte5:
     "We've modernized your site to the latest framework — it's faster, more secure, and built to last.",
-  announceCadence: "You'll receive this every month. There's nothing you need to do.",
+  announceCadence:
+    "After each one we'll send you a short report like this — there's nothing you need to do.",
   announceOpenDoor:
     "And if you'd ever like to expand the scope, add features, or freshen anything up, just reply — we'd love to help.",
 };

@@ -87,6 +87,10 @@ export async function announce(deps?: AnnounceDeps): Promise<AnnounceResult> {
         commentary: null,
         copy: resolveCopy(w),
         headerImageCid: `${slug}-header`,
+        // The client's go-forward pace, read straight off the Websites row — the email
+        // states each cadence ("Full site testing — every quarter", etc.); a "None" pace
+        // is omitted so we never claim a cadence the site isn't on.
+        cadence: { maintenance: w.maintenanceFreq, testing: w.testingFreq },
         // Default-on fleet-wide for v1: both recent-improvement callouts render for every
         // site. Operator review (the draft never auto-sends) is the relevance backstop;
         // per-site conditioning of these flags is a future lever, not a v1 requirement.
@@ -160,6 +164,6 @@ function draftInputFor(
     completedOn: now,
     lighthouse: scores,
     lastTestedDate: null,
-    subjectOverride: `Your new monthly report for ${w.name}`,
+    subjectOverride: `Your testing & maintenance schedule for ${w.name}`,
   };
 }
