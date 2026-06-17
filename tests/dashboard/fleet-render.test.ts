@@ -365,6 +365,21 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
     expect(html).not.toMatch(/data-signals="[^"]*lighthouse[^"]*"/);
   });
 
+  it("offers a 'no-domain' filter chip and tags a maintenance site still on *.netlify.app", () => {
+    const html = renderCockpitHtml(
+      model([
+        siteRow({
+          id: "nd",
+          name: "NoDomain",
+          status: "maintenance",
+          url: "https://x.netlify.app",
+        }),
+      ]),
+    );
+    expect(html).toContain('data-filter="no-domain"');
+    expect(html).toMatch(/data-signals="[^"]*no-domain[^"]*"/);
+  });
+
   it("renders the all-clear banner when nothing needs attention", () => {
     const html = renderCockpitHtml(model([siteRow()]));
     expect(html).toContain("all-clear");

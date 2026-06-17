@@ -146,6 +146,7 @@ const FILTERS = [
   "prs",
   "ci",
   "stale",
+  "no-domain",
   "pending",
   "submissions",
 ] as const;

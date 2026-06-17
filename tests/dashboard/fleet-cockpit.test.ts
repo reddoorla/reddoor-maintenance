@@ -232,6 +232,31 @@ describe("assignTier — structured watchSignals", () => {
     expect(assignTier(site(), [item()], NOW).watchSignals).toEqual([]);
     expect(assignTier(site(), [], NOW).watchSignals).toEqual([]);
   });
+
+  it("flags a maintenance site still on *.netlify.app (no custom domain) as watch", () => {
+    const r = assignTier(
+      site({ status: "maintenance", url: "https://vineyard-custom-homes.netlify.app" }),
+      [],
+      NOW,
+    );
+    expect(r.tier).toBe("watch");
+    expect(r.watchSignals).toContain("no-domain");
+    expect(r.watchReasons.some((s) => /netlify\.app/.test(s))).toBe(true);
+  });
+
+  it("does NOT flag a maintenance site that has a custom domain", () => {
+    const r = assignTier(site({ status: "maintenance", url: "https://acme.example.com" }), [], NOW);
+    expect(r.watchSignals).not.toContain("no-domain");
+  });
+
+  it("does NOT flag a launch-period site on *.netlify.app (no domain is expected pre-launch)", () => {
+    const r = assignTier(
+      site({ status: "launch period", url: "https://espada.netlify.app" }),
+      [],
+      NOW,
+    );
+    expect(r.watchSignals).not.toContain("no-domain");
+  });
 });
 
 describe("buildCockpitModel — GitHub signals (slice 2b)", () => {

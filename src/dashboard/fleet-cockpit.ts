@@ -15,6 +15,7 @@ import {
 } from "../alerts/digest-collectors.js";
 import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
 import { relativeTimeFromNow } from "./relative-time.js";
+import { isNetlifyAppUrl } from "../util/url.js";
 
 export type Tier = "attention" | "watch" | "healthy";
 
@@ -68,6 +69,13 @@ export function assignTier(
       watchReasons.push(`last commit ${relativeTimeFromNow(site.lastCommitAt, now)}`);
       signals.add("stale");
     }
+  }
+  // A live (maintenance) site still served from *.netlify.app never got a custom
+  // domain — a launch-completeness gap worth surfacing. Only for maintenance: a
+  // launch-period site on netlify.app is expected (not launched yet).
+  if (site.status === "maintenance" && isNetlifyAppUrl(site.url)) {
+    watchReasons.push("on *.netlify.app (no custom domain)");
+    signals.add("no-domain");
   }
   return watchReasons.length > 0
     ? { tier: "watch", watchReasons, watchSignals: [...signals] }

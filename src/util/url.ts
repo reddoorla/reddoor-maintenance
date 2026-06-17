@@ -17,3 +17,21 @@ export function isHttpUrl(s: string): boolean {
   }
   return parsed.protocol === "http:" || parsed.protocol === "https:";
 }
+
+/**
+ * True when `s` is a URL served from Netlify's default `*.netlify.app` host —
+ * i.e. the site has no custom domain. Matches the apex `netlify.app` and any
+ * subdomain of it (including deploy-preview hosts like `branch--site.netlify.app`),
+ * but is not fooled by a look-alike such as `foo.netlify.app.evil.com` (the host
+ * must END at `.netlify.app`). An unparseable/empty value is not a match.
+ */
+export function isNetlifyAppUrl(s: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(s);
+  } catch {
+    return false;
+  }
+  const host = parsed.hostname.toLowerCase();
+  return host === "netlify.app" || host.endsWith(".netlify.app");
+}
