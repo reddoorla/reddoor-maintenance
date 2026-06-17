@@ -64,4 +64,17 @@ describe("screenSubmission", () => {
   it("rejects a too-fast fill", () => {
     expect(screenSubmission({ elapsedMs: 500 })).toEqual({ ok: false, reason: "too-fast" });
   });
+
+  it("uses an 800ms threshold so realistic-but-quick human fills are not dropped", () => {
+    // Tuned down from 2000ms: a fill that takes ~0.8s+ (page render → fill →
+    // click → network) is a plausible fast human and must NOT be silently lost.
+    // Only sub-threshold, effectively-instant submits read as a bot.
+    expect(MIN_FILL_MS).toBe(800);
+    expect(screenSubmission({ elapsedMs: 1000 })).toEqual({ ok: true });
+    expect(screenSubmission({ elapsedMs: MIN_FILL_MS })).toEqual({ ok: true }); // boundary: == is OK
+    expect(screenSubmission({ elapsedMs: MIN_FILL_MS - 1 })).toEqual({
+      ok: false,
+      reason: "too-fast",
+    });
+  });
 });

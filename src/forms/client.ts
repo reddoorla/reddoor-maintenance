@@ -71,8 +71,17 @@ export async function submitToIngest(opts: SubmitToIngestOptions): Promise<Inges
 export type ScreenInput = { botField?: string | null; elapsedMs?: number | null };
 export type ScreenResult = { ok: true } | { ok: false; reason: "honeypot" | "too-fast" };
 
-/** Minimum plausible fill time; faster than this reads as a bot. */
-export const MIN_FILL_MS = 2000;
+/**
+ * Minimum plausible fill time; faster than this reads as a bot. Kept low (800ms)
+ * on purpose: a too-fast fill is dropped *silently* (the visitor sees success),
+ * so a real human who happens to be quick — autofill, a short form, a returning
+ * visitor — would lose their lead with no trace. Below this, a submit is
+ * effectively instant (page render → fill → click → network all under ~0.8s),
+ * which a human realistically never beats but a script does. The honeypot is the
+ * primary bot signal; this is the secondary one, so it errs toward letting
+ * borderline-fast humans through.
+ */
+export const MIN_FILL_MS = 800;
 
 /**
  * Cheap bot screen for the site action. A filled honeypot is a bot; a submission
