@@ -1,5 +1,6 @@
 import type { FieldSet, Records } from "airtable";
 import type { AirtableBase } from "./client.js";
+import { escapeFormulaString } from "./reports.js";
 import { SUBMISSION_FORM_TYPES, type FormType } from "../../forms/types.js";
 
 export const SUBMISSIONS_TABLE = "Submissions";
@@ -109,20 +110,6 @@ export async function createSubmission(
   return mapRow({ id: rec.id, fields: rec.fields });
 }
 
-export async function listRecentSubmissions(
-  base: AirtableBase,
-  max = 200,
-): Promise<SubmissionRow[]> {
-  const out: SubmissionRow[] = [];
-  await base(SUBMISSIONS_TABLE)
-    .select({ pageSize: 100 })
-    .eachPage((records, fetchNextPage) => {
-      for (const rec of records) out.push(mapRow({ id: rec.id, fields: rec.fields }));
-      fetchNextPage();
-    });
-  return out.sort((a, b) => (b.submittedAt ?? "").localeCompare(a.submittedAt ?? "")).slice(0, max);
-}
-
 export async function listNewSubmissions(base: AirtableBase): Promise<SubmissionRow[]> {
   const out: SubmissionRow[] = [];
   await base(SUBMISSIONS_TABLE)
@@ -140,10 +127,32 @@ export async function listNewSubmissions(base: AirtableBase): Promise<Submission
 
 export async function listSubmissionsForSite(
   base: AirtableBase,
-  siteId: string,
+  site: { id: string; name: string },
+  max = 200,
 ): Promise<SubmissionRow[]> {
-  const all = await listRecentSubmissions(base);
-  return all.filter((s) => s.siteId === siteId);
+  // Narrow server-side instead of paging the entire Submissions table on every
+  // /s/:slug load — the one unbounded table at fleet scale. {Site} is a linked
+  // field, so its formula value is the linked Website's primary field (Name);
+  // fleet names are unique, so {Site} = "<name>" identifies this site's rows.
+  // (Mirrors getWebsiteBySlug's server-side filter refactor.)
+  const out: SubmissionRow[] = [];
+  await base(SUBMISSIONS_TABLE)
+    .select({
+      filterByFormula: `{Site} = "${escapeFormulaString(site.name)}"`,
+      sort: [{ field: "Submitted at", direction: "desc" }],
+      maxRecords: max,
+      pageSize: 100,
+    })
+    .eachPage((records, fetchNextPage) => {
+      for (const rec of records) out.push(mapRow({ id: rec.id, fields: rec.fields }));
+      fetchNextPage();
+    });
+  // Confirm by the linked record id in JS: the name filter leans on the
+  // uniqueness invariant, and the test fake ignores filterByFormula — this keeps
+  // the result correct (and sorted newest-first) under both.
+  return out
+    .filter((s) => s.siteId === site.id)
+    .sort((a, b) => (b.submittedAt ?? "").localeCompare(a.submittedAt ?? ""));
 }
 
 export async function getSubmissionById(

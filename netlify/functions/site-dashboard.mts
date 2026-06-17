@@ -104,7 +104,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
 
     let submissions: Awaited<ReturnType<typeof listSubmissionsForSite>> = [];
     try {
-      submissions = await listSubmissionsForSite(base, site.id);
+      submissions = await listSubmissionsForSite(base, { id: site.id, name: site.name });
     } catch {
       // submissions section simply absent — the rest of the page still renders
     }
