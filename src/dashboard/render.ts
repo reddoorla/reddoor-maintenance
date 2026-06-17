@@ -6,6 +6,7 @@ import { relativeTimeFromNow } from "./relative-time.js";
 import { escapeHtml, safeUrl } from "../util/html.js";
 import { FAVICON_LINK } from "./favicon.js";
 import { onboardingStatus, missingOnboarding } from "./onboarding.js";
+import { checklistFor, isChecklistComplete } from "../reports/checklist.js";
 
 const DASH = "—";
 
@@ -46,10 +47,37 @@ function securitySub(site: WebsiteRow): string | null {
   return `${c}C / ${h}H / ${m}M / ${l}L`;
 }
 
+/** The interactive operator-checklist for one pending report: one checkbox per
+ *  `checklistFor(reportType)` item, current state from `report.checklist`, each
+ *  carrying the report record id + the Airtable field name so the client can POST
+ *  to /api/reports/:id/checklist and re-gate the Approve button. Launch/Announcement
+ *  reports (empty checklist) render NOTHING — they are never gated. */
+function checklistBlock(r: ReportRow): string {
+  const items = checklistFor(r.reportType);
+  if (items.length === 0) return "";
+  const rid = escapeHtml(r.id);
+  const url = `/api/reports/${encodeURIComponent(r.id)}/checklist`;
+  const boxes = items
+    .map((item) => {
+      const checked = r.checklist[item.field] === true ? " checked" : "";
+      return `<label class="check-item"><input type="checkbox" class="checklist-checkbox" data-checklist-report-id="${rid}" data-field="${escapeHtml(item.field)}" data-checklist-url="${escapeHtml(url)}"${checked} /> ${escapeHtml(item.label)}</label>`;
+    })
+    .join("");
+  return `<div class="checklist" data-checklist-for="${rid}">${boxes}</div>`;
+}
+
+/** The Approve button for a pending report. Server-renders `disabled` when the
+ *  report's checklist is incomplete (the convenience gate — approve.ts + orchestrate.ts
+ *  are the hard backstops). Launch/Announcement have an empty checklist → never gated. */
+function approveButton(r: ReportRow): string {
+  const disabled = isChecklistComplete(r) ? "" : " disabled";
+  return `<button class="approve" data-report-id="${escapeHtml(r.id)}" data-approve-url="/api/reports/${encodeURIComponent(r.id)}/approve"${disabled}>Approve</button>`;
+}
+
 function pendingRow(r: ReportRow): string {
   const type = escapeHtml(r.reportType);
   const period = r.period ? escapeHtml(r.period) : "—";
-  return `<li><strong>${type}</strong> <span class="muted">${period}</span> <button class="approve" data-report-id="${escapeHtml(r.id)}" data-approve-url="/api/reports/${encodeURIComponent(r.id)}/approve">Approve</button></li>`;
+  return `<li><div class="pending-head"><strong>${type}</strong> <span class="muted">${period}</span> ${approveButton(r)}</div>${checklistBlock(r)}</li>`;
 }
 
 function pendingSection(reports: ReportRow[]): string {
@@ -91,9 +119,7 @@ function reportRow(r: ReportRow): string {
   const link = r.renderedHtmlAttachment
     ? `<a href="${escapeHtml(safeUrl(r.renderedHtmlAttachment.url))}">view</a>`
     : `<span class="muted">no attachment</span>`;
-  const action = isPendingApproval(r)
-    ? `<button class="approve" data-report-id="${escapeHtml(r.id)}" data-approve-url="/api/reports/${encodeURIComponent(r.id)}/approve">Approve</button>`
-    : "";
+  const action = isPendingApproval(r) ? approveButton(r) : "";
   return `<tr><td>${date}</td><td>${type}</td><td><code>${id}</code></td><td>${ga}</td><td>${search}</td><td>${link}</td><td>${action}</td></tr>`;
 }
 
@@ -193,7 +219,12 @@ th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #eee; }
 button.approve { font: inherit; padding: 0.35rem 0.85rem; border: 1px solid #2c7; border-radius: 6px; background: #2c7; color: #fff; cursor: pointer; }
 button.approve:disabled { opacity: 0.6; cursor: default; }
 .pending-list { list-style: none; padding: 0; margin: 0; }
-.pending-list li { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; border-bottom: 1px solid #eee; }
+.pending-list li { padding: 0.5rem; border-bottom: 1px solid #eee; }
+@media (prefers-color-scheme: dark) { .pending-list li { border-color: #2a2a2a; } }
+.pending-head { display: flex; align-items: center; gap: 0.5rem; }
+.checklist { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; margin: 0.5rem 0 0.25rem 0.25rem; }
+.check-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; }
+.check-item input { margin: 0; }
 .pill { font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 999px; font-weight: 700; }
 .subm-list { list-style: none; padding: 0; margin: 0; }
 .subm-item { padding: 0.6rem 0; border-bottom: 1px solid #eee; }
@@ -338,6 +369,34 @@ export function renderSiteDashboardHtml(
         } catch {
           b.textContent = "Failed";
           b.disabled = false;
+        }
+      });
+    });
+    // Checklist gate: ticking a box POSTs the one field; the response { complete }
+    // decides whether THIS report's Approve button is enabled. Scoped per report by
+    // matching the checkbox's report id to the Approve button's id, so multiple
+    // pending reports on one page never cross-toggle. On failure the checkbox reverts.
+    document.querySelectorAll("input.checklist-checkbox").forEach((cb) => {
+      cb.addEventListener("change", async () => {
+        const reportId = cb.dataset.checklistReportId;
+        const approveBtn = document.querySelector(
+          'button.approve[data-report-id="' + (window.CSS && CSS.escape ? CSS.escape(reportId) : reportId) + '"]',
+        );
+        cb.disabled = true;
+        try {
+          const res = await fetch(cb.dataset.checklistUrl, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ reportId, field: cb.dataset.field, value: cb.checked }),
+          });
+          if (!res.ok) throw new Error("bad status");
+          const data = await res.json();
+          if (approveBtn) approveBtn.disabled = !data.complete;
+        } catch {
+          // Revert the optimistic flip so the box reflects the (unchanged) server state.
+          cb.checked = !cb.checked;
+        } finally {
+          cb.disabled = false;
         }
       });
     });
