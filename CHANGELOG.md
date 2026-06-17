@@ -1,5 +1,49 @@
 # @reddoorla/maintenance
 
+## 0.42.0
+
+### Minor Changes
+
+- 0eb0722: Cockpit now flags a live (`maintenance`) site that is still served from its
+  default `*.netlify.app` host — i.e. it never got a custom domain. The site drops
+  to the 🟡 Watch tier with an "on `*.netlify.app` (no custom domain)" reason and a
+  new `no-domain` filter chip, surfacing a launch-completeness gap that was
+  otherwise invisible. A `launch period` site on `*.netlify.app` is left alone (no
+  domain yet is expected pre-launch). Adds a small `isNetlifyAppUrl(url)` URL
+  predicate (sibling of `isHttpUrl`) that matches the apex and any subdomain of
+  `netlify.app` without being fooled by look-alike hosts.
+- d8b06f9: Add a one-time **monthly-report announcement** email, as a new `Announcement`
+  report type riding the existing draft → approve → send pipeline. A new `announce`
+  recipe + CLI (`reddoor announce` for all `maintenance` sites, or
+  `reddoor announce <site>` for one) drafts a personalized email per client
+  introducing the recurring monthly report: a live preview of the site's latest
+  Lighthouse scores (using the same client-facing labels as the real report),
+  recent-improvement callouts (forms now delivered via Resend; the Svelte 4 → 5
+  modernization — default-on fleet-wide, with the per-client approve review as the
+  relevance backstop), and a soft open door to expand scope. Pure-value framing, no
+  pricing. `createDraft` gains an optional `subjectOverride`. The send path is
+  reused unchanged — an Announcement renders by type and does not flip Status.
+
+  Operational prereq: add an `Announcement` option to the Airtable `Report type`
+  single-select before running (the API can't add select options).
+
+### Patch Changes
+
+- 7fa8e7a: Per-site submissions are now fetched with a server-side `{Site}` filter, a
+  newest-first sort, and a bounded `maxRecords`, instead of paging the entire
+  `Submissions` table on every site-dashboard load and filtering in JS. This
+  removes the one unbounded full-table scan in the request path as the fleet's
+  submission volume grows. Internal only — no public API change.
+- 802e8a9: Lower the form timing-gate threshold (`MIN_FILL_MS`) from 2000ms to 800ms. A
+  too-fast fill is dropped silently (the visitor still sees success), so the old
+  2s bar risked silently losing a real lead from a quick-but-genuine human
+  (autofill, a short form, a returning visitor). At 800ms a submit is effectively
+  instant — which a script does and a human realistically never beats — so the
+  gate still blocks instant bots while erring toward letting borderline-fast
+  humans through. The honeypot remains the primary bot signal; this only affects
+  the server form-action path (`createIngestAction`), as the modal/JSON path
+  already screens honeypot-only.
+
 ## 0.41.0
 
 ### Minor Changes
