@@ -3,15 +3,20 @@ import {
   SUBMISSIONS_TABLE,
   createSubmission,
   listNewSubmissions,
+  listSubmissionsForSite,
   getSubmissionById,
   setSubmissionStatusRow,
   stampNotified,
   mapRow,
 } from "../../../src/reports/airtable/submissions.js";
+import { escapeFormulaString } from "../../../src/reports/airtable/reports.js";
 import { makeFakeBase, type CapturedCall } from "../_helpers/fake-airtable-base.js";
 
 const firstCreate = (calls: CapturedCall[]) =>
   calls.find((c): c is Extract<CapturedCall, { kind: "create" }> => c.kind === "create");
+
+const firstSelect = (calls: CapturedCall[]) =>
+  calls.find((c): c is Extract<CapturedCall, { kind: "select" }> => c.kind === "select");
 
 describe("submissions table", () => {
   it("uses the exact Airtable table name", () => {
@@ -69,6 +74,36 @@ describe("submissions table", () => {
     });
     const rows = await listNewSubmissions(base);
     expect(rows.map((r) => r.id)).toEqual(["rec1"]);
+  });
+
+  it("listSubmissionsForSite narrows server-side by {Site} name, newest-first, capped", async () => {
+    const base = makeFakeBase({
+      Submissions: [
+        { id: "recA", fields: { Site: ["recSITE"], "Submitted at": "2026-06-14T10:00:00Z" } },
+        { id: "recB", fields: { Site: ["recOTHER"], "Submitted at": "2026-06-14T11:00:00Z" } },
+        { id: "recC", fields: { Site: ["recSITE"], "Submitted at": "2026-06-14T12:00:00Z" } },
+      ],
+    });
+    const rows = await listSubmissionsForSite(base, { id: "recSITE", name: "Acme Co" });
+
+    // Server-side narrowing instead of paging the whole table: a {Site} filter,
+    // a newest-first sort, and a bounded maxRecords.
+    const select = firstSelect(base.__calls);
+    expect(select!.opts.filterByFormula).toBe('{Site} = "Acme Co"');
+    expect(select!.opts.sort).toEqual([{ field: "Submitted at", direction: "desc" }]);
+    expect(typeof select!.opts.maxRecords).toBe("number");
+
+    // JS confirm keeps only rows linked to this site id (the fake ignores the
+    // formula and returns every seeded row), newest first.
+    expect(rows.map((r) => r.id)).toEqual(["recC", "recA"]);
+  });
+
+  it("listSubmissionsForSite escapes the Site name in the formula (injection guard)", async () => {
+    const base = makeFakeBase();
+    const name = 'A "B" \\ C';
+    await listSubmissionsForSite(base, { id: "recSITE", name });
+    const select = firstSelect(base.__calls);
+    expect(select!.opts.filterByFormula).toBe(`{Site} = "${escapeFormulaString(name)}"`);
   });
 
   it("getSubmissionById returns the matching row, null otherwise", async () => {
