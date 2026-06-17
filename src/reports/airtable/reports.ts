@@ -1,6 +1,7 @@
 import type { FieldSet, Records } from "airtable";
 import type { AirtableBase } from "./client.js";
 import type { ReportType, LighthouseScores } from "../types.js";
+import { ALL_CHECKLIST_FIELDS } from "../checklist.js";
 
 export const REPORTS_TABLE = "Reports";
 
@@ -48,6 +49,10 @@ export type ReportRow = {
   renderedHtmlAttachment: { url: string; filename: string } | null;
   /** Read out of the Resend response and stored in a hidden field; needed for webhook reconciliation. */
   resendMessageId: string | null;
+  /** The 12 operator-checklist checkboxes, keyed by their Airtable column name (ALL_CHECKLIST_FIELDS);
+   *  missing/false cells read false. Maintenance/Testing reports gate approve+send on the relevant
+   *  subset (see src/reports/checklist.ts). */
+  checklist: Record<string, boolean>;
 };
 
 /**
@@ -91,6 +96,7 @@ function mapRow(rec: { id: string; fields: Record<string, unknown> }): ReportRow
     deliveryStatus: ((f["Delivery status"] as string | undefined) ?? "pending") as DeliveryStatus,
     renderedHtmlAttachment: html,
     resendMessageId: (f["Resend message ID"] as string | undefined) ?? null,
+    checklist: Object.fromEntries(ALL_CHECKLIST_FIELDS.map((name) => [name, Boolean(f[name])])),
   };
 }
 

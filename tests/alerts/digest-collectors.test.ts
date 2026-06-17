@@ -218,6 +218,7 @@ function report(over: Partial<ReportRow> = {}): ReportRow {
     deliveryStatus: "bounced",
     renderedHtmlAttachment: null,
     resendMessageId: null,
+    checklist: {},
     ...over,
   };
 }

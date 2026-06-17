@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
 import { approveReport, type ApproveDeps } from "../../src/dashboard/approve.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
+import { MAINTENANCE_CHECKLIST } from "../../src/reports/checklist.js";
+
+/** A complete Maintenance checklist — all 6 maintenance cells true. */
+const COMPLETE_MAINTENANCE = Object.fromEntries(MAINTENANCE_CHECKLIST.map((i) => [i.field, true]));
 
 function reportRow(over: Partial<ReportRow> = {}): ReportRow {
   return {
@@ -28,6 +32,9 @@ function reportRow(over: Partial<ReportRow> = {}): ReportRow {
     renderedHtmlAttachment: null,
     resendMessageId: null,
     period: null,
+    // Default to a complete Maintenance checklist so the idempotency/guard tests
+    // exercise the path AFTER the checklist gate; the gate-specific tests override.
+    checklist: { ...COMPLETE_MAINTENANCE },
     ...over,
   };
 }
@@ -93,6 +100,45 @@ describe("approveReport — idempotency and guards", () => {
     const res = await approveReport(d, "recREP1");
     expect(res).toEqual({ status: "noop", reportId: "recREP1", reason: "not-draft-ready" });
     expect(d.approveReportRow).not.toHaveBeenCalled();
+  });
+
+  it("blocks (no write) a Maintenance report whose checklist is incomplete", async () => {
+    const d = deps({
+      getReportById: vi
+        .fn()
+        .mockResolvedValue(reportRow({ reportType: "Maintenance", checklist: {} })),
+    });
+    const res = await approveReport(d, "recREP1");
+    expect(res).toEqual({ status: "blocked", reportId: "recREP1", reason: "checklist-incomplete" });
+    expect(d.approveReportRow).not.toHaveBeenCalled();
+  });
+
+  it("approves a Maintenance report once every maintenance checklist item is checked", async () => {
+    const complete = {
+      "Maint: Reviewed Logs": true,
+      "Maint: CMS Checked": true,
+      "Maint: DNS Checked": true,
+      "Maint: Google Indexed": true,
+      "Maint: Reviewed Certificate": true,
+      "Maint: Security Updates": true,
+    };
+    const d = deps({
+      getReportById: vi
+        .fn()
+        .mockResolvedValue(reportRow({ reportType: "Maintenance", checklist: complete })),
+    });
+    const res = await approveReport(d, "recREP1");
+    expect(res).toEqual({ status: "approved", reportId: "recREP1" });
+    expect(d.approveReportRow).toHaveBeenCalled();
+  });
+
+  it("approves a Launch report regardless of checklist (empty checklist is vacuously complete)", async () => {
+    const d = deps({
+      getReportById: vi.fn().mockResolvedValue(reportRow({ reportType: "Launch", checklist: {} })),
+    });
+    const res = await approveReport(d, "recREP1");
+    expect(res).toEqual({ status: "approved", reportId: "recREP1" });
+    expect(d.approveReportRow).toHaveBeenCalled();
   });
 
   it("checks sent before approved so an approved-and-sent row reports already-sent", async () => {

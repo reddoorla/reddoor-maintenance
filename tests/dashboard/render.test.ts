@@ -48,6 +48,7 @@ function reportRow(over: Partial<ReportRow> = {}): ReportRow {
     resendMessageId: "msg_001",
     approvedAt: null,
     approvedBy: null,
+    checklist: {},
     ...over,
   };
 }

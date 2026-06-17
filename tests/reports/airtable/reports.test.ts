@@ -155,6 +155,34 @@ describe("listAllReports / listReportsForSite", () => {
   });
 });
 
+describe("mapRow checklist", () => {
+  it("reads the 12 checkbox cells into row.checklist; true cells true, absent cells false", async () => {
+    const base = makeFakeBase({
+      Reports: [
+        {
+          id: "rec_checklist",
+          fields: {
+            "Report ID": "C",
+            "Report type": "Maintenance",
+            "Maint: Reviewed Logs": true,
+            "Maint: DNS Checked": true,
+            // The other 10 cells are absent → must read false.
+          },
+        },
+      ],
+    });
+    const row = (await listAllReports(base))[0]!;
+    expect(row.checklist["Maint: Reviewed Logs"]).toBe(true);
+    expect(row.checklist["Maint: DNS Checked"]).toBe(true);
+    // Absent cells default to false (legacy rows created before the fields existed).
+    expect(row.checklist["Maint: CMS Checked"]).toBe(false);
+    expect(row.checklist["Maint: Google Indexed"]).toBe(false);
+    expect(row.checklist["Test: Desktop Browsers"]).toBe(false);
+    // All 12 keys are present.
+    expect(Object.keys(row.checklist)).toHaveLength(12);
+  });
+});
+
 describe("findReportByPeriod", () => {
   it("filters server-side on Report type + Period only, matching the site client-side", async () => {
     // The fake base does NOT evaluate filterByFormula — it returns ALL seeded rows.
