@@ -87,7 +87,7 @@ export function buildAnnouncementMjml(data: ReportData): string {
     <mj-section background-color="white">
       <mj-column>
         <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="75px">${escapeXml(copy.announceHeading)}</mj-text>
-        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="20px">Hi ${escapeXml(data.siteName)},</mj-text>
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="20px">Prepared for ${escapeXml(data.siteName)}</mj-text>
         <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="8px">${escapeXml(copy.announceBody)}</mj-text>
       </mj-column>
     </mj-section>
