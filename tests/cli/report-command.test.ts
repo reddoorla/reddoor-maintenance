@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { runReportCommand } from "../../src/cli/commands/report.js";
+import { runReportCommand, parseSingleSiteReportType } from "../../src/cli/commands/report.js";
 
 // listWebsites + draftReportForSite are the IO the guard sits between; mock them so the
 // test exercises ONLY the skip/draft decision, not GA/render/upload.
@@ -46,6 +46,48 @@ describe("runReportCommand", () => {
 
   it("requires AIRTABLE_PAT for --send-ready", async () => {
     await expect(runReportCommand(undefined, { sendReady: true })).rejects.toThrow(/AIRTABLE_PAT/);
+  });
+
+  it("validates --type BEFORE touching Airtable (a bad type fails fast, no creds needed)", async () => {
+    // The single-site path parses --type before openBase, so this rejects with the
+    // type error — not AIRTABLE_PAT — even though no credentials are set.
+    const p = runReportCommand("some-site", { type: "Launch" });
+    await expect(p).rejects.toThrow(/launch <site>/);
+    await expect(p).rejects.not.toThrow(/AIRTABLE_PAT/);
+  });
+});
+
+describe("parseSingleSiteReportType", () => {
+  it("defaults to Maintenance when unset or blank", () => {
+    expect(parseSingleSiteReportType(undefined)).toBe("Maintenance");
+    expect(parseSingleSiteReportType("   ")).toBe("Maintenance");
+  });
+
+  it("accepts Maintenance and Testing, case-insensitively", () => {
+    expect(parseSingleSiteReportType("Testing")).toBe("Testing");
+    expect(parseSingleSiteReportType("testing")).toBe("Testing");
+    expect(parseSingleSiteReportType("MAINTENANCE")).toBe("Maintenance");
+  });
+
+  it("rejects Launch/Announcement, pointing at their own commands (exitCode 2)", () => {
+    expect(() => parseSingleSiteReportType("Launch")).toThrow(/launch <site>/);
+    expect(() => parseSingleSiteReportType("Announcement")).toThrow(/announce <site>/);
+    try {
+      parseSingleSiteReportType("Launch");
+      throw new Error("should have thrown");
+    } catch (e) {
+      expect((e as { exitCode?: number }).exitCode).toBe(2);
+    }
+  });
+
+  it("rejects an unknown type (exitCode 2)", () => {
+    expect(() => parseSingleSiteReportType("bogus")).toThrow(/Maintenance or Testing/);
+    try {
+      parseSingleSiteReportType("bogus");
+      throw new Error("should have thrown");
+    } catch (e) {
+      expect((e as { exitCode?: number }).exitCode).toBe(2);
+    }
   });
 });
 
