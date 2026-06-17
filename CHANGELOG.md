@@ -1,5 +1,21 @@
 # @reddoorla/maintenance
 
+## 0.43.0
+
+### Minor Changes
+
+- 1908fba: Reframe the announcement email (shipped in 0.42.0) from "your new monthly report"
+  to an ongoing site-care message. It now states each client's **testing and
+  maintenance cadence**, read from the Websites row (`testing freq` /
+  `maintenence freq`) and rendered as a "WHAT TO EXPECT" section (e.g. "Full site
+  testing — every quarter"); a `None` pace is omitted so no cadence is over-claimed.
+  The score preview is framed as the latest full site test. Adds `ReportCadence` /
+  `ReportFrequency` types and `ReportData.cadence`; the `announce` recipe passes
+  each site's frequencies and uses a "Your testing & maintenance schedule for
+  <site>" subject.
+- 6a08456: Maintenance/Testing reports now gate on a per-item operator checklist: 12 checkbox fields on the Reports row, flippable in Airtable AND as interactive checkboxes on the dashboard per-site page; the Approve button is disabled and the approve action + send path both refuse until every item for the report's type is checked. The client email is unchanged. Launch/Announcement reports are not gated.
+- bbfedd9: Cockpit + per-site dashboard visibility: labels on Lighthouse scores, a setup (N/4) tooltip listing missing onboarding items + a setup section on the per-site page, GA/Search report-source data + a site-details section on the per-site page, and a Home link on the per-site page.
+
 ## 0.42.0
 
 ### Minor Changes
