@@ -10,6 +10,7 @@ import { loadBundledImages } from "../maintenance-email/assets/index.js";
 import { prepareHeaderImage } from "../maintenance-email/header-image.js";
 import { defaultResendClient, type ResendClient, type ResendSendInput } from "./resend.js";
 import { isIdempotencyConflict } from "./idempotency.js";
+import { checklistFor, isChecklistComplete } from "../checklist.js";
 
 const FROM_ADDRESS = "Reddoor Reports <reports@reddoorla.com>";
 const REPLY_TO = "info@reddoorla.com";
@@ -102,6 +103,18 @@ async function sendOne(
   site: WebsiteRow,
   report: ReportRow,
 ): Promise<string> {
+  // Hard checklist gate: a Maintenance/Testing report whose operator checklist isn't
+  // fully checked must never go out — even if "Approved to send" was ticked directly in
+  // Airtable, bypassing the dashboard's approve gate. Throw so the report is skipped and
+  // `Sent at` stays null (at-least-once retry preserved), exactly like the other sendOne
+  // guards. Launch/Announcement have an empty checklist → vacuously complete, never gated.
+  if (!isChecklistComplete(report)) {
+    const items = checklistFor(report.reportType);
+    const done = items.filter((i) => report.checklist[i.field] === true).length;
+    throw new Error(
+      `Report ${report.reportId} checklist incomplete — ${done}/${items.length} items checked`,
+    );
+  }
   if (!site.headerImage) {
     throw new Error(`Site '${site.name}' has no Header image set on the Websites row`);
   }

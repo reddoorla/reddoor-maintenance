@@ -56,6 +56,14 @@ function reportRow(over: Partial<FakeRecord["fields"]> = {}): FakeRecord {
       "Lighthouse — SEO": 95,
       "Draft ready": true,
       "Approved to send": true,
+      // The 6 Maintenance checklist cells, all checked → the send gate is satisfied.
+      // (Default fixture is a Maintenance report.) Gate-specific tests override.
+      "Maint: Reviewed Logs": true,
+      "Maint: CMS Checked": true,
+      "Maint: DNS Checked": true,
+      "Maint: Google Indexed": true,
+      "Maint: Reviewed Certificate": true,
+      "Maint: Security Updates": true,
       ...over,
     },
   };
@@ -264,6 +272,71 @@ describe("sendApprovedReports", () => {
     expect(res.code).toBe(1);
     expect(res.output).toMatch(/Lighthouse/);
     expect(res.output).toMatch(/numeric/i);
+  });
+
+  // ── checklist gate: a Maintenance/Testing report can't escape with items unchecked ──
+  it("does NOT send a Maintenance report whose checklist is incomplete (no Resend call, Sent at not stamped)", async () => {
+    // Clear all 6 maintenance cells → the row is approved-to-send (e.g. ticked directly
+    // in Airtable) but its checklist is incomplete. The send gate must skip it as a
+    // failure, leaving Sent at blank so at-least-once retry is preserved.
+    const base = makeFakeBase({
+      Reports: [
+        reportRow({
+          "Maint: Reviewed Logs": false,
+          "Maint: CMS Checked": false,
+          "Maint: DNS Checked": false,
+          "Maint: Google Indexed": false,
+          "Maint: Reviewed Certificate": false,
+          "Maint: Security Updates": false,
+        }),
+      ],
+      Websites: [siteRow()],
+    });
+    vi.mocked(openBase).mockReturnValue(base);
+    const { client, captured } = captureClient();
+    const res = await sendApprovedReports({ resend: client });
+
+    expect(res.code).toBe(1);
+    expect(res.output).toContain("✗");
+    expect(res.output).toMatch(/checklist incomplete/i);
+    // No email went out.
+    expect(captured).toHaveLength(0);
+    // Sent at stays blank → the row replays next run once the operator finishes the checklist.
+    const stamp = base.__calls
+      .filter((c) => c.kind === "update")
+      .find((u) => u.records[0]!.fields["Sent at"] !== undefined);
+    expect(stamp).toBeUndefined();
+  });
+
+  it("sends a Maintenance report once its checklist is complete (default fixture is complete)", async () => {
+    const base = makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] });
+    vi.mocked(openBase).mockReturnValue(base);
+    const { client, captured } = captureClient();
+    const res = await sendApprovedReports({ resend: client });
+    expect(res.code).toBe(0);
+    expect(captured).toHaveLength(1);
+  });
+
+  it("sends a Launch report regardless of checklist (Launch has no checklist gate)", async () => {
+    // A Launch report has all 12 checkbox cells absent (false) — but checklistFor(Launch)
+    // is [] so isChecklistComplete is vacuously true and the gate never fires.
+    const base = makeFakeBase({
+      Reports: [
+        {
+          ...reportRow({ "Report type": "Launch" }),
+          fields: { ...reportRow({ "Report type": "Launch" }).fields },
+        },
+      ],
+      Websites: [siteRow({ Status: "launch" })],
+    });
+    // Strip the 6 maintenance cells so the report has a genuinely empty checklist.
+    const fields = base.__records.get("Reports")![0]!.fields;
+    for (const k of Object.keys(fields)) if (k.startsWith("Maint: ")) delete fields[k];
+    vi.mocked(openBase).mockReturnValue(base);
+    const { client, captured } = captureClient();
+    const res = await sendApprovedReports({ resend: client });
+    expect(res.code).toBe(0);
+    expect(captured).toHaveLength(1);
   });
 
   it("uses Subject override when present", async () => {

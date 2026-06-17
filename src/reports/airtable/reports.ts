@@ -1,6 +1,7 @@
 import type { FieldSet, Records } from "airtable";
 import type { AirtableBase } from "./client.js";
 import type { ReportType, LighthouseScores } from "../types.js";
+import { ALL_CHECKLIST_FIELDS } from "../checklist.js";
 
 export const REPORTS_TABLE = "Reports";
 
@@ -48,6 +49,10 @@ export type ReportRow = {
   renderedHtmlAttachment: { url: string; filename: string } | null;
   /** Read out of the Resend response and stored in a hidden field; needed for webhook reconciliation. */
   resendMessageId: string | null;
+  /** The 12 operator-checklist checkboxes, keyed by their Airtable column name (ALL_CHECKLIST_FIELDS);
+   *  missing/false cells read false. Maintenance/Testing reports gate approve+send on the relevant
+   *  subset (see src/reports/checklist.ts). */
+  checklist: Record<string, boolean>;
 };
 
 /**
@@ -91,6 +96,7 @@ function mapRow(rec: { id: string; fields: Record<string, unknown> }): ReportRow
     deliveryStatus: ((f["Delivery status"] as string | undefined) ?? "pending") as DeliveryStatus,
     renderedHtmlAttachment: html,
     resendMessageId: (f["Resend message ID"] as string | undefined) ?? null,
+    checklist: Object.fromEntries(ALL_CHECKLIST_FIELDS.map((name) => [name, Boolean(f[name])])),
   };
 }
 
@@ -307,6 +313,21 @@ export async function approveReportRow(
       },
     },
   ]);
+}
+
+/**
+ * Set one operator-checklist checkbox on a Reports row. `field` MUST be one of the
+ * 12 known checklist columns (ALL_CHECKLIST_FIELDS) — the caller (setChecklistItem)
+ * validates this before calling, so an arbitrary Airtable column can never be written.
+ * The raw write mirror of `approveReportRow`; touches only the one checkbox.
+ */
+export async function setReportChecklistItem(
+  base: AirtableBase,
+  recordId: string,
+  field: string,
+  value: boolean,
+): Promise<void> {
+  await base(REPORTS_TABLE).update([{ id: recordId, fields: { [field]: value } }]);
 }
 
 /**
