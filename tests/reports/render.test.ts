@@ -202,7 +202,7 @@ describe("renderReportHtml", () => {
   it("renders the testing checklist when reportType is Testing", async () => {
     const { html } = await renderReportHtml(baseData({ reportType: "Testing" }));
     expect(html).toContain("Desktop Browsers");
-    expect(html).toContain("Animation Functionality");
+    expect(html).toContain("Form Functionality");
     // Maintenance-only blurred-tests CID should NOT appear.
     expect(html).not.toContain("rd-blurred-tests-jpg");
   });

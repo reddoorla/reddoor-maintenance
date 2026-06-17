@@ -58,12 +58,12 @@ function reportRow(over: Partial<FakeRecord["fields"]> = {}): FakeRecord {
       "Approved to send": true,
       // The 6 Maintenance checklist cells, all checked → the send gate is satisfied.
       // (Default fixture is a Maintenance report.) Gate-specific tests override.
-      "Maint: Reviewed Logs": true,
+      "Maint: Deploy & Function Health": true,
       "Maint: CMS Checked": true,
-      "Maint: DNS Checked": true,
+      "Maint: Domain, DNS & SSL": true,
       "Maint: Google Indexed": true,
-      "Maint: Reviewed Certificate": true,
       "Maint: Security Updates": true,
+      "Maint: Uptime Checked": true,
       ...over,
     },
   };
@@ -282,12 +282,12 @@ describe("sendApprovedReports", () => {
     const base = makeFakeBase({
       Reports: [
         reportRow({
-          "Maint: Reviewed Logs": false,
+          "Maint: Deploy & Function Health": false,
           "Maint: CMS Checked": false,
-          "Maint: DNS Checked": false,
+          "Maint: Domain, DNS & SSL": false,
           "Maint: Google Indexed": false,
-          "Maint: Reviewed Certificate": false,
           "Maint: Security Updates": false,
+          "Maint: Uptime Checked": false,
         }),
       ],
       Websites: [siteRow()],
@@ -318,7 +318,7 @@ describe("sendApprovedReports", () => {
   });
 
   it("sends a Launch report regardless of checklist (Launch has no checklist gate)", async () => {
-    // A Launch report has all 12 checkbox cells absent (false) — but checklistFor(Launch)
+    // A Launch report has all 13 checkbox cells absent (false) — but checklistFor(Launch)
     // is [] so isChecklistComplete is vacuously true and the gate never fires.
     const base = makeFakeBase({
       Reports: [

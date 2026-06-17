@@ -4,6 +4,7 @@ import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import { MAINTENANCE_CHECKLIST, TESTING_CHECKLIST } from "../../src/reports/checklist.js";
+import { escapeHtml } from "../../src/util/html.js";
 
 /** All 6 maintenance cells true → a complete Maintenance checklist. */
 const COMPLETE_MAINTENANCE = Object.fromEntries(MAINTENANCE_CHECKLIST.map((i) => [i.field, true]));
@@ -554,8 +555,9 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
     // One checkbox per maintenance item, each labelled and carrying the report id
     // + the Airtable field name so the client can POST to the endpoint.
     for (const item of MAINTENANCE_CHECKLIST) {
-      expect(html).toContain(`data-field="${item.field}"`);
-      expect(html).toContain(item.label);
+      // Labels/fields can contain "&" (e.g. "Domain, DNS & SSL"), escaped to &amp; in HTML.
+      expect(html).toContain(`data-field="${escapeHtml(item.field)}"`);
+      expect(html).toContain(escapeHtml(item.label));
     }
     expect(html).toMatch(/type="checkbox"/);
     // The checkboxes carry the report record id so the client scopes the POST.
@@ -608,7 +610,7 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
     expect(html).not.toMatch(/<button class="approve"[^>]*data-report-id="recREP1"[^>]*disabled/);
   });
 
-  it("renders the Testing checklist (its 6 items) for a pending Testing report", () => {
+  it("renders the Testing checklist (its 7 items) for a pending Testing report", () => {
     const html = renderSiteDashboardHtml(siteRow(), [
       reportRow({
         id: "recREP1",
@@ -620,12 +622,12 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
       }),
     ]);
     for (const item of TESTING_CHECKLIST) {
-      expect(html).toContain(`data-field="${item.field}"`);
-      expect(html).toContain(item.label);
+      expect(html).toContain(`data-field="${escapeHtml(item.field)}"`);
+      expect(html).toContain(escapeHtml(item.label));
     }
     // None of the maintenance fields render for a Testing report.
     for (const item of MAINTENANCE_CHECKLIST) {
-      expect(html).not.toContain(`data-field="${item.field}"`);
+      expect(html).not.toContain(`data-field="${escapeHtml(item.field)}"`);
     }
     expect(html).toMatch(/<button class="approve"[^>]*data-report-id="recREP1"[^>]*disabled/);
   });

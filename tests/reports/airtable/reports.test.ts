@@ -156,7 +156,7 @@ describe("listAllReports / listReportsForSite", () => {
 });
 
 describe("mapRow checklist", () => {
-  it("reads the 12 checkbox cells into row.checklist; true cells true, absent cells false", async () => {
+  it("reads the 13 checkbox cells into row.checklist; true cells true, absent cells false", async () => {
     const base = makeFakeBase({
       Reports: [
         {
@@ -164,22 +164,22 @@ describe("mapRow checklist", () => {
           fields: {
             "Report ID": "C",
             "Report type": "Maintenance",
-            "Maint: Reviewed Logs": true,
-            "Maint: DNS Checked": true,
-            // The other 10 cells are absent → must read false.
+            "Maint: Deploy & Function Health": true,
+            "Maint: Domain, DNS & SSL": true,
+            // The other 11 cells are absent → must read false.
           },
         },
       ],
     });
     const row = (await listAllReports(base))[0]!;
-    expect(row.checklist["Maint: Reviewed Logs"]).toBe(true);
-    expect(row.checklist["Maint: DNS Checked"]).toBe(true);
+    expect(row.checklist["Maint: Deploy & Function Health"]).toBe(true);
+    expect(row.checklist["Maint: Domain, DNS & SSL"]).toBe(true);
     // Absent cells default to false (legacy rows created before the fields existed).
     expect(row.checklist["Maint: CMS Checked"]).toBe(false);
     expect(row.checklist["Maint: Google Indexed"]).toBe(false);
     expect(row.checklist["Test: Desktop Browsers"]).toBe(false);
-    // All 12 keys are present.
-    expect(Object.keys(row.checklist)).toHaveLength(12);
+    // All 13 keys are present.
+    expect(Object.keys(row.checklist)).toHaveLength(13);
   });
 });
 

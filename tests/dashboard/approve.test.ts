@@ -115,12 +115,12 @@ describe("approveReport — idempotency and guards", () => {
 
   it("approves a Maintenance report once every maintenance checklist item is checked", async () => {
     const complete = {
-      "Maint: Reviewed Logs": true,
+      "Maint: Deploy & Function Health": true,
       "Maint: CMS Checked": true,
-      "Maint: DNS Checked": true,
+      "Maint: Domain, DNS & SSL": true,
       "Maint: Google Indexed": true,
-      "Maint: Reviewed Certificate": true,
       "Maint: Security Updates": true,
+      "Maint: Uptime Checked": true,
     };
     const d = deps({
       getReportById: vi
