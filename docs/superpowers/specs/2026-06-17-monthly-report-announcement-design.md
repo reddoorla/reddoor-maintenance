@@ -23,6 +23,13 @@ pipeline so it inherits draft → operator-approve → Resend send → delivery 
 - **Tone:** pure value — framed as an included part of working with Reddoor, **no
   pricing / no plan pitch**. Include a soft open door: an invitation to reach back
   if they'd like to expand scope or add features to their site.
+- **Recent improvements (where relevant):** the email also calls out the recent
+  work done this cycle as part of the value story — (1) **forms now delivered via
+  Resend** (submissions route through reliable infrastructure straight to the
+  client's inbox + our dashboard, so no inquiry is missed) and (2) the **Svelte 4 →
+  Svelte 5 modernization** (faster, more secure, built to last). "Where relevant"
+  matters: a site with no contact form shouldn't claim the forms upgrade, and a
+  site not migrated shouldn't claim Svelte 5 — see the relevance mechanism below.
 
 ## Approach: a new `Announcement` report type (reuse, don't rebuild)
 
@@ -51,6 +58,13 @@ template, a fleet-wide draft recipe, and a CLI command.
    layer (`data.copy`). Sections:
    - Greeting + one-line "we've set up ongoing monitoring & maintenance for
      `{site}`."
+   - **Recent improvements (conditional):** a short list rendered from
+     `data.improvements` flags (see component 7) — when `resendForms` is on, a
+     "your forms now deliver through reliable infrastructure straight to your inbox
+     and our dashboard" item; when `svelte5` is on, a "we've modernized your site to
+     the latest framework — faster, more secure, built to last" item. The whole
+     section is omitted if no flag is set. Wording lives in `DEFAULT_COPY` so it's a
+     one-file edit.
    - What we watch: performance, accessibility, security, uptime (short list).
    - **Live preview:** the four Lighthouse scores from `data.lighthouse`, framed as
      "a snapshot of your first report." Each score degrades to `—` if null.
@@ -80,6 +94,31 @@ template, a fleet-wide draft recipe, and a CLI command.
      pattern).
 6. **CLI command `announce`** — mirror the `launch` command wiring so it's runnable
    (`reddoor announce` / `reddoor announce <site>`), printing the per-site result list.
+7. **`ReportData.improvements`** (in `src/reports/types.ts`) — optional
+   `{ resendForms?: boolean; svelte5?: boolean }`. The template renders the Recent
+   improvements section from these flags; `DEFAULT_COPY` holds the wording. Only the
+   announcement path sets it (Maintenance/Testing/Launch leave it undefined → section
+   absent), so no other template changes.
+
+### Relevance ("where relevant")
+
+The two improvements were rolled out fleet-wide this cycle, so the `announce` recipe
+**defaults both flags ON** for every maintenance site. Three levers keep a claim from
+being made where it doesn't apply, cheapest first:
+
+- **Detectable signal (forms):** if a clean signal exists that a site has no contact
+  form (e.g. it has never had a `Submissions` row AND no forms config), the recipe
+  turns `resendForms` off for it. If no reliable signal is available, default ON and
+  rely on the next lever rather than guessing wrong.
+- **Operator review:** every announcement is reviewed individually in the dashboard
+  approve queue before it sends — the per-client `Rendered HTML` preview is where a
+  mis-applied claim is caught and the draft is edited or skipped.
+- **Per-site override (future):** if hard per-site control is wanted, a Websites
+  flag/field can later drive `improvements` directly. Out of scope for v1 — noted so
+  the `ReportData.improvements` shape is forward-compatible.
+
+This is the one genuine judgment area: v1 ships default-ON + operator-review. Hard
+per-site conditioning is deferred unless a clean signal proves cheap during the build.
 
 ### What is explicitly NOT touched
 
@@ -100,7 +139,7 @@ template, a fleet-wide draft recipe, and a CLI command.
 
 ## Edge cases
 
-- **Null scores:** template renders `—`; recipe skips+warns a site with *no* stored
+- **Null scores:** template renders `—`; recipe skips+warns a site with _no_ stored
   scores at all (keeps the `sendOne` lighthouse guard satisfied).
 - **Missing `Report recipients (To)`:** the recipe still drafts (operator reviews
   anyway), but the run output flags every maintenance site whose recipient is blank
@@ -122,7 +161,9 @@ template, a fleet-wide draft recipe, and a CLI command.
 ## Testing strategy
 
 - `template.ts`: renders the score preview (incl. `—` for null), the soft-CTA copy,
-  the no-pricing invariant; reuses the copy layer (override vs default).
+  the no-pricing invariant; reuses the copy layer (override vs default). Recent
+  improvements: renders the `resendForms`/`svelte5` items when their flags are on,
+  each independently, and **omits the whole section when both are off/unset**.
 - `render.ts`: dispatch picks `buildAnnouncementMjml` for `"Announcement"` and still
   picks Launch/Maintenance correctly.
 - `reports.ts`: `toReportType("Announcement")` round-trips; `createDraft` writes
