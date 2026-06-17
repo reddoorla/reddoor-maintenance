@@ -15,6 +15,7 @@ import { runSvelteCodemodsCommand } from "./commands/svelte-codemods.js";
 import { runReportCommand } from "./commands/report.js";
 import { runInitCommand } from "./commands/init.js";
 import { runLaunchCommand } from "./commands/launch.js";
+import { runAnnounceCommand } from "./commands/announce.js";
 import { runGitHubSignalsCommand } from "./commands/github-signals.js";
 import { resolvePackageVersion } from "./version.js";
 
@@ -291,6 +292,15 @@ cli
   )
   .action(async (site: string, opts: { cwd?: string; verbose?: boolean }) =>
     runOrExit(() => runLaunchCommand(site, opts), opts),
+  );
+
+cli
+  .command(
+    "announce [site]",
+    "Draft the monthly-report announcement email for maintenance sites (all, or one) for approval.",
+  )
+  .action(async (site: string | undefined, opts: { cwd?: string; verbose?: boolean }) =>
+    runOrExit(() => runAnnounceCommand(site, opts), opts),
   );
 
 cli

@@ -326,4 +326,16 @@ describe("renderReportHtml", () => {
     });
     expect(html).toContain("Beta LLC");
   });
+
+  it("dispatches to the announcement email when reportType is Announcement", async () => {
+    const { html, warnings } = await renderReportHtml(
+      baseData({ reportType: "Announcement", copy: DEFAULT_COPY }),
+    );
+    expect(warnings).toEqual([]);
+    // announceOpenDoor is announcement-only — a marker that this template was chosen.
+    expect(html).toContain("expand the scope, add features");
+    // purpose-built: no maintenance-only sections
+    expect(html).not.toContain("MAINTENANCE CHECKS");
+    expect(html).not.toContain("LIGHTHOUSE SCORES");
+  });
 });
