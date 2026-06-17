@@ -42,16 +42,16 @@ export const ALL_CHECKLIST_FIELDS: string[] = [...MAINTENANCE_CHECKLIST, ...TEST
 );
 
 /**
- * The checklist that gates a report of the given type. Maintenance/Testing gate on
- * their 6 items; Launch/Announcement have no checklist (the gate is vacuously
- * satisfied). PURE.
+ * The checklist that gates a report of the given type, in the order the email renders it.
+ * Maintenance gates on its 6 items. A Testing pass also performs the maintenance checks —
+ * and the Testing email shows BOTH lists — so a Testing report gates on all 13
+ * (maintenance first, then testing). Launch/Announcement have no checklist (the gate is
+ * vacuously satisfied). PURE.
  */
 export function checklistFor(type: ReportType): ChecklistItem[] {
-  return type === "Maintenance"
-    ? MAINTENANCE_CHECKLIST
-    : type === "Testing"
-      ? TESTING_CHECKLIST
-      : [];
+  if (type === "Maintenance") return MAINTENANCE_CHECKLIST;
+  if (type === "Testing") return [...MAINTENANCE_CHECKLIST, ...TESTING_CHECKLIST];
+  return [];
 }
 
 /**
