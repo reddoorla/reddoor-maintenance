@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { DEFAULT_COPY, resolveCopy } from "../../src/reports/copy.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 // Minimal WebsiteRow with the 3 copy override fields; controller provides the full factory.
 function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
@@ -47,5 +48,22 @@ describe("resolveCopy", () => {
     expect(typeof DEFAULT_COPY.launchBody).toBe("string");
     expect(Array.isArray(DEFAULT_COPY.launchSetupItems)).toBe(true);
     expect(DEFAULT_COPY.launchSetupItems.length).toBeGreaterThan(0);
+  });
+
+  it("exposes announcement copy defaults", () => {
+    expect(DEFAULT_COPY.announceHeading).toBe("YOUR MONTHLY REPORT");
+    expect(DEFAULT_COPY.announceMonitorItems).toHaveLength(4);
+  });
+
+  it("passes the announce* keys through resolveCopy unchanged", () => {
+    const c = resolveCopy(makeWebsiteRow({}));
+    expect(c.announceHeading).toBe(DEFAULT_COPY.announceHeading);
+    expect(c.announceBody).toBe(DEFAULT_COPY.announceBody);
+    expect(c.announceMonitorItems).toEqual(DEFAULT_COPY.announceMonitorItems);
+    expect(c.announcePreviewLabel).toBe(DEFAULT_COPY.announcePreviewLabel);
+    expect(c.announceImprovementResend).toBe(DEFAULT_COPY.announceImprovementResend);
+    expect(c.announceImprovementSvelte5).toBe(DEFAULT_COPY.announceImprovementSvelte5);
+    expect(c.announceCadence).toBe(DEFAULT_COPY.announceCadence);
+    expect(c.announceOpenDoor).toBe(DEFAULT_COPY.announceOpenDoor);
   });
 });

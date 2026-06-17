@@ -7,6 +7,7 @@ import {
   findReportByPeriod,
   listAllReports,
   listReportsForSite,
+  toReportType,
 } from "../../../src/reports/airtable/reports.js";
 import { WEBSITES_TABLE, siteSlug } from "../../../src/reports/airtable/websites.js";
 import { makeFakeBase } from "../_helpers/fake-airtable-base.js";
@@ -76,6 +77,26 @@ describe("createDraft Period field", () => {
     const base = makeFakeBase({ Reports: [] });
     const row = await createDraft(base, { ...baseInput, period: "2026-05" });
     expect(row.period).toBe("2026-05");
+  });
+
+  it("writes the Subject override field when supplied", async () => {
+    const base = makeFakeBase({ Reports: [] });
+    await createDraft(base, { ...baseInput, subjectOverride: "Hello" });
+    const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
+    expect(fields["Subject override"]).toBe("Hello");
+  });
+
+  it("omits the Subject override field when not supplied", async () => {
+    const base = makeFakeBase({ Reports: [] });
+    await createDraft(base, baseInput);
+    const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
+    expect(fields).not.toHaveProperty("Subject override");
+  });
+});
+
+describe("toReportType", () => {
+  it("round-trips Announcement", () => {
+    expect(toReportType("Announcement")).toBe("Announcement");
   });
 });
 

@@ -4,7 +4,7 @@ import type { ReportType, LighthouseScores } from "../types.js";
 
 export const REPORTS_TABLE = "Reports";
 
-const REPORT_TYPES: readonly ReportType[] = ["Maintenance", "Testing", "Launch"];
+const REPORT_TYPES: readonly ReportType[] = ["Maintenance", "Testing", "Launch", "Announcement"];
 
 /** Coerce the Airtable `Report type` (a single-select string) to a known
  *  ReportType. A bare `as ReportType` cast is a compile-time lie: if the
@@ -12,7 +12,7 @@ const REPORT_TYPES: readonly ReportType[] = ["Maintenance", "Testing", "Launch"]
  *  where `reportType === "Launch"` silently falls through to the Maintenance
  *  template. Validate at the boundary; warn + default to "Maintenance" so an
  *  unknown type is VISIBLE in the logs rather than silently mis-templated. */
-function toReportType(raw: string | undefined): ReportType {
+export function toReportType(raw: string | undefined): ReportType {
   if (raw && (REPORT_TYPES as readonly string[]).includes(raw)) return raw as ReportType;
   if (raw)
     console.warn(`[reports] unknown Report type ${JSON.stringify(raw)} — treating as Maintenance`);
@@ -128,6 +128,7 @@ export type DraftInput = {
    *  false — false is the operator-only negative signal). `searchPosition` only when found. */
   searchFoundPage1?: boolean;
   searchPosition?: number;
+  subjectOverride?: string;
 };
 
 function ymd(d: Date): string {
@@ -169,6 +170,7 @@ export async function createDraft(base: AirtableBase, input: DraftInput): Promis
   if (input.searchFoundPage1 !== undefined) fields["Search found page 1"] = input.searchFoundPage1;
   if (input.searchPosition !== undefined) fields["Search position"] = input.searchPosition;
   if (input.period !== undefined) fields["Period"] = input.period;
+  if (input.subjectOverride !== undefined) fields["Subject override"] = input.subjectOverride;
   const created = (await base(REPORTS_TABLE).create([{ fields }])) as Records<FieldSet>;
   const rec = created[0];
   if (!rec) throw new Error("Airtable create returned no records");

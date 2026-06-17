@@ -1,4 +1,4 @@
-export type ReportType = "Maintenance" | "Testing" | "Launch";
+export type ReportType = "Maintenance" | "Testing" | "Launch" | "Announcement";
 
 export type LighthouseScores = {
   performance: number;
@@ -35,6 +35,9 @@ export type ReportData = {
   lastTestedDate: Date | null;
   /** Optional free-text rendered as a section above the footer. */
   commentary: string | null;
+  /** Announcement-only: which recent-improvement callouts to render. Undefined for
+   *  Maintenance/Testing/Launch → the section is absent. */
+  improvements?: { resendForms?: boolean; svelte5?: boolean };
   /** Resolved per-site copy (M6a). Omitted → the template falls back to DEFAULT_COPY. */
   copy?: import("./copy.js").ResolvedCopy;
   /** Used in the header `mj-image src`; the email attaches the bytes with this CID. */
