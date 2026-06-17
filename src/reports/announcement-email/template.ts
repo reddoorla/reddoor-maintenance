@@ -1,6 +1,13 @@
-import type { ReportData } from "../types.js";
+import type { ReportData, ReportFrequency } from "../types.js";
 import { DEFAULT_COPY } from "../copy.js";
 import { escapeXml, headerImageTag, headerStyleBlock } from "../maintenance-email/template.js";
+
+/** Frequency → client-facing phrase. "None" is never rendered (the line is omitted). */
+const FREQ_PHRASE: Record<Exclude<ReportFrequency, "None">, string> = {
+  Monthly: "every month",
+  Quarterly: "every quarter",
+  Yearly: "every year",
+};
 
 const RED = "#C00";
 const GREY = "#757575";
@@ -40,6 +47,31 @@ export function buildAnnouncementMjml(data: ReportData): string {
         <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="4px" padding-bottom="4px">• ${escapeXml(item)}</mj-text>`,
           )
           .join("")}
+      </mj-column>
+    </mj-section>`
+      : "";
+
+  // Go-forward cadence ("WHAT TO EXPECT") — one line per non-None pace, testing then
+  // maintenance, with the report-each-time note. Omitted entirely when no cadence is set.
+  const cad = data.cadence;
+  const cadenceLines: string[] = [];
+  if (cad && cad.testing !== "None")
+    cadenceLines.push(`${copy.announceTestingLabel} — ${FREQ_PHRASE[cad.testing]}`);
+  if (cad && cad.maintenance !== "None")
+    cadenceLines.push(`${copy.announceMaintenanceLabel} — ${FREQ_PHRASE[cad.maintenance]}`);
+  const cadenceSection =
+    cadenceLines.length > 0
+      ? `
+    <mj-section background-color="white">
+      <mj-column>
+        <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="36px">${escapeXml(copy.announceCadenceHeading)}</mj-text>
+        ${cadenceLines
+          .map(
+            (line) => `
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="4px" padding-bottom="4px">• ${escapeXml(line)}</mj-text>`,
+          )
+          .join("")}
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="12px">${escapeXml(copy.announceCadence)}</mj-text>
       </mj-column>
     </mj-section>`
       : "";
@@ -91,6 +123,7 @@ export function buildAnnouncementMjml(data: ReportData): string {
         <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="8px">${escapeXml(copy.announceBody)}</mj-text>
       </mj-column>
     </mj-section>
+    ${cadenceSection}
     ${improvementsSection}
     <mj-section background-color="white">
       <mj-column>
@@ -106,8 +139,7 @@ export function buildAnnouncementMjml(data: ReportData): string {
     </mj-section>
     <mj-section background-color="white">
       <mj-column>
-        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="36px">${escapeXml(copy.announceCadence)}</mj-text>
-        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="8px">${escapeXml(copy.announceOpenDoor)}</mj-text>
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="36px">${escapeXml(copy.announceOpenDoor)}</mj-text>
       </mj-column>
     </mj-section>
     <mj-section background-color="white">

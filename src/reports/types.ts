@@ -1,5 +1,10 @@
 export type ReportType = "Maintenance" | "Testing" | "Launch" | "Announcement";
 
+/** Recurrence pace. Mirrors `Frequency` in airtable/websites.ts — inlined here so
+ *  the base types stay free of an airtable-layer import (avoids a type cycle). */
+export type ReportFrequency = "None" | "Monthly" | "Quarterly" | "Yearly";
+export type ReportCadence = { maintenance: ReportFrequency; testing: ReportFrequency };
+
 export type LighthouseScores = {
   performance: number;
   accessibility: number;
@@ -38,6 +43,9 @@ export type ReportData = {
   /** Announcement-only: which recent-improvement callouts to render. Undefined for
    *  Maintenance/Testing/Launch → the section is absent. */
   improvements?: { resendForms?: boolean; svelte5?: boolean };
+  /** Announcement-only: the client's go-forward pace, rendered as the "WHAT TO EXPECT"
+   *  section. A "None" pace is omitted; undefined → the whole section is absent. */
+  cadence?: ReportCadence;
   /** Resolved per-site copy (M6a). Omitted → the template falls back to DEFAULT_COPY. */
   copy?: import("./copy.js").ResolvedCopy;
   /** Used in the header `mj-image src`; the email attaches the bytes with this CID. */

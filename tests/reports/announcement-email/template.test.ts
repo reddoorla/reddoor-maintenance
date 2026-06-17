@@ -24,11 +24,41 @@ describe("buildAnnouncementMjml", () => {
   // so assert special-char-free substrings of them — the launch test does the same.
   it("renders the announcement heading, body, and standing copy", () => {
     const mjml = buildAnnouncementMjml(baseData());
-    expect(mjml).toContain(DEFAULT_COPY.announceHeading); // "YOUR MONTHLY REPORT" — no special chars
-    expect(mjml).toContain(DEFAULT_COPY.announcePreviewLabel); // "A snapshot of your latest scores:"
-    expect(mjml).toContain("set up ongoing monitoring and maintenance"); // announceBody
-    expect(mjml).toContain("receive this every month"); // announceCadence
+    expect(mjml).toContain(DEFAULT_COPY.announceHeading); // dynamic — no special chars
+    expect(mjml).toContain(DEFAULT_COPY.announcePreviewLabel); // "From your latest full site test:"
+    expect(mjml).toContain("completed a full test of your site"); // announceBody
     expect(mjml).toContain("expand the scope, add features"); // announceOpenDoor
+  });
+
+  it("renders the go-forward cadence from data.cadence, mapping Frequency → phrase", () => {
+    const mjml = buildAnnouncementMjml(
+      baseData({ cadence: { maintenance: "Monthly", testing: "Quarterly" } }),
+    );
+    expect(mjml).toContain(DEFAULT_COPY.announceCadenceHeading); // "WHAT TO EXPECT"
+    expect(mjml).toContain("Full site testing");
+    expect(mjml).toContain("every quarter");
+    expect(mjml).toContain("Routine maintenance");
+    expect(mjml).toContain("every month");
+    expect(mjml).toContain("send you a short report like this"); // announceCadence note
+  });
+
+  it("omits a cadence line set to None, and the whole section when neither is set", () => {
+    const onlyMaint = buildAnnouncementMjml(
+      baseData({ cadence: { maintenance: "Yearly", testing: "None" } }),
+    );
+    expect(onlyMaint).toContain("Routine maintenance");
+    expect(onlyMaint).toContain("every year");
+    expect(onlyMaint).not.toContain("Full site testing");
+
+    const none = buildAnnouncementMjml(
+      baseData({ cadence: { maintenance: "None", testing: "None" } }),
+    );
+    expect(none).not.toContain(DEFAULT_COPY.announceCadenceHeading);
+    expect(none).not.toContain("Full site testing");
+    expect(none).not.toContain("Routine maintenance");
+
+    const absent = buildAnnouncementMjml(baseData()); // no cadence at all
+    expect(absent).not.toContain(DEFAULT_COPY.announceCadenceHeading);
   });
 
   it("renders each of the four Lighthouse score numbers", () => {
