@@ -157,6 +157,149 @@ describe("renderSiteDashboardHtml", () => {
   });
 });
 
+describe("renderSiteDashboardHtml — home link", () => {
+  it("renders a top-left Home link to the cockpit (/), above the site heading", () => {
+    const html = renderSiteDashboardHtml(siteRow(), []);
+    expect(html).toMatch(/<a class="home" href="\/">/);
+    // It sits before the <h1> so it reads as a back/home affordance.
+    expect(html.indexOf('class="home"')).toBeLessThan(html.indexOf("<h1"));
+  });
+});
+
+describe("renderSiteDashboardHtml — setup status", () => {
+  it("lists the missing onboarding items when the site is not fully onboarded", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow({
+        lastLighthouseAuditAt: null,
+        reportRecipientsTo: null,
+        maintenanceFreq: "Monthly",
+        pointOfContact: "Tucker",
+      }),
+      [],
+    );
+    expect(html).toMatch(/Setup 2\/4/);
+    expect(html).toContain("First audit");
+    expect(html).toContain("Report recipients");
+    // The satisfied checks are not listed as missing.
+    expect(html).not.toMatch(/Missing[^<]*Maintenance schedule/);
+  });
+
+  it("shows a complete state when the site is fully onboarded", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow({
+        lastLighthouseAuditAt: "2026-05-27T18:00:00Z",
+        reportRecipientsTo: "tucker@reddoorla.com",
+        maintenanceFreq: "Monthly",
+        pointOfContact: "Tucker",
+      }),
+      [],
+    );
+    expect(html).toMatch(/Setup 4\/4/);
+    expect(html).toMatch(/complete/i);
+  });
+});
+
+describe("renderSiteDashboardHtml — report-source data on report rows", () => {
+  it("renders GA users (current with Δ vs previous) and search position on a report row", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [
+      reportRow({
+        reportId: "rep_ga",
+        gaUsersCurrent: 2100,
+        gaUsersPrevious: 1900,
+        searchFoundPage1: true,
+        searchPosition: 4,
+      }),
+    ]);
+    expect(html).toContain("2100");
+    // Δ vs previous (2100 − 1900 = +200).
+    expect(html).toMatch(/\+200|200/);
+    // Search position shown when found on page 1.
+    expect(html).toMatch(/#?4\b/);
+  });
+
+  it("renders '—' for GA and search when the data is null", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [
+      reportRow({
+        reportId: "rep_none",
+        gaUsersCurrent: null,
+        gaUsersPrevious: null,
+        searchFoundPage1: null,
+        searchPosition: null,
+      }),
+    ]);
+    // The GA and Search cells degrade to em-dashes (rendered in the row).
+    const tbody = html.slice(html.indexOf("<tbody>"), html.indexOf("</tbody>"));
+    expect(tbody).toContain("—");
+  });
+
+  it("shows search as '—' when the site was not found on page 1", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [
+      reportRow({
+        reportId: "rep_nofound",
+        searchFoundPage1: false,
+        searchPosition: null,
+      }),
+    ]);
+    expect(html).toContain("rep_nofound");
+  });
+});
+
+describe("renderSiteDashboardHtml — site details section", () => {
+  it("renders cadence, recipients, POC and the optional ops fields", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow({
+        maintenanceFreq: "Monthly",
+        testingFreq: "Quarterly",
+        reportRecipientsTo: "client@acme.example",
+        reportRecipientsCc: "ops@reddoorla.com",
+        pointOfContact: "Jane Client",
+        ga4PropertyId: "properties/123456",
+        searchQuery: "Acme Co Los Angeles",
+        gitRepo: "reddoorla/acme",
+        lastCommitAt: "2026-06-10T00:00:00Z",
+      }),
+      [],
+    );
+    expect(html).toMatch(/Site details/i);
+    expect(html).toContain("Monthly");
+    expect(html).toContain("Quarterly");
+    expect(html).toContain("client@acme.example");
+    expect(html).toContain("ops@reddoorla.com");
+    expect(html).toContain("Jane Client");
+    expect(html).toContain("properties/123456");
+    expect(html).toContain("Acme Co Los Angeles");
+    expect(html).toContain("reddoorla/acme");
+  });
+
+  it("renders '—' for blank/null optional ops fields", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow({
+        maintenanceFreq: "Monthly",
+        testingFreq: "None",
+        reportRecipientsTo: "client@acme.example",
+        reportRecipientsCc: null,
+        pointOfContact: null,
+        ga4PropertyId: null,
+        searchQuery: null,
+        gitRepo: null,
+        lastCommitAt: null,
+      }),
+      [],
+    );
+    const details = html.slice(html.indexOf("Site details"));
+    expect(details).toContain("—");
+  });
+
+  it("escapes untrusted ops field values in the site-details section", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow({ pointOfContact: "<script>alert(1)</script>" }),
+      [],
+    );
+    expect(html).not.toContain("<script>alert(1)</script>");
+    expect(html).toContain("&lt;script&gt;");
+  });
+});
+
 describe("renderSiteDashboardHtml — site health section", () => {
   it("includes a 'Site Health' heading", () => {
     const html = renderSiteDashboardHtml(siteRow(), []);

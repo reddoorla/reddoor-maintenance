@@ -28,3 +28,22 @@ export function onboardingStatus(row: WebsiteRow): OnboardingStatus {
   const score = Object.values(checks).filter(Boolean).length;
   return { score, total: 4, checks };
 }
+
+/** Human label for each onboarding check, in canonical check order. Used by the
+ *  dashboards to spell out which signals a partially-onboarded site is missing
+ *  (cockpit setup-chip tooltip + per-site setup line). */
+export const ONBOARDING_LABELS: Record<keyof OnboardingStatus["checks"], string> = {
+  firstAudit: "First audit",
+  recipients: "Report recipients",
+  schedule: "Maintenance schedule",
+  poc: "Point of contact",
+};
+
+/** The labels of the onboarding checks this site has NOT satisfied, in check
+ *  order. Empty array → fully onboarded. */
+export function missingOnboarding(row: WebsiteRow): string[] {
+  const { checks } = onboardingStatus(row);
+  return (Object.keys(ONBOARDING_LABELS) as Array<keyof typeof ONBOARDING_LABELS>)
+    .filter((key) => !checks[key])
+    .map((key) => ONBOARDING_LABELS[key]);
+}

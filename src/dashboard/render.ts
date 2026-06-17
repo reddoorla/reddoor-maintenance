@@ -5,6 +5,9 @@ import type { SubmissionRow } from "../reports/airtable/submissions.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 import { escapeHtml, safeUrl } from "../util/html.js";
 import { FAVICON_LINK } from "./favicon.js";
+import { onboardingStatus, missingOnboarding } from "./onboarding.js";
+
+const DASH = "—";
 
 function scoreTile(label: string, value: number | null): string {
   const display = value === null ? "—" : String(value);
@@ -58,17 +61,40 @@ function pendingSection(reports: ReportRow[]): string {
   </div>`;
 }
 
+/** The GA "Users" cell for a report row: current count plus the signed delta vs
+ *  the previous period when both are known. Renders "—" when there's no current
+ *  count (GA not configured / fetch failed → blank in Airtable). */
+function gaUsersCell(r: ReportRow): string {
+  if (r.gaUsersCurrent === null) return DASH;
+  const current = String(r.gaUsersCurrent);
+  if (r.gaUsersPrevious === null) return escapeHtml(current);
+  const delta = r.gaUsersCurrent - r.gaUsersPrevious;
+  const sign = delta > 0 ? "+" : ""; // negatives carry their own "-"; zero shows "0"
+  return `${escapeHtml(current)} <span class="muted">(${escapeHtml(`${sign}${delta}`)})</span>`;
+}
+
+/** The search-presence cell: the page-1 position when the site was found on
+ *  page 1, otherwise "—" (not-found OR the check didn't run). */
+function searchCell(r: ReportRow): string {
+  if (r.searchFoundPage1 && r.searchPosition !== null) {
+    return escapeHtml(`#${r.searchPosition}`);
+  }
+  return DASH;
+}
+
 function reportRow(r: ReportRow): string {
-  const date = r.completedOn ? escapeHtml(r.completedOn) : "—";
+  const date = r.completedOn ? escapeHtml(r.completedOn) : DASH;
   const type = escapeHtml(r.reportType);
   const id = escapeHtml(r.reportId);
+  const ga = gaUsersCell(r);
+  const search = searchCell(r);
   const link = r.renderedHtmlAttachment
     ? `<a href="${escapeHtml(safeUrl(r.renderedHtmlAttachment.url))}">view</a>`
     : `<span class="muted">no attachment</span>`;
   const action = isPendingApproval(r)
     ? `<button class="approve" data-report-id="${escapeHtml(r.id)}" data-approve-url="/api/reports/${encodeURIComponent(r.id)}/approve">Approve</button>`
     : "";
-  return `<tr><td>${date}</td><td>${type}</td><td><code>${id}</code></td><td>${link}</td><td>${action}</td></tr>`;
+  return `<tr><td>${date}</td><td>${type}</td><td><code>${id}</code></td><td>${ga}</td><td>${search}</td><td>${link}</td><td>${action}</td></tr>`;
 }
 
 function submissionRow(s: SubmissionRow): string {
@@ -97,6 +123,49 @@ function submissionsSection(submissions: SubmissionRow[]): string {
   return `<div class="section submissions">
     <h2>Form submissions (${submissions.length})</h2>
     <ul class="subm-list">${recent.map(submissionRow).join("")}</ul>
+  </div>`;
+}
+
+/** Setup (N/4) status near the page header. Lists the missing onboarding items
+ *  visibly (the cockpit chip only hovers them) so the operator sees what's left
+ *  to wire up without leaving the page. */
+function setupSection(site: WebsiteRow): string {
+  const { score, total } = onboardingStatus(site);
+  const missing = missingOnboarding(site);
+  const detail =
+    missing.length === 0
+      ? `<span class="setup-ok">complete</span>`
+      : `<span class="setup-missing">Missing: ${escapeHtml(missing.join(", "))}</span>`;
+  return `<div class="setup-line">Setup ${score}/${total} — ${detail}</div>`;
+}
+
+/** One "Site details" definition-list row: a label and a value that degrades to
+ *  "—" when the value is blank/null. */
+function detailRow(label: string, value: string | null | undefined): string {
+  const display =
+    typeof value === "string" && value.trim().length > 0 ? escapeHtml(value.trim()) : DASH;
+  return `<div class="detail"><dt>${escapeHtml(label)}</dt><dd>${display}</dd></div>`;
+}
+
+/** "Site details" section: the WebsiteRow fields that feed reports/ops but aren't
+ *  otherwise surfaced on the page — cadence, recipients, POC, and the optional GA /
+ *  search / git wiring. Read-only; nulls render as "—". */
+function siteDetailsSection(site: WebsiteRow): string {
+  const lastCommit = site.lastCommitAt ? `${relativeTimeFromNow(site.lastCommitAt)}` : null;
+  const rows = [
+    detailRow("Maintenance cadence", site.maintenanceFreq),
+    detailRow("Testing cadence", site.testingFreq),
+    detailRow("Report recipients (To)", site.reportRecipientsTo),
+    detailRow("Report recipients (CC)", site.reportRecipientsCc),
+    detailRow("Point of contact", site.pointOfContact),
+    detailRow("GA4 property", site.ga4PropertyId),
+    detailRow("Search query", site.searchQuery),
+    detailRow("Git repo", site.gitRepo),
+    detailRow("Last commit", lastCommit),
+  ].join("");
+  return `<div class="section site-details">
+    <h2>Site details</h2>
+    <dl class="details">${rows}</dl>
   </div>`;
 }
 
@@ -138,6 +207,14 @@ button.subm-status:disabled { opacity: 0.6; cursor: default; }
 .pill.subm-read { background: #f0f0f0; color: #555; }
 .pill.subm-archived { background: #eee; color: #888; }
 .pill.subm-spam { background: #fdecea; color: #b00; }
+.home { display: inline-block; font-size: 0.9rem; margin-bottom: 0.75rem; text-decoration: none; }
+.setup-line { font-size: 0.9rem; color: #666; margin-bottom: 1rem; }
+.setup-ok { color: #1b7a2f; font-weight: 600; }
+.setup-missing { color: #a65a00; }
+.details { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.5rem 1.5rem; margin: 0; }
+.detail { display: flex; flex-direction: column; }
+.detail dt { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: #999; }
+.detail dd { margin: 0; }
 `;
 
 /**
@@ -193,7 +270,7 @@ export function renderSiteDashboardHtml(
     recentReports.length === 0
       ? `<div class="empty">No reports yet.</div>`
       : `<table>
-          <thead><tr><th>Completed</th><th>Type</th><th>ID</th><th>Report</th><th></th></tr></thead>
+          <thead><tr><th>Completed</th><th>Type</th><th>ID</th><th>GA users</th><th>Search</th><th>Report</th><th></th></tr></thead>
           <tbody>${recentReports.map(reportRow).join("")}</tbody>
         </table>`;
 
@@ -207,9 +284,11 @@ export function renderSiteDashboardHtml(
   <style>${STYLES}</style>
 </head>
 <body>
+  <a class="home" href="/">← Fleet home</a>
   <h1>${name}</h1>
   <div class="meta"><a href="${escapeHtml(urlSafe)}">${escapeHtml(site.url)}</a></div>
   ${auditedLine}
+  ${setupSection(site)}
   ${pendingSection(reports)}
   ${submissionsSection(submissions)}
 
@@ -227,6 +306,8 @@ export function renderSiteDashboardHtml(
     <h2>Reports</h2>
     ${reportsSection}
   </div>
+
+  ${siteDetailsSection(site)}
   <script>
     document.querySelectorAll("button.approve").forEach((b) => {
       b.addEventListener("click", async () => {

@@ -1,7 +1,7 @@
 import type { WebsiteRow } from "../reports/airtable/websites.js";
 import { siteSlug } from "../reports/airtable/websites.js";
 import type { CockpitModel, SiteCard, Tier, SubmissionEntry } from "./fleet-cockpit.js";
-import { onboardingStatus } from "./onboarding.js";
+import { onboardingStatus, missingOnboarding } from "./onboarding.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 import { escapeHtml, safeUrl } from "../util/html.js";
 import { FAVICON_LINK } from "./favicon.js";
@@ -54,6 +54,10 @@ function card(site: WebsiteRow): string {
   // the caller filters the fleet view.
   const href = `/s/${escapeHtml(siteSlug(site.name))}`;
   const onboarding = onboardingStatus(site);
+  const missing = missingOnboarding(site);
+  const setupTitle = escapeHtml(
+    missing.length === 0 ? "Setup complete" : `Missing: ${missing.join(", ")}`,
+  );
   const audited = relativeTimeFromNow(site.lastLighthouseAuditAt);
   const safeSiteUrl = escapeHtml(safeUrl(site.url));
   const visibleUrl = escapeHtml(site.url);
@@ -62,15 +66,15 @@ function card(site: WebsiteRow): string {
     <header class="card-head">
       <a class="site" href="${href}">${name}</a>
       <a class="url" href="${safeSiteUrl}" target="_blank" rel="noopener">${visibleUrl}</a>
-      <span class="setup">Setup: <strong>${onboarding.score}/${onboarding.total}</strong></span>
+      <span class="setup" title="${setupTitle}">Setup: <strong>${onboarding.score}/${onboarding.total}</strong></span>
       <span class="audited">Audited: <strong>${escapeHtml(audited)}</strong></span>
     </header>
     <div class="card-metrics">
       <span class="cluster lighthouse">
-        ${scoreSpan("perf", site.pScore)}
-        ${scoreSpan("a11y-lh", site.rScore)}
-        ${scoreSpan("bp", site.bpScore)}
-        ${scoreSpan("seo", site.seoScore)}
+        <span class="metric-label">Perf</span> ${scoreSpan("perf", site.pScore)}
+        <span class="metric-label">Access</span> ${scoreSpan("a11y-lh", site.rScore)}
+        <span class="metric-label">BP</span> ${scoreSpan("bp", site.bpScore)}
+        <span class="metric-label">SEO</span> ${scoreSpan("seo", site.seoScore)}
       </span>
       <span class="cluster health">
         <span class="metric-label">a11y</span> ${a11ySpan(site.a11yViolations)}
