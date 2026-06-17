@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { onboardingStatus } from "../../src/dashboard/onboarding.js";
+import {
+  onboardingStatus,
+  ONBOARDING_LABELS,
+  missingOnboarding,
+} from "../../src/dashboard/onboarding.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
@@ -62,5 +66,51 @@ describe("onboardingStatus", () => {
       }),
     );
     expect(s.score).toBe(2);
+  });
+});
+
+describe("ONBOARDING_LABELS", () => {
+  it("provides a human label for every onboarding check", () => {
+    expect(ONBOARDING_LABELS).toEqual({
+      firstAudit: "First audit",
+      recipients: "Report recipients",
+      schedule: "Maintenance schedule",
+      poc: "Point of contact",
+    });
+  });
+});
+
+describe("missingOnboarding", () => {
+  it("returns the labels of all four checks when nothing is set", () => {
+    expect(missingOnboarding(row())).toEqual([
+      "First audit",
+      "Report recipients",
+      "Maintenance schedule",
+      "Point of contact",
+    ]);
+  });
+
+  it("returns an empty array when the site is fully onboarded", () => {
+    expect(
+      missingOnboarding(
+        row({
+          lastLighthouseAuditAt: "2026-05-27T18:00:00Z",
+          reportRecipientsTo: "tucker@reddoorla.com",
+          maintenanceFreq: "Monthly",
+          pointOfContact: "Tucker",
+        }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("returns only the labels of the unchecked items, in check order", () => {
+    const missing = missingOnboarding(
+      row({
+        lastLighthouseAuditAt: "2026-05-27T18:00:00Z",
+        maintenanceFreq: "Monthly",
+      }),
+    );
+    // firstAudit + schedule pass → recipients + poc remain, in declaration order.
+    expect(missing).toEqual(["Report recipients", "Point of contact"]);
   });
 });

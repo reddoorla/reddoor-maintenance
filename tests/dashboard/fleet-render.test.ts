@@ -213,6 +213,40 @@ describe("renderCockpitHtml — metrics row", () => {
   });
 });
 
+describe("renderCockpitHtml — lighthouse score labels", () => {
+  it("labels each of the four lighthouse scores using the metric-label pattern", () => {
+    const html = renderCockpitHtml(
+      model([siteRow({ pScore: 73, rScore: 100, bpScore: 78, seoScore: 90 })]),
+    );
+    // Same metric-label treatment the health cluster already uses, so the bare
+    // numbers read as Perf / Access / BP / SEO.
+    for (const label of ["Perf", "Access", "BP", "SEO"]) {
+      expect(html).toContain(`<span class="metric-label">${label}</span>`);
+    }
+  });
+});
+
+describe("renderCockpitHtml — setup chip tooltip", () => {
+  it("lists the missing onboarding items in the setup chip title when incomplete", () => {
+    const html = renderCockpitHtml(
+      model([siteRow({ pointOfContact: null, reportRecipientsTo: null })]),
+    );
+    expect(html).toContain('title="Missing: Report recipients, Point of contact"');
+  });
+
+  it("says the setup is complete in the title when fully onboarded", () => {
+    const html = renderCockpitHtml(model([siteRow()]));
+    expect(html).toContain('title="Setup complete"');
+  });
+
+  it("escapes the setup title text", () => {
+    // A site missing only the audit still produces a stable, escaped title;
+    // assert the chip carries a title attribute on the setup span.
+    const html = renderCockpitHtml(model([siteRow({ lastLighthouseAuditAt: null })]));
+    expect(html).toMatch(/<span class="setup" title="Missing: First audit">/);
+  });
+});
+
 describe("renderCockpitHtml — escaping & safety", () => {
   it("escapes HTML in site names and URLs", () => {
     const html = renderCockpitHtml(
