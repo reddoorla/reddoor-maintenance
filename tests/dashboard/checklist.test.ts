@@ -56,7 +56,7 @@ describe("setChecklistItem", () => {
 
   it("returns not-found (no write) when the id resolves to no row", async () => {
     const d = deps({ getReportById: vi.fn().mockResolvedValue(null) });
-    const r = await setChecklistItem(d, "recNOPE", "Maint: Reviewed Logs", true);
+    const r = await setChecklistItem(d, "recNOPE", "Maint: Deploy & Function Health", true);
     expect(r).toEqual({ status: "not-found", reportId: "recNOPE" });
     expect(d.setReportChecklistItem).not.toHaveBeenCalled();
   });
@@ -68,12 +68,16 @@ describe("setChecklistItem", () => {
         .fn()
         .mockResolvedValue(reportRow({ reportType: "Maintenance", checklist: {} })),
     });
-    const r = await setChecklistItem(d, "recREP1", "Maint: Reviewed Logs", true);
-    expect(d.setReportChecklistItem).toHaveBeenCalledWith("recREP1", "Maint: Reviewed Logs", true);
+    const r = await setChecklistItem(d, "recREP1", "Maint: Deploy & Function Health", true);
+    expect(d.setReportChecklistItem).toHaveBeenCalledWith(
+      "recREP1",
+      "Maint: Deploy & Function Health",
+      true,
+    );
     expect(r).toEqual({
       status: "ok",
       reportId: "recREP1",
-      field: "Maint: Reviewed Logs",
+      field: "Maint: Deploy & Function Health",
       value: true,
       complete: false,
     });
@@ -110,35 +114,40 @@ describe("setChecklistItem", () => {
           reportRow({ reportType: "Maintenance", checklist: COMPLETE_MAINTENANCE }),
         ),
     });
-    const r = await setChecklistItem(d, "recREP1", "Maint: Reviewed Logs", false);
-    expect(d.setReportChecklistItem).toHaveBeenCalledWith("recREP1", "Maint: Reviewed Logs", false);
+    const r = await setChecklistItem(d, "recREP1", "Maint: Deploy & Function Health", false);
+    expect(d.setReportChecklistItem).toHaveBeenCalledWith(
+      "recREP1",
+      "Maint: Deploy & Function Health",
+      false,
+    );
     expect(r).toEqual({
       status: "ok",
       reportId: "recREP1",
-      field: "Maint: Reviewed Logs",
+      field: "Maint: Deploy & Function Health",
       value: false,
       complete: false,
     });
   });
 
-  it("completes a Testing report only when its own 6 items are checked, regardless of maint cells", async () => {
+  it("completes a Testing report only when its own 7 items are checked, regardless of maint cells", async () => {
     // A Testing report carries the maintenance cells (all false). The maint fields must NOT
     // count toward the Testing gate — checking only the Testing items completes it.
     const testingComplete: Record<string, boolean> = {
       "Test: Desktop Browsers": true,
       "Test: Mobile Browsers": true,
-      "Test: Package Updates": true,
-      "Test: Bottlenecks": true,
+      "Test: Page Titles & Meta": true,
+      "Test: Links & Navigation": true,
       "Test: Form Functionality": true,
-      // Animation still unchecked → flipping it completes the Testing set.
-      "Test: Animation Functionality": false,
+      "Test: Verified After Updates": true,
+      // Interactions still unchecked → flipping it completes the Testing set.
+      "Test: Interactions & Animations": false,
     };
     const d = deps({
       getReportById: vi
         .fn()
         .mockResolvedValue(reportRow({ reportType: "Testing", checklist: testingComplete })),
     });
-    const r = await setChecklistItem(d, "recREP1", "Test: Animation Functionality", true);
+    const r = await setChecklistItem(d, "recREP1", "Test: Interactions & Animations", true);
     expect(r.status).toBe("ok");
     expect((r as { complete: boolean }).complete).toBe(true);
   });

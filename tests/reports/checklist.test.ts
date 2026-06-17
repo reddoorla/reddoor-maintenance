@@ -25,20 +25,21 @@ describe("checklistFor", () => {
 });
 
 describe("ALL_CHECKLIST_FIELDS", () => {
-  it("is the 12 field names across both lists in order", () => {
+  it("is the 13 field names across both lists in order", () => {
     expect(ALL_CHECKLIST_FIELDS).toEqual([
-      "Maint: Reviewed Logs",
+      "Maint: Deploy & Function Health",
       "Maint: CMS Checked",
-      "Maint: DNS Checked",
+      "Maint: Domain, DNS & SSL",
       "Maint: Google Indexed",
-      "Maint: Reviewed Certificate",
       "Maint: Security Updates",
+      "Maint: Uptime Checked",
       "Test: Desktop Browsers",
       "Test: Mobile Browsers",
-      "Test: Package Updates",
-      "Test: Bottlenecks",
+      "Test: Page Titles & Meta",
+      "Test: Links & Navigation",
       "Test: Form Functionality",
-      "Test: Animation Functionality",
+      "Test: Interactions & Animations",
+      "Test: Verified After Updates",
     ]);
   });
 });
@@ -56,7 +57,7 @@ describe("isChecklistComplete", () => {
   });
   it("is false for Maintenance when any maintenance field is false", () => {
     const checklist = Object.fromEntries(MAINTENANCE_CHECKLIST.map((i) => [i.field, true]));
-    checklist["Maint: DNS Checked"] = false;
+    checklist["Maint: Domain, DNS & SSL"] = false;
     expect(isChecklistComplete({ reportType: "Maintenance", checklist })).toBe(false);
   });
   it("is false for Maintenance when a maintenance field is missing entirely", () => {
@@ -70,13 +71,13 @@ describe("isChecklistComplete", () => {
     for (const i of TESTING_CHECKLIST) checklist[i.field] = false;
     expect(isChecklistComplete({ reportType: "Maintenance", checklist })).toBe(true);
   });
-  it("is true for Testing when all 6 testing fields are true", () => {
+  it("is true for Testing when all 7 testing fields are true", () => {
     const checklist = Object.fromEntries(TESTING_CHECKLIST.map((i) => [i.field, true]));
     expect(isChecklistComplete({ reportType: "Testing", checklist })).toBe(true);
   });
   it("is false for Testing when any testing field is false", () => {
     const checklist = Object.fromEntries(TESTING_CHECKLIST.map((i) => [i.field, true]));
-    checklist["Test: Bottlenecks"] = false;
+    checklist["Test: Links & Navigation"] = false;
     expect(isChecklistComplete({ reportType: "Testing", checklist })).toBe(false);
   });
 });

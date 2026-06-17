@@ -4,7 +4,7 @@ export type ResolvedCopy = {
   maintenanceIntro: string;
   maintenanceChecks: string[]; // 6; index 3 is the Google row's no-position default
   testingIntro: string;
-  testingChecklist: string[]; // 6
+  testingChecklist: string[]; // 7
   notesHeader: string;
   seoCta: string;
   contact: string[]; // closing invitation lines
@@ -30,22 +30,23 @@ export const DEFAULT_COPY: ResolvedCopy = {
   maintenanceIntro:
     "Includes checking the hosting, DNS, Content Management System (CMS, if applicable), search indexing and security of the site for major flaws and updating as necessary.",
   maintenanceChecks: [
-    "Reviewed Logs",
+    "Deploy & Function Health",
     "CMS Checked",
-    "DNS Checked",
+    "Domain, DNS & SSL",
     "Google Indexed",
-    "Reviewed Certificate",
     "Security Updates",
+    "Uptime Checked",
   ],
   testingIntro:
     "Testing includes checks similar to those at launch: testing on common browsers and operating systems, at different screen sizes, and checking every function, and updating all packages for performance rather than just those needed for security.",
   testingChecklist: [
     "Desktop Browsers",
     "Mobile Browsers",
-    "Package Updates",
-    "Bottlenecks",
+    "Page Titles & Meta",
+    "Links & Navigation",
     "Form Functionality",
-    "Animation Functionality",
+    "Interactions & Animations",
+    "Verified After Updates",
   ],
   notesHeader: "NOTES",
   seoCta: "Contact us if you are interested in more in-depth data or have questions about SEO.",
