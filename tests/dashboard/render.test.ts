@@ -610,7 +610,7 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
     expect(html).not.toMatch(/<button class="approve"[^>]*data-report-id="recREP1"[^>]*disabled/);
   });
 
-  it("renders the Testing checklist (its 7 items) for a pending Testing report", () => {
+  it("renders the full Testing checklist (maintenance + testing, 13 items) for a pending Testing report", () => {
     const html = renderSiteDashboardHtml(siteRow(), [
       reportRow({
         id: "recREP1",
@@ -621,13 +621,10 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
         checklist: {},
       }),
     ]);
-    for (const item of TESTING_CHECKLIST) {
+    // A Testing pass also does the maintenance checks, so both lists render and gate it.
+    for (const item of [...MAINTENANCE_CHECKLIST, ...TESTING_CHECKLIST]) {
       expect(html).toContain(`data-field="${escapeHtml(item.field)}"`);
       expect(html).toContain(escapeHtml(item.label));
-    }
-    // None of the maintenance fields render for a Testing report.
-    for (const item of MAINTENANCE_CHECKLIST) {
-      expect(html).not.toContain(`data-field="${escapeHtml(item.field)}"`);
     }
     expect(html).toMatch(/<button class="approve"[^>]*data-report-id="recREP1"[^>]*disabled/);
   });

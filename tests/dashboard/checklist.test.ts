@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { setChecklistItem, type ChecklistItemDeps } from "../../src/dashboard/checklist.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
-import { MAINTENANCE_CHECKLIST } from "../../src/reports/checklist.js";
+import { MAINTENANCE_CHECKLIST, TESTING_CHECKLIST } from "../../src/reports/checklist.js";
 
 /** All 6 maintenance cells true. */
 const COMPLETE_MAINTENANCE = Object.fromEntries(MAINTENANCE_CHECKLIST.map((i) => [i.field, true]));
@@ -129,26 +129,36 @@ describe("setChecklistItem", () => {
     });
   });
 
-  it("completes a Testing report only when its own 7 items are checked, regardless of maint cells", async () => {
-    // A Testing report carries the maintenance cells (all false). The maint fields must NOT
-    // count toward the Testing gate — checking only the Testing items completes it.
-    const testingComplete: Record<string, boolean> = {
-      "Test: Desktop Browsers": true,
-      "Test: Mobile Browsers": true,
-      "Test: Page Titles & Meta": true,
-      "Test: Links & Navigation": true,
-      "Test: Form Functionality": true,
-      "Test: Verified After Updates": true,
-      // Interactions still unchecked → flipping it completes the Testing set.
-      "Test: Interactions & Animations": false,
-    };
+  it("completes a Testing report only when all 13 (maintenance + testing) items are checked", async () => {
+    // A Testing pass also does the maintenance checks; the email shows both lists, so the
+    // gate requires both. Twelve already checked, Interactions left → flipping it completes.
+    const nearlyComplete: Record<string, boolean> = Object.fromEntries(
+      [...MAINTENANCE_CHECKLIST, ...TESTING_CHECKLIST].map((i) => [i.field, true]),
+    );
+    nearlyComplete["Test: Interactions & Animations"] = false;
     const d = deps({
       getReportById: vi
         .fn()
-        .mockResolvedValue(reportRow({ reportType: "Testing", checklist: testingComplete })),
+        .mockResolvedValue(reportRow({ reportType: "Testing", checklist: nearlyComplete })),
     });
     const r = await setChecklistItem(d, "recREP1", "Test: Interactions & Animations", true);
     expect(r.status).toBe("ok");
     expect((r as { complete: boolean }).complete).toBe(true);
+  });
+
+  it("a Testing report is NOT complete on the testing items alone (maintenance items gate it too)", async () => {
+    // All 7 testing items checked but the maintenance items still false → incomplete.
+    const onlyTesting: Record<string, boolean> = Object.fromEntries(
+      TESTING_CHECKLIST.map((i) => [i.field, true]),
+    );
+    onlyTesting["Test: Interactions & Animations"] = false;
+    const d = deps({
+      getReportById: vi
+        .fn()
+        .mockResolvedValue(reportRow({ reportType: "Testing", checklist: onlyTesting })),
+    });
+    const r = await setChecklistItem(d, "recREP1", "Test: Interactions & Animations", true);
+    expect(r.status).toBe("ok");
+    expect((r as { complete: boolean }).complete).toBe(false);
   });
 });

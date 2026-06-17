@@ -13,8 +13,8 @@ describe("checklistFor", () => {
   it("returns the maintenance list for Maintenance", () => {
     expect(checklistFor("Maintenance")).toBe(MAINTENANCE_CHECKLIST);
   });
-  it("returns the testing list for Testing", () => {
-    expect(checklistFor("Testing")).toBe(TESTING_CHECKLIST);
+  it("returns maintenance + testing for Testing (a testing pass also does the maintenance checks)", () => {
+    expect(checklistFor("Testing")).toEqual([...MAINTENANCE_CHECKLIST, ...TESTING_CHECKLIST]);
   });
   it("returns [] for Launch (no gate)", () => {
     expect(checklistFor("Launch")).toEqual([]);
@@ -71,13 +71,21 @@ describe("isChecklistComplete", () => {
     for (const i of TESTING_CHECKLIST) checklist[i.field] = false;
     expect(isChecklistComplete({ reportType: "Maintenance", checklist })).toBe(true);
   });
-  it("is true for Testing when all 7 testing fields are true", () => {
-    const checklist = Object.fromEntries(TESTING_CHECKLIST.map((i) => [i.field, true]));
+  it("is true for Testing only when all 13 (maintenance + testing) fields are true", () => {
+    const checklist = Object.fromEntries(
+      [...MAINTENANCE_CHECKLIST, ...TESTING_CHECKLIST].map((i) => [i.field, true]),
+    );
     expect(isChecklistComplete({ reportType: "Testing", checklist })).toBe(true);
   });
-  it("is false for Testing when any testing field is false", () => {
+  it("is false for Testing when only the testing items are checked (maintenance items still gate it)", () => {
     const checklist = Object.fromEntries(TESTING_CHECKLIST.map((i) => [i.field, true]));
-    checklist["Test: Links & Navigation"] = false;
+    expect(isChecklistComplete({ reportType: "Testing", checklist })).toBe(false);
+  });
+  it("is false for Testing when any single field (maintenance or testing) is false", () => {
+    const checklist = Object.fromEntries(
+      [...MAINTENANCE_CHECKLIST, ...TESTING_CHECKLIST].map((i) => [i.field, true]),
+    );
+    checklist["Maint: Uptime Checked"] = false;
     expect(isChecklistComplete({ reportType: "Testing", checklist })).toBe(false);
   });
 });
