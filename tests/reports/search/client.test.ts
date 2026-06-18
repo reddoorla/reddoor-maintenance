@@ -17,6 +17,7 @@ import {
   pickBrandQuery,
   selectBrandPosition,
   bareHost,
+  BRAND_QUERY_ROW_LIMIT,
 } from "../../../src/reports/search/client.js";
 import { JWT } from "google-auth-library";
 
@@ -128,6 +129,19 @@ describe("selectBrandPosition", () => {
       ),
     ).toBe(5);
   });
+  it("matches the exact row by KEY even when it is not first (not a positional rows[0] pick)", () => {
+    // The exact row sits AFTER a non-exact, better-ranking, more-searched row. Selection must
+    // still find it by key equality — a rows[0]/first-row shortcut would wrongly return 1.
+    expect(
+      selectBrandPosition(
+        [
+          { keys: ["red door creative reviews"], position: 1, impressions: 80 },
+          { keys: ["red door creative"], position: 3, impressions: 7 },
+        ],
+        "red door creative",
+      ),
+    ).toBe(3);
+  });
   it("ignores an exact-key row that has no numeric position, using most-searched instead", () => {
     expect(
       selectBrandPosition(
@@ -199,7 +213,34 @@ describe("fetchSearchPresence", () => {
       end,
     );
     expect(out).toEqual({ foundOnPage1: true, position: 3 });
-    expect(request.mock.calls[0]![0].data.rowLimit).toBeGreaterThan(1);
+    // Pins the documented row budget (headroom so the exact query is never paged out).
+    expect(request.mock.calls[0]![0].data.rowLimit).toBe(BRAND_QUERY_ROW_LIMIT);
+  });
+
+  it("reports the most-searched variant's position even when it is OFF page 1 (no page-1 clamp)", async () => {
+    // The impressions winner ranks #13; a lower-impression variant ranks #2. We must report
+    // the variant people actually search (13) and flag it not-on-page-1 — not silently prefer
+    // the better-ranking row to keep the page-1 badge.
+    request.mockResolvedValueOnce(
+      ok({
+        rows: [
+          { keys: ["red door creative reviews"], position: 13, impressions: 90 },
+          { keys: ["red door creative agency"], position: 2, impressions: 5 },
+        ],
+      }),
+    );
+    const out = await fetchSearchPresence(
+      {
+        keyPath,
+        subject: "s@x.com",
+        property: "sc-domain:reddoorla.com",
+        host: "reddoorla.com",
+        query: "red door creative",
+      },
+      start,
+      end,
+    );
+    expect(out).toEqual({ foundOnPage1: false, position: 13 });
   });
 
   it("prefers the exact-query row over a higher-impression, better-ranking variant", async () => {

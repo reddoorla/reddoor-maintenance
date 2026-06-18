@@ -5,9 +5,11 @@ const WEBMASTERS_READONLY = "https://www.googleapis.com/auth/webmasters.readonly
 const SC_BASE = "https://searchconsole.googleapis.com/webmasters/v3";
 /** Average-position threshold for "on page 1" (10 organic results per page). */
 const PAGE_1_MAX_POSITION = 10;
-/** Rows to pull for the brand `contains` match — enough to cover a brand's phrasing
- *  variants ("red door creative" / "…creative la" / "…los angeles") without paging. */
-const BRAND_QUERY_ROW_LIMIT = 25;
+/** Rows to pull for the brand `contains` match. searchAnalytics has no orderBy and returns
+ *  rows clicks-desc, so the exact-query row survives into the response only if it isn't paged
+ *  out beyond this cap. Sized with wide headroom — a brand has a handful of phrasing variants,
+ *  far below 100 — so the exact query (and every variant) is in practice always present. */
+export const BRAND_QUERY_ROW_LIMIT = 100;
 
 export type SearchPresenceQuery = {
   /** Path to the service-account JSON key (same one GA uses). */
@@ -97,10 +99,12 @@ export function pickBrandQuery(
  * When a returned row's query equals the operator's configured string (case-insensitive), its
  * position is used verbatim — a precisely-configured brand query is honored, with no chance a
  * longer higher-impression variant ("…reviews", "…near me") hijacks the number. Otherwise we
- * fall back to the most-searched matching query (`pickBrandQuery`). The exact row is reachable
- * in a single API call because a string `contains` itself, so the exact query is among the
- * `contains` results whenever it has data. Returns undefined when no row carries a numeric
- * position. PURE.
+ * fall back to the most-searched matching query (`pickBrandQuery`). Operates only on the rows
+ * actually returned: a string `contains` itself, so the exact query is among the `contains`
+ * results whenever it has data AND isn't paged out beyond `BRAND_QUERY_ROW_LIMIT` (sized so a
+ * brand's handful of phrasing variants always fit; if it ever were paged out, the most-searched
+ * fallback still returns a valid brand position). Returns undefined when no row carries a
+ * numeric position. PURE.
  */
 export function selectBrandPosition(
   rows: Array<{ keys?: string[]; position?: number; impressions?: number }>,
