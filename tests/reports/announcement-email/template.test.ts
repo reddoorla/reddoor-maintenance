@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildAnnouncementMjml } from "../../../src/reports/announcement-email/template.js";
+import { escapeXml } from "../../../src/reports/maintenance-email/template.js";
 import type { ReportData } from "../../../src/reports/types.js";
 import { DEFAULT_COPY } from "../../../src/reports/copy.js";
 
@@ -30,7 +31,7 @@ describe("buildAnnouncementMjml", () => {
     expect(mjml).toContain("expand the scope, add features"); // announceOpenDoor
   });
 
-  it("renders the go-forward cadence from data.cadence, mapping Frequency → phrase", () => {
+  it("renders each pace with its specific checks, mapping Frequency → phrase", () => {
     const mjml = buildAnnouncementMjml(
       baseData({ cadence: { maintenance: "Monthly", testing: "Quarterly" } }),
     );
@@ -40,15 +41,22 @@ describe("buildAnnouncementMjml", () => {
     expect(mjml).toContain("Routine maintenance");
     expect(mjml).toContain("every month");
     expect(mjml).toContain("send you a short report like this"); // announceCadence note
+    // Each pace lists the exact checks that pass covers, sourced from the same copy
+    // arrays the monthly report renders (so the announcement can't drift from it).
+    for (const check of DEFAULT_COPY.testingChecklist) expect(mjml).toContain(escapeXml(check));
+    for (const check of DEFAULT_COPY.maintenanceChecks) expect(mjml).toContain(escapeXml(check));
   });
 
-  it("omits a cadence line set to None, and the whole section when neither is set", () => {
+  it("omits a pace set to None along with its checks, and the whole section when neither is set", () => {
     const onlyMaint = buildAnnouncementMjml(
       baseData({ cadence: { maintenance: "Yearly", testing: "None" } }),
     );
     expect(onlyMaint).toContain("Routine maintenance");
     expect(onlyMaint).toContain("every year");
     expect(onlyMaint).not.toContain("Full site testing");
+    // The testing pace is gone, so its checks are too; maintenance checks remain.
+    expect(onlyMaint).not.toContain("Desktop Browsers"); // a testing check
+    expect(onlyMaint).toContain(escapeXml(DEFAULT_COPY.maintenanceChecks[0]!));
 
     const none = buildAnnouncementMjml(
       baseData({ cadence: { maintenance: "None", testing: "None" } }),
@@ -56,6 +64,7 @@ describe("buildAnnouncementMjml", () => {
     expect(none).not.toContain(DEFAULT_COPY.announceCadenceHeading);
     expect(none).not.toContain("Full site testing");
     expect(none).not.toContain("Routine maintenance");
+    expect(none).not.toContain("Desktop Browsers"); // no checks rendered either
 
     const absent = buildAnnouncementMjml(baseData()); // no cadence at all
     expect(absent).not.toContain(DEFAULT_COPY.announceCadenceHeading);
@@ -77,11 +86,11 @@ describe("buildAnnouncementMjml", () => {
     expect(mjml).toContain(">Site Structure<");
   });
 
-  it("renders the four monitored items", () => {
-    const mjml = buildAnnouncementMjml(baseData());
-    for (const item of DEFAULT_COPY.announceMonitorItems) {
-      expect(mjml).toContain(item);
-    }
+  it("no longer renders a separate WHAT WE MONITOR block (folded into WHAT TO EXPECT)", () => {
+    const mjml = buildAnnouncementMjml(
+      baseData({ cadence: { maintenance: "Monthly", testing: "Monthly" } }),
+    );
+    expect(mjml).not.toContain("WHAT WE MONITOR");
   });
 
   // announceImprovementResend has no special chars (asserted raw); announceImprovementSvelte5

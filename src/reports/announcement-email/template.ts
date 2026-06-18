@@ -22,10 +22,11 @@ const SCORE_PREVIEW: ReadonlyArray<{ label: string; key: keyof ReportData["light
   { label: "Site Structure", key: "seo" },
 ];
 
-/** One-time onboarding announcement: header · heading + site intro + body · recent
- *  improvements (conditional) · what-we-monitor · score preview · cadence · open door
- *  · contact · footer. Reuses the M6a copy layer (contact/footer honor per-site
- *  overrides). No maintenance checklist / analytics / pricing. */
+/** One-time onboarding announcement: header · heading + site intro + body · what to
+ *  expect (each cadence pace plus the specific checks it covers, pulled from the same
+ *  copy arrays the monthly report renders so the two never drift) · recent improvements
+ *  (conditional) · score preview · open door · contact · footer. Reuses the M6a copy
+ *  layer (contact/footer honor per-site overrides). No analytics / pricing. */
 export function buildAnnouncementMjml(data: ReportData): string {
   const copy = data.copy ?? DEFAULT_COPY;
   const previewText = "Your monthly report from Reddoor";
@@ -51,37 +52,41 @@ export function buildAnnouncementMjml(data: ReportData): string {
     </mj-section>`
       : "";
 
-  // Go-forward cadence ("WHAT TO EXPECT") — one line per non-None pace, testing then
-  // maintenance, with the report-each-time note. Omitted entirely when no cadence is set.
+  // Go-forward cadence ("WHAT TO EXPECT") — one block per non-None pace, testing then
+  // maintenance. Each block leads with the pace ("Full site testing — every month") and,
+  // beneath it, the specific checks that pass covers, pulled from the SAME copy arrays the
+  // monthly report renders (copy.testingChecklist / copy.maintenanceChecks) so the
+  // announcement and the report can never drift. The report-each-time note closes the
+  // section. Omitted entirely when no cadence is set.
   const cad = data.cadence;
-  const cadenceLines: string[] = [];
+  const cadenceBlocks: Array<{ line: string; checks: string[] }> = [];
   if (cad && cad.testing !== "None")
-    cadenceLines.push(`${copy.announceTestingLabel} — ${FREQ_PHRASE[cad.testing]}`);
+    cadenceBlocks.push({
+      line: `${copy.announceTestingLabel} — ${FREQ_PHRASE[cad.testing]}`,
+      checks: copy.testingChecklist,
+    });
   if (cad && cad.maintenance !== "None")
-    cadenceLines.push(`${copy.announceMaintenanceLabel} — ${FREQ_PHRASE[cad.maintenance]}`);
+    cadenceBlocks.push({
+      line: `${copy.announceMaintenanceLabel} — ${FREQ_PHRASE[cad.maintenance]}`,
+      checks: copy.maintenanceChecks,
+    });
   const cadenceSection =
-    cadenceLines.length > 0
+    cadenceBlocks.length > 0
       ? `
     <mj-section background-color="white">
       <mj-column>
         <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="36px">${escapeXml(copy.announceCadenceHeading)}</mj-text>
-        ${cadenceLines
+        ${cadenceBlocks
           .map(
-            (line) => `
-        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="4px" padding-bottom="4px">• ${escapeXml(line)}</mj-text>`,
+            (b) => `
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="400" line-height="24px" padding-top="12px" padding-bottom="0px">• ${escapeXml(b.line)}</mj-text>
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="13px" font-weight="300" line-height="20px" padding-top="2px" padding-bottom="0px" padding-left="16px">${escapeXml(b.checks.join(" · "))}</mj-text>`,
           )
           .join("")}
-        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="12px">${escapeXml(copy.announceCadence)}</mj-text>
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="14px">${escapeXml(copy.announceCadence)}</mj-text>
       </mj-column>
     </mj-section>`
       : "";
-
-  const monitorRows = copy.announceMonitorItems
-    .map(
-      (item) => `
-        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="4px" padding-bottom="4px">• ${escapeXml(item)}</mj-text>`,
-    )
-    .join("");
 
   const scoreRows = SCORE_PREVIEW.map(
     ({ label, key }) => `
@@ -125,12 +130,6 @@ export function buildAnnouncementMjml(data: ReportData): string {
     </mj-section>
     ${cadenceSection}
     ${improvementsSection}
-    <mj-section background-color="white">
-      <mj-column>
-        <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="36px">WHAT WE MONITOR</mj-text>
-        ${monitorRows}
-      </mj-column>
-    </mj-section>
     <mj-section background-color="#F4F4F4">
       <mj-column>
         <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="55px">${escapeXml(copy.announcePreviewLabel)}</mj-text>
