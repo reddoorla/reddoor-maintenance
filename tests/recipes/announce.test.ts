@@ -161,7 +161,13 @@ describe("recipes/announce", () => {
     const result = await announce({ base, now: NOW });
 
     expect(result.results).toEqual([
-      { site: "Acme Co", status: "drafted", reportId: expect.any(String), recipientMissing: false },
+      {
+        site: "Acme Co",
+        status: "drafted",
+        reportId: expect.any(String),
+        recipientMissing: false,
+        queued: true,
+      },
     ]);
 
     const create = base.__calls.find((c) => c.kind === "create" && c.table === "Reports");
