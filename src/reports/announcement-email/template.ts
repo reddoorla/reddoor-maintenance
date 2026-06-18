@@ -1,4 +1,5 @@
 import type { ReportData, ReportFrequency } from "../types.js";
+import type { WebsiteRow } from "../airtable/websites.js";
 import { DEFAULT_COPY } from "../copy.js";
 import { escapeXml, headerImageTag, headerStyleBlock } from "../maintenance-email/template.js";
 
@@ -11,6 +12,40 @@ const FREQ_PHRASE: Record<Exclude<ReportFrequency, "None">, string> = {
 
 const RED = "#C00";
 const GREY = "#757575";
+/** Checkmark green for the WHAT TO EXPECT check lists (rendered as a ✓ glyph, not the
+ *  report's CID image — so the operator's review preview, which has no attachments, isn't
+ *  a broken icon). */
+const GREEN = "#2E9E44";
+
+/** Thousands-grouped visitor count. */
+function fmtVisitors(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
+/** A one-line directional trend for visitors vs the previous window, or null when it
+ *  can't be computed (missing previous, or previous 0 → no meaningful percentage). */
+function visitorTrend(cur?: number, prev?: number): string | null {
+  if (cur === undefined || prev === undefined || prev === 0) return null;
+  const pct = Math.round(((cur - prev) / prev) * 100);
+  if (pct > 0) return `▲ ${pct}% vs the previous month`;
+  if (pct < 0) return `▼ ${Math.abs(pct)}% vs the previous month`;
+  return "No change vs the previous month";
+}
+
+/**
+ * The announcement-only ReportData extras derived from the Websites row: the go-forward
+ * cadence and the default-on improvement callouts. Used by BOTH the draft (announce recipe)
+ * and the send-time re-render (orchestrate) so the sent email matches the reviewed preview —
+ * `renderReportHtml` in the send path otherwise omits these, dropping WHAT TO EXPECT entirely.
+ */
+export function announcementSiteExtras(
+  site: WebsiteRow,
+): Pick<ReportData, "cadence" | "improvements"> {
+  return {
+    cadence: { maintenance: site.maintenanceFreq, testing: site.testingFreq },
+    improvements: { resendForms: true, svelte5: true },
+  };
+}
 
 /** The four Lighthouse-score labels shown to clients, mirroring the maintenance
  *  template's relabeling (Accessibility→"Readability", SEO→"Site Structure") so the
@@ -24,9 +59,10 @@ const SCORE_PREVIEW: ReadonlyArray<{ label: string; key: keyof ReportData["light
 
 /** One-time onboarding announcement: header · heading + site intro + body · what to
  *  expect (each cadence pace plus the specific checks it covers, pulled from the same
- *  copy arrays the monthly report renders so the two never drift) · recent improvements
- *  (conditional) · score preview · open door · contact · footer. Reuses the M6a copy
- *  layer (contact/footer honor per-site overrides). No analytics / pricing. */
+ *  copy arrays the monthly report renders so the two never drift, each item with a ✓) ·
+ *  recent improvements (conditional) · score preview · traffic & search (visitors + trend +
+ *  page-1 position, conditional) · open door · contact · footer. Reuses the M6a copy layer
+ *  (contact/footer honor per-site overrides). No pricing. */
 export function buildAnnouncementMjml(data: ReportData): string {
   const copy = data.copy ?? DEFAULT_COPY;
   const previewText = "Your monthly report from Reddoor";
@@ -79,8 +115,12 @@ export function buildAnnouncementMjml(data: ReportData): string {
         ${cadenceBlocks
           .map(
             (b) => `
-        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="400" line-height="24px" padding-top="12px" padding-bottom="0px">• ${escapeXml(b.line)}</mj-text>
-        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="13px" font-weight="300" line-height="20px" padding-top="2px" padding-bottom="0px" padding-left="16px">${escapeXml(b.checks.join(" · "))}</mj-text>`,
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="400" line-height="24px" padding-top="12px" padding-bottom="2px">• ${escapeXml(b.line)}</mj-text>${b.checks
+          .map(
+            (c) => `
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="14px" font-weight="300" line-height="22px" padding-top="1px" padding-bottom="0px" padding-left="16px"><span style="color:${GREEN};font-weight:700;">✓</span> ${escapeXml(c)}</mj-text>`,
+          )
+          .join("")}`,
           )
           .join("")}
         <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="14px">${escapeXml(copy.announceCadence)}</mj-text>
@@ -93,6 +133,28 @@ export function buildAnnouncementMjml(data: ReportData): string {
         <mj-text color="${RED}" font-size="20px" font-weight="300" padding-top="25px">${label}</mj-text>
         <mj-text color="${RED}" font-size="44px" font-weight="400" padding-top="0px">${data.lighthouse[key]}</mj-text>`,
   ).join("");
+
+  // Traffic & search snapshot — visitors (with trend) and the page-1 Google position, both
+  // pulled from the enriched ReportData (GA + Search Console, the same data the monthly report
+  // shows). Each line is conditional; the whole section is omitted when neither is available.
+  const trend = visitorTrend(data.gaUsersCurrent, data.gaUsersPrevious);
+  const trafficRows: string[] = [];
+  if (data.gaUsersCurrent !== undefined)
+    trafficRows.push(`
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="8px"><span style="color:${RED};font-size:22px;font-weight:400;">${escapeXml(fmtVisitors(data.gaUsersCurrent))}</span> visitors in the last month${trend ? ` — ${escapeXml(trend)}` : ""}</mj-text>`);
+  if (data.searchPosition !== undefined)
+    trafficRows.push(`
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="4px">Page 1 Google result (#${data.searchPosition}) for your brand search</mj-text>`);
+  const trafficSection =
+    trafficRows.length > 0
+      ? `
+    <mj-section background-color="white">
+      <mj-column>
+        <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="36px">TRAFFIC &amp; SEARCH</mj-text>
+        ${trafficRows.join("")}
+      </mj-column>
+    </mj-section>`
+      : "";
 
   const contactRows = copy.contact
     .map(
@@ -136,6 +198,7 @@ export function buildAnnouncementMjml(data: ReportData): string {
         ${scoreRows}
       </mj-column>
     </mj-section>
+    ${trafficSection}
     <mj-section background-color="white">
       <mj-column>
         <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="36px">${escapeXml(copy.announceOpenDoor)}</mj-text>

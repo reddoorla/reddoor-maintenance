@@ -203,7 +203,7 @@ const NO_ENRICHMENT: Enrichment<never> = { value: null, softFailed: false };
  * returns `softFailed: true`. Never throws, so a GA problem can never block a draft; the
  * operator can always enter the numbers by hand.
  */
-async function fetchGaUsers(
+export async function fetchGaUsers(
   siteRow: WebsiteRow,
   periodStart: Date,
   periodEnd: Date,
@@ -230,7 +230,7 @@ async function fetchGaUsers(
  * Console API errors it logs a one-line warning and returns `softFailed: true`. Never throws,
  * so a search problem can never block a draft.
  */
-async function fetchSearch(
+export async function fetchSearch(
   siteRow: WebsiteRow,
   periodStart: Date,
   periodEnd: Date,
