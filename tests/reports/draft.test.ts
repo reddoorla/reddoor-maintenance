@@ -90,18 +90,35 @@ describe("draftReportForSite", () => {
     expect(updates[0]!.records[0]!.fields).toMatchObject({ "Draft ready": true });
   });
 
-  it("uses testingDay as lastTestedDate for Maintenance reports", async () => {
+  it("uses the live Lighthouse-audit timestamp (not testingDay) as lastTestedDate for Maintenance", async () => {
     const base = makeFakeBase({ Reports: [] });
-    const site = siteFixture({ testingDay: "2026-03-15" });
+    // lastLighthouseAuditAt is a full ISO timestamp (stamped by the audit run); the stored
+    // "Last tested date" is its UTC calendar day. testingDay is set to a DIFFERENT, stale value
+    // to prove the email no longer reads the scheduling anchor.
+    const site = siteFixture({
+      lastLighthouseAuditAt: "2026-03-15T09:30:00.000Z",
+      testingDay: "2020-01-01",
+    });
     await draftReportForSite(base, site, "Maintenance");
     const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
     expect(fields["Last tested date"]).toBe("2026-03-15");
   });
 
-  it("does not set lastTestedDate on Testing reports", async () => {
+  it("does not set lastTestedDate on Testing reports (Maintenance-only)", async () => {
     const base = makeFakeBase({ Reports: [] });
-    const site = siteFixture({ testingDay: "2026-03-15", testingFreq: "Quarterly" });
+    const site = siteFixture({
+      lastLighthouseAuditAt: "2026-03-15T09:30:00.000Z",
+      testingFreq: "Quarterly",
+    });
     await draftReportForSite(base, site, "Testing");
+    const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
+    expect(fields["Last tested date"]).toBeUndefined();
+  });
+
+  it("leaves lastTestedDate unset when the site has never been audited", async () => {
+    const base = makeFakeBase({ Reports: [] });
+    const site = siteFixture({ lastLighthouseAuditAt: null });
+    await draftReportForSite(base, site, "Maintenance");
     const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
     expect(fields["Last tested date"]).toBeUndefined();
   });
