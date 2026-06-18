@@ -14,6 +14,8 @@ vi.mock("google-auth-library", () => ({
 import {
   fetchSearchPresence,
   resolvePropertyCandidates,
+  pickBrandQuery,
+  selectBrandPosition,
   bareHost,
 } from "../../../src/reports/search/client.js";
 import { JWT } from "google-auth-library";
@@ -68,6 +70,82 @@ describe("resolvePropertyCandidates", () => {
   });
 });
 
+describe("pickBrandQuery", () => {
+  it("returns undefined for no rows / no numeric position", () => {
+    expect(pickBrandQuery([])).toBeUndefined();
+    expect(pickBrandQuery([{ impressions: 50 }])).toBeUndefined();
+  });
+  it("returns the lone row's position (impressions optional)", () => {
+    expect(pickBrandQuery([{ position: 8 }])).toBe(8);
+  });
+  it("picks the highest-impression row's position", () => {
+    expect(
+      pickBrandQuery([
+        { position: 1, impressions: 2 },
+        { position: 4, impressions: 30 },
+        { position: 9, impressions: 5 },
+      ]),
+    ).toBe(4);
+  });
+  it("breaks an impressions tie by the better (lower) position", () => {
+    expect(
+      pickBrandQuery([
+        { position: 6, impressions: 10 },
+        { position: 2, impressions: 10 },
+      ]),
+    ).toBe(2);
+  });
+  it("treats a missing impressions count as 0 (a counted row outranks it)", () => {
+    expect(
+      pickBrandQuery([
+        { position: 1 }, // impressions undefined → 0
+        { position: 5, impressions: 1 },
+      ]),
+    ).toBe(5);
+  });
+});
+
+describe("selectBrandPosition", () => {
+  it("returns the exact-query row's position when present (case-insensitive on the key)", () => {
+    expect(
+      selectBrandPosition(
+        [
+          { keys: ["Red Door Creative"], position: 3, impressions: 7 },
+          { keys: ["red door creative reviews"], position: 1, impressions: 80 },
+        ],
+        "red door creative",
+      ),
+    ).toBe(3);
+  });
+  it("falls back to the most-searched row when no key equals the query exactly", () => {
+    expect(
+      selectBrandPosition(
+        [
+          { keys: ["red door creative agency"], position: 5, impressions: 90 },
+          { keys: ["red door creative reviews"], position: 2, impressions: 10 },
+        ],
+        "red door creative",
+      ),
+    ).toBe(5);
+  });
+  it("ignores an exact-key row that has no numeric position, using most-searched instead", () => {
+    expect(
+      selectBrandPosition(
+        [
+          { keys: ["red door creative"], impressions: 999 }, // exact key but no position
+          { keys: ["red door creative la"], position: 4, impressions: 5 },
+        ],
+        "red door creative",
+      ),
+    ).toBe(4);
+  });
+  it("returns undefined when no row has a numeric position", () => {
+    expect(
+      selectBrandPosition([{ keys: ["red door creative"] }], "red door creative"),
+    ).toBeUndefined();
+  });
+});
+
 describe("fetchSearchPresence", () => {
   it("queries the given property and returns rounded avg position + page-1 flag", async () => {
     request.mockResolvedValueOnce(ok({ rows: [{ position: 1.52, impressions: 31 }] }));
@@ -90,8 +168,63 @@ describe("fetchSearchPresence", () => {
     expect(call.url).toContain(encodeURIComponent("sc-domain:erpfunds.com"));
     expect(call.data.startDate).toBe("2026-04-30");
     expect(call.data.endDate).toBe("2026-05-30");
-    // Query filter is lowercased.
+    // Brand hint is matched as a lowercased SUBSTRING (`contains`), not an exact `equals`,
+    // so a near-miss configured string still finds the real brand query.
+    expect(call.data.dimensionFilterGroups[0].filters[0].operator).toBe("contains");
     expect(call.data.dimensionFilterGroups[0].filters[0].expression).toBe("erp funds");
+  });
+
+  it("with no exact match, picks the most-searched variant (highest impressions), reporting ITS position", async () => {
+    // `contains` returns several brand-phrasing variants, none equal to the configured query.
+    // We report the position of the one real users search most (highest impressions), not
+    // whichever ranks best or comes first.
+    request.mockResolvedValueOnce(
+      ok({
+        rows: [
+          { keys: ["red door creative reviews"], position: 1.4, impressions: 3 }, // ranks best, barely searched
+          { keys: ["red door creative agency"], position: 3.2, impressions: 90 }, // most searched
+          { keys: ["red door creative pricing"], position: 7.0, impressions: 12 },
+        ],
+      }),
+    );
+    const out = await fetchSearchPresence(
+      {
+        keyPath,
+        subject: "s@x.com",
+        property: "sc-domain:reddoorla.com",
+        host: "reddoorla.com",
+        query: "red door creative",
+      },
+      start,
+      end,
+    );
+    expect(out).toEqual({ foundOnPage1: true, position: 3 });
+    expect(request.mock.calls[0]![0].data.rowLimit).toBeGreaterThan(1);
+  });
+
+  it("prefers the exact-query row over a higher-impression, better-ranking variant", async () => {
+    // The exact configured query is present among the contains results. Even though a longer
+    // variant ranks better (#1) AND is searched far more, the operator's precise query wins.
+    request.mockResolvedValueOnce(
+      ok({
+        rows: [
+          { keys: ["red door creative"], position: 3, impressions: 7 }, // exact match
+          { keys: ["red door creative reviews"], position: 1, impressions: 80 }, // variant
+        ],
+      }),
+    );
+    const out = await fetchSearchPresence(
+      {
+        keyPath,
+        subject: "s@x.com",
+        property: "sc-domain:reddoorla.com",
+        host: "reddoorla.com",
+        query: "red door creative",
+      },
+      start,
+      end,
+    );
+    expect(out).toEqual({ foundOnPage1: true, position: 3 }); // exact #3, not the variant's #1
   });
 
   it("floors a sub-1 average position to 1 so the email never renders '#0'", async () => {
