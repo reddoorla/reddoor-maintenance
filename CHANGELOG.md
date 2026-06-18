@@ -1,5 +1,51 @@
 # @reddoorla/maintenance
 
+## 0.47.0
+
+### Minor Changes
+
+- 27f064d: The announcement email now shows the testing/maintenance checks as a **checkmark
+  list** (a green ✓ per item under each pace, mirroring the report's checklist) and
+  gains a **TRAFFIC & SEARCH** section — visitors for the last ~30 days with an
+  up/down trend vs the prior window, plus the page-1 Google position — fetched live
+  by the `announce` recipe via the report pipeline's soft-failing GA + Search Console
+  enrichment (`fetchGaUsers` / `fetchSearch`, now exported) and stored on the Reports
+  row (`ReportEnrichment`; `updateReportScores` extended for the reuse path).
+
+  Also fixes a latent send-path gap: `sendOne` re-rendered a sent Announcement WITHOUT
+  its cadence/improvements (they aren't stored on the row), silently dropping the whole
+  "WHAT TO EXPECT" section from the delivered email. A new `announcementSiteExtras(site)`
+  helper re-derives them from the Websites row and is shared by both the draft preview
+  and the send re-render, so the sent email matches what the operator reviewed.
+
+- 636cfd3: Announcement + report email polish:
+  - The score-preview accessibility label is now **"Readability (A11y)"** (was
+    "Readability") in both the announcement and the monthly report, so the parenthetical
+    makes the meaning explicit.
+  - The announcement's WHAT TO EXPECT checks now use the report's own green check image
+    (`cid:rd-check-png`, attached inline at send) placed **after** each label, so the
+    announcement's checks match the monthly report exactly (replacing the inline `✓` glyph;
+    `alt="✓"` is the fallback shown in the attachment-less review preview).
+  - New optional `announceScoreNote` copy field renders a thin-italic gloss under the
+    Lighthouse scores ("These are independent Google Lighthouse scores, each out of 100 —
+    higher is better."); a blank value omits it.
+  - The Testing checklist item "Verified After Updates" is relabeled **"Tested After
+    Updates"** (display-only — the Airtable checkbox column key is unchanged, so no
+    live-base migration).
+
+- b09bf20: Search Console brand matching is now robust to phrasing. The report/announcement
+  "brand search position" no longer depends on the operator typing the exact query
+  string: the `Search query` is treated as a case-insensitive **substring hint**
+  (`contains` instead of `equals`). Among the matching user queries we report the
+  position of the **exact-match query when present** (a precisely-configured brand query
+  is honored verbatim — no longer-tail variant can hijack the number), otherwise the
+  **most-searched** matching query (highest impressions, tie-break best position). New
+  exported `pickBrandQuery` (most-searched) and `selectBrandPosition` (exact-first then
+  fallback). So "red door creative" is honored exactly, "red door" still resolves to the
+  brand's top query, and a near-miss like "reddoor creative la" no longer silently returns
+  nothing. Backward-compatible — an exact string contains itself, so every currently-working
+  site keeps its result.
+
 ## 0.46.0
 
 ### Minor Changes
