@@ -6,6 +6,7 @@ import type { ReportRow } from "../airtable/reports.js";
 import { fetchAttachmentBytes } from "../airtable/attachments.js";
 import { renderReportHtml } from "../render.js";
 import { resolveCopy } from "../copy.js";
+import { announcementSiteExtras } from "../announcement-email/template.js";
 import { loadBundledImages } from "../maintenance-email/assets/index.js";
 import { prepareHeaderImage } from "../maintenance-email/header-image.js";
 import { defaultResendClient, type ResendClient, type ResendSendInput } from "./resend.js";
@@ -184,6 +185,11 @@ async function sendOne(
     headerWidth: header.displayWidth,
     headerHeight: header.displayHeight,
     headerBgColor: header.placeholderColor,
+    // Announcement-only: re-derive cadence + improvements from the site row so the SENT email
+    // keeps its WHAT TO EXPECT section + improvement callouts. Without this the send-time
+    // re-render drops them entirely (they're not stored on the Reports row). Ignored by the
+    // other report templates.
+    ...(report.reportType === "Announcement" ? announcementSiteExtras(site) : {}),
   });
 
   const reportDate = report.completedOn ? new Date(report.completedOn) : new Date();

@@ -317,6 +317,31 @@ describe("sendApprovedReports", () => {
     expect(captured).toHaveLength(1);
   });
 
+  it("re-renders an Announcement WITH cadence + improvements (WHAT TO EXPECT survives the send)", async () => {
+    // Cadence + improvements are NOT stored on the Reports row — the send-time re-render must
+    // re-derive them from the Websites row (via announcementSiteExtras), else the sent email
+    // drops the entire WHAT TO EXPECT section (and its checks) + the improvement callouts.
+    const base = makeFakeBase({
+      Reports: [
+        reportRow({
+          "Report ID": "Acme Co — Announcement — 2026-06",
+          "Report type": "Announcement",
+        }),
+      ],
+      Websites: [siteRow({ "testing freq": "Monthly" })],
+    });
+    vi.mocked(openBase).mockReturnValue(base);
+    const { client, captured } = captureClient();
+    const res = await sendApprovedReports({ resend: client });
+    expect(res.code).toBe(0);
+    expect(captured).toHaveLength(1);
+    const html = captured[0]!.html;
+    expect(html).toContain("WHAT TO EXPECT");
+    expect(html).toContain("Full site testing");
+    expect(html).toContain("✓"); // the per-pace checks render
+    expect(html).toContain("RECENT IMPROVEMENTS");
+  });
+
   it("sends a Launch report regardless of checklist (Launch has no checklist gate)", async () => {
     // A Launch report has all 13 checkbox cells absent (false) — but checklistFor(Launch)
     // is [] so isChecklistComplete is vacuously true and the gate never fires.

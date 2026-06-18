@@ -2,6 +2,16 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { announce } from "../../src/recipes/announce.js";
 import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
 
+// GA + Search enrichment is the report pipeline's soft-failing wrappers. Mock them so the
+// recipe never hits Google in tests; the default is "not configured" (null) so existing
+// tests behave exactly as before, and the enrichment test overrides with real data.
+vi.mock("../../src/reports/draft.js", async (orig) => ({
+  ...(await orig<typeof import("../../src/reports/draft.js")>()),
+  fetchGaUsers: vi.fn(),
+  fetchSearch: vi.fn(),
+}));
+import { fetchGaUsers, fetchSearch } from "../../src/reports/draft.js";
+
 // uploadAttachment (src/reports/airtable/attachments.ts) POSTs to content.airtable.com
 // via global fetch. Stub fetch so the preview upload "succeeds" without a network call;
 // AIRTABLE_PAT/BASE_ID are also required by uploadAttachment before it fetches.
@@ -14,6 +24,10 @@ beforeEach(() => {
   }) as unknown as typeof global.fetch;
   process.env.AIRTABLE_PAT = "pat_test";
   process.env.AIRTABLE_BASE_ID = "app_test";
+  // Default: enrichment not configured → null (no GA/search written), matching the live
+  // soft-skip when GA_SUBJECT / a property ID is unset.
+  vi.mocked(fetchGaUsers).mockResolvedValue({ value: null, softFailed: false });
+  vi.mocked(fetchSearch).mockResolvedValue({ value: null, softFailed: false });
 });
 
 /** A Websites-row field record carrying the four stored Lighthouse scores. */
@@ -247,6 +261,42 @@ describe("recipes/announce", () => {
         c.records[0]!.fields["Draft ready"] === true,
     );
     expect(draftReadyUpdate).toBeDefined();
+  });
+
+  it("stores GA visitors + search presence on the drafted row when enrichment returns data", async () => {
+    vi.mocked(fetchGaUsers).mockResolvedValue({
+      value: { current: 280, previous: 275 },
+      softFailed: false,
+    });
+    vi.mocked(fetchSearch).mockResolvedValue({
+      value: { foundOnPage1: true, position: 3 },
+      softFailed: false,
+    });
+    const base = makeFakeBase({
+      Websites: [
+        {
+          id: "rec_acme",
+          fields: {
+            Name: "Acme Co",
+            url: "https://acme.example.com",
+            Status: "maintenance",
+            "Report recipients (To)": "client@acme.example.com",
+            ...scoredFields(),
+          },
+        },
+      ],
+      Reports: [],
+    });
+
+    await announce({ base, now: NOW });
+
+    const create = base.__calls.find((c) => c.kind === "create" && c.table === "Reports");
+    if (!create || create.kind !== "create") throw new Error("expected a Reports create");
+    const fields = create.records[0]!.fields;
+    expect(fields["GA users (period)"]).toBe(280);
+    expect(fields["GA users (prev period)"]).toBe(275);
+    expect(fields["Search found page 1"]).toBe(true);
+    expect(fields["Search position"]).toBe(3);
   });
 
   it("one site that throws does not abort the run — other sites still draft", async () => {

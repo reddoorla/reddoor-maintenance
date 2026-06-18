@@ -115,6 +115,17 @@ function lighthouseFromFields(f: Record<string, unknown>): LighthouseScores | nu
   return { performance: p, accessibility: a, bestPractices: b, seo: s };
 }
 
+/** The GA + Search-presence fields a draft can carry, written to the Reports row.
+ *  `searchFoundPage1` is written whenever the check ran (true or false — false is the
+ *  operator-only negative signal); `searchPosition` only when found on page 1. Shared by
+ *  the create path (DraftInput) and the reuse path (updateReportScores). */
+export type ReportEnrichment = {
+  gaUsersCurrent?: number;
+  gaUsersPrevious?: number;
+  searchFoundPage1?: boolean;
+  searchPosition?: number;
+};
+
 export type DraftInput = {
   reportId: string;
   siteId: string;
@@ -205,6 +216,7 @@ export async function updateReportScores(
   recordId: string,
   scores: LighthouseScores,
   completedOn?: Date,
+  enrichment?: ReportEnrichment,
 ): Promise<void> {
   const fields: FieldSet = {
     "Lighthouse — Performance": scores.performance,
@@ -213,6 +225,14 @@ export async function updateReportScores(
     "Lighthouse — SEO": scores.seo,
   };
   if (completedOn) fields["Completed on"] = ymd(completedOn);
+  if (enrichment?.gaUsersCurrent !== undefined)
+    fields["GA users (period)"] = enrichment.gaUsersCurrent;
+  if (enrichment?.gaUsersPrevious !== undefined)
+    fields["GA users (prev period)"] = enrichment.gaUsersPrevious;
+  if (enrichment?.searchFoundPage1 !== undefined)
+    fields["Search found page 1"] = enrichment.searchFoundPage1;
+  if (enrichment?.searchPosition !== undefined)
+    fields["Search position"] = enrichment.searchPosition;
   await base(REPORTS_TABLE).update([{ id: recordId, fields }]);
 }
 

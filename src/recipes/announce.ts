@@ -7,10 +7,13 @@ import {
   findReportByPeriod,
   setDraftReady,
   updateReportScores,
+  type ReportEnrichment,
 } from "../reports/airtable/reports.js";
 import { uploadAttachment } from "../reports/airtable/attachments.js";
 import { renderReportHtml } from "../reports/render.js";
 import { resolveCopy } from "../reports/copy.js";
+import { fetchGaUsers, fetchSearch } from "../reports/draft.js";
+import { announcementSiteExtras } from "../reports/announcement-email/template.js";
 import type { LighthouseScores } from "../reports/types.js";
 
 export type AnnounceSiteResult =
@@ -60,19 +63,35 @@ export async function announce(deps?: AnnounceDeps): Promise<AnnounceResult> {
         continue;
       }
 
+      // Traffic + search snapshot over a ~30-day window ending now (fetchPeriodUsers derives
+      // the equal-length previous window for the trend). Reuses the report pipeline's
+      // soft-failing enrichment: GA/search unconfigured or an API error leaves the numbers
+      // null and the email simply omits the traffic section — it never blocks the draft.
+      const periodEnd = now;
+      const periodStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const gaUsers = (await fetchGaUsers(w, periodStart, periodEnd)).value;
+      const search = (await fetchSearch(w, periodStart, periodEnd)).value;
+      const enrichment: ReportEnrichment = {
+        ...(gaUsers ? { gaUsersCurrent: gaUsers.current, gaUsersPrevious: gaUsers.previous } : {}),
+        ...(search ? { searchFoundPage1: search.foundOnPage1 } : {}),
+        ...(search?.foundOnPage1 && search.position !== null
+          ? { searchPosition: search.position }
+          : {}),
+      };
+
       // Dedupe: reuse an existing Announcement row for this (site, period) rather than
-      // stacking a second draft. The reuse path refreshes the stored scores (and
-      // Completed on) so the eventually-sent email — which reads the row — isn't stale.
-      // The create path already writes fresh scores via createDraft.
+      // stacking a second draft. The reuse path refreshes the stored scores + traffic/search
+      // (and Completed on) so the eventually-sent email — which reads the row — isn't stale.
+      // The create path writes them via createDraft.
       let report;
       let statusKind: "drafted" | "reused";
       const existing = await findReportByPeriod(base, w.id, "Announcement", period);
       if (existing) {
-        await updateReportScores(base, existing.id, scores, now);
+        await updateReportScores(base, existing.id, scores, now, enrichment);
         report = existing;
         statusKind = "reused";
       } else {
-        report = await createDraft(base, draftInputFor(w, scores, now, period));
+        report = await createDraft(base, draftInputFor(w, scores, now, period, enrichment));
         statusKind = "drafted";
       }
 
@@ -83,18 +102,17 @@ export async function announce(deps?: AnnounceDeps): Promise<AnnounceResult> {
         reportType: "Announcement",
         completedOn: now,
         lighthouse: scores,
+        gaUsersCurrent: gaUsers?.current,
+        gaUsersPrevious: gaUsers?.previous,
+        searchPosition: search?.foundOnPage1 ? (search.position ?? undefined) : undefined,
         lastTestedDate: null,
         commentary: null,
         copy: resolveCopy(w),
         headerImageCid: `${slug}-header`,
-        // The client's go-forward pace, read straight off the Websites row — the email
-        // states each cadence ("Full site testing — every quarter", etc.); a "None" pace
-        // is omitted so we never claim a cadence the site isn't on.
-        cadence: { maintenance: w.maintenanceFreq, testing: w.testingFreq },
-        // Default-on fleet-wide for v1: both recent-improvement callouts render for every
-        // site. Operator review (the draft never auto-sends) is the relevance backstop;
-        // per-site conditioning of these flags is a future lever, not a v1 requirement.
-        improvements: { resendForms: true, svelte5: true },
+        // cadence (the client's go-forward pace, "None" omitted) + default-on improvement
+        // callouts. Shared with the send re-render via announcementSiteExtras so the sent
+        // email matches this reviewed preview.
+        ...announcementSiteExtras(w),
       });
 
       // A preview-upload hiccup must NOT fail the site — log and continue.
@@ -153,6 +171,7 @@ function draftInputFor(
   scores: LighthouseScores,
   now: Date,
   period: string,
+  enrichment: ReportEnrichment,
 ): Parameters<typeof createDraft>[1] {
   return {
     reportId: `${w.name} — Announcement — ${now.toISOString().slice(0, 10)}`,
@@ -165,5 +184,6 @@ function draftInputFor(
     lighthouse: scores,
     lastTestedDate: null,
     subjectOverride: `Your testing & maintenance schedule for ${w.name}`,
+    ...enrichment,
   };
 }

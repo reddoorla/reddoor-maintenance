@@ -93,6 +93,39 @@ describe("buildAnnouncementMjml", () => {
     expect(mjml).not.toContain("WHAT WE MONITOR");
   });
 
+  it("renders each check as a checkmark (✓) row — one ✓ per check across both paces", () => {
+    const mjml = buildAnnouncementMjml(
+      baseData({ cadence: { maintenance: "Monthly", testing: "Monthly" } }),
+    );
+    expect(mjml).toContain("✓");
+    const checkmarks = (mjml.match(/✓/g) ?? []).length;
+    expect(checkmarks).toBe(
+      DEFAULT_COPY.maintenanceChecks.length + DEFAULT_COPY.testingChecklist.length,
+    );
+  });
+
+  it("renders TRAFFIC & SEARCH with visitors, an up-trend, and the page-1 position", () => {
+    const mjml = buildAnnouncementMjml(
+      baseData({ gaUsersCurrent: 280, gaUsersPrevious: 275, searchPosition: 3 }),
+    );
+    expect(mjml).toContain("TRAFFIC &amp; SEARCH");
+    expect(mjml).toContain("280");
+    expect(mjml).toContain("visitors in the last month");
+    expect(mjml).toContain("▲"); // 280 > 275 → up trend
+    expect(mjml).toContain("Page 1 Google result (#3)");
+  });
+
+  it("shows visitors without a trend line when the previous period is absent", () => {
+    const mjml = buildAnnouncementMjml(baseData({ gaUsersCurrent: 280 }));
+    expect(mjml).toContain("280");
+    expect(mjml).not.toContain("vs the previous month");
+  });
+
+  it("omits TRAFFIC & SEARCH entirely when neither visitors nor search is available", () => {
+    const mjml = buildAnnouncementMjml(baseData());
+    expect(mjml).not.toContain("TRAFFIC &amp; SEARCH");
+  });
+
   // announceImprovementResend has no special chars (asserted raw); announceImprovementSvelte5
   // contains apostrophes + an em dash that escape to entities → assert a clean substring.
   const RESEND_TEXT = DEFAULT_COPY.announceImprovementResend;
@@ -122,9 +155,15 @@ describe("buildAnnouncementMjml", () => {
     expect(mjml).not.toContain("RECENT IMPROVEMENTS");
   });
 
-  it("never mentions pricing, plans, or a price (no-pricing invariant)", () => {
+  it("never mentions pricing, plans, or a price (no-pricing invariant — full email)", () => {
     const mjml = buildAnnouncementMjml(
-      baseData({ improvements: { resendForms: true, svelte5: true } }),
+      baseData({
+        improvements: { resendForms: true, svelte5: true },
+        cadence: { maintenance: "Monthly", testing: "Monthly" },
+        gaUsersCurrent: 280,
+        gaUsersPrevious: 275,
+        searchPosition: 3,
+      }),
     );
     expect(mjml).not.toMatch(/\$|\bprice\b|\bpricing\b|\bplan\b/i);
   });
