@@ -45,7 +45,7 @@ describe("renderReportHtml", () => {
       baseData({ lighthouse: { performance: 12, accessibility: 34, bestPractices: 56, seo: 78 } }),
     );
     const perfIdx = html.indexOf(">Performance<");
-    const readIdx = html.indexOf(">Readability<");
+    const readIdx = html.indexOf(">Readability (A11y)<");
     const bpIdx = html.indexOf(">Best Practices<");
     const seoIdx = html.indexOf(">Site Structure<");
 
@@ -55,7 +55,7 @@ describe("renderReportHtml", () => {
     expect(seoIdx).toBeGreaterThan(bpIdx);
 
     // The first occurrence of ">12<" must be between the Performance label
-    // and the next label (Readability). Likewise for the others.
+    // and the next label (Readability (A11y)). Likewise for the others.
     const firstPerfScore = html.indexOf(">12<");
     const firstReadScore = html.indexOf(">34<");
     const firstBpScore = html.indexOf(">56<");

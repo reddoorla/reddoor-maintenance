@@ -222,7 +222,7 @@ export function buildMjml(data: ReportData): string {
         <mj-text color="#C00" font-size="44px" font-weight="400" padding-top="0px">${data.lighthouse.performance}</mj-text>
         <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" padding-top="0px" padding-bottom="36px">Acceptable 50–89 // Ideal 90–100</mj-text>
         <mj-divider border-width="1px" border-style="solid" border-color="#CCCCCC" padding="0" />
-        <mj-text color="#C00" font-size="20px" font-weight="300" padding-top="25px">Readability</mj-text>
+        <mj-text color="#C00" font-size="20px" font-weight="300" padding-top="25px">Readability (A11y)</mj-text>
         <mj-text color="#C00" font-size="44px" font-weight="400" padding-top="0px">${data.lighthouse.accessibility}</mj-text>
         <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" padding-top="0px" padding-bottom="36px">Acceptable 80–99 // Ideal 100</mj-text>
         <mj-divider border-width="1px" border-style="solid" border-color="#CCCCCC" padding="0" />

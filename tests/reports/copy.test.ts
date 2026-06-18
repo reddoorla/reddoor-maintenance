@@ -60,6 +60,7 @@ describe("resolveCopy", () => {
     expect(c.announceHeading).toBe(DEFAULT_COPY.announceHeading);
     expect(c.announceBody).toBe(DEFAULT_COPY.announceBody);
     expect(c.announcePreviewLabel).toBe(DEFAULT_COPY.announcePreviewLabel);
+    expect(c.announceScoreNote).toBe(DEFAULT_COPY.announceScoreNote);
     expect(c.announceImprovementResend).toBe(DEFAULT_COPY.announceImprovementResend);
     expect(c.announceImprovementSvelte5).toBe(DEFAULT_COPY.announceImprovementSvelte5);
     expect(c.announceCadence).toBe(DEFAULT_COPY.announceCadence);
