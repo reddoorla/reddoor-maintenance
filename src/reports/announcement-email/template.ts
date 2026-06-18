@@ -2,6 +2,7 @@ import type { ReportData, ReportFrequency } from "../types.js";
 import type { WebsiteRow } from "../airtable/websites.js";
 import { DEFAULT_COPY } from "../copy.js";
 import { escapeXml, headerImageTag, headerStyleBlock } from "../maintenance-email/template.js";
+import { CHECK_CID } from "../maintenance-email/assets/index.js";
 
 /** Frequency → client-facing phrase. "None" is never rendered (the line is omitted). */
 const FREQ_PHRASE: Record<Exclude<ReportFrequency, "None">, string> = {
@@ -12,10 +13,12 @@ const FREQ_PHRASE: Record<Exclude<ReportFrequency, "None">, string> = {
 
 const RED = "#C00";
 const GREY = "#757575";
-/** Checkmark green for the WHAT TO EXPECT check lists (rendered as a ✓ glyph, not the
- *  report's CID image — so the operator's review preview, which has no attachments, isn't
- *  a broken icon). */
-const GREEN = "#2E9E44";
+
+// The WHAT TO EXPECT check lists use the report's own green check image (cid:rd-check-png),
+// attached inline by orchestrate.ts on every send, so the announcement's checks match the
+// monthly report exactly. `alt="✓"` is the fallback shown by the operator's attachment-less
+// review preview in place of the (unresolvable) CID — the same tradeoff as the header image.
+const CHECK_PNG = `cid:${CHECK_CID}`;
 
 /** Thousands-grouped visitor count. */
 function fmtVisitors(n: number): string {
@@ -48,11 +51,11 @@ export function announcementSiteExtras(
 }
 
 /** The four Lighthouse-score labels shown to clients, mirroring the maintenance
- *  template's relabeling (Accessibility→"Readability", SEO→"Site Structure") so the
+ *  template's relabeling (Accessibility→"Readability (A11y)", SEO→"Site Structure") so the
  *  announcement's score preview matches the real monthly report. */
 const SCORE_PREVIEW: ReadonlyArray<{ label: string; key: keyof ReportData["lighthouse"] }> = [
   { label: "Performance", key: "performance" },
-  { label: "Readability", key: "accessibility" },
+  { label: "Readability (A11y)", key: "accessibility" },
   { label: "Best Practices", key: "bestPractices" },
   { label: "Site Structure", key: "seo" },
 ];
@@ -118,7 +121,7 @@ export function buildAnnouncementMjml(data: ReportData): string {
         <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="400" line-height="24px" padding-top="12px" padding-bottom="2px">• ${escapeXml(b.line)}</mj-text>${b.checks
           .map(
             (c) => `
-        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="14px" font-weight="300" line-height="22px" padding-top="1px" padding-bottom="0px" padding-left="16px"><span style="color:${GREEN};font-weight:700;">✓</span> ${escapeXml(c)}</mj-text>`,
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="14px" font-weight="300" line-height="22px" padding-top="1px" padding-bottom="0px" padding-left="16px">${escapeXml(c)} <img src="${CHECK_PNG}" alt="✓" width="14" height="14" style="vertical-align:middle;display:inline-block;margin-left:2px;" /></mj-text>`,
           )
           .join("")}`,
           )
@@ -133,6 +136,13 @@ export function buildAnnouncementMjml(data: ReportData): string {
         <mj-text color="${RED}" font-size="20px" font-weight="300" padding-top="25px">${label}</mj-text>
         <mj-text color="${RED}" font-size="44px" font-weight="400" padding-top="0px">${data.lighthouse[key]}</mj-text>`,
   ).join("");
+
+  // Optional thin-italic gloss under the scores explaining what they are. Omitted when the
+  // copy field is blank (an operator can clear it via per-site copy without touching markup).
+  const scoreNote = copy.announceScoreNote
+    ? `
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" font-style="italic" line-height="18px" padding-top="16px">${escapeXml(copy.announceScoreNote)}</mj-text>`
+    : "";
 
   // Traffic & search snapshot — visitors (with trend) and the page-1 Google position, both
   // pulled from the enriched ReportData (GA + Search Console, the same data the monthly report
@@ -195,7 +205,7 @@ export function buildAnnouncementMjml(data: ReportData): string {
     <mj-section background-color="#F4F4F4">
       <mj-column>
         <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="55px">${escapeXml(copy.announcePreviewLabel)}</mj-text>
-        ${scoreRows}
+        ${scoreRows}${scoreNote}
       </mj-column>
     </mj-section>
     ${trafficSection}

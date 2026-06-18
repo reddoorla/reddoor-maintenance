@@ -19,6 +19,7 @@ export type ResolvedCopy = {
   announceTestingLabel: string;
   announceMaintenanceLabel: string;
   announcePreviewLabel: string;
+  announceScoreNote: string;
   announceImprovementResend: string;
   announceImprovementSvelte5: string;
   announceCadence: string;
@@ -45,7 +46,7 @@ export const DEFAULT_COPY: ResolvedCopy = {
     "Links & Navigation",
     "Form Functionality",
     "Interactions & Animations",
-    "Verified After Updates",
+    "Tested After Updates",
   ],
   notesHeader: "NOTES",
   seoCta: "Contact us if you are interested in more in-depth data or have questions about SEO.",
@@ -67,6 +68,8 @@ export const DEFAULT_COPY: ResolvedCopy = {
   announceTestingLabel: "Full site testing",
   announceMaintenanceLabel: "Routine maintenance",
   announcePreviewLabel: "From your latest full site test:",
+  announceScoreNote:
+    "These are independent Google Lighthouse scores, each out of 100 — higher is better.",
   announceImprovementResend:
     "Your contact forms now deliver straight to your inbox through reliable infrastructure, so no inquiry slips through the cracks.",
   announceImprovementSvelte5:

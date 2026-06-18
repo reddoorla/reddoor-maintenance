@@ -81,7 +81,7 @@ describe("buildAnnouncementMjml", () => {
   it("labels the scores with the same client-facing labels as the maintenance report", () => {
     const mjml = buildAnnouncementMjml(baseData());
     expect(mjml).toContain(">Performance<");
-    expect(mjml).toContain(">Readability<");
+    expect(mjml).toContain(">Readability (A11y)<");
     expect(mjml).toContain(">Best Practices<");
     expect(mjml).toContain(">Site Structure<");
   });
@@ -93,15 +93,44 @@ describe("buildAnnouncementMjml", () => {
     expect(mjml).not.toContain("WHAT WE MONITOR");
   });
 
-  it("renders each check as a checkmark (✓) row — one ✓ per check across both paces", () => {
+  it("ends each check with the report's check image (cid:rd-check-png) — one per check, after the label", () => {
     const mjml = buildAnnouncementMjml(
       baseData({ cadence: { maintenance: "Monthly", testing: "Monthly" } }),
     );
-    expect(mjml).toContain("✓");
-    const checkmarks = (mjml.match(/✓/g) ?? []).length;
-    expect(checkmarks).toBe(
+    // The check reuses the monthly report's bundled check image (attached inline by the send
+    // path) so the announcement matches the report — one image per check across both paces.
+    const checkImgs = (mjml.match(/cid:rd-check-png/g) ?? []).length;
+    expect(checkImgs).toBe(
       DEFAULT_COPY.maintenanceChecks.length + DEFAULT_COPY.testingChecklist.length,
     );
+    // Each check's image sits AFTER its own label and BEFORE the next label — i.e. the
+    // check follows the word (not before it) and binds to the right row. Rendered order is
+    // testing checks then maintenance checks (the order the cadence blocks push them).
+    const ordered = [...DEFAULT_COPY.testingChecklist, ...DEFAULT_COPY.maintenanceChecks].map((c) =>
+      escapeXml(c),
+    );
+    for (let i = 0; i < ordered.length; i++) {
+      const labelIdx = mjml.indexOf(ordered[i]!);
+      expect(labelIdx).toBeGreaterThan(-1);
+      const imgIdx = mjml.indexOf("cid:rd-check-png", labelIdx);
+      expect(imgIdx).toBeGreaterThan(labelIdx);
+      if (i + 1 < ordered.length) {
+        expect(imgIdx).toBeLessThan(mjml.indexOf(ordered[i + 1]!));
+      }
+    }
+  });
+
+  it("renders the thin-italic score note under the score preview, and omits it when blank", () => {
+    const withNote = buildAnnouncementMjml(baseData());
+    expect(withNote).toContain(escapeXml(DEFAULT_COPY.announceScoreNote));
+    // Italic gloss, distinct from the footer's italic line (which uses line-height 20px).
+    expect(withNote).toContain('font-style="italic" line-height="18px"');
+
+    const blank = buildAnnouncementMjml(
+      baseData({ copy: { ...DEFAULT_COPY, announceScoreNote: "" } }),
+    );
+    expect(blank).not.toContain(escapeXml(DEFAULT_COPY.announceScoreNote));
+    expect(blank).not.toContain('font-style="italic" line-height="18px"');
   });
 
   it("renders TRAFFIC & SEARCH with visitors, an up-trend, and the page-1 position", () => {
