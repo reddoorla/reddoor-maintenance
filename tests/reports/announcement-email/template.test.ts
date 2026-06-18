@@ -103,11 +103,21 @@ describe("buildAnnouncementMjml", () => {
     expect(checkImgs).toBe(
       DEFAULT_COPY.maintenanceChecks.length + DEFAULT_COPY.testingChecklist.length,
     );
-    // The image follows the label text (check AFTER the word, not before it).
-    const firstCheck = escapeXml(DEFAULT_COPY.testingChecklist[0]!);
-    const labelIdx = mjml.indexOf(firstCheck);
-    expect(labelIdx).toBeGreaterThan(-1);
-    expect(mjml.indexOf("cid:rd-check-png", labelIdx)).toBeGreaterThan(labelIdx);
+    // Each check's image sits AFTER its own label and BEFORE the next label — i.e. the
+    // check follows the word (not before it) and binds to the right row. Rendered order is
+    // testing checks then maintenance checks (the order the cadence blocks push them).
+    const ordered = [...DEFAULT_COPY.testingChecklist, ...DEFAULT_COPY.maintenanceChecks].map((c) =>
+      escapeXml(c),
+    );
+    for (let i = 0; i < ordered.length; i++) {
+      const labelIdx = mjml.indexOf(ordered[i]!);
+      expect(labelIdx).toBeGreaterThan(-1);
+      const imgIdx = mjml.indexOf("cid:rd-check-png", labelIdx);
+      expect(imgIdx).toBeGreaterThan(labelIdx);
+      if (i + 1 < ordered.length) {
+        expect(imgIdx).toBeLessThan(mjml.indexOf(ordered[i + 1]!));
+      }
+    }
   });
 
   it("renders the thin-italic score note under the score preview, and omits it when blank", () => {
