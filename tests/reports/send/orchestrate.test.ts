@@ -404,6 +404,75 @@ describe("sendApprovedReports", () => {
     expect(blurred).toBeDefined();
   });
 
+  it("does NOT attach the blurred-tests image to a Testing report (Maintenance-only), keeps check + header", async () => {
+    // The blurred-tests image (cid:rd-blurred-tests-jpg) is referenced only by the Maintenance
+    // template. A Testing report must not carry it as a dangling inline attachment. The check
+    // image IS referenced by the testing checklist, so it stays.
+    vi.mocked(openBase).mockReturnValue(
+      makeFakeBase({
+        Reports: [
+          reportRow({
+            "Report ID": "Acme Co — Testing — 2026-05-26",
+            "Report type": "Testing",
+            // checklistFor(Testing) = Maintenance + Testing cells; default fixture has the 6
+            // Maint cells, so add the 7 Test cells to satisfy the send gate.
+            "Test: Desktop Browsers": true,
+            "Test: Mobile Browsers": true,
+            "Test: Page Titles & Meta": true,
+            "Test: Links & Navigation": true,
+            "Test: Form Functionality": true,
+            "Test: Interactions & Animations": true,
+            "Test: Verified After Updates": true,
+          }),
+        ],
+        Websites: [siteRow({ "testing freq": "Monthly" })],
+      }),
+    );
+    const { client, captured } = captureClient();
+    const res = await sendApprovedReports({ resend: client });
+    expect(res.code).toBe(0);
+    const atts = captured[0]!.attachments ?? [];
+    expect(atts.find((a) => a.inlineContentId === "rd-blurred-tests-jpg")).toBeUndefined();
+    expect(atts.find((a) => a.inlineContentId === "rd-check-png")).toBeDefined();
+    expect(atts.find((a) => a.inlineContentId === "acme-co-header")).toBeDefined();
+  });
+
+  it("does NOT attach the blurred-tests image to an Announcement report (keeps check + header)", async () => {
+    vi.mocked(openBase).mockReturnValue(
+      makeFakeBase({
+        Reports: [
+          reportRow({
+            "Report ID": "Acme Co — Announcement — 2026-06",
+            "Report type": "Announcement",
+          }),
+        ],
+        Websites: [siteRow({ "testing freq": "Monthly" })],
+      }),
+    );
+    const { client, captured } = captureClient();
+    const res = await sendApprovedReports({ resend: client });
+    expect(res.code).toBe(0);
+    const atts = captured[0]!.attachments ?? [];
+    expect(atts.find((a) => a.inlineContentId === "rd-blurred-tests-jpg")).toBeUndefined();
+    expect(atts.find((a) => a.inlineContentId === "rd-check-png")).toBeDefined();
+  });
+
+  it("attaches ONLY the header to a Launch report (no check, no blurred)", async () => {
+    const base = makeFakeBase({
+      Reports: [reportRow({ "Report type": "Launch" })],
+      Websites: [siteRow({ Status: "launch" })],
+    });
+    // Launch has an empty checklist gate; strip the Maint cells so it's genuinely empty.
+    const fields = base.__records.get("Reports")![0]!.fields;
+    for (const k of Object.keys(fields)) if (k.startsWith("Maint: ")) delete fields[k];
+    vi.mocked(openBase).mockReturnValue(base);
+    const { client, captured } = captureClient();
+    const res = await sendApprovedReports({ resend: client });
+    expect(res.code).toBe(0);
+    const atts = captured[0]!.attachments ?? [];
+    expect(atts.map((a) => a.inlineContentId)).toEqual(["acme-co-header"]);
+  });
+
   it("passes idempotencyKey=report:<id> to Resend (B2 contract)", async () => {
     vi.mocked(openBase).mockReturnValue(
       makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] }),
