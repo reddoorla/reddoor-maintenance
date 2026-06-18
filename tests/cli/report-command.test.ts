@@ -137,6 +137,8 @@ describe("draftDueReports period guard", () => {
       htmlPath: null,
       html: "",
       softFailures: [],
+      queued: true,
+      supersededIds: [],
     } as unknown as Awaited<ReturnType<typeof draftReportForSite>>);
   });
 

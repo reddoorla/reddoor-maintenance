@@ -45,6 +45,8 @@ function draftResult(reportId: string, softFailures: Array<"ga" | "search"> = []
     htmlPath: null,
     html: "",
     softFailures,
+    queued: true,
+    supersededIds: [],
   };
 }
 

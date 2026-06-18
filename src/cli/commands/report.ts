@@ -15,6 +15,29 @@ export type ReportCommandOptions = {
 };
 
 /**
+ * Summary line for a drafted report, reflecting the single-queue outcome. `queued === false`
+ * means a higher-or-equal-tier report was already pending for the site, so this draft was
+ * created but deliberately left OUT of the approve queue. A non-empty `supersededIds` means it
+ * un-queued that many lower-tier drafts. `null` is the previewOnly path (no Airtable queue).
+ */
+function draftLine(
+  reportId: string | undefined,
+  queued: boolean | null,
+  supersededIds: string[],
+  verb = "drafted",
+): string {
+  const id = reportId ?? "(unknown)";
+  if (queued === false) {
+    return `• ${verb} but NOT queued: ${id} — a higher-or-equal-tier report is already pending approval`;
+  }
+  const sup =
+    supersededIds.length > 0
+      ? ` (superseded ${supersededIds.length} lower-tier draft${supersededIds.length > 1 ? "s" : ""})`
+      : "";
+  return `✓ ${verb}: ${id}${sup}`;
+}
+
+/**
  * Parse the single-site `--type` flag. Only Maintenance and Testing are draftable
  * this way — Launch has the `launch <site>` command and Announcement has
  * `announce <site>`, each with its own purpose-built flow. Case-insensitive;
@@ -127,9 +150,14 @@ export async function draftDueReports(
           completeRowId: existing.id,
           existingRow: existing,
         });
-        existing.draftReady = true;
+        existing.draftReady = result.queued === true;
         lines.push(
-          `✓ completed half-made draft: ${result.reportRow?.reportId ?? existing.reportId}`,
+          draftLine(
+            result.reportRow?.reportId ?? existing.reportId,
+            result.queued,
+            result.supersededIds,
+            "completed half-made draft",
+          ),
         );
         if (result.softFailures.length > 0) softFailedSites++;
       } catch (e) {
@@ -164,7 +192,7 @@ export async function draftDueReports(
       // matches a future run's reportPeriodKey(dueDate) — even if this run lags
       // into a later month than the dueDate.
       const result = await draftReportForSite(base, item.site, item.reportType, { period });
-      lines.push(`✓ drafted: ${result.reportRow?.reportId}`);
+      lines.push(draftLine(result.reportRow?.reportId, result.queued, result.supersededIds));
       // Keep the in-memory snapshot current so the guard's `.some()` check on the
       // NEXT iteration of this same run catches a row we JUST created — rather than
       // relying on findDueReports never emitting two items for the same (site, type).
@@ -203,5 +231,13 @@ async function runSingleSiteDraft(
   if (opts.previewOnly) {
     return { output: `Preview written to ${result.htmlPath}`, code: 0 };
   }
-  return { output: `Draft created: ${result.reportRow?.reportId}`, code: 0 };
+  return {
+    output: draftLine(
+      result.reportRow?.reportId,
+      result.queued,
+      result.supersededIds,
+      "Draft created",
+    ),
+    code: 0,
+  };
 }

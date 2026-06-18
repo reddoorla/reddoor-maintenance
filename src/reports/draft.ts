@@ -6,7 +6,8 @@ import { siteSlug } from "./airtable/websites.js";
 import { resolveCopy } from "./copy.js";
 import type { WebsiteRow } from "./airtable/websites.js";
 import type { ReportRow } from "./airtable/reports.js";
-import { createDraft, setDraftReady, listReportsForSite } from "./airtable/reports.js";
+import { createDraft, listReportsForSite } from "./airtable/reports.js";
+import { queueDraft } from "./queue.js";
 import { uploadAttachment } from "./airtable/attachments.js";
 import type { AirtableBase } from "./airtable/client.js";
 import { readGaConfig } from "./ga/config.js";
@@ -47,6 +48,11 @@ export type DraftResult = {
   html: string;
   /** Enrichment fetches that errored for this site (empty on success or skip). */
   softFailures: SoftFailure[];
+  /** Whether the draft was placed in the approve queue. False when a higher-or-equal-tier
+   *  report is already queued for the site (single-queue rule); null on the previewOnly path. */
+  queued: boolean | null;
+  /** Ids of lower-tier queued reports this draft superseded (un-queued). */
+  supersededIds: string[];
 };
 
 function scoresFromWebsite(siteRow: WebsiteRow): LighthouseScores {
@@ -135,7 +141,7 @@ export async function draftReportForSite(
     const path = options.previewPath ?? `reports/${slug}/draft.html`;
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, html, "utf-8");
-    return { reportRow: null, htmlPath: path, html, softFailures };
+    return { reportRow: null, htmlPath: path, html, softFailures, queued: null, supersededIds: [] };
   }
 
   if (base === null) throw new Error("base required when previewOnly=false");
@@ -143,13 +149,25 @@ export async function draftReportForSite(
   // "Finish an existing row" path (the --due re-draft wedge fix). When the caller
   // hands us a row that was created but never made Draft-ready — a crash between
   // createDraft and setDraftReady leaves exactly this — we DON'T createDraft again
-  // (that would duplicate the period). We re-attach the rendered HTML and flip the
-  // ready flag against the EXISTING row, completing the half-made draft in place.
-  // The row's other fields (scores, period, dates) were already written at create
-  // time; the only pieces a crash drops are the attachment + the ready flag.
+  // (that would duplicate the period). We re-attach the rendered HTML and queue the
+  // EXISTING row, completing the half-made draft in place. The row's other fields
+  // (scores, period, dates) were already written at create time; the only pieces a
+  // crash drops are the attachment + the ready flag.
   if (options.completeRowId) {
-    await finishDraftRow(base, options.completeRowId, slug, periodEnd, html);
-    return { reportRow: options.existingRow ?? null, htmlPath: null, html, softFailures };
+    await uploadDraftHtml(options.completeRowId, slug, periodEnd, html);
+    const outcome = await queueDraft(base, {
+      id: options.completeRowId,
+      siteId: siteRow.id,
+      reportType,
+    });
+    return {
+      reportRow: options.existingRow ?? null,
+      htmlPath: null,
+      html,
+      softFailures,
+      queued: outcome.queued,
+      supersededIds: outcome.supersededIds,
+    };
   }
 
   const reportId = `${siteRow.name} — ${reportType} — ${periodEnd.toISOString().slice(0, 10)}`;
@@ -170,16 +188,27 @@ export async function draftReportForSite(
       : {}),
   });
 
-  await finishDraftRow(base, created.id, slug, periodEnd, html);
+  await uploadDraftHtml(created.id, slug, periodEnd, html);
+  const outcome = await queueDraft(base, {
+    id: created.id,
+    siteId: siteRow.id,
+    reportType,
+  });
 
-  return { reportRow: created, htmlPath: null, html, softFailures };
+  return {
+    reportRow: created,
+    htmlPath: null,
+    html,
+    softFailures,
+    queued: outcome.queued,
+    supersededIds: outcome.supersededIds,
+  };
 }
 
-/** Attach the rendered HTML and flip Draft ready=true on an existing Reports row.
- *  Shared by both the create path and the "complete a half-made row" path so the
- *  upload + ready-flag steps are identical (and re-runnable) either way. */
-async function finishDraftRow(
-  base: AirtableBase,
+/** Attach the rendered HTML to a Reports row. Queueing (Draft ready + the single-queue
+ *  reconciliation) is handled separately by queueDraft so both the create path and the
+ *  "complete a half-made row" path share the identical, re-runnable upload step. */
+async function uploadDraftHtml(
   rowId: string,
   slug: string,
   periodEnd: Date,
@@ -187,7 +216,6 @@ async function finishDraftRow(
 ): Promise<void> {
   const htmlFilename = `${slug}-${periodEnd.toISOString().slice(0, 10)}.html`;
   await uploadAttachment(rowId, "Rendered HTML", html, htmlFilename, "text/html");
-  await setDraftReady(base, rowId, true);
 }
 
 /** Result of an enrichment fetch: the value (null if unavailable) plus whether

@@ -11,10 +11,10 @@ import type { WebsiteRow } from "../reports/airtable/websites.js";
 import {
   createDraft,
   findReportByPeriod,
-  setDraftReady,
   updateReportScores,
 } from "../reports/airtable/reports.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
+import { queueDraft } from "../reports/queue.js";
 import { uploadAttachment } from "../reports/airtable/attachments.js";
 import { renderReportHtml } from "../reports/render.js";
 import { resolveCopy } from "../reports/copy.js";
@@ -171,8 +171,10 @@ export async function launch(site: Site, deps: LaunchDeps = {}): Promise<LaunchR
         }`,
       );
     }
-    // Critical: NOT wrapped — a failure here must surface as a failed launch.
-    await setDraftReady(base, report.id, true);
+    // Critical: NOT wrapped — a failure here must surface as a failed launch. queueDraft
+    // supersedes any lower-tier (Maintenance/Testing) drafts queued for this site; a Launch is
+    // top tier so it only stands down if another Launch/Announcement is already queued.
+    await queueDraft(base, { id: report.id, siteId: target.id, reportType: "Launch" });
   } catch (err) {
     steps.push({ name: "draft", result: errorOf(err) });
     return stop();

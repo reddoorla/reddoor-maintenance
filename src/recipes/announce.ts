@@ -5,10 +5,10 @@ import type { WebsiteRow } from "../reports/airtable/websites.js";
 import {
   createDraft,
   findReportByPeriod,
-  setDraftReady,
   updateReportScores,
   type ReportEnrichment,
 } from "../reports/airtable/reports.js";
+import { queueDraft } from "../reports/queue.js";
 import { uploadAttachment } from "../reports/airtable/attachments.js";
 import { renderReportHtml } from "../reports/render.js";
 import { resolveCopy } from "../reports/copy.js";
@@ -17,7 +17,14 @@ import { announcementSiteExtras } from "../reports/announcement-email/template.j
 import type { LighthouseScores } from "../reports/types.js";
 
 export type AnnounceSiteResult =
-  | { site: string; status: "drafted" | "reused"; reportId: string; recipientMissing: boolean }
+  | {
+      site: string;
+      status: "drafted" | "reused";
+      reportId: string;
+      recipientMissing: boolean;
+      /** False when a higher-or-equal-tier report was already queued (single-queue rule). */
+      queued: boolean;
+    }
   | { site: string; status: "skipped-no-scores" }
   | { site: string; status: "error"; message: string };
 
@@ -132,12 +139,24 @@ export async function announce(deps?: AnnounceDeps): Promise<AnnounceResult> {
         );
       }
 
-      // Critical: NOT wrapped — without Draft ready the draft never enters the approve
-      // queue, so a failure here must surface as an error result for the site.
-      await setDraftReady(base, report.id, true);
+      // Critical: NOT wrapped — without queueing, the draft never enters the approve queue,
+      // so a failure here must surface as an error result for the site. queueDraft also
+      // supersedes any lower-tier (Maintenance/Testing) drafts queued for this site, and
+      // stands down if an equal-or-higher report is already queued (single-queue rule).
+      const queue = await queueDraft(base, {
+        id: report.id,
+        siteId: w.id,
+        reportType: "Announcement",
+      });
 
       const recipientMissing = !(w.reportRecipientsTo && w.reportRecipientsTo.trim());
-      results.push({ site: w.name, status: statusKind, reportId: report.id, recipientMissing });
+      results.push({
+        site: w.name,
+        status: statusKind,
+        reportId: report.id,
+        recipientMissing,
+        queued: queue.queued,
+      });
     } catch (err) {
       results.push({
         site: w.name,
