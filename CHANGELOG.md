@@ -1,5 +1,23 @@
 # @reddoorla/maintenance
 
+## 0.45.0
+
+### Minor Changes
+
+- 3d2f0df: `report <slug>` gains a `--type <Maintenance|Testing>` flag so the operator can
+  draft a Testing report (not just the default Maintenance) for a single site on
+  demand. Type parsing is case-insensitive and validated before any Airtable access,
+  so a bad value fails fast without credentials; Launch and Announcement are
+  rejected with a pointer to their own commands (`launch` / `announce`). Works with
+  `--preview` too.
+- bdc2813: A **Testing** report now gates on all 13 checklist items (the 6 maintenance items
+  plus the 7 testing items), not just the 7 testing ones. A testing pass also
+  performs the maintenance checks — and the Testing email already shows both lists —
+  so `checklistFor("Testing")` returns maintenance-then-testing, the dashboard
+  renders all 13 checkboxes, and approve/send stay blocked until every one is
+  checked. Maintenance reports are unchanged (still gate on their 6 items);
+  Launch/Announcement remain ungated.
+
 ## 0.44.0
 
 ### Minor Changes
