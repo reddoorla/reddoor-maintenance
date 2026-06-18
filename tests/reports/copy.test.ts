@@ -52,7 +52,6 @@ describe("resolveCopy", () => {
 
   it("exposes announcement copy defaults", () => {
     expect(DEFAULT_COPY.announceHeading).toBe("YOUR ONGOING SITE CARE");
-    expect(DEFAULT_COPY.announceMonitorItems).toHaveLength(4);
     expect(DEFAULT_COPY.announceCadenceHeading).toBe("WHAT TO EXPECT");
   });
 
@@ -60,7 +59,6 @@ describe("resolveCopy", () => {
     const c = resolveCopy(makeWebsiteRow({}));
     expect(c.announceHeading).toBe(DEFAULT_COPY.announceHeading);
     expect(c.announceBody).toBe(DEFAULT_COPY.announceBody);
-    expect(c.announceMonitorItems).toEqual(DEFAULT_COPY.announceMonitorItems);
     expect(c.announcePreviewLabel).toBe(DEFAULT_COPY.announcePreviewLabel);
     expect(c.announceImprovementResend).toBe(DEFAULT_COPY.announceImprovementResend);
     expect(c.announceImprovementSvelte5).toBe(DEFAULT_COPY.announceImprovementSvelte5);

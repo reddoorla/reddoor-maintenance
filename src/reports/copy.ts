@@ -18,7 +18,6 @@ export type ResolvedCopy = {
   announceCadenceHeading: string;
   announceTestingLabel: string;
   announceMaintenanceLabel: string;
-  announceMonitorItems: string[];
   announcePreviewLabel: string;
   announceImprovementResend: string;
   announceImprovementSvelte5: string;
@@ -67,7 +66,6 @@ export const DEFAULT_COPY: ResolvedCopy = {
   announceCadenceHeading: "WHAT TO EXPECT",
   announceTestingLabel: "Full site testing",
   announceMaintenanceLabel: "Routine maintenance",
-  announceMonitorItems: ["Performance", "Accessibility", "Security", "Uptime"],
   announcePreviewLabel: "From your latest full site test:",
   announceImprovementResend:
     "Your contact forms now deliver straight to your inbox through reliable infrastructure, so no inquiry slips through the cracks.",
