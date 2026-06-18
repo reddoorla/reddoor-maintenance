@@ -280,6 +280,64 @@ describe("draftDueReports period guard", () => {
     expect(res.code).toBe(0);
   });
 
+  it("does NOT re-complete a not-ready row that was intentionally superseded by a higher-tier pending report", async () => {
+    vi.mocked(listWebsites).mockResolvedValue([siteRow()]);
+    // The not-ready Maintenance row looks like a crash, but it was deliberately un-queued by
+    // queueDraft because a higher-tier Testing is still pending. Re-completing it would re-render
+    // and APPEND a duplicate HTML attachment every run — so it must be skipped, not completed.
+    const base = makeFakeBase({
+      Reports: [
+        {
+          id: "rec_blocked_maint",
+          fields: { Site: ["rec_site_acme"], "Report type": "Maintenance", Period: "2026-05" },
+        },
+        {
+          id: "rec_pending_test",
+          fields: {
+            Site: ["rec_site_acme"],
+            "Report type": "Testing",
+            Period: "2026-05",
+            "Draft ready": true, // higher tier, pending approval
+          },
+        },
+      ],
+    });
+    const res = await draftDueReports(base, TODAY);
+    expect(draftReportForSite).not.toHaveBeenCalled(); // not re-completed → no re-render/append
+    expect(res.output).toMatch(/superseded — a higher-or-equal-tier report is pending/i);
+    expect(res.code).toBe(0);
+  });
+
+  it("surfaces a created-but-NOT-queued draft (blocked by the single-queue rule)", async () => {
+    vi.mocked(listWebsites).mockResolvedValue([siteRow()]);
+    vi.mocked(draftReportForSite).mockResolvedValue({
+      reportRow: { reportId: "Acme Co — Maintenance — 2026-05-26" },
+      htmlPath: null,
+      html: "",
+      softFailures: [],
+      queued: false,
+      supersededIds: [],
+    } as unknown as Awaited<ReturnType<typeof draftReportForSite>>);
+    const res = await draftDueReports(makeFakeBase({ Reports: [] }), TODAY);
+    expect(res.output).toMatch(/NOT queued/);
+    expect(res.code).toBe(0);
+  });
+
+  it("surfaces superseded lower-tier drafts in the summary (with plural)", async () => {
+    vi.mocked(listWebsites).mockResolvedValue([siteRow()]);
+    vi.mocked(draftReportForSite).mockResolvedValue({
+      reportRow: { reportId: "Acme Co — Testing — 2026-05-26" },
+      htmlPath: null,
+      html: "",
+      softFailures: [],
+      queued: true,
+      supersededIds: ["a", "b"],
+    } as unknown as Awaited<ReturnType<typeof draftReportForSite>>);
+    const res = await draftDueReports(makeFakeBase({ Reports: [] }), TODAY);
+    expect(res.output).toMatch(/superseded 2 lower-tier drafts/);
+    expect(res.code).toBe(0);
+  });
+
   it("does NOT create a NEW-period draft while an EARLIER-period draft is unsent (pile-up guard, Fix #2)", async () => {
     vi.mocked(listWebsites).mockResolvedValue([siteRow()]);
     // Site is due now (2026-05) but already has an UNSENT 2026-04 draft pending

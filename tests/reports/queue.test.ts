@@ -108,4 +108,23 @@ describe("queueDraft", () => {
     const out = await queueDraft(base, { id: "maint", siteId: "siteA", reportType: "Maintenance" });
     expect(out.queued).toBe(true); // a SENT Testing does not block
   });
+
+  it("ignores approved-but-not-yet-sent reports (past the queue)", async () => {
+    const base = makeFakeBase({
+      Reports: [
+        rep("approvedTest", "siteA", "Testing", { "Approved to send": true }), // approved, not sent
+        rep("maint", "siteA", "Maintenance", { "Draft ready": false }),
+      ],
+    });
+    const out = await queueDraft(base, { id: "maint", siteId: "siteA", reportType: "Maintenance" });
+    expect(out.queued).toBe(true); // an approved Testing is past the approve queue → does not block
+  });
+
+  it("excludes the report's own row — a draft already Draft-ready (reuse path) doesn't block itself", async () => {
+    // The reuse/complete path can hand queueDraft a row that a prior run left Draft-ready. It must
+    // not see ITSELF as an equal-tier blocker; the own-id filter keeps it queued.
+    const base = makeFakeBase({ Reports: [rep("self", "siteA", "Testing")] }); // already Draft ready
+    const out = await queueDraft(base, { id: "self", siteId: "siteA", reportType: "Testing" });
+    expect(out).toEqual({ queued: true, supersededIds: [] });
+  });
 });

@@ -3,6 +3,7 @@ import { listWebsites, siteSlug } from "../../reports/airtable/websites.js";
 import { listAllReports } from "../../reports/airtable/reports.js";
 import { findDueReports, reportPeriodKey } from "../../reports/due.js";
 import { draftReportForSite } from "../../reports/draft.js";
+import { reportTier } from "../../reports/queue.js";
 import type { ReportType } from "../../reports/types.js";
 
 export type ReportCommandOptions = {
@@ -142,6 +143,27 @@ export async function draftDueReports(
       if (existing.draftReady) {
         skipped++;
         lines.push(`• skipped (already drafted ${period}): ${item.site.name} ${item.reportType}`);
+        continue;
+      }
+      // A not-ready row is normally a crash between createDraft and setDraftReady — re-complete
+      // it in place. BUT queueDraft also clears Draft ready on rows it supersedes/blocks, and
+      // those must NOT be re-completed: doing so would re-render and APPEND a duplicate HTML
+      // attachment every nightly run, only to be re-blocked. Distinguish the two: if a
+      // higher-or-equal-tier report is still pending for this site, this row was intentionally
+      // un-queued (not crashed) — skip it until the blocker is sent/approved or the month rolls.
+      const blockedByPending = reports.some(
+        (r) =>
+          r.siteId === item.site.id &&
+          r.id !== existing.id &&
+          r.sentAt === null &&
+          r.draftReady &&
+          reportTier(r.reportType) >= reportTier(item.reportType),
+      );
+      if (blockedByPending) {
+        skipped++;
+        lines.push(
+          `• skipped (superseded — a higher-or-equal-tier report is pending): ${item.site.name} ${item.reportType}`,
+        );
         continue;
       }
       try {
