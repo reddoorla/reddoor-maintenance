@@ -195,35 +195,42 @@ async function sendOne(
   const subject =
     report.subjectOverride ?? `${site.name} — ${monthYear(reportDate)} ${report.reportType} Report`;
 
+  // Inline attachments: the per-site header (every template renders it) plus only the bundled
+  // images the rendered HTML actually references. The green check (cid:rd-check-png) appears in
+  // every report's checklist/score rows EXCEPT Launch; the blurred-tests image
+  // (cid:rd-blurred-tests-jpg) appears ONLY in the Maintenance email. Attaching a bundled image
+  // the template doesn't reference leaves a dangling inline part that some mail clients surface as
+  // a stray downloadable attachment — so gate each on its cid actually appearing in `html`. This
+  // self-corrects if a template's image usage changes; there's no per-report-type list to keep in
+  // sync. Self-contained inline (no external CDN, no image-blocked broken icons in webmail).
+  const attachments: InlineAttachment[] = [
+    toInlineAttachment({
+      bytes: header.bytes,
+      filename: `${cidName}.jpg`,
+      contentType: header.contentType,
+      cid: cidName,
+    }),
+  ];
+  for (const img of [bundled.check, bundled.blurred]) {
+    if (html.includes(`cid:${img.cid}`)) {
+      attachments.push(
+        toInlineAttachment({
+          bytes: img.bytes,
+          filename: img.filename,
+          contentType: img.contentType,
+          cid: img.cid,
+        }),
+      );
+    }
+  }
+
   const payload: Parameters<ResendClient["send"]>[0] = {
     from: FROM_ADDRESS,
     to,
     replyTo: REPLY_TO,
     subject,
     html,
-    attachments: [
-      toInlineAttachment({
-        bytes: header.bytes,
-        filename: `${cidName}.jpg`,
-        contentType: header.contentType,
-        cid: cidName,
-      }),
-      // Bundled images referenced via cid:rd-check-png / cid:rd-blurred-tests-jpg
-      // in the template. Attached inline so the email is self-contained — no
-      // external CDN dependency, no image-blocked broken icons in webmail.
-      toInlineAttachment({
-        bytes: bundled.check.bytes,
-        filename: bundled.check.filename,
-        contentType: bundled.check.contentType,
-        cid: bundled.check.cid,
-      }),
-      toInlineAttachment({
-        bytes: bundled.blurred.bytes,
-        filename: bundled.blurred.filename,
-        contentType: bundled.blurred.contentType,
-        cid: bundled.blurred.cid,
-      }),
-    ],
+    attachments,
     // Stable across retries of the same row — if Airtable stamping fails after a
     // successful Resend, the next --send-ready replays with the same key and
     // Resend returns the original message id rather than sending a duplicate.
