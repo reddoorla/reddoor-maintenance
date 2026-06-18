@@ -16,3 +16,8 @@ path (`draftReportForSite`, `announce`, `launch`):
 The `report` CLI surfaces the outcome ("drafted but NOT queued…" / "superseded N lower-tier
 drafts"); `draftReportForSite` returns `queued` + `supersededIds`, and `announce` results carry
 `queued`.
+
+The nightly `--due` run now distinguishes a draft `queueDraft` intentionally un-queued from one
+wedged half-made by a crash: if a higher-or-equal-tier report is still pending for the site, the
+not-ready row is skipped instead of re-completed — otherwise it would re-render and append a
+duplicate HTML attachment every run only to be re-blocked.
