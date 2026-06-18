@@ -43,8 +43,8 @@ export type ReportData = {
   /** Announcement-only: which recent-improvement callouts to render. Undefined for
    *  Maintenance/Testing/Launch → the section is absent. */
   improvements?: { resendForms?: boolean; svelte5?: boolean };
-  /** Announcement-only: the client's go-forward pace, rendered as the "WHAT TO EXPECT"
-   *  section. A "None" pace is omitted; undefined → the whole section is absent. */
+  /** Announcement-only: the client's go-forward pace, baked into each section's intro copy
+   *  ("We do this every month."). A "None" pace omits that check section; undefined → neither. */
   cadence?: ReportCadence;
   /** Resolved per-site copy (M6a). Omitted → the template falls back to DEFAULT_COPY. */
   copy?: import("./copy.js").ResolvedCopy;

@@ -1,6 +1,11 @@
 import type { ReportData } from "../types.js";
 import { DEFAULT_COPY, type ResolvedCopy } from "../copy.js";
-import { CHECK_CID, BLURRED_CID } from "./assets/index.js";
+import { BLURRED_CID } from "./assets/index.js";
+import {
+  checklistRowsSection,
+  lighthouseScoresSection,
+  analyticsSection,
+} from "../email-sections.js";
 import { escapeHtml } from "../../util/html.js";
 import { isHttpUrl } from "../../util/url.js";
 
@@ -22,8 +27,8 @@ import { isHttpUrl } from "../../util/url.js";
 export const escapeXml = escapeHtml;
 
 // Bundled images: shipped in dist/ via tsup onSuccess copy, attached inline via
-// CID by orchestrate.ts at send time. No external CDN dependency.
-const CHECK_PNG = `cid:${CHECK_CID}`;
+// CID by orchestrate.ts at send time. No external CDN dependency. (The green check
+// image lives in the shared email-sections checklist component.)
 const BLURRED_TESTS = `cid:${BLURRED_CID}`;
 
 export function fmtDate(d: Date | null): string {
@@ -41,79 +46,21 @@ export function fmtDate(d: Date | null): string {
   return `${mm}.${dd}.${yyyy}`;
 }
 
-function fmtUsers(n: number): string {
-  return n.toLocaleString("en-US");
-}
-
-const TREND_UP = "#2E7D32"; // positive green — growth reads as good
-const TREND_NEUTRAL = "#757575"; // muted grey — dips/flat aren't failures (and brand red is reserved)
-
-function trendText(color: string, text: string): string {
-  return `<mj-text color="${color}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">${text}</mj-text>`;
-}
-
-/**
- * The line under "{N} Users": a directional trend vs the previous period when both numbers
- * are real, else a graceful fallback. `undefined` means GA was unavailable (distinct from a
- * real 0). Up = green; down/flat = muted grey (a traffic dip isn't a failure).
- */
-function analyticsTrendLine(cur: number | undefined, prev: number | undefined): string {
-  if (cur === undefined || prev === undefined) {
-    // GA unavailable for one/both — show the prior count if we have it, else an em dash.
-    return trendText(TREND_NEUTRAL, `Last Period: ${prev !== undefined ? fmtUsers(prev) : "—"}`);
-  }
-  if (prev === 0) {
-    return cur > 0
-      ? trendText(TREND_UP, "▲ New this period (0 last period)")
-      : trendText(TREND_NEUTRAL, "Last Period: 0");
-  }
-  const pct = Math.round(((cur - prev) / prev) * 100);
-  const range = `(${fmtUsers(prev)} → ${fmtUsers(cur)})`;
-  if (pct > 0) return trendText(TREND_UP, `▲ ${pct}% vs last period ${range}`);
-  if (pct < 0) return trendText(TREND_NEUTRAL, `▼ ${Math.abs(pct)}% vs last period ${range}`);
-  return trendText(TREND_NEUTRAL, `No change vs last period (${fmtUsers(prev)})`);
-}
-
 function maintenanceChecksSection(copy: ResolvedCopy, searchPosition?: number): string {
+  // The Google row shows the live search position when available, else the plain label.
   const googleLabel =
     searchPosition !== undefined
       ? `Page 1 Google Result (#${searchPosition})`
       : (copy.maintenanceChecks[3] ?? "");
   const rows = copy.maintenanceChecks.map((label, i) => (i === 3 ? googleLabel : label));
-  return rows
-    .map(
-      (label, i) => `
-    <mj-section background-color="white" padding="0px"${i === rows.length - 1 ? ' padding-bottom="36px"' : ""}>
-      <mj-group>
-        <mj-column padding-left="0px" width="90%"${i < rows.length - 1 ? ' border-bottom="solid #CCCCCC 1px"' : ""}>
-          <mj-text height="25px" padding-left="0px" color="#757575" padding-top="20px" padding-bottom="7.5px" font-size="16px">${escapeXml(label)}</mj-text>
-        </mj-column>
-        <mj-column width="10%"${i < rows.length - 1 ? ' border-bottom="solid #CCCCCC 1px"' : ""} padding-top="15px">
-          <mj-image align="right" padding-right="0px" width="20px" height="20px" padding-top="2.5px" padding-bottom="15px" src="${CHECK_PNG}" />
-        </mj-column>
-      </mj-group>
-    </mj-section>`,
-    )
-    .join("");
+  return checklistRowsSection(rows, { background: "white", lastPaddingBottom: "36px" });
 }
 
 function testingChecklistSection(copy: ResolvedCopy): string {
-  const rows = copy.testingChecklist;
-  return rows
-    .map(
-      (label, i) => `
-    <mj-section background-color="#F4F4F4" padding="0px"${i === rows.length - 1 ? ' padding-bottom="60px"' : ""}>
-      <mj-group>
-        <mj-column width="90%" padding-left="0px"${i < rows.length - 1 ? ' border-bottom="solid #CCCCCC 1px"' : ""}>
-          <mj-text height="25px" padding-left="0px" color="#757575" padding-top="20px" padding-bottom="7.5px" font-size="16px">${escapeXml(label)}</mj-text>
-        </mj-column>
-        <mj-column width="10%"${i < rows.length - 1 ? ' border-bottom="solid #CCCCCC 1px"' : ""} padding-top="15px">
-          <mj-image align="right" padding-right="0px" width="20px" height="20px" padding-top="2.5px" padding-bottom="15px" src="${CHECK_PNG}" />
-        </mj-column>
-      </mj-group>
-    </mj-section>`,
-    )
-    .join("");
+  return checklistRowsSection(copy.testingChecklist, {
+    background: "#F4F4F4",
+    lastPaddingBottom: "60px",
+  });
 }
 
 function maintenanceTestingPlaceholder(lastTested: Date | null): string {
@@ -215,35 +162,13 @@ export function buildMjml(data: ReportData): string {
       </mj-column>
     </mj-section>
     ${maintenanceChecksSection(copy, data.searchPosition)}
-    <mj-section background-color="#F4F4F4">
-      <mj-column>
-        <mj-text color="#C00" font-size="20px" font-weight="700" padding-top="55px">LIGHTHOUSE SCORES*</mj-text>
-        <mj-text color="#C00" font-size="20px" font-weight="300" padding-top="25px">Performance</mj-text>
-        <mj-text color="#C00" font-size="44px" font-weight="400" padding-top="0px">${data.lighthouse.performance}</mj-text>
-        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" padding-top="0px" padding-bottom="36px">Acceptable 50–89 // Ideal 90–100</mj-text>
-        <mj-divider border-width="1px" border-style="solid" border-color="#CCCCCC" padding="0" />
-        <mj-text color="#C00" font-size="20px" font-weight="300" padding-top="25px">Readability (A11y)</mj-text>
-        <mj-text color="#C00" font-size="44px" font-weight="400" padding-top="0px">${data.lighthouse.accessibility}</mj-text>
-        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" padding-top="0px" padding-bottom="36px">Acceptable 80–99 // Ideal 100</mj-text>
-        <mj-divider border-width="1px" border-style="solid" border-color="#CCCCCC" padding="0" />
-        <mj-text color="#C00" font-size="20px" font-weight="300" padding-top="25px">Best Practices</mj-text>
-        <mj-text color="#C00" font-size="44px" font-weight="400" padding-top="0px">${data.lighthouse.bestPractices}</mj-text>
-        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" padding-top="0px" padding-bottom="36px">Acceptable 60–79 // Ideal 80–92</mj-text>
-        <mj-divider border-width="1px" border-style="solid" border-color="#CCCCCC" padding="0" />
-        <mj-text color="#C00" font-size="20px" font-weight="300" padding-top="25px">Site Structure</mj-text>
-        <mj-text color="#C00" font-size="44px" font-weight="400" padding-top="0px">${data.lighthouse.seo}</mj-text>
-        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" padding-top="0px" padding-bottom="36px">Acceptable 50–89 // Ideal 90–100</mj-text>
-        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" padding-top="24px" padding-bottom="36px" line-height="20px">*A Lighthouse score is a numerical measure provided by Google's Lighthouse tool, which evaluates various aspects of a web page's quality.</mj-text>
-      </mj-column>
-    </mj-section>
-    <mj-section background-color="white">
-      <mj-column>
-        <mj-text color="#C00" font-size="20px" font-weight="700" padding-top="75px">ANALYTICS</mj-text>
-        <mj-text color="#C00" font-size="44px" font-weight="400">${data.gaUsersCurrent !== undefined ? fmtUsers(data.gaUsersCurrent) : "—"} Users</mj-text>
-        ${analyticsTrendLine(data.gaUsersCurrent, data.gaUsersPrevious)}
-        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" padding-top="24px" padding-bottom="36px" line-height="20px">${escapeXml(copy.seoCta)}</mj-text>
-      </mj-column>
-    </mj-section>
+    ${lighthouseScoresSection(data.lighthouse)}
+    ${analyticsSection({
+      current: data.gaUsersCurrent,
+      previous: data.gaUsersPrevious,
+      background: "white",
+      footnoteLines: [escapeXml(copy.seoCta)],
+    })}
     ${isTesting ? testingIntroSection(copy) + testingChecklistSection(copy) : maintenanceTestingPlaceholder(data.lastTestedDate)}
     ${data.commentary ? commentarySection(data.commentary, copy) : ""}
     <mj-section background-color="white">

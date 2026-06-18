@@ -19,140 +19,133 @@ function baseData(over: Partial<ReportData> = {}): ReportData {
   };
 }
 
+const BOTH_MONTHLY = { maintenance: "Monthly", testing: "Monthly" } as const;
+
 describe("buildAnnouncementMjml", () => {
-  // announceBody / announceCadence / announceOpenDoor contain apostrophes and em
-  // dashes that the template escapes to entities (proven by the escaping test below),
-  // so assert special-char-free substrings of them — the launch test does the same.
-  it("renders the announcement heading, body, and standing copy", () => {
+  // announceBody / announceCadence / announceOpenDoor contain apostrophes and em dashes that
+  // the template escapes to entities (proven by the escaping test below), so assert
+  // special-char-free substrings — the launch test does the same.
+  it("renders the heading, 'Prepared for', and body", () => {
     const mjml = buildAnnouncementMjml(baseData());
-    expect(mjml).toContain(DEFAULT_COPY.announceHeading); // dynamic — no special chars
-    expect(mjml).toContain(DEFAULT_COPY.announcePreviewLabel); // "From your latest full site test:"
+    expect(mjml).toContain(DEFAULT_COPY.announceHeading); // "YOUR ONGOING SITE CARE"
+    expect(mjml).toContain("Prepared for Acme Co");
     expect(mjml).toContain("completed a full test of your site"); // announceBody
-    expect(mjml).toContain("expand the scope, add features"); // announceOpenDoor
   });
 
-  it("renders each pace with its specific checks, mapping Frequency → phrase", () => {
-    const mjml = buildAnnouncementMjml(
-      baseData({ cadence: { maintenance: "Monthly", testing: "Quarterly" } }),
-    );
-    expect(mjml).toContain(DEFAULT_COPY.announceCadenceHeading); // "WHAT TO EXPECT"
-    expect(mjml).toContain("Full site testing");
-    expect(mjml).toContain("every quarter");
-    expect(mjml).toContain("Routine maintenance");
-    expect(mjml).toContain("every month");
-    expect(mjml).toContain("send you a short report like this"); // announceCadence note
-    // Each pace lists the exact checks that pass covers, sourced from the same copy
-    // arrays the monthly report renders (so the announcement can't drift from it).
+  it("renders the TESTING and MAINTENANCE CHECKS sections, with their report intros + every check", () => {
+    const mjml = buildAnnouncementMjml(baseData({ cadence: BOTH_MONTHLY }));
+    expect(mjml).toContain(">TESTING</mj-text>");
+    expect(mjml).toContain(escapeXml(DEFAULT_COPY.testingIntro));
+    expect(mjml).toContain(">MAINTENANCE CHECKS</mj-text>");
+    expect(mjml).toContain(escapeXml(DEFAULT_COPY.maintenanceIntro));
+    // Every check from the same copy arrays the monthly report renders (can't drift from it).
     for (const check of DEFAULT_COPY.testingChecklist) expect(mjml).toContain(escapeXml(check));
     for (const check of DEFAULT_COPY.maintenanceChecks) expect(mjml).toContain(escapeXml(check));
   });
 
-  it("omits a pace set to None along with its checks, and the whole section when neither is set", () => {
-    const onlyMaint = buildAnnouncementMjml(
-      baseData({ cadence: { maintenance: "Yearly", testing: "None" } }),
-    );
-    expect(onlyMaint).toContain("Routine maintenance");
-    expect(onlyMaint).toContain("every year");
-    expect(onlyMaint).not.toContain("Full site testing");
-    // The testing pace is gone, so its checks are too; maintenance checks remain.
-    expect(onlyMaint).not.toContain("Desktop Browsers"); // a testing check
-    expect(onlyMaint).toContain(escapeXml(DEFAULT_COPY.maintenanceChecks[0]!));
-
-    const none = buildAnnouncementMjml(
-      baseData({ cadence: { maintenance: "None", testing: "None" } }),
-    );
-    expect(none).not.toContain(DEFAULT_COPY.announceCadenceHeading);
-    expect(none).not.toContain("Full site testing");
-    expect(none).not.toContain("Routine maintenance");
-    expect(none).not.toContain("Desktop Browsers"); // no checks rendered either
-
-    const absent = buildAnnouncementMjml(baseData()); // no cadence at all
-    expect(absent).not.toContain(DEFAULT_COPY.announceCadenceHeading);
-  });
-
-  it("renders each of the four Lighthouse score numbers", () => {
-    const mjml = buildAnnouncementMjml(baseData());
-    expect(mjml).toContain(">98<");
-    expect(mjml).toContain(">97<");
-    expect(mjml).toContain(">78<");
-    expect(mjml).toContain(">100<");
-  });
-
-  it("labels the scores with the same client-facing labels as the maintenance report", () => {
-    const mjml = buildAnnouncementMjml(baseData());
-    expect(mjml).toContain(">Performance<");
-    expect(mjml).toContain(">Readability (A11y)<");
-    expect(mjml).toContain(">Best Practices<");
-    expect(mjml).toContain(">Site Structure<");
-  });
-
-  it("no longer renders a separate WHAT WE MONITOR block (folded into WHAT TO EXPECT)", () => {
-    const mjml = buildAnnouncementMjml(
-      baseData({ cadence: { maintenance: "Monthly", testing: "Monthly" } }),
-    );
-    expect(mjml).not.toContain("WHAT WE MONITOR");
-  });
-
-  it("ends each check with the report's check image (cid:rd-check-png) — one per check, after the label", () => {
-    const mjml = buildAnnouncementMjml(
-      baseData({ cadence: { maintenance: "Monthly", testing: "Monthly" } }),
-    );
-    // The check reuses the monthly report's bundled check image (attached inline by the send
-    // path) so the announcement matches the report — one image per check across both paces.
+  it("renders each check as a report-style row with the green check image — one per check", () => {
+    const mjml = buildAnnouncementMjml(baseData({ cadence: BOTH_MONTHLY }));
     const checkImgs = (mjml.match(/cid:rd-check-png/g) ?? []).length;
     expect(checkImgs).toBe(
       DEFAULT_COPY.maintenanceChecks.length + DEFAULT_COPY.testingChecklist.length,
     );
-    // Each check's image sits AFTER its own label and BEFORE the next label — i.e. the
-    // check follows the word (not before it) and binds to the right row. Rendered order is
-    // testing checks then maintenance checks (the order the cadence blocks push them).
-    const ordered = [...DEFAULT_COPY.testingChecklist, ...DEFAULT_COPY.maintenanceChecks].map((c) =>
-      escapeXml(c),
-    );
-    for (let i = 0; i < ordered.length; i++) {
-      const labelIdx = mjml.indexOf(ordered[i]!);
-      expect(labelIdx).toBeGreaterThan(-1);
-      const imgIdx = mjml.indexOf("cid:rd-check-png", labelIdx);
-      expect(imgIdx).toBeGreaterThan(labelIdx);
-      if (i + 1 < ordered.length) {
-        expect(imgIdx).toBeLessThan(mjml.indexOf(ordered[i + 1]!));
-      }
-    }
   });
 
-  it("renders the thin-italic score note under the score preview, and omits it when blank", () => {
-    const withNote = buildAnnouncementMjml(baseData());
-    expect(withNote).toContain(escapeXml(DEFAULT_COPY.announceScoreNote));
-    // Italic gloss, distinct from the footer's italic line (which uses line-height 20px).
-    expect(withNote).toContain('font-style="italic" line-height="18px"');
-
-    const blank = buildAnnouncementMjml(
-      baseData({ copy: { ...DEFAULT_COPY, announceScoreNote: "" } }),
+  it("omits a pace's checklist section when that pace is None", () => {
+    const onlyMaint = buildAnnouncementMjml(
+      baseData({ cadence: { maintenance: "Yearly", testing: "None" } }),
     );
-    expect(blank).not.toContain(escapeXml(DEFAULT_COPY.announceScoreNote));
-    expect(blank).not.toContain('font-style="italic" line-height="18px"');
+    expect(onlyMaint).not.toContain(">TESTING</mj-text>");
+    expect(onlyMaint).not.toContain("Desktop Browsers"); // a testing check
+    expect(onlyMaint).toContain(">MAINTENANCE CHECKS</mj-text>");
+    expect(onlyMaint).toContain(escapeXml(DEFAULT_COPY.maintenanceChecks[0]!));
+
+    const neither = buildAnnouncementMjml(
+      baseData({ cadence: { maintenance: "None", testing: "None" } }),
+    );
+    expect(neither).not.toContain(">TESTING</mj-text>");
+    expect(neither).not.toContain(">MAINTENANCE CHECKS</mj-text>");
+    expect(neither).not.toContain("We do this"); // no cadence copy when both paces are None
   });
 
-  it("renders TRAFFIC & SEARCH with visitors, an up-trend, and the page-1 position", () => {
+  it("renders MAINTENANCE CHECKS before TESTING", () => {
+    const mjml = buildAnnouncementMjml(baseData({ cadence: BOTH_MONTHLY }));
+    const maintIdx = mjml.indexOf(">MAINTENANCE CHECKS</mj-text>");
+    const testIdx = mjml.indexOf(">TESTING</mj-text>");
+    expect(maintIdx).toBeGreaterThan(-1);
+    expect(testIdx).toBeGreaterThan(maintIdx);
+  });
+
+  it("gives every band symmetric 40px padding, including the shared Lighthouse + Analytics blocks", () => {
+    const mjml = buildAnnouncementMjml(
+      baseData({ cadence: BOTH_MONTHLY, improvements: { resendForms: true } }),
+    );
+    // The five symmetric bands — intro, lighthouse, analytics, improvements, contact — each carry
+    // 40px top AND bottom. (If pad stopped reaching the shared Lighthouse/Analytics blocks this
+    // count would drop.) The two check-intro bands open at 40px and close via their last row.
+    expect((mjml.match(/padding-top="40px" padding-bottom="40px"/g) ?? []).length).toBe(5);
+    expect(mjml).toContain('padding-top="40px" padding-bottom="0px"'); // check-intro band tops
+  });
+
+  it("keeps band colors alternating when a pace is omitted (no two same-color bands abut)", () => {
+    // maintenance=None → TESTING takes the second band slot, so it renders on #F4F4F4 (the slot
+    // maintenance would have used), staying distinct from the white intro above it.
+    const mjml = buildAnnouncementMjml(
+      baseData({ cadence: { maintenance: "None", testing: "Monthly" } }),
+    );
+    const testIdx = mjml.indexOf(">TESTING</mj-text>");
+    const sectionStart = mjml.lastIndexOf("<mj-section", testIdx);
+    expect(mjml.slice(sectionStart, testIdx)).toContain('background-color="#F4F4F4"');
+  });
+
+  it("renders the full LIGHTHOUSE SCORES block — report labels, numbers, bands (Ideal tops at 100), footnote", () => {
+    const mjml = buildAnnouncementMjml(baseData());
+    expect(mjml).toContain("LIGHTHOUSE SCORES*");
+    expect(mjml).toContain(">Performance</mj-text>");
+    expect(mjml).toContain(">Readability (A11y)</mj-text>");
+    expect(mjml).toContain(">Best Practices</mj-text>");
+    expect(mjml).toContain(">Site Structure</mj-text>");
+    expect(mjml).toContain(">98</mj-text>");
+    expect(mjml).toContain(">97</mj-text>");
+    expect(mjml).toContain(">78</mj-text>");
+    expect(mjml).toContain(">100</mj-text>");
+    expect(mjml).toContain("Ideal 80–100"); // Best Practices band now tops at 100
+    expect(mjml).toContain("*A Lighthouse score is a numerical measure");
+  });
+
+  it("renders the ANALYTICS block: user count, trend, and the Google-position line", () => {
     const mjml = buildAnnouncementMjml(
       baseData({ gaUsersCurrent: 280, gaUsersPrevious: 275, searchPosition: 3 }),
     );
-    expect(mjml).toContain("TRAFFIC &amp; SEARCH");
-    expect(mjml).toContain("280");
-    expect(mjml).toContain("visitors in the last month");
-    expect(mjml).toContain("▲"); // 280 > 275 → up trend
-    expect(mjml).toContain("Page 1 Google result (#3)");
+    expect(mjml).toContain(">ANALYTICS</mj-text>");
+    expect(mjml).toContain("280 Users");
+    expect(mjml).toContain("▲ 2% vs last period (275 → 280)");
+    expect(mjml).toContain("Page 1 Google result (#3) for your brand search");
   });
 
-  it("shows visitors without a trend line when the previous period is absent", () => {
+  it("omits the Google-position line when no search position is available (analytics still renders)", () => {
     const mjml = buildAnnouncementMjml(baseData({ gaUsersCurrent: 280 }));
-    expect(mjml).toContain("280");
-    expect(mjml).not.toContain("vs the previous month");
+    expect(mjml).toContain("280 Users");
+    expect(mjml).not.toContain("Page 1 Google result");
   });
 
-  it("omits TRAFFIC & SEARCH entirely when neither visitors nor search is available", () => {
-    const mjml = buildAnnouncementMjml(baseData());
-    expect(mjml).not.toContain("TRAFFIC &amp; SEARCH");
+  it("bakes each pace's cadence into its block intro — no separate WHAT TO EXPECT section", () => {
+    const mjml = buildAnnouncementMjml(
+      baseData({ cadence: { maintenance: "Monthly", testing: "Quarterly" } }),
+    );
+    expect(mjml).not.toContain("WHAT TO EXPECT");
+    expect(mjml).toContain("We do this every month."); // maintenance cadence (Monthly), in its intro
+    expect(mjml).toContain("We run a full test every quarter."); // testing cadence (Quarterly), in its intro
+    // The report-frequency reassurance trails the last (testing) block.
+    expect(mjml).toContain("send you a short report like this"); // announceCadence
+  });
+
+  it("trails the report-frequency note on maintenance when testing is None (last block)", () => {
+    const mjml = buildAnnouncementMjml(
+      baseData({ cadence: { maintenance: "Monthly", testing: "None" } }),
+    );
+    expect(mjml).toContain("We do this every month.");
+    expect(mjml).toContain("send you a short report like this"); // moved onto the maintenance block
   });
 
   // announceImprovementResend has no special chars (asserted raw); announceImprovementSvelte5
@@ -160,10 +153,11 @@ describe("buildAnnouncementMjml", () => {
   const RESEND_TEXT = DEFAULT_COPY.announceImprovementResend;
   const SVELTE5_FRAGMENT = "modernized your site to the latest framework";
 
-  it("renders BOTH improvement callouts when both flags are set", () => {
+  it("renders RECENT IMPROVEMENTS with both callouts when both flags are set", () => {
     const mjml = buildAnnouncementMjml(
       baseData({ improvements: { resendForms: true, svelte5: true } }),
     );
+    expect(mjml).toContain("RECENT IMPROVEMENTS");
     expect(mjml).toContain(RESEND_TEXT);
     expect(mjml).toContain(SVELTE5_FRAGMENT);
   });
@@ -174,21 +168,29 @@ describe("buildAnnouncementMjml", () => {
     expect(mjml).not.toContain(SVELTE5_FRAGMENT);
   });
 
-  it("renders neither improvement (no dangling block) when improvements is undefined", () => {
+  it("folds the open-door invitation into RECENT IMPROVEMENTS, reworded to 'just let us know'", () => {
+    const mjml = buildAnnouncementMjml(baseData({ improvements: { resendForms: true } }));
+    // The open-door rides inside the improvements block (no standalone section), and after it.
+    expect(mjml.indexOf("expand the scope, add features")).toBeGreaterThan(
+      mjml.indexOf("RECENT IMPROVEMENTS"),
+    );
+    expect(mjml).toContain("just let us know");
+    expect(mjml).not.toContain("love to help"); // the old "just reply — we'd love to help" CTA is gone
+  });
+
+  it("renders no RECENT IMPROVEMENTS section (and no open-door) when improvements is undefined", () => {
     const mjml = buildAnnouncementMjml(baseData());
+    expect(mjml).not.toContain("RECENT IMPROVEMENTS");
     expect(mjml).not.toContain(RESEND_TEXT);
     expect(mjml).not.toContain(SVELTE5_FRAGMENT);
-    // No empty bullet rows from an empty improvements list.
-    expect(mjml).not.toContain("• </mj-text>");
-    // No improvements heading when the list is empty.
-    expect(mjml).not.toContain("RECENT IMPROVEMENTS");
+    expect(mjml).not.toContain("expand the scope, add features"); // open-door rides with improvements
   });
 
   it("never mentions pricing, plans, or a price (no-pricing invariant — full email)", () => {
     const mjml = buildAnnouncementMjml(
       baseData({
         improvements: { resendForms: true, svelte5: true },
-        cadence: { maintenance: "Monthly", testing: "Monthly" },
+        cadence: BOTH_MONTHLY,
         gaUsersCurrent: 280,
         gaUsersPrevious: 275,
         searchPosition: 3,

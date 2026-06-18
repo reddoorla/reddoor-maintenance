@@ -332,10 +332,9 @@ describe("renderReportHtml", () => {
       baseData({ reportType: "Announcement", copy: DEFAULT_COPY }),
     );
     expect(warnings).toEqual([]);
-    // announceOpenDoor is announcement-only — a marker that this template was chosen.
-    expect(html).toContain("expand the scope, add features");
-    // purpose-built: no maintenance-only sections
-    expect(html).not.toContain("MAINTENANCE CHECKS");
-    expect(html).not.toContain("LIGHTHOUSE SCORES");
+    // The announcement reuses the report's components (LIGHTHOUSE SCORES etc.), so it's
+    // distinguished by its own heading and by the ABSENCE of the report's "COMPLETED ON" header.
+    expect(html).toContain("YOUR ONGOING SITE CARE"); // announceHeading — announcement-only
+    expect(html).not.toContain("COMPLETED ON"); // report-only — confirms the announcement template
   });
 });

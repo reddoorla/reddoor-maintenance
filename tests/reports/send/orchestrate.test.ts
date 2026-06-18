@@ -317,10 +317,11 @@ describe("sendApprovedReports", () => {
     expect(captured).toHaveLength(1);
   });
 
-  it("re-renders an Announcement WITH cadence + improvements (WHAT TO EXPECT survives the send)", async () => {
+  it("re-renders an Announcement WITH cadence + improvements (both survive the send)", async () => {
     // Cadence + improvements are NOT stored on the Reports row — the send-time re-render must
     // re-derive them from the Websites row (via announcementSiteExtras), else the sent email
-    // drops the entire WHAT TO EXPECT section (and its checks) + the improvement callouts.
+    // drops the cadence copy (and the checklist sections it heads) + the improvement callouts.
+    // This is also the only place a fully-populated announcement is strict-rendered end to end.
     const base = makeFakeBase({
       Reports: [
         reportRow({
@@ -336,10 +337,9 @@ describe("sendApprovedReports", () => {
     expect(res.code).toBe(0);
     expect(captured).toHaveLength(1);
     const html = captured[0]!.html;
-    expect(html).toContain("WHAT TO EXPECT");
-    expect(html).toContain("Full site testing");
-    expect(html).toContain("✓"); // the per-pace checks render
-    expect(html).toContain("RECENT IMPROVEMENTS");
+    expect(html).toContain("We run a full test every month"); // testing cadence baked into the copy
+    expect(html).toContain("cid:rd-check-png"); // the checklist rows render with the check image
+    expect(html).toContain("RECENT IMPROVEMENTS"); // improvements survive the send re-render
   });
 
   it("sends a Launch report regardless of checklist (Launch has no checklist gate)", async () => {

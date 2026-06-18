@@ -2,7 +2,11 @@ import type { ReportData, ReportFrequency } from "../types.js";
 import type { WebsiteRow } from "../airtable/websites.js";
 import { DEFAULT_COPY } from "../copy.js";
 import { escapeXml, headerImageTag, headerStyleBlock } from "../maintenance-email/template.js";
-import { CHECK_CID } from "../maintenance-email/assets/index.js";
+import {
+  checklistRowsSection,
+  lighthouseScoresSection,
+  analyticsSection,
+} from "../email-sections.js";
 
 /** Frequency → client-facing phrase. "None" is never rendered (the line is omitted). */
 const FREQ_PHRASE: Record<Exclude<ReportFrequency, "None">, string> = {
@@ -14,32 +18,25 @@ const FREQ_PHRASE: Record<Exclude<ReportFrequency, "None">, string> = {
 const RED = "#C00";
 const GREY = "#757575";
 
-// The WHAT TO EXPECT check lists use the report's own green check image (cid:rd-check-png),
-// attached inline by orchestrate.ts on every send, so the announcement's checks match the
-// monthly report exactly. `alt="✓"` is the fallback shown by the operator's attachment-less
-// review preview in place of the (unresolvable) CID — the same tradeoff as the header image.
-const CHECK_PNG = `cid:${CHECK_CID}`;
+// Equal top/bottom padding for every alternating-background band, applied at the mj-section
+// level so each colored band has symmetric breathing room. (Starting baseline — easy to tune.)
+const SECTION_PAD = "40px";
 
-/** Thousands-grouped visitor count. */
-function fmtVisitors(n: number): string {
-  return n.toLocaleString("en-US");
+/** A red all-caps section label. Top spacing comes from the section padding, so this is flush. */
+function sectionLabel(text: string): string {
+  return `<mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="0px">${escapeXml(text)}</mj-text>`;
 }
 
-/** A one-line directional trend for visitors vs the previous window, or null when it
- *  can't be computed (missing previous, or previous 0 → no meaningful percentage). */
-function visitorTrend(cur?: number, prev?: number): string | null {
-  if (cur === undefined || prev === undefined || prev === 0) return null;
-  const pct = Math.round(((cur - prev) / prev) * 100);
-  if (pct > 0) return `▲ ${pct}% vs the previous month`;
-  if (pct < 0) return `▼ ${Math.abs(pct)}% vs the previous month`;
-  return "No change vs the previous month";
+/** A grey 16px body paragraph, matching the report's section intros. */
+function bodyLine(text: string, paddingTop = "8px"): string {
+  return `<mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="${paddingTop}">${escapeXml(text)}</mj-text>`;
 }
 
 /**
  * The announcement-only ReportData extras derived from the Websites row: the go-forward
  * cadence and the default-on improvement callouts. Used by BOTH the draft (announce recipe)
  * and the send-time re-render (orchestrate) so the sent email matches the reviewed preview —
- * `renderReportHtml` in the send path otherwise omits these, dropping WHAT TO EXPECT entirely.
+ * `renderReportHtml` in the send path otherwise omits these, dropping the cadence + improvements.
  */
 export function announcementSiteExtras(
   site: WebsiteRow,
@@ -50,121 +47,98 @@ export function announcementSiteExtras(
   };
 }
 
-/** The four Lighthouse-score labels shown to clients, mirroring the maintenance
- *  template's relabeling (Accessibility→"Readability (A11y)", SEO→"Site Structure") so the
- *  announcement's score preview matches the real monthly report. */
-const SCORE_PREVIEW: ReadonlyArray<{ label: string; key: keyof ReportData["lighthouse"] }> = [
-  { label: "Performance", key: "performance" },
-  { label: "Readability (A11y)", key: "accessibility" },
-  { label: "Best Practices", key: "bestPractices" },
-  { label: "Site Structure", key: "seo" },
-];
-
-/** One-time onboarding announcement: header · heading + site intro + body · what to
- *  expect (each cadence pace plus the specific checks it covers, pulled from the same
- *  copy arrays the monthly report renders so the two never drift, each item with a ✓) ·
- *  recent improvements (conditional) · score preview · traffic & search (visitors + trend +
- *  page-1 position, conditional) · open door · contact · footer. Reuses the M6a copy layer
- *  (contact/footer honor per-site overrides). No pricing. */
+/**
+ * One-time onboarding announcement, built from the SAME components as the monthly report so it
+ * reads as a testing report with extra explanation: header · intro ("your ongoing care") ·
+ * MAINTENANCE CHECKS · TESTING (each: intro with the cadence baked into the copy + the report's
+ * checklist rows) · LIGHTHOUSE SCORES · ANALYTICS (users + trend + the Google-position line) ·
+ * RECENT IMPROVEMENTS (conditional; closes with the open-door invitation). Reuses the M6a copy
+ * layer (contact/footer honor per-site overrides). No pricing. A pace set to None omits its
+ * checklist section. Every band carries equal top/bottom padding (SECTION_PAD).
+ */
 export function buildAnnouncementMjml(data: ReportData): string {
   const copy = data.copy ?? DEFAULT_COPY;
   const previewText = "Your monthly report from Reddoor";
+  const cad = data.cadence;
 
-  // Recent improvements — only the toggled callouts. Empty → the whole section is
-  // omitted (no heading, no dangling bullets).
+  const hasMaint = Boolean(cad && cad.maintenance !== "None");
+  const hasTesting = Boolean(cad && cad.testing !== "None");
   const improvementItems: string[] = [];
   if (data.improvements?.resendForms) improvementItems.push(copy.announceImprovementResend);
   if (data.improvements?.svelte5) improvementItems.push(copy.announceImprovementSvelte5);
-  const improvementsSection =
-    improvementItems.length > 0
+  const hasImpr = improvementItems.length > 0;
+
+  // Alternating band backgrounds assigned in render order, so the white/#F4F4F4 pattern holds
+  // no matter which optional sections (maintenance / testing / improvements) actually render —
+  // a counter that only advances for bands that appear avoids two same-colored bands abutting.
+  const BANDS = ["white", "#F4F4F4"] as const;
+  let bandN = 0;
+  const nextBg = (): string => BANDS[bandN++ % 2]!;
+  const introBg = nextBg();
+  const maintBg = hasMaint ? nextBg() : "";
+  const testBg = hasTesting ? nextBg() : "";
+  const lighthouseBg = nextBg();
+  const analyticsBg = nextBg();
+  const improvementsBg = hasImpr ? nextBg() : "";
+  const contactBg = nextBg();
+
+  // MAINTENANCE CHECKS (first) — intro with the maintenance cadence baked into the copy, then the
+  // report's checklist rows. The report-frequency reassurance (announceCadence) trails the LAST
+  // check block, so it sits here only when there's no testing block after it. Omitted when None.
+  const maintenanceSection =
+    cad && cad.maintenance !== "None"
       ? `
-    <mj-section background-color="white">
+    <mj-section background-color="${maintBg}" padding-top="${SECTION_PAD}" padding-bottom="0px">
       <mj-column>
-        <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="36px">RECENT IMPROVEMENTS</mj-text>
-        ${improvementItems
-          .map(
-            (item) => `
-        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="4px" padding-bottom="4px">• ${escapeXml(item)}</mj-text>`,
-          )
-          .join("")}
+        ${sectionLabel("MAINTENANCE CHECKS")}
+        ${bodyLine(`${copy.maintenanceIntro} We do this ${FREQ_PHRASE[cad.maintenance]}.${cad.testing === "None" ? ` ${copy.announceCadence}` : ""}`)}
       </mj-column>
-    </mj-section>`
+    </mj-section>${checklistRowsSection(copy.maintenanceChecks, {
+      background: maintBg,
+      lastPaddingBottom: SECTION_PAD,
+    })}`
       : "";
 
-  // Go-forward cadence ("WHAT TO EXPECT") — one block per non-None pace, testing then
-  // maintenance. Each block leads with the pace ("Full site testing — every month") and,
-  // beneath it, the specific checks that pass covers, pulled from the SAME copy arrays the
-  // monthly report renders (copy.testingChecklist / copy.maintenanceChecks) so the
-  // announcement and the report can never drift. The report-each-time note closes the
-  // section. Omitted entirely when no cadence is set.
-  const cad = data.cadence;
-  const cadenceBlocks: Array<{ line: string; checks: string[] }> = [];
-  if (cad && cad.testing !== "None")
-    cadenceBlocks.push({
-      line: `${copy.announceTestingLabel} — ${FREQ_PHRASE[cad.testing]}`,
-      checks: copy.testingChecklist,
-    });
-  if (cad && cad.maintenance !== "None")
-    cadenceBlocks.push({
-      line: `${copy.announceMaintenanceLabel} — ${FREQ_PHRASE[cad.maintenance]}`,
-      checks: copy.maintenanceChecks,
-    });
-  const cadenceSection =
-    cadenceBlocks.length > 0
+  // TESTING (second) — intro with the testing cadence + the report-frequency note baked in, then
+  // the report's checklist rows. Omitted when None.
+  const testingSection =
+    cad && cad.testing !== "None"
       ? `
-    <mj-section background-color="white">
+    <mj-section background-color="${testBg}" padding-top="${SECTION_PAD}" padding-bottom="0px">
       <mj-column>
-        <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="36px">${escapeXml(copy.announceCadenceHeading)}</mj-text>
-        ${cadenceBlocks
-          .map(
-            (b) => `
-        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="400" line-height="24px" padding-top="12px" padding-bottom="2px">• ${escapeXml(b.line)}</mj-text>${b.checks
-          .map(
-            (c) => `
-        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="14px" font-weight="300" line-height="22px" padding-top="1px" padding-bottom="0px" padding-left="16px">${escapeXml(c)} <img src="${CHECK_PNG}" alt="✓" width="14" height="14" style="vertical-align:middle;display:inline-block;margin-left:2px;" /></mj-text>`,
-          )
-          .join("")}`,
-          )
-          .join("")}
-        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="14px">${escapeXml(copy.announceCadence)}</mj-text>
+        ${sectionLabel("TESTING")}
+        ${bodyLine(`${copy.testingIntro} We run a full test ${FREQ_PHRASE[cad.testing]}. ${copy.announceCadence}`)}
       </mj-column>
-    </mj-section>`
+    </mj-section>${checklistRowsSection(copy.testingChecklist, {
+      background: testBg,
+      lastPaddingBottom: SECTION_PAD,
+    })}`
       : "";
 
-  const scoreRows = SCORE_PREVIEW.map(
-    ({ label, key }) => `
-        <mj-text color="${RED}" font-size="20px" font-weight="300" padding-top="25px">${label}</mj-text>
-        <mj-text color="${RED}" font-size="44px" font-weight="400" padding-top="0px">${data.lighthouse[key]}</mj-text>`,
-  ).join("");
+  // ANALYTICS — the report's big user count + trend, plus the Google search-position line.
+  const analytics = analyticsSection({
+    current: data.gaUsersCurrent,
+    previous: data.gaUsersPrevious,
+    background: analyticsBg,
+    pad: SECTION_PAD,
+    bodyLines:
+      data.searchPosition !== undefined
+        ? [`Page 1 Google result (#${data.searchPosition}) for your brand search`]
+        : [],
+  });
 
-  // Optional thin-italic gloss under the scores explaining what they are. Omitted when the
-  // copy field is blank (an operator can clear it via per-site copy without touching markup).
-  const scoreNote = copy.announceScoreNote
+  // RECENT IMPROVEMENTS — the toggled callouts, closed by the open-door invitation. Omitted
+  // entirely when there are no improvements (the open-door rides along with this block).
+  const improvementsSection = hasImpr
     ? `
-        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" font-style="italic" line-height="18px" padding-top="16px">${escapeXml(copy.announceScoreNote)}</mj-text>`
-    : "";
-
-  // Traffic & search snapshot — visitors (with trend) and the page-1 Google position, both
-  // pulled from the enriched ReportData (GA + Search Console, the same data the monthly report
-  // shows). Each line is conditional; the whole section is omitted when neither is available.
-  const trend = visitorTrend(data.gaUsersCurrent, data.gaUsersPrevious);
-  const trafficRows: string[] = [];
-  if (data.gaUsersCurrent !== undefined)
-    trafficRows.push(`
-        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="8px"><span style="color:${RED};font-size:22px;font-weight:400;">${escapeXml(fmtVisitors(data.gaUsersCurrent))}</span> visitors in the last month${trend ? ` — ${escapeXml(trend)}` : ""}</mj-text>`);
-  if (data.searchPosition !== undefined)
-    trafficRows.push(`
-        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="4px">Page 1 Google result (#${data.searchPosition}) for your brand search</mj-text>`);
-  const trafficSection =
-    trafficRows.length > 0
-      ? `
-    <mj-section background-color="white">
+    <mj-section background-color="${improvementsBg}" padding-top="${SECTION_PAD}" padding-bottom="${SECTION_PAD}">
       <mj-column>
-        <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="36px">TRAFFIC &amp; SEARCH</mj-text>
-        ${trafficRows.join("")}
+        ${sectionLabel("RECENT IMPROVEMENTS")}
+        ${improvementItems.map((item) => bodyLine(item)).join("\n        ")}
+        ${bodyLine(copy.announceOpenDoor, "16px")}
       </mj-column>
     </mj-section>`
-      : "";
+    : "";
 
   const contactRows = copy.contact
     .map(
@@ -193,30 +167,21 @@ export function buildAnnouncementMjml(data: ReportData): string {
     <mj-section background-color="#F4F4F4" padding-top="0px" padding-bottom="0px" padding-left="0px" padding-right="0px">
       <mj-column>${headerImageTag(data)}</mj-column>
     </mj-section>
-    <mj-section background-color="white">
+    <mj-section background-color="${introBg}" padding-top="${SECTION_PAD}" padding-bottom="${SECTION_PAD}">
       <mj-column>
-        <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="75px">${escapeXml(copy.announceHeading)}</mj-text>
+        ${sectionLabel(copy.announceHeading)}
         <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="20px">Prepared for ${escapeXml(data.siteName)}</mj-text>
-        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="8px">${escapeXml(copy.announceBody)}</mj-text>
+        ${bodyLine(copy.announceBody)}
       </mj-column>
     </mj-section>
-    ${cadenceSection}
+    ${maintenanceSection}
+    ${testingSection}
+    ${lighthouseScoresSection(data.lighthouse, { background: lighthouseBg, pad: SECTION_PAD })}
+    ${analytics}
     ${improvementsSection}
-    <mj-section background-color="#F4F4F4">
+    <mj-section background-color="${contactBg}" padding-top="${SECTION_PAD}" padding-bottom="${SECTION_PAD}">
       <mj-column>
-        <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="55px">${escapeXml(copy.announcePreviewLabel)}</mj-text>
-        ${scoreRows}${scoreNote}
-      </mj-column>
-    </mj-section>
-    ${trafficSection}
-    <mj-section background-color="white">
-      <mj-column>
-        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="36px">${escapeXml(copy.announceOpenDoor)}</mj-text>
-      </mj-column>
-    </mj-section>
-    <mj-section background-color="white">
-      <mj-column padding-top="36px">
-        <mj-text color="${RED}" font-family="helvetica, sans-serif" font-size="24px" font-weight="700" padding-top="36px" line-height="36px">Any questions, concerns or requests?</mj-text>
+        <mj-text color="${RED}" font-family="helvetica, sans-serif" font-size="24px" font-weight="700" padding-top="0px" line-height="36px">Any questions, concerns or requests?</mj-text>
         ${contactRows}
         <mj-divider border-width="1px" border-style="solid" border-color="#CCCCCC" padding="0" />
         <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" padding-top="24px" line-height="20px" font-style="italic">Copyright ${new Date().getUTCFullYear()} ${escapeXml(copy.footerOrg)}. All rights reserved.</mj-text>
