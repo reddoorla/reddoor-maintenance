@@ -15,11 +15,6 @@ export type ResolvedCopy = {
   launchSetupItems: string[];
   announceHeading: string;
   announceBody: string;
-  announceCadenceHeading: string;
-  announceTestingLabel: string;
-  announceMaintenanceLabel: string;
-  announcePreviewLabel: string;
-  announceScoreNote: string;
   announceImprovementResend: string;
   announceImprovementSvelte5: string;
   announceCadence: string;
@@ -64,12 +59,6 @@ export const DEFAULT_COPY: ResolvedCopy = {
   announceHeading: "YOUR ONGOING SITE CARE",
   announceBody:
     "We've completed a full test of your site and set it up for ongoing care to keep it fast, secure, and healthy. Here's what you can expect from us going forward:",
-  announceCadenceHeading: "WHAT TO EXPECT",
-  announceTestingLabel: "Full site testing",
-  announceMaintenanceLabel: "Routine maintenance",
-  announcePreviewLabel: "From your latest full site test:",
-  announceScoreNote:
-    "These are independent Google Lighthouse scores, each out of 100 — higher is better.",
   announceImprovementResend:
     "Your contact forms now deliver straight to your inbox through reliable infrastructure, so no inquiry slips through the cracks.",
   announceImprovementSvelte5:
@@ -77,7 +66,7 @@ export const DEFAULT_COPY: ResolvedCopy = {
   announceCadence:
     "After each one we'll send you a short report like this — there's nothing you need to do.",
   announceOpenDoor:
-    "And if you'd ever like to expand the scope, add features, or freshen anything up, just reply — we'd love to help.",
+    "And if you'd ever like to expand the scope, add features, or freshen anything up, just let us know.",
 };
 
 /** Trim an override to null when blank (mirrors the trim-to-null handling). */

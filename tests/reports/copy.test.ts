@@ -52,21 +52,16 @@ describe("resolveCopy", () => {
 
   it("exposes announcement copy defaults", () => {
     expect(DEFAULT_COPY.announceHeading).toBe("YOUR ONGOING SITE CARE");
-    expect(DEFAULT_COPY.announceCadenceHeading).toBe("WHAT TO EXPECT");
+    expect(DEFAULT_COPY.announceCadence).toContain("send you a short report");
   });
 
   it("passes the announce* keys through resolveCopy unchanged", () => {
     const c = resolveCopy(makeWebsiteRow({}));
     expect(c.announceHeading).toBe(DEFAULT_COPY.announceHeading);
     expect(c.announceBody).toBe(DEFAULT_COPY.announceBody);
-    expect(c.announcePreviewLabel).toBe(DEFAULT_COPY.announcePreviewLabel);
-    expect(c.announceScoreNote).toBe(DEFAULT_COPY.announceScoreNote);
     expect(c.announceImprovementResend).toBe(DEFAULT_COPY.announceImprovementResend);
     expect(c.announceImprovementSvelte5).toBe(DEFAULT_COPY.announceImprovementSvelte5);
     expect(c.announceCadence).toBe(DEFAULT_COPY.announceCadence);
-    expect(c.announceCadenceHeading).toBe(DEFAULT_COPY.announceCadenceHeading);
-    expect(c.announceTestingLabel).toBe(DEFAULT_COPY.announceTestingLabel);
-    expect(c.announceMaintenanceLabel).toBe(DEFAULT_COPY.announceMaintenanceLabel);
     expect(c.announceOpenDoor).toBe(DEFAULT_COPY.announceOpenDoor);
   });
 });
