@@ -5,6 +5,11 @@ const WEBMASTERS_READONLY = "https://www.googleapis.com/auth/webmasters.readonly
 const SC_BASE = "https://searchconsole.googleapis.com/webmasters/v3";
 /** Average-position threshold for "on page 1" (10 organic results per page). */
 const PAGE_1_MAX_POSITION = 10;
+/** Rows to pull for the brand `contains` match. searchAnalytics has no orderBy and returns
+ *  rows clicks-desc, so the exact-query row survives into the response only if it isn't paged
+ *  out beyond this cap. Sized with wide headroom — a brand has a handful of phrasing variants,
+ *  far below 100 — so the exact query (and every variant) is in practice always present. */
+export const BRAND_QUERY_ROW_LIMIT = 100;
 
 export type SearchPresenceQuery = {
   /** Path to the service-account JSON key (same one GA uses). */
@@ -15,7 +20,10 @@ export type SearchPresenceQuery = {
   property?: string | undefined;
   /** Site host, used to auto-resolve the property from `sites.list` when `property` is absent. */
   host: string;
-  /** Operator-supplied query string (e.g. the business name). */
+  /** Operator-supplied brand hint (e.g. the business name). Matched as a case-insensitive
+   *  SUBSTRING (`contains`) of the actual user query — NOT a hard exact string — so it tolerates
+   *  phrasing ("red door creative" vs "…creative la"). An exact-query match is preferred when
+   *  present; otherwise the most-searched matching query wins. */
   query: string;
 };
 
@@ -60,11 +68,66 @@ function ymd(d: Date): string {
 }
 
 /**
- * Query Google Search Console for the average position of `query` on the site over the report
- * period, via a domain-wide-delegation service account impersonating `subject`. Uses `property`
- * verbatim when given (operator's choice is final — no fallback); otherwise auto-discovers all
- * matching properties via `sites.list` and tries them in order (Domain first) until one returns
- * data. Throws on any auth/API error — the caller (draftReportForSite) soft-fails.
+ * From the queries matching the brand substring, pick the one the brand is actually FOUND
+ * by most — the highest-impression row — and return its average position; tie-break on the
+ * better (lower) position. Returns undefined when no row carries a numeric position. This is
+ * what makes the reported "brand search" position robust to phrasing: with a `contains`
+ * filter several variants can match, and we report the position of the variant real users
+ * search most, not whichever the operator happened to type. Rows missing `impressions` count
+ * as 0 (keeps a single-row, impression-less response — e.g. a test fixture — working). PURE.
+ */
+export function pickBrandQuery(
+  rows: Array<{ position?: number; impressions?: number }>,
+): number | undefined {
+  let best: { position: number; impressions: number } | undefined;
+  for (const r of rows) {
+    if (typeof r.position !== "number") continue;
+    const impressions = r.impressions ?? 0;
+    if (
+      best === undefined ||
+      impressions > best.impressions ||
+      (impressions === best.impressions && r.position < best.position)
+    ) {
+      best = { position: r.position, impressions };
+    }
+  }
+  return best?.position;
+}
+
+/**
+ * The brand's reported position from the `contains`-matched rows, preferring an EXACT match.
+ * When a returned row's query equals the operator's configured string (case-insensitive), its
+ * position is used verbatim — a precisely-configured brand query is honored, with no chance a
+ * longer higher-impression variant ("…reviews", "…near me") hijacks the number. Otherwise we
+ * fall back to the most-searched matching query (`pickBrandQuery`). Operates only on the rows
+ * actually returned: a string `contains` itself, so the exact query is among the `contains`
+ * results whenever it has data AND isn't paged out beyond `BRAND_QUERY_ROW_LIMIT` (sized so a
+ * brand's handful of phrasing variants always fit; if it ever were paged out, the most-searched
+ * fallback still returns a valid brand position). Returns undefined when no row carries a
+ * numeric position. PURE.
+ */
+export function selectBrandPosition(
+  rows: Array<{ keys?: string[]; position?: number; impressions?: number }>,
+  exactQuery: string,
+): number | undefined {
+  const want = exactQuery.toLowerCase();
+  const exact = rows.find(
+    (r) => typeof r.position === "number" && (r.keys?.[0] ?? "").toLowerCase() === want,
+  );
+  if (exact) return exact.position;
+  return pickBrandQuery(rows);
+}
+
+/**
+ * Query Google Search Console for the brand's average position on the site over the report
+ * period, via a domain-wide-delegation service account impersonating `subject`. `query` is a
+ * case-insensitive SUBSTRING (`contains`) hint; among the matching user queries we report the
+ * position of the exact-match query when present, else the most-searched one (see
+ * `selectBrandPosition`) — so it doesn't depend on the operator typing the exact search string,
+ * yet honors one verbatim when they do. Uses `property` verbatim when given (operator's
+ * choice is final — no fallback); otherwise auto-discovers all matching properties via
+ * `sites.list` and tries them in order (Domain first) until one returns data. Throws on any
+ * auth/API error — the caller (draftReportForSite) soft-fails.
  */
 export async function fetchSearchPresence(
   q: SearchPresenceQuery,
@@ -96,7 +159,9 @@ export async function fetchSearchPresence(
   }
 
   for (const property of candidates) {
-    const res = await jwt.request<{ rows?: Array<{ position?: number }> }>({
+    const res = await jwt.request<{
+      rows?: Array<{ keys?: string[]; position?: number; impressions?: number }>;
+    }>({
       url: `${SC_BASE}/sites/${encodeURIComponent(property)}/searchAnalytics/query`,
       method: "POST",
       data: {
@@ -106,14 +171,14 @@ export async function fetchSearchPresence(
         dimensionFilterGroups: [
           {
             filters: [
-              { dimension: "query", operator: "equals", expression: q.query.toLowerCase() },
+              { dimension: "query", operator: "contains", expression: q.query.toLowerCase() },
             ],
           },
         ],
-        rowLimit: 1,
+        rowLimit: BRAND_QUERY_ROW_LIMIT,
       },
     });
-    const pos = res.data.rows?.[0]?.position;
+    const pos = selectBrandPosition(res.data.rows ?? [], q.query.toLowerCase());
     if (typeof pos === "number") {
       // Search Console can average below 1; floor to 1 so the template never
       // renders a nonsensical "#0" (positions are 1-indexed).
