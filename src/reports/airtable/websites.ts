@@ -160,6 +160,18 @@ export function isDashboardVisible(site: WebsiteRow): boolean {
   return site.status !== null && ACTIVE_STATUSES.has(site.status);
 }
 
+const FREQUENCIES: readonly Frequency[] = ["None", "Monthly", "Quarterly", "Yearly"];
+
+/** Coerce an Airtable single-select value to a known Frequency. An unrecognized value — a
+ *  renamed / typo'd / whitespace option — falls back to "None" (its section is simply omitted)
+ *  rather than flowing a bogus string downstream, which the announcement would otherwise render
+ *  as "We do this undefined." into a client email. */
+function toFrequency(raw: unknown): Frequency {
+  return typeof raw === "string" && (FREQUENCIES as readonly string[]).includes(raw)
+    ? (raw as Frequency)
+    : "None";
+}
+
 // NOTE: every `f["..."]` key below is a load-bearing magic string that must match
 // the live Airtable "Websites" column name EXACTLY — including the legacy
 // misspelling `"maintenence freq"`, the mixed-case `"GA4 property ID"`, and the
@@ -177,8 +189,8 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     url: String(f["url"] ?? ""),
     status: (f["Status"] as Status | undefined) ?? null,
     pointOfContact: (f["point of contact"] as string | undefined) ?? null,
-    maintenanceFreq: ((f["maintenence freq"] as string | undefined) ?? "None") as Frequency,
-    testingFreq: ((f["testing freq"] as string | undefined) ?? "None") as Frequency,
+    maintenanceFreq: toFrequency(f["maintenence freq"]),
+    testingFreq: toFrequency(f["testing freq"]),
     maintenanceDay: (f["maintenance day"] as string | undefined) ?? null,
     testingDay: (f["testing day"] as string | undefined) ?? null,
     ga4PropertyId: (f["GA4 property ID"] as string | undefined) ?? null,

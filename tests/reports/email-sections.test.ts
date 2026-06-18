@@ -81,6 +81,12 @@ describe("analyticsTrendLine", () => {
   it("falls back to Last Period when the current is unavailable", () => {
     expect(analyticsTrendLine(undefined, 500)).toContain("Last Period: 500");
   });
+  it("shows 'No change' when the period is flat", () => {
+    expect(analyticsTrendLine(500, 500)).toContain("No change vs last period (500)");
+  });
+  it("shows 'Last Period: 0' when both periods are zero", () => {
+    expect(analyticsTrendLine(0, 0)).toContain("Last Period: 0");
+  });
 });
 
 describe("analyticsSection", () => {

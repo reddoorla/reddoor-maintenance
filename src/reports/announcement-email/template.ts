@@ -61,19 +61,40 @@ export function buildAnnouncementMjml(data: ReportData): string {
   const previewText = "Your monthly report from Reddoor";
   const cad = data.cadence;
 
+  const hasMaint = Boolean(cad && cad.maintenance !== "None");
+  const hasTesting = Boolean(cad && cad.testing !== "None");
+  const improvementItems: string[] = [];
+  if (data.improvements?.resendForms) improvementItems.push(copy.announceImprovementResend);
+  if (data.improvements?.svelte5) improvementItems.push(copy.announceImprovementSvelte5);
+  const hasImpr = improvementItems.length > 0;
+
+  // Alternating band backgrounds assigned in render order, so the white/#F4F4F4 pattern holds
+  // no matter which optional sections (maintenance / testing / improvements) actually render —
+  // a counter that only advances for bands that appear avoids two same-colored bands abutting.
+  const BANDS = ["white", "#F4F4F4"] as const;
+  let bandN = 0;
+  const nextBg = (): string => BANDS[bandN++ % 2]!;
+  const introBg = nextBg();
+  const maintBg = hasMaint ? nextBg() : "";
+  const testBg = hasTesting ? nextBg() : "";
+  const lighthouseBg = nextBg();
+  const analyticsBg = nextBg();
+  const improvementsBg = hasImpr ? nextBg() : "";
+  const contactBg = nextBg();
+
   // MAINTENANCE CHECKS (first) — intro with the maintenance cadence baked into the copy, then the
   // report's checklist rows. The report-frequency reassurance (announceCadence) trails the LAST
   // check block, so it sits here only when there's no testing block after it. Omitted when None.
   const maintenanceSection =
     cad && cad.maintenance !== "None"
       ? `
-    <mj-section background-color="#F4F4F4" padding-top="${SECTION_PAD}" padding-bottom="0px">
+    <mj-section background-color="${maintBg}" padding-top="${SECTION_PAD}" padding-bottom="0px">
       <mj-column>
         ${sectionLabel("MAINTENANCE CHECKS")}
         ${bodyLine(`${copy.maintenanceIntro} We do this ${FREQ_PHRASE[cad.maintenance]}.${cad.testing === "None" ? ` ${copy.announceCadence}` : ""}`)}
       </mj-column>
     </mj-section>${checklistRowsSection(copy.maintenanceChecks, {
-      background: "#F4F4F4",
+      background: maintBg,
       lastPaddingBottom: SECTION_PAD,
     })}`
       : "";
@@ -83,13 +104,13 @@ export function buildAnnouncementMjml(data: ReportData): string {
   const testingSection =
     cad && cad.testing !== "None"
       ? `
-    <mj-section background-color="white" padding-top="${SECTION_PAD}" padding-bottom="0px">
+    <mj-section background-color="${testBg}" padding-top="${SECTION_PAD}" padding-bottom="0px">
       <mj-column>
         ${sectionLabel("TESTING")}
         ${bodyLine(`${copy.testingIntro} We run a full test ${FREQ_PHRASE[cad.testing]}. ${copy.announceCadence}`)}
       </mj-column>
     </mj-section>${checklistRowsSection(copy.testingChecklist, {
-      background: "white",
+      background: testBg,
       lastPaddingBottom: SECTION_PAD,
     })}`
       : "";
@@ -98,7 +119,7 @@ export function buildAnnouncementMjml(data: ReportData): string {
   const analytics = analyticsSection({
     current: data.gaUsersCurrent,
     previous: data.gaUsersPrevious,
-    background: "white",
+    background: analyticsBg,
     pad: SECTION_PAD,
     bodyLines:
       data.searchPosition !== undefined
@@ -108,20 +129,16 @@ export function buildAnnouncementMjml(data: ReportData): string {
 
   // RECENT IMPROVEMENTS — the toggled callouts, closed by the open-door invitation. Omitted
   // entirely when there are no improvements (the open-door rides along with this block).
-  const improvementItems: string[] = [];
-  if (data.improvements?.resendForms) improvementItems.push(copy.announceImprovementResend);
-  if (data.improvements?.svelte5) improvementItems.push(copy.announceImprovementSvelte5);
-  const improvementsSection =
-    improvementItems.length > 0
-      ? `
-    <mj-section background-color="#F4F4F4" padding-top="${SECTION_PAD}" padding-bottom="${SECTION_PAD}">
+  const improvementsSection = hasImpr
+    ? `
+    <mj-section background-color="${improvementsBg}" padding-top="${SECTION_PAD}" padding-bottom="${SECTION_PAD}">
       <mj-column>
         ${sectionLabel("RECENT IMPROVEMENTS")}
         ${improvementItems.map((item) => bodyLine(item)).join("\n        ")}
         ${bodyLine(copy.announceOpenDoor, "16px")}
       </mj-column>
     </mj-section>`
-      : "";
+    : "";
 
   const contactRows = copy.contact
     .map(
@@ -150,7 +167,7 @@ export function buildAnnouncementMjml(data: ReportData): string {
     <mj-section background-color="#F4F4F4" padding-top="0px" padding-bottom="0px" padding-left="0px" padding-right="0px">
       <mj-column>${headerImageTag(data)}</mj-column>
     </mj-section>
-    <mj-section background-color="white" padding-top="${SECTION_PAD}" padding-bottom="${SECTION_PAD}">
+    <mj-section background-color="${introBg}" padding-top="${SECTION_PAD}" padding-bottom="${SECTION_PAD}">
       <mj-column>
         ${sectionLabel(copy.announceHeading)}
         <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="20px">Prepared for ${escapeXml(data.siteName)}</mj-text>
@@ -159,10 +176,10 @@ export function buildAnnouncementMjml(data: ReportData): string {
     </mj-section>
     ${maintenanceSection}
     ${testingSection}
-    ${lighthouseScoresSection(data.lighthouse, { pad: SECTION_PAD })}
+    ${lighthouseScoresSection(data.lighthouse, { background: lighthouseBg, pad: SECTION_PAD })}
     ${analytics}
     ${improvementsSection}
-    <mj-section background-color="white" padding-top="${SECTION_PAD}" padding-bottom="${SECTION_PAD}">
+    <mj-section background-color="${contactBg}" padding-top="${SECTION_PAD}" padding-bottom="${SECTION_PAD}">
       <mj-column>
         <mj-text color="${RED}" font-family="helvetica, sans-serif" font-size="24px" font-weight="700" padding-top="0px" line-height="36px">Any questions, concerns or requests?</mj-text>
         ${contactRows}

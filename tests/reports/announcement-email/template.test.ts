@@ -76,6 +76,28 @@ describe("buildAnnouncementMjml", () => {
     expect(testIdx).toBeGreaterThan(maintIdx);
   });
 
+  it("gives every band symmetric 40px padding, including the shared Lighthouse + Analytics blocks", () => {
+    const mjml = buildAnnouncementMjml(
+      baseData({ cadence: BOTH_MONTHLY, improvements: { resendForms: true } }),
+    );
+    // The five symmetric bands — intro, lighthouse, analytics, improvements, contact — each carry
+    // 40px top AND bottom. (If pad stopped reaching the shared Lighthouse/Analytics blocks this
+    // count would drop.) The two check-intro bands open at 40px and close via their last row.
+    expect((mjml.match(/padding-top="40px" padding-bottom="40px"/g) ?? []).length).toBe(5);
+    expect(mjml).toContain('padding-top="40px" padding-bottom="0px"'); // check-intro band tops
+  });
+
+  it("keeps band colors alternating when a pace is omitted (no two same-color bands abut)", () => {
+    // maintenance=None → TESTING takes the second band slot, so it renders on #F4F4F4 (the slot
+    // maintenance would have used), staying distinct from the white intro above it.
+    const mjml = buildAnnouncementMjml(
+      baseData({ cadence: { maintenance: "None", testing: "Monthly" } }),
+    );
+    const testIdx = mjml.indexOf(">TESTING</mj-text>");
+    const sectionStart = mjml.lastIndexOf("<mj-section", testIdx);
+    expect(mjml.slice(sectionStart, testIdx)).toContain('background-color="#F4F4F4"');
+  });
+
   it("renders the full LIGHTHOUSE SCORES block — report labels, numbers, bands (Ideal tops at 100), footnote", () => {
     const mjml = buildAnnouncementMjml(baseData());
     expect(mjml).toContain("LIGHTHOUSE SCORES*");

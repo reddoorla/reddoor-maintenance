@@ -186,9 +186,8 @@ async function sendOne(
     headerHeight: header.displayHeight,
     headerBgColor: header.placeholderColor,
     // Announcement-only: re-derive cadence + improvements from the site row so the SENT email
-    // keeps its WHAT TO EXPECT section + improvement callouts. Without this the send-time
-    // re-render drops them entirely (they're not stored on the Reports row). Ignored by the
-    // other report templates.
+    // keeps its cadence copy + improvement callouts. Without this the send-time re-render drops
+    // them entirely (they're not stored on the Reports row). Ignored by the other templates.
     ...(report.reportType === "Announcement" ? announcementSiteExtras(site) : {}),
   });
 
