@@ -35,6 +35,7 @@ function reportRow(over: Partial<ReportRow> = {}): ReportRow {
     // Default to a complete Maintenance checklist so the idempotency/guard tests
     // exercise the path AFTER the checklist gate; the gate-specific tests override.
     checklist: { ...COMPLETE_MAINTENANCE },
+    autoEvidence: null,
     ...over,
   };
 }
