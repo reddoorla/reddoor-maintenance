@@ -211,7 +211,11 @@ export function deployedUrlNotice(
 
 /** Audits that run against the deployed URL only — no repo checkout needed. lighthouse hits the
  *  live URL; domain probes DNS/TLS of the URL's host. */
-const CHECKOUT_FREE_AUDITS: ReadonlySet<AuditName> = new Set<AuditName>(["lighthouse", "domain"]);
+const CHECKOUT_FREE_AUDITS: ReadonlySet<AuditName> = new Set<AuditName>([
+  "lighthouse",
+  "domain",
+  "browser",
+]);
 
 /** A fleet site needs a local checkout unless every requested audit is checkout-free AND the site
  *  has a `deployedUrl` for them to run against. */

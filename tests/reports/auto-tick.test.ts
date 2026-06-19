@@ -144,3 +144,53 @@ describe("autoTickChecklist — Domain, DNS & SSL", () => {
     expect(autoTickChecklist(site, "Maintenance", NOW, signals()).has(DOMAIN)).toBe(false);
   });
 });
+
+const DESKTOP = "Test: Desktop Browsers";
+const MOBILE = "Test: Mobile Browsers";
+const LINKS = "Test: Links & Navigation";
+
+describe("autoTickChecklist — browser checks (Desktop / Mobile / Links)", () => {
+  it("passes Desktop/Mobile/Links when the browser audit verdicts are true and fresh", () => {
+    const site = makeWebsiteRow({
+      crossbrowserOk: true,
+      mobileOk: true,
+      linksOk: true,
+      brokenLinks: 0,
+      browserCheckedAt: FRESH,
+    });
+    const ev = autoTickChecklist(site, "Testing", NOW, signals());
+    expect(ev.get(DESKTOP)!.result).toBe("pass");
+    expect(ev.get(MOBILE)!.result).toBe("pass");
+    expect(ev.get(LINKS)!.result).toBe("pass");
+  });
+
+  it("fails a verdict that's false (with the broken-link count in the Links note)", () => {
+    const site = makeWebsiteRow({
+      crossbrowserOk: false,
+      mobileOk: true,
+      linksOk: false,
+      brokenLinks: 3,
+      browserCheckedAt: FRESH,
+    });
+    const ev = autoTickChecklist(site, "Testing", NOW, signals());
+    expect(ev.get(DESKTOP)!.result).toBe("fail");
+    expect(ev.get(MOBILE)!.result).toBe("pass");
+    expect(ev.get(LINKS)!.result).toBe("fail");
+    expect(ev.get(LINKS)!.note).toMatch(/3 broken/);
+  });
+
+  it("is unknown when the browser check is stale", () => {
+    const site = makeWebsiteRow({
+      crossbrowserOk: true,
+      browserCheckedAt: "2026-06-01T00:00:00.000Z",
+    });
+    expect(autoTickChecklist(site, "Testing", NOW, signals()).get(DESKTOP)!.result).toBe("unknown");
+  });
+
+  it("omits browser evidence entirely when the audit never ran (null verdict / no timestamp)", () => {
+    const ev = autoTickChecklist(makeWebsiteRow(), "Testing", NOW, signals());
+    expect(ev.has(DESKTOP)).toBe(false);
+    expect(ev.has(MOBILE)).toBe(false);
+    expect(ev.has(LINKS)).toBe(false);
+  });
+});
