@@ -2,6 +2,7 @@ import type { FieldSet, Records } from "airtable";
 import type { AirtableBase } from "./client.js";
 import type { ReportType, LighthouseScores } from "../types.js";
 import { ALL_CHECKLIST_FIELDS } from "../checklist.js";
+import type { EvidenceRecord } from "../auto-tick.js";
 
 export const REPORTS_TABLE = "Reports";
 
@@ -53,6 +54,10 @@ export type ReportRow = {
    *  missing/false cells read false. Maintenance/Testing reports gate approve+send on the relevant
    *  subset (see src/reports/checklist.ts). */
   checklist: Record<string, boolean>;
+  /** Snapshot of the auto-tick evidence at draft time, keyed by checklist field → evidence
+   *  record. Null when the report predates auto-tick or carried no auto-checked items. Drives the
+   *  dashboard's green/amber badges; the gate still reads the booleans, not this. */
+  autoEvidence: Record<string, EvidenceRecord> | null;
 };
 
 /**
@@ -97,7 +102,39 @@ function mapRow(rec: { id: string; fields: Record<string, unknown> }): ReportRow
     renderedHtmlAttachment: html,
     resendMessageId: (f["Resend message ID"] as string | undefined) ?? null,
     checklist: Object.fromEntries(ALL_CHECKLIST_FIELDS.map((name) => [name, Boolean(f[name])])),
+    autoEvidence: parseAutoEvidence(f["Checklist auto-evidence"]),
   };
+}
+
+/**
+ * Parse the `Checklist auto-evidence` JSON field → a field→EvidenceRecord map, or null when
+ * absent/malformed. Permissive on inner shape (it's display-only — a bad blob just yields null,
+ * never throws), mirroring `parseNotifyRouting`.
+ */
+export function parseAutoEvidence(raw: unknown): Record<string, EvidenceRecord> | null {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  // Validate each entry's inner shape (it drives display) — drop any record whose `result` isn't
+  // one of the three literals, and coerce `note`/`checkedAt` to safe types. A garbage blob yields
+  // null rather than a record that would render "auto: undefined" on the dashboard.
+  const out: Record<string, EvidenceRecord> = {};
+  for (const [field, v] of Object.entries(parsed as Record<string, unknown>)) {
+    if (!v || typeof v !== "object") continue;
+    const o = v as Record<string, unknown>;
+    if (o.result !== "pass" && o.result !== "fail" && o.result !== "unknown") continue;
+    out[field] = {
+      result: o.result,
+      checkedAt: typeof o.checkedAt === "string" ? o.checkedAt : null,
+      note: typeof o.note === "string" ? o.note : "",
+    };
+  }
+  return Object.keys(out).length > 0 ? out : null;
 }
 
 function lighthouseFromFields(f: Record<string, unknown>): LighthouseScores | null {
@@ -146,6 +183,10 @@ export type DraftInput = {
   searchFoundPage1?: boolean;
   searchPosition?: number;
   subjectOverride?: string;
+  /** Checklist fields to tick at create time (the auto-tick "pass" set). */
+  checklistTicks?: string[];
+  /** Auto-tick evidence snapshot to persist (keyed by checklist field). */
+  autoEvidence?: Record<string, EvidenceRecord>;
 };
 
 function ymd(d: Date): string {
@@ -188,6 +229,12 @@ export async function createDraft(base: AirtableBase, input: DraftInput): Promis
   if (input.searchPosition !== undefined) fields["Search position"] = input.searchPosition;
   if (input.period !== undefined) fields["Period"] = input.period;
   if (input.subjectOverride !== undefined) fields["Subject override"] = input.subjectOverride;
+  // Auto-ticked checklist boxes + the evidence snapshot. The booleans are the same columns the
+  // operator/dashboard toggle; the JSON drives the dashboard's green/amber badges.
+  for (const field of input.checklistTicks ?? []) fields[field] = true;
+  if (input.autoEvidence && Object.keys(input.autoEvidence).length > 0) {
+    fields["Checklist auto-evidence"] = JSON.stringify(input.autoEvidence);
+  }
   const created = (await base(REPORTS_TABLE).create([{ fields }])) as Records<FieldSet>;
   const rec = created[0];
   if (!rec) throw new Error("Airtable create returned no records");

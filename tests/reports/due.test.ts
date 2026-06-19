@@ -41,6 +41,7 @@ function report(over: Partial<ReportRow> = {}): ReportRow {
     approvedAt: null,
     approvedBy: null,
     checklist: {},
+    autoEvidence: null,
     ...over,
   };
 }

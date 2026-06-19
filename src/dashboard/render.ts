@@ -60,7 +60,16 @@ function checklistBlock(r: ReportRow): string {
   const boxes = items
     .map((item) => {
       const checked = r.checklist[item.field] === true ? " checked" : "";
-      return `<label class="check-item"><input type="checkbox" class="checklist-checkbox" data-checklist-report-id="${rid}" data-field="${escapeHtml(item.field)}" data-checklist-url="${escapeHtml(url)}"${checked} /> ${escapeHtml(item.label)}</label>`;
+      const ev = r.autoEvidence?.[item.field];
+      // Auto-tick provenance beside the box: green when the signal proved it (box also `checked`),
+      // amber when a signal ran but isn't green (box left unticked, reason shown). No evidence →
+      // a plain manual checkbox, exactly as before.
+      const badge = ev
+        ? ev.result === "pass"
+          ? ` <span class="auto-badge auto-pass" title="${escapeHtml(ev.note)}">auto ✓</span>`
+          : ` <span class="auto-badge auto-amber" title="${escapeHtml(ev.note)}">auto: ${escapeHtml(ev.note)}</span>`
+        : "";
+      return `<label class="check-item"><input type="checkbox" class="checklist-checkbox" data-checklist-report-id="${rid}" data-field="${escapeHtml(item.field)}" data-checklist-url="${escapeHtml(url)}"${checked} /> ${escapeHtml(item.label)}${badge}</label>`;
     })
     .join("");
   return `<div class="checklist" data-checklist-for="${rid}">${boxes}</div>`;
@@ -225,6 +234,9 @@ button.approve:disabled { opacity: 0.6; cursor: default; }
 .checklist { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; margin: 0.5rem 0 0.25rem 0.25rem; }
 .check-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; }
 .check-item input { margin: 0; }
+.auto-badge { font-size: 0.72rem; border-radius: 0.25rem; padding: 0 0.35rem; white-space: nowrap; }
+.auto-pass { background: #e6f4ea; color: #137333; }
+.auto-amber { background: #fef7e0; color: #b06000; }
 .pill { font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 999px; font-weight: 700; }
 .subm-list { list-style: none; padding: 0; margin: 0; }
 .subm-item { padding: 0.6rem 0; border-bottom: 1px solid #eee; }

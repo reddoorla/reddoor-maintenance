@@ -33,6 +33,7 @@ function reportRow(over: Partial<ReportRow> = {}): ReportRow {
     renderedHtmlAttachment: null,
     resendMessageId: null,
     checklist: {},
+    autoEvidence: null,
     ...over,
   };
 }
