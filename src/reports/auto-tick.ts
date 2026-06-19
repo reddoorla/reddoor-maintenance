@@ -17,7 +17,9 @@ function isFresh(checkedAt: string | null, now: Date): boolean {
   return now.getTime() - t <= STALE_DAYS * MS_PER_DAY;
 }
 
-/** Cert-expiry buffer: a cert with fewer than this many days left does NOT pass (renew window). */
+/** Cert-expiry buffer: a cert must have MORE than this many days left to pass (renew window).
+ *  Exactly 14 days does NOT pass — matches the spec's strict ">14 days" and the domain audit's
+ *  own `> 14` pass status, so the two thresholds can't drift. */
 const CERT_MIN_DAYS = 14;
 
 /** A single auto-check outcome. `pass` + fresh ⇒ the caller ticks the box. */
@@ -106,7 +108,7 @@ function domainEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
   if (days === null) {
     return { result: "fail", checkedAt: at, note: "Did not resolve, or no valid TLS cert" };
   }
-  if (days < CERT_MIN_DAYS) {
+  if (days <= CERT_MIN_DAYS) {
     return { result: "fail", checkedAt: at, note: `TLS cert expires in ${days}d` };
   }
   return { result: "pass", checkedAt: at, note: `Custom domain, valid cert (${days}d left)` };

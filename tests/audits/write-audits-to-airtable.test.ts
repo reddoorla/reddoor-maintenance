@@ -81,6 +81,19 @@ const secResult = (counts: {
     details: { counts, advisories: [] },
   }) as unknown as AuditResult;
 
+const domResult = (certDaysRemaining: number | null): AuditResult =>
+  ({
+    audit: "domain",
+    site: "acme",
+    status: certDaysRemaining !== null && certDaysRemaining > 14 ? "pass" : "warn",
+    summary: "ok",
+    details: {
+      resolved: certDaysRemaining !== null,
+      certDaysRemaining,
+      checkedAt: "2026-06-18T00:00:00.000Z",
+    },
+  }) as unknown as AuditResult;
+
 describe("writeAuditsToAirtable", () => {
   it("writes lighthouse scores when a real-scores lighthouse result is present", async () => {
     const { base, calls } = makeFakeBase();
@@ -130,6 +143,42 @@ describe("writeAuditsToAirtable", () => {
       "Security Vulns Moderate": 3,
       "Security Vulns Low": 4,
     });
+  });
+
+  it("merges the domain result into the single atomic write (cert days + checked-at)", async () => {
+    const { base, calls } = makeFakeBase();
+    await writeAuditsToAirtable({
+      base,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
+        domResult(73),
+      ],
+    });
+    // One atomic update carrying BOTH lighthouse scores AND domain fields — the shared-write
+    // path that the missing-field regression would have broken.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.fields).toMatchObject({
+      pScore: 90,
+      "Cert days remaining": 73,
+      "Domain checked at": "2026-06-18T00:00:00.000Z",
+    });
+  });
+
+  it("omits Cert days remaining when the domain probe found no cert (null), keeps checked-at", async () => {
+    const { base, calls } = makeFakeBase();
+    await writeAuditsToAirtable({
+      base,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
+        domResult(null),
+      ],
+    });
+    expect(calls[0]!.fields["Domain checked at"]).toBe("2026-06-18T00:00:00.000Z");
+    expect(calls[0]!.fields).not.toHaveProperty("Cert days remaining");
   });
 
   it("writes the real outdated-install count to the Deps Outdated field when determined", async () => {

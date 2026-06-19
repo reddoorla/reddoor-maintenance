@@ -95,6 +95,21 @@ describe("autoTickChecklist — Domain, DNS & SSL", () => {
     expect(autoTickChecklist(site, "Maintenance", NOW, signals()).get(DOMAIN)!.result).toBe("fail");
   });
 
+  it("treats exactly 14 days as fail and 15 days as pass (strict >14 boundary)", () => {
+    const at14 = makeWebsiteRow({
+      url: "https://acme.com",
+      certDaysRemaining: 14,
+      domainCheckedAt: FRESH,
+    });
+    const at15 = makeWebsiteRow({
+      url: "https://acme.com",
+      certDaysRemaining: 15,
+      domainCheckedAt: FRESH,
+    });
+    expect(autoTickChecklist(at14, "Maintenance", NOW, signals()).get(DOMAIN)!.result).toBe("fail");
+    expect(autoTickChecklist(at15, "Maintenance", NOW, signals()).get(DOMAIN)!.result).toBe("pass");
+  });
+
   it("fails when the domain did not resolve / had no cert (certDaysRemaining null)", () => {
     const site = makeWebsiteRow({
       url: "https://acme.com",

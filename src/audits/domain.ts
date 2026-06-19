@@ -62,12 +62,20 @@ export function defaultDomainDeps(now: Date): DomainDeps {
     },
     certValidTo: (host) =>
       new Promise<Date | null>((resolvePromise) => {
-        const socket = tls.connect({ host, port: 443, servername: host, timeout: 10_000 }, () => {
-          const cert = socket.getPeerCertificate();
-          socket.end();
-          const validTo = cert && cert.valid_to ? new Date(cert.valid_to) : null;
-          resolvePromise(validTo);
-        });
+        // `rejectUnauthorized: true` is what makes this check HONEST and the green box truthful:
+        // the secureConnect callback only fires on a trusted, host-matching (SNI), unexpired
+        // chain — an expired / self-signed / untrusted-CA / SAN-mismatched cert fires "error"
+        // → null → fail. The whole "valid cert" claim depends on this. NEVER set it false.
+        // `socket.authorized` is asserted belt-and-suspenders before trusting `valid_to`.
+        const socket = tls.connect(
+          { host, port: 443, servername: host, timeout: 10_000, rejectUnauthorized: true },
+          () => {
+            const cert = socket.authorized ? socket.getPeerCertificate() : null;
+            socket.end();
+            const validTo = cert && cert.valid_to ? new Date(cert.valid_to) : null;
+            resolvePromise(validTo);
+          },
+        );
         socket.on("error", () => resolvePromise(null));
         socket.on("timeout", () => {
           socket.destroy();
