@@ -21,6 +21,20 @@ describe("parseAutoEvidence", () => {
     expect(parseAutoEvidence("{not json")).toBeNull();
     expect(parseAutoEvidence("[]")).toBeNull();
   });
+
+  it("drops entries with an invalid inner shape and coerces note to a string", () => {
+    const raw = JSON.stringify({
+      "Maint: Google Indexed": { result: "bogus", note: "x" }, // bad result → dropped
+      "Maint: Security Updates": { result: "pass" }, // missing note/checkedAt → coerced
+    });
+    const ev = parseAutoEvidence(raw);
+    expect(ev?.["Maint: Google Indexed"]).toBeUndefined();
+    expect(ev?.["Maint: Security Updates"]).toEqual({ result: "pass", checkedAt: null, note: "" });
+  });
+
+  it("returns null when no entry has a valid shape", () => {
+    expect(parseAutoEvidence(JSON.stringify({ x: { result: "nope" } }))).toBeNull();
+  });
 });
 
 describe("createDraft writes checklist booleans + auto-evidence", () => {

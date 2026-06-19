@@ -120,7 +120,21 @@ export function parseAutoEvidence(raw: unknown): Record<string, EvidenceRecord> 
     return null;
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-  return parsed as Record<string, EvidenceRecord>;
+  // Validate each entry's inner shape (it drives display) — drop any record whose `result` isn't
+  // one of the three literals, and coerce `note`/`checkedAt` to safe types. A garbage blob yields
+  // null rather than a record that would render "auto: undefined" on the dashboard.
+  const out: Record<string, EvidenceRecord> = {};
+  for (const [field, v] of Object.entries(parsed as Record<string, unknown>)) {
+    if (!v || typeof v !== "object") continue;
+    const o = v as Record<string, unknown>;
+    if (o.result !== "pass" && o.result !== "fail" && o.result !== "unknown") continue;
+    out[field] = {
+      result: o.result,
+      checkedAt: typeof o.checkedAt === "string" ? o.checkedAt : null,
+      note: typeof o.note === "string" ? o.note : "",
+    };
+  }
+  return Object.keys(out).length > 0 ? out : null;
 }
 
 function lighthouseFromFields(f: Record<string, unknown>): LighthouseScores | null {
