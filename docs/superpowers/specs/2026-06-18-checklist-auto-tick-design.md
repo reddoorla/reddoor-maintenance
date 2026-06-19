@@ -97,9 +97,10 @@ A per-check evidence record: `{ result: "pass" | "fail" | "unknown", checkedAt: 
 
 - `Last security audit at` (freshness for the existing security vuln counts).
 - `Domain checked at`, `Cert days remaining` (Domain/DNS/SSL).
-- `Crossbrowser OK`, `Crossbrowser checked at` (Desktop).
-- `Mobile OK`, `Mobile checked at` (Mobile).
-- `Links OK`, `Broken links`, `Links checked at` (Links & Nav).
+- `Crossbrowser OK` (Desktop), `Mobile OK` (Mobile), `Links OK` + `Broken links` (Links & Nav),
+  and ONE shared `Browser checked at` timestamp gating all three (they're produced by one
+  `browser` audit run, so a single freshness field is honest and avoids three always-equal
+  columns — implemented this way rather than the per-check timestamps sketched earlier).
 
 **Reports row — new field** (written at draft time):
 

@@ -230,7 +230,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
       typeof f["Crossbrowser OK"] === "boolean" ? (f["Crossbrowser OK"] as boolean) : null,
     mobileOk: typeof f["Mobile OK"] === "boolean" ? (f["Mobile OK"] as boolean) : null,
     linksOk: typeof f["Links OK"] === "boolean" ? (f["Links OK"] as boolean) : null,
-    brokenLinks: (f["Broken links"] as number | undefined) ?? null,
+    brokenLinks: typeof f["Broken links"] === "number" ? (f["Broken links"] as number) : null,
     browserCheckedAt: (f["Browser checked at"] as string | undefined) ?? null,
     copyIntro: trimToNull(f["Copy — Intro"]),
     copyContact: trimToNull(f["Copy — Contact"]),

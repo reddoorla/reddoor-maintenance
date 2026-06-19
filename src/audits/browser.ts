@@ -56,11 +56,18 @@ export function summarizeBrowser(
 ): BrowserSummary {
   const desktopChecks = routes.flatMap((r) => r.desktop);
   const mobileChecks = routes.flatMap((r) => r.mobile);
+  // Per-route completeness: EVERY route must carry observations AND every observation must be ok.
+  // (Guarding only the flattened array would excuse a route that produced no observations at all —
+  // a false green.) A route with an empty desktop[]/mobile[] (never rendered) → not ok.
   const desktopOk =
-    routes.length > 0 && desktopChecks.length > 0 && desktopChecks.every((d) => d.ok);
-  const mobileOk = routes.length > 0 && mobileChecks.length > 0 && mobileChecks.every((m) => m.ok);
+    routes.length > 0 && routes.every((r) => r.desktop.length > 0 && r.desktop.every((d) => d.ok));
+  const mobileOk =
+    routes.length > 0 && routes.every((r) => r.mobile.length > 0 && r.mobile.every((m) => m.ok));
   const brokenLinks = links.filter((l) => isBroken(l.status)).length;
-  const linksOk = routes.length > 0 && brokenLinks === 0;
+  // linksOk requires links to have ACTUALLY been checked — zero links checked is "not proven",
+  // never a pass (e.g. a JS-rendered page whose hrefs weren't in the DOM, or a chromium evaluate
+  // that threw → []). Otherwise the box would assert "all links resolve" having checked nothing.
+  const linksOk = links.length > 0 && brokenLinks === 0;
 
   const engines = [...new Set(desktopChecks.map((d) => d.engine))];
   const devices = [...new Set(mobileChecks.map((m) => m.device))];
@@ -181,6 +188,9 @@ export async function defaultBrowserRunner(): Promise<BrowserRunner> {
                 .catch(() => false);
               ok = !!resp && resp.ok() && errors.length === 0 && hasMain;
               if (engine === "chromium") {
+                // Link discovery runs on chromium only (cost). Links coverage therefore depends on
+                // chromium loading this route + the evaluate succeeding; if it yields nothing, the
+                // Links verdict is "not proven" (links.length===0 ⇒ linksOk false), never a pass.
                 // String-form evaluate so the browser-context code isn't type-checked against the
                 // Node lib (no DOM globals in this project's tsconfig). Returns absolute hrefs.
                 const hrefs = (await page

@@ -68,6 +68,22 @@ describe("summarizeBrowser", () => {
     expect(s).toMatchObject({ desktopOk: false, mobileOk: false, linksOk: false });
   });
 
+  it("fail-safe: linksOk is FALSE when zero links were actually checked (no false 'all resolve')", () => {
+    // A route loaded fine but link discovery yielded nothing (SPA / chromium evaluate threw).
+    // brokenLinks is 0 but nothing was proven → must NOT pass.
+    const s = summarizeBrowser([route("https://a.com/", true, true)], [], { "/": 1 });
+    expect(s.brokenLinks).toBe(0);
+    expect(s.linksOk).toBe(false);
+  });
+
+  it("fail-safe: a route that produced NO desktop/mobile observations is not excused", () => {
+    const ok = route("https://a.com/", true, true);
+    const blind: RouteResult = { url: "https://a.com/work/x", desktop: [], mobile: [], links: [] };
+    const s = summarizeBrowser([ok, blind], [{ url: "x", status: 200 }], { "/": 1, "/work": 1 });
+    expect(s.desktopOk).toBe(false);
+    expect(s.mobileOk).toBe(false);
+  });
+
   it("note lists route count, families, engines/devices, link tally", () => {
     const s = summarizeBrowser([route("https://a.com/", true, true)], [{ url: "x", status: 200 }], {
       "/": 1,
