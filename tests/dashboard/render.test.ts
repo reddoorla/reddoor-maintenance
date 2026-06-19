@@ -591,6 +591,50 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
     expect(html).toMatch(/<button class="approve"[^>]*data-report-id="recREP1"[^>]*disabled/);
   });
 
+  it("renders an auto-green badge + evidence note for a passed auto-check", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [
+      reportRow({
+        id: "recREP1",
+        reportType: "Maintenance",
+        draftReady: true,
+        approvedToSend: false,
+        sentAt: null,
+        checklist: { ...COMPLETE_MAINTENANCE, "Maint: Google Indexed": true },
+        autoEvidence: {
+          "Maint: Google Indexed": {
+            result: "pass",
+            checkedAt: "2026-06-18T12:00:00.000Z",
+            note: "Page 1 on Google (#3)",
+          },
+        },
+      }),
+    ]);
+    expect(html).toContain("auto-pass");
+    expect(html).toContain("Page 1 on Google (#3)");
+  });
+
+  it("renders an amber badge (box left unchecked) for a failed auto-check", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [
+      reportRow({
+        id: "recREP1",
+        reportType: "Maintenance",
+        draftReady: true,
+        approvedToSend: false,
+        sentAt: null,
+        checklist: { "Maint: Google Indexed": false },
+        autoEvidence: {
+          "Maint: Google Indexed": {
+            result: "fail",
+            checkedAt: "2026-06-18T12:00:00.000Z",
+            note: "Not on page 1 (avg #22)",
+          },
+        },
+      }),
+    ]);
+    expect(html).toContain("auto-amber");
+    expect(html).toContain("Not on page 1 (avg #22)");
+  });
+
   it("renders an ENABLED Approve button for a fully-checked pending Maintenance report", () => {
     const html = renderSiteDashboardHtml(siteRow(), [
       reportRow({
