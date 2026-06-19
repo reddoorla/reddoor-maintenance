@@ -8,6 +8,7 @@ import type { WebsiteRow } from "./airtable/websites.js";
 import type { ReportRow } from "./airtable/reports.js";
 import { createDraft, listReportsForSite } from "./airtable/reports.js";
 import { queueDraft } from "./queue.js";
+import { autoTickChecklist } from "./auto-tick.js";
 import { uploadAttachment } from "./airtable/attachments.js";
 import type { AirtableBase } from "./airtable/client.js";
 import { readGaConfig } from "./ga/config.js";
@@ -177,6 +178,16 @@ export async function draftReportForSite(
     };
   }
 
+  // Auto-tick the checklist boxes the system can prove (Phase 1: Google Indexed via the
+  // inline search signal). Fail-safe lives in autoTickChecklist: only `pass` entries are ticked;
+  // the evidence snapshot drives the dashboard's green/amber badges. The operator's approve gate
+  // and per-box override are unchanged.
+  const evidence = autoTickChecklist(siteRow, reportType, completedOn, { search: searchResult });
+  const checklistTicks = [...evidence.entries()]
+    .filter(([, e]) => e.result === "pass")
+    .map(([field]) => field);
+  const autoEvidence = Object.fromEntries(evidence);
+
   const reportId = `${siteRow.name} — ${reportType} — ${periodEnd.toISOString().slice(0, 10)}`;
   const created = await createDraft(base, {
     reportId,
@@ -193,6 +204,8 @@ export async function draftReportForSite(
     ...(search?.foundOnPage1 && search.position !== null
       ? { searchPosition: search.position }
       : {}),
+    checklistTicks,
+    autoEvidence,
   });
 
   await uploadDraftHtml(created.id, slug, periodEnd, html);

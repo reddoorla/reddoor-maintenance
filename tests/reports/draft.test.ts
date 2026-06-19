@@ -333,4 +333,26 @@ describe("draftReportForSite", () => {
       expect(result.softFailures).toContain("search");
     });
   });
+
+  describe("checklist auto-tick", () => {
+    it("auto-ticks Google Indexed + snapshots evidence when Search Console shows page 1", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({ foundOnPage1: true, position: 2 });
+      const base = makeFakeBase({ Reports: [] });
+      await draftReportForSite(base, siteFixture({ searchQuery: "acme co" }), "Maintenance");
+      const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
+      expect(fields["Maint: Google Indexed"]).toBe(true);
+      const ev = JSON.parse(fields["Checklist auto-evidence"] as string);
+      expect(ev["Maint: Google Indexed"].result).toBe("pass");
+    });
+
+    it("does NOT auto-tick Google Indexed when not on page 1", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({ foundOnPage1: false, position: 22 });
+      const base = makeFakeBase({ Reports: [] });
+      await draftReportForSite(base, siteFixture({ searchQuery: "acme co" }), "Maintenance");
+      const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
+      expect(fields["Maint: Google Indexed"]).toBeUndefined();
+    });
+  });
 });
