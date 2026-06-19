@@ -36,6 +36,8 @@ const AUDIT_DESCRIPTIONS: Record<AuditName, string> = {
   security: "pnpm audit (falls back to npm audit), prod-deps by default.",
   lint: "ESLint + Prettier using the canonical configs.",
   domain: "DNS resolve + TLS cert expiry against the deployed URL (checkout-free).",
+  browser:
+    "Playwright across desktop engines + mobile devices + link-check against the deployed URL (checkout-free).",
 };
 
 const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {

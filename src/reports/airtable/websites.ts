@@ -84,6 +84,13 @@ export type WebsiteRow = {
    *  expires (null = unresolved or no usable cert); `domainCheckedAt` is when it last ran. */
   certDaysRemaining: number | null;
   domainCheckedAt: string | null;
+  /** Deployed-URL browser probe (the `browser` audit): cross-engine render OK, mobile render OK,
+   *  internal-links OK + broken count, and when it last ran (one timestamp gates all three). */
+  crossbrowserOk: boolean | null;
+  mobileOk: boolean | null;
+  linksOk: boolean | null;
+  brokenLinks: number | null;
+  browserCheckedAt: string | null;
   /** Per-site copy overrides (M6a). Blank → null → the DEFAULT_COPY value. */
   copyIntro: string | null;
   copyContact: string | null;
@@ -219,6 +226,12 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     securityVulnsLow: (f["Security Vulns Low"] as number | undefined) ?? null,
     certDaysRemaining: (f["Cert days remaining"] as number | undefined) ?? null,
     domainCheckedAt: (f["Domain checked at"] as string | undefined) ?? null,
+    crossbrowserOk:
+      typeof f["Crossbrowser OK"] === "boolean" ? (f["Crossbrowser OK"] as boolean) : null,
+    mobileOk: typeof f["Mobile OK"] === "boolean" ? (f["Mobile OK"] as boolean) : null,
+    linksOk: typeof f["Links OK"] === "boolean" ? (f["Links OK"] as boolean) : null,
+    brokenLinks: typeof f["Broken links"] === "number" ? (f["Broken links"] as number) : null,
+    browserCheckedAt: (f["Browser checked at"] as string | undefined) ?? null,
     copyIntro: trimToNull(f["Copy — Intro"]),
     copyContact: trimToNull(f["Copy — Contact"]),
     copyFooter: trimToNull(f["Copy — Footer"]),
@@ -284,6 +297,13 @@ export type A11yCounts = { violations: number };
 export type DepsCounts = { drifted: number; majorBehind: number; outdated: number | null };
 export type SecurityCounts = { critical: number; high: number; moderate: number; low: number };
 export type DomainResult = { certDaysRemaining: number | null; checkedAt: string };
+export type BrowserAuditFields = {
+  desktopOk: boolean;
+  mobileOk: boolean;
+  linksOk: boolean;
+  brokenLinks: number;
+  checkedAt: string;
+};
 
 function scoreFields(scores: LighthouseScores): FieldSet {
   return {
@@ -327,6 +347,16 @@ function domainFields(result: DomainResult): FieldSet {
   // previously-good value, and a stale-but-present number is more useful than a blank.
   if (result.certDaysRemaining !== null) fields["Cert days remaining"] = result.certDaysRemaining;
   return fields;
+}
+
+function browserFields(r: BrowserAuditFields): FieldSet {
+  return {
+    "Crossbrowser OK": r.desktopOk,
+    "Mobile OK": r.mobileOk,
+    "Links OK": r.linksOk,
+    "Broken links": r.brokenLinks,
+    "Browser checked at": r.checkedAt,
+  };
 }
 
 /**
@@ -387,6 +417,7 @@ export async function updateAuditFields(
     deps?: DepsCounts;
     security?: SecurityCounts;
     domain?: DomainResult;
+    browser?: BrowserAuditFields;
   },
 ): Promise<FieldSet> {
   const fields: FieldSet = {};
@@ -395,6 +426,7 @@ export async function updateAuditFields(
   if (audits.deps) Object.assign(fields, depsFields(audits.deps));
   if (audits.security) Object.assign(fields, securityFields(audits.security));
   if (audits.domain) Object.assign(fields, domainFields(audits.domain));
+  if (audits.browser) Object.assign(fields, browserFields(audits.browser));
   await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
   return fields;
 }

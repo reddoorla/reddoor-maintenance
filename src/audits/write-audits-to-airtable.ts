@@ -6,6 +6,7 @@ import type {
   DepsCounts,
   SecurityCounts,
   DomainResult,
+  BrowserAuditFields,
 } from "../reports/airtable/websites.js";
 import type { LighthouseScores } from "../reports/types.js";
 import { hasRealScores, lighthouseScoresFromResult } from "./lighthouse-airtable.js";
@@ -13,11 +14,12 @@ import { hasA11yCounts, a11yCountsFromResult } from "./a11y-airtable.js";
 import { hasDepsCounts, depsCountsFromResult } from "./deps-airtable.js";
 import { hasSecurityCounts, securityCountsFromResult } from "./security-airtable.js";
 import { hasDomainResult, domainResultFromAudit } from "./domain-airtable.js";
+import { hasBrowserResult, browserFieldsFromAudit } from "./browser-airtable.js";
 
 type WriteSummary = {
   siteName: string;
   writes: Array<{
-    audit: "lighthouse" | "a11y" | "deps" | "security" | "github-signals" | "domain";
+    audit: "lighthouse" | "a11y" | "deps" | "security" | "github-signals" | "domain" | "browser";
     counts: object;
   }>;
 };
@@ -65,6 +67,7 @@ export async function writeAuditsToAirtable(args: {
     deps?: DepsCounts;
     security?: SecurityCounts;
     domain?: DomainResult;
+    browser?: BrowserAuditFields;
   } = {};
 
   // Collect every audit that produced real values into ONE merged input, then do a
@@ -109,6 +112,13 @@ export async function writeAuditsToAirtable(args: {
     const result = domainResultFromAudit(dom);
     audits.domain = result;
     writes.push({ audit: "domain", counts: result });
+  }
+
+  const browser = results.find((r) => r.audit === "browser");
+  if (browser && hasBrowserResult(browser)) {
+    const fields = browserFieldsFromAudit(browser);
+    audits.browser = fields;
+    writes.push({ audit: "browser", counts: fields });
   }
 
   // One atomic write of everything that ran. Skip the call only if there is nothing

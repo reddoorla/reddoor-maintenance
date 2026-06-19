@@ -37,11 +37,16 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
 
-      - name: Fleet Lighthouse audit + Airtable write-back
+      # The browser audit drives Playwright across chromium/firefox/webkit + mobile emulation
+      # against the deployed URL. Install those browser binaries (chromium is also used by a11y).
+      - run: pnpm exec playwright install --with-deps chromium firefox webkit
+
+      - name: Fleet Lighthouse + domain + browser audit + Airtable write-back
         # Backstop a wedged run (e.g. a hung Lighthouse/Chrome) so it can't pin
         # the runner and — via concurrency.cancel-in-progress=false — block the
-        # next night too. ~10 sequential sites finish well inside this.
-        timeout-minutes: 30
+        # next night too. The browser audit (cross-engine + mobile + links over the
+        # sampled routes, ~10 sequential sites) is the heaviest leg, hence the wider budget.
+        timeout-minutes: 75
         env:
           AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
@@ -53,11 +58,12 @@ jobs:
           # machine-readable `FLEET_WRITE_SUMMARY wrote=N failed=M total=T` line
           # (see formatFleetWriteSummary). This replaces the old "wrote ≥ 1"
           # heuristic, which went green even when 9 of 10 sites flaked.
-          # lighthouse + domain are both checkout-free (deployed-URL only), so adding domain
-          # costs no extra clone — the same nightly pass also probes DNS/TLS for every site.
+          # lighthouse + domain + browser are all checkout-free (deployed-URL only), so this one
+          # nightly pass also probes DNS/TLS and drives cross-engine/mobile/link checks per site —
+          # no extra clone.
           node dist/cli/bin.js audit \
             --fleet airtable \
-            --only lighthouse,domain \
+            --only lighthouse,domain,browser \
             --write-airtable \
             --concurrency 1 \
             --workdir /tmp/fleet-audit | tee /tmp/audit.out || true

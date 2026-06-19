@@ -181,6 +181,41 @@ describe("writeAuditsToAirtable", () => {
     expect(calls[0]!.fields).not.toHaveProperty("Cert days remaining");
   });
 
+  it("merges the browser verdicts into the single atomic write", async () => {
+    const { base, calls } = makeFakeBase();
+    const browserResult: AuditResult = {
+      audit: "browser",
+      site: "acme",
+      status: "warn",
+      summary: "ok",
+      details: {
+        desktopOk: true,
+        mobileOk: false,
+        linksOk: true,
+        brokenLinks: 0,
+        checkedAt: "2026-06-18T00:00:00.000Z",
+      },
+    } as unknown as AuditResult;
+    await writeAuditsToAirtable({
+      base,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
+        browserResult,
+      ],
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.fields).toMatchObject({
+      pScore: 90,
+      "Crossbrowser OK": true,
+      "Mobile OK": false,
+      "Links OK": true,
+      "Broken links": 0,
+      "Browser checked at": "2026-06-18T00:00:00.000Z",
+    });
+  });
+
   it("writes the real outdated-install count to the Deps Outdated field when determined", async () => {
     const { base, calls } = makeFakeBase();
     await writeAuditsToAirtable({

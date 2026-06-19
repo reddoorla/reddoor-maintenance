@@ -62,7 +62,57 @@ export function autoTickChecklist(
     if (d) out.set("Maint: Domain, DNS & SSL", d);
   }
 
+  // Desktop / Mobile / Links — the nightly `browser` audit's persisted verdicts (one timestamp
+  // gates all three). Each is a stored boolean computed by the audit (multi-engine/route);
+  // here we add freshness + omit-when-absent.
+  if (fields.has("Test: Desktop Browsers")) {
+    const e = browserEvidence(
+      site.crossbrowserOk,
+      site,
+      now,
+      "Desktop renders cleanly",
+      "render errors",
+    );
+    if (e) out.set("Test: Desktop Browsers", e);
+  }
+  if (fields.has("Test: Mobile Browsers")) {
+    const e = browserEvidence(
+      site.mobileOk,
+      site,
+      now,
+      "Mobile renders cleanly",
+      "overflow/errors",
+    );
+    if (e) out.set("Test: Mobile Browsers", e);
+  }
+  if (fields.has("Test: Links & Navigation")) {
+    const broken = site.brokenLinks;
+    const failNote = broken && broken > 0 ? `${broken} broken link(s)` : "broken links / nav";
+    const e = browserEvidence(site.linksOk, site, now, "All internal links resolve", failNote);
+    if (e) out.set("Test: Links & Navigation", e);
+  }
+
   return out;
+}
+
+/** One browser-audit verdict (Desktop/Mobile/Links) → evidence, gated on `Browser checked at`
+ *  freshness. null verdict (never run) → omit (manual); stale → unknown; true → pass; false →
+ *  fail (with the failure note). The verdict itself was computed by the audit (summarizeBrowser). */
+function browserEvidence(
+  ok: boolean | null,
+  site: WebsiteRow,
+  now: Date,
+  passNote: string,
+  failNote: string,
+): EvidenceRecord | null {
+  if (ok === null || !site.browserCheckedAt) return null;
+  const at = site.browserCheckedAt;
+  if (!isFresh(at, now)) {
+    return { result: "unknown", checkedAt: at, note: "Browser check is stale (>3d)" };
+  }
+  return ok
+    ? { result: "pass", checkedAt: at, note: passNote }
+    : { result: "fail", checkedAt: at, note: failNote };
 }
 
 /** Search Console → Google Indexed evidence. `null` (not configured) emits nothing so the box
