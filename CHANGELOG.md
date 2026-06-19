@@ -1,5 +1,66 @@
 # @reddoorla/maintenance
 
+## 0.50.0
+
+### Minor Changes
+
+- 73be4c6: Checklist auto-tick gains three Testing signals from one new audit: **Desktop Browsers**,
+  **Mobile Browsers**, and **Links & Navigation**. A new checkout-free `browser` audit drives
+  Playwright against the deployed URL — chromium/firefox/webkit for desktop, mobile-emulated
+  chromium/webkit, and an internal-link check — over a **representative route sample** discovered
+  from the sitemap and **bucketed by path family** so CMS-generated templates (Prismic
+  `[uid]`/`[slug]` pages) are always covered, not just static top-level pages. It joins the nightly
+  sweep (`--only lighthouse,domain,browser`, all checkout-free; the runner now `playwright
+install`s firefox/webkit) and persists `Crossbrowser OK` / `Mobile OK` / `Links OK` / `Broken
+links` / `Browser checked at` to the Websites row. The three boxes auto-tick at draft time when
+  fresh and green; stale → unknown, a failing verdict → fail (amber, with the broken-link count for
+  Links), never-run → manual. Fail-safe throughout: empty/flaky observations never count as a pass.
+  Honest scope: cross-engine render without JS errors + no mobile overflow + internal links resolve
+  — not pixel-perfect visual correctness or real-device touch.
+- a6b8c17: Checklist auto-tick gains its second signal: **Domain, DNS & SSL**. A new checkout-free `domain`
+  audit probes each site's deployed URL (DNS resolve + TLS cert expiry via Node `dns`/`tls`, no
+  repo clone) and persists `Cert days remaining` + `Domain checked at` to the Websites row; it
+  joins the nightly `fleet-lighthouse` sweep (`--only lighthouse,domain` — both run against the
+  deployed URL, so no extra clone). The `Maint: Domain, DNS & SSL` box then auto-ticks at draft
+  time when the check is fresh, the domain is custom (not `*.netlify.app`), it resolves, and the
+  cert has >14 days left. Fail-safe as always: stale → unknown, near-expiry / unresolved → fail
+  (amber with the reason), no custom domain or never-probed → left manual. Honest scope: resolve +
+  valid cert only — not registrar expiry, www↔apex redirect, or MX.
+- 96d1559: Report checklist items can now auto-tick from verified signals. Phase 1 ships the engine
+  (`autoTickChecklist`, a `Checklist auto-evidence` snapshot on the report row, and green/amber
+  evidence badges on the dashboard beside each checkbox) and wires the first signal: **Google
+  Indexed** auto-ticks when Search Console shows the brand query on page 1 at draft time.
+  Fail-safe — a box auto-ticks only on fresh positive proof; a missing, soft-failed, or
+  not-on-page-1 signal leaves the box manual (amber, with the reason). The per-report human
+  approve gate and the operator's one-click override are unchanged.
+
+  Operator setup: add a **`Checklist auto-evidence`** (Long text) field to the Reports table
+  before the next draft run — drafts write the evidence snapshot there.
+
+- baf2994: Checklist auto-tick gains the **Security Updates** signal (the last of the six automatable
+  checks). The security audit now stamps a `Last security audit at` freshness timestamp alongside
+  its vuln counts, and a new nightly **`fleet-security`** workflow runs `pnpm/npm audit` across the
+  fleet (checkout-ful — it reads each repo's committed lockfile; kept a separate job so the
+  lighthouse/domain/browser sweep stays checkout-free). The `Maint: Security Updates` box
+  auto-ticks when fresh with **0 critical and 0 high** advisories; any critical/high → fail (amber,
+  with the count), stale → unknown, never-run → manual. Honest scope: "no known critical/high
+  advisories in the declared dependencies as of the last audit" (moderate/low advisory-only; does
+  not prove the fix is deployed).
+
+  Also relaxes `writeAuditsToAirtable`: a Lighthouse result is no longer _required_ — a standalone
+  `--only security` (or any non-lighthouse) sweep now persists its audits instead of erroring. The
+  Lighthouse-miss flag still fires when Lighthouse was actually run but produced no scores.
+
+### Patch Changes
+
+- b16088d: Report emails now attach only the inline images they actually render. The blurred-tests image
+  (`cid:rd-blurred-tests-jpg`) is referenced solely by the Maintenance template, yet `sendOne`
+  previously attached it — plus the green check — to every report type, leaving a dangling inline
+  part that some mail clients surface as a stray downloadable attachment on Testing, Announcement,
+  and Launch emails. The send path now gates each bundled image on its `cid` appearing in the
+  rendered HTML: the header attaches always, the check on every type except Launch, and the
+  blurred-tests image only on Maintenance. Self-correcting if a template's image usage changes.
+
 ## 0.49.1
 
 ### Patch Changes
