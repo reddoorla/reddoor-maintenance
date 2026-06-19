@@ -53,9 +53,11 @@ jobs:
           # machine-readable `FLEET_WRITE_SUMMARY wrote=N failed=M total=T` line
           # (see formatFleetWriteSummary). This replaces the old "wrote ≥ 1"
           # heuristic, which went green even when 9 of 10 sites flaked.
+          # lighthouse + domain are both checkout-free (deployed-URL only), so adding domain
+          # costs no extra clone — the same nightly pass also probes DNS/TLS for every site.
           node dist/cli/bin.js audit \
             --fleet airtable \
-            --only lighthouse \
+            --only lighthouse,domain \
             --write-airtable \
             --concurrency 1 \
             --workdir /tmp/fleet-audit | tee /tmp/audit.out || true

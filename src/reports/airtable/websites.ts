@@ -80,6 +80,10 @@ export type WebsiteRow = {
   securityVulnsHigh: number | null;
   securityVulnsModerate: number | null;
   securityVulnsLow: number | null;
+  /** Domain/DNS/SSL probe (the `domain` audit). `certDaysRemaining` is days until the TLS cert
+   *  expires (null = unresolved or no usable cert); `domainCheckedAt` is when it last ran. */
+  certDaysRemaining: number | null;
+  domainCheckedAt: string | null;
   /** Per-site copy overrides (M6a). Blank → null → the DEFAULT_COPY value. */
   copyIntro: string | null;
   copyContact: string | null;
@@ -213,6 +217,8 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     securityVulnsHigh: (f["Security Vulns High"] as number | undefined) ?? null,
     securityVulnsModerate: (f["Security Vulns Moderate"] as number | undefined) ?? null,
     securityVulnsLow: (f["Security Vulns Low"] as number | undefined) ?? null,
+    certDaysRemaining: (f["Cert days remaining"] as number | undefined) ?? null,
+    domainCheckedAt: (f["Domain checked at"] as string | undefined) ?? null,
     copyIntro: trimToNull(f["Copy — Intro"]),
     copyContact: trimToNull(f["Copy — Contact"]),
     copyFooter: trimToNull(f["Copy — Footer"]),
@@ -277,6 +283,7 @@ export async function getWebsiteBySlug(
 export type A11yCounts = { violations: number };
 export type DepsCounts = { drifted: number; majorBehind: number; outdated: number | null };
 export type SecurityCounts = { critical: number; high: number; moderate: number; low: number };
+export type DomainResult = { certDaysRemaining: number | null; checkedAt: string };
 
 function scoreFields(scores: LighthouseScores): FieldSet {
   return {
@@ -312,6 +319,14 @@ function securityFields(counts: SecurityCounts): FieldSet {
     "Security Vulns Moderate": counts.moderate,
     "Security Vulns Low": counts.low,
   };
+}
+
+function domainFields(result: DomainResult): FieldSet {
+  const fields: FieldSet = { "Domain checked at": result.checkedAt };
+  // Write the cert days only when determined — null (unresolved / no cert) must not clobber a
+  // previously-good value, and a stale-but-present number is more useful than a blank.
+  if (result.certDaysRemaining !== null) fields["Cert days remaining"] = result.certDaysRemaining;
+  return fields;
 }
 
 /**
@@ -371,6 +386,7 @@ export async function updateAuditFields(
     a11y?: A11yCounts;
     deps?: DepsCounts;
     security?: SecurityCounts;
+    domain?: DomainResult;
   },
 ): Promise<FieldSet> {
   const fields: FieldSet = {};
@@ -378,6 +394,7 @@ export async function updateAuditFields(
   if (audits.a11y) Object.assign(fields, a11yFields(audits.a11y));
   if (audits.deps) Object.assign(fields, depsFields(audits.deps));
   if (audits.security) Object.assign(fields, securityFields(audits.security));
+  if (audits.domain) Object.assign(fields, domainFields(audits.domain));
   await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
   return fields;
 }

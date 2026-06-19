@@ -209,12 +209,15 @@ export function deployedUrlNotice(
   return `note: --url only affects lighthouse; ${others.join(", ")} ran against the local checkout at ${cwd}`;
 }
 
-/** A fleet site needs a local checkout unless every requested audit can run
- *  against its deployed URL. Today only lighthouse has a deployed mode, so a
- *  site is checkout-free exactly when it has a `deployedUrl` and lighthouse is
- *  the only requested audit. */
+/** Audits that run against the deployed URL only — no repo checkout needed. lighthouse hits the
+ *  live URL; domain probes DNS/TLS of the URL's host. */
+const CHECKOUT_FREE_AUDITS: ReadonlySet<AuditName> = new Set<AuditName>(["lighthouse", "domain"]);
+
+/** A fleet site needs a local checkout unless every requested audit is checkout-free AND the site
+ *  has a `deployedUrl` for them to run against. */
 export function auditNeedsCheckout(site: Site, which: AuditName[]): boolean {
-  const deployedCapable = site.deployedUrl !== undefined && which.every((n) => n === "lighthouse");
+  const deployedCapable =
+    site.deployedUrl !== undefined && which.every((n) => CHECKOUT_FREE_AUDITS.has(n));
   return !deployedCapable;
 }
 

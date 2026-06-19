@@ -26,6 +26,7 @@ vi.mock("../../src/audits/lint.js", () => ({ lintAudit: stubAudit("lint") }));
 vi.mock("../../src/audits/security.js", () => ({ securityAudit: stubAudit("security") }));
 vi.mock("../../src/audits/lighthouse.js", () => ({ lighthouseAudit: stubAudit("lighthouse") }));
 vi.mock("../../src/audits/a11y.js", () => ({ a11yAudit: stubAudit("a11y") }));
+vi.mock("../../src/audits/domain.js", () => ({ domainAudit: stubAudit("domain") }));
 
 import { runAudits, runAuditsAcross } from "../../src/audits/index.js";
 
@@ -36,10 +37,10 @@ describe("runAudits", () => {
     expect(results[0]?.audit).toBe("deps");
   });
 
-  it("dispatches all five audits when `which` is undefined", async () => {
+  it("dispatches all six audits when `which` is undefined", async () => {
     const results = await runAudits({ path: "/fixtures/pristine-starter" });
     const names = results.map((r) => r.audit).sort();
-    expect(names).toEqual(["a11y", "deps", "lighthouse", "lint", "security"]);
+    expect(names).toEqual(["a11y", "deps", "domain", "lighthouse", "lint", "security"]);
   });
 
   it("rejects an unknown audit name with a usage error", async () => {
