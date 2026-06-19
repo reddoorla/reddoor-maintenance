@@ -1,17 +1,23 @@
 import type { AuditResult } from "../types.js";
 import type { AirtableBase } from "../reports/airtable/client.js";
 import { type WebsiteRow, siteSlug, updateAuditFields } from "../reports/airtable/websites.js";
-import type { A11yCounts, DepsCounts, SecurityCounts } from "../reports/airtable/websites.js";
+import type {
+  A11yCounts,
+  DepsCounts,
+  SecurityCounts,
+  DomainResult,
+} from "../reports/airtable/websites.js";
 import type { LighthouseScores } from "../reports/types.js";
 import { hasRealScores, lighthouseScoresFromResult } from "./lighthouse-airtable.js";
 import { hasA11yCounts, a11yCountsFromResult } from "./a11y-airtable.js";
 import { hasDepsCounts, depsCountsFromResult } from "./deps-airtable.js";
 import { hasSecurityCounts, securityCountsFromResult } from "./security-airtable.js";
+import { hasDomainResult, domainResultFromAudit } from "./domain-airtable.js";
 
 type WriteSummary = {
   siteName: string;
   writes: Array<{
-    audit: "lighthouse" | "a11y" | "deps" | "security" | "github-signals";
+    audit: "lighthouse" | "a11y" | "deps" | "security" | "github-signals" | "domain";
     counts: object;
   }>;
 };
@@ -58,6 +64,7 @@ export async function writeAuditsToAirtable(args: {
     a11y?: A11yCounts;
     deps?: DepsCounts;
     security?: SecurityCounts;
+    domain?: DomainResult;
   } = {};
 
   // Collect every audit that produced real values into ONE merged input, then do a
@@ -95,6 +102,13 @@ export async function writeAuditsToAirtable(args: {
     const counts = securityCountsFromResult(sec);
     audits.security = counts;
     writes.push({ audit: "security", counts });
+  }
+
+  const dom = results.find((r) => r.audit === "domain");
+  if (dom && hasDomainResult(dom)) {
+    const result = domainResultFromAudit(dom);
+    audits.domain = result;
+    writes.push({ audit: "domain", counts: result });
   }
 
   // One atomic write of everything that ran. Skip the call only if there is nothing

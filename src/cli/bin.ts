@@ -35,6 +35,7 @@ const AUDIT_DESCRIPTIONS: Record<AuditName, string> = {
   a11y: "Playwright + axe against the canonical a11y routes.",
   security: "pnpm audit (falls back to npm audit), prod-deps by default.",
   lint: "ESLint + Prettier using the canonical configs.",
+  domain: "DNS resolve + TLS cert expiry against the deployed URL (checkout-free).",
 };
 
 const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {

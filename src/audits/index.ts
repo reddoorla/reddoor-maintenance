@@ -7,6 +7,7 @@ import { lintAudit } from "./lint.js";
 import { securityAudit } from "./security.js";
 import { lighthouseAudit } from "./lighthouse.js";
 import { a11yAudit } from "./a11y.js";
+import { domainAudit } from "./domain.js";
 
 const REGISTRY: Record<AuditName, (ctx: AuditContext) => Promise<AuditResult>> = {
   deps: depsAudit,
@@ -14,6 +15,7 @@ const REGISTRY: Record<AuditName, (ctx: AuditContext) => Promise<AuditResult>> =
   security: securityAudit,
   lighthouse: lighthouseAudit,
   a11y: a11yAudit,
+  domain: domainAudit,
 };
 
 export const ALL_AUDIT_NAMES = Object.keys(REGISTRY) as AuditName[];

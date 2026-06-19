@@ -2,6 +2,25 @@ import type { ReportType } from "./types.js";
 import type { WebsiteRow } from "./airtable/websites.js";
 import type { SearchPresence } from "./search/client.js";
 import { checklistFor } from "./checklist.js";
+import { isNetlifyAppUrl } from "../util/url.js";
+
+/** A persisted audit signal is only trusted within this window — a stale "pass" degrades to
+ *  "unknown" (no tick). Matches the github-signals staleness convention (~3 days). */
+const STALE_DAYS = 3;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/** True when `checkedAt` is a valid timestamp within STALE_DAYS of `now`. */
+function isFresh(checkedAt: string | null, now: Date): boolean {
+  if (!checkedAt) return false;
+  const t = new Date(checkedAt).getTime();
+  if (Number.isNaN(t)) return false;
+  return now.getTime() - t <= STALE_DAYS * MS_PER_DAY;
+}
+
+/** Cert-expiry buffer: a cert must have MORE than this many days left to pass (renew window).
+ *  Exactly 14 days does NOT pass — matches the spec's strict ">14 days" and the domain audit's
+ *  own `> 14` pass status, so the two thresholds can't drift. */
+const CERT_MIN_DAYS = 14;
 
 /** A single auto-check outcome. `pass` + fresh ⇒ the caller ticks the box. */
 export type EvidenceResult = "pass" | "fail" | "unknown";
@@ -37,6 +56,12 @@ export function autoTickChecklist(
     if (g) out.set("Maint: Google Indexed", g);
   }
 
+  // Domain, DNS & SSL — the nightly `domain` audit's persisted cert/resolve signal.
+  if (fields.has("Maint: Domain, DNS & SSL")) {
+    const d = domainEvidence(site, now);
+    if (d) out.set("Maint: Domain, DNS & SSL", d);
+  }
+
   return out;
 }
 
@@ -62,4 +87,29 @@ function googleEvidence(now: Date, search: AutoTickSignals["search"]): EvidenceR
     checkedAt: at,
     note: `Not on page 1${pos !== null ? ` (avg #${pos})` : ""}`,
   };
+}
+
+/**
+ * Domain/DNS/SSL evidence from the persisted `domain` audit. Omits (→ manual) when there's no
+ * custom domain to verify (`*.netlify.app`) or the audit never ran. A `pass` requires a fresh
+ * check that resolved with a cert comfortably before expiry; stale → unknown; resolved-but-no-cert
+ * or near/past expiry → fail. The honest scope is resolve + valid cert — NOT registrar expiry,
+ * www↔apex redirect, or MX.
+ */
+function domainEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
+  // No custom domain to verify — the no-domain watch signal covers `*.netlify.app` elsewhere.
+  if (!site.url || isNetlifyAppUrl(site.url)) return null;
+  if (!site.domainCheckedAt) return null; // never probed → leave manual
+  const at = site.domainCheckedAt;
+  if (!isFresh(site.domainCheckedAt, now)) {
+    return { result: "unknown", checkedAt: at, note: "Domain check is stale (>3d)" };
+  }
+  const days = site.certDaysRemaining;
+  if (days === null) {
+    return { result: "fail", checkedAt: at, note: "Did not resolve, or no valid TLS cert" };
+  }
+  if (days <= CERT_MIN_DAYS) {
+    return { result: "fail", checkedAt: at, note: `TLS cert expires in ${days}d` };
+  }
+  return { result: "pass", checkedAt: at, note: `Custom domain, valid cert (${days}d left)` };
 }

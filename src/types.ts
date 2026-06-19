@@ -10,7 +10,7 @@ export type Site = {
   meta?: Record<string, unknown>;
 };
 
-export type AuditName = "deps" | "lighthouse" | "a11y" | "security" | "lint";
+export type AuditName = "deps" | "lighthouse" | "a11y" | "security" | "lint" | "domain";
 
 export type RecipeName =
   | "sync-configs"
