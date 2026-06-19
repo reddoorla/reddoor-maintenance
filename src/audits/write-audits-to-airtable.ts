@@ -46,15 +46,11 @@ export async function writeAuditsToAirtable(args: {
 }): Promise<WriteSummary> {
   const { base, websites, slug, results } = args;
 
+  // Lighthouse is OPTIONAL. The checkout-free `--only lighthouse,domain,browser` nightly includes
+  // it, but a standalone `--only security` (checkout-ful) sweep legitimately has none. We write
+  // whatever audits produced values; only the lighthouse-MISS flag below is lighthouse-specific
+  // (so a real Lighthouse infra failure still reds the run without discarding other audit data).
   const lhResult = results.find((r) => r.audit === "lighthouse");
-  if (!lhResult) {
-    throw Object.assign(
-      new Error(
-        "--write-airtable requires a lighthouse result; did you pass --only without lighthouse?",
-      ),
-      { exitCode: 2 },
-    );
-  }
   const target = websites.find((w) => siteSlug(w.name) === slug);
   if (!target) {
     throw Object.assign(new Error(`No Websites row matched slug "${slug}"`), { exitCode: 2 });
@@ -79,8 +75,8 @@ export async function writeAuditsToAirtable(args: {
   // other audits whenever present, write all of them in one update, then — if
   // Lighthouse missed — throw AFTER that atomic write so the site is still flagged
   // (exitCode 1 / collected in FleetWriteResult.failed) without losing its other data.
-  const lhHasScores = hasRealScores(lhResult);
-  if (lhHasScores) {
+  const lhHasScores = lhResult ? hasRealScores(lhResult) : false;
+  if (lhResult && lhHasScores) {
     const scores = lighthouseScoresFromResult(lhResult);
     audits.scores = scores;
     writes.push({ audit: "lighthouse", counts: scores });
@@ -128,7 +124,10 @@ export async function writeAuditsToAirtable(args: {
     await updateAuditFields(base, target.id, audits);
   }
 
-  if (!lhHasScores) {
+  // Lighthouse-miss flag: only when lighthouse WAS requested (in results) but produced no scores —
+  // an infra failure worth reding the run, AFTER persisting the other audits. A sweep that never
+  // ran lighthouse (e.g. `--only security`) skips this entirely.
+  if (lhResult && !lhHasScores) {
     // Enumerate what WAS persisted so the failure (surfaced to the single-site
     // CLI operator via console.error) reads as a partial write, not a total one.
     const persisted = writes.map((w) => w.audit);

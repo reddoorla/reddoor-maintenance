@@ -80,6 +80,9 @@ export type WebsiteRow = {
   securityVulnsHigh: number | null;
   securityVulnsModerate: number | null;
   securityVulnsLow: number | null;
+  /** ISO timestamp the security audit last ran — gates freshness of the Security Updates auto-tick
+   *  (clean counts only auto-tick when recent). */
+  lastSecurityAuditAt: string | null;
   /** Domain/DNS/SSL probe (the `domain` audit). `certDaysRemaining` is days until the TLS cert
    *  expires (null = unresolved or no usable cert); `domainCheckedAt` is when it last ran. */
   certDaysRemaining: number | null;
@@ -224,6 +227,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     securityVulnsHigh: (f["Security Vulns High"] as number | undefined) ?? null,
     securityVulnsModerate: (f["Security Vulns Moderate"] as number | undefined) ?? null,
     securityVulnsLow: (f["Security Vulns Low"] as number | undefined) ?? null,
+    lastSecurityAuditAt: (f["Last security audit at"] as string | undefined) ?? null,
     certDaysRemaining: (f["Cert days remaining"] as number | undefined) ?? null,
     domainCheckedAt: (f["Domain checked at"] as string | undefined) ?? null,
     crossbrowserOk:
@@ -338,6 +342,9 @@ function securityFields(counts: SecurityCounts): FieldSet {
     "Security Vulns High": counts.high,
     "Security Vulns Moderate": counts.moderate,
     "Security Vulns Low": counts.low,
+    // Stamp freshness alongside the counts so the Security Updates auto-tick can require a recent
+    // audit (a clean count from months ago must not silently keep ticking the box).
+    "Last security audit at": new Date().toISOString(),
   };
 }
 

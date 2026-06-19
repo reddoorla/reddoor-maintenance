@@ -56,6 +56,12 @@ export function autoTickChecklist(
     if (g) out.set("Maint: Google Indexed", g);
   }
 
+  // Security Updates — the nightly `security` audit's persisted vuln counts.
+  if (fields.has("Maint: Security Updates")) {
+    const s = securityEvidence(site, now);
+    if (s) out.set("Maint: Security Updates", s);
+  }
+
   // Domain, DNS & SSL — the nightly `domain` audit's persisted cert/resolve signal.
   if (fields.has("Maint: Domain, DNS & SSL")) {
     const d = domainEvidence(site, now);
@@ -113,6 +119,27 @@ function browserEvidence(
   return ok
     ? { result: "pass", checkedAt: at, note: passNote }
     : { result: "fail", checkedAt: at, note: failNote };
+}
+
+/**
+ * Security Updates evidence from the persisted `security` audit. Omits (→ manual) when the audit
+ * never ran (counts null / no timestamp); stale → unknown; 0 critical AND 0 high → pass; any
+ * critical/high → fail (with the count). Honest scope: "no known critical/high advisories in the
+ * declared dependencies as of the last audit" — moderate/low are advisory, not gating, and this
+ * does not prove the fix is deployed.
+ */
+function securityEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
+  const crit = site.securityVulnsCritical;
+  const high = site.securityVulnsHigh;
+  if (crit === null || high === null || !site.lastSecurityAuditAt) return null;
+  const at = site.lastSecurityAuditAt;
+  if (!isFresh(at, now)) {
+    return { result: "unknown", checkedAt: at, note: "Security audit is stale (>3d)" };
+  }
+  if (crit === 0 && high === 0) {
+    return { result: "pass", checkedAt: at, note: "No known critical/high vulnerabilities" };
+  }
+  return { result: "fail", checkedAt: at, note: `${crit} critical / ${high} high vuln(s)` };
 }
 
 /** Search Console → Google Indexed evidence. `null` (not configured) emits nothing so the box
