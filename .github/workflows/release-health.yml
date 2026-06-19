@@ -1,0 +1,93 @@
+name: release-health
+
+# Guard against SILENT npm drift. main's package.json version advances on every Version-Packages
+# merge and SHOULD be published by the release workflow. But `changesets/action` only runs
+# `changeset publish` on a push to main that has ZERO changeset files — so a rapid run of
+# changeset-carrying PRs can keep the workflow in "update the release PR" mode and never publish
+# (exactly how 0.48.0 / 0.49.1 were version-bumped on main but never reached npm). This daily check
+# compares the npm `latest` tag to main's version and, when npm is behind, reds the run + files a
+# deduped tracking issue (auto-closed once npm catches up). The fix is always: merge the open
+# Version Packages PR into a clean main so `changeset publish` finally fires.
+on:
+  schedule:
+    - cron: "30 14 * * *" # 14:30 UTC daily — clear of the 06:00/08:00/09:23 nightly churn
+  workflow_dispatch: {}
+
+concurrency:
+  group: release-health
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Compare npm latest vs main version
+        id: drift
+        run: |
+          name=$(node -p "require('./package.json').name")
+          pkg=$(node -p "require('./package.json').version")
+          npmv=$(npm view "$name" version 2>/dev/null || echo "")
+          echo "main=$pkg npm=${npmv:-<unpublished>}"
+          # behind = npm's published version is strictly lower than main's (major.minor.patch,
+          # prerelease tags stripped). An unpublished package ("") compares as 0.0.0 → behind.
+          behind=$(node -e '
+            const t = (v) => (v || "0.0.0").split("-")[0].split(".").map(Number);
+            const [a, b] = [t(process.argv[1]), t(process.argv[2])];
+            let r = "no";
+            for (let i = 0; i < 3; i++) { const x = a[i] || 0, y = b[i] || 0; if (x !== y) { r = x < y ? "yes" : "no"; break; } }
+            process.stdout.write(r);
+          ' "$npmv" "$pkg")
+          {
+            echo "pkg=$pkg"
+            echo "npmv=${npmv:-<unpublished>}"
+            echo "behind=$behind"
+          } >> "$GITHUB_OUTPUT"
+          if [ "$behind" = "yes" ]; then
+            echo "::error::npm is behind main — published ${npmv:-<unpublished>} but main is at $pkg. A release didn't publish; merge the Version Packages PR into a clean main."
+          fi
+
+      # File/reopen a single deduped tracking issue (by exact title — only needs issues:write).
+      # continue-on-error so the alert machinery can never flip the run's own status.
+      - name: Open/update the npm-drift tracking issue
+        if: steps.drift.outputs.behind == 'yes'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="npm registry is behind main"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body=$(printf 'The npm `latest` tag is **behind** main: published `%s`, main `package.json` is `%s`.\n\nA version bump merged but the release workflow never ran `changeset publish` — usually because back-to-back changeset PRs kept the changesets action in "update the release PR" mode. **Fix:** merge the open **Version Packages** PR into a clean main (no other pending changesets) so the publish step fires.\n\nRun: %s\n\n_Auto-filed; auto-closes once npm catches up._' "${{ steps.drift.outputs.npmv }}" "${{ steps.drift.outputs.pkg }}" "$run_url")
+          existing=$(gh issue list --state open --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body" && echo "commented on #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close the drift issue once npm catches up
+        if: steps.drift.outputs.behind != 'yes'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="npm registry is behind main"
+          for n in $(gh issue list --state open --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+            gh issue close "$n" --comment "npm caught up — \`latest\` now matches main. Closing." && echo "closed #$n"
+          done
+
+      # Red the run on drift (after the issue is filed) so it surfaces beyond the issue too.
+      - name: Fail when drifting
+        if: steps.drift.outputs.behind == 'yes'
+        run: exit 1
