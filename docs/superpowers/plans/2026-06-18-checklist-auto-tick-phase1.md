@@ -49,9 +49,14 @@ function signals(over: Partial<AutoTickSignals> = {}): AutoTickSignals {
 
 describe("autoTickChecklist — Google Indexed", () => {
   it("passes when Search Console shows page 1, with the position in the note", () => {
-    const ev = autoTickChecklist(makeWebsiteRow(), "Maintenance", NOW, signals({
-      search: { value: { foundOnPage1: true, position: 3 }, softFailed: false },
-    }));
+    const ev = autoTickChecklist(
+      makeWebsiteRow(),
+      "Maintenance",
+      NOW,
+      signals({
+        search: { value: { foundOnPage1: true, position: 3 }, softFailed: false },
+      }),
+    );
     const g = ev.get(GOOGLE)!;
     expect(g.result).toBe("pass");
     expect(g.checkedAt).toBe(NOW.toISOString());
@@ -60,16 +65,26 @@ describe("autoTickChecklist — Google Indexed", () => {
   });
 
   it("fails (no tick) when not on page 1", () => {
-    const ev = autoTickChecklist(makeWebsiteRow(), "Maintenance", NOW, signals({
-      search: { value: { foundOnPage1: false, position: 18 }, softFailed: false },
-    }));
+    const ev = autoTickChecklist(
+      makeWebsiteRow(),
+      "Maintenance",
+      NOW,
+      signals({
+        search: { value: { foundOnPage1: false, position: 18 }, softFailed: false },
+      }),
+    );
     expect(ev.get(GOOGLE)!.result).toBe("fail");
   });
 
   it("is unknown (no tick) when the Search Console call soft-failed", () => {
-    const ev = autoTickChecklist(makeWebsiteRow(), "Maintenance", NOW, signals({
-      search: { value: null, softFailed: true },
-    }));
+    const ev = autoTickChecklist(
+      makeWebsiteRow(),
+      "Maintenance",
+      NOW,
+      signals({
+        search: { value: null, softFailed: true },
+      }),
+    );
     expect(ev.get(GOOGLE)!.result).toBe("unknown");
   });
 
@@ -79,16 +94,26 @@ describe("autoTickChecklist — Google Indexed", () => {
   });
 
   it("emits no Google evidence for a Testing report's maintenance-subset? (it DOES — Testing gates on all 13)", () => {
-    const ev = autoTickChecklist(makeWebsiteRow(), "Testing", NOW, signals({
-      search: { value: { foundOnPage1: true, position: 1 }, softFailed: false },
-    }));
+    const ev = autoTickChecklist(
+      makeWebsiteRow(),
+      "Testing",
+      NOW,
+      signals({
+        search: { value: { foundOnPage1: true, position: 1 }, softFailed: false },
+      }),
+    );
     expect(ev.get(GOOGLE)!.result).toBe("pass");
   });
 
   it("emits nothing for Launch/Announcement (no checklist)", () => {
-    const ev = autoTickChecklist(makeWebsiteRow(), "Launch", NOW, signals({
-      search: { value: { foundOnPage1: true, position: 1 }, softFailed: false },
-    }));
+    const ev = autoTickChecklist(
+      makeWebsiteRow(),
+      "Launch",
+      NOW,
+      signals({
+        search: { value: { foundOnPage1: true, position: 1 }, softFailed: false },
+      }),
+    );
     expect(ev.size).toBe(0);
   });
 });
@@ -142,10 +167,7 @@ export function autoTickChecklist(
   return out;
 }
 
-function googleEvidence(
-  now: Date,
-  search: AutoTickSignals["search"],
-): EvidenceRecord | null {
+function googleEvidence(now: Date, search: AutoTickSignals["search"]): EvidenceRecord | null {
   const at = now.toISOString();
   if (search.softFailed) {
     return { result: "unknown", checkedAt: at, note: "Search Console unavailable this run" };
@@ -153,10 +175,18 @@ function googleEvidence(
   if (search.value === null) return null; // not configured → leave manual, no evidence
   if (search.value.foundOnPage1) {
     const pos = search.value.position;
-    return { result: "pass", checkedAt: at, note: `Page 1 on Google${pos !== null ? ` (#${pos})` : ""}` };
+    return {
+      result: "pass",
+      checkedAt: at,
+      note: `Page 1 on Google${pos !== null ? ` (#${pos})` : ""}`,
+    };
   }
   const pos = search.value.position;
-  return { result: "fail", checkedAt: at, note: `Not on page 1${pos !== null ? ` (avg #${pos})` : ""}` };
+  return {
+    result: "fail",
+    checkedAt: at,
+    note: `Not on page 1${pos !== null ? ` (avg #${pos})` : ""}`,
+  };
 }
 ```
 
@@ -193,7 +223,13 @@ import { makeFakeBase } from "./_helpers/fake-airtable-base.js";
 
 describe("parseAutoEvidence", () => {
   it("parses a valid evidence JSON object", () => {
-    const raw = JSON.stringify({ "Maint: Google Indexed": { result: "pass", checkedAt: "2026-06-18T12:00:00.000Z", note: "Page 1 (#3)" } });
+    const raw = JSON.stringify({
+      "Maint: Google Indexed": {
+        result: "pass",
+        checkedAt: "2026-06-18T12:00:00.000Z",
+        note: "Page 1 (#3)",
+      },
+    });
     const ev = parseAutoEvidence(raw);
     expect(ev?.["Maint: Google Indexed"]?.result).toBe("pass");
   });
@@ -217,13 +253,21 @@ describe("createDraft writes checklist booleans + auto-evidence", () => {
       lighthouse: { performance: 90, accessibility: 100, bestPractices: 82, seo: 100 },
       lastTestedDate: null,
       checklistTicks: ["Maint: Google Indexed"],
-      autoEvidence: { "Maint: Google Indexed": { result: "pass", checkedAt: "2026-06-18T12:00:00.000Z", note: "Page 1 (#3)" } },
+      autoEvidence: {
+        "Maint: Google Indexed": {
+          result: "pass",
+          checkedAt: "2026-06-18T12:00:00.000Z",
+          note: "Page 1 (#3)",
+        },
+      },
     });
     const create = base.__calls.find((c) => c.kind === "create")!;
     const fields = create.records[0]!.fields;
     expect(fields["Maint: Google Indexed"]).toBe(true);
     expect(typeof fields["Checklist auto-evidence"]).toBe("string");
-    expect(JSON.parse(fields["Checklist auto-evidence"] as string)["Maint: Google Indexed"].result).toBe("pass");
+    expect(
+      JSON.parse(fields["Checklist auto-evidence"] as string)["Maint: Google Indexed"].result,
+    ).toBe("pass");
   });
 });
 ```
@@ -295,7 +339,10 @@ git commit -m "feat(reports): persist auto-tick booleans + Checklist auto-eviden
 
 ```typescript
 it("auto-ticks Google Indexed when Search Console shows page 1", async () => {
-  vi.mocked(fetchSearch).mockResolvedValue({ value: { foundOnPage1: true, position: 2 }, softFailed: false });
+  vi.mocked(fetchSearch).mockResolvedValue({
+    value: { foundOnPage1: true, position: 2 },
+    softFailed: false,
+  });
   const base = makeFakeBase({ Reports: [] });
   await draftReportForSite(base, siteFixture(), "Maintenance");
   const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
@@ -305,7 +352,10 @@ it("auto-ticks Google Indexed when Search Console shows page 1", async () => {
 });
 
 it("does NOT auto-tick Google Indexed when not on page 1", async () => {
-  vi.mocked(fetchSearch).mockResolvedValue({ value: { foundOnPage1: false, position: 22 }, softFailed: false });
+  vi.mocked(fetchSearch).mockResolvedValue({
+    value: { foundOnPage1: false, position: 22 },
+    softFailed: false,
+  });
   const base = makeFakeBase({ Reports: [] });
   await draftReportForSite(base, siteFixture(), "Maintenance");
   const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
@@ -360,7 +410,7 @@ git commit -m "feat(reports): draft auto-ticks checklist boxes from autoTickChec
 - Modify: `src/dashboard/render.ts`
 - Test: `tests/dashboard/render.test.ts` (add cases)
 
-**Context:** `checklistBlock(r: ReportRow)` is at render.ts:50-67; it has the full `ReportRow`, so it can read `r.autoEvidence`. Per item: if `r.autoEvidence?.[item.field]` exists, render a badge — green when `result==="pass"` (box rendered `checked`), amber otherwise (box not checked) — with the `note` as a `title=` tooltip + visible text. Items with no evidence render exactly as today. The checkbox stays operator-toggleable (data-* attrs unchanged).
+**Context:** `checklistBlock(r: ReportRow)` is at render.ts:50-67; it has the full `ReportRow`, so it can read `r.autoEvidence`. Per item: if `r.autoEvidence?.[item.field]` exists, render a badge — green when `result==="pass"` (box rendered `checked`), amber otherwise (box not checked) — with the `note` as a `title=` tooltip + visible text. Items with no evidence render exactly as today. The checkbox stays operator-toggleable (data-\* attrs unchanged).
 
 - [ ] **Step 1: Write the failing test** (append to `tests/dashboard/render.test.ts`)
 
@@ -368,7 +418,13 @@ git commit -m "feat(reports): draft auto-ticks checklist boxes from autoTickChec
 it("renders an auto-green badge with evidence note for a passed auto-check", () => {
   const r = pendingMaintenanceReport({
     checklist: { ...COMPLETE_MAINTENANCE, "Maint: Google Indexed": true },
-    autoEvidence: { "Maint: Google Indexed": { result: "pass", checkedAt: "2026-06-18T12:00:00.000Z", note: "Page 1 on Google (#3)" } },
+    autoEvidence: {
+      "Maint: Google Indexed": {
+        result: "pass",
+        checkedAt: "2026-06-18T12:00:00.000Z",
+        note: "Page 1 on Google (#3)",
+      },
+    },
   });
   const html = renderSiteDashboardHtml(siteRow(), [r]);
   expect(html).toContain("Page 1 on Google (#3)");
@@ -378,7 +434,13 @@ it("renders an auto-green badge with evidence note for a passed auto-check", () 
 it("renders an amber badge (box not checked) for a failed auto-check", () => {
   const r = pendingMaintenanceReport({
     checklist: { "Maint: Google Indexed": false },
-    autoEvidence: { "Maint: Google Indexed": { result: "fail", checkedAt: "2026-06-18T12:00:00.000Z", note: "Not on page 1 (avg #22)" } },
+    autoEvidence: {
+      "Maint: Google Indexed": {
+        result: "fail",
+        checkedAt: "2026-06-18T12:00:00.000Z",
+        note: "Not on page 1 (avg #22)",
+      },
+    },
   });
   const html = renderSiteDashboardHtml(siteRow(), [r]);
   expect(html).toContain("Not on page 1 (avg #22)");
@@ -414,9 +476,19 @@ const boxes = items
 Add minimal CSS near the existing `.checklist` rule (render.ts:~225):
 
 ```css
-.auto-badge { font-size: 0.72rem; border-radius: 0.25rem; padding: 0 0.35rem; }
-.auto-pass { background: #e6f4ea; color: #137333; }
-.auto-amber { background: #fef7e0; color: #b06000; }
+.auto-badge {
+  font-size: 0.72rem;
+  border-radius: 0.25rem;
+  padding: 0 0.35rem;
+}
+.auto-pass {
+  background: #e6f4ea;
+  color: #137333;
+}
+.auto-amber {
+  background: #fef7e0;
+  color: #b06000;
+}
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
