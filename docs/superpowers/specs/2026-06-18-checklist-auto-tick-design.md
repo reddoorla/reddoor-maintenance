@@ -17,23 +17,23 @@ off on every report.
 A per-check analysis (with an adversarial pass over every "automatable" verdict, hunting for
 false-greens) produced this tiering. The driving insight: **a green checkbox is a
 client-facing assertion** — when ticked, the email tells the recipient we verified it — so an
-auto-tick must rest on *proof*, not mere correlation.
+auto-tick must rest on _proof_, not mere correlation.
 
-| Check | Report | Tier | Signal |
-|---|---|---|---|
-| Google Indexed | Maint | **auto (this slice)** | Search Console `foundOnPage1` (already fetched at draft) |
-| Security Updates | Maint | **auto (this slice)** | security audit vuln counts (exists) + new freshness field |
-| Domain, DNS & SSL | Maint | **auto (this slice)** | new `checkDomain` (Node `dns`+`tls`) |
-| Desktop Browsers | Test | **auto (this slice)** | new deployed-URL Playwright harness |
-| Mobile Browsers | Test | **auto (this slice)** | new deployed-URL Playwright harness |
-| Links & Navigation | Test | **auto (this slice)** | new deployed-URL Playwright harness |
-| Form Functionality | Test | deferred | synthetic submit — needs a Submissions delivery webhook first |
-| Page Titles & Meta | Test | deferred | multi-page crawl — fast-follow on the harness |
-| Deploy & Function Health | Maint | keep manual | deploy-half overlaps the harness; function-half overlaps Forms |
-| Uptime Checked | Maint | keep manual | no continuous monitor exists |
-| CMS Checked | Maint | keep manual | no per-site CMS identity exists |
-| Interactions & Animations | Test | keep manual | visual judgment; a11y audit disables animations |
-| Tested After Updates | Test | keep manual | no "tested *after* the change" temporal signal |
+| Check                     | Report | Tier                  | Signal                                                         |
+| ------------------------- | ------ | --------------------- | -------------------------------------------------------------- |
+| Google Indexed            | Maint  | **auto (this slice)** | Search Console `foundOnPage1` (already fetched at draft)       |
+| Security Updates          | Maint  | **auto (this slice)** | security audit vuln counts (exists) + new freshness field      |
+| Domain, DNS & SSL         | Maint  | **auto (this slice)** | new `checkDomain` (Node `dns`+`tls`)                           |
+| Desktop Browsers          | Test   | **auto (this slice)** | new deployed-URL Playwright harness                            |
+| Mobile Browsers           | Test   | **auto (this slice)** | new deployed-URL Playwright harness                            |
+| Links & Navigation        | Test   | **auto (this slice)** | new deployed-URL Playwright harness                            |
+| Form Functionality        | Test   | deferred              | synthetic submit — needs a Submissions delivery webhook first  |
+| Page Titles & Meta        | Test   | deferred              | multi-page crawl — fast-follow on the harness                  |
+| Deploy & Function Health  | Maint  | keep manual           | deploy-half overlaps the harness; function-half overlaps Forms |
+| Uptime Checked            | Maint  | keep manual           | no continuous monitor exists                                   |
+| CMS Checked               | Maint  | keep manual           | no per-site CMS identity exists                                |
+| Interactions & Animations | Test   | keep manual           | visual judgment; a11y audit disables animations                |
+| Tested After Updates      | Test   | keep manual           | no "tested _after_ the change" temporal signal                 |
 
 **This slice automates the 6 "auto" rows.**
 
@@ -41,11 +41,12 @@ auto-tick must rest on *proof*, not mere correlation.
 
 **Auto-tick where confident**, governed by a non-negotiable invariant:
 
-> **Fail-safe:** a box auto-ticks only on *fresh positive proof*. Missing signal, stale
+> **Fail-safe:** a box auto-ticks only on _fresh positive proof_. Missing signal, stale
 > signal, failing signal, or a soft-failed enrichment all resolve to **unticked** (rendered
 > amber with the reason). The system never asserts a check it cannot currently prove.
 
 Three more rails:
+
 - **Evidenced:** every auto-tick records a short evidence note shown at the approve step
   ("cert 73d · custom domain · resolved <2d ago").
 - **Overridable:** the operator can untick any box (the existing one-click toggle); an
@@ -72,6 +73,7 @@ inline-at-draft signals (Search/GA)  ─────────┤
 ```
 
 There are **two evidence sources**:
+
 1. **Inline-at-draft** — Search Console / GA are already fetched inside `draftReportForSite`;
    the search result feeds Google Indexed directly (no nightly audit, inherently fresh).
 2. **Nightly-audit → Websites row** — Security, Domain, and the browser signals are written
@@ -92,6 +94,7 @@ There are **two evidence sources**:
 A per-check evidence record: `{ result: "pass" | "fail" | "unknown", checkedAt: ISO string, note: string }`.
 
 **Websites row — new fields** (written by the nightly audits):
+
 - `Last security audit at` (freshness for the existing security vuln counts).
 - `Domain checked at`, `Cert days remaining` (Domain/DNS/SSL).
 - `Crossbrowser OK`, `Crossbrowser checked at` (Desktop).
@@ -99,6 +102,7 @@ A per-check evidence record: `{ result: "pass" | "fail" | "unknown", checkedAt: 
 - `Links OK`, `Broken links`, `Links checked at` (Links & Nav).
 
 **Reports row — new field** (written at draft time):
+
 - `Checklist auto-evidence` — one JSON blob keyed by checklist `field`, each value an
   evidence record. Snapshots the auto-tick rationale with the report (frozen, consistent
   with the boolean and what gets sent). One field rather than ~13 columns.
@@ -130,6 +134,7 @@ unaffected.
 
 `checklistBlock` (src/dashboard/render.ts) is augmented to render three states per item,
 reading the Reports row boolean + `Checklist auto-evidence`:
+
 - **✓ auto** (green) — auto-ticked, evidence note inline/tooltip.
 - **🟡 amber** — signal ran but isn't green (fail or stale): box unticked, reason shown; the
   operator ticks manually if satisfied.
@@ -140,13 +145,15 @@ The toggle endpoint (`setReportChecklistItem`) and the approve gate are unchange
 ## The signals
 
 ### Google Indexed (inline)
+
 - **Source:** `fetchSearch` (already in `draftReportForSite`) → `{ foundOnPage1, position }`;
   `pickBrandQuery` selects the highest-impression matching row (phrasing-robust).
 - **Pass bar:** `foundOnPage1 === true` AND `softFailed === false`.
-- **Honest scope:** ties the tick to the *same* value the email prints as "Page 1 (#N)", so
+- **Honest scope:** ties the tick to the _same_ value the email prints as "Page 1 (#N)", so
   tick and number cannot disagree.
 
 ### Security Updates (existing signal + freshness)
+
 - **Source:** nightly security audit → `Security Vulns Critical/High/...` on the Websites row.
 - **Pass bar:** `securityVulnsCritical === 0 && securityVulnsHigh === 0`, fresh
   (via the new `Last security audit at`). Moderate/low are advisory, not gating.
@@ -154,6 +161,7 @@ The toggle endpoint (`setReportChecklistItem`) and the approve gate are unchange
   last audit." Does not prove the fix is deployed.
 
 ### Domain, DNS & SSL (new `checkDomain`, Node builtins only)
+
 - **Source:** `src/audits/domain.ts` → `checkDomain(url)`: `dns.promises.lookup` (resolves),
   `node:tls` cert (`valid_to` > 14 days, SAN matches host), `!isNetlifyAppUrl(url)`.
 - **Pass bar:** resolves AND cert valid & >14 days to expiry AND custom domain.
@@ -165,18 +173,27 @@ The toggle endpoint (`setReportChecklistItem`) and the approve gate are unchange
 One checkout-free audit, `src/audits/browser.ts`, crawls the live site once (needs only
 `deployedUrl`, like Lighthouse deployed mode) and yields all three signals.
 
-**Route discovery:** fetch `<deployedUrl>/sitemap.xml` → up to ~15 routes. Fallback: homepage
-+ same-origin links on it (one level). Worst case: homepage only. The route set is recorded
-in the evidence note.
+**Route discovery (representative sample, incl. CMS-generated pages):** fetch
+`<deployedUrl>/sitemap.xml`, then **bucket URLs by path family** (first path segment / template
+shape — e.g. `/`, `/about`, `/work/*`, `/blog/*`) and **sample from each bucket**, so every
+page _type_ is covered rather than the first N entries (which skew to top-level static pages).
+This guarantees the dynamic, CMS-generated templates — Prismic `[uid]`/`[slug]` detail pages
+(blog posts, projects, portfolio items) — are represented, which is exactly where a broken
+image, an overflowing gallery, or a dead CMS link hides. Cap ~15–20 routes total, distributed
+across buckets: always include `/`, then at least one page per family up to the cap (sampling
+more from larger families). Fallback if no sitemap: homepage + same-origin internal links found
+on it (one level). Worst case: homepage only. The sampled routes + per-family counts are
+recorded in the evidence note ("12 routes across 4 families: /, /work ×4, /blog ×4, /about ×3"),
+so the operator can see CMS coverage at a glance.
 
-| Signal | Pass bar | Honest scope |
-|---|---|---|
-| Desktop Browsers | chromium+firefox+webkit load every route, 0 uncaught JS errors, main landmark visible | renders without errors cross-engine; a CSS-only visual break with no error escapes (visual polish stays manual) |
-| Mobile Browsers | iPhone(WebKit)+Pixel(Chromium): 0 horizontal overflow (`scrollWidth ≤ viewport`), 0 JS errors | catches overflow + errors; does not prove real-device touch handlers |
-| Links & Navigation | 0 broken internal links (200 + soft-404 heuristic) + primary-nav click reaches expected URL | internal links high-trust; external links advisory-only |
+| Signal             | Pass bar                                                                                      | Honest scope                                                                                                    |
+| ------------------ | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Desktop Browsers   | chromium+firefox+webkit load every route, 0 uncaught JS errors, main landmark visible         | renders without errors cross-engine; a CSS-only visual break with no error escapes (visual polish stays manual) |
+| Mobile Browsers    | iPhone(WebKit)+Pixel(Chromium): 0 horizontal overflow (`scrollWidth ≤ viewport`), 0 JS errors | catches overflow + errors; does not prove real-device touch handlers                                            |
+| Links & Navigation | 0 broken internal links (200 + soft-404 heuristic) + primary-nav click reaches expected URL   | internal links high-trust; external links advisory-only                                                         |
 
 **Fail-safe under flakiness:** deployed-URL runs wobble (same as deployed Lighthouse running
-3×). Per-route Playwright retries; a *run error* (network/timeout) → `unknown` (box stays
+3×). Per-route Playwright retries; a _run error_ (network/timeout) → `unknown` (box stays
 manual), never `fail`. A genuine assertion failure → `fail` + evidence shows what broke.
 
 ## Nightly sweeps
@@ -209,7 +226,7 @@ the a11y audit).
 
 ## Non-goals / deferred
 
-- **Form Functionality** — gated on first wiring a Resend *delivery* webhook into Submissions
+- **Form Functionality** — gated on first wiring a Resend _delivery_ webhook into Submissions
   `notifyStatus` (today "sent" = API-accepted only). Then a synthetic-submit audit.
 - **Page Titles & Meta** — fast-follow reusing the harness route discovery; mechanical crawl
   (presence/uniqueness/placeholder), not editorial accuracy.
