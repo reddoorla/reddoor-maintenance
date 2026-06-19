@@ -1,0 +1,63 @@
+name: fleet-security
+
+# Nightly fleet-wide security audit (pnpm/npm audit) against each active site's repo, writing the
+# vuln counts + a freshness timestamp back to its Airtable row so the "Security Updates" checklist
+# box can auto-tick. UNLIKE fleet-lighthouse this is checkout-FUL — `pnpm audit` reads each repo's
+# committed lockfile, so every site is cloned (no install needed). Kept a SEPARATE job from
+# fleet-lighthouse precisely so the lighthouse/domain/browser sweep stays checkout-free.
+on:
+  schedule:
+    - cron: "0 6 * * *" # 06:00 UTC — before the 08:00 lighthouse sweep + 09:23 drafts
+  workflow_dispatch: {} # manual run from the Actions tab
+
+concurrency:
+  group: fleet-security
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.7.0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - name: Fleet security audit + Airtable write-back
+        # Clones ~10 fleet repos (unauthenticated https — the fleet is public; a private repo would
+        # fail its clone and be skipped+warned by prepareFleetSites, never fatal, box stays manual)
+        # + audits each committed lockfile (no install — pnpm/npm audit reads the lockfile). A
+        # failed/skipped audit writes NO counts + NO timestamp, so it can never tick the box.
+        timeout-minutes: 30
+        env:
+          AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
+          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+        run: |
+          set -o pipefail
+          # A site reporting vulns exits non-zero by design; key the gate on the machine-readable
+          # FLEET_WRITE_SUMMARY line, not the exit code (same pattern as fleet-lighthouse).
+          node dist/cli/bin.js audit \
+            --fleet airtable \
+            --only security \
+            --write-airtable \
+            --concurrency 1 \
+            --workdir /tmp/fleet-security | tee /tmp/audit.out || true
+
+          summary=$(grep -oE "FLEET_WRITE_SUMMARY wrote=[0-9]+ failed=[0-9]+ total=[0-9]+" /tmp/audit.out | tail -n1 || true)
+          if [ -z "$summary" ]; then
+            echo "::error::fleet security printed no write summary — the run crashed before write-back (check Airtable creds / clone)."
+            exit 1
+          fi
+          echo "$summary"

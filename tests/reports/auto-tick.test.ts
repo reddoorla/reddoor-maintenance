@@ -145,6 +145,49 @@ describe("autoTickChecklist — Domain, DNS & SSL", () => {
   });
 });
 
+const SECURITY = "Maint: Security Updates";
+
+describe("autoTickChecklist — Security Updates", () => {
+  it("passes when fresh with 0 critical and 0 high vulns", () => {
+    const site = makeWebsiteRow({
+      securityVulnsCritical: 0,
+      securityVulnsHigh: 0,
+      lastSecurityAuditAt: FRESH,
+    });
+    expect(autoTickChecklist(site, "Maintenance", NOW, signals()).get(SECURITY)!.result).toBe(
+      "pass",
+    );
+  });
+
+  it("fails (with the count) when there are critical/high vulns", () => {
+    const site = makeWebsiteRow({
+      securityVulnsCritical: 2,
+      securityVulnsHigh: 1,
+      lastSecurityAuditAt: FRESH,
+    });
+    const e = autoTickChecklist(site, "Maintenance", NOW, signals()).get(SECURITY)!;
+    expect(e.result).toBe("fail");
+    expect(e.note).toMatch(/2 critical \/ 1 high/);
+  });
+
+  it("is unknown when the security audit is stale", () => {
+    const site = makeWebsiteRow({
+      securityVulnsCritical: 0,
+      securityVulnsHigh: 0,
+      lastSecurityAuditAt: "2026-06-01T00:00:00.000Z",
+    });
+    expect(autoTickChecklist(site, "Maintenance", NOW, signals()).get(SECURITY)!.result).toBe(
+      "unknown",
+    );
+  });
+
+  it("omits when the security audit never ran (null counts / no timestamp)", () => {
+    expect(autoTickChecklist(makeWebsiteRow(), "Maintenance", NOW, signals()).has(SECURITY)).toBe(
+      false,
+    );
+  });
+});
+
 const DESKTOP = "Test: Desktop Browsers";
 const MOBILE = "Test: Mobile Browsers";
 const LINKS = "Test: Links & Navigation";

@@ -347,19 +347,22 @@ describe("writeAuditsToAirtable", () => {
     expect("pScore" in merged).toBe(false);
   });
 
-  it("throws exit-code-2 when lighthouse result is absent (operator passed --only without lighthouse)", async () => {
-    const { base } = makeFakeBase();
-    await expect(
-      writeAuditsToAirtable({
-        base,
-        websites: [row()],
-        slug: "acme",
-        results: [a11yResult(0)],
-      }),
-    ).rejects.toMatchObject({
-      message: expect.stringMatching(/requires a lighthouse result/),
-      exitCode: 2,
+  it("writes present audits when lighthouse is absent (standalone non-lighthouse sweep), no throw", async () => {
+    // A `--only security` sweep legitimately has no lighthouse result. It must still persist the
+    // audits it ran (no exitCode-2), so a security-only nightly can write back.
+    const { base, calls } = makeFakeBase();
+    const summary = await writeAuditsToAirtable({
+      base,
+      websites: [row()],
+      slug: "acme",
+      results: [secResult({ low: 0, moderate: 0, high: 0, critical: 0 })],
     });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.fields).toMatchObject({
+      "Security Vulns Critical": 0,
+      "Security Vulns High": 0,
+    });
+    expect(summary.writes.map((w) => w.audit)).toEqual(["security"]);
   });
 
   it("throws exit-code-2 when no Websites row matches the slug", async () => {
