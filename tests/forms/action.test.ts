@@ -53,8 +53,10 @@ describe("createIngestAction", () => {
     });
   });
 
-  it("silently accepts a filled honeypot without forwarding", async () => {
-    const fetchMock = vi.fn();
+  it("silently accepts a filled honeypot without forwarding the submission", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { ok: true })) as unknown as typeof fetch;
     const action = createIngestAction({
       formType: "contact",
       getConfig: okConfig,
@@ -65,11 +67,17 @@ describe("createIngestAction", () => {
       fakeEvent({ email: "a@b.co", ts: goodTs, "bot-field": "i am a bot" }, fetchMock),
     );
     expect(result).toEqual({ success: true });
-    expect(fetchMock).not.toHaveBeenCalled();
+    // No submission is forwarded — only the no-PII screen-out beacon may fire.
+    const forwarded = (fetchMock as ReturnType<typeof vi.fn>).mock.calls.some(
+      ([, init]) => init && !("screenOut" in JSON.parse((init as RequestInit).body as string)),
+    );
+    expect(forwarded).toBe(false);
   });
 
-  it("silently accepts a too-fast fill without forwarding", async () => {
-    const fetchMock = vi.fn();
+  it("silently accepts a too-fast fill without forwarding the submission", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { ok: true })) as unknown as typeof fetch;
     const action = createIngestAction({
       formType: "contact",
       getConfig: okConfig,
@@ -78,7 +86,10 @@ describe("createIngestAction", () => {
     });
     const result = await action(fakeEvent({ email: "a@b.co", ts: goodTs }, fetchMock));
     expect(result).toEqual({ success: true });
-    expect(fetchMock).not.toHaveBeenCalled();
+    const forwarded = (fetchMock as ReturnType<typeof vi.fn>).mock.calls.some(
+      ([, init]) => init && !("screenOut" in JSON.parse((init as RequestInit).body as string)),
+    );
+    expect(forwarded).toBe(false);
   });
 
   it("returns fail(500) when env config is missing", async () => {
@@ -168,7 +179,9 @@ describe("createIngestAction", () => {
   });
 
   it("redirects a bot-screened submission too (no signal to bots)", async () => {
-    const fetchMock = vi.fn();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { ok: true })) as unknown as typeof fetch;
     const action = createIngestAction({
       formType: "contact",
       getConfig: okConfig,
@@ -179,7 +192,11 @@ describe("createIngestAction", () => {
     await expect(
       action(fakeEvent({ email: "a@b.co", ts: goodTs, "bot-field": "bot" }, fetchMock)),
     ).rejects.toMatchObject({ status: 303, location: "/thank-you" });
-    expect(fetchMock).not.toHaveBeenCalled();
+    // The submission is not forwarded — only the no-PII screen-out beacon may fire.
+    const forwarded = (fetchMock as ReturnType<typeof vi.fn>).mock.calls.some(
+      ([, init]) => init && !("screenOut" in JSON.parse((init as RequestInit).body as string)),
+    );
+    expect(forwarded).toBe(false);
   });
 
   it("does NOT redirect on ingest failure (stays on page with the error)", async () => {
@@ -207,5 +224,47 @@ describe("createIngestAction", () => {
     const result = await action(fakeEvent({ email: "a@b.co", ts: goodTs }, fetchMock));
     expect((result as { status?: number }).status).toBe(500);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("beacons a screen-out (and still succeeds) when the honeypot is filled", async () => {
+    const fetch = vi.fn(
+      async (_url: string | URL | Request, _init?: RequestInit) =>
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
+    const action = createIngestAction({
+      formType: "contact",
+      getConfig: () => ({ url: "https://dash/api/forms/acme", token: "T" }),
+      buildPayload: () => ({}),
+    });
+    const res = await action(
+      fakeEvent({ "bot-field": "i am a bot" }, fetch as unknown as typeof fetch),
+    );
+    expect(res).toEqual({ success: true });
+    const screenBeacon = fetch.mock.calls.find(
+      ([, init]) =>
+        init && JSON.parse((init as RequestInit).body as string).screenOut === "honeypot",
+    );
+    expect(screenBeacon).toBeTruthy();
+  });
+
+  it("does not beacon a screen-out for a clean submit", async () => {
+    const fetch = vi.fn(
+      async (_url: string | URL | Request, _init?: RequestInit) =>
+        new Response(JSON.stringify({ ok: true, id: "x" }), { status: 200 }),
+    );
+    const action = createIngestAction({
+      formType: "contact",
+      getConfig: () => ({ url: "https://dash/api/forms/acme", token: "T" }),
+      buildPayload: () => ({ name: "Jane" }),
+      now: () => 10_000,
+    });
+    const res = await action(
+      fakeEvent({ ts: "0" }, fetch as unknown as typeof fetch), // elapsed huge → not too-fast
+    );
+    expect(res).toEqual({ success: true });
+    const anyScreen = fetch.mock.calls.some(
+      ([, init]) => init && "screenOut" in JSON.parse((init as RequestInit).body as string),
+    );
+    expect(anyScreen).toBe(false);
   });
 });

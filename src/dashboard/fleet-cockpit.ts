@@ -134,6 +134,8 @@ export type CockpitModel = {
   pending: PendingEntry[];
   /** NEW submissions across the fleet, newest-first (optional for back-compat). */
   submissions?: SubmissionEntry[];
+  /** Fleet spam totals over the window (optional; populated by buildCockpitModel). */
+  spam?: { caught: number; through: number } | null;
 };
 
 const SEVERITY_RANK: Record<AttentionItem["severity"], number> = { critical: 0, warning: 1 };
@@ -154,6 +156,7 @@ export function buildCockpitModel(
   baseUrl: string,
   now: Date,
   newSubmissions: SubmissionRow[] = [],
+  spamTotals: { honeypot: number; tooFast: number; markedSpam: number } | null = null,
 ): CockpitModel {
   const visible = websites.filter(isDashboardVisible);
   const sitesById = new Map<string, WebsiteRow>(visible.map((w) => [w.id, w]));
@@ -258,5 +261,13 @@ export function buildCockpitModel(
     newSubmissions: submissions.length,
   };
 
-  return { summary, cards, pending, submissions };
+  return {
+    summary,
+    cards,
+    pending,
+    submissions,
+    spam: spamTotals
+      ? { caught: spamTotals.honeypot + spamTotals.tooFast, through: spamTotals.markedSpam }
+      : null,
+  };
 }

@@ -3,6 +3,7 @@ import { openBase } from "../../src/reports/airtable/client.js";
 import { listWebsites } from "../../src/reports/airtable/websites.js";
 import { listAllReports } from "../../src/reports/airtable/reports.js";
 import { listNewSubmissions } from "../../src/reports/airtable/submissions.js";
+import { listScreenOutsSince, screenOutsSince } from "../../src/reports/airtable/screenouts.js";
 import { readDigestState } from "../../src/alerts/digest-state.js";
 import { verifyBasicAuth, renderCockpitHtml } from "../../src/dashboard/index.js";
 import { buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
@@ -89,8 +90,29 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     } catch {
       // submissions strip simply absent — triage still renders
     }
+    let spamTotals: { honeypot: number; tooFast: number; markedSpam: number } | null = null;
+    try {
+      const since = screenOutsSince(new Date(), 30);
+      const map = await listScreenOutsSince(base, since);
+      spamTotals = { honeypot: 0, tooFast: 0, markedSpam: 0 };
+      for (const t of map.values()) {
+        spamTotals.honeypot += t.honeypot;
+        spamTotals.tooFast += t.tooFast;
+        spamTotals.markedSpam += t.markedSpam;
+      }
+    } catch {
+      // roll-up simply absent — never blank the cockpit
+    }
     const baseUrl = resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL);
-    const model = buildCockpitModel(websites, reports, prior, baseUrl, new Date(), newSubmissions);
+    const model = buildCockpitModel(
+      websites,
+      reports,
+      prior,
+      baseUrl,
+      new Date(),
+      newSubmissions,
+      spamTotals,
+    );
     return html(renderCockpitHtml(model), 200);
   } catch (err) {
     return handlerError("fleet-homepage", err);

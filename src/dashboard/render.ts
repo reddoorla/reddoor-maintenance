@@ -3,6 +3,7 @@ import { SEVERITY_RANK } from "../reports/airtable/websites.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
 import { isPendingApproval } from "../reports/airtable/reports.js";
 import type { SubmissionRow } from "../reports/airtable/submissions.js";
+import type { ScreenOutTotals } from "../reports/airtable/screenouts.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 import { escapeHtml, safeUrl } from "../util/html.js";
 import { FAVICON_LINK } from "./favicon.js";
@@ -164,20 +165,66 @@ function reportRow(r: ReportRow): string {
   return `<tr><td>${date}</td><td>${type}</td><td><code>${id}</code></td><td>${ga}</td><td>${search}</td><td>${link}</td><td>${action}</td></tr>`;
 }
 
+/** Render a submission's `extraFields` JSON as a key/value list; on parse failure
+ *  show the raw string (escaped) rather than dropping it. Returns "" when blank. */
+function extraFieldsList(raw: string | null): string {
+  if (!raw || raw.trim() === "") return "";
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return `<div class="subm-kv"><span class="k">Extra fields</span> <code>${escapeHtml(raw)}</code></div>`;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return `<div class="subm-kv"><span class="k">Extra fields</span> <code>${escapeHtml(raw)}</code></div>`;
+  }
+  const rows = Object.entries(parsed as Record<string, unknown>)
+    .map(
+      ([k, v]) =>
+        `<div class="subm-kv"><span class="k">${escapeHtml(k)}</span> ${escapeHtml(String(v))}</div>`,
+    )
+    .join("");
+  return rows;
+}
+
 function submissionRow(s: SubmissionRow): string {
   const when = s.submittedAt ? escapeHtml(relativeTimeFromNow(s.submittedAt)) : "—";
   const type = escapeHtml(s.formType);
   const who = escapeHtml(s.name || "(no name)");
   const email = escapeHtml(s.email || "");
-  const message = escapeHtml(s.message ?? "");
   const status = escapeHtml(s.status);
   const id = escapeHtml(s.id);
   const url = `/api/submissions/${encodeURIComponent(s.id)}/status`;
   const btn = (label: string, action: string) =>
     `<button class="subm-status" data-id="${id}" data-status="${action}" data-url="${url}">${label}</button>`;
+
+  // One detail row per present field; absent fields are omitted (no blank rows).
+  const kv = (label: string, value: string | number | null) =>
+    value === null || value === ""
+      ? ""
+      : `<div class="subm-kv"><span class="k">${label}</span> ${escapeHtml(String(value))}</div>`;
+  const sourceLink = s.sourceUrl
+    ? `<div class="subm-kv"><span class="k">Source</span> <a href="${escapeHtml(safeUrl(s.sourceUrl))}" rel="noopener noreferrer">${escapeHtml(s.sourceUrl)}</a></div>`
+    : "";
+  const messageBlock = s.message
+    ? `<div class="subm-kv"><span class="k">Message</span></div><div class="subm-msg">${escapeHtml(s.message)}</div>`
+    : "";
+  const details = [
+    kv("Phone", s.phone),
+    messageBlock,
+    sourceLink,
+    kv("UTM", s.utm),
+    extraFieldsList(s.extraFields),
+    kv("Notify", s.notifyStatus),
+    kv("Resend ID", s.resendMessageId),
+    kv("Submission #", s.submissionId),
+  ].join("");
+
   return `<li class="subm-item">
-    <div class="subm-head"><strong>${type}</strong> · ${who} <span class="muted">${email}</span> <span class="pill subm-${status}">${status}</span> <span class="muted">${when}</span></div>
-    ${message ? `<div class="subm-msg">${message}</div>` : ""}
+    <details>
+      <summary class="subm-head"><strong>${type}</strong> · ${who} <span class="muted">${email}</span> <span class="pill subm-${status}">${status}</span> <span class="muted">${when}</span></summary>
+      <div class="subm-detail">${details}</div>
+    </details>
     <div class="subm-actions">${btn("Read", "read")}${btn("Archive", "archived")}${btn("Spam", "spam")}</div>
   </li>`;
 }
@@ -198,6 +245,34 @@ function submissionsSection(submissions: SubmissionRow[]): string {
   return `<div class="section submissions">
     <h2>Form submissions (${submissions.length})${note}</h2>
     <ul class="subm-list">${recent.map(submissionRow).join("")}</ul>
+  </div>`;
+}
+
+const SPAM_WINDOW_DAYS = 30;
+
+/** The per-site spam panel: caught (honeypot/too-fast) + marked-spam from the screen-out
+ *  buckets, and delivered counted from the submissions loaded for this page within the
+ *  window. Omitted when there's nothing to show. `delivered` undercounts only if the site
+ *  exceeds the 200-row submissions fetch within the window (rare at fleet scale). */
+function spamScreenSection(
+  totals: ScreenOutTotals | null,
+  submissions: SubmissionRow[],
+  now: Date,
+): string {
+  const sinceMs = now.getTime() - SPAM_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  const delivered = submissions.filter(
+    (s) => s.submittedAt !== null && Date.parse(s.submittedAt) >= sinceMs,
+  ).length;
+  const t = totals ?? { honeypot: 0, tooFast: 0, markedSpam: 0 };
+  if (delivered === 0 && t.honeypot === 0 && t.tooFast === 0 && t.markedSpam === 0) return "";
+  const row = (label: string, n: number) =>
+    `<div class="spam-kv"><span class="k">${label}</span> ${escapeHtml(String(n))}</div>`;
+  return `<div class="section spam-screen">
+    <h2>Spam screen (30d)</h2>
+    ${row("Caught — honeypot", t.honeypot)}
+    ${row("Caught — too-fast", t.tooFast)}
+    ${row("Delivered", delivered)}
+    ${row("Marked spam", t.markedSpam)}
   </div>`;
 }
 
@@ -283,9 +358,15 @@ button.approve:disabled { opacity: 0.6; cursor: default; }
 @media (prefers-color-scheme: dark) { .subm-item { border-color: #2a2a2a; } }
 .subm-head { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 .subm-msg { margin: 0.35rem 0; white-space: pre-wrap; }
+.subm-detail { padding: 0.35rem 0 0.2rem; }
+.subm-kv { font-size: 0.9rem; margin: 0.15rem 0; }
+.subm-kv .k { color: #888; margin-right: 0.4rem; }
+summary.subm-head { cursor: pointer; }
 .subm-actions { display: flex; gap: 0.4rem; }
 button.subm-status { font: inherit; padding: 0.25rem 0.7rem; border: 1px solid #888; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
 button.subm-status:disabled { opacity: 0.6; cursor: default; }
+.spam-screen .spam-kv { font-size: 0.95rem; margin: 0.2rem 0; }
+.spam-screen .spam-kv .k { color: #888; display: inline-block; min-width: 11rem; }
 .pill.subm-new { background: #e8f0fe; color: #1a56db; }
 .pill.subm-read { background: #f0f0f0; color: #555; }
 .pill.subm-archived { background: #eee; color: #888; }
@@ -317,6 +398,8 @@ export function renderSiteDashboardHtml(
   site: WebsiteRow,
   reports: ReportRow[],
   submissions: SubmissionRow[] = [],
+  spamTotals: ScreenOutTotals | null = null,
+  now: Date = new Date(),
 ): string {
   const name = escapeHtml(site.name);
   const urlSafe = safeUrl(site.url);
@@ -393,6 +476,8 @@ export function renderSiteDashboardHtml(
   </div>
 
   ${securitySection(site)}
+
+  ${spamScreenSection(spamTotals, submissions, now)}
 
   <div class="section">
     <h2>Reports</h2>

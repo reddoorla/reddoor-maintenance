@@ -264,6 +264,130 @@ describe("renderSiteDashboardHtml — submissions section", () => {
     expect(html).not.toMatch(/showing \d+ of/);
     expect((html.match(/class="subm-item"/g) ?? []).length).toBe(5);
   });
+
+  it("expands to show all stored fields for a submission", () => {
+    const subs: SubmissionRow[] = [
+      {
+        id: "sub1",
+        submissionId: 1423,
+        siteId: "recSITE",
+        formType: "contact",
+        name: "Jane",
+        email: "jane@example.com",
+        phone: "555-0100",
+        message: "Full message body",
+        extraFields: JSON.stringify({ interest: "residential" }),
+        sourceUrl: "https://acme.example.com/contact",
+        utm: "google/cpc/spring",
+        submittedAt: "2026-06-20T12:00:00Z",
+        status: "new",
+        notifyStatus: "sent",
+        resendMessageId: "msg_abc",
+      },
+    ];
+    const html = renderSiteDashboardHtml(siteRow(), [], subs);
+    expect(html).toContain("<details");
+    expect(html).toContain("555-0100");
+    expect(html).toContain("Full message body");
+    expect(html).toContain("google/cpc/spring");
+    expect(html).toContain("interest");
+    expect(html).toContain("residential");
+    expect(html).toContain("msg_abc");
+    expect(html).toContain("1423");
+    expect(html).toContain('href="https://acme.example.com/contact"');
+  });
+
+  it("omits absent detail fields and falls back to raw extraFields when JSON is malformed", () => {
+    const subs: SubmissionRow[] = [
+      {
+        id: "sub2",
+        submissionId: null,
+        siteId: "recSITE",
+        formType: "contact",
+        name: "No Extras",
+        email: "x@example.com",
+        phone: null,
+        message: null,
+        extraFields: "{not json",
+        sourceUrl: null,
+        utm: null,
+        submittedAt: "2026-06-20T12:00:00Z",
+        status: "new",
+        notifyStatus: "sent",
+        resendMessageId: null,
+      },
+    ];
+    const html = renderSiteDashboardHtml(siteRow(), [], subs);
+    expect(html).toContain("{not json"); // raw fallback, escaped, no throw
+    expect(html).not.toMatch(/Phone:/i); // absent field omitted
+  });
+
+  it("escapes detail fields and neutralizes a javascript: source URL", () => {
+    const subs: SubmissionRow[] = [
+      {
+        id: "sub3",
+        submissionId: null,
+        siteId: "recSITE",
+        formType: "contact",
+        name: "x",
+        email: "x@example.com",
+        phone: null,
+        message: "<script>alert(1)</script>",
+        extraFields: null,
+        sourceUrl: "javascript:alert(1)",
+        utm: null,
+        submittedAt: "2026-06-20T12:00:00Z",
+        status: "new",
+        notifyStatus: "sent",
+        resendMessageId: null,
+      },
+    ];
+    const html = renderSiteDashboardHtml(siteRow(), [], subs);
+    expect(html).not.toContain("<script>alert(1)</script>");
+    expect(html).toContain("&lt;script&gt;");
+    expect(html).not.toMatch(/href="javascript:/i);
+  });
+});
+
+describe("renderSiteDashboardHtml — spam screen panel", () => {
+  it("renders caught honeypot/too-fast, marked spam, and delivered (30d)", () => {
+    const subs: SubmissionRow[] = [
+      {
+        id: "s1",
+        submissionId: 1,
+        siteId: "recSITE",
+        formType: "contact",
+        name: "a",
+        email: "a@x.com",
+        phone: null,
+        message: null,
+        extraFields: null,
+        sourceUrl: null,
+        utm: null,
+        submittedAt: new Date().toISOString(),
+        status: "new",
+        notifyStatus: "sent",
+        resendMessageId: null,
+      },
+    ];
+    const html = renderSiteDashboardHtml(
+      siteRow({ id: "recSITE" }),
+      [],
+      subs,
+      { honeypot: 280, tooFast: 30, markedSpam: 9 },
+      new Date("2026-06-22T12:00:00Z"),
+    );
+    expect(html).toContain("Spam screen (30d)");
+    expect(html).toContain("280");
+    expect(html).toContain("30");
+    expect(html).toContain("9");
+    expect(html).toMatch(/delivered/i);
+  });
+
+  it("omits the spam panel when there is no screen-out data and no submissions", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [], [], null, new Date());
+    expect(html).not.toContain("Spam screen (30d)");
+  });
 });
 
 describe("renderSiteDashboardHtml — home link", () => {

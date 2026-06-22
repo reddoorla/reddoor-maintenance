@@ -1,5 +1,10 @@
 import { fail, redirect, type ActionFailure, type RequestEvent } from "@sveltejs/kit";
-import { submitToIngest, screenSubmission, type SubmissionPayload } from "./client.js";
+import {
+  submitToIngest,
+  screenSubmission,
+  submitScreenOut,
+  type SubmissionPayload,
+} from "./client.js";
 
 /** Endpoint + token for the dashboard ingest, read per-request from site env. */
 export type IngestActionConfig = { url?: string; token?: string };
@@ -62,7 +67,20 @@ export function createIngestAction(
       botField: form.get(botFieldName)?.toString() ?? null,
       elapsedMs: elapsedMs(form.get(tsFieldName), now),
     });
-    if (!screen.ok) return succeed();
+    if (!screen.ok) {
+      // Best-effort screen-out beacon (no PII) so catch-rate is observable, then
+      // succeed exactly as before — the bot/visitor still sees success.
+      const cfg = opts.getConfig();
+      if (cfg.url && cfg.token) {
+        await submitScreenOut({
+          url: cfg.url,
+          token: cfg.token,
+          reason: screen.reason,
+          fetch: event.fetch,
+        });
+      }
+      return succeed();
+    }
 
     const { url, token } = opts.getConfig();
     if (!url || !token) {

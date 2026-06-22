@@ -2,7 +2,8 @@ import type { Context, Config } from "@netlify/functions";
 import { openBase } from "../../src/reports/airtable/client.js";
 import { getWebsiteBySlug } from "../../src/reports/airtable/websites.js";
 import { createSubmission, stampNotified } from "../../src/reports/airtable/submissions.js";
-import { ingestSubmission } from "../../src/forms/ingest.js";
+import { ingestSubmission, parseScreenOut, ingestScreenOut } from "../../src/forms/ingest.js";
+import { recordScreenOut } from "../../src/reports/airtable/screenouts.js";
 import { forwardNewsletterToWebhook } from "../../src/forms/webhook.js";
 import { addMailchimpMember } from "../../src/forms/mailchimp.js";
 import { makeNotify } from "../../src/forms/notify.js";
@@ -80,6 +81,24 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
 
   try {
     const base = openBase({ apiKey, baseId });
+
+    // Screen-out beacon: a no-PII { screenOut: honeypot|too-fast } body is routed
+    // to the per-site/day Spam Screenouts counter instead of the submission path.
+    const screenOutReason = parseScreenOut(payload);
+    if (screenOutReason) {
+      const date = new Date().toISOString().slice(0, 10);
+      const r = await ingestScreenOut(
+        {
+          getWebsiteBySlug: (s) => getWebsiteBySlug(base, s),
+          recordScreenOut: (siteId, reason) => recordScreenOut(base, siteId, reason, date),
+        },
+        slug,
+        screenOutReason,
+      );
+      if (r.status === "unknown-site") return json({ ok: false, error: "unknown-site" }, 404);
+      return json({ ok: true }, 200);
+    }
+
     // Construct the Resend client defensively: a missing/broken RESEND_API_KEY
     // must NOT abort ingest (defaultResendClient throws when the key is unset).
     // null send → makeNotify marks the notification failed while the submission

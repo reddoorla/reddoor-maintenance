@@ -1,5 +1,10 @@
 import { json, type RequestEvent } from "@sveltejs/kit";
-import { submitToIngest, screenSubmission, type SubmissionPayload } from "./client.js";
+import {
+  submitToIngest,
+  screenSubmission,
+  submitScreenOut,
+  type SubmissionPayload,
+} from "./client.js";
 import { SUBMISSION_FORM_TYPES, type FormType } from "./types.js";
 import type { IngestActionConfig } from "./action.js";
 
@@ -65,7 +70,20 @@ export function createIngestEndpoint(
     // screenSubmission treats a missing elapsedMs as OK. A filled honeypot is
     // silently accepted (return ok, do NOT forward) so bots get no signal.
     const screen = screenSubmission({ botField: str(body[botFieldName]) ?? null });
-    if (!screen.ok) return json({ ok: true });
+    if (!screen.ok) {
+      // Best-effort screen-out beacon (no PII) so catch-rate is observable, then
+      // return success exactly as before — the bot/visitor still sees success.
+      const cfg = opts.getConfig();
+      if (cfg.url && cfg.token) {
+        await submitScreenOut({
+          url: cfg.url,
+          token: cfg.token,
+          reason: screen.reason,
+          fetch: event.fetch,
+        });
+      }
+      return json({ ok: true });
+    }
 
     // buildPayload runs on untrusted JSON; a careless field access (e.g.
     // `body.name.trim()` on a non-string) would otherwise escape as a 500. Treat
