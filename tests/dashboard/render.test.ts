@@ -165,6 +165,69 @@ describe("renderSiteDashboardHtml", () => {
   });
 });
 
+describe("renderSiteDashboardHtml — vulnerabilities section", () => {
+  it("lists each advisory, severity-sorted, with module / title / CVE / link", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow({
+        securityAdvisories: [
+          {
+            module: "axios",
+            severity: "moderate",
+            title: "ReDoS",
+            cves: ["CVE-2"],
+            url: "https://a",
+          },
+          {
+            module: "esbuild",
+            severity: "critical",
+            title: "RCE",
+            cves: ["CVE-1"],
+            url: "https://b",
+          },
+        ],
+      }),
+      [],
+    );
+    expect(html).toContain("Vulnerabilities (2)");
+    expect(html).toContain("esbuild");
+    expect(html).toContain("axios");
+    expect(html).toContain("CVE-1");
+    expect(html).toContain('href="https://b"');
+    // critical (esbuild) must render before moderate (axios)
+    expect(html.indexOf("esbuild")).toBeLessThan(html.indexOf("axios"));
+  });
+
+  it("omits the section when the site was never audited (null)", () => {
+    const html = renderSiteDashboardHtml(siteRow({ securityAdvisories: null }), []);
+    expect(html).not.toContain("Vulnerabilities (");
+  });
+
+  it("omits the section when audited clean (empty array)", () => {
+    const html = renderSiteDashboardHtml(siteRow({ securityAdvisories: [] }), []);
+    expect(html).not.toContain("Vulnerabilities (");
+  });
+
+  it("escapes advisory text and rejects a javascript: advisory URL", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow({
+        securityAdvisories: [
+          {
+            module: "<script>x</script>",
+            severity: "high",
+            title: "<img src=x>",
+            cves: [],
+            url: "javascript:alert(1)",
+          },
+        ],
+      }),
+      [],
+    );
+    expect(html).not.toContain("<script>x</script>");
+    expect(html).toContain("&lt;script&gt;");
+    expect(html).not.toMatch(/href="javascript:/i);
+  });
+});
+
 describe("renderSiteDashboardHtml — submissions section", () => {
   function submission(n: number): SubmissionRow {
     return {

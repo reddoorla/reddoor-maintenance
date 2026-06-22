@@ -5,6 +5,7 @@ import type {
   A11yCounts,
   DepsCounts,
   SecurityCounts,
+  SecurityAdvisory,
   DomainResult,
   BrowserAuditFields,
 } from "../reports/airtable/websites.js";
@@ -12,7 +13,11 @@ import type { LighthouseScores } from "../reports/types.js";
 import { hasRealScores, lighthouseScoresFromResult } from "./lighthouse-airtable.js";
 import { hasA11yCounts, a11yCountsFromResult } from "./a11y-airtable.js";
 import { hasDepsCounts, depsCountsFromResult } from "./deps-airtable.js";
-import { hasSecurityCounts, securityCountsFromResult } from "./security-airtable.js";
+import {
+  hasSecurityCounts,
+  securityCountsFromResult,
+  advisoriesFromResult,
+} from "./security-airtable.js";
 import { hasDomainResult, domainResultFromAudit } from "./domain-airtable.js";
 import { hasBrowserResult, browserFieldsFromAudit } from "./browser-airtable.js";
 
@@ -62,6 +67,7 @@ export async function writeAuditsToAirtable(args: {
     a11y?: A11yCounts;
     deps?: DepsCounts;
     security?: SecurityCounts;
+    securityAdvisories?: SecurityAdvisory[];
     domain?: DomainResult;
     browser?: BrowserAuditFields;
   } = {};
@@ -100,6 +106,9 @@ export async function writeAuditsToAirtable(args: {
   if (sec && hasSecurityCounts(sec)) {
     const counts = securityCountsFromResult(sec);
     audits.security = counts;
+    // Persist the advisory list alongside the counts so the dashboard can show which packages
+    // are vulnerable. An empty array (clean run) clears any stale list.
+    audits.securityAdvisories = advisoriesFromResult(sec);
     writes.push({ audit: "security", counts });
   }
 

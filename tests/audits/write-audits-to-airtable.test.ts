@@ -145,6 +145,52 @@ describe("writeAuditsToAirtable", () => {
     });
   });
 
+  it("persists the advisory list (severity-sorted, capped) alongside the security counts", async () => {
+    const advisories = [
+      // Deliberately out of severity order + 26 entries to exercise sort + the 25 cap.
+      { module: "low-pkg", severity: "low", title: "minor", cves: [], url: null },
+      { module: "crit-pkg", severity: "critical", title: "rce", cves: ["CVE-9"], url: "https://a" },
+      ...Array.from({ length: 24 }, (_, i) => ({
+        module: `mod${i}`,
+        severity: "moderate" as const,
+        title: `m${i}`,
+        cves: [],
+        url: null,
+      })),
+    ];
+    const { base, calls } = makeFakeBase();
+    await writeAuditsToAirtable({
+      base,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        {
+          audit: "security",
+          site: "acme",
+          status: "fail",
+          summary: "vulns",
+          details: { counts: { low: 1, moderate: 24, high: 0, critical: 1 }, advisories },
+        } as unknown as AuditResult,
+      ],
+    });
+    expect(calls).toHaveLength(1);
+    const written = JSON.parse(calls[0]!.fields["Security advisories"] as string);
+    expect(written).toHaveLength(25); // capped
+    expect(written[0].module).toBe("crit-pkg"); // critical sorts first
+    expect(written.some((a: { module: string }) => a.module === "low-pkg")).toBe(false); // the low one fell off the cap
+  });
+
+  it("writes an empty advisory list ('[]') on a clean security run so a stale list clears", async () => {
+    const { base, calls } = makeFakeBase();
+    await writeAuditsToAirtable({
+      base,
+      websites: [row()],
+      slug: "acme",
+      results: [secResult({ low: 0, moderate: 0, high: 0, critical: 0 })],
+    });
+    expect(calls[0]!.fields["Security advisories"]).toBe("[]");
+  });
+
   it("merges the domain result into the single atomic write (cert days + checked-at)", async () => {
     const { base, calls } = makeFakeBase();
     await writeAuditsToAirtable({

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mapRow } from "../../../src/reports/airtable/websites.js";
+import { mapRow, parseSecurityAdvisories } from "../../../src/reports/airtable/websites.js";
 
 function row(fields: Record<string, unknown>) {
   return mapRow({
@@ -76,5 +76,45 @@ describe("websites/mapRow → new metric fields", () => {
     expect(r.securityVulnsHigh).toBeNull();
     expect(r.securityVulnsModerate).toBeNull();
     expect(r.securityVulnsLow).toBeNull();
+  });
+
+  it("parses the Security advisories JSON cell into a typed list", () => {
+    const r = row({
+      "Security advisories": JSON.stringify([
+        { module: "axios", severity: "high", title: "ReDoS", cves: ["CVE-2"], url: "https://a" },
+      ]),
+    });
+    expect(r.securityAdvisories).toEqual([
+      { module: "axios", severity: "high", title: "ReDoS", cves: ["CVE-2"], url: "https://a" },
+    ]);
+  });
+
+  it("treats an absent advisories cell as null (never audited)", () => {
+    expect(row({}).securityAdvisories).toBeNull();
+  });
+});
+
+describe("parseSecurityAdvisories", () => {
+  it("returns null for absent / blank / unparseable / non-array input", () => {
+    expect(parseSecurityAdvisories(undefined)).toBeNull();
+    expect(parseSecurityAdvisories("")).toBeNull();
+    expect(parseSecurityAdvisories("   ")).toBeNull();
+    expect(parseSecurityAdvisories("{not json")).toBeNull();
+    expect(parseSecurityAdvisories(JSON.stringify({ not: "an array" }))).toBeNull();
+  });
+
+  it("returns an empty array for a clean run ('[]') — audited, no vulns", () => {
+    expect(parseSecurityAdvisories("[]")).toEqual([]);
+  });
+
+  it("drops malformed entries and defaults cves/url", () => {
+    const out = parseSecurityAdvisories(
+      JSON.stringify([
+        { module: "ok", severity: "low" }, // kept, defaulted
+        { severity: "high" }, // dropped — no module
+        { module: "x", severity: "nope" }, // dropped — bad severity
+      ]),
+    );
+    expect(out).toEqual([{ module: "ok", severity: "low", title: "", cves: [], url: null }]);
   });
 });

@@ -83,6 +83,10 @@ export type WebsiteRow = {
   /** ISO timestamp the security audit last ran — gates freshness of the Security Updates auto-tick
    *  (clean counts only auto-tick when recent). */
   lastSecurityAuditAt: string | null;
+  /** The known advisories behind the counts (severity-sorted, capped), so the dashboard can show
+   *  WHICH packages are vulnerable, not just the totals. null = never audited / unparseable;
+   *  empty array = audited clean. Written alongside the counts by the security audit. */
+  securityAdvisories: SecurityAdvisory[] | null;
   /** Domain/DNS/SSL probe (the `domain` audit). `certDaysRemaining` is days until the TLS cert
    *  expires (null = unresolved or no usable cert); `domainCheckedAt` is when it last ran. */
   certDaysRemaining: number | null;
@@ -228,6 +232,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     securityVulnsModerate: (f["Security Vulns Moderate"] as number | undefined) ?? null,
     securityVulnsLow: (f["Security Vulns Low"] as number | undefined) ?? null,
     lastSecurityAuditAt: (f["Last security audit at"] as string | undefined) ?? null,
+    securityAdvisories: parseSecurityAdvisories(f["Security advisories"]),
     certDaysRemaining: (f["Cert days remaining"] as number | undefined) ?? null,
     domainCheckedAt: (f["Domain checked at"] as string | undefined) ?? null,
     crossbrowserOk:
@@ -300,6 +305,15 @@ export async function getWebsiteBySlug(
 export type A11yCounts = { violations: number };
 export type DepsCounts = { drifted: number; majorBehind: number; outdated: number | null };
 export type SecurityCounts = { critical: number; high: number; moderate: number; low: number };
+export type Severity = "low" | "moderate" | "high" | "critical";
+/** One known vulnerability behind the security counts, as persisted/rendered. */
+export type SecurityAdvisory = {
+  module: string;
+  severity: Severity;
+  title: string;
+  cves: string[];
+  url: string | null;
+};
 export type DomainResult = { certDaysRemaining: number | null; checkedAt: string };
 export type BrowserAuditFields = {
   desktopOk: boolean;
@@ -334,6 +348,66 @@ function depsFields(counts: DepsCounts): FieldSet {
     fields["Deps Outdated"] = counts.outdated;
   }
   return fields;
+}
+
+/** Critical first → low last; the persist cap and the dashboard list both lean on this. */
+export const SEVERITY_RANK: Record<Severity, number> = {
+  critical: 0,
+  high: 1,
+  moderate: 2,
+  low: 3,
+};
+/** Cap persisted advisories so the JSON field can't blow up on a badly-neglected site. */
+const MAX_PERSISTED_ADVISORIES = 25;
+
+/** Coerce one untrusted value into a SecurityAdvisory, or null if it isn't shaped like one.
+ *  Shared by the read path (`parseSecurityAdvisories`) and the write path so both validate
+ *  identically. A missing module or unrecognized severity drops the entry entirely. */
+export function normalizeSecurityAdvisory(raw: unknown): SecurityAdvisory | null {
+  if (!raw || typeof raw !== "object") return null;
+  const e = raw as Record<string, unknown>;
+  const module = typeof e["module"] === "string" ? (e["module"] as string) : null;
+  const severity = e["severity"];
+  if (module === null) return null;
+  if (
+    severity !== "low" &&
+    severity !== "moderate" &&
+    severity !== "high" &&
+    severity !== "critical"
+  )
+    return null;
+  const cves = Array.isArray(e["cves"])
+    ? (e["cves"] as unknown[]).filter((c): c is string => typeof c === "string")
+    : [];
+  return {
+    module,
+    severity,
+    title: typeof e["title"] === "string" ? (e["title"] as string) : "",
+    cves,
+    url: typeof e["url"] === "string" ? (e["url"] as string) : null,
+  };
+}
+
+/** Parse the `Security advisories` JSON cell. null when absent/blank/unparseable/not-an-array
+ *  (treated as "never audited"); a valid array (possibly empty = audited clean) otherwise. */
+export function parseSecurityAdvisories(raw: unknown): SecurityAdvisory[] | null {
+  if (typeof raw !== "string" || raw.trim() === "") return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed)) return null;
+  return parsed.map(normalizeSecurityAdvisory).filter((a): a is SecurityAdvisory => a !== null);
+}
+
+function securityAdvisoryFields(advisories: SecurityAdvisory[]): FieldSet {
+  const capped = [...advisories]
+    .sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity])
+    .slice(0, MAX_PERSISTED_ADVISORIES);
+  // Always write — an empty array ("[]") clears a stale list when a once-vulnerable site goes clean.
+  return { "Security advisories": JSON.stringify(capped) };
 }
 
 function securityFields(counts: SecurityCounts): FieldSet {
@@ -423,6 +497,7 @@ export async function updateAuditFields(
     a11y?: A11yCounts;
     deps?: DepsCounts;
     security?: SecurityCounts;
+    securityAdvisories?: SecurityAdvisory[];
     domain?: DomainResult;
     browser?: BrowserAuditFields;
   },
@@ -432,6 +507,10 @@ export async function updateAuditFields(
   if (audits.a11y) Object.assign(fields, a11yFields(audits.a11y));
   if (audits.deps) Object.assign(fields, depsFields(audits.deps));
   if (audits.security) Object.assign(fields, securityFields(audits.security));
+  // Separate slice (not folded into `security`) so the advisory list and the counts can be
+  // written independently, but in practice the security audit supplies both together.
+  if (audits.securityAdvisories)
+    Object.assign(fields, securityAdvisoryFields(audits.securityAdvisories));
   if (audits.domain) Object.assign(fields, domainFields(audits.domain));
   if (audits.browser) Object.assign(fields, browserFields(audits.browser));
   await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
