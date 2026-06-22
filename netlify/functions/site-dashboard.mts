@@ -95,7 +95,18 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
 
   try {
     const base = openBase({ apiKey, baseId });
-    const db = await openDb(readDbConfig());
+    // libSQL backs only the optional submission + spam panels here; the core page
+    // (site + reports) is Airtable. Open it defensively so a Turso blip drops just
+    // those panels rather than 502-ing the whole operator page — the per-panel
+    // try/catch below can't catch a throw from an eager open above them.
+    let db: Awaited<ReturnType<typeof openDb>> | null = null;
+    try {
+      db = await openDb(readDbConfig());
+    } catch (e) {
+      console.error(
+        `[site-dashboard] libSQL open failed; submission/spam panels dropped: ${String(e)}`,
+      );
+    }
 
     const site = await getWebsiteBySlug(base, slug);
     if (!site) {
@@ -112,18 +123,22 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     const reports = await listReportsForSite(base, site.id);
 
     let submissions: Awaited<ReturnType<typeof listSubmissionsForSite>> = [];
-    try {
-      submissions = await listSubmissionsForSite(db, { id: site.id, name: site.name });
-    } catch {
-      // submissions section simply absent — the rest of the page still renders
+    if (db) {
+      try {
+        submissions = await listSubmissionsForSite(db, { id: site.id, name: site.name });
+      } catch {
+        // submissions section simply absent — the rest of the page still renders
+      }
     }
 
     let spamTotals: import("../../src/db/screenouts.js").ScreenOutTotals | null = null;
-    try {
-      const since = screenOutsSince(new Date(), 30);
-      spamTotals = (await listScreenOutsSince(db, since)).get(site.id) ?? null;
-    } catch {
-      // panel simply absent — never blank the page
+    if (db) {
+      try {
+        const since = screenOutsSince(new Date(), 30);
+        spamTotals = (await listScreenOutsSince(db, since)).get(site.id) ?? null;
+      } catch {
+        // panel simply absent — never blank the page
+      }
     }
 
     return html(renderSiteDashboardHtml(site, reports, submissions, spamTotals, new Date()), 200);

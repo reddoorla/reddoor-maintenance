@@ -73,7 +73,18 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
 
   try {
     const base = openBase({ apiKey, baseId });
-    const db = await openDb(readDbConfig());
+    // libSQL backs only the optional submissions strip + spam roll-up; websites is
+    // the cockpit's core Airtable data. Open it defensively so a Turso blip drops
+    // just those panels rather than 502-ing the whole cockpit — the per-panel
+    // try/catch below can't catch a throw from an eager open above them.
+    let db: Awaited<ReturnType<typeof openDb>> | null = null;
+    try {
+      db = await openDb(readDbConfig());
+    } catch (e) {
+      console.error(
+        `[fleet-homepage] libSQL open failed; submission/spam panels dropped: ${String(e)}`,
+      );
+    }
     // Fetch the three inputs once. reports + digest are each defensive so one
     // hiccup can't blank the page; websites is the cockpit's core data, so a
     // failure there can't degrade to an empty (misleading "0 sites") page —
@@ -92,23 +103,27 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       // everything badges as not-NEW (the {} initial); never crashes the page
     }
     let newSubmissions: Awaited<ReturnType<typeof listNewSubmissions>> = [];
-    try {
-      newSubmissions = await listNewSubmissions(db);
-    } catch {
-      // submissions strip simply absent — triage still renders
+    if (db) {
+      try {
+        newSubmissions = await listNewSubmissions(db);
+      } catch {
+        // submissions strip simply absent — triage still renders
+      }
     }
     let spamTotals: { honeypot: number; tooFast: number; markedSpam: number } | null = null;
-    try {
-      const since = screenOutsSince(new Date(), 30);
-      const map = await listScreenOutsSince(db, since);
-      spamTotals = { honeypot: 0, tooFast: 0, markedSpam: 0 };
-      for (const t of map.values()) {
-        spamTotals.honeypot += t.honeypot;
-        spamTotals.tooFast += t.tooFast;
-        spamTotals.markedSpam += t.markedSpam;
+    if (db) {
+      try {
+        const since = screenOutsSince(new Date(), 30);
+        const map = await listScreenOutsSince(db, since);
+        spamTotals = { honeypot: 0, tooFast: 0, markedSpam: 0 };
+        for (const t of map.values()) {
+          spamTotals.honeypot += t.honeypot;
+          spamTotals.tooFast += t.tooFast;
+          spamTotals.markedSpam += t.markedSpam;
+        }
+      } catch {
+        // roll-up simply absent — never blank the cockpit
       }
-    } catch {
-      // roll-up simply absent — never blank the cockpit
     }
     const baseUrl = resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL);
     const model = buildCockpitModel(
