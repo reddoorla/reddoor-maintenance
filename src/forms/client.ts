@@ -68,6 +68,42 @@ export async function submitToIngest(opts: SubmitToIngestOptions): Promise<Inges
   return { ok: false, status: res.status, error };
 }
 
+export type SubmitScreenOutOptions = {
+  /** Same ingest endpoint the site already posts submissions to. */
+  url: string;
+  token: string;
+  reason: "honeypot" | "too-fast";
+  fetch?: typeof fetch;
+  /** Abort budget so a slow/hung beacon can't delay the (already-successful) response. */
+  timeoutMs?: number;
+};
+
+/**
+ * Best-effort screen-out beacon: tells the central ingest "a bot was screened here"
+ * (no PII) so caught-vs-delivered is observable. Never throws — a failure is returned
+ * as { ok: false } and the caller ignores it (the visitor already saw success).
+ */
+export async function submitScreenOut(
+  opts: SubmitScreenOutOptions,
+): Promise<{ ok: boolean; status: number }> {
+  const doFetch = opts.fetch ?? fetch;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 1500);
+  try {
+    const res = await doFetch(opts.url, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forms-token": opts.token },
+      body: JSON.stringify({ screenOut: opts.reason }),
+      signal: controller.signal,
+    });
+    return { ok: res.ok, status: res.status };
+  } catch {
+    return { ok: false, status: 0 };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export type ScreenInput = { botField?: string | null; elapsedMs?: number | null };
 export type ScreenResult = { ok: true } | { ok: false; reason: "honeypot" | "too-fast" };
 
