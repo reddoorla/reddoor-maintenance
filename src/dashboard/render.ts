@@ -150,13 +150,21 @@ function submissionRow(s: SubmissionRow): string {
   </li>`;
 }
 
+const SUBMISSIONS_PER_SITE_CAP = 25;
+
 function submissionsSection(submissions: SubmissionRow[]): string {
   if (submissions.length === 0) return "";
   const recent = [...submissions]
     .sort((a, b) => (b.submittedAt ?? "").localeCompare(a.submittedAt ?? ""))
-    .slice(0, 25);
+    .slice(0, SUBMISSIONS_PER_SITE_CAP);
+  // The heading shows the true total; when we only list a slice, say so rather
+  // than implying every one of the N is on the page.
+  const note =
+    submissions.length > recent.length
+      ? `<span class="muted"> — showing ${recent.length} of ${submissions.length}</span>`
+      : "";
   return `<div class="section submissions">
-    <h2>Form submissions (${submissions.length})</h2>
+    <h2>Form submissions (${submissions.length})${note}</h2>
     <ul class="subm-list">${recent.map(submissionRow).join("")}</ul>
   </div>`;
 }

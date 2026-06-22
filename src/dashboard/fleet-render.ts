@@ -210,10 +210,19 @@ function approveStrip(model: CockpitModel): string {
   </section>`;
 }
 
+/** Most submissions to render in the cockpit strip. The heading still shows the
+ *  true fleet total; overflow is triaged on each site's page (which lists 25). */
+const SUBMISSIONS_STRIP_CAP = 10;
+
 function submissionsStrip(model: CockpitModel): string {
   const subs: SubmissionEntry[] = model.submissions ?? [];
   if (subs.length === 0) return "";
-  const rows = subs
+  // Render the newest N only — the strip is a triage prompt, not the inbox. Sort
+  // defensively (the builder preserves input order, which is already newest-first).
+  const shown = [...subs]
+    .sort((a, b) => (b.submittedAt ?? "").localeCompare(a.submittedAt ?? ""))
+    .slice(0, SUBMISSIONS_STRIP_CAP);
+  const rows = shown
     .map((sub) => {
       const href = `/s/${escapeHtml(sub.slug)}`;
       const when = sub.submittedAt ? escapeHtml(relativeTimeFromNow(sub.submittedAt)) : "";
@@ -226,9 +235,14 @@ function submissionsStrip(model: CockpitModel): string {
       </div>`;
     })
     .join("");
+  const overflow = subs.length - shown.length;
+  const more =
+    overflow > 0
+      ? `<div class="approve-row subm-more muted">+${overflow} more — triage on each site page</div>`
+      : "";
   return `<section class="approve-strip subm-strip" data-tier="submissions">
     <h2>📥 New submissions (${subs.length})</h2>
-    ${rows}
+    ${rows}${more}
   </section>`;
 }
 
