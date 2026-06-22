@@ -336,6 +336,54 @@ describe("renderCockpitHtml — approve strip", () => {
   });
 });
 
+describe("renderCockpitHtml — submissions strip cap", () => {
+  /** Minimal new-submission row; buildCockpitModel only reads id/siteId/formType/name/email/submittedAt. */
+  function sub(siteId: string, n: number) {
+    return {
+      id: `sub${n}`,
+      siteId,
+      formType: "contact",
+      name: `Person ${n}`,
+      email: `p${n}@example.com`,
+      // Descending timestamps so n=1 is newest.
+      submittedAt: `2026-06-${String(20 - (n % 20)).padStart(2, "0")}T12:00:00Z`,
+    } as never;
+  }
+
+  it("caps the strip at 10 rows, keeps the true total in the heading, and links onward", () => {
+    const newSubs = Array.from({ length: 13 }, (_, i) => sub("recSITE", i + 1));
+    const m = buildCockpitModel(
+      [siteRow({ id: "recSITE", name: "Acme Co" })],
+      [],
+      {},
+      BASE,
+      NOW,
+      newSubs,
+    );
+    const html = renderCockpitHtml(m);
+    const rendered = (html.match(/data-signal="submissions"/g) ?? []).length;
+    expect(rendered).toBe(10);
+    expect(html).toContain("New submissions (13)"); // true total, not the capped count
+    expect(html).toContain("+3 more");
+  });
+
+  it("renders every row and no '+more' line when at or under the cap", () => {
+    const newSubs = Array.from({ length: 4 }, (_, i) => sub("recSITE", i + 1));
+    const m = buildCockpitModel(
+      [siteRow({ id: "recSITE", name: "Acme Co" })],
+      [],
+      {},
+      BASE,
+      NOW,
+      newSubs,
+    );
+    const html = renderCockpitHtml(m);
+    expect((html.match(/data-signal="submissions"/g) ?? []).length).toBe(4);
+    expect(html).toContain("New submissions (4)");
+    expect(html).not.toMatch(/\+\d+ more/);
+  });
+});
+
 describe("renderCockpitHtml — cockpit cards", () => {
   it("puts a status pill and the site's attention chips on the card, with data-signals", () => {
     const html = renderCockpitHtml(

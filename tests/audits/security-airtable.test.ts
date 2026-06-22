@@ -1,6 +1,20 @@
 import { describe, it, expect } from "vitest";
-import { hasSecurityCounts, securityCountsFromResult } from "../../src/audits/security-airtable.js";
+import {
+  hasSecurityCounts,
+  securityCountsFromResult,
+  advisoriesFromResult,
+} from "../../src/audits/security-airtable.js";
 import type { AuditResult } from "../../src/types.js";
+
+function secResultWith(advisories: unknown): AuditResult {
+  return {
+    audit: "security",
+    site: "acme",
+    status: "fail",
+    summary: "vulns",
+    details: { counts: { low: 0, moderate: 0, high: 1, critical: 0 }, advisories },
+  } as unknown as AuditResult;
+}
 
 function secResult(
   counts: { low: number; moderate: number; high: number; critical: number } | undefined,
@@ -52,5 +66,57 @@ describe("securityCountsFromResult", () => {
       audit: "deps",
     } as AuditResult;
     expect(() => securityCountsFromResult(bad)).toThrow(/Expected a 'security'/);
+  });
+});
+
+describe("advisoriesFromResult", () => {
+  it("normalizes well-formed advisories (defaulting cves/url)", () => {
+    const out = advisoriesFromResult(
+      secResultWith([
+        {
+          module: "esbuild",
+          severity: "high",
+          title: "dev server SSRF",
+          cves: ["CVE-1"],
+          url: "https://x",
+        },
+        { module: "axios", severity: "moderate", title: "ReDoS" }, // no cves/url
+      ]),
+    );
+    expect(out).toEqual([
+      {
+        module: "esbuild",
+        severity: "high",
+        title: "dev server SSRF",
+        cves: ["CVE-1"],
+        url: "https://x",
+      },
+      { module: "axios", severity: "moderate", title: "ReDoS", cves: [], url: null },
+    ]);
+  });
+
+  it("drops malformed entries (missing module / bad severity / non-object)", () => {
+    const out = advisoriesFromResult(
+      secResultWith([
+        { severity: "high", title: "no module" }, // dropped
+        { module: "ok", severity: "banana" }, // dropped (bad severity)
+        null, // dropped
+        { module: "good", severity: "critical", title: "kept" },
+      ]),
+    );
+    expect(out).toEqual([
+      { module: "good", severity: "critical", title: "kept", cves: [], url: null },
+    ]);
+  });
+
+  it("returns [] when advisories are absent or not an array (clean / detail-less run)", () => {
+    expect(advisoriesFromResult(secResultWith(undefined))).toEqual([]);
+    expect(advisoriesFromResult(secResultWith("nope"))).toEqual([]);
+    expect(advisoriesFromResult(secResultWith([]))).toEqual([]);
+  });
+
+  it("throws if given a non-security AuditResult", () => {
+    const bad = { ...secResultWith([]), audit: "deps" } as AuditResult;
+    expect(() => advisoriesFromResult(bad)).toThrow(/Expected a 'security'/);
   });
 });

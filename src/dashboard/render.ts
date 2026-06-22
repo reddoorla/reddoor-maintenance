@@ -1,4 +1,5 @@
-import type { WebsiteRow } from "../reports/airtable/websites.js";
+import type { WebsiteRow, SecurityAdvisory } from "../reports/airtable/websites.js";
+import { SEVERITY_RANK } from "../reports/airtable/websites.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
 import { isPendingApproval } from "../reports/airtable/reports.js";
 import type { SubmissionRow } from "../reports/airtable/submissions.js";
@@ -45,6 +46,37 @@ function securitySub(site: WebsiteRow): string | null {
   const m = site.securityVulnsModerate ?? 0;
   const l = site.securityVulnsLow ?? 0;
   return `${c}C / ${h}H / ${m}M / ${l}L`;
+}
+
+/** One advisory line: a severity pill, the vulnerable module, the advisory title, any CVEs,
+ *  and a link to the advisory when present. All Airtable-sourced text is escaped. */
+function advisoryRow(a: SecurityAdvisory): string {
+  const sev = escapeHtml(a.severity);
+  const module = escapeHtml(a.module);
+  const title = a.title ? ` — ${escapeHtml(a.title)}` : "";
+  const cves =
+    a.cves.length > 0 ? ` <span class="muted">(${escapeHtml(a.cves.join(", "))})</span>` : "";
+  const link = a.url
+    ? ` <a href="${escapeHtml(safeUrl(a.url))}" rel="noopener noreferrer">advisory ▸</a>`
+    : "";
+  return `<li class="vuln-item">
+    <span class="pill sev-${sev}">${sev}</span>
+    <strong>${module}</strong>${title}${cves}${link}
+  </li>`;
+}
+
+/** The per-site vulnerability list — which packages are vulnerable, severity-sorted, not just the
+ *  totals tile. Omitted entirely when the site was never audited (`null`) or is clean (empty). */
+function securitySection(site: WebsiteRow): string {
+  const advisories = site.securityAdvisories;
+  if (!advisories || advisories.length === 0) return "";
+  const sorted = [...advisories].sort(
+    (a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity],
+  );
+  return `<div class="section vulns">
+    <h2>Vulnerabilities (${sorted.length})</h2>
+    <ul class="vuln-list">${sorted.map(advisoryRow).join("")}</ul>
+  </div>`;
 }
 
 /** The interactive operator-checklist for one pending report: one checkbox per
@@ -150,13 +182,21 @@ function submissionRow(s: SubmissionRow): string {
   </li>`;
 }
 
+const SUBMISSIONS_PER_SITE_CAP = 25;
+
 function submissionsSection(submissions: SubmissionRow[]): string {
   if (submissions.length === 0) return "";
   const recent = [...submissions]
     .sort((a, b) => (b.submittedAt ?? "").localeCompare(a.submittedAt ?? ""))
-    .slice(0, 25);
+    .slice(0, SUBMISSIONS_PER_SITE_CAP);
+  // The heading shows the true total; when we only list a slice, say so rather
+  // than implying every one of the N is on the page.
+  const note =
+    submissions.length > recent.length
+      ? `<span class="muted"> — showing ${recent.length} of ${submissions.length}</span>`
+      : "";
   return `<div class="section submissions">
-    <h2>Form submissions (${submissions.length})</h2>
+    <h2>Form submissions (${submissions.length})${note}</h2>
     <ul class="subm-list">${recent.map(submissionRow).join("")}</ul>
   </div>`;
 }
@@ -250,6 +290,13 @@ button.subm-status:disabled { opacity: 0.6; cursor: default; }
 .pill.subm-read { background: #f0f0f0; color: #555; }
 .pill.subm-archived { background: #eee; color: #888; }
 .pill.subm-spam { background: #fdecea; color: #b00; }
+.vuln-list { list-style: none; padding: 0; margin: 0; }
+.vuln-item { padding: 0.45rem 0; border-bottom: 1px solid #eee; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: baseline; }
+@media (prefers-color-scheme: dark) { .vuln-item { border-color: #2a2a2a; } }
+.pill.sev-critical { background: #fdecea; color: #b00; }
+.pill.sev-high { background: #fff0e6; color: #c4500a; }
+.pill.sev-moderate { background: #fff8e1; color: #8a6d00; }
+.pill.sev-low { background: #f0f0f0; color: #555; }
 .home { display: inline-block; font-size: 0.9rem; margin-bottom: 0.75rem; text-decoration: none; }
 .setup-line { font-size: 0.9rem; color: #666; margin-bottom: 1rem; }
 .setup-ok { color: #1b7a2f; font-weight: 600; }
@@ -344,6 +391,8 @@ export function renderSiteDashboardHtml(
     <h2>Site Health</h2>
     ${healthSection}
   </div>
+
+  ${securitySection(site)}
 
   <div class="section">
     <h2>Reports</h2>

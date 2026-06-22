@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { renderSiteDashboardHtml } from "../../src/dashboard/render.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
+import type { SubmissionRow } from "../../src/reports/airtable/submissions.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import { MAINTENANCE_CHECKLIST, TESTING_CHECKLIST } from "../../src/reports/checklist.js";
 import { escapeHtml } from "../../src/util/html.js";
@@ -161,6 +162,107 @@ describe("renderSiteDashboardHtml", () => {
     expect(html).not.toContain("<script>alert(1)</script>");
     expect(html).toContain("&lt;script&gt;");
     expect(html).not.toMatch(/href="javascript:/i);
+  });
+});
+
+describe("renderSiteDashboardHtml — vulnerabilities section", () => {
+  it("lists each advisory, severity-sorted, with module / title / CVE / link", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow({
+        securityAdvisories: [
+          {
+            module: "axios",
+            severity: "moderate",
+            title: "ReDoS",
+            cves: ["CVE-2"],
+            url: "https://a",
+          },
+          {
+            module: "esbuild",
+            severity: "critical",
+            title: "RCE",
+            cves: ["CVE-1"],
+            url: "https://b",
+          },
+        ],
+      }),
+      [],
+    );
+    expect(html).toContain("Vulnerabilities (2)");
+    expect(html).toContain("esbuild");
+    expect(html).toContain("axios");
+    expect(html).toContain("CVE-1");
+    expect(html).toContain('href="https://b"');
+    // critical (esbuild) must render before moderate (axios)
+    expect(html.indexOf("esbuild")).toBeLessThan(html.indexOf("axios"));
+  });
+
+  it("omits the section when the site was never audited (null)", () => {
+    const html = renderSiteDashboardHtml(siteRow({ securityAdvisories: null }), []);
+    expect(html).not.toContain("Vulnerabilities (");
+  });
+
+  it("omits the section when audited clean (empty array)", () => {
+    const html = renderSiteDashboardHtml(siteRow({ securityAdvisories: [] }), []);
+    expect(html).not.toContain("Vulnerabilities (");
+  });
+
+  it("escapes advisory text and rejects a javascript: advisory URL", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow({
+        securityAdvisories: [
+          {
+            module: "<script>x</script>",
+            severity: "high",
+            title: "<img src=x>",
+            cves: [],
+            url: "javascript:alert(1)",
+          },
+        ],
+      }),
+      [],
+    );
+    expect(html).not.toContain("<script>x</script>");
+    expect(html).toContain("&lt;script&gt;");
+    expect(html).not.toMatch(/href="javascript:/i);
+  });
+});
+
+describe("renderSiteDashboardHtml — submissions section", () => {
+  function submission(n: number): SubmissionRow {
+    return {
+      id: `sub${n}`,
+      submissionId: n,
+      siteId: "recSITE",
+      formType: "contact",
+      name: `Person ${n}`,
+      email: `p${n}@example.com`,
+      phone: null,
+      message: null,
+      extraFields: null,
+      sourceUrl: null,
+      utm: null,
+      submittedAt: `2026-06-${String(((n - 1) % 28) + 1).padStart(2, "0")}T12:00:00Z`,
+      status: "new",
+      notifyStatus: "sent",
+      resendMessageId: null,
+    };
+  }
+
+  it("shows 'showing 25 of N' when there are more submissions than the cap", () => {
+    const subs = Array.from({ length: 40 }, (_, i) => submission(i + 1));
+    const html = renderSiteDashboardHtml(siteRow(), [], subs);
+    expect(html).toContain("Form submissions (40)");
+    expect(html).toContain("showing 25 of 40");
+    expect((html.match(/class="subm-item"/g) ?? []).length).toBe(25);
+  });
+
+  it("omits the truncation note when at or under the cap", () => {
+    const subs = Array.from({ length: 5 }, (_, i) => submission(i + 1));
+    const html = renderSiteDashboardHtml(siteRow(), [], subs);
+    expect(html).toContain("Form submissions (5)");
+    expect(html).not.toMatch(/showing \d+ of/);
+    expect((html.match(/class="subm-item"/g) ?? []).length).toBe(5);
   });
 });
 
