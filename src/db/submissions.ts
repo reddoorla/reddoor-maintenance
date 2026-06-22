@@ -126,3 +126,29 @@ export async function stampNotified(
       : { notify_status: status };
   await db.updateTable("submissions").set(patch).where("id", "=", id).execute();
 }
+
+/** Insert a SubmissionRow verbatim, preserving its id, display number, and status.
+ *  ON CONFLICT(id) DO NOTHING makes the whole backfill re-runnable. */
+export async function backfillSubmission(db: Db, row: SubmissionRow): Promise<void> {
+  await db
+    .insertInto("submissions")
+    .values({
+      id: row.id,
+      submission_id: row.submissionId,
+      site_id: row.siteId,
+      form_type: row.formType,
+      name: row.name,
+      email: row.email,
+      phone: row.phone,
+      message: row.message,
+      extra_fields: row.extraFields,
+      source_url: row.sourceUrl,
+      utm: row.utm,
+      submitted_at: row.submittedAt,
+      status: row.status,
+      notify_status: row.notifyStatus,
+      resend_message_id: row.resendMessageId,
+    })
+    .onConflict((oc) => oc.column("id").doNothing())
+    .execute();
+}
