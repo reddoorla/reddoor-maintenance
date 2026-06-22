@@ -33,4 +33,30 @@ describe("submitScreenOut", () => {
     });
     expect(res.ok).toBe(false);
   });
+
+  it("aborts a hung fetch at the timeout and resolves to {ok:false} (can't delay the response)", async () => {
+    vi.useFakeTimers();
+    try {
+      // A fetch that never settles on its own — it only rejects when the abort
+      // signal fires. This is the one guarantee the AbortController exists for.
+      const fetch = vi.fn(
+        (_url: string | URL | Request, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+          }),
+      );
+      const p = submitScreenOut({
+        url: "https://dash/api/forms/acme",
+        token: "T",
+        reason: "honeypot",
+        fetch: fetch as unknown as typeof globalThis.fetch,
+        timeoutMs: 1000,
+      });
+      await vi.advanceTimersByTimeAsync(1000); // fire the timeout → abort → reject → catch
+      const res = await p;
+      expect(res.ok).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

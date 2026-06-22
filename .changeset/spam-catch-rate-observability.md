@@ -11,4 +11,5 @@ counter. The per-site page gains a "Spam screen (30d)" panel (caught honeypot/to
 marked spam) and the cockpit gains a one-line fleet roll-up (caught + through) — so you can tell a
 weaker screen (rising _through_) from more exposure (rising _caught_, steady _through_). Counts are
 approximate under high concurrency (the read side sums duplicate same-day buckets); the beacon never
-throws and is abort-bounded so a screened visitor never waits.
+throws and is abort-bounded (~1.5s), so the real-human clean path is never delayed and a hung beacon
+on a screened submit waits at most the timeout.
