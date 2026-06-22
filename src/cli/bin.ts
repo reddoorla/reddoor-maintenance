@@ -17,6 +17,7 @@ import { runInitCommand } from "./commands/init.js";
 import { runLaunchCommand } from "./commands/launch.js";
 import { runAnnounceCommand } from "./commands/announce.js";
 import { runGitHubSignalsCommand } from "./commands/github-signals.js";
+import { runDbCommand } from "./commands/db.js";
 import { resolvePackageVersion } from "./version.js";
 
 // Load credentials from ~/.config/reddoor-maint/credentials.env before any
@@ -350,6 +351,15 @@ cli
         () => runGitHubSignalsCommand({ fleet: opts.fleet, writeAirtable: opts.writeAirtable }),
         opts,
       ),
+  );
+
+cli
+  .command(
+    "db <action>",
+    "Migrate / backfill / reconcile the libSQL store (migrate | backfill | reconcile).",
+  )
+  .action(async (action: string, opts: { cwd?: string; verbose?: boolean }) =>
+    runOrExit(() => runDbCommand(action, opts), opts),
   );
 
 cli.help();
