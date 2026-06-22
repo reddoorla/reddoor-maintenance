@@ -12,7 +12,7 @@
 
 ## Deviation from spec (one mechanism change, flagged)
 
-The spec's Architecture section lists migrations as separate `src/db/migrations/NNNN_*.sql` files shipped via the `import.meta.url` walk-up asset pattern, and flags "`.sql` must resolve inside the Netlify function bundle" as the #1 implementation risk. **This plan inlines the migrations as standard-SQL template-string constants in `src/db/migrations.ts` instead.** Rationale: the asset walk-up pattern is proven for the CLI/dist path but has never been used for a Netlify function bundle in this repo; inlining keeps the SQL hand-owned and portable (paste any string into `sqlite3`/Turso) while letting tsup *and* Netlify's esbuild bundle it automatically — eliminating the shipping risk entirely with zero loss of the spec's intent (plain SQL, not Kysely's DSL). Everything else follows the spec exactly.
+The spec's Architecture section lists migrations as separate `src/db/migrations/NNNN_*.sql` files shipped via the `import.meta.url` walk-up asset pattern, and flags "`.sql` must resolve inside the Netlify function bundle" as the #1 implementation risk. **This plan inlines the migrations as standard-SQL template-string constants in `src/db/migrations.ts` instead.** Rationale: the asset walk-up pattern is proven for the CLI/dist path but has never been used for a Netlify function bundle in this repo; inlining keeps the SQL hand-owned and portable (paste any string into `sqlite3`/Turso) while letting tsup _and_ Netlify's esbuild bundle it automatically — eliminating the shipping risk entirely with zero loss of the spec's intent (plain SQL, not Kysely's DSL). Everything else follows the spec exactly.
 
 ## File structure
 
@@ -64,6 +64,7 @@ The CLI loads `~/.config/reddoor-maint/credentials.env` at startup. Confirm the 
 ## Task 1: Add deps, schema, migrations, and the migration runner
 
 **Files:**
+
 - Modify: `package.json` (dependencies)
 - Create: `src/db/schema.ts`
 - Create: `src/db/migrations.ts`
@@ -73,14 +74,17 @@ The CLI loads `~/.config/reddoor-maint/credentials.env` at startup. Confirm the 
 - [ ] **Step 1: Install the three runtime deps**
 
 Run:
+
 ```bash
 pnpm add @libsql/client kysely @libsql/kysely-libsql
 ```
+
 Expected: `package.json#dependencies` gains `@libsql/client`, `kysely`, `@libsql/kysely-libsql`; lockfile updates.
 
 - [ ] **Step 2: Write the `Database` schema interface**
 
 Create `src/db/schema.ts`:
+
 ```ts
 // The hand-written shape Kysely types every query from. SQLite stores TEXT/INTEGER
 // only, so these are the column *shapes* — the value domains (form_type, status,
@@ -129,6 +133,7 @@ export interface Database {
 - [ ] **Step 3: Write the migrations constant**
 
 Create `src/db/migrations.ts`:
+
 ```ts
 /** Ordered, append-only list of standard-SQL migration scripts. Each runs once,
  *  tracked by `id` in the `_migrations` table (see migrate.ts). Statements use
@@ -178,6 +183,7 @@ export const MIGRATIONS: Migration[] = [
 - [ ] **Step 4: Write the failing migration-runner test**
 
 Create `tests/db/migrate.test.ts`:
+
 ```ts
 import { describe, it, expect } from "vitest";
 import { createClient } from "@libsql/client";
@@ -216,6 +222,7 @@ Expected: FAIL — `Cannot find module '../../src/db/migrate.js'`.
 - [ ] **Step 6: Write the migration runner**
 
 Create `src/db/migrate.ts`:
+
 ```ts
 import type { Client } from "@libsql/client";
 import { MIGRATIONS } from "./migrations.js";
@@ -262,14 +269,16 @@ git commit -m "feat(db): libSQL schema + idempotent migration runner"
 ## Task 2: The db client — openDb returns a migrated Kysely
 
 **Files:**
+
 - Create: `src/db/client.ts`
 - Test: `tests/db/client.test.ts`
 
 - [ ] **Step 1: Write the failing client test**
 
-`openDb` must construct a single client, migrate it, and hand that *same* client to Kysely — otherwise an in-memory db migrated on one client is invisible to a Kysely on another. This test proves the round-trip end to end.
+`openDb` must construct a single client, migrate it, and hand that _same_ client to Kysely — otherwise an in-memory db migrated on one client is invisible to a Kysely on another. This test proves the round-trip end to end.
 
 Create `tests/db/client.test.ts`:
+
 ```ts
 import { describe, it, expect } from "vitest";
 import { sql } from "kysely";
@@ -321,6 +330,7 @@ Expected: FAIL — `Cannot find module '../../src/db/client.js'`.
 - [ ] **Step 3: Write the client**
 
 Create `src/db/client.ts`:
+
 ```ts
 import { createClient, type Client, type Config as LibsqlConfig } from "@libsql/client";
 import { Kysely } from "kysely";
@@ -384,9 +394,10 @@ git commit -m "feat(db): openDb — migrated Kysely over a shared libSQL client"
 
 ## Task 3: Extract the neutral submission-row module (single source of truth)
 
-The `SubmissionRow`/`SubmissionInput` shapes and the `toFormType`/`toStatus`/`toNotifyStatus` validators currently live (validators un-exported) inside `src/reports/airtable/submissions.ts`. The db module must reuse the *exact same* validators (spec: "carry the enum validators verbatim"). Extract them to an Airtable-free module and re-export for back-compat so no call site changes its import path.
+The `SubmissionRow`/`SubmissionInput` shapes and the `toFormType`/`toStatus`/`toNotifyStatus` validators currently live (validators un-exported) inside `src/reports/airtable/submissions.ts`. The db module must reuse the _exact same_ validators (spec: "carry the enum validators verbatim"). Extract them to an Airtable-free module and re-export for back-compat so no call site changes its import path.
 
 **Files:**
+
 - Create: `src/reports/submission-row.ts`
 - Modify: `src/reports/airtable/submissions.ts`
 - Test: `tests/reports/airtable/submissions.test.ts` (existing — must stay green), `tests/reports/submission-row.test.ts` (new)
@@ -394,6 +405,7 @@ The `SubmissionRow`/`SubmissionInput` shapes and the `toFormType`/`toStatus`/`to
 - [ ] **Step 1: Create the neutral module**
 
 Create `src/reports/submission-row.ts` (copy the types + validators **verbatim** from the current `airtable/submissions.ts`):
+
 ```ts
 import { SUBMISSION_FORM_TYPES, type FormType } from "../forms/types.js";
 
@@ -460,6 +472,7 @@ export type SubmissionInput = {
 - [ ] **Step 2: Rewrite the head of `airtable/submissions.ts` to import + re-export**
 
 In `src/reports/airtable/submissions.ts`, delete the local declarations of `SUBMISSION_STATUSES`, `SubmissionStatus`, `NOTIFY_STATUSES`, `NotifyStatus`, `toFormType`, `toStatus`, `toNotifyStatus`, `SubmissionRow`, `SubmissionInput`, and the `SUBMISSION_FORM_TYPES`/`FormType` re-export. Replace the top of the file (keep `SUBMISSIONS_TABLE`, `mapRow`, and all the `(base, …)` functions) with:
+
 ```ts
 import type { FieldSet, Records } from "airtable";
 import type { AirtableBase } from "./client.js";
@@ -493,11 +506,13 @@ export {
 };
 export type { FormType, SubmissionStatus, NotifyStatus, SubmissionRow, SubmissionInput };
 ```
+
 Leave `mapRow`, `createSubmission`, `listNewSubmissions`, `listSubmissionsForSite`, `getSubmissionById`, `setSubmissionStatusRow`, and `stampNotified` exactly as they are below that.
 
 - [ ] **Step 3: Write a small test for the extracted validators**
 
 Create `tests/reports/submission-row.test.ts`:
+
 ```ts
 import { describe, it, expect } from "vitest";
 import { toFormType, toStatus, toNotifyStatus } from "../../src/reports/submission-row.js";
@@ -541,12 +556,14 @@ git commit -m "refactor(submissions): extract row shape + enum validators to a n
 ## Task 4: db submissions — createSubmission + getSubmissionById
 
 **Files:**
+
 - Create: `src/db/submissions.ts`
 - Test: `tests/db/submissions.test.ts`
 
 - [ ] **Step 1: Write the failing test**
 
 Create `tests/db/submissions.test.ts`:
+
 ```ts
 import { describe, it, expect } from "vitest";
 import { openDb } from "../../src/db/client.js";
@@ -628,6 +645,7 @@ Expected: FAIL — `Cannot find module '../../src/db/submissions.js'`.
 - [ ] **Step 3: Write the module (create + read mapper + getById)**
 
 Create `src/db/submissions.ts`:
+
 ```ts
 import { sql } from "kysely";
 import type { Selectable } from "kysely";
@@ -670,11 +688,7 @@ export function newSubmissionId(): string {
 }
 
 export async function getSubmissionById(db: Db, id: string): Promise<SubmissionRow | null> {
-  const r = await db
-    .selectFrom("submissions")
-    .selectAll()
-    .where("id", "=", id)
-    .executeTakeFirst();
+  const r = await db.selectFrom("submissions").selectAll().where("id", "=", id).executeTakeFirst();
   return r ? rowFromDb(r) : null;
 }
 
@@ -729,12 +743,14 @@ git commit -m "feat(db): createSubmission + getSubmissionById on libSQL"
 ## Task 5: db submissions — list, status, stamp
 
 **Files:**
+
 - Modify: `src/db/submissions.ts`
 - Test: `tests/db/submissions.test.ts` (extend)
 
 - [ ] **Step 1: Add the failing tests**
 
 Append to `tests/db/submissions.test.ts`:
+
 ```ts
 import {
   listNewSubmissions,
@@ -832,6 +848,7 @@ Expected: FAIL — `listNewSubmissions` (and the others) are not exported.
 - [ ] **Step 3: Add the implementations**
 
 Append to `src/db/submissions.ts`:
+
 ```ts
 import type { SubmissionStatus, NotifyStatus } from "../reports/submission-row.js";
 
@@ -902,6 +919,7 @@ git commit -m "feat(db): list/status/stamp submission queries on libSQL"
 ## Task 6: db screenouts — atomic upsert counters + windowed read
 
 **Files:**
+
 - Create: `src/db/screenouts.ts`
 - Test: `tests/db/screenouts.test.ts`
 
@@ -910,6 +928,7 @@ git commit -m "feat(db): list/status/stamp submission queries on libSQL"
 The atomic `ON CONFLICT … DO UPDATE … + 1` clause is the whole reason for the move — its exactness must be proven under concurrent calls.
 
 Create `tests/db/screenouts.test.ts`:
+
 ```ts
 import { describe, it, expect } from "vitest";
 import { openDb } from "../../src/db/client.js";
@@ -979,6 +998,7 @@ Expected: FAIL — `Cannot find module '../../src/db/screenouts.js'`.
 - [ ] **Step 3: Write the module**
 
 Create `src/db/screenouts.ts`:
+
 ```ts
 import { sql } from "kysely";
 import type { Db } from "./client.js";
@@ -1070,6 +1090,7 @@ git commit -m "feat(db): exact spam-screenout counters via atomic upsert on libS
 ## Task 7: Backfill — submissions (id-preserving, idempotent)
 
 **Files:**
+
 - Modify: `src/db/submissions.ts` (add `backfillSubmission`)
 - Create: `src/db/backfill.ts`
 - Test: `tests/db/backfill-submissions.test.ts`
@@ -1077,10 +1098,15 @@ git commit -m "feat(db): exact spam-screenout counters via atomic upsert on libS
 - [ ] **Step 1: Add the failing test for `backfillSubmission`**
 
 Create `tests/db/backfill-submissions.test.ts`:
+
 ```ts
 import { describe, it, expect } from "vitest";
 import { openDb } from "../../src/db/client.js";
-import { backfillSubmission, getSubmissionById, listNewSubmissions } from "../../src/db/submissions.js";
+import {
+  backfillSubmission,
+  getSubmissionById,
+  listNewSubmissions,
+} from "../../src/db/submissions.js";
 import type { SubmissionRow } from "../../src/reports/submission-row.js";
 
 const ROW: SubmissionRow = {
@@ -1129,6 +1155,7 @@ Expected: FAIL — `backfillSubmission` is not exported.
 - [ ] **Step 3: Add `backfillSubmission`**
 
 Append to `src/db/submissions.ts`:
+
 ```ts
 /** Insert a SubmissionRow verbatim, preserving its id, display number, and status.
  *  ON CONFLICT(id) DO NOTHING makes the whole backfill re-runnable. */
@@ -1160,6 +1187,7 @@ export async function backfillSubmission(db: Db, row: SubmissionRow): Promise<vo
 - [ ] **Step 4: Add the failing test for the Airtable→libSQL submission copy**
 
 Create the orchestration test in `tests/db/backfill-submissions.test.ts` (append). It uses a tiny fake base that pages a seeded `Submissions` table (mirroring the existing fake-base style in `tests/reports/airtable/screenouts.test.ts`):
+
 ```ts
 import { backfillSubmissions } from "../../src/db/backfill.js";
 import type { AirtableBase } from "../../src/reports/airtable/client.js";
@@ -1212,6 +1240,7 @@ Expected: FAIL — `Cannot find module '../../src/db/backfill.js'`.
 - [ ] **Step 6: Write `backfillSubmissions` in `src/db/backfill.ts`**
 
 Create `src/db/backfill.ts`:
+
 ```ts
 import type { AirtableBase } from "../reports/airtable/client.js";
 import { SUBMISSIONS_TABLE, mapRow } from "../reports/airtable/submissions.js";
@@ -1255,6 +1284,7 @@ git commit -m "feat(db): backfill submissions from Airtable, id-preserving + ide
 ## Task 8: Backfill — spam screen-out buckets (aggregate dupes, idempotent)
 
 **Files:**
+
 - Modify: `src/db/screenouts.ts` (add `backfillScreenoutBucket`)
 - Modify: `src/db/backfill.ts` (add `backfillScreenouts`)
 - Test: `tests/db/backfill-screenouts.test.ts`
@@ -1262,6 +1292,7 @@ git commit -m "feat(db): backfill submissions from Airtable, id-preserving + ide
 - [ ] **Step 1: Add the failing test**
 
 Create `tests/db/backfill-screenouts.test.ts`:
+
 ```ts
 import { describe, it, expect } from "vitest";
 import { openDb } from "../../src/db/client.js";
@@ -1310,6 +1341,7 @@ Expected: FAIL — `backfillScreenouts` is not exported.
 - [ ] **Step 3: Add `backfillScreenoutBucket` (replace-upsert)**
 
 Append to `src/db/screenouts.ts`:
+
 ```ts
 /** Set the (site, date) bucket to exact totals. Replace-upsert (DO UPDATE SET col
  *  = excluded.col) so re-running the backfill is idempotent. The caller pre-sums
@@ -1332,6 +1364,7 @@ export async function backfillScreenoutBucket(
 - [ ] **Step 4: Add `backfillScreenouts` to `src/db/backfill.ts`**
 
 Append to `src/db/backfill.ts`:
+
 ```ts
 import { SCREENOUTS_TABLE } from "../reports/airtable/screenouts.js";
 import { backfillScreenoutBucket } from "./screenouts.js";
@@ -1344,7 +1377,10 @@ function num(v: unknown): number {
  *  buckets in JS, then replace-upsert each aggregated bucket into libSQL. Returns
  *  the number of aggregated (site, date) buckets written. */
 export async function backfillScreenouts(base: AirtableBase, db: Db): Promise<number> {
-  const agg = new Map<string, { siteId: string; date: string; honeypot: number; tooFast: number; markedSpam: number }>();
+  const agg = new Map<
+    string,
+    { siteId: string; date: string; honeypot: number; tooFast: number; markedSpam: number }
+  >();
   await base(SCREENOUTS_TABLE)
     .select({ pageSize: 100 })
     .eachPage((records, fetchNextPage) => {
@@ -1384,12 +1420,14 @@ git commit -m "feat(db): backfill spam-screenout buckets, dup-merging + idempote
 ## Task 9: Reconcile — gate the cutover on parity
 
 **Files:**
+
 - Modify: `src/db/backfill.ts` (add `reconcile`)
 - Test: `tests/db/reconcile.test.ts`
 
 - [ ] **Step 1: Add the failing test**
 
 Create `tests/db/reconcile.test.ts`:
+
 ```ts
 import { describe, it, expect } from "vitest";
 import { openDb } from "../../src/db/client.js";
@@ -1411,7 +1449,14 @@ function fakeBase(submissions: Rec[], screenouts: Rec[]) {
 
 const SUB: Rec = {
   id: "recX",
-  fields: { Site: ["recA"], "Form type": "contact", Name: "G", Email: "g@example.com", "Submitted at": "2026-06-19T00:00:00.000Z", Status: "new" },
+  fields: {
+    Site: ["recA"],
+    "Form type": "contact",
+    Name: "G",
+    Email: "g@example.com",
+    "Submitted at": "2026-06-19T00:00:00.000Z",
+    Status: "new",
+  },
 };
 const SCREEN: Rec = { id: "s1", fields: { Site: ["recA"], Date: "2026-06-20", Honeypot: 2 } };
 
@@ -1432,7 +1477,13 @@ describe("reconcile", () => {
     await backfillSubmissions(base, db);
     await backfillScreenouts(base, db);
     // Add a row only to libSQL → counts diverge.
-    await createSubmission(db, { siteId: "recA", formType: "contact", name: "Z", email: "z@example.com", submittedAt: new Date("2026-06-22T00:00:00.000Z") });
+    await createSubmission(db, {
+      siteId: "recA",
+      formType: "contact",
+      name: "Z",
+      email: "z@example.com",
+      submittedAt: new Date("2026-06-22T00:00:00.000Z"),
+    });
     const report = await reconcile(base, db);
     expect(report.ok).toBe(false);
     expect(report.submissions).toEqual({ airtable: 1, libsql: 2 });
@@ -1448,6 +1499,7 @@ Expected: FAIL — `reconcile` is not exported.
 - [ ] **Step 3: Add `reconcile`**
 
 Append to `src/db/backfill.ts`:
+
 ```ts
 import { sql } from "kysely";
 import { listScreenOutsSince } from "./screenouts.js";
@@ -1522,6 +1574,7 @@ git commit -m "feat(db): reconcile — parity gate over submission + screen-out 
 ## Task 10: CLI `db` command — migrate / backfill / reconcile
 
 **Files:**
+
 - Create: `src/cli/commands/db.ts`
 - Modify: `src/cli/bin.ts`
 - Modify: `scripts/smoke-dist.mjs`
@@ -1530,6 +1583,7 @@ git commit -m "feat(db): reconcile — parity gate over submission + screen-out 
 - [ ] **Step 1: Write the failing command test**
 
 Create `tests/cli/db-command.test.ts`:
+
 ```ts
 import { describe, it, expect } from "vitest";
 import { runDbCommand } from "../../src/cli/commands/db.js";
@@ -1558,6 +1612,7 @@ Expected: FAIL — `Cannot find module '../../src/cli/commands/db.js'`.
 - [ ] **Step 3: Write the command**
 
 Create `src/cli/commands/db.ts`:
+
 ```ts
 export type DbCommandOptions = {
   /** Override the libSQL url (tests use ":memory:"); otherwise read from env. */
@@ -1626,13 +1681,19 @@ Expected: PASS.
 - [ ] **Step 5: Register the command in `bin.ts`**
 
 Add the import near the other command imports in `src/cli/bin.ts`:
+
 ```ts
 import { runDbCommand } from "./commands/db.js";
 ```
+
 Add the command registration just before `cli.help();`:
+
 ```ts
 cli
-  .command("db <action>", "Migrate / backfill / reconcile the libSQL store (migrate | backfill | reconcile).")
+  .command(
+    "db <action>",
+    "Migrate / backfill / reconcile the libSQL store (migrate | backfill | reconcile).",
+  )
   .action(async (action: string, opts: { cwd?: string; verbose?: boolean }) =>
     runOrExit(() => runDbCommand(action, opts), opts),
   );
@@ -1659,6 +1720,7 @@ git commit -m "feat(cli): db migrate|backfill|reconcile command"
 - [ ] **Step 9: Add a changeset for the new db capability**
 
 Create `.changeset/hybrid-db-libsql-store.md`:
+
 ```md
 ---
 "@reddoorla/maintenance": minor
@@ -1703,11 +1765,13 @@ Expected: `OK — parity confirmed.` (exit 0). If it prints `MISMATCH`, STOP —
 ## Task 12: Flip `form-ingest.mts` (writes + screen-out beacon; dual-write soak)
 
 **Files:**
+
 - Modify: `netlify/functions/form-ingest.mts`
 
 - [ ] **Step 1: Swap the write deps to libSQL, keep Airtable for the website lookup + dual-write**
 
 Edit the imports at the top of `netlify/functions/form-ingest.mts`. Keep `openBase` and `getWebsiteBySlug`. Change the submission/screen-out imports to the db modules, and add aliased Airtable imports for the dual-write shadow:
+
 ```ts
 import { openBase } from "../../src/reports/airtable/client.js";
 import { getWebsiteBySlug } from "../../src/reports/airtable/websites.js";
@@ -1723,48 +1787,53 @@ import { ingestSubmission, parseScreenOut, ingestScreenOut } from "../../src/for
 - [ ] **Step 2: Require the Turso env alongside Airtable, open both, and gate dual-write on a flag**
 
 In the GET health-check `env` object, add `TURSO_DATABASE_URL: typeof process.env.TURSO_DATABASE_URL === "string"`. After the existing Airtable env check, add:
+
 ```ts
-  if (!process.env.TURSO_DATABASE_URL) {
-    console.error("[form-ingest] TURSO_DATABASE_URL missing");
-    return json({ ok: false, error: "db-env-missing" }, 500);
-  }
+if (!process.env.TURSO_DATABASE_URL) {
+  console.error("[form-ingest] TURSO_DATABASE_URL missing");
+  return json({ ok: false, error: "db-env-missing" }, 500);
+}
 ```
+
 Inside the `try`, replace `const base = openBase({ apiKey, baseId });` with:
+
 ```ts
-    const base = openBase({ apiKey, baseId });
-    const db = await openDb(readDbConfig());
-    // Brief cutover soak: when DUAL_WRITE_AIRTABLE=1, also shadow-write captured
-    // leads + screen-outs to Airtable (best-effort, swallowed) as rollback
-    // insurance. libSQL is the source of truth. Removed after the soak.
-    const dualWrite = process.env.DUAL_WRITE_AIRTABLE === "1";
+const base = openBase({ apiKey, baseId });
+const db = await openDb(readDbConfig());
+// Brief cutover soak: when DUAL_WRITE_AIRTABLE=1, also shadow-write captured
+// leads + screen-outs to Airtable (best-effort, swallowed) as rollback
+// insurance. libSQL is the source of truth. Removed after the soak.
+const dualWrite = process.env.DUAL_WRITE_AIRTABLE === "1";
 ```
 
 - [ ] **Step 3: Point the screen-out branch at libSQL (+ optional shadow)**
 
 Replace the `recordScreenOut` dep in the screen-out branch:
+
 ```ts
-      const r = await ingestScreenOut(
-        {
-          getWebsiteBySlug: (s) => getWebsiteBySlug(base, s),
-          recordScreenOut: async (siteId, reason) => {
-            await recordScreenOut(db, siteId, reason, date);
-            if (dualWrite) {
-              try {
-                await airtableRecordScreenOut(base, siteId, reason, date);
-              } catch (e) {
-                console.error(`[form-ingest] dual-write screen-out failed: ${String(e)}`);
-              }
-            }
-          },
-        },
-        slug,
-        screenOutReason,
-      );
+const r = await ingestScreenOut(
+  {
+    getWebsiteBySlug: (s) => getWebsiteBySlug(base, s),
+    recordScreenOut: async (siteId, reason) => {
+      await recordScreenOut(db, siteId, reason, date);
+      if (dualWrite) {
+        try {
+          await airtableRecordScreenOut(base, siteId, reason, date);
+        } catch (e) {
+          console.error(`[form-ingest] dual-write screen-out failed: ${String(e)}`);
+        }
+      }
+    },
+  },
+  slug,
+  screenOutReason,
+);
 ```
 
 - [ ] **Step 4: Point the submission ingest at libSQL (+ optional shadow create)**
 
 In the `ingestSubmission` deps, replace the `createSubmission` and `stampNotified` lines:
+
 ```ts
         createSubmission: async (input) => {
           const row = await createSubmission(db, input);
@@ -1780,6 +1849,7 @@ In the `ingestSubmission` deps, replace the `createSubmission` and `stampNotifie
         notify: makeNotify(send),
         stampNotified: (id, status, messageId) => stampNotified(db, id, status, messageId),
 ```
+
 (The shadow Airtable row is intentionally left unstamped — it is rollback insurance for the lead content, not a perfectly mirrored record.)
 
 - [ ] **Step 5: Typecheck the handlers**
@@ -1806,11 +1876,13 @@ git commit -m "feat(forms): ingest writes submissions + screen-outs to libSQL (A
 The only data this handler touches — submissions and the marked-spam counter — both move to libSQL, so it needs no Airtable at all after the flip. (Triage state is not dual-written; the brief-soak rollback caveat is that triage performed during the soak would not be reflected in the Airtable shadow rows. Acceptable for a short soak — documented in the spec.)
 
 **Files:**
+
 - Modify: `netlify/functions/submission-status.mts`
 
 - [ ] **Step 1: Replace the Airtable imports with db imports**
 
 In `netlify/functions/submission-status.mts`, replace:
+
 ```ts
 import { openBase } from "../../src/reports/airtable/client.js";
 import {
@@ -1820,7 +1892,9 @@ import {
 import { setSubmissionStatus, verifyBasicAuth } from "../../src/dashboard/index.js";
 import { recordMarkedSpam } from "../../src/reports/airtable/screenouts.js";
 ```
+
 with:
+
 ```ts
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import { getSubmissionById, setSubmissionStatusRow } from "../../src/db/submissions.js";
@@ -1831,37 +1905,41 @@ import { recordMarkedSpam } from "../../src/db/screenouts.js";
 - [ ] **Step 2: Swap the env check from Airtable to Turso**
 
 In the GET health-check `env` object, replace the two `AIRTABLE_*` booleans with `TURSO_DATABASE_URL: typeof process.env.TURSO_DATABASE_URL === "string"`. Replace the Airtable env block:
+
 ```ts
-  const apiKey = process.env.AIRTABLE_PAT;
-  const baseId = process.env.AIRTABLE_BASE_ID;
-  if (!apiKey || !baseId) {
-    console.error("[submission-status] AIRTABLE_PAT or AIRTABLE_BASE_ID missing");
-    return json({ ok: false, error: "airtable-env-missing" }, 500);
-  }
+const apiKey = process.env.AIRTABLE_PAT;
+const baseId = process.env.AIRTABLE_BASE_ID;
+if (!apiKey || !baseId) {
+  console.error("[submission-status] AIRTABLE_PAT or AIRTABLE_BASE_ID missing");
+  return json({ ok: false, error: "airtable-env-missing" }, 500);
+}
 ```
+
 with:
+
 ```ts
-  if (!process.env.TURSO_DATABASE_URL) {
-    console.error("[submission-status] TURSO_DATABASE_URL missing");
-    return json({ ok: false, error: "db-env-missing" }, 500);
-  }
+if (!process.env.TURSO_DATABASE_URL) {
+  console.error("[submission-status] TURSO_DATABASE_URL missing");
+  return json({ ok: false, error: "db-env-missing" }, 500);
+}
 ```
 
 - [ ] **Step 3: Open the db and rewire the deps**
 
 Replace the `try` body's `const base = openBase({ apiKey, baseId });` + `setSubmissionStatus(...)` deps with:
+
 ```ts
-    const db = await openDb(readDbConfig());
-    const result = await setSubmissionStatus(
-      {
-        getSubmissionById: (sid) => getSubmissionById(db, sid),
-        setSubmissionStatusRow: (sid, status) => setSubmissionStatusRow(db, sid, status),
-        recordMarkedSpam: (siteId) =>
-          recordMarkedSpam(db, siteId, new Date().toISOString().slice(0, 10)),
-      },
-      id,
-      requested,
-    );
+const db = await openDb(readDbConfig());
+const result = await setSubmissionStatus(
+  {
+    getSubmissionById: (sid) => getSubmissionById(db, sid),
+    setSubmissionStatusRow: (sid, status) => setSubmissionStatusRow(db, sid, status),
+    recordMarkedSpam: (siteId) =>
+      recordMarkedSpam(db, siteId, new Date().toISOString().slice(0, 10)),
+  },
+  id,
+  requested,
+);
 ```
 
 - [ ] **Step 4: Typecheck + built-artifact gate**
@@ -1883,66 +1961,84 @@ git commit -m "feat(dashboard): submission status + marked-spam now read/write l
 Both keep Airtable for the back-office data they still own (websites/reports/digest) and switch the submission + screen-out reads to libSQL.
 
 **Files:**
+
 - Modify: `netlify/functions/site-dashboard.mts`
 - Modify: `netlify/functions/fleet-homepage.mts`
 
 - [ ] **Step 1: site-dashboard — switch the submission + screen-out reads**
 
 In `netlify/functions/site-dashboard.mts`, replace these two imports:
+
 ```ts
 import { listSubmissionsForSite } from "../../src/reports/airtable/submissions.js";
 import { listScreenOutsSince, screenOutsSince } from "../../src/reports/airtable/screenouts.js";
 ```
+
 with:
+
 ```ts
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import { listSubmissionsForSite } from "../../src/db/submissions.js";
 import { listScreenOutsSince, screenOutsSince } from "../../src/db/screenouts.js";
 ```
+
 Inside the `try`, right after `const base = openBase({ apiKey, baseId });`, add:
+
 ```ts
-    const db = await openDb(readDbConfig());
+const db = await openDb(readDbConfig());
 ```
+
 Change the two read calls from `base` to `db`:
+
 - `submissions = await listSubmissionsForSite(db, { id: site.id, name: site.name });`
 - `spamTotals = (await listScreenOutsSince(db, since)).get(site.id) ?? null;`
 
 Also update the `import("...").ScreenOutTotals` type annotation on `spamTotals` to point at the db module:
+
 ```ts
-    let spamTotals: import("../../src/db/screenouts.js").ScreenOutTotals | null = null;
+let spamTotals: import("../../src/db/screenouts.js").ScreenOutTotals | null = null;
 ```
+
 Add `TURSO_DATABASE_URL` to the GET health-check `env` object, and add the Turso env guard alongside the existing Airtable one:
+
 ```ts
-  if (!process.env.TURSO_DATABASE_URL) {
-    console.error("[site-dashboard] TURSO_DATABASE_URL missing");
-    return plainText("Turso env missing", 500);
-  }
+if (!process.env.TURSO_DATABASE_URL) {
+  console.error("[site-dashboard] TURSO_DATABASE_URL missing");
+  return plainText("Turso env missing", 500);
+}
 ```
 
 - [ ] **Step 2: fleet-homepage — switch the new-submissions + screen-out roll-up reads**
 
 In `netlify/functions/fleet-homepage.mts`, replace:
+
 ```ts
 import { listNewSubmissions } from "../../src/reports/airtable/submissions.js";
 import { listScreenOutsSince, screenOutsSince } from "../../src/reports/airtable/screenouts.js";
 ```
+
 with:
+
 ```ts
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import { listNewSubmissions } from "../../src/db/submissions.js";
 import { listScreenOutsSince, screenOutsSince } from "../../src/db/screenouts.js";
 ```
+
 Inside the `try`, right after `const base = openBase({ apiKey, baseId });`, add:
+
 ```ts
-    const db = await openDb(readDbConfig());
+const db = await openDb(readDbConfig());
 ```
+
 Change `newSubmissions = await listNewSubmissions(base);` → `listNewSubmissions(db)`, and in the spam roll-up block change `await listScreenOutsSince(base, since)` → `await listScreenOutsSince(db, since)`.
 Add the Turso env guard alongside the Airtable one near the top of the handler:
+
 ```ts
-  if (!process.env.TURSO_DATABASE_URL) {
-    console.error("[fleet-homepage] TURSO_DATABASE_URL missing");
-    return plainText("Turso env missing", 500);
-  }
+if (!process.env.TURSO_DATABASE_URL) {
+  console.error("[fleet-homepage] TURSO_DATABASE_URL missing");
+  return plainText("Turso env missing", 500);
+}
 ```
 
 - [ ] **Step 3: Typecheck + built-artifact gate + full suite**
@@ -1960,6 +2056,7 @@ git commit -m "feat(dashboard): submission + spam reads served from libSQL"
 - [ ] **Step 5: Add the cutover changeset**
 
 Create `.changeset/hybrid-db-cutover.md`:
+
 ```md
 ---
 "@reddoorla/maintenance": minor
@@ -1994,6 +2091,7 @@ Once satisfied, remove (or set to `0`) `DUAL_WRITE_AIRTABLE` in the dashboard si
 ## Task 16: Retire the Airtable submission + screen-out code paths
 
 **Files:**
+
 - Modify: `netlify/functions/form-ingest.mts` (remove dual-write)
 - Delete: `src/reports/airtable/submissions.ts`, `src/reports/airtable/screenouts.ts`
 - Delete: `tests/reports/airtable/submissions.test.ts`, `tests/reports/airtable/screenouts.test.ts`, `tests/reports/airtable/get-website-by-slug.test.ts` only if it depends on the deleted module (check; it tests websites, so leave it)
@@ -2005,9 +2103,11 @@ Decision for this task: the backfill/reconcile scaffolding has served its purpos
 - [ ] **Step 1: Remove the dual-write from `form-ingest.mts`**
 
 Delete the `dualWrite` const, the two aliased Airtable imports (`airtableCreateSubmission`, `airtableRecordScreenOut`), and the two `if (dualWrite) { … }` shadow-write blocks, restoring the `createSubmission`/`recordScreenOut` deps to their plain libSQL-only form:
+
 ```ts
           recordScreenOut: (siteId, reason) => recordScreenOut(db, siteId, reason, date),
 ```
+
 ```ts
         createSubmission: (input) => createSubmission(db, input),
 ```
@@ -2032,9 +2132,11 @@ git rm src/reports/airtable/submissions.ts src/reports/airtable/screenouts.ts \
 - [ ] **Step 5: Resolve dangling imports**
 
 Search for any remaining importers of the deleted modules:
+
 ```bash
 grep -rn "airtable/submissions\|airtable/screenouts" src netlify tests
 ```
+
 Expected after the flip: only `src/reports/submission-row.ts` holds the row shape (still imported by `src/db/submissions.ts` and any renderer that needs the type). The dashboard render + `forms/ingest.ts` + `dashboard/submission-status.ts` import `SubmissionRow`/`SubmissionStatus` types — repoint those imports from `../reports/airtable/submissions.js` to `../reports/submission-row.js` (type-only; behavior-neutral). Also confirm `mapRow`/`SUBMISSIONS_TABLE`/`SCREENOUTS_TABLE` have no remaining importers (they were only used by the deleted backfill).
 
 - [ ] **Step 6: Full gate**
@@ -2048,7 +2150,9 @@ Expected: PASS. The submission/screen-out behavior is now entirely libSQL; no Ai
 git add -A
 git commit -m "refactor(db): retire Airtable submission + screen-out code paths after libSQL soak"
 ```
+
 Create `.changeset/retire-airtable-submissions.md`:
+
 ```md
 ---
 "@reddoorla/maintenance": patch
@@ -2060,6 +2164,7 @@ runs on libSQL. Removes the dual-write soak shadow, the one-off backfill/reconci
 The Airtable tables themselves can be archived out-of-band; the row shape + enum validators
 live in `src/reports/submission-row.ts`.
 ```
+
 ```bash
 git add .changeset/retire-airtable-submissions.md
 git commit -m "chore: changeset for retiring the Airtable submission paths"
@@ -2071,4 +2176,4 @@ git commit -m "chore: changeset for retiring the Airtable submission paths"
 
 - **Spec coverage:** Engine/portability (Task 1–2, `:memory:`/`file:`/Turso via one `openDb`); Kysely typed queries + plain-SQL migrations + retained validators (Tasks 1, 3–6); atomic-upsert exactness incl. concurrency proof (Task 6); schema + indexes (Task 1); cross-store join by `site_id` string (db queries filter by `site.id`); backfill/reconcile/flip/soak/retire cutover (Tasks 7–16); error handling preserved (write-before-notify order + swallowed notify/stamp unchanged in `ingest.ts`; defensive read try/catch unchanged in the handlers); security (TURSO secrets in env/credentials only, Task 0); opaque `sub_<uuid>` id with preserved backfill ids (Tasks 4, 7).
 - **Required tests from the spec's risk section:** atomic-upsert concurrency (Task 6 Step 1), migration double-apply (Task 1 Step 4), enum validators carried verbatim (Task 3) and used in the db read mapper (Task 4), `Database`↔schema drift caught by in-memory tests (every `tests/db/*`). The `.sql`-shipping risk is eliminated by inlining (see "Deviation").
-- **Type consistency:** `SubmissionRow`/`SubmissionInput`/`SubmissionStatus`/`NotifyStatus` come from the single `src/reports/submission-row.ts`; `ScreenOutTotals`/`ScreenOutReason` are structurally identical between the Airtable and db modules so the renderers (which take the type) need no change until retire; the db functions keep the same parameter *shapes* as the Airtable ones (`listSubmissionsForSite(handle, {id,name}, max)`, `recordScreenOut(handle, siteId, reason, date)`) so each composition-root swap is import-only.
+- **Type consistency:** `SubmissionRow`/`SubmissionInput`/`SubmissionStatus`/`NotifyStatus` come from the single `src/reports/submission-row.ts`; `ScreenOutTotals`/`ScreenOutReason` are structurally identical between the Airtable and db modules so the renderers (which take the type) need no change until retire; the db functions keep the same parameter _shapes_ as the Airtable ones (`listSubmissionsForSite(handle, {id,name}, max)`, `recordScreenOut(handle, siteId, reason, date)`) so each composition-root swap is import-only.
