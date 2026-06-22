@@ -1,11 +1,8 @@
 import type { Context, Config } from "@netlify/functions";
-import { openBase } from "../../src/reports/airtable/client.js";
-import {
-  getSubmissionById,
-  setSubmissionStatusRow,
-} from "../../src/reports/airtable/submissions.js";
+import { openDb, readDbConfig } from "../../src/db/client.js";
+import { getSubmissionById, setSubmissionStatusRow } from "../../src/db/submissions.js";
 import { setSubmissionStatus, verifyBasicAuth } from "../../src/dashboard/index.js";
-import { recordMarkedSpam } from "../../src/reports/airtable/screenouts.js";
+import { recordMarkedSpam } from "../../src/db/screenouts.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
 
@@ -35,8 +32,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
         status: "ok",
         service: "reddoor-submission-status",
         env: {
-          AIRTABLE_PAT: typeof process.env.AIRTABLE_PAT === "string",
-          AIRTABLE_BASE_ID: typeof process.env.AIRTABLE_BASE_ID === "string",
+          TURSO_DATABASE_URL: typeof process.env.TURSO_DATABASE_URL === "string",
           DASHBOARD_PASSWORD: typeof process.env.DASHBOARD_PASSWORD === "string",
         },
       },
@@ -58,11 +54,9 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     });
   }
 
-  const apiKey = process.env.AIRTABLE_PAT;
-  const baseId = process.env.AIRTABLE_BASE_ID;
-  if (!apiKey || !baseId) {
-    console.error("[submission-status] AIRTABLE_PAT or AIRTABLE_BASE_ID missing");
-    return json({ ok: false, error: "airtable-env-missing" }, 500);
+  if (!process.env.TURSO_DATABASE_URL) {
+    console.error("[submission-status] TURSO_DATABASE_URL missing");
+    return json({ ok: false, error: "db-env-missing" }, 500);
   }
 
   const id = ctx.params?.id;
@@ -77,13 +71,13 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   const requested = (body as { status?: unknown } | null)?.status;
 
   try {
-    const base = openBase({ apiKey, baseId });
+    const db = await openDb(readDbConfig());
     const result = await setSubmissionStatus(
       {
-        getSubmissionById: (sid) => getSubmissionById(base, sid),
-        setSubmissionStatusRow: (sid, status) => setSubmissionStatusRow(base, sid, status),
+        getSubmissionById: (sid) => getSubmissionById(db, sid),
+        setSubmissionStatusRow: (sid, status) => setSubmissionStatusRow(db, sid, status),
         recordMarkedSpam: (siteId) =>
-          recordMarkedSpam(base, siteId, new Date().toISOString().slice(0, 10)),
+          recordMarkedSpam(db, siteId, new Date().toISOString().slice(0, 10)),
       },
       id,
       requested,
