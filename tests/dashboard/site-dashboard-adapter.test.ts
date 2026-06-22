@@ -26,6 +26,7 @@ describe("site-dashboard adapter — slug resolution + env/auth gating", () => {
   beforeEach(() => {
     delete process.env.AIRTABLE_PAT;
     delete process.env.AIRTABLE_BASE_ID;
+    delete process.env.TURSO_DATABASE_URL;
     delete process.env.DASHBOARD_PASSWORD;
   });
 
@@ -53,6 +54,7 @@ describe("site-dashboard adapter — slug resolution + env/auth gating", () => {
   it("401s an unauthenticated slug request (gate fires before any Airtable read)", async () => {
     process.env.AIRTABLE_PAT = "pat";
     process.env.AIRTABLE_BASE_ID = "appX";
+    process.env.TURSO_DATABASE_URL = "libsql://x";
     process.env.DASHBOARD_PASSWORD = "s3cret";
     const res = await siteDashboard(get("https://dash.reddoor.test/s/acme"), ctx({ slug: "acme" }));
     expect(res.status).toBe(401);
@@ -62,6 +64,7 @@ describe("site-dashboard adapter — slug resolution + env/auth gating", () => {
   it("resolves the slug from the ?slug= query param when no path param", async () => {
     process.env.AIRTABLE_PAT = "pat";
     process.env.AIRTABLE_BASE_ID = "appX";
+    process.env.TURSO_DATABASE_URL = "libsql://x";
     process.env.DASHBOARD_PASSWORD = "s3cret";
     // No ctx.params → slug comes from the query string → NOT the health check,
     // so we reach the auth gate (401) rather than a 200 health response.

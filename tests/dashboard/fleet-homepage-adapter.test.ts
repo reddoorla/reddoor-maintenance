@@ -21,6 +21,7 @@ describe("fleet-homepage adapter — env + auth gating", () => {
   beforeEach(() => {
     delete process.env.AIRTABLE_PAT;
     delete process.env.AIRTABLE_BASE_ID;
+    delete process.env.TURSO_DATABASE_URL;
     delete process.env.DASHBOARD_PASSWORD;
   });
 
@@ -34,9 +35,18 @@ describe("fleet-homepage adapter — env + auth gating", () => {
     expect(res.status).toBe(500);
   });
 
+  it("500s when Turso env is missing", async () => {
+    process.env.AIRTABLE_PAT = "pat";
+    process.env.AIRTABLE_BASE_ID = "appX";
+    // @ts-expect-error — minimal Context
+    const res = await fleetHomepage(get(), {});
+    expect(res.status).toBe(500);
+  });
+
   it("503s with a setup hint when DASHBOARD_PASSWORD is unset", async () => {
     process.env.AIRTABLE_PAT = "pat";
     process.env.AIRTABLE_BASE_ID = "appX";
+    process.env.TURSO_DATABASE_URL = "libsql://x";
     // @ts-expect-error — minimal Context
     const res = await fleetHomepage(get(), {});
     expect(res.status).toBe(503);
@@ -46,6 +56,7 @@ describe("fleet-homepage adapter — env + auth gating", () => {
   it("401s an unauthenticated request with a Basic challenge", async () => {
     process.env.AIRTABLE_PAT = "pat";
     process.env.AIRTABLE_BASE_ID = "appX";
+    process.env.TURSO_DATABASE_URL = "libsql://x";
     process.env.DASHBOARD_PASSWORD = "s3cret";
     // @ts-expect-error — minimal Context
     const res = await fleetHomepage(get(), {});

@@ -1,9 +1,12 @@
 import type { Context, Config } from "@netlify/functions";
 import { openBase } from "../../src/reports/airtable/client.js";
 import { getWebsiteBySlug } from "../../src/reports/airtable/websites.js";
-import { createSubmission, stampNotified } from "../../src/reports/airtable/submissions.js";
+import { openDb, readDbConfig } from "../../src/db/client.js";
+import { createSubmission, stampNotified } from "../../src/db/submissions.js";
+import { recordScreenOut } from "../../src/db/screenouts.js";
+import { createSubmission as airtableCreateSubmission } from "../../src/reports/airtable/submissions.js";
+import { recordScreenOut as airtableRecordScreenOut } from "../../src/reports/airtable/screenouts.js";
 import { ingestSubmission, parseScreenOut, ingestScreenOut } from "../../src/forms/ingest.js";
-import { recordScreenOut } from "../../src/reports/airtable/screenouts.js";
 import { forwardNewsletterToWebhook } from "../../src/forms/webhook.js";
 import { addMailchimpMember } from "../../src/forms/mailchimp.js";
 import { makeNotify } from "../../src/forms/notify.js";
@@ -42,6 +45,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
         env: {
           AIRTABLE_PAT: typeof process.env.AIRTABLE_PAT === "string",
           AIRTABLE_BASE_ID: typeof process.env.AIRTABLE_BASE_ID === "string",
+          TURSO_DATABASE_URL: typeof process.env.TURSO_DATABASE_URL === "string",
           RESEND_API_KEY: typeof process.env.RESEND_API_KEY === "string",
           FORMS_INGEST_TOKEN: typeof process.env.FORMS_INGEST_TOKEN === "string",
         },
@@ -69,6 +73,11 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     return json({ ok: false, error: "airtable-env-missing" }, 500);
   }
 
+  if (!process.env.TURSO_DATABASE_URL) {
+    console.error("[form-ingest] TURSO_DATABASE_URL missing");
+    return json({ ok: false, error: "db-env-missing" }, 500);
+  }
+
   const slug = ctx.params?.slug;
   if (!slug) return json({ ok: false, error: "missing-slug" }, 400);
 
@@ -81,6 +90,11 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
 
   try {
     const base = openBase({ apiKey, baseId });
+    const db = await openDb(readDbConfig());
+    // Brief cutover soak: when DUAL_WRITE_AIRTABLE=1, also shadow-write captured
+    // leads + screen-outs to Airtable (best-effort, swallowed) as rollback
+    // insurance. libSQL is the source of truth. Removed after the soak.
+    const dualWrite = process.env.DUAL_WRITE_AIRTABLE === "1";
 
     // Screen-out beacon: a no-PII { screenOut: honeypot|too-fast } body is routed
     // to the per-site/day Spam Screenouts counter instead of the submission path.
@@ -90,7 +104,16 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
       const r = await ingestScreenOut(
         {
           getWebsiteBySlug: (s) => getWebsiteBySlug(base, s),
-          recordScreenOut: (siteId, reason) => recordScreenOut(base, siteId, reason, date),
+          recordScreenOut: async (siteId, reason) => {
+            await recordScreenOut(db, siteId, reason, date);
+            if (dualWrite) {
+              try {
+                await airtableRecordScreenOut(base, siteId, reason, date);
+              } catch (e) {
+                console.error(`[form-ingest] dual-write screen-out failed: ${String(e)}`);
+              }
+            }
+          },
         },
         slug,
         screenOutReason,
@@ -114,9 +137,19 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     const result = await ingestSubmission(
       {
         getWebsiteBySlug: (s) => getWebsiteBySlug(base, s),
-        createSubmission: (input) => createSubmission(base, input),
+        createSubmission: async (input) => {
+          const row = await createSubmission(db, input);
+          if (dualWrite) {
+            try {
+              await airtableCreateSubmission(base, input);
+            } catch (e) {
+              console.error(`[form-ingest] dual-write submission failed: ${String(e)}`);
+            }
+          }
+          return row;
+        },
         notify: makeNotify(send),
-        stampNotified: (id, status, messageId) => stampNotified(base, id, status, messageId),
+        stampNotified: (id, status, messageId) => stampNotified(db, id, status, messageId),
         now: () => new Date(),
         forwardNewsletter: (url, submission, site) =>
           forwardNewsletterToWebhook(url, submission, site),
