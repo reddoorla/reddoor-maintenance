@@ -1,5 +1,51 @@
 # @reddoorla/maintenance
 
+## 0.51.0
+
+### Minor Changes
+
+- dd0ff74: The per-site dashboard now shows **which** vulnerabilities a site has, not just the totals. The
+  security audit already extracted a per-advisory list (module, severity, title, CVEs, link) but
+  only the C/H/M/L counts were persisted — the detail was discarded. The audit write-back now also
+  persists that list to a new Websites `Security advisories` field (severity-sorted, capped at 25;
+  an empty array on a clean run clears a stale list), `WebsiteRow` parses it back defensively
+  (malformed entries dropped; absent/unparseable → null = never audited), and the site page renders
+  a "Vulnerabilities (N)" section grouped by severity with a link to each advisory. All
+  Airtable-sourced text is HTML-escaped and advisory URLs run through `safeUrl`. The section is
+  omitted entirely when a site was never audited or is clean.
+- 0474c6e: Spam catch-rate is now observable. The honeypot/timing screen runs on each fleet site and silently
+  drops bots before they reach the dashboard, so the catch count was invisible. The site form helpers
+  now fire a best-effort, no-PII screen-out beacon (`{ screenOut: honeypot|too-fast }`) to the existing
+  ingest endpoint when they reject a submission; the ingest routes it to a compact per-site/per-day
+  `Spam Screenouts` bucket. Marking a submission "spam" increments the same bucket's `Marked spam`
+  counter. The per-site page gains a "Spam screen (30d)" panel (caught honeypot/too-fast, delivered,
+  marked spam) and the cockpit gains a one-line fleet roll-up (caught + through) — so you can tell a
+  weaker screen (rising _through_) from more exposure (rising _caught_, steady _through_). Counts are
+  approximate under high concurrency (the read side sums duplicate same-day buckets); the beacon never
+  throws and is abort-bounded (~1.5s), so the real-human clean path is never delayed and a hung beacon
+  on a screened submit waits at most the timeout.
+
+### Patch Changes
+
+- dd0ff74: Throttle all Airtable HTTP at its single funnel so paging bursts stop tripping the per-base
+  ~5 req/s limit. Even fully sequential `eachPage` paging fires fast enough that one cockpit load
+  scanning Reports + Submissions could exceed the cap and exhaust the SDK's 429-retry budget. The
+  shared `openBase` now wraps `base._base.runAction` — the one method every list/create/update/destroy
+  call funnels through — with a min-interval throttle (~220ms ⇒ ≤ ~4.5 req/s) that spaces request
+  _starts_ while preserving order. The SDK's built-in 429 retry stays as a backstop. The throttle
+  chain is fail-safe: a throw or rejection in one step can never stall the queue (which would
+  silently hang every subsequent Airtable call in the process).
+- dd0ff74: Cap the cockpit's "New submissions" strip at the 10 newest rows so it can't grow into a
+  fleet-wide wall as submissions accumulate. The heading still shows the true total and a
+  `+N more — triage on each site page` line links onward; per-site NEW-submission counts and
+  badges are unaffected (the cap is at render only, not the fetch). The per-site form-submissions
+  section (already capped at 25) now says `showing 25 of N` when it lists a slice, so the heading
+  no longer implies every submission is on the page.
+- 0474c6e: The per-site dashboard now lets you inspect a submission, not just triage it. Each submission is an
+  expandable row revealing all stored fields — phone, full message, source URL, UTM, the per-site extra
+  fields, notify status, Resend message ID, and submission number — all HTML-escaped, with the source
+  URL run through `safeUrl`.
+
 ## 0.50.0
 
 ### Minor Changes
