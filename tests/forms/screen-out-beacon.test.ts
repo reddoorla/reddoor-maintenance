@@ -3,7 +3,10 @@ import { submitScreenOut } from "../../src/forms/client.js";
 
 describe("submitScreenOut", () => {
   it("POSTs the reason with the token header to the ingest URL", async () => {
-    const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    const fetch = vi.fn(
+      async (_url: string | URL | Request, _init?: RequestInit) =>
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
     const res = await submitScreenOut({
       url: "https://dash/api/forms/acme",
       token: "T",

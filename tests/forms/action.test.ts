@@ -227,7 +227,10 @@ describe("createIngestAction", () => {
   });
 
   it("beacons a screen-out (and still succeeds) when the honeypot is filled", async () => {
-    const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    const fetch = vi.fn(
+      async (_url: string | URL | Request, _init?: RequestInit) =>
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
     const action = createIngestAction({
       formType: "contact",
       getConfig: () => ({ url: "https://dash/api/forms/acme", token: "T" }),
@@ -246,7 +249,8 @@ describe("createIngestAction", () => {
 
   it("does not beacon a screen-out for a clean submit", async () => {
     const fetch = vi.fn(
-      async () => new Response(JSON.stringify({ ok: true, id: "x" }), { status: 200 }),
+      async (_url: string | URL | Request, _init?: RequestInit) =>
+        new Response(JSON.stringify({ ok: true, id: "x" }), { status: 200 }),
     );
     const action = createIngestAction({
       formType: "contact",
