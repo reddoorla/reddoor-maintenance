@@ -68,7 +68,11 @@ export type ReconcileReport = {
 };
 
 /** Count submissions on both sides and sum the all-time screen-out totals on both
- *  sides; ok only when both match. A mismatch must ABORT the cutover. */
+ *  sides; ok only when both match. A mismatch must ABORT the cutover. This is a
+ *  count/sum parity gate, NOT a per-row content checksum — it catches a dropped,
+ *  extra, or mis-counted row, but not a same-count row whose fields were mangled.
+ *  Backfill before reconciling, and freeze Airtable writes first so the snapshot
+ *  is stable (backfillSubmission is first-write-wins and won't refresh edited rows). */
 export async function reconcile(base: AirtableBase, db: Db): Promise<ReconcileReport> {
   // Submissions: count Airtable by paging, count libSQL with COUNT(*).
   let airtableSubs = 0;

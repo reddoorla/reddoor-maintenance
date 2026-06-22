@@ -1,8 +1,11 @@
 /** Ordered, append-only list of standard-SQL migration scripts. Each runs once,
  *  tracked by `id` in the `_migrations` table (see migrate.ts). Statements use
  *  IF NOT EXISTS so even a partial re-apply is safe. Never edit a shipped script —
- *  add a new one. Standard SQLite SQL only (no Turso-specific syntax) so the host
- *  stays a connection-string swap. */
+ *  add a new one. Every statement in a script MUST be independently idempotent:
+ *  `migrate.ts` runs each script via `executeMultiple`, which is NOT transactional,
+ *  so a mid-script failure can leave earlier statements applied and the id unrecorded
+ *  — a re-run then re-executes the whole script. Standard SQLite SQL only (no
+ *  Turso-specific syntax) so the host stays a connection-string swap. */
 export type Migration = { id: string; sql: string };
 
 export const MIGRATIONS: Migration[] = [
