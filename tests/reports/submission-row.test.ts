@@ -1,0 +1,18 @@
+import { describe, it, expect } from "vitest";
+import { toFormType, toStatus, toNotifyStatus } from "../../src/reports/submission-row.js";
+
+describe("submission-row validators", () => {
+  it("toStatus falls back to new on bad input", () => {
+    expect(toStatus("read")).toBe("read");
+    expect(toStatus("garbage")).toBe("new");
+    expect(toStatus(undefined)).toBe("new");
+  });
+  it("toNotifyStatus falls back to skipped", () => {
+    expect(toNotifyStatus("sent")).toBe("sent");
+    expect(toNotifyStatus("nope")).toBe("skipped");
+  });
+  it("toFormType falls back to contact", () => {
+    expect(toFormType("newsletter")).toBe("newsletter");
+    expect(toFormType("weird")).toBe("contact");
+  });
+});
