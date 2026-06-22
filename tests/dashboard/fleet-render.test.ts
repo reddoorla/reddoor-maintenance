@@ -515,3 +515,30 @@ describe("renderCockpitHtml — GitHub-signal chips & filters (slice 2b)", () =>
     expect(html).toMatch(/1 CI red/);
   });
 });
+
+describe("renderCockpitHtml — spam roll-up", () => {
+  it("shows fleet caught + through totals when spam data is present", () => {
+    const m = buildCockpitModel(
+      [siteRow({ id: "recSITE", name: "Acme Co" })],
+      [],
+      {},
+      BASE,
+      NOW,
+      [],
+      {
+        honeypot: 560,
+        tooFast: 52,
+        markedSpam: 24,
+      },
+    );
+    const html = renderCockpitHtml(m);
+    expect(html).toMatch(/spam/i);
+    expect(html).toContain("612"); // caught = honeypot + too-fast
+    expect(html).toContain("24"); // through = marked spam
+  });
+
+  it("omits the roll-up when there is no spam data", () => {
+    const html = renderCockpitHtml(model([siteRow()]));
+    expect(html).not.toMatch(/spam caught/i);
+  });
+});

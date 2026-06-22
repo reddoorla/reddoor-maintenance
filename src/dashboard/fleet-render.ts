@@ -113,6 +113,8 @@ h1 { margin: 0 0 0.25rem; font-size: 1.75rem; }
 .summary { display:flex; flex-wrap:wrap; gap:0.5rem 1.25rem; align-items:baseline; margin-bottom:0.5rem; }
 .summary .tier { font-weight:700; }
 .summary .heads { color:#666; font-size:0.9rem; }
+.spam-rollup { font-size:0.9rem; margin-bottom:1rem; }
+.muted { color:#999; }
 .filters { display:flex; flex-wrap:wrap; gap:0.4rem; margin-bottom:1.25rem; }
 .filters button { font:inherit; font-size:0.85rem; padding:0.25rem 0.7rem; border:1px solid #ccc; border-radius:999px; background:transparent; color:inherit; cursor:pointer; }
 .filters button[aria-pressed="true"] { background:#1a1a1a; color:#fff; border-color:#1a1a1a; }
@@ -177,6 +179,15 @@ function summaryBar(model: CockpitModel): string {
     </div>
     <div class="summary heads">${escapeHtml(heads)}</div>
     <div class="filters">${chips}</div>`;
+}
+
+/** One-line fleet spam roll-up beneath the summary: caught (honeypot+too-fast) vs
+ *  through (marked spam) over the window. Omitted when there's no spam data, so a
+ *  fleet with no screen-out buckets reads clean rather than "caught 0 · through 0". */
+function spamRollup(model: CockpitModel): string {
+  const s = model.spam;
+  if (!s || (s.caught === 0 && s.through === 0)) return "";
+  return `<div class="spam-rollup muted">🛡 Spam (30d) — caught ${s.caught} · through ${s.through}</div>`;
 }
 
 /** Affirmative all-clear when nothing is on the 🔴 tier (spec §5.2/§12) — so a
@@ -365,6 +376,7 @@ export function renderCockpitHtml(model: CockpitModel): string {
   <h1>Reddoor fleet cockpit</h1>
   <div class="meta">${total} site${total === 1 ? "" : "s"} on the Reddoor stack.</div>
   ${summaryBar(model)}
+  ${spamRollup(model)}
   ${allClearBanner(model)}
   ${approveStrip(model)}
   ${submissionsStrip(model)}
