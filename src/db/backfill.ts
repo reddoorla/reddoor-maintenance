@@ -1,10 +1,14 @@
+import { sql } from "kysely";
 import type { AirtableBase } from "../reports/airtable/client.js";
 import { SUBMISSIONS_TABLE, mapRow } from "../reports/airtable/submissions.js";
-import { SCREENOUTS_TABLE } from "../reports/airtable/screenouts.js";
+import {
+  SCREENOUTS_TABLE,
+  listScreenOutsSince as airtableListScreenOutsSince,
+} from "../reports/airtable/screenouts.js";
 import type { SubmissionRow } from "../reports/submission-row.js";
 import type { Db } from "./client.js";
 import { backfillSubmission } from "./submissions.js";
-import { backfillScreenoutBucket } from "./screenouts.js";
+import { backfillScreenoutBucket, listScreenOutsSince } from "./screenouts.js";
 
 /** Page the entire Airtable Submissions table and insert each row into libSQL,
  *  preserving ids/numbers/status. Re-runnable (backfillSubmission is idempotent).
@@ -52,4 +56,55 @@ export async function backfillScreenouts(base: AirtableBase, db: Db): Promise<nu
     });
   for (const bucket of agg.values()) await backfillScreenoutBucket(db, bucket);
   return agg.size;
+}
+
+export type ReconcileReport = {
+  ok: boolean;
+  submissions: { airtable: number; libsql: number };
+  screenouts: {
+    airtable: { honeypot: number; tooFast: number; markedSpam: number };
+    libsql: { honeypot: number; tooFast: number; markedSpam: number };
+  };
+};
+
+/** Count submissions on both sides and sum the all-time screen-out totals on both
+ *  sides; ok only when both match. A mismatch must ABORT the cutover. */
+export async function reconcile(base: AirtableBase, db: Db): Promise<ReconcileReport> {
+  // Submissions: count Airtable by paging, count libSQL with COUNT(*).
+  let airtableSubs = 0;
+  await base(SUBMISSIONS_TABLE)
+    .select({ pageSize: 100, fields: [] })
+    .eachPage((records, fetchNextPage) => {
+      airtableSubs += records.length;
+      fetchNextPage();
+    });
+  const libCountRow = await sql<{ n: number }>`SELECT COUNT(*) AS n FROM submissions`.execute(db);
+  const libsqlSubs = Number(libCountRow.rows[0]?.n ?? 0);
+
+  // Screen-outs: sum all-time fleet totals on each side (since "0001-01-01").
+  const aMap = await airtableListScreenOutsSince(base, "0001-01-01");
+  const lMap = await listScreenOutsSince(db, "0001-01-01");
+  const sumOf = (m: Map<string, { honeypot: number; tooFast: number; markedSpam: number }>) => {
+    const t = { honeypot: 0, tooFast: 0, markedSpam: 0 };
+    for (const v of m.values()) {
+      t.honeypot += v.honeypot;
+      t.tooFast += v.tooFast;
+      t.markedSpam += v.markedSpam;
+    }
+    return t;
+  };
+  const aScreen = sumOf(aMap);
+  const lScreen = sumOf(lMap);
+
+  const ok =
+    airtableSubs === libsqlSubs &&
+    aScreen.honeypot === lScreen.honeypot &&
+    aScreen.tooFast === lScreen.tooFast &&
+    aScreen.markedSpam === lScreen.markedSpam;
+
+  return {
+    ok,
+    submissions: { airtable: airtableSubs, libsql: libsqlSubs },
+    screenouts: { airtable: aScreen, libsql: lScreen },
+  };
 }
