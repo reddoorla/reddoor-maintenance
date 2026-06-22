@@ -69,3 +69,20 @@ export function screenOutsSince(now: Date, days: number): string {
   const d = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
   return d.toISOString().slice(0, 10);
 }
+
+/** Set the (site, date) bucket to exact totals. Replace-upsert (DO UPDATE SET col
+ *  = excluded.col) so re-running the backfill is idempotent. The caller pre-sums
+ *  duplicate same-day Airtable buckets in JS before calling this. */
+export async function backfillScreenoutBucket(
+  db: Db,
+  b: { siteId: string; date: string; honeypot: number; tooFast: number; markedSpam: number },
+): Promise<void> {
+  await sql`
+    INSERT INTO spam_screenouts (site_id, date, honeypot, too_fast, marked_spam)
+    VALUES (${b.siteId}, ${b.date}, ${b.honeypot}, ${b.tooFast}, ${b.markedSpam})
+    ON CONFLICT (site_id, date) DO UPDATE SET
+      honeypot = excluded.honeypot,
+      too_fast = excluded.too_fast,
+      marked_spam = excluded.marked_spam
+  `.execute(db);
+}
