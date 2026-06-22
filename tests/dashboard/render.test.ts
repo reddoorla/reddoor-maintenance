@@ -349,6 +349,47 @@ describe("renderSiteDashboardHtml — submissions section", () => {
   });
 });
 
+describe("renderSiteDashboardHtml — spam screen panel", () => {
+  it("renders caught honeypot/too-fast, marked spam, and delivered (30d)", () => {
+    const subs: SubmissionRow[] = [
+      {
+        id: "s1",
+        submissionId: 1,
+        siteId: "recSITE",
+        formType: "contact",
+        name: "a",
+        email: "a@x.com",
+        phone: null,
+        message: null,
+        extraFields: null,
+        sourceUrl: null,
+        utm: null,
+        submittedAt: new Date().toISOString(),
+        status: "new",
+        notifyStatus: "sent",
+        resendMessageId: null,
+      },
+    ];
+    const html = renderSiteDashboardHtml(
+      siteRow({ id: "recSITE" }),
+      [],
+      subs,
+      { honeypot: 280, tooFast: 30, markedSpam: 9 },
+      new Date("2026-06-22T12:00:00Z"),
+    );
+    expect(html).toContain("Spam screen (30d)");
+    expect(html).toContain("280");
+    expect(html).toContain("30");
+    expect(html).toContain("9");
+    expect(html).toMatch(/delivered/i);
+  });
+
+  it("omits the spam panel when there is no screen-out data and no submissions", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [], [], null, new Date());
+    expect(html).not.toContain("Spam screen (30d)");
+  });
+});
+
 describe("renderSiteDashboardHtml — home link", () => {
   it("renders a top-left Home link to the cockpit (/), above the site heading", () => {
     const html = renderSiteDashboardHtml(siteRow(), []);

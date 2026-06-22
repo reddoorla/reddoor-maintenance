@@ -3,6 +3,7 @@ import { SEVERITY_RANK } from "../reports/airtable/websites.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
 import { isPendingApproval } from "../reports/airtable/reports.js";
 import type { SubmissionRow } from "../reports/airtable/submissions.js";
+import type { ScreenOutTotals } from "../reports/airtable/screenouts.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 import { escapeHtml, safeUrl } from "../util/html.js";
 import { FAVICON_LINK } from "./favicon.js";
@@ -247,6 +248,34 @@ function submissionsSection(submissions: SubmissionRow[]): string {
   </div>`;
 }
 
+const SPAM_WINDOW_DAYS = 30;
+
+/** The per-site spam panel: caught (honeypot/too-fast) + marked-spam from the screen-out
+ *  buckets, and delivered counted from the submissions loaded for this page within the
+ *  window. Omitted when there's nothing to show. `delivered` undercounts only if the site
+ *  exceeds the 200-row submissions fetch within the window (rare at fleet scale). */
+function spamScreenSection(
+  totals: ScreenOutTotals | null,
+  submissions: SubmissionRow[],
+  now: Date,
+): string {
+  const sinceMs = now.getTime() - SPAM_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  const delivered = submissions.filter(
+    (s) => s.submittedAt !== null && Date.parse(s.submittedAt) >= sinceMs,
+  ).length;
+  const t = totals ?? { honeypot: 0, tooFast: 0, markedSpam: 0 };
+  if (delivered === 0 && t.honeypot === 0 && t.tooFast === 0 && t.markedSpam === 0) return "";
+  const row = (label: string, n: number) =>
+    `<div class="spam-kv"><span class="k">${label}</span> ${escapeHtml(String(n))}</div>`;
+  return `<div class="section spam-screen">
+    <h2>Spam screen (30d)</h2>
+    ${row("Caught — honeypot", t.honeypot)}
+    ${row("Caught — too-fast", t.tooFast)}
+    ${row("Delivered", delivered)}
+    ${row("Marked spam", t.markedSpam)}
+  </div>`;
+}
+
 /** Setup (N/4) status near the page header. Lists the missing onboarding items
  *  visibly (the cockpit chip only hovers them) so the operator sees what's left
  *  to wire up without leaving the page. */
@@ -336,6 +365,8 @@ summary.subm-head { cursor: pointer; }
 .subm-actions { display: flex; gap: 0.4rem; }
 button.subm-status { font: inherit; padding: 0.25rem 0.7rem; border: 1px solid #888; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
 button.subm-status:disabled { opacity: 0.6; cursor: default; }
+.spam-screen .spam-kv { font-size: 0.95rem; margin: 0.2rem 0; }
+.spam-screen .spam-kv .k { color: #888; display: inline-block; min-width: 11rem; }
 .pill.subm-new { background: #e8f0fe; color: #1a56db; }
 .pill.subm-read { background: #f0f0f0; color: #555; }
 .pill.subm-archived { background: #eee; color: #888; }
@@ -367,6 +398,8 @@ export function renderSiteDashboardHtml(
   site: WebsiteRow,
   reports: ReportRow[],
   submissions: SubmissionRow[] = [],
+  spamTotals: ScreenOutTotals | null = null,
+  now: Date = new Date(),
 ): string {
   const name = escapeHtml(site.name);
   const urlSafe = safeUrl(site.url);
@@ -443,6 +476,8 @@ export function renderSiteDashboardHtml(
   </div>
 
   ${securitySection(site)}
+
+  ${spamScreenSection(spamTotals, submissions, now)}
 
   <div class="section">
     <h2>Reports</h2>

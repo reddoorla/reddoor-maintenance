@@ -3,6 +3,7 @@ import { openBase } from "../../src/reports/airtable/client.js";
 import { getWebsiteBySlug } from "../../src/reports/airtable/websites.js";
 import { listReportsForSite } from "../../src/reports/airtable/reports.js";
 import { listSubmissionsForSite } from "../../src/reports/airtable/submissions.js";
+import { listScreenOutsSince, screenOutsSince } from "../../src/reports/airtable/screenouts.js";
 import { verifyBasicAuth, renderSiteDashboardHtml } from "../../src/dashboard/index.js";
 import { resolveSlug, handlerError } from "../../src/dashboard/handler-helpers.js";
 
@@ -109,7 +110,16 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
       // submissions section simply absent — the rest of the page still renders
     }
 
-    return html(renderSiteDashboardHtml(site, reports, submissions), 200);
+    let spamTotals: import("../../src/reports/airtable/screenouts.js").ScreenOutTotals | null =
+      null;
+    try {
+      const since = screenOutsSince(new Date(), 30);
+      spamTotals = (await listScreenOutsSince(base, since)).get(site.id) ?? null;
+    } catch {
+      // panel simply absent — never blank the page
+    }
+
+    return html(renderSiteDashboardHtml(site, reports, submissions, spamTotals, new Date()), 200);
   } catch (err) {
     return handlerError("site-dashboard", err);
   }
