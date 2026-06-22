@@ -9,6 +9,19 @@ import {
   toStatus,
   toNotifyStatus,
 } from "../reports/submission-row.js";
+import type { FormType, SubmissionStatus } from "../reports/submission-row.js";
+
+export type SubmissionFilter = {
+  siteId?: string;
+  formType?: FormType;
+  status?: SubmissionStatus;
+  /** LIKE %q% across name/email/message/phone, case-insensitive */
+  search?: string;
+  /** submitted_at >= from (ISO string) */
+  from?: string;
+  /** submitted_at <= to (ISO string) */
+  to?: string;
+};
 
 /** Map a raw DB row to the canonical SubmissionRow, narrowing the enum columns
  *  with the SAME validators the Airtable mapRow uses — SQLite stores TEXT, so a
@@ -76,7 +89,7 @@ export async function createSubmission(db: Db, input: SubmissionInput): Promise<
   return created;
 }
 
-import type { SubmissionStatus, NotifyStatus } from "../reports/submission-row.js";
+import type { NotifyStatus } from "../reports/submission-row.js";
 
 export async function listNewSubmissions(db: Db): Promise<SubmissionRow[]> {
   const rows = await db
@@ -125,6 +138,52 @@ export async function stampNotified(
       ? { notify_status: status, resend_message_id: messageId }
       : { notify_status: status };
   await db.updateTable("submissions").set(patch).where("id", "=", id).execute();
+}
+
+// NOTE: listSubmissionsFiltered and countSubmissionsFiltered share identical filter
+// logic via applySubmissionFilter — always update both through that helper.
+function applySubmissionFilter<O>(
+  qb: import("kysely").SelectQueryBuilder<import("./schema.js").Database, "submissions", O>,
+  f: SubmissionFilter,
+) {
+  let q = qb;
+  if (f.siteId !== undefined) q = q.where("site_id", "=", f.siteId);
+  if (f.formType !== undefined) q = q.where("form_type", "=", f.formType);
+  if (f.status !== undefined) q = q.where("status", "=", f.status);
+  if (f.from !== undefined) q = q.where("submitted_at", ">=", f.from);
+  if (f.to !== undefined) q = q.where("submitted_at", "<=", f.to);
+  if (f.search !== undefined && f.search.trim() !== "") {
+    const like = `%${f.search.trim().toLowerCase()}%`;
+    q = q.where((eb) =>
+      eb.or([
+        eb(eb.fn("lower", ["name"]), "like", like),
+        eb(eb.fn("lower", ["email"]), "like", like),
+        eb(eb.fn("lower", ["message"]), "like", like),
+        eb(eb.fn("lower", ["phone"]), "like", like),
+      ]),
+    );
+  }
+  return q;
+}
+
+export async function listSubmissionsFiltered(
+  db: Db,
+  filter: SubmissionFilter,
+  opts: { limit: number; offset: number },
+): Promise<SubmissionRow[]> {
+  const base = db.selectFrom("submissions").selectAll();
+  const rows = await applySubmissionFilter(base, filter)
+    .orderBy("submitted_at", "desc")
+    .limit(opts.limit)
+    .offset(opts.offset)
+    .execute();
+  return rows.map(rowFromDb);
+}
+
+export async function countSubmissionsFiltered(db: Db, filter: SubmissionFilter): Promise<number> {
+  const base = db.selectFrom("submissions").select((eb) => eb.fn.countAll<number>().as("n"));
+  const res = await applySubmissionFilter(base, filter).executeTakeFirstOrThrow();
+  return Number(res.n);
 }
 
 /** Insert a SubmissionRow verbatim, preserving its id, display number, and status.
