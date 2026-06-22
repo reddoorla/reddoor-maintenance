@@ -75,3 +75,54 @@ export async function createSubmission(db: Db, input: SubmissionInput): Promise<
   if (!created) throw new Error("createSubmission: row vanished after insert");
   return created;
 }
+
+import type { SubmissionStatus, NotifyStatus } from "../reports/submission-row.js";
+
+export async function listNewSubmissions(db: Db): Promise<SubmissionRow[]> {
+  const rows = await db
+    .selectFrom("submissions")
+    .selectAll()
+    .where("status", "=", "new")
+    .orderBy("submitted_at", "desc")
+    .execute();
+  return rows.map(rowFromDb);
+}
+
+/** Same signature shape as the Airtable version (takes `{ id, name }`) so the
+ *  composition-root swap is import-only — but here we filter by id directly, with
+ *  no linked-field/primary-field workaround and no JS-confirm pass. */
+export async function listSubmissionsForSite(
+  db: Db,
+  site: { id: string; name: string },
+  max = 200,
+): Promise<SubmissionRow[]> {
+  const rows = await db
+    .selectFrom("submissions")
+    .selectAll()
+    .where("site_id", "=", site.id)
+    .orderBy("submitted_at", "desc")
+    .limit(max)
+    .execute();
+  return rows.map(rowFromDb);
+}
+
+export async function setSubmissionStatusRow(
+  db: Db,
+  id: string,
+  status: SubmissionStatus,
+): Promise<void> {
+  await db.updateTable("submissions").set({ status }).where("id", "=", id).execute();
+}
+
+export async function stampNotified(
+  db: Db,
+  id: string,
+  status: NotifyStatus,
+  messageId: string | null,
+): Promise<void> {
+  const patch =
+    messageId !== null
+      ? { notify_status: status, resend_message_id: messageId }
+      : { notify_status: status };
+  await db.updateTable("submissions").set(patch).where("id", "=", id).execute();
+}

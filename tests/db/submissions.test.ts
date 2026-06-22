@@ -68,3 +68,90 @@ describe("db createSubmission / getSubmissionById", () => {
     expect(await getSubmissionById(db, "sub_nope")).toBeNull();
   });
 });
+
+import {
+  listNewSubmissions,
+  listSubmissionsForSite,
+  setSubmissionStatusRow,
+  stampNotified,
+} from "../../src/db/submissions.js";
+
+async function seed(db: Awaited<ReturnType<typeof openDb>>) {
+  await createSubmission(db, {
+    siteId: "recA",
+    formType: "contact",
+    name: "Old A",
+    email: "olda@example.com",
+    submittedAt: new Date("2026-06-20T00:00:00.000Z"),
+  });
+  await createSubmission(db, {
+    siteId: "recA",
+    formType: "contact",
+    name: "New A",
+    email: "newa@example.com",
+    submittedAt: new Date("2026-06-22T00:00:00.000Z"),
+  });
+  await createSubmission(db, {
+    siteId: "recB",
+    formType: "contact",
+    name: "B",
+    email: "b@example.com",
+    submittedAt: new Date("2026-06-21T00:00:00.000Z"),
+  });
+}
+
+describe("db list / status / stamp", () => {
+  it("listNewSubmissions returns only new rows, newest first", async () => {
+    const db = await openDb({ url: ":memory:" });
+    await seed(db);
+    const all = await listNewSubmissions(db);
+    expect(all.map((s) => s.name)).toEqual(["New A", "B", "Old A"]);
+    // Flip one out of "new" and confirm it drops from the queue.
+    const first = all[0]!;
+    await setSubmissionStatusRow(db, first.id, "read");
+    const rest = await listNewSubmissions(db);
+    expect(rest.find((s) => s.id === first.id)).toBeUndefined();
+  });
+
+  it("listSubmissionsForSite narrows by site id, newest first, honoring max", async () => {
+    const db = await openDb({ url: ":memory:" });
+    await seed(db);
+    const a = await listSubmissionsForSite(db, { id: "recA", name: "Acme" });
+    expect(a.map((s) => s.name)).toEqual(["New A", "Old A"]);
+    const capped = await listSubmissionsForSite(db, { id: "recA", name: "Acme" }, 1);
+    expect(capped.map((s) => s.name)).toEqual(["New A"]);
+  });
+
+  it("setSubmissionStatusRow updates status", async () => {
+    const db = await openDb({ url: ":memory:" });
+    const row = await createSubmission(db, {
+      siteId: "recA",
+      formType: "contact",
+      name: "A",
+      email: "a@example.com",
+      submittedAt: new Date("2026-06-22T00:00:00.000Z"),
+    });
+    await setSubmissionStatusRow(db, row.id, "spam");
+    expect((await getSubmissionById(db, row.id))!.status).toBe("spam");
+  });
+
+  it("stampNotified sets notify status, and the message id only when present", async () => {
+    const db = await openDb({ url: ":memory:" });
+    const row = await createSubmission(db, {
+      siteId: "recA",
+      formType: "contact",
+      name: "A",
+      email: "a@example.com",
+      submittedAt: new Date("2026-06-22T00:00:00.000Z"),
+    });
+    await stampNotified(db, row.id, "sent", "re_123");
+    let got = (await getSubmissionById(db, row.id))!;
+    expect(got.notifyStatus).toBe("sent");
+    expect(got.resendMessageId).toBe("re_123");
+
+    await stampNotified(db, row.id, "failed", null);
+    got = (await getSubmissionById(db, row.id))!;
+    expect(got.notifyStatus).toBe("failed");
+    expect(got.resendMessageId).toBe("re_123"); // unchanged when messageId is null
+  });
+});
