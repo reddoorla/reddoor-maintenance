@@ -1,0 +1,77 @@
+import { sql } from "kysely";
+import type { Selectable } from "kysely";
+import type { Db } from "./client.js";
+import type { SubmissionsTable } from "./schema.js";
+import {
+  type SubmissionRow,
+  type SubmissionInput,
+  toFormType,
+  toStatus,
+  toNotifyStatus,
+} from "../reports/submission-row.js";
+
+/** Map a raw DB row to the canonical SubmissionRow, narrowing the enum columns
+ *  with the SAME validators the Airtable mapRow uses — SQLite stores TEXT, so a
+ *  bad stored value must still be defended against. */
+function rowFromDb(r: Selectable<SubmissionsTable>): SubmissionRow {
+  return {
+    id: r.id,
+    submissionId: r.submission_id,
+    siteId: r.site_id,
+    formType: toFormType(r.form_type),
+    name: r.name,
+    email: r.email,
+    phone: r.phone,
+    message: r.message,
+    extraFields: r.extra_fields,
+    sourceUrl: r.source_url,
+    utm: r.utm,
+    submittedAt: r.submitted_at,
+    status: toStatus(r.status),
+    notifyStatus: toNotifyStatus(r.notify_status),
+    resendMessageId: r.resend_message_id,
+  };
+}
+
+/** Opaque, collision-free id. crypto is a Node 20 global — no new dep. */
+export function newSubmissionId(): string {
+  return `sub_${crypto.randomUUID()}`;
+}
+
+export async function getSubmissionById(db: Db, id: string): Promise<SubmissionRow | null> {
+  const r = await db.selectFrom("submissions").selectAll().where("id", "=", id).executeTakeFirst();
+  return r ? rowFromDb(r) : null;
+}
+
+export async function createSubmission(db: Db, input: SubmissionInput): Promise<SubmissionRow> {
+  const id = newSubmissionId();
+  const extra =
+    input.extraFields !== undefined && Object.keys(input.extraFields).length > 0
+      ? JSON.stringify(input.extraFields)
+      : null;
+  await db
+    .insertInto("submissions")
+    .values({
+      id,
+      // Display number: MAX+1 in a single statement. libSQL is single-writer, so
+      // writes serialize and this is race-free.
+      submission_id: sql<number>`(SELECT COALESCE(MAX(submission_id), 0) + 1 FROM submissions)`,
+      site_id: input.siteId,
+      form_type: input.formType,
+      name: input.name,
+      email: input.email,
+      phone: input.phone ?? null,
+      message: input.message ?? null,
+      extra_fields: extra,
+      source_url: input.sourceUrl ?? null,
+      utm: input.utm ?? null,
+      submitted_at: input.submittedAt.toISOString(),
+      status: "new",
+      notify_status: "skipped",
+      resend_message_id: null,
+    })
+    .execute();
+  const created = await getSubmissionById(db, id);
+  if (!created) throw new Error("createSubmission: row vanished after insert");
+  return created;
+}
