@@ -2,8 +2,9 @@ import type { Context, Config } from "@netlify/functions";
 import { openBase } from "../../src/reports/airtable/client.js";
 import { getWebsiteBySlug } from "../../src/reports/airtable/websites.js";
 import { listReportsForSite } from "../../src/reports/airtable/reports.js";
-import { listSubmissionsForSite } from "../../src/reports/airtable/submissions.js";
-import { listScreenOutsSince, screenOutsSince } from "../../src/reports/airtable/screenouts.js";
+import { openDb, readDbConfig } from "../../src/db/client.js";
+import { listSubmissionsForSite } from "../../src/db/submissions.js";
+import { listScreenOutsSince, screenOutsSince } from "../../src/db/screenouts.js";
 import { verifyBasicAuth, renderSiteDashboardHtml } from "../../src/dashboard/index.js";
 import { resolveSlug, handlerError } from "../../src/dashboard/handler-helpers.js";
 
@@ -54,6 +55,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
         env: {
           AIRTABLE_PAT: typeof process.env.AIRTABLE_PAT === "string",
           AIRTABLE_BASE_ID: typeof process.env.AIRTABLE_BASE_ID === "string",
+          TURSO_DATABASE_URL: typeof process.env.TURSO_DATABASE_URL === "string",
         },
       },
       { status: 200 },
@@ -65,6 +67,11 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   if (!apiKey || !baseId) {
     console.error("[site-dashboard] AIRTABLE_PAT or AIRTABLE_BASE_ID missing");
     return plainText("Airtable env missing", 500);
+  }
+
+  if (!process.env.TURSO_DATABASE_URL) {
+    console.error("[site-dashboard] TURSO_DATABASE_URL missing");
+    return plainText("Turso env missing", 500);
   }
 
   // Operator-only: gate the per-site dashboard with the same shared password as
@@ -88,6 +95,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
 
   try {
     const base = openBase({ apiKey, baseId });
+    const db = await openDb(readDbConfig());
 
     const site = await getWebsiteBySlug(base, slug);
     if (!site) {
@@ -105,16 +113,15 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
 
     let submissions: Awaited<ReturnType<typeof listSubmissionsForSite>> = [];
     try {
-      submissions = await listSubmissionsForSite(base, { id: site.id, name: site.name });
+      submissions = await listSubmissionsForSite(db, { id: site.id, name: site.name });
     } catch {
       // submissions section simply absent — the rest of the page still renders
     }
 
-    let spamTotals: import("../../src/reports/airtable/screenouts.js").ScreenOutTotals | null =
-      null;
+    let spamTotals: import("../../src/db/screenouts.js").ScreenOutTotals | null = null;
     try {
       const since = screenOutsSince(new Date(), 30);
-      spamTotals = (await listScreenOutsSince(base, since)).get(site.id) ?? null;
+      spamTotals = (await listScreenOutsSince(db, since)).get(site.id) ?? null;
     } catch {
       // panel simply absent — never blank the page
     }
