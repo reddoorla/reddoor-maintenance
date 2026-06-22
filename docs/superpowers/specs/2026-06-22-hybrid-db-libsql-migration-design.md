@@ -27,14 +27,16 @@ All DB access already flows through small dependency-injected functions, so the 
 - `src/reports/airtable/screenouts.ts` → `recordScreenOut`, `recordMarkedSpam`, `listScreenOutsSince`.
 - Handlers compose these into `IngestDeps` / `SubmissionStatusDeps` / `ScreenOutDeps` and the dashboard reads.
 
-New modules under **`src/db/`** provide libSQL-backed equivalents with the **same return shapes** (`SubmissionRow`, `ScreenOutTotals`), taking a libSQL client instead of `AirtableBase`. The Netlify handlers (`form-ingest.mts`, `submission-status.mts`, `site-dashboard.mts`, `fleet-homepage.mts`) and the CLI swap `openBase`→`openDb` and the import source; the deps' _shapes_ are unchanged, so `ingest.ts`, `submission-status.ts`, the render code, and their tests are untouched in interface.
+New modules under **`src/db/`** provide libSQL-backed equivalents with the **same return shapes** (`SubmissionRow`, `ScreenOutTotals`), taking a `Kysely<Database>` handle instead of `AirtableBase`. The Netlify handlers (`form-ingest.mts`, `submission-status.mts`, `site-dashboard.mts`, `fleet-homepage.mts`) and the CLI swap `openBase`→`openDb` and the import source; the deps' _shapes_ are unchanged, so `ingest.ts`, `submission-status.ts`, the render code, and their tests are untouched in interface.
 
 ```
 src/db/
-  client.ts      openDb() → @libsql/client (env: TURSO_DATABASE_URL + TURSO_AUTH_TOKEN; or file: for dev/CI/test)
-  schema.ts      table definitions + migrations (see "Schema management")
-  submissions.ts createSubmission/listNewSubmissions/listSubmissionsForSite/getSubmissionById/setStatus/stampNotified (libSQL)
-  screenouts.ts  recordScreenOut/recordMarkedSpam/listScreenOutsSince (libSQL, EXACT atomic counters)
+  client.ts      openDb() → Kysely<Database> over @libsql/kysely-libsql (env: TURSO_DATABASE_URL + TURSO_AUTH_TOKEN; or file: for dev/CI/test); applies migrations on open
+  schema.ts      the hand-written `Database` interface (one table type each) — the source Kysely types queries from
+  migrations/    NNNN_*.sql — plain standard SQL, applied in order, tracked in a _migrations table
+  migrate.ts     ~40-line runner that applies migrations/*.sql once per DB (NOT Kysely's DSL migrator — keeps SQL portable)
+  submissions.ts createSubmission/listNewSubmissions/listSubmissionsForSite/getSubmissionById/setStatus/stampNotified (Kysely queries)
+  screenouts.ts  recordScreenOut/recordMarkedSpam/listScreenOutsSince (Kysely; atomic upsert via the `sql` tag)
   backfill.ts    one-off Airtable → libSQL copy + reconciliation
 ```
 
@@ -42,7 +44,7 @@ src/db/
 
 **`submissions`** — mirrors `SubmissionRow`:
 
-- `id TEXT PRIMARY KEY` (keep the existing Airtable record id on backfill; new rows get a generated id, e.g. `sub_<ulid>`), `submission_id INTEGER` (display number; autoincrement, backfilled values preserved), `site_id TEXT NOT NULL` (the Airtable Websites record id — the app-level join key, see below), `form_type TEXT`, `name TEXT`, `email TEXT`, `phone TEXT`, `message TEXT`, `extra_fields TEXT` (JSON string, unchanged), `source_url TEXT`, `utm TEXT`, `submitted_at TEXT` (ISO), `status TEXT` (new|read|archived|spam), `notify_status TEXT`, `resend_message_id TEXT`.
+- `id TEXT PRIMARY KEY` (keep the existing Airtable record id on backfill; new rows get `"sub_" + crypto.randomUUID()` — no new dep), `submission_id INTEGER` (display number; autoincrement, backfilled values preserved), `site_id TEXT NOT NULL` (the Airtable Websites record id — the app-level join key, see below), `form_type TEXT`, `name TEXT`, `email TEXT`, `phone TEXT`, `message TEXT`, `extra_fields TEXT` (JSON string, unchanged), `source_url TEXT`, `utm TEXT`, `submitted_at TEXT` (ISO), `status TEXT` (new|read|archived|spam), `notify_status TEXT`, `resend_message_id TEXT`.
 - Indexes: `(site_id, submitted_at DESC)` for per-site newest-first; `(status)` for the new-queue. These make `listSubmissionsForSite`/`listNewSubmissions` indexed server-side queries — retiring the JS-confirm-window pattern and the 200-row fetch cap.
 
 **`spam_screenouts`** — EXACT daily counters (no more approximation):
@@ -53,9 +55,15 @@ src/db/
 
 **Cross-store join:** `submissions.site_id` stores the **Airtable Websites record id** (same value `SubmissionRow.siteId` holds today). The dashboard already maps `siteId → WebsiteRow` from the Airtable-loaded website list, so the join stays app-level by that id string — no foreign key across stores, no schema coupling. Websites stays the source of truth in Airtable.
 
-## Schema management
+## Schema management — Kysely queries + plain-SQL migrations
 
-**Recommendation: a tiny in-repo SQL migration runner** — a `src/db/migrations/NNNN_*.sql` directory applied in order, tracked in a `_migrations` table, run by `openDb()` (or an explicit `reddoor-maint db:migrate`). Rationale: only 2 tables; this keeps the new-dependency footprint to just `@libsql/client` and stays portable (plain SQL). **Alternative for review:** Drizzle (`drizzle-orm` + `drizzle-kit`) for typed schema + generated migrations + end-to-end query types — stronger types under strict tsc, at the cost of a real ORM dependency + codegen step. _This is a decision to confirm in review_ (lean: start with the tiny runner + hand-written typed row mappers mirroring the current `mapRow`; adopt Drizzle later if the query surface grows).
+**Query layer: Kysely** (`kysely` + `@libsql/kysely-libsql`). A single hand-written `Database` interface in `schema.ts` types every SELECT result at compile time, deleting the per-column structural casts the Airtable `mapRow` does today (the win under `noUncheckedIndexedAccess`/`exactOptionalPropertyTypes`). The atomic counter upsert is written with Kysely's first-class parameterized `sql` template tag so it stays the exact standard SQL the schema specifies; the windowed `SUM … GROUP BY` uses the builder's `fn.sum()`. No codegen — CI stays `tsc && vitest && tsup`.
+
+**Migrations: a tiny plain-SQL runner**, NOT Kysely's Migrator. `src/db/migrations/NNNN_*.sql` applied in order, tracked in a `_migrations` table, by `migrate.ts` (~40 lines), run on `openDb()`. Deliberately _not_ Kysely's schema-builder DSL — keeping migrations as standard `CREATE TABLE` SQL preserves the **host-swap portability hard-requirement** (no Kysely-specific migration coupling). YOU own the DDL.
+
+**Runtime enum validators stay.** SQLite stores TEXT, so Kysely types the _shape_ not the _value domain_ — the existing `toFormType`/`toStatus`/`toNotifyStatus` narrowing helpers MUST be carried into the new read mappers verbatim to defend against bad stored data. (This is true under any tool; do not let the "the column is typed now" shortcut drop them.)
+
+**Drift caveat (accepted):** the hand-written `Database` interface is not verified against the migration SQL by codegen (that's Drizzle's job, which we rejected as overkill for 2 tables). The mitigation is that every `src/db/*` function is unit-tested against a **real in-memory libSQL DB with the actual migrations applied**, so an interface/schema mismatch fails a test. The decision rule if the surface grows: this is already Kysely; the next step up (only if many tables/joins appear) would be Drizzle — not anticipated.
 
 ## Migration / cutover plan (one project, per-table gates)
 
@@ -92,10 +100,19 @@ Even as one migration, each table flips behind a verification gate — basic saf
 - **No** Turso-specific features (keep standard SQL → host portability).
 - **No** speculative per-event telemetry table — exact daily counters suffice and stay bounded; per-event rows + rollup/prune is a documented future option only when a real analytics need appears.
 - **No** new admin/CRUD tool — the existing dashboard is the review surface.
-- **No** Postgres/Drizzle lock-in — Drizzle is an optional, confirmable enhancement, not a requirement.
+- **No** Postgres / Drizzle — evaluated and rejected as overkill for 2 tables (heavier deps + codegen, and it bypasses itself on our raw-SQL hot paths). Kysely is the chosen query layer; Drizzle stays on the shelf only if the schema ever multiplies into many tables/joins.
 
-## Open decisions to confirm in review
+## Resolved decisions
 
-1. **Schema tooling**: tiny SQL migration runner (recommended, minimal deps) vs Drizzle (typed, heavier).
-2. **Dual-write soak**: brief dual-write to Airtable during cutover for rollback insurance — yes (safer) or clean flip (simpler)?
-3. **Submission id scheme** for new rows: `sub_<ulid>` vs keep an integer autoincrement as the primary key (the spec assumes a stable string id with a separate display `submission_id`).
+1. **Engine**: libSQL via `@libsql/client`, Turso-hosted, standard-SQL-only for host portability (file / self-hosted `sqld` / `.sqlite` dump all reachable with the same code).
+2. **Schema/query tooling**: **Kysely** (typed query results) + **plain `.sql` migrations via a tiny runner** (portability) + retained runtime enum validators. Drizzle rejected (overkill); pure raw-runner was runner-up.
+3. **Cutover**: **brief dual-write soak** — libSQL is source of truth, Airtable writes are best-effort insurance, reads from libSQL; flip reads back with zero loss if needed, then retire.
+4. **Submission id**: **opaque string PK** `"sub_" + crypto.randomUUID()` (no new dep); backfilled rows keep their Airtable record id so links resolve; `submission_id` integer is the display number.
+
+## Implementation risks & required tests (from the tooling eval)
+
+- **Atomic-upsert exactness must be proven**: a concurrency-flavored test — many `recordScreenOut` calls for the same (site, date) → the counter equals the call count. This is the whole point of the move; guard the `ON CONFLICT … DO UPDATE … + 1` clause.
+- **Migration runner correctness**: a test that runs `migrate.ts` twice against `:memory:` and asserts no double-apply (ordering + idempotency); it gates every DB open.
+- **Carry the enum validators verbatim** into the new mappers (`toFormType`/`toStatus`/`toNotifyStatus`) — the easiest thing to lose in the port, and a silent bad-data hole if dropped.
+- **`.sql` files must ship to `dist` and resolve at runtime** in BOTH the published package and the Netlify function bundle (tsup won't bundle `.sql` — use the existing `import.meta.url` asset pattern). A missing migration fails the cold-start DB open; add a check that the files land in `dist`.
+- **`Database` interface ↔ schema drift** is caught only by tests (no codegen) — every `src/db/*` function is unit-tested against a real in-memory libSQL DB with migrations applied; keep that coverage as queries change.
