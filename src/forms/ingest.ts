@@ -35,6 +35,35 @@ export type IngestResult =
   | { status: "rejected"; reason: "invalid-payload"; errors: string[] }
   | { status: "unknown-site"; slug: string };
 
+export type ScreenOutDeps = {
+  getWebsiteBySlug: (slug: string) => Promise<WebsiteRow | null>;
+  recordScreenOut: (siteId: string, reason: "honeypot" | "too-fast") => Promise<void>;
+};
+
+export type ScreenOutResult =
+  | { status: "recorded"; slug: string }
+  | { status: "unknown-site"; slug: string };
+
+/** Extract the screen-out reason from a beacon body, or null if it isn't one. */
+export function parseScreenOut(payload: unknown): "honeypot" | "too-fast" | null {
+  if (!payload || typeof payload !== "object") return null;
+  const v = (payload as Record<string, unknown>)["screenOut"];
+  return v === "honeypot" || v === "too-fast" ? v : null;
+}
+
+/** Resolve the site and record a caught screen-out. Best-effort: a record failure is
+ *  the caller's to swallow — a missed count must never error a screened bot. */
+export async function ingestScreenOut(
+  deps: ScreenOutDeps,
+  slug: string,
+  reason: "honeypot" | "too-fast",
+): Promise<ScreenOutResult> {
+  const site = await deps.getWebsiteBySlug(slug);
+  if (!site) return { status: "unknown-site", slug };
+  await deps.recordScreenOut(site.id, reason);
+  return { status: "recorded", slug };
+}
+
 /**
  * Normalize → resolve site → persist → notify → stamp. The order is load-bearing:
  * the row is written BEFORE notify, and notify/stamp failures are swallowed (logged)
