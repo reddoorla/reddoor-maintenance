@@ -4,6 +4,9 @@ import { SUBMISSION_STATUSES } from "../reports/airtable/submissions.js";
 export type SubmissionStatusDeps = {
   getSubmissionById: (id: string) => Promise<SubmissionRow | null>;
   setSubmissionStatusRow: (id: string, status: SubmissionStatus) => Promise<void>;
+  /** Optional: increment the per-site/day "marked spam" counter on a real →spam transition.
+   *  Best-effort — a failure is swallowed so triage never errors. */
+  recordMarkedSpam?: (siteId: string) => Promise<void>;
 };
 
 export type SubmissionStatusResult =
@@ -30,5 +33,12 @@ export async function setSubmissionStatus(
   if (!row) return { status: "not-found", submissionId };
   if (row.status === requested) return { status: "noop", submissionId, reason: "already-set" };
   await deps.setSubmissionStatusRow(submissionId, requested);
+  if (requested === "spam" && deps.recordMarkedSpam) {
+    try {
+      await deps.recordMarkedSpam(row.siteId);
+    } catch (err) {
+      console.error(`[submission-status] recordMarkedSpam failed: ${String(err)}`);
+    }
+  }
   return { status: "updated", submissionId, newStatus: requested };
 }

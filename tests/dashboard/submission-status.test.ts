@@ -43,4 +43,44 @@ describe("setSubmissionStatus", () => {
     expect(r).toEqual({ status: "updated", submissionId: "recSUB", newStatus: "archived" });
     expect(d.setSubmissionStatusRow).toHaveBeenCalledWith("recSUB", "archived");
   });
+
+  it("records marked-spam (with the row's siteId) only on a real transition to spam", async () => {
+    const marked: string[] = [];
+    const d = {
+      getSubmissionById: async (id: string) => ({ id, siteId: "recSITE", status: "new" }) as never,
+      setSubmissionStatusRow: async () => {},
+      recordMarkedSpam: async (siteId: string) => {
+        marked.push(siteId);
+      },
+    };
+    const res = await setSubmissionStatus(d, "sub1", "spam");
+    expect(res.status).toBe("updated");
+    expect(marked).toEqual(["recSITE"]);
+  });
+
+  it("does not record marked-spam for a non-spam transition or a no-op", async () => {
+    const marked: string[] = [];
+    const recordMarkedSpam = async (siteId: string) => {
+      marked.push(siteId);
+    };
+    await setSubmissionStatus(
+      {
+        getSubmissionById: async (id) => ({ id, siteId: "recSITE", status: "new" }) as never,
+        setSubmissionStatusRow: async () => {},
+        recordMarkedSpam,
+      },
+      "sub1",
+      "read",
+    );
+    await setSubmissionStatus(
+      {
+        getSubmissionById: async (id) => ({ id, siteId: "recSITE", status: "spam" }) as never,
+        setSubmissionStatusRow: async () => {},
+        recordMarkedSpam,
+      },
+      "sub1",
+      "spam", // already spam → no-op
+    );
+    expect(marked).toEqual([]);
+  });
 });

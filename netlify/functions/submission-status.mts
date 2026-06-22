@@ -5,6 +5,7 @@ import {
   setSubmissionStatusRow,
 } from "../../src/reports/airtable/submissions.js";
 import { setSubmissionStatus, verifyBasicAuth } from "../../src/dashboard/index.js";
+import { recordMarkedSpam } from "../../src/reports/airtable/screenouts.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
 
@@ -81,6 +82,8 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
       {
         getSubmissionById: (sid) => getSubmissionById(base, sid),
         setSubmissionStatusRow: (sid, status) => setSubmissionStatusRow(base, sid, status),
+        recordMarkedSpam: (siteId) =>
+          recordMarkedSpam(base, siteId, new Date().toISOString().slice(0, 10)),
       },
       id,
       requested,
