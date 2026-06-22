@@ -164,20 +164,66 @@ function reportRow(r: ReportRow): string {
   return `<tr><td>${date}</td><td>${type}</td><td><code>${id}</code></td><td>${ga}</td><td>${search}</td><td>${link}</td><td>${action}</td></tr>`;
 }
 
+/** Render a submission's `extraFields` JSON as a key/value list; on parse failure
+ *  show the raw string (escaped) rather than dropping it. Returns "" when blank. */
+function extraFieldsList(raw: string | null): string {
+  if (!raw || raw.trim() === "") return "";
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return `<div class="subm-kv"><span class="k">Extra fields</span> <code>${escapeHtml(raw)}</code></div>`;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return `<div class="subm-kv"><span class="k">Extra fields</span> <code>${escapeHtml(raw)}</code></div>`;
+  }
+  const rows = Object.entries(parsed as Record<string, unknown>)
+    .map(
+      ([k, v]) =>
+        `<div class="subm-kv"><span class="k">${escapeHtml(k)}</span> ${escapeHtml(String(v))}</div>`,
+    )
+    .join("");
+  return rows;
+}
+
 function submissionRow(s: SubmissionRow): string {
   const when = s.submittedAt ? escapeHtml(relativeTimeFromNow(s.submittedAt)) : "—";
   const type = escapeHtml(s.formType);
   const who = escapeHtml(s.name || "(no name)");
   const email = escapeHtml(s.email || "");
-  const message = escapeHtml(s.message ?? "");
   const status = escapeHtml(s.status);
   const id = escapeHtml(s.id);
   const url = `/api/submissions/${encodeURIComponent(s.id)}/status`;
   const btn = (label: string, action: string) =>
     `<button class="subm-status" data-id="${id}" data-status="${action}" data-url="${url}">${label}</button>`;
+
+  // One detail row per present field; absent fields are omitted (no blank rows).
+  const kv = (label: string, value: string | number | null) =>
+    value === null || value === ""
+      ? ""
+      : `<div class="subm-kv"><span class="k">${label}</span> ${escapeHtml(String(value))}</div>`;
+  const sourceLink = s.sourceUrl
+    ? `<div class="subm-kv"><span class="k">Source</span> <a href="${escapeHtml(safeUrl(s.sourceUrl))}" rel="noopener noreferrer">${escapeHtml(s.sourceUrl)}</a></div>`
+    : "";
+  const messageBlock = s.message
+    ? `<div class="subm-kv"><span class="k">Message</span></div><div class="subm-msg">${escapeHtml(s.message)}</div>`
+    : "";
+  const details = [
+    kv("Phone", s.phone),
+    messageBlock,
+    sourceLink,
+    kv("UTM", s.utm),
+    extraFieldsList(s.extraFields),
+    kv("Notify", s.notifyStatus),
+    kv("Resend ID", s.resendMessageId),
+    kv("Submission #", s.submissionId),
+  ].join("");
+
   return `<li class="subm-item">
-    <div class="subm-head"><strong>${type}</strong> · ${who} <span class="muted">${email}</span> <span class="pill subm-${status}">${status}</span> <span class="muted">${when}</span></div>
-    ${message ? `<div class="subm-msg">${message}</div>` : ""}
+    <details>
+      <summary class="subm-head"><strong>${type}</strong> · ${who} <span class="muted">${email}</span> <span class="pill subm-${status}">${status}</span> <span class="muted">${when}</span></summary>
+      <div class="subm-detail">${details}</div>
+    </details>
     <div class="subm-actions">${btn("Read", "read")}${btn("Archive", "archived")}${btn("Spam", "spam")}</div>
   </li>`;
 }
@@ -283,6 +329,10 @@ button.approve:disabled { opacity: 0.6; cursor: default; }
 @media (prefers-color-scheme: dark) { .subm-item { border-color: #2a2a2a; } }
 .subm-head { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 .subm-msg { margin: 0.35rem 0; white-space: pre-wrap; }
+.subm-detail { padding: 0.35rem 0 0.2rem; }
+.subm-kv { font-size: 0.9rem; margin: 0.15rem 0; }
+.subm-kv .k { color: #888; margin-right: 0.4rem; }
+summary.subm-head { cursor: pointer; }
 .subm-actions { display: flex; gap: 0.4rem; }
 button.subm-status { font: inherit; padding: 0.25rem 0.7rem; border: 1px solid #888; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
 button.subm-status:disabled { opacity: 0.6; cursor: default; }
