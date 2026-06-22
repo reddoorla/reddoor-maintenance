@@ -77,6 +77,7 @@ const expectedSubcommands = [
   "self-updating",
   "launch",
   "github-signals",
+  "db",
 ];
 
 await check("CLI --help exits 0 and lists all expected commands", () => {

@@ -1,55 +1,34 @@
 import type { FieldSet, Records } from "airtable";
 import type { AirtableBase } from "./client.js";
 import { escapeFormulaString } from "./reports.js";
-import { SUBMISSION_FORM_TYPES, type FormType } from "../../forms/types.js";
+import {
+  SUBMISSION_FORM_TYPES,
+  type FormType,
+  SUBMISSION_STATUSES,
+  type SubmissionStatus,
+  NOTIFY_STATUSES,
+  type NotifyStatus,
+  toFormType,
+  toStatus,
+  toNotifyStatus,
+  type SubmissionRow,
+  type SubmissionInput,
+} from "../submission-row.js";
 
 export const SUBMISSIONS_TABLE = "Submissions";
 
-export { SUBMISSION_FORM_TYPES };
-export type { FormType };
-
-export const SUBMISSION_STATUSES = ["new", "read", "archived", "spam"] as const;
-export type SubmissionStatus = (typeof SUBMISSION_STATUSES)[number];
-
-export const NOTIFY_STATUSES = ["sent", "failed", "skipped"] as const;
-export type NotifyStatus = (typeof NOTIFY_STATUSES)[number];
-
-function toFormType(raw: string | undefined): FormType {
-  if (raw && (SUBMISSION_FORM_TYPES as readonly string[]).includes(raw)) return raw as FormType;
-  if (raw)
-    console.warn(`[submissions] unknown Form type ${JSON.stringify(raw)} — treating as contact`);
-  return "contact";
-}
-
-function toStatus(raw: string | undefined): SubmissionStatus {
-  if (raw && (SUBMISSION_STATUSES as readonly string[]).includes(raw))
-    return raw as SubmissionStatus;
-  return "new";
-}
-
-function toNotifyStatus(raw: string | undefined): NotifyStatus {
-  if (raw && (NOTIFY_STATUSES as readonly string[]).includes(raw)) return raw as NotifyStatus;
-  return "skipped";
-}
-
-export type SubmissionRow = {
-  id: string;
-  submissionId: number | null;
-  siteId: string;
-  formType: FormType;
-  name: string;
-  email: string;
-  phone: string | null;
-  message: string | null;
-  /** Raw JSON string of any site-specific fields the typed columns didn't claim. */
-  extraFields: string | null;
-  sourceUrl: string | null;
-  utm: string | null;
-  submittedAt: string | null;
-  status: SubmissionStatus;
-  notifyStatus: NotifyStatus;
-  resendMessageId: string | null;
+// Re-export the row shape + validators so existing importers (forms/ingest.ts,
+// dashboard/submission-status.ts, the render code) keep importing from
+// airtable/submissions.js unchanged.
+export {
+  SUBMISSION_FORM_TYPES,
+  SUBMISSION_STATUSES,
+  NOTIFY_STATUSES,
+  toFormType,
+  toStatus,
+  toNotifyStatus,
 };
+export type { FormType, SubmissionStatus, NotifyStatus, SubmissionRow, SubmissionInput };
 
 export function mapRow(rec: { id: string; fields: Record<string, unknown> }): SubmissionRow {
   const f = rec.fields;
@@ -72,19 +51,6 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): Su
     resendMessageId: (f["Resend message ID"] as string | undefined) ?? null,
   };
 }
-
-export type SubmissionInput = {
-  siteId: string;
-  formType: FormType;
-  name: string;
-  email: string;
-  phone?: string;
-  message?: string;
-  extraFields?: Record<string, unknown>;
-  sourceUrl?: string;
-  utm?: string;
-  submittedAt: Date;
-};
 
 export async function createSubmission(
   base: AirtableBase,
