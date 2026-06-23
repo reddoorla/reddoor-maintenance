@@ -1,5 +1,5 @@
 import { sql } from "kysely";
-import type { Selectable } from "kysely";
+import type { Selectable, SqlBool } from "kysely";
 import type { Db } from "./client.js";
 import type { SubmissionsTable } from "./schema.js";
 import {
@@ -91,12 +91,17 @@ export async function createSubmission(db: Db, input: SubmissionInput): Promise<
 
 import type { NotifyStatus } from "../reports/submission-row.js";
 
-export async function listNewSubmissions(db: Db): Promise<SubmissionRow[]> {
+export async function listNewSubmissions(db: Db, max = 200): Promise<SubmissionRow[]> {
+  // Bound the fetch (matches listSubmissionsForSite's default): the cockpit loads this whole
+  // array on every render. Unbounded, it deserializes every unread submission fleet-wide. The
+  // badge count therefore caps at `max` — acceptable, since >200 unread fleet-wide is itself a
+  // triage emergency, and the /submissions page is the unbounded, filterable view.
   const rows = await db
     .selectFrom("submissions")
     .selectAll()
     .where("status", "=", "new")
     .orderBy("submitted_at", "desc")
+    .limit(max)
     .execute();
   return rows.map(rowFromDb);
 }
@@ -153,13 +158,22 @@ function applySubmissionFilter<O>(
   if (f.from !== undefined) q = q.where("submitted_at", ">=", f.from);
   if (f.to !== undefined) q = q.where("submitted_at", "<=", f.to);
   if (f.search !== undefined && f.search.trim() !== "") {
-    const like = `%${f.search.trim().toLowerCase()}%`;
+    // Escape LIKE metacharacters so a user's literal `%`/`_` (or the escape char `\`) match
+    // literally rather than as wildcards: searching `john_doe` must not also hit `johnXdoe`,
+    // and a bare `%` must not match everything. `\` is escaped first (it's the ESCAPE char).
+    // Parameterized regardless (no injection) — this is a correctness fix. Uses sql`` because
+    // kysely's `like` operator can't attach an ESCAPE clause.
+    const term = f.search
+      .trim()
+      .toLowerCase()
+      .replace(/[\\%_]/g, "\\$&");
+    const like = `%${term}%`;
     q = q.where((eb) =>
       eb.or([
-        eb(eb.fn("lower", ["name"]), "like", like),
-        eb(eb.fn("lower", ["email"]), "like", like),
-        eb(eb.fn("lower", ["message"]), "like", like),
-        eb(eb.fn("lower", ["phone"]), "like", like),
+        sql<SqlBool>`lower(${eb.ref("name")}) like ${like} escape '\\'`,
+        sql<SqlBool>`lower(${eb.ref("email")}) like ${like} escape '\\'`,
+        sql<SqlBool>`lower(${eb.ref("message")}) like ${like} escape '\\'`,
+        sql<SqlBool>`lower(${eb.ref("phone")}) like ${like} escape '\\'`,
       ]),
     );
   }
