@@ -1,7 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   summarizeBrowser,
   browserAudit,
+  defaultDiscoverDeps,
   type RouteResult,
   type LinkResult,
   type BrowserRunner,
@@ -141,5 +142,25 @@ describe("browserAudit", () => {
     });
     expect(r.status).toBe("warn");
     expect(r.details).toMatchObject({ mobileOk: false });
+  });
+});
+
+describe("defaultDiscoverDeps fetchText (bounded fetch)", () => {
+  it("passes an AbortSignal timeout and degrades to null on abort/error", async () => {
+    const stub = vi.fn(
+      (_url: string, _init?: { signal?: AbortSignal }): Promise<Response> =>
+        // Simulate the timeout firing (or any network error) — must be swallowed to null,
+        // never thrown past the audit.
+        Promise.reject(new Error("simulated timeout abort")),
+    );
+    vi.stubGlobal("fetch", stub);
+    try {
+      const out = await defaultDiscoverDeps().fetchText("https://hung.example/");
+      expect(out).toBeNull();
+      // The fetch was bounded — an AbortSignal (from AbortSignal.timeout) was supplied.
+      expect(stub.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

@@ -52,6 +52,7 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
+    "pretest": "pnpm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

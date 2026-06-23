@@ -113,6 +113,13 @@ describe("db list / status / stamp", () => {
     expect(rest.find((s) => s.id === first.id)).toBeUndefined();
   });
 
+  it("listNewSubmissions caps at max (bounds the cockpit fleet-wide load), newest first", async () => {
+    const db = await openDb({ url: ":memory:" });
+    await seed(db); // 3 "new" rows
+    const capped = await listNewSubmissions(db, 2);
+    expect(capped.map((s) => s.name)).toEqual(["New A", "B"]);
+  });
+
   it("listSubmissionsForSite narrows by site id, newest first, honoring max", async () => {
     const db = await openDb({ url: ":memory:" });
     await seed(db);

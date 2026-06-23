@@ -24,6 +24,9 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # A hung `npm view` / DNS lookup would otherwise sit at GitHub's 6-hour default, and with
+    # concurrency.cancel-in-progress=false it would pin the group and queue every later daily run.
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
 

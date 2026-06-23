@@ -79,6 +79,34 @@ describe("listSubmissionsFiltered / countSubmissionsFiltered", () => {
     ).toBe(1);
     expect(await countSubmissionsFiltered(db, { search: "nomatch" })).toBe(0);
   });
+  it("escapes LIKE metacharacters so a literal _ / % is not a wildcard", async () => {
+    // Two emails that differ only at a literal underscore vs any char.
+    await createSubmission(db, {
+      siteId: "recA",
+      formType: "contact",
+      name: "Under",
+      email: "john_doe@x.com",
+      submittedAt: new Date("2026-06-25T00:00:00.000Z"),
+    });
+    await createSubmission(db, {
+      siteId: "recA",
+      formType: "contact",
+      name: "Wild",
+      email: "johnxdoe@x.com",
+      submittedAt: new Date("2026-06-26T00:00:00.000Z"),
+    });
+    // "john_doe" must match ONLY the literal underscore — not "johnxdoe" (which it WOULD if `_`
+    // were treated as a single-char wildcard).
+    const rows = await listSubmissionsFiltered(
+      db,
+      { search: "john_doe" },
+      { limit: 50, offset: 0 },
+    );
+    expect(rows.map((r) => r.email)).toEqual(["john_doe@x.com"]);
+    // A bare "%" is a literal, not match-everything: none of the seeded rows contain a literal %.
+    expect(await countSubmissionsFiltered(db, { search: "%" })).toBe(0);
+  });
+
   it("filters by date range inclusive", async () => {
     const rows = await listSubmissionsFiltered(
       db,

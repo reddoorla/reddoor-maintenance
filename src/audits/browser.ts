@@ -122,12 +122,21 @@ export async function browserAudit(ctx: AuditContext): Promise<AuditResult> {
   }
 }
 
-/** Real route-discovery fetch: GET text, null on any non-2xx / error. */
+/** Bound the plain fetch()es (route-discovery GET + link HEAD/GET) so a host that hangs
+ *  WITHOUT erroring can't stall the sequential fleet audit indefinitely. Playwright's
+ *  page.goto already has PAGE_TIMEOUT_MS; these fetches had no ceiling. On abort the existing
+ *  catch path treats it exactly like a network error (→ null), so a slow host degrades, never throws. */
+const FETCH_TIMEOUT_MS = 10_000;
+
+/** Real route-discovery fetch: GET text, null on any non-2xx / error / timeout. */
 export function defaultDiscoverDeps(): DiscoverDeps {
   return {
     fetchText: async (url) => {
       try {
-        const res = await fetch(url, { redirect: "follow" });
+        const res = await fetch(url, {
+          redirect: "follow",
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
         if (!res.ok) return null;
         return await res.text();
       } catch {
@@ -252,10 +261,18 @@ export async function defaultBrowserRunner(): Promise<BrowserRunner> {
       for (const url of urls) {
         let status: number | null;
         try {
-          let res = await fetch(url, { method: "HEAD", redirect: "follow" });
+          let res = await fetch(url, {
+            method: "HEAD",
+            redirect: "follow",
+            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+          });
           // Some servers reject HEAD (405/501) — retry GET before declaring it broken.
           if (res.status === 405 || res.status === 501) {
-            res = await fetch(url, { method: "GET", redirect: "follow" });
+            res = await fetch(url, {
+              method: "GET",
+              redirect: "follow",
+              signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+            });
           }
           status = res.status;
         } catch {
