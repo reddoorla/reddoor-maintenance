@@ -16,6 +16,7 @@ concurrency:
 
 permissions:
   contents: read
+  issues: write # open/close the nightly-failure tracking issue (parity with fleet-lighthouse)
 
 jobs:
   audit:
@@ -55,9 +56,79 @@ jobs:
             --concurrency 1 \
             --workdir /tmp/fleet-security | tee /tmp/audit.out || true
 
+          # `|| true`: under Actions' default `set -e`, a no-match grep in a command
+          # substitution would abort the step before the explicit diagnostic below runs.
           summary=$(grep -oE "FLEET_WRITE_SUMMARY wrote=[0-9]+ failed=[0-9]+ total=[0-9]+" /tmp/audit.out | tail -n1 || true)
           if [ -z "$summary" ]; then
             echo "::error::fleet security printed no write summary — the run crashed before write-back (check Airtable creds / clone)."
             exit 1
           fi
-          echo "$summary"
+          wrote=$(echo "$summary" | grep -oE "wrote=[0-9]+" | cut -d= -f2)
+          failed=$(echo "$summary" | grep -oE "failed=[0-9]+" | cut -d= -f2)
+          total=$(echo "$summary" | grep -oE "total=[0-9]+" | cut -d= -f2)
+          echo "fleet write-back: wrote=$wrote failed=$failed total=$total"
+
+          # Surface every partial miss as a visible annotation, even one within
+          # tolerance — a tolerated single-site flake is then never invisible.
+          if [ "$failed" -gt 0 ]; then
+            notwritten=$(grep -oE "[0-9]+ site\(s\) not written:.*" /tmp/audit.out | tail -n1 || true)
+            echo "::warning::fleet security: $failed/$total site(s) not written — $notwritten"
+          fi
+
+          # A site that couldn't even be prepared (bad/scheme-less URL + no repo, or a
+          # private repo whose clone fails) is dropped rather than crashing the run
+          # (resilient fleet prep). Raise it so the misconfigured Airtable row gets fixed.
+          skipped=$(grep -oE "⚠ [0-9]+ site\(s\) skipped \(could not prepare\):.*" /tmp/audit.out | tail -n1 || true)
+          if [ -n "$skipped" ]; then
+            echo "::warning::fleet security: $skipped"
+          fi
+
+          # Total write-back failure: nothing landed at all (creds/API/inventory). This
+          # is the silent-green hazard — every site's "Security Updates" box would stay
+          # unticked while the job reported success.
+          if [ "$wrote" -eq 0 ]; then
+            echo "::error::fleet security wrote 0 of $total site(s) — total write-back failure (check Airtable creds / API)."
+            exit 1
+          fi
+
+          # Mass flake: more than 25% of attempted sites failed to write. A single
+          # known-flaky site stays green-with-warning; a real outage reds.
+          if [ $((failed * 4)) -gt "$total" ]; then
+            echo "::error::fleet security: $failed/$total site(s) failed to write (>25%) — investigate (not a single-site flake)."
+            exit 1
+          fi
+
+      # A red nightly is otherwise only GitHub's best-effort email to the last pusher.
+      # File/reopen a single deduped tracking issue so a failure is durably visible, and
+      # auto-close it once the run goes green again. continue-on-error so the alert
+      # machinery can NEVER turn a run's status red. A DISTINCT title from
+      # fleet-lighthouse's ("Nightly fleet audit failing") so the two workflows never
+      # comment on or close each other's issue.
+      - name: Open/update the nightly-failure tracking issue
+        if: failure()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Nightly fleet security audit failing"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body=$(printf 'The nightly **fleet-security** run failed.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          existing=$(gh issue list --state open --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close the nightly-failure issue on recovery
+        if: success()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Nightly fleet security audit failing"
+          for n in $(gh issue list --state open --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+            gh issue close "$n" --comment "Recovered — the nightly fleet-security run is green again." && echo "closed #$n"
+          done

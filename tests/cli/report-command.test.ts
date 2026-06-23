@@ -384,4 +384,32 @@ describe("draftDueReports period guard", () => {
     });
     expect(res.code).toBe(0);
   });
+
+  it("DOES create the new-period draft when the earlier-period draft was SUPERSEDED, not pending (HIGH-2 regression)", async () => {
+    vi.mocked(listWebsites).mockResolvedValue([siteRow()]);
+    // A 2026-04 Maintenance row that a higher-tier Testing report once superseded:
+    // queueDraft set Draft ready = false and it never got a Sent at. It is NOT pending
+    // approval, so it must NOT block the new 2026-05 Maintenance draft. Before the fix,
+    // the pile-up guard matched ANY unsent earlier-period row (sentAt null + period <
+    // current) and wedged the site's Maintenance reports forever (Reddoor's live failure).
+    const base = makeFakeBase({
+      Reports: [
+        {
+          id: "rec_superseded",
+          fields: {
+            Site: ["rec_site_acme"],
+            "Report type": "Maintenance",
+            Period: "2026-04",
+            // no "Draft ready" → draftReady false (superseded); no "Sent at" → sentAt null
+          },
+        },
+      ],
+    });
+    const res = await draftDueReports(base, TODAY);
+    expect(draftReportForSite).toHaveBeenCalledTimes(1);
+    expect(draftReportForSite).toHaveBeenCalledWith(base, expect.anything(), "Maintenance", {
+      period: "2026-05",
+    });
+    expect(res.code).toBe(0);
+  });
 });

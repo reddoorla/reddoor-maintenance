@@ -191,12 +191,18 @@ export async function draftDueReports(
     // Pile-up guard: don't accrue a fresh new-period draft every recurrence for a
     // site nobody ever approves. The period key follows the DUE month, so each
     // recurrence wants a new (later-period) draft — but if a PRIOR draft is still
-    // unsent (pending approval), a new one just stacks. Skip creating the new one
-    // while an earlier-period draft for this (site, type) sits unsent.
+    // pending approval, a new one just stacks. Skip creating the new one while an
+    // earlier-period draft for this (site, type) sits ready-but-unsent.
+    //
+    // `r.draftReady` is load-bearing: a draft a higher tier SUPERSEDED has
+    // draftReady=false and never gets a Sent at, so without this clause it would
+    // match (sentAt null + earlier period) and block EVERY future draft for the
+    // site forever. Pending-approval means draftReady=true AND sentAt=null.
     const pendingEarlier = reports.find(
       (r) =>
         r.siteId === item.site.id &&
         r.reportType === item.reportType &&
+        r.draftReady &&
         r.sentAt === null &&
         r.period !== null &&
         r.period < period,
