@@ -1,5 +1,6 @@
 import type { SubmissionRow } from "../reports/submission-row.js";
 import type { WebsiteRow } from "../reports/airtable/websites.js";
+import { isPublicHttpsUrl } from "../util/url.js";
 
 export type WebhookForwardResult = { ok: boolean; status: number };
 
@@ -22,9 +23,10 @@ export function buildNewsletterWebhookBody(
 
 /**
  * POST a newsletter submission to a site-configured webhook. NEVER throws — a
- * non-https URL, non-2xx response, or network error returns `{ ok: false }` so
- * the caller treats it as a swallowed side-effect. Only https URLs are allowed
- * (the URL is operator-set in Airtable, but this is a server-side egress).
+ * disallowed URL, non-2xx response, or network error returns `{ ok: false }` so
+ * the caller treats it as a swallowed side-effect. Only PUBLIC https URLs are
+ * allowed (the URL is operator-set in Airtable, but this is a server-side egress
+ * — so an internal/loopback/private host is refused as an SSRF guard).
  */
 export async function forwardNewsletterToWebhook(
   url: string,
@@ -32,8 +34,8 @@ export async function forwardNewsletterToWebhook(
   site: WebsiteRow,
   fetchImpl: typeof fetch = fetch,
 ): Promise<WebhookForwardResult> {
-  if (!/^https:\/\//i.test(url)) {
-    console.error(`[newsletter-webhook] refusing non-https url for site=${site.name}`);
+  if (!isPublicHttpsUrl(url)) {
+    console.error(`[newsletter-webhook] refusing non-public/non-https url for site=${site.name}`);
     return { ok: false, status: 0 };
   }
   try {

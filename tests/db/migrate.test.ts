@@ -24,4 +24,25 @@ describe("runMigrations", () => {
     const applied = await client.execute("SELECT id FROM _migrations");
     expect(applied.rows.map((r) => String(r.id))).toEqual(["0001_init"]);
   });
+
+  it("re-applies cleanly after a lost _migrations marker (every statement is independently idempotent)", async () => {
+    // executeMultiple is NON-transactional, so a crash mid-migration can leave the
+    // DDL applied but the marker absent — the next openDb would re-run the whole
+    // migration. That re-run must NOT throw (every statement IF NOT EXISTS-guarded).
+    // Simulate it by dropping the marker after a successful apply and re-running.
+    const client = createClient({ url: ":memory:" });
+    await runMigrations(client);
+    await client.execute("DELETE FROM _migrations WHERE id = '0001_init'");
+
+    const ran = await runMigrations(client); // must not throw
+    expect(ran).toEqual(["0001_init"]); // re-applied (marker was gone)
+
+    // Tables are intact and not duplicated; the marker is restored exactly once.
+    const tables = await client.execute(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('submissions','spam_screenouts')",
+    );
+    expect(tables.rows.length).toBe(2);
+    const applied = await client.execute("SELECT id FROM _migrations");
+    expect(applied.rows.map((r) => String(r.id))).toEqual(["0001_init"]);
+  });
 });

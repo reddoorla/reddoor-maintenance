@@ -82,13 +82,6 @@ function formatValue(v: unknown): string {
   return JSON.stringify(v);
 }
 
-/**
- * Parse the stored `extraFields` JSON into label/value pairs for the email. This
- * is the site-specific context a recipient most needs — the artwork an inquiry is
- * about, the event an rsvp is for, the company on a contact — which would
- * otherwise only live in the Airtable record. Bad JSON or a non-object yields no
- * rows (never throws); empty-string values are dropped.
- */
 /** Parse the stored `extraFields` JSON into a plain object — bad JSON or a
  *  non-object yields {} (never throws). Shared by the email renderer and routing. */
 function parseExtraFields(raw: string | null): Record<string, unknown> {

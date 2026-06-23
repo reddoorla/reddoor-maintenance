@@ -1,18 +1,21 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 
 /**
  * Constant-time compare of a presented ingest token against the configured
- * FORMS_INGEST_TOKEN. Byte lengths are checked first (timingSafeEqual throws on
- * a length mismatch). Returns false on any missing/blank/mismatched input.
+ * FORMS_INGEST_TOKEN. Both inputs are SHA-256'd to a fixed 32-byte digest before
+ * comparing, so the compare is constant-time with respect to BOTH content AND
+ * length — a raw-buffer compare would early-return on a length mismatch and leak
+ * the secret's length. (Plain digest, not an HMAC: this is an equality check, not
+ * a MAC, and both operands are already secrets.) Returns false on any
+ * missing/blank input.
  */
 export function verifyFormsToken(
   presented: string | null | undefined,
   expected: string | null | undefined,
 ): boolean {
   if (!presented || !expected) return false;
-  const a = Buffer.from(presented, "utf-8");
-  const b = Buffer.from(expected, "utf-8");
-  if (a.length !== b.length) return false;
+  const a = createHash("sha256").update(presented, "utf-8").digest();
+  const b = createHash("sha256").update(expected, "utf-8").digest();
   return timingSafeEqual(a, b);
 }
 

@@ -211,7 +211,7 @@ function approveStrip(model: CockpitModel): string {
       return `<div class="approve-row" data-signal="pending">
         <strong>${escapeHtml(p.siteName)}</strong>
         <span class="muted">${escapeHtml(p.reportType)} ${escapeHtml(p.period)}</span>
-        <button class="approve" data-report-id="${escapeHtml(p.reportId)}" data-approve-url="${url}">Approve</button>
+        <button class="approve" data-report-id="${escapeHtml(p.reportId)}" data-approve-url="${escapeHtml(url)}">Approve</button>
         <a href="${href}">open ▸</a>
       </div>`;
     })

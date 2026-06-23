@@ -16,6 +16,11 @@ function get(url: string, headers: Record<string, string> = {}): Request {
   return new Request(url, { method: "GET", headers });
 }
 
+/** A valid Basic header for the given password (username is ignored by the gate). */
+function authHeader(password: string): Record<string, string> {
+  return { authorization: `Basic ${Buffer.from(`x:${password}`).toString("base64")}` };
+}
+
 // The handler only reads `ctx.params`; a minimal cast is enough and avoids
 // fragile multi-line `@ts-expect-error` placement once Prettier wraps the call.
 function ctx(params?: Record<string, string>): Context {
@@ -46,9 +51,20 @@ describe("site-dashboard adapter — slug resolution + env/auth gating", () => {
     expect(body.env.AIRTABLE_PAT).toBe(false);
   });
 
-  it("500s when a slug is given but Airtable env is missing", async () => {
-    const res = await siteDashboard(get("https://dash.reddoor.test/s/acme"), ctx({ slug: "acme" }));
+  it("500s when a slug is given but Airtable env is missing — but only AFTER auth passes", async () => {
+    process.env.DASHBOARD_PASSWORD = "s3cret";
+    const res = await siteDashboard(
+      get("https://dash.reddoor.test/s/acme", authHeader("s3cret")),
+      ctx({ slug: "acme" }),
+    );
     expect(res.status).toBe(500);
+  });
+
+  it("does NOT leak backend env state to an UNAUTHENTICATED slug request (auth precedes env guards)", async () => {
+    // Password set, no creds, Airtable/Turso unset → 401, not a differentiated 500.
+    process.env.DASHBOARD_PASSWORD = "s3cret";
+    const res = await siteDashboard(get("https://dash.reddoor.test/s/acme"), ctx({ slug: "acme" }));
+    expect(res.status).toBe(401);
   });
 
   it("401s an unauthenticated slug request (gate fires before any Airtable read)", async () => {

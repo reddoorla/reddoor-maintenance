@@ -5,6 +5,7 @@ import {
   listSubmissionsFiltered,
   countSubmissionsFiltered,
 } from "../../src/db/submissions.js";
+import { parseSubmissionsQuery } from "../../src/dashboard/submissions-page.js";
 import type { Db } from "../../src/db/client.js";
 
 let db: Db;
@@ -114,6 +115,18 @@ describe("listSubmissionsFiltered / countSubmissionsFiltered", () => {
       { limit: 50, offset: 0 },
     );
     expect(rows.map((r) => r.email)).toEqual(["bo@y.com"]);
+  });
+  it("date filter built from the UI's YYYY-MM-DD inputs includes BOTH boundary days", async () => {
+    // Reproduce the real call contract: the UI submits date-only from/to;
+    // parseSubmissionsQuery passes `from` raw (date-only, lexicographically <= any
+    // same-day ISO timestamp) and widens `to` → end-of-day. Bo (06-10T00:00, the
+    // `from` boundary) and Cy (06-20T00:00, inside the widened `to`) both match;
+    // Ada (06-01) is excluded.
+    const { filter } = parseSubmissionsQuery(new URLSearchParams("from=2026-06-10&to=2026-06-20"));
+    expect(filter.from).toBe("2026-06-10");
+    expect(filter.to).toBe("2026-06-20T23:59:59.999Z");
+    const rows = await listSubmissionsFiltered(db, filter, { limit: 50, offset: 0 });
+    expect(rows.map((r) => r.email)).toEqual(["cy@z.com", "bo@y.com"]);
   });
   it("paginates with limit/offset; count ignores pagination", async () => {
     const page1 = await listSubmissionsFiltered(db, {}, { limit: 2, offset: 0 });

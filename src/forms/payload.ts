@@ -54,9 +54,17 @@ function str(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
-function coerceFormType(raw: unknown): FormType {
+/**
+ * Resolve the submission's formType. An ABSENT/blank value defaults to "contact"
+ * (the long-standing minimal-form contract). A PRESENT but unrecognized value
+ * (e.g. a typo'd "news") returns null → the caller rejects it, rather than
+ * silently storing it as contact — which would, for a newsletter signup, drop the
+ * Mailchimp fan-out. Mirrors createIngestEndpoint's reject-invalid behavior.
+ */
+function resolveFormType(raw: unknown): FormType | null {
   const s = str(raw);
-  return (SUBMISSION_FORM_TYPES as readonly string[]).includes(s) ? (s as FormType) : "contact";
+  if (s === "") return "contact";
+  return (SUBMISSION_FORM_TYPES as readonly string[]).includes(s) ? (s as FormType) : null;
 }
 
 /**
@@ -74,10 +82,14 @@ export function normalizeSubmission(payload: unknown): NormalizeResult {
   const email = str(p.email).toLowerCase();
   const message = str(p.message);
 
+  const formType = resolveFormType(p.formType);
   const errors: string[] = [];
   if (!email && !message) errors.push("at least one of email or message is required");
   if (email && !EMAIL_RE.test(email)) errors.push("email is not a valid address");
-  if (errors.length > 0) return { ok: false, errors };
+  if (formType === null) errors.push("formType is not a recognized form type");
+  // The `|| formType === null` is redundant for control flow (the push above
+  // already made errors non-empty) but narrows formType to FormType past this line.
+  if (errors.length > 0 || formType === null) return { ok: false, errors };
 
   const extraFields: Record<string, unknown> = {};
   const extra = p.extra;
@@ -91,7 +103,7 @@ export function normalizeSubmission(payload: unknown): NormalizeResult {
   }
 
   const value: NormalizedSubmission = {
-    formType: coerceFormType(p.formType),
+    formType,
     name,
     email,
     extraFields,

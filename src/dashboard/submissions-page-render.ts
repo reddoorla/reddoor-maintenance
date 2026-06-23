@@ -97,10 +97,16 @@ function rowWithSite(r: SubmissionsPageModel["rows"][number]): string {
 
 /** Render the full submissions fleet page as a standalone HTML document. */
 export function renderSubmissionsPageHtml(m: SubmissionsPageModel): string {
+  const maxPage = Math.max(1, Math.ceil(m.total / m.pageSize));
   const body =
     m.total === 0
       ? `<div class="empty">No submissions match these filters.</div>`
-      : `<div class="meta">${m.total} submission${m.total === 1 ? "" : "s"}</div>
+      : m.rows.length === 0
+        ? // Paged past the last page (offset ≥ total): show a clear notice + a link
+          // back to the last real page, NOT an empty list under a "120 submissions"
+          // header with an impossible "Page 5 of 3" pager.
+          `<div class="empty">No submissions on page ${m.page} (only ${maxPage} page${maxPage === 1 ? "" : "s"}). <a href="${escapeHtml(pageHref(m, maxPage))}">Go to last page →</a></div>`
+        : `<div class="meta">${m.total} submission${m.total === 1 ? "" : "s"}</div>
        <ul class="subm-list">${m.rows.map(rowWithSite).join("")}</ul>
        ${pager(m)}`;
 

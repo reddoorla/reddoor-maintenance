@@ -12,6 +12,15 @@ describe("verifyFormsToken", () => {
     expect(verifyFormsToken("x", undefined)).toBe(false);
     expect(verifyFormsToken(null, "x")).toBe(false);
   });
+  it("does not throw on differing lengths (digest-then-compare, not raw-buffer)", () => {
+    // A raw timingSafeEqual on unequal-length buffers throws; the fixed-length
+    // digest makes a length mismatch a normal false, not an exception.
+    expect(() => verifyFormsToken("a", "aaaaaaaaaaaaaaaaaaaa")).not.toThrow();
+    expect(verifyFormsToken("a", "aaaaaaaaaaaaaaaaaaaa")).toBe(false);
+    // A long exact match still passes.
+    const long = "x".repeat(512);
+    expect(verifyFormsToken(long, long)).toBe(true);
+  });
 });
 
 describe("bearerToken", () => {

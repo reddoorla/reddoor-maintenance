@@ -53,6 +53,25 @@ describe("forwardNewsletterToWebhook", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("refuses a private/loopback https URL (SSRF guard) without calling fetch", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    for (const url of [
+      "https://127.0.0.1/x",
+      "https://10.0.0.1/x",
+      "https://169.254.169.254/latest/meta-data",
+      "https://localhost/x",
+    ]) {
+      const res = await forwardNewsletterToWebhook(
+        url,
+        submission,
+        site,
+        fetchImpl as unknown as typeof fetch,
+      );
+      expect(res).toEqual({ ok: false, status: 0 });
+    }
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("returns ok:false with the status when fetch resolves non-2xx", async () => {
     const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 500 });
     const res = await forwardNewsletterToWebhook(

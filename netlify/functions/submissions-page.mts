@@ -29,16 +29,9 @@ function html(body: string, status: number): Response {
 }
 
 export default async (req: Request, _ctx: Context): Promise<Response> => {
-  const apiKey = process.env.AIRTABLE_PAT;
-  const baseId = process.env.AIRTABLE_BASE_ID;
-  if (!apiKey || !baseId) {
-    console.error("[submissions-page] AIRTABLE_PAT or AIRTABLE_BASE_ID missing");
-    return plainText("Airtable env missing", 500);
-  }
-  if (!process.env.TURSO_DATABASE_URL) {
-    console.error("[submissions-page] TURSO_DATABASE_URL missing");
-    return plainText("Turso env missing", 500);
-  }
+  // Authenticate BEFORE the Airtable/Turso env guards so an unauthenticated probe
+  // can't tell which backend env is unset (a differentiated 500 leaks config
+  // state). Only the password check — unavoidable, since auth needs it — precedes.
   const password = process.env.DASHBOARD_PASSWORD;
   if (!password) {
     console.error("[submissions-page] DASHBOARD_PASSWORD missing");
@@ -51,6 +44,16 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     return plainText("Authentication required.", 401, {
       "www-authenticate": 'Basic realm="Reddoor fleet"',
     });
+  }
+  const apiKey = process.env.AIRTABLE_PAT;
+  const baseId = process.env.AIRTABLE_BASE_ID;
+  if (!apiKey || !baseId) {
+    console.error("[submissions-page] AIRTABLE_PAT or AIRTABLE_BASE_ID missing");
+    return plainText("Airtable env missing", 500);
+  }
+  if (!process.env.TURSO_DATABASE_URL) {
+    console.error("[submissions-page] TURSO_DATABASE_URL missing");
+    return plainText("Turso env missing", 500);
   }
 
   try {
@@ -68,7 +71,10 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     const websites = await listWebsites(base);
     if (slugParam) {
       const match = websites.find((w) => siteSlug(w.name) === slugParam);
-      if (match) filter.siteId = match.id;
+      // A non-matching ?site= slug previously fell through and returned the WHOLE
+      // fleet (filter.siteId stayed unset) — misleading. 404 like site-dashboard.
+      if (!match) return plainText(`No site found for slug '${slugParam}'.`, 404);
+      filter.siteId = match.id;
     }
 
     const [rows, total] = await Promise.all([

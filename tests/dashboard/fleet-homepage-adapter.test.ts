@@ -17,6 +17,11 @@ function get(headers: Record<string, string> = {}): Request {
   return new Request("https://dash.reddoor.test/", { method: "GET", headers });
 }
 
+/** A valid Basic header for the given password (username is ignored by the gate). */
+function authHeader(password: string): Record<string, string> {
+  return { authorization: `Basic ${Buffer.from(`x:${password}`).toString("base64")}` };
+}
+
 describe("fleet-homepage adapter — env + auth gating", () => {
   beforeEach(() => {
     delete process.env.AIRTABLE_PAT;
@@ -29,18 +34,29 @@ describe("fleet-homepage adapter — env + auth gating", () => {
     process.env = { ...ORIGINAL_ENV };
   });
 
-  it("500s when Airtable env is missing", async () => {
+  it("500s when Airtable env is missing — but only AFTER auth passes", async () => {
+    process.env.DASHBOARD_PASSWORD = "s3cret";
     // @ts-expect-error — minimal Context
-    const res = await fleetHomepage(get(), {});
+    const res = await fleetHomepage(get(authHeader("s3cret")), {});
     expect(res.status).toBe(500);
   });
 
-  it("500s when Turso env is missing", async () => {
+  it("500s when Turso env is missing — but only AFTER auth passes", async () => {
     process.env.AIRTABLE_PAT = "pat";
     process.env.AIRTABLE_BASE_ID = "appX";
+    process.env.DASHBOARD_PASSWORD = "s3cret";
+    // @ts-expect-error — minimal Context
+    const res = await fleetHomepage(get(authHeader("s3cret")), {});
+    expect(res.status).toBe(500);
+  });
+
+  it("does NOT leak backend env state to an UNAUTHENTICATED probe (auth precedes env guards)", async () => {
+    // Password set but no creds + Airtable/Turso unset: must be a 401, not a
+    // differentiated 500/503 that would disclose which backend env is missing.
+    process.env.DASHBOARD_PASSWORD = "s3cret";
     // @ts-expect-error — minimal Context
     const res = await fleetHomepage(get(), {});
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(401);
   });
 
   it("503s with a setup hint when DASHBOARD_PASSWORD is unset", async () => {

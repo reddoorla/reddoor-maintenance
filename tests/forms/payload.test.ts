@@ -31,10 +31,23 @@ describe("normalizeSubmission", () => {
     if (r.ok) expect(r.value.extraFields).toEqual({ event: "gala", company: "Acme", guests: 3 });
   });
 
-  it("falls back to formType=contact for unknown types", () => {
-    expect(normalizeSubmission({ email: "a@b.co", formType: "nope" }).ok).toBe(true);
+  it("keeps a valid formType and defaults an ABSENT/blank one to contact", () => {
     const r = normalizeSubmission({ email: "a@b.co", formType: "rsvp" });
     expect(r.ok && r.value.formType).toBe("rsvp");
+    // No formType at all → the long-standing minimal-form default.
+    const d = normalizeSubmission({ email: "a@b.co" });
+    expect(d.ok && d.value.formType).toBe("contact");
+    const blank = normalizeSubmission({ email: "a@b.co", formType: "  " });
+    expect(blank.ok && blank.value.formType).toBe("contact");
+  });
+
+  it("REJECTS a present-but-unrecognized formType (no silent coerce to contact)", () => {
+    // A typo'd/off-list type ('news' instead of 'newsletter') previously stored as
+    // contact, silently dropping the Mailchimp add. Now it's surfaced as invalid —
+    // matching createIngestEndpoint's reject-invalid behavior.
+    const r = normalizeSubmission({ email: "a@b.co", formType: "news" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors).toContain("formType is not a recognized form type");
   });
 
   it("rejects when neither email nor message is present", () => {

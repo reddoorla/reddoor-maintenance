@@ -56,6 +56,14 @@ describe("renderSubmissionsPageHtml", () => {
     const html = renderSubmissionsPageHtml(model({ rows: [], total: 0 }));
     expect(html.toLowerCase()).toContain("no submissions");
   });
+  it("guards a page-beyond-last request (empty rows, total>0) instead of an empty list + impossible pager", () => {
+    // total 120, pageSize 50 → maxPage 3. Asking for page 5 yields zero rows.
+    const html = renderSubmissionsPageHtml(model({ rows: [], total: 120, page: 5, pageSize: 50 }));
+    expect(html).not.toContain('<ul class="subm-list"></ul>'); // no empty list
+    expect(html).not.toMatch(/Page 5 of 3/); // no impossible pager
+    expect(html.toLowerCase()).toContain("page 5"); // tells the operator they overshot
+    expect(html).toMatch(/page=3/); // offers a link back to the last real page
+  });
   it("includes the status script + escapes hostile site names", () => {
     const html = renderSubmissionsPageHtml(
       model({
