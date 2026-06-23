@@ -116,5 +116,9 @@ export function createIngestAction(
 function elapsedMs(tsRaw: ReturnType<FormData["get"]>, now: () => number): number | null {
   const ts = Number(tsRaw);
   if (!Number.isFinite(ts) || ts <= 0) return null;
-  return now() - ts;
+  // Clamp at 0: elapsed time can't be negative. A future `ts` (clock skew or a bot
+  // forging one) would otherwise yield a negative value; clamping makes it read as
+  // 0ms (effectively instant) so the MIN_FILL_MS gate still trips. Defense-in-depth
+  // with screenSubmission, which also treats any sub-floor elapsed as too-fast.
+  return Math.max(0, now() - ts);
 }

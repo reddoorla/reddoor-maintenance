@@ -77,4 +77,13 @@ describe("screenSubmission", () => {
       reason: "too-fast",
     });
   });
+
+  it("treats a forged FUTURE timestamp (negative elapsedMs) as too-fast, not a pass", () => {
+    // A bot that posts a future `ts` makes elapsedMs go negative. The old `>= 0`
+    // guard let that skip the too-fast branch and return ok — silently bypassing the
+    // timing gate. A negative elapsed time is impossible for a real fill, so any
+    // numeric elapsed below the floor (negatives included) must screen as too-fast.
+    expect(screenSubmission({ elapsedMs: -1000 })).toEqual({ ok: false, reason: "too-fast" });
+    expect(screenSubmission({ elapsedMs: -1 })).toEqual({ ok: false, reason: "too-fast" });
+  });
 });

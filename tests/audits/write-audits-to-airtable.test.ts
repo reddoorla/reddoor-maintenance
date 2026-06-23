@@ -212,7 +212,7 @@ describe("writeAuditsToAirtable", () => {
     });
   });
 
-  it("omits Cert days remaining when the domain probe found no cert (null), keeps checked-at", async () => {
+  it("CLEARS Cert days remaining (writes null) when the domain probe found no cert / didn't resolve", async () => {
     const { base, calls } = makeFakeBase();
     await writeAuditsToAirtable({
       base,
@@ -224,7 +224,11 @@ describe("writeAuditsToAirtable", () => {
       ],
     });
     expect(calls[0]!.fields["Domain checked at"]).toBe("2026-06-18T00:00:00.000Z");
-    expect(calls[0]!.fields).not.toHaveProperty("Cert days remaining");
+    // Present AND null — null clears the Airtable cell so the Domain/DNS/SSL auto-tick reads
+    // null → fail. The old "omit" behavior left a STALE prior value (e.g. 90) next to a fresh
+    // "Domain checked at", which then false-passed the box for a site that's actually down.
+    expect(calls[0]!.fields).toHaveProperty("Cert days remaining");
+    expect(calls[0]!.fields["Cert days remaining"]).toBeNull();
   });
 
   it("merges the browser verdicts into the single atomic write", async () => {
