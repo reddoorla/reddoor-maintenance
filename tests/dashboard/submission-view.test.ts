@@ -3,7 +3,7 @@ import {
   renderSubmissionRow,
   SUBMISSION_STATUS_SCRIPT,
 } from "../../src/dashboard/submission-view.js";
-import type { SubmissionRow } from "../../src/reports/airtable/submissions.js";
+import type { SubmissionRow } from "../../src/reports/submission-row.js";
 
 function row(overrides: Partial<SubmissionRow> = {}): SubmissionRow {
   return {

@@ -4,8 +4,6 @@ import { getWebsiteBySlug } from "../../src/reports/airtable/websites.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import { createSubmission, stampNotified } from "../../src/db/submissions.js";
 import { recordScreenOut } from "../../src/db/screenouts.js";
-import { createSubmission as airtableCreateSubmission } from "../../src/reports/airtable/submissions.js";
-import { recordScreenOut as airtableRecordScreenOut } from "../../src/reports/airtable/screenouts.js";
 import { ingestSubmission, parseScreenOut, ingestScreenOut } from "../../src/forms/ingest.js";
 import { forwardNewsletterToWebhook } from "../../src/forms/webhook.js";
 import { addMailchimpMember } from "../../src/forms/mailchimp.js";
@@ -91,10 +89,6 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   try {
     const base = openBase({ apiKey, baseId });
     const db = await openDb(readDbConfig());
-    // Brief cutover soak: when DUAL_WRITE_AIRTABLE=1, also shadow-write captured
-    // leads + screen-outs to Airtable (best-effort, swallowed) as rollback
-    // insurance. libSQL is the source of truth. Removed after the soak.
-    const dualWrite = process.env.DUAL_WRITE_AIRTABLE === "1";
 
     // Screen-out beacon: a no-PII { screenOut: honeypot|too-fast } body is routed
     // to the per-site/day Spam Screenouts counter instead of the submission path.
@@ -104,16 +98,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
       const r = await ingestScreenOut(
         {
           getWebsiteBySlug: (s) => getWebsiteBySlug(base, s),
-          recordScreenOut: async (siteId, reason) => {
-            await recordScreenOut(db, siteId, reason, date);
-            if (dualWrite) {
-              try {
-                await airtableRecordScreenOut(base, siteId, reason, date);
-              } catch (e) {
-                console.error(`[form-ingest] dual-write screen-out failed: ${String(e)}`);
-              }
-            }
-          },
+          recordScreenOut: (siteId, reason) => recordScreenOut(db, siteId, reason, date),
         },
         slug,
         screenOutReason,
@@ -137,17 +122,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     const result = await ingestSubmission(
       {
         getWebsiteBySlug: (s) => getWebsiteBySlug(base, s),
-        createSubmission: async (input) => {
-          const row = await createSubmission(db, input);
-          if (dualWrite) {
-            try {
-              await airtableCreateSubmission(base, input);
-            } catch (e) {
-              console.error(`[form-ingest] dual-write submission failed: ${String(e)}`);
-            }
-          }
-          return row;
-        },
+        createSubmission: (input) => createSubmission(db, input),
         notify: makeNotify(send),
         stampNotified: (id, status, messageId) => stampNotified(db, id, status, messageId),
         now: () => new Date(),

@@ -1,4 +1,4 @@
-import type { SubmissionRow } from "../reports/airtable/submissions.js";
+import type { SubmissionRow } from "../reports/submission-row.js";
 import { SUBMISSION_STATUSES, type SubmissionStatus } from "../reports/submission-row.js";
 import { SUBMISSION_FORM_TYPES, type FormType } from "../forms/types.js";
 import { siteSlug } from "../reports/airtable/websites.js";

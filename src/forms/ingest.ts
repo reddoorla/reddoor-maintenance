@@ -1,9 +1,5 @@
 import type { WebsiteRow } from "../reports/airtable/websites.js";
-import type {
-  SubmissionRow,
-  SubmissionInput,
-  NotifyStatus,
-} from "../reports/airtable/submissions.js";
+import type { SubmissionRow, SubmissionInput, NotifyStatus } from "../reports/submission-row.js";
 import { normalizeSubmission } from "./payload.js";
 
 export type IngestDeps = {
