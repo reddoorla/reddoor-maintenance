@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { forwardNewsletterToWebhook } from "../../src/forms/webhook.js";
-import type { SubmissionRow } from "../../src/reports/airtable/submissions.js";
+import type { SubmissionRow } from "../../src/reports/submission-row.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 
 const submission = {

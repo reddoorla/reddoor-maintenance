@@ -1,5 +1,5 @@
-import type { SubmissionRow, SubmissionStatus } from "../reports/airtable/submissions.js";
-import { SUBMISSION_STATUSES } from "../reports/airtable/submissions.js";
+import type { SubmissionRow, SubmissionStatus } from "../reports/submission-row.js";
+import { SUBMISSION_STATUSES } from "../reports/submission-row.js";
 
 export type SubmissionStatusDeps = {
   getSubmissionById: (id: string) => Promise<SubmissionRow | null>;

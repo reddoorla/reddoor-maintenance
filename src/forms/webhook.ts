@@ -1,4 +1,4 @@
-import type { SubmissionRow } from "../reports/airtable/submissions.js";
+import type { SubmissionRow } from "../reports/submission-row.js";
 import type { WebsiteRow } from "../reports/airtable/websites.js";
 
 export type WebhookForwardResult = { ok: boolean; status: number };

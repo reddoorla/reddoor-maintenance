@@ -2,8 +2,8 @@ import type { WebsiteRow, SecurityAdvisory } from "../reports/airtable/websites.
 import { SEVERITY_RANK, siteSlug } from "../reports/airtable/websites.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
 import { isPendingApproval } from "../reports/airtable/reports.js";
-import type { SubmissionRow } from "../reports/airtable/submissions.js";
-import type { ScreenOutTotals } from "../reports/airtable/screenouts.js";
+import type { SubmissionRow } from "../reports/submission-row.js";
+import type { ScreenOutTotals } from "../db/screenouts.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 import { escapeHtml, safeUrl } from "../util/html.js";
 import { FAVICON_LINK } from "./favicon.js";

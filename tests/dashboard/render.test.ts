@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { renderSiteDashboardHtml } from "../../src/dashboard/render.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
-import type { SubmissionRow } from "../../src/reports/airtable/submissions.js";
+import type { SubmissionRow } from "../../src/reports/submission-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import { MAINTENANCE_CHECKLIST, TESTING_CHECKLIST } from "../../src/reports/checklist.js";
 import { escapeHtml } from "../../src/util/html.js";

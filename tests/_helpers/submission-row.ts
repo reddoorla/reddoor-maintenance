@@ -1,4 +1,4 @@
-import type { SubmissionRow } from "../../src/reports/airtable/submissions.js";
+import type { SubmissionRow } from "../../src/reports/submission-row.js";
 
 /** Shared SubmissionRow test factory: every field defaulted, override via `over`. */
 export function makeSubmissionRow(over: Partial<SubmissionRow> = {}): SubmissionRow {

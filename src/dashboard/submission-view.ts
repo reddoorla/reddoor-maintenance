@@ -1,4 +1,4 @@
-import type { SubmissionRow } from "../reports/airtable/submissions.js";
+import type { SubmissionRow } from "../reports/submission-row.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 import { escapeHtml, safeUrl } from "../util/html.js";
 

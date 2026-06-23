@@ -5,7 +5,7 @@ import type { AttentionItem } from "../alerts/attention.js";
 import { isPendingApproval } from "../reports/airtable/reports.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
 import type { ReportType } from "../reports/types.js";
-import type { SubmissionRow, FormType } from "../reports/airtable/submissions.js";
+import type { SubmissionRow, FormType } from "../reports/submission-row.js";
 import {
   collectVulnAlerts,
   collectDeliveryFailures,

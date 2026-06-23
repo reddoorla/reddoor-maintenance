@@ -1,5 +1,5 @@
 import type { WebsiteRow } from "../reports/airtable/websites.js";
-import type { SubmissionRow, NotifyStatus } from "../reports/airtable/submissions.js";
+import type { SubmissionRow, NotifyStatus } from "../reports/submission-row.js";
 import type { ResendSendInput } from "../reports/send/resend.js";
 import { escapeHtml } from "../util/html.js";
 

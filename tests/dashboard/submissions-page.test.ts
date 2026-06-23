@@ -4,7 +4,7 @@ import {
   buildSubmissionsPageModel,
   PAGE_SIZE,
 } from "../../src/dashboard/submissions-page.js";
-import type { SubmissionRow } from "../../src/reports/airtable/submissions.js";
+import type { SubmissionRow } from "../../src/reports/submission-row.js";
 
 describe("parseSubmissionsQuery", () => {
   it("parses and validates params, ignoring junk", () => {
