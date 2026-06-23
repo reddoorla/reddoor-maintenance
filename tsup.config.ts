@@ -46,9 +46,9 @@ export default defineConfig({
   // Code-splitting ON so the CLI's per-command dynamic imports
   // (`await import("./commands/report.js")` in bin.ts) become real on-demand
   // chunks instead of being inlined into bin.js. With splitting OFF esbuild
-  // collapses every command into bin.js and hoists their external
-  // `import "mjml"` / `import "airtable"` to the top — making the CLI eagerly
-  // require the report/db dependency chains at startup, which would crash a
+  // collapses every command into bin.js so their external `import "mjml"` /
+  // `import "airtable"` load at bin.js startup — making the CLI eagerly pull the
+  // report/db dependency chains, which would crash a
   // consuming fleet site (those packages are devDeps, absent from its install)
   // the moment it ran `reddoor-maint audit --only a11y`. Splitting keeps bin.js's
   // static graph to just its own light deps; mjml/airtable/etc. live in the

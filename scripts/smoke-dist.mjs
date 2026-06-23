@@ -35,63 +35,24 @@ async function check(name, fn) {
   }
 }
 
-// Central-only deps: server/report/db/audit-runner packages that this repo's
-// CLI, Netlify functions, and audit pipeline use, but that a consuming fleet
-// site must NOT inherit (it installs @reddoorla/maintenance only for `./forms`
-// + `./configs/*` and runs `reddoor-maint audit --only a11y` in CI). They are
-// `devDependencies`; the CLI reaches them only via LAZY `import()` inside each
-// command action. If any reappears in bin.js's STATIC import closure, an eager
-// top-level import has crept back and every consumer's node_modules would pull
-// the heavy chain (mjml→html-minifier, @lhci/cli→tmp, …) again.
-const CENTRAL_ONLY_DEPS = [
-  "mjml",
-  "resend",
-  "airtable",
-  "@google-analytics/data",
-  "google-auth-library",
-  "@libsql/client",
-  "@libsql/kysely-libsql",
-  "kysely",
-  "sharp",
-  "svix",
-  "@lhci/cli",
-];
+// The consumer-facing entries (CLI bin + ./forms + ./configs/*) must never
+// statically import a "central-only" devDep (mjml, airtable, the libSQL/Kysely
+// stack, …) — a consuming fleet site never installs those, so an eager import
+// would crash it at load. We verify this by LOADING each entry under a Node
+// resolution hook that makes those 11 packages unresolvable
+// (scripts/central-dep-blocker.mjs), reproducing a consumer's install exactly.
+// This replaces an earlier source-scanning regex that silently missed esbuild's
+// multi-line imports and so passed vacuously.
+const blockerBootstrap = pathToFileURL(resolve(here, "register-central-dep-blocker.mjs")).href;
 
-// Static-import closure of a dist entry: follows ONLY static `import/export …
-// from "…"` and bare `import "…"` — never dynamic `import("…")` (the lazy
-// command loads). Returns the set of bare (node_modules) package names reachable.
-function staticBareDepsReachableFrom(entry) {
-  const seen = new Set();
-  const bare = new Set();
-  const stack = [entry];
-  while (stack.length) {
-    const file = stack.pop();
-    if (seen.has(file) || !existsSync(file)) continue;
-    seen.add(file);
-    for (const line of readFileSync(file, "utf-8").split("\n")) {
-      // A static import line either has a `from "spec"` clause or is a bare
-      // side-effect `import "spec"`. A dynamic `await import("spec")` appears
-      // mid-line (after `=`/`await`) and matches neither — exactly the point.
-      const m =
-        /^\s*(?:import|export)\b[^;]*?\bfrom\s*["']([^"']+)["']/.exec(line) ??
-        /^\s*import\s*["']([^"']+)["']/.exec(line);
-      const spec = m?.[1];
-      if (!spec || spec.startsWith("node:")) continue;
-      if (spec.startsWith(".") || spec.startsWith("/")) {
-        const p = resolve(dirname(file), spec);
-        for (const c of [p, `${p}.js`, resolve(p, "index.js")]) {
-          if (existsSync(c)) {
-            stack.push(c);
-            break;
-          }
-        }
-      } else {
-        const parts = spec.split("/");
-        bare.add(spec.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0]);
-      }
-    }
-  }
-  return bare;
+// Spawn `node --import <blocker> …`; throws (non-zero exit) iff the loaded code's
+// real import graph reaches a blocked central-only dep. stderr carries the
+// blocker's message for the failure report.
+function loadUnderBlocker(nodeArgs) {
+  execFileSync(process.execPath, ["--import", blockerBootstrap, ...nodeArgs], {
+    encoding: "utf-8",
+    stdio: ["ignore", "ignore", "pipe"],
+  });
 }
 
 process.stdout.write(`smoke-dist (${pkgVersion}):\n`);
@@ -104,14 +65,45 @@ await check("dist/cli/bin.js exists", () => {
   if (!existsSync(distBin)) throw new Error(`missing: ${distBin} (run 'pnpm build')`);
 });
 
+// Prove the blocker actually blocks before trusting the green checks below:
+// loading a central-only dep under it MUST fail. Without this self-test, an
+// inert hook would make every entry "pass" vacuously — the failure mode of the
+// regex gate this replaced.
+await check("central-dep blocker is active (negative self-test)", () => {
+  let threw = false;
+  try {
+    loadUnderBlocker(["--input-type=module", "-e", 'await import("airtable")']);
+  } catch {
+    threw = true;
+  }
+  if (!threw) {
+    throw new Error(
+      'the blocker did not reject `import "airtable"` — the guard is inert and would not catch ' +
+        "a real leak. Check scripts/central-dep-blocker.mjs and its registration.",
+    );
+  }
+});
+
 // Every entry a consuming fleet site can load — the CLI bin (run as
 // `reddoor-maint audit --only a11y` in CI) and the `./forms` + `./configs/*`
-// subpath exports — must have a STATIC import closure free of the central-only
-// deps, so those packages never need resolving from a consumer's node_modules.
-// (The kitchen-sink `.` entry is exempt: it deliberately re-exports the report/
-// audit/dashboard surface and is used only inside this repo, never by the fleet.)
-const consumerFacingEntries = {
-  "cli/bin.js": distBin,
+// subpath exports — must LOAD with the central-only deps made unresolvable, i.e.
+// its real static import graph never reaches one. (The kitchen-sink `.` entry is
+// exempt: it deliberately re-exports the report/audit/dashboard surface and is
+// used only inside this repo, never by the fleet.)
+await check("cli/bin.js loads with central-only deps blocked (lazy command loading holds)", () => {
+  try {
+    loadUnderBlocker([distBin, "--version"]);
+  } catch (e) {
+    throw new Error(
+      `bin.js failed to load with the central-only deps blocked — an eager top-level import ` +
+        `crept back into the CLI startup graph, so a consumer's \`reddoor-maint audit\` would ` +
+        `crash. Make the offending command load LAZILY. Blocker output: ${e.stderr ?? e.message}`,
+      { cause: e },
+    );
+  }
+});
+
+const subpathEntries = {
   "forms/index.js": resolve(repoRoot, "dist/forms/index.js"),
   "configs/lighthouse.js": resolve(repoRoot, "dist/configs/lighthouse.js"),
   "configs/eslint.js": resolve(repoRoot, "dist/configs/eslint.js"),
@@ -120,16 +112,17 @@ const consumerFacingEntries = {
   "configs/svelte.js": resolve(repoRoot, "dist/configs/svelte.js"),
 };
 
-for (const [label, entry] of Object.entries(consumerFacingEntries)) {
-  await check(`${label} static import closure is free of central-only deps`, () => {
-    const reachable = staticBareDepsReachableFrom(entry);
-    const leaked = CENTRAL_ONLY_DEPS.filter((d) => reachable.has(d));
-    if (leaked.length) {
+for (const [label, entry] of Object.entries(subpathEntries)) {
+  await check(`${label} loads with central-only deps blocked`, () => {
+    const url = pathToFileURL(entry).href;
+    try {
+      loadUnderBlocker(["--input-type=module", "-e", `await import(${JSON.stringify(url)})`]);
+    } catch (e) {
       throw new Error(
-        `${label} statically imports central-only dep(s): ${leaked.join(", ")} — these are ` +
-          `devDependencies a consuming site never installs, so it would crash at load. For the ` +
-          `CLI, the command must load LAZILY (dynamic import inside the action); for a subpath ` +
-          `export, drop the eager import. Check the relevant src entry.`,
+        `${label} reaches a central-only dep in its static import graph — a consuming site ` +
+          `(which never installs those devDeps) would crash at load. Drop the eager import. ` +
+          `Blocker output: ${e.stderr ?? e.message}`,
+        { cause: e },
       );
     }
   });

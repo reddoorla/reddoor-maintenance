@@ -86,7 +86,7 @@ reddoor-maint upgrade svelte-4-to-5 [site]
 
 ## Recipes
 
-Each recipe is `(site, opts?) => Promise<RecipeResult>` and is also exported from the package entry as a library function:
+Each recipe is `(site, opts?) => Promise<RecipeResult>` and is also exported from the package entry as a library function (see [Library usage](#library-usage) for the dependency caveat on the bare entry):
 
 ```ts
 import {
@@ -203,6 +203,8 @@ Pass `--fleet <path>` to run a command against multiple sites declared in an inv
 ## Library usage
 
 The package's main entry exports every recipe, audit, and report function so you can wire them into custom tooling (CI jobs, scheduled scripts, alternative CLIs):
+
+> **These bare-entry (`@reddoorla/maintenance`) library exports require the package's full dependency set.** The report/audit/dashboard stack — `mjml`, `airtable`, `resend`, the Google Analytics + libSQL/Kysely libraries, `sharp`, `svix`, `@lhci/cli` — ships as **devDependencies**, so a plain `pnpm add @reddoorla/maintenance` does **not** install them. Import these functions only from an environment that installs this package's dev dependencies (this repo's own CLI/Netlify functions, or your own tooling that installs them). **Fleet sites never use this entry** — they run the `reddoor-maint` CLI and import the dependency-light `@reddoorla/maintenance/forms` + `@reddoorla/maintenance/configs/*` subpaths, which by design pull none of that chain.
 
 ```ts
 import {
