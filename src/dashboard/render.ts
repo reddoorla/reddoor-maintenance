@@ -1,5 +1,5 @@
 import type { WebsiteRow, SecurityAdvisory } from "../reports/airtable/websites.js";
-import { SEVERITY_RANK } from "../reports/airtable/websites.js";
+import { SEVERITY_RANK, siteSlug } from "../reports/airtable/websites.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
 import { isPendingApproval } from "../reports/airtable/reports.js";
 import type { SubmissionRow } from "../reports/airtable/submissions.js";
@@ -9,6 +9,11 @@ import { escapeHtml, safeUrl } from "../util/html.js";
 import { FAVICON_LINK } from "./favicon.js";
 import { onboardingStatus, missingOnboarding } from "./onboarding.js";
 import { checklistFor, isChecklistComplete } from "../reports/checklist.js";
+import {
+  renderSubmissionRow,
+  SUBMISSION_STYLES,
+  SUBMISSION_STATUS_SCRIPT,
+} from "./submission-view.js";
 
 const DASH = "—";
 
@@ -165,73 +170,9 @@ function reportRow(r: ReportRow): string {
   return `<tr><td>${date}</td><td>${type}</td><td><code>${id}</code></td><td>${ga}</td><td>${search}</td><td>${link}</td><td>${action}</td></tr>`;
 }
 
-/** Render a submission's `extraFields` JSON as a key/value list; on parse failure
- *  show the raw string (escaped) rather than dropping it. Returns "" when blank. */
-function extraFieldsList(raw: string | null): string {
-  if (!raw || raw.trim() === "") return "";
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return `<div class="subm-kv"><span class="k">Extra fields</span> <code>${escapeHtml(raw)}</code></div>`;
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return `<div class="subm-kv"><span class="k">Extra fields</span> <code>${escapeHtml(raw)}</code></div>`;
-  }
-  const rows = Object.entries(parsed as Record<string, unknown>)
-    .map(
-      ([k, v]) =>
-        `<div class="subm-kv"><span class="k">${escapeHtml(k)}</span> ${escapeHtml(String(v))}</div>`,
-    )
-    .join("");
-  return rows;
-}
-
-function submissionRow(s: SubmissionRow): string {
-  const when = s.submittedAt ? escapeHtml(relativeTimeFromNow(s.submittedAt)) : "—";
-  const type = escapeHtml(s.formType);
-  const who = escapeHtml(s.name || "(no name)");
-  const email = escapeHtml(s.email || "");
-  const status = escapeHtml(s.status);
-  const id = escapeHtml(s.id);
-  const url = `/api/submissions/${encodeURIComponent(s.id)}/status`;
-  const btn = (label: string, action: string) =>
-    `<button class="subm-status" data-id="${id}" data-status="${action}" data-url="${url}">${label}</button>`;
-
-  // One detail row per present field; absent fields are omitted (no blank rows).
-  const kv = (label: string, value: string | number | null) =>
-    value === null || value === ""
-      ? ""
-      : `<div class="subm-kv"><span class="k">${label}</span> ${escapeHtml(String(value))}</div>`;
-  const sourceLink = s.sourceUrl
-    ? `<div class="subm-kv"><span class="k">Source</span> <a href="${escapeHtml(safeUrl(s.sourceUrl))}" rel="noopener noreferrer">${escapeHtml(s.sourceUrl)}</a></div>`
-    : "";
-  const messageBlock = s.message
-    ? `<div class="subm-kv"><span class="k">Message</span></div><div class="subm-msg">${escapeHtml(s.message)}</div>`
-    : "";
-  const details = [
-    kv("Phone", s.phone),
-    messageBlock,
-    sourceLink,
-    kv("UTM", s.utm),
-    extraFieldsList(s.extraFields),
-    kv("Notify", s.notifyStatus),
-    kv("Resend ID", s.resendMessageId),
-    kv("Submission #", s.submissionId),
-  ].join("");
-
-  return `<li class="subm-item">
-    <details>
-      <summary class="subm-head"><strong>${type}</strong> · ${who} <span class="muted">${email}</span> <span class="pill subm-${status}">${status}</span> <span class="muted">${when}</span></summary>
-      <div class="subm-detail">${details}</div>
-    </details>
-    <div class="subm-actions">${btn("Read", "read")}${btn("Archive", "archived")}${btn("Spam", "spam")}</div>
-  </li>`;
-}
-
 const SUBMISSIONS_PER_SITE_CAP = 25;
 
-function submissionsSection(submissions: SubmissionRow[]): string {
+function submissionsSection(submissions: SubmissionRow[], site: WebsiteRow): string {
   if (submissions.length === 0) return "";
   const recent = [...submissions]
     .sort((a, b) => (b.submittedAt ?? "").localeCompare(a.submittedAt ?? ""))
@@ -242,9 +183,10 @@ function submissionsSection(submissions: SubmissionRow[]): string {
     submissions.length > recent.length
       ? `<span class="muted"> — showing ${recent.length} of ${submissions.length}</span>`
       : "";
+  const viewAll = `<a class="subm-viewall" href="/submissions?site=${escapeHtml(siteSlug(site.name))}">View all for this site →</a>`;
   return `<div class="section submissions">
-    <h2>Form submissions (${submissions.length})${note}</h2>
-    <ul class="subm-list">${recent.map(submissionRow).join("")}</ul>
+    <h2>Form submissions (${submissions.length})${note} ${viewAll}</h2>
+    <ul class="subm-list">${recent.map(renderSubmissionRow).join("")}</ul>
   </div>`;
 }
 
@@ -353,24 +295,6 @@ button.approve:disabled { opacity: 0.6; cursor: default; }
 .auto-pass { background: #e6f4ea; color: #137333; }
 .auto-amber { background: #fef7e0; color: #b06000; }
 .pill { font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 999px; font-weight: 700; }
-.subm-list { list-style: none; padding: 0; margin: 0; }
-.subm-item { padding: 0.6rem 0; border-bottom: 1px solid #eee; }
-@media (prefers-color-scheme: dark) { .subm-item { border-color: #2a2a2a; } }
-.subm-head { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
-.subm-msg { margin: 0.35rem 0; white-space: pre-wrap; }
-.subm-detail { padding: 0.35rem 0 0.2rem; }
-.subm-kv { font-size: 0.9rem; margin: 0.15rem 0; }
-.subm-kv .k { color: #888; margin-right: 0.4rem; }
-summary.subm-head { cursor: pointer; }
-.subm-actions { display: flex; gap: 0.4rem; }
-button.subm-status { font: inherit; padding: 0.25rem 0.7rem; border: 1px solid #888; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
-button.subm-status:disabled { opacity: 0.6; cursor: default; }
-.spam-screen .spam-kv { font-size: 0.95rem; margin: 0.2rem 0; }
-.spam-screen .spam-kv .k { color: #888; display: inline-block; min-width: 11rem; }
-.pill.subm-new { background: #e8f0fe; color: #1a56db; }
-.pill.subm-read { background: #f0f0f0; color: #555; }
-.pill.subm-archived { background: #eee; color: #888; }
-.pill.subm-spam { background: #fdecea; color: #b00; }
 .vuln-list { list-style: none; padding: 0; margin: 0; }
 .vuln-item { padding: 0.45rem 0; border-bottom: 1px solid #eee; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: baseline; }
 @media (prefers-color-scheme: dark) { .vuln-item { border-color: #2a2a2a; } }
@@ -454,7 +378,7 @@ export function renderSiteDashboardHtml(
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   ${FAVICON_LINK}
   <title>${name} — Reddoor maintenance</title>
-  <style>${STYLES}</style>
+  <style>${STYLES}${SUBMISSION_STYLES}</style>
 </head>
 <body>
   <a class="home" href="/">← Fleet home</a>
@@ -463,7 +387,6 @@ export function renderSiteDashboardHtml(
   ${auditedLine}
   ${setupSection(site)}
   ${pendingSection(reports)}
-  ${submissionsSection(submissions)}
 
   <div class="section">
     <h2>Lighthouse</h2>
@@ -477,14 +400,14 @@ export function renderSiteDashboardHtml(
 
   ${securitySection(site)}
 
-  ${spamScreenSection(spamTotals, submissions, now)}
-
   <div class="section">
     <h2>Reports</h2>
     ${reportsSection}
   </div>
 
   ${siteDetailsSection(site)}
+  ${spamScreenSection(spamTotals, submissions, now)}
+  ${submissionsSection(submissions, site)}
   <script>
     document.querySelectorAll("button.approve").forEach((b) => {
       b.addEventListener("click", async () => {
@@ -501,23 +424,7 @@ export function renderSiteDashboardHtml(
         }
       });
     });
-    document.querySelectorAll("button.subm-status").forEach((b) => {
-      b.addEventListener("click", async () => {
-        b.disabled = true;
-        try {
-          const res = await fetch(b.dataset.url, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ status: b.dataset.status }),
-          });
-          b.textContent = res.ok ? "✓" : "Failed";
-          if (!res.ok) b.disabled = false;
-        } catch {
-          b.textContent = "Failed";
-          b.disabled = false;
-        }
-      });
-    });
+    ${SUBMISSION_STATUS_SCRIPT}
     // Checklist gate: ticking a box POSTs the one field; the response { complete }
     // decides whether THIS report's Approve button is enabled. Scoped per report by
     // matching the checkbox's report id to the Approve button's id, so multiple

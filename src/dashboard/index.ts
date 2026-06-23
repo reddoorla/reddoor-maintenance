@@ -7,3 +7,11 @@ export { setSubmissionStatus } from "./submission-status.js";
 export type { SubmissionStatusDeps, SubmissionStatusResult } from "./submission-status.js";
 export { setChecklistItem } from "./checklist.js";
 export type { ChecklistItemDeps, ChecklistItemResult } from "./checklist.js";
+export { renderSubmissionsPageHtml } from "./submissions-page-render.js";
+export { parseSubmissionsQuery, buildSubmissionsPageModel, PAGE_SIZE } from "./submissions-page.js";
+export type {
+  SubmissionsPageModel,
+  SubmissionView,
+  ParsedQuery,
+  RawFilter,
+} from "./submissions-page.js";

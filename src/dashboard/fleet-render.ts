@@ -115,6 +115,7 @@ h1 { margin: 0 0 0.25rem; font-size: 1.75rem; }
 .summary .heads { color:#666; font-size:0.9rem; }
 .spam-rollup { font-size:0.9rem; margin-bottom:1rem; }
 .muted { color:#999; }
+.subm-viewall { font-size:0.8rem; font-weight:normal; margin-left:0.4rem; white-space:nowrap; }
 .filters { display:flex; flex-wrap:wrap; gap:0.4rem; margin-bottom:1.25rem; }
 .filters button { font:inherit; font-size:0.85rem; padding:0.25rem 0.7rem; border:1px solid #ccc; border-radius:999px; background:transparent; color:inherit; cursor:pointer; }
 .filters button[aria-pressed="true"] { background:#1a1a1a; color:#fff; border-color:#1a1a1a; }
@@ -249,10 +250,10 @@ function submissionsStrip(model: CockpitModel): string {
   const overflow = subs.length - shown.length;
   const more =
     overflow > 0
-      ? `<div class="approve-row subm-more muted">+${overflow} more — triage on each site page</div>`
+      ? `<div class="approve-row subm-more muted"><a href="/submissions">+${overflow} more — view all submissions</a></div>`
       : "";
   return `<section class="approve-strip subm-strip" data-tier="submissions">
-    <h2>📥 New submissions (${subs.length})</h2>
+    <h2>📥 New submissions (${subs.length}) <a class="subm-viewall" href="/submissions">View all →</a></h2>
     ${rows}${more}
   </section>`;
 }
@@ -376,11 +377,11 @@ export function renderCockpitHtml(model: CockpitModel): string {
   <h1>Reddoor fleet cockpit</h1>
   <div class="meta">${total} site${total === 1 ? "" : "s"} on the Reddoor stack.</div>
   ${summaryBar(model)}
-  ${spamRollup(model)}
   ${allClearBanner(model)}
   ${approveStrip(model)}
-  ${submissionsStrip(model)}
   ${sections}
+  ${spamRollup(model)}
+  ${submissionsStrip(model)}
   ${FILTER_SCRIPT}
 </body>
 </html>`;
