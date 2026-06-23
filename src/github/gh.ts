@@ -71,6 +71,10 @@ export type GitHub = {
   openPullRequests: (repo: string) => Promise<PullRequestSummary[]>;
   /** The default branch's latest-commit date + normalized CI rollup, one query. */
   defaultBranchStatus: (repo: string) => Promise<{ ciState: CiState; lastCommitAt: string | null }>;
+  /** Fire a `workflow_dispatch` for `<workflow>` (a filename like `renovate.yml`)
+   *  on `ref`. Requires the token's `actions:write` scope; a 404 (no such
+   *  workflow) or 403 (missing scope) surfaces as a thrown error. */
+  dispatchWorkflow: (repo: string, workflow: string, ref: string) => Promise<void>;
 };
 
 export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
@@ -281,6 +285,29 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
         ciState: mapRollupState(target?.statusCheckRollup?.state),
         lastCommitAt: target?.committedDate ?? null,
       };
+    },
+    async dispatchWorkflow(repo, workflow, ref) {
+      const [owner, name, ...rest] = repo.split("/");
+      if (!owner || !name || rest.length > 0) {
+        throw new Error(`dispatchWorkflow: expected "owner/repo", got "${repo}"`);
+      }
+      // Every segment interpolates into the API path, so guard them all like the
+      // other write methods do (defense in depth). `owner`/`name` are the most
+      // operator-controlled (typed into Airtable's "Git repo"); `workflow` is a
+      // constant today; `ref` is repo-sourced. A junk value like `repo?x=1` would
+      // otherwise smuggle a query string past the bare two-part shape check.
+      assertUrlSegment("path", owner);
+      assertUrlSegment("path", name);
+      assertUrlSegment("path", workflow);
+      assertUrlSegment("branch", ref);
+      await gh([
+        "api",
+        "-X",
+        "POST",
+        `repos/${owner}/${name}/actions/workflows/${workflow}/dispatches`,
+        "-f",
+        `ref=${ref}`,
+      ]);
     },
   };
 }
