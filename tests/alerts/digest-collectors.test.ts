@@ -6,6 +6,7 @@ import {
   collectLighthouseAlerts,
   collectRenovateAlerts,
   collectCiAlerts,
+  collectAnalyticsFailures,
 } from "../../src/alerts/digest-collectors.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
@@ -398,5 +399,61 @@ describe("collectCiAlerts (persisted field)", () => {
       NOW,
     );
     expect(items).toHaveLength(1);
+  });
+});
+
+describe("collectAnalyticsFailures", () => {
+  it("flags a site with a recent analyticsSoftFailAt: key, kind, severity warning, dashboard url", () => {
+    const recent = new Date(NOW.getTime() - 24 * 60 * 60 * 1000).toISOString(); // yesterday
+    const items = collectAnalyticsFailures(
+      [site({ id: "rec1", analyticsSoftFailAt: recent })],
+      BASE,
+      NOW,
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      key: "analytics:rec1",
+      kind: "analytics",
+      siteName: "Acme Co",
+      severity: "warning",
+      metric: 1,
+      url: `${BASE}/s/acme-co`,
+    });
+  });
+
+  it("skips a site whose enrichment is clean (null analyticsSoftFailAt)", () => {
+    expect(collectAnalyticsFailures([site({ analyticsSoftFailAt: null })], BASE, NOW)).toEqual([]);
+  });
+
+  it("skips a stale soft-fail (older than 45 days — a site that stopped being drafted)", () => {
+    const stale = new Date(NOW.getTime() - 46 * 24 * 60 * 60 * 1000).toISOString();
+    expect(collectAnalyticsFailures([site({ analyticsSoftFailAt: stale })], BASE, NOW)).toEqual([]);
+  });
+
+  it("keeps a soft-fail just inside the 45-day window", () => {
+    const justInside = new Date(NOW.getTime() - (45 * 24 * 60 * 60 * 1000 - 60_000)).toISOString();
+    expect(
+      collectAnalyticsFailures([site({ id: "rec1", analyticsSoftFailAt: justInside })], BASE, NOW),
+    ).toHaveLength(1);
+  });
+
+  it("keeps an UNPARSEABLE timestamp (fail-safe: don't drop a real failure on a parse glitch)", () => {
+    expect(
+      collectAnalyticsFailures([site({ analyticsSoftFailAt: "not-a-date" })], BASE, NOW),
+    ).toHaveLength(1);
+  });
+
+  it("emits one item PER failing site (the fleet-wide breadth is the signal)", () => {
+    const recent = new Date(NOW.getTime() - 60 * 60 * 1000).toISOString();
+    const items = collectAnalyticsFailures(
+      [
+        site({ id: "recA", name: "A site", analyticsSoftFailAt: recent }),
+        site({ id: "recB", name: "B site", analyticsSoftFailAt: recent }),
+        site({ id: "recC", name: "C site", analyticsSoftFailAt: null }),
+      ],
+      BASE,
+      NOW,
+    );
+    expect(items.map((i) => i.key).sort()).toEqual(["analytics:recA", "analytics:recB"]);
   });
 });

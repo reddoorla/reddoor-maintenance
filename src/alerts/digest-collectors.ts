@@ -195,3 +195,49 @@ export function collectCiAlerts(
   }
   return items;
 }
+
+/**
+ * A soft-fail older than this is no longer a trustworthy CURRENT signal. Drafting
+ * self-clears `analyticsSoftFailAt` on the next clean enrichment, so a non-null
+ * value normally means "errored on the most recent draft and hasn't recovered" —
+ * but a site that stopped being drafted (freq→None, deprecated) would otherwise
+ * show a phantom forever. 45 days covers a monthly cadence + margin; older drops.
+ */
+const ANALYTICS_SOFT_FAIL_STALE_DAYS = 45;
+
+/**
+ * One attention item per site whose last draft's GA/Search enrichment ERRORED, read
+ * from the `analyticsSoftFailAt` timestamp (drafting sets it on a soft-fail, clears
+ * it on a clean enrichment). PURE. Keyed `analytics:<siteId>` so the digest and the
+ * cockpit share one diff key; `metric` 1 (binary), severity `warning`. A null
+ * timestamp (clean, or the operator-added `Analytics soft-fail at` column absent) is
+ * skipped, as is one staler than {@link ANALYTICS_SOFT_FAIL_STALE_DAYS}. On a
+ * FLEET-WIDE subject outage many sites surface this at once — that breadth IS the
+ * signal here; the report cron additionally emails a single concise fleet-wide alert
+ * (see `assessAnalyticsAlert`). `now` injected, defaults to wall-clock.
+ */
+export function collectAnalyticsFailures(
+  sites: WebsiteRow[],
+  baseUrl: string,
+  now: Date = new Date(),
+): AttentionItem[] {
+  const items: AttentionItem[] = [];
+  for (const s of sites) {
+    const at = s.analyticsSoftFailAt;
+    if (at === null) continue;
+    const ageMs = now.getTime() - Date.parse(at);
+    // Unparseable timestamp (NaN) → keep the item (don't silently drop a real failure
+    // on a parse glitch); only a parseable, beyond-window age is skipped as stale.
+    if (Number.isFinite(ageMs) && ageMs > ANALYTICS_SOFT_FAIL_STALE_DAYS * MS_PER_DAY) continue;
+    items.push({
+      key: `analytics:${s.id}`,
+      kind: "analytics",
+      siteName: s.name,
+      title: "GA/Search enrichment failing (analytics blank)",
+      url: dashboardUrl(baseUrl, s.name),
+      severity: "warning",
+      metric: 1,
+    });
+  }
+  return items;
+}

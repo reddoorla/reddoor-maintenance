@@ -1,9 +1,15 @@
 import { openBase, readAirtableConfig, type AirtableBase } from "../../reports/airtable/client.js";
-import { listWebsites, siteSlug } from "../../reports/airtable/websites.js";
+import { listWebsites, siteSlug, type WebsiteRow } from "../../reports/airtable/websites.js";
 import { listAllReports } from "../../reports/airtable/reports.js";
 import { findDueReports, reportPeriodKey } from "../../reports/due.js";
 import { draftReportForSite } from "../../reports/draft.js";
 import { reportTier } from "../../reports/queue.js";
+import { readGaConfig } from "../../reports/ga/config.js";
+import {
+  assessAnalyticsAlert,
+  composeAnalyticsAlertEmail,
+  type AnalyticsRunHealth,
+} from "../../alerts/analytics-health.js";
 import type { ReportType } from "../../reports/types.js";
 
 export type ReportCommandOptions = {
@@ -105,13 +111,39 @@ export async function runReportCommand(
 
 async function runDueDraft(): Promise<{ output: string; code: number }> {
   const base = openBase(readAirtableConfig());
-  return draftDueReports(base, new Date());
+  const result = await draftDueReports(base, new Date());
+  await alertOnFleetAnalyticsFailure(result.health);
+  return { output: result.output, code: result.code };
+}
+
+/** Best-effort: when a draft run's GA/Search soft-failures look FLEET-WIDE (the shared
+ *  GA_SUBJECT lost access — see assessAnalyticsAlert), email the operator one alert.
+ *  NEVER throws — a Resend or config hiccup must not fail the nightly draft cron; the
+ *  per-site `⚠ GA skipped` warnings + the run-output line still carry the signal. The
+ *  daily idempotency key dedupes multiple runs in one day (Resend dedupes 24h). */
+async function alertOnFleetAnalyticsFailure(health: AnalyticsRunHealth): Promise<void> {
+  if (!assessAnalyticsAlert(health).fire) return;
+  try {
+    const to = process.env.OPERATOR_EMAIL?.trim() || "info@reddoorla.com";
+    const { subject, html } = composeAnalyticsAlertEmail(health, dashboardBaseUrl());
+    const { defaultResendClient } = await import("../../reports/send/resend.js");
+    await defaultResendClient().send({
+      from: "Reddoor Reports <reports@reddoorla.com>",
+      to: [to],
+      subject,
+      html,
+      idempotencyKey: `analytics-alert-${new Date().toISOString().slice(0, 10)}`,
+    });
+    console.warn(`⚠ ${subject} — operator alerted (${to})`);
+  } catch (e) {
+    console.warn(`⚠ analytics-failure alert send failed: ${(e as Error).message}`);
+  }
 }
 
 export async function draftDueReports(
   base: AirtableBase,
   today: Date,
-): Promise<{ output: string; code: number }> {
+): Promise<{ output: string; code: number; health: AnalyticsRunHealth }> {
   const websites = await listWebsites(base);
   // ONE unfiltered fetch for the whole fleet. Per-site queries can't be pushed to
   // Airtable anyway (linked-record fields aren't formula-filterable by record id),
@@ -119,10 +151,28 @@ export async function draftDueReports(
   const reports = await listAllReports(base);
   const due = findDueReports(websites, reports, today);
 
-  if (due.length === 0) return { output: "No reports due.", code: 0 };
+  // GA/Search enrichment is configured globally (the impersonation subject) AND
+  // per-site (a GA4 property or a search query). `gaConfigured` is the global half;
+  // the per-site half is checked as each draft runs, to build the fleet-wide
+  // analytics-failure alert's denominator (see alertOnFleetAnalyticsFailure).
+  const gaConfigured = readGaConfig() !== null;
+  // Truthy (not `!== null`) to mirror fetchGaUsers/fetchSearch's own gate exactly
+  // (`!siteRow.ga4PropertyId`), so an empty-string cell counts as not-configured in
+  // BOTH places and can't inflate the alert denominator.
+  const isAnalyticsConfigured = (s: WebsiteRow): boolean =>
+    gaConfigured && Boolean(s.ga4PropertyId || s.searchQuery);
+
+  if (due.length === 0) {
+    return {
+      output: "No reports due.",
+      code: 0,
+      health: { softFailedSites: 0, configuredSites: 0 },
+    };
+  }
 
   const lines: string[] = [];
   let softFailedSites = 0;
+  let gaConfiguredSites = 0;
   let skipped = 0;
   for (const item of due) {
     // Idempotency: a re-run must not re-draft a (site, type) already drafted this
@@ -181,6 +231,7 @@ export async function draftDueReports(
             "completed half-made draft",
           ),
         );
+        if (isAnalyticsConfigured(item.site)) gaConfiguredSites++;
         if (result.softFailures.length > 0) softFailedSites++;
       } catch (e) {
         lines.push(`✗ failed: ${item.site.name} ${item.reportType} — ${(e as Error).message}`);
@@ -227,6 +278,7 @@ export async function draftDueReports(
       if (result.reportRow) reports.push(result.reportRow);
       // Count sites (not individual GA/Search failures) so a fleet-wide enrichment
       // outage is one obvious line at the bottom, not 200 buried console.warns.
+      if (isAnalyticsConfigured(item.site)) gaConfiguredSites++;
       if (result.softFailures.length > 0) softFailedSites++;
     } catch (e) {
       lines.push(`✗ failed: ${item.site.name} ${item.reportType} — ${(e as Error).message}`);
@@ -240,7 +292,11 @@ export async function draftDueReports(
       `⚠ ${softFailedSites} site${softFailedSites === 1 ? "" : "s"} had GA/Search enrichment fail — drafted with blank analytics; check the logs above`,
     );
   }
-  return { output: lines.join("\n"), code: lines.some((l) => l.startsWith("✗")) ? 1 : 0 };
+  return {
+    output: lines.join("\n"),
+    code: lines.some((l) => l.startsWith("✗")) ? 1 : 0,
+    health: { softFailedSites, configuredSites: gaConfiguredSites },
+  };
 }
 
 async function runSingleSiteDraft(

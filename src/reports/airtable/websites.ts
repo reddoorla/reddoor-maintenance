@@ -52,6 +52,11 @@ export type WebsiteRow = {
   /** Explicit Search Console property for this site (`sc-domain:...` or `https://.../`).
    *  Null = auto-resolve from the SA's visible properties by host. */
   searchConsoleProperty: string | null;
+  /** ISO timestamp of the last draft run where THIS site's GA/Search enrichment
+   *  ERRORED (vs a legitimate "not configured" skip). Set by drafting on a soft-fail,
+   *  cleared (null) on a clean enrichment, so the per-site analytics-failure signal
+   *  self-heals. Null when the operator-added `Analytics soft-fail at` column is absent. */
+  analyticsSoftFailAt: string | null;
   /** GitHub repo identity as `owner/repo`. Null = no git wiring → self-update ops skip
    *  (or, for local runs, fall back to the checkout's origin remote). */
   gitRepo: string | null;
@@ -214,6 +219,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     ga4PropertyId: (f["GA4 property ID"] as string | undefined) ?? null,
     searchQuery: (f["Search query"] as string | undefined) ?? null,
     searchConsoleProperty: (f["Search Console property"] as string | undefined) ?? null,
+    analyticsSoftFailAt: (f["Analytics soft-fail at"] as string | undefined) ?? null,
     gitRepo: (f["Git repo"] as string | undefined) ?? null,
     reportRecipientsTo: (f["Report recipients (To)"] as string | undefined) ?? null,
     reportRecipientsCc: (f["Report recipients (CC)"] as string | undefined) ?? null,
@@ -454,6 +460,22 @@ export async function updateScores(
   scores: LighthouseScores,
 ): Promise<void> {
   await base(WEBSITES_TABLE).update([{ id: recordId, fields: scoreFields(scores) }]);
+}
+
+/**
+ * Record (or clear) the per-site GA/Search enrichment health on the `Analytics
+ * soft-fail at` column. `at` is an ISO timestamp when the site's last draft had a
+ * GA/Search soft-failure, or `null` to clear it after a clean enrichment. The
+ * caller (drafting) swallows errors: this column is operator-added, so until it
+ * exists Airtable throws UNKNOWN_FIELD_NAME — which must not break a draft.
+ */
+export async function updateAnalyticsHealth(
+  base: AirtableBase,
+  recordId: string,
+  at: string | null,
+): Promise<void> {
+  const fields: Record<string, string | null> = { "Analytics soft-fail at": at };
+  await base(WEBSITES_TABLE).update([{ id: recordId, fields: fields as FieldSet }]);
 }
 
 /** Persist a11y violation count. */
