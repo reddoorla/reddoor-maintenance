@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { renderCockpitHtml } from "../../src/dashboard/fleet-render.js";
+import { buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
 import type { CockpitModel } from "../../src/dashboard/fleet-cockpit.js";
+import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 function model(over: Partial<CockpitModel> = {}): CockpitModel {
   return {
@@ -21,6 +23,34 @@ function model(over: Partial<CockpitModel> = {}): CockpitModel {
     submissions: [],
     ...over,
   };
+}
+
+const BASE = "https://reddoor-maintenance.netlify.app";
+const NOW = new Date("2026-06-22T12:00:00Z");
+
+/** Builds a real model with one attention-tier site, spam data, and one submission. */
+function oneSubmissionModel(): CockpitModel {
+  const site = makeWebsiteRow({
+    id: "recSITE",
+    name: "Acme Co",
+    status: "maintenance",
+    securityVulnsCritical: 2, // forces attention tier
+    securityVulnsHigh: 0,
+    securityVulnsModerate: 0,
+    securityVulnsLow: 0,
+  });
+  const sub = {
+    id: "s1",
+    siteId: "recSITE",
+    formType: "contact",
+    name: "Jane",
+    email: "jane@x.com",
+    submittedAt: "2026-06-14T12:00:00Z",
+  } as never;
+  const built = buildCockpitModel([site], [], {}, BASE, NOW, [sub]);
+  // Graft spam data onto the model — buildCockpitModel doesn't produce it,
+  // but the render function reads model.spam directly.
+  return { ...built, spam: { caught: 5, through: 1 } } as never;
 }
 
 describe("renderCockpitHtml — submissions", () => {
@@ -50,5 +80,39 @@ describe("renderCockpitHtml — submissions", () => {
     expect(html).toContain("Acme &lt;b&gt;");
     expect(html).toContain('href="/s/acme"');
     expect(html).toContain("1 new"); // summary head
+  });
+
+  it("orders attention content (tiers) before spam and submissions", () => {
+    const html = renderCockpitHtml(oneSubmissionModel());
+    const tiersIdx = html.indexOf('data-tier="attention"');
+    // Use the full div tag to avoid matching the CSS rule (.spam-rollup) in <head>.
+    const spamIdx = html.indexOf('class="spam-rollup');
+    const submIdx = html.indexOf("subm-strip");
+    expect(tiersIdx).toBeGreaterThan(-1);
+    expect(spamIdx).toBeGreaterThan(-1);
+    expect(submIdx).toBeGreaterThan(-1);
+    expect(tiersIdx).toBeLessThan(spamIdx); // tiers come before spam
+    expect(spamIdx).toBeLessThan(submIdx); // spam before submissions
+    expect(tiersIdx).toBeLessThan(submIdx); // tiers before submissions
+  });
+
+  it("links the submissions strip heading to /submissions", () => {
+    const html = renderCockpitHtml(
+      model({
+        summary: { ...model().summary, newSubmissions: 1 },
+        submissions: [
+          {
+            submissionId: "s1",
+            siteName: "Acme Co",
+            slug: "acme-co",
+            formType: "contact",
+            name: "Jane",
+            email: "jane@x.com",
+            submittedAt: "2026-06-14T12:00:00Z",
+          },
+        ],
+      }),
+    );
+    expect(html).toContain('href="/submissions"');
   });
 });

@@ -249,10 +249,10 @@ function submissionsStrip(model: CockpitModel): string {
   const overflow = subs.length - shown.length;
   const more =
     overflow > 0
-      ? `<div class="approve-row subm-more muted">+${overflow} more — triage on each site page</div>`
+      ? `<div class="approve-row subm-more muted"><a href="/submissions">+${overflow} more — view all submissions</a></div>`
       : "";
   return `<section class="approve-strip subm-strip" data-tier="submissions">
-    <h2>📥 New submissions (${subs.length})</h2>
+    <h2>📥 New submissions (${subs.length}) <a class="subm-viewall" href="/submissions">View all →</a></h2>
     ${rows}${more}
   </section>`;
 }
@@ -376,11 +376,11 @@ export function renderCockpitHtml(model: CockpitModel): string {
   <h1>Reddoor fleet cockpit</h1>
   <div class="meta">${total} site${total === 1 ? "" : "s"} on the Reddoor stack.</div>
   ${summaryBar(model)}
-  ${spamRollup(model)}
   ${allClearBanner(model)}
   ${approveStrip(model)}
-  ${submissionsStrip(model)}
   ${sections}
+  ${spamRollup(model)}
+  ${submissionsStrip(model)}
   ${FILTER_SCRIPT}
 </body>
 </html>`;
