@@ -40,20 +40,10 @@ function html(body: string, status: number): Response {
 }
 
 export default async (req: Request, _ctx: Context): Promise<Response> => {
-  const apiKey = process.env.AIRTABLE_PAT;
-  const baseId = process.env.AIRTABLE_BASE_ID;
+  // Authenticate BEFORE the Airtable/Turso env guards so an unauthenticated probe
+  // can't tell which backend env is unset (a differentiated 500 leaks config
+  // state). Only the password check — unavoidable, since auth needs it — precedes.
   const password = process.env.DASHBOARD_PASSWORD;
-
-  if (!apiKey || !baseId) {
-    console.error("[fleet-homepage] AIRTABLE_PAT or AIRTABLE_BASE_ID missing");
-    return plainText("Airtable env missing", 500);
-  }
-
-  if (!process.env.TURSO_DATABASE_URL) {
-    console.error("[fleet-homepage] TURSO_DATABASE_URL missing");
-    return plainText("Turso env missing", 500);
-  }
-
   if (!password) {
     // Distinguishable from a wrong-password 401 because it carries a
     // setup hint instead of a WWW-Authenticate challenge. Operator sees
@@ -69,6 +59,18 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     return plainText("Authentication required.", 401, {
       "www-authenticate": 'Basic realm="Reddoor fleet"',
     });
+  }
+
+  const apiKey = process.env.AIRTABLE_PAT;
+  const baseId = process.env.AIRTABLE_BASE_ID;
+  if (!apiKey || !baseId) {
+    console.error("[fleet-homepage] AIRTABLE_PAT or AIRTABLE_BASE_ID missing");
+    return plainText("Airtable env missing", 500);
+  }
+
+  if (!process.env.TURSO_DATABASE_URL) {
+    console.error("[fleet-homepage] TURSO_DATABASE_URL missing");
+    return plainText("Turso env missing", 500);
   }
 
   try {

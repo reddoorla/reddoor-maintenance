@@ -118,7 +118,7 @@ function checklistBlock(r: ReportRow): string {
  *  are the hard backstops). Launch/Announcement have an empty checklist → never gated. */
 function approveButton(r: ReportRow): string {
   const disabled = isChecklistComplete(r) ? "" : " disabled";
-  return `<button class="approve" data-report-id="${escapeHtml(r.id)}" data-approve-url="/api/reports/${encodeURIComponent(r.id)}/approve"${disabled}>Approve</button>`;
+  return `<button class="approve" data-report-id="${escapeHtml(r.id)}" data-approve-url="${escapeHtml(`/api/reports/${encodeURIComponent(r.id)}/approve`)}"${disabled}>Approve</button>`;
 }
 
 function pendingRow(r: ReportRow): string {

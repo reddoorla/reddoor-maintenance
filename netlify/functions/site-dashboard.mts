@@ -62,23 +62,13 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     );
   }
 
-  const apiKey = process.env.AIRTABLE_PAT;
-  const baseId = process.env.AIRTABLE_BASE_ID;
-  if (!apiKey || !baseId) {
-    console.error("[site-dashboard] AIRTABLE_PAT or AIRTABLE_BASE_ID missing");
-    return plainText("Airtable env missing", 500);
-  }
-
-  if (!process.env.TURSO_DATABASE_URL) {
-    console.error("[site-dashboard] TURSO_DATABASE_URL missing");
-    return plainText("Turso env missing", 500);
-  }
-
   // Operator-only: gate the per-site dashboard with the same shared password as
   // the fleet homepage, and the SAME Basic realm so the browser reuses creds
   // when the operator clicks through from /. The per-site token model is retired
   // — cockpit visibility is now Status-based. Gate BEFORE any Airtable read so an
-  // unauthenticated probe can't fetch a site.
+  // unauthenticated probe can't fetch a site — and before the Airtable/Turso env
+  // guards so a probe can't tell which backend env is unset (only the password
+  // check, which auth itself needs, precedes).
   const password = process.env.DASHBOARD_PASSWORD;
   if (!password) {
     console.error("[site-dashboard] DASHBOARD_PASSWORD missing");
@@ -91,6 +81,18 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     return plainText("Authentication required.", 401, {
       "www-authenticate": 'Basic realm="Reddoor fleet"',
     });
+  }
+
+  const apiKey = process.env.AIRTABLE_PAT;
+  const baseId = process.env.AIRTABLE_BASE_ID;
+  if (!apiKey || !baseId) {
+    console.error("[site-dashboard] AIRTABLE_PAT or AIRTABLE_BASE_ID missing");
+    return plainText("Airtable env missing", 500);
+  }
+
+  if (!process.env.TURSO_DATABASE_URL) {
+    console.error("[site-dashboard] TURSO_DATABASE_URL missing");
+    return plainText("Turso env missing", 500);
   }
 
   try {
