@@ -5,6 +5,7 @@ import {
   selectRenovateTargets,
   dispatchRenovateAcross,
   formatRenovateDispatchSummary,
+  isRenovatePrBranch,
 } from "../../github/renovate-dispatch.js";
 
 /**
@@ -40,7 +41,7 @@ export async function runRenovateDispatchCommand(opts: {
   if (targets.length === 0) {
     return {
       output:
-        `${formatRenovateDispatchSummary({ dispatched: [], failed: [] })}\n` +
+        `${formatRenovateDispatchSummary({ dispatched: [], skipped: [], failed: [] })}\n` +
         "No active repo-backed sites with critical/high vulnerabilities — nothing to dispatch.",
       code: 0,
     };
@@ -48,13 +49,20 @@ export async function runRenovateDispatchCommand(opts: {
 
   const gh = makeGitHub({ token });
   const result = await dispatchRenovateAcross(targets, {
+    hasOpenRenovatePr: async (repo) =>
+      (await gh.openPullRequests(repo)).some((pr) => isRenovatePrBranch(pr.headRef)),
     defaultBranch: (repo) => gh.defaultBranch(repo),
     dispatch: (repo, workflow, ref) => gh.dispatchWorkflow(repo, workflow, ref),
   });
 
   const failedRepos = new Set(result.failed.map((f) => f.repo));
+  const skippedRepos = new Set(result.skipped);
   const lines = targets.map((t) => {
-    const status = failedRepos.has(t.repo) ? "FAILED    " : "dispatched";
+    const status = failedRepos.has(t.repo)
+      ? "FAILED                       "
+      : skippedRepos.has(t.repo)
+        ? "skipped (open Renovate PR)   "
+        : "dispatched                   ";
     return `${status} ${t.repo} (critical=${t.critical} high=${t.high}) — ${t.siteName}`;
   });
   for (const f of result.failed) lines.push(`  ↳ ${f.repo}: ${f.error}`);

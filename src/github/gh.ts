@@ -291,9 +291,13 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
       if (!owner || !name || rest.length > 0) {
         throw new Error(`dispatchWorkflow: expected "owner/repo", got "${repo}"`);
       }
-      // `workflow` is a filename and `ref` a branch — both interpolate into the
-      // API path, so guard them like the other write methods do (defense in depth;
-      // the workflow name is a constant today but the ref is repo-sourced).
+      // Every segment interpolates into the API path, so guard them all like the
+      // other write methods do (defense in depth). `owner`/`name` are the most
+      // operator-controlled (typed into Airtable's "Git repo"); `workflow` is a
+      // constant today; `ref` is repo-sourced. A junk value like `repo?x=1` would
+      // otherwise smuggle a query string past the bare two-part shape check.
+      assertUrlSegment("path", owner);
+      assertUrlSegment("path", name);
       assertUrlSegment("path", workflow);
       assertUrlSegment("branch", ref);
       await gh([

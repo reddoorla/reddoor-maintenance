@@ -105,12 +105,14 @@ describe("dispatchRenovateAcross", () => {
   it("dispatches renovate.yml on each target's default branch", async () => {
     const calls: Array<{ repo: string; workflow: string; ref: string }> = [];
     const result = await dispatchRenovateAcross(targets, {
+      hasOpenRenovatePr: async () => false,
       defaultBranch: async (repo) => (repo === "reddoorla/b" ? "master" : "main"),
       dispatch: async (repo, workflow, ref) => {
         calls.push({ repo, workflow, ref });
       },
     });
     expect(result.dispatched).toEqual(["reddoorla/a", "reddoorla/b"]);
+    expect(result.skipped).toEqual([]);
     expect(result.failed).toEqual([]);
     expect(calls).toEqual([
       { repo: "reddoorla/a", workflow: RENOVATE_WORKFLOW_FILE, ref: "main" },
@@ -118,8 +120,24 @@ describe("dispatchRenovateAcross", () => {
     ]);
   });
 
+  it("skips a repo that already has an open Renovate PR (remediation in flight)", async () => {
+    const calls: string[] = [];
+    const result = await dispatchRenovateAcross(targets, {
+      hasOpenRenovatePr: async (repo) => repo === "reddoorla/a",
+      defaultBranch: async () => "main",
+      dispatch: async (repo) => {
+        calls.push(repo);
+      },
+    });
+    expect(result.skipped).toEqual(["reddoorla/a"]);
+    expect(result.dispatched).toEqual(["reddoorla/b"]);
+    expect(result.failed).toEqual([]);
+    expect(calls).toEqual(["reddoorla/b"]); // the skipped repo is never dispatched
+  });
+
   it("records a failed dispatch without aborting the rest", async () => {
     const result = await dispatchRenovateAcross(targets, {
+      hasOpenRenovatePr: async () => false,
       defaultBranch: async () => "main",
       dispatch: async (repo) => {
         if (repo === "reddoorla/a") throw new Error("404: no renovate.yml");
@@ -131,6 +149,7 @@ describe("dispatchRenovateAcross", () => {
 
   it("records a failed default-branch lookup as a failure (never throws)", async () => {
     const result = await dispatchRenovateAcross([targets[0]!], {
+      hasOpenRenovatePr: async () => false,
       defaultBranch: async () => {
         throw new Error("403: token lacks actions:write");
       },
@@ -141,18 +160,37 @@ describe("dispatchRenovateAcross", () => {
       { repo: "reddoorla/a", error: "403: token lacks actions:write" },
     ]);
   });
+
+  it("records a failed open-PR probe as a failure (never dispatches on a bad probe)", async () => {
+    const result = await dispatchRenovateAcross([targets[0]!], {
+      hasOpenRenovatePr: async () => {
+        throw new Error("502: PR query failed");
+      },
+      defaultBranch: async () => "main",
+      dispatch: async () => {
+        throw new Error("should not dispatch when the PR probe failed");
+      },
+    });
+    expect(result.dispatched).toEqual([]);
+    expect(result.failed).toEqual([{ repo: "reddoorla/a", error: "502: PR query failed" }]);
+  });
 });
 
 describe("formatRenovateDispatchSummary", () => {
   it("emits a machine-readable counts line for the workflow to gate on", () => {
     expect(
-      formatRenovateDispatchSummary({ dispatched: ["reddoorla/a", "reddoorla/b"], failed: [] }),
-    ).toBe("RENOVATE_DISPATCH_SUMMARY dispatched=2 failed=0");
+      formatRenovateDispatchSummary({
+        dispatched: ["reddoorla/a", "reddoorla/b"],
+        skipped: [],
+        failed: [],
+      }),
+    ).toBe("RENOVATE_DISPATCH_SUMMARY dispatched=2 skipped=0 failed=0");
     expect(
       formatRenovateDispatchSummary({
         dispatched: ["reddoorla/a"],
+        skipped: ["reddoorla/c"],
         failed: [{ repo: "reddoorla/b", error: "boom" }],
       }),
-    ).toBe("RENOVATE_DISPATCH_SUMMARY dispatched=1 failed=1");
+    ).toBe("RENOVATE_DISPATCH_SUMMARY dispatched=1 skipped=1 failed=1");
   });
 });
