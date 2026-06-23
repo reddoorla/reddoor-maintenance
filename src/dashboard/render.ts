@@ -1,5 +1,5 @@
 import type { WebsiteRow, SecurityAdvisory } from "../reports/airtable/websites.js";
-import { SEVERITY_RANK } from "../reports/airtable/websites.js";
+import { SEVERITY_RANK, siteSlug } from "../reports/airtable/websites.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
 import { isPendingApproval } from "../reports/airtable/reports.js";
 import type { SubmissionRow } from "../reports/airtable/submissions.js";
@@ -172,7 +172,7 @@ function reportRow(r: ReportRow): string {
 
 const SUBMISSIONS_PER_SITE_CAP = 25;
 
-function submissionsSection(submissions: SubmissionRow[]): string {
+function submissionsSection(submissions: SubmissionRow[], site: WebsiteRow): string {
   if (submissions.length === 0) return "";
   const recent = [...submissions]
     .sort((a, b) => (b.submittedAt ?? "").localeCompare(a.submittedAt ?? ""))
@@ -183,8 +183,9 @@ function submissionsSection(submissions: SubmissionRow[]): string {
     submissions.length > recent.length
       ? `<span class="muted"> — showing ${recent.length} of ${submissions.length}</span>`
       : "";
+  const viewAll = `<a class="subm-viewall" href="/submissions?site=${escapeHtml(siteSlug(site.name))}">View all for this site →</a>`;
   return `<div class="section submissions">
-    <h2>Form submissions (${submissions.length})${note}</h2>
+    <h2>Form submissions (${submissions.length})${note} ${viewAll}</h2>
     <ul class="subm-list">${recent.map(renderSubmissionRow).join("")}</ul>
   </div>`;
 }
@@ -386,7 +387,6 @@ export function renderSiteDashboardHtml(
   ${auditedLine}
   ${setupSection(site)}
   ${pendingSection(reports)}
-  ${submissionsSection(submissions)}
 
   <div class="section">
     <h2>Lighthouse</h2>
@@ -400,14 +400,14 @@ export function renderSiteDashboardHtml(
 
   ${securitySection(site)}
 
-  ${spamScreenSection(spamTotals, submissions, now)}
-
   <div class="section">
     <h2>Reports</h2>
     ${reportsSection}
   </div>
 
   ${siteDetailsSection(site)}
+  ${spamScreenSection(spamTotals, submissions, now)}
+  ${submissionsSection(submissions, site)}
   <script>
     document.querySelectorAll("button.approve").forEach((b) => {
       b.addEventListener("click", async () => {
