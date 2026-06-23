@@ -105,6 +105,7 @@ function siteRow(over = {}) {
     ga4PropertyId: null,
     searchQuery: null,
     searchConsoleProperty: null,
+    analyticsSoftFailAt: null,
     gitRepo: null,
     reportRecipientsTo: null,
     reportRecipientsCc: null,

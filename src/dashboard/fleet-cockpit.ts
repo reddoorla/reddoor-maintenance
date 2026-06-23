@@ -12,6 +12,7 @@ import {
   collectLighthouseAlerts,
   collectRenovateAlerts,
   collectCiAlerts,
+  collectAnalyticsFailures,
 } from "../alerts/digest-collectors.js";
 import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
 import { relativeTimeFromNow } from "./relative-time.js";
@@ -174,6 +175,7 @@ export function buildCockpitModel(
     ...collectDeliveryFailures(reports, sitesById, baseUrl),
     ...collectRenovateAlerts(visible, baseUrl, now),
     ...collectCiAlerts(visible, baseUrl, now),
+    ...collectAnalyticsFailures(visible, baseUrl, now),
   ];
   // Read-only diff: tag NEW/WORSE exactly as the email does; discard `next`.
   const { tagged } = diffAttention(rawItems, priorSnapshot, now.toISOString().slice(0, 10));

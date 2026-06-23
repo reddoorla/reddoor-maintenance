@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { ReportType, LighthouseScores } from "./types.js";
 import { renderReportHtml } from "./render.js";
-import { siteSlug } from "./airtable/websites.js";
+import { siteSlug, updateAnalyticsHealth } from "./airtable/websites.js";
 import { resolveCopy } from "./copy.js";
 import type { WebsiteRow } from "./airtable/websites.js";
 import type { ReportRow } from "./airtable/reports.js";
@@ -153,6 +153,23 @@ export async function draftReportForSite(
   }
 
   if (base === null) throw new Error("base required when previewOnly=false");
+
+  // Record this site's GA/Search enrichment health for the per-site analytics-failure
+  // signal (cockpit/digest). Only when analytics is configured for THIS site — set the
+  // timestamp on a soft-fail, clear it (null) on a clean enrichment so the signal
+  // self-heals. Best-effort: the `Analytics soft-fail at` column is operator-added, so
+  // until it exists the write throws UNKNOWN_FIELD_NAME — which must NOT break drafting.
+  if (readGaConfig() !== null && Boolean(siteRow.ga4PropertyId || siteRow.searchQuery)) {
+    try {
+      await updateAnalyticsHealth(
+        base,
+        siteRow.id,
+        softFailures.length > 0 ? today.toISOString() : null,
+      );
+    } catch (e) {
+      console.warn(`⚠ analytics-health write skipped for ${siteRow.name}: ${(e as Error).message}`);
+    }
+  }
 
   // "Finish an existing row" path (the --due re-draft wedge fix). When the caller
   // hands us a row that was created but never made Draft-ready — a crash between
