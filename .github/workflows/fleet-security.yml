@@ -98,6 +98,27 @@ jobs:
             exit 1
           fi
 
+      # Best-effort follow-up (runs only when the sweep above succeeded, so it reads
+      # fresh counts): kick Renovate for each active, repo-backed site just flagged
+      # with critical/high vulns. Renovate's OSV vulnerability alerts bypass the
+      # weekly schedule, so the remediation PR opens now (then auto-merges per the
+      # shared preset). NEVER fails the security job — a missing token clean-skips,
+      # and a per-repo dispatch failure (no renovate.yml / token lacks actions:write)
+      # is surfaced as a warning, not a red.
+      - name: Trigger Renovate for sites with actionable vulnerabilities
+        timeout-minutes: 10
+        env:
+          AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
+          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+          RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+        run: |
+          node dist/cli/bin.js renovate-dispatch --fleet | tee /tmp/dispatch.out || true
+          summary=$(grep -oE "RENOVATE_DISPATCH_SUMMARY dispatched=[0-9]+ failed=[0-9]+" /tmp/dispatch.out | tail -n1 || true)
+          failed=$(echo "$summary" | grep -oE "failed=[0-9]+" | cut -d= -f2 || true)
+          if [ -n "$failed" ] && [ "$failed" -gt 0 ]; then
+            echo "::warning::renovate-dispatch: $failed repo(s) failed to dispatch (check RENOVATE_TOKEN actions:write scope / renovate.yml present)."
+          fi
+
       # A red nightly is otherwise only GitHub's best-effort email to the last pusher.
       # File/reopen a single deduped tracking issue so a failure is durably visible, and
       # auto-close it once the run goes green again. continue-on-error so the alert

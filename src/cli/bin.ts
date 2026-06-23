@@ -407,6 +407,22 @@ cli
     runOrExit(async () => (await import("./commands/db.js")).runDbCommand(action, opts), opts),
   );
 
+cli
+  .command(
+    "renovate-dispatch",
+    "Trigger Renovate on fleet sites the security sweep flagged with critical/high vulns.",
+  )
+  .option("--fleet", "Run across every active, repo-backed site in the Airtable inventory.")
+  .action(async (opts: { fleet?: boolean; cwd?: string; verbose?: boolean }) =>
+    runOrExit(
+      async () =>
+        (await import("./commands/renovate-dispatch.js")).runRenovateDispatchCommand({
+          fleet: opts.fleet,
+        }),
+      opts,
+    ),
+  );
+
 cli.help();
 cli.version(version);
 
