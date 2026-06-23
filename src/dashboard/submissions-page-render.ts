@@ -53,7 +53,7 @@ function filterForm(m: SubmissionsPageModel): string {
     <select name="site">${siteOpts}</select>
     <select name="type">${typeOpts}</select>
     <select name="status">${statusOpts}</select>
-    <input type="search" name="q" placeholder="Search name/email/message" value="${escapeHtml(f.q)}" />
+    <input type="search" name="q" placeholder="Search name / email / phone / message" value="${escapeHtml(f.q)}" />
     <input type="date" name="from" value="${escapeHtml(f.from)}" />
     <input type="date" name="to" value="${escapeHtml(f.to)}" />
     <button type="submit">Apply</button>

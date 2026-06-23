@@ -84,7 +84,8 @@ button.subm-status:disabled { opacity: 0.6; cursor: default; }
 .pill.subm-new { background: #e8f0fe; color: #1a56db; }
 .pill.subm-read { background: #f0f0f0; color: #555; }
 .pill.subm-archived { background: #eee; color: #888; }
-.pill.subm-spam { background: #fdecea; color: #b00; }`;
+.pill.subm-spam { background: #fdecea; color: #b00; }
+.subm-viewall { font-size: 0.8rem; font-weight: normal; margin-left: 0.4rem; white-space: nowrap; }`;
 
 /** Client-side JS for the submission status triage buttons. Insert bare (no <script> wrapper). */
 export const SUBMISSION_STATUS_SCRIPT = `document.querySelectorAll("button.subm-status").forEach((b) => {

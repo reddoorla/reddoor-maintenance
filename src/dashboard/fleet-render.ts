@@ -115,6 +115,7 @@ h1 { margin: 0 0 0.25rem; font-size: 1.75rem; }
 .summary .heads { color:#666; font-size:0.9rem; }
 .spam-rollup { font-size:0.9rem; margin-bottom:1rem; }
 .muted { color:#999; }
+.subm-viewall { font-size:0.8rem; font-weight:normal; margin-left:0.4rem; white-space:nowrap; }
 .filters { display:flex; flex-wrap:wrap; gap:0.4rem; margin-bottom:1.25rem; }
 .filters button { font:inherit; font-size:0.85rem; padding:0.25rem 0.7rem; border:1px solid #ccc; border-radius:999px; background:transparent; color:inherit; cursor:pointer; }
 .filters button[aria-pressed="true"] { background:#1a1a1a; color:#fff; border-color:#1a1a1a; }
