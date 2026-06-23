@@ -27,16 +27,41 @@ export function readDbConfig(): DbConfig {
   return authToken ? { url, authToken } : { url };
 }
 
-/** Open a libSQL-backed Kysely. Builds ONE client, applies migrations on it, then
- *  wraps that exact client in the Kysely dialect — the shared client is required so
- *  an in-memory db (per-client) is the same database the queries see. The same code
- *  serves Turso (libsql:// url + token), a self-hosted sqld, a local file: url, and
- *  :memory: for tests — host portability is a connection-string swap. */
+// Migrations are idempotent but cost two Turso round-trips (CREATE TABLE IF NOT EXISTS +
+// SELECT applied ids). Running them on EVERY openDb — i.e. every warm Netlify invocation —
+// is pure latency on the form-ingest hot path and every dashboard GET. Cache the run per
+// database URL so a warm process migrates once. ":memory:" is deliberately EXCLUDED: each
+// in-memory client is a brand-new, separate database, so a cached "already migrated" would
+// hand the next openDb an empty db (file:/libsql:/https: all persist → safe to cache).
+const migrationsByUrl = new Map<string, Promise<void>>();
+
+function ensureMigrated(url: string, client: Client): Promise<void> {
+  if (url === ":memory:") return runMigrations(client).then(() => undefined);
+  const cached = migrationsByUrl.get(url);
+  if (cached) return cached;
+  const p = runMigrations(client)
+    .then(() => undefined)
+    .catch((err: unknown) => {
+      // Don't poison the process: a transient first-call failure (a Turso blip) must not
+      // leave a rejected promise cached for every future openDb. Evict so the next retries.
+      migrationsByUrl.delete(url);
+      throw err;
+    });
+  migrationsByUrl.set(url, p);
+  return p;
+}
+
+/** Open a libSQL-backed Kysely. Builds ONE client, ensures migrations are applied on it
+ *  (once per process per persistent url — see ensureMigrated), then wraps that exact client
+ *  in the Kysely dialect — the shared client is required so an in-memory db (per-client) is
+ *  the same database the queries see. The same code serves Turso (libsql:// url + token), a
+ *  self-hosted sqld, a local file: url, and :memory: for tests — host portability is a
+ *  connection-string swap. */
 export async function openDb(cfg: DbConfig): Promise<Db> {
   const clientConfig: LibsqlConfig = cfg.authToken
     ? { url: cfg.url, authToken: cfg.authToken }
     : { url: cfg.url };
   const client: Client = createClient(clientConfig);
-  await runMigrations(client);
+  await ensureMigrated(cfg.url, client);
   return new Kysely<Database>({ dialect: new LibsqlDialect({ client }) });
 }

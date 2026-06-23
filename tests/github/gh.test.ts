@@ -246,9 +246,11 @@ describe("makeGitHub", () => {
     expect(
       await makeGitHub({ token: "T", spawn: has.spawn }).secretExists("o/r", "RENOVATE_TOKEN"),
     ).toBe(true);
+    // per_page=100: the REST default of 30 would false-negative on a repo with >30 secrets,
+    // making setRepoSecret needlessly overwrite an already-present one.
     expect(has.calls[0]!.args).toEqual([
       "api",
-      "repos/o/r/actions/secrets",
+      "repos/o/r/actions/secrets?per_page=100",
       "--jq",
       ".secrets[].name",
     ]);
@@ -271,9 +273,11 @@ describe("makeGitHub", () => {
     expect(await makeGitHub({ token: "T", spawn: found.spawn }).findOpenSelfUpdatingPR("o/r")).toBe(
       "https://github.com/o/r/pull/9",
     );
+    // per_page=100: with the REST default of 30, a repo with >30 open PRs (plausible under
+    // Renovate) could page past the self-updating PR and open a duplicate.
     expect(found.calls[0]!.args).toEqual([
       "api",
-      "repos/o/r/pulls?state=open",
+      "repos/o/r/pulls?state=open&per_page=100",
       "--jq",
       '.[] | select(.head.ref | startswith("maint/self-updating-")) | .html_url',
     ]);

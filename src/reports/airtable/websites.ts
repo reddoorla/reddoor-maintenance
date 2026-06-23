@@ -424,9 +424,12 @@ function securityFields(counts: SecurityCounts): FieldSet {
 
 function domainFields(result: DomainResult): FieldSet {
   const fields: FieldSet = { "Domain checked at": result.checkedAt };
-  // Write the cert days only when determined — null (unresolved / no cert) must not clobber a
-  // previously-good value, and a stale-but-present number is more useful than a blank.
-  if (result.certDaysRemaining !== null) fields["Cert days remaining"] = result.certDaysRemaining;
+  // Write the cert days UNCONDITIONALLY: a null (unresolved / no usable cert) must CLEAR any
+  // previously-good value. Leaving a stale number in place — next to a freshly-stamped "Domain
+  // checked at" — false-passes the Domain/DNS/SSL auto-tick (domainEvidence reads the stale
+  // non-null value as a current pass) for a site that's actually down. null clears the cell in
+  // Airtable; FieldSet's type doesn't model null, hence the cast through a widened record.
+  (fields as Record<string, number | null>)["Cert days remaining"] = result.certDaysRemaining;
   return fields;
 }
 

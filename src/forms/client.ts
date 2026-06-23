@@ -121,19 +121,20 @@ export const MIN_FILL_MS = 800;
 
 /**
  * Cheap bot screen for the site action. A filled honeypot is a bot; a submission
- * faster than MIN_FILL_MS is a bot. Missing timing data (null) is NOT a rejection
- * — a prerendered/cached page can't plant a fresh timestamp, and the honeypot
- * remains the primary signal.
+ * faster than MIN_FILL_MS is a bot. Missing timing data (null/undefined) is NOT a
+ * rejection — a prerendered/cached page can't plant a fresh timestamp, and the
+ * honeypot remains the primary signal.
+ *
+ * Any numeric elapsed BELOW the floor — including a NEGATIVE value — is too-fast. A
+ * negative elapsed time is impossible for a real fill: it means the client posted a
+ * FUTURE timestamp. The earlier `>= 0` guard let that slip through (negative skipped
+ * the `< MIN_FILL_MS` branch and returned ok), silently bypassing the timing gate.
  */
 export function screenSubmission(input: ScreenInput): ScreenResult {
   if (typeof input.botField === "string" && input.botField.trim().length > 0) {
     return { ok: false, reason: "honeypot" };
   }
-  if (
-    typeof input.elapsedMs === "number" &&
-    input.elapsedMs >= 0 &&
-    input.elapsedMs < MIN_FILL_MS
-  ) {
+  if (typeof input.elapsedMs === "number" && input.elapsedMs < MIN_FILL_MS) {
     return { ok: false, reason: "too-fast" };
   }
   return { ok: true };

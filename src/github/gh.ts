@@ -172,7 +172,14 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
         .filter((l) => l.length > 0);
     },
     async secretExists(repo, name) {
-      const out = await gh(["api", `repos/${repo}/actions/secrets`, "--jq", ".secrets[].name"]);
+      // per_page=100: the REST default of 30 would false-negative on a repo with >30 secrets,
+      // wrongly reporting an existing secret absent (→ a needless overwrite).
+      const out = await gh([
+        "api",
+        `repos/${repo}/actions/secrets?per_page=100`,
+        "--jq",
+        ".secrets[].name",
+      ]);
       return out
         .split("\n")
         .map((l) => l.trim())
@@ -183,9 +190,11 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
       return out.trim() === "true";
     },
     async findOpenSelfUpdatingPR(repo) {
+      // per_page=100: with the REST default of 30, a repo with >30 open PRs (plausible under
+      // Renovate) could page past the existing self-updating PR and open a duplicate.
       const out = await gh([
         "api",
-        `repos/${repo}/pulls?state=open`,
+        `repos/${repo}/pulls?state=open&per_page=100`,
         "--jq",
         '.[] | select(.head.ref | startswith("maint/self-updating-")) | .html_url',
       ]);
