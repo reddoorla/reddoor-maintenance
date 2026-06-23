@@ -1,3 +1,11 @@
+// IN-REPO / FULL-INSTALL ENTRY. This barrel re-exports the report, audit,
+// inventory, and dashboard surface, which transitively imports the central-only
+// devDependencies (mjml, airtable, resend, the GA + libSQL/Kysely libs, sharp,
+// svix). A plain `pnpm add @reddoorla/maintenance` does NOT install those, so
+// importing the bare `@reddoorla/maintenance` entry only works where the dev
+// dependencies are present (this repo's CLI/Netlify functions, or tooling that
+// installs them). Fleet sites must import the dependency-light `./forms` +
+// `./configs/*` subpaths instead — the smoke-dist gate enforces those stay clean.
 export type {
   Site,
   AuditName,

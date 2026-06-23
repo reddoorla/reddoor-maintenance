@@ -1,3 +1,9 @@
+# Do NOT set NODE_ENV=production as a build environment variable: the dashboard
+# functions bundle several packages that are devDependencies of
+# @reddoorla/maintenance (airtable, @libsql/client, resend, @google-analytics/data,
+# svix) — moved there so fleet sites don't inherit them. Netlify's default install
+# includes devDependencies (which is why this deploys today); NODE_ENV=production
+# would prune them and every function would fail to bundle with an unresolved module.
 [build]
   command = "echo 'no build — functions only'"
   functions = "netlify/functions"
