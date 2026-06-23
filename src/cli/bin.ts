@@ -4,21 +4,19 @@ import { fileURLToPath } from "node:url";
 import { cac } from "cac";
 import type { AuditName, RecipeName } from "../types.js";
 import { loadCredentialsIntoEnv } from "../util/credentials.js";
-import { runAuditCommand } from "./commands/audit.js";
-import { runSyncConfigsCommand } from "./commands/sync-configs.js";
-import { runBumpDepsCommand } from "./commands/bump-deps.js";
-import { runSelfUpdatingCommand } from "./commands/self-updating.js";
-import { runUpgradeCommand } from "./commands/upgrade.js";
-import { runConvertToPnpmCommand } from "./commands/convert-to-pnpm.js";
-import { runOnboardCommand } from "./commands/onboard.js";
-import { runSvelteCodemodsCommand } from "./commands/svelte-codemods.js";
-import { runReportCommand } from "./commands/report.js";
-import { runInitCommand } from "./commands/init.js";
-import { runLaunchCommand } from "./commands/launch.js";
-import { runAnnounceCommand } from "./commands/announce.js";
-import { runGitHubSignalsCommand } from "./commands/github-signals.js";
-import { runDbCommand } from "./commands/db.js";
 import { resolvePackageVersion } from "./version.js";
+
+// Command modules are loaded LAZILY (dynamic `import()` inside each `.action()`),
+// never eagerly at the top. An eager `import { runReportCommand } from
+// "./commands/report.js"` would pull EVERY command's transitive dependency chain
+// into the CLI's startup graph — report/announce/launch drag in mjml + resend +
+// @google-analytics/data, `db` drags in the libSQL/kysely stack, etc. Those heavy
+// packages are `devDependencies` (this repo's CLI/functions/audits use them); a
+// consuming fleet site installs @reddoorla/maintenance only for `./forms` +
+// `./configs/*` and runs just `reddoor-maint audit --only a11y` in CI. Lazy
+// loading keeps that path (and `--help`/`--version`) free of the report/db
+// chains, so those packages never land in a consumer's node_modules. The
+// smoke-dist gate asserts bin.js's STATIC import closure stays free of them.
 
 // Load credentials from ~/.config/reddoor-maint/credentials.env before any
 // command runs, so AIRTABLE_PAT/AIRTABLE_BASE_ID/RESEND_API_KEY/etc. are
@@ -139,7 +137,11 @@ cli
         url?: string;
         concurrency?: string;
       },
-    ) => runOrExit(() => runAuditCommand(site, opts), opts),
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/audit.js")).runAuditCommand(site, opts),
+        opts,
+      ),
   );
 
 cli
@@ -162,7 +164,11 @@ cli
         cwd?: string;
         verbose?: boolean;
       },
-    ) => runOrExit(() => runSyncConfigsCommand(site, opts), opts),
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/sync-configs.js")).runSyncConfigsCommand(site, opts),
+        opts,
+      ),
   );
 
 cli
@@ -183,7 +189,11 @@ cli
         cwd?: string;
         verbose?: boolean;
       },
-    ) => runOrExit(() => runBumpDepsCommand(site, opts), opts),
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/bump-deps.js")).runBumpDepsCommand(site, opts),
+        opts,
+      ),
   );
 
 cli
@@ -204,7 +214,12 @@ cli
         cwd?: string;
         verbose?: boolean;
       },
-    ) => runOrExit(() => runSelfUpdatingCommand(site, opts), opts),
+    ) =>
+      runOrExit(
+        async () =>
+          (await import("./commands/self-updating.js")).runSelfUpdatingCommand(site, opts),
+        opts,
+      ),
   );
 
 cli
@@ -220,7 +235,11 @@ cli
       upgrade: string,
       site: string | undefined,
       opts: { fleet?: string; workdir?: string; cwd?: string; verbose?: boolean },
-    ) => runOrExit(() => runUpgradeCommand(upgrade, site, opts), opts),
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/upgrade.js")).runUpgradeCommand(upgrade, site, opts),
+        opts,
+      ),
   );
 
 cli
@@ -235,7 +254,11 @@ cli
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
     async (site, opts: { fleet?: string; workdir?: string; cwd?: string; verbose?: boolean }) =>
-      runOrExit(() => runConvertToPnpmCommand(site, opts), opts),
+      runOrExit(
+        async () =>
+          (await import("./commands/convert-to-pnpm.js")).runConvertToPnpmCommand(site, opts),
+        opts,
+      ),
   );
 
 cli
@@ -247,7 +270,11 @@ cli
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
     async (site, opts: { fleet?: string; workdir?: string; cwd?: string; verbose?: boolean }) =>
-      runOrExit(() => runSvelteCodemodsCommand(site, opts), opts),
+      runOrExit(
+        async () =>
+          (await import("./commands/svelte-codemods.js")).runSvelteCodemodsCommand(site, opts),
+        opts,
+      ),
   );
 
 cli
@@ -271,7 +298,11 @@ cli
         cwd?: string;
         verbose?: boolean;
       },
-    ) => runOrExit(() => runOnboardCommand(site, opts), opts),
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/onboard.js")).runOnboardCommand(site, opts),
+        opts,
+      ),
   );
 
 cli
@@ -286,7 +317,7 @@ cli
   .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
   .action(
     async (site, opts: { fleet?: string; workdir?: string; cwd?: string; verbose?: boolean }) =>
-      runOrExit(() => runInitCommand(site, opts), opts),
+      runOrExit(async () => (await import("./commands/init.js")).runInitCommand(site, opts), opts),
   );
 
 cli
@@ -295,7 +326,10 @@ cli
     "Bootstrap + first-audit a site, then draft its launch email for approval.",
   )
   .action(async (site: string, opts: { cwd?: string; verbose?: boolean }) =>
-    runOrExit(() => runLaunchCommand(site, opts), opts),
+    runOrExit(
+      async () => (await import("./commands/launch.js")).runLaunchCommand(site, opts),
+      opts,
+    ),
   );
 
 cli
@@ -304,7 +338,10 @@ cli
     "Draft the monthly-report announcement email for maintenance sites (all, or one) for approval.",
   )
   .action(async (site: string | undefined, opts: { cwd?: string; verbose?: boolean }) =>
-    runOrExit(() => runAnnounceCommand(site, opts), opts),
+    runOrExit(
+      async () => (await import("./commands/announce.js")).runAnnounceCommand(site, opts),
+      opts,
+    ),
   );
 
 cli
@@ -335,7 +372,11 @@ cli
         cwd?: string;
         verbose?: boolean;
       },
-    ) => runOrExit(() => runReportCommand(site, opts), opts),
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/report.js")).runReportCommand(site, opts),
+        opts,
+      ),
   );
 
 cli
@@ -348,7 +389,11 @@ cli
   .action(
     async (opts: { fleet?: boolean; writeAirtable?: boolean; cwd?: string; verbose?: boolean }) =>
       runOrExit(
-        () => runGitHubSignalsCommand({ fleet: opts.fleet, writeAirtable: opts.writeAirtable }),
+        async () =>
+          (await import("./commands/github-signals.js")).runGitHubSignalsCommand({
+            fleet: opts.fleet,
+            writeAirtable: opts.writeAirtable,
+          }),
         opts,
       ),
   );
@@ -359,7 +404,7 @@ cli
     "Migrate / backfill / reconcile the libSQL store (migrate | backfill | reconcile).",
   )
   .action(async (action: string, opts: { cwd?: string; verbose?: boolean }) =>
-    runOrExit(() => runDbCommand(action, opts), opts),
+    runOrExit(async () => (await import("./commands/db.js")).runDbCommand(action, opts), opts),
   );
 
 cli.help();
