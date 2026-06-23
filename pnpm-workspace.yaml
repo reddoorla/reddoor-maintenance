@@ -7,6 +7,16 @@ allowBuilds:
   protobufjs: true
 minimumReleaseAge: 0
 
+# Transitive-dependency security pins. pnpm 11 reads overrides HERE — neither the
+# top-level package.json "overrides" (npm/yarn syntax) nor "pnpm.overrides" is read,
+# so these previously-package.json pins were inert. Both CVEs are dev/CI-only (the
+# audit CLI path via @lhci/cli), not the request surface, but the pin is cheap:
+#   - tmp <0.2.6: path-traversal / symlink temp-write (GHSA-52f5-9888-hmc6 + 6r5x...)
+#   - uuid <11.1.1: missing buffer-bounds check in v3/v5/v6
+overrides:
+  tmp@<0.2.6: ">=0.2.6"
+  uuid@<11.1.1: ">=11.1.1"
+
 # Carried over from the old package.json "pnpm.auditConfig" (pnpm 11 reads it here now).
 auditConfig:
   ignoreGhsas:
