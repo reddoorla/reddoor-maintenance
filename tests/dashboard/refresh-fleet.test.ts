@@ -109,6 +109,17 @@ describe("summarizeFleetRunStatus", () => {
     expect(s.perWorkflow[0]!.state).toBe("failure");
   });
 
+  it("maps non-completed, non-in_progress runs (queued/requested/waiting) to 'queued'", () => {
+    for (const status of ["queued", "requested", "waiting"]) {
+      const s = summarizeFleetRunStatus([
+        { workflow: "fleet-security.yml", runs: [run({ status, conclusion: null })] },
+        { workflow: "fleet-lighthouse.yml", runs: [run({})] },
+      ]);
+      expect(s.perWorkflow[0]!.state).toBe("queued");
+      expect(s.allDone).toBe(false);
+    }
+  });
+
   it("uses the newest (first) run and carries its url", () => {
     const s = summarizeFleetRunStatus([
       {
