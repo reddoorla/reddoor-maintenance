@@ -37,6 +37,9 @@ function gitHubSignalsStale(swept: string | null, now: Date): boolean {
  * critical+high count (so a rising count diffs as WORSE); `severity` is `critical` when
  * any critical exists, else `warning`. Null counts (never audited) read as 0 → skipped.
  */
+/** Renovate auto-fix dispatches for one vuln episode before it's "exhausted" (manual fix needed). */
+const AUTO_FIX_EXHAUSTED_CYCLES = 3;
+
 export function collectVulnAlerts(sites: WebsiteRow[], baseUrl: string): AttentionItem[] {
   const items: AttentionItem[] = [];
   for (const s of sites) {
@@ -44,14 +47,20 @@ export function collectVulnAlerts(sites: WebsiteRow[], baseUrl: string): Attenti
     const high = s.securityVulnsHigh ?? 0;
     const metric = critical + high;
     if (metric <= 0) continue;
+    const attempts = s.securityAutoFixAttempts ?? 0;
+    const exhausted = attempts >= AUTO_FIX_EXHAUSTED_CYCLES;
+    const noun = metric === 1 ? "vuln" : "vulns";
     items.push({
       key: `vuln:${s.id}`,
       kind: "vuln",
       siteName: s.name,
-      title: `${metric} critical/high ${metric === 1 ? "vuln" : "vulns"}`,
+      title: exhausted
+        ? `${metric} critical/high ${noun} — auto-fix failed (${attempts}×)`
+        : `${metric} critical/high ${noun}`,
       url: dashboardUrl(baseUrl, s.name),
-      severity: critical > 0 ? "critical" : "warning",
+      severity: exhausted || critical > 0 ? "critical" : "warning",
       metric,
+      ...(exhausted ? { autoFixExhausted: true } : {}),
     });
   }
   return items;
