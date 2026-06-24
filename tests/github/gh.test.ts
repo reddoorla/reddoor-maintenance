@@ -54,6 +54,7 @@ describe("makeGitHub", () => {
                 title: "chore(deps): bump vite",
                 url: "https://github.com/o/r/pull/11",
                 headRefName: "renovate/npm-vite",
+                mergeable: "MERGEABLE",
                 commits: { nodes: [{ commit: { statusCheckRollup: { state: "FAILURE" } } }] },
               },
               {
@@ -61,6 +62,7 @@ describe("makeGitHub", () => {
                 title: "feat: thing",
                 url: "https://github.com/o/r/pull/12",
                 headRefName: "feature/thing",
+                mergeable: "CONFLICTING",
                 commits: { nodes: [{ commit: { statusCheckRollup: null } }] },
               },
             ],
@@ -78,6 +80,7 @@ describe("makeGitHub", () => {
         url: "https://github.com/o/r/pull/11",
         headRef: "renovate/npm-vite",
         ciState: "failing",
+        mergeable: "MERGEABLE",
       },
       {
         number: 12,
@@ -85,6 +88,7 @@ describe("makeGitHub", () => {
         url: "https://github.com/o/r/pull/12",
         headRef: "feature/thing",
         ciState: "none",
+        mergeable: "CONFLICTING",
       },
     ]);
     expect(calls[0]!.args.slice(0, 2)).toEqual(["api", "graphql"]);
@@ -93,6 +97,7 @@ describe("makeGitHub", () => {
     expect(joined).toContain("name=r");
     // pin the query shape the mock can't vouch for: rollup field, page cap, newest-first
     expect(joined).toContain("statusCheckRollup");
+    expect(joined).toContain("mergeable");
     expect(joined).toContain("first:100");
     expect(joined).toContain("orderBy:{field:CREATED_AT,direction:DESC}");
     expect(calls[0]!.opts.env?.GH_TOKEN).toBe("T");

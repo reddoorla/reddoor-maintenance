@@ -13,6 +13,7 @@ function pr(over: Partial<PullRequestSummary> = {}): PullRequestSummary {
     url: "https://x",
     headRef: "renovate/x",
     ciState: "failing",
+    mergeable: "MERGEABLE",
     ...over,
   };
 }

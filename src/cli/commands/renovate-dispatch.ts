@@ -5,7 +5,7 @@ import {
   selectRenovateTargets,
   dispatchRenovateAcross,
   formatRenovateDispatchSummary,
-  isRenovatePrBranch,
+  hasHealthyRenovatePr,
 } from "../../github/renovate-dispatch.js";
 
 /**
@@ -49,8 +49,7 @@ export async function runRenovateDispatchCommand(opts: {
 
   const gh = makeGitHub({ token });
   const result = await dispatchRenovateAcross(targets, {
-    hasOpenRenovatePr: async (repo) =>
-      (await gh.openPullRequests(repo)).some((pr) => isRenovatePrBranch(pr.headRef)),
+    hasHealthyOpenRenovatePr: async (repo) => hasHealthyRenovatePr(await gh.openPullRequests(repo)),
     defaultBranch: (repo) => gh.defaultBranch(repo),
     dispatch: (repo, workflow, ref) => gh.dispatchWorkflow(repo, workflow, ref),
   });
