@@ -1,5 +1,19 @@
 # @reddoorla/maintenance
 
+## 0.57.0
+
+### Minor Changes
+
+- b0871a1: `renovate-dispatch` now re-triggers a repo whose open Renovate PR is stuck (conflicting), instead of skipping it.
+
+  The dedup guard previously skipped any repo with an open Renovate PR — which also skipped a PR that had gone **conflicting** (its branch fell behind the base after another PR merged the same lockfile), so a stalled security PR would wait for the weekly Renovate run to self-heal. Now the guard skips only a **healthy** (non-conflicting) open Renovate PR; a conflicting/stuck one is re-dispatched, which triggers Renovate to rebase it. `UNKNOWN` mergeability (GitHub still computing) is treated as healthy so we don't churn on uncertainty.
+
+  Adds `mergeable: "MERGEABLE" | "CONFLICTING" | "UNKNOWN"` to `PullRequestSummary` (populated from the `openPullRequests` GraphQL query) and a `hasHealthyRenovatePr(prs)` helper that reuses the existing `isRenovatePR` classifier.
+
+- 6a5674e: CC `info@reddoorla.com` on every outgoing report.
+
+  All report emails (Maintenance / Testing / Announcement / Launch) now carry the ops inbox on CC in addition to any per-site "Report recipients (CC)", so there's always an internal copy on file alongside the client recipients. The address is added only when it isn't already a CC or To recipient (case-insensitive), so a report is never double-addressed. `info@reddoorla.com` was already the reply-to; it's now also CC'd.
+
 ## 0.56.0
 
 ### Minor Changes
