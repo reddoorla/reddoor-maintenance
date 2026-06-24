@@ -126,14 +126,14 @@ Replace the one-shot status text with a small **status panel** (two rows:
      `location.reload()` after ~2 s (lands on fresh Airtable numbers).
    - **`allDone && anyFailure`** → stop, keep the ✗ row + run link, show a manual
      **Reload** button, clear `localStorage`.
-   - **Hard cap 30 min** (Lighthouse ≈ 18 min) → stop, "Still running — reload
+   - **Hard cap 90 min** (a full fleet Lighthouse run was ~48 min on 2026-06-24) → stop, "Still running — reload
      later," clear `localStorage`.
 3. **Resume-on-reload:** on cockpit load, if `localStorage` holds a `since` newer
-   than 30 min, resume `startPolling(since)` so a manual mid-run reload keeps the
+   than 90 min, resume `startPolling(since)` so a manual mid-run reload keeps the
    spinner instead of dropping it.
 
 Polling cadence (6 req/min) stays well under the function's
-`rateLimit { windowLimit: 30 / 60s }`; ~20 min × 2 workflows ≈ 240 GitHub calls,
+`rateLimit { windowLimit: 30 / 60s }`; ~50 min × 2 workflows ≈ 600 GitHub calls,
 trivially within the token's 5000/hr.
 
 ## Data flow
@@ -168,7 +168,7 @@ all-success: auto-reload to fresh state · any-failure: stop + run link.
   fields, throws on non-2xx. (Mock `fetch`, mirroring existing gh-rest tests.)
 - **Render** (`tests/dashboard/fleet-render.test.ts`, extend): cockpit HTML
   contains the status panel scaffold + the `/api/fleet/refresh/status` poll target;
-  inline script references `localStorage` resume + the 10 s/30 min constants.
+  inline script references `localStorage` resume + the 10 s/90 min constants.
 - **`.mts` handler** covered by `tsc -p tsconfig.netlify.json` + `test:dist`
   import-resolution (the new `/status` branch resolves all its `src/` imports).
 

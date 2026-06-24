@@ -4,7 +4,7 @@
 
 **Goal:** After the operator clicks "↻ Refresh fleet state," let the cockpit follow the dispatched `fleet-security` + `fleet-lighthouse` runs live (per-workflow spinner → ✓/✗) and auto-reload onto fresh numbers when both succeed.
 
-**Architecture:** The dispatch POST returns a `since` timestamp; a new authed `GET /api/fleet/refresh/status?since=<iso>` re-finds each workflow's newest `workflow_dispatch` run (created on/after `since`) via a new `listWorkflowRuns` REST method, and a pure `summarizeFleetRunStatus` rolls the two runs into one verdict. The cockpit's inline script polls that endpoint every 10 s, renders a two-row status panel, and reloads on all-success / stops on any-failure / caps at 30 min. State is stashed in `localStorage` so a manual mid-run reload resumes the spinner.
+**Architecture:** The dispatch POST returns a `since` timestamp; a new authed `GET /api/fleet/refresh/status?since=<iso>` re-finds each workflow's newest `workflow_dispatch` run (created on/after `since`) via a new `listWorkflowRuns` REST method, and a pure `summarizeFleetRunStatus` rolls the two runs into one verdict. The cockpit's inline script polls that endpoint every 10 s, renders a two-row status panel, and reloads on all-success / stops on any-failure / caps at 90 min. State is stashed in `localStorage` so a manual mid-run reload resumes the spinner.
 
 **Tech Stack:** TypeScript (ESM, NodeNext), Vitest, GitHub REST API (`fetch`-based `makeGitHubRest`), Netlify Functions (`.mts`), vanilla inline JS in a server-rendered template string.
 
@@ -631,7 +631,7 @@ Replace the existing refresh-fleet handler block (the `var rf = document.querySe
   // template string, so backticks/${} would break the server render.
   var RF_KEY = 'reddoor:fleet-refresh';
   var RF_POLL_MS = 10000;
-  var RF_MAX_MS = 30 * 60 * 1000;
+  var RF_MAX_MS = 90 * 60 * 1000; // safety ceiling; a full fleet Lighthouse run was ~48 min (2026-06-24)
   function rfPanel(){ return document.getElementById('rf-status'); }
   function rfStop(){ try { localStorage.removeItem(RF_KEY); } catch(e){} }
   function rfRender(status){
@@ -688,7 +688,7 @@ Replace the existing refresh-fleet handler block (the `var rf = document.querySe
       } else { rf.textContent = 'Failed to start'; rf.disabled = false; }
     } catch(e){ rf.textContent = 'Failed to start'; rf.disabled = false; }
   });
-  // Resume-on-reload: if a refresh is in flight (<30 min old), keep following it.
+  // Resume-on-reload: if a refresh is in flight (<90 min old), keep following it.
   try {
     var rfSaved = JSON.parse(localStorage.getItem(RF_KEY) || 'null');
     if (rfSaved && rfSaved.since && rfSaved.startedAt && (Date.now() - rfSaved.startedAt) < RF_MAX_MS){
