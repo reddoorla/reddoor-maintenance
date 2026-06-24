@@ -1010,3 +1010,24 @@ describe("renderSiteDashboardHtml — Trigger Renovate button", () => {
     expect(html).not.toContain(">Trigger Renovate<");
   });
 });
+
+describe("renderSiteDashboardHtml — editable site details", () => {
+  it("renders Status + cadence as selects and POC as an input, wired to the details endpoint", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow({ name: "Acme", status: "maintenance", pointOfContact: "a@b.com" }),
+      [],
+    );
+    expect(html).toMatch(
+      /<select[^>]*data-detail-field="status"[^>]*data-details-url="\/api\/sites\/acme\/details"/,
+    );
+    expect(html).toContain('<option value="maintenance" selected');
+    expect(html).toMatch(/data-detail-field="pointOfContact"/);
+    expect(html).toContain('value="a@b.com"');
+  });
+
+  it("renders copy fields as textareas and escapes their content", () => {
+    const html = renderSiteDashboardHtml(siteRow({ name: "Acme", copyIntro: "<b>hi</b>" }), []);
+    expect(html).toMatch(/<textarea[^>]*data-detail-field="copyIntro"/);
+    expect(html).toContain("&lt;b&gt;hi&lt;/b&gt;");
+  });
+});
