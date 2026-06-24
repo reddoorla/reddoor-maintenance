@@ -33,7 +33,7 @@ export type PullRequestSummary = {
  * URL-structural char (`?`, `#`, `%`, backslash) that could escape or retarget
  * the endpoint.
  */
-function assertUrlSegment(kind: "branch" | "path", value: string): void {
+export function assertUrlSegment(kind: "branch" | "path", value: string): void {
   const structural = /[\s?#%\\]|\.\./;
   if (value.length === 0 || value.startsWith("/") || structural.test(value)) {
     throw new Error(

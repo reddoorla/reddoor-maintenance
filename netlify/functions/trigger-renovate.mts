@@ -4,7 +4,7 @@ import { getWebsiteBySlug } from "../../src/reports/airtable/websites.js";
 import { verifyBasicAuth, triggerRenovateForSite } from "../../src/dashboard/index.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
-import { makeGitHub } from "../../src/github/gh.js";
+import { makeGitHubRest } from "../../src/github/gh-rest.js";
 import { RENOVATE_WORKFLOW_FILE } from "../../src/github/renovate-dispatch.js";
 
 // Path-route /api/sites/:slug/trigger-renovate on the function itself (same reason
@@ -76,7 +76,9 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
 
   try {
     const base = openBase({ apiKey, baseId });
-    const gh = makeGitHub({ token });
+    // REST (fetch) client, not the gh-CLI client: this runs in the Netlify
+    // (Lambda) runtime, which has no `gh` binary — shelling out throws ENOENT.
+    const gh = makeGitHubRest({ token });
     const result = await triggerRenovateForSite(
       {
         getSite: (s) => getWebsiteBySlug(base, s),
