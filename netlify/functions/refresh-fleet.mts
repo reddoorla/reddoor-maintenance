@@ -13,11 +13,7 @@ import { makeGitHubRest } from "../../src/github/gh-rest.js";
 // targets the CENTRAL repo (where fleet-security.yml / fleet-lighthouse.yml live),
 // not a per-site repo. Path-routed on the function like the other endpoints.
 export const config: Config = {
-  path: [
-    "/api/fleet/refresh",
-    "/api/fleet/refresh/status",
-    "/.netlify/functions/refresh-fleet",
-  ],
+  path: ["/api/fleet/refresh", "/api/fleet/refresh/status", "/.netlify/functions/refresh-fleet"],
   rateLimit: { windowSize: 60, windowLimit: 30, aggregateBy: ["ip"] },
 };
 
@@ -124,10 +120,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     if (result.dispatched.length === 0) {
       return json({ ok: false, error: "dispatch-failed", failed: result.failed }, 502);
     }
-    return json(
-      { ok: true, dispatched: result.dispatched, failed: result.failed, since },
-      200,
-    );
+    return json({ ok: true, dispatched: result.dispatched, failed: result.failed, since }, 200);
   } catch (err) {
     return handlerError("refresh-fleet", err);
   }

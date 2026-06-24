@@ -164,9 +164,9 @@ describe("makeGitHubRest.listWorkflowRuns", () => {
   it("returns [] when the response has no workflow_runs array (and defaults per_page=1)", async () => {
     const { fn, calls } = fakeFetch([{ status: 200, body: { total_count: 0 } }]);
     const gh = makeGitHubRest({ token: "tok", fetch: fn });
-    expect(await gh.listWorkflowRuns("reddoorla/acme", "fleet-security.yml", { since: SINCE })).toEqual(
-      [],
-    );
+    expect(
+      await gh.listWorkflowRuns("reddoorla/acme", "fleet-security.yml", { since: SINCE }),
+    ).toEqual([]);
     // perPage omitted above → the `?? 1` default must be on the wire.
     expect(decodeURIComponent(calls[0]!.url)).toContain("per_page=1");
   });

@@ -71,7 +71,10 @@ describe("summarizeFleetRunStatus", () => {
   it("is not done while one run is still in_progress", () => {
     const s = summarizeFleetRunStatus([
       { workflow: "fleet-security.yml", runs: [run({ conclusion: "success" })] },
-      { workflow: "fleet-lighthouse.yml", runs: [run({ status: "in_progress", conclusion: null })] },
+      {
+        workflow: "fleet-lighthouse.yml",
+        runs: [run({ status: "in_progress", conclusion: null })],
+      },
     ]);
     expect(s.allDone).toBe(false);
     expect(s.perWorkflow[1]!.state).toBe("in_progress");

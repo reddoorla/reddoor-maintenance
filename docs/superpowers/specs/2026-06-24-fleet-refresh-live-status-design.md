@@ -6,17 +6,17 @@
 
 ## Goal
 
-After the operator clicks **↻ Refresh fleet state**, let the cockpit *follow the
-actual GitHub Actions runs* it dispatched — show per-workflow live status
+After the operator clicks **↻ Refresh fleet state**, let the cockpit _follow the
+actual GitHub Actions runs_ it dispatched — show per-workflow live status
 (security ✓ done · lighthouse running…), then land the operator on fresh numbers
 automatically when both finish. This removes the standing limitation of the
-dispatch button: today it confirms *dispatch*, not *completion*, so the operator
+dispatch button: today it confirms _dispatch_, not _completion_, so the operator
 clicks, sees "updates in a few min," and has to guess when to reload.
 
 ## Background — the constraint
 
 `workflow_dispatch` returns `204` with **no run id**. So the dashboard cannot
-deep-link or directly poll "the run it just started"; it must *re-find* the runs.
+deep-link or directly poll "the run it just started"; it must _re-find_ the runs.
 The existing `makeGitHubRest` client (the `fetch`-based one — the dashboard runs
 on Netlify/Lambda where the `gh` CLI is absent, per the #305 hotfix) today exposes
 only `defaultBranch` + `dispatchWorkflow`. Following runs needs one new read
@@ -24,7 +24,7 @@ capability.
 
 ## Approach — re-find by timestamp (no id-matching, no race)
 
-The dispatch POST captures a server timestamp `since` (the instant *just before*
+The dispatch POST captures a server timestamp `since` (the instant _just before_
 dispatch) and returns it. A new status endpoint, given `since`, lists each
 workflow's runs created on/after `since` (newest first, `event=workflow_dispatch`)
 and reports their state. A run that hasn't materialized yet simply reads as

@@ -27,6 +27,7 @@
 ## Task 1: `listWorkflowRuns` on the REST client
 
 **Files:**
+
 - Modify: `src/github/gh-rest.ts`
 - Test: `tests/github/gh-rest.test.ts`
 
@@ -85,9 +86,9 @@ describe("makeGitHubRest.listWorkflowRuns", () => {
   it("returns [] when the response has no workflow_runs array", async () => {
     const { fn } = fakeFetch([{ status: 200, body: { total_count: 0 } }]);
     const gh = makeGitHubRest({ token: "tok", fetch: fn });
-    expect(await gh.listWorkflowRuns("reddoorla/acme", "fleet-security.yml", { since: SINCE })).toEqual(
-      [],
-    );
+    expect(
+      await gh.listWorkflowRuns("reddoorla/acme", "fleet-security.yml", { since: SINCE }),
+    ).toEqual([]);
   });
 
   it("throws (with status) when the list call is non-2xx", async () => {
@@ -132,14 +133,14 @@ export type WorkflowRun = {
 Add to the `GitHubRest` type (after `dispatchWorkflow`):
 
 ```ts
-  /** List a workflow's runs, newest first, created on/after `opts.since` (ISO).
-   *  Used to re-find the run a prior `workflow_dispatch` started (dispatch returns
-   *  204 with no id). Non-2xx surfaces as a thrown error carrying the status. */
-  listWorkflowRuns: (
-    repo: string,
-    workflow: string,
-    opts: { since: string; event?: string; perPage?: number },
-  ) => Promise<WorkflowRun[]>;
+/** List a workflow's runs, newest first, created on/after `opts.since` (ISO).
+ *  Used to re-find the run a prior `workflow_dispatch` started (dispatch returns
+ *  204 with no id). Non-2xx surfaces as a thrown error carrying the status. */
+listWorkflowRuns: (
+  repo: string,
+  workflow: string,
+  opts: { since: string; event?: string; perPage?: number },
+) => Promise<WorkflowRun[]>;
 ```
 
 Add the method to the returned object in `makeGitHubRest` (after `dispatchWorkflow`):
@@ -197,6 +198,7 @@ git commit -m "feat(gh-rest): listWorkflowRuns — re-find dispatched runs by ti
 ## Task 2: pure `summarizeFleetRunStatus`
 
 **Files:**
+
 - Modify: `src/dashboard/refresh-fleet.ts`
 - Modify: `src/dashboard/index.ts`
 - Test: `tests/dashboard/refresh-fleet.test.ts`
@@ -236,7 +238,10 @@ describe("summarizeFleetRunStatus", () => {
   it("is not done while one run is still in_progress", () => {
     const s = summarizeFleetRunStatus([
       { workflow: "fleet-security.yml", runs: [run({ conclusion: "success" })] },
-      { workflow: "fleet-lighthouse.yml", runs: [run({ status: "in_progress", conclusion: null })] },
+      {
+        workflow: "fleet-lighthouse.yml",
+        runs: [run({ status: "in_progress", conclusion: null })],
+      },
     ]);
     expect(s.allDone).toBe(false);
     expect(s.perWorkflow[1]!.state).toBe("in_progress");
@@ -403,6 +408,7 @@ git commit -m "feat(dashboard): summarizeFleetRunStatus — roll the two sweeps 
 ## Task 3: endpoint — return `since` on POST, add `GET …/status`
 
 **Files:**
+
 - Modify: `netlify/functions/refresh-fleet.mts`
 
 (No unit test — `.mts` handlers are covered by `tsc -p tsconfig.netlify.json` + `pnpm test:dist` import-resolution, like the other handlers. Pure logic lives in Tasks 1–2, which are unit-tested.)
@@ -472,32 +478,32 @@ function gateAuth(req: Request): { token: string } | { fail: Response } {
 Then, inside `export default`, immediately after the bare-`GET` health check block, add the status branch (a non-mutating read — auth, no CSRF):
 
 ```ts
-  // Live status poll: re-find the dispatched runs by timestamp and summarize them.
-  const url = new URL(req.url);
-  if (req.method === "GET" && url.pathname.endsWith("/status")) {
-    const since = url.searchParams.get("since") ?? "";
-    if (!since || Number.isNaN(new Date(since).getTime())) {
-      return json({ ok: false, error: "bad-since" }, 400);
-    }
-    const gated = gateAuth(req);
-    if ("fail" in gated) return gated.fail;
-    try {
-      const gh = makeGitHubRest({ token: gated.token });
-      const runsByWorkflow = await Promise.all(
-        FLEET_REFRESH_WORKFLOWS.map(async (workflow) => ({
-          workflow,
-          runs: await gh.listWorkflowRuns(CENTRAL_REPO, workflow, {
-            since,
-            event: "workflow_dispatch",
-            perPage: 1,
-          }),
-        })),
-      );
-      return json({ ok: true, status: summarizeFleetRunStatus(runsByWorkflow) }, 200);
-    } catch (err) {
-      return handlerError("refresh-fleet-status", err);
-    }
+// Live status poll: re-find the dispatched runs by timestamp and summarize them.
+const url = new URL(req.url);
+if (req.method === "GET" && url.pathname.endsWith("/status")) {
+  const since = url.searchParams.get("since") ?? "";
+  if (!since || Number.isNaN(new Date(since).getTime())) {
+    return json({ ok: false, error: "bad-since" }, 400);
   }
+  const gated = gateAuth(req);
+  if ("fail" in gated) return gated.fail;
+  try {
+    const gh = makeGitHubRest({ token: gated.token });
+    const runsByWorkflow = await Promise.all(
+      FLEET_REFRESH_WORKFLOWS.map(async (workflow) => ({
+        workflow,
+        runs: await gh.listWorkflowRuns(CENTRAL_REPO, workflow, {
+          since,
+          event: "workflow_dispatch",
+          perPage: 1,
+        }),
+      })),
+    );
+    return json({ ok: true, status: summarizeFleetRunStatus(runsByWorkflow) }, 200);
+  } catch (err) {
+    return handlerError("refresh-fleet-status", err);
+  }
+}
 ```
 
 > Note: the existing bare-`GET` health check must only answer `/api/fleet/refresh` — guard it so it doesn't swallow `/status`. Change its condition from `if (req.method === "GET")` to `if (req.method === "GET" && !new URL(req.url).pathname.endsWith("/status"))`. (Compute the `URL` once if you prefer; correctness over micro-optimization.)
@@ -507,32 +513,29 @@ Then, inside `export default`, immediately after the bare-`GET` health check blo
 Replace the POST body (the CSRF check stays first; then swap the inline password/auth/token lines for `gateAuth`, and add `since`):
 
 ```ts
-  if (req.method !== "POST") return json({ ok: false, error: "method-not-allowed" }, 405);
+if (req.method !== "POST") return json({ ok: false, error: "method-not-allowed" }, 405);
 
-  // CSRF defense before auth — state-changing endpoint.
-  if (!isCsrfAllowed(req)) return json({ ok: false, error: "cross-site-rejected" }, 403);
+// CSRF defense before auth — state-changing endpoint.
+if (!isCsrfAllowed(req)) return json({ ok: false, error: "cross-site-rejected" }, 403);
 
-  const gated = gateAuth(req);
-  if ("fail" in gated) return gated.fail;
+const gated = gateAuth(req);
+if ("fail" in gated) return gated.fail;
 
-  try {
-    const gh = makeGitHubRest({ token: gated.token });
-    const ref = await gh.defaultBranch(CENTRAL_REPO);
-    // Capture the instant just before dispatch; the client polls /status?since=<this>.
-    const since = new Date().toISOString();
-    const result = await refreshFleetState({
-      dispatch: (workflow) => gh.dispatchWorkflow(CENTRAL_REPO, workflow, ref),
-    });
-    if (result.dispatched.length === 0) {
-      return json({ ok: false, error: "dispatch-failed", failed: result.failed }, 502);
-    }
-    return json(
-      { ok: true, dispatched: result.dispatched, failed: result.failed, since },
-      200,
-    );
-  } catch (err) {
-    return handlerError("refresh-fleet", err);
+try {
+  const gh = makeGitHubRest({ token: gated.token });
+  const ref = await gh.defaultBranch(CENTRAL_REPO);
+  // Capture the instant just before dispatch; the client polls /status?since=<this>.
+  const since = new Date().toISOString();
+  const result = await refreshFleetState({
+    dispatch: (workflow) => gh.dispatchWorkflow(CENTRAL_REPO, workflow, ref),
+  });
+  if (result.dispatched.length === 0) {
+    return json({ ok: false, error: "dispatch-failed", failed: result.failed }, 502);
   }
+  return json({ ok: true, dispatched: result.dispatched, failed: result.failed, since }, 200);
+} catch (err) {
+  return handlerError("refresh-fleet", err);
+}
 ```
 
 - [ ] **Step 5: Typecheck the handler + verify import resolution**
@@ -555,6 +558,7 @@ git commit -m "feat(dashboard): POST returns since + GET /api/fleet/refresh/stat
 ## Task 4: cockpit — status panel, spinner CSS, poll/resume client
 
 **Files:**
+
 - Modify: `src/dashboard/fleet-render.ts`
 - Test: `tests/dashboard/fleet-render.test.ts`
 
@@ -614,11 +618,31 @@ to:
 In the `STYLES` block, after the `.refresh-fleet` rules (~line 126, after the dark-mode `.refresh-fleet` line), add:
 
 ```css
-.rf-status { margin-top:0.6rem; font-size:0.85rem; }
-.rf-row { padding:0.1rem 0; }
-.rf-row a { margin-left:0.3rem; }
-.rf-spin { display:inline-block; width:0.8em; height:0.8em; border:2px solid #999; border-top-color:transparent; border-radius:50%; animation:rf-spin 0.8s linear infinite; vertical-align:-0.1em; }
-@keyframes rf-spin { to { transform:rotate(360deg); } }
+.rf-status {
+  margin-top: 0.6rem;
+  font-size: 0.85rem;
+}
+.rf-row {
+  padding: 0.1rem 0;
+}
+.rf-row a {
+  margin-left: 0.3rem;
+}
+.rf-spin {
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  border: 2px solid #999;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: rf-spin 0.8s linear infinite;
+  vertical-align: -0.1em;
+}
+@keyframes rf-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 ```
 
 - [ ] **Step 5: Replace the refresh-fleet click handler with the poll/resume client**
@@ -626,76 +650,139 @@ In the `STYLES` block, after the `.refresh-fleet` rules (~line 126, after the da
 Replace the existing refresh-fleet handler block (the `var rf = document.querySelector('button.refresh-fleet'); …` through its closing `});`, ~lines 372–382) with:
 
 ```js
-  // fleet-refresh live status: dispatch, then poll the actual runs and follow them.
-  // Vanilla JS, string-concat only (no template literals) — this lives inside a TS
-  // template string, so backticks/${} would break the server render.
-  var RF_KEY = 'reddoor:fleet-refresh';
-  var RF_POLL_MS = 10000;
-  var RF_MAX_MS = 90 * 60 * 1000; // safety ceiling; a full fleet Lighthouse run was ~48 min (2026-06-24)
-  function rfPanel(){ return document.getElementById('rf-status'); }
-  function rfStop(){ try { localStorage.removeItem(RF_KEY); } catch(e){} }
-  function rfRender(status){
-    var p = rfPanel(); if (!p) return '';
-    var failed = function(s){ return s === 'failure' || s === 'cancelled' || s === 'timed_out'; };
-    return status.perWorkflow.map(function(w){
-      var label = w.workflow.replace('.yml','').replace('fleet-','');
-      var icon = w.state === 'success' ? '✓' : failed(w.state) ? '✗' : '<span class="rf-spin"></span>';
-      var link = (failed(w.state) && w.url) ? ' <a href="'+w.url+'" target="_blank" rel="noopener">run</a>' : '';
-      return '<div class="rf-row">'+icon+' '+label+' — '+w.state.replace('_',' ')+link+'</div>';
-    }).join('');
-  }
-  function rfPoll(since, startedAt){
-    fetch('/api/fleet/refresh/status?since=' + encodeURIComponent(since)).then(function(res){
+// fleet-refresh live status: dispatch, then poll the actual runs and follow them.
+// Vanilla JS, string-concat only (no template literals) — this lives inside a TS
+// template string, so backticks/${} would break the server render.
+var RF_KEY = "reddoor:fleet-refresh";
+var RF_POLL_MS = 10000;
+var RF_MAX_MS = 90 * 60 * 1000; // safety ceiling; a full fleet Lighthouse run was ~48 min (2026-06-24)
+function rfPanel() {
+  return document.getElementById("rf-status");
+}
+function rfStop() {
+  try {
+    localStorage.removeItem(RF_KEY);
+  } catch (e) {}
+}
+function rfRender(status) {
+  var p = rfPanel();
+  if (!p) return "";
+  var failed = function (s) {
+    return s === "failure" || s === "cancelled" || s === "timed_out";
+  };
+  return status.perWorkflow
+    .map(function (w) {
+      var label = w.workflow.replace(".yml", "").replace("fleet-", "");
+      var icon =
+        w.state === "success" ? "✓" : failed(w.state) ? "✗" : '<span class="rf-spin"></span>';
+      var link =
+        failed(w.state) && w.url
+          ? ' <a href="' + w.url + '" target="_blank" rel="noopener">run</a>'
+          : "";
+      return (
+        '<div class="rf-row">' +
+        icon +
+        " " +
+        label +
+        " — " +
+        w.state.replace("_", " ") +
+        link +
+        "</div>"
+      );
+    })
+    .join("");
+}
+function rfPoll(since, startedAt) {
+  fetch("/api/fleet/refresh/status?since=" + encodeURIComponent(since))
+    .then(function (res) {
       return res.ok ? res.json() : null;
-    }).then(function(data){
+    })
+    .then(function (data) {
       var p = rfPanel();
-      if (data && data.status){
+      if (data && data.status) {
         if (p) p.innerHTML = rfRender(data.status);
-        if (data.status.allDone){
-          if (!data.status.anyFailure){
+        if (data.status.allDone) {
+          if (!data.status.anyFailure) {
             if (p) p.innerHTML += '<div class="rf-row">✓ Done — reloading…</div>';
-            rfStop(); setTimeout(function(){ location.reload(); }, 2000); return;
+            rfStop();
+            setTimeout(function () {
+              location.reload();
+            }, 2000);
+            return;
           }
-          if (p) p.innerHTML += '<div class="rf-row"><button type="button" onclick="location.reload()">Reload</button></div>';
-          rfStop(); return;
+          if (p)
+            p.innerHTML +=
+              '<div class="rf-row"><button type="button" onclick="location.reload()">Reload</button></div>';
+          rfStop();
+          return;
         }
       }
-      if (Date.now() - startedAt > RF_MAX_MS){
+      if (Date.now() - startedAt > RF_MAX_MS) {
         if (p) p.innerHTML += '<div class="rf-row">Still running — reload later.</div>';
-        rfStop(); return;
+        rfStop();
+        return;
       }
-      setTimeout(function(){ rfPoll(since, startedAt); }, RF_POLL_MS);
-    }).catch(function(){
-      if (Date.now() - startedAt > RF_MAX_MS){ rfStop(); return; }
-      setTimeout(function(){ rfPoll(since, startedAt); }, RF_POLL_MS);
+      setTimeout(function () {
+        rfPoll(since, startedAt);
+      }, RF_POLL_MS);
+    })
+    .catch(function () {
+      if (Date.now() - startedAt > RF_MAX_MS) {
+        rfStop();
+        return;
+      }
+      setTimeout(function () {
+        rfPoll(since, startedAt);
+      }, RF_POLL_MS);
     });
-  }
-  function rfBegin(since, startedAt){
-    try { localStorage.setItem(RF_KEY, JSON.stringify({ since: since, startedAt: startedAt })); } catch(e){}
-    var p = rfPanel(); if (p) p.innerHTML = '<div class="rf-row"><span class="rf-spin"></span> starting…</div>';
-    rfPoll(since, startedAt);
-  }
-  var rf = document.querySelector('button.refresh-fleet');
-  if (rf) rf.addEventListener('click', async function(){
-    if (!confirm('Kick off the security + Lighthouse sweeps for the whole fleet? They take a few minutes.')) return;
-    rf.disabled = true; rf.textContent = 'Refreshing…';
-    try {
-      var res = await fetch(rf.dataset.refreshUrl, { method: 'POST' });
-      if (res.ok){
-        var data = await res.json();
-        rf.textContent = '↻ Refresh running…';
-        if (data && data.since) rfBegin(data.since, Date.now());
-      } else { rf.textContent = 'Failed to start'; rf.disabled = false; }
-    } catch(e){ rf.textContent = 'Failed to start'; rf.disabled = false; }
-  });
-  // Resume-on-reload: if a refresh is in flight (<90 min old), keep following it.
+}
+function rfBegin(since, startedAt) {
   try {
-    var rfSaved = JSON.parse(localStorage.getItem(RF_KEY) || 'null');
-    if (rfSaved && rfSaved.since && rfSaved.startedAt && (Date.now() - rfSaved.startedAt) < RF_MAX_MS){
-      if (rf){ rf.disabled = true; rf.textContent = '↻ Refresh running…'; }
-      rfBegin(rfSaved.since, rfSaved.startedAt);
-    } else if (rfSaved) { rfStop(); }
-  } catch(e){}
+    localStorage.setItem(RF_KEY, JSON.stringify({ since: since, startedAt: startedAt }));
+  } catch (e) {}
+  var p = rfPanel();
+  if (p) p.innerHTML = '<div class="rf-row"><span class="rf-spin"></span> starting…</div>';
+  rfPoll(since, startedAt);
+}
+var rf = document.querySelector("button.refresh-fleet");
+if (rf)
+  rf.addEventListener("click", async function () {
+    if (
+      !confirm(
+        "Kick off the security + Lighthouse sweeps for the whole fleet? They take a few minutes.",
+      )
+    )
+      return;
+    rf.disabled = true;
+    rf.textContent = "Refreshing…";
+    try {
+      var res = await fetch(rf.dataset.refreshUrl, { method: "POST" });
+      if (res.ok) {
+        var data = await res.json();
+        rf.textContent = "↻ Refresh running…";
+        if (data && data.since) rfBegin(data.since, Date.now());
+      } else {
+        rf.textContent = "Failed to start";
+        rf.disabled = false;
+      }
+    } catch (e) {
+      rf.textContent = "Failed to start";
+      rf.disabled = false;
+    }
+  });
+// Resume-on-reload: if a refresh is in flight (<90 min old), keep following it.
+try {
+  var rfSaved = JSON.parse(localStorage.getItem(RF_KEY) || "null");
+  if (rfSaved && rfSaved.since && rfSaved.startedAt && Date.now() - rfSaved.startedAt < RF_MAX_MS) {
+    if (rf) {
+      rf.disabled = true;
+      rf.textContent = "↻ Refresh running…";
+    }
+    rfBegin(rfSaved.since, rfSaved.startedAt);
+  } else if (rfSaved) {
+    rfStop();
+  }
+} catch (e) {}
 ```
 
 - [ ] **Step 6: Run the render tests to verify they pass**
@@ -715,6 +802,7 @@ git commit -m "feat(dashboard): cockpit follows the refresh runs live (poll + sp
 ## Task 5: changeset + full gate
 
 **Files:**
+
 - Create: `.changeset/fleet-refresh-live-status.md`
 
 - [ ] **Step 1: Write the changeset**
@@ -751,6 +839,7 @@ git commit -m "chore(changeset): fleet-refresh live status"
 ## Self-Review
 
 **Spec coverage:**
+
 - Re-find by timestamp → Task 3 (POST returns `since`, status branch lists `created>=since`). ✓
 - `listWorkflowRuns` → Task 1. ✓
 - `summarizeFleetRunStatus` (`allDone`/`anySuccess`/`anyFailure`) → Task 2. ✓

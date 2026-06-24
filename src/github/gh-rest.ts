@@ -142,17 +142,19 @@ export function makeGitHubRest(deps: { token: string; fetch?: typeof fetch }): G
       } catch {
         throw new Error(`GitHub runs ${owner}/${name}/${workflow}: 200 with a non-JSON body`);
       }
-      return (body.workflow_runs ?? [])
-        .map((r) => ({
-          id: Number(r.id),
-          status: String(r.status ?? ""),
-          conclusion: (r.conclusion as string | null) ?? null,
-          createdAt: String(r.created_at ?? ""),
-          htmlUrl: String(r.html_url ?? ""),
-        }))
-        // Fail-soft like the other fields: a record with a missing/garbage id
-        // (Number(...) → NaN) is dropped rather than propagated.
-        .filter((r) => Number.isFinite(r.id));
+      return (
+        (body.workflow_runs ?? [])
+          .map((r) => ({
+            id: Number(r.id),
+            status: String(r.status ?? ""),
+            conclusion: (r.conclusion as string | null) ?? null,
+            createdAt: String(r.created_at ?? ""),
+            htmlUrl: String(r.html_url ?? ""),
+          }))
+          // Fail-soft like the other fields: a record with a missing/garbage id
+          // (Number(...) → NaN) is dropped rather than propagated.
+          .filter((r) => Number.isFinite(r.id))
+      );
     },
   };
 }
