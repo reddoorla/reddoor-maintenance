@@ -123,3 +123,61 @@ export async function dispatchRenovateAcross(
 export function formatRenovateDispatchSummary(result: RenovateDispatchResult): string {
   return `RENOVATE_DISPATCH_SUMMARY dispatched=${result.dispatched.length} skipped=${result.skipped.length} failed=${result.failed.length}`;
 }
+
+/**
+ * Plan the per-site auto-fix-attempt counter writes from a dispatch result. PURE.
+ * For each active, repo-backed site:
+ *   - vulns now 0                         → reset to 0   (episode resolved)
+ *   - else dispatched this run            → attempts + 1 (a fresh failed-so-far attempt)
+ *   - else (skipped / failed / untouched) → unchanged
+ * Returns only the rows whose value CHANGES (a steady fleet writes nothing). A
+ * skipped repo (healthy Renovate PR in flight) is NOT a failed attempt — a fix is
+ * genuinely moving toward merge — so its counter holds.
+ */
+export function computeAutoFixAttemptUpdates(
+  sites: WebsiteRow[],
+  result: RenovateDispatchResult,
+): { id: string; attempts: number }[] {
+  const dispatched = new Set(result.dispatched);
+  const updates: { id: string; attempts: number }[] = [];
+  for (const s of sites) {
+    if (!isDashboardVisible(s)) continue;
+    const repo = s.gitRepo?.trim();
+    if (!repo) continue;
+    const current = s.securityAutoFixAttempts ?? 0;
+    const vulns = (s.securityVulnsCritical ?? 0) + (s.securityVulnsHigh ?? 0);
+    let next = current;
+    if (vulns === 0) next = 0;
+    else if (dispatched.has(repo)) next = current + 1;
+    if (next !== current) updates.push({ id: s.id, attempts: next });
+  }
+  return updates;
+}
+
+/**
+ * Apply the planned counter updates with an injected writer, BEST-EFFORT: a writer
+ * that throws (e.g. the Airtable field not yet created, or a transient error) is
+ * counted in `failed` and never propagates — the security sweep must not fail over
+ * counter bookkeeping. Returns the applied/failed tallies for the summary line.
+ */
+export async function applyAutoFixAttemptUpdates(
+  updates: { id: string; attempts: number }[],
+  write: (id: string, attempts: number) => Promise<void>,
+): Promise<{ written: number; failed: number }> {
+  let written = 0;
+  let failed = 0;
+  for (const u of updates) {
+    try {
+      await write(u.id, u.attempts);
+      written++;
+    } catch {
+      failed++;
+    }
+  }
+  return { written, failed };
+}
+
+/** Machine-readable counts line the workflow can grep, mirroring RENOVATE_DISPATCH_SUMMARY. */
+export function formatAutoFixAttemptsSummary(tally: { written: number; failed: number }): string {
+  return `AUTO_FIX_ATTEMPTS_SUMMARY written=${tally.written} failed=${tally.failed}`;
+}
