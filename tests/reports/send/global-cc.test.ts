@@ -27,6 +27,10 @@ describe("withGlobalCc", () => {
     expect(withGlobalCc(null, ["info@reddoorla.com"])).toEqual([]);
   });
 
+  it("suppresses the global CC against a mixed-case To recipient (helper lowercases both sides)", () => {
+    expect(withGlobalCc(null, ["Info@Reddoorla.com"])).toEqual([]);
+  });
+
   it("leaves the per-site CC untouched (no dedup against To — preserves prior behavior)", () => {
     // an address in both per-site CC and To stays in CC, exactly as before
     expect(withGlobalCc(["client@acme.com"], ["client@acme.com"])).toEqual([

@@ -186,6 +186,30 @@ describe("sendApprovedReports", () => {
     expect(captured[0]!.to).toEqual(["ops@acme.example.com"]);
   });
 
+  it("CCs info@reddoorla.com on every send, after any per-site CC", async () => {
+    vi.mocked(openBase).mockReturnValue(
+      makeFakeBase({
+        Reports: [reportRow()],
+        Websites: [siteRow({ "Report recipients (CC)": "cc@acme.example.com" })],
+      }),
+    );
+    const { client, captured } = captureClient();
+    await sendApprovedReports({ resend: client });
+    expect(captured[0]!.cc).toEqual(["cc@acme.example.com", "info@reddoorla.com"]);
+  });
+
+  it("CCs info@reddoorla.com even when the site has no per-site CC", async () => {
+    vi.mocked(openBase).mockReturnValue(
+      makeFakeBase({
+        Reports: [reportRow()],
+        Websites: [siteRow({ "Report recipients (CC)": "" })],
+      }),
+    );
+    const { client, captured } = captureClient();
+    await sendApprovedReports({ resend: client });
+    expect(captured[0]!.cc).toEqual(["info@reddoorla.com"]);
+  });
+
   it("fails the report when no recipients exist", async () => {
     vi.mocked(openBase).mockReturnValue(
       makeFakeBase({
