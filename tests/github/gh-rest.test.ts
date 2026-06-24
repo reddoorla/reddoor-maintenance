@@ -113,3 +113,78 @@ describe("makeGitHubRest.dispatchWorkflow", () => {
     expect(calls).toEqual([]);
   });
 });
+
+describe("makeGitHubRest.listWorkflowRuns", () => {
+  const SINCE = "2026-06-24T21:28:00.000Z";
+
+  it("GETs the workflow's runs with created/event/per_page filters and maps the fields", async () => {
+    const { fn, calls } = fakeFetch([
+      {
+        status: 200,
+        body: {
+          total_count: 1,
+          workflow_runs: [
+            {
+              id: 42,
+              status: "in_progress",
+              conclusion: null,
+              created_at: "2026-06-24T21:28:09Z",
+              html_url: "https://github.com/reddoorla/acme/actions/runs/42",
+            },
+          ],
+        },
+      },
+    ]);
+    const gh = makeGitHubRest({ token: "tok", fetch: fn });
+    const runs = await gh.listWorkflowRuns("reddoorla/acme", "fleet-security.yml", {
+      since: SINCE,
+      event: "workflow_dispatch",
+      perPage: 1,
+    });
+    expect(runs).toEqual([
+      {
+        id: 42,
+        status: "in_progress",
+        conclusion: null,
+        createdAt: "2026-06-24T21:28:09Z",
+        htmlUrl: "https://github.com/reddoorla/acme/actions/runs/42",
+      },
+    ]);
+    expect(calls[0]!.url).toContain(
+      "https://api.github.com/repos/reddoorla/acme/actions/workflows/fleet-security.yml/runs?",
+    );
+    const decoded = decodeURIComponent(calls[0]!.url);
+    expect(decoded).toContain("created=>=" + SINCE);
+    expect(decoded).toContain("event=workflow_dispatch");
+    expect(decoded).toContain("per_page=1");
+    expect(calls[0]!.method).toBe("GET");
+    expect(calls[0]!.headers["authorization"]).toBe("Bearer tok");
+  });
+
+  it("returns [] when the response has no workflow_runs array (and defaults per_page=1)", async () => {
+    const { fn, calls } = fakeFetch([{ status: 200, body: { total_count: 0 } }]);
+    const gh = makeGitHubRest({ token: "tok", fetch: fn });
+    expect(await gh.listWorkflowRuns("reddoorla/acme", "fleet-security.yml", { since: SINCE })).toEqual(
+      [],
+    );
+    // perPage omitted above → the `?? 1` default must be on the wire.
+    expect(decodeURIComponent(calls[0]!.url)).toContain("per_page=1");
+  });
+
+  it("throws (with status) when the list call is non-2xx", async () => {
+    const { fn } = fakeFetch([{ status: 404, body: { message: "Not Found" } }]);
+    const gh = makeGitHubRest({ token: "tok", fetch: fn });
+    await expect(
+      gh.listWorkflowRuns("reddoorla/ghost", "fleet-security.yml", { since: SINCE }),
+    ).rejects.toThrow(/404/);
+  });
+
+  it("rejects a traversal workflow name before any fetch", async () => {
+    const { fn, calls } = fakeFetch([{ status: 200, body: { workflow_runs: [] } }]);
+    const gh = makeGitHubRest({ token: "tok", fetch: fn });
+    await expect(
+      gh.listWorkflowRuns("reddoorla/acme", "../../etc", { since: SINCE }),
+    ).rejects.toThrow();
+    expect(calls).toEqual([]);
+  });
+});
