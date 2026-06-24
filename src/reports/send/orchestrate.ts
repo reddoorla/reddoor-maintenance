@@ -16,6 +16,25 @@ import { checklistFor, isChecklistComplete } from "../checklist.js";
 const FROM_ADDRESS = "Reddoor Reports <reports@reddoorla.com>";
 const REPLY_TO = "info@reddoorla.com";
 
+/** Operations inbox CC'd on every outgoing report so there's always an internal
+ *  copy on file alongside the client recipients. */
+export const GLOBAL_REPORT_CC = "info@reddoorla.com";
+
+/**
+ * Append {@link GLOBAL_REPORT_CC} to a site's per-site CC list. The per-site CC is
+ * passed through unchanged (preserving prior behavior); the global address is added
+ * only when it isn't already present in the CC or To lists (case-insensitive), so a
+ * report is never double-addressed to the ops inbox. Returns the final CC list (may
+ * be empty if the global address is already the sole To recipient — the caller omits
+ * an empty CC).
+ */
+export function withGlobalCc(perSiteCc: string[] | null, to: string[]): string[] {
+  const cc = [...(perSiteCc ?? [])];
+  const present = new Set([...cc, ...to].map((a) => a.toLowerCase()));
+  if (!present.has(GLOBAL_REPORT_CC.toLowerCase())) cc.push(GLOBAL_REPORT_CC);
+  return cc;
+}
+
 const MONTHS = [
   "January",
   "February",
@@ -236,7 +255,9 @@ async function sendOne(
     // Resend returns the original message id rather than sending a duplicate.
     idempotencyKey: `report:${report.id}`,
   };
-  if (cc) payload.cc = cc;
+  // Always CC the ops inbox (info@reddoorla.com), in addition to any per-site CC.
+  const finalCc = withGlobalCc(cc, to);
+  if (finalCc.length > 0) payload.cc = finalCc;
 
   let result: Awaited<ReturnType<ResendClient["send"]>>;
   try {
