@@ -524,6 +524,18 @@ export async function updateAutoFixAttempts(
   ]);
 }
 
+/** Generic single-field writer for the dashboard site-details editor. The caller
+ *  (setSiteDetail) restricts `column` to the EDITABLE_SITE_FIELDS allowlist, so this
+ *  never writes an arbitrary column from request input. */
+export async function updateSiteField(
+  base: AirtableBase,
+  recordId: string,
+  column: string,
+  value: string,
+): Promise<void> {
+  await base(WEBSITES_TABLE).update([{ id: recordId, fields: { [column]: value } }]);
+}
+
 /**
  * Persist all of a single audit run's results to one Websites row in ONE atomic
  * `update()` — instead of up to four sequential updates on the same id (which left
