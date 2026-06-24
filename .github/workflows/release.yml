@@ -49,4 +49,13 @@ jobs:
           # No NPM_TOKEN: trusted publishing uses the OIDC token from id-token: write.
           # When npm CLI 11.5+ detects the GitHub Actions OIDC env and a trusted
           # publisher is configured on the package, it mints a short-lived token.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          #
+          # Use the org RENOVATE PAT (not the built-in GITHUB_TOKEN) so the
+          # "Version Packages" PR this action opens actually TRIGGERS ci.yml.
+          # GitHub does not start workflow runs for events made with the built-in
+          # GITHUB_TOKEN (recursion guard), which left every release PR's required
+          # `build` check stuck in "action_required" and unmergeable without an
+          # admin override. RENOVATE_TOKEN already has contents + pull-requests
+          # write (it opens the fleet's Renovate PRs). Publishing still uses npm
+          # OIDC (id-token: write) — this token only authors the version PR.
+          GITHUB_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
