@@ -252,13 +252,18 @@ function selectRow(
   current: string | null,
   url: string,
 ): string {
+  const inList = current !== null && options.includes(current);
   const opts = options
     .map(
       (o) =>
         `<option value="${escapeHtml(o)}"${o === current ? " selected" : ""}>${escapeHtml(o)}</option>`,
     )
     .join("");
-  return `<div class="detail"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><select id="detail-${field}" data-detail-field="${field}" data-details-url="${url}">${opts}</select>${savedSpan(field)}</dd></div>`;
+  // When the stored value isn't one of the offered options (e.g. a null cadence,
+  // or an Airtable-only "legacy" status), show a disabled placeholder selected
+  // first so the operator must actively pick — never silently overwrites.
+  const placeholder = inList ? "" : `<option value="" disabled selected hidden>— select —</option>`;
+  return `<div class="detail"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><select id="detail-${field}" data-detail-field="${field}" data-details-url="${url}">${placeholder}${opts}</select>${savedSpan(field)}</dd></div>`;
 }
 
 /** Editable single-line `<input>` row for a text/email/repo field. */

@@ -50,6 +50,9 @@ const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
  */
 export function normalizeFieldValue(f: EditableField, raw: string): string | null {
   const v = raw.trim();
+  // Hard upper bound across every kind (text additionally enforces its own
+  // tighter maxLen below) — a single absurdly long value can't reach Airtable.
+  if (v.length > 2000) return null;
   switch (f.kind) {
     case "enum":
       return f.options!.includes(v) ? v : null;
