@@ -3,13 +3,19 @@ import { defaultSpawn, type SpawnFn } from "../audits/util/spawn.js";
 /** Aggregate CI state of a PR's head commit, normalized from GitHub's rollup. */
 export type CiState = "passing" | "failing" | "pending" | "none";
 
-/** A minimal open-PR summary with its head-commit CI rollup state. */
+/** GitHub's computed mergeability of a PR. `UNKNOWN` is transient — GitHub is
+ *  still computing it (e.g. right after a push) — so it should be read as "not
+ *  known to conflict", never as conflicting. */
+export type PrMergeable = "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
+
+/** A minimal open-PR summary with its head-commit CI rollup state + mergeability. */
 export type PullRequestSummary = {
   number: number;
   title: string;
   url: string;
   headRef: string;
   ciState: CiState;
+  mergeable: PrMergeable;
 };
 
 /**
@@ -50,6 +56,13 @@ function mapRollupState(state: string | null | undefined): CiState {
     default:
       return "none"; // null/undefined = no checks reported
   }
+}
+
+/** Coerce GitHub's `mergeable` enum to our PrMergeable. Anything unexpected
+ *  (including the literal `UNKNOWN` GitHub returns while still computing) maps to
+ *  `UNKNOWN` — i.e. "not known to conflict". Only an explicit `CONFLICTING` is. */
+function mapMergeable(state: string | null | undefined): PrMergeable {
+  return state === "MERGEABLE" || state === "CONFLICTING" ? state : "UNKNOWN";
 }
 
 export type GitHub = {
@@ -215,7 +228,7 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
       }
       const query =
         "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){" +
-        "pullRequests(states:OPEN,first:100,orderBy:{field:CREATED_AT,direction:DESC}){nodes{number title url headRefName " +
+        "pullRequests(states:OPEN,first:100,orderBy:{field:CREATED_AT,direction:DESC}){nodes{number title url headRefName mergeable " +
         "commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}}}";
       const out = await gh([
         "api",
@@ -236,6 +249,7 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
                 title: string;
                 url: string;
                 headRefName: string;
+                mergeable?: string;
                 commits?: {
                   nodes?: Array<{ commit?: { statusCheckRollup?: { state?: string } } }>;
                 };
@@ -251,6 +265,7 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
         url: n.url,
         headRef: n.headRefName,
         ciState: mapRollupState(n.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state),
+        mergeable: mapMergeable(n.mergeable),
       }));
     },
     async defaultBranchStatus(repo) {

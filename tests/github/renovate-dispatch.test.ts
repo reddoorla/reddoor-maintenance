@@ -3,9 +3,52 @@ import {
   selectRenovateTargets,
   dispatchRenovateAcross,
   formatRenovateDispatchSummary,
+  hasHealthyRenovatePr,
   RENOVATE_WORKFLOW_FILE,
 } from "../../src/github/renovate-dispatch.js";
+import type { PullRequestSummary } from "../../src/github/gh.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
+
+function pr(over: Partial<PullRequestSummary>): PullRequestSummary {
+  return {
+    number: 1,
+    title: "chore(deps): bump x",
+    url: "https://github.com/o/r/pull/1",
+    headRef: "renovate/x",
+    ciState: "passing",
+    mergeable: "MERGEABLE",
+    ...over,
+  };
+}
+
+describe("hasHealthyRenovatePr", () => {
+  it("is true when a non-conflicting Renovate PR is open (remediation in flight → skip dispatch)", () => {
+    expect(hasHealthyRenovatePr([pr({ mergeable: "MERGEABLE" })])).toBe(true);
+    // UNKNOWN (GitHub still computing) counts as healthy — don't churn on uncertainty
+    expect(hasHealthyRenovatePr([pr({ mergeable: "UNKNOWN" })])).toBe(true);
+  });
+
+  it("is false when the only open Renovate PR is CONFLICTING/stuck (→ re-dispatch to rebase)", () => {
+    expect(hasHealthyRenovatePr([pr({ mergeable: "CONFLICTING" })])).toBe(false);
+  });
+
+  it("ignores non-Renovate PRs", () => {
+    expect(hasHealthyRenovatePr([pr({ headRef: "feature/login", mergeable: "MERGEABLE" })])).toBe(
+      false,
+    );
+    // a healthy Renovate PR alongside a non-Renovate one still counts
+    expect(
+      hasHealthyRenovatePr([
+        pr({ headRef: "feature/x", mergeable: "MERGEABLE" }),
+        pr({ headRef: "renovate/y", mergeable: "MERGEABLE" }),
+      ]),
+    ).toBe(true);
+  });
+
+  it("is false for no open PRs at all", () => {
+    expect(hasHealthyRenovatePr([])).toBe(false);
+  });
+});
 
 describe("selectRenovateTargets", () => {
   it("picks active, repo-backed sites with critical OR high vulns", () => {
@@ -105,7 +148,7 @@ describe("dispatchRenovateAcross", () => {
   it("dispatches renovate.yml on each target's default branch", async () => {
     const calls: Array<{ repo: string; workflow: string; ref: string }> = [];
     const result = await dispatchRenovateAcross(targets, {
-      hasOpenRenovatePr: async () => false,
+      hasHealthyOpenRenovatePr: async () => false,
       defaultBranch: async (repo) => (repo === "reddoorla/b" ? "master" : "main"),
       dispatch: async (repo, workflow, ref) => {
         calls.push({ repo, workflow, ref });
@@ -120,10 +163,10 @@ describe("dispatchRenovateAcross", () => {
     ]);
   });
 
-  it("skips a repo that already has an open Renovate PR (remediation in flight)", async () => {
+  it("skips a repo with a healthy open Renovate PR (remediation in flight)", async () => {
     const calls: string[] = [];
     const result = await dispatchRenovateAcross(targets, {
-      hasOpenRenovatePr: async (repo) => repo === "reddoorla/a",
+      hasHealthyOpenRenovatePr: async (repo) => repo === "reddoorla/a",
       defaultBranch: async () => "main",
       dispatch: async (repo) => {
         calls.push(repo);
@@ -137,7 +180,7 @@ describe("dispatchRenovateAcross", () => {
 
   it("records a failed dispatch without aborting the rest", async () => {
     const result = await dispatchRenovateAcross(targets, {
-      hasOpenRenovatePr: async () => false,
+      hasHealthyOpenRenovatePr: async () => false,
       defaultBranch: async () => "main",
       dispatch: async (repo) => {
         if (repo === "reddoorla/a") throw new Error("404: no renovate.yml");
@@ -149,7 +192,7 @@ describe("dispatchRenovateAcross", () => {
 
   it("records a failed default-branch lookup as a failure (never throws)", async () => {
     const result = await dispatchRenovateAcross([targets[0]!], {
-      hasOpenRenovatePr: async () => false,
+      hasHealthyOpenRenovatePr: async () => false,
       defaultBranch: async () => {
         throw new Error("403: token lacks actions:write");
       },
@@ -163,7 +206,7 @@ describe("dispatchRenovateAcross", () => {
 
   it("records a failed open-PR probe as a failure (never dispatches on a bad probe)", async () => {
     const result = await dispatchRenovateAcross([targets[0]!], {
-      hasOpenRenovatePr: async () => {
+      hasHealthyOpenRenovatePr: async () => {
         throw new Error("502: PR query failed");
       },
       defaultBranch: async () => "main",

@@ -9,6 +9,7 @@ function pr(over: Partial<PullRequestSummary>): PullRequestSummary {
     url: "https://github.com/o/r/pull/1",
     headRef: "renovate/x",
     ciState: "failing",
+    mergeable: "MERGEABLE",
     ...over,
   };
 }

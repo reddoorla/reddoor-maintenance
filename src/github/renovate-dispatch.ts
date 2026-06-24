@@ -1,4 +1,6 @@
 import { isDashboardVisible, type WebsiteRow } from "../reports/airtable/websites.js";
+import { isRenovatePR } from "../alerts/renovate.js";
+import type { PullRequestSummary } from "./gh.js";
 
 /**
  * On-demand Renovate trigger for fleet sites.
@@ -16,11 +18,18 @@ import { isDashboardVisible, type WebsiteRow } from "../reports/airtable/website
 /** The per-repo workflow file the fleet uses for its self-hosted Renovate run. */
 export const RENOVATE_WORKFLOW_FILE = "renovate.yml";
 
-/** A PR head-branch belongs to Renovate if it carries the default `renovate/`
- *  branch prefix (the fleet preset doesn't override `branchPrefix`). Used to
- *  detect "remediation already in flight" so a dispatch isn't re-fired. */
-export function isRenovatePrBranch(headRef: string): boolean {
-  return headRef.startsWith("renovate/");
+/**
+ * Does the repo have a HEALTHY open Renovate PR — one that is NOT conflicting?
+ *
+ * A healthy PR means remediation is genuinely in flight (moving toward merge), so
+ * re-dispatching would just churn CI — skip it. A CONFLICTING Renovate PR is STUCK
+ * (its branch fell behind the base after another PR merged the same lockfile), so
+ * it does NOT count as healthy: re-dispatching triggers Renovate to rebase it.
+ * `UNKNOWN` mergeability (GitHub still computing it) is treated as healthy — don't
+ * churn on uncertainty. Reuses {@link isRenovatePR} for the branch-prefix check.
+ */
+export function hasHealthyRenovatePr(prs: PullRequestSummary[]): boolean {
+  return prs.some((pr) => isRenovatePR(pr) && pr.mergeable !== "CONFLICTING");
 }
 
 /** A site selected for an on-demand Renovate run, with the reason (vuln counts). */
@@ -59,8 +68,10 @@ export function selectRenovateTargets(sites: WebsiteRow[]): RenovateDispatchTarg
 
 /** Injected GitHub operations — real ones come from `makeGitHub`, fakes from tests. */
 export type RenovateDispatchDeps = {
-  /** True iff the repo already has an open Renovate PR (remediation in flight). */
-  hasOpenRenovatePr: (repo: string) => Promise<boolean>;
+  /** True iff the repo has a HEALTHY (non-conflicting) open Renovate PR —
+   *  remediation in flight, so don't re-dispatch. A conflicting/stuck PR returns
+   *  false so the dispatch goes through and Renovate rebases it. */
+  hasHealthyOpenRenovatePr: (repo: string) => Promise<boolean>;
   defaultBranch: (repo: string) => Promise<string>;
   dispatch: (repo: string, workflow: string, ref: string) => Promise<void>;
 };
@@ -75,10 +86,12 @@ export type RenovateDispatchResult = {
 /**
  * Dispatch `renovate.yml` for each target on its default branch.
  *
- * Skips a repo that already has an open Renovate PR: remediation is in flight, so
- * re-dispatching would just churn CI (this is what keeps a persistent vuln from
- * re-firing every nightly run while its fix PR waits — e.g. a human-gated major
- * bump). Best-effort and isolated: a repo that lacks `renovate.yml`, or whose
+ * Skips a repo with a HEALTHY (non-conflicting) open Renovate PR — remediation is
+ * in flight, so re-dispatching would just churn CI (keeps a persistent vuln from
+ * re-firing every nightly run while its fix PR waits, e.g. a human-gated major
+ * bump). A repo whose open Renovate PR is CONFLICTING/stuck is NOT skipped:
+ * dispatching triggers Renovate to rebase it. Best-effort and isolated: a repo
+ * that lacks `renovate.yml`, or whose
  * dispatch/PR-check is refused (the token's `actions:write` scope), is recorded in
  * `failed` and the rest still run. Never throws — the caller (a follow-up step on
  * the security sweep) must not be able to fail the sweep over a dispatch hiccup.
@@ -92,7 +105,7 @@ export async function dispatchRenovateAcross(
   const failed: { repo: string; error: string }[] = [];
   for (const t of targets) {
     try {
-      if (await deps.hasOpenRenovatePr(t.repo)) {
+      if (await deps.hasHealthyOpenRenovatePr(t.repo)) {
         skipped.push(t.repo);
         continue;
       }
