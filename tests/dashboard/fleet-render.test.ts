@@ -575,3 +575,12 @@ describe("renderCockpitHtml — Trigger Renovate button", () => {
     expect(html).toContain("Trigger Renovate");
   });
 });
+
+describe("renderCockpitHtml — Refresh fleet state button", () => {
+  it("renders a fleet refresh button wired to POST /api/fleet/refresh", () => {
+    const html = renderCockpitHtml(model([siteRow()]));
+    expect(html).toContain('class="refresh-fleet"');
+    expect(html).toContain('data-refresh-url="/api/fleet/refresh"');
+    expect(html).toContain("Refresh fleet state");
+  });
+});

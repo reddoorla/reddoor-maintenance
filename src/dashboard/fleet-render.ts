@@ -120,6 +120,10 @@ h1 { margin: 0 0 0.25rem; font-size: 1.75rem; }
 .filters button { font:inherit; font-size:0.85rem; padding:0.25rem 0.7rem; border:1px solid #ccc; border-radius:999px; background:transparent; color:inherit; cursor:pointer; }
 .filters button[aria-pressed="true"] { background:#1a1a1a; color:#fff; border-color:#1a1a1a; }
 @media (prefers-color-scheme: dark) { .filters button[aria-pressed="true"] { background:#e8e8e8; color:#111; } }
+.fleet-actions { margin-bottom:1.25rem; }
+.refresh-fleet { font:inherit; font-size:0.85rem; padding:0.3rem 0.8rem; border:1px solid #1a1a1a; border-radius:999px; background:#1a1a1a; color:#fff; cursor:pointer; }
+.refresh-fleet:disabled { opacity:0.6; cursor:default; }
+@media (prefers-color-scheme: dark) { .refresh-fleet { background:#e8e8e8; color:#111; border-color:#e8e8e8; } }
 details.tier { margin:0.75rem 0; }
 details.tier > summary { cursor:pointer; font-weight:700; font-size:1.05rem; padding:0.35rem 0; list-style:none; }
 .approve-strip { border:1px solid #ffe08a; background:#fff8e1; border-radius:8px; padding:0.75rem 1rem; margin-bottom:1.25rem; }
@@ -182,7 +186,10 @@ function summaryBar(model: CockpitModel): string {
       <span class="tier">🟢 ${s.healthy} healthy</span>
     </div>
     <div class="summary heads">${escapeHtml(heads)}</div>
-    <div class="filters">${chips}</div>`;
+    <div class="filters">${chips}</div>
+    <div class="fleet-actions">
+      <button type="button" class="refresh-fleet" data-refresh-url="/api/fleet/refresh">↻ Refresh fleet state</button>
+    </div>`;
 }
 
 /** One-line fleet spam roll-up beneath the summary: caught (honeypot+too-fast) vs
@@ -361,6 +368,17 @@ const FILTER_SCRIPT = `<script>
         if (!res.ok) b.disabled = false; }
       catch(e){ b.textContent = 'Failed'; b.disabled = false; }
     });
+  });
+  // refresh-fleet button: confirm (heavy fleet-wide run) then dispatch both sweeps.
+  var rf = document.querySelector('button.refresh-fleet');
+  if (rf) rf.addEventListener('click', async function(){
+    if (!confirm('Kick off the security + Lighthouse sweeps for the whole fleet? They take a few minutes.')) return;
+    rf.disabled = true; rf.textContent = 'Refreshing…';
+    try {
+      var res = await fetch(rf.dataset.refreshUrl, { method: 'POST' });
+      rf.textContent = res.ok ? '↻ Refresh started — updates in a few min' : 'Failed to start';
+      if (!res.ok) rf.disabled = false;
+    } catch(e){ rf.textContent = 'Failed to start'; rf.disabled = false; }
   });
 })();
 </script>`;
