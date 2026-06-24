@@ -995,3 +995,39 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
     expect(tbody).toContain("rep_hist_1");
   });
 });
+
+describe("renderSiteDashboardHtml — Trigger Renovate button", () => {
+  it("renders a Trigger Renovate button for a repo-backed site", () => {
+    const html = renderSiteDashboardHtml(siteRow({ name: "Acme", gitRepo: "reddoorla/acme" }), []);
+    expect(html).toContain('data-trigger-url="/api/sites/acme/trigger-renovate"');
+    expect(html).toContain("Trigger Renovate");
+  });
+
+  it("omits the Trigger Renovate button when the site has no repo", () => {
+    const html = renderSiteDashboardHtml(siteRow({ name: "Acme", gitRepo: null }), []);
+    // the page script always references the selector; assert the BUTTON is absent
+    expect(html).not.toContain("data-trigger-url");
+    expect(html).not.toContain(">Trigger Renovate<");
+  });
+});
+
+describe("renderSiteDashboardHtml — editable site details", () => {
+  it("renders Status + cadence as selects and POC as an input, wired to the details endpoint", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow({ name: "Acme", status: "maintenance", pointOfContact: "a@b.com" }),
+      [],
+    );
+    expect(html).toMatch(
+      /<select[^>]*data-detail-field="status"[^>]*data-details-url="\/api\/sites\/acme\/details"/,
+    );
+    expect(html).toContain('<option value="maintenance" selected');
+    expect(html).toMatch(/data-detail-field="pointOfContact"/);
+    expect(html).toContain('value="a@b.com"');
+  });
+
+  it("renders copy fields as textareas and escapes their content", () => {
+    const html = renderSiteDashboardHtml(siteRow({ name: "Acme", copyIntro: "<b>hi</b>" }), []);
+    expect(html).toMatch(/<textarea[^>]*data-detail-field="copyIntro"/);
+    expect(html).toContain("&lt;b&gt;hi&lt;/b&gt;");
+  });
+});

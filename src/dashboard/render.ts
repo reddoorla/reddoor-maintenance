@@ -14,6 +14,7 @@ import {
   SUBMISSION_STYLES,
   SUBMISSION_STATUS_SCRIPT,
 } from "./submission-view.js";
+import { SITE_STATUS_OPTIONS, FREQ_OPTIONS } from "./site-details.js";
 
 const DASH = "—";
 
@@ -231,32 +232,76 @@ function setupSection(site: WebsiteRow): string {
   return `<div class="setup-line">Setup ${score}/${total} — ${detail}</div>`;
 }
 
-/** One "Site details" definition-list row: a label and a value that degrades to
- *  "—" when the value is blank/null. */
+/** One read-only "Site details" row: a label and a value that degrades to "—". */
 function detailRow(label: string, value: string | null | undefined): string {
   const display =
     typeof value === "string" && value.trim().length > 0 ? escapeHtml(value.trim()) : DASH;
   return `<div class="detail"><dt>${escapeHtml(label)}</dt><dd>${display}</dd></div>`;
 }
 
-/** "Site details" section: the WebsiteRow fields that feed reports/ops but aren't
- *  otherwise surfaced on the page — cadence, recipients, POC, and the optional GA /
- *  search / git wiring. Read-only; nulls render as "—". */
+/** A per-field "saved" indicator the page script flips to ✓ / ✗ after a POST. */
+function savedSpan(field: string): string {
+  return `<span class="detail-saved" data-for="${field}"></span>`;
+}
+
+/** Editable `<select>` row for an enum field (Status / cadence). */
+function selectRow(
+  label: string,
+  field: string,
+  options: readonly string[],
+  current: string | null,
+  url: string,
+): string {
+  const inList = current !== null && options.includes(current);
+  const opts = options
+    .map(
+      (o) =>
+        `<option value="${escapeHtml(o)}"${o === current ? " selected" : ""}>${escapeHtml(o)}</option>`,
+    )
+    .join("");
+  // When the stored value isn't one of the offered options (e.g. a null cadence,
+  // or an Airtable-only "legacy" status), show a disabled placeholder selected
+  // first so the operator must actively pick — never silently overwrites.
+  const placeholder = inList ? "" : `<option value="" disabled selected hidden>— select —</option>`;
+  return `<div class="detail"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><select id="detail-${field}" data-detail-field="${field}" data-details-url="${url}">${placeholder}${opts}</select>${savedSpan(field)}</dd></div>`;
+}
+
+/** Editable single-line `<input>` row for a text/email/repo field. */
+function inputRow(label: string, field: string, value: string | null, url: string): string {
+  return `<div class="detail"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><input type="text" id="detail-${field}" data-detail-field="${field}" data-details-url="${url}" value="${escapeHtml(value ?? "")}" />${savedSpan(field)}</dd></div>`;
+}
+
+/** Editable multi-line `<textarea>` row for the copy override fields. */
+function textareaRow(label: string, field: string, value: string | null, url: string): string {
+  return `<div class="detail wide"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><textarea id="detail-${field}" data-detail-field="${field}" data-details-url="${url}">${escapeHtml(value ?? "")}</textarea>${savedSpan(field)}</dd></div>`;
+}
+
+/** "Site details" section — inline-editable for the safe-text + operational fields
+ *  (writes via the authed /api/sites/:slug/details endpoint). `Last commit` stays
+ *  read-only (machine-derived). The Trigger Renovate button rides the heading. */
 function siteDetailsSection(site: WebsiteRow): string {
+  const url = `/api/sites/${escapeHtml(siteSlug(site.name))}/details`;
   const lastCommit = site.lastCommitAt ? `${relativeTimeFromNow(site.lastCommitAt)}` : null;
   const rows = [
-    detailRow("Maintenance cadence", site.maintenanceFreq),
-    detailRow("Testing cadence", site.testingFreq),
-    detailRow("Report recipients (To)", site.reportRecipientsTo),
-    detailRow("Report recipients (CC)", site.reportRecipientsCc),
-    detailRow("Point of contact", site.pointOfContact),
-    detailRow("GA4 property", site.ga4PropertyId),
-    detailRow("Search query", site.searchQuery),
-    detailRow("Git repo", site.gitRepo),
+    selectRow("Status", "status", SITE_STATUS_OPTIONS, site.status, url),
+    selectRow("Maintenance cadence", "maintenanceFreq", FREQ_OPTIONS, site.maintenanceFreq, url),
+    selectRow("Testing cadence", "testingFreq", FREQ_OPTIONS, site.testingFreq, url),
+    inputRow("Report recipients (To)", "reportRecipientsTo", site.reportRecipientsTo, url),
+    inputRow("Report recipients (CC)", "reportRecipientsCc", site.reportRecipientsCc, url),
+    inputRow("Point of contact", "pointOfContact", site.pointOfContact, url),
+    inputRow("GA4 property", "ga4PropertyId", site.ga4PropertyId, url),
+    inputRow("Search query", "searchQuery", site.searchQuery, url),
+    inputRow("Git repo", "gitRepo", site.gitRepo, url),
+    textareaRow("Copy — Intro", "copyIntro", site.copyIntro, url),
+    textareaRow("Copy — Contact", "copyContact", site.copyContact, url),
+    textareaRow("Copy — Footer", "copyFooter", site.copyFooter, url),
     detailRow("Last commit", lastCommit),
   ].join("");
+  const triggerBtn = site.gitRepo?.trim()
+    ? `<button class="trigger-renovate" data-trigger-url="/api/sites/${escapeHtml(siteSlug(site.name))}/trigger-renovate">Trigger Renovate</button>`
+    : "";
   return `<div class="section site-details">
-    <h2>Site details</h2>
+    <h2>Site details ${triggerBtn}</h2>
     <dl class="details">${rows}</dl>
   </div>`;
 }
@@ -308,8 +353,13 @@ button.approve:disabled { opacity: 0.6; cursor: default; }
 .setup-missing { color: #a65a00; }
 .details { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.5rem 1.5rem; margin: 0; }
 .detail { display: flex; flex-direction: column; }
+.detail.wide { grid-column: 1 / -1; }
 .detail dt { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: #999; }
 .detail dd { margin: 0; }
+.detail dd input, .detail dd select, .detail dd textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 0.25rem 0.4rem; border: 1px solid #ccc; border-radius: 4px; background: transparent; color: inherit; }
+.detail dd textarea { min-height: 3.5rem; resize: vertical; }
+.detail-saved { font-size: 0.8rem; color: #2a8; }
+button.trigger-renovate { font: inherit; font-size: 0.8rem; padding: 0.15rem 0.6rem; margin-left: 0.5rem; border: 1px solid #888; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
 `;
 
 /**
@@ -422,6 +472,45 @@ export function renderSiteDashboardHtml(
           b.textContent = "Failed";
           b.disabled = false;
         }
+      });
+    });
+    // Trigger-renovate button: async on-demand dispatch (mirrors the cockpit).
+    document.querySelectorAll("button.trigger-renovate").forEach((b) => {
+      b.addEventListener("click", async () => {
+        b.disabled = true;
+        b.textContent = "Dispatching…";
+        try {
+          const res = await fetch(b.dataset.triggerUrl, { method: "POST" });
+          b.textContent = res.ok ? "Dispatched ✓" : "Failed";
+          if (!res.ok) b.disabled = false;
+        } catch {
+          b.textContent = "Failed";
+          b.disabled = false;
+        }
+      });
+    });
+    // Site-details editor: save on change (selects) / blur (inputs+textareas, only
+    // when the value actually changed). The per-field span shows ✓ / ✗.
+    function saveDetail(el) {
+      const span = document.querySelector('.detail-saved[data-for="' + el.dataset.detailField + '"]');
+      fetch(el.dataset.detailsUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ field: el.dataset.detailField, value: el.value }),
+      })
+        .then((r) => {
+          if (span) span.textContent = r.ok ? " ✓" : " ✗";
+        })
+        .catch(() => {
+          if (span) span.textContent = " ✗";
+        });
+    }
+    document.querySelectorAll("select[data-detail-field]").forEach((s) => {
+      s.addEventListener("change", () => saveDetail(s));
+    });
+    document.querySelectorAll("input[data-detail-field], textarea[data-detail-field]").forEach((i) => {
+      i.addEventListener("blur", () => {
+        if (i.value !== i.defaultValue) saveDetail(i);
       });
     });
     ${SUBMISSION_STATUS_SCRIPT}
