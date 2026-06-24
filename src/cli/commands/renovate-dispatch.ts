@@ -1,11 +1,14 @@
 import { openBase, readAirtableConfig } from "../../reports/airtable/client.js";
-import { listWebsites } from "../../reports/airtable/websites.js";
+import { listWebsites, updateAutoFixAttempts } from "../../reports/airtable/websites.js";
 import { makeGitHub } from "../../github/gh.js";
 import {
   selectRenovateTargets,
   dispatchRenovateAcross,
   formatRenovateDispatchSummary,
   hasHealthyRenovatePr,
+  computeAutoFixAttemptUpdates,
+  applyAutoFixAttemptUpdates,
+  formatAutoFixAttemptsSummary,
 } from "../../github/renovate-dispatch.js";
 
 /**
@@ -65,7 +68,17 @@ export async function runRenovateDispatchCommand(opts: {
     return `${status} ${t.repo} (critical=${t.critical} high=${t.high}) — ${t.siteName}`;
   });
   for (const f of result.failed) lines.push(`  ↳ ${f.repo}: ${f.error}`);
+
+  // Update the auto-fix attempt counters from this run, best-effort: a write that
+  // fails (e.g. the Airtable field not yet created) is tallied, never thrown — the
+  // sweep must still exit 0. Uses the full `websites` list so 0-vuln sites reset.
+  const attemptUpdates = computeAutoFixAttemptUpdates(websites, result);
+  const attemptTally = await applyAutoFixAttemptUpdates(attemptUpdates, (id, attempts) =>
+    updateAutoFixAttempts(base, id, attempts),
+  );
+
   lines.push(formatRenovateDispatchSummary(result));
+  lines.push(formatAutoFixAttemptsSummary(attemptTally));
 
   return { output: lines.join("\n"), code: 0 };
 }
