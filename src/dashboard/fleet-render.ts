@@ -134,6 +134,7 @@ details.tier > summary { cursor:pointer; font-weight:700; font-size:1.05rem; pad
 .chip { font-size:0.8rem; padding:0.1rem 0.5rem; border-radius:6px; background:#f0f0f0; }
 @media (prefers-color-scheme: dark) { .chip { background:#222; } }
 .chip.critical { background:#fdecea; color:#b00; }
+.chip.stuck { border:1px solid #b00; font-weight:600; }
 .badge { font-weight:700; color:#C00; font-size:0.72rem; margin-right:0.25rem; }
 .all-clear { background:#e8f5e9; color:#1b7a2f; padding:0.6rem 1rem; border-radius:8px; margin-bottom:1.25rem; font-weight:600; }
 @media (prefers-color-scheme: dark) { .all-clear { background:#10240f; color:#7fce85; } }
@@ -152,6 +153,7 @@ const FILTERS = [
   "delivery",
   "prs",
   "ci",
+  "auto-fix-failed",
   "stale",
   "no-domain",
   "pending",
@@ -166,6 +168,7 @@ function summaryBar(model: CockpitModel): string {
     `${s.deliveryFailures} delivery`,
     `${s.renovateFailing} PRs failing`,
     `${s.ciRed} CI red`,
+    `${s.autoFixStuck} auto-fix stuck`,
     `${s.pending} pending`,
     `${s.newSubmissions ?? 0} new`,
   ].join(" · ");
@@ -273,7 +276,11 @@ function attentionBadge(status?: string): string {
 
 function chips(c: SiteCard): string {
   const items = c.items.map((it) => {
-    const cls = it.severity === "critical" ? "chip critical" : "chip";
+    const cls = it.autoFixExhausted
+      ? "chip critical stuck"
+      : it.severity === "critical"
+        ? "chip critical"
+        : "chip";
     return `<span class="${cls}">${attentionBadge(it.status)}${escapeHtml(it.title)}</span>`;
   });
   for (const reason of c.watchReasons)
@@ -290,6 +297,7 @@ function signalsAttr(c: SiteCard): string {
   for (const it of c.items) {
     kinds.add(it.kind === "vuln" ? "vulns" : it.kind === "renovate" ? "prs" : it.kind);
   }
+  if (c.items.some((it) => it.autoFixExhausted)) kinds.add("auto-fix-failed");
   for (const sig of c.watchSignals) kinds.add(sig);
   return [...kinds].join(" ");
 }
