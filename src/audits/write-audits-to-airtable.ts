@@ -9,7 +9,7 @@ import type {
   DomainResult,
   BrowserAuditFields,
 } from "../reports/airtable/websites.js";
-import type { LighthouseScores } from "../reports/types.js";
+import type { LighthouseScoreWriteback } from "../reports/types.js";
 import { hasRealScores, lighthouseScoresFromResult } from "./lighthouse-airtable.js";
 import { hasA11yCounts, a11yCountsFromResult } from "./a11y-airtable.js";
 import { hasDepsCounts, depsCountsFromResult } from "./deps-airtable.js";
@@ -63,7 +63,7 @@ export async function writeAuditsToAirtable(args: {
 
   const writes: WriteSummary["writes"] = [];
   const audits: {
-    scores?: LighthouseScores;
+    scores?: LighthouseScoreWriteback;
     a11y?: A11yCounts;
     deps?: DepsCounts;
     security?: SecurityCounts;

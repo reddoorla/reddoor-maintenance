@@ -27,9 +27,12 @@ describe("lighthouseScoresFromResult", () => {
     expect(s).toEqual({ performance: 87, accessibility: 91, bestPractices: 100, seo: 95 });
   });
 
-  it("defaults missing categories to 0", () => {
+  it("leaves missing categories null (write path clears the cell → dashboard '—')", () => {
+    // A metric absent from the summary (e.g. NO_LCP nulls performance) must NOT
+    // become a misleading 0 — it's unknown, not catastrophic. The write path
+    // persists null to clear the Airtable cell.
     const s = lighthouseScoresFromResult(lhResult({ performance: 0.5 }));
-    expect(s).toEqual({ performance: 50, accessibility: 0, bestPractices: 0, seo: 0 });
+    expect(s).toEqual({ performance: 50, accessibility: null, bestPractices: null, seo: null });
   });
 
   it("rounds half-up to the nearest integer", () => {

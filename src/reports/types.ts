@@ -12,6 +12,19 @@ export type LighthouseScores = {
   seo: number;
 };
 
+/** Scores as extracted from a single audit run for Airtable write-back. Unlike
+ *  {@link LighthouseScores} (which the report/email path needs fully populated),
+ *  a category is `null` when that run produced no score for it — e.g. Lighthouse
+ *  errors the LCP audit (NO_LCP) and nulls the whole performance category. The
+ *  write path persists `null` (clears the Airtable cell → dashboard "—") rather
+ *  than a misleading 0 that reads as a real, catastrophic score. */
+export type LighthouseScoreWriteback = {
+  performance: number | null;
+  accessibility: number | null;
+  bestPractices: number | null;
+  seo: number | null;
+};
+
 export type HeaderImage = {
   /** Stable filename, used as the CID inside the email and as the attachment name in Resend. */
   filename: string;

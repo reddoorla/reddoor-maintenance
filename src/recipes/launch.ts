@@ -91,7 +91,17 @@ export async function launch(site: Site, deps: LaunchDeps = {}): Promise<LaunchR
     });
     return stop();
   }
-  const scores = lighthouseScoresFromResult(lhResult);
+  // The launch announcement renders a numeric score per category; a metric that
+  // errored this run (now null from lighthouseScoresFromResult) keeps the prior
+  // 0 behavior here rather than propagating null into the launch-email path. The
+  // Airtable write path (write-audits-to-airtable) keeps the null → shows "—".
+  const rawScores = lighthouseScoresFromResult(lhResult);
+  const scores: LighthouseScores = {
+    performance: rawScores.performance ?? 0,
+    accessibility: rawScores.accessibility ?? 0,
+    bestPractices: rawScores.bestPractices ?? 0,
+    seo: rawScores.seo ?? 0,
+  };
 
   const websites = await listWebsites(base);
   const target = websites.find((w) => siteSlug(w.name) === siteSlug(label));

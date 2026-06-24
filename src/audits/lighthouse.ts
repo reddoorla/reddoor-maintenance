@@ -224,7 +224,16 @@ async function deployedLighthouse(
         // 3 runs to damp Lighthouse's run-to-run variance; parseLhciResults
         // averages the lhr files. (Median is a tracked future refinement.)
         numberOfRuns: 3,
-        settings: { preset: "desktop", skipAudits: ["uses-http2"] },
+        // Use devtools (applied) throttling instead of the desktop preset's
+        // default `simulate` (Lantern). Lantern estimates LCP from the
+        // dependency graph and can't model an LCP element revealed by a
+        // JS-load opacity fade (e.g. gallerysonder's GridImage): on a fast
+        // observed load it finds no LCP node and throws NO_LCP, nulling the
+        // perf score, which the cockpit then coerces to a misleading 0.
+        // devtools reads the real LCP paint event from the throttled trace
+        // instead. Trade-off: slightly noisier run-to-run, damped by the
+        // numberOfRuns:3 average above.
+        settings: { preset: "desktop", throttlingMethod: "devtools", skipAudits: ["uses-http2"] },
       },
       assert: lighthouseConfig.ci.assert,
       upload: { target: "filesystem", outputDir: join(workDir, "lhci-report") },
