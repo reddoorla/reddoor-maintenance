@@ -561,3 +561,17 @@ describe("renderCockpitHtml — auto-fix-exhausted vuln", () => {
     expect(html).toContain('data-filter="auto-fix-failed"');
   });
 });
+
+describe("renderCockpitHtml — Trigger Renovate button", () => {
+  it("shows a Trigger Renovate button only for repo-backed sites", () => {
+    const html = renderCockpitHtml(
+      model([
+        siteRow({ name: "Has Repo", gitRepo: "reddoorla/hasrepo" }),
+        siteRow({ name: "No Repo", gitRepo: null }),
+      ]),
+    );
+    expect(html).toContain('data-trigger-url="/api/sites/has-repo/trigger-renovate"');
+    expect(html).not.toContain("/api/sites/no-repo/trigger-renovate");
+    expect(html).toContain("Trigger Renovate");
+  });
+});

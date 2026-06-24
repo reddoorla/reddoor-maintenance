@@ -255,8 +255,11 @@ function siteDetailsSection(site: WebsiteRow): string {
     detailRow("Git repo", site.gitRepo),
     detailRow("Last commit", lastCommit),
   ].join("");
+  const triggerBtn = site.gitRepo?.trim()
+    ? `<button class="trigger-renovate" data-trigger-url="/api/sites/${escapeHtml(siteSlug(site.name))}/trigger-renovate">Trigger Renovate</button>`
+    : "";
   return `<div class="section site-details">
-    <h2>Site details</h2>
+    <h2>Site details ${triggerBtn}</h2>
     <dl class="details">${rows}</dl>
   </div>`;
 }
@@ -419,6 +422,21 @@ export function renderSiteDashboardHtml(
         } catch {
           // Network rejection (offline, DNS, abort): mirror the !res.ok path so
           // the button doesn't sit permanently disabled reading "Approve".
+          b.textContent = "Failed";
+          b.disabled = false;
+        }
+      });
+    });
+    // Trigger-renovate button: async on-demand dispatch (mirrors the cockpit).
+    document.querySelectorAll("button.trigger-renovate").forEach((b) => {
+      b.addEventListener("click", async () => {
+        b.disabled = true;
+        b.textContent = "Dispatching…";
+        try {
+          const res = await fetch(b.dataset.triggerUrl, { method: "POST" });
+          b.textContent = res.ok ? "Dispatched ✓" : "Failed";
+          if (!res.ok) b.disabled = false;
+        } catch {
           b.textContent = "Failed";
           b.disabled = false;
         }

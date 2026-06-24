@@ -302,10 +302,18 @@ function signalsAttr(c: SiteCard): string {
   return [...kinds].join(" ");
 }
 
+/** On-demand Renovate trigger button — only for repo-backed sites (nothing to
+ *  dispatch otherwise). Posts to the authed /api/sites/:slug/trigger-renovate. */
+function triggerRenovateBtn(c: SiteCard): string {
+  if (!c.site.gitRepo?.trim()) return "";
+  const url = `/api/sites/${escapeHtml(siteSlug(c.site.name))}/trigger-renovate`;
+  return `<button class="trigger-renovate" data-trigger-url="${url}">Trigger Renovate</button>`;
+}
+
 function cockpitCard(c: SiteCard): string {
   const base = card(c.site); // existing header + metrics markup
   const pill = `<span class="pill ${c.tier}">${PILL_LABEL[c.tier]}</span>`;
-  const extra = `${pill}${chips(c)}${submBadge(c)}`;
+  const extra = `${pill}${chips(c)}${submBadge(c)}${triggerRenovateBtn(c)}`;
   const opening = `<article class="card" data-signals="${signalsAttr(c)}">`;
   // Inject the pill + chips before the article's closing tag, and add the filter
   // hook. Function replacers so a `$` in escaped chip text can't be read as a
@@ -341,6 +349,16 @@ const FILTER_SCRIPT = `<script>
       b.disabled = true; b.textContent = 'Approving…';
       try { var res = await fetch(b.dataset.approveUrl, { method: 'POST' });
         b.textContent = res.ok ? 'Approved ✓' : 'Failed'; }
+      catch(e){ b.textContent = 'Failed'; b.disabled = false; }
+    });
+  });
+  // trigger-renovate buttons: fire the on-demand dispatch (async, fire-and-forget).
+  document.querySelectorAll('button.trigger-renovate').forEach(function(b){
+    b.addEventListener('click', async function(){
+      b.disabled = true; b.textContent = 'Dispatching…';
+      try { var res = await fetch(b.dataset.triggerUrl, { method: 'POST' });
+        b.textContent = res.ok ? 'Dispatched ✓' : 'Failed';
+        if (!res.ok) b.disabled = false; }
       catch(e){ b.textContent = 'Failed'; b.disabled = false; }
     });
   });

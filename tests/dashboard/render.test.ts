@@ -995,3 +995,18 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
     expect(tbody).toContain("rep_hist_1");
   });
 });
+
+describe("renderSiteDashboardHtml — Trigger Renovate button", () => {
+  it("renders a Trigger Renovate button for a repo-backed site", () => {
+    const html = renderSiteDashboardHtml(siteRow({ name: "Acme", gitRepo: "reddoorla/acme" }), []);
+    expect(html).toContain('data-trigger-url="/api/sites/acme/trigger-renovate"');
+    expect(html).toContain("Trigger Renovate");
+  });
+
+  it("omits the Trigger Renovate button when the site has no repo", () => {
+    const html = renderSiteDashboardHtml(siteRow({ name: "Acme", gitRepo: null }), []);
+    // the page script always references the selector; assert the BUTTON is absent
+    expect(html).not.toContain("data-trigger-url");
+    expect(html).not.toContain(">Trigger Renovate<");
+  });
+});
