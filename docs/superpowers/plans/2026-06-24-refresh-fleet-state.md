@@ -13,6 +13,7 @@
 ### Task 1: Pure core — `refreshFleetState`
 
 **Files:**
+
 - Create: `src/dashboard/refresh-fleet.ts`
 - Test: `tests/dashboard/refresh-fleet.test.ts`
 
@@ -83,10 +84,7 @@ Expected: FAIL — `Cannot find module '../../src/dashboard/refresh-fleet.js'`
  *  - fleet-lighthouse.yml → Lighthouse, domain/browser/links + indexed auto-checks,
  *                           AND the github-signals sweep (runs as a step inside it)
  */
-export const FLEET_REFRESH_WORKFLOWS = [
-  "fleet-security.yml",
-  "fleet-lighthouse.yml",
-] as const;
+export const FLEET_REFRESH_WORKFLOWS = ["fleet-security.yml", "fleet-lighthouse.yml"] as const;
 
 export type RefreshFleetDeps = {
   /** Dispatch one workflow file (on the central repo's default branch). Throws on failure. */
@@ -134,6 +132,7 @@ git commit -m "feat(dashboard): refreshFleetState pure core (dispatch both fleet
 ### Task 2: Barrel export
 
 **Files:**
+
 - Modify: `src/dashboard/index.ts` (after the trigger-renovate exports, ~line 11)
 
 - [ ] **Step 1: Add the export**
@@ -160,6 +159,7 @@ git commit -m "feat(dashboard): export refreshFleetState from the dashboard barr
 ### Task 3: Endpoint — `netlify/functions/refresh-fleet.mts`
 
 **Files:**
+
 - Create: `netlify/functions/refresh-fleet.mts` (model on `netlify/functions/trigger-renovate.mts`)
 
 - [ ] **Step 1: Write the handler**
@@ -262,6 +262,7 @@ git commit -m "feat(dashboard): POST /api/fleet/refresh endpoint (dispatch fleet
 ### Task 4: Cockpit button + handler + style + render test
 
 **Files:**
+
 - Modify: `src/dashboard/fleet-render.ts` — `summaryBar` (~line 185), `FILTER_SCRIPT` (~line 364), styles (~line 122)
 - Test: `tests/dashboard/fleet-render.test.ts`
 
@@ -288,7 +289,7 @@ Expected: FAIL — `expected '…' to contain 'class="refresh-fleet"'`
 In `src/dashboard/fleet-render.ts`, change the `summaryBar` return so the filters line is followed by a fleet-actions row:
 
 ```ts
-  return `<div class="summary">
+return `<div class="summary">
       <span class="tier">🔴 ${s.attention} needs attention</span>
       <span class="tier">🟡 ${s.watch} watch</span>
       <span class="tier">🟢 ${s.healthy} healthy</span>
@@ -305,16 +306,26 @@ In `src/dashboard/fleet-render.ts`, change the `summaryBar` return so the filter
 Insert this block immediately before the closing `})();` of `FILTER_SCRIPT`:
 
 ```js
-  // refresh-fleet button: confirm (heavy fleet-wide run) then dispatch both sweeps.
-  var rf = document.querySelector('button.refresh-fleet');
-  if (rf) rf.addEventListener('click', async function(){
-    if (!confirm('Kick off the security + Lighthouse sweeps for the whole fleet? They take a few minutes.')) return;
-    rf.disabled = true; rf.textContent = 'Refreshing…';
+// refresh-fleet button: confirm (heavy fleet-wide run) then dispatch both sweeps.
+var rf = document.querySelector("button.refresh-fleet");
+if (rf)
+  rf.addEventListener("click", async function () {
+    if (
+      !confirm(
+        "Kick off the security + Lighthouse sweeps for the whole fleet? They take a few minutes.",
+      )
+    )
+      return;
+    rf.disabled = true;
+    rf.textContent = "Refreshing…";
     try {
-      var res = await fetch(rf.dataset.refreshUrl, { method: 'POST' });
-      rf.textContent = res.ok ? '↻ Refresh started — updates in a few min' : 'Failed to start';
+      var res = await fetch(rf.dataset.refreshUrl, { method: "POST" });
+      rf.textContent = res.ok ? "↻ Refresh started — updates in a few min" : "Failed to start";
       if (!res.ok) rf.disabled = false;
-    } catch(e){ rf.textContent = 'Failed to start'; rf.disabled = false; }
+    } catch (e) {
+      rf.textContent = "Failed to start";
+      rf.disabled = false;
+    }
   });
 ```
 
@@ -346,6 +357,7 @@ git commit -m "feat(dashboard): Refresh fleet state button on the cockpit header
 ### Task 5: Changeset + full gate
 
 **Files:**
+
 - Create: `.changeset/refresh-fleet-state.md`
 
 - [ ] **Step 1: Write the changeset**
@@ -385,6 +397,7 @@ git commit -m "chore: changeset for refresh fleet state"
 ## Self-Review
 
 **1. Spec coverage:**
+
 - Pure core `refresh-fleet.ts` + independent dispatch + partial result → Task 1. ✓
 - Barrel export → Task 2. ✓
 - Endpoint `POST /api/fleet/refresh` + gate chain + central-repo constant/env + 502-on-all-failed → Task 3. ✓

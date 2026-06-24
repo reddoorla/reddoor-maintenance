@@ -88,7 +88,7 @@ A single **"↻ Refresh fleet state"** button in the cockpit header (alongside t
 chips), rendered fleet-level (NOT per-site). Behavior in the cockpit's inline script:
 
 1. On click → `confirm("Kick off the security + Lighthouse sweeps for the whole fleet? They
-   take a few minutes.")` — these are heavy fleet-wide runs; a misclick is expensive (the
+take a few minutes.")` — these are heavy fleet-wide runs; a misclick is expensive (the
    per-site Trigger Renovate has no confirm, but it's cheap and idempotent; this is not).
 2. `fetch("/api/fleet/refresh", { method: "POST" })` (same-origin; Basic-auth creds replay).
 3. Transient button status: success → **✓ "Refresh started — vulns & scores update in a few
@@ -117,7 +117,7 @@ sweeps write to Airtable/Turso → operator reloads cockpit later → refreshed 
   `failed=[]`; one throws → partial (`dispatched=[one]`, `failed=[other]`); both throw →
   `failed=[both]`, `dispatched=[]`; dispatch is called once per workflow with the right names.
 - **Render** (`tests/dashboard/fleet-render.test.ts`): cockpit HTML contains the refresh button
-  + its POST target `/api/fleet/refresh`; the inline script wires it.
+  - its POST target `/api/fleet/refresh`; the inline script wires it.
 - `.mts` handler covered by `tsc -p tsconfig.netlify.json` + `test:dist` import-resolution
   ("refresh-fleet.mts resolves all its src/ imports").
 
