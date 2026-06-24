@@ -5,9 +5,9 @@
 
 ## Goal
 
-Make the operator dashboard *act* on a site, not just report it. Two independent, separable capabilities sharing the same auth/endpoint plumbing:
+Make the operator dashboard _act_ on a site, not just report it. Two independent, separable capabilities sharing the same auth/endpoint plumbing:
 
-- **A. Trigger Renovate** — a button (on each repo-backed site's cockpit card *and* its `/s/<slug>` page) that dispatches that repo's `renovate.yml` on demand. The async "kick off the real fix" model already chosen for the fix/resolve direction.
+- **A. Trigger Renovate** — a button (on each repo-backed site's cockpit card _and_ its `/s/<slug>` page) that dispatches that repo's `renovate.yml` on demand. The async "kick off the real fix" model already chosen for the fix/resolve direction.
 - **B. Edit site details** — make the existing "Site details" section on `/s/<slug>` inline-editable for a safe-text + operational field set, writing straight to the Airtable Websites row.
 
 These are **two implementation plans** (A touches GitHub/request-path dispatch; B touches Airtable writes). They share the authed-write pattern below.
@@ -83,25 +83,32 @@ A typed allowlist mapping each editable key to its **exact** Airtable column (no
 
 ```ts
 export const SITE_STATUS_OPTIONS = [
-  "in development", "launch period", "maintenance", "hosting",
-  "probably not our problem", "deprecated",
+  "in development",
+  "launch period",
+  "maintenance",
+  "hosting",
+  "probably not our problem",
+  "deprecated",
 ] as const; // = the code Status type
 export const FREQ_OPTIONS = ["None", "Monthly", "Quarterly", "Yearly"] as const;
 
 type FieldKind = "text" | "email" | "emails" | "enum" | "gitrepo";
-export const EDITABLE_SITE_FIELDS: Record<string, { column: string; kind: FieldKind; options?: readonly string[] }> = {
-  pointOfContact:     { column: "point of contact",        kind: "email" },
-  reportRecipientsTo: { column: "Report recipients (To)",  kind: "emails" },
-  reportRecipientsCc: { column: "Report recipients (CC)",  kind: "emails" },
-  copyIntro:          { column: "Copy — Intro",            kind: "text" },   // em-dash
-  copyContact:        { column: "Copy — Contact",          kind: "text" },
-  copyFooter:         { column: "Copy — Footer",           kind: "text" },
-  searchQuery:        { column: "Search query",            kind: "text" },
-  ga4PropertyId:      { column: "GA4 property ID",          kind: "text" },
-  gitRepo:            { column: "Git repo",                kind: "gitrepo" },
-  status:             { column: "Status",                  kind: "enum", options: SITE_STATUS_OPTIONS },
-  maintenanceFreq:    { column: "maintenence freq",        kind: "enum", options: FREQ_OPTIONS }, // misspelled in Airtable
-  testingFreq:        { column: "testing freq",            kind: "enum", options: FREQ_OPTIONS },
+export const EDITABLE_SITE_FIELDS: Record<
+  string,
+  { column: string; kind: FieldKind; options?: readonly string[] }
+> = {
+  pointOfContact: { column: "point of contact", kind: "email" },
+  reportRecipientsTo: { column: "Report recipients (To)", kind: "emails" },
+  reportRecipientsCc: { column: "Report recipients (CC)", kind: "emails" },
+  copyIntro: { column: "Copy — Intro", kind: "text" }, // em-dash
+  copyContact: { column: "Copy — Contact", kind: "text" },
+  copyFooter: { column: "Copy — Footer", kind: "text" },
+  searchQuery: { column: "Search query", kind: "text" },
+  ga4PropertyId: { column: "GA4 property ID", kind: "text" },
+  gitRepo: { column: "Git repo", kind: "gitrepo" },
+  status: { column: "Status", kind: "enum", options: SITE_STATUS_OPTIONS },
+  maintenanceFreq: { column: "maintenence freq", kind: "enum", options: FREQ_OPTIONS }, // misspelled in Airtable
+  testingFreq: { column: "testing freq", kind: "enum", options: FREQ_OPTIONS },
 };
 
 export type SiteDetailDeps = {
@@ -114,12 +121,13 @@ export type SiteDetailResult =
   | { status: "invalid"; slug: string; field: string; reason: string }
   | { status: "not-found"; slug: string };
 
-export async function setSiteDetail(deps, slug, field, rawValue): Promise<SiteDetailResult>
+export async function setSiteDetail(deps, slug, field, rawValue): Promise<SiteDetailResult>;
 ```
 
 `setSiteDetail` logic: (1) `entry = EDITABLE_SITE_FIELDS[field]`; missing → `bad-field` (**before any read** — a hand-crafted authed POST can never write an arbitrary column). (2) **validate/normalize** `rawValue` per `entry.kind` → on failure `invalid` (no write). (3) `getSite(slug)`; null → `not-found`. (4) `updateField(site.id, entry.column, normalized)`. (5) `updated`.
 
 **Validators** (`normalizeFieldValue(kind, raw, options)`):
+
 - `enum` — must be exactly one of `options` (no empty); else invalid.
 - `email` — trim; empty allowed (clears); else must match a simple email regex.
 - `emails` — split on commas/newlines, trim each, drop blanks; each must be email-shaped; re-joined with `, `; empty allowed.
@@ -132,7 +140,12 @@ export async function setSiteDetail(deps, slug, field, rawValue): Promise<SiteDe
 /** Generic single-field writer for the dashboard site-details editor. The CALLER
  *  (setSiteDetail) restricts `column` to the EDITABLE_SITE_FIELDS allowlist, so
  *  this never writes an arbitrary column from request input. */
-export async function updateSiteField(base: AirtableBase, recordId: string, column: string, value: string): Promise<void> {
+export async function updateSiteField(
+  base: AirtableBase,
+  recordId: string,
+  column: string,
+  value: string,
+): Promise<void> {
   await base(WEBSITES_TABLE).update([{ id: recordId, fields: { [column]: value } }]);
 }
 ```
@@ -144,6 +157,7 @@ export async function updateSiteField(base: AirtableBase, recordId: string, colu
 ### UI — `src/dashboard/render.ts`
 
 Replace the read-only `siteDetailsSection` (`render.ts:245`) with an **editable** version: each allowlisted field renders a control with `data-detail-field="<key>"` + `data-details-url="/api/sites/<slug>/details"`:
+
 - `enum` (Status, Maintenance/Testing cadence) → `<select>` of its options, current value selected.
 - `email` / `text` short (POC, Search query, GA4, Git repo, recipients) → `<input>`.
 - `text` long (Copy Intro/Contact/Footer) → `<textarea>`.

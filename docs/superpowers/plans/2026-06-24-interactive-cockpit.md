@@ -14,16 +14,16 @@
 
 ## File Structure
 
-| File | Responsibility | Change |
-| --- | --- | --- |
-| `src/dashboard/trigger-renovate.ts` | Pure dispatch core (A) | Create |
-| `netlify/functions/trigger-renovate.mts` | Authed endpoint (A) | Create |
-| `src/dashboard/site-details.ts` | Editable allowlist + validators + pure setter (B) | Create |
-| `netlify/functions/site-details.mts` | Authed endpoint (B) | Create |
-| `src/reports/airtable/websites.ts` | `updateSiteField` writer (B) | Modify |
-| `src/dashboard/fleet-render.ts` | Trigger button on cockpit cards + script (A) | Modify |
-| `src/dashboard/render.ts` | Trigger button + editable site-details + page script (A+B) | Modify |
-| `src/dashboard/index.ts` | Barrel exports | Modify |
+| File                                     | Responsibility                                             | Change |
+| ---------------------------------------- | ---------------------------------------------------------- | ------ |
+| `src/dashboard/trigger-renovate.ts`      | Pure dispatch core (A)                                     | Create |
+| `netlify/functions/trigger-renovate.mts` | Authed endpoint (A)                                        | Create |
+| `src/dashboard/site-details.ts`          | Editable allowlist + validators + pure setter (B)          | Create |
+| `netlify/functions/site-details.mts`     | Authed endpoint (B)                                        | Create |
+| `src/reports/airtable/websites.ts`       | `updateSiteField` writer (B)                               | Modify |
+| `src/dashboard/fleet-render.ts`          | Trigger button on cockpit cards + script (A)               | Modify |
+| `src/dashboard/render.ts`                | Trigger button + editable site-details + page script (A+B) | Modify |
+| `src/dashboard/index.ts`                 | Barrel exports                                             | Modify |
 
 Note: `.mts` handlers are runtime-bound (no unit test) — they're covered by `pnpm test:dist` (which asserts each handler resolves its `src/` imports) + `pnpm typecheck` (includes `.mts` via `tsconfig.netlify.json`). All logic lives in the unit-tested pure cores.
 
@@ -34,6 +34,7 @@ Note: `.mts` handlers are runtime-bound (no unit test) — they're covered by `p
 ## Task A1: Pure dispatch core
 
 **Files:**
+
 - Create: `src/dashboard/trigger-renovate.ts`
 - Test: `tests/dashboard/trigger-renovate.test.ts`
 
@@ -57,7 +58,14 @@ function deps(over: Partial<Parameters<typeof triggerRenovateForSite>[0]> = {}) 
 describe("triggerRenovateForSite", () => {
   it("dispatches for a repo-backed site and returns the repo", async () => {
     const calls: string[] = [];
-    const r = await triggerRenovateForSite(deps({ dispatch: async (repo) => { calls.push(repo); } }), "acme");
+    const r = await triggerRenovateForSite(
+      deps({
+        dispatch: async (repo) => {
+          calls.push(repo);
+        },
+      }),
+      "acme",
+    );
     expect(r).toEqual({ status: "dispatched", slug: "acme", repo: "reddoorla/acme" });
     expect(calls).toEqual(["reddoorla/acme"]);
   });
@@ -77,10 +85,19 @@ describe("triggerRenovateForSite", () => {
 
   it("returns failed (never throws) when dispatch throws", async () => {
     const r = await triggerRenovateForSite(
-      deps({ dispatch: async () => { throw new Error("403 no actions:write"); } }),
+      deps({
+        dispatch: async () => {
+          throw new Error("403 no actions:write");
+        },
+      }),
       "acme",
     );
-    expect(r).toEqual({ status: "failed", slug: "acme", repo: "reddoorla/acme", error: "403 no actions:write" });
+    expect(r).toEqual({
+      status: "failed",
+      slug: "acme",
+      repo: "reddoorla/acme",
+      error: "403 no actions:write",
+    });
   });
 
   it("trims the repo before dispatching", async () => {
@@ -88,7 +105,9 @@ describe("triggerRenovateForSite", () => {
     await triggerRenovateForSite(
       deps({
         getSite: async () => makeWebsiteRow({ id: "r", name: "X", gitRepo: " reddoorla/x " }),
-        dispatch: async (repo) => { calls.push(repo); },
+        dispatch: async (repo) => {
+          calls.push(repo);
+        },
       }),
       "x",
     );
@@ -159,6 +178,7 @@ git commit -m "feat(dashboard): triggerRenovateForSite pure core"
 ## Task A2: Endpoint + barrel export
 
 **Files:**
+
 - Create: `netlify/functions/trigger-renovate.mts`
 - Modify: `src/dashboard/index.ts`
 
@@ -199,17 +219,21 @@ function json(body: unknown, status: number, extra: Record<string, string> = {})
 
 export default async (req: Request, ctx: Context): Promise<Response> => {
   if (req.method === "GET") {
-    return Response.json({
-      status: "ok",
-      service: "reddoor-trigger-renovate",
-      env: {
-        AIRTABLE_PAT: typeof process.env.AIRTABLE_PAT === "string",
-        AIRTABLE_BASE_ID: typeof process.env.AIRTABLE_BASE_ID === "string",
-        DASHBOARD_PASSWORD: typeof process.env.DASHBOARD_PASSWORD === "string",
-        RENOVATE_TOKEN:
-          typeof process.env.RENOVATE_TOKEN === "string" || typeof process.env.GH_TOKEN === "string",
+    return Response.json(
+      {
+        status: "ok",
+        service: "reddoor-trigger-renovate",
+        env: {
+          AIRTABLE_PAT: typeof process.env.AIRTABLE_PAT === "string",
+          AIRTABLE_BASE_ID: typeof process.env.AIRTABLE_BASE_ID === "string",
+          DASHBOARD_PASSWORD: typeof process.env.DASHBOARD_PASSWORD === "string",
+          RENOVATE_TOKEN:
+            typeof process.env.RENOVATE_TOKEN === "string" ||
+            typeof process.env.GH_TOKEN === "string",
+        },
       },
-    }, { status: 200 });
+      { status: 200 },
+    );
   }
   if (req.method !== "POST") return json({ ok: false, error: "method-not-allowed" }, 405);
   if (!isCsrfAllowed(req)) return json({ ok: false, error: "cross-site-rejected" }, 403);
@@ -217,7 +241,9 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   const password = process.env.DASHBOARD_PASSWORD;
   if (!password) return json({ ok: false, error: "unconfigured" }, 503);
   if (!verifyBasicAuth(req.headers.get("authorization"), password)) {
-    return json({ ok: false, error: "unauthorized" }, 401, { "www-authenticate": 'Basic realm="Reddoor fleet"' });
+    return json({ ok: false, error: "unauthorized" }, 401, {
+      "www-authenticate": 'Basic realm="Reddoor fleet"',
+    });
   }
 
   const token = process.env.RENOVATE_TOKEN?.trim() || process.env.GH_TOKEN?.trim();
@@ -245,7 +271,8 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     );
     if (result.status === "not-found") return json({ ok: false, error: "not-found" }, 404);
     if (result.status === "no-repo") return json({ ok: false, error: "no-repo" }, 400);
-    if (result.status === "failed") return json({ ok: false, error: "dispatch-failed", detail: result.error }, 502);
+    if (result.status === "failed")
+      return json({ ok: false, error: "dispatch-failed", detail: result.error }, 502);
     return json({ ok: true, repo: result.repo }, 200);
   } catch (err) {
     return handlerError("trigger-renovate", err);
@@ -265,6 +292,7 @@ git commit -m "feat(dashboard): authed /api/sites/:slug/trigger-renovate endpoin
 ## Task A3: Trigger button UI (cockpit card + per-site page)
 
 **Files:**
+
 - Modify: `src/dashboard/fleet-render.ts` (cockpitCard ~297, FILTER_SCRIPT ~310)
 - Modify: `src/dashboard/render.ts` (siteDetailsSection area + page script ~410)
 - Test: `tests/dashboard/fleet-render.test.ts`, `tests/dashboard/render.test.ts`
@@ -298,6 +326,7 @@ it("renders a Trigger Renovate button for a repo-backed site", () => {
   expect(html).toContain("Trigger Renovate");
 });
 ```
+
 > Use whatever helper `render.test.ts` already has to invoke `renderSiteDashboardHtml` (it passes a `WebsiteRow` + reports/submissions/now). Name it to match; do not invent `renderForSite` if a different harness exists.
 
 - [ ] **Step 2: Run — expect FAIL**
@@ -318,30 +347,36 @@ function triggerRenovateBtn(c: SiteCard): string {
 Add `siteSlug` to the import from `websites.js` at the top of fleet-render.ts if not already imported. Then in `cockpitCard`, change the `extra` line to append it:
 
 ```ts
-  const extra = `${pill}${chips(c)}${submBadge(c)}${triggerRenovateBtn(c)}`;
+const extra = `${pill}${chips(c)}${submBadge(c)}${triggerRenovateBtn(c)}`;
 ```
 
 - [ ] **Step 4: Cockpit script handler** — in `FILTER_SCRIPT`, after the `button.approve` handler block, add:
 
 ```js
-  document.querySelectorAll('button.trigger-renovate').forEach(function(b){
-    b.addEventListener('click', async function(){
-      b.disabled = true; b.textContent = 'Dispatching…';
-      try { var res = await fetch(b.dataset.triggerUrl, { method: 'POST' });
-        b.textContent = res.ok ? 'Dispatched ✓' : 'Failed';
-        if (!res.ok) b.disabled = false;
-      } catch(e){ b.textContent = 'Failed'; b.disabled = false; }
-    });
+document.querySelectorAll("button.trigger-renovate").forEach(function (b) {
+  b.addEventListener("click", async function () {
+    b.disabled = true;
+    b.textContent = "Dispatching…";
+    try {
+      var res = await fetch(b.dataset.triggerUrl, { method: "POST" });
+      b.textContent = res.ok ? "Dispatched ✓" : "Failed";
+      if (!res.ok) b.disabled = false;
+    } catch (e) {
+      b.textContent = "Failed";
+      b.disabled = false;
+    }
   });
+});
 ```
 
 - [ ] **Step 5: Per-site page button + handler** — in `src/dashboard/render.ts`: add the button inside `siteDetailsSection` (or just above it) for repo-backed sites:
 
 ```ts
-  const triggerBtn = site.gitRepo?.trim()
-    ? `<button class="trigger-renovate" data-trigger-url="/api/sites/${escapeHtml(siteSlug(site.name))}/trigger-renovate">Trigger Renovate</button>`
-    : "";
+const triggerBtn = site.gitRepo?.trim()
+  ? `<button class="trigger-renovate" data-trigger-url="/api/sites/${escapeHtml(siteSlug(site.name))}/trigger-renovate">Trigger Renovate</button>`
+  : "";
 ```
+
 Render `${triggerBtn}` within the site-details `<div class="section site-details">` heading area. Then in the page `<script>`, after the `button.approve` handler, add the same `button.trigger-renovate` handler as Step 4 (plain-JS, already inside a `<script>`).
 
 - [ ] **Step 6: Run — expect PASS**
@@ -362,6 +397,7 @@ git commit -m "feat(dashboard): Trigger Renovate button on cockpit cards + per-s
 ## Task B1: Allowlist + validators + pure setter
 
 **Files:**
+
 - Create: `src/dashboard/site-details.ts`
 - Test: `tests/dashboard/site-details.test.ts`
 
@@ -379,7 +415,9 @@ function deps(over: Partial<Parameters<typeof setSiteDetail>[0]> = {}) {
   return {
     d: {
       getSite: async () => makeWebsiteRow({ id: "recA", name: "Acme" }),
-      updateField: async (id: string, column: string, value: string) => { writes.push({ id, column, value }); },
+      updateField: async (id: string, column: string, value: string) => {
+        writes.push({ id, column, value });
+      },
       ...over,
     },
     writes,
@@ -390,8 +428,16 @@ describe("setSiteDetail", () => {
   it("rejects an unknown field BEFORE any read (bad-field)", async () => {
     let read = false;
     const r = await setSiteDetail(
-      { getSite: async () => { read = true; return makeWebsiteRow({ id: "r", name: "X" }); }, updateField: async () => {} },
-      "acme", "DNS password", "hax",
+      {
+        getSite: async () => {
+          read = true;
+          return makeWebsiteRow({ id: "r", name: "X" });
+        },
+        updateField: async () => {},
+      },
+      "acme",
+      "DNS password",
+      "hax",
     );
     expect(r.status).toBe("bad-field");
     expect(read).toBe(false);
@@ -419,7 +465,9 @@ describe("setSiteDetail", () => {
 
   it("validates an email field and rejects a malformed address", async () => {
     const { d, writes } = deps();
-    expect((await setSiteDetail(d, "acme", "pointOfContact", "not-an-email")).status).toBe("invalid");
+    expect((await setSiteDetail(d, "acme", "pointOfContact", "not-an-email")).status).toBe(
+      "invalid",
+    );
     expect(writes).toEqual([]);
     expect((await setSiteDetail(d, "acme", "pointOfContact", "a@b.com")).status).toBe("updated");
   });
@@ -427,8 +475,14 @@ describe("setSiteDetail", () => {
   it("normalizes an emails list (split, trim, rejoin) and rejects a bad member", async () => {
     const { d, writes } = deps();
     await setSiteDetail(d, "acme", "reportRecipientsTo", "a@b.com,\n c@d.com ");
-    expect(writes[0]).toEqual({ id: "recA", column: "Report recipients (To)", value: "a@b.com, c@d.com" });
-    expect((await setSiteDetail(d, "acme", "reportRecipientsTo", "a@b.com, nope")).status).toBe("invalid");
+    expect(writes[0]).toEqual({
+      id: "recA",
+      column: "Report recipients (To)",
+      value: "a@b.com, c@d.com",
+    });
+    expect((await setSiteDetail(d, "acme", "reportRecipientsTo", "a@b.com, nope")).status).toBe(
+      "invalid",
+    );
   });
 
   it("validates a git repo shape (owner/repo)", async () => {
@@ -444,7 +498,12 @@ describe("setSiteDetail", () => {
   });
 
   it("returns not-found when the slug resolves to no site", async () => {
-    const r = await setSiteDetail({ getSite: async () => null, updateField: async () => {} }, "ghost", "status", "hosting");
+    const r = await setSiteDetail(
+      { getSite: async () => null, updateField: async () => {} },
+      "ghost",
+      "status",
+      "hosting",
+    );
     expect(r.status).toBe("not-found");
   });
 
@@ -468,28 +527,38 @@ Create `src/dashboard/site-details.ts`:
 import type { WebsiteRow } from "../reports/airtable/websites.js";
 
 export const SITE_STATUS_OPTIONS = [
-  "in development", "launch period", "maintenance", "hosting", "probably not our problem", "deprecated",
+  "in development",
+  "launch period",
+  "maintenance",
+  "hosting",
+  "probably not our problem",
+  "deprecated",
 ] as const;
 export const FREQ_OPTIONS = ["None", "Monthly", "Quarterly", "Yearly"] as const;
 
 type FieldKind = "text" | "email" | "emails" | "enum" | "gitrepo";
-export type EditableField = { column: string; kind: FieldKind; options?: readonly string[]; maxLen?: number };
+export type EditableField = {
+  column: string;
+  kind: FieldKind;
+  options?: readonly string[];
+  maxLen?: number;
+};
 
 /** The ONLY columns the dashboard editor may write. `column` is the EXACT Airtable
  *  field name (note the lowercase/misspelled ones), kept in lockstep with mapRow. */
 export const EDITABLE_SITE_FIELDS: Record<string, EditableField> = {
-  pointOfContact:     { column: "point of contact",       kind: "email" },
+  pointOfContact: { column: "point of contact", kind: "email" },
   reportRecipientsTo: { column: "Report recipients (To)", kind: "emails" },
   reportRecipientsCc: { column: "Report recipients (CC)", kind: "emails" },
-  copyIntro:          { column: "Copy — Intro",           kind: "text", maxLen: 2000 },
-  copyContact:        { column: "Copy — Contact",         kind: "text", maxLen: 2000 },
-  copyFooter:         { column: "Copy — Footer",          kind: "text", maxLen: 2000 },
-  searchQuery:        { column: "Search query",           kind: "text", maxLen: 500 },
-  ga4PropertyId:      { column: "GA4 property ID",        kind: "text", maxLen: 500 },
-  gitRepo:            { column: "Git repo",               kind: "gitrepo" },
-  status:             { column: "Status",                 kind: "enum", options: SITE_STATUS_OPTIONS },
-  maintenanceFreq:    { column: "maintenence freq",       kind: "enum", options: FREQ_OPTIONS },
-  testingFreq:        { column: "testing freq",           kind: "enum", options: FREQ_OPTIONS },
+  copyIntro: { column: "Copy — Intro", kind: "text", maxLen: 2000 },
+  copyContact: { column: "Copy — Contact", kind: "text", maxLen: 2000 },
+  copyFooter: { column: "Copy — Footer", kind: "text", maxLen: 2000 },
+  searchQuery: { column: "Search query", kind: "text", maxLen: 500 },
+  ga4PropertyId: { column: "GA4 property ID", kind: "text", maxLen: 500 },
+  gitRepo: { column: "Git repo", kind: "gitrepo" },
+  status: { column: "Status", kind: "enum", options: SITE_STATUS_OPTIONS },
+  maintenanceFreq: { column: "maintenence freq", kind: "enum", options: FREQ_OPTIONS },
+  testingFreq: { column: "testing freq", kind: "enum", options: FREQ_OPTIONS },
 };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -506,7 +575,10 @@ export function normalizeFieldValue(f: EditableField, raw: string): string | nul
       return v === "" ? "" : EMAIL_RE.test(v) ? v : null;
     case "emails": {
       if (v === "") return "";
-      const parts = v.split(/[,\n]/).map((s) => s.trim()).filter((s) => s.length > 0);
+      const parts = v
+        .split(/[,\n]/)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
       return parts.every((p) => EMAIL_RE.test(p)) ? parts.join(", ") : null;
     }
     case "gitrepo":
@@ -562,6 +634,7 @@ git commit -m "feat(dashboard): site-details editable allowlist + validators + s
 ## Task B2: Airtable writer
 
 **Files:**
+
 - Modify: `src/reports/airtable/websites.ts` (after `updateAutoFixAttempts`)
 - Test: `tests/reports/airtable/update-site-field.test.ts`
 
@@ -589,7 +662,9 @@ describe("updateSiteField", () => {
   it("writes the given column/value to the Websites row", async () => {
     const { base, calls } = makeFakeBase();
     await updateSiteField(base, "recX", "point of contact", "a@b.com");
-    expect(calls).toEqual([{ table: "Websites", id: "recX", fields: { "point of contact": "a@b.com" } }]);
+    expect(calls).toEqual([
+      { table: "Websites", id: "recX", fields: { "point of contact": "a@b.com" } },
+    ]);
   });
 });
 ```
@@ -624,13 +699,19 @@ git commit -m "feat(airtable): updateSiteField generic single-column writer"
 ## Task B3: Endpoint + barrel export
 
 **Files:**
+
 - Create: `netlify/functions/site-details.mts`
 - Modify: `src/dashboard/index.ts`
 
 - [ ] **Step 1: Barrel export** — in `src/dashboard/index.ts`:
 
 ```ts
-export { setSiteDetail, EDITABLE_SITE_FIELDS, SITE_STATUS_OPTIONS, FREQ_OPTIONS } from "./site-details.js";
+export {
+  setSiteDetail,
+  EDITABLE_SITE_FIELDS,
+  SITE_STATUS_OPTIONS,
+  FREQ_OPTIONS,
+} from "./site-details.js";
 export type { SiteDetailDeps, SiteDetailResult } from "./site-details.js";
 ```
 
@@ -651,20 +732,25 @@ export const config: Config = {
 
 function json(body: unknown, status: number, extra: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
-    status, headers: { "content-type": "application/json; charset=utf-8", ...extra },
+    status,
+    headers: { "content-type": "application/json; charset=utf-8", ...extra },
   });
 }
 
 export default async (req: Request, ctx: Context): Promise<Response> => {
   if (req.method === "GET") {
-    return Response.json({
-      status: "ok", service: "reddoor-site-details",
-      env: {
-        AIRTABLE_PAT: typeof process.env.AIRTABLE_PAT === "string",
-        AIRTABLE_BASE_ID: typeof process.env.AIRTABLE_BASE_ID === "string",
-        DASHBOARD_PASSWORD: typeof process.env.DASHBOARD_PASSWORD === "string",
+    return Response.json(
+      {
+        status: "ok",
+        service: "reddoor-site-details",
+        env: {
+          AIRTABLE_PAT: typeof process.env.AIRTABLE_PAT === "string",
+          AIRTABLE_BASE_ID: typeof process.env.AIRTABLE_BASE_ID === "string",
+          DASHBOARD_PASSWORD: typeof process.env.DASHBOARD_PASSWORD === "string",
+        },
       },
-    }, { status: 200 });
+      { status: 200 },
+    );
   }
   if (req.method !== "POST") return json({ ok: false, error: "method-not-allowed" }, 405);
   if (!isCsrfAllowed(req)) return json({ ok: false, error: "cross-site-rejected" }, 403);
@@ -672,7 +758,9 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   const password = process.env.DASHBOARD_PASSWORD;
   if (!password) return json({ ok: false, error: "unconfigured" }, 503);
   if (!verifyBasicAuth(req.headers.get("authorization"), password)) {
-    return json({ ok: false, error: "unauthorized" }, 401, { "www-authenticate": 'Basic realm="Reddoor fleet"' });
+    return json({ ok: false, error: "unauthorized" }, 401, {
+      "www-authenticate": 'Basic realm="Reddoor fleet"',
+    });
   }
   const apiKey = process.env.AIRTABLE_PAT;
   const baseId = process.env.AIRTABLE_BASE_ID;
@@ -682,7 +770,11 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   if (!slug) return json({ ok: false, error: "missing-slug" }, 400);
 
   let body: unknown;
-  try { body = await req.json(); } catch { return json({ ok: false, error: "invalid-json" }, 400); }
+  try {
+    body = await req.json();
+  } catch {
+    return json({ ok: false, error: "invalid-json" }, 400);
+  }
   const b = (body as { field?: unknown; value?: unknown } | null) ?? {};
   const field = typeof b.field === "string" ? b.field : "";
   const value = typeof b.value === "string" ? b.value : "";
@@ -690,8 +782,13 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   try {
     const base = openBase({ apiKey, baseId });
     const result = await setSiteDetail(
-      { getSite: (s) => getWebsiteBySlug(base, s), updateField: (id, col, val) => updateSiteField(base, id, col, val) },
-      slug, field, value,
+      {
+        getSite: (s) => getWebsiteBySlug(base, s),
+        updateField: (id, col, val) => updateSiteField(base, id, col, val),
+      },
+      slug,
+      field,
+      value,
     );
     if (result.status === "bad-field") return json({ ok: false, error: "bad-field" }, 400);
     if (result.status === "invalid") return json({ ok: false, error: "invalid", field }, 400);
@@ -715,6 +812,7 @@ git commit -m "feat(dashboard): authed /api/sites/:slug/details endpoint"
 ## Task B4: Editable site-details UI
 
 **Files:**
+
 - Modify: `src/dashboard/render.ts` (replace `siteDetailsSection` ~245 + page script ~410)
 - Test: `tests/dashboard/render.test.ts`
 
@@ -723,9 +821,13 @@ git commit -m "feat(dashboard): authed /api/sites/:slug/details endpoint"
 ```ts
 describe("renderSiteDashboardHtml — editable site details", () => {
   it("renders Status + cadence as selects and POC as an input, with the editor wiring", () => {
-    const html = renderForSite(makeWebsiteRow({ name: "Acme", status: "maintenance", pointOfContact: "a@b.com" }));
+    const html = renderForSite(
+      makeWebsiteRow({ name: "Acme", status: "maintenance", pointOfContact: "a@b.com" }),
+    );
     // a select for Status, current value selected
-    expect(html).toMatch(/<select[^>]*data-detail-field="status"[^>]*data-details-url="\/api\/sites\/acme\/details"/);
+    expect(html).toMatch(
+      /<select[^>]*data-detail-field="status"[^>]*data-details-url="\/api\/sites\/acme\/details"/,
+    );
     expect(html).toContain('<option value="maintenance" selected');
     // a text input for the email field carrying its current value
     expect(html).toMatch(/data-detail-field="pointOfContact"/);
@@ -743,6 +845,7 @@ import { EDITABLE_SITE_FIELDS, SITE_STATUS_OPTIONS, FREQ_OPTIONS } from "./site-
 ```
 
 Replace `siteDetailsSection` with a version that renders an editable control per field. For each field key, derive its current value from the matching `WebsiteRow` property, and render:
+
 - `enum` (status / maintenanceFreq / testingFreq) → `<select data-detail-field="KEY" data-details-url="/api/sites/SLUG/details">` with one `<option value="OPT"[ selected]>` per option (status uses `SITE_STATUS_OPTIONS`, freqs use `FREQ_OPTIONS`).
 - `text` long (copyIntro/Contact/Footer) → `<textarea data-detail-field="KEY" data-details-url="...">VALUE</textarea>`.
 - everything else (email/emails/gitrepo/short text) → `<input type="text" data-detail-field="KEY" data-details-url="..." value="ESCAPED_VALUE">`.
@@ -752,18 +855,32 @@ Use `siteSlug(site.name)` for SLUG and `escapeHtml` on every interpolated value.
 - [ ] **Step 4: Add the page script** — in the per-site `<script>`, after the checklist handler, add a save-on-change/blur handler:
 
 ```js
-    function saveDetail(el){
-      var span = document.querySelector('.detail-saved[data-for="' + el.dataset.detailField + '"]');
-      fetch(el.dataset.detailsUrl, {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ field: el.dataset.detailField, value: el.value }),
-      }).then(function(r){ if (span) span.textContent = r.ok ? ' ✓' : ' ✗'; })
-        .catch(function(){ if (span) span.textContent = ' ✗'; });
-    }
-    document.querySelectorAll('select[data-detail-field]').forEach(function(s){ s.addEventListener('change', function(){ saveDetail(s); }); });
-    document.querySelectorAll('input[data-detail-field], textarea[data-detail-field]').forEach(function(i){
-      i.addEventListener('blur', function(){ if (i.value !== i.defaultValue) saveDetail(i); });
+function saveDetail(el) {
+  var span = document.querySelector('.detail-saved[data-for="' + el.dataset.detailField + '"]');
+  fetch(el.dataset.detailsUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ field: el.dataset.detailField, value: el.value }),
+  })
+    .then(function (r) {
+      if (span) span.textContent = r.ok ? " ✓" : " ✗";
+    })
+    .catch(function () {
+      if (span) span.textContent = " ✗";
     });
+}
+document.querySelectorAll("select[data-detail-field]").forEach(function (s) {
+  s.addEventListener("change", function () {
+    saveDetail(s);
+  });
+});
+document
+  .querySelectorAll("input[data-detail-field], textarea[data-detail-field]")
+  .forEach(function (i) {
+    i.addEventListener("blur", function () {
+      if (i.value !== i.defaultValue) saveDetail(i);
+    });
+  });
 ```
 
 - [ ] **Step 5: Run — expect PASS.** Run: `pnpm vitest run tests/dashboard/render.test.ts`
@@ -780,6 +897,7 @@ git commit -m "feat(dashboard): inline-editable site details on the per-site pag
 ## Task B5: Changeset + full gate
 
 **Files:**
+
 - Create: `.changeset/interactive-cockpit.md`
 
 - [ ] **Step 1: Changeset**
@@ -808,6 +926,7 @@ pnpm test
 pnpm build
 pnpm test:dist
 ```
+
 All PASS. (`test:dist` confirms the two new `.mts` handlers resolve their `src/` imports.)
 
 - [ ] **Step 3: Commit**
