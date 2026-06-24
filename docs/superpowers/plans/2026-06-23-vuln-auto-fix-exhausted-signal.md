@@ -14,16 +14,16 @@
 
 ## File Structure
 
-| File | Responsibility | Change |
-| --- | --- | --- |
-| `src/reports/airtable/websites.ts` | `WebsiteRow` type, `mapRow`, per-field Airtable writers | Add `securityAutoFixAttempts` field + mapping + `updateAutoFixAttempts` writer |
-| `tests/_helpers/website-row.ts` | Shared `WebsiteRow` test factory | Add the new field's null default |
-| `src/github/renovate-dispatch.ts` | Renovate dispatch core (pure) | Add `computeAutoFixAttemptUpdates`, `applyAutoFixAttemptUpdates`, `formatAutoFixAttemptsSummary` |
-| `src/cli/commands/renovate-dispatch.ts` | The `--fleet` command (IO shell) | Wire the counter updates after dispatch, best-effort |
-| `src/alerts/attention.ts` | `AttentionItem` contract | Add optional `autoFixExhausted?: boolean` |
-| `src/alerts/digest-collectors.ts` | M5 attention collectors (pure) | `collectVulnAlerts` exhausted flavor + threshold constant |
-| `src/dashboard/fleet-cockpit.ts` | Cockpit model builder (pure) | `CockpitSummary.autoFixStuck` + tally |
-| `src/dashboard/fleet-render.ts` | Cockpit HTML renderer | `signalsAttr` token, `FILTERS` chip, `chips()` class + style, summary head |
+| File                                    | Responsibility                                          | Change                                                                                           |
+| --------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `src/reports/airtable/websites.ts`      | `WebsiteRow` type, `mapRow`, per-field Airtable writers | Add `securityAutoFixAttempts` field + mapping + `updateAutoFixAttempts` writer                   |
+| `tests/_helpers/website-row.ts`         | Shared `WebsiteRow` test factory                        | Add the new field's null default                                                                 |
+| `src/github/renovate-dispatch.ts`       | Renovate dispatch core (pure)                           | Add `computeAutoFixAttemptUpdates`, `applyAutoFixAttemptUpdates`, `formatAutoFixAttemptsSummary` |
+| `src/cli/commands/renovate-dispatch.ts` | The `--fleet` command (IO shell)                        | Wire the counter updates after dispatch, best-effort                                             |
+| `src/alerts/attention.ts`               | `AttentionItem` contract                                | Add optional `autoFixExhausted?: boolean`                                                        |
+| `src/alerts/digest-collectors.ts`       | M5 attention collectors (pure)                          | `collectVulnAlerts` exhausted flavor + threshold constant                                        |
+| `src/dashboard/fleet-cockpit.ts`        | Cockpit model builder (pure)                            | `CockpitSummary.autoFixStuck` + tally                                                            |
+| `src/dashboard/fleet-render.ts`         | Cockpit HTML renderer                                   | `signalsAttr` token, `FILTERS` chip, `chips()` class + style, summary head                       |
 
 Tests live beside each in the mirrored `tests/` path.
 
@@ -32,6 +32,7 @@ Tests live beside each in the mirrored `tests/` path.
 ## Task 1: Data model — counter field, mapping, writer
 
 **Files:**
+
 - Modify: `src/reports/airtable/websites.ts` (type near line 84, `mapRow` near line 236, add writer near line 506)
 - Modify: `tests/_helpers/website-row.ts:41-44`
 - Test: `tests/reports/airtable/websites-mapping.test.ts`, `tests/reports/airtable/update-auto-fix-attempts.test.ts` (create)
@@ -59,12 +60,12 @@ Expected: FAIL — `securityAutoFixAttempts` is `undefined` / not on the type.
 In `src/reports/airtable/websites.ts`, add to the `WebsiteRow` type right after `securityVulnsLow` (line 87):
 
 ```ts
-  /** Count of consecutive nightly Renovate auto-fix dispatches for the CURRENT
-   *  critical/high vuln episode that have NOT yet cleared it. Owned by
-   *  `renovate-dispatch`: +1 per real dispatch, reset to 0 when vulns clear.
-   *  Null = field absent / never dispatched → reads as 0. At/above
-   *  AUTO_FIX_EXHAUSTED_CYCLES the vuln renders as "auto-fix failed". */
-  securityAutoFixAttempts: number | null;
+/** Count of consecutive nightly Renovate auto-fix dispatches for the CURRENT
+ *  critical/high vuln episode that have NOT yet cleared it. Owned by
+ *  `renovate-dispatch`: +1 per real dispatch, reset to 0 when vulns clear.
+ *  Null = field absent / never dispatched → reads as 0. At/above
+ *  AUTO_FIX_EXHAUSTED_CYCLES the vuln renders as "auto-fix failed". */
+securityAutoFixAttempts: number | null;
 ```
 
 - [ ] **Step 4: Add the mapping**
@@ -163,6 +164,7 @@ git commit -m "feat(security): add securityAutoFixAttempts field, mapping, and w
 ## Task 2: Pure core — planner, applier, summary
 
 **Files:**
+
 - Modify: `src/github/renovate-dispatch.ts`
 - Test: `tests/github/renovate-dispatch.test.ts`
 
@@ -181,7 +183,12 @@ describe("computeAutoFixAttemptUpdates", () => {
 
   it("increments a dispatched vuln site (null counter reads as 0 → 1)", () => {
     const sites = [
-      makeWebsiteRow({ id: "rA", status: "maintenance", gitRepo: "reddoorla/a", securityVulnsHigh: 2 }),
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintenance",
+        gitRepo: "reddoorla/a",
+        securityVulnsHigh: 2,
+      }),
     ];
     expect(computeAutoFixAttemptUpdates(sites, result({ dispatched: ["reddoorla/a"] }))).toEqual([
       { id: "rA", attempts: 1 },
@@ -190,7 +197,13 @@ describe("computeAutoFixAttemptUpdates", () => {
 
   it("increments from the existing counter value", () => {
     const sites = [
-      makeWebsiteRow({ id: "rA", status: "maintenance", gitRepo: "reddoorla/a", securityVulnsCritical: 1, securityAutoFixAttempts: 2 }),
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintenance",
+        gitRepo: "reddoorla/a",
+        securityVulnsCritical: 1,
+        securityAutoFixAttempts: 2,
+      }),
     ];
     expect(computeAutoFixAttemptUpdates(sites, result({ dispatched: ["reddoorla/a"] }))).toEqual([
       { id: "rA", attempts: 3 },
@@ -199,38 +212,82 @@ describe("computeAutoFixAttemptUpdates", () => {
 
   it("resets to 0 when a previously-attempted site now has zero vulns", () => {
     const sites = [
-      makeWebsiteRow({ id: "rA", status: "maintenance", gitRepo: "reddoorla/a", securityVulnsCritical: 0, securityVulnsHigh: 0, securityAutoFixAttempts: 4 }),
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintenance",
+        gitRepo: "reddoorla/a",
+        securityVulnsCritical: 0,
+        securityVulnsHigh: 0,
+        securityAutoFixAttempts: 4,
+      }),
     ];
     expect(computeAutoFixAttemptUpdates(sites, result())).toEqual([{ id: "rA", attempts: 0 }]);
   });
 
   it("leaves a skipped vuln site (healthy PR in flight) unchanged — no update emitted", () => {
     const sites = [
-      makeWebsiteRow({ id: "rA", status: "maintenance", gitRepo: "reddoorla/a", securityVulnsHigh: 2, securityAutoFixAttempts: 1 }),
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintenance",
+        gitRepo: "reddoorla/a",
+        securityVulnsHigh: 2,
+        securityAutoFixAttempts: 1,
+      }),
     ];
     expect(computeAutoFixAttemptUpdates(sites, result({ skipped: ["reddoorla/a"] }))).toEqual([]);
   });
 
   it("leaves a failed-dispatch vuln site unchanged", () => {
     const sites = [
-      makeWebsiteRow({ id: "rA", status: "maintenance", gitRepo: "reddoorla/a", securityVulnsHigh: 2, securityAutoFixAttempts: 1 }),
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintenance",
+        gitRepo: "reddoorla/a",
+        securityVulnsHigh: 2,
+        securityAutoFixAttempts: 1,
+      }),
     ];
-    expect(computeAutoFixAttemptUpdates(sites, result({ failed: [{ repo: "reddoorla/a", error: "x" }] }))).toEqual([]);
+    expect(
+      computeAutoFixAttemptUpdates(
+        sites,
+        result({ failed: [{ repo: "reddoorla/a", error: "x" }] }),
+      ),
+    ).toEqual([]);
   });
 
   it("emits no update when a clean site already sits at 0 (write-minimal)", () => {
     const sites = [
-      makeWebsiteRow({ id: "rA", status: "maintenance", gitRepo: "reddoorla/a", securityVulnsHigh: 0, securityAutoFixAttempts: 0 }),
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintenance",
+        gitRepo: "reddoorla/a",
+        securityVulnsHigh: 0,
+        securityAutoFixAttempts: 0,
+      }),
     ];
     expect(computeAutoFixAttemptUpdates(sites, result())).toEqual([]);
   });
 
   it("excludes inactive and repo-less sites", () => {
     const sites = [
-      makeWebsiteRow({ id: "rIn", status: null, gitRepo: "reddoorla/x", securityVulnsHigh: 5, securityAutoFixAttempts: 2 }),
-      makeWebsiteRow({ id: "rNo", status: "maintenance", gitRepo: null, securityVulnsHigh: 5, securityAutoFixAttempts: 2 }),
+      makeWebsiteRow({
+        id: "rIn",
+        status: null,
+        gitRepo: "reddoorla/x",
+        securityVulnsHigh: 5,
+        securityAutoFixAttempts: 2,
+      }),
+      makeWebsiteRow({
+        id: "rNo",
+        status: "maintenance",
+        gitRepo: null,
+        securityVulnsHigh: 5,
+        securityAutoFixAttempts: 2,
+      }),
     ];
-    expect(computeAutoFixAttemptUpdates(sites, result({ dispatched: ["reddoorla/x"] }))).toEqual([]);
+    expect(computeAutoFixAttemptUpdates(sites, result({ dispatched: ["reddoorla/x"] }))).toEqual(
+      [],
+    );
   });
 });
 
@@ -238,19 +295,28 @@ describe("applyAutoFixAttemptUpdates", () => {
   it("writes each update and counts successes; never throws on a writer error", async () => {
     const written: Array<{ id: string; attempts: number }> = [];
     const r = await applyAutoFixAttemptUpdates(
-      [{ id: "rA", attempts: 1 }, { id: "rB", attempts: 0 }, { id: "rC", attempts: 3 }],
+      [
+        { id: "rA", attempts: 1 },
+        { id: "rB", attempts: 0 },
+        { id: "rC", attempts: 3 },
+      ],
       async (id, attempts) => {
         if (id === "rB") throw new Error("field not found"); // e.g. column not yet created
         written.push({ id, attempts });
       },
     );
     expect(r).toEqual({ written: 2, failed: 1 });
-    expect(written).toEqual([{ id: "rA", attempts: 1 }, { id: "rC", attempts: 3 }]);
+    expect(written).toEqual([
+      { id: "rA", attempts: 1 },
+      { id: "rC", attempts: 3 },
+    ]);
   });
 
   it("is a no-op for an empty update list", async () => {
     let calls = 0;
-    const r = await applyAutoFixAttemptUpdates([], async () => { calls++; });
+    const r = await applyAutoFixAttemptUpdates([], async () => {
+      calls++;
+    });
     expect(r).toEqual({ written: 0, failed: 0 });
     expect(calls).toBe(0);
   });
@@ -368,6 +434,7 @@ git commit -m "feat(security): plan/apply/format auto-fix attempt counter (pure 
 ## Task 3: Command wiring — apply the counter after dispatch
 
 **Files:**
+
 - Modify: `src/cli/commands/renovate-dispatch.ts`
 - Test: `tests/cli/renovate-dispatch-command.test.ts` (guards stay green; no new test — the happy path is covered by Task 2's pure helpers, matching the file's stated convention)
 
@@ -398,20 +465,20 @@ import { listWebsites, updateAutoFixAttempts } from "../../reports/airtable/webs
 After the `for (const f of result.failed) lines.push(...)` loop and BEFORE `lines.push(formatRenovateDispatchSummary(result));` (lines 67-68), insert the counter step:
 
 ```ts
-  // Update the auto-fix attempt counters from this run, best-effort: a write that
-  // fails (e.g. the Airtable field not yet created) is tallied, never thrown — the
-  // sweep must still exit 0. Uses the full `websites` list so 0-vuln sites reset.
-  const attemptUpdates = computeAutoFixAttemptUpdates(websites, result);
-  const attemptTally = await applyAutoFixAttemptUpdates(attemptUpdates, (id, attempts) =>
-    updateAutoFixAttempts(base, id, attempts),
-  );
+// Update the auto-fix attempt counters from this run, best-effort: a write that
+// fails (e.g. the Airtable field not yet created) is tallied, never thrown — the
+// sweep must still exit 0. Uses the full `websites` list so 0-vuln sites reset.
+const attemptUpdates = computeAutoFixAttemptUpdates(websites, result);
+const attemptTally = await applyAutoFixAttemptUpdates(attemptUpdates, (id, attempts) =>
+  updateAutoFixAttempts(base, id, attempts),
+);
 ```
 
 Then add its summary line alongside the existing one (replace line 68's single push with both):
 
 ```ts
-  lines.push(formatRenovateDispatchSummary(result));
-  lines.push(formatAutoFixAttemptsSummary(attemptTally));
+lines.push(formatRenovateDispatchSummary(result));
+lines.push(formatAutoFixAttemptsSummary(attemptTally));
 ```
 
 - [ ] **Step 2: Run the command guard tests (still green)**
@@ -436,6 +503,7 @@ git commit -m "feat(security): apply auto-fix attempt counters on the nightly di
 ## Task 4: Signal flavor — exhausted vuln item
 
 **Files:**
+
 - Modify: `src/alerts/attention.ts:36-50`
 - Modify: `src/alerts/digest-collectors.ts:34-58`
 - Test: `tests/alerts/digest-collectors.test.ts`
@@ -445,39 +513,39 @@ git commit -m "feat(security): apply auto-fix attempt counters on the nightly di
 Append to the existing `describe("collectVulnAlerts", ...)` block in `tests/alerts/digest-collectors.test.ts` (the file's `site()` helper + `BASE` are already defined):
 
 ```ts
-  it("does NOT flag exhausted below the threshold (attempts 2 → normal vuln item)", () => {
-    const items = collectVulnAlerts(
-      [site({ securityVulnsCritical: 1, securityVulnsHigh: 0, securityAutoFixAttempts: 2 })],
-      BASE,
-    );
-    expect(items[0]!.autoFixExhausted).toBeUndefined();
-    expect(items[0]!.title).toBe("1 critical/high vuln");
-    expect(items[0]!.severity).toBe("critical");
-  });
+it("does NOT flag exhausted below the threshold (attempts 2 → normal vuln item)", () => {
+  const items = collectVulnAlerts(
+    [site({ securityVulnsCritical: 1, securityVulnsHigh: 0, securityAutoFixAttempts: 2 })],
+    BASE,
+  );
+  expect(items[0]!.autoFixExhausted).toBeUndefined();
+  expect(items[0]!.title).toBe("1 critical/high vuln");
+  expect(items[0]!.severity).toBe("critical");
+});
 
-  it("flags exhausted at the threshold (attempts 3): forced-critical, flag set, escalated title", () => {
-    const items = collectVulnAlerts(
-      [site({ securityVulnsCritical: 0, securityVulnsHigh: 2, securityAutoFixAttempts: 3 })],
-      BASE,
-    );
-    expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({
-      key: "vuln:rec_site_acme",
-      kind: "vuln",
-      severity: "critical", // forced critical even though it's high-only
-      metric: 2,
-      autoFixExhausted: true,
-    });
-    expect(items[0]!.title).toBe("2 critical/high vulns — auto-fix failed (3×)");
+it("flags exhausted at the threshold (attempts 3): forced-critical, flag set, escalated title", () => {
+  const items = collectVulnAlerts(
+    [site({ securityVulnsCritical: 0, securityVulnsHigh: 2, securityAutoFixAttempts: 3 })],
+    BASE,
+  );
+  expect(items).toHaveLength(1);
+  expect(items[0]).toMatchObject({
+    key: "vuln:rec_site_acme",
+    kind: "vuln",
+    severity: "critical", // forced critical even though it's high-only
+    metric: 2,
+    autoFixExhausted: true,
   });
+  expect(items[0]!.title).toBe("2 critical/high vulns — auto-fix failed (3×)");
+});
 
-  it("does not flag exhausted when there are no vulns even if a stale counter remains", () => {
-    const items = collectVulnAlerts(
-      [site({ securityVulnsCritical: 0, securityVulnsHigh: 0, securityAutoFixAttempts: 9 })],
-      BASE,
-    );
-    expect(items).toEqual([]);
-  });
+it("does not flag exhausted when there are no vulns even if a stale counter remains", () => {
+  const items = collectVulnAlerts(
+    [site({ securityVulnsCritical: 0, securityVulnsHigh: 0, securityAutoFixAttempts: 9 })],
+    BASE,
+  );
+  expect(items).toEqual([]);
+});
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -559,6 +627,7 @@ git commit -m "feat(dashboard): collectVulnAlerts emits an auto-fix-exhausted vu
 ## Task 5: Render & summary — chip, filter, tally
 
 **Files:**
+
 - Modify: `src/dashboard/fleet-cockpit.ts` (`CockpitSummary` line 117-129, `buildCockpitModel` summary line 253-264)
 - Modify: `src/dashboard/fleet-render.ts` (`FILTERS` line 148-159, `summaryBar` heads line 163-171, `chips()` line 274-282, `signalsAttr` line 288-295, style block)
 - Test: `tests/dashboard/fleet-cockpit.test.ts`, `tests/dashboard/fleet-render.test.ts`
@@ -571,8 +640,20 @@ Append to `tests/dashboard/fleet-cockpit.test.ts` (uses `buildCockpitModel`, `ma
 it("counts auto-fix-stuck sites in the summary", () => {
   const m = buildCockpitModel(
     [
-      makeWebsiteRow({ id: "rS", name: "Stuck", status: "maintenance", securityVulnsCritical: 1, securityAutoFixAttempts: 3 }),
-      makeWebsiteRow({ id: "rF", name: "Fresh", status: "maintenance", securityVulnsCritical: 1, securityAutoFixAttempts: 1 }),
+      makeWebsiteRow({
+        id: "rS",
+        name: "Stuck",
+        status: "maintenance",
+        securityVulnsCritical: 1,
+        securityAutoFixAttempts: 3,
+      }),
+      makeWebsiteRow({
+        id: "rF",
+        name: "Fresh",
+        status: "maintenance",
+        securityVulnsCritical: 1,
+        securityAutoFixAttempts: 1,
+      }),
     ],
     [],
     {},
@@ -618,8 +699,8 @@ Expected: FAIL — `summary.autoFixStuck` undefined; no `auto-fix-failed` token/
 In `src/dashboard/fleet-cockpit.ts`, add to `CockpitSummary` after `ciRed` (line 124):
 
 ```ts
-  /** Count of sites whose vuln has exhausted the Renovate auto-fix (manual fix needed). */
-  autoFixStuck: number;
+/** Count of sites whose vuln has exhausted the Renovate auto-fix (manual fix needed). */
+autoFixStuck: number;
 ```
 
 In `buildCockpitModel`, add to the `summary` object after the `ciRed` line (line 261):
@@ -647,17 +728,17 @@ In `summaryBar`, add to the `heads` array after the `ciRed` entry (line 168):
 In `chips()`, replace the class computation (line 276) so an exhausted item gets the distinct class:
 
 ```ts
-    const cls = it.autoFixExhausted
-      ? "chip critical stuck"
-      : it.severity === "critical"
-        ? "chip critical"
-        : "chip";
+const cls = it.autoFixExhausted
+  ? "chip critical stuck"
+  : it.severity === "critical"
+    ? "chip critical"
+    : "chip";
 ```
 
 In `signalsAttr()`, after the loop over `c.items` that adds kind tokens (after line 292), add the exhausted token:
 
 ```ts
-  if (c.items.some((it) => it.autoFixExhausted)) kinds.add("auto-fix-failed");
+if (c.items.some((it) => it.autoFixExhausted)) kinds.add("auto-fix-failed");
 ```
 
 - [ ] **Step 5: Add the chip style**
@@ -665,7 +746,10 @@ In `signalsAttr()`, after the loop over `c.items` that adds kind tokens (after l
 In `src/dashboard/fleet-render.ts`, find the dashboard `<style>` block (the document shell template — search for the existing `.chip` rule) and add a `.chip.stuck` rule beside it, e.g.:
 
 ```css
-.chip.stuck { border: 1px solid #b91c1c; font-weight: 600; }
+.chip.stuck {
+  border: 1px solid #b91c1c;
+  font-weight: 600;
+}
 ```
 
 Match the surrounding CSS style (units, color tokens) already used for `.chip.critical`.
@@ -692,6 +776,7 @@ git commit -m "feat(dashboard): auto-fix-failed chip, filter, and summary tally"
 ## Task 6: Changeset + full gate
 
 **Files:**
+
 - Create: `.changeset/vuln-auto-fix-exhausted-signal.md`
 
 - [ ] **Step 1: Write the changeset**
@@ -739,6 +824,7 @@ git commit -m "chore: changeset for the vuln auto-fix-exhausted signal"
 ## Rollout note (post-merge, operator step)
 
 The feature is **inert until** the `Security Auto-Fix Attempts` Number field exists on the Airtable Websites table. Either:
+
 - add it by hand (Number, integer) — same one-click setup as the announce/launch fields, or
 - create it via the Airtable MCP during/after merge.
 

@@ -7,7 +7,7 @@
 
 Add a distinct dashboard signal for the case where the fleet's **automatic** vulnerability
 fix has **already been tried and failed**: Renovate has been auto-dispatched across multiple
-nightly cycles for the same critical/high vuln episode, and the vuln is *still present*. Today
+nightly cycles for the same critical/high vuln episode, and the vuln is _still present_. Today
 that site looks identical to one whose vuln was detected an hour ago — both render the plain
 `vuln` attention chip. The operator can't tell "Renovate's got it" from "Renovate can't fix this,
 it needs you."
@@ -27,15 +27,15 @@ when, several attempts later, the critical/high count has not returned to 0. The
 failure modes:
 
 - **No available fix** — the vuln is in an unpatched (often transitive) dependency. Renovate
-  opens no useful PR; the vuln festers indefinitely. *This is the most important case to surface,
-  and the one a human most needs to act on.*
+  opens no useful PR; the vuln festers indefinitely. _This is the most important case to surface,
+  and the one a human most needs to act on._
 - **Fix PR keeps failing CI / conflicting** — Renovate opens the security PR but it never merges.
 
 ## Why a counter (rejected alternative)
 
 The cheap alternative — derive "tried and failed" from the existing `renovateFailingCis` field
 (vuln present **and** a failing Renovate PR) — was **rejected**. It needs zero new state, but it
-misses the *no-available-fix* case entirely: with no PR, `renovateFailingCis` stays 0 and the vuln
+misses the _no-available-fix_ case entirely: with no PR, `renovateFailingCis` stays 0 and the vuln
 is never flagged. That is precisely the case where automation is most stuck. A per-site **attempt
 counter** catches both the no-fix case (re-dispatched every cycle → counter climbs) and the
 failing-PR case.
@@ -45,7 +45,7 @@ failing-PR case.
 - **Mechanism:** per-site attempt counter, persisted on the Websites row.
 - **Threshold:** `>= 3` nightly cycles (~72h of trying) before flagging "exhausted". Below the
   threshold the item renders as a normal `vuln` — Renovate keeps its clean shot.
-- **Representation:** a flavor of the *existing* `vuln` attention item (same `vuln:<siteId>` diff
+- **Representation:** a flavor of the _existing_ `vuln` attention item (same `vuln:<siteId>` diff
   key for NEW/WORSE continuity), not a new `kind`. A flag, a forced-critical severity, a distinct
   chip + filter token.
 
@@ -53,8 +53,8 @@ failing-PR case.
 
 One new Airtable **Websites** field:
 
-| Airtable field | Type | `WebsiteRow` property | Coercion |
-| --- | --- | --- | --- |
+| Airtable field               | Type             | `WebsiteRow` property                     | Coercion                                         |
+| ---------------------------- | ---------------- | ----------------------------------------- | ------------------------------------------------ |
 | `Security Auto-Fix Attempts` | Number (integer) | `securityAutoFixAttempts: number \| null` | `?? null` on read, like the sibling count fields |
 
 Mapping added in `src/reports/airtable/websites.ts` `mapRow` alongside the other security fields:
@@ -68,7 +68,7 @@ the field exists the signal simply never fires (safe degradation).
 
 ## Counter lifecycle — owned by `renovate-dispatch`
 
-The counter's whole lifecycle lives in `renovate-dispatch`, which already runs nightly *after* the
+The counter's whole lifecycle lives in `renovate-dispatch`, which already runs nightly _after_ the
 security audit has written fresh counts. A **pure** planner computes the writes; the command applies
 them best-effort.
 
@@ -105,9 +105,9 @@ export function computeAutoFixAttemptUpdates(
 
 Properties that make this correct and cheap:
 
-- **Skipped ≠ failed.** A site skipped because it has a *healthy* open Renovate PR keeps its
+- **Skipped ≠ failed.** A site skipped because it has a _healthy_ open Renovate PR keeps its
   current count — a fix is genuinely in flight; only a real dispatch (Renovate had nothing better to
-  do than try again) counts as a failed-so-far attempt. (A *conflicting* PR is dispatched by the
+  do than try again) counts as a failed-so-far attempt. (A _conflicting_ PR is dispatched by the
   existing logic, so it correctly counts.)
 - **First detection is not "exhausted."** Cycle 1 takes the counter 0→1 (normal vuln). It crosses
   the `>= 3` threshold only after surviving cycle 1, 2, and 3 — i.e. the dispatch on the 3rd night.
@@ -127,7 +127,9 @@ export async function updateAutoFixAttempts(
   recordId: string,
   attempts: number,
 ): Promise<void> {
-  await base(WEBSITES_TABLE).update([{ id: recordId, fields: { "Security Auto-Fix Attempts": attempts } }]);
+  await base(WEBSITES_TABLE).update([
+    { id: recordId, fields: { "Security Auto-Fix Attempts": attempts } },
+  ]);
 }
 ```
 
@@ -191,7 +193,7 @@ autoFixExhausted?: boolean;
 ```
 
 `metric` stays `critical + high`, so the count-based NEW/WORSE diff is unchanged. (Note: the plain →
-exhausted *flavor* change alone does **not** trip a WORSE badge unless the underlying count also
+exhausted _flavor_ change alone does **not** trip a WORSE badge unless the underlying count also
 rises — the escalation is conveyed by the distinct chip, the forced-critical severity, and the
 filter, which is sufficient and avoids polluting the vuln-count metric.)
 
@@ -203,7 +205,7 @@ filter, which is sufficient and avoids polluting the vuln-count metric.)
 - **Filter chip.** Add `"auto-fix-failed"` to the `FILTERS` list so the summary bar gets its chip.
 - **Chip styling.** `chips()` renders an exhausted item with a distinct class (`chip critical stuck`)
   so it reads visually apart from a fresh critical vuln; add a small `.chip.stuck` rule to the style
-  block (e.g. a wrench/`⛔` marker or a heavier border). The chip *text* already carries the
+  block (e.g. a wrench/`⛔` marker or a heavier border). The chip _text_ already carries the
   "auto-fix failed (N×)" wording from the title.
 - **Summary count.** `CockpitSummary` gains `autoFixStuck: number` (count of tagged items with
   `autoFixExhausted`), surfaced in the heads line as `${autoFixStuck} auto-fix stuck`. Computed in
@@ -243,8 +245,8 @@ where the escalated title makes the "auto-fix failed" state visible in the opera
 ## Rollout
 
 1. **Manual prereq (one step):** add the `Security Auto-Fix Attempts` Number field to the Airtable
-   Websites table (same kind of one-click setup as the announce/launch features). *Can alternatively
-   be created via the Airtable MCP during implementation.*
+   Websites table (same kind of one-click setup as the announce/launch features). _Can alternatively
+   be created via the Airtable MCP during implementation._
 2. Ship the code (changeset: **minor**). It's inert until the field exists; once it does, the counter
    begins accruing on the next nightly `fleet-security` run and the first "auto-fix failed" chip can
    appear ~3 nights after a genuinely stuck vuln.

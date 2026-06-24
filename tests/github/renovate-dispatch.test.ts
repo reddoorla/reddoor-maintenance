@@ -298,7 +298,10 @@ describe("computeAutoFixAttemptUpdates", () => {
       }),
     ];
     expect(
-      computeAutoFixAttemptUpdates(sites, result({ failed: [{ repo: "reddoorla/a", error: "x" }] })),
+      computeAutoFixAttemptUpdates(
+        sites,
+        result({ failed: [{ repo: "reddoorla/a", error: "x" }] }),
+      ),
     ).toEqual([]);
   });
 
@@ -332,7 +335,9 @@ describe("computeAutoFixAttemptUpdates", () => {
         securityAutoFixAttempts: 2,
       }),
     ];
-    expect(computeAutoFixAttemptUpdates(sites, result({ dispatched: ["reddoorla/x"] }))).toEqual([]);
+    expect(computeAutoFixAttemptUpdates(sites, result({ dispatched: ["reddoorla/x"] }))).toEqual(
+      [],
+    );
   });
 });
 
