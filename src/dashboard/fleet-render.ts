@@ -397,9 +397,15 @@ const FILTER_SCRIPT = `<script>
   }
   function rfPoll(since, startedAt){
     fetch('/api/fleet/refresh/status?since=' + encodeURIComponent(since)).then(function(res){
+      if (res.status === 401) return { authFail: true };
       return res.ok ? res.json() : null;
     }).then(function(data){
       var p = rfPanel();
+      if (data && data.authFail){
+        if (p) p.innerHTML += '<div class="rf-row">Session expired — reload to sign in.</div>';
+        if (rf){ rf.disabled = false; rf.textContent = '↻ Refresh fleet state'; }
+        rfStop(); return;
+      }
       if (data && data.status){
         if (p) p.innerHTML = rfRender(data.status);
         if (data.status.allDone){
@@ -414,11 +420,17 @@ const FILTER_SCRIPT = `<script>
       }
       if (Date.now() - startedAt > RF_MAX_MS){
         if (p) p.innerHTML += '<div class="rf-row">Still running — reload later.</div>';
+        if (rf){ rf.disabled = false; rf.textContent = '↻ Refresh fleet state'; }
         rfStop(); return;
       }
       setTimeout(function(){ rfPoll(since, startedAt); }, RF_POLL_MS);
     }).catch(function(){
-      if (Date.now() - startedAt > RF_MAX_MS){ rfStop(); return; }
+      var p = rfPanel();
+      if (Date.now() - startedAt > RF_MAX_MS){
+        if (p) p.innerHTML += '<div class="rf-row">Still running — reload later.</div>';
+        if (rf){ rf.disabled = false; rf.textContent = '↻ Refresh fleet state'; }
+        rfStop(); return;
+      }
       setTimeout(function(){ rfPoll(since, startedAt); }, RF_POLL_MS);
     });
   }
