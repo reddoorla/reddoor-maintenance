@@ -9,6 +9,13 @@ export { setChecklistItem } from "./checklist.js";
 export type { ChecklistItemDeps, ChecklistItemResult } from "./checklist.js";
 export { triggerRenovateForSite } from "./trigger-renovate.js";
 export type { TriggerRenovateDeps, TriggerRenovateResult } from "./trigger-renovate.js";
+export {
+  setSiteDetail,
+  EDITABLE_SITE_FIELDS,
+  SITE_STATUS_OPTIONS,
+  FREQ_OPTIONS,
+} from "./site-details.js";
+export type { SiteDetailDeps, SiteDetailResult } from "./site-details.js";
 export { renderSubmissionsPageHtml } from "./submissions-page-render.js";
 export { parseSubmissionsQuery, buildSubmissionsPageModel, PAGE_SIZE } from "./submissions-page.js";
 export type {
