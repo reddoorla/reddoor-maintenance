@@ -31,11 +31,16 @@ function gitHubSignalsStale(swept: string | null, now: Date): boolean {
   return ageMs > GITHUB_SIGNALS_STALE_DAYS * MS_PER_DAY;
 }
 
+/** Renovate auto-fix dispatches for one vuln episode before it's "exhausted" (manual fix needed). */
+const AUTO_FIX_EXHAUSTED_CYCLES = 3;
+
 /**
  * One attention item per site carrying current critical+high vulns (medium/low omitted
  * per the locked threshold). PURE: takes already-fetched Websites rows. `metric` is the
  * critical+high count (so a rising count diffs as WORSE); `severity` is `critical` when
  * any critical exists, else `warning`. Null counts (never audited) read as 0 → skipped.
+ * Once `securityAutoFixAttempts` reaches AUTO_FIX_EXHAUSTED_CYCLES the item is flagged
+ * `autoFixExhausted` (forced-critical, escalated title) — Renovate tried and couldn't fix it.
  */
 export function collectVulnAlerts(sites: WebsiteRow[], baseUrl: string): AttentionItem[] {
   const items: AttentionItem[] = [];
@@ -44,14 +49,20 @@ export function collectVulnAlerts(sites: WebsiteRow[], baseUrl: string): Attenti
     const high = s.securityVulnsHigh ?? 0;
     const metric = critical + high;
     if (metric <= 0) continue;
+    const attempts = s.securityAutoFixAttempts ?? 0;
+    const exhausted = attempts >= AUTO_FIX_EXHAUSTED_CYCLES;
+    const noun = metric === 1 ? "vuln" : "vulns";
     items.push({
       key: `vuln:${s.id}`,
       kind: "vuln",
       siteName: s.name,
-      title: `${metric} critical/high ${metric === 1 ? "vuln" : "vulns"}`,
+      title: exhausted
+        ? `${metric} critical/high ${noun} — auto-fix failed (${attempts}×)`
+        : `${metric} critical/high ${noun}`,
       url: dashboardUrl(baseUrl, s.name),
-      severity: critical > 0 ? "critical" : "warning",
+      severity: exhausted || critical > 0 ? "critical" : "warning",
       metric,
+      ...(exhausted ? { autoFixExhausted: true } : {}),
     });
   }
   return items;

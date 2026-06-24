@@ -15,6 +15,7 @@ function model(over: Partial<CockpitModel> = {}): CockpitModel {
       deliveryFailures: 0,
       renovateFailing: 0,
       ciRed: 0,
+      autoFixStuck: 0,
       pending: 0,
       newSubmissions: 0,
     },

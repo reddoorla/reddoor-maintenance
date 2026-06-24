@@ -296,4 +296,18 @@ describe("buildCockpitModel — GitHub signals (slice 2b)", () => {
     );
     expect(noCommit.cards[0]!.tier).toBe("healthy");
   });
+
+  it("counts auto-fix-stuck sites in the summary", () => {
+    const m = buildCockpitModel(
+      [
+        site({ id: "rS", name: "Stuck", securityVulnsCritical: 1, securityAutoFixAttempts: 3 }),
+        site({ id: "rF", name: "Fresh", securityVulnsCritical: 1, securityAutoFixAttempts: 1 }),
+      ],
+      [],
+      {},
+      BASE,
+      NOW,
+    );
+    expect(m.summary.autoFixStuck).toBe(1);
+  });
 });

@@ -5,8 +5,12 @@ import {
   formatRenovateDispatchSummary,
   hasHealthyRenovatePr,
   RENOVATE_WORKFLOW_FILE,
+  computeAutoFixAttemptUpdates,
+  applyAutoFixAttemptUpdates,
+  formatAutoFixAttemptsSummary,
 } from "../../src/github/renovate-dispatch.js";
 import type { PullRequestSummary } from "../../src/github/gh.js";
+import type { RenovateDispatchResult } from "../../src/github/renovate-dispatch.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 function pr(over: Partial<PullRequestSummary>): PullRequestSummary {
@@ -216,6 +220,163 @@ describe("dispatchRenovateAcross", () => {
     });
     expect(result.dispatched).toEqual([]);
     expect(result.failed).toEqual([{ repo: "reddoorla/a", error: "502: PR query failed" }]);
+  });
+});
+
+describe("computeAutoFixAttemptUpdates", () => {
+  const result = (over: Partial<RenovateDispatchResult> = {}): RenovateDispatchResult => ({
+    dispatched: [],
+    skipped: [],
+    failed: [],
+    ...over,
+  });
+
+  it("increments a dispatched vuln site (null counter reads as 0 → 1)", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintenance",
+        gitRepo: "reddoorla/a",
+        securityVulnsHigh: 2,
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result({ dispatched: ["reddoorla/a"] }))).toEqual([
+      { id: "rA", attempts: 1 },
+    ]);
+  });
+
+  it("increments from the existing counter value", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintenance",
+        gitRepo: "reddoorla/a",
+        securityVulnsCritical: 1,
+        securityAutoFixAttempts: 2,
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result({ dispatched: ["reddoorla/a"] }))).toEqual([
+      { id: "rA", attempts: 3 },
+    ]);
+  });
+
+  it("resets to 0 when a previously-attempted site now has zero vulns", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintenance",
+        gitRepo: "reddoorla/a",
+        securityVulnsCritical: 0,
+        securityVulnsHigh: 0,
+        securityAutoFixAttempts: 4,
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result())).toEqual([{ id: "rA", attempts: 0 }]);
+  });
+
+  it("leaves a skipped vuln site (healthy PR in flight) unchanged — no update emitted", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintenance",
+        gitRepo: "reddoorla/a",
+        securityVulnsHigh: 2,
+        securityAutoFixAttempts: 1,
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result({ skipped: ["reddoorla/a"] }))).toEqual([]);
+  });
+
+  it("leaves a failed-dispatch vuln site unchanged", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintenance",
+        gitRepo: "reddoorla/a",
+        securityVulnsHigh: 2,
+        securityAutoFixAttempts: 1,
+      }),
+    ];
+    expect(
+      computeAutoFixAttemptUpdates(
+        sites,
+        result({ failed: [{ repo: "reddoorla/a", error: "x" }] }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("emits no update when a clean site already sits at 0 (write-minimal)", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintenance",
+        gitRepo: "reddoorla/a",
+        securityVulnsHigh: 0,
+        securityAutoFixAttempts: 0,
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result())).toEqual([]);
+  });
+
+  it("excludes inactive and repo-less sites", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rIn",
+        status: null,
+        gitRepo: "reddoorla/x",
+        securityVulnsHigh: 5,
+        securityAutoFixAttempts: 2,
+      }),
+      makeWebsiteRow({
+        id: "rNo",
+        status: "maintenance",
+        gitRepo: null,
+        securityVulnsHigh: 5,
+        securityAutoFixAttempts: 2,
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result({ dispatched: ["reddoorla/x"] }))).toEqual(
+      [],
+    );
+  });
+});
+
+describe("applyAutoFixAttemptUpdates", () => {
+  it("writes each update and counts successes; never throws on a writer error", async () => {
+    const written: Array<{ id: string; attempts: number }> = [];
+    const r = await applyAutoFixAttemptUpdates(
+      [
+        { id: "rA", attempts: 1 },
+        { id: "rB", attempts: 0 },
+        { id: "rC", attempts: 3 },
+      ],
+      async (id, attempts) => {
+        if (id === "rB") throw new Error("field not found"); // e.g. column not yet created
+        written.push({ id, attempts });
+      },
+    );
+    expect(r).toEqual({ written: 2, failed: 1 });
+    expect(written).toEqual([
+      { id: "rA", attempts: 1 },
+      { id: "rC", attempts: 3 },
+    ]);
+  });
+
+  it("is a no-op for an empty update list", async () => {
+    let calls = 0;
+    const r = await applyAutoFixAttemptUpdates([], async () => {
+      calls++;
+    });
+    expect(r).toEqual({ written: 0, failed: 0 });
+    expect(calls).toBe(0);
+  });
+});
+
+describe("formatAutoFixAttemptsSummary", () => {
+  it("emits a machine-readable counts line", () => {
+    expect(formatAutoFixAttemptsSummary({ written: 2, failed: 1 })).toBe(
+      "AUTO_FIX_ATTEMPTS_SUMMARY written=2 failed=1",
+    );
   });
 });
 

@@ -47,6 +47,10 @@ export type AttentionItem = {
   metric: number;
   /** Set by `diffAttention` before render. */
   status?: AttentionStatus;
+  /** Set by collectVulnAlerts when Renovate's auto-fix has been retried past the
+   *  exhaustion threshold without clearing the vuln. Drives a distinct "auto-fix
+   *  failed" chip + filter token; absent on every other item and flavor. */
+  autoFixExhausted?: boolean;
 };
 
 /** Input shape for `renderDigestHtml`. Both arrays are required; callers pass `[]` for

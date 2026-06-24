@@ -542,3 +542,22 @@ describe("renderCockpitHtml — spam roll-up", () => {
     expect(html).not.toMatch(/spam caught/i);
   });
 });
+
+describe("renderCockpitHtml — auto-fix-exhausted vuln", () => {
+  it("tags the card with the auto-fix-failed signal and a stuck chip", () => {
+    const html = renderCockpitHtml(
+      model([siteRow({ name: "Stuck Co", securityVulnsCritical: 2, securityAutoFixAttempts: 3 })]),
+    );
+    // data-signals carries BOTH the base vuln token and the new one
+    expect(html).toMatch(/data-signals="[^"]*\bvulns\b[^"]*"/);
+    expect(html).toMatch(/data-signals="[^"]*\bauto-fix-failed\b[^"]*"/);
+    // the chip renders with the distinct stuck class + escalated text
+    expect(html).toContain("chip critical stuck");
+    expect(html).toContain("auto-fix failed (3×)");
+  });
+
+  it("offers an auto-fix-failed filter chip", () => {
+    const html = renderCockpitHtml(model([siteRow()]));
+    expect(html).toContain('data-filter="auto-fix-failed"');
+  });
+});

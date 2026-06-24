@@ -123,6 +123,8 @@ export type CockpitSummary = {
   deliveryFailures: number;
   renovateFailing: number;
   ciRed: number;
+  /** Count of sites whose vuln has exhausted the Renovate auto-fix (manual fix needed). */
+  autoFixStuck: number;
   pending: number;
   /** Count of NEW submissions across the fleet (optional for back-compat). */
   newSubmissions?: number;
@@ -259,6 +261,7 @@ export function buildCockpitModel(
     deliveryFailures: tagged.filter((i) => i.kind === "delivery").length,
     renovateFailing: tagged.filter((i) => i.kind === "renovate").reduce((s, i) => s + i.metric, 0),
     ciRed: tagged.filter((i) => i.kind === "ci").length,
+    autoFixStuck: tagged.filter((i) => i.autoFixExhausted).length,
     pending: pending.length,
     newSubmissions: submissions.length,
   };

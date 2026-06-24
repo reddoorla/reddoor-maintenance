@@ -95,6 +95,40 @@ describe("collectVulnAlerts", () => {
     expect(items[0]!.title).toMatch(/3/);
     expect(items[0]!.title).toMatch(/critical\/high/i);
   });
+
+  it("does NOT flag exhausted below the threshold (attempts 2 → normal vuln item)", () => {
+    const items = collectVulnAlerts(
+      [site({ securityVulnsCritical: 1, securityVulnsHigh: 0, securityAutoFixAttempts: 2 })],
+      BASE,
+    );
+    expect(items[0]!.autoFixExhausted).toBeUndefined();
+    expect(items[0]!.title).toBe("1 critical/high vuln");
+    expect(items[0]!.severity).toBe("critical");
+  });
+
+  it("flags exhausted at the threshold (attempts 3): forced-critical, flag set, escalated title", () => {
+    const items = collectVulnAlerts(
+      [site({ securityVulnsCritical: 0, securityVulnsHigh: 2, securityAutoFixAttempts: 3 })],
+      BASE,
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      key: "vuln:rec_site_acme",
+      kind: "vuln",
+      severity: "critical", // forced critical even though it's high-only
+      metric: 2,
+      autoFixExhausted: true,
+    });
+    expect(items[0]!.title).toBe("2 critical/high vulns — auto-fix failed (3×)");
+  });
+
+  it("does not flag exhausted when there are no vulns even if a stale counter remains", () => {
+    const items = collectVulnAlerts(
+      [site({ securityVulnsCritical: 0, securityVulnsHigh: 0, securityAutoFixAttempts: 9 })],
+      BASE,
+    );
+    expect(items).toEqual([]);
+  });
 });
 
 describe("collectLighthouseAlerts", () => {
