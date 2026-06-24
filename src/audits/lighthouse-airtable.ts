@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AuditResult } from "../types.js";
-import type { LighthouseScores } from "../reports/types.js";
+import type { LighthouseScoreWriteback } from "../reports/types.js";
 import { siteSlug } from "../reports/airtable/websites.js";
 
 const LIGHTHOUSE_CATEGORIES = ["performance", "accessibility", "best-practices", "seo"] as const;
@@ -32,16 +32,20 @@ export function hasRealScores(result: AuditResult): boolean {
 /**
  * Extract the four Lighthouse scores (as integer percentages) from a
  * `lighthouse` AuditResult. LHCI manifest summaries are floats in [0,1];
- * multiply + round.
+ * multiply + round. A category absent from the summary — e.g. Lighthouse
+ * errored its audit (NO_LCP nulls the whole performance category) — yields
+ * `null`, NOT 0, so the write path can clear the Airtable cell ("—") instead
+ * of persisting a misleading zero. (`hasRealScores` still gates the write on
+ * at least one real number, so an all-null infra failure is refused upstream.)
  */
-export function lighthouseScoresFromResult(result: AuditResult): LighthouseScores {
+export function lighthouseScoresFromResult(result: AuditResult): LighthouseScoreWriteback {
   if (result.audit !== "lighthouse") {
     throw new Error(`Expected a 'lighthouse' AuditResult, got '${result.audit}'`);
   }
   const details = (result.details ?? {}) as { summary?: Record<string, number> };
   const summary = details.summary ?? {};
-  const toPct = (n: number | undefined) =>
-    typeof n === "number" && !Number.isNaN(n) ? Math.round(n * 100) : 0;
+  const toPct = (n: number | undefined): number | null =>
+    typeof n === "number" && !Number.isNaN(n) ? Math.round(n * 100) : null;
   return {
     performance: toPct(summary["performance"]),
     accessibility: toPct(summary["accessibility"]),

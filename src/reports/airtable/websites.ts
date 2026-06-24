@@ -1,6 +1,6 @@
 import type { FieldSet } from "airtable";
 import type { AirtableBase } from "./client.js";
-import type { LighthouseScores } from "../types.js";
+import type { LighthouseScores, LighthouseScoreWriteback } from "../types.js";
 
 export const WEBSITES_TABLE = "Websites";
 
@@ -336,14 +336,21 @@ export type BrowserAuditFields = {
   checkedAt: string;
 };
 
-function scoreFields(scores: LighthouseScores): FieldSet {
-  return {
+function scoreFields(scores: LighthouseScoreWriteback): FieldSet {
+  // A null score CLEARS the cell (→ dashboard "—"), distinguishing a metric that
+  // errored this run (e.g. NO_LCP → null performance) from a real low score. This
+  // intentionally overwrites a prior value: a run that couldn't measure the metric
+  // shouldn't keep showing a stale number. Writing null to clear mirrors
+  // updateAnalyticsHealth; the `as FieldSet` cast is needed because airtable's
+  // FieldSet type omits null.
+  const fields: Record<string, number | string | null> = {
     pScore: scores.performance,
     rScore: scores.accessibility,
     bpScore: scores.bestPractices,
     seoScore: scores.seo,
     "Last lighthouse audit at": new Date().toISOString(),
   };
+  return fields as FieldSet;
 }
 
 function a11yFields(counts: A11yCounts): FieldSet {
@@ -537,7 +544,7 @@ export async function updateAuditFields(
   base: AirtableBase,
   recordId: string,
   audits: {
-    scores?: LighthouseScores;
+    scores?: LighthouseScoreWriteback;
     a11y?: A11yCounts;
     deps?: DepsCounts;
     security?: SecurityCounts;
