@@ -85,6 +85,12 @@ export type WebsiteRow = {
   securityVulnsHigh: number | null;
   securityVulnsModerate: number | null;
   securityVulnsLow: number | null;
+  /** Count of consecutive nightly Renovate auto-fix dispatches for the CURRENT
+   *  critical/high vuln episode that have NOT yet cleared it. Owned by
+   *  `renovate-dispatch`: +1 per real dispatch, reset to 0 when vulns clear.
+   *  Null = field absent / never dispatched → reads as 0. At/above
+   *  AUTO_FIX_EXHAUSTED_CYCLES the vuln renders as "auto-fix failed". */
+  securityAutoFixAttempts: number | null;
   /** ISO timestamp the security audit last ran — gates freshness of the Security Updates auto-tick
    *  (clean counts only auto-tick when recent). */
   lastSecurityAuditAt: string | null;
@@ -237,6 +243,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     securityVulnsHigh: (f["Security Vulns High"] as number | undefined) ?? null,
     securityVulnsModerate: (f["Security Vulns Moderate"] as number | undefined) ?? null,
     securityVulnsLow: (f["Security Vulns Low"] as number | undefined) ?? null,
+    securityAutoFixAttempts: (f["Security Auto-Fix Attempts"] as number | undefined) ?? null,
     lastSecurityAuditAt: (f["Last security audit at"] as string | undefined) ?? null,
     securityAdvisories: parseSecurityAdvisories(f["Security advisories"]),
     certDaysRemaining: (f["Cert days remaining"] as number | undefined) ?? null,
@@ -503,6 +510,18 @@ export async function updateSecurityCounts(
   counts: SecurityCounts,
 ): Promise<void> {
   await base(WEBSITES_TABLE).update([{ id: recordId, fields: securityFields(counts) }]);
+}
+
+/** Persist a site's auto-fix attempt counter. Its own one-field writer so the
+ *  nightly Renovate dispatch can update it without touching the audit's counts. */
+export async function updateAutoFixAttempts(
+  base: AirtableBase,
+  recordId: string,
+  attempts: number,
+): Promise<void> {
+  await base(WEBSITES_TABLE).update([
+    { id: recordId, fields: { "Security Auto-Fix Attempts": attempts } },
+  ]);
 }
 
 /**

@@ -92,6 +92,12 @@ describe("websites/mapRow → new metric fields", () => {
   it("treats an absent advisories cell as null (never audited)", () => {
     expect(row({}).securityAdvisories).toBeNull();
   });
+
+  it("maps Security Auto-Fix Attempts (number, null when absent)", () => {
+    expect(row({ "Security Auto-Fix Attempts": 3 }).securityAutoFixAttempts).toBe(3);
+    expect(row({ "Security Auto-Fix Attempts": 0 }).securityAutoFixAttempts).toBe(0);
+    expect(row({}).securityAutoFixAttempts).toBeNull();
+  });
 });
 
 describe("parseSecurityAdvisories", () => {
