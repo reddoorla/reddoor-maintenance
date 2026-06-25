@@ -3,12 +3,19 @@ import {
   assignTier,
   buildCockpitModel,
   fleetLastAuditedAt,
+  buildNeedsYouFeed,
 } from "../../src/dashboard/fleet-cockpit.js";
-import type { SiteCard } from "../../src/dashboard/fleet-cockpit.js";
+import type {
+  SiteCard,
+  CockpitModel,
+  CockpitSummary,
+  PendingEntry,
+} from "../../src/dashboard/fleet-cockpit.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import type { AttentionItem } from "../../src/alerts/attention.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
 import type { DigestSnapshot } from "../../src/alerts/digest-state.js";
+import { siteSlug } from "../../src/reports/airtable/websites.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 const NOW = new Date("2026-06-11T12:00:00Z");
@@ -345,5 +352,150 @@ describe("fleetLastAuditedAt", () => {
   it("skips unparseable timestamps", () => {
     const cards = [healthyCard("A", "not-a-date"), healthyCard("B", "2026-06-01T00:00:00Z")];
     expect(fleetLastAuditedAt(cards)).toBe("2026-06-01T00:00:00Z");
+  });
+});
+
+const ZERO_SUMMARY: CockpitSummary = {
+  attention: 0,
+  watch: 0,
+  healthy: 0,
+  criticalHighVulns: 0,
+  lighthouseBelowFloor: 0,
+  deliveryFailures: 0,
+  renovateFailing: 0,
+  ciRed: 0,
+  autoFixStuck: 0,
+  pending: 0,
+  newSubmissions: 0,
+};
+
+function feedModel(over: Partial<CockpitModel>): CockpitModel {
+  return { summary: ZERO_SUMMARY, cards: [], pending: [], submissions: [], spam: null, ...over };
+}
+function attnCard(name: string, items: AttentionItem[]): SiteCard {
+  return {
+    site: makeWebsiteRow({ name }),
+    tier: "attention",
+    items,
+    watchReasons: [],
+    watchSignals: [],
+  };
+}
+function watchCard(name: string, reasons: string[]): SiteCard {
+  return {
+    site: makeWebsiteRow({ name }),
+    tier: "watch",
+    items: [],
+    watchReasons: reasons,
+    watchSignals: ["lighthouse"],
+  };
+}
+function vuln(
+  name: string,
+  opts: { exhausted?: boolean; severity?: "critical" | "warning" } = {},
+): AttentionItem {
+  return {
+    key: "vuln:" + name,
+    kind: "vuln",
+    siteName: name,
+    title: (opts.severity ?? "critical") + " vuln",
+    severity: opts.severity ?? "critical",
+    metric: 1,
+    autoFixExhausted: opts.exhausted ?? false,
+  };
+}
+function ci(name: string): AttentionItem {
+  return {
+    key: "ci:" + name,
+    kind: "ci",
+    siteName: name,
+    title: "CI red",
+    severity: "critical",
+    metric: 1,
+  };
+}
+function delivery(name: string): AttentionItem {
+  return {
+    key: "delivery:" + name,
+    kind: "delivery",
+    siteName: name,
+    title: "reports failing to send",
+    severity: "warning",
+    metric: 1,
+  };
+}
+function pending(name: string, reportType = "Maintenance", period = "2026-Q2"): PendingEntry {
+  return {
+    reportId: "r-" + name,
+    siteName: name,
+    slug: siteSlug(name),
+    reportType: reportType as PendingEntry["reportType"],
+    period,
+  };
+}
+
+describe("buildNeedsYouFeed", () => {
+  it("returns [] for an empty model", () => {
+    expect(buildNeedsYouFeed(feedModel({}))).toEqual([]);
+  });
+  it("collapses multiple broken items of one site into a single row", () => {
+    const feed = buildNeedsYouFeed(
+      feedModel({ cards: [attnCard("Acme", [ci("Acme"), delivery("Acme")])] }),
+    );
+    expect(feed).toHaveLength(1);
+    expect(feed[0]).toMatchObject({
+      group: "broken",
+      siteName: "Acme",
+      url: "/s/" + siteSlug("Acme"),
+    });
+    expect(feed[0]!.reasons).toEqual(["CI red", "reports failing to send"]);
+  });
+  it("excludes a vuln until auto-fix is exhausted", () => {
+    const inflight = buildNeedsYouFeed(
+      feedModel({ cards: [attnCard("Acme", [vuln("Acme", { exhausted: false })])] }),
+    );
+    expect(inflight).toEqual([]);
+    const stuck = buildNeedsYouFeed(
+      feedModel({ cards: [attnCard("Acme", [vuln("Acme", { exhausted: true })])] }),
+    );
+    expect(stuck).toHaveLength(1);
+    expect(stuck[0]!.group).toBe("broken");
+  });
+  it("merges a broken site's pending report into the same broken row", () => {
+    const feed = buildNeedsYouFeed(
+      feedModel({
+        cards: [attnCard("Acme", [ci("Acme")])],
+        pending: [pending("Acme")],
+      }),
+    );
+    expect(feed).toHaveLength(1);
+    expect(feed[0]!.group).toBe("broken");
+    expect(feed[0]!.reasons).toEqual(["CI red", "Maintenance 2026-Q2 ready"]);
+  });
+  it("surfaces an approval on an otherwise-healthy site", () => {
+    const feed = buildNeedsYouFeed(feedModel({ pending: [pending("Beta")] }));
+    expect(feed).toHaveLength(1);
+    expect(feed[0]).toMatchObject({ group: "approval", siteName: "Beta" });
+    expect(feed[0]!.reasons).toEqual(["Maintenance 2026-Q2 ready"]);
+  });
+  it("surfaces a watch site as slipping", () => {
+    const feed = buildNeedsYouFeed(feedModel({ cards: [watchCard("Gamma", ["Performance 68"])] }));
+    expect(feed).toHaveLength(1);
+    expect(feed[0]).toMatchObject({ group: "slipping", siteName: "Gamma" });
+    expect(feed[0]!.reasons).toEqual(["Performance 68"]);
+  });
+  it("orders broken → approval → slipping, critical-first within broken, then by name", () => {
+    const feed = buildNeedsYouFeed(
+      feedModel({
+        cards: [
+          watchCard("Zeta", ["SEO 80"]),
+          attnCard("Delta", [delivery("Delta")]),
+          attnCard("Apex", [ci("Apex")]),
+        ],
+        pending: [pending("Yara")],
+      }),
+    );
+    expect(feed.map((f) => f.siteName)).toEqual(["Apex", "Delta", "Yara", "Zeta"]);
+    expect(feed.map((f) => f.group)).toEqual(["broken", "broken", "approval", "slipping"]);
   });
 });
