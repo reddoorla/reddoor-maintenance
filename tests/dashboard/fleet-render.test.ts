@@ -515,10 +515,14 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
     expect(html).not.toContain("✓ All clear");
   });
 
-  it("the filter script short-circuits 'pending' so it never hides triage cards", () => {
+  it("the fleet-browse filter script has no pending/submissions branch (they moved off the cards)", () => {
     const html = renderCockpitHtml(model([siteRow()]));
-    // The pending branch must return before the card-hiding loop.
-    expect(html).toMatch(/f === 'pending'[^]*?return;/);
+    // pending lives on the Needs-you feed and submissions in the inbox lane — the
+    // browse filters are card-tag only, so the old scroll-branch is gone.
+    expect(html).not.toMatch(/f === 'pending'/);
+    expect(html).not.toMatch(/f === 'submissions'/);
+    // The card-tag filter loop is still wired (scoped to .fleet-browse).
+    expect(html).toContain(".fleet-browse .filters button");
   });
 });
 
@@ -592,6 +596,26 @@ describe("renderCockpitHtml — Trigger Renovate button", () => {
     expect(html).toContain('data-trigger-url="/api/sites/has-repo/trigger-renovate"');
     expect(html).not.toContain("/api/sites/no-repo/trigger-renovate");
     expect(html).toContain("Trigger Renovate");
+  });
+});
+
+describe("fleet browse panel", () => {
+  it("renders one collapsed <details> with a single flat card grid (no nested tier details)", () => {
+    const html = renderCockpitHtml(model([siteRow({ name: "Acme" }), siteRow({ name: "Beta" })]));
+    expect(html).toContain('<details class="fleet-browse">');
+    expect(html).toContain("Fleet (2)");
+    expect(html.match(/<div class="cards">/g) ?? []).toHaveLength(1);
+    expect(html).not.toContain('details class="tier"');
+  });
+  it("keeps the per-card Trigger Renovate button for repo-backed sites", () => {
+    const html = renderCockpitHtml(model([siteRow({ name: "Acme", gitRepo: "reddoorla/acme" })]));
+    expect(html).toContain("trigger-renovate");
+  });
+  it("offers signal filters but not pending/submissions", () => {
+    const html = renderCockpitHtml(model([siteRow({ name: "Acme" })]));
+    expect(html).toContain('data-filter="vulns"');
+    expect(html).not.toContain('data-filter="pending"');
+    expect(html).not.toContain('data-filter="submissions"');
   });
 });
 

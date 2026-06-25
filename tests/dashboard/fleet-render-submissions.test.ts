@@ -82,18 +82,18 @@ describe("renderCockpitHtml — submissions", () => {
     expect(html).toContain('href="/s/acme"');
   });
 
-  it("orders attention content (tiers) before spam and submissions", () => {
+  it("orders the fleet browse panel before spam and submissions", () => {
     const html = renderCockpitHtml(oneSubmissionModel());
-    const tiersIdx = html.indexOf('data-tier="attention"');
+    const fleetIdx = html.indexOf('<details class="fleet-browse">');
     // Use the full div tag to avoid matching the CSS rule (.spam-rollup) in <head>.
     const spamIdx = html.indexOf('class="spam-rollup');
     const submIdx = html.indexOf("subm-strip");
-    expect(tiersIdx).toBeGreaterThan(-1);
+    expect(fleetIdx).toBeGreaterThan(-1);
     expect(spamIdx).toBeGreaterThan(-1);
     expect(submIdx).toBeGreaterThan(-1);
-    expect(tiersIdx).toBeLessThan(spamIdx); // tiers come before spam
+    expect(fleetIdx).toBeLessThan(spamIdx); // fleet panel comes before spam
     expect(spamIdx).toBeLessThan(submIdx); // spam before submissions
-    expect(tiersIdx).toBeLessThan(submIdx); // tiers before submissions
+    expect(fleetIdx).toBeLessThan(submIdx); // fleet panel before submissions
   });
 
   it("links the submissions strip heading to /submissions", () => {
