@@ -39,4 +39,17 @@ describe("recordFleetEventsBestEffort", () => {
       ),
     ).resolves.toBeUndefined();
   });
+
+  it("swallows a write failure (opener succeeds, record throws) without throwing", async () => {
+    const badDb = {
+      insertInto() {
+        throw new Error("db write boom");
+      },
+    } as unknown as Awaited<ReturnType<typeof openDb>>;
+    await expect(
+      recordFleetEventsBestEffort([ev("a", "2026-06-24T00:00:00.000Z")], NOW, () =>
+        Promise.resolve(badDb),
+      ),
+    ).resolves.toBeUndefined();
+  });
 });
