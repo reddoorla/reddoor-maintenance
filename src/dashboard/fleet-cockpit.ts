@@ -6,6 +6,7 @@ import { isPendingApproval } from "../reports/airtable/reports.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
 import type { ReportType } from "../reports/types.js";
 import type { SubmissionRow, FormType } from "../reports/submission-row.js";
+import type { FleetEvent, FleetEventType } from "../db/fleet-events.js";
 import {
   collectVulnAlerts,
   collectDeliveryFailures,
@@ -130,6 +131,17 @@ export type CockpitSummary = {
   newSubmissions?: number;
 };
 
+/** A render-ready row for the cockpit "Recently" lane. `url` is an external link
+ *  (PR) when present; `slug` links to `/s/<slug>` when the event names a site. */
+export type RecentEntry = {
+  type: FleetEventType;
+  summary: string;
+  siteName: string | null;
+  slug: string | null;
+  url: string | null;
+  ts: string;
+};
+
 export type CockpitModel = {
   summary: CockpitSummary;
   /** All visible sites, ordered: attention (worst-first) → watch (A-Z) → healthy (A-Z). */
@@ -139,6 +151,8 @@ export type CockpitModel = {
   submissions?: SubmissionEntry[];
   /** Fleet spam totals over the window (optional; populated by buildCockpitModel). */
   spam?: { caught: number; through: number } | null;
+  /** Recent fleet-activity events for the "Recently" lane (optional for back-compat). */
+  recent?: RecentEntry[];
 };
 
 export type NeedsYouGroup = "broken" | "approval" | "slipping";
@@ -260,6 +274,7 @@ export function buildCockpitModel(
   now: Date,
   newSubmissions: SubmissionRow[] = [],
   spamTotals: { honeypot: number; tooFast: number; markedSpam: number } | null = null,
+  recentEvents: FleetEvent[] = [],
 ): CockpitModel {
   const visible = websites.filter(isDashboardVisible);
   const sitesById = new Map<string, WebsiteRow>(visible.map((w) => [w.id, w]));
@@ -366,6 +381,25 @@ export function buildCockpitModel(
     newSubmissions: submissions.length,
   };
 
+  const recent: RecentEntry[] = recentEvents.map((e) => {
+    const url =
+      e.type === "pr_automerged" &&
+      e.data !== null &&
+      typeof e.data === "object" &&
+      "url" in e.data &&
+      typeof (e.data as { url: unknown }).url === "string"
+        ? (e.data as { url: string }).url
+        : null;
+    return {
+      type: e.type,
+      summary: e.summary,
+      siteName: e.siteName,
+      slug: e.siteName ? siteSlug(e.siteName) : null,
+      url,
+      ts: e.ts,
+    };
+  });
+
   return {
     summary,
     cards,
@@ -374,6 +408,7 @@ export function buildCockpitModel(
     spam: spamTotals
       ? { caught: spamTotals.honeypot + spamTotals.tooFast, through: spamTotals.markedSpam }
       : null,
+    recent,
   };
 }
 
