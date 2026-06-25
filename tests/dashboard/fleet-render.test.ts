@@ -595,4 +595,13 @@ describe("renderCockpitHtml — Refresh fleet state button + live status", () =>
     expect(html).toContain("reddoor:fleet-refresh");
     expect(html).toMatch(/localStorage/);
   });
+
+  it("the spinner client carries the phase/eta/run-link detail wiring", () => {
+    const html = renderCockpitHtml(model([siteRow()]));
+    expect(html).toContain("view run"); // run link shown while running
+    expect(html).toContain("rf-sub"); // the detail sub-line class
+    expect(html).toContain("auditing the fleet"); // phase humanization
+    expect(html).toContain("~48m"); // lighthouse ETA
+    expect(html).toContain("~2m"); // security ETA
+  });
 });

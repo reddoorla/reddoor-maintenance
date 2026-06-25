@@ -95,7 +95,23 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
           }),
         })),
       );
-      return json({ ok: true, status: summarizeFleetRunStatus(runsByWorkflow) }, 200);
+      const summary = summarizeFleetRunStatus(runsByWorkflow);
+      // Enrich in-progress workflows with the current build step (one extra jobs call
+      // each, only while running). Best-effort: a jobs hiccup must NOT sink the poll,
+      // so any failure → step stays null.
+      const perWorkflow = await Promise.all(
+        summary.perWorkflow.map(async (w) => {
+          if (w.state !== "in_progress") return w;
+          const run = runsByWorkflow.find((r) => r.workflow === w.workflow)?.runs[0];
+          if (!run) return w;
+          try {
+            return { ...w, step: await gh.currentRunStep(CENTRAL_REPO, run.id) };
+          } catch {
+            return w;
+          }
+        }),
+      );
+      return json({ ok: true, status: { ...summary, perWorkflow } }, 200);
     } catch (err) {
       return handlerError("refresh-fleet-status", err);
     }

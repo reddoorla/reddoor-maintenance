@@ -127,6 +127,7 @@ h1 { margin: 0 0 0.25rem; font-size: 1.75rem; }
 .rf-status { margin-top:0.6rem; font-size:0.85rem; }
 .rf-row { padding:0.1rem 0; }
 .rf-row a { margin-left:0.3rem; }
+.rf-sub { color:#999; font-size:0.8rem; margin-left:1.1rem; }
 .rf-spin { display:inline-block; width:0.8em; height:0.8em; border:2px solid #999; border-top-color:transparent; border-radius:50%; animation:rf-spin 0.8s linear infinite; vertical-align:-0.1em; }
 @keyframes rf-spin { to { transform:rotate(360deg); } }
 details.tier { margin:0.75rem 0; }
@@ -383,16 +384,45 @@ const FILTER_SCRIPT = `<script>
   var RF_MAX_MS = 90 * 60 * 1000; // safety ceiling; a full fleet Lighthouse run was ~48 min (2026-06-24)
   function rfPanel(){ return document.getElementById('rf-status'); }
   function rfStop(){ try { localStorage.removeItem(RF_KEY); } catch(e){} }
-  // Safe to build raw HTML: workflow/state are server-fixed enums and url is GitHub's
-  // own html_url for our central repo — none are user-supplied. Don't interpolate
-  // untrusted fields here without escaping.
-  function rfRender(status){
+  // Per-workflow ETA hint (the lighthouse fleet sweep runs ~48 min; security ~1-2 min).
+  function rfEta(label){ return label === 'lighthouse' ? '~48m' : label === 'security' ? '~2m' : ''; }
+  // Map a raw GitHub step name to a coarse human phase. Order matters (the audit step
+  // name also contains 'browser'; 'playwright install' also contains 'install').
+  function rfPhase(step){
+    if (!step) return '';
+    var s = step.toLowerCase();
+    if (s.indexOf('audit') !== -1 || s.indexOf('lighthouse') !== -1) return 'auditing the fleet…';
+    if (s.indexOf('build') !== -1) return 'building…';
+    if (s.indexOf('playwright') !== -1 || s.indexOf('browser') !== -1) return 'installing browsers…';
+    if (s.indexOf('install') !== -1 || s.indexOf('depend') !== -1) return 'installing dependencies…';
+    if (s.indexOf('set up') !== -1 || s.indexOf('checkout') !== -1) return 'setting up…';
+    return step;
+  }
+  // Safe to build raw HTML: workflow/state/step are server-fixed (enums + GitHub step
+  // names) and url is GitHub's own html_url for our central repo — none are
+  // user-supplied. Don't interpolate untrusted fields here without escaping.
+  function rfRender(status, startedAt){
     var failed = function(s){ return s === 'failure' || s === 'cancelled' || s === 'timed_out'; };
+    var mins = Math.floor((Date.now() - startedAt) / 60000);
+    var elapsed = mins < 1 ? '<1m' : mins + 'm';
     return status.perWorkflow.map(function(w){
       var label = w.workflow.replace('.yml','').replace('fleet-','');
-      var icon = w.state === 'success' ? '✓' : failed(w.state) ? '✗' : '<span class="rf-spin"></span>';
-      var link = (failed(w.state) && w.url) ? ' <a href="'+w.url+'" target="_blank" rel="noopener">run</a>' : '';
-      return '<div class="rf-row">'+icon+' '+label+' — '+w.state.replace('_',' ')+link+'</div>';
+      var done = w.state === 'success';
+      var isFailed = failed(w.state);
+      var icon = done ? '✓' : isFailed ? '✗' : '<span class="rf-spin"></span>';
+      var line = icon + ' ' + label + ' — ' + w.state.replace('_',' ');
+      if (!done && !isFailed){
+        var phase = rfPhase(w.step);
+        var eta = rfEta(label);
+        var detail = [];
+        if (phase) detail.push(phase);
+        detail.push(elapsed + (eta ? ' / ' + eta : ''));
+        var link = w.url ? ' · <a href="'+w.url+'" target="_blank" rel="noopener">view run ↗</a>' : '';
+        line += '<div class="rf-sub">' + detail.join(' · ') + link + '</div>';
+      } else if (isFailed && w.url){
+        line += ' <a href="'+w.url+'" target="_blank" rel="noopener">run</a>';
+      }
+      return '<div class="rf-row">' + line + '</div>';
     }).join('');
   }
   function rfPoll(since, startedAt){
@@ -407,7 +437,7 @@ const FILTER_SCRIPT = `<script>
         rfStop(); return;
       }
       if (data && data.status){
-        if (p) p.innerHTML = rfRender(data.status);
+        if (p) p.innerHTML = rfRender(data.status, startedAt);
         if (data.status.allDone){
           if (!data.status.anyFailure){
             if (p) p.innerHTML += '<div class="rf-row">✓ Done — reloading…</div>';

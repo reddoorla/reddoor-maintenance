@@ -188,3 +188,72 @@ describe("makeGitHubRest.listWorkflowRuns", () => {
     expect(calls).toEqual([]);
   });
 });
+
+describe("makeGitHubRest.currentRunStep", () => {
+  it("returns the in-progress step name of the in-progress job", async () => {
+    const { fn, calls } = fakeFetch([
+      {
+        status: 200,
+        body: {
+          total_count: 1,
+          jobs: [
+            {
+              id: 7,
+              status: "in_progress",
+              steps: [
+                { name: "Set up job", status: "completed", number: 1 },
+                { name: "pnpm build", status: "completed", number: 2 },
+                {
+                  name: "Fleet Lighthouse + domain + browser audit",
+                  status: "in_progress",
+                  number: 3,
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ]);
+    const gh = makeGitHubRest({ token: "tok", fetch: fn });
+    expect(await gh.currentRunStep("reddoorla/acme", 42)).toBe(
+      "Fleet Lighthouse + domain + browser audit",
+    );
+    expect(calls[0]!.url).toBe("https://api.github.com/repos/reddoorla/acme/actions/runs/42/jobs");
+    expect(calls[0]!.method).toBe("GET");
+    expect(calls[0]!.headers["authorization"]).toBe("Bearer tok");
+  });
+
+  it("returns null when no step is in progress", async () => {
+    const { fn } = fakeFetch([
+      {
+        status: 200,
+        body: {
+          jobs: [
+            { id: 1, status: "completed", steps: [{ name: "x", status: "completed", number: 1 }] },
+          ],
+        },
+      },
+    ]);
+    const gh = makeGitHubRest({ token: "tok", fetch: fn });
+    expect(await gh.currentRunStep("reddoorla/acme", 42)).toBeNull();
+  });
+
+  it("returns null when there are no jobs", async () => {
+    const { fn } = fakeFetch([{ status: 200, body: { jobs: [] } }]);
+    const gh = makeGitHubRest({ token: "tok", fetch: fn });
+    expect(await gh.currentRunStep("reddoorla/acme", 42)).toBeNull();
+  });
+
+  it("throws (with status) when the jobs call is non-2xx", async () => {
+    const { fn } = fakeFetch([{ status: 500, body: { message: "boom" } }]);
+    const gh = makeGitHubRest({ token: "tok", fetch: fn });
+    await expect(gh.currentRunStep("reddoorla/acme", 42)).rejects.toThrow(/500/);
+  });
+
+  it("rejects a non-integer runId before any fetch", async () => {
+    const { fn, calls } = fakeFetch([{ status: 200, body: { jobs: [] } }]);
+    const gh = makeGitHubRest({ token: "tok", fetch: fn });
+    await expect(gh.currentRunStep("reddoorla/acme", 1.5 as number)).rejects.toThrow();
+    expect(calls).toEqual([]);
+  });
+});
