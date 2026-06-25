@@ -50,6 +50,7 @@ function fakeGitHub(over: GitHubOverrides = {}): { gh: GitHub; calls: string[] }
     findOpenSelfUpdatingPR: async () => null,
     openPullRequests: async () => [],
     defaultBranchStatus: async () => ({ ciState: "none", lastCommitAt: null }),
+    mergedRenovatePullRequests: async () => [],
     dispatchWorkflow: async (repo, workflow, ref) => {
       calls.push(`dispatch:${repo}:${workflow}:${ref}`);
     },
