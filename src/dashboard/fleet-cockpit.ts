@@ -276,3 +276,21 @@ export function buildCockpitModel(
       : null,
   };
 }
+
+/** Most recent `lastLighthouseAuditAt` across the cards, or null if none recorded.
+ *  Drives the cockpit verdict's "fleet last audited Xh ago" line. PURE. */
+export function fleetLastAuditedAt(cards: SiteCard[]): string | null {
+  let latestIso: string | null = null;
+  let latestMs = -Infinity;
+  for (const c of cards) {
+    const iso = c.site.lastLighthouseAuditAt;
+    if (!iso) continue;
+    const ms = Date.parse(iso);
+    if (!Number.isFinite(ms)) continue;
+    if (ms > latestMs) {
+      latestMs = ms;
+      latestIso = iso;
+    }
+  }
+  return latestIso;
+}

@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { assignTier, buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
+import {
+  assignTier,
+  buildCockpitModel,
+  fleetLastAuditedAt,
+} from "../../src/dashboard/fleet-cockpit.js";
+import type { SiteCard } from "../../src/dashboard/fleet-cockpit.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import type { AttentionItem } from "../../src/alerts/attention.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
@@ -309,5 +314,36 @@ describe("buildCockpitModel — GitHub signals (slice 2b)", () => {
       NOW,
     );
     expect(m.summary.autoFixStuck).toBe(1);
+  });
+});
+
+function healthyCard(name: string, lastLighthouseAuditAt: string | null): SiteCard {
+  return {
+    site: makeWebsiteRow({ name, lastLighthouseAuditAt }),
+    tier: "healthy",
+    items: [],
+    watchReasons: [],
+    watchSignals: [],
+  };
+}
+
+describe("fleetLastAuditedAt", () => {
+  it("returns null for no cards", () => {
+    expect(fleetLastAuditedAt([])).toBeNull();
+  });
+  it("returns null when every card has no audit timestamp", () => {
+    expect(fleetLastAuditedAt([healthyCard("A", null), healthyCard("B", null)])).toBeNull();
+  });
+  it("returns the most recent ISO timestamp", () => {
+    const cards = [
+      healthyCard("A", "2026-06-20T10:00:00Z"),
+      healthyCard("B", "2026-06-24T09:00:00Z"),
+      healthyCard("C", null),
+    ];
+    expect(fleetLastAuditedAt(cards)).toBe("2026-06-24T09:00:00Z");
+  });
+  it("skips unparseable timestamps", () => {
+    const cards = [healthyCard("A", "not-a-date"), healthyCard("B", "2026-06-01T00:00:00Z")];
+    expect(fleetLastAuditedAt(cards)).toBe("2026-06-01T00:00:00Z");
   });
 });
