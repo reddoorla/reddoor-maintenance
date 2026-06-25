@@ -12,6 +12,7 @@ import { prepareHeaderImage } from "../maintenance-email/header-image.js";
 import { defaultResendClient, type ResendClient, type ResendSendInput } from "./resend.js";
 import { isIdempotencyConflict } from "./idempotency.js";
 import { checklistFor, isChecklistComplete } from "../checklist.js";
+import { recordFleetEventsBestEffort } from "../../audits/fleet-events-writer.js";
 
 const FROM_ADDRESS = "Reddoor Reports <reports@reddoorla.com>";
 const REPLY_TO = "info@reddoorla.com";
@@ -105,6 +106,20 @@ export async function sendApprovedReports(
         try {
           await updateLaunched(base, site.id, new Date().toISOString());
           lines.push(`  ↳ launched: ${site.name} flipped to maintenance`);
+          await recordFleetEventsBestEffort(
+            [
+              {
+                id: `site_launched:${site.id}`,
+                ts: new Date().toISOString(),
+                type: "site_launched",
+                siteId: site.id,
+                siteName: site.name,
+                summary: "launched — now in maintenance",
+                data: null,
+              },
+            ],
+            new Date(),
+          );
         } catch (e) {
           lines.push(`  ⚠ launch flip failed for ${site.name}: ${(e as Error).message}`);
         }
