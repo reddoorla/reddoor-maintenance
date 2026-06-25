@@ -38,10 +38,19 @@ describe("runAudits", () => {
     expect(results[0]?.audit).toBe("deps");
   });
 
-  it("dispatches all seven audits when `which` is undefined", async () => {
+  it("dispatches all eight audits when `which` is undefined", async () => {
     const results = await runAudits({ path: "/fixtures/pristine-starter" });
     const names = results.map((r) => r.audit).sort();
-    expect(names).toEqual(["a11y", "browser", "deps", "domain", "lighthouse", "lint", "security"]);
+    expect(names).toEqual([
+      "a11y",
+      "browser",
+      "deps",
+      "domain",
+      "lighthouse",
+      "lint",
+      "netlify-deploy",
+      "security",
+    ]);
   });
 
   it("rejects an unknown audit name with a usage error", async () => {

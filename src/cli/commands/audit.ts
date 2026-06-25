@@ -209,19 +209,28 @@ export function deployedUrlNotice(
   return `note: --url only affects lighthouse; ${others.join(", ")} ran against the local checkout at ${cwd}`;
 }
 
-/** Audits that run against the deployed URL only — no repo checkout needed. lighthouse hits the
- *  live URL; domain probes DNS/TLS of the URL's host. */
+/** Audits that need no repo checkout — they probe an external resource. lighthouse hits the
+ *  live URL; domain probes DNS/TLS of the URL's host; browser drives the deployed URL;
+ *  netlify-deploy queries the Netlify API by site id. */
 const CHECKOUT_FREE_AUDITS: ReadonlySet<AuditName> = new Set<AuditName>([
   "lighthouse",
   "domain",
   "browser",
+  "netlify-deploy",
 ]);
 
+/** Audits whose checkout-free run is keyed off `site.netlifyId` (the Netlify API) rather than
+ *  the deployed URL. Everything else in CHECKOUT_FREE_AUDITS reads `site.deployedUrl`. */
+const NETLIFY_ID_AUDITS: ReadonlySet<AuditName> = new Set<AuditName>(["netlify-deploy"]);
+
 /** A fleet site needs a local checkout unless every requested audit is checkout-free AND the site
- *  has a `deployedUrl` for them to run against. */
+ *  has the external resource each one runs against (`deployedUrl` for lighthouse/domain/browser,
+ *  `netlifyId` for netlify-deploy). */
 export function auditNeedsCheckout(site: Site, which: AuditName[]): boolean {
-  const deployedCapable =
-    site.deployedUrl !== undefined && which.every((n) => CHECKOUT_FREE_AUDITS.has(n));
+  const deployedCapable = which.every((n) => {
+    if (!CHECKOUT_FREE_AUDITS.has(n)) return false;
+    return NETLIFY_ID_AUDITS.has(n) ? site.netlifyId !== undefined : site.deployedUrl !== undefined;
+  });
   return !deployedCapable;
 }
 

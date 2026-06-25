@@ -9,6 +9,7 @@ import { lighthouseAudit } from "./lighthouse.js";
 import { a11yAudit } from "./a11y.js";
 import { domainAudit } from "./domain.js";
 import { browserAudit } from "./browser.js";
+import { netlifyDeployAudit } from "./netlify-deploy.js";
 
 const REGISTRY: Record<AuditName, (ctx: AuditContext) => Promise<AuditResult>> = {
   deps: depsAudit,
@@ -18,6 +19,7 @@ const REGISTRY: Record<AuditName, (ctx: AuditContext) => Promise<AuditResult>> =
   a11y: a11yAudit,
   domain: domainAudit,
   browser: browserAudit,
+  "netlify-deploy": netlifyDeployAudit,
 };
 
 export const ALL_AUDIT_NAMES = Object.keys(REGISTRY) as AuditName[];

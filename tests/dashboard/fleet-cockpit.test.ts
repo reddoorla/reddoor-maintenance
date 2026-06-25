@@ -90,6 +90,17 @@ describe("assignTier", () => {
     );
     expect(r.tier).toBe("attention");
   });
+
+  it("is 'attention' when the latest production deploy failed (no other items)", () => {
+    expect(assignTier(site({ deployStatus: "error" }), [], NOW).tier).toBe("attention");
+    expect(assignTier(site({ deployStatus: "failed" }), [], NOW).tier).toBe("attention");
+  });
+
+  it("does NOT escalate a ready / building / unknown deploy to attention", () => {
+    expect(assignTier(site({ deployStatus: "ready" }), [], NOW).tier).toBe("healthy");
+    expect(assignTier(site({ deployStatus: "building" }), [], NOW).tier).toBe("healthy");
+    expect(assignTier(site({ deployStatus: null }), [], NOW).tier).toBe("healthy");
+  });
 });
 
 const BASE = "https://reddoor-maintenance.netlify.app";
