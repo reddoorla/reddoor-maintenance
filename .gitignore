@@ -17,3 +17,6 @@ secrets/
 # a11y audit's transient spec dir; cleaned on catchable exits, gitignored as the
 # backstop for a timeout-SIGKILL that orphans it mid-run.
 .reddoor-a11y-spec-*/
+
+# superpowers visual brainstorm companion (local mockups)
+.superpowers/
