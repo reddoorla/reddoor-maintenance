@@ -472,6 +472,14 @@ describe("buildNeedsYouFeed", () => {
     expect(feed[0]!.group).toBe("broken");
     expect(feed[0]!.reasons).toEqual(["CI red", "Maintenance 2026-Q2 ready"]);
   });
+  it("a watch site with a pending report collapses to one approval row", () => {
+    const feed = buildNeedsYouFeed(
+      feedModel({ cards: [watchCard("Delta", ["Performance 70"])], pending: [pending("Delta")] }),
+    );
+    expect(feed).toHaveLength(1);
+    expect(feed[0]!.group).toBe("approval");
+    expect(feed[0]!.reasons).toEqual(["Performance 70", "Maintenance 2026-Q2 ready"]);
+  });
   it("surfaces an approval on an otherwise-healthy site", () => {
     const feed = buildNeedsYouFeed(feedModel({ pending: [pending("Beta")] }));
     expect(feed).toHaveLength(1);

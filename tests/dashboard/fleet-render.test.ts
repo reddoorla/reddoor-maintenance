@@ -412,6 +412,55 @@ describe("inbox lane", () => {
   });
 });
 
+describe("renderCockpitHtml — region order", () => {
+  it("composes the four regions in order: verdict → needs-you → fleet → inbox", () => {
+    // A model that populates ALL four regions at once: a pending-approval report
+    // (→ needs-you feed, verdict warns) plus a new submission and spam (→ inbox).
+    const m = buildCockpitModel(
+      [siteRow({ id: "recSITE", name: "Acme Co" })],
+      [
+        {
+          id: "r1",
+          siteId: "recSITE",
+          reportType: "Maintenance",
+          period: "2026-05",
+          periodStart: null,
+          periodEnd: null,
+          gaUsersCurrent: null,
+          gaUsersPrevious: null,
+          draftReady: true,
+          approvedToSend: false,
+          sentAt: null,
+          deliveryStatus: "pending",
+        } as never,
+      ],
+      {},
+      BASE,
+      NOW,
+      [
+        {
+          id: "s1",
+          siteId: "recSITE",
+          formType: "contact",
+          name: "Jane",
+          email: "jane@x.com",
+          submittedAt: "2026-06-10T12:00:00Z",
+        } as never,
+      ],
+      { honeypot: 3, tooFast: 2, markedSpam: 1 },
+    );
+    const html = renderCockpitHtml(m);
+    const iVerdict = html.indexOf('class="verdict');
+    const iFeed = html.indexOf('class="needs-you');
+    const iFleet = html.indexOf('class="fleet-browse');
+    const iInbox = html.indexOf('class="inbox');
+    expect(iVerdict).toBeGreaterThan(-1);
+    expect(iFeed).toBeGreaterThan(iVerdict);
+    expect(iFleet).toBeGreaterThan(iFeed);
+    expect(iInbox).toBeGreaterThan(iFleet);
+  });
+});
+
 describe("renderCockpitHtml — inbox lane submissions cap", () => {
   /** Minimal new-submission row; buildCockpitModel only reads id/siteId/formType/name/email/submittedAt. */
   function sub(siteId: string, n: number) {
