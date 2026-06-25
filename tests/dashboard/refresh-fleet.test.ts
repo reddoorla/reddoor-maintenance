@@ -62,8 +62,8 @@ describe("summarizeFleetRunStatus", () => {
       { workflow: "fleet-lighthouse.yml", runs: [] },
     ]);
     expect(s.perWorkflow).toEqual([
-      { workflow: "fleet-security.yml", state: "starting", url: null },
-      { workflow: "fleet-lighthouse.yml", state: "starting", url: null },
+      { workflow: "fleet-security.yml", state: "starting", url: null, step: null },
+      { workflow: "fleet-lighthouse.yml", state: "starting", url: null, step: null },
     ]);
     expect(s.allDone).toBe(false);
   });
@@ -121,6 +121,14 @@ describe("summarizeFleetRunStatus", () => {
       expect(s.perWorkflow[0]!.state).toBe("queued");
       expect(s.allDone).toBe(false);
     }
+  });
+
+  it("includes a step field (null) on every perWorkflow entry — endpoint fills it for in-progress runs", () => {
+    const s = summarizeFleetRunStatus([
+      { workflow: "fleet-security.yml", runs: [run({})] },
+      { workflow: "fleet-lighthouse.yml", runs: [] },
+    ]);
+    expect(s.perWorkflow.every((w) => w.step === null)).toBe(true);
   });
 
   it("uses the newest (first) run and carries its url", () => {

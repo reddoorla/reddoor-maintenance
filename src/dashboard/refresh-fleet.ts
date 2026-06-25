@@ -51,7 +51,7 @@ export type WorkflowRunState =
   | "timed_out";
 
 export type FleetRunStatus = {
-  perWorkflow: { workflow: string; state: WorkflowRunState; url: string | null }[];
+  perWorkflow: { workflow: string; state: WorkflowRunState; url: string | null; step: string | null }[];
   allDone: boolean; // every workflow's newest run has completed
   anySuccess: boolean; // ≥1 completed with conclusion "success"
   anyFailure: boolean; // ≥1 completed with a non-success conclusion
@@ -89,7 +89,7 @@ export function summarizeFleetRunStatus(
 ): FleetRunStatus {
   const perWorkflow = runsByWorkflow.map(({ workflow, runs }) => {
     const newest = runs[0];
-    return { workflow, state: runState(newest), url: newest?.htmlUrl ?? null };
+    return { workflow, state: runState(newest), url: newest?.htmlUrl ?? null, step: null };
   });
   return {
     perWorkflow,
