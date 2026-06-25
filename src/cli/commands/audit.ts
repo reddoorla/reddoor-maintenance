@@ -10,6 +10,8 @@ import {
 } from "../fleet/prepare-sites.js";
 import { isHttpUrl } from "../../util/url.js";
 import { fleetWorkdir } from "../../util/fleet-workdir.js";
+import { recordFleetEventsBestEffort } from "../../audits/fleet-events-writer.js";
+import { fleetSweptEvent } from "../../audits/fleet-event-detectors.js";
 
 export type AuditCommandOptions = {
   only?: string;
@@ -336,6 +338,15 @@ export async function runAuditCommand(
       const websites = await listWebsites(base);
       const fleetWrite = await writeFleetAuditsToAirtable({ base, websites, results });
       if (fleetWrite.failed.length > 0) writeBackFailed = true;
+      // Record fleet-activity events (vuln_cleared / cert_renewed rode along on each
+      // WriteSummary) plus a per-sweep rollup. Best-effort: a missing Turso cred no-ops.
+      const sweep = which.includes("security") ? "security" : "lighthouse";
+      const now = new Date();
+      const auditEvents = fleetWrite.written.flatMap((w) => w.events ?? []);
+      await recordFleetEventsBestEffort(
+        [...auditEvents, fleetSweptEvent(sweep, fleetWrite.written.length, now.toISOString())],
+        now,
+      );
       // Gate on !json: the write-summary is human text; appending it after the
       // results array would corrupt `--json` output (the other notices already
       // guard this way). The write itself still happens regardless of --json.

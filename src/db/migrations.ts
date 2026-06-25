@@ -43,4 +43,20 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    id: "0002_fleet_events",
+    sql: `
+      CREATE TABLE IF NOT EXISTS fleet_events (
+        id TEXT PRIMARY KEY,
+        ts TEXT NOT NULL,
+        type TEXT NOT NULL,
+        site_id TEXT,
+        site_name TEXT,
+        summary TEXT NOT NULL,
+        data TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_fleet_events_ts ON fleet_events (ts);
+    `,
+  },
 ];

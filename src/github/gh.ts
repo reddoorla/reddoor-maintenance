@@ -84,6 +84,12 @@ export type GitHub = {
   openPullRequests: (repo: string) => Promise<PullRequestSummary[]>;
   /** The default branch's latest-commit date + normalized CI rollup, one query. */
   defaultBranchStatus: (repo: string) => Promise<{ ciState: CiState; lastCommitAt: string | null }>;
+  /** Renovate PRs (head `renovate/*`) merged at/after `sinceIso`. Used to record
+   *  `pr_automerged` fleet events. gh-shell (Actions only). */
+  mergedRenovatePullRequests: (
+    repo: string,
+    sinceIso: string,
+  ) => Promise<Array<{ number: number; title: string; url: string; mergedAt: string }>>;
   /** Fire a `workflow_dispatch` for `<workflow>` (a filename like `renovate.yml`)
    *  on `ref`. Requires the token's `actions:write` scope; a 404 (no such
    *  workflow) or 403 (missing scope) surfaces as a thrown error. */
@@ -300,6 +306,38 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
         ciState: mapRollupState(target?.statusCheckRollup?.state),
         lastCommitAt: target?.committedDate ?? null,
       };
+    },
+    async mergedRenovatePullRequests(repo, sinceIso) {
+      const [owner, name, ...rest] = repo.split("/");
+      if (!owner || !name || rest.length > 0) {
+        throw new Error(`mergedRenovatePullRequests: expected "owner/repo", got "${repo}"`);
+      }
+      // per_page=50: comfortably covers a week of Renovate merges on one repo. The
+      // list endpoint returns merged_at + head.ref, so the filter is local.
+      const out = await gh([
+        "api",
+        `repos/${owner}/${name}/pulls?state=closed&sort=updated&direction=desc&per_page=50`,
+      ]);
+      const arr = JSON.parse(out) as Array<{
+        number: number;
+        title: string;
+        html_url: string;
+        merged_at: string | null;
+        head?: { ref?: string };
+      }>;
+      return arr
+        .filter(
+          (p) =>
+            p.merged_at !== null &&
+            p.merged_at >= sinceIso && // ISO8601 UTC strings sort lexicographically
+            (p.head?.ref ?? "").startsWith("renovate/"),
+        )
+        .map((p) => ({
+          number: p.number,
+          title: p.title,
+          url: p.html_url,
+          mergedAt: p.merged_at as string,
+        }));
     },
     async dispatchWorkflow(repo, workflow, ref) {
       const [owner, name, ...rest] = repo.split("/");

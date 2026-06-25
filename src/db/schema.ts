@@ -30,6 +30,17 @@ export interface SpamScreenoutsTable {
   marked_spam: number;
 }
 
+export interface FleetEventsTable {
+  id: string;
+  ts: string;
+  type: string;
+  site_id: string | null;
+  site_name: string | null;
+  summary: string;
+  data: string | null;
+  created_at: string;
+}
+
 export interface MigrationsTable {
   id: string;
   applied_at: string;
@@ -38,5 +49,6 @@ export interface MigrationsTable {
 export interface Database {
   submissions: SubmissionsTable;
   spam_screenouts: SpamScreenoutsTable;
+  fleet_events: FleetEventsTable;
   _migrations: MigrationsTable;
 }

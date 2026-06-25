@@ -7,6 +7,9 @@ import {
   formatFleetWriteSummary,
   type FleetWriteResult,
 } from "../../audits/write-audits-to-airtable.js";
+import { detectSignalEvents, fleetSweptEvent } from "../../audits/fleet-event-detectors.js";
+import { recordFleetEventsBestEffort } from "../../audits/fleet-events-writer.js";
+import type { FleetEvent } from "../../db/fleet-events.js";
 
 /** Exit code for a fleet github-signals run. Exit 1 when failures are the
  *  MAJORITY of the fleet (`failed > written`), not only on a total wipeout —
@@ -58,6 +61,9 @@ export async function runGitHubSignalsCommand(opts: {
   const sweptAt = new Date().toISOString();
   const result: FleetWriteResult = { written: [], failed: [] };
   const byRepo = new Map(websites.filter((w) => w.gitRepo).map((w) => [w.gitRepo, w]));
+  const events: FleetEvent[] = [];
+  const sweptMs = Date.parse(sweptAt);
+  const since24h = new Date(sweptMs - 24 * 60 * 60 * 1000).toISOString();
   // Serial: Airtable's ~5 req/sec limit (matches writeFleetAuditsToAirtable).
   for (const row of rows) {
     const target = byRepo.get(row.repo);
@@ -76,11 +82,25 @@ export async function runGitHubSignalsCommand(opts: {
         siteName: target.name,
         writes: [{ audit: "github-signals", counts: row }],
       });
+      // Fleet-activity events for this repo: merged Renovate PRs since the last sweep
+      // (watermark = the row's prior GitHub Signals At, else a 24h fallback) + a
+      // CI-recovered transition. A PR-fetch hiccup drops only this repo's PR events.
+      const since = target.githubSignalsAt ?? since24h;
+      let merged: Awaited<ReturnType<typeof gh.mergedRenovatePullRequests>> = [];
+      try {
+        merged = await gh.mergedRenovatePullRequests(row.repo, since);
+      } catch {
+        // PR list unavailable this run — skip pr_automerged for this repo, keep ci_recovered
+      }
+      events.push(...detectSignalEvents(target, row, merged, sweptAt));
     } catch (e) {
       result.failed.push({ slug: siteSlug(row.site), error: (e as Error).message });
     }
   }
   for (const repo of skipped) result.failed.push({ slug: repo, error: "probe failed (skipped)" });
+
+  events.push(fleetSweptEvent("github-signals", result.written.length, sweptAt));
+  await recordFleetEventsBestEffort(events, new Date());
 
   // Exit non-zero when failures are the MAJORITY of the fleet, not only on a
   // total wipeout. A run where 11/12 repos failed but 1 wrote used to return 0,

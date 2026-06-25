@@ -22,6 +22,8 @@ import {
 import { hasDomainResult, domainResultFromAudit } from "./domain-airtable.js";
 import { hasBrowserResult, browserFieldsFromAudit } from "./browser-airtable.js";
 import { hasNetlifyDeployResult, netlifyDeployResultFromAudit } from "./netlify-deploy-airtable.js";
+import { detectAuditEvents } from "./fleet-event-detectors.js";
+import type { FleetEvent } from "../db/fleet-events.js";
 
 type WriteSummary = {
   siteName: string;
@@ -37,6 +39,9 @@ type WriteSummary = {
       | "netlify-deploy";
     counts: object;
   }>;
+  /** Fleet-activity events detected from this site's prior row vs the fresh audits.
+   *  Optional: only the fleet path records them; the single-site path ignores them. */
+  events?: FleetEvent[];
 };
 
 /** Orchestrates the per-audit Airtable writes for `audit --write-airtable`.
@@ -151,6 +156,18 @@ export async function writeAuditsToAirtable(args: {
     await updateAuditFields(base, target.id, audits);
   }
 
+  // Detect fleet-activity transitions from the prior row (`target`, loaded before this
+  // write) vs the fresh audits. Computed here where both are in hand; recorded by the
+  // caller (fleet path) — single-site callers simply ignore `events`.
+  const events = detectAuditEvents(
+    target,
+    {
+      ...(audits.security !== undefined ? { security: audits.security } : {}),
+      ...(audits.domain !== undefined ? { domain: audits.domain } : {}),
+    },
+    new Date().toISOString(),
+  );
+
   // Lighthouse-miss flag: only when lighthouse WAS requested (in results) but produced no scores —
   // an infra failure worth reding the run, AFTER persisting the other audits. A sweep that never
   // ran lighthouse (e.g. `--only security`) skips this entirely.
@@ -168,7 +185,7 @@ export async function writeAuditsToAirtable(args: {
     );
   }
 
-  return { siteName: target.name, writes };
+  return { siteName: target.name, writes, events };
 }
 
 export type FleetWriteResult = {
