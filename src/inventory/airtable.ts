@@ -64,6 +64,10 @@ export function fromAirtableBase(
           );
         }
         if (w.gitRepo) site.gitRepo = w.gitRepo;
+        // Expose the Netlify site id (operator-set identity column) so the
+        // netlify-deploy audit can query the API with no checkout. Absent → that
+        // audit skips for this site. Not derived from the URL.
+        if (w.netlifyId) site.netlifyId = w.netlifyId;
         return [site];
       });
   };

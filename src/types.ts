@@ -7,10 +7,23 @@ export type Site = {
   /** Deployed/production URL. When set, the lighthouse audit runs against this
    *  URL directly (no checkout, no dev server) instead of a local vite server. */
   deployedUrl?: string;
+  /** Netlify site id (the API `id`/`site_id`, e.g. a UUID), when known (from
+   *  Airtable). The `netlify-deploy` audit needs it to query the Netlify API;
+   *  absent → that audit skips. NOT derived from the URL — it's an explicit
+   *  identity column on the Websites row. */
+  netlifyId?: string;
   meta?: Record<string, unknown>;
 };
 
-export type AuditName = "deps" | "lighthouse" | "a11y" | "security" | "lint" | "domain" | "browser";
+export type AuditName =
+  | "deps"
+  | "lighthouse"
+  | "a11y"
+  | "security"
+  | "lint"
+  | "domain"
+  | "browser"
+  | "netlify-deploy";
 
 export type RecipeName =
   | "sync-configs"
