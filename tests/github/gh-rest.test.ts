@@ -203,7 +203,11 @@ describe("makeGitHubRest.currentRunStep", () => {
               steps: [
                 { name: "Set up job", status: "completed", number: 1 },
                 { name: "pnpm build", status: "completed", number: 2 },
-                { name: "Fleet Lighthouse + domain + browser audit", status: "in_progress", number: 3 },
+                {
+                  name: "Fleet Lighthouse + domain + browser audit",
+                  status: "in_progress",
+                  number: 3,
+                },
               ],
             },
           ],
@@ -223,7 +227,11 @@ describe("makeGitHubRest.currentRunStep", () => {
     const { fn } = fakeFetch([
       {
         status: 200,
-        body: { jobs: [{ id: 1, status: "completed", steps: [{ name: "x", status: "completed", number: 1 }] }] },
+        body: {
+          jobs: [
+            { id: 1, status: "completed", steps: [{ name: "x", status: "completed", number: 1 }] },
+          ],
+        },
       },
     ]);
     const gh = makeGitHubRest({ token: "tok", fetch: fn });

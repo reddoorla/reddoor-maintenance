@@ -51,7 +51,12 @@ export type WorkflowRunState =
   | "timed_out";
 
 export type FleetRunStatus = {
-  perWorkflow: { workflow: string; state: WorkflowRunState; url: string | null; step: string | null }[];
+  perWorkflow: {
+    workflow: string;
+    state: WorkflowRunState;
+    url: string | null;
+    step: string | null;
+  }[];
   allDone: boolean; // every workflow's newest run has completed
   anySuccess: boolean; // ≥1 completed with conclusion "success"
   anyFailure: boolean; // ≥1 completed with a non-success conclusion

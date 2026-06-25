@@ -168,16 +168,17 @@ export function makeGitHubRest(deps: { token: string; fetch?: typeof fetch }): G
       if (!Number.isInteger(runId) || runId < 0) {
         throw new Error(`currentRunStep: expected a non-negative integer runId, got ${runId}`);
       }
-      const res = await doFetch(
-        `${GITHUB_API}/repos/${owner}/${name}/actions/runs/${runId}/jobs`,
-        { headers: baseHeaders },
-      );
+      const res = await doFetch(`${GITHUB_API}/repos/${owner}/${name}/actions/runs/${runId}/jobs`, {
+        headers: baseHeaders,
+      });
       if (!res.ok) {
         throw new Error(
           `GitHub GET run ${owner}/${name}/${runId} jobs failed (${res.status}): ${await bodyText(res)}`,
         );
       }
-      let body: { jobs?: Array<{ status?: string; steps?: Array<{ name?: string; status?: string }> }> };
+      let body: {
+        jobs?: Array<{ status?: string; steps?: Array<{ name?: string; status?: string }> }>;
+      };
       try {
         body = (await res.json()) as typeof body;
       } catch {
