@@ -16,6 +16,19 @@ minimumReleaseAge: 0
 overrides:
   tmp@<0.2.6: ">=0.2.6"
   uuid@<11.1.1: ">=11.1.1"
+  # Dev/CI-only transitive CVEs (vitest/tsup/build toolchain), pinned to the patched
+  # versions. None are on the published package's runtime surface. Cleared 2026-06-25.
+  #   - vite <8.0.16: server.fs.deny bypass + launch-editor NTLM (GHSA-fx2h-pf6j-xcff / -v6wh-96g9-6wx3);
+  #     exact-pinned (not a range) because vite is peer-resolved (vitest/SvelteKit) and a range
+  #     override was silently ignored — Renovate maintains the exact pin going forward.
+  #   - esbuild <0.28.1: dev-server arbitrary file read on Windows (GHSA-g7r4-m6w7-qqqr)
+  #   - cookie <0.7.0: out-of-bounds chars in name/path/domain (GHSA-pxg6-pf52-xh8x)
+  #   - js-yaml 4.x <4.2.0: quadratic-complexity DoS in merge keys (GHSA-h67p-54hq-rp68);
+  #     scoped to >=4.0.0 so the unrelated 3.x instance (no 3.x fix) isn't force-bumped.
+  vite: "8.1.0"
+  esbuild@<0.28.1: ">=0.28.1 <0.29"
+  cookie@<0.7.0: ">=0.7.0 <1"
+  js-yaml@>=4.0.0: ">=4.2.0 <5"
 
 # Carried over from the old package.json "pnpm.auditConfig" (pnpm 11 reads it here now).
 auditConfig:
