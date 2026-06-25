@@ -1,5 +1,14 @@
 # @reddoorla/maintenance
 
+## 0.60.1
+
+### Patch Changes
+
+- c6393d5: Dashboard: the fleet-refresh spinner now shows live detail for the long
+  Lighthouse sweep — the current build phase (setting up → building → installing
+  browsers → auditing the fleet…), elapsed time, a per-workflow ETA, and a
+  view-run link while running. Adds `currentRunStep` to the GitHub REST client.
+
 ## 0.60.0
 
 ### Minor Changes
