@@ -38,6 +38,10 @@ export type GitHubRest = {
     workflow: string,
     opts: { since: string; event?: string; perPage?: number },
   ) => Promise<WorkflowRun[]>;
+  /** The name of the in-progress step of a run's in-progress job, or null if none
+   *  is currently running (between steps / completed). Used to show a coarse "phase"
+   *  in the refresh spinner. Non-2xx throws (callers treat it best-effort). */
+  currentRunStep: (repo: string, runId: number) => Promise<string | null>;
 };
 
 const GITHUB_API = "https://api.github.com";
@@ -155,6 +159,35 @@ export function makeGitHubRest(deps: { token: string; fetch?: typeof fetch }): G
           // (Number(...) → NaN) is dropped rather than propagated.
           .filter((r) => Number.isFinite(r.id))
       );
+    },
+
+    async currentRunStep(repo, runId) {
+      const { owner, name } = splitRepo(repo);
+      assertUrlSegment("path", owner);
+      assertUrlSegment("path", name);
+      if (!Number.isInteger(runId) || runId < 0) {
+        throw new Error(`currentRunStep: expected a non-negative integer runId, got ${runId}`);
+      }
+      const res = await doFetch(
+        `${GITHUB_API}/repos/${owner}/${name}/actions/runs/${runId}/jobs`,
+        { headers: baseHeaders },
+      );
+      if (!res.ok) {
+        throw new Error(
+          `GitHub GET run ${owner}/${name}/${runId} jobs failed (${res.status}): ${await bodyText(res)}`,
+        );
+      }
+      let body: { jobs?: Array<{ status?: string; steps?: Array<{ name?: string; status?: string }> }> };
+      try {
+        body = (await res.json()) as typeof body;
+      } catch {
+        throw new Error(`GitHub run ${owner}/${name}/${runId} jobs: 200 with a non-JSON body`);
+      }
+      const jobs = body.jobs ?? [];
+      // Prefer the in-progress job; fall back to the first job (single-job workflows).
+      const job = jobs.find((j) => j.status === "in_progress") ?? jobs[0];
+      const step = (job?.steps ?? []).find((s) => s.status === "in_progress");
+      return step?.name ?? null;
     },
   };
 }
