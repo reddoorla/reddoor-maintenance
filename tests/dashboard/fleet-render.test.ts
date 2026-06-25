@@ -258,50 +258,20 @@ describe("renderCockpitHtml — escaping & safety", () => {
   });
 });
 
-describe("renderCockpitHtml — summary bar", () => {
-  it("shows the three tier counts", () => {
-    const html = renderCockpitHtml(
-      model([
-        siteRow({ id: "a", name: "Bad", securityVulnsCritical: 1 }),
-        siteRow({ id: "w", name: "Mid", pScore: 80 }),
-        siteRow({ id: "g", name: "Good" }),
-      ]),
-    );
-    expect(html).toMatch(/1[^<]*needs attention/i);
-    expect(html).toMatch(/1[^<]*watch/i);
-    expect(html).toMatch(/1[^<]*healthy/i);
+describe("verdict bar", () => {
+  it("shows All clear when nothing needs the operator", () => {
+    const html = renderCockpitHtml(model([siteRow({ name: "Acme" })]));
+    expect(html).toContain("✓ All clear");
+    expect(html).toContain("↻ Audit fleet");
+    expect(html).not.toContain("needs attention</span>"); // old summary tally gone
   });
 
-  it("renders filter chips with data-filter hooks", () => {
-    const html = renderCockpitHtml(model([siteRow()]));
-    for (const f of ["all", "vulns", "lighthouse", "delivery", "stale", "pending"]) {
-      expect(html).toContain(`data-filter="${f}"`);
-    }
-  });
-
-  it("renders the headline counts (vulns / lighthouse / delivery / pending)", () => {
-    const html = renderCockpitHtml(
-      model(
-        [
-          siteRow({
-            id: "a",
-            name: "Bad",
-            securityVulnsCritical: 2,
-            securityVulnsHigh: 1,
-            pScore: 60,
-          }),
-        ],
-        [],
-      ),
-    );
-    expect(html).toMatch(/3[^<]*vuln/i); // criticalHighVulns = 3
-  });
-});
-
-describe("renderCockpitHtml — approve strip", () => {
-  it("renders an approve button per pending report, mirroring the per-site endpoint", () => {
+  it("shows the per-site need count when something is wrong", () => {
+    // A single pending-approval report deterministically yields ONE Needs-you feed
+    // item (avoids coupling to the vuln auto-fix-exhausted plumbing). Mirrors the
+    // pending ReportRow the needs-you feed test builds below.
     const m = buildCockpitModel(
-      [siteRow({ id: "recSITE", name: "Acme Co" })],
+      [siteRow({ id: "recSITE", name: "Acme" })],
       [
         {
           id: "r1",
@@ -323,20 +293,175 @@ describe("renderCockpitHtml — approve strip", () => {
       NOW,
     );
     const html = renderCockpitHtml(m);
-    expect(html).toContain("Acme Co");
-    expect(html).toContain('data-approve-url="/api/reports/r1/approve"');
-    expect(html).toContain('class="approve"');
-    expect(html).toMatch(/your daily yes|approve \(1\)/i);
-  });
-
-  it("renders no approve strip when nothing is pending", () => {
-    const html = renderCockpitHtml(model([siteRow()]));
-    // No rendered strip element (the .approve-strip CSS in STYLES is always present).
-    expect(html).not.toContain('<section class="approve-strip"');
+    expect(html).toMatch(/⚠ 1 site needs you/);
+    expect(html).not.toContain("✓ All clear");
   });
 });
 
-describe("renderCockpitHtml — submissions strip cap", () => {
+describe("renderCockpitHtml — verdict bar (replaces the summary tally)", () => {
+  it("sums the per-site Needs-you count across slipping + approval sites", () => {
+    // Mid (watch-band Lighthouse → slipping) + Acme (pending approval) each land on
+    // the feed; Good is healthy → 2 sites need the operator. (A non-exhausted vuln is
+    // gated off the feed, so the count is feed-driven, not tier-driven.)
+    const m = buildCockpitModel(
+      [
+        siteRow({ id: "w", name: "Mid", pScore: 80 }),
+        siteRow({ id: "recSITE", name: "Acme" }),
+        siteRow({ id: "g", name: "Good" }),
+      ],
+      [
+        {
+          id: "r1",
+          siteId: "recSITE",
+          reportType: "Maintenance",
+          period: "2026-05",
+          periodStart: null,
+          periodEnd: null,
+          gaUsersCurrent: null,
+          gaUsersPrevious: null,
+          draftReady: true,
+          approvedToSend: false,
+          sentAt: null,
+          deliveryStatus: "pending",
+        } as never,
+      ],
+      {},
+      BASE,
+      NOW,
+    );
+    const html = renderCockpitHtml(m);
+    expect(html).toMatch(/⚠ 2 sites need you/);
+    expect(html).not.toContain("✓ All clear");
+  });
+
+  it("houses the ↻ Audit fleet button (filter chips moved out of the verdict)", () => {
+    const html = renderCockpitHtml(model([siteRow()]));
+    expect(html).toContain("↻ Audit fleet");
+    expect(html).toContain('class="refresh-fleet"');
+  });
+});
+
+describe("needs-you feed", () => {
+  it("renders one Open-only row per pending approval and no Approve button", () => {
+    const sites = [siteRow({ id: "recSITE", name: "Acme" })];
+    // A pending-approval report for sites[0] — same fixture shape the verdict-bar
+    // test uses to populate model.pending (draftReady + !approvedToSend + !sentAt).
+    const reports = [
+      {
+        id: "r1",
+        siteId: "recSITE",
+        reportType: "Maintenance",
+        period: "2026-05",
+        periodStart: null,
+        periodEnd: null,
+        gaUsersCurrent: null,
+        gaUsersPrevious: null,
+        draftReady: true,
+        approvedToSend: false,
+        sentAt: null,
+        deliveryStatus: "pending",
+      } as never,
+    ];
+    const html = renderCockpitHtml(model(sites, reports));
+    expect(html).toContain('href="/s/acme"');
+    expect(html).toContain("Open ▸");
+    expect(html).toContain("Waiting on your yes");
+    expect(html).not.toContain("data-approve-url"); // approve action no longer on the home page
+    expect(html).not.toContain(">Approve<");
+  });
+
+  it("omits the feed entirely when nothing needs the operator", () => {
+    const html = renderCockpitHtml(model([siteRow({ name: "Acme" })]));
+    expect(html).not.toContain("Needs you (");
+  });
+});
+
+describe("inbox lane", () => {
+  it("renders submissions + spam inside one collapsed details, after the fleet panel", () => {
+    const m = buildCockpitModel(
+      [siteRow({ id: "recSITE", name: "Acme Co" })],
+      [],
+      {},
+      BASE,
+      NOW,
+      [
+        {
+          id: "s1",
+          siteId: "recSITE",
+          formType: "contact",
+          name: "Jane",
+          email: "jane@x.com",
+          submittedAt: "2026-06-10T12:00:00Z",
+        } as never,
+      ],
+      { honeypot: 3, tooFast: 2, markedSpam: 1 }, // caught 5 · through 1
+    );
+    const html = renderCockpitHtml(m);
+    expect(html).toContain('<details class="inbox">');
+    expect(html).toContain("📥 Submissions (1 new)");
+    expect(html).toContain('href="/submissions"');
+    const inboxIdx = html.indexOf('class="inbox"');
+    const fleetIdx = html.indexOf('class="fleet-browse"');
+    expect(fleetIdx).toBeGreaterThan(-1);
+    expect(inboxIdx).toBeGreaterThan(fleetIdx); // inbox after the fleet panel
+  });
+
+  it("omits the inbox entirely with no submissions and no spam", () => {
+    const html = renderCockpitHtml(model([siteRow({ name: "Acme" })]));
+    expect(html).not.toContain('class="inbox"');
+  });
+});
+
+describe("renderCockpitHtml — region order", () => {
+  it("composes the four regions in order: verdict → needs-you → fleet → inbox", () => {
+    // A model that populates ALL four regions at once: a pending-approval report
+    // (→ needs-you feed, verdict warns) plus a new submission and spam (→ inbox).
+    const m = buildCockpitModel(
+      [siteRow({ id: "recSITE", name: "Acme Co" })],
+      [
+        {
+          id: "r1",
+          siteId: "recSITE",
+          reportType: "Maintenance",
+          period: "2026-05",
+          periodStart: null,
+          periodEnd: null,
+          gaUsersCurrent: null,
+          gaUsersPrevious: null,
+          draftReady: true,
+          approvedToSend: false,
+          sentAt: null,
+          deliveryStatus: "pending",
+        } as never,
+      ],
+      {},
+      BASE,
+      NOW,
+      [
+        {
+          id: "s1",
+          siteId: "recSITE",
+          formType: "contact",
+          name: "Jane",
+          email: "jane@x.com",
+          submittedAt: "2026-06-10T12:00:00Z",
+        } as never,
+      ],
+      { honeypot: 3, tooFast: 2, markedSpam: 1 },
+    );
+    const html = renderCockpitHtml(m);
+    const iVerdict = html.indexOf('class="verdict');
+    const iFeed = html.indexOf('class="needs-you');
+    const iFleet = html.indexOf('class="fleet-browse');
+    const iInbox = html.indexOf('class="inbox');
+    expect(iVerdict).toBeGreaterThan(-1);
+    expect(iFeed).toBeGreaterThan(iVerdict);
+    expect(iFleet).toBeGreaterThan(iFeed);
+    expect(iInbox).toBeGreaterThan(iFleet);
+  });
+});
+
+describe("renderCockpitHtml — inbox lane submissions cap", () => {
   /** Minimal new-submission row; buildCockpitModel only reads id/siteId/formType/name/email/submittedAt. */
   function sub(siteId: string, n: number) {
     return {
@@ -350,7 +475,7 @@ describe("renderCockpitHtml — submissions strip cap", () => {
     } as never;
   }
 
-  it("caps the strip at 10 rows, keeps the true total in the heading, and links onward", () => {
+  it("caps the lane at 10 rows, keeps the true total in the summary, and links onward", () => {
     const newSubs = Array.from({ length: 13 }, (_, i) => sub("recSITE", i + 1));
     const m = buildCockpitModel(
       [siteRow({ id: "recSITE", name: "Acme Co" })],
@@ -363,11 +488,12 @@ describe("renderCockpitHtml — submissions strip cap", () => {
     const html = renderCockpitHtml(m);
     const rendered = (html.match(/data-signal="submissions"/g) ?? []).length;
     expect(rendered).toBe(10);
-    expect(html).toContain("New submissions (13)"); // true total, not the capped count
-    expect(html).toContain("+3 more");
+    expect(html).toContain("📥 Submissions (13 new)"); // true total, not the capped count
+    expect(html).toContain("+3 more — view all submissions");
+    expect(html).toContain('href="/submissions"');
   });
 
-  it("renders every row and no '+more' line when at or under the cap", () => {
+  it("renders every row and a plain 'View all' link when at or under the cap", () => {
     const newSubs = Array.from({ length: 4 }, (_, i) => sub("recSITE", i + 1));
     const m = buildCockpitModel(
       [siteRow({ id: "recSITE", name: "Acme Co" })],
@@ -379,8 +505,9 @@ describe("renderCockpitHtml — submissions strip cap", () => {
     );
     const html = renderCockpitHtml(m);
     expect((html.match(/data-signal="submissions"/g) ?? []).length).toBe(4);
-    expect(html).toContain("New submissions (4)");
+    expect(html).toContain("📥 Submissions (4 new)");
     expect(html).not.toMatch(/\+\d+ more/);
+    expect(html).toContain("View all submissions →");
   });
 });
 
@@ -447,7 +574,7 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
     expect(html).not.toMatch(/data-signals="[^"]*lighthouse[^"]*"/);
   });
 
-  it("offers a 'no-domain' filter chip and tags a maintenance site still on *.netlify.app", () => {
+  it("tags a maintenance site still on *.netlify.app with the no-domain signal", () => {
     const html = renderCockpitHtml(
       model([
         siteRow({
@@ -458,37 +585,35 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
         }),
       ]),
     );
-    expect(html).toContain('data-filter="no-domain"');
     expect(html).toMatch(/data-signals="[^"]*no-domain[^"]*"/);
   });
 
-  it("renders the all-clear banner when nothing needs attention", () => {
+  it("renders the ok verdict when nothing needs attention", () => {
     const html = renderCockpitHtml(model([siteRow()]));
-    expect(html).toContain("all-clear");
-    expect(html).toMatch(/all clear/i);
+    expect(html).toContain('class="verdict ok"');
+    expect(html).toContain("✓ All clear");
   });
 
-  it("omits the all-clear banner when a site is on the attention tier", () => {
-    const html = renderCockpitHtml(
-      model([siteRow({ id: "a", name: "Bad", securityVulnsCritical: 1 })]),
-    );
-    expect(html).not.toMatch(/class="all-clear"/);
+  it("renders the warn verdict when a site is on the Needs-you feed", () => {
+    // A watch-band Lighthouse site (slipping) is a deterministic feed item — the
+    // verdict tracks the feed, so warn shows.
+    const html = renderCockpitHtml(model([siteRow({ id: "w", name: "Mid", pScore: 80 })]));
+    expect(html).toContain('class="verdict warn"');
+    expect(html).not.toContain("✓ All clear");
   });
 
-  it("the filter script short-circuits 'pending' so it never hides triage cards", () => {
+  it("the fleet-browse filter script has no pending/submissions branch (they moved off the cards)", () => {
     const html = renderCockpitHtml(model([siteRow()]));
-    // The pending branch must return before the card-hiding loop.
-    expect(html).toMatch(/f === 'pending'[^]*?return;/);
+    // pending lives on the Needs-you feed and submissions in the inbox lane — the
+    // browse filters are card-tag only, so the old scroll-branch is gone.
+    expect(html).not.toMatch(/f === 'pending'/);
+    expect(html).not.toMatch(/f === 'submissions'/);
+    // The card-tag filter loop is still wired (scoped to .fleet-browse).
+    expect(html).toContain(".fleet-browse .filters button");
   });
 });
 
 describe("renderCockpitHtml — GitHub-signal chips & filters (slice 2b)", () => {
-  it("renders prs/ci filter chips", () => {
-    const html = renderCockpitHtml(model([siteRow()]));
-    expect(html).toContain('data-filter="prs"');
-    expect(html).toContain('data-filter="ci"');
-  });
-
   it("a Renovate-failing card carries the prs signal + its chip", () => {
     const html = renderCockpitHtml(
       model([siteRow({ id: "a", name: "Reno", renovateFailingCis: 2 })]),
@@ -503,16 +628,6 @@ describe("renderCockpitHtml — GitHub-signal chips & filters (slice 2b)", () =>
     );
     expect(html).toMatch(/data-signals="[^"]*ci[^"]*"/);
     expect(html).toMatch(/Default-branch CI failing/);
-  });
-
-  it("the summary headline shows the PRs-failing and CI-red counts", () => {
-    const html = renderCockpitHtml(
-      model([
-        siteRow({ id: "a", name: "Reno", renovateFailingCis: 2, defaultBranchCi: "failing" }),
-      ]),
-    );
-    expect(html).toMatch(/2 PRs failing/);
-    expect(html).toMatch(/1 CI red/);
   });
 });
 
@@ -555,11 +670,6 @@ describe("renderCockpitHtml — auto-fix-exhausted vuln", () => {
     expect(html).toContain("chip critical stuck");
     expect(html).toContain("auto-fix failed (3×)");
   });
-
-  it("offers an auto-fix-failed filter chip", () => {
-    const html = renderCockpitHtml(model([siteRow()]));
-    expect(html).toContain('data-filter="auto-fix-failed"');
-  });
 });
 
 describe("renderCockpitHtml — Trigger Renovate button", () => {
@@ -576,12 +686,32 @@ describe("renderCockpitHtml — Trigger Renovate button", () => {
   });
 });
 
-describe("renderCockpitHtml — Refresh fleet state button + live status", () => {
-  it("renders a fleet refresh button wired to POST /api/fleet/refresh", () => {
+describe("fleet browse panel", () => {
+  it("renders one collapsed <details> with a single flat card grid (no nested tier details)", () => {
+    const html = renderCockpitHtml(model([siteRow({ name: "Acme" }), siteRow({ name: "Beta" })]));
+    expect(html).toContain('<details class="fleet-browse">');
+    expect(html).toContain("Fleet (2)");
+    expect(html.match(/<div class="cards">/g) ?? []).toHaveLength(1);
+    expect(html).not.toContain('details class="tier"');
+  });
+  it("keeps the per-card Trigger Renovate button for repo-backed sites", () => {
+    const html = renderCockpitHtml(model([siteRow({ name: "Acme", gitRepo: "reddoorla/acme" })]));
+    expect(html).toContain("trigger-renovate");
+  });
+  it("offers signal filters but not pending/submissions", () => {
+    const html = renderCockpitHtml(model([siteRow({ name: "Acme" })]));
+    expect(html).toContain('data-filter="vulns"');
+    expect(html).not.toContain('data-filter="pending"');
+    expect(html).not.toContain('data-filter="submissions"');
+  });
+});
+
+describe("renderCockpitHtml — Audit fleet button + live status", () => {
+  it("renders a fleet audit button wired to POST /api/fleet/refresh", () => {
     const html = renderCockpitHtml(model([siteRow()]));
     expect(html).toContain('class="refresh-fleet"');
     expect(html).toContain('data-refresh-url="/api/fleet/refresh"');
-    expect(html).toContain("Refresh fleet state");
+    expect(html).toContain("↻ Audit fleet");
   });
 
   it("includes the live-status panel scaffold and the poll endpoint", () => {

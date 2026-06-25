@@ -141,6 +141,106 @@ export type CockpitModel = {
   spam?: { caught: number; through: number } | null;
 };
 
+export type NeedsYouGroup = "broken" | "approval" | "slipping";
+
+/** One row of the per-site "Needs you" feed: every reason a single site needs the
+ *  operator, combined. The feed is navigation-only — the row links once to the page. */
+export type NeedsYouItem = {
+  /** The site's worst category present — drives the dot, the group sub-label, and order. */
+  group: NeedsYouGroup;
+  /** Any of the site's broken items is `severity: "critical"` (within-broken ordering). */
+  hasCritical: boolean;
+  slug: string;
+  siteName: string;
+  reasons: string[];
+  /** Always `/s/${slug}`. */
+  url: string;
+};
+
+const NEEDS_YOU_GROUP_RANK: Record<NeedsYouGroup, number> = { broken: 0, approval: 1, slipping: 2 };
+
+/**
+ * Collapse the cockpit model into a per-site "Needs you" feed — ONE row per site,
+ * with every reason combined. PURE. A vuln counts as broken only once Renovate's
+ * auto-fix is exhausted (`item.autoFixExhausted`); while the fleet is still retrying
+ * it, the site stays off the feed and off the verdict. Order: broken → approval →
+ * slipping; within broken, critical-first; then site name.
+ */
+export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
+  type Acc = {
+    slug: string;
+    siteName: string;
+    reasons: string[];
+    hasCritical: boolean;
+    broken: boolean;
+    approval: boolean;
+    slipping: boolean;
+  };
+  const bySlug = new Map<string, Acc>();
+  const get = (siteName: string): Acc => {
+    const slug = siteSlug(siteName);
+    let a = bySlug.get(slug);
+    if (!a) {
+      a = {
+        slug,
+        siteName,
+        reasons: [],
+        hasCritical: false,
+        broken: false,
+        approval: false,
+        slipping: false,
+      };
+      bySlug.set(slug, a);
+    }
+    return a;
+  };
+
+  for (const card of model.cards) {
+    if (card.tier === "attention") {
+      for (const item of card.items) {
+        if (item.kind === "vuln" && item.autoFixExhausted !== true) continue; // the gate
+        const a = get(card.site.name);
+        a.reasons.push(item.title);
+        a.broken = true;
+        if (item.severity === "critical") a.hasCritical = true;
+      }
+    } else if (card.tier === "watch" && card.watchReasons.length > 0) {
+      const a = get(card.site.name);
+      for (const r of card.watchReasons) a.reasons.push(r);
+      a.slipping = true;
+    }
+  }
+
+  for (const p of model.pending) {
+    const a = get(p.siteName);
+    a.reasons.push(`${p.reportType} ${p.period} ready`);
+    a.approval = true;
+  }
+
+  const items: NeedsYouItem[] = [];
+  for (const a of bySlug.values()) {
+    if (a.reasons.length === 0) continue;
+    const group: NeedsYouGroup = a.broken ? "broken" : a.approval ? "approval" : "slipping";
+    items.push({
+      group,
+      hasCritical: a.hasCritical,
+      slug: a.slug,
+      siteName: a.siteName,
+      reasons: a.reasons,
+      url: `/s/${a.slug}`,
+    });
+  }
+
+  items.sort((x, y) => {
+    if (NEEDS_YOU_GROUP_RANK[x.group] !== NEEDS_YOU_GROUP_RANK[y.group])
+      return NEEDS_YOU_GROUP_RANK[x.group] - NEEDS_YOU_GROUP_RANK[y.group];
+    if (x.group === "broken" && x.hasCritical !== y.hasCritical) return x.hasCritical ? -1 : 1;
+    return x.siteName.toLowerCase().localeCompare(y.siteName.toLowerCase());
+  });
+
+  return items;
+}
+
 const SEVERITY_RANK: Record<AttentionItem["severity"], number> = { critical: 0, warning: 1 };
 const TIER_RANK: Record<Tier, number> = { attention: 0, watch: 1, healthy: 2 };
 
@@ -275,4 +375,22 @@ export function buildCockpitModel(
       ? { caught: spamTotals.honeypot + spamTotals.tooFast, through: spamTotals.markedSpam }
       : null,
   };
+}
+
+/** Most recent `lastLighthouseAuditAt` across the cards, or null if none recorded.
+ *  Drives the cockpit verdict's "fleet last audited Xh ago" line. PURE. */
+export function fleetLastAuditedAt(cards: SiteCard[]): string | null {
+  let latestIso: string | null = null;
+  let latestMs = -Infinity;
+  for (const c of cards) {
+    const iso = c.site.lastLighthouseAuditAt;
+    if (!iso) continue;
+    const ms = Date.parse(iso);
+    if (!Number.isFinite(ms)) continue;
+    if (ms > latestMs) {
+      latestMs = ms;
+      latestIso = iso;
+    }
+  }
+  return latestIso;
 }

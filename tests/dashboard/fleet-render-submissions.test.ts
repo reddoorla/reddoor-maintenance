@@ -55,11 +55,11 @@ function oneSubmissionModel(): CockpitModel {
 }
 
 describe("renderCockpitHtml — submissions", () => {
-  it("omits the strip when there are no submissions", () => {
-    expect(renderCockpitHtml(model())).not.toContain("subm-strip");
+  it("omits the inbox lane when there are no submissions and no spam", () => {
+    expect(renderCockpitHtml(model())).not.toContain('class="inbox"');
   });
 
-  it("renders the strip with an escaped entry and a count", () => {
+  it("renders the inbox lane with an escaped entry and a count", () => {
     const html = renderCockpitHtml(
       model({
         summary: { ...model().summary, newSubmissions: 1 },
@@ -76,28 +76,26 @@ describe("renderCockpitHtml — submissions", () => {
         ],
       }),
     );
-    expect(html).toContain("subm-strip");
-    expect(html).toContain("New submissions (1)");
+    expect(html).toContain('<details class="inbox">');
+    expect(html).toContain("📥 Submissions (1 new)");
     expect(html).toContain("Acme &lt;b&gt;");
     expect(html).toContain('href="/s/acme"');
-    expect(html).toContain("1 new"); // summary head
   });
 
-  it("orders attention content (tiers) before spam and submissions", () => {
+  it("orders the fleet browse panel before the inbox lane (submissions + spam)", () => {
     const html = renderCockpitHtml(oneSubmissionModel());
-    const tiersIdx = html.indexOf('data-tier="attention"');
+    const fleetIdx = html.indexOf('<details class="fleet-browse">');
+    const inboxIdx = html.indexOf('<details class="inbox">');
     // Use the full div tag to avoid matching the CSS rule (.spam-rollup) in <head>.
     const spamIdx = html.indexOf('class="spam-rollup');
-    const submIdx = html.indexOf("subm-strip");
-    expect(tiersIdx).toBeGreaterThan(-1);
+    expect(fleetIdx).toBeGreaterThan(-1);
+    expect(inboxIdx).toBeGreaterThan(-1);
     expect(spamIdx).toBeGreaterThan(-1);
-    expect(submIdx).toBeGreaterThan(-1);
-    expect(tiersIdx).toBeLessThan(spamIdx); // tiers come before spam
-    expect(spamIdx).toBeLessThan(submIdx); // spam before submissions
-    expect(tiersIdx).toBeLessThan(submIdx); // tiers before submissions
+    expect(fleetIdx).toBeLessThan(inboxIdx); // fleet panel comes before the inbox lane
+    expect(inboxIdx).toBeLessThan(spamIdx); // spam line lives inside the inbox lane
   });
 
-  it("links the submissions strip heading to /submissions", () => {
+  it("links the inbox lane to /submissions", () => {
     const html = renderCockpitHtml(
       model({
         summary: { ...model().summary, newSubmissions: 1 },
