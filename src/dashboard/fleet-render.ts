@@ -3,8 +3,10 @@ import type {
   SubmissionEntry,
   NeedsYouItem,
   NeedsYouGroup,
+  RecentEntry,
 } from "./fleet-cockpit.js";
 import { fleetLastAuditedAt, buildNeedsYouFeed } from "./fleet-cockpit.js";
+import type { FleetEventType } from "../db/fleet-events.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 import { escapeHtml } from "../util/html.js";
 import { FAVICON_LINK } from "./favicon.js";
@@ -144,6 +146,45 @@ function renderNeedsYouFeed(feed: NeedsYouItem[]): string {
 /** Most submissions to render in the cockpit inbox lane. The summary still shows the
  *  true fleet total; overflow is triaged on each site's page (which lists 25). */
 const SUBMISSIONS_STRIP_CAP = 10;
+
+const RECENT_ICON: Record<FleetEventType, string> = {
+  pr_automerged: "🔧",
+  vuln_cleared: "🛡",
+  ci_recovered: "✅",
+  site_launched: "🚀",
+  cert_renewed: "🔒",
+  fleet_swept: "🔄",
+};
+
+/** The calm "Recently" lane: what the fleet did for you, collapsed by default
+ *  (reassurance, not an alarm). One row per event: icon · site + summary · when ·
+ *  optional link (PR url, else /s/<slug>). Returns "" when there is nothing. */
+function renderRecentlyLane(model: CockpitModel): string {
+  const events: RecentEntry[] = model.recent ?? [];
+  if (events.length === 0) return "";
+  const rows = events
+    .map((e) => {
+      const icon = RECENT_ICON[e.type] ?? "•";
+      const when = escapeHtml(relativeTimeFromNow(e.ts));
+      const site = e.siteName ? `<strong>${escapeHtml(e.siteName)}</strong> — ` : "";
+      const link = e.url
+        ? `<a href="${escapeHtml(e.url)}">view ▸</a>`
+        : e.slug
+          ? `<a href="/s/${escapeHtml(e.slug)}">open ▸</a>`
+          : "";
+      return `<div class="recent-row" data-type="${e.type}">
+        <span class="recent-icon">${icon}</span>
+        <span class="recent-what">${site}${escapeHtml(e.summary)}</span>
+        <span class="muted">${when}</span>
+        ${link}
+      </div>`;
+    })
+    .join("");
+  return `<details class="recently">
+    <summary>🔧 Recently (${events.length})</summary>
+    ${rows}
+  </details>`;
+}
 
 /** The quiet inbox lane: newest submissions + the 30-day spam roll-up, in one collapsed
  *  <details>. Submissions are a separate work stream — they never raise the verdict. */
@@ -330,6 +371,7 @@ export function renderCockpitHtml(model: CockpitModel): string {
   ${verdictBar(model, feed.length)}
   ${renderNeedsYouFeed(feed)}
   ${renderFleetBrowsePanel(model)}
+  ${renderRecentlyLane(model)}
   ${renderInboxLane(model)}
   ${AUDIT_SCRIPT}
   ${FLEET_BROWSE_SCRIPT}
