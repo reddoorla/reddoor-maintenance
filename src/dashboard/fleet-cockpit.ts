@@ -27,6 +27,20 @@ const LIGHTHOUSE_WATCH_HIGH = 85; // [75,85) = "near the floor" → watch
 const STALE_DAYS = 30;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+/** Netlify deploy states the dashboard treats as a successful production build. */
+const READY_DEPLOY_STATES: ReadonlySet<string> = new Set(["ready"]);
+/** Netlify deploy states that mean the build actually failed (→ attention tier + red badge). */
+const FAILED_DEPLOY_STATES: ReadonlySet<string> = new Set(["error", "failed", "rejected"]);
+
+/** True when the persisted deploy status is a successful production build. PURE. */
+export function isReadyDeployStatus(status: string | null): boolean {
+  return status !== null && READY_DEPLOY_STATES.has(status.toLowerCase());
+}
+/** True when the persisted deploy status is a failed build. PURE. */
+export function isFailedDeployStatus(status: string | null): boolean {
+  return status !== null && FAILED_DEPLOY_STATES.has(status.toLowerCase());
+}
+
 const WATCH_CATEGORIES: ReadonlyArray<{
   field: "pScore" | "rScore" | "bpScore" | "seoScore";
   label: string;
@@ -41,7 +55,9 @@ const WATCH_CATEGORIES: ReadonlyArray<{
  * Tier a single site from its attention items + soft watch rules. PURE; `now` is
  * injected for testability. Any attention item → 🔴 attention (items already encode
  * the M5 thresholds, so a sub-75 Lighthouse score arrives here as an item and never
- * needs the watch band). Otherwise 🟡 watch when a Lighthouse category sits in
+ * needs the watch band). A FAILED latest production deploy (`deployStatus === "failed"`/
+ * "error") is the same severity → 🔴 attention, mirroring how a sub-floor Lighthouse
+ * score lands a site there. Otherwise 🟡 watch when a Lighthouse category sits in
  * [75,85) or the last commit to `main` is older than 30 days (a NULL commit is NOT
  * stale — it's a missing GitHub signal, not a regression). Else 🟢 healthy.
  *
@@ -55,6 +71,10 @@ export function assignTier(
   now: Date,
 ): { tier: Tier; watchReasons: string[]; watchSignals: string[] } {
   if (items.length > 0) return { tier: "attention", watchReasons: [], watchSignals: [] };
+  // A failed latest production deploy is an active break — tier it 🔴 attention, the
+  // same severity a sub-floor Lighthouse score gets (which arrives as an item above).
+  if (isFailedDeployStatus(site.deployStatus))
+    return { tier: "attention", watchReasons: [], watchSignals: [] };
 
   const watchReasons: string[] = [];
   const signals = new Set<string>();

@@ -37,6 +37,8 @@ const AUDIT_DESCRIPTIONS: Record<AuditName, string> = {
   domain: "DNS resolve + TLS cert expiry against the deployed URL (checkout-free).",
   browser:
     "Playwright across desktop engines + mobile devices + link-check against the deployed URL (checkout-free).",
+  "netlify-deploy":
+    "Latest production deploy health via the Netlify API by site id (checkout-free; needs NETLIFY_PAT).",
 };
 
 const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {

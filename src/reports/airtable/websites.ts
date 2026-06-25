@@ -102,6 +102,16 @@ export type WebsiteRow = {
    *  expires (null = unresolved or no usable cert); `domainCheckedAt` is when it last ran. */
   certDaysRemaining: number | null;
   domainCheckedAt: string | null;
+  /** Netlify site id — the IDENTITY the `netlify-deploy` audit needs to query the
+   *  Netlify API. Read-only input (operator-set in Airtable); null = not on Netlify
+   *  (or not wired) → that audit skips. Never derived from the URL. */
+  netlifyId: string | null;
+  /** Latest PRODUCTION deploy health (the `netlify-deploy` audit). `deployStatus` is
+   *  Netlify's deploy state lower-cased (`ready`/`error`/`building`/…), null = none / not
+   *  checked; `lastDeployAt` is when it deployed; `deployLogUrl` links to the deploy/log. */
+  deployStatus: string | null;
+  lastDeployAt: string | null;
+  deployLogUrl: string | null;
   /** Deployed-URL browser probe (the `browser` audit): cross-engine render OK, mobile render OK,
    *  internal-links OK + broken count, and when it last ran (one timestamp gates all three). */
   crossbrowserOk: boolean | null;
@@ -248,6 +258,10 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     securityAdvisories: parseSecurityAdvisories(f["Security advisories"]),
     certDaysRemaining: (f["Cert days remaining"] as number | undefined) ?? null,
     domainCheckedAt: (f["Domain checked at"] as string | undefined) ?? null,
+    netlifyId: trimToNull(f["Netlify ID"]),
+    deployStatus: (f["Deploy status"] as string | undefined) ?? null,
+    lastDeployAt: (f["Last deploy at"] as string | undefined) ?? null,
+    deployLogUrl: (f["Deploy log URL"] as string | undefined) ?? null,
     crossbrowserOk:
       typeof f["Crossbrowser OK"] === "boolean" ? (f["Crossbrowser OK"] as boolean) : null,
     mobileOk: typeof f["Mobile OK"] === "boolean" ? (f["Mobile OK"] as boolean) : null,
@@ -328,6 +342,16 @@ export type SecurityAdvisory = {
   url: string | null;
 };
 export type DomainResult = { certDaysRemaining: number | null; checkedAt: string };
+export type NetlifyDeployResult = {
+  /** Netlify deploy state lower-cased (`ready`/`error`/`building`/…), null = none. */
+  state: string | null;
+  /** When the latest production deploy was published/created (ISO), null = unknown. */
+  deployedAt: string | null;
+  /** Link to the deploy / its build log, null = unknown. */
+  logUrl: string | null;
+  /** When the audit last ran. */
+  checkedAt: string;
+};
 export type BrowserAuditFields = {
   desktopOk: boolean;
   mobileOk: boolean;
@@ -453,6 +477,21 @@ function domainFields(result: DomainResult): FieldSet {
   return fields;
 }
 
+function netlifyDeployFields(result: NetlifyDeployResult): FieldSet {
+  // Write all three deploy fields UNCONDITIONALLY (null clears the cell): a null state /
+  // deployedAt / logUrl this run means "couldn't read it" and must not leave a STALE value
+  // sitting next to a fresh "Deploy checked at" — the dashboard would otherwise render a green
+  // "ready" badge for a site whose latest deploy actually errored. FieldSet's type doesn't model
+  // null, hence the cast through a widened record (same approach as domainFields).
+  const fields: Record<string, string | null> = {
+    "Deploy status": result.state,
+    "Last deploy at": result.deployedAt,
+    "Deploy log URL": result.logUrl,
+    "Deploy checked at": result.checkedAt,
+  };
+  return fields as FieldSet;
+}
+
 function browserFields(r: BrowserAuditFields): FieldSet {
   return {
     "Crossbrowser OK": r.desktopOk,
@@ -563,6 +602,7 @@ export async function updateAuditFields(
     securityAdvisories?: SecurityAdvisory[];
     domain?: DomainResult;
     browser?: BrowserAuditFields;
+    netlifyDeploy?: NetlifyDeployResult;
   },
 ): Promise<FieldSet> {
   const fields: FieldSet = {};
@@ -576,6 +616,7 @@ export async function updateAuditFields(
     Object.assign(fields, securityAdvisoryFields(audits.securityAdvisories));
   if (audits.domain) Object.assign(fields, domainFields(audits.domain));
   if (audits.browser) Object.assign(fields, browserFields(audits.browser));
+  if (audits.netlifyDeploy) Object.assign(fields, netlifyDeployFields(audits.netlifyDeploy));
   await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
   return fields;
 }

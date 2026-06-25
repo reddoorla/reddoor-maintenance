@@ -735,3 +735,38 @@ describe("renderCockpitHtml — Audit fleet button + live status", () => {
     expect(html).toContain("~2m"); // security ETA
   });
 });
+
+describe("deploy badge", () => {
+  it("renders a green ready badge linking to the deploy log", () => {
+    const html = renderCockpitHtml(
+      model([
+        siteRow({
+          deployStatus: "ready",
+          lastDeployAt: "2026-06-10T12:00:00Z",
+          deployLogUrl: "https://acme.netlify.app",
+        }),
+      ]),
+    );
+    expect(html).toContain("metric deploy ready");
+    expect(html).toContain('href="https://acme.netlify.app"');
+    expect(html).toContain("ready");
+  });
+
+  it("renders a red failed badge", () => {
+    const html = renderCockpitHtml(model([siteRow({ deployStatus: "error" })]));
+    expect(html).toContain("metric deploy failed");
+  });
+
+  it("renders a grey unknown badge when there is no deploy status", () => {
+    const html = renderCockpitHtml(model([siteRow({ deployStatus: null })]));
+    expect(html).toContain("metric deploy unknown");
+  });
+
+  it("does not emit a link for a non-http deploy URL (dead-link guard)", () => {
+    const html = renderCockpitHtml(
+      model([siteRow({ deployStatus: "ready", deployLogUrl: "javascript:alert(1)" })]),
+    );
+    expect(html).not.toContain('href="javascript:alert(1)"');
+    expect(html).not.toContain('href="#"');
+  });
+});

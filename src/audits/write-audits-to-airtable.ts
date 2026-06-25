@@ -8,6 +8,7 @@ import type {
   SecurityAdvisory,
   DomainResult,
   BrowserAuditFields,
+  NetlifyDeployResult,
 } from "../reports/airtable/websites.js";
 import type { LighthouseScoreWriteback } from "../reports/types.js";
 import { hasRealScores, lighthouseScoresFromResult } from "./lighthouse-airtable.js";
@@ -20,13 +21,22 @@ import {
 } from "./security-airtable.js";
 import { hasDomainResult, domainResultFromAudit } from "./domain-airtable.js";
 import { hasBrowserResult, browserFieldsFromAudit } from "./browser-airtable.js";
+import { hasNetlifyDeployResult, netlifyDeployResultFromAudit } from "./netlify-deploy-airtable.js";
 import { detectAuditEvents } from "./fleet-event-detectors.js";
 import type { FleetEvent } from "../db/fleet-events.js";
 
 type WriteSummary = {
   siteName: string;
   writes: Array<{
-    audit: "lighthouse" | "a11y" | "deps" | "security" | "github-signals" | "domain" | "browser";
+    audit:
+      | "lighthouse"
+      | "a11y"
+      | "deps"
+      | "security"
+      | "github-signals"
+      | "domain"
+      | "browser"
+      | "netlify-deploy";
     counts: object;
   }>;
   /** Fleet-activity events detected from this site's prior row vs the fresh audits.
@@ -75,6 +85,7 @@ export async function writeAuditsToAirtable(args: {
     securityAdvisories?: SecurityAdvisory[];
     domain?: DomainResult;
     browser?: BrowserAuditFields;
+    netlifyDeploy?: NetlifyDeployResult;
   } = {};
 
   // Collect every audit that produced real values into ONE merged input, then do a
@@ -129,6 +140,13 @@ export async function writeAuditsToAirtable(args: {
     const fields = browserFieldsFromAudit(browser);
     audits.browser = fields;
     writes.push({ audit: "browser", counts: fields });
+  }
+
+  const netlifyDeploy = results.find((r) => r.audit === "netlify-deploy");
+  if (netlifyDeploy && hasNetlifyDeployResult(netlifyDeploy)) {
+    const result = netlifyDeployResultFromAudit(netlifyDeploy);
+    audits.netlifyDeploy = result;
+    writes.push({ audit: "netlify-deploy", counts: result });
   }
 
   // One atomic write of everything that ran. Skip the call only if there is nothing

@@ -1,6 +1,7 @@
 import type { WebsiteRow } from "../reports/airtable/websites.js";
 import { siteSlug } from "../reports/airtable/websites.js";
 import type { CockpitModel, SiteCard, Tier } from "./fleet-cockpit.js";
+import { isReadyDeployStatus, isFailedDeployStatus } from "./fleet-cockpit.js";
 import { onboardingStatus, missingOnboarding } from "./onboarding.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 import { escapeHtml, safeUrl } from "../util/html.js";
@@ -86,9 +87,36 @@ function card(site: WebsiteRow): string {
           site.securityVulnsModerate,
           site.securityVulnsLow,
         )}
+        <span class="metric-label">deploy</span> ${deployBadge(site)}
       </span>
     </div>
   </article>`;
+}
+
+/** Small colored deploy badge: green = ready/success, red = failed, grey =
+ *  unknown/none. Shows the deploy state + a relative "Xd ago" timestamp, and links
+ *  to the deploy log when one is known. PURE. A null state renders a grey "—" (the
+ *  site has no Netlify id wired, or no deploy was read this run). */
+function deployBadge(site: WebsiteRow): string {
+  const state = site.deployStatus;
+  if (state === null) {
+    return `<span class="metric deploy unknown" title="No deploy data">${DASH}</span>`;
+  }
+  const cls = isReadyDeployStatus(state)
+    ? "deploy ready"
+    : isFailedDeployStatus(state)
+      ? "deploy failed"
+      : "deploy building";
+  const when = relativeTimeFromNow(site.lastDeployAt);
+  const label = escapeHtml(`${state}${when !== DASH ? ` · ${when}` : ""}`);
+  // Only link when we have a real http(s) URL — scheme-allowlist it via safeUrl (which
+  // returns "#" for anything non-http), since deployLogUrl is data that flowed in from
+  // the Netlify API via Airtable. A "#" fallback would be a dead link, so drop it.
+  const url = site.deployLogUrl ? safeUrl(site.deployLogUrl) : "#";
+  if (url !== "#") {
+    return `<a class="metric ${cls}" href="${escapeHtml(url)}" target="_blank" rel="noopener">${label}</a>`;
+  }
+  return `<span class="metric ${cls}">${label}</span>`;
 }
 
 function submBadge(c: SiteCard): string {

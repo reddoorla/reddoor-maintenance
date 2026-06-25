@@ -32,6 +32,16 @@ h1 { margin: 0 0 0.25rem; font-size: 1.75rem; }
 .cluster.lighthouse .score { display: inline-block; min-width: 2.25rem; text-align: right; }
 .metric-label { color: #999; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
 .metric { font-feature-settings: "tnum"; }
+.metric.deploy { font-size:0.78rem; padding:0.05rem 0.4rem; border-radius:6px; text-decoration:none; }
+.metric.deploy.ready { background:#e6f4ea; color:#1a7f37; }
+.metric.deploy.failed { background:#fdecea; color:#b00; font-weight:600; }
+.metric.deploy.building { background:#fff4e5; color:#9a6700; }
+.metric.deploy.unknown { color:#999; }
+@media (prefers-color-scheme: dark) {
+  .metric.deploy.ready { background:#0f2417; color:#4ac26b; }
+  .metric.deploy.failed { background:#3a1412; color:#ff6b6b; }
+  .metric.deploy.building { background:#2e2410; color:#e3b341; }
+}
 .spam-rollup { font-size:0.9rem; margin-bottom:1rem; }
 .muted { color:#999; }
 .filters { display:flex; flex-wrap:wrap; gap:0.4rem; margin-bottom:1.25rem; }
