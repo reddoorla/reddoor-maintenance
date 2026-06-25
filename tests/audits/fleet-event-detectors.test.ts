@@ -136,7 +136,12 @@ describe("detectSignalEvents", () => {
   it("emits ci_recovered only on failing → passing", () => {
     const recovered = detectSignalEvents(site({ defaultBranchCi: "failing" }), { ...row }, [], AT);
     expect(recovered.some((e) => e.type === "ci_recovered")).toBe(true);
-    const stayedGreen = detectSignalEvents(site({ defaultBranchCi: "passing" }), { ...row }, [], AT);
+    const stayedGreen = detectSignalEvents(
+      site({ defaultBranchCi: "passing" }),
+      { ...row },
+      [],
+      AT,
+    );
     expect(stayedGreen.some((e) => e.type === "ci_recovered")).toBe(false);
   });
 });

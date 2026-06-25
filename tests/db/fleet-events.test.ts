@@ -36,7 +36,10 @@ describe("fleet-events db helpers", () => {
   it("is idempotent on the deterministic id (INSERT OR IGNORE)", async () => {
     const db = await openDb({ url: ":memory:" });
     await recordFleetEvent(db, ev({ id: "dup", ts: "2026-06-22T00:00:00.000Z", summary: "first" }));
-    await recordFleetEvent(db, ev({ id: "dup", ts: "2026-06-22T00:00:00.000Z", summary: "second" }));
+    await recordFleetEvent(
+      db,
+      ev({ id: "dup", ts: "2026-06-22T00:00:00.000Z", summary: "second" }),
+    );
     const rows = await listFleetEvents(db, { sinceIso: "2026-06-01T00:00:00.000Z", limit: 10 });
     expect(rows).toHaveLength(1);
     expect(rows[0]!.summary).toBe("first"); // the first write wins; the second is ignored

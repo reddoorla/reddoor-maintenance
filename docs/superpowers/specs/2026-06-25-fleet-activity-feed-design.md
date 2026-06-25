@@ -6,7 +6,7 @@
 
 ## Goal
 
-Make the fleet's self-maintenance **visible**. Today the cockpit only ever shows problems and pending work; it never shows *"the fleet did X for you"* — so the autonomy (Renovate auto-merging, nightly audits, CI staying green) happens off-screen and the operator can't feel it working. This adds a recorded activity log and a calm "Recently" lane that answers *"what has the fleet been doing?"* — the reassurance counterpart to the verdict bar's *"is anything wrong?"*. This fixes incoherence #6 from the cockpit reorg ([2026-06-25 cockpit reorg spec](2026-06-25-cockpit-reorg-needs-you-feed-design.md)).
+Make the fleet's self-maintenance **visible**. Today the cockpit only ever shows problems and pending work; it never shows _"the fleet did X for you"_ — so the autonomy (Renovate auto-merging, nightly audits, CI staying green) happens off-screen and the operator can't feel it working. This adds a recorded activity log and a calm "Recently" lane that answers _"what has the fleet been doing?"_ — the reassurance counterpart to the verdict bar's _"is anything wrong?"_. This fixes incoherence #6 from the cockpit reorg ([2026-06-25 cockpit reorg spec](2026-06-25-cockpit-reorg-needs-you-feed-design.md)).
 
 ## Background
 
@@ -15,7 +15,7 @@ A code inventory confirmed **there is no event log anywhere** — everything is 
 ## Decisions (locked with the operator)
 
 - **Architecture:** a recorded libSQL event log (`fleet_events`), not derived-from-state.
-- **Event streams recorded:** *Fixed* (`pr_automerged`, `vuln_cleared`), *Watched* (`fleet_swept` rollup), *Recoveries/milestones* (`ci_recovered`, `site_launched`, `cert_renewed`). **Reports-sent is excluded** (overlaps the approve flow).
+- **Event streams recorded:** _Fixed_ (`pr_automerged`, `vuln_cleared`), _Watched_ (`fleet_swept` rollup), _Recoveries/milestones_ (`ci_recovered`, `site_launched`, `cert_renewed`). **Reports-sent is excluded** (overlaps the approve flow).
 - **Placement:** the lane sits after the Fleet panel, before the Inbox lane — `verdict → Needs-you → Fleet → 🔧 Recently → Inbox`. Collapsed by default (reassurance, not an alarm).
 - **Storage:** libSQL, with **Turso credentials added to the nightly fleet workflows** (a one-time operator step) so the Actions-run producers can write events.
 - **`cert_renewed` included** in this build.
@@ -54,6 +54,7 @@ CREATE INDEX IF NOT EXISTS idx_fleet_events_ts ON fleet_events (ts);
 ```
 
 Idempotency is the crux — sweeps overlap and re-run, so **deterministic ids** + `INSERT OR IGNORE` guarantee no duplicates:
+
 - `pr_automerged:<repo>#<number>` — once per merged PR, ever.
 - `vuln_cleared:<site_id>:<YYYY-MM-DD>` · `ci_recovered:<site_id>:<YYYY-MM-DD>` · `cert_renewed:<site_id>:<YYYY-MM-DD>` — at most one per site per day.
 - `site_launched:<site_id>` — once ever.
@@ -62,25 +63,45 @@ Idempotency is the crux — sweeps overlap and re-run, so **deterministic ids** 
 ### 2. DB helpers (`src/db/fleet-events.ts`)
 
 ```ts
-export type FleetEventType = "pr_automerged" | "vuln_cleared" | "ci_recovered" | "site_launched" | "fleet_swept" | "cert_renewed";
-export type FleetEvent = { id: string; ts: string; type: FleetEventType; siteId: string | null; siteName: string | null; summary: string; data: unknown | null };
+export type FleetEventType =
+  | "pr_automerged"
+  | "vuln_cleared"
+  | "ci_recovered"
+  | "site_launched"
+  | "fleet_swept"
+  | "cert_renewed";
+export type FleetEvent = {
+  id: string;
+  ts: string;
+  type: FleetEventType;
+  siteId: string | null;
+  siteName: string | null;
+  summary: string;
+  data: unknown | null;
+};
 
 /** Idempotent append (INSERT OR IGNORE on the deterministic id). */
-export async function recordFleetEvent(db, e: { id; ts; type; siteId?; siteName?; summary; data? }): Promise<void>;
+export async function recordFleetEvent(
+  db,
+  e: { id; ts; type; siteId?; siteName?; summary; data? },
+): Promise<void>;
 /** Recent events, newest-first. */
-export async function listFleetEvents(db, opts: { sinceIso: string; limit: number }): Promise<FleetEvent[]>;
+export async function listFleetEvents(
+  db,
+  opts: { sinceIso: string; limit: number },
+): Promise<FleetEvent[]>;
 /** Retention prune. */
 export async function pruneFleetEvents(db, beforeIso: string): Promise<void>;
 ```
 
 ### 3. Producer instrumentation (each small; all run in Actions and need libSQL creds)
 
-- **`pr_automerged`** *(extend `github-signals`)* — it already queries GitHub per repo. Add: list PRs with head `renovate/*`, `state=closed`, `merged_at != null`, merged since the per-site watermark (prior `GitHub Signals At`, or a 24h fallback on first run). Per PR → `recordFleetEvent({ id:"pr_automerged:"+repo+"#"+n, ts:mergedAt, type, siteId, siteName, summary: cleanTitle(pr.title), data:{url, repo, number} })`. `cleanTitle` strips the `chore(deps): update dependency ` prefix → "vite to v7.3.5 [security]" → "auto-merged vite→7.3.5".
-- **`ci_recovered`** *(in `github-signals`)* — it has the existing row's old `Default Branch CI` and computes the new one. When `old === "failing" && new === "passing"` → event "CI recovered".
-- **`vuln_cleared`** *(in the `fleet-security` writer, `src/audits/security-airtable.ts`)* — read-before-write: when the site's prior `critical+high` count was `>0` and the new count is `0` → event "cleared N vuln(s)".
-- **`cert_renewed`** *(in the domain-audit writer, `src/audits/domain-airtable.ts`)* — when prior `Cert days remaining` was `< 30` (or null) and the new value is `> 60` → event "TLS cert renewed".
-- **`site_launched`** *(in the launch/send path where `Launched at` is set)* — when it transitions null→set → event "launched 🚀".
-- **`fleet_swept`** *(at the end of the `--fleet` CLI path)* — one rollup per sweep with the processed count → "re-audited N sites" / "security swept N sites".
+- **`pr_automerged`** _(extend `github-signals`)_ — it already queries GitHub per repo. Add: list PRs with head `renovate/*`, `state=closed`, `merged_at != null`, merged since the per-site watermark (prior `GitHub Signals At`, or a 24h fallback on first run). Per PR → `recordFleetEvent({ id:"pr_automerged:"+repo+"#"+n, ts:mergedAt, type, siteId, siteName, summary: cleanTitle(pr.title), data:{url, repo, number} })`. `cleanTitle` strips the `chore(deps): update dependency ` prefix → "vite to v7.3.5 [security]" → "auto-merged vite→7.3.5".
+- **`ci_recovered`** _(in `github-signals`)_ — it has the existing row's old `Default Branch CI` and computes the new one. When `old === "failing" && new === "passing"` → event "CI recovered".
+- **`vuln_cleared`** _(in the `fleet-security` writer, `src/audits/security-airtable.ts`)_ — read-before-write: when the site's prior `critical+high` count was `>0` and the new count is `0` → event "cleared N vuln(s)".
+- **`cert_renewed`** _(in the domain-audit writer, `src/audits/domain-airtable.ts`)_ — when prior `Cert days remaining` was `< 30` (or null) and the new value is `> 60` → event "TLS cert renewed".
+- **`site_launched`** _(in the launch/send path where `Launched at` is set)_ — when it transitions null→set → event "launched 🚀".
+- **`fleet_swept`** _(at the end of the `--fleet` CLI path)_ — one rollup per sweep with the processed count → "re-audited N sites" / "security swept N sites".
 
 All producers also call `pruneFleetEvents(db, now-30d)` once per run.
 

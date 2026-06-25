@@ -14,7 +14,7 @@
 
 The spec ([2026-06-25-fleet-activity-feed-design.md](../specs/2026-06-25-fleet-activity-feed-design.md)) is accurate on intent; these are the concrete code-reality adjustments this plan locks in:
 
-1. **Detectors do not live in `security-airtable.ts` / `domain-airtable.ts`** — those are pure *extractors* with no access to prior values. The read-before-write context (old vs new) exists in `writeAuditsToAirtable` (the `target` WebsiteRow is loaded *before* the write) and in the `github-signals` command loop (`byRepo` holds the old row). So detection goes in a new pure module `src/audits/fleet-event-detectors.ts`, consumed at those two write sites + the launch-send path.
+1. **Detectors do not live in `security-airtable.ts` / `domain-airtable.ts`** — those are pure _extractors_ with no access to prior values. The read-before-write context (old vs new) exists in `writeAuditsToAirtable` (the `target` WebsiteRow is loaded _before_ the write) and in the `github-signals` command loop (`byRepo` holds the old row). So detection goes in a new pure module `src/audits/fleet-event-detectors.ts`, consumed at those two write sites + the launch-send path.
 2. **`cert_renewed` excludes a null prior.** A null `certDaysRemaining` means "never measured / unresolved", not "expiring". Firing "renewed" on a first measurement is a false reassurance. Fire only on an observed `prev < 30 → new > 60` transition. (`vuln_cleared` is already symmetric: `?? 0` makes a never-audited site read 0, so it only fires on observed `>0 → 0`.)
 3. **Events are recorded at the CLI/handler boundary**, not inside the pure writers, via `recordFleetEventsBestEffort` — which opens its own libSQL connection and swallows all errors (missing creds included). The pure writers/detectors stay db-free and unit-testable.
 4. **`fleet-lighthouse.yml` needs Turso on TWO steps**: the audit step (for `cert_renewed`) and the `github-signals` step (for `pr_automerged` / `ci_recovered`).
@@ -39,6 +39,7 @@ The spec ([2026-06-25-fleet-activity-feed-design.md](../specs/2026-06-25-fleet-a
 - `.changeset/<name>.md` — **create**: one `minor`.
 
 Tests (one file per new unit):
+
 - `tests/db/fleet-events-migration.test.ts`, `tests/db/fleet-events.test.ts`
 - `tests/audits/fleet-event-detectors.test.ts`
 - `tests/audits/fleet-events-writer.test.ts`
@@ -51,6 +52,7 @@ Tests (one file per new unit):
 ## Task 1: Schema + migration `0002_fleet_events`
 
 **Files:**
+
 - Modify: `src/db/migrations.ts`
 - Modify: `src/db/schema.ts`
 - Test: `tests/db/fleet-events-migration.test.ts`
@@ -162,6 +164,7 @@ git commit -m "feat(db): fleet_events table + 0002 migration"
 ## Task 2: `fleet-events.ts` DB helpers
 
 **Files:**
+
 - Create: `src/db/fleet-events.ts`
 - Test: `tests/db/fleet-events.test.ts`
 
@@ -208,7 +211,10 @@ describe("fleet-events db helpers", () => {
   it("is idempotent on the deterministic id (INSERT OR IGNORE)", async () => {
     const db = await openDb({ url: ":memory:" });
     await recordFleetEvent(db, ev({ id: "dup", ts: "2026-06-22T00:00:00.000Z", summary: "first" }));
-    await recordFleetEvent(db, ev({ id: "dup", ts: "2026-06-22T00:00:00.000Z", summary: "second" }));
+    await recordFleetEvent(
+      db,
+      ev({ id: "dup", ts: "2026-06-22T00:00:00.000Z", summary: "second" }),
+    );
     const rows = await listFleetEvents(db, { sinceIso: "2026-06-01T00:00:00.000Z", limit: 10 });
     expect(rows).toHaveLength(1);
     expect(rows[0]!.summary).toBe("first"); // the first write wins; the second is ignored
@@ -367,10 +373,12 @@ git commit -m "feat(db): recordFleetEvent / listFleetEvents / pruneFleetEvents"
 ## Task 3: Pure event detectors
 
 **Files:**
+
 - Create: `src/audits/fleet-event-detectors.ts`
 - Test: `tests/audits/fleet-event-detectors.test.ts`
 
 Context types this task consumes (already defined elsewhere — do not redefine):
+
 - `WebsiteRow` from `../reports/airtable/websites.js` — fields used: `id`, `name`, `securityVulnsCritical: number | null`, `securityVulnsHigh: number | null`, `certDaysRemaining: number | null`, `defaultBranchCi: string | null`.
 - `SecurityCounts` = `{ critical: number; high: number; moderate: number; low: number }` and `DomainResult` = `{ certDaysRemaining: number | null; checkedAt: string }` from `../reports/airtable/websites.js`.
 - `GitHubSignalsRow` from `./github-signals.js` — fields used: `repo: string`, `ciState: CiState`.
@@ -512,7 +520,12 @@ describe("detectSignalEvents", () => {
   it("emits ci_recovered only on failing → passing", () => {
     const recovered = detectSignalEvents(site({ defaultBranchCi: "failing" }), { ...row }, [], AT);
     expect(recovered.some((e) => e.type === "ci_recovered")).toBe(true);
-    const stayedGreen = detectSignalEvents(site({ defaultBranchCi: "passing" }), { ...row }, [], AT);
+    const stayedGreen = detectSignalEvents(
+      site({ defaultBranchCi: "passing" }),
+      { ...row },
+      [],
+      AT,
+    );
     expect(stayedGreen.some((e) => e.type === "ci_recovered")).toBe(false);
   });
 });
@@ -650,7 +663,11 @@ export function fleetSweptEvent(
   at: string,
 ): FleetEvent {
   const verb =
-    sweep === "security" ? "security-swept" : sweep === "github-signals" ? "signals-swept" : "re-audited";
+    sweep === "security"
+      ? "security-swept"
+      : sweep === "github-signals"
+        ? "signals-swept"
+        : "re-audited";
   return {
     id: `fleet_swept:${sweep}:${ymd(at)}`,
     ts: at,
@@ -680,6 +697,7 @@ git commit -m "feat(audits): pure fleet-event detectors (vuln/cert/pr/ci/swept)"
 ## Task 4: `mergedRenovatePullRequests` on the GitHub client
 
 **Files:**
+
 - Modify: `src/github/gh.ts`
 - Test: `tests/github/merged-renovate-prs.test.ts`
 
@@ -759,12 +777,10 @@ Expected: FAIL — `gh.mergedRenovatePullRequests is not a function`.
 In `src/github/gh.ts`, inside the `export type GitHub = { ... }` block, add (after `defaultBranchStatus`'s declaration, before `dispatchWorkflow`):
 
 ```ts
-  /** Renovate PRs (head `renovate/*`) merged at/after `sinceIso`, newest unspecified.
-   *  Used to record `pr_automerged` fleet events. gh-shell (Actions only). */
-  mergedRenovatePullRequests: (
-    repo: string,
-    sinceIso: string,
-  ) => Promise<Array<{ number: number; title: string; url: string; mergedAt: string }>>;
+/** Renovate PRs (head `renovate/*`) merged at/after `sinceIso`, newest unspecified.
+ *  Used to record `pr_automerged` fleet events. gh-shell (Actions only). */
+mergedRenovatePullRequests: (repo: string, sinceIso: string) =>
+  Promise<Array<{ number: number; title: string; url: string; mergedAt: string }>>;
 ```
 
 - [ ] **Step 4: Implement the method**
@@ -823,6 +839,7 @@ git commit -m "feat(github): mergedRenovatePullRequests for pr_automerged events
 ## Task 5: Best-effort event writer
 
 **Files:**
+
 - Create: `src/audits/fleet-events-writer.ts`
 - Test: `tests/audits/fleet-events-writer.test.ts`
 
@@ -935,6 +952,7 @@ git commit -m "feat(audits): fail-safe recordFleetEventsBestEffort boundary"
 ## Task 6: Wire audit events into the write-back + record on the fleet path
 
 **Files:**
+
 - Modify: `src/audits/write-audits-to-airtable.ts:24-30` (WriteSummary type), `:153` (return), plus the detector call after `:134`
 - Modify: `src/cli/commands/audit.ts:323-333` (fleet write block)
 - Test: `tests/audits/write-audits-events.test.ts`
@@ -1031,20 +1049,20 @@ type WriteSummary = {
 In `writeAuditsToAirtable`, after the `updateAuditFields` block (currently ends at line 134, `}`) and BEFORE the lighthouse-miss throw (currently line 136 comment / 139 `if`), add:
 
 ```ts
-  // Detect fleet-activity transitions from the prior row (`target`, loaded before this
-  // write) vs the fresh audits. Computed here where both are in hand; recorded by the
-  // caller (fleet path) — single-site callers simply ignore `events`.
-  const events = detectAuditEvents(
-    target,
-    { security: audits.security, domain: audits.domain },
-    new Date().toISOString(),
-  );
+// Detect fleet-activity transitions from the prior row (`target`, loaded before this
+// write) vs the fresh audits. Computed here where both are in hand; recorded by the
+// caller (fleet path) — single-site callers simply ignore `events`.
+const events = detectAuditEvents(
+  target,
+  { security: audits.security, domain: audits.domain },
+  new Date().toISOString(),
+);
 ```
 
 Change the final return (currently line 153 `return { siteName: target.name, writes };`) to:
 
 ```ts
-  return { siteName: target.name, writes, events };
+return { siteName: target.name, writes, events };
 ```
 
 - [ ] **Step 5: Record events on the fleet write path**
@@ -1059,15 +1077,15 @@ import { fleetSweptEvent } from "../../audits/fleet-event-detectors.js";
 Then, inside the `if (opts.fleet !== undefined) { ... }` block (currently lines 323-333), after the line `if (fleetWrite.failed.length > 0) writeBackFailed = true;` (line 329), add:
 
 ```ts
-      // Record fleet-activity events (vuln_cleared / cert_renewed rode along on each
-      // WriteSummary) plus a per-sweep rollup. Best-effort: a missing Turso cred no-ops.
-      const sweep = which.includes("security") ? "security" : "lighthouse";
-      const now = new Date();
-      const auditEvents = fleetWrite.written.flatMap((w) => w.events ?? []);
-      await recordFleetEventsBestEffort(
-        [...auditEvents, fleetSweptEvent(sweep, fleetWrite.written.length, now.toISOString())],
-        now,
-      );
+// Record fleet-activity events (vuln_cleared / cert_renewed rode along on each
+// WriteSummary) plus a per-sweep rollup. Best-effort: a missing Turso cred no-ops.
+const sweep = which.includes("security") ? "security" : "lighthouse";
+const now = new Date();
+const auditEvents = fleetWrite.written.flatMap((w) => w.events ?? []);
+await recordFleetEventsBestEffort(
+  [...auditEvents, fleetSweptEvent(sweep, fleetWrite.written.length, now.toISOString())],
+  now,
+);
 ```
 
 (`which` is in scope — `const which = parseOnly(opts.only) ?? ALL_AUDIT_NAMES;` at line 256. The two real workflows pass `--only security` → `"security"`, and `--only lighthouse,domain,browser` → `"lighthouse"`.)
@@ -1089,9 +1107,10 @@ git commit -m "feat(audits): record vuln_cleared/cert_renewed + fleet_swept on f
 ## Task 7: Wire signal events into the github-signals command
 
 **Files:**
+
 - Modify: `src/cli/commands/github-signals.ts`
 
-(The event *detection* is already covered by Task 3's pure tests and `mergedRenovatePullRequests` by Task 4. This task is the integration wiring; the command opens a real Airtable base so it is not unit-tested — typecheck + the underlying pure coverage guard it.)
+(The event _detection_ is already covered by Task 3's pure tests and `mergedRenovatePullRequests` by Task 4. This task is the integration wiring; the command opens a real Airtable base so it is not unit-tested — typecheck + the underlying pure coverage guard it.)
 
 - [ ] **Step 1: Add imports**
 
@@ -1108,25 +1127,25 @@ import type { FleetEvent } from "../../db/fleet-events.js";
 In `runGitHubSignalsCommand`, declare an accumulator just before the `for (const row of rows)` loop (currently line 62), next to `const result: FleetWriteResult = ...`:
 
 ```ts
-  const events: FleetEvent[] = [];
-  const sweptMs = Date.parse(sweptAt);
-  const since24h = new Date(sweptMs - 24 * 60 * 60 * 1000).toISOString();
+const events: FleetEvent[] = [];
+const sweptMs = Date.parse(sweptAt);
+const since24h = new Date(sweptMs - 24 * 60 * 60 * 1000).toISOString();
 ```
 
 Inside the loop, in the `try { ... }` block, AFTER the `result.written.push({ ... })` call (currently lines 75-78) and before the closing `}` of the try, add:
 
 ```ts
-      // Fleet-activity events for this repo: merged Renovate PRs since the last sweep
-      // (watermark = the row's prior GitHub Signals At, else a 24h fallback) + a
-      // CI-recovered transition. A PR-fetch hiccup drops only this repo's PR events.
-      const since = target.githubSignalsAt ?? since24h;
-      let merged: Awaited<ReturnType<typeof gh.mergedRenovatePullRequests>> = [];
-      try {
-        merged = await gh.mergedRenovatePullRequests(row.repo, since);
-      } catch {
-        // PR list unavailable this run — skip pr_automerged for this repo, keep ci_recovered
-      }
-      events.push(...detectSignalEvents(target, row, merged, sweptAt));
+// Fleet-activity events for this repo: merged Renovate PRs since the last sweep
+// (watermark = the row's prior GitHub Signals At, else a 24h fallback) + a
+// CI-recovered transition. A PR-fetch hiccup drops only this repo's PR events.
+const since = target.githubSignalsAt ?? since24h;
+let merged: Awaited<ReturnType<typeof gh.mergedRenovatePullRequests>> = [];
+try {
+  merged = await gh.mergedRenovatePullRequests(row.repo, since);
+} catch {
+  // PR list unavailable this run — skip pr_automerged for this repo, keep ci_recovered
+}
+events.push(...detectSignalEvents(target, row, merged, sweptAt));
 ```
 
 - [ ] **Step 3: Record after the loop**
@@ -1134,8 +1153,8 @@ Inside the loop, in the `try { ... }` block, AFTER the `result.written.push({ ..
 After the loop and the `for (const repo of skipped)` line (currently line 83), before the `return { ... }` (currently line 89), add:
 
 ```ts
-  events.push(fleetSweptEvent("github-signals", result.written.length, sweptAt));
-  await recordFleetEventsBestEffort(events, new Date());
+events.push(fleetSweptEvent("github-signals", result.written.length, sweptAt));
+await recordFleetEventsBestEffort(events, new Date());
 ```
 
 - [ ] **Step 4: Typecheck + run the existing github-signals tests**
@@ -1155,6 +1174,7 @@ git commit -m "feat(cli): record pr_automerged/ci_recovered + fleet_swept on git
 ## Task 8: Record `site_launched` on the launch-send path
 
 **Files:**
+
 - Modify: `src/reports/send/orchestrate.ts:104-111`
 
 - [ ] **Step 1: Add imports**
@@ -1167,23 +1187,23 @@ import { recordFleetEventsBestEffort } from "../../audits/fleet-events-writer.js
 
 - [ ] **Step 2: Record the event after the launch flip succeeds**
 
-In `sendApprovedReports`, inside the `if (report.reportType === "Launch") { try { ... } ... }` block, after the existing `lines.push(\`  ↳ launched: ...\`);` (currently line 107) and before the `} catch (e) {`, add:
+In `sendApprovedReports`, inside the `if (report.reportType === "Launch") { try { ... } ... }` block, after the existing `lines.push(\` ↳ launched: ...\`);`(currently line 107) and before the`} catch (e) {`, add:
 
 ```ts
-          await recordFleetEventsBestEffort(
-            [
-              {
-                id: `site_launched:${site.id}`,
-                ts: new Date().toISOString(),
-                type: "site_launched",
-                siteId: site.id,
-                siteName: site.name,
-                summary: "launched — now in maintenance",
-                data: null,
-              },
-            ],
-            new Date(),
-          );
+await recordFleetEventsBestEffort(
+  [
+    {
+      id: `site_launched:${site.id}`,
+      ts: new Date().toISOString(),
+      type: "site_launched",
+      siteId: site.id,
+      siteName: site.name,
+      summary: "launched — now in maintenance",
+      data: null,
+    },
+  ],
+  new Date(),
+);
 ```
 
 (`site_launched:<site.id>` is the once-ever deterministic id; a re-send of a Launch report won't duplicate it.)
@@ -1205,6 +1225,7 @@ git commit -m "feat(reports): record site_launched fleet event on launch send"
 ## Task 9: Cockpit model — `RecentEntry` + `recentEvents` → `model.recent`
 
 **Files:**
+
 - Modify: `src/dashboard/fleet-cockpit.ts` (CockpitModel type ~133-142, buildCockpitModel signature ~255-263, return ~369-377)
 - Test: `tests/dashboard/cockpit-recent.test.ts`
 
@@ -1225,7 +1246,11 @@ const events: FleetEvent[] = [
     siteId: "recCALTEX",
     siteName: "Caltex Landing",
     summary: "auto-merged vite→7.3.5",
-    data: { url: "https://github.com/reddoorla/caltex/pull/14", repo: "reddoorla/caltex", number: 14 },
+    data: {
+      url: "https://github.com/reddoorla/caltex/pull/14",
+      repo: "reddoorla/caltex",
+      number: 14,
+    },
   },
   {
     id: "fleet_swept:security:2026-06-25",
@@ -1305,39 +1330,39 @@ Change the `buildCockpitModel` signature (currently ends `spamTotals: ... = null
 Before the final `return { summary, cards, pending, submissions, spam: ... };`, add the mapping:
 
 ```ts
-  const recent: RecentEntry[] = recentEvents.map((e) => {
-    const url =
-      e.type === "pr_automerged" &&
-      e.data !== null &&
-      typeof e.data === "object" &&
-      "url" in e.data &&
-      typeof (e.data as { url: unknown }).url === "string"
-        ? (e.data as { url: string }).url
-        : null;
-    return {
-      type: e.type,
-      summary: e.summary,
-      siteName: e.siteName,
-      slug: e.siteName ? siteSlug(e.siteName) : null,
-      url,
-      ts: e.ts,
-    };
-  });
+const recent: RecentEntry[] = recentEvents.map((e) => {
+  const url =
+    e.type === "pr_automerged" &&
+    e.data !== null &&
+    typeof e.data === "object" &&
+    "url" in e.data &&
+    typeof (e.data as { url: unknown }).url === "string"
+      ? (e.data as { url: string }).url
+      : null;
+  return {
+    type: e.type,
+    summary: e.summary,
+    siteName: e.siteName,
+    slug: e.siteName ? siteSlug(e.siteName) : null,
+    url,
+    ts: e.ts,
+  };
+});
 ```
 
 Add `recent` to the returned object:
 
 ```ts
-  return {
-    summary,
-    cards,
-    pending,
-    submissions,
-    spam: spamTotals
-      ? { caught: spamTotals.honeypot + spamTotals.tooFast, through: spamTotals.markedSpam }
-      : null,
-    recent,
-  };
+return {
+  summary,
+  cards,
+  pending,
+  submissions,
+  spam: spamTotals
+    ? { caught: spamTotals.honeypot + spamTotals.tooFast, through: spamTotals.markedSpam }
+    : null,
+  recent,
+};
 ```
 
 (`siteSlug` is already imported in this file.)
@@ -1359,6 +1384,7 @@ git commit -m "feat(dashboard): map fleet events into cockpit model.recent"
 ## Task 10: `renderRecentlyLane` + wire into the cockpit
 
 **Files:**
+
 - Modify: `src/dashboard/fleet-render.ts` (imports ~1-11, new function near `renderInboxLane` ~150, wire into `renderCockpitHtml` ~332)
 - Test: `tests/dashboard/recently-lane.test.ts`
 
@@ -1531,6 +1557,7 @@ git commit -m "feat(dashboard): Recently lane on the cockpit"
 ## Task 11: Handler — fetch + pass `recentEvents`
 
 **Files:**
+
 - Modify: `netlify/functions/fleet-homepage.mts`
 
 (`.mts` handlers are typechecked via `tsconfig.netlify.json` (`pnpm typecheck`), not unit-tested — matches the existing handler. Verification is typecheck + the dark-ship soak.)
@@ -1548,15 +1575,15 @@ import { listFleetEvents } from "../../src/db/fleet-events.js";
 After the `spamTotals` block (currently ends ~line 129) and before `const baseUrl = ...` (line 130), add:
 
 ```ts
-    let recentEvents: Awaited<ReturnType<typeof listFleetEvents>> = [];
-    if (db) {
-      try {
-        const sinceIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-        recentEvents = await listFleetEvents(db, { sinceIso, limit: 20 });
-      } catch {
-        // Recently lane simply absent — the cockpit still renders.
-      }
-    }
+let recentEvents: Awaited<ReturnType<typeof listFleetEvents>> = [];
+if (db) {
+  try {
+    const sinceIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    recentEvents = await listFleetEvents(db, { sinceIso, limit: 20 });
+  } catch {
+    // Recently lane simply absent — the cockpit still renders.
+  }
+}
 ```
 
 - [ ] **Step 3: Pass it into `buildCockpitModel`**
@@ -1564,16 +1591,16 @@ After the `spamTotals` block (currently ends ~line 129) and before `const baseUr
 Change the `buildCockpitModel(...)` call (currently lines 131-139) to add the 8th argument:
 
 ```ts
-    const model = buildCockpitModel(
-      websites,
-      reports,
-      prior,
-      baseUrl,
-      new Date(),
-      newSubmissions,
-      spamTotals,
-      recentEvents,
-    );
+const model = buildCockpitModel(
+  websites,
+  reports,
+  prior,
+  baseUrl,
+  new Date(),
+  newSubmissions,
+  spamTotals,
+  recentEvents,
+);
 ```
 
 - [ ] **Step 4: Typecheck**
@@ -1593,6 +1620,7 @@ git commit -m "feat(dashboard): fetch recent fleet events into the cockpit handl
 ## Task 12: Workflow Turso env (operator activates by adding the secrets)
 
 **Files:**
+
 - Modify: `.github/workflows/fleet-security.yml` (the "Fleet security audit" step env, ~line 45)
 - Modify: `.github/workflows/fleet-lighthouse.yml` (the "Fleet Lighthouse…" step env ~line 50 AND the "Sweep GitHub signals" step env ~line 120)
 - Modify: `.github/workflows/daily-reports.yml` (the "Send approved reports" step env, ~line 64)
@@ -1604,8 +1632,8 @@ The two repo secrets `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` are added once 
 Under the `env:` of the "Fleet security audit + Airtable write-back" step (currently the two `AIRTABLE_*` lines at ~46-47), add:
 
 ```yaml
-          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
-          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
 ```
 
 - [ ] **Step 2: fleet-lighthouse.yml (both steps)**
@@ -1613,8 +1641,8 @@ Under the `env:` of the "Fleet security audit + Airtable write-back" step (curre
 Under the `env:` of "Fleet Lighthouse + domain + browser audit…" (the `AIRTABLE_*` at ~51-52) AND under the `env:` of "Sweep GitHub signals to Airtable" (the block at ~121-123, alongside `RENOVATE_TOKEN`), add the same two lines to each:
 
 ```yaml
-          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
-          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
 ```
 
 - [ ] **Step 3: daily-reports.yml**
@@ -1622,8 +1650,8 @@ Under the `env:` of "Fleet Lighthouse + domain + browser audit…" (the `AIRTABL
 Under the `env:` of the "Send approved reports" step (the `AIRTABLE_*` + `RESEND_API_KEY` at ~65-67), add:
 
 ```yaml
-          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
-          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
 ```
 
 - [ ] **Step 4: Validate YAML + prettier**
@@ -1643,6 +1671,7 @@ git commit -m "ci: pass Turso creds to fleet-event producers (activates the feed
 ## Task 13: Changeset + full verification
 
 **Files:**
+
 - Create: `.changeset/<random-name>.md`
 
 - [ ] **Step 1: Write the changeset**
@@ -1682,6 +1711,7 @@ Use superpowers:finishing-a-development-branch (verify tests → push → PR). T
 ## Self-Review
 
 **1. Spec coverage:**
+
 - `fleet_events` table + idempotent deterministic ids → Tasks 1, 2 ✓
 - DB helpers `recordFleetEvent`/`listFleetEvents`/`pruneFleetEvents` → Task 2 ✓
 - `pr_automerged` + `cleanTitle` + watermark/24h fallback → Tasks 3, 4, 7 ✓
