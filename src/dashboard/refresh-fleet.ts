@@ -9,6 +9,7 @@
  *  - fleet-lighthouse.yml → Lighthouse, domain/browser/links + indexed auto-checks,
  *                           AND the github-signals sweep (runs as a step inside it)
  */
+import type { WorkflowRun } from "../github/gh-rest.js";
 export const FLEET_REFRESH_WORKFLOWS = ["fleet-security.yml", "fleet-lighthouse.yml"] as const;
 
 export type RefreshFleetDeps = {
@@ -37,4 +38,65 @@ export async function refreshFleetState(deps: RefreshFleetDeps): Promise<Refresh
     }
   }
   return { dispatched, failed };
+}
+
+/** A single workflow's run state, normalized for the cockpit panel. */
+export type WorkflowRunState =
+  | "starting" // dispatched but no run has appeared yet
+  | "queued"
+  | "in_progress"
+  | "success"
+  | "failure"
+  | "cancelled"
+  | "timed_out";
+
+export type FleetRunStatus = {
+  perWorkflow: { workflow: string; state: WorkflowRunState; url: string | null }[];
+  allDone: boolean; // every workflow's newest run has completed
+  anySuccess: boolean; // ≥1 completed with conclusion "success"
+  anyFailure: boolean; // ≥1 completed with a non-success conclusion
+};
+
+const TERMINAL: WorkflowRunState[] = ["success", "failure", "cancelled", "timed_out"];
+
+/** Map a single (newest) run — or its absence — into one normalized state. */
+function runState(run: WorkflowRun | undefined): WorkflowRunState {
+  if (!run) return "starting";
+  if (run.status !== "completed") {
+    return run.status === "in_progress" ? "in_progress" : "queued";
+  }
+  switch (run.conclusion) {
+    case "success":
+      return "success";
+    case "cancelled":
+      return "cancelled";
+    case "timed_out":
+      return "timed_out";
+    default:
+      // failure + any other terminal conclusion (action_required, neutral, …) — all
+      // terminal, all surfaced as a failure so the operator checks the run.
+      return "failure";
+  }
+}
+
+/**
+ * Roll the two fleet workflows' newest runs into one verdict the status endpoint
+ * returns and the cockpit panel renders. Pure: no I/O. `runs` per workflow is the
+ * newest-first list from `listWorkflowRuns`; only `[0]` is considered.
+ */
+export function summarizeFleetRunStatus(
+  runsByWorkflow: { workflow: string; runs: WorkflowRun[] }[],
+): FleetRunStatus {
+  const perWorkflow = runsByWorkflow.map(({ workflow, runs }) => {
+    const newest = runs[0];
+    return { workflow, state: runState(newest), url: newest?.htmlUrl ?? null };
+  });
+  return {
+    perWorkflow,
+    allDone: perWorkflow.every((w) => TERMINAL.includes(w.state)),
+    anySuccess: perWorkflow.some((w) => w.state === "success"),
+    anyFailure: perWorkflow.some(
+      (w) => w.state === "failure" || w.state === "cancelled" || w.state === "timed_out",
+    ),
+  };
 }

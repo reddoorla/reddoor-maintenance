@@ -1,5 +1,10 @@
 import type { Context, Config } from "@netlify/functions";
-import { verifyBasicAuth, refreshFleetState } from "../../src/dashboard/index.js";
+import {
+  verifyBasicAuth,
+  refreshFleetState,
+  summarizeFleetRunStatus,
+  FLEET_REFRESH_WORKFLOWS,
+} from "../../src/dashboard/index.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
 import { makeGitHubRest } from "../../src/github/gh-rest.js";
@@ -8,7 +13,7 @@ import { makeGitHubRest } from "../../src/github/gh-rest.js";
 // targets the CENTRAL repo (where fleet-security.yml / fleet-lighthouse.yml live),
 // not a per-site repo. Path-routed on the function like the other endpoints.
 export const config: Config = {
-  path: ["/api/fleet/refresh", "/.netlify/functions/refresh-fleet"],
+  path: ["/api/fleet/refresh", "/api/fleet/refresh/status", "/.netlify/functions/refresh-fleet"],
   rateLimit: { windowSize: 60, windowLimit: 30, aggregateBy: ["ip"] },
 };
 
@@ -17,6 +22,10 @@ export const config: Config = {
 // doesn't hardcode-break it.
 const CENTRAL_REPO = process.env.GITHUB_REPOSITORY?.trim() || "reddoorla/reddoor-maintenance";
 
+// Canonical path for the live-status poll. Matched exactly (not via endsWith) so a
+// future route that merely ends in "/status" can never fall into the poll branch.
+const STATUS_PATH = "/api/fleet/refresh/status";
+
 function json(body: unknown, status: number, extra: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -24,9 +33,31 @@ function json(body: unknown, status: number, extra: Record<string, string> = {})
   });
 }
 
+/** Shared auth gate: returns a token on success, or a Response to return on failure. */
+function gateAuth(req: Request): { token: string } | { fail: Response } {
+  const password = process.env.DASHBOARD_PASSWORD;
+  if (!password) {
+    console.error("[refresh-fleet] DASHBOARD_PASSWORD missing");
+    return { fail: json({ ok: false, error: "unconfigured" }, 503) };
+  }
+  if (!verifyBasicAuth(req.headers.get("authorization"), password)) {
+    return {
+      fail: json({ ok: false, error: "unauthorized" }, 401, {
+        "www-authenticate": 'Basic realm="Reddoor fleet"',
+      }),
+    };
+  }
+  const token = process.env.RENOVATE_TOKEN?.trim() || process.env.GH_TOKEN?.trim();
+  if (!token) return { fail: json({ ok: false, error: "not-configured" }, 503) };
+  return { token };
+}
+
 export default async (req: Request, _ctx: Context): Promise<Response> => {
+  const url = new URL(req.url);
+
   // GET health check — presence-only, mirrors the other dashboard endpoints.
-  if (req.method === "GET") {
+  // Skips STATUS_PATH so the live-status poll below handles it instead.
+  if (req.method === "GET" && url.pathname !== STATUS_PATH) {
     return Response.json(
       {
         status: "ok",
@@ -42,40 +73,54 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     );
   }
 
+  // Live status poll: re-find the dispatched runs by timestamp and summarize them.
+  if (req.method === "GET" && url.pathname === STATUS_PATH) {
+    const since = url.searchParams.get("since") ?? "";
+    if (!since || Number.isNaN(new Date(since).getTime())) {
+      return json({ ok: false, error: "bad-since" }, 400);
+    }
+    const gated = gateAuth(req);
+    if ("fail" in gated) return gated.fail;
+    try {
+      const gh = makeGitHubRest({ token: gated.token });
+      // All-or-nothing per poll: if either workflow's run lookup throws we 502 and the
+      // client's 10s retry loop self-heals on the next tick (vs partial results).
+      const runsByWorkflow = await Promise.all(
+        FLEET_REFRESH_WORKFLOWS.map(async (workflow) => ({
+          workflow,
+          runs: await gh.listWorkflowRuns(CENTRAL_REPO, workflow, {
+            since,
+            event: "workflow_dispatch",
+            perPage: 1,
+          }),
+        })),
+      );
+      return json({ ok: true, status: summarizeFleetRunStatus(runsByWorkflow) }, 200);
+    } catch (err) {
+      return handlerError("refresh-fleet-status", err);
+    }
+  }
+
   if (req.method !== "POST") return json({ ok: false, error: "method-not-allowed" }, 405);
 
-  // CSRF defense before auth — same posture as the other state-changing endpoints.
+  // CSRF defense before auth — state-changing endpoint.
   if (!isCsrfAllowed(req)) return json({ ok: false, error: "cross-site-rejected" }, 403);
 
-  const password = process.env.DASHBOARD_PASSWORD;
-  if (!password) {
-    console.error("[refresh-fleet] DASHBOARD_PASSWORD missing");
-    return json({ ok: false, error: "unconfigured" }, 503);
-  }
-  if (!verifyBasicAuth(req.headers.get("authorization"), password)) {
-    return json({ ok: false, error: "unauthorized" }, 401, {
-      "www-authenticate": 'Basic realm="Reddoor fleet"',
-    });
-  }
-
-  // The dispatch is a request-path GitHub write — needs a token with actions:write.
-  // Absent → degrade cleanly (button shows "not configured").
-  const token = process.env.RENOVATE_TOKEN?.trim() || process.env.GH_TOKEN?.trim();
-  if (!token) return json({ ok: false, error: "not-configured" }, 503);
+  const gated = gateAuth(req);
+  if ("fail" in gated) return gated.fail;
 
   try {
-    const gh = makeGitHubRest({ token });
-    // Resolve the central repo's default branch once; dispatch each workflow on it.
+    const gh = makeGitHubRest({ token: gated.token });
     const ref = await gh.defaultBranch(CENTRAL_REPO);
+    // Capture the instant just before dispatch; the client polls /status?since=<this>.
+    const since = new Date().toISOString();
     const result = await refreshFleetState({
       dispatch: (workflow) => gh.dispatchWorkflow(CENTRAL_REPO, workflow, ref),
     });
-    // Every dispatch failed → 502 (nothing kicked off). Otherwise 200 with the
-    // partial breakdown (the UI names any sweep that didn't start).
     if (result.dispatched.length === 0) {
       return json({ ok: false, error: "dispatch-failed", failed: result.failed }, 502);
     }
-    return json({ ok: true, dispatched: result.dispatched, failed: result.failed }, 200);
+    return json({ ok: true, dispatched: result.dispatched, failed: result.failed, since }, 200);
   } catch (err) {
     return handlerError("refresh-fleet", err);
   }

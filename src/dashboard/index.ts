@@ -9,8 +9,17 @@ export { setChecklistItem } from "./checklist.js";
 export type { ChecklistItemDeps, ChecklistItemResult } from "./checklist.js";
 export { triggerRenovateForSite } from "./trigger-renovate.js";
 export type { TriggerRenovateDeps, TriggerRenovateResult } from "./trigger-renovate.js";
-export { refreshFleetState, FLEET_REFRESH_WORKFLOWS } from "./refresh-fleet.js";
-export type { RefreshFleetDeps, RefreshFleetResult } from "./refresh-fleet.js";
+export {
+  refreshFleetState,
+  summarizeFleetRunStatus,
+  FLEET_REFRESH_WORKFLOWS,
+} from "./refresh-fleet.js";
+export type {
+  RefreshFleetDeps,
+  RefreshFleetResult,
+  FleetRunStatus,
+  WorkflowRunState,
+} from "./refresh-fleet.js";
 export {
   setSiteDetail,
   EDITABLE_SITE_FIELDS,

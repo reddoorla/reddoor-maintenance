@@ -124,6 +124,11 @@ h1 { margin: 0 0 0.25rem; font-size: 1.75rem; }
 .refresh-fleet { font:inherit; font-size:0.85rem; padding:0.3rem 0.8rem; border:1px solid #1a1a1a; border-radius:999px; background:#1a1a1a; color:#fff; cursor:pointer; }
 .refresh-fleet:disabled { opacity:0.6; cursor:default; }
 @media (prefers-color-scheme: dark) { .refresh-fleet { background:#e8e8e8; color:#111; border-color:#e8e8e8; } }
+.rf-status { margin-top:0.6rem; font-size:0.85rem; }
+.rf-row { padding:0.1rem 0; }
+.rf-row a { margin-left:0.3rem; }
+.rf-spin { display:inline-block; width:0.8em; height:0.8em; border:2px solid #999; border-top-color:transparent; border-radius:50%; animation:rf-spin 0.8s linear infinite; vertical-align:-0.1em; }
+@keyframes rf-spin { to { transform:rotate(360deg); } }
 details.tier { margin:0.75rem 0; }
 details.tier > summary { cursor:pointer; font-weight:700; font-size:1.05rem; padding:0.35rem 0; list-style:none; }
 .approve-strip { border:1px solid #ffe08a; background:#fff8e1; border-radius:8px; padding:0.75rem 1rem; margin-bottom:1.25rem; }
@@ -189,6 +194,7 @@ function summaryBar(model: CockpitModel): string {
     <div class="filters">${chips}</div>
     <div class="fleet-actions">
       <button type="button" class="refresh-fleet" data-refresh-url="/api/fleet/refresh">↻ Refresh fleet state</button>
+      <div id="rf-status" class="rf-status" aria-live="polite"></div>
     </div>`;
 }
 
@@ -369,17 +375,91 @@ const FILTER_SCRIPT = `<script>
       catch(e){ b.textContent = 'Failed'; b.disabled = false; }
     });
   });
-  // refresh-fleet button: confirm (heavy fleet-wide run) then dispatch both sweeps.
+  // fleet-refresh live status: dispatch, then poll the actual runs and follow them.
+  // Vanilla JS, string-concat only (no template literals) — this lives inside a TS
+  // template string, so backticks or interpolation syntax would break the server render.
+  var RF_KEY = 'reddoor:fleet-refresh';
+  var RF_POLL_MS = 10000;
+  var RF_MAX_MS = 90 * 60 * 1000; // safety ceiling; a full fleet Lighthouse run was ~48 min (2026-06-24)
+  function rfPanel(){ return document.getElementById('rf-status'); }
+  function rfStop(){ try { localStorage.removeItem(RF_KEY); } catch(e){} }
+  // Safe to build raw HTML: workflow/state are server-fixed enums and url is GitHub's
+  // own html_url for our central repo — none are user-supplied. Don't interpolate
+  // untrusted fields here without escaping.
+  function rfRender(status){
+    var failed = function(s){ return s === 'failure' || s === 'cancelled' || s === 'timed_out'; };
+    return status.perWorkflow.map(function(w){
+      var label = w.workflow.replace('.yml','').replace('fleet-','');
+      var icon = w.state === 'success' ? '✓' : failed(w.state) ? '✗' : '<span class="rf-spin"></span>';
+      var link = (failed(w.state) && w.url) ? ' <a href="'+w.url+'" target="_blank" rel="noopener">run</a>' : '';
+      return '<div class="rf-row">'+icon+' '+label+' — '+w.state.replace('_',' ')+link+'</div>';
+    }).join('');
+  }
+  function rfPoll(since, startedAt){
+    fetch('/api/fleet/refresh/status?since=' + encodeURIComponent(since)).then(function(res){
+      if (res.status === 401) return { authFail: true };
+      return res.ok ? res.json() : null;
+    }).then(function(data){
+      var p = rfPanel();
+      if (data && data.authFail){
+        if (p) p.innerHTML += '<div class="rf-row">Session expired — reload to sign in.</div>';
+        if (rf){ rf.disabled = false; rf.textContent = '↻ Refresh fleet state'; }
+        rfStop(); return;
+      }
+      if (data && data.status){
+        if (p) p.innerHTML = rfRender(data.status);
+        if (data.status.allDone){
+          if (!data.status.anyFailure){
+            if (p) p.innerHTML += '<div class="rf-row">✓ Done — reloading…</div>';
+            rfStop(); setTimeout(function(){ location.reload(); }, 2000); return;
+          }
+          if (p) p.innerHTML += '<div class="rf-row"><button type="button" onclick="location.reload()">Reload</button></div>';
+          if (rf){ rf.disabled = false; rf.textContent = '↻ Refresh fleet state'; }
+          rfStop(); return;
+        }
+      }
+      if (Date.now() - startedAt > RF_MAX_MS){
+        if (p) p.innerHTML += '<div class="rf-row">Still running — reload later.</div>';
+        if (rf){ rf.disabled = false; rf.textContent = '↻ Refresh fleet state'; }
+        rfStop(); return;
+      }
+      setTimeout(function(){ rfPoll(since, startedAt); }, RF_POLL_MS);
+    }).catch(function(){
+      var p = rfPanel();
+      if (Date.now() - startedAt > RF_MAX_MS){
+        if (p) p.innerHTML += '<div class="rf-row">Still running — reload later.</div>';
+        if (rf){ rf.disabled = false; rf.textContent = '↻ Refresh fleet state'; }
+        rfStop(); return;
+      }
+      setTimeout(function(){ rfPoll(since, startedAt); }, RF_POLL_MS);
+    });
+  }
+  function rfBegin(since, startedAt){
+    try { localStorage.setItem(RF_KEY, JSON.stringify({ since: since, startedAt: startedAt })); } catch(e){}
+    var p = rfPanel(); if (p) p.innerHTML = '<div class="rf-row"><span class="rf-spin"></span> starting…</div>';
+    rfPoll(since, startedAt);
+  }
   var rf = document.querySelector('button.refresh-fleet');
   if (rf) rf.addEventListener('click', async function(){
     if (!confirm('Kick off the security + Lighthouse sweeps for the whole fleet? They take a few minutes.')) return;
     rf.disabled = true; rf.textContent = 'Refreshing…';
     try {
       var res = await fetch(rf.dataset.refreshUrl, { method: 'POST' });
-      rf.textContent = res.ok ? '↻ Refresh started — updates in a few min' : 'Failed to start';
-      if (!res.ok) rf.disabled = false;
+      if (res.ok){
+        var data = await res.json();
+        rf.textContent = '↻ Refresh running…';
+        if (data && data.since) rfBegin(data.since, Date.now());
+      } else { rf.textContent = 'Failed to start'; rf.disabled = false; }
     } catch(e){ rf.textContent = 'Failed to start'; rf.disabled = false; }
   });
+  // Resume-on-reload: if a refresh is in flight (<90 min old), keep following it.
+  try {
+    var rfSaved = JSON.parse(localStorage.getItem(RF_KEY) || 'null');
+    if (rfSaved && rfSaved.since && rfSaved.startedAt && (Date.now() - rfSaved.startedAt) < RF_MAX_MS){
+      if (rf){ rf.disabled = true; rf.textContent = '↻ Refresh running…'; }
+      rfBegin(rfSaved.since, rfSaved.startedAt);
+    } else if (rfSaved) { rfStop(); }
+  } catch(e){}
 })();
 </script>`;
 

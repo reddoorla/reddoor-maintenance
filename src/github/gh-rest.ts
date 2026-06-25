@@ -15,12 +15,29 @@ import { assertUrlSegment } from "./gh.js";
  * Mirrors the relevant subset of the `GitHub` interface so the `.mts` handler's
  * dispatch adapter is a drop-in swap. `fetch` is injectable for tests.
  */
+/** A subset of a GitHub Actions workflow run, mapped to camelCase. */
+export type WorkflowRun = {
+  id: number;
+  status: string; // "queued" | "in_progress" | "completed" | "requested" | "waiting" | ...
+  conclusion: string | null; // "success" | "failure" | "cancelled" | "timed_out" | ... | null
+  createdAt: string; // ISO
+  htmlUrl: string;
+};
+
 export type GitHubRest = {
   defaultBranch: (repo: string) => Promise<string>;
   /** Fire a `workflow_dispatch` for `<workflow>` (a filename like `renovate.yml`)
    *  on `ref`. Needs the token's `actions:write` scope; a non-2xx (404 no such
    *  workflow / 403 missing scope) surfaces as a thrown error carrying the status. */
   dispatchWorkflow: (repo: string, workflow: string, ref: string) => Promise<void>;
+  /** List a workflow's runs, newest first, created on/after `opts.since` (ISO).
+   *  Used to re-find the run a prior `workflow_dispatch` started (dispatch returns
+   *  204 with no id). Non-2xx surfaces as a thrown error carrying the status. */
+  listWorkflowRuns: (
+    repo: string,
+    workflow: string,
+    opts: { since: string; event?: string; perPage?: number },
+  ) => Promise<WorkflowRun[]>;
 };
 
 const GITHUB_API = "https://api.github.com";
@@ -98,6 +115,46 @@ export function makeGitHubRest(deps: { token: string; fetch?: typeof fetch }): G
           `GitHub workflow_dispatch ${owner}/${name}/${workflow} failed (${res.status}): ${await bodyText(res)}`,
         );
       }
+    },
+
+    async listWorkflowRuns(repo, workflow, opts) {
+      const { owner, name } = splitRepo(repo);
+      assertUrlSegment("path", owner);
+      assertUrlSegment("path", name);
+      assertUrlSegment("path", workflow);
+      const qs = new URLSearchParams({
+        created: `>=${opts.since}`,
+        per_page: String(opts.perPage ?? 1),
+      });
+      if (opts.event) qs.set("event", opts.event);
+      const res = await doFetch(
+        `${GITHUB_API}/repos/${owner}/${name}/actions/workflows/${workflow}/runs?${qs.toString()}`,
+        { headers: baseHeaders },
+      );
+      if (!res.ok) {
+        throw new Error(
+          `GitHub GET runs ${owner}/${name}/${workflow} failed (${res.status}): ${await bodyText(res)}`,
+        );
+      }
+      let body: { workflow_runs?: Array<Record<string, unknown>> };
+      try {
+        body = (await res.json()) as { workflow_runs?: Array<Record<string, unknown>> };
+      } catch {
+        throw new Error(`GitHub runs ${owner}/${name}/${workflow}: 200 with a non-JSON body`);
+      }
+      return (
+        (body.workflow_runs ?? [])
+          .map((r) => ({
+            id: Number(r.id),
+            status: String(r.status ?? ""),
+            conclusion: (r.conclusion as string | null) ?? null,
+            createdAt: String(r.created_at ?? ""),
+            htmlUrl: String(r.html_url ?? ""),
+          }))
+          // Fail-soft like the other fields: a record with a missing/garbage id
+          // (Number(...) → NaN) is dropped rather than propagated.
+          .filter((r) => Number.isFinite(r.id))
+      );
     },
   };
 }

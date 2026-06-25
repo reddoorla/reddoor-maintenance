@@ -576,11 +576,23 @@ describe("renderCockpitHtml — Trigger Renovate button", () => {
   });
 });
 
-describe("renderCockpitHtml — Refresh fleet state button", () => {
+describe("renderCockpitHtml — Refresh fleet state button + live status", () => {
   it("renders a fleet refresh button wired to POST /api/fleet/refresh", () => {
     const html = renderCockpitHtml(model([siteRow()]));
     expect(html).toContain('class="refresh-fleet"');
     expect(html).toContain('data-refresh-url="/api/fleet/refresh"');
     expect(html).toContain("Refresh fleet state");
+  });
+
+  it("includes the live-status panel scaffold and the poll endpoint", () => {
+    const html = renderCockpitHtml(model([siteRow()]));
+    expect(html).toContain('id="rf-status"');
+    expect(html).toContain("/api/fleet/refresh/status?since=");
+  });
+
+  it("wires localStorage resume so a mid-run reload keeps following", () => {
+    const html = renderCockpitHtml(model([siteRow()]));
+    expect(html).toContain("reddoor:fleet-refresh");
+    expect(html).toMatch(/localStorage/);
   });
 });
