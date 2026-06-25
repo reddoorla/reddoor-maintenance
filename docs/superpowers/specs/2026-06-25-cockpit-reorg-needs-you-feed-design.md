@@ -8,13 +8,13 @@
 
 ## Goal
 
-Reorganize the fleet cockpit homepage around the operator's actual job — **"check nothing's on fire"** — so the page answers *"is anything wrong?"* in one glance and only surfaces detail when something needs the operator. Today the cockpit is organized by the features that were appended over time, not by how it's used.
+Reorganize the fleet cockpit homepage around the operator's actual job — **"check nothing's on fire"** — so the page answers _"is anything wrong?"_ in one glance and only surfaces detail when something needs the operator. Today the cockpit is organized by the features that were appended over time, not by how it's used.
 
 ## Background — the six incoherences this fixes
 
 From a top-to-bottom read of `renderCockpitHtml`:
 
-1. **Two navigation systems collide.** The filter chips (`vulns / lighthouse / ci / …`) hide cards with `display:none`, but cards live inside `<details>` tiers where Watch + Healthy are collapsed by default. Filtering can surface *zero visible cards* because the matches are inside a collapsed tier.
+1. **Two navigation systems collide.** The filter chips (`vulns / lighthouse / ci / …`) hide cards with `display:none`, but cards live inside `<details>` tiers where Watch + Healthy are collapsed by default. Filtering can surface _zero visible cards_ because the matches are inside a collapsed tier.
 2. **The summary bar front-loads 8 numbers + 11 filters** before any decision.
 3. **The approve queue — the keystone of the approve-only-loop vision — has the same visual weight as spam stats.**
 4. **Actions are scattered with no model** (approve ×2, Trigger Renovate per-card + per-site, Refresh alone), and nothing shows what's running.
@@ -23,10 +23,10 @@ From a top-to-bottom read of `renderCockpitHtml`:
 
 ## Decisions (locked with the operator)
 
-- **Primary job:** alarm board — *check nothing's on fire*. Approvals are secondary; visitor submissions are tertiary.
+- **Primary job:** alarm board — _check nothing's on fire_. Approvals are secondary; visitor submissions are tertiary.
 - **Top "needs me" zone includes:** hard breakage + soft degradation + report approvals. **Visitor submissions do NOT** break the verdict — they live in their own quiet lane.
-- **Every Needs-you row is navigation-only:** a single **Open ▸** button → `/s/<slug>`. No inline Approve / Trigger Renovate in the feed. The feed says *what* needs you; the site page (already full-featured) is *where* you fix it, with full context.
-- **One row per site (collapsed):** a site that needs you for several reasons is a single row listing them all (not one row per issue). The row links once to its page. The feed length is therefore the count of *sites* that need you.
+- **Every Needs-you row is navigation-only:** a single **Open ▸** button → `/s/<slug>`. No inline Approve / Trigger Renovate in the feed. The feed says _what_ needs you; the site page (already full-featured) is _where_ you fix it, with full context.
+- **One row per site (collapsed):** a site that needs you for several reasons is a single row listing them all (not one row per issue). The row links once to its page. The feed length is therefore the count of _sites_ that need you.
 - **Vulns only alarm after the fleet gives up:** a vuln enters the feed **only when `autoFixExhausted` is set** (Renovate retried the OSV fix past the exhaustion threshold — the existing `Security Auto-Fix Attempts ≥ 3` signal). While Renovate is still on it, it stays off the verdict and out of the feed. **`✓ All clear` can show while the fleet quietly patches vulns in the background.**
 - **Fleet + Inboxes stay collapsed by default** (`<details>` without `open`). The operator expands them when browsing.
 - **Fleet panel keeps its per-card Trigger Renovate button** (operator's choice). The home page's other action is the verdict-bar **↻ Audit** button.
@@ -50,11 +50,11 @@ The cockpit becomes four stacked regions, top to bottom:
 └─────────────────────────────────────────────┘
 ```
 
-The data model (`CockpitModel`) is unchanged — it already carries `cards` (with `items[].autoFixExhausted`), `pending`, `submissions`, and `spam`. This is a **render-layer reorganization plus one pure data builder** over the existing model. The existing `buildCockpitModel` tiering is untouched; the Needs-you feed is a *separate, curated* view layered on top.
+The data model (`CockpitModel`) is unchanged — it already carries `cards` (with `items[].autoFixExhausted`), `pending`, `submissions`, and `spam`. This is a **render-layer reorganization plus one pure data builder** over the existing model. The existing `buildCockpitModel` tiering is untouched; the Needs-you feed is a _separate, curated_ view layered on top.
 
 ### Verdict vs. Fleet panel may diverge — by design
 
-The verdict/feed shows only what needs the *operator*. The Fleet panel shows full state. A site with an in-flight (non-exhausted) vuln is still a 🔴 attention card inside the Fleet panel, but it is **not** in the feed and does **not** raise the verdict. This divergence is intentional and documented so it doesn't read as a bug.
+The verdict/feed shows only what needs the _operator_. The Fleet panel shows full state. A site with an in-flight (non-exhausted) vuln is still a 🔴 attention card inside the Fleet panel, but it is **not** in the feed and does **not** raise the verdict. This divergence is intentional and documented so it doesn't read as a bug.
 
 ## Components
 
@@ -100,7 +100,7 @@ Iterate `cards`, parse each `card.site.lastLighthouseAuditAt` (skip null / non-f
 
 ### 3. Verdict bar — replaces the header + `summaryBar` + `allClearBanner`
 
-- `count = feed.length` (the number of *sites* that need you); `allClear = count === 0`.
+- `count = feed.length` (the number of _sites_ that need you); `allClear = count === 0`.
 - **All clear:** green block, `✓ All clear`, meta line `${cards.length} sites healthy · fleet last audited ${rel} · ↻ Audit`.
 - **Needs you:** red block, `⚠ ${count} ${count === 1 ? "site needs" : "sites need"} you`, meta line `${cards.length} sites · fleet last audited ${rel}`, plus the **↻ Audit** button.
 - The `fleet last audited ${rel}` clause is omitted when `fleetLastAuditedAt` is null.
@@ -141,7 +141,7 @@ A single `<details>` (no `open`) combining `submissionsStrip` (newest-10 cap + "
 
 ## Testing
 
-- **`buildNeedsYouFeed`** (unit): **one row per site** (a site with multiple broken items → one row whose `reasons` lists them all; a broken site that also has a pending report → one row under `broken` whose `reasons` include the report); group ordering (broken → approval → slipping) with `hasCritical` first inside broken, then name; vuln gating (an exhausted vuln contributes a reason, a non-exhausted vuln does not, and an attention site whose *only* item is a non-exhausted vuln with no pending report is omitted entirely); approval-only and slipping-only sites; empty model → `[]`.
+- **`buildNeedsYouFeed`** (unit): **one row per site** (a site with multiple broken items → one row whose `reasons` lists them all; a broken site that also has a pending report → one row under `broken` whose `reasons` include the report); group ordering (broken → approval → slipping) with `hasCritical` first inside broken, then name; vuln gating (an exhausted vuln contributes a reason, a non-exhausted vuln does not, and an attention site whose _only_ item is a non-exhausted vuln with no pending report is omitted entirely); approval-only and slipping-only sites; empty model → `[]`.
 - **`fleetLastAuditedAt`** (unit): returns the max ISO; skips null and non-finite; all-null → `null`.
 - **`renderCockpitHtml`** (render-string): verdict shows `✓ All clear` when feed empty and `⚠ N sites need you` (singular `1 site needs you`) when not; `N` equals feed length (number of sites) and **excludes** submissions; each feed row renders an `Open ▸` link to `/s/<slug>`; Fleet panel is a single collapsed `<details>` containing the filter chips and all cards in **one** grid with **no nested tier `<details>`**; per-card Trigger Renovate present; Inboxes render as a collapsed `<details>`; no approve button on the home page; the Audit button is labeled "Audit".
 - Existing handler/endpoint tests are untouched (no API changes).
@@ -155,7 +155,7 @@ A single `<details>` (no `open`) combining `submissionsStrip` (newest-10 cap + "
 
 ## Roadmap ideas surfaced (captured, not built here)
 
-1. **Fleet activity feed** — beyond "last audited Xh ago," an actual *"what the fleet did for you today"* log (PRs auto-merged, sites re-audited). The real fix for invisible autonomy (incoherence #6).
+1. **Fleet activity feed** — beyond "last audited Xh ago," an actual _"what the fleet did for you today"_ log (PRs auto-merged, sites re-audited). The real fix for invisible autonomy (incoherence #6).
 2. **One-click fixes for more alarm types** — delivery-failure and CI-red have no inline action; add GitHub run deep-links or retry actions (would relax the navigation-only rule for specific kinds).
 3. **Server-side Fleet filtering / its own route** if the browse panel outgrows a client-side toggle.
 

@@ -31,6 +31,7 @@
 ## Task 1: `fleetLastAuditedAt` helper
 
 **Files:**
+
 - Modify: `src/dashboard/fleet-cockpit.ts` (add export near the other pure helpers, after `buildCockpitModel`)
 - Test: `tests/dashboard/fleet-cockpit.test.ts`
 
@@ -121,6 +122,7 @@ git commit -m "feat(dashboard): fleetLastAuditedAt helper for the cockpit verdic
 ## Task 2: `buildNeedsYouFeed` per-site builder
 
 **Files:**
+
 - Modify: `src/dashboard/fleet-cockpit.ts` (add types + builder; `siteSlug` is already imported there)
 - Test: `tests/dashboard/fleet-cockpit.test.ts`
 
@@ -144,8 +146,17 @@ import type { AttentionItem } from "../../src/alerts/attention.js";
 import { siteSlug } from "../../src/reports/airtable/websites.js";
 
 const ZERO_SUMMARY: CockpitSummary = {
-  attention: 0, watch: 0, healthy: 0, criticalHighVulns: 0, lighthouseBelowFloor: 0,
-  deliveryFailures: 0, renovateFailing: 0, ciRed: 0, autoFixStuck: 0, pending: 0, newSubmissions: 0,
+  attention: 0,
+  watch: 0,
+  healthy: 0,
+  criticalHighVulns: 0,
+  lighthouseBelowFloor: 0,
+  deliveryFailures: 0,
+  renovateFailing: 0,
+  ciRed: 0,
+  autoFixStuck: 0,
+  pending: 0,
+  newSubmissions: 0,
 };
 
 function feedModel(over: Partial<CockpitModel>): CockpitModel {
@@ -153,23 +164,65 @@ function feedModel(over: Partial<CockpitModel>): CockpitModel {
 }
 
 function attnCard(name: string, items: AttentionItem[]): SiteCard {
-  return { site: makeWebsiteRow({ name }), tier: "attention", items, watchReasons: [], watchSignals: [] };
+  return {
+    site: makeWebsiteRow({ name }),
+    tier: "attention",
+    items,
+    watchReasons: [],
+    watchSignals: [],
+  };
 }
 function watchCard(name: string, reasons: string[]): SiteCard {
-  return { site: makeWebsiteRow({ name }), tier: "watch", items: [], watchReasons: reasons, watchSignals: ["lighthouse"] };
+  return {
+    site: makeWebsiteRow({ name }),
+    tier: "watch",
+    items: [],
+    watchReasons: reasons,
+    watchSignals: ["lighthouse"],
+  };
 }
-function vuln(name: string, opts: { exhausted?: boolean; severity?: "critical" | "warning" } = {}): AttentionItem {
-  return { key: "vuln:" + name, kind: "vuln", siteName: name, title: (opts.severity ?? "critical") + " vuln",
-    severity: opts.severity ?? "critical", metric: 1, autoFixExhausted: opts.exhausted ?? false };
+function vuln(
+  name: string,
+  opts: { exhausted?: boolean; severity?: "critical" | "warning" } = {},
+): AttentionItem {
+  return {
+    key: "vuln:" + name,
+    kind: "vuln",
+    siteName: name,
+    title: (opts.severity ?? "critical") + " vuln",
+    severity: opts.severity ?? "critical",
+    metric: 1,
+    autoFixExhausted: opts.exhausted ?? false,
+  };
 }
 function ci(name: string): AttentionItem {
-  return { key: "ci:" + name, kind: "ci", siteName: name, title: "CI red", severity: "critical", metric: 1 };
+  return {
+    key: "ci:" + name,
+    kind: "ci",
+    siteName: name,
+    title: "CI red",
+    severity: "critical",
+    metric: 1,
+  };
 }
 function delivery(name: string): AttentionItem {
-  return { key: "delivery:" + name, kind: "delivery", siteName: name, title: "reports failing to send", severity: "warning", metric: 1 };
+  return {
+    key: "delivery:" + name,
+    kind: "delivery",
+    siteName: name,
+    title: "reports failing to send",
+    severity: "warning",
+    metric: 1,
+  };
 }
 function pending(name: string, reportType = "Maintenance", period = "2026-Q2"): PendingEntry {
-  return { reportId: "r-" + name, siteName: name, slug: siteSlug(name), reportType: reportType as PendingEntry["reportType"], period };
+  return {
+    reportId: "r-" + name,
+    siteName: name,
+    slug: siteSlug(name),
+    reportType: reportType as PendingEntry["reportType"],
+    period,
+  };
 }
 
 describe("buildNeedsYouFeed", () => {
@@ -178,25 +231,37 @@ describe("buildNeedsYouFeed", () => {
   });
 
   it("collapses multiple broken items of one site into a single row", () => {
-    const feed = buildNeedsYouFeed(feedModel({ cards: [attnCard("Acme", [ci("Acme"), delivery("Acme")])] }));
+    const feed = buildNeedsYouFeed(
+      feedModel({ cards: [attnCard("Acme", [ci("Acme"), delivery("Acme")])] }),
+    );
     expect(feed).toHaveLength(1);
-    expect(feed[0]).toMatchObject({ group: "broken", siteName: "Acme", url: "/s/" + siteSlug("Acme") });
+    expect(feed[0]).toMatchObject({
+      group: "broken",
+      siteName: "Acme",
+      url: "/s/" + siteSlug("Acme"),
+    });
     expect(feed[0].reasons).toEqual(["CI red", "reports failing to send"]);
   });
 
   it("excludes a vuln until auto-fix is exhausted", () => {
-    const inflight = buildNeedsYouFeed(feedModel({ cards: [attnCard("Acme", [vuln("Acme", { exhausted: false })])] }));
+    const inflight = buildNeedsYouFeed(
+      feedModel({ cards: [attnCard("Acme", [vuln("Acme", { exhausted: false })])] }),
+    );
     expect(inflight).toEqual([]); // fleet still handling it → not your problem yet
-    const stuck = buildNeedsYouFeed(feedModel({ cards: [attnCard("Acme", [vuln("Acme", { exhausted: true })])] }));
+    const stuck = buildNeedsYouFeed(
+      feedModel({ cards: [attnCard("Acme", [vuln("Acme", { exhausted: true })])] }),
+    );
     expect(stuck).toHaveLength(1);
     expect(stuck[0].group).toBe("broken");
   });
 
   it("merges a broken site's pending report into the same broken row", () => {
-    const feed = buildNeedsYouFeed(feedModel({
-      cards: [attnCard("Acme", [ci("Acme")])],
-      pending: [pending("Acme")],
-    }));
+    const feed = buildNeedsYouFeed(
+      feedModel({
+        cards: [attnCard("Acme", [ci("Acme")])],
+        pending: [pending("Acme")],
+      }),
+    );
     expect(feed).toHaveLength(1);
     expect(feed[0].group).toBe("broken");
     expect(feed[0].reasons).toEqual(["CI red", "Maintenance 2026-Q2 ready"]);
@@ -217,14 +282,16 @@ describe("buildNeedsYouFeed", () => {
   });
 
   it("orders broken → approval → slipping, critical-first within broken, then by name", () => {
-    const feed = buildNeedsYouFeed(feedModel({
-      cards: [
-        watchCard("Zeta", ["SEO 80"]),
-        attnCard("Delta", [delivery("Delta")]),          // broken, no critical
-        attnCard("Apex", [ci("Apex")]),                  // broken, critical
-      ],
-      pending: [pending("Yara")],                        // approval
-    }));
+    const feed = buildNeedsYouFeed(
+      feedModel({
+        cards: [
+          watchCard("Zeta", ["SEO 80"]),
+          attnCard("Delta", [delivery("Delta")]), // broken, no critical
+          attnCard("Apex", [ci("Apex")]), // broken, critical
+        ],
+        pending: [pending("Yara")], // approval
+      }),
+    );
     expect(feed.map((f) => f.siteName)).toEqual(["Apex", "Delta", "Yara", "Zeta"]);
     expect(feed.map((f) => f.group)).toEqual(["broken", "broken", "approval", "slipping"]);
   });
@@ -281,7 +348,15 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
     const slug = siteSlug(siteName);
     let a = bySlug.get(slug);
     if (!a) {
-      a = { slug, siteName, reasons: [], hasCritical: false, broken: false, approval: false, slipping: false };
+      a = {
+        slug,
+        siteName,
+        reasons: [],
+        hasCritical: false,
+        broken: false,
+        approval: false,
+        slipping: false,
+      };
       bySlug.set(slug, a);
     }
     return a;
@@ -313,7 +388,14 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
   for (const a of bySlug.values()) {
     if (a.reasons.length === 0) continue;
     const group: NeedsYouGroup = a.broken ? "broken" : a.approval ? "approval" : "slipping";
-    items.push({ group, hasCritical: a.hasCritical, slug: a.slug, siteName: a.siteName, reasons: a.reasons, url: `/s/${a.slug}` });
+    items.push({
+      group,
+      hasCritical: a.hasCritical,
+      slug: a.slug,
+      siteName: a.siteName,
+      reasons: a.reasons,
+      url: `/s/${a.slug}`,
+    });
   }
 
   items.sort((x, y) => {
@@ -344,6 +426,7 @@ git commit -m "feat(dashboard): buildNeedsYouFeed — per-site cockpit feed with
 ## Task 3: Verdict bar (replaces summary bar + all-clear banner) + Audit relabel
 
 **Files:**
+
 - Modify: `src/dashboard/fleet-render.ts`
 - Test: `tests/dashboard/fleet-render.test.ts`
 
@@ -383,7 +466,14 @@ Expected: FAIL — output still contains the old summary markup / "↻ Refresh f
 In `src/dashboard/fleet-render.ts`, extend the `fleet-cockpit.js` import:
 
 ```ts
-import type { CockpitModel, SiteCard, Tier, SubmissionEntry, NeedsYouItem, NeedsYouGroup } from "./fleet-cockpit.js";
+import type {
+  CockpitModel,
+  SiteCard,
+  Tier,
+  SubmissionEntry,
+  NeedsYouItem,
+  NeedsYouGroup,
+} from "./fleet-cockpit.js";
 import { fleetLastAuditedAt, buildNeedsYouFeed } from "./fleet-cockpit.js";
 ```
 
@@ -394,7 +484,9 @@ Add the function (place it where `summaryBar` is):
  *  Needs-you feed length (NOT submissions). Houses the ↻ Audit button + live panel. */
 function verdictBar(model: CockpitModel, feedCount: number): string {
   const auditedIso = fleetLastAuditedAt(model.cards);
-  const audited = auditedIso ? ` · fleet last audited ${escapeHtml(relativeTimeFromNow(auditedIso))}` : "";
+  const audited = auditedIso
+    ? ` · fleet last audited ${escapeHtml(relativeTimeFromNow(auditedIso))}`
+    : "";
   const sites = model.cards.length;
   const sitesWord = `${sites} site${sites === 1 ? "" : "s"}`;
   const actions = `<div class="fleet-actions">
@@ -439,18 +531,52 @@ Then **delete** the now-unused `summaryBar` function and the `allClearBanner` fu
 In `STYLES`, add:
 
 ```css
-.verdict { border-radius:8px; padding:0.9rem 1.1rem; margin-bottom:1.25rem; }
-.verdict .verdict-line { font-weight:800; font-size:1.4rem; }
-.verdict .verdict-meta { color:#666; font-size:0.9rem; margin-top:0.2rem; }
-.verdict.ok { background:#e8f5e9; color:#1b7a2f; }
-.verdict.ok .verdict-meta { color:#2e7d32; }
-.verdict.warn { background:#fdecea; color:#b00; }
-.verdict.warn .verdict-meta { color:#b00; opacity:0.85; }
-@media (prefers-color-scheme: dark) { .verdict.ok { background:#10240f; color:#7fce85; } .verdict.warn { background:#2a0f0d; color:#ff8a80; } }
-.verdict .fleet-actions { margin:0.6rem 0 0; }
+.verdict {
+  border-radius: 8px;
+  padding: 0.9rem 1.1rem;
+  margin-bottom: 1.25rem;
+}
+.verdict .verdict-line {
+  font-weight: 800;
+  font-size: 1.4rem;
+}
+.verdict .verdict-meta {
+  color: #666;
+  font-size: 0.9rem;
+  margin-top: 0.2rem;
+}
+.verdict.ok {
+  background: #e8f5e9;
+  color: #1b7a2f;
+}
+.verdict.ok .verdict-meta {
+  color: #2e7d32;
+}
+.verdict.warn {
+  background: #fdecea;
+  color: #b00;
+}
+.verdict.warn .verdict-meta {
+  color: #b00;
+  opacity: 0.85;
+}
+@media (prefers-color-scheme: dark) {
+  .verdict.ok {
+    background: #10240f;
+    color: #7fce85;
+  }
+  .verdict.warn {
+    background: #2a0f0d;
+    color: #ff8a80;
+  }
+}
+.verdict .fleet-actions {
+  margin: 0.6rem 0 0;
+}
 ```
 
 In the inline script (`FILTER_SCRIPT`), relabel the three operator-facing strings:
+
 - `'↻ Refresh fleet state'` → `'↻ Audit fleet'` (appears twice — both reset branches)
 - `'↻ Refresh running…'` → `'↻ Audit running…'`
 - `rf.textContent = 'Refreshing…';` → `rf.textContent = 'Auditing…';`
@@ -474,6 +600,7 @@ git commit -m "feat(dashboard): cockpit verdict bar replaces the summary tally; 
 ## Task 4: Needs-you feed (replaces the approve strip)
 
 **Files:**
+
 - Modify: `src/dashboard/fleet-render.ts`
 - Test: `tests/dashboard/fleet-render.test.ts`
 
@@ -550,19 +677,66 @@ In `renderCockpitHtml`, replace `${approveStrip(model)}` with `${renderNeedsYouF
 In `STYLES`, add:
 
 ```css
-.needs-you { border:1px solid #e5e5e5; border-radius:8px; padding:0.75rem 1rem; margin-bottom:1.25rem; }
-@media (prefers-color-scheme: dark) { .needs-you { border-color:#2a2a2a; background:#181818; } }
-.needs-you h2 { font-size:1.05rem; margin:0 0 0.5rem; }
-.feed-group-label { text-transform:uppercase; letter-spacing:0.04em; font-size:0.72rem; color:#999; margin:0.6rem 0 0.2rem; }
-.feed-row { display:flex; gap:0.5rem; align-items:center; padding:0.3rem 0; border-bottom:1px dashed #eee; }
-.feed-row:last-child { border-bottom:0; }
-@media (prefers-color-scheme: dark) { .feed-row { border-bottom-color:#262626; } }
-.feed-what { flex:1; }
-.feed-open { white-space:nowrap; }
-.dot { width:0.55rem; height:0.55rem; border-radius:50%; display:inline-block; flex:0 0 auto; }
-.dot.broken { background:#dc2626; }
-.dot.approval { background:#2563eb; }
-.dot.slipping { background:#f59e0b; }
+.needs-you {
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1.25rem;
+}
+@media (prefers-color-scheme: dark) {
+  .needs-you {
+    border-color: #2a2a2a;
+    background: #181818;
+  }
+}
+.needs-you h2 {
+  font-size: 1.05rem;
+  margin: 0 0 0.5rem;
+}
+.feed-group-label {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.72rem;
+  color: #999;
+  margin: 0.6rem 0 0.2rem;
+}
+.feed-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.3rem 0;
+  border-bottom: 1px dashed #eee;
+}
+.feed-row:last-child {
+  border-bottom: 0;
+}
+@media (prefers-color-scheme: dark) {
+  .feed-row {
+    border-bottom-color: #262626;
+  }
+}
+.feed-what {
+  flex: 1;
+}
+.feed-open {
+  white-space: nowrap;
+}
+.dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  display: inline-block;
+  flex: 0 0 auto;
+}
+.dot.broken {
+  background: #dc2626;
+}
+.dot.approval {
+  background: #2563eb;
+}
+.dot.slipping {
+  background: #f59e0b;
+}
 ```
 
 - [ ] **Step 6: Run tests**
@@ -582,6 +756,7 @@ git commit -m "feat(dashboard): per-site Needs-you feed replaces the approve str
 ## Task 5: Extract the Fleet browse panel + fix the filter bug
 
 **Files:**
+
 - Create: `src/dashboard/fleet-browse-render.ts`
 - Modify: `src/dashboard/fleet-render.ts`
 - Test: `tests/dashboard/fleet-render.test.ts`
@@ -715,8 +890,18 @@ When you paste the moved helpers, the only one that references a removed local i
 In `STYLES` (still in `fleet-render.ts`): **delete** `details.tier` and `details.tier > summary` rules. **Add** a rule for the new panel summary:
 
 ```css
-details.fleet-browse > summary, details.inbox > summary { cursor:pointer; font-weight:700; font-size:1.05rem; padding:0.35rem 0; list-style:none; }
-details.fleet-browse, details.inbox { margin:0.75rem 0; }
+details.fleet-browse > summary,
+details.inbox > summary {
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 1.05rem;
+  padding: 0.35rem 0;
+  list-style: none;
+}
+details.fleet-browse,
+details.inbox {
+  margin: 0.75rem 0;
+}
 ```
 
 (`.filters`, `.cards`, `.card*`, `.chip*`, `.pill*`, `.empty` rules stay — the browse panel still uses them.)
@@ -739,6 +924,7 @@ git commit -m "refactor(dashboard): extract fleet-browse-render; flatten cards s
 ## Task 6: Inbox lane (submissions + spam, collapsed)
 
 **Files:**
+
 - Modify: `src/dashboard/fleet-render.ts`
 - Test: `tests/dashboard/fleet-render.test.ts`, `tests/dashboard/cockpit-submissions.test.ts`
 
@@ -854,6 +1040,7 @@ git commit -m "feat(dashboard): collapse submissions + spam into one quiet Inbox
 ## Task 7: Changeset + full verification gate
 
 **Files:**
+
 - Create: `.changeset/cockpit-reorg-needs-you-feed.md`
 
 - [ ] **Step 1: Write the changeset**
@@ -908,6 +1095,7 @@ git commit -m "chore(changeset): cockpit reorg — verdict + needs-you feed"
 ## Self-review (author check against the spec)
 
 **Spec coverage:**
+
 - Verdict bar (count = per-site feed length, excl. submissions; All clear vs N sites need you; last-audited line; Audit button) → Task 3. ✓
 - Per-site Needs-you feed, navigation-only, groups + ordering, vuln-exhaustion gate → Tasks 2 + 4. ✓
 - Fleet panel collapsed, flattened grid (filter bug fix), keeps per-card Trigger Renovate, drops pending/submissions filters → Task 5. ✓
