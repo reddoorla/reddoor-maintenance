@@ -269,7 +269,7 @@ describe("verdict bar", () => {
   it("shows the per-site need count when something is wrong", () => {
     // A single pending-approval report deterministically yields ONE Needs-you feed
     // item (avoids coupling to the vuln auto-fix-exhausted plumbing). Mirrors the
-    // pending ReportRow the approve-strip test builds below.
+    // pending ReportRow the needs-you feed test builds below.
     const m = buildCockpitModel(
       [siteRow({ id: "recSITE", name: "Acme" })],
       [
@@ -376,7 +376,43 @@ describe("needs-you feed", () => {
   });
 });
 
-describe("renderCockpitHtml — submissions strip cap", () => {
+describe("inbox lane", () => {
+  it("renders submissions + spam inside one collapsed details, after the fleet panel", () => {
+    const m = buildCockpitModel(
+      [siteRow({ id: "recSITE", name: "Acme Co" })],
+      [],
+      {},
+      BASE,
+      NOW,
+      [
+        {
+          id: "s1",
+          siteId: "recSITE",
+          formType: "contact",
+          name: "Jane",
+          email: "jane@x.com",
+          submittedAt: "2026-06-10T12:00:00Z",
+        } as never,
+      ],
+      { honeypot: 3, tooFast: 2, markedSpam: 1 }, // caught 5 · through 1
+    );
+    const html = renderCockpitHtml(m);
+    expect(html).toContain('<details class="inbox">');
+    expect(html).toContain("📥 Submissions (1 new)");
+    expect(html).toContain('href="/submissions"');
+    const inboxIdx = html.indexOf('class="inbox"');
+    const fleetIdx = html.indexOf('class="fleet-browse"');
+    expect(fleetIdx).toBeGreaterThan(-1);
+    expect(inboxIdx).toBeGreaterThan(fleetIdx); // inbox after the fleet panel
+  });
+
+  it("omits the inbox entirely with no submissions and no spam", () => {
+    const html = renderCockpitHtml(model([siteRow({ name: "Acme" })]));
+    expect(html).not.toContain('class="inbox"');
+  });
+});
+
+describe("renderCockpitHtml — inbox lane submissions cap", () => {
   /** Minimal new-submission row; buildCockpitModel only reads id/siteId/formType/name/email/submittedAt. */
   function sub(siteId: string, n: number) {
     return {
@@ -390,7 +426,7 @@ describe("renderCockpitHtml — submissions strip cap", () => {
     } as never;
   }
 
-  it("caps the strip at 10 rows, keeps the true total in the heading, and links onward", () => {
+  it("caps the lane at 10 rows, keeps the true total in the summary, and links onward", () => {
     const newSubs = Array.from({ length: 13 }, (_, i) => sub("recSITE", i + 1));
     const m = buildCockpitModel(
       [siteRow({ id: "recSITE", name: "Acme Co" })],
@@ -403,11 +439,12 @@ describe("renderCockpitHtml — submissions strip cap", () => {
     const html = renderCockpitHtml(m);
     const rendered = (html.match(/data-signal="submissions"/g) ?? []).length;
     expect(rendered).toBe(10);
-    expect(html).toContain("New submissions (13)"); // true total, not the capped count
-    expect(html).toContain("+3 more");
+    expect(html).toContain("📥 Submissions (13 new)"); // true total, not the capped count
+    expect(html).toContain("+3 more — view all submissions");
+    expect(html).toContain('href="/submissions"');
   });
 
-  it("renders every row and no '+more' line when at or under the cap", () => {
+  it("renders every row and a plain 'View all' link when at or under the cap", () => {
     const newSubs = Array.from({ length: 4 }, (_, i) => sub("recSITE", i + 1));
     const m = buildCockpitModel(
       [siteRow({ id: "recSITE", name: "Acme Co" })],
@@ -419,8 +456,9 @@ describe("renderCockpitHtml — submissions strip cap", () => {
     );
     const html = renderCockpitHtml(m);
     expect((html.match(/data-signal="submissions"/g) ?? []).length).toBe(4);
-    expect(html).toContain("New submissions (4)");
+    expect(html).toContain("📥 Submissions (4 new)");
     expect(html).not.toMatch(/\+\d+ more/);
+    expect(html).toContain("View all submissions →");
   });
 });
 

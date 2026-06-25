@@ -30,9 +30,6 @@ h1 { margin: 0 0 0.25rem; font-size: 1.75rem; }
 .cluster.lighthouse .score { display: inline-block; min-width: 2.25rem; text-align: right; }
 .metric-label { color: #999; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
 .metric { font-feature-settings: "tnum"; }
-.summary { display:flex; flex-wrap:wrap; gap:0.5rem 1.25rem; align-items:baseline; margin-bottom:0.5rem; }
-.summary .tier { font-weight:700; }
-.summary .heads { color:#666; font-size:0.9rem; }
 .spam-rollup { font-size:0.9rem; margin-bottom:1rem; }
 .muted { color:#999; }
 .subm-viewall { font-size:0.8rem; font-weight:normal; margin-left:0.4rem; white-space:nowrap; }
@@ -52,9 +49,6 @@ h1 { margin: 0 0 0.25rem; font-size: 1.75rem; }
 @keyframes rf-spin { to { transform:rotate(360deg); } }
 details.fleet-browse, details.inbox { margin:0.75rem 0; }
 details.fleet-browse > summary, details.inbox > summary { cursor:pointer; font-weight:700; font-size:1.05rem; padding:0.35rem 0; list-style:none; }
-.approve-strip { border:1px solid #ffe08a; background:#fff8e1; border-radius:8px; padding:0.75rem 1rem; margin-bottom:1.25rem; }
-@media (prefers-color-scheme: dark) { .approve-strip { background:#241f00; border-color:#5a4d00; } }
-.approve-strip h2 { font-size:1rem; margin:0 0 0.5rem; }
 .approve-row { display:flex; flex-wrap:wrap; gap:0.5rem 1rem; align-items:center; padding:0.25rem 0; }
 .pill { font-size:0.75rem; padding:0.1rem 0.5rem; border-radius:999px; font-weight:700; }
 .pill.attention { background:#fdecea; color:#b00; }
@@ -66,8 +60,6 @@ details.fleet-browse > summary, details.inbox > summary { cursor:pointer; font-w
 .chip.critical { background:#fdecea; color:#b00; }
 .chip.stuck { border:1px solid #b00; font-weight:600; }
 .badge { font-weight:700; color:#C00; font-size:0.72rem; margin-right:0.25rem; }
-.all-clear { background:#e8f5e9; color:#1b7a2f; padding:0.6rem 1rem; border-radius:8px; margin-bottom:1.25rem; font-weight:600; }
-@media (prefers-color-scheme: dark) { .all-clear { background:#10240f; color:#7fce85; } }
 .verdict { border-radius:8px; padding:0.9rem 1.1rem; margin-bottom:1.25rem; }
 .verdict .verdict-line { font-weight:800; font-size:1.4rem; }
 .verdict .verdict-meta { color:#666; font-size:0.9rem; margin-top:0.2rem; }
@@ -120,15 +112,6 @@ function verdictBar(model: CockpitModel, feedCount: number): string {
   </div>`;
 }
 
-/** One-line fleet spam roll-up beneath the summary: caught (honeypot+too-fast) vs
- *  through (marked spam) over the window. Omitted when there's no spam data, so a
- *  fleet with no screen-out buckets reads clean rather than "caught 0 · through 0". */
-function spamRollup(model: CockpitModel): string {
-  const s = model.spam;
-  if (!s || (s.caught === 0 && s.through === 0)) return "";
-  return `<div class="spam-rollup muted">🛡 Spam (30d) — caught ${s.caught} · through ${s.through}</div>`;
-}
-
 const NEEDS_YOU_GROUP_LABEL: Record<NeedsYouGroup, string> = {
   broken: "Broken",
   approval: "Waiting on your yes",
@@ -159,15 +142,18 @@ function renderNeedsYouFeed(feed: NeedsYouItem[]): string {
   return `<section class="needs-you"><h2>Needs you (${feed.length})</h2>${blocks}</section>`;
 }
 
-/** Most submissions to render in the cockpit strip. The heading still shows the
+/** Most submissions to render in the cockpit inbox lane. The summary still shows the
  *  true fleet total; overflow is triaged on each site's page (which lists 25). */
 const SUBMISSIONS_STRIP_CAP = 10;
 
-function submissionsStrip(model: CockpitModel): string {
+/** The quiet inbox lane: newest submissions + the 30-day spam roll-up, in one collapsed
+ *  <details>. Submissions are a separate work stream — they never raise the verdict. */
+function renderInboxLane(model: CockpitModel): string {
   const subs: SubmissionEntry[] = model.submissions ?? [];
-  if (subs.length === 0) return "";
-  // Render the newest N only — the strip is a triage prompt, not the inbox. Sort
-  // defensively (the builder preserves input order, which is already newest-first).
+  const spam = model.spam;
+  const hasSpam = !!spam && (spam.caught > 0 || spam.through > 0);
+  if (subs.length === 0 && !hasSpam) return "";
+
   const shown = [...subs]
     .sort((a, b) => (b.submittedAt ?? "").localeCompare(a.submittedAt ?? ""))
     .slice(0, SUBMISSIONS_STRIP_CAP);
@@ -188,11 +174,16 @@ function submissionsStrip(model: CockpitModel): string {
   const more =
     overflow > 0
       ? `<div class="approve-row subm-more muted"><a href="/submissions">+${overflow} more — view all submissions</a></div>`
-      : "";
-  return `<section class="approve-strip subm-strip" data-tier="submissions">
-    <h2>📥 New submissions (${subs.length}) <a class="subm-viewall" href="/submissions">View all →</a></h2>
-    ${rows}${more}
-  </section>`;
+      : `<div class="approve-row subm-more muted"><a href="/submissions">View all submissions →</a></div>`;
+  const spamLine = hasSpam
+    ? `<div class="spam-rollup muted">🛡 Spam (30d) — caught ${spam!.caught} · through ${spam!.through}</div>`
+    : "";
+  const spamInSummary = hasSpam ? " · 🛡 Spam (30d)" : "";
+  return `<details class="inbox">
+    <summary>📥 Submissions (${subs.length} new)${spamInSummary}</summary>
+    ${rows}${subs.length > 0 ? more : ""}
+    ${spamLine}
+  </details>`;
 }
 
 const AUDIT_SCRIPT = `<script>
@@ -340,8 +331,7 @@ export function renderCockpitHtml(model: CockpitModel): string {
   ${verdictBar(model, feed.length)}
   ${renderNeedsYouFeed(feed)}
   ${renderFleetBrowsePanel(model)}
-  ${spamRollup(model)}
-  ${submissionsStrip(model)}
+  ${renderInboxLane(model)}
   ${AUDIT_SCRIPT}
   ${FLEET_BROWSE_SCRIPT}
 </body>
