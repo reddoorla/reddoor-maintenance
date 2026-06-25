@@ -1,6 +1,7 @@
 import type { WebsiteRow } from "../reports/airtable/websites.js";
 import { siteSlug } from "../reports/airtable/websites.js";
 import type { CockpitModel, SiteCard, Tier, SubmissionEntry } from "./fleet-cockpit.js";
+import { fleetLastAuditedAt, buildNeedsYouFeed } from "./fleet-cockpit.js";
 import { onboardingStatus, missingOnboarding } from "./onboarding.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 import { escapeHtml, safeUrl } from "../util/html.js";
@@ -148,6 +149,15 @@ details.tier > summary { cursor:pointer; font-weight:700; font-size:1.05rem; pad
 .badge { font-weight:700; color:#C00; font-size:0.72rem; margin-right:0.25rem; }
 .all-clear { background:#e8f5e9; color:#1b7a2f; padding:0.6rem 1rem; border-radius:8px; margin-bottom:1.25rem; font-weight:600; }
 @media (prefers-color-scheme: dark) { .all-clear { background:#10240f; color:#7fce85; } }
+.verdict { border-radius:8px; padding:0.9rem 1.1rem; margin-bottom:1.25rem; }
+.verdict .verdict-line { font-weight:800; font-size:1.4rem; }
+.verdict .verdict-meta { color:#666; font-size:0.9rem; margin-top:0.2rem; }
+.verdict.ok { background:#e8f5e9; color:#1b7a2f; }
+.verdict.ok .verdict-meta { color:#2e7d32; }
+.verdict.warn { background:#fdecea; color:#b00; }
+.verdict.warn .verdict-meta { color:#b00; opacity:0.85; }
+@media (prefers-color-scheme: dark) { .verdict.ok { background:#10240f; color:#7fce85; } .verdict.warn { background:#2a0f0d; color:#ff8a80; } }
+.verdict .fleet-actions { margin:0.6rem 0 0; }
 `;
 
 const TIER_META: Record<Tier, { emoji: string; label: string; open: boolean }> = {
@@ -156,6 +166,8 @@ const TIER_META: Record<Tier, { emoji: string; label: string; open: boolean }> =
   healthy: { emoji: "🟢", label: "Healthy", open: false },
 };
 
+// Kept for a later cockpit task that re-introduces the filter UI; not rendered yet.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const FILTERS = [
   "all",
   "vulns",
@@ -170,33 +182,32 @@ const FILTERS = [
   "submissions",
 ] as const;
 
-function summaryBar(model: CockpitModel): string {
-  const s = model.summary;
-  const heads = [
-    `${s.criticalHighVulns} critical/high vuln${s.criticalHighVulns === 1 ? "" : "s"}`,
-    `${s.lighthouseBelowFloor} Lighthouse<75`,
-    `${s.deliveryFailures} delivery`,
-    `${s.renovateFailing} PRs failing`,
-    `${s.ciRed} CI red`,
-    `${s.autoFixStuck} auto-fix stuck`,
-    `${s.pending} pending`,
-    `${s.newSubmissions ?? 0} new`,
-  ].join(" · ");
-  const chips = FILTERS.map(
-    (f) =>
-      `<button type="button" data-filter="${f}" aria-pressed="${f === "all" ? "true" : "false"}">${f}</button>`,
-  ).join("");
-  return `<div class="summary">
-      <span class="tier">🔴 ${s.attention} needs attention</span>
-      <span class="tier">🟡 ${s.watch} watch</span>
-      <span class="tier">🟢 ${s.healthy} healthy</span>
-    </div>
-    <div class="summary heads">${escapeHtml(heads)}</div>
-    <div class="filters">${chips}</div>
-    <div class="fleet-actions">
-      <button type="button" class="refresh-fleet" data-refresh-url="/api/fleet/refresh">↻ Refresh fleet state</button>
+/** The glance verdict: "✓ All clear", or "⚠ N sites need you". N is the per-site
+ *  Needs-you feed length (NOT submissions). Houses the ↻ Audit button + live panel. */
+function verdictBar(model: CockpitModel, feedCount: number): string {
+  const auditedIso = fleetLastAuditedAt(model.cards);
+  const audited = auditedIso
+    ? ` · fleet last audited ${escapeHtml(relativeTimeFromNow(auditedIso))}`
+    : "";
+  const sites = model.cards.length;
+  const sitesWord = `${sites} site${sites === 1 ? "" : "s"}`;
+  const actions = `<div class="fleet-actions">
+      <button type="button" class="refresh-fleet" data-refresh-url="/api/fleet/refresh">↻ Audit fleet</button>
       <div id="rf-status" class="rf-status" aria-live="polite"></div>
     </div>`;
+  if (feedCount === 0) {
+    return `<div class="verdict ok">
+      <div class="verdict-line">✓ All clear</div>
+      <div class="verdict-meta">${sitesWord} healthy${audited}</div>
+      ${actions}
+    </div>`;
+  }
+  const noun = feedCount === 1 ? "site needs" : "sites need";
+  return `<div class="verdict warn">
+    <div class="verdict-line">⚠ ${feedCount} ${noun} you</div>
+    <div class="verdict-meta">${sitesWord}${audited}</div>
+    ${actions}
+  </div>`;
 }
 
 /** One-line fleet spam roll-up beneath the summary: caught (honeypot+too-fast) vs
@@ -206,17 +217,6 @@ function spamRollup(model: CockpitModel): string {
   const s = model.spam;
   if (!s || (s.caught === 0 && s.through === 0)) return "";
   return `<div class="spam-rollup muted">🛡 Spam (30d) — caught ${s.caught} · through ${s.through}</div>`;
-}
-
-/** Affirmative all-clear when nothing is on the 🔴 tier (spec §5.2/§12) — so a
- *  healthy or empty fleet reads as "all clear", not three bare "None." rows. */
-function allClearBanner(model: CockpitModel): string {
-  if (model.summary.attention > 0) return "";
-  const msg =
-    model.cards.length === 0
-      ? "No sites on the fleet view yet."
-      : "All clear — nothing needs your attention.";
-  return `<div class="all-clear">✓ ${escapeHtml(msg)}</div>`;
 }
 
 function approveStrip(model: CockpitModel): string {
@@ -433,7 +433,7 @@ const FILTER_SCRIPT = `<script>
       var p = rfPanel();
       if (data && data.authFail){
         if (p) p.innerHTML += '<div class="rf-row">Session expired — reload to sign in.</div>';
-        if (rf){ rf.disabled = false; rf.textContent = '↻ Refresh fleet state'; }
+        if (rf){ rf.disabled = false; rf.textContent = '↻ Audit fleet'; }
         rfStop(); return;
       }
       if (data && data.status){
@@ -444,13 +444,13 @@ const FILTER_SCRIPT = `<script>
             rfStop(); setTimeout(function(){ location.reload(); }, 2000); return;
           }
           if (p) p.innerHTML += '<div class="rf-row"><button type="button" onclick="location.reload()">Reload</button></div>';
-          if (rf){ rf.disabled = false; rf.textContent = '↻ Refresh fleet state'; }
+          if (rf){ rf.disabled = false; rf.textContent = '↻ Audit fleet'; }
           rfStop(); return;
         }
       }
       if (Date.now() - startedAt > RF_MAX_MS){
         if (p) p.innerHTML += '<div class="rf-row">Still running — reload later.</div>';
-        if (rf){ rf.disabled = false; rf.textContent = '↻ Refresh fleet state'; }
+        if (rf){ rf.disabled = false; rf.textContent = '↻ Audit fleet'; }
         rfStop(); return;
       }
       setTimeout(function(){ rfPoll(since, startedAt); }, RF_POLL_MS);
@@ -458,7 +458,7 @@ const FILTER_SCRIPT = `<script>
       var p = rfPanel();
       if (Date.now() - startedAt > RF_MAX_MS){
         if (p) p.innerHTML += '<div class="rf-row">Still running — reload later.</div>';
-        if (rf){ rf.disabled = false; rf.textContent = '↻ Refresh fleet state'; }
+        if (rf){ rf.disabled = false; rf.textContent = '↻ Audit fleet'; }
         rfStop(); return;
       }
       setTimeout(function(){ rfPoll(since, startedAt); }, RF_POLL_MS);
@@ -472,12 +472,12 @@ const FILTER_SCRIPT = `<script>
   var rf = document.querySelector('button.refresh-fleet');
   if (rf) rf.addEventListener('click', async function(){
     if (!confirm('Kick off the security + Lighthouse sweeps for the whole fleet? They take a few minutes.')) return;
-    rf.disabled = true; rf.textContent = 'Refreshing…';
+    rf.disabled = true; rf.textContent = 'Auditing…';
     try {
       var res = await fetch(rf.dataset.refreshUrl, { method: 'POST' });
       if (res.ok){
         var data = await res.json();
-        rf.textContent = '↻ Refresh running…';
+        rf.textContent = '↻ Audit running…';
         if (data && data.since) rfBegin(data.since, Date.now());
       } else { rf.textContent = 'Failed to start'; rf.disabled = false; }
     } catch(e){ rf.textContent = 'Failed to start'; rf.disabled = false; }
@@ -486,7 +486,7 @@ const FILTER_SCRIPT = `<script>
   try {
     var rfSaved = JSON.parse(localStorage.getItem(RF_KEY) || 'null');
     if (rfSaved && rfSaved.since && rfSaved.startedAt && (Date.now() - rfSaved.startedAt) < RF_MAX_MS){
-      if (rf){ rf.disabled = true; rf.textContent = '↻ Refresh running…'; }
+      if (rf){ rf.disabled = true; rf.textContent = '↻ Audit running…'; }
       rfBegin(rfSaved.since, rfSaved.startedAt);
     } else if (rfSaved) { rfStop(); }
   } catch(e){}
@@ -502,6 +502,7 @@ const FILTER_SCRIPT = `<script>
  */
 export function renderCockpitHtml(model: CockpitModel): string {
   const total = model.cards.length;
+  const feed = buildNeedsYouFeed(model);
   const tiers: Tier[] = ["attention", "watch", "healthy"];
   const sections = tiers
     .map((tier) => {
@@ -530,8 +531,7 @@ export function renderCockpitHtml(model: CockpitModel): string {
 <body>
   <h1>Reddoor fleet cockpit</h1>
   <div class="meta">${total} site${total === 1 ? "" : "s"} on the Reddoor stack.</div>
-  ${summaryBar(model)}
-  ${allClearBanner(model)}
+  ${verdictBar(model, feed.length)}
   ${approveStrip(model)}
   ${sections}
   ${spamRollup(model)}

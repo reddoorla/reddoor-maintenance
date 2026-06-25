@@ -258,43 +258,86 @@ describe("renderCockpitHtml — escaping & safety", () => {
   });
 });
 
-describe("renderCockpitHtml — summary bar", () => {
-  it("shows the three tier counts", () => {
-    const html = renderCockpitHtml(
-      model([
-        siteRow({ id: "a", name: "Bad", securityVulnsCritical: 1 }),
+describe("verdict bar", () => {
+  it("shows All clear when nothing needs the operator", () => {
+    const html = renderCockpitHtml(model([siteRow({ name: "Acme" })]));
+    expect(html).toContain("✓ All clear");
+    expect(html).toContain("↻ Audit fleet");
+    expect(html).not.toContain("needs attention</span>"); // old summary tally gone
+  });
+
+  it("shows the per-site need count when something is wrong", () => {
+    // A single pending-approval report deterministically yields ONE Needs-you feed
+    // item (avoids coupling to the vuln auto-fix-exhausted plumbing). Mirrors the
+    // pending ReportRow the approve-strip test builds below.
+    const m = buildCockpitModel(
+      [siteRow({ id: "recSITE", name: "Acme" })],
+      [
+        {
+          id: "r1",
+          siteId: "recSITE",
+          reportType: "Maintenance",
+          period: "2026-05",
+          periodStart: null,
+          periodEnd: null,
+          gaUsersCurrent: null,
+          gaUsersPrevious: null,
+          draftReady: true,
+          approvedToSend: false,
+          sentAt: null,
+          deliveryStatus: "pending",
+        } as never,
+      ],
+      {},
+      BASE,
+      NOW,
+    );
+    const html = renderCockpitHtml(m);
+    expect(html).toMatch(/⚠ 1 site needs you/);
+    expect(html).not.toContain("✓ All clear");
+  });
+});
+
+describe("renderCockpitHtml — verdict bar (replaces the summary tally)", () => {
+  it("sums the per-site Needs-you count across slipping + approval sites", () => {
+    // Mid (watch-band Lighthouse → slipping) + Acme (pending approval) each land on
+    // the feed; Good is healthy → 2 sites need the operator. (A non-exhausted vuln is
+    // gated off the feed, so the count is feed-driven, not tier-driven.)
+    const m = buildCockpitModel(
+      [
         siteRow({ id: "w", name: "Mid", pScore: 80 }),
+        siteRow({ id: "recSITE", name: "Acme" }),
         siteRow({ id: "g", name: "Good" }),
-      ]),
+      ],
+      [
+        {
+          id: "r1",
+          siteId: "recSITE",
+          reportType: "Maintenance",
+          period: "2026-05",
+          periodStart: null,
+          periodEnd: null,
+          gaUsersCurrent: null,
+          gaUsersPrevious: null,
+          draftReady: true,
+          approvedToSend: false,
+          sentAt: null,
+          deliveryStatus: "pending",
+        } as never,
+      ],
+      {},
+      BASE,
+      NOW,
     );
-    expect(html).toMatch(/1[^<]*needs attention/i);
-    expect(html).toMatch(/1[^<]*watch/i);
-    expect(html).toMatch(/1[^<]*healthy/i);
+    const html = renderCockpitHtml(m);
+    expect(html).toMatch(/⚠ 2 sites need you/);
+    expect(html).not.toContain("✓ All clear");
   });
 
-  it("renders filter chips with data-filter hooks", () => {
+  it("houses the ↻ Audit fleet button (filter chips moved out of the verdict)", () => {
     const html = renderCockpitHtml(model([siteRow()]));
-    for (const f of ["all", "vulns", "lighthouse", "delivery", "stale", "pending"]) {
-      expect(html).toContain(`data-filter="${f}"`);
-    }
-  });
-
-  it("renders the headline counts (vulns / lighthouse / delivery / pending)", () => {
-    const html = renderCockpitHtml(
-      model(
-        [
-          siteRow({
-            id: "a",
-            name: "Bad",
-            securityVulnsCritical: 2,
-            securityVulnsHigh: 1,
-            pScore: 60,
-          }),
-        ],
-        [],
-      ),
-    );
-    expect(html).toMatch(/3[^<]*vuln/i); // criticalHighVulns = 3
+    expect(html).toContain("↻ Audit fleet");
+    expect(html).toContain('class="refresh-fleet"');
   });
 });
 
@@ -447,7 +490,7 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
     expect(html).not.toMatch(/data-signals="[^"]*lighthouse[^"]*"/);
   });
 
-  it("offers a 'no-domain' filter chip and tags a maintenance site still on *.netlify.app", () => {
+  it("tags a maintenance site still on *.netlify.app with the no-domain signal", () => {
     const html = renderCockpitHtml(
       model([
         siteRow({
@@ -458,21 +501,21 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
         }),
       ]),
     );
-    expect(html).toContain('data-filter="no-domain"');
     expect(html).toMatch(/data-signals="[^"]*no-domain[^"]*"/);
   });
 
-  it("renders the all-clear banner when nothing needs attention", () => {
+  it("renders the ok verdict when nothing needs attention", () => {
     const html = renderCockpitHtml(model([siteRow()]));
-    expect(html).toContain("all-clear");
-    expect(html).toMatch(/all clear/i);
+    expect(html).toContain('class="verdict ok"');
+    expect(html).toContain("✓ All clear");
   });
 
-  it("omits the all-clear banner when a site is on the attention tier", () => {
-    const html = renderCockpitHtml(
-      model([siteRow({ id: "a", name: "Bad", securityVulnsCritical: 1 })]),
-    );
-    expect(html).not.toMatch(/class="all-clear"/);
+  it("renders the warn verdict when a site is on the Needs-you feed", () => {
+    // A watch-band Lighthouse site (slipping) is a deterministic feed item — the
+    // verdict tracks the feed, so warn shows.
+    const html = renderCockpitHtml(model([siteRow({ id: "w", name: "Mid", pScore: 80 })]));
+    expect(html).toContain('class="verdict warn"');
+    expect(html).not.toContain("✓ All clear");
   });
 
   it("the filter script short-circuits 'pending' so it never hides triage cards", () => {
@@ -483,12 +526,6 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
 });
 
 describe("renderCockpitHtml — GitHub-signal chips & filters (slice 2b)", () => {
-  it("renders prs/ci filter chips", () => {
-    const html = renderCockpitHtml(model([siteRow()]));
-    expect(html).toContain('data-filter="prs"');
-    expect(html).toContain('data-filter="ci"');
-  });
-
   it("a Renovate-failing card carries the prs signal + its chip", () => {
     const html = renderCockpitHtml(
       model([siteRow({ id: "a", name: "Reno", renovateFailingCis: 2 })]),
@@ -503,16 +540,6 @@ describe("renderCockpitHtml — GitHub-signal chips & filters (slice 2b)", () =>
     );
     expect(html).toMatch(/data-signals="[^"]*ci[^"]*"/);
     expect(html).toMatch(/Default-branch CI failing/);
-  });
-
-  it("the summary headline shows the PRs-failing and CI-red counts", () => {
-    const html = renderCockpitHtml(
-      model([
-        siteRow({ id: "a", name: "Reno", renovateFailingCis: 2, defaultBranchCi: "failing" }),
-      ]),
-    );
-    expect(html).toMatch(/2 PRs failing/);
-    expect(html).toMatch(/1 CI red/);
   });
 });
 
@@ -555,11 +582,6 @@ describe("renderCockpitHtml — auto-fix-exhausted vuln", () => {
     expect(html).toContain("chip critical stuck");
     expect(html).toContain("auto-fix failed (3×)");
   });
-
-  it("offers an auto-fix-failed filter chip", () => {
-    const html = renderCockpitHtml(model([siteRow()]));
-    expect(html).toContain('data-filter="auto-fix-failed"');
-  });
 });
 
 describe("renderCockpitHtml — Trigger Renovate button", () => {
@@ -576,12 +598,12 @@ describe("renderCockpitHtml — Trigger Renovate button", () => {
   });
 });
 
-describe("renderCockpitHtml — Refresh fleet state button + live status", () => {
-  it("renders a fleet refresh button wired to POST /api/fleet/refresh", () => {
+describe("renderCockpitHtml — Audit fleet button + live status", () => {
+  it("renders a fleet audit button wired to POST /api/fleet/refresh", () => {
     const html = renderCockpitHtml(model([siteRow()]));
     expect(html).toContain('class="refresh-fleet"');
     expect(html).toContain('data-refresh-url="/api/fleet/refresh"');
-    expect(html).toContain("Refresh fleet state");
+    expect(html).toContain("↻ Audit fleet");
   });
 
   it("includes the live-status panel scaffold and the poll endpoint", () => {

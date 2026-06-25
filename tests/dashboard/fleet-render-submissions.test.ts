@@ -80,7 +80,6 @@ describe("renderCockpitHtml — submissions", () => {
     expect(html).toContain("New submissions (1)");
     expect(html).toContain("Acme &lt;b&gt;");
     expect(html).toContain('href="/s/acme"');
-    expect(html).toContain("1 new"); // summary head
   });
 
   it("orders attention content (tiers) before spam and submissions", () => {
