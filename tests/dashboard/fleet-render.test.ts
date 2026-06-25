@@ -341,41 +341,38 @@ describe("renderCockpitHtml — verdict bar (replaces the summary tally)", () =>
   });
 });
 
-describe("renderCockpitHtml — approve strip", () => {
-  it("renders an approve button per pending report, mirroring the per-site endpoint", () => {
-    const m = buildCockpitModel(
-      [siteRow({ id: "recSITE", name: "Acme Co" })],
-      [
-        {
-          id: "r1",
-          siteId: "recSITE",
-          reportType: "Maintenance",
-          period: "2026-05",
-          periodStart: null,
-          periodEnd: null,
-          gaUsersCurrent: null,
-          gaUsersPrevious: null,
-          draftReady: true,
-          approvedToSend: false,
-          sentAt: null,
-          deliveryStatus: "pending",
-        } as never,
-      ],
-      {},
-      BASE,
-      NOW,
-    );
-    const html = renderCockpitHtml(m);
-    expect(html).toContain("Acme Co");
-    expect(html).toContain('data-approve-url="/api/reports/r1/approve"');
-    expect(html).toContain('class="approve"');
-    expect(html).toMatch(/your daily yes|approve \(1\)/i);
+describe("needs-you feed", () => {
+  it("renders one Open-only row per pending approval and no Approve button", () => {
+    const sites = [siteRow({ id: "recSITE", name: "Acme" })];
+    // A pending-approval report for sites[0] — same fixture shape the verdict-bar
+    // test uses to populate model.pending (draftReady + !approvedToSend + !sentAt).
+    const reports = [
+      {
+        id: "r1",
+        siteId: "recSITE",
+        reportType: "Maintenance",
+        period: "2026-05",
+        periodStart: null,
+        periodEnd: null,
+        gaUsersCurrent: null,
+        gaUsersPrevious: null,
+        draftReady: true,
+        approvedToSend: false,
+        sentAt: null,
+        deliveryStatus: "pending",
+      } as never,
+    ];
+    const html = renderCockpitHtml(model(sites, reports));
+    expect(html).toContain('href="/s/acme"');
+    expect(html).toContain("Open ▸");
+    expect(html).toContain("Waiting on your yes");
+    expect(html).not.toContain("data-approve-url"); // approve action no longer on the home page
+    expect(html).not.toContain(">Approve<");
   });
 
-  it("renders no approve strip when nothing is pending", () => {
-    const html = renderCockpitHtml(model([siteRow()]));
-    // No rendered strip element (the .approve-strip CSS in STYLES is always present).
-    expect(html).not.toContain('<section class="approve-strip"');
+  it("omits the feed entirely when nothing needs the operator", () => {
+    const html = renderCockpitHtml(model([siteRow({ name: "Acme" })]));
+    expect(html).not.toContain("Needs you (");
   });
 });
 

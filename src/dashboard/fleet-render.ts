@@ -1,6 +1,13 @@
 import type { WebsiteRow } from "../reports/airtable/websites.js";
 import { siteSlug } from "../reports/airtable/websites.js";
-import type { CockpitModel, SiteCard, Tier, SubmissionEntry } from "./fleet-cockpit.js";
+import type {
+  CockpitModel,
+  SiteCard,
+  Tier,
+  SubmissionEntry,
+  NeedsYouItem,
+  NeedsYouGroup,
+} from "./fleet-cockpit.js";
 import { fleetLastAuditedAt, buildNeedsYouFeed } from "./fleet-cockpit.js";
 import { onboardingStatus, missingOnboarding } from "./onboarding.js";
 import { relativeTimeFromNow } from "./relative-time.js";
@@ -158,6 +165,19 @@ details.tier > summary { cursor:pointer; font-weight:700; font-size:1.05rem; pad
 .verdict.warn .verdict-meta { color:#b00; opacity:0.85; }
 @media (prefers-color-scheme: dark) { .verdict.ok { background:#10240f; color:#7fce85; } .verdict.warn { background:#2a0f0d; color:#ff8a80; } }
 .verdict .fleet-actions { margin:0.6rem 0 0; }
+.needs-you { border:1px solid #e5e5e5; border-radius:8px; padding:0.75rem 1rem; margin-bottom:1.25rem; }
+@media (prefers-color-scheme: dark) { .needs-you { border-color:#2a2a2a; background:#181818; } }
+.needs-you h2 { font-size:1.05rem; margin:0 0 0.5rem; }
+.feed-group-label { text-transform:uppercase; letter-spacing:0.04em; font-size:0.72rem; color:#999; margin:0.6rem 0 0.2rem; }
+.feed-row { display:flex; gap:0.5rem; align-items:center; padding:0.3rem 0; border-bottom:1px dashed #eee; }
+.feed-row:last-child { border-bottom:0; }
+@media (prefers-color-scheme: dark) { .feed-row { border-bottom-color:#262626; } }
+.feed-what { flex:1; }
+.feed-open { white-space:nowrap; }
+.dot { width:0.55rem; height:0.55rem; border-radius:50%; display:inline-block; flex:0 0 auto; }
+.dot.broken { background:#dc2626; }
+.dot.approval { background:#2563eb; }
+.dot.slipping { background:#f59e0b; }
 `;
 
 const TIER_META: Record<Tier, { emoji: string; label: string; open: boolean }> = {
@@ -219,24 +239,34 @@ function spamRollup(model: CockpitModel): string {
   return `<div class="spam-rollup muted">🛡 Spam (30d) — caught ${s.caught} · through ${s.through}</div>`;
 }
 
-function approveStrip(model: CockpitModel): string {
-  if (model.pending.length === 0) return "";
-  const rows = model.pending
-    .map((p) => {
-      const href = `/s/${escapeHtml(p.slug)}`;
-      const url = `/api/reports/${encodeURIComponent(p.reportId)}/approve`;
-      return `<div class="approve-row" data-signal="pending">
-        <strong>${escapeHtml(p.siteName)}</strong>
-        <span class="muted">${escapeHtml(p.reportType)} ${escapeHtml(p.period)}</span>
-        <button class="approve" data-report-id="${escapeHtml(p.reportId)}" data-approve-url="${escapeHtml(url)}">Approve</button>
-        <a href="${href}">open ▸</a>
-      </div>`;
+const NEEDS_YOU_GROUP_LABEL: Record<NeedsYouGroup, string> = {
+  broken: "Broken",
+  approval: "Waiting on your yes",
+  slipping: "Slipping",
+};
+
+/** The single per-site triage feed. Every row is navigation-only: one Open ▸ to the
+ *  site page (where approve / Trigger Renovate / checklist already live). */
+function renderNeedsYouFeed(feed: NeedsYouItem[]): string {
+  if (feed.length === 0) return "";
+  const groups: NeedsYouGroup[] = ["broken", "approval", "slipping"];
+  const blocks = groups
+    .map((g) => {
+      const rows = feed.filter((i) => i.group === g);
+      if (rows.length === 0) return "";
+      const lis = rows
+        .map(
+          (i) => `<div class="feed-row" data-group="${g}">
+          <span class="dot ${g}"></span>
+          <span class="feed-what"><strong>${escapeHtml(i.siteName)}</strong> — ${escapeHtml(i.reasons.join(" · "))}</span>
+          <a class="feed-open" href="${escapeHtml(i.url)}">Open ▸</a>
+        </div>`,
+        )
+        .join("");
+      return `<div class="feed-group"><div class="feed-group-label">${NEEDS_YOU_GROUP_LABEL[g]}</div>${lis}</div>`;
     })
     .join("");
-  return `<section class="approve-strip" data-tier="pending">
-    <h2>Approve (${model.pending.length}) — your daily yes</h2>
-    ${rows}
-  </section>`;
+  return `<section class="needs-you"><h2>Needs you (${feed.length})</h2>${blocks}</section>`;
 }
 
 /** Most submissions to render in the cockpit strip. The heading still shows the
@@ -355,15 +385,6 @@ const FILTER_SCRIPT = `<script>
         var sig = (c.getAttribute('data-signals')||'').split(' ');
         c.style.display = (f==='all' || sig.indexOf(f)!==-1) ? '' : 'none';
       });
-    });
-  });
-  // approve buttons: mirror the per-site dashboard's inline POST.
-  document.querySelectorAll('button.approve').forEach(function(b){
-    b.addEventListener('click', async function(){
-      b.disabled = true; b.textContent = 'Approving…';
-      try { var res = await fetch(b.dataset.approveUrl, { method: 'POST' });
-        b.textContent = res.ok ? 'Approved ✓' : 'Failed'; }
-      catch(e){ b.textContent = 'Failed'; b.disabled = false; }
     });
   });
   // trigger-renovate buttons: fire the on-demand dispatch (async, fire-and-forget).
@@ -497,8 +518,8 @@ const FILTER_SCRIPT = `<script>
  * Render the fleet cockpit as a single HTML document. Pure function: no Airtable
  * access, no env reads, no I/O. The Netlify function handler builds the
  * CockpitModel (visible-site filter, tiering, NEW/WORSE badging, pending list)
- * and hands it here. Renders the doc shell + summary bar + filter chips + pinned
- * approve strip + three <details> tier sections of cards.
+ * and hands it here. Renders the doc shell + verdict bar + the per-site Needs-you
+ * feed + three <details> tier sections of cards.
  */
 export function renderCockpitHtml(model: CockpitModel): string {
   const total = model.cards.length;
@@ -532,7 +553,7 @@ export function renderCockpitHtml(model: CockpitModel): string {
   <h1>Reddoor fleet cockpit</h1>
   <div class="meta">${total} site${total === 1 ? "" : "s"} on the Reddoor stack.</div>
   ${verdictBar(model, feed.length)}
-  ${approveStrip(model)}
+  ${renderNeedsYouFeed(feed)}
   ${sections}
   ${spamRollup(model)}
   ${submissionsStrip(model)}
