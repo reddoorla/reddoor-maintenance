@@ -1,5 +1,19 @@
 # @reddoorla/maintenance
 
+## 0.60.0
+
+### Minor Changes
+
+- 0680595: Dashboard: the "Refresh fleet state" button now follows its runs live. After
+  dispatch the cockpit polls the actual fleet-security + fleet-lighthouse runs
+  (per-workflow spinner → ✓/✗), auto-reloads onto fresh numbers when both succeed,
+  links the run on failure, and resumes the spinner across a manual reload.
+  Adds `GET /api/fleet/refresh/status`, a `listWorkflowRuns` REST method, and the
+  pure `summarizeFleetRunStatus`.
+- fa79c7d: feat(dashboard): add a "Refresh fleet state" button to the cockpit
+
+  A fleet-level action (`POST /api/fleet/refresh`) that dispatches the `fleet-security` and `fleet-lighthouse` GitHub Actions workflows on demand, so vulnerabilities, auto-check signals, Lighthouse scores, and GitHub signals refresh immediately instead of waiting for the nightly cron. Reuses the authed-write gate chain and the `fetch`-based `makeGitHubRest` client. Dispatches each workflow independently (partial success is reported), confirms before firing (the sweeps are heavy fleet-wide runs), and needs `RENOVATE_TOKEN` in the dashboard Netlify env (already set).
+
 ## 0.59.1
 
 ### Patch Changes
