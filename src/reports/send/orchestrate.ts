@@ -13,6 +13,7 @@ import { defaultResendClient, type ResendClient, type ResendSendInput } from "./
 import { isIdempotencyConflict } from "./idempotency.js";
 import { checklistFor, isChecklistComplete } from "../checklist.js";
 import { recordFleetEventsBestEffort } from "../../audits/fleet-events-writer.js";
+import { defaultReportSubject } from "../subject.js";
 
 const FROM_ADDRESS = "Reddoor Reports <reports@reddoorla.com>";
 const REPLY_TO = "info@reddoorla.com";
@@ -34,26 +35,6 @@ export function withGlobalCc(perSiteCc: string[] | null, to: string[]): string[]
   const present = new Set([...cc, ...to].map((a) => a.toLowerCase()));
   if (!present.has(GLOBAL_REPORT_CC.toLowerCase())) cc.push(GLOBAL_REPORT_CC);
   return cc;
-}
-
-const MONTHS = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
-];
-
-/** "May 2026" — UTC month/year, consistent with the rest of the reports pipeline's dates. */
-function monthYear(d: Date): string {
-  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
 /** Whole days spanned by an ISO period window, or undefined when either bound is missing or the
@@ -241,9 +222,14 @@ async function sendOne(
     ...(report.reportType === "Announcement" ? announcementSiteExtras(site) : {}),
   });
 
-  const reportDate = report.completedOn ? new Date(report.completedOn) : new Date();
   const subject =
-    report.subjectOverride ?? `${site.name} — ${monthYear(reportDate)} ${report.reportType} Report`;
+    report.subjectOverride ??
+    defaultReportSubject({
+      name: site.name,
+      url: site.url,
+      type: report.reportType,
+      date: report.completedOn ? new Date(report.completedOn) : new Date(),
+    });
 
   // Inline attachments: the per-site header (every template renders it) plus only the bundled
   // images the rendered HTML actually references. The green check (cid:rd-check-png) appears in
