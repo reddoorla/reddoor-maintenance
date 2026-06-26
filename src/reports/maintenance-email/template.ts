@@ -166,6 +166,7 @@ export function buildMjml(data: ReportData): string {
     ${analyticsSection({
       current: data.gaUsersCurrent,
       previous: data.gaUsersPrevious,
+      periodDays: data.gaPeriodDays,
       background: "white",
       footnoteLines: [escapeXml(copy.seoCta)],
     })}

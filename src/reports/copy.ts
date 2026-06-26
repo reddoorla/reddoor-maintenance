@@ -17,7 +17,11 @@ export type ResolvedCopy = {
   announceBody: string;
   announceImprovementResend: string;
   announceImprovementSvelte5: string;
+  /** The cadence lead-in, ending at the em dash. Rendered followed by `announceCadenceNote`
+   *  in italics. */
   announceCadence: string;
+  /** The reassurance tail, rendered italic after `announceCadence`. */
+  announceCadenceNote: string;
   announceOpenDoor: string;
 };
 
@@ -63,8 +67,8 @@ export const DEFAULT_COPY: ResolvedCopy = {
     "Your contact forms now deliver straight to your inbox through reliable infrastructure, so no inquiry slips through the cracks.",
   announceImprovementSvelte5:
     "We've modernized your site to the latest framework — it's faster, more secure, and built to last.",
-  announceCadence:
-    "After each one we'll send you a short report like this — there's nothing you need to do.",
+  announceCadence: "After each one we'll send you a short report like this —",
+  announceCadenceNote: "there's nothing you need to do.",
   announceOpenDoor:
     "And if you'd ever like to expand the scope, add features, or freshen anything up, just let us know.",
 };

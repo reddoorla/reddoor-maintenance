@@ -174,8 +174,10 @@ describe("recipes/announce", () => {
     if (!create || create.kind !== "create") throw new Error("expected a Reports create");
     const fields = create.records[0]!.fields;
     expect(fields["Report type"]).toBe("Announcement");
-    expect(typeof fields["Subject override"]).toBe("string");
-    expect((fields["Subject override"] as string).length).toBeGreaterThan(0);
+    // Subject: "report" (not "schedule"), and the full site name with its bare domain.
+    expect(fields["Subject override"]).toBe(
+      "Your testing & maintenance report for Acme Co (acme.example.com)",
+    );
     expect(fields["Lighthouse — Performance"]).toBe(87);
     expect(fields["Period"]).toBe(PERIOD);
 

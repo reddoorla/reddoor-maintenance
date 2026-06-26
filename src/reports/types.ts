@@ -46,6 +46,10 @@ export type ReportData = {
    *  `| undefined` is explicit so callers can pass `undefined` under exactOptionalPropertyTypes. */
   gaUsersCurrent?: number | undefined;
   gaUsersPrevious?: number | undefined;
+  /** Length in days of the GA "current" window (compared against the equal-length prior window).
+   *  Drives the analytics trend label ("vs the previous N days"); omitted → the generic
+   *  "last period". `| undefined` for exactOptionalPropertyTypes. */
+  gaPeriodDays?: number | undefined;
   /** Site's rounded average Google position for its query, when on page 1 (from Search Console).
    *  `undefined` = not on page 1, not checked, or unconfigured — rendered as today's plain check. */
   searchPosition?: number | undefined;

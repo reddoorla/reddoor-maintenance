@@ -30,6 +30,10 @@ export type AnnounceSiteResult =
 
 export type AnnounceResult = { results: AnnounceSiteResult[] };
 
+/** The traffic/search lookback window (days) the announcement reports on. The trend compares it
+ *  against the equal-length prior window, and the email labels it "vs the previous N days". */
+const GA_WINDOW_DAYS = 30;
+
 export type AnnounceDeps = {
   /** Airtable handle. Defaults to opening the live base from credentials. */
   base?: AirtableBase;
@@ -75,7 +79,7 @@ export async function announce(deps?: AnnounceDeps): Promise<AnnounceResult> {
       // soft-failing enrichment: GA/search unconfigured or an API error leaves the numbers
       // null and the email simply omits the traffic section — it never blocks the draft.
       const periodEnd = now;
-      const periodStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const periodStart = new Date(now.getTime() - GA_WINDOW_DAYS * 24 * 60 * 60 * 1000);
       const gaUsers = (await fetchGaUsers(w, periodStart, periodEnd)).value;
       const search = (await fetchSearch(w, periodStart, periodEnd)).value;
       const enrichment: ReportEnrichment = {
@@ -111,6 +115,7 @@ export async function announce(deps?: AnnounceDeps): Promise<AnnounceResult> {
         lighthouse: scores,
         gaUsersCurrent: gaUsers?.current,
         gaUsersPrevious: gaUsers?.previous,
+        gaPeriodDays: GA_WINDOW_DAYS,
         searchPosition: search?.foundOnPage1 ? (search.position ?? undefined) : undefined,
         lastTestedDate: null,
         commentary: null,
@@ -169,6 +174,18 @@ export async function announce(deps?: AnnounceDeps): Promise<AnnounceResult> {
   return { results };
 }
 
+/** The subject's site label: the site's display name plus its bare host, e.g.
+ *  "Acme Co (acme.com)". The `www.` prefix is stripped; an unparseable URL falls back
+ *  to the name alone so a bad row never breaks the subject. */
+function siteLabel(w: WebsiteRow): string {
+  try {
+    const host = new URL(w.url).hostname.replace(/^www\./, "");
+    return `${w.name} (${host})`;
+  } catch {
+    return w.name;
+  }
+}
+
 /** The four stored Lighthouse scores off a Websites row, or null if ANY is missing. */
 function scoresFromRow(w: WebsiteRow): LighthouseScores | null {
   if (w.pScore === null || w.rScore === null || w.bpScore === null || w.seoScore === null) {
@@ -202,7 +219,7 @@ function draftInputFor(
     completedOn: now,
     lighthouse: scores,
     lastTestedDate: null,
-    subjectOverride: `Your testing & maintenance schedule for ${w.name}`,
+    subjectOverride: `Your testing & maintenance report for ${siteLabel(w)}`,
     ...enrichment,
   };
 }

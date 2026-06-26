@@ -211,4 +211,34 @@ describe("buildAnnouncementMjml", () => {
     );
     expect(mjml).toContain("Custom line.");
   });
+
+  it("titles the contact block 'Questions, concerns or requests?' (no leading 'Any')", () => {
+    const mjml = buildAnnouncementMjml(baseData());
+    expect(mjml).toContain(">Questions, concerns or requests?</mj-text>");
+    expect(mjml).not.toContain("Any questions, concerns or requests?");
+  });
+
+  it("renders the first contact line in black and any following lines in muted grey", () => {
+    const mjml = buildAnnouncementMjml(baseData());
+    // First line: no color attribute → black. (DEFAULT_COPY.contact[0] = "Just hit reply.")
+    expect(mjml).toContain(
+      `<mj-text font-family="helvetica, sans-serif" font-size="24px" font-weight="300" line-height="30px">Just hit reply.</mj-text>`,
+    );
+    // Second line carries the grey color. (DEFAULT_COPY.contact[1], apostrophe escaped.)
+    expect(mjml).toContain(
+      `<mj-text color="#757575" font-family="helvetica, sans-serif" font-size="24px" font-weight="300" line-height="30px">We&#39;re here to help in any way we can.</mj-text>`,
+    );
+  });
+
+  it("renders the cadence reassurance tail in italics", () => {
+    const mjml = buildAnnouncementMjml(baseData({ cadence: BOTH_MONTHLY }));
+    expect(mjml).toContain("<em>there&#39;s nothing you need to do.</em>");
+  });
+
+  it("labels the analytics trend with the concrete window when gaPeriodDays is set", () => {
+    const mjml = buildAnnouncementMjml(
+      baseData({ gaUsersCurrent: 280, gaUsersPrevious: 275, gaPeriodDays: 30 }),
+    );
+    expect(mjml).toContain("▲ 2% vs the previous 30 days (275 → 280)");
+  });
 });

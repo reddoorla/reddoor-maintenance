@@ -518,6 +518,19 @@ describe("sendApprovedReports", () => {
     expect(captured[0]!.html).toContain("Page 1 Google Result (#4)");
   });
 
+  it("labels the analytics trend with the stored period window length on re-render", async () => {
+    vi.mocked(openBase).mockReturnValue(
+      makeFakeBase({
+        // Default fixture period is 2026-04-26 → 2026-05-26 = 30 days.
+        Reports: [reportRow({ "GA users (period)": 679, "GA users (prev period)": 549 })],
+        Websites: [siteRow()],
+      }),
+    );
+    const { client, captured } = captureClient();
+    await sendApprovedReports({ resend: client });
+    expect(captured[0]!.html).toContain("vs the previous 30 days");
+  });
+
   it("logs site-not-found failure when a report's siteId has no matching Website", async () => {
     vi.mocked(openBase).mockReturnValue(
       makeFakeBase({
