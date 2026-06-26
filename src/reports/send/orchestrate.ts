@@ -4,12 +4,12 @@ import { listWebsites, siteSlug, updateLaunched } from "../airtable/websites.js"
 import type { WebsiteRow } from "../airtable/websites.js";
 import type { ReportRow } from "../airtable/reports.js";
 import { fetchAttachmentBytes } from "../airtable/attachments.js";
-import { renderReportHtml } from "../render.js";
 import { resolveCopy } from "../copy.js";
 import { announcementSiteExtras } from "../announcement-email/template.js";
-import { loadBundledImages } from "../maintenance-email/assets/index.js";
+import { renderReportEmail } from "./render-email.js";
+import type { ReportData } from "../types.js";
 import { prepareHeaderImage } from "../maintenance-email/header-image.js";
-import { defaultResendClient, type ResendClient, type ResendSendInput } from "./resend.js";
+import { defaultResendClient, type ResendClient } from "./resend.js";
 import { isIdempotencyConflict } from "./idempotency.js";
 import { checklistFor, isChecklistComplete } from "../checklist.js";
 import { recordFleetEventsBestEffort } from "../../audits/fleet-events-writer.js";
@@ -36,26 +36,6 @@ export function withGlobalCc(perSiteCc: string[] | null, to: string[]): string[]
   return cc;
 }
 
-const MONTHS = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
-];
-
-/** "May 2026" — UTC month/year, consistent with the rest of the reports pipeline's dates. */
-function monthYear(d: Date): string {
-  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
-}
-
 /** Whole days spanned by an ISO period window, or undefined when either bound is missing or the
  *  span isn't positive. Drives the analytics trend's "vs the previous N days" label. */
 function windowDays(start: string | null, end: string | null): number | undefined {
@@ -63,24 +43,6 @@ function windowDays(start: string | null, end: string | null): number | undefine
   const ms = new Date(end).getTime() - new Date(start).getTime();
   if (!Number.isFinite(ms) || ms <= 0) return undefined;
   return Math.round(ms / (24 * 60 * 60 * 1000));
-}
-
-type InlineAttachment = NonNullable<ResendSendInput["attachments"]>[number];
-
-/** Build a Resend inline (CID-referenced) attachment from raw bytes — the header
- *  image and both bundled images share this exact shape. */
-function toInlineAttachment(a: {
-  bytes: Uint8Array;
-  filename: string;
-  contentType: string;
-  cid: string;
-}): InlineAttachment {
-  return {
-    filename: a.filename,
-    content: Buffer.from(a.bytes).toString("base64"),
-    contentType: a.contentType,
-    inlineContentId: a.cid,
-  };
 }
 
 export type OrchestrateOptions = {
@@ -207,17 +169,12 @@ async function sendOne(
   // Downscale the (often multi-MB / 2400px+) Airtable header to email display size, and get
   // back display dims + a placeholder color so the template can reserve the box.
   const header = await prepareHeaderImage(original.bytes);
-  const bundled = await loadBundledImages();
 
   const slug = siteSlug(site.name);
   const cidName = `${slug}-header`;
-  // GA window length (days) for the analytics trend's "vs the previous N days" label.
-  // Announcements report on a fixed 30-day window — the announce recipe collapses the stored
-  // period to `now`, so it can't be derived from the row; every other report derives it from
-  // the stored period window.
   const gaPeriodDays =
     report.reportType === "Announcement" ? 30 : windowDays(report.periodStart, report.periodEnd);
-  const { html } = await renderReportHtml({
+  const reportData: ReportData = {
     siteName: site.name,
     siteUrl: site.url,
     reportType: report.reportType,
@@ -236,43 +193,14 @@ async function sendOne(
     headerHeight: header.displayHeight,
     headerBgColor: header.placeholderColor,
     // Announcement-only: re-derive cadence + improvements from the site row so the SENT email
-    // keeps its cadence copy + improvement callouts. Without this the send-time re-render drops
-    // them entirely (they're not stored on the Reports row). Ignored by the other templates.
+    // keeps its cadence copy + improvement callouts (not stored on the Reports row).
     ...(report.reportType === "Announcement" ? announcementSiteExtras(site) : {}),
+  };
+  const { html, attachments, subject } = await renderReportEmail(reportData, {
+    header,
+    cidName,
+    subjectOverride: report.subjectOverride ?? undefined,
   });
-
-  const reportDate = report.completedOn ? new Date(report.completedOn) : new Date();
-  const subject =
-    report.subjectOverride ?? `${site.name} — ${monthYear(reportDate)} ${report.reportType} Report`;
-
-  // Inline attachments: the per-site header (every template renders it) plus only the bundled
-  // images the rendered HTML actually references. The green check (cid:rd-check-png) appears in
-  // every report's checklist/score rows EXCEPT Launch; the blurred-tests image
-  // (cid:rd-blurred-tests-jpg) appears ONLY in the Maintenance email. Attaching a bundled image
-  // the template doesn't reference leaves a dangling inline part that some mail clients surface as
-  // a stray downloadable attachment — so gate each on its cid actually appearing in `html`. This
-  // self-corrects if a template's image usage changes; there's no per-report-type list to keep in
-  // sync. Self-contained inline (no external CDN, no image-blocked broken icons in webmail).
-  const attachments: InlineAttachment[] = [
-    toInlineAttachment({
-      bytes: header.bytes,
-      filename: `${cidName}.jpg`,
-      contentType: header.contentType,
-      cid: cidName,
-    }),
-  ];
-  for (const img of [bundled.check, bundled.blurred]) {
-    if (html.includes(`cid:${img.cid}`)) {
-      attachments.push(
-        toInlineAttachment({
-          bytes: img.bytes,
-          filename: img.filename,
-          contentType: img.contentType,
-          cid: img.cid,
-        }),
-      );
-    }
-  }
 
   const payload: Parameters<ResendClient["send"]>[0] = {
     from: FROM_ADDRESS,

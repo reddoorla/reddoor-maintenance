@@ -347,6 +347,34 @@ cli
   );
 
 cli
+  .command(
+    "selftest <kind> [site]",
+    "Operator self-tests. kind=email: preview a report email for a site (or --all) to yourself.",
+  )
+  .option("--type <type>", "Report type: announcement (default) | maintenance | testing | launch")
+  .option("--to <addr>", "Recipient(s), comma-separated. Default: OPERATOR_EMAIL.")
+  .option("--all", "Send a preview for every maintenance site (to --to/operator).")
+  .option("--dry-run", "Render only; write reports/<slug>/selftest-<type>.html; do not send.")
+  .action(
+    async (
+      kind: string,
+      site: string | undefined,
+      opts: {
+        type?: string;
+        to?: string;
+        all?: boolean;
+        dryRun?: boolean;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/selftest.js")).runSelftestCommand(kind, site, opts),
+        opts,
+      ),
+  );
+
+cli
   .command("report [site]", "Draft or send maintenance/testing reports.")
   .option("--due", "Scan all Websites and draft overdue reports.")
   .option("--type <type>", "Single-site draft report type: Maintenance (default) or Testing.")
