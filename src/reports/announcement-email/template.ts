@@ -1,6 +1,6 @@
 import type { ReportData, ReportFrequency } from "../types.js";
 import type { WebsiteRow } from "../airtable/websites.js";
-import { DEFAULT_COPY } from "../copy.js";
+import { DEFAULT_COPY, type ResolvedCopy } from "../copy.js";
 import { escapeXml, headerImageTag, headerStyleBlock } from "../maintenance-email/template.js";
 import {
   checklistRowsSection,
@@ -27,9 +27,21 @@ function sectionLabel(text: string): string {
   return `<mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="0px">${escapeXml(text)}</mj-text>`;
 }
 
-/** A grey 16px body paragraph, matching the report's section intros. */
+/** A grey 16px body paragraph whose caller passes already-escaped HTML, so partial inline markup
+ *  (e.g. the cadence line's italic <em>…</em> tail) survives. */
+function bodyLineHtml(html: string, paddingTop = "8px"): string {
+  return `<mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="${paddingTop}">${html}</mj-text>`;
+}
+
+/** A grey 16px body paragraph, matching the report's section intros. Escapes `text`. */
 function bodyLine(text: string, paddingTop = "8px"): string {
-  return `<mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="${paddingTop}">${escapeXml(text)}</mj-text>`;
+  return bodyLineHtml(escapeXml(text), paddingTop);
+}
+
+/** The go-forward cadence sentence as HTML: the lead-in followed by its reassurance tail in
+ *  italics ("…short report like this — <em>there's nothing you need to do.</em>"). Both escaped. */
+function cadenceHtml(copy: ResolvedCopy): string {
+  return `${escapeXml(copy.announceCadence)} <em>${escapeXml(copy.announceCadenceNote)}</em>`;
 }
 
 /**
@@ -91,7 +103,7 @@ export function buildAnnouncementMjml(data: ReportData): string {
     <mj-section background-color="${maintBg}" padding-top="${SECTION_PAD}" padding-bottom="0px">
       <mj-column>
         ${sectionLabel("MAINTENANCE CHECKS")}
-        ${bodyLine(`${copy.maintenanceIntro} We do this ${FREQ_PHRASE[cad.maintenance]}.${cad.testing === "None" ? ` ${copy.announceCadence}` : ""}`)}
+        ${bodyLineHtml(`${escapeXml(`${copy.maintenanceIntro} We do this ${FREQ_PHRASE[cad.maintenance]}.`)}${cad.testing === "None" ? ` ${cadenceHtml(copy)}` : ""}`)}
       </mj-column>
     </mj-section>${checklistRowsSection(copy.maintenanceChecks, {
       background: maintBg,
@@ -107,7 +119,7 @@ export function buildAnnouncementMjml(data: ReportData): string {
     <mj-section background-color="${testBg}" padding-top="${SECTION_PAD}" padding-bottom="0px">
       <mj-column>
         ${sectionLabel("TESTING")}
-        ${bodyLine(`${copy.testingIntro} We run a full test ${FREQ_PHRASE[cad.testing]}. ${copy.announceCadence}`)}
+        ${bodyLineHtml(`${escapeXml(`${copy.testingIntro} We run a full test ${FREQ_PHRASE[cad.testing]}.`)} ${cadenceHtml(copy)}`)}
       </mj-column>
     </mj-section>${checklistRowsSection(copy.testingChecklist, {
       background: testBg,
@@ -119,6 +131,7 @@ export function buildAnnouncementMjml(data: ReportData): string {
   const analytics = analyticsSection({
     current: data.gaUsersCurrent,
     previous: data.gaUsersPrevious,
+    periodDays: data.gaPeriodDays,
     background: analyticsBg,
     pad: SECTION_PAD,
     bodyLines:
@@ -140,10 +153,12 @@ export function buildAnnouncementMjml(data: ReportData): string {
     </mj-section>`
     : "";
 
+  // First contact line ("Just hit reply.") stays black for emphasis; any following lines
+  // (e.g. "We're here to help in any way we can.") render in muted grey.
   const contactRows = copy.contact
     .map(
-      (line) => `
-      <mj-text font-family="helvetica, sans-serif" font-size="24px" font-weight="300" line-height="30px">${escapeXml(line)}</mj-text>`,
+      (line, i) => `
+      <mj-text ${i === 0 ? "" : `color="${GREY}" `}font-family="helvetica, sans-serif" font-size="24px" font-weight="300" line-height="30px">${escapeXml(line)}</mj-text>`,
     )
     .join("");
   const footerAddressRows = copy.footerAddress
@@ -181,7 +196,7 @@ export function buildAnnouncementMjml(data: ReportData): string {
     ${improvementsSection}
     <mj-section background-color="${contactBg}" padding-top="${SECTION_PAD}" padding-bottom="${SECTION_PAD}">
       <mj-column>
-        <mj-text color="${RED}" font-family="helvetica, sans-serif" font-size="24px" font-weight="700" padding-top="0px" line-height="36px">Any questions, concerns or requests?</mj-text>
+        <mj-text color="${RED}" font-family="helvetica, sans-serif" font-size="24px" font-weight="700" padding-top="0px" line-height="36px">Questions, concerns or requests?</mj-text>
         ${contactRows}
         <mj-divider border-width="1px" border-style="solid" border-color="#CCCCCC" padding="0" />
         <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" padding-top="24px" line-height="20px" font-style="italic">Copyright ${new Date().getUTCFullYear()} ${escapeXml(copy.footerOrg)}. All rights reserved.</mj-text>

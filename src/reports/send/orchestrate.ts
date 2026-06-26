@@ -56,6 +56,15 @@ function monthYear(d: Date): string {
   return `${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
+/** Whole days spanned by an ISO period window, or undefined when either bound is missing or the
+ *  span isn't positive. Drives the analytics trend's "vs the previous N days" label. */
+function windowDays(start: string | null, end: string | null): number | undefined {
+  if (!start || !end) return undefined;
+  const ms = new Date(end).getTime() - new Date(start).getTime();
+  if (!Number.isFinite(ms) || ms <= 0) return undefined;
+  return Math.round(ms / (24 * 60 * 60 * 1000));
+}
+
 type InlineAttachment = NonNullable<ResendSendInput["attachments"]>[number];
 
 /** Build a Resend inline (CID-referenced) attachment from raw bytes — the header
@@ -202,6 +211,12 @@ async function sendOne(
 
   const slug = siteSlug(site.name);
   const cidName = `${slug}-header`;
+  // GA window length (days) for the analytics trend's "vs the previous N days" label.
+  // Announcements report on a fixed 30-day window — the announce recipe collapses the stored
+  // period to `now`, so it can't be derived from the row; every other report derives it from
+  // the stored period window.
+  const gaPeriodDays =
+    report.reportType === "Announcement" ? 30 : windowDays(report.periodStart, report.periodEnd);
   const { html } = await renderReportHtml({
     siteName: site.name,
     siteUrl: site.url,
@@ -210,6 +225,7 @@ async function sendOne(
     lighthouse: report.lighthouse,
     gaUsersCurrent: report.gaUsersCurrent ?? undefined,
     gaUsersPrevious: report.gaUsersPrevious ?? undefined,
+    gaPeriodDays,
     searchPosition:
       report.searchFoundPage1 && report.searchPosition !== null ? report.searchPosition : undefined,
     lastTestedDate: report.lastTestedDate ? new Date(report.lastTestedDate) : null,

@@ -69,6 +69,11 @@ describe("lighthouseScoresSection", () => {
     const mjml = lighthouseScoresSection(lh);
     expect((mjml.match(/mj-divider/g) ?? []).length).toBe(3);
   });
+  it("links the footnote's 'Google's Lighthouse tool' to the Lighthouse docs", () => {
+    const mjml = lighthouseScoresSection(lh);
+    expect(mjml).toContain('href="https://developer.chrome.com/docs/lighthouse/overview"');
+    expect(mjml).toContain(">Google's Lighthouse tool</a>");
+  });
 });
 
 describe("analyticsTrendLine", () => {
@@ -86,6 +91,15 @@ describe("analyticsTrendLine", () => {
   });
   it("shows 'Last Period: 0' when both periods are zero", () => {
     expect(analyticsTrendLine(0, 0)).toContain("Last Period: 0");
+  });
+  it("labels the prior window concretely when periodDays is given", () => {
+    expect(analyticsTrendLine(679, 549, 30)).toContain("▲ 24% vs the previous 30 days (549 → 679)");
+    expect(analyticsTrendLine(400, 500, 30)).toContain("▼ 20% vs the previous 30 days (500 → 400)");
+    expect(analyticsTrendLine(500, 500, 30)).toContain("No change vs the previous 30 days (500)");
+  });
+  it("falls back to 'last period' when periodDays is absent or non-positive", () => {
+    expect(analyticsTrendLine(679, 549)).toContain("vs last period");
+    expect(analyticsTrendLine(679, 549, 0)).toContain("vs last period");
   });
 });
 
@@ -107,5 +121,14 @@ describe("analyticsSection", () => {
   it("renders an em dash for an unavailable user count", () => {
     const mjml = analyticsSection({ background: "white" });
     expect(mjml).toContain("— Users");
+  });
+  it("threads periodDays into the trend label", () => {
+    const mjml = analyticsSection({
+      current: 280,
+      previous: 275,
+      periodDays: 30,
+      background: "white",
+    });
+    expect(mjml).toContain("vs the previous 30 days");
   });
 });
