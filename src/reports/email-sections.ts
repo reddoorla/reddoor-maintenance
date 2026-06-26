@@ -144,10 +144,25 @@ function footnoteLine(text: string): string {
   return `<mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" padding-top="24px" padding-bottom="36px" line-height="20px">${text}</mj-text>`;
 }
 
+/** True when the analytics block has at least one real datum to show — a GA user count or a body
+ *  line (e.g. the announcement's page-1 search callout). The static SEO call-to-action footnote
+ *  alone does NOT qualify: a block with no data is hidden rather than rendered empty. PURE. */
+export function hasAnalyticsData(opts: {
+  current?: number | undefined;
+  bodyLines?: string[];
+}): boolean {
+  return opts.current !== undefined || (opts.bodyLines?.length ?? 0) > 0;
+}
+
 /**
  * The "ANALYTICS" block: a big red user count, the trend line, then any 16px `bodyLines`
  * (e.g. the announcement's Google-position line) and 12px muted `footnoteLines` (e.g. the
  * report's SEO call-to-action). Callers pass already-escaped line text. PURE.
+ *
+ * Returns "" when there's no data ({@link hasAnalyticsData} false) — an empty "— Users" block
+ * reads as broken, so the section (and its data-contextual SEO footnote) is omitted. When a body
+ * line exists but no GA count (a GA-less site still ranking on page 1), the user count + trend
+ * are suppressed and only the body shows under the label.
  */
 export function analyticsSection(opts: {
   current?: number | undefined;
@@ -159,17 +174,21 @@ export function analyticsSection(opts: {
   footnoteLines?: string[];
   pad?: string;
 }): string {
-  const users = opts.current !== undefined ? fmtUsers(opts.current) : "—";
+  if (!hasAnalyticsData(opts)) return "";
   const body = (opts.bodyLines ?? []).map((l) => trendLine(TREND_NEUTRAL, l)).join("\n        ");
   const footnotes = (opts.footnoteLines ?? []).map(footnoteLine).join("\n        ");
   const sectionPad = opts.pad ? ` padding-top="${opts.pad}" padding-bottom="${opts.pad}"` : "";
   const labelTop = opts.pad ?? "75px";
+  const usersBlock =
+    opts.current !== undefined
+      ? `
+        <mj-text color="${RED}" font-size="44px" font-weight="400">${fmtUsers(opts.current)} Users</mj-text>
+        ${analyticsTrendLine(opts.current, opts.previous, opts.periodDays)}`
+      : "";
   return `
     <mj-section background-color="${opts.background}"${sectionPad}>
       <mj-column>
-        <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="${labelTop}">ANALYTICS</mj-text>
-        <mj-text color="${RED}" font-size="44px" font-weight="400">${users} Users</mj-text>
-        ${analyticsTrendLine(opts.current, opts.previous, opts.periodDays)}
+        <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="${labelTop}">ANALYTICS</mj-text>${usersBlock}
         ${body}
         ${footnotes}
       </mj-column>
