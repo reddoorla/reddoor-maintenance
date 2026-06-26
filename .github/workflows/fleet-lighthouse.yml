@@ -52,6 +52,10 @@ jobs:
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          # netlify-deploy probes each site's latest production deploy via the Netlify
+          # API by site id. Without this the audit self-skips ("no NETLIFY_PAT") and
+          # never reds an unrelated site — so it degrades safely if the secret is absent.
+          NETLIFY_PAT: ${{ secrets.NETLIFY_PAT }}
         run: |
           set -o pipefail
           # Every deployed site reports `fail` (real-site scores trip the
@@ -60,12 +64,12 @@ jobs:
           # machine-readable `FLEET_WRITE_SUMMARY wrote=N failed=M total=T` line
           # (see formatFleetWriteSummary). This replaces the old "wrote ≥ 1"
           # heuristic, which went green even when 9 of 10 sites flaked.
-          # lighthouse + domain + browser are all checkout-free (deployed-URL only), so this one
-          # nightly pass also probes DNS/TLS and drives cross-engine/mobile/link checks per site —
-          # no extra clone.
+          # lighthouse + domain + browser + netlify-deploy are all checkout-free (deployed-URL /
+          # API only), so this one nightly pass also probes DNS/TLS, drives cross-engine/mobile/link
+          # checks, and records each site's latest production Netlify deploy state — no extra clone.
           node dist/cli/bin.js audit \
             --fleet airtable \
-            --only lighthouse,domain,browser \
+            --only lighthouse,domain,browser,netlify-deploy \
             --write-airtable \
             --concurrency 1 \
             --workdir /tmp/fleet-audit | tee /tmp/audit.out || true
