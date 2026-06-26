@@ -26,7 +26,7 @@ export type SelftestEmailDeps = {
   all?: boolean;
   /** Report type to preview. Default "Announcement". */
   type?: ReportType;
-  /** Raw `--to` (comma/space-separated). Default: OPERATOR_EMAIL → info@reddoorla.com. */
+  /** Raw `--to` (comma- or newline-separated). Default: OPERATOR_EMAIL → info@reddoorla.com. */
   to?: string;
   /** Render only; write reports/<slug>/selftest-<type>.html, never send. */
   dryRun?: boolean;
