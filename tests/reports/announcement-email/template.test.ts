@@ -78,7 +78,13 @@ describe("buildAnnouncementMjml", () => {
 
   it("gives every band symmetric 40px padding, including the shared Lighthouse + Analytics blocks", () => {
     const mjml = buildAnnouncementMjml(
-      baseData({ cadence: BOTH_MONTHLY, improvements: { resendForms: true } }),
+      baseData({
+        cadence: BOTH_MONTHLY,
+        improvements: { resendForms: true },
+        // GA present so the analytics band renders (it's hidden when there's no data).
+        gaUsersCurrent: 280,
+        gaUsersPrevious: 275,
+      }),
     );
     // The five symmetric bands — intro, lighthouse, analytics, improvements, contact — each carry
     // 40px top AND bottom. (If pad stopped reaching the shared Lighthouse/Analytics blocks this
@@ -127,6 +133,33 @@ describe("buildAnnouncementMjml", () => {
     const mjml = buildAnnouncementMjml(baseData({ gaUsersCurrent: 280 }));
     expect(mjml).toContain("280 Users");
     expect(mjml).not.toContain("Page 1 Google result");
+  });
+
+  it("hides the ANALYTICS block entirely when there's no GA traffic or search data", () => {
+    const mjml = buildAnnouncementMjml(baseData()); // no GA, no search
+    expect(mjml).not.toContain(">ANALYTICS</mj-text>");
+    expect(mjml).not.toContain("Users");
+  });
+
+  it("keeps band colors alternating when the analytics block is hidden (no abutting same color)", () => {
+    // No GA/search → analytics hidden. Lighthouse and the contact block sit on either side of the
+    // dropped band; they must not end up the same color (the hidden band must not consume a slot).
+    const mjml = buildAnnouncementMjml(baseData({ improvements: { resendForms: true } }));
+    expect(mjml).not.toContain(">ANALYTICS</mj-text>");
+    const lhIdx = mjml.indexOf("LIGHTHOUSE SCORES*");
+    const lhSection = mjml.lastIndexOf("<mj-section", lhIdx);
+    const imprIdx = mjml.indexOf("RECENT IMPROVEMENTS");
+    const imprSection = mjml.lastIndexOf("<mj-section", imprIdx);
+    const bg = (s: string): string => /background-color="([^"]+)"/.exec(s)?.[1] ?? "";
+    // Lighthouse then (analytics hidden) then Improvements — adjacent bands, opposite colors.
+    expect(bg(mjml.slice(lhSection, lhIdx))).not.toBe(bg(mjml.slice(imprSection, imprIdx)));
+  });
+
+  it("shows the ANALYTICS block with the search line even when GA is unavailable", () => {
+    const mjml = buildAnnouncementMjml(baseData({ searchPosition: 3 }));
+    expect(mjml).toContain(">ANALYTICS</mj-text>");
+    expect(mjml).toContain("Page 1 Google result (#3) for your brand search");
+    expect(mjml).not.toContain("Users"); // no user count without GA
   });
 
   it("bakes each pace's cadence into its block intro — no separate WHAT TO EXPECT section", () => {

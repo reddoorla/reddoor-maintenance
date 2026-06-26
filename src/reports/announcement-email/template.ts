@@ -6,6 +6,7 @@ import {
   checklistRowsSection,
   lighthouseScoresSection,
   analyticsSection,
+  hasAnalyticsData,
 } from "../email-sections.js";
 
 /** Frequency → client-facing phrase. "None" is never rendered (the line is omitted). */
@@ -80,6 +81,19 @@ export function buildAnnouncementMjml(data: ReportData): string {
   if (data.improvements?.svelte5) improvementItems.push(copy.announceImprovementSvelte5);
   const hasImpr = improvementItems.length > 0;
 
+  // ANALYTICS renders only with real data — a GA user count or a page-1 search callout (the latter
+  // keeps the block alive for a GA-less site that still ranks). Computed up here so the band
+  // counter below can SKIP its background slot when analytics is hidden; otherwise a consumed-but-
+  // invisible slot would push the next band to the wrong color and two same-color bands would abut.
+  const analyticsBodyLines =
+    data.searchPosition !== undefined
+      ? [`Page 1 Google result (#${data.searchPosition}) for your brand search`]
+      : [];
+  const hasAnalytics = hasAnalyticsData({
+    current: data.gaUsersCurrent,
+    bodyLines: analyticsBodyLines,
+  });
+
   // Alternating band backgrounds assigned in render order, so the white/#F4F4F4 pattern holds
   // no matter which optional sections (maintenance / testing / improvements) actually render —
   // a counter that only advances for bands that appear avoids two same-colored bands abutting.
@@ -90,7 +104,7 @@ export function buildAnnouncementMjml(data: ReportData): string {
   const maintBg = hasMaint ? nextBg() : "";
   const testBg = hasTesting ? nextBg() : "";
   const lighthouseBg = nextBg();
-  const analyticsBg = nextBg();
+  const analyticsBg = hasAnalytics ? nextBg() : "";
   const improvementsBg = hasImpr ? nextBg() : "";
   const contactBg = nextBg();
 
@@ -127,18 +141,18 @@ export function buildAnnouncementMjml(data: ReportData): string {
     })}`
       : "";
 
-  // ANALYTICS — the report's big user count + trend, plus the Google search-position line.
-  const analytics = analyticsSection({
-    current: data.gaUsersCurrent,
-    previous: data.gaUsersPrevious,
-    periodDays: data.gaPeriodDays,
-    background: analyticsBg,
-    pad: SECTION_PAD,
-    bodyLines:
-      data.searchPosition !== undefined
-        ? [`Page 1 Google result (#${data.searchPosition}) for your brand search`]
-        : [],
-  });
+  // ANALYTICS — the report's big user count + trend, plus the Google search-position line. Hidden
+  // entirely when there's no traffic or search data (hasAnalytics false), so it never shows empty.
+  const analytics = hasAnalytics
+    ? analyticsSection({
+        current: data.gaUsersCurrent,
+        previous: data.gaUsersPrevious,
+        periodDays: data.gaPeriodDays,
+        background: analyticsBg,
+        pad: SECTION_PAD,
+        bodyLines: analyticsBodyLines,
+      })
+    : "";
 
   // RECENT IMPROVEMENTS — the toggled callouts, closed by the open-door invitation. Omitted
   // entirely when there are no improvements (the open-door rides along with this block).

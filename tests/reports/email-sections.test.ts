@@ -4,6 +4,7 @@ import {
   lighthouseScoresSection,
   analyticsSection,
   analyticsTrendLine,
+  hasAnalyticsData,
   fmtUsers,
 } from "../../src/reports/email-sections.js";
 
@@ -76,6 +77,15 @@ describe("lighthouseScoresSection", () => {
   });
 });
 
+describe("hasAnalyticsData", () => {
+  it("is true with a user count (incl. a real 0) or a body line; false otherwise", () => {
+    expect(hasAnalyticsData({ current: 0 })).toBe(true);
+    expect(hasAnalyticsData({ bodyLines: ["x"] })).toBe(true);
+    expect(hasAnalyticsData({})).toBe(false);
+    expect(hasAnalyticsData({ bodyLines: [] })).toBe(false);
+  });
+});
+
 describe("analyticsTrendLine", () => {
   it("shows an up trend in green with the range", () => {
     expect(analyticsTrendLine(679, 549)).toContain("▲ 24% vs last period (549 → 679)");
@@ -118,9 +128,19 @@ describe("analyticsSection", () => {
     expect(mjml).toContain("Page 1 Google result (#3)");
     expect(mjml).toContain("See more data");
   });
-  it("renders an em dash for an unavailable user count", () => {
-    const mjml = analyticsSection({ background: "white" });
-    expect(mjml).toContain("— Users");
+  it("hides the block entirely when there's no data (no user count, no body lines)", () => {
+    expect(analyticsSection({ background: "white" })).toBe("");
+    // A lone SEO call-to-action footnote isn't data — still hidden.
+    expect(analyticsSection({ background: "white", footnoteLines: ["See more data"] })).toBe("");
+  });
+  it("renders without a user count when only a body line is present (GA-less, still ranks)", () => {
+    const mjml = analyticsSection({
+      background: "white",
+      bodyLines: ["Page 1 Google result (#3)"],
+    });
+    expect(mjml).toContain(">ANALYTICS</mj-text>");
+    expect(mjml).toContain("Page 1 Google result (#3)");
+    expect(mjml).not.toContain("Users"); // no "— Users" / "0 Users"
   });
   it("threads periodDays into the trend label", () => {
     const mjml = analyticsSection({

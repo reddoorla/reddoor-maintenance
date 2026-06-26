@@ -189,13 +189,14 @@ describe("renderReportHtml", () => {
       expect(html).toContain("New this period");
     });
 
-    it("renders an em dash and no trend when GA is unavailable (undefined)", async () => {
+    it("hides the analytics block entirely when GA is unavailable", async () => {
       const { html } = await renderReportHtml(
         baseData({ gaUsersCurrent: undefined, gaUsersPrevious: undefined }),
       );
-      expect(html).toContain("— Users");
-      expect(html).toContain("Last Period: —");
-      expect(html).not.toContain("vs last period");
+      // No empty "— Users" block; the section (and its SEO footnote) is omitted.
+      expect(html).not.toContain(">ANALYTICS</mj-text>");
+      expect(html).not.toContain("Users");
+      expect(html).not.toContain("Last Period");
     });
   });
 
