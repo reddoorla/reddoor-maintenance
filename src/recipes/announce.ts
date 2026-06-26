@@ -16,6 +16,7 @@ import { fetchGaUsers, fetchSearch } from "../reports/draft.js";
 import { announcementSiteExtras } from "../reports/announcement-email/template.js";
 import type { LighthouseScores } from "../reports/types.js";
 import { defaultReportSubject } from "../reports/subject.js";
+import { scoresFromRow } from "../reports/report-data.js";
 
 export type AnnounceSiteResult =
   | {
@@ -173,19 +174,6 @@ export async function announce(deps?: AnnounceDeps): Promise<AnnounceResult> {
   }
 
   return { results };
-}
-
-/** The four stored Lighthouse scores off a Websites row, or null if ANY is missing. */
-function scoresFromRow(w: WebsiteRow): LighthouseScores | null {
-  if (w.pScore === null || w.rScore === null || w.bpScore === null || w.seoScore === null) {
-    return null;
-  }
-  return {
-    performance: w.pScore,
-    accessibility: w.rScore,
-    bestPractices: w.bpScore,
-    seo: w.seoScore,
-  };
 }
 
 /** Build the Announcement `DraftInput`. Announcements have no period window and no prior
