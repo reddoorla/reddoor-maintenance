@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { securityAudit } from "../../src/audits/security.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
+import type { DependabotAlert } from "../../src/github/gh-rest.js";
 
 function fakeSpawn(
   byCmd: Record<string, { code: number; stdout: string; stderr?: string }>,
@@ -9,6 +10,18 @@ function fakeSpawn(
     const r = byCmd[cmd];
     if (!r) throw new Error(`ENOENT: ${cmd}`);
     return { code: r.code, stdout: r.stdout, stderr: r.stderr ?? "" };
+  };
+}
+
+/** An injectable Dependabot fetcher returning a fixed list (or throwing, to exercise fallback). */
+function fakeDependabot(alerts: DependabotAlert[] | Error): {
+  listAlerts: (repo: string) => Promise<DependabotAlert[]>;
+} {
+  return {
+    listAlerts: async () => {
+      if (alerts instanceof Error) throw alerts;
+      return alerts;
+    },
   };
 }
 
@@ -278,5 +291,184 @@ describe("audits/security", () => {
     const tmp = details.advisories.find((a) => a.module === "tmp");
     expect(tmp?.severity).toBe("low");
     expect(tmp?.title).toMatch(/tmp/);
+  });
+});
+
+describe("audits/security — Dependabot source (preferred when gitRepo + token)", () => {
+  const alerts: DependabotAlert[] = [
+    {
+      package: "shell-quote",
+      severity: "critical",
+      summary: "shell-quote escape bug",
+      cves: ["CVE-1"],
+      url: "https://x/1",
+      scope: "development",
+    },
+    {
+      package: "cookie",
+      severity: "low",
+      summary: "oob chars",
+      cves: [],
+      url: "https://x/2",
+      scope: "runtime",
+    },
+  ];
+
+  it("prefers Dependabot alerts over pnpm when site.gitRepo and a fetcher are present", async () => {
+    const result = await securityAudit({
+      site: { path: "/fake", gitRepo: "reddoorla/acme" },
+      dependabotDeps: fakeDependabot(alerts),
+      // pnpm/npm MUST NOT be consulted; an empty spawn map would throw ENOENT → "skip" if it were.
+      spawn: fakeSpawn({}),
+    });
+    // Pin the full summary so the total and the C/H/M/L band order/format can't silently drift.
+    expect(result.summary).toBe("Dependabot: 2 alert(s) (1C/0H/0M/1L)");
+    expect(result.status).toBe("fail"); // a critical is present
+    const details = result.details as {
+      counts: { critical: number; low: number };
+      advisories: unknown[];
+    };
+    expect(details.counts.critical).toBe(1);
+    expect(details.counts.low).toBe(1);
+    expect(details.advisories).toHaveLength(2);
+  });
+
+  it("maps GitHub 'medium' severity to 'moderate'", async () => {
+    const result = await securityAudit({
+      site: { path: "/fake", gitRepo: "reddoorla/acme" },
+      dependabotDeps: fakeDependabot([
+        {
+          package: "http-proxy-middleware",
+          severity: "medium",
+          summary: "host bypass",
+          cves: [],
+          url: null,
+          scope: "development",
+        },
+      ]),
+    });
+    const details = result.details as {
+      counts: { moderate: number };
+      advisories: Array<{ severity: string }>;
+    };
+    expect(details.counts.moderate).toBe(1);
+    expect(details.advisories[0]?.severity).toBe("moderate");
+    expect(result.status).toBe("warn");
+  });
+
+  it("tags each advisory with the dependency scope from the alert", async () => {
+    const result = await securityAudit({
+      site: { path: "/fake", gitRepo: "reddoorla/acme" },
+      dependabotDeps: fakeDependabot(alerts),
+    });
+    const details = result.details as {
+      advisories: Array<{ module: string; scope?: string }>;
+    };
+    expect(details.advisories.find((a) => a.module === "shell-quote")?.scope).toBe("development");
+    expect(details.advisories.find((a) => a.module === "cookie")?.scope).toBe("runtime");
+  });
+
+  it("returns pass with 'Dependabot: 0 alerts' when there are no open alerts", async () => {
+    const result = await securityAudit({
+      site: { path: "/fake", gitRepo: "reddoorla/acme" },
+      dependabotDeps: fakeDependabot([]),
+    });
+    expect(result.status).toBe("pass");
+    expect(result.summary).toBe("Dependabot: 0 alerts");
+  });
+
+  it("falls back to pnpm audit when the Dependabot fetch fails (e.g. 403/404/network)", async () => {
+    const result = await securityAudit({
+      site: { path: "/fake", gitRepo: "reddoorla/acme" },
+      dependabotDeps: fakeDependabot(new Error("GitHub GET dependabot/alerts failed (403)")),
+      spawn: fakeSpawn({
+        pnpm: {
+          code: 0,
+          stdout: JSON.stringify({
+            metadata: { vulnerabilities: { low: 0, moderate: 0, high: 0, critical: 0 } },
+          }),
+        },
+      }),
+    });
+    expect(result.status).toBe("pass");
+    expect(result.summary).toMatch(/^pnpm audit/);
+  });
+
+  it("uses pnpm audit (never the fetcher) when the site has no gitRepo", async () => {
+    let fetcherCalled = false;
+    const result = await securityAudit({
+      site: { path: "/fake" }, // no gitRepo
+      dependabotDeps: {
+        listAlerts: async () => {
+          fetcherCalled = true;
+          return [];
+        },
+      },
+      spawn: fakeSpawn({
+        pnpm: {
+          code: 1,
+          stdout: JSON.stringify({
+            metadata: { vulnerabilities: { low: 0, moderate: 0, high: 2, critical: 0 } },
+          }),
+        },
+      }),
+    });
+    expect(fetcherCalled).toBe(false);
+    expect(result.summary).toMatch(/^pnpm audit/);
+    expect(result.status).toBe("fail");
+  });
+
+  it("counts an unknown/absent severity as low (down-map, never inflate)", async () => {
+    const result = await securityAudit({
+      site: { path: "/fake", gitRepo: "reddoorla/acme" },
+      dependabotDeps: fakeDependabot([
+        {
+          package: "mystery",
+          severity: "",
+          summary: "no severity",
+          cves: [],
+          url: null,
+          scope: null,
+        },
+      ]),
+    });
+    const details = result.details as {
+      counts: { low: number; moderate: number };
+      advisories: Array<{ severity: string }>;
+    };
+    expect(details.counts.low).toBe(1);
+    expect(details.counts.moderate).toBe(0);
+    expect(details.advisories[0]?.severity).toBe("low");
+    expect(result.status).toBe("warn");
+  });
+
+  it("falls back to pnpm when gitRepo is set but no token is configured (default deps → null)", async () => {
+    // No dependabotDeps injected → securityAudit builds defaultDependabotDeps(), which returns null
+    // without GITHUB_TOKEN, so it must fall THROUGH to pnpm rather than throw or skip. Scrub the
+    // env so the path is exercised even if the dev/CI shell has a token set.
+    const savedGh = process.env.GITHUB_TOKEN;
+    const savedReno = process.env.RENOVATE_TOKEN;
+    delete process.env.GITHUB_TOKEN;
+    delete process.env.RENOVATE_TOKEN;
+    try {
+      const result = await securityAudit({
+        site: { path: "/fake", gitRepo: "reddoorla/acme" },
+        spawn: fakeSpawn({
+          pnpm: {
+            code: 0,
+            stdout: JSON.stringify({
+              metadata: { vulnerabilities: { low: 0, moderate: 0, high: 0, critical: 0 } },
+            }),
+          },
+        }),
+      });
+      expect(result.status).toBe("pass");
+      expect(result.summary).toMatch(/^pnpm audit/);
+    } finally {
+      if (savedGh === undefined) delete process.env.GITHUB_TOKEN;
+      else process.env.GITHUB_TOKEN = savedGh;
+      if (savedReno === undefined) delete process.env.RENOVATE_TOKEN;
+      else process.env.RENOVATE_TOKEN = savedReno;
+    }
   });
 });

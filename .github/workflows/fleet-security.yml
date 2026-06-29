@@ -1,10 +1,11 @@
 name: fleet-security
 
-# Nightly fleet-wide security audit (pnpm/npm audit) against each active site's repo, writing the
-# vuln counts + a freshness timestamp back to its Airtable row so the "Security Updates" checklist
-# box can auto-tick. UNLIKE fleet-lighthouse this is checkout-FUL — `pnpm audit` reads each repo's
-# committed lockfile, so every site is cloned (no install needed). Kept a SEPARATE job from
-# fleet-lighthouse precisely so the lighthouse/domain/browser sweep stays checkout-free.
+# Nightly fleet-wide security audit against each active site, writing the vuln counts + a freshness
+# timestamp back to its Airtable row so the "Security Updates" checklist box can auto-tick.
+# Repo-backed sites use GitHub Dependabot alerts (prod+dev); sites with no repo / no token fall back
+# to `pnpm/npm audit`. UNLIKE fleet-lighthouse this stays checkout-FUL — the `pnpm audit` fallback
+# reads each repo's committed lockfile, so every site is cloned (no install needed). Kept a SEPARATE
+# job from fleet-lighthouse precisely so the lighthouse/domain/browser sweep stays checkout-free.
 on:
   schedule:
     - cron: "0 6 * * *" # 06:00 UTC — before the 08:00 lighthouse sweep + 09:23 drafts
@@ -37,16 +38,24 @@ jobs:
       - run: pnpm build
 
       - name: Fleet security audit + Airtable write-back
-        # Clones ~10 fleet repos (unauthenticated https — the fleet is public; a private repo would
-        # fail its clone and be skipped+warned by prepareFleetSites, never fatal, box stays manual)
-        # + audits each committed lockfile (no install — pnpm/npm audit reads the lockfile). A
-        # failed/skipped audit writes NO counts + NO timestamp, so it can never tick the box.
+        # Repo-backed sites are audited from GitHub Dependabot alerts (ground truth: prod+dev,
+        # GitHub Advisory DB) via the REST API. Sites with no repo (or when the alerts API is
+        # unreachable/forbidden) fall back to `pnpm audit` against the committed lockfile — which is
+        # why every fleet repo is still cloned (unauthenticated https — the fleet is public; a
+        # private repo would fail its clone and be skipped+warned by prepareFleetSites, never fatal,
+        # box stays manual). A failed/skipped audit writes NO counts + NO timestamp, so it can never
+        # tick the box.
         timeout-minutes: 30
         env:
           AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          # Reads Dependabot alerts. The org RENOVATE PAT is reused as GITHUB_TOKEN (same as
+          # release.yml); it needs the "Dependabot alerts: read" permission on the fleet repos.
+          # WITHOUT that permission the alerts endpoint 403s and each repo-backed site GRACEFULLY
+          # falls back to `pnpm audit` (prior behavior) — a missing permission degrades, never breaks.
+          GITHUB_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
         run: |
           set -o pipefail
           # A site reporting vulns exits non-zero by design; key the gate on the machine-readable
