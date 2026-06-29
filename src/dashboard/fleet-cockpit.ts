@@ -140,7 +140,7 @@ export type SiteCard = {
   watchSignals: string[];
   /** Watch reasons the operator has accepted: suppressed from the band, shown as a
    *  muted chip. Populated whenever the underlying condition is currently active. */
-  acceptedReasons?: string[];
+  acceptedReasons: string[];
   /** Count of NEW submissions for this site (optional; populated by buildCockpitModel). */
   newSubmissions?: number;
 };

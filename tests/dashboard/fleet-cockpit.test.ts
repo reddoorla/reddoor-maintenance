@@ -426,6 +426,7 @@ function healthyCard(name: string, lastLighthouseAuditAt: string | null): SiteCa
     items: [],
     watchReasons: [],
     watchSignals: [],
+    acceptedReasons: [],
   };
 }
 
@@ -474,6 +475,7 @@ function attnCard(name: string, items: AttentionItem[]): SiteCard {
     items,
     watchReasons: [],
     watchSignals: [],
+    acceptedReasons: [],
   };
 }
 function watchCard(name: string, reasons: string[]): SiteCard {
@@ -483,6 +485,7 @@ function watchCard(name: string, reasons: string[]): SiteCard {
     items: [],
     watchReasons: reasons,
     watchSignals: ["lighthouse"],
+    acceptedReasons: [],
   };
 }
 function vuln(
