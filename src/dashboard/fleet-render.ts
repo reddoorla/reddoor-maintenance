@@ -78,7 +78,11 @@ details.fleet-browse > summary, details.inbox > summary { cursor:pointer; font-w
 .verdict.ok .verdict-meta { color:#2e7d32; }
 .verdict.warn { background:#fdecea; color:#b00; }
 .verdict.warn .verdict-meta { color:#b00; opacity:0.85; }
-@media (prefers-color-scheme: dark) { .verdict.ok { background:#10240f; color:#7fce85; } .verdict.warn { background:#2a0f0d; color:#ff8a80; } }
+.verdict.watch { background:#fff4e5; color:#a65a00; }
+.verdict.watch .verdict-meta { color:#a65a00; opacity:0.85; }
+.verdict.soft { background:#e7f1ff; color:#1c5d99; }
+.verdict.soft .verdict-meta { color:#1c5d99; opacity:0.85; }
+@media (prefers-color-scheme: dark) { .verdict.ok { background:#10240f; color:#7fce85; } .verdict.warn { background:#2a0f0d; color:#ff8a80; } .verdict.watch { background:#2a2410; color:#ffd454; } .verdict.soft { background:#0f1d2a; color:#7fb6e8; } }
 .verdict .fleet-actions { margin:0.6rem 0 0; }
 .needs-you { border:1px solid #e5e5e5; border-radius:8px; padding:0.75rem 1rem; margin-bottom:1.25rem; }
 @media (prefers-color-scheme: dark) { .needs-you { border-color:#2a2a2a; background:#181818; } }
@@ -95,32 +99,71 @@ details.fleet-browse > summary, details.inbox > summary { cursor:pointer; font-w
 .dot.watch { background:#f59e0b; }
 `;
 
-/** The glance verdict: "✓ All clear", or "⚠ N sites need you". N is the per-site
- *  Needs-you feed length (NOT submissions). Houses the ↻ Audit button + live panel. */
-function verdictBar(model: CockpitModel, feedCount: number): string {
+/** Per-band site counts for the verdict, derived from the Needs-you feed. PURE. */
+function needsYouCounts(feed: NeedsYouItem[]): {
+  broken: number;
+  watch: number;
+  approval: number;
+} {
+  let broken = 0;
+  let watch = 0;
+  let approval = 0;
+  for (const i of feed) {
+    if (i.group === "broken") broken++;
+    else if (i.group === "watch") watch++;
+    else approval++;
+  }
+  return { broken, watch, approval };
+}
+
+/** The glance verdict — worst band wins. Green "✓ All clear" on an empty feed; else
+ *  red (any broken), amber (watch, nothing broken), or blue (only approvals). Every
+ *  lower band's count + the healthy count ride in the meta line (zero terms omitted),
+ *  followed by the audit-recency suffix. Houses the ↻ Audit button + live panel. */
+function verdictBar(model: CockpitModel, feed: NeedsYouItem[]): string {
   const auditedIso = fleetLastAuditedAt(model.cards);
-  const audited = auditedIso
-    ? ` · fleet last audited ${escapeHtml(relativeTimeFromNow(auditedIso))}`
-    : "";
-  const sites = model.cards.length;
-  const sitesWord = `${sites} site${sites === 1 ? "" : "s"}`;
+  const auditedTerm = auditedIso
+    ? `fleet last audited ${escapeHtml(relativeTimeFromNow(auditedIso))}`
+    : null;
+  const total = model.cards.length;
+  const { broken, watch, approval } = needsYouCounts(feed);
+  const healthy = total - (broken + watch + approval);
   const actions = `<div class="fleet-actions">
       <button type="button" class="refresh-fleet" data-refresh-url="/api/fleet/refresh">↻ Audit fleet</button>
       <div id="rf-status" class="rf-status" aria-live="polite"></div>
     </div>`;
-  if (feedCount === 0) {
-    return `<div class="verdict ok">
-      <div class="verdict-line">✓ All clear</div>
-      <div class="verdict-meta">${sitesWord} healthy${audited}</div>
-      ${actions}
-    </div>`;
-  }
-  const noun = feedCount === 1 ? "site needs" : "sites need";
-  return `<div class="verdict warn">
-    <div class="verdict-line">⚠ ${feedCount} ${noun} you</div>
-    <div class="verdict-meta">${sitesWord}${audited}</div>
+  const render = (cls: string, line: string, terms: Array<string | null>): string =>
+    `<div class="verdict ${cls}">
+    <div class="verdict-line">${line}</div>
+    <div class="verdict-meta">${terms.filter(Boolean).join(" · ")}</div>
     ${actions}
   </div>`;
+
+  if (broken === 0 && watch === 0 && approval === 0) {
+    const sitesWord = `${total} site${total === 1 ? "" : "s"}`;
+    return render("ok", "✓ All clear", [`${sitesWord} healthy`, auditedTerm]);
+  }
+
+  const watchTerm = watch > 0 ? `${watch} watching` : null;
+  const approvalTerm = approval > 0 ? `${approval} waiting on you` : null;
+  const healthyTerm = healthy > 0 ? `${healthy} healthy` : null;
+
+  if (broken > 0) {
+    return render("warn", `⚠ ${broken} site${broken === 1 ? "" : "s"} broken`, [
+      watchTerm,
+      approvalTerm,
+      healthyTerm,
+      auditedTerm,
+    ]);
+  }
+  if (watch > 0) {
+    return render("watch", `${watch} site${watch === 1 ? "" : "s"} to watch`, [
+      approvalTerm,
+      healthyTerm,
+      auditedTerm,
+    ]);
+  }
+  return render("soft", `${approval} waiting on you`, [healthyTerm, auditedTerm]);
 }
 
 const NEEDS_YOU_GROUP_LABEL: Record<NeedsYouGroup, string> = {
@@ -378,7 +421,7 @@ export function renderCockpitHtml(model: CockpitModel): string {
 <body>
   <h1>Reddoor fleet cockpit</h1>
   <div class="meta">${total} site${total === 1 ? "" : "s"} on the Reddoor stack.</div>
-  ${verdictBar(model, feed.length)}
+  ${verdictBar(model, feed)}
   ${renderNeedsYouFeed(feed)}
   ${renderFleetBrowsePanel(model)}
   ${renderRecentlyLane(model)}

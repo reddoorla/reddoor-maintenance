@@ -266,10 +266,7 @@ describe("verdict bar", () => {
     expect(html).not.toContain("needs attention</span>"); // old summary tally gone
   });
 
-  it("shows the per-site need count when something is wrong", () => {
-    // A single pending-approval report deterministically yields ONE Needs-you feed
-    // item (avoids coupling to the vuln auto-fix-exhausted plumbing). Mirrors the
-    // pending ReportRow the needs-you feed test builds below.
+  it("shows the blue waiting state when only an approval is pending", () => {
     const m = buildCockpitModel(
       [siteRow({ id: "recSITE", name: "Acme" })],
       [
@@ -293,16 +290,17 @@ describe("verdict bar", () => {
       NOW,
     );
     const html = renderCockpitHtml(m);
-    expect(html).toMatch(/⚠ 1 site needs you/);
+    expect(html).toContain('class="verdict soft"');
+    expect(html).toContain("1 waiting on you");
     expect(html).not.toContain("✓ All clear");
   });
 });
 
 describe("renderCockpitHtml — verdict bar (replaces the summary tally)", () => {
-  it("sums the per-site Needs-you count across slipping + approval sites", () => {
-    // Mid (watch-band Lighthouse → slipping) + Acme (pending approval) each land on
-    // the feed; Good is healthy → 2 sites need the operator. (A non-exhausted vuln is
-    // gated off the feed, so the count is feed-driven, not tier-driven.)
+  it("shows the amber watch headline when a watch site outranks a pending approval", () => {
+    // Mid (watch-band Lighthouse → watch) + Acme (pending approval → blue) + Good
+    // (healthy). Worst band is watch → amber headline; the approval + healthy counts
+    // ride in the meta line.
     const m = buildCockpitModel(
       [
         siteRow({ id: "w", name: "Mid", pScore: 80 }),
@@ -330,7 +328,10 @@ describe("renderCockpitHtml — verdict bar (replaces the summary tally)", () =>
       NOW,
     );
     const html = renderCockpitHtml(m);
-    expect(html).toMatch(/⚠ 2 sites need you/);
+    expect(html).toContain('class="verdict watch"');
+    expect(html).toContain("1 site to watch");
+    expect(html).toContain("1 waiting on you");
+    expect(html).toContain("1 healthy");
     expect(html).not.toContain("✓ All clear");
   });
 
@@ -594,11 +595,17 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
     expect(html).toContain("✓ All clear");
   });
 
-  it("renders the warn verdict when a site is on the Needs-you feed", () => {
-    // A watch-band Lighthouse site (slipping) is a deterministic feed item — the
-    // verdict tracks the feed, so warn shows.
+  it("renders the amber watch verdict when a watch-band site is the worst", () => {
     const html = renderCockpitHtml(model([siteRow({ id: "w", name: "Mid", pScore: 80 })]));
+    expect(html).toContain('class="verdict watch"');
+    expect(html).toContain("1 site to watch");
+    expect(html).not.toContain("✓ All clear");
+  });
+
+  it("renders the red broken verdict for a sub-floor Lighthouse site", () => {
+    const html = renderCockpitHtml(model([siteRow({ id: "b", name: "Down", pScore: 40 })]));
     expect(html).toContain('class="verdict warn"');
+    expect(html).toMatch(/⚠ 1 site broken/);
     expect(html).not.toContain("✓ All clear");
   });
 
