@@ -461,16 +461,25 @@ describe("buildNeedsYouFeed", () => {
     });
     expect(feed[0]!.reasons).toEqual(["CI red", "reports failing to send"]);
   });
-  it("excludes a vuln until auto-fix is exhausted", () => {
+  it("routes a self-patching vuln to watch and an exhausted vuln to broken", () => {
     const inflight = buildNeedsYouFeed(
       feedModel({ cards: [attnCard("Acme", [vuln("Acme", { exhausted: false })])] }),
     );
-    expect(inflight).toEqual([]);
+    expect(inflight).toHaveLength(1);
+    expect(inflight[0]!.group).toBe("watch");
     const stuck = buildNeedsYouFeed(
       feedModel({ cards: [attnCard("Acme", [vuln("Acme", { exhausted: true })])] }),
     );
     expect(stuck).toHaveLength(1);
     expect(stuck[0]!.group).toBe("broken");
+  });
+  it("keeps a hard-broken site broken and omits its self-patching vuln from the reasons", () => {
+    const feed = buildNeedsYouFeed(
+      feedModel({ cards: [attnCard("Acme", [ci("Acme"), vuln("Acme", { exhausted: false })])] }),
+    );
+    expect(feed).toHaveLength(1);
+    expect(feed[0]!.group).toBe("broken");
+    expect(feed[0]!.reasons).toEqual(["CI red"]);
   });
   it("merges a broken site's pending report into the same broken row", () => {
     const feed = buildNeedsYouFeed(
@@ -483,12 +492,12 @@ describe("buildNeedsYouFeed", () => {
     expect(feed[0]!.group).toBe("broken");
     expect(feed[0]!.reasons).toEqual(["CI red", "Maintenance 2026-Q2 ready"]);
   });
-  it("a watch site with a pending report collapses to one approval row", () => {
+  it("a watch site with a pending report collapses to one watch row (worst band wins)", () => {
     const feed = buildNeedsYouFeed(
       feedModel({ cards: [watchCard("Delta", ["Performance 70"])], pending: [pending("Delta")] }),
     );
     expect(feed).toHaveLength(1);
-    expect(feed[0]!.group).toBe("approval");
+    expect(feed[0]!.group).toBe("watch");
     expect(feed[0]!.reasons).toEqual(["Performance 70", "Maintenance 2026-Q2 ready"]);
   });
   it("surfaces an approval on an otherwise-healthy site", () => {
@@ -497,13 +506,13 @@ describe("buildNeedsYouFeed", () => {
     expect(feed[0]).toMatchObject({ group: "approval", siteName: "Beta" });
     expect(feed[0]!.reasons).toEqual(["Maintenance 2026-Q2 ready"]);
   });
-  it("surfaces a watch site as slipping", () => {
+  it("surfaces a watch-tier site as watch", () => {
     const feed = buildNeedsYouFeed(feedModel({ cards: [watchCard("Gamma", ["Performance 68"])] }));
     expect(feed).toHaveLength(1);
-    expect(feed[0]).toMatchObject({ group: "slipping", siteName: "Gamma" });
+    expect(feed[0]).toMatchObject({ group: "watch", siteName: "Gamma" });
     expect(feed[0]!.reasons).toEqual(["Performance 68"]);
   });
-  it("orders broken → approval → slipping, critical-first within broken, then by name", () => {
+  it("orders broken → watch → approval, critical-first within broken, then by name", () => {
     const feed = buildNeedsYouFeed(
       feedModel({
         cards: [
@@ -514,7 +523,7 @@ describe("buildNeedsYouFeed", () => {
         pending: [pending("Yara")],
       }),
     );
-    expect(feed.map((f) => f.siteName)).toEqual(["Apex", "Delta", "Yara", "Zeta"]);
-    expect(feed.map((f) => f.group)).toEqual(["broken", "broken", "approval", "slipping"]);
+    expect(feed.map((f) => f.siteName)).toEqual(["Apex", "Delta", "Zeta", "Yara"]);
+    expect(feed.map((f) => f.group)).toEqual(["broken", "broken", "watch", "approval"]);
   });
 });
