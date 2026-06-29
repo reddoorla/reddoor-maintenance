@@ -32,7 +32,8 @@ const AUDIT_DESCRIPTIONS: Record<AuditName, string> = {
   deps: "Diff site package.json against the bundled baseline version map.",
   lighthouse: "Run @lhci/cli autorun using the canonical lighthouserc.",
   a11y: "Playwright + axe against the canonical a11y routes.",
-  security: "pnpm audit (falls back to npm audit), prod-deps by default.",
+  security:
+    "GitHub Dependabot alerts (prod+dev) for repo-backed sites; falls back to pnpm/npm audit (prod-deps) with no repo/token.",
   lint: "ESLint + Prettier using the canonical configs.",
   domain: "DNS resolve + TLS cert expiry against the deployed URL (checkout-free).",
   browser:

@@ -60,6 +60,9 @@ function securitySub(site: WebsiteRow): string | null {
 function advisoryRow(a: SecurityAdvisory): string {
   const sev = escapeHtml(a.severity);
   const module = escapeHtml(a.module);
+  // Build-time-only ("development") deps have a lower live-exploit surface for a static site;
+  // flag them so a dev-scoped critical reads differently than a runtime one. Fixed literal — safe.
+  const scope = a.scope === "development" ? ` <span class="muted">(dev)</span>` : "";
   const title = a.title ? ` — ${escapeHtml(a.title)}` : "";
   const cves =
     a.cves.length > 0 ? ` <span class="muted">(${escapeHtml(a.cves.join(", "))})</span>` : "";
@@ -68,7 +71,7 @@ function advisoryRow(a: SecurityAdvisory): string {
     : "";
   return `<li class="vuln-item">
     <span class="pill sev-${sev}">${sev}</span>
-    <strong>${module}</strong>${title}${cves}${link}
+    <strong>${module}</strong>${scope}${title}${cves}${link}
   </li>`;
 }
 

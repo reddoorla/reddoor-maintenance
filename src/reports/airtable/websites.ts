@@ -340,6 +340,10 @@ export type SecurityAdvisory = {
   title: string;
   cves: string[];
   url: string | null;
+  /** GitHub Dependabot dependency scope ("runtime" | "development"), when known. Lets the
+   *  dashboard flag build-time-only ("development") vulns. Omitted for advisories from the
+   *  lockfile `pnpm audit` fallback, which carries no per-package graph scope. */
+  scope?: "runtime" | "development";
 };
 export type DomainResult = { certDaysRemaining: number | null; checkedAt: string };
 export type NetlifyDeployResult = {
@@ -423,12 +427,17 @@ export function normalizeSecurityAdvisory(raw: unknown): SecurityAdvisory | null
   const cves = Array.isArray(e["cves"])
     ? (e["cves"] as unknown[]).filter((c): c is string => typeof c === "string")
     : [];
+  const scope =
+    e["scope"] === "runtime" || e["scope"] === "development"
+      ? (e["scope"] as "runtime" | "development")
+      : undefined;
   return {
     module,
     severity,
     title: typeof e["title"] === "string" ? (e["title"] as string) : "",
     cves,
     url: typeof e["url"] === "string" ? (e["url"] as string) : null,
+    ...(scope ? { scope } : {}),
   };
 }
 

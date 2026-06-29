@@ -123,4 +123,35 @@ describe("parseSecurityAdvisories", () => {
     );
     expect(out).toEqual([{ module: "ok", severity: "low", title: "", cves: [], url: null }]);
   });
+
+  it("preserves a runtime/development dependency scope, omits an absent or invalid one", () => {
+    const out = parseSecurityAdvisories(
+      JSON.stringify([
+        {
+          module: "shell-quote",
+          severity: "critical",
+          title: "x",
+          cves: [],
+          url: null,
+          scope: "development",
+        },
+        { module: "cookie", severity: "low", title: "y", cves: [], url: null, scope: "runtime" },
+        { module: "axios", severity: "high", title: "z", cves: [], url: null }, // no scope key
+        { module: "weird", severity: "low", title: "w", cves: [], url: null, scope: "garbage" }, // invalid → omitted
+      ]),
+    );
+    expect(out).toEqual([
+      {
+        module: "shell-quote",
+        severity: "critical",
+        title: "x",
+        cves: [],
+        url: null,
+        scope: "development",
+      },
+      { module: "cookie", severity: "low", title: "y", cves: [], url: null, scope: "runtime" },
+      { module: "axios", severity: "high", title: "z", cves: [], url: null },
+      { module: "weird", severity: "low", title: "w", cves: [], url: null },
+    ]);
+  });
 });

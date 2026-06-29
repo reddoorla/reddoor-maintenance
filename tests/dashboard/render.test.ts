@@ -197,6 +197,42 @@ describe("renderSiteDashboardHtml — vulnerabilities section", () => {
     expect(html.indexOf("esbuild")).toBeLessThan(html.indexOf("axios"));
   });
 
+  it("flags a development-scoped advisory as (dev); leaves runtime/unknown unmarked", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow({
+        securityAdvisories: [
+          {
+            module: "shell-quote",
+            severity: "critical",
+            title: "escape bug",
+            cves: [],
+            url: null,
+            scope: "development",
+          },
+          {
+            module: "cookie",
+            severity: "low",
+            title: "oob",
+            cves: [],
+            url: null,
+            scope: "runtime",
+          },
+        ],
+      }),
+      [],
+    );
+    // Assert the (dev) marker lands on the development-scoped row specifically — not just that it
+    // appears somewhere — so a scope-inversion bug (tagging the runtime row) would be caught.
+    const items = html
+      .split('<li class="vuln-item">')
+      .slice(1)
+      .map((s) => s.split("</li>")[0]!);
+    const devItem = items.find((s) => s.includes("shell-quote"))!;
+    const runtimeItem = items.find((s) => s.includes("cookie"))!;
+    expect(devItem).toContain("(dev)");
+    expect(runtimeItem).not.toContain("(dev)");
+  });
+
   it("omits the section when the site was never audited (null)", () => {
     const html = renderSiteDashboardHtml(siteRow({ securityAdvisories: null }), []);
     expect(html).not.toContain("Vulnerabilities (");
