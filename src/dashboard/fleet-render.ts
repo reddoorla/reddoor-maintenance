@@ -70,6 +70,8 @@ details.fleet-browse > summary, details.inbox > summary { cursor:pointer; font-w
 @media (prefers-color-scheme: dark) { .chip { background:#222; } }
 .chip.critical { background:#fdecea; color:#b00; }
 .chip.stuck { border:1px solid #b00; font-weight:600; }
+.chip.accepted { background:transparent; border:1px dashed #bbb; color:#888; }
+@media (prefers-color-scheme: dark) { .chip.accepted { border-color:#444; color:#888; } }
 .badge { font-weight:700; color:#C00; font-size:0.72rem; margin-right:0.25rem; }
 .verdict { border-radius:8px; padding:0.9rem 1.1rem; margin-bottom:1.25rem; }
 .verdict .verdict-line { font-weight:800; font-size:1.4rem; }

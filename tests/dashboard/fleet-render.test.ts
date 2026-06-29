@@ -340,6 +340,30 @@ describe("renderCockpitHtml — verdict bar (replaces the summary tally)", () =>
     expect(html).toContain("↻ Audit fleet");
     expect(html).toContain('class="refresh-fleet"');
   });
+
+  it("an accepted Best-Practices watch leaves the band but shows a muted accepted chip", () => {
+    const html = renderCockpitHtml(
+      model([
+        siteRow({
+          id: "a",
+          name: "Accepted",
+          bpScore: 78,
+          acceptedWatchConditions: ["Best Practices"],
+        }),
+      ]),
+    );
+    // Accepted → the site is healthy → verdict stays All clear (out of the Watch band)…
+    expect(html).toContain('class="verdict ok"');
+    expect(html).toContain("✓ All clear");
+    // …but the condition is still on record as a muted chip.
+    expect(html).toContain('class="chip accepted">✓ accepted: Best Practices 78');
+  });
+
+  it("the same BP-78 site shows the amber watch verdict when NOT accepted", () => {
+    const html = renderCockpitHtml(model([siteRow({ id: "b", name: "Watched", bpScore: 78 })]));
+    expect(html).toContain('class="verdict watch"');
+    expect(html).not.toContain("chip accepted");
+  });
 });
 
 describe("needs-you feed", () => {

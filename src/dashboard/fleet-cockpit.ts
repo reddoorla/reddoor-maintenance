@@ -138,6 +138,9 @@ export type SiteCard = {
   watchReasons: string[];
   /** Structured watch tags ("lighthouse" / "stale") for the client filter. */
   watchSignals: string[];
+  /** Watch reasons the operator has accepted: suppressed from the band, shown as a
+   *  muted chip. Populated whenever the underlying condition is currently active. */
+  acceptedReasons?: string[];
   /** Count of NEW submissions for this site (optional; populated by buildCockpitModel). */
   newSubmissions?: number;
 };
@@ -370,13 +373,14 @@ export function buildCockpitModel(
     const items = (bySite.get(site.name) ?? []).sort(
       (a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity],
     );
-    const { tier, watchReasons, watchSignals } = assignTier(site, items, now);
+    const { tier, watchReasons, watchSignals, acceptedReasons } = assignTier(site, items, now);
     return {
       site,
       tier,
       items,
       watchReasons,
       watchSignals,
+      acceptedReasons,
       newSubmissions: subCountBySite.get(site.id) ?? 0,
     };
   });
