@@ -127,7 +127,9 @@ function verdictBar(model: CockpitModel, feed: NeedsYouItem[]): string {
     : null;
   const total = model.cards.length;
   const { broken, watch, approval } = needsYouCounts(feed);
-  const healthy = total - (broken + watch + approval);
+  // Clamp: feed counts include pending-report sites, which (rarely) may not be among
+  // the visible cards, so total − feed could otherwise underflow to a negative "healthy".
+  const healthy = Math.max(0, total - (broken + watch + approval));
   const actions = `<div class="fleet-actions">
       <button type="button" class="refresh-fleet" data-refresh-url="/api/fleet/refresh">↻ Audit fleet</button>
       <div id="rf-status" class="rf-status" aria-live="polite"></div>
@@ -144,6 +146,7 @@ function verdictBar(model: CockpitModel, feed: NeedsYouItem[]): string {
     return render("ok", "✓ All clear", [`${sitesWord} healthy`, auditedTerm]);
   }
 
+  // Count terms are integer-derived static English — no escaping needed (unlike auditedTerm).
   const watchTerm = watch > 0 ? `${watch} watching` : null;
   const approvalTerm = approval > 0 ? `${approval} waiting on you` : null;
   const healthyTerm = healthy > 0 ? `${healthy} healthy` : null;
