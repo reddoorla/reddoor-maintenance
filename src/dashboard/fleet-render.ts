@@ -119,7 +119,10 @@ function needsYouCounts(feed: NeedsYouItem[]): {
 /** The glance verdict — worst band wins. Green "✓ All clear" on an empty feed; else
  *  red (any broken), amber (watch, nothing broken), or blue (only approvals). Every
  *  lower band's count + the healthy count ride in the meta line (zero terms omitted),
- *  followed by the audit-recency suffix. Houses the ↻ Audit button + live panel. */
+ *  followed by the audit-recency suffix. Houses the ↻ Audit button + live panel.
+ *  CSS-class ↔ band map: ok=empty, warn=broken, watch=watch, soft=approval — `warn`
+ *  and `soft` are inherited from the prior binary verdict, so they differ from the
+ *  feed's `broken`/`approval` group names. */
 function verdictBar(model: CockpitModel, feed: NeedsYouItem[]): string {
   const auditedIso = fleetLastAuditedAt(model.cards);
   const auditedTerm = auditedIso

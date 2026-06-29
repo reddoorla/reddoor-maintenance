@@ -609,6 +609,30 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
     expect(html).not.toContain("✓ All clear");
   });
 
+  it("surfaces a self-patching vuln as the amber watch verdict (the blind spot this closes)", () => {
+    // A non-exhausted vuln (Renovate still auto-patching) must NOT read as "All clear":
+    // it lands in the amber watch band — not green, and not the red broken band either.
+    const html = renderCockpitHtml(
+      model([
+        siteRow({ id: "v", name: "Patch", securityVulnsHigh: 1, securityAutoFixAttempts: 1 }),
+      ]),
+    );
+    expect(html).toContain('class="verdict watch"');
+    expect(html).toContain("1 site to watch");
+    expect(html).not.toContain("✓ All clear");
+    expect(html).not.toContain('class="verdict warn"');
+  });
+
+  it("escalates an exhausted vuln to the red broken verdict", () => {
+    const html = renderCockpitHtml(
+      model([
+        siteRow({ id: "v", name: "Stuck", securityVulnsHigh: 1, securityAutoFixAttempts: 3 }),
+      ]),
+    );
+    expect(html).toContain('class="verdict warn"');
+    expect(html).toMatch(/⚠ 1 site broken/);
+  });
+
   it("the fleet-browse filter script has no pending/submissions branch (they moved off the cards)", () => {
     const html = renderCockpitHtml(model([siteRow()]));
     // pending lives on the Needs-you feed and submissions in the inbox lane — the
