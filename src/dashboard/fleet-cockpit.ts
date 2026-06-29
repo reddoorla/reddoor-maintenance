@@ -234,13 +234,12 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
       // A self-patching vuln (present but not yet exhausted) is amber WATCH — the fleet
       // is auto-patching it. Every other item, INCLUDING an exhausted vuln, is a hard
       // break. A site with any hard break is broken and its self-patching vulns are not
-      // separately listed (it is already red).
-      const hardBroken = card.items.filter(
-        (it) => !(it.kind === "vuln" && it.autoFixExhausted !== true),
-      );
-      const selfPatchingVulns = card.items.filter(
-        (it) => it.kind === "vuln" && it.autoFixExhausted !== true,
-      );
+      // separately listed (it is already red). Single-source the predicate so the two
+      // partitions can never drift out of lockstep.
+      const isSelfPatchingVuln = (it: AttentionItem): boolean =>
+        it.kind === "vuln" && it.autoFixExhausted !== true;
+      const hardBroken = card.items.filter((it) => !isSelfPatchingVuln(it));
+      const selfPatchingVulns = card.items.filter(isSelfPatchingVuln);
       if (hardBroken.length > 0) {
         const a = get(card.site.name);
         for (const it of hardBroken) {
