@@ -92,7 +92,7 @@ details.fleet-browse > summary, details.inbox > summary { cursor:pointer; font-w
 .dot { width:0.55rem; height:0.55rem; border-radius:50%; display:inline-block; flex:0 0 auto; }
 .dot.broken { background:#dc2626; }
 .dot.approval { background:#2563eb; }
-.dot.slipping { background:#f59e0b; }
+.dot.watch { background:#f59e0b; }
 `;
 
 /** The glance verdict: "✓ All clear", or "⚠ N sites need you". N is the per-site
@@ -125,15 +125,15 @@ function verdictBar(model: CockpitModel, feedCount: number): string {
 
 const NEEDS_YOU_GROUP_LABEL: Record<NeedsYouGroup, string> = {
   broken: "Broken",
+  watch: "Watch",
   approval: "Waiting on your yes",
-  slipping: "Slipping",
 };
 
 /** The single per-site triage feed. Every row is navigation-only: one Open ▸ to the
  *  site page (where approve / Trigger Renovate / checklist already live). */
 function renderNeedsYouFeed(feed: NeedsYouItem[]): string {
   if (feed.length === 0) return "";
-  const groups: NeedsYouGroup[] = ["broken", "approval", "slipping"];
+  const groups: NeedsYouGroup[] = ["broken", "watch", "approval"];
   const blocks = groups
     .map((g) => {
       const rows = feed.filter((i) => i.group === g);

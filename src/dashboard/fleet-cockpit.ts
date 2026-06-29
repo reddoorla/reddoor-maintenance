@@ -175,7 +175,7 @@ export type CockpitModel = {
   recent?: RecentEntry[];
 };
 
-export type NeedsYouGroup = "broken" | "approval" | "slipping";
+export type NeedsYouGroup = "broken" | "watch" | "approval";
 
 /** One row of the per-site "Needs you" feed: every reason a single site needs the
  *  operator, combined. The feed is navigation-only — the row links once to the page. */
@@ -191,14 +191,14 @@ export type NeedsYouItem = {
   url: string;
 };
 
-const NEEDS_YOU_GROUP_RANK: Record<NeedsYouGroup, number> = { broken: 0, approval: 1, slipping: 2 };
+const NEEDS_YOU_GROUP_RANK: Record<NeedsYouGroup, number> = { broken: 0, watch: 1, approval: 2 };
 
 /**
  * Collapse the cockpit model into a per-site "Needs you" feed — ONE row per site,
- * with every reason combined. PURE. A vuln counts as broken only once Renovate's
- * auto-fix is exhausted (`item.autoFixExhausted`); while the fleet is still retrying
- * it, the site stays off the feed and off the verdict. Order: broken → approval →
- * slipping; within broken, critical-first; then site name.
+ * with every reason combined. PURE. A non-exhausted vuln is amber `watch` (the fleet
+ * is auto-patching it); an exhausted vuln (`item.autoFixExhausted`) is a hard `broken`
+ * break, as is any non-vuln attention item. The whole watch tier folds into `watch`.
+ * Order: broken → watch → approval; within broken, critical-first; then site name.
  */
 export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
   type Acc = {
@@ -207,8 +207,8 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
     reasons: string[];
     hasCritical: boolean;
     broken: boolean;
+    watch: boolean;
     approval: boolean;
-    slipping: boolean;
   };
   const bySlug = new Map<string, Acc>();
   const get = (siteName: string): Acc => {
@@ -221,8 +221,8 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
         reasons: [],
         hasCritical: false,
         broken: false,
+        watch: false,
         approval: false,
-        slipping: false,
       };
       bySlug.set(slug, a);
     }
@@ -231,17 +231,32 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
 
   for (const card of model.cards) {
     if (card.tier === "attention") {
-      for (const item of card.items) {
-        if (item.kind === "vuln" && item.autoFixExhausted !== true) continue; // the gate
+      // A self-patching vuln (present but not yet exhausted) is amber WATCH — the fleet
+      // is auto-patching it. Every other item, INCLUDING an exhausted vuln, is a hard
+      // break. A site with any hard break is broken and its self-patching vulns are not
+      // separately listed (it is already red).
+      const hardBroken = card.items.filter(
+        (it) => !(it.kind === "vuln" && it.autoFixExhausted !== true),
+      );
+      const selfPatchingVulns = card.items.filter(
+        (it) => it.kind === "vuln" && it.autoFixExhausted !== true,
+      );
+      if (hardBroken.length > 0) {
         const a = get(card.site.name);
-        a.reasons.push(item.title);
+        for (const it of hardBroken) {
+          a.reasons.push(it.title);
+          if (it.severity === "critical") a.hasCritical = true;
+        }
         a.broken = true;
-        if (item.severity === "critical") a.hasCritical = true;
+      } else if (selfPatchingVulns.length > 0) {
+        const a = get(card.site.name);
+        for (const it of selfPatchingVulns) a.reasons.push(it.title);
+        a.watch = true;
       }
     } else if (card.tier === "watch" && card.watchReasons.length > 0) {
       const a = get(card.site.name);
       for (const r of card.watchReasons) a.reasons.push(r);
-      a.slipping = true;
+      a.watch = true;
     }
   }
 
@@ -254,7 +269,7 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
   const items: NeedsYouItem[] = [];
   for (const a of bySlug.values()) {
     if (a.reasons.length === 0) continue;
-    const group: NeedsYouGroup = a.broken ? "broken" : a.approval ? "approval" : "slipping";
+    const group: NeedsYouGroup = a.broken ? "broken" : a.watch ? "watch" : "approval";
     items.push({
       group,
       hasCritical: a.hasCritical,
