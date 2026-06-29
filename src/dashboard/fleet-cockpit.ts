@@ -84,7 +84,7 @@ export function assignTier(
 
   // Conditions the operator has reviewed and accepted (case-insensitive). An accepted
   // watch reason is routed to acceptedReasons instead of raising the watch band.
-  const accepted = new Set(site.acceptedWatchConditions.map((c) => c.toLowerCase()));
+  const accepted = new Set(site.acceptedWatchConditions.map((c) => c.trim().toLowerCase()));
   const watchReasons: string[] = [];
   const acceptedReasons: string[] = [];
   const signals = new Set<string>();
