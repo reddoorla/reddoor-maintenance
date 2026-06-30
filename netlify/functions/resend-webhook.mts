@@ -32,10 +32,12 @@ type ResendEvent = {
 // booting this handler.
 
 export default async (req: Request, _ctx: Context): Promise<Response> => {
-  // Health check — lets an operator curl the deployed URL right after
-  // wiring env vars and confirm (a) the function is reachable and (b) the
-  // three required env vars made it through. Reports presence-only, never
-  // values; operators may share this output in a support ticket.
+  // Health check — lets an operator curl the deployed URL right after wiring
+  // env vars and confirm (a) the function is reachable and (b) the deploy-wide
+  // env made it through. Netlify env vars are site-wide, so this also surfaces
+  // `TURSO_DATABASE_URL` — whose absence 500s the whole dashboard + forms
+  // surface (the #1 fresh-deploy failure), even though THIS function doesn't use
+  // it. Reports presence-only, never values; operators may share the output.
   if (req.method === "GET") {
     const body = {
       status: "ok",
@@ -44,6 +46,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
         RESEND_WEBHOOK_SECRET: typeof process.env.RESEND_WEBHOOK_SECRET === "string",
         AIRTABLE_PAT: typeof process.env.AIRTABLE_PAT === "string",
         AIRTABLE_BASE_ID: typeof process.env.AIRTABLE_BASE_ID === "string",
+        TURSO_DATABASE_URL: typeof process.env.TURSO_DATABASE_URL === "string",
       },
     };
     return new Response(JSON.stringify(body, null, 2), {

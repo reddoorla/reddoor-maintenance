@@ -103,6 +103,7 @@ describe("Resend webhook GET health check", () => {
     delete process.env.RESEND_WEBHOOK_SECRET;
     delete process.env.AIRTABLE_PAT;
     delete process.env.AIRTABLE_BASE_ID;
+    delete process.env.TURSO_DATABASE_URL;
   });
 
   afterEach(() => {
@@ -128,6 +129,7 @@ describe("Resend webhook GET health check", () => {
       RESEND_WEBHOOK_SECRET: false,
       AIRTABLE_PAT: false,
       AIRTABLE_BASE_ID: false,
+      TURSO_DATABASE_URL: false,
     });
   });
 
@@ -135,6 +137,7 @@ describe("Resend webhook GET health check", () => {
     process.env.RESEND_WEBHOOK_SECRET = "whsec_top_secret_should_not_leak";
     process.env.AIRTABLE_PAT = "pat_should_not_leak";
     process.env.AIRTABLE_BASE_ID = "appXXXXXXXXX";
+    process.env.TURSO_DATABASE_URL = "libsql://secret-db-should-not-leak.turso.io";
     // @ts-expect-error — Netlify Context is unused for GET
     const res = await resendWebhook(new Request("https://x/", { method: "GET" }), {});
     const raw = await res.text();
@@ -143,6 +146,7 @@ describe("Resend webhook GET health check", () => {
       RESEND_WEBHOOK_SECRET: true,
       AIRTABLE_PAT: true,
       AIRTABLE_BASE_ID: true,
+      TURSO_DATABASE_URL: true,
     });
     // Defense-in-depth: the body must never contain a secret value, even
     // accidentally via a typo on the key name. Operators may share the curl
@@ -150,6 +154,7 @@ describe("Resend webhook GET health check", () => {
     expect(raw).not.toContain("whsec_top_secret_should_not_leak");
     expect(raw).not.toContain("pat_should_not_leak");
     expect(raw).not.toContain("appXXXXXXXXX");
+    expect(raw).not.toContain("secret-db-should-not-leak");
   });
 
   it("ignores GET requests entirely if the method isn't GET (POST still uses the existing flow)", async () => {
