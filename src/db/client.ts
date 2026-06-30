@@ -1,12 +1,11 @@
-import { createClient, type Client, type Config as LibsqlConfig } from "@libsql/client";
-import { Kysely } from "kysely";
-import { LibsqlDialect } from "@libsql/kysely-libsql";
+import type { Client, Config as LibsqlConfig } from "@libsql/client";
+import type { Kysely as KyselyType } from "kysely";
 import { defaultCredentialsPath } from "../util/credentials.js";
 import type { Database } from "./schema.js";
 import { runMigrations } from "./migrate.js";
 
 export type DbConfig = { url: string; authToken?: string };
-export type Db = Kysely<Database>;
+export type Db = KyselyType<Database>;
 
 function missing(name: string): Error {
   return Object.assign(
@@ -58,6 +57,17 @@ function ensureMigrated(url: string, client: Client): Promise<void> {
  *  self-hosted sqld, a local file: url, and :memory: for tests — host portability is a
  *  connection-string swap. */
 export async function openDb(cfg: DbConfig): Promise<Db> {
+  // Lazy-load the libSQL/kysely stack: these live in devDependencies (consuming fleet
+  // sites do not install them), and tsup externalizes them, so a TOP-LEVEL import here
+  // would make every entry that transitively reaches this module — notably the `audit`
+  // CLI entry via fleet-events-writer — eager-require packages the consumer lacks
+  // (crashing `reddoor-maint audit` on fleet sites). Importing them only inside openDb
+  // keeps the module graph dependency-free until an actual DB connection is opened.
+  const [{ createClient }, { Kysely }, { LibsqlDialect }] = await Promise.all([
+    import("@libsql/client"),
+    import("kysely"),
+    import("@libsql/kysely-libsql"),
+  ]);
   const clientConfig: LibsqlConfig = cfg.authToken
     ? { url: cfg.url, authToken: cfg.authToken }
     : { url: cfg.url };
