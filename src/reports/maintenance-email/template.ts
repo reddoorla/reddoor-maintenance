@@ -176,11 +176,19 @@ export function buildMjml(data: ReportData): string {
       <mj-column padding-top="36px">
         <mj-text color="#C00" font-family="helvetica, sans-serif" font-size="24px" font-weight="700" padding-top="36px" line-height="36px">Any questions, concerns or requests?</mj-text>
         ${copy.contact
-          .map((line, i) =>
-            i === copy.contact.length - 1
-              ? `<mj-text font-family="helvetica, sans-serif" font-size="24px" font-weight="300" padding-top="0px" line-height="30px" padding-bottom="36px">${escapeXml(line)}</mj-text>`
-              : `<mj-text font-family="helvetica, sans-serif" font-size="24px" font-weight="300" line-height="30px">${escapeXml(line)}</mj-text>`,
-          )
+          .map((line, i) => {
+            // First line ("Just hit reply.") renders as a red bold heading, matching the
+            // "Any questions, concerns or requests?" title above it; the last line keeps
+            // its closing padding.
+            const isLast = i === copy.contact.length - 1;
+            const emphasis =
+              i === 0
+                ? `color="#C00" font-family="helvetica, sans-serif" font-size="24px" font-weight="700"`
+                : `font-family="helvetica, sans-serif" font-size="24px" font-weight="300"`;
+            return isLast
+              ? `<mj-text ${emphasis} padding-top="0px" line-height="30px" padding-bottom="36px">${escapeXml(line)}</mj-text>`
+              : `<mj-text ${emphasis} line-height="30px">${escapeXml(line)}</mj-text>`;
+          })
           .join("\n        ")}
         <mj-divider border-width="1px" border-style="solid" border-color="#CCCCCC" padding="0" />
         <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" padding-top="24px" line-height="20px" font-style="italic">Copyright ${new Date().getUTCFullYear()} ${escapeXml(copy.footerOrg)}. All rights reserved.</mj-text>

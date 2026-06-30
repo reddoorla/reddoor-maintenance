@@ -167,12 +167,16 @@ export function buildAnnouncementMjml(data: ReportData): string {
     </mj-section>`
     : "";
 
-  // First contact line ("Just hit reply.") stays black for emphasis; any following lines
-  // (e.g. "We're here to help in any way we can.") render in muted grey.
+  // First contact line ("Just hit reply.") renders as a red bold heading, matching the
+  // "Questions, concerns or requests?" title above it; any following lines (e.g. "We're
+  // here to help in any way we can.") render in muted grey.
   const contactRows = copy.contact
-    .map(
-      (line, i) => `
-      <mj-text ${i === 0 ? "" : `color="${GREY}" `}font-family="helvetica, sans-serif" font-size="24px" font-weight="300" line-height="30px">${escapeXml(line)}</mj-text>`,
+    .map((line, i) =>
+      i === 0
+        ? `
+      <mj-text color="${RED}" font-family="helvetica, sans-serif" font-size="24px" font-weight="700" line-height="30px">${escapeXml(line)}</mj-text>`
+        : `
+      <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="24px" font-weight="300" line-height="30px">${escapeXml(line)}</mj-text>`,
     )
     .join("");
   const footerAddressRows = copy.footerAddress

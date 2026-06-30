@@ -25,9 +25,14 @@ export function buildLaunchMjml(data: ReportData): string {
       <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px" padding-top="4px" padding-bottom="4px">• ${escapeXml(item)}</mj-text>`,
     )
     .join("");
+  // First contact line ("Just hit reply.") renders as a red bold heading, matching the
+  // "Any questions, concerns or requests?" title above it; following lines stay default.
   const contactRows = copy.contact
-    .map(
-      (line) => `
+    .map((line, i) =>
+      i === 0
+        ? `
+      <mj-text color="${RED}" font-family="helvetica, sans-serif" font-size="24px" font-weight="700" line-height="30px">${escapeXml(line)}</mj-text>`
+        : `
       <mj-text font-family="helvetica, sans-serif" font-size="24px" font-weight="300" line-height="30px">${escapeXml(line)}</mj-text>`,
     )
     .join("");

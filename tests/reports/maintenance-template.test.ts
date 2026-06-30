@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { fmtDate, buildMjml } from "../../src/reports/maintenance-email/template.js";
+import { DEFAULT_COPY } from "../../src/reports/copy.js";
 import type { ReportData } from "../../src/reports/types.js";
 
 function baseData(over: Partial<ReportData> = {}): ReportData {
@@ -44,5 +45,21 @@ describe("buildMjml commentary line breaks", () => {
   it("still renders plain LF (\\n) breaks", () => {
     const mjml = buildMjml(baseData({ commentary: "A\nB" }));
     expect(mjml).toContain("A<br/>B");
+  });
+});
+
+describe("buildMjml contact heading", () => {
+  it("renders the first contact line ('Just hit reply.') as a red bold heading", () => {
+    const mjml = buildMjml(baseData());
+    expect(mjml).toContain(
+      `<mj-text color="#C00" font-family="helvetica, sans-serif" font-size="24px" font-weight="700" line-height="30px">Just hit reply.</mj-text>`,
+    );
+  });
+
+  it("applies BOTH red heading and the closing padding when a single-line contact override is its own last line", () => {
+    const mjml = buildMjml(baseData({ copy: { ...DEFAULT_COPY, contact: ["Just hit reply."] } }));
+    expect(mjml).toContain(
+      `<mj-text color="#C00" font-family="helvetica, sans-serif" font-size="24px" font-weight="700" padding-top="0px" line-height="30px" padding-bottom="36px">Just hit reply.</mj-text>`,
+    );
   });
 });
