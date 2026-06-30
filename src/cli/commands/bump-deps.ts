@@ -3,6 +3,7 @@ import { bumpDeps, type BumpDepsGroup } from "../../recipes/bump-deps.js";
 import type { RecipeResult } from "../../types.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
 import { prepareFleetSites, appendSkipNotice, type SkippedSite } from "../fleet/prepare-sites.js";
+import { runRecipeOverSites } from "../fleet/run-recipe-over-sites.js";
 import { fleetWorkdir } from "../../util/fleet-workdir.js";
 
 const GROUPS: BumpDepsGroup[] = ["patch", "minor", "major"];
@@ -47,8 +48,7 @@ export async function runBumpDepsCommand(
     skipped = prep.skipped;
   }
 
-  const results: RecipeResult[] = [];
-  for (const s of sites) results.push(await bumpDeps(s, { group }));
+  const results = await runRecipeOverSites("bump-deps", sites, (s) => bumpDeps(s, { group }));
 
   const output = results.map(formatResult).join("\n");
   const code = results.some((r) => r.status === "failed") ? 1 : 0;
