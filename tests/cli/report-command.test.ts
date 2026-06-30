@@ -414,3 +414,37 @@ describe("draftDueReports period guard", () => {
     expect(res.code).toBe(0);
   });
 });
+
+describe("draftDueReports next-due write-back", () => {
+  beforeEach(() => {
+    vi.mocked(draftReportForSite).mockReset();
+    vi.mocked(listWebsites).mockReset();
+  });
+
+  it("writes each site's code-computed next-due dates, even on a run where nothing is due", async () => {
+    // Quarterly maintenance anchored Jun 30 → next due Sep 30 (FUTURE vs TODAY, so nothing
+    // drafts), Testing None → no schedule. The write-back must still fire before the
+    // "No reports due" early return.
+    vi.mocked(listWebsites).mockResolvedValue([
+      siteRow({
+        id: "rec_a",
+        maintenanceFreq: "Quarterly",
+        maintenanceDay: "2026-06-30",
+        testingFreq: "None",
+      }),
+    ]);
+    const base = makeFakeBase({ Reports: [] });
+    const res = await draftDueReports(base, TODAY);
+    expect(res.output).toBe("No reports due.");
+    const websiteUpdates = base.__calls.filter(
+      (c) => c.kind === "update" && c.table === "Websites",
+    );
+    expect(websiteUpdates).toContainEqual({
+      kind: "update",
+      table: "Websites",
+      records: [
+        { id: "rec_a", fields: { "Next maintenance at": "2026-09-30", "Next testing at": null } },
+      ],
+    });
+  });
+});

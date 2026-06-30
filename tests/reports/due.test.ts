@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { findDueReports, reportPeriodKey } from "../../src/reports/due.js";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import { findDueReports, nextDueDate, reportPeriodKey } from "../../src/reports/due.js";
+import type { WebsiteRow, Frequency } from "../../src/reports/airtable/websites.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
@@ -284,5 +284,50 @@ describe("reportPeriodKey", () => {
 
   it("throws on an Invalid Date instead of minting a NaN-NaN key", () => {
     expect(() => reportPeriodKey(new Date("not-a-date"))).toThrow(TypeError);
+  });
+});
+
+describe("nextDueDate", () => {
+  it("returns the anchor + frequency when nothing has been sent (Monthly)", () => {
+    const s = site({ maintenanceFreq: "Monthly", maintenanceDay: "2026-06-30" });
+    expect(nextDueDate(s, [], "Maintenance", TODAY)).toEqual(new Date("2026-07-30T00:00:00.000Z"));
+  });
+
+  it("uses the last Sent at over the anchor", () => {
+    const s = site({ maintenanceFreq: "Monthly", maintenanceDay: "2026-01-01" });
+    const sent = report({ reportType: "Maintenance", sentAt: "2026-06-01T12:00:00.000Z" });
+    // Time-of-day is carried through from the Sent at, exactly as findDueReports does
+    // (the writer formats to a date-only YYYY-MM-DD, so the time is dropped on store).
+    expect(nextDueDate(s, [sent], "Maintenance", TODAY)).toEqual(
+      new Date("2026-07-01T12:00:00.000Z"),
+    );
+  });
+
+  it("is due today (UTC midnight) when there's no anchor and nothing sent", () => {
+    const s = site({ maintenanceFreq: "Monthly", maintenanceDay: null });
+    expect(nextDueDate(s, [], "Maintenance", TODAY)).toEqual(new Date("2026-05-26T00:00:00.000Z"));
+  });
+
+  it("computes the Testing schedule from the testing anchor + Quarterly", () => {
+    const s = site({ testingFreq: "Quarterly", testingDay: "2026-06-30" });
+    expect(nextDueDate(s, [], "Testing", TODAY)).toEqual(new Date("2026-09-30T00:00:00.000Z"));
+  });
+
+  it("returns null when the frequency is None", () => {
+    expect(nextDueDate(site({ maintenanceFreq: "None" }), [], "Maintenance", TODAY)).toBeNull();
+  });
+
+  it("returns null for an ineligible status", () => {
+    const s = site({
+      status: "deprecated",
+      maintenanceFreq: "Monthly",
+      maintenanceDay: "2026-06-30",
+    });
+    expect(nextDueDate(s, [], "Maintenance", TODAY)).toBeNull();
+  });
+
+  it("returns null for an unrecognized frequency value", () => {
+    const s = site({ maintenanceFreq: "monthly" as Frequency, maintenanceDay: "2026-06-30" });
+    expect(nextDueDate(s, [], "Maintenance", TODAY)).toBeNull();
   });
 });

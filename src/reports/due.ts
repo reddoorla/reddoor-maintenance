@@ -61,6 +61,37 @@ function lastSentForType(reports: ReportRow[], siteId: string, type: ReportType)
 }
 
 /**
+ * The next-due date for one (site, type): the date the next report of that type is
+ * scheduled to draft, whether or not it's due yet. `null` when there's no schedule —
+ * an ineligible status, a "None"/blank frequency, or an unrecognized frequency value.
+ *
+ * baseDate = the last `Sent at` for this (site, type), else the site's
+ * `maintenance day`/`testing day` anchor. With no baseDate at all the next report is
+ * due now (returns `today` at UTC midnight). Otherwise baseDate + frequency.
+ *
+ * Shared with {@link findDueReports} so the scheduler and any schedule display can't
+ * drift on what "next" means. NOTE: callers wanting the LOUD unrecognized-frequency
+ * warning use findDueReports; this returns null silently for that case.
+ */
+export function nextDueDate(
+  site: WebsiteRow,
+  reports: ReportRow[],
+  type: ReportType,
+  today: Date,
+): Date | null {
+  if (site.status !== null && !ELIGIBLE_STATUSES.has(site.status)) return null;
+  const rawFreq = type === "Maintenance" ? site.maintenanceFreq : site.testingFreq;
+  const freq = (typeof rawFreq === "string" ? rawFreq.trim() : rawFreq) as Frequency;
+  if (freq === "None" || freq === ("" as Frequency)) return null;
+  if (!(freq in MONTHS)) return null;
+  const lastSent = lastSentForType(reports, site.id, type);
+  const fallback = type === "Maintenance" ? site.maintenanceDay : site.testingDay;
+  const baseIso = lastSent ?? fallback;
+  if (!baseIso) return startOfDay(today);
+  return addMonths(new Date(baseIso), MONTHS[freq]);
+}
+
+/**
  * Computes which (site, type) pairs are due as of `today`.
  *
  * Algorithm per (site, type):
@@ -104,16 +135,11 @@ export function findDueReports(
       }
 
       const lastSent = lastSentForType(reports, site.id, type);
-      const fallback = type === "Maintenance" ? site.maintenanceDay : site.testingDay;
-      const baseIso = lastSent ?? fallback;
-
-      if (!baseIso) {
-        out.push({ site, reportType: type, dueDate: todayStart, lastSent });
-        continue;
-      }
-
-      const dueDate = addMonths(new Date(baseIso), MONTHS[freq]);
-      if (todayStart.getTime() >= startOfDay(dueDate).getTime()) {
+      // Same computation as the schedule write-back uses. The guards above already
+      // proved a schedule exists, so dueDate is non-null; a no-anchor site returns
+      // `today`, so the comparison below pushes it as due-now (the prior behavior).
+      const dueDate = nextDueDate(site, reports, type, today);
+      if (dueDate !== null && todayStart.getTime() >= startOfDay(dueDate).getTime()) {
         out.push({ site, reportType: type, dueDate, lastSent });
       }
     }

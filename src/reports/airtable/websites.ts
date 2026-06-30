@@ -597,6 +597,26 @@ export async function updateAutoFixAttempts(
   ]);
 }
 
+/**
+ * Persist the code-computed next-due dates (date-only `YYYY-MM-DD`, or `null` to
+ * clear) for the maintenance + testing schedules. Owned by the nightly `--due` sweep
+ * so the "next" dates shown in Airtable come from the SAME logic as the scheduler
+ * (`nextDueDate`) — no Airtable-side formula or automation. Best-effort at the call
+ * site: the `Next … at` columns are operator-added, so until they exist Airtable
+ * throws UNKNOWN_FIELD_NAME, which must not break the nightly draft run.
+ */
+export async function updateNextDueDates(
+  base: AirtableBase,
+  recordId: string,
+  dates: { maintenanceAt: string | null; testingAt: string | null },
+): Promise<void> {
+  const fields: Record<string, string | null> = {
+    "Next maintenance at": dates.maintenanceAt,
+    "Next testing at": dates.testingAt,
+  };
+  await base(WEBSITES_TABLE).update([{ id: recordId, fields: fields as FieldSet }]);
+}
+
 /** Generic single-field writer for the dashboard site-details editor. The caller
  *  (setSiteDetail) restricts `column` to the EDITABLE_SITE_FIELDS allowlist, so this
  *  never writes an arbitrary column from request input. */

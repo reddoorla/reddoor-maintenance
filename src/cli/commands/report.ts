@@ -1,7 +1,12 @@
 import { openBase, readAirtableConfig, type AirtableBase } from "../../reports/airtable/client.js";
-import { listWebsites, siteSlug, type WebsiteRow } from "../../reports/airtable/websites.js";
-import { listAllReports } from "../../reports/airtable/reports.js";
-import { findDueReports, reportPeriodKey } from "../../reports/due.js";
+import {
+  listWebsites,
+  siteSlug,
+  updateNextDueDates,
+  type WebsiteRow,
+} from "../../reports/airtable/websites.js";
+import { listAllReports, type ReportRow } from "../../reports/airtable/reports.js";
+import { findDueReports, nextDueDate, reportPeriodKey } from "../../reports/due.js";
 import { draftReportForSite } from "../../reports/draft.js";
 import { reportTier } from "../../reports/queue.js";
 import { readGaConfig } from "../../reports/ga/config.js";
@@ -140,6 +145,32 @@ async function alertOnFleetAnalyticsFailure(health: AnalyticsRunHealth): Promise
   }
 }
 
+/**
+ * Write each site's code-computed next-maintenance / next-testing date back to Airtable
+ * (date-only, or null when there's no schedule), so the "next" dates shown there derive
+ * from the SAME `nextDueDate` the scheduler uses — replacing the old Airtable formula +
+ * automation. Best-effort and per-site isolated: a missing `Next … at` column or one bad
+ * row warns and is skipped, never aborting the nightly draft run.
+ */
+async function writeNextDueDates(
+  base: AirtableBase,
+  websites: WebsiteRow[],
+  reports: ReportRow[],
+  today: Date,
+): Promise<void> {
+  const ymd = (d: Date | null): string | null => (d ? d.toISOString().slice(0, 10) : null);
+  for (const site of websites) {
+    try {
+      await updateNextDueDates(base, site.id, {
+        maintenanceAt: ymd(nextDueDate(site, reports, "Maintenance", today)),
+        testingAt: ymd(nextDueDate(site, reports, "Testing", today)),
+      });
+    } catch (e) {
+      console.warn(`⚠ next-due write skipped for ${site.name}: ${(e as Error).message}`);
+    }
+  }
+}
+
 export async function draftDueReports(
   base: AirtableBase,
   today: Date,
@@ -149,6 +180,11 @@ export async function draftDueReports(
   // Airtable anyway (linked-record fields aren't formula-filterable by record id),
   // and findDueReports + the period guard below match on siteId in memory.
   const reports = await listAllReports(base);
+
+  // Refresh every site's code-owned next-due dates first, so they stay current even on
+  // a run where nothing is due (the early return below).
+  await writeNextDueDates(base, websites, reports, today);
+
   const due = findDueReports(websites, reports, today);
 
   // GA/Search enrichment is configured globally (the impersonation subject) AND
