@@ -447,4 +447,39 @@ describe("draftDueReports next-due write-back", () => {
       ],
     });
   });
+
+  it("swallows a per-site write-back failure and still drafts the due report", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(listWebsites).mockResolvedValue([siteRow()]); // Monthly, no anchor → due now
+    vi.mocked(draftReportForSite).mockResolvedValue({
+      reportRow: { reportId: "Acme Co — Maintenance — 2026-05-26" },
+      htmlPath: null,
+      html: "",
+      softFailures: [],
+      queued: true,
+      supersededIds: [],
+    } as unknown as Awaited<ReturnType<typeof draftReportForSite>>);
+
+    // A base whose Websites.update throws (simulating a missing `Next … at` column);
+    // the Reports select still works so drafting can proceed.
+    const fake = makeFakeBase({ Reports: [] });
+    const base = ((table: string) => {
+      const t = (fake as unknown as (table: string) => Record<string, unknown>)(table);
+      return table === "Websites"
+        ? {
+            ...t,
+            update: async () => {
+              throw new Error("UNKNOWN_FIELD_NAME");
+            },
+          }
+        : t;
+    }) as unknown as typeof fake;
+
+    const res = await draftDueReports(base, TODAY);
+    // The write-back threw but was isolated per-site: the due report still drafted.
+    expect(draftReportForSite).toHaveBeenCalledTimes(1);
+    expect(res.output).toMatch(/drafted/);
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/next-due write skipped/));
+    warn.mockRestore();
+  });
 });
