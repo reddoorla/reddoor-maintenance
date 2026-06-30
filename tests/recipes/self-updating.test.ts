@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { selfUpdating } from "../../src/recipes/self-updating/index.js";
 import type { GitHub } from "../../src/github/gh.js";
+import { templatesByName } from "../../src/recipes/sync-configs/templates.js";
 
 function currentBranchOf(dir: string): string {
   return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
@@ -44,6 +45,8 @@ function fakeGitHub(over: GitHubOverrides = {}): { gh: GitHub; calls: string[] }
     repoExists: async () => true,
     defaultBranch: async () => "main",
     filesOnBranch: async () => [],
+    // Default: every config file absent (null) → drift → bootstrap, matching a fresh repo.
+    fileContentsOnBranch: async () => null,
     branchProtectionContexts: async () => [],
     secretExists: async () => false,
     autoMergeEnabled: async () => false,
@@ -59,7 +62,13 @@ function fakeGitHub(over: GitHubOverrides = {}): { gh: GitHub; calls: string[] }
   return { gh, calls };
 }
 
-const ALL_PATHS = [".github/workflows/ci.yml", ".github/workflows/renovate.yml", "renovate.json"];
+// The canonical contents the recipe compares against — same source the recipe uses,
+// so `upToDate` is correct by construction regardless of the exact paths.
+const SELF_UPDATING_TEMPLATES = templatesByName(["ci", "renovate-action", "renovate-config"]);
+const CONTENT_BY_PATH = new Map(SELF_UPDATING_TEMPLATES.map((t) => [t.path, t.contents]));
+/** Fake fileContentsOnBranch where every config file is already at canonical content (no drift). */
+const upToDate = async (_repo: string, _branch: string, path: string): Promise<string | null> =>
+  CONTENT_BY_PATH.get(path) ?? null;
 
 describe("selfUpdating recipe", () => {
   it("fresh repo: bootstraps files via PR and wires all three settings", async () => {
@@ -142,7 +151,7 @@ describe("selfUpdating recipe", () => {
     const dir = mkdtempSync(join(tmpdir(), "su-"));
     gitInit(dir);
     const { gh, calls } = fakeGitHub({
-      filesOnBranch: async () => ALL_PATHS,
+      fileContentsOnBranch: upToDate,
       autoMergeEnabled: async () => true,
       branchProtectionContexts: async () => ["ci / ci"],
       secretExists: async () => true,
@@ -158,11 +167,60 @@ describe("selfUpdating recipe", () => {
     expect(r.commits).toHaveLength(0);
   });
 
+  it("opens a PR when a config file is PRESENT but its content is STALE (drift)", async () => {
+    // The MEDIUM-C fix: existence-only would have reported "already self-updating" here.
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const stalePath = SELF_UPDATING_TEMPLATES[0]!.path;
+    const { gh, calls } = fakeGitHub({
+      fileContentsOnBranch: async (_repo, _branch, path) =>
+        path === stalePath
+          ? "# stale: old pinned reusable-workflow SHA\n"
+          : (CONTENT_BY_PATH.get(path) ?? null),
+      autoMergeEnabled: async () => true,
+      branchProtectionContexts: async () => ["ci / ci"],
+      secretExists: async () => true,
+    });
+    const push = vi.fn(async () => {});
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: push, renovateToken: "RT" },
+    );
+    expect(r.status).toBe("applied");
+    expect(push).toHaveBeenCalledOnce();
+    expect(calls).toContain("pr:o/r");
+  });
+
+  it("treats a trailing-whitespace-only difference as NOT drift (no needless nightly PR)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls } = fakeGitHub({
+      // Same canonical content but with extra trailing newlines — must normalize to "no drift".
+      fileContentsOnBranch: async (_repo, _branch, path) => {
+        const c = CONTENT_BY_PATH.get(path);
+        return c === undefined ? null : `${c}\n\n`;
+      },
+      autoMergeEnabled: async () => true,
+      branchProtectionContexts: async () => ["ci / ci"],
+      secretExists: async () => true,
+    });
+    const push = vi.fn(async () => {});
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: push, renovateToken: "RT" },
+    );
+    expect(r.status).toBe("noop");
+    expect(push).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  });
+
   it("bootstraps when only some of the CI files are present on the branch", async () => {
     const dir = mkdtempSync(join(tmpdir(), "su-"));
     gitInit(dir);
     const { gh, calls } = fakeGitHub({
-      filesOnBranch: async () => [ALL_PATHS[0]!], // only 1 of 3 present
+      // only 1 of 3 present (others null → missing → drift → bootstrap)
+      fileContentsOnBranch: async (_repo, _branch, path) =>
+        path === SELF_UPDATING_TEMPLATES[0]!.path ? CONTENT_BY_PATH.get(path)! : null,
       autoMergeEnabled: async () => true,
       branchProtectionContexts: async () => ["ci / ci"],
       secretExists: async () => true,
@@ -197,7 +255,7 @@ describe("selfUpdating recipe", () => {
     const dir = mkdtempSync(join(tmpdir(), "su-"));
     gitInit(dir);
     const { gh, calls } = fakeGitHub({
-      filesOnBranch: async () => ALL_PATHS, // no bootstrap
+      fileContentsOnBranch: upToDate, // no bootstrap (all configs at canonical content)
       autoMergeEnabled: async () => false, // → enableRepoAutoMerge succeeds (1 action)
       branchProtectionContexts: async () => ["ci / ci"],
       secretExists: async () => false, // → setRepoSecret runs, and throws
@@ -219,7 +277,7 @@ describe("selfUpdating recipe", () => {
     const dir = mkdtempSync(join(tmpdir(), "su-"));
     gitInit(dir);
     const { gh, calls } = fakeGitHub({
-      filesOnBranch: async () => ALL_PATHS,
+      fileContentsOnBranch: upToDate,
       autoMergeEnabled: async () => true,
       branchProtectionContexts: async () => ["ci / ci"],
       secretExists: async () => false,
@@ -239,7 +297,7 @@ describe("selfUpdating recipe", () => {
     const dir = mkdtempSync(join(tmpdir(), "su-"));
     gitInit(dir);
     const { gh, calls } = fakeGitHub({
-      filesOnBranch: async () => ALL_PATHS,
+      fileContentsOnBranch: upToDate,
       autoMergeEnabled: async () => true,
       branchProtectionContexts: async () => ["other-check", "foo"],
       secretExists: async () => true,
@@ -259,7 +317,7 @@ describe("selfUpdating recipe", () => {
     const dir = mkdtempSync(join(tmpdir(), "su-"));
     gitInit(dir);
     const { gh, calls } = fakeGitHub({
-      filesOnBranch: async () => ALL_PATHS,
+      fileContentsOnBranch: upToDate,
       autoMergeEnabled: async () => true,
       branchProtectionContexts: async () => ["foo", "foo"],
       secretExists: async () => true,

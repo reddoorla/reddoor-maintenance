@@ -76,6 +76,10 @@ export type GitHub = {
   repoExists: (repo: string) => Promise<boolean>;
   defaultBranch: (repo: string) => Promise<string>;
   filesOnBranch: (repo: string, branch: string, paths: string[]) => Promise<string[]>;
+  /** The raw contents of `path` on `branch`, or null when the file is absent (404).
+   *  Lets a caller detect a present-but-STALE file (content drift), where
+   *  `filesOnBranch` only sees existence. */
+  fileContentsOnBranch: (repo: string, branch: string, path: string) => Promise<string | null>;
   branchProtectionContexts: (repo: string, branch: string) => Promise<string[]>;
   secretExists: (repo: string, name: string) => Promise<boolean>;
   autoMergeEnabled: (repo: string) => Promise<boolean>;
@@ -175,6 +179,26 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
         if (r.code === 0) present.push(p);
       }
       return present;
+    },
+    async fileContentsOnBranch(repo, branch, path) {
+      // Same spawn-directly rationale as filesOnBranch: a 404 (file absent) is an
+      // expected answer (null), not an error. The `raw` media type returns the file
+      // bytes verbatim (no base64 envelope) so the result compares directly against a
+      // canonical template.
+      assertUrlSegment("branch", branch);
+      assertUrlSegment("path", path);
+      const r = await spawn(
+        "gh",
+        [
+          "api",
+          `repos/${repo}/contents/${path}?ref=${branch}`,
+          "-H",
+          "Accept: application/vnd.github.raw",
+        ],
+        { env, timeoutMs: 60_000 },
+      );
+      if (r.code !== 0) return null; // 404 = file absent on this branch
+      return r.stdout;
     },
     async branchProtectionContexts(repo, branch) {
       assertUrlSegment("branch", branch);
