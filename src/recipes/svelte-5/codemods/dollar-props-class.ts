@@ -72,7 +72,25 @@ export function dollarPropsClass(source: string): string {
     if (/\bclass\s*:/.test(body as string)) return full;
 
     const cleanBody = (body as string).trim().replace(/,\s*$/, "").trim();
-    const newBody = cleanBody ? `${cleanBody}, class: ${IDENT} = ""` : `class: ${IDENT} = ""`;
+    // A rest element (`...rest`) MUST stay last in a destructuring pattern, so
+    // insert `class` BEFORE it rather than appending — otherwise we emit the
+    // invalid `{ …, ...rest, class: className }` ("a rest element must be last").
+    // The destructuring this codemod extends can already carry a trailing rest
+    // from exportLetToProps or the official svelte-migrate pass.
+    const restMatch = cleanBody.match(/,?\s*(\.\.\.[A-Za-z_$][\w$]*)\s*$/);
+    let newBody: string;
+    if (restMatch) {
+      const beforeRest = cleanBody
+        .slice(0, restMatch.index ?? 0)
+        .replace(/,\s*$/, "")
+        .trim();
+      const rest = restMatch[1];
+      newBody = beforeRest
+        ? `${beforeRest}, class: ${IDENT} = "", ${rest}`
+        : `class: ${IDENT} = "", ${rest}`;
+    } else {
+      newBody = cleanBody ? `${cleanBody}, class: ${IDENT} = ""` : `class: ${IDENT} = ""`;
+    }
 
     if (typeAnno) {
       const cleanType = ((typeBody as string) ?? "").trim().replace(/;\s*$/, "").trim();
