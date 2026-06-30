@@ -26,39 +26,54 @@ export async function recordScreenOut(
   `.execute(db);
 }
 
-/** Atomically increment the "got through, marked spam" counter on the (site, date) bucket. */
-export async function recordMarkedSpam(db: Db, siteId: string, date: string): Promise<void> {
-  await sql`
-    INSERT INTO spam_screenouts (site_id, date, marked_spam)
-    VALUES (${siteId}, ${date}, 1)
-    ON CONFLICT (site_id, date) DO UPDATE SET marked_spam = marked_spam + 1
-  `.execute(db);
-}
-
-/** Sum each counter per site over buckets with date >= sinceDate — a single
- *  indexed GROUP BY, replacing the full-table scan + JS windowing. */
+/** Per-site spam totals over the window `>= sinceDate`.
+ *
+ *  `honeypot`/`tooFast` are summed from the ingest-time `spam_screenouts` buckets
+ *  (bots screened BEFORE storage — there's no row to count, so an atomic counter
+ *  is the right source).
+ *
+ *  `markedSpam` is DERIVED from the submissions table — a live `COUNT(*) WHERE
+ *  status = 'spam'` — NOT a mutable counter. A counter incremented on every
+ *  →spam transition double-counts when an operator re-marks a submission
+ *  (spam → new → spam) and can never self-correct an un-mark; counting the rows
+ *  themselves is exact and idempotent. Windowed by `submitted_at` so it's
+ *  arrival-dated, matching the honeypot/too-fast buckets (which key on the
+ *  screen = arrival day). The legacy `marked_spam` column is no longer read. */
 export async function listScreenOutsSince(
   db: Db,
   sinceDate: string,
 ): Promise<Map<string, ScreenOutTotals>> {
-  const rows = await db
+  const screenoutRows = await db
     .selectFrom("spam_screenouts")
     .select((eb) => [
       "site_id",
       eb.fn.sum<number>("honeypot").as("honeypot"),
       eb.fn.sum<number>("too_fast").as("too_fast"),
-      eb.fn.sum<number>("marked_spam").as("marked_spam"),
     ])
     .where("date", ">=", sinceDate)
     .groupBy("site_id")
     .execute();
+
+  const markedSpamRows = await db
+    .selectFrom("submissions")
+    .select((eb) => ["site_id", eb.fn.countAll<number>().as("marked_spam")])
+    .where("status", "=", "spam")
+    .where("submitted_at", ">=", sinceDate)
+    .groupBy("site_id")
+    .execute();
+
   const out = new Map<string, ScreenOutTotals>();
-  for (const r of rows) {
+  for (const r of screenoutRows) {
     out.set(r.site_id, {
       honeypot: Number(r.honeypot) || 0,
       tooFast: Number(r.too_fast) || 0,
-      markedSpam: Number(r.marked_spam) || 0,
+      markedSpam: 0,
     });
+  }
+  for (const r of markedSpamRows) {
+    const totals = out.get(r.site_id) ?? { honeypot: 0, tooFast: 0, markedSpam: 0 };
+    totals.markedSpam = Number(r.marked_spam) || 0;
+    out.set(r.site_id, totals);
   }
   return out;
 }
