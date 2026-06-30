@@ -2,7 +2,6 @@ import type { Context, Config } from "@netlify/functions";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import { getSubmissionById, setSubmissionStatusRow } from "../../src/db/submissions.js";
 import { setSubmissionStatus, verifyBasicAuth } from "../../src/dashboard/index.js";
-import { recordMarkedSpam } from "../../src/db/screenouts.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
 
@@ -76,8 +75,6 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
       {
         getSubmissionById: (sid) => getSubmissionById(db, sid),
         setSubmissionStatusRow: (sid, status) => setSubmissionStatusRow(db, sid, status),
-        recordMarkedSpam: (siteId) =>
-          recordMarkedSpam(db, siteId, new Date().toISOString().slice(0, 10)),
       },
       id,
       requested,
