@@ -41,6 +41,15 @@ function resultOf(
   return { recipe: "self-updating", site: siteLabel(site), status, commits, notes };
 }
 
+/** True when a file's current content matches the canonical template for drift
+ *  purposes. Normalizes line endings + trailing whitespace so a stray trailing
+ *  newline (or CRLF) can't read as drift and open a needless PR every nightly run;
+ *  any real content change still differs. */
+function sameConfigContents(current: string, canonical: string): boolean {
+  const norm = (s: string) => s.replace(/\r\n/g, "\n").replace(/\s+$/, "");
+  return norm(current) === norm(canonical);
+}
+
 /**
  * Resolve the `owner/repo` this recipe will mutate. An explicit `site.gitRepo`
  * (from Airtable) wins; otherwise derive it from the checkout's `origin`.
@@ -78,7 +87,6 @@ async function resolveRepo(site: Site): Promise<string | null> {
 
 export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Promise<RecipeResult> {
   const templates = templatesByName([...SELF_UPDATING_CONFIGS]);
-  const paths = templates.map((t) => t.path);
 
   let repo: string | null;
   try {
@@ -113,12 +121,21 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
   let maintBranch: string | null = null;
 
   try {
-    // A. CI files on the default branch.
-    const present = await github.filesOnBranch(repo, base, paths);
-    if (present.length < paths.length) {
+    // A. CI/Renovate config on the default branch — compare CONTENT, not just
+    // existence, so a present-but-STALE config (an old pinned reusable-workflow SHA,
+    // a drifted Renovate schedule window) is corrected rather than left silently
+    // forever. The prior existence-only gate reported "already self-updating" for any
+    // repo that merely HAD the three files, however out of date — the very drift this
+    // recipe exists to repair (e.g. the Renovate schedule-window regression).
+    const drifted: string[] = [];
+    for (const t of templates) {
+      const current = await github.fileContentsOnBranch(repo, base, t.path);
+      if (current === null || !sameConfigContents(current, t.contents)) drifted.push(t.path);
+    }
+    if (drifted.length > 0) {
       const existingPR = await github.findOpenSelfUpdatingPR(repo);
       if (existingPR) {
-        actions.push(`bootstrap PR already open: ${existingPR}`);
+        actions.push(`self-updating PR already open: ${existingPR}`);
       } else {
         if (!(await isWorkingTreeClean(site.path))) {
           return resultOf(site, "failed", "working tree not clean — commit or stash first");

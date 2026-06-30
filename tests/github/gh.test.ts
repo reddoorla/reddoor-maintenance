@@ -226,6 +226,33 @@ describe("makeGitHub", () => {
     expect(present).toEqual([]);
   });
 
+  it("fileContentsOnBranch returns the raw file content (code 0)", async () => {
+    const { spawn, calls } = fakeSpawn({ code: 0, stdout: "line1\nline2\n" });
+    const content = await makeGitHub({ token: "T", spawn }).fileContentsOnBranch(
+      "o/r",
+      "main",
+      "renovate.json",
+    );
+    expect(content).toBe("line1\nline2\n");
+    // raw media type → bytes verbatim (no base64 envelope) for an exact content compare
+    expect(calls[0]!.args).toEqual([
+      "api",
+      "repos/o/r/contents/renovate.json?ref=main",
+      "-H",
+      "Accept: application/vnd.github.raw",
+    ]);
+  });
+
+  it("fileContentsOnBranch returns null when the file is absent (404)", async () => {
+    const { spawn } = fakeSpawn({ code: 1, stderr: "Not Found" });
+    const content = await makeGitHub({ token: "T", spawn }).fileContentsOnBranch(
+      "o/r",
+      "main",
+      "renovate.json",
+    );
+    expect(content).toBeNull();
+  });
+
   it("branchProtectionContexts parses required contexts; [] on 404", async () => {
     const ok = fakeSpawn({ code: 0, stdout: "ci\nbuild\n" });
     expect(
@@ -330,6 +357,12 @@ describe("makeGitHub", () => {
           makeGitHub({ token: "T", spawn }).filesOnBranch("o/r", "main", [path]),
         ).rejects.toThrow(/unsafe path/i);
         expect(calls).toEqual([]);
+        // fileContentsOnBranch shares the same guard — it must reject before any gh call too.
+        const f2 = fakeSpawn({ code: 0 });
+        await expect(
+          makeGitHub({ token: "T", spawn: f2.spawn }).fileContentsOnBranch("o/r", "main", path),
+        ).rejects.toThrow(/unsafe path/i);
+        expect(f2.calls).toEqual([]);
       }
     });
   });

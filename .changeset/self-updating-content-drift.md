@@ -1,0 +1,5 @@
+---
+"@reddoorla/maintenance": patch
+---
+
+Fix: `self-updating` now corrects a present-but-STALE config, not just a missing one. Its gate was existence-only — it opened the bootstrap PR only when `ci.yml` / `renovate.yml` / `renovate.json` was absent on the default branch, and reported "already self-updating" for any repo that merely HAD the three files, however out of date. So drift it exists to repair (an old pinned reusable-workflow SHA, a stale Renovate schedule window — the exact class behind the months-long fleet auto-update regression) was invisible forever. The recipe now content-diffs each template against the canonical version via a new `GitHub.fileContentsOnBranch` (raw GitHub contents API), and opens (or notes an already-open) PR when any file is missing OR drifted. A trailing-whitespace/line-ending-only difference is normalized away so it can't open a needless PR every nightly run, and the existing `findOpenSelfUpdatingPR` dedup keeps drift from churning more than one open PR per repo.
