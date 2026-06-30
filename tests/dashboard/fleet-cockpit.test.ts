@@ -101,6 +101,90 @@ describe("assignTier", () => {
     expect(assignTier(site({ deployStatus: "building" }), [], NOW).tier).toBe("healthy");
     expect(assignTier(site({ deployStatus: null }), [], NOW).tier).toBe("healthy");
   });
+
+  it("routes an accepted Lighthouse watch category to acceptedReasons and stays healthy", () => {
+    const r = assignTier(
+      site({ bpScore: 78, acceptedWatchConditions: ["Best Practices"] }),
+      [],
+      NOW,
+    );
+    expect(r.tier).toBe("healthy");
+    expect(r.watchReasons).toEqual([]);
+    expect(r.acceptedReasons).toEqual(["Best Practices 78"]);
+  });
+
+  it("still watches an un-accepted Lighthouse category", () => {
+    const r = assignTier(site({ bpScore: 78 }), [], NOW);
+    expect(r.tier).toBe("watch");
+    expect(r.watchReasons).toEqual(["Best Practices 78"]);
+    expect(r.acceptedReasons).toEqual([]);
+  });
+
+  it("keeps watching an un-accepted reason while accepting another on the same site", () => {
+    const r = assignTier(
+      site({
+        bpScore: 78,
+        lastCommitAt: "2026-04-01T00:00:00Z",
+        acceptedWatchConditions: ["Best Practices"],
+      }),
+      [],
+      NOW,
+    );
+    expect(r.tier).toBe("watch");
+    expect(r.watchReasons).not.toContain("Best Practices 78");
+    expect(r.watchReasons.some((x) => x.startsWith("last commit"))).toBe(true);
+    expect(r.acceptedReasons).toEqual(["Best Practices 78"]);
+  });
+
+  it("accepts the stale-repo condition", () => {
+    const r = assignTier(
+      site({ lastCommitAt: "2026-04-01T00:00:00Z", acceptedWatchConditions: ["stale repo"] }),
+      [],
+      NOW,
+    );
+    expect(r.tier).toBe("healthy");
+    expect(r.acceptedReasons.some((x) => x.startsWith("last commit"))).toBe(true);
+  });
+
+  it("accepts the no-custom-domain condition", () => {
+    const r = assignTier(
+      site({
+        status: "maintenance",
+        url: "https://foo.netlify.app/",
+        acceptedWatchConditions: ["no custom domain"],
+      }),
+      [],
+      NOW,
+    );
+    expect(r.tier).toBe("healthy");
+    expect(r.acceptedReasons).toContain("on *.netlify.app (no custom domain)");
+  });
+
+  it("matches accepted conditions case-insensitively", () => {
+    const r = assignTier(
+      site({ bpScore: 78, acceptedWatchConditions: ["best practices"] }),
+      [],
+      NOW,
+    );
+    expect(r.tier).toBe("healthy");
+    expect(r.acceptedReasons).toEqual(["Best Practices 78"]);
+  });
+
+  it("does not list an accepted condition that isn't currently active", () => {
+    const r = assignTier(
+      site({ bpScore: 95, acceptedWatchConditions: ["Best Practices"] }),
+      [],
+      NOW,
+    );
+    expect(r.tier).toBe("healthy");
+    expect(r.acceptedReasons).toEqual([]);
+  });
+
+  it("returns empty acceptedReasons when the site has attention items", () => {
+    const r = assignTier(site({ acceptedWatchConditions: ["Best Practices"] }), [item()], NOW);
+    expect(r.tier).toBe("attention");
+    expect(r.acceptedReasons).toEqual([]);
+  });
 });
 
 const BASE = "https://reddoor-maintenance.netlify.app";
@@ -342,6 +426,7 @@ function healthyCard(name: string, lastLighthouseAuditAt: string | null): SiteCa
     items: [],
     watchReasons: [],
     watchSignals: [],
+    acceptedReasons: [],
   };
 }
 
@@ -390,6 +475,7 @@ function attnCard(name: string, items: AttentionItem[]): SiteCard {
     items,
     watchReasons: [],
     watchSignals: [],
+    acceptedReasons: [],
   };
 }
 function watchCard(name: string, reasons: string[]): SiteCard {
@@ -399,6 +485,7 @@ function watchCard(name: string, reasons: string[]): SiteCard {
     items: [],
     watchReasons: reasons,
     watchSignals: ["lighthouse"],
+    acceptedReasons: [],
   };
 }
 function vuln(

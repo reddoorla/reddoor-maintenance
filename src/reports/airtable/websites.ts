@@ -62,6 +62,7 @@ export type WebsiteRow = {
   gitRepo: string | null;
   reportRecipientsTo: string | null;
   reportRecipientsCc: string | null;
+  acceptedWatchConditions: string[];
   /** First attachment in the Header image field (Airtable's signed URL — fetch before expiry). */
   headerImage: { url: string; filename: string; type: string } | null;
   /** Lighthouse "current state" snapshot, kept fresh by `audit lighthouse --write-airtable`. */
@@ -239,6 +240,9 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     gitRepo: (f["Git repo"] as string | undefined) ?? null,
     reportRecipientsTo: (f["Report recipients (To)"] as string | undefined) ?? null,
     reportRecipientsCc: (f["Report recipients (CC)"] as string | undefined) ?? null,
+    acceptedWatchConditions: Array.isArray(f["Accepted Watch Conditions"])
+      ? (f["Accepted Watch Conditions"] as string[])
+      : [],
     headerImage: header,
     pScore: (f["pScore"] as number | undefined) ?? null,
     rScore: (f["rScore"] as number | undefined) ?? null,

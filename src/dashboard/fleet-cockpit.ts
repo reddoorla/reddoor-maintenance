@@ -56,52 +56,77 @@ const WATCH_CATEGORIES: ReadonlyArray<{
  * injected for testability. Any attention item → 🔴 attention (items already encode
  * the M5 thresholds, so a sub-75 Lighthouse score arrives here as an item and never
  * needs the watch band). A FAILED latest production deploy (`deployStatus === "failed"`/
- * "error") is the same severity → 🔴 attention, mirroring how a sub-floor Lighthouse
- * score lands a site there. Otherwise 🟡 watch when a Lighthouse category sits in
- * [75,85) or the last commit to `main` is older than 30 days (a NULL commit is NOT
- * stale — it's a missing GitHub signal, not a regression). Else 🟢 healthy.
+ * "error") is the same severity → 🔴 attention. Otherwise 🟡 watch when a Lighthouse
+ * category sits in [75,85), the last commit to `main` is older than 30 days, or a
+ * maintenance site is still on `*.netlify.app`. Else 🟢 healthy.
+ *
+ * A condition the operator has marked accepted (`site.acceptedWatchConditions`,
+ * case-insensitive: a Lighthouse category label, "stale repo", or "no custom domain")
+ * is routed to `acceptedReasons` instead of `watchReasons` — it leaves the watch band
+ * (an all-accepted site becomes healthy) but stays visible as a muted chip. Acceptance
+ * is watch-only: a sub-floor Lighthouse score arrives as an AttentionItem above and
+ * still alarms broken, so accepting "78" never hides a drop to "72".
  *
  * `watchReasons` are the human labels for the card; `watchSignals` are the STRUCTURED
- * filter tags ("lighthouse" / "stale") the client filter keys off — derived here so
- * the renderer never has to regex-sniff a human string whose wording may change.
+ * filter tags ("lighthouse" / "stale") the client filter keys off.
  */
 export function assignTier(
   site: WebsiteRow,
   items: AttentionItem[],
   now: Date,
-): { tier: Tier; watchReasons: string[]; watchSignals: string[] } {
-  if (items.length > 0) return { tier: "attention", watchReasons: [], watchSignals: [] };
+): { tier: Tier; watchReasons: string[]; watchSignals: string[]; acceptedReasons: string[] } {
+  if (items.length > 0)
+    return { tier: "attention", watchReasons: [], watchSignals: [], acceptedReasons: [] };
   // A failed latest production deploy is an active break — tier it 🔴 attention, the
   // same severity a sub-floor Lighthouse score gets (which arrives as an item above).
   if (isFailedDeployStatus(site.deployStatus))
-    return { tier: "attention", watchReasons: [], watchSignals: [] };
+    return { tier: "attention", watchReasons: [], watchSignals: [], acceptedReasons: [] };
 
+  // Conditions the operator has reviewed and accepted (case-insensitive). An accepted
+  // watch reason is routed to acceptedReasons instead of raising the watch band.
+  const accepted = new Set(site.acceptedWatchConditions.map((c) => c.trim().toLowerCase()));
   const watchReasons: string[] = [];
+  const acceptedReasons: string[] = [];
   const signals = new Set<string>();
   for (const cat of WATCH_CATEGORIES) {
     const score = site[cat.field];
     if (score !== null && score >= LIGHTHOUSE_FLOOR && score < LIGHTHOUSE_WATCH_HIGH) {
-      watchReasons.push(`${cat.label} ${score}`);
-      signals.add("lighthouse");
+      const reason = `${cat.label} ${score}`;
+      if (accepted.has(cat.label.toLowerCase())) {
+        acceptedReasons.push(reason);
+      } else {
+        watchReasons.push(reason);
+        signals.add("lighthouse");
+      }
     }
   }
   if (site.lastCommitAt !== null) {
     const ageMs = now.getTime() - Date.parse(site.lastCommitAt);
     if (Number.isFinite(ageMs) && ageMs > STALE_DAYS * MS_PER_DAY) {
-      watchReasons.push(`last commit ${relativeTimeFromNow(site.lastCommitAt, now)}`);
-      signals.add("stale");
+      const reason = `last commit ${relativeTimeFromNow(site.lastCommitAt, now)}`;
+      if (accepted.has("stale repo")) {
+        acceptedReasons.push(reason);
+      } else {
+        watchReasons.push(reason);
+        signals.add("stale");
+      }
     }
   }
   // A live (maintenance) site still served from *.netlify.app never got a custom
-  // domain — a launch-completeness gap worth surfacing. Only for maintenance: a
-  // launch-period site on netlify.app is expected (not launched yet).
+  // domain — a launch-completeness gap. Only for maintenance: a launch-period site on
+  // netlify.app is expected (not launched yet).
   if (site.status === "maintenance" && isNetlifyAppUrl(site.url)) {
-    watchReasons.push("on *.netlify.app (no custom domain)");
-    signals.add("no-domain");
+    const reason = "on *.netlify.app (no custom domain)";
+    if (accepted.has("no custom domain")) {
+      acceptedReasons.push(reason);
+    } else {
+      watchReasons.push(reason);
+      signals.add("no-domain");
+    }
   }
   return watchReasons.length > 0
-    ? { tier: "watch", watchReasons, watchSignals: [...signals] }
-    : { tier: "healthy", watchReasons: [], watchSignals: [] };
+    ? { tier: "watch", watchReasons, watchSignals: [...signals], acceptedReasons }
+    : { tier: "healthy", watchReasons: [], watchSignals: [], acceptedReasons };
 }
 
 export type SiteCard = {
@@ -113,6 +138,9 @@ export type SiteCard = {
   watchReasons: string[];
   /** Structured watch tags ("lighthouse" / "stale") for the client filter. */
   watchSignals: string[];
+  /** Watch reasons the operator has accepted: suppressed from the band, shown as a
+   *  muted chip. Populated whenever the underlying condition is currently active. */
+  acceptedReasons: string[];
   /** Count of NEW submissions for this site (optional; populated by buildCockpitModel). */
   newSubmissions?: number;
 };
@@ -345,13 +373,14 @@ export function buildCockpitModel(
     const items = (bySite.get(site.name) ?? []).sort(
       (a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity],
     );
-    const { tier, watchReasons, watchSignals } = assignTier(site, items, now);
+    const { tier, watchReasons, watchSignals, acceptedReasons } = assignTier(site, items, now);
     return {
       site,
       tier,
       items,
       watchReasons,
       watchSignals,
+      acceptedReasons,
       newSubmissions: subCountBySite.get(site.id) ?? 0,
     };
   });

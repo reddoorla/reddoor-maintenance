@@ -143,6 +143,8 @@ function chips(c: SiteCard): string {
   });
   for (const reason of c.watchReasons)
     items.push(`<span class="chip">${escapeHtml(reason)}</span>`);
+  for (const reason of c.acceptedReasons)
+    items.push(`<span class="chip accepted">✓ accepted: ${escapeHtml(reason)}</span>`);
   return items.length ? `<div class="chips">${items.join("")}</div>` : "";
 }
 

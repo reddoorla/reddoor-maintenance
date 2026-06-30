@@ -28,6 +28,7 @@ export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     gitRepo: null,
     reportRecipientsTo: null,
     reportRecipientsCc: null,
+    acceptedWatchConditions: [],
     headerImage: null,
     pScore: null,
     rScore: null,
