@@ -7,6 +7,9 @@ coverage/
 .tsbuildinfo
 tests/fixtures/**/test-results/
 tests/fixtures/**/.lighthouseci/
+# lhci also drops a .lighthouseci/ at the repo root during the test suite;
+# untracked, it breaks `prettier --check .`.
+/.lighthouseci/
 tests/fixtures/**/playwright-report/
 .claude/
 .env
