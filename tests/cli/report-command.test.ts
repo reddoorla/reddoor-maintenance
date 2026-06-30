@@ -414,3 +414,72 @@ describe("draftDueReports period guard", () => {
     expect(res.code).toBe(0);
   });
 });
+
+describe("draftDueReports next-due write-back", () => {
+  beforeEach(() => {
+    vi.mocked(draftReportForSite).mockReset();
+    vi.mocked(listWebsites).mockReset();
+  });
+
+  it("writes each site's code-computed next-due dates, even on a run where nothing is due", async () => {
+    // Quarterly maintenance anchored Jun 30 → next due Sep 30 (FUTURE vs TODAY, so nothing
+    // drafts), Testing None → no schedule. The write-back must still fire before the
+    // "No reports due" early return.
+    vi.mocked(listWebsites).mockResolvedValue([
+      siteRow({
+        id: "rec_a",
+        maintenanceFreq: "Quarterly",
+        maintenanceDay: "2026-06-30",
+        testingFreq: "None",
+      }),
+    ]);
+    const base = makeFakeBase({ Reports: [] });
+    const res = await draftDueReports(base, TODAY);
+    expect(res.output).toBe("No reports due.");
+    const websiteUpdates = base.__calls.filter(
+      (c) => c.kind === "update" && c.table === "Websites",
+    );
+    expect(websiteUpdates).toContainEqual({
+      kind: "update",
+      table: "Websites",
+      records: [
+        { id: "rec_a", fields: { "Next maintenance at": "2026-09-30", "Next testing at": null } },
+      ],
+    });
+  });
+
+  it("swallows a per-site write-back failure and still drafts the due report", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(listWebsites).mockResolvedValue([siteRow()]); // Monthly, no anchor → due now
+    vi.mocked(draftReportForSite).mockResolvedValue({
+      reportRow: { reportId: "Acme Co — Maintenance — 2026-05-26" },
+      htmlPath: null,
+      html: "",
+      softFailures: [],
+      queued: true,
+      supersededIds: [],
+    } as unknown as Awaited<ReturnType<typeof draftReportForSite>>);
+
+    // A base whose Websites.update throws (simulating a missing `Next … at` column);
+    // the Reports select still works so drafting can proceed.
+    const fake = makeFakeBase({ Reports: [] });
+    const base = ((table: string) => {
+      const t = (fake as unknown as (table: string) => Record<string, unknown>)(table);
+      return table === "Websites"
+        ? {
+            ...t,
+            update: async () => {
+              throw new Error("UNKNOWN_FIELD_NAME");
+            },
+          }
+        : t;
+    }) as unknown as typeof fake;
+
+    const res = await draftDueReports(base, TODAY);
+    // The write-back threw but was isolated per-site: the due report still drafted.
+    expect(draftReportForSite).toHaveBeenCalledTimes(1);
+    expect(res.output).toMatch(/drafted/);
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/next-due write skipped/));
+    warn.mockRestore();
+  });
+});
