@@ -3,10 +3,12 @@ import type { AuditContext } from "./util/inject.js";
 import { siteLabel } from "../util/site.js";
 
 /** Result of probing a site's latest PRODUCTION Netlify deploy. Every field is
- *  nullable: a network/parse failure (or a site with no deploys yet) degrades to
- *  all-nulls rather than throwing, so the audit always returns a verdict.
+ *  nullable: a site with no production deploy yet degrades to all-nulls (a real
+ *  "none" verdict). A read FAILURE is NOT represented here — it surfaces as
+ *  `{ ok: false }` on the enclosing `NetlifyDeployFetch` so it can't be mistaken
+ *  for a verdict. See `NetlifyDeployFetch`.
  *  - `state` is Netlify's raw deploy state (`ready`/`error`/`building`/…), lower-cased,
- *    or null when it couldn't be read.
+ *    or null when the site has no production deploy.
  *  - `deployedAt` is the deploy's publish/create time (ISO), or null.
  *  - `logUrl` links to the deploy (its live URL or the Netlify admin/build-log page).
  *  - `errorMessage` is Netlify's `error_message` for a failed build, or null. */
@@ -17,12 +19,24 @@ export type NetlifyDeployCheck = {
   errorMessage: string | null;
 };
 
+/** Outcome of probing Netlify, distinguishing "couldn't read" from "read OK".
+ *  This distinction is load-bearing: `Deploy status` drives the cockpit's Broken
+ *  band (an ALARM), so a transient read failure must NOT be allowed to clear a
+ *  real `error` — unlike a degraded "no deploy yet", which is a real verdict.
+ *  - `{ ok: false }` — the API was unreachable/unreadable (network error, non-2xx,
+ *    malformed body). The caller persists nothing, leaving the prior status intact.
+ *  - `{ ok: true, deploy }` — the API answered. `deploy` is the latest production
+ *    deploy, or all-nulls when the site genuinely has no production deploy yet
+ *    (a real verdict, safe to persist). */
+export type NetlifyDeployFetch = { ok: false } | { ok: true; deploy: NetlifyDeployCheck };
+
 /** Injected IO so the check is unit-testable without hitting the Netlify API.
- *  `fetchLatestProductionDeploy` returns the parsed first (latest) production
- *  deploy object, or null when the site has none / the call failed. `now` is the
- *  clock for the checked-at stamp. */
+ *  `fetchLatestProductionDeploy` returns a `NetlifyDeployFetch` — `{ ok: false }`
+ *  when the call couldn't be read, else `{ ok: true, deploy }` with the latest
+ *  production deploy (or all-nulls for a site with none). `now` is the clock for
+ *  the checked-at stamp. */
 export type NetlifyDeployDeps = {
-  fetchLatestProductionDeploy: (siteId: string) => Promise<NetlifyDeployCheck | null>;
+  fetchLatestProductionDeploy: (siteId: string) => Promise<NetlifyDeployFetch>;
   now: Date;
 };
 
@@ -52,19 +66,17 @@ export function isInProgressState(state: string | null): boolean {
 
 /**
  * Probe one Netlify site's latest production deploy. PURE given its deps — the
- * real network/parse work lives in `defaultNetlifyDeployDeps`. A null return from
- * the fetch (no deploys, or a failed/unparseable call) degrades to an all-null
- * check, never a throw.
+ * real network/parse work lives in `defaultNetlifyDeployDeps`. Propagates the
+ * read/no-read distinction: a deps throw is treated as `{ ok: false }` (couldn't
+ * read), so the caller preserves the prior status rather than clearing it.
  */
 export async function checkNetlifyDeploy(
   siteId: string,
   deps: NetlifyDeployDeps,
-): Promise<NetlifyDeployCheck> {
-  const fetched = await deps.fetchLatestProductionDeploy(siteId).catch(() => null);
-  if (!fetched) {
-    return { state: null, deployedAt: null, logUrl: null, errorMessage: null };
-  }
-  return fetched;
+): Promise<NetlifyDeployFetch> {
+  return deps
+    .fetchLatestProductionDeploy(siteId)
+    .catch(() => ({ ok: false }) as NetlifyDeployFetch);
 }
 
 /** Coerce an untrusted value to a trimmed non-empty string, or null. */
@@ -76,10 +88,11 @@ function str(raw: unknown): string | null {
 
 /**
  * Real Netlify API deps. Fetches the latest production deploy for `siteId` and
- * maps the raw JSON into a `NetlifyDeployCheck`. Any failure — network error,
- * non-2xx, empty list, malformed JSON — resolves to null (the check degrades to
- * all-nulls), NEVER throws: a fleet sweep must not red an unrelated site because
- * one site's Netlify call hiccuped.
+ * maps the raw JSON into a `NetlifyDeployFetch`. A read failure — network error,
+ * non-2xx, malformed/unexpected body — resolves to `{ ok: false }` (the caller
+ * preserves the prior status); an empty deploy list resolves to a real all-null
+ * `{ ok: true }` verdict. NEVER throws: a fleet sweep must not red an unrelated
+ * site because one site's Netlify call hiccuped.
  *
  * `fetchImpl` is injected (defaults to the global `fetch`) only so the default
  * deps themselves stay testable; production callers pass nothing.
@@ -91,7 +104,7 @@ export function defaultNetlifyDeployDeps(
 ): NetlifyDeployDeps {
   return {
     now,
-    fetchLatestProductionDeploy: async (siteId) => {
+    fetchLatestProductionDeploy: async (siteId): Promise<NetlifyDeployFetch> => {
       // `production=true` + `per_page=1` asks Netlify for ONLY the newest
       // production deploy, so we read `[0]` without paging. siteId is the
       // Airtable-supplied site identity; encode it so it can't break the path.
@@ -104,16 +117,24 @@ export function defaultNetlifyDeployDeps(
           headers: { Authorization: `Bearer ${token}` },
         });
       } catch {
-        return null;
+        return { ok: false }; // network error — couldn't read; preserve prior status
       }
-      if (!res.ok) return null;
+      if (!res.ok) return { ok: false }; // non-2xx — couldn't read
       let body: unknown;
       try {
         body = await res.json();
       } catch {
-        return null;
+        return { ok: false }; // malformed JSON — couldn't read
       }
-      if (!Array.isArray(body) || body.length === 0) return null;
+      if (!Array.isArray(body)) return { ok: false }; // unexpected shape — couldn't read
+      if (body.length === 0) {
+        // Read OK; the site genuinely has no production deploy yet. An all-null
+        // verdict is real (not a read failure), so it's safe to persist.
+        return {
+          ok: true,
+          deploy: { state: null, deployedAt: null, logUrl: null, errorMessage: null },
+        };
+      }
       const d = body[0] as Record<string, unknown>;
       const state = str(d["state"]);
       // Prefer the publish time; fall back to create time for an in-progress deploy.
@@ -122,10 +143,13 @@ export function defaultNetlifyDeployDeps(
       const logUrl = str(d["deploy_ssl_url"]) ?? str(d["admin_url"]) ?? str(d["deploy_url"]);
       const errorMessage = str(d["error_message"]);
       return {
-        state: state ? state.toLowerCase() : null,
-        deployedAt,
-        logUrl,
-        errorMessage,
+        ok: true,
+        deploy: {
+          state: state ? state.toLowerCase() : null,
+          deployedAt,
+          logUrl,
+          errorMessage,
+        },
       };
     },
   };
@@ -158,7 +182,22 @@ export async function netlifyDeployAudit(ctx: AuditContext): Promise<AuditResult
 
   const now = ctx.now ?? new Date();
   const deps = ctx.netlifyDeployDeps ?? defaultNetlifyDeployDeps(token, now);
-  const check = await checkNetlifyDeploy(site.netlifyId, deps);
+  const fetched = await checkNetlifyDeploy(site.netlifyId, deps);
+
+  // Couldn't read Netlify (network error / non-2xx / malformed). Return WITHOUT
+  // details so `hasNetlifyDeployResult` is false and the Airtable writer skips the
+  // write — leaving the prior `Deploy status` intact. A `Deploy status` of `error`
+  // drives the cockpit's Broken band, and a transient API hiccup during the nightly
+  // sweep must NEVER silently clear that alarm to "all clear" while prod is down.
+  if (!fetched.ok) {
+    return {
+      audit: "netlify-deploy",
+      site: label,
+      status: "warn",
+      summary: "deploy status unavailable (Netlify API unreachable)",
+    };
+  }
+  const check = fetched.deploy;
   const checkedAt = now.toISOString();
 
   const status: AuditResult["status"] = isReadyState(check.state)
