@@ -128,6 +128,28 @@ for (const [label, entry] of Object.entries(subpathEntries)) {
   });
 }
 
+// The `audit` subcommand is the ONE command a consuming fleet site runs
+// (`reddoor-maint audit --only a11y` in CI). bin.js loads it LAZILY, so the
+// `bin.js --version` check above never exercises its import graph — a regression
+// where audit transitively eager-imports a central-only dep (the libSQL/Kysely
+// stack via fleet-events-writer → db/client) slips past bin.js and crashes only on
+// the fleet. Load the command entry directly under the blocker to guard that path.
+await check("cli/commands/audit.js loads with central-only deps blocked", () => {
+  const auditEntry = resolve(repoRoot, "dist/cli/commands/audit.js");
+  if (!existsSync(auditEntry)) throw new Error(`missing: ${auditEntry} (run 'pnpm build')`);
+  const url = pathToFileURL(auditEntry).href;
+  try {
+    loadUnderBlocker(["--input-type=module", "-e", `await import(${JSON.stringify(url)})`]);
+  } catch (e) {
+    throw new Error(
+      `audit reaches a central-only dep in its static import graph — a consuming site ` +
+        `(which never installs those devDeps) would crash running \`reddoor-maint audit\`. ` +
+        `Make the offending import lazy (e.g. dynamic import in db/client). Blocker output: ${e.stderr ?? e.message}`,
+      { cause: e },
+    );
+  }
+});
+
 await check("CLI --version reports real package.json version", () => {
   const out = execFileSync(process.execPath, [distBin, "--version"], {
     encoding: "utf-8",
