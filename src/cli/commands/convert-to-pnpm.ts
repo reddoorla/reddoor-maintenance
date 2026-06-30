@@ -3,6 +3,7 @@ import { convertToPnpm } from "../../recipes/convert-to-pnpm.js";
 import type { RecipeResult } from "../../types.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
 import { prepareFleetSites, appendSkipNotice, type SkippedSite } from "../fleet/prepare-sites.js";
+import { runRecipeOverSites } from "../fleet/run-recipe-over-sites.js";
 import { fleetWorkdir } from "../../util/fleet-workdir.js";
 
 export type ConvertToPnpmCommandOptions = {
@@ -37,8 +38,7 @@ export async function runConvertToPnpmCommand(
     skipped = prep.skipped;
   }
 
-  const results: RecipeResult[] = [];
-  for (const s of sites) results.push(await convertToPnpm(s));
+  const results = await runRecipeOverSites("convert-to-pnpm", sites, (s) => convertToPnpm(s));
 
   const output = results.map(formatResult).join("\n");
   const code = results.some((r) => r.status === "failed") ? 1 : 0;

@@ -9,6 +9,7 @@ import {
 import type { ConfigName, RecipeResult } from "../../types.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
 import { prepareFleetSites, appendSkipNotice, type SkippedSite } from "../fleet/prepare-sites.js";
+import { runRecipeOverSites } from "../fleet/run-recipe-over-sites.js";
 import { fleetWorkdir } from "../../util/fleet-workdir.js";
 
 export type SyncConfigsCommandOptions = {
@@ -102,8 +103,9 @@ export async function runSyncConfigsCommand(
     return { output: appendSkipNotice(blocks.join("\n\n"), skipped), code: 0 };
   }
 
-  const results: RecipeResult[] = [];
-  for (const s of sites) results.push(await syncConfigs(s, which ? { which } : {}));
+  const results = await runRecipeOverSites("sync-configs", sites, (s) =>
+    syncConfigs(s, which ? { which } : {}),
+  );
 
   const output = results.map(formatResult).join("\n");
   const code = results.some((r) => r.status === "failed") ? 1 : 0;

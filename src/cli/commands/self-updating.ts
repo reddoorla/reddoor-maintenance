@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { resolveSites } from "../fleet/resolve-sites.js";
 import { prepareFleetSites, appendSkipNotice, type SkippedSite } from "../fleet/prepare-sites.js";
+import { runRecipeOverSites } from "../fleet/run-recipe-over-sites.js";
 import { fleetWorkdir } from "../../util/fleet-workdir.js";
 import { selfUpdating } from "../../recipes/self-updating/index.js";
 import type { RecipeResult } from "../../types.js";
@@ -48,8 +49,7 @@ export async function runSelfUpdatingCommand(
     };
   }
 
-  const results: RecipeResult[] = [];
-  for (const s of sites) results.push(await selfUpdating(s));
+  const results = await runRecipeOverSites("self-updating", sites, (s) => selfUpdating(s));
 
   return {
     output: appendSkipNotice(results.map(formatResult).join("\n"), skipped),
