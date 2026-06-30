@@ -13,6 +13,7 @@ export function depsCountsFromResult(result: AuditResult): {
   drifted: number;
   majorBehind: number;
   outdated: number | null;
+  majorOutdated: number | null;
 } {
   if (result.audit !== "deps") {
     throw new Error(`Expected a 'deps' AuditResult, got '${result.audit}'`);
@@ -27,5 +28,10 @@ export function depsCountsFromResult(result: AuditResult): {
   // when the audit couldn't determine it (no/stale lockfile) — kept null (not 0)
   // so the dashboard shows "—" rather than a misleading "clean".
   const outdated = details.outdated?.outdated ?? null;
-  return { drifted, majorBehind, outdated };
+  // How many of those outdated installs are a *major* behind the registry's
+  // latest — surfaced separately from the total so the cockpit can show
+  // "N major" available, distinct from the baseline-drift "major" count. Shares
+  // the outdated signal's null-when-undetermined semantics.
+  const majorOutdated = details.outdated?.major ?? null;
+  return { drifted, majorBehind, outdated, majorOutdated };
 }

@@ -162,6 +162,26 @@ describe("renderCockpitHtml — metrics row", () => {
     expect(html).toMatch(/<span class="metric deps">0 · 2 outdated<\/span>/);
   });
 
+  it("appends the registry-major count (majors behind npm) to the outdated part when known", () => {
+    const html = renderCockpitHtml(
+      model([
+        siteRow({ depsDrifted: 5, depsMajorBehind: 1, depsOutdated: 3, depsMajorOutdated: 2 }),
+      ]),
+    );
+    expect(html).toMatch(
+      /<span class="metric deps">5 drifted \(1 major\) · 3 outdated \(2 major\)<\/span>/,
+    );
+  });
+
+  it("omits the registry-major part when not determined (null), keeping the bare outdated count", () => {
+    const html = renderCockpitHtml(
+      model([
+        siteRow({ depsDrifted: 0, depsMajorBehind: 0, depsOutdated: 2, depsMajorOutdated: null }),
+      ]),
+    );
+    expect(html).toMatch(/<span class="metric deps">0 · 2 outdated<\/span>/);
+  });
+
   it("omits the outdated part when it wasn't determined (null), not implying clean", () => {
     const html = renderCockpitHtml(
       model([siteRow({ depsDrifted: 5, depsMajorBehind: 1, depsOutdated: null })]),
