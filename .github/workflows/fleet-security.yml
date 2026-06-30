@@ -4,8 +4,15 @@ name: fleet-security
 # timestamp back to its Airtable row so the "Security Updates" checklist box can auto-tick.
 # Repo-backed sites use GitHub Dependabot alerts (prod+dev); sites with no repo / no token fall back
 # to `pnpm/npm audit`. UNLIKE fleet-lighthouse this stays checkout-FUL — the `pnpm audit` fallback
-# reads each repo's committed lockfile, so every site is cloned (no install needed). Kept a SEPARATE
-# job from fleet-lighthouse precisely so the lighthouse/domain/browser sweep stays checkout-free.
+# reads each repo's committed lockfile, so every site is cloned. Kept a SEPARATE job from
+# fleet-lighthouse precisely so the lighthouse/domain/browser sweep stays checkout-free.
+#
+# Also runs the `deps` audit here (it likewise needs each repo's checkout + lockfile): declared-range
+# drift vs the fleet baseline plus the real `pnpm outdated` counts (incl. majors-behind-registry),
+# written to the Deps* columns. deps is the only fleet audit with no cron of its own, so it rides
+# this checkout-ful job — at the cost of a per-repo `pnpm install --frozen-lockfile` (deps-outdated
+# needs node_modules present). A site whose frozen install fails writes a null outdated count, never
+# a wrong one.
 on:
   schedule:
     - cron: "0 6 * * *" # 06:00 UTC — before the 08:00 lighthouse sweep + 09:23 drafts
@@ -37,7 +44,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
 
-      - name: Fleet security audit + Airtable write-back
+      - name: Fleet security + deps audit + Airtable write-back
         # Repo-backed sites are audited from GitHub Dependabot alerts (ground truth: prod+dev,
         # GitHub Advisory DB) via the REST API. Sites with no repo (or when the alerts API is
         # unreachable/forbidden) fall back to `pnpm audit` against the committed lockfile — which is
@@ -45,7 +52,10 @@ jobs:
         # private repo would fail its clone and be skipped+warned by prepareFleetSites, never fatal,
         # box stays manual). A failed/skipped audit writes NO counts + NO timestamp, so it can never
         # tick the box.
-        timeout-minutes: 30
+        #
+        # Widened from 30→45m: deps adds a sequential `pnpm install --frozen-lockfile` per repo
+        # (~12 sites, warm pnpm store via setup-node cache), on top of the existing security sweep.
+        timeout-minutes: 45
         env:
           AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
@@ -58,11 +68,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
         run: |
           set -o pipefail
-          # A site reporting vulns exits non-zero by design; key the gate on the machine-readable
-          # FLEET_WRITE_SUMMARY line, not the exit code (same pattern as fleet-lighthouse).
+          # A site reporting vulns (security) or major drift (deps) exits non-zero by design; key the
+          # gate on the machine-readable FLEET_WRITE_SUMMARY line, not the exit code (same pattern as
+          # fleet-lighthouse).
           node dist/cli/bin.js audit \
             --fleet airtable \
-            --only security \
+            --only security,deps \
             --write-airtable \
             --concurrency 1 \
             --workdir /tmp/fleet-security | tee /tmp/audit.out || true
