@@ -24,6 +24,10 @@ beforeEach(() => {
   }) as unknown as typeof global.fetch;
   process.env.AIRTABLE_PAT = "pat_test";
   process.env.AIRTABLE_BASE_ID = "app_test";
+  // readGaConfig() reads GA_SUBJECT; keep it unset by default so the analytics-health
+  // write is skipped (matches the live "GA unconfigured" path). Tests that exercise the
+  // health write set it explicitly.
+  delete process.env.GA_SUBJECT;
   // Default: enrichment not configured → null (no GA/search written), matching the live
   // soft-skip when GA_SUBJECT / a property ID is unset.
   vi.mocked(fetchGaUsers).mockResolvedValue({ value: null, softFailed: false });
@@ -43,6 +47,20 @@ function scoredFields(over: Record<string, unknown> = {}): Record<string, unknow
 
 const NOW = new Date("2026-06-17T12:00:00.000Z");
 const PERIOD = "2026-06";
+
+/** The fields of the `Analytics soft-fail at` write to the Websites table, or undefined
+ *  if announce never wrote it (GA unconfigured / no property). */
+function analyticsHealthWrite(
+  base: ReturnType<typeof makeFakeBase>,
+): Record<string, unknown> | undefined {
+  for (const c of base.__calls) {
+    if (c.kind === "update" && c.table === "Websites") {
+      const f = c.records[0]?.fields ?? {};
+      if ("Analytics soft-fail at" in f) return f;
+    }
+  }
+  return undefined;
+}
 
 describe("recipes/announce", () => {
   it("processes only maintenance sites (skips launch-period and hosting)", async () => {
@@ -362,5 +380,85 @@ describe("recipes/announce", () => {
     const byName = new Map(result.results.map((r) => [r.site, r]));
     expect(byName.get("Bad Co")?.status).toBe("error");
     expect(byName.get("Good Co")?.status).toBe("drafted");
+  });
+
+  // MEDIUM-B: an announcement-time GA/Search outage must surface the per-site
+  // analytics-failure signal, not silently hide the traffic block (it reads identically
+  // to "site has no GA configured"). Mirrors the `--due` draft path's updateAnalyticsHealth.
+  it("stamps the analytics soft-fail timestamp when GA errors during the announcement", async () => {
+    process.env.GA_SUBJECT = "tucker@reddoorla.com"; // readGaConfig() != null
+    vi.mocked(fetchGaUsers).mockResolvedValue({ value: null, softFailed: true });
+    const base = makeFakeBase({
+      Websites: [
+        {
+          id: "rec_acme",
+          fields: {
+            Name: "Acme Co",
+            url: "https://acme.example.com",
+            Status: "maintenance",
+            "GA4 property ID": "G-123",
+            ...scoredFields(),
+          },
+        },
+      ],
+      Reports: [],
+    });
+
+    await announce({ base, now: NOW });
+
+    expect(analyticsHealthWrite(base)?.["Analytics soft-fail at"]).toBe(NOW.toISOString());
+  });
+
+  it("clears the analytics soft-fail (null) on a clean enrichment so the signal self-heals", async () => {
+    process.env.GA_SUBJECT = "tucker@reddoorla.com";
+    vi.mocked(fetchGaUsers).mockResolvedValue({
+      value: { current: 1200, previous: 1000 },
+      softFailed: false,
+    });
+    const base = makeFakeBase({
+      Websites: [
+        {
+          id: "rec_acme",
+          fields: {
+            Name: "Acme Co",
+            url: "https://acme.example.com",
+            Status: "maintenance",
+            "GA4 property ID": "G-123",
+            ...scoredFields(),
+          },
+        },
+      ],
+      Reports: [],
+    });
+
+    await announce({ base, now: NOW });
+
+    expect(analyticsHealthWrite(base)).toBeDefined();
+    expect(analyticsHealthWrite(base)?.["Analytics soft-fail at"]).toBeNull();
+  });
+
+  it("does NOT write analytics health when GA is unconfigured (GA_SUBJECT unset)", async () => {
+    // GA_SUBJECT stays unset (beforeEach) → readGaConfig() null → skip the write entirely,
+    // even though the fetch soft-failed.
+    vi.mocked(fetchGaUsers).mockResolvedValue({ value: null, softFailed: true });
+    const base = makeFakeBase({
+      Websites: [
+        {
+          id: "rec_acme",
+          fields: {
+            Name: "Acme Co",
+            url: "https://acme.example.com",
+            Status: "maintenance",
+            "GA4 property ID": "G-123",
+            ...scoredFields(),
+          },
+        },
+      ],
+      Reports: [],
+    });
+
+    await announce({ base, now: NOW });
+
+    expect(analyticsHealthWrite(base)).toBeUndefined();
   });
 });

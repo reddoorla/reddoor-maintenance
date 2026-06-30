@@ -1,7 +1,8 @@
 import { openBase, readAirtableConfig } from "../reports/airtable/client.js";
 import type { AirtableBase } from "../reports/airtable/client.js";
-import { listWebsites, siteSlug } from "../reports/airtable/websites.js";
+import { listWebsites, siteSlug, updateAnalyticsHealth } from "../reports/airtable/websites.js";
 import type { WebsiteRow } from "../reports/airtable/websites.js";
+import { readGaConfig } from "../reports/ga/config.js";
 import {
   createDraft,
   findReportByPeriod,
@@ -82,8 +83,10 @@ export async function announce(deps?: AnnounceDeps): Promise<AnnounceResult> {
       // null and the email simply omits the traffic section — it never blocks the draft.
       const periodEnd = now;
       const periodStart = new Date(now.getTime() - GA_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-      const gaUsers = (await fetchGaUsers(w, periodStart, periodEnd)).value;
-      const search = (await fetchSearch(w, periodStart, periodEnd)).value;
+      const gaResult = await fetchGaUsers(w, periodStart, periodEnd);
+      const searchResult = await fetchSearch(w, periodStart, periodEnd);
+      const gaUsers = gaResult.value;
+      const search = searchResult.value;
       const enrichment: ReportEnrichment = {
         ...(gaUsers ? { gaUsersCurrent: gaUsers.current, gaUsersPrevious: gaUsers.previous } : {}),
         ...(search ? { searchFoundPage1: search.foundOnPage1 } : {}),
@@ -91,6 +94,24 @@ export async function announce(deps?: AnnounceDeps): Promise<AnnounceResult> {
           ? { searchPosition: search.position }
           : {}),
       };
+
+      // Record this site's GA/Search enrichment health for the per-site analytics-failure
+      // signal (cockpit/digest) — exactly as the `--due` draft path does. Without this, an
+      // announcement-time GA outage hides the traffic block with NO operator signal (it reads
+      // identically to "site has no GA configured"). Set the timestamp on a soft-fail, clear
+      // it on a clean enrichment so the signal self-heals. Best-effort: the column is
+      // operator-added, so until it exists the write throws — which must not break the draft.
+      if (readGaConfig() !== null && Boolean(w.ga4PropertyId || w.searchQuery)) {
+        try {
+          await updateAnalyticsHealth(
+            base,
+            w.id,
+            gaResult.softFailed || searchResult.softFailed ? now.toISOString() : null,
+          );
+        } catch (e) {
+          console.warn(`⚠ analytics-health write skipped for ${w.name}: ${(e as Error).message}`);
+        }
+      }
 
       // Dedupe: reuse an existing Announcement row for this (site, period) rather than
       // stacking a second draft. The reuse path refreshes the stored scores + traffic/search
