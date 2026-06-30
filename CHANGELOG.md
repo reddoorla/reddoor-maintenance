@@ -1,5 +1,15 @@
 # @reddoorla/maintenance
 
+## 0.65.2
+
+### Patch Changes
+
+- 81540af: Cockpit deps metric now surfaces the registry-major outdated count. The deps audit already computed `OutdatedCounts.major` (how many installed deps are a full major behind npm's latest), but it was dropped at `depsCountsFromResult` and never reached the dashboard — the cockpit only showed `X drifted (Y major) · Z outdated`, where `(Y major)` is drift vs the fleet baseline, easily misread as "majors available". The count is now plumbed through `DepsCounts` → the Airtable `Deps Major Outdated` field → `WebsiteRow.depsMajorOutdated` → the render, so the deps span reads `X drifted (Y major) · Z outdated (N major)` — the new `(N major)` being majors behind the registry, distinct from the baseline-drift major. The value is null-guarded end to end: it's only written/rendered when known (including a real 0), and absent on older Airtable rows it simply omits, so nothing is back-filled with a misleading count.
+
+  Note: requires a Number field `Deps Major Outdated` on the Websites table before the audit writes a non-null value.
+
+- 7f1e8f2: Maintenance email: refresh the "testing" placeholder. The blurred-tests teaser image is replaced with the new design (the frosted testing checklist behind a "Request Testing Upgrade" button + invitation copy), and the "Last Tested: <date>" line beneath it is removed. The new image is exported at 2× (1200×1362, ~470 KB — lighter than the prior 590 KB asset) and keeps the same `blurredTests.jpg` filename/cid, so the swap is asset-only. The underlying `lastTestedDate` field is still computed and stored on the Airtable Report row (and used by the dashboard); only the email line is gone.
+
 ## 0.65.1
 
 ### Patch Changes
