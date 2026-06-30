@@ -46,3 +46,12 @@ describe("buildMjml commentary line breaks", () => {
     expect(mjml).toContain("A<br/>B");
   });
 });
+
+describe("buildMjml contact heading", () => {
+  it("renders the first contact line ('Just hit reply.') as a red bold heading", () => {
+    const mjml = buildMjml(baseData());
+    expect(mjml).toContain(
+      `<mj-text color="#C00" font-family="helvetica, sans-serif" font-size="24px" font-weight="700" line-height="30px">Just hit reply.</mj-text>`,
+    );
+  });
+});

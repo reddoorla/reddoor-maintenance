@@ -251,11 +251,12 @@ describe("buildAnnouncementMjml", () => {
     expect(mjml).not.toContain("Any questions, concerns or requests?");
   });
 
-  it("renders the first contact line in black and any following lines in muted grey", () => {
+  it("renders the first contact line as a red heading and any following lines in muted grey", () => {
     const mjml = buildAnnouncementMjml(baseData());
-    // First line: no color attribute → black. (DEFAULT_COPY.contact[0] = "Just hit reply.")
+    // First line: red + bold (700), matching the "Questions, concerns or requests?"
+    // heading. (DEFAULT_COPY.contact[0] = "Just hit reply.")
     expect(mjml).toContain(
-      `<mj-text font-family="helvetica, sans-serif" font-size="24px" font-weight="300" line-height="30px">Just hit reply.</mj-text>`,
+      `<mj-text color="#C00" font-family="helvetica, sans-serif" font-size="24px" font-weight="700" line-height="30px">Just hit reply.</mj-text>`,
     );
     // Second line carries the grey color. (DEFAULT_COPY.contact[1], apostrophe escaped.)
     expect(mjml).toContain(
