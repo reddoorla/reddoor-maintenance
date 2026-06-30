@@ -44,6 +44,38 @@ describe("codemod: $$props.class → named `class` prop", () => {
     expect(out).not.toContain(",,");
   });
 
+  it("inserts `class` BEFORE a trailing rest element (rest must stay last)", () => {
+    const input = `<script lang="ts">
+  let { foo, ...rest } = $props();
+</script>
+<div class="other {$$props.class || ''}">x</div>`;
+    const out = dollarPropsClass(input);
+    expect(out).toContain('let { foo, class: className = "", ...rest } = $props();');
+    // The invalid ordering `...rest, class` (rest not last) must never be emitted.
+    expect(out).not.toMatch(/\.\.\.[A-Za-z_$][\w$]*\s*,\s*class\s*:/);
+    expect(out).toContain("{className || ''}");
+  });
+
+  it("inserts `class` before a rest element while extending the type annotation", () => {
+    const input = `<script lang="ts">
+  let { foo, ...rest }: { foo?: string; [key: string]: unknown } = $props();
+</script>
+<div class="{$$props.class}">x</div>`;
+    const out = dollarPropsClass(input);
+    expect(out).toContain(
+      'let { foo, class: className = "", ...rest }: { foo?: string; [key: string]: unknown; class?: string } = $props();',
+    );
+  });
+
+  it("handles a rest-only destructuring (class goes before the rest)", () => {
+    const input = `<script lang="ts">
+  let { ...rest } = $props();
+</script>
+<div class="{$$props.class}">x</div>`;
+    const out = dollarPropsClass(input);
+    expect(out).toContain('let { class: className = "", ...rest } = $props();');
+  });
+
   it("preserves the `|| 'fallback'` pattern in the template", () => {
     const input = `<script lang="ts">
   let { foo } = $props();
