@@ -57,6 +57,12 @@ describe("websites/mapRow → new metric fields", () => {
     expect(row({}).depsOutdated).toBeNull();
   });
 
+  it("maps Deps Major Outdated (how many are a major behind npm latest)", () => {
+    expect(row({ "Deps Major Outdated": 2 }).depsMajorOutdated).toBe(2);
+    expect(row({ "Deps Major Outdated": 0 }).depsMajorOutdated).toBe(0);
+    expect(row({}).depsMajorOutdated).toBeNull();
+  });
+
   it("maps the four Security Vulns severity counts", () => {
     const r = row({
       "Security Vulns Critical": 1,

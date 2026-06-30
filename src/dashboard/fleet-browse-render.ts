@@ -24,6 +24,7 @@ function depsSpan(
   drifted: number | null,
   majorBehind: number | null,
   outdated: number | null,
+  majorOutdated: number | null,
 ): string {
   if (drifted === null || majorBehind === null) {
     return `<span class="metric deps">${DASH}</span>`;
@@ -31,8 +32,13 @@ function depsSpan(
   // Declared-range drift vs baseline, plus the real outdated-install count when
   // it was determined (null = not checked this run → omit, don't imply clean).
   const driftPart = drifted === 0 ? "0" : `${drifted} drifted (${majorBehind} major)`;
-  const display = outdated === null ? driftPart : `${driftPart} · ${outdated} outdated`;
-  return `<span class="metric deps">${escapeHtml(display)}</span>`;
+  // The outdated part carries its own "(N major)" — majors behind npm latest,
+  // distinct from the baseline "(major)" on driftPart. Shown only when known.
+  const outdatedPart =
+    outdated === null
+      ? ""
+      : ` · ${outdated} outdated${majorOutdated === null ? "" : ` (${majorOutdated} major)`}`;
+  return `<span class="metric deps">${escapeHtml(driftPart + outdatedPart)}</span>`;
 }
 
 function securitySpan(
@@ -80,7 +86,7 @@ function card(site: WebsiteRow): string {
       </span>
       <span class="cluster health">
         <span class="metric-label">a11y</span> ${a11ySpan(site.a11yViolations)}
-        <span class="metric-label">deps</span> ${depsSpan(site.depsDrifted, site.depsMajorBehind, site.depsOutdated)}
+        <span class="metric-label">deps</span> ${depsSpan(site.depsDrifted, site.depsMajorBehind, site.depsOutdated, site.depsMajorOutdated)}
         <span class="metric-label">sec</span> ${securitySpan(
           site.securityVulnsCritical,
           site.securityVulnsHigh,

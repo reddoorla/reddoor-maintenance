@@ -82,6 +82,10 @@ export type WebsiteRow = {
   /** Real installed-version drift: deps behind the registry's latest, from the
    *  committed lockfile (`pnpm outdated`). Null = not determined this run. */
   depsOutdated: number | null;
+  /** Of {@link depsOutdated}, how many are a *major* version behind the
+   *  registry's latest — the "majors available on npm" signal, distinct from the
+   *  baseline-drift {@link depsMajorBehind}. Null = not determined this run. */
+  depsMajorOutdated: number | null;
   securityVulnsCritical: number | null;
   securityVulnsHigh: number | null;
   securityVulnsModerate: number | null;
@@ -253,6 +257,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     depsDrifted: (f["Deps Drifted"] as number | undefined) ?? null,
     depsMajorBehind: (f["Deps Major Behind"] as number | undefined) ?? null,
     depsOutdated: (f["Deps Outdated"] as number | undefined) ?? null,
+    depsMajorOutdated: (f["Deps Major Outdated"] as number | undefined) ?? null,
     securityVulnsCritical: (f["Security Vulns Critical"] as number | undefined) ?? null,
     securityVulnsHigh: (f["Security Vulns High"] as number | undefined) ?? null,
     securityVulnsModerate: (f["Security Vulns Moderate"] as number | undefined) ?? null,
@@ -334,7 +339,12 @@ export async function getWebsiteBySlug(
 // so the field-name magic strings live in exactly one place.
 
 export type A11yCounts = { violations: number };
-export type DepsCounts = { drifted: number; majorBehind: number; outdated: number | null };
+export type DepsCounts = {
+  drifted: number;
+  majorBehind: number;
+  outdated: number | null;
+  majorOutdated: number | null;
+};
 export type SecurityCounts = { critical: number; high: number; moderate: number; low: number };
 export type Severity = "low" | "moderate" | "high" | "critical";
 /** One known vulnerability behind the security counts, as persisted/rendered. */
@@ -398,6 +408,10 @@ function depsFields(counts: DepsCounts): FieldSet {
   // lockfile this run) must not clobber a previously-good value.
   if (counts.outdated !== null) {
     fields["Deps Outdated"] = counts.outdated;
+  }
+  // Same null-guard for the registry-major breakdown (same source signal).
+  if (counts.majorOutdated !== null) {
+    fields["Deps Major Outdated"] = counts.majorOutdated;
   }
   return fields;
 }

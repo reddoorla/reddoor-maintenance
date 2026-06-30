@@ -279,6 +279,22 @@ describe("writeAuditsToAirtable", () => {
     });
     const merged = Object.assign({}, ...calls.map((c) => c.fields));
     expect(merged["Deps Outdated"]).toBe(4);
+    expect(merged["Deps Major Outdated"]).toBe(1);
+  });
+
+  it("omits Deps Major Outdated from the write when the deps audit couldn't determine it (preserves prior)", async () => {
+    const { base, calls } = makeFakeBase();
+    await writeAuditsToAirtable({
+      base,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
+        depsResult(["minor"], null),
+      ],
+    });
+    const merged = Object.assign({}, ...calls.map((c) => c.fields));
+    expect("Deps Major Outdated" in merged).toBe(false);
   });
 
   it("omits Deps Outdated from the write when the deps audit couldn't determine it (preserves prior)", async () => {

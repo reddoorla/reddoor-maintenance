@@ -39,6 +39,7 @@ export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     depsDrifted: null,
     depsMajorBehind: null,
     depsOutdated: null,
+    depsMajorOutdated: null,
     securityVulnsCritical: null,
     securityVulnsHigh: null,
     securityVulnsModerate: null,
