@@ -63,16 +63,11 @@ function testingChecklistSection(copy: ResolvedCopy): string {
   });
 }
 
-function maintenanceTestingPlaceholder(lastTested: Date | null): string {
+function maintenanceTestingPlaceholder(): string {
   return `
     <mj-section background-color="#F4F4F4">
       <mj-column>
         <mj-image href="mailto:info@reddoorla.com" src="${BLURRED_TESTS}" />
-      </mj-column>
-    </mj-section>
-    <mj-section background-color="#F4F4F4" padding-top="0px">
-      <mj-column>
-        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">Last Tested: ${fmtDate(lastTested)}</mj-text>
       </mj-column>
     </mj-section>`;
 }
@@ -170,7 +165,7 @@ export function buildMjml(data: ReportData): string {
       background: "white",
       footnoteLines: [escapeXml(copy.seoCta)],
     })}
-    ${isTesting ? testingIntroSection(copy) + testingChecklistSection(copy) : maintenanceTestingPlaceholder(data.lastTestedDate)}
+    ${isTesting ? testingIntroSection(copy) + testingChecklistSection(copy) : maintenanceTestingPlaceholder()}
     ${data.commentary ? commentarySection(data.commentary, copy) : ""}
     <mj-section background-color="white">
       <mj-column padding-top="36px">

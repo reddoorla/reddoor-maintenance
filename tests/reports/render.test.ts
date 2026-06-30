@@ -220,11 +220,12 @@ describe("renderReportHtml", () => {
     expect(html).not.toContain("d3eq0h5l8sxf6t.cloudfront.net");
   });
 
-  it("shows Last Tested date on Maintenance reports (US format MM.DD.YYYY)", async () => {
+  it("does not render a 'Last Tested' line on Maintenance reports", async () => {
     const { html } = await renderReportHtml(
       baseData({ reportType: "Maintenance", lastTestedDate: new Date("2025-03-15T00:00:00Z") }),
     );
-    expect(html).toContain("03.15.2025");
+    expect(html).not.toContain("Last Tested");
+    expect(html).not.toContain("03.15.2025");
   });
 
   it("omits the NOTES section when commentary is null", async () => {
