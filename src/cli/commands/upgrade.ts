@@ -3,6 +3,7 @@ import { upgradeSvelte4to5 } from "../../recipes/svelte-5/index.js";
 import type { RecipeResult } from "../../types.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
 import { prepareFleetSites, appendSkipNotice, type SkippedSite } from "../fleet/prepare-sites.js";
+import { runRecipeOverSites } from "../fleet/run-recipe-over-sites.js";
 import { fleetWorkdir } from "../../util/fleet-workdir.js";
 
 const KNOWN_UPGRADES = new Set(["svelte-4-to-5"]);
@@ -48,12 +49,9 @@ export async function runUpgradeCommand(
     skipped = prep.skipped;
   }
 
-  const results: RecipeResult[] = [];
-  for (const s of sites) {
-    if (upgradeName === "svelte-4-to-5") {
-      results.push(await upgradeSvelte4to5(s));
-    }
-  }
+  // `upgradeName` is validated against KNOWN_UPGRADES above (throws otherwise),
+  // so the only reachable upgrade here is the svelte-4-to-5 recipe.
+  const results = await runRecipeOverSites("svelte-4-to-5", sites, (s) => upgradeSvelte4to5(s));
 
   const output = results.map(formatResult).join("\n");
   const code = results.some((r) => r.status === "failed") ? 1 : 0;

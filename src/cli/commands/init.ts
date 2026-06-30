@@ -3,6 +3,7 @@ import { init, type InitResult, type InitStepResult } from "../../recipes/init.j
 import { resolveSites } from "../fleet/resolve-sites.js";
 import { prepareFleetSites, appendSkipNotice, type SkippedSite } from "../fleet/prepare-sites.js";
 import { fleetWorkdir } from "../../util/fleet-workdir.js";
+import { siteLabel } from "../../util/site.js";
 
 export type InitCommandOptions = {
   fleet?: string;
@@ -65,7 +66,26 @@ export async function runInitCommand(
   }
 
   const results: InitResult[] = [];
-  for (const s of sites) results.push(await init(s));
+  for (const s of sites) {
+    try {
+      results.push(await init(s));
+    } catch (err) {
+      // Isolate a per-site throw (e.g. a transient git error) so the rest of the
+      // fleet still runs — the same guarantee `runRecipeOverSites` gives the other
+      // fleet commands, but `init` returns an `InitResult`, so synthesize a stopped
+      // one here rather than reuse the shared helper.
+      results.push({
+        site: siteLabel(s),
+        steps: [
+          {
+            name: "init",
+            result: { kind: "error", message: err instanceof Error ? err.message : String(err) },
+          },
+        ],
+        complete: false,
+      });
+    }
+  }
 
   const output = results.map(formatResult).join("\n\n");
   const code = results.some((r) => exitCodeFor(r) !== 0) ? 1 : 0;
