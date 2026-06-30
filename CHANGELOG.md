@@ -1,5 +1,21 @@
 # @reddoorla/maintenance
 
+## 0.65.0
+
+### Minor Changes
+
+- 8813bb2: Cockpit accepted Watch conditions. A new `Accepted Watch Conditions` Airtable Websites field lets the operator mark a watch condition (a Lighthouse category, stale repo, or no-custom-domain) as reviewed and accepted on a per-site basis. `assignTier` routes an accepted, currently-active condition out of the amber Watch band — an all-accepted site goes healthy and leaves the Needs-you feed + verdict count — while it stays visible as a muted "✓ accepted: …" chip on the Fleet-browse card. Acceptance is watch-only: a sub-floor (broken) Lighthouse score still alarms, so accepting "Best Practices 78" never hides a drop to 72. Ships dark until the Airtable field exists (`?? []` no-op).
+- 840c43a: security audit: ingest GitHub Dependabot alerts as the source of truth
+
+  The `security` audit now reads a repo-backed site's GitHub Dependabot alerts (prod **and** dev, from the GitHub Advisory DB) via the REST API and writes the severity counts + advisory list to Airtable — fixing a false-green blind spot where `pnpm audit --prod` reported 0 critical/high while Dependabot flagged real (often dev-scoped) criticals.
+  - `securityAudit` prefers Dependabot when the site has a `gitRepo` and a `GITHUB_TOKEN` is available; it falls back to `pnpm audit` (then `npm audit`) for repo-less sites or any API error (403/404/network) — a Dependabot hiccup never fails a site.
+  - All open alerts count toward the tallies; the cockpit's auto-patching (amber Watch) vs Renovate-exhausted (red Broken) bands decide urgency. Each advisory now carries its dependency `scope` (`"runtime"` | `"development"`), surfaced as a `(dev)` tag on the per-site dashboard.
+  - New `makeGitHubRest().listDependabotAlerts()` — cursor pagination via the `Link` header (the endpoint has no numeric `page` param) with a per-request abort timeout so a hung connection falls back instead of stalling the sweep. `fleet-security.yml` passes the org PAT as `GITHUB_TOKEN`; it needs the **Dependabot alerts: read** permission on the fleet repos, otherwise it degrades gracefully to `pnpm audit`.
+
+### Patch Changes
+
+- db8e3e2: Lazy-load the libSQL/Kysely stack in `db/client` so the `audit` CLI command no longer eager-imports the central-only DB devDependencies. `reddoor-maint audit` (run in every fleet site's CI) crashed with `Cannot find package '@libsql/client'` because the `audit` entry transitively reached `db/client` (via `fleet-events-writer`), whose top-level `import` of `@libsql/client` / `kysely` / `@libsql/kysely-libsql` resolves to devDeps that consuming sites never install. Those values are now imported dynamically inside `openDb()`, keeping the module graph dependency-free until an actual DB connection is opened (the fleet-events writer already swallows the open failure best-effort). The dist smoke gate now also loads `cli/commands/audit.js` under the central-dep blocker — the `bin.js --version` check missed this because CLI subcommands load lazily.
+
 ## 0.64.0
 
 ### Minor Changes
