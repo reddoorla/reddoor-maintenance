@@ -18,6 +18,8 @@ export function makeSubmissionRow(over: Partial<SubmissionRow> = {}): Submission
     status: "new",
     notifyStatus: "skipped",
     resendMessageId: null,
+    spamScore: null,
+    spamReason: null,
     ...over,
   };
 }

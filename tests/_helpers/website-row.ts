@@ -66,6 +66,7 @@ export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     notifyRouting: null,
     mailchimpApiKey: null,
     mailchimpAudienceId: null,
+    requireTurnstile: false,
     renovateFailingCis: null,
     defaultBranchCi: null,
     lastCommitAt: null,

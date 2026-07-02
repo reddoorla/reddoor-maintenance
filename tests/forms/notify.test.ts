@@ -90,6 +90,22 @@ describe("buildAutoresponder", () => {
   });
 });
 
+describe("spam suppression", () => {
+  it("returns null from BOTH builders for an auto-spam submission", () => {
+    const site = makeWebsiteRow({ pointOfContact: "owner@acme.com" });
+    const sub = makeSubmissionRow({ email: "lead@x.com", status: "spam_auto" });
+    expect(buildPocNotification(site, sub)).toBeNull();
+    expect(buildAutoresponder(site, sub)).toBeNull();
+  });
+
+  it("also suppresses BOTH builders for operator-marked spam", () => {
+    const site = makeWebsiteRow({ pointOfContact: "owner@acme.com" });
+    const sub = makeSubmissionRow({ email: "lead@x.com", status: "spam" });
+    expect(buildPocNotification(site, sub)).toBeNull();
+    expect(buildAutoresponder(site, sub)).toBeNull();
+  });
+});
+
 describe("notifySubmission", () => {
   it("returns sent + message id and also fires the autoresponder", async () => {
     const send = vi.fn().mockResolvedValue({ messageId: "msg_1" });

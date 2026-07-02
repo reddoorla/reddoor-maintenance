@@ -130,6 +130,7 @@ export function buildPocNotification(
   site: WebsiteRow,
   submission: SubmissionRow,
 ): ResendSendInput | null {
+  if (submission.status === "spam_auto" || submission.status === "spam") return null;
   const recipients = resolveRecipients(site, submission);
   if (!recipients || recipients.to.length === 0) return null;
   const input: ResendSendInput = {
@@ -151,6 +152,7 @@ export function buildAutoresponder(
   site: WebsiteRow,
   submission: SubmissionRow,
 ): ResendSendInput | null {
+  if (submission.status === "spam_auto" || submission.status === "spam") return null;
   if (!submission.email) return null;
   const intro = site.copyIntro ?? `Thanks for reaching out to ${site.name}.`;
   const contact = site.copyContact ?? "We've received your message and will be in touch soon.";

@@ -1,4 +1,5 @@
 import { SUBMISSION_FORM_TYPES, type FormType } from "./types.js";
+import type { SubmissionMeta } from "./meta.js";
 
 /** The JSON wire format a fleet site forwards to the ingest endpoint. */
 export type SubmissionPayload = {
@@ -13,6 +14,8 @@ export type SubmissionPayload = {
   utm?: string;
   /** Any additional, site-specific fields. */
   extra?: Record<string, unknown>;
+  /** Reserved transport envelope (token/IP/UA); stripped by normalizeSubmission, never persisted. */
+  _meta?: SubmissionMeta;
 };
 
 export type NormalizedSubmission = {
@@ -41,6 +44,7 @@ const KNOWN_KEYS = new Set([
   "sourceUrl",
   "utm",
   "extra",
+  "_meta",
 ]);
 
 // Keys that, copied as own-properties into the captured object, could surprise a

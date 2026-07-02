@@ -25,6 +25,23 @@ function fakeEvent(body: unknown, fetchImpl: typeof fetch): RequestEvent {
   } as unknown as RequestEvent;
 }
 
+// Like fakeEvent, but also exposes getClientAddress + request headers so the
+// _meta threading can pick up an IP / user-agent.
+function fakeEventWithMeta(
+  body: Record<string, unknown>,
+  fetchImpl: typeof fetch,
+  meta: { ip?: string; userAgent?: string } = {},
+): RequestEvent {
+  const headers = new Headers();
+  if (meta.userAgent) headers.set("user-agent", meta.userAgent);
+  return {
+    request: { json: async () => body, headers },
+    fetch: fetchImpl,
+    url: new URL("https://site.test/api/forms"),
+    getClientAddress: meta.ip ? () => meta.ip as string : undefined,
+  } as unknown as RequestEvent;
+}
+
 const okConfig = () => ({ url: "https://dash/api/forms/sonder", token: "tok" });
 
 describe("createIngestEndpoint", () => {
@@ -221,5 +238,58 @@ describe("createIngestEndpoint", () => {
       ([, init]) => init && "screenOut" in JSON.parse((init as RequestInit).body as string),
     );
     expect(anyScreen).toBe(false);
+  });
+
+  it("auto-threads _meta (turnstileToken/clientIp/userAgent) into the forwarded payload", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true, id: "recM" }));
+    const endpoint = createIngestEndpoint({
+      getConfig: okConfig,
+      buildPayload: (body) => ({ formType: body.formType as string, email: body.email as string }),
+    });
+    await endpoint(
+      fakeEventWithMeta(
+        {
+          formType: "contact",
+          email: "a@b.co",
+          "cf-turnstile-response": "TOKEN123",
+        },
+        fetchMock,
+        { ip: "203.0.113.7", userAgent: "Mozilla/5.0 (X)" },
+      ),
+    );
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body._meta).toEqual({
+      turnstileToken: "TOKEN123",
+      clientIp: "203.0.113.7",
+      userAgent: "Mozilla/5.0 (X)",
+    });
+    // buildPayload output is still forwarded intact alongside _meta.
+    expect(body.email).toBe("a@b.co");
+    expect(body.formType).toBe("contact");
+  });
+
+  it("omits _meta entirely when no token/IP/UA are present", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true, id: "recN" }));
+    const endpoint = createIngestEndpoint({
+      getConfig: okConfig,
+      buildPayload: (body) => ({ formType: body.formType as string, email: body.email as string }),
+    });
+    await endpoint(fakeEvent({ formType: "contact", email: "a@b.co" }, fetchMock));
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect("_meta" in body).toBe(false);
+  });
+
+  it("reads the turnstile token from a custom turnstileFieldName", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true, id: "recC" }));
+    const endpoint = createIngestEndpoint({
+      getConfig: okConfig,
+      buildPayload: (body) => ({ formType: body.formType as string, email: body.email as string }),
+      turnstileFieldName: "my-token",
+    });
+    await endpoint(
+      fakeEventWithMeta({ formType: "contact", email: "a@b.co", "my-token": "T9" }, fetchMock),
+    );
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body._meta).toEqual({ turnstileToken: "T9" });
   });
 });

@@ -3,7 +3,7 @@ import { openBase } from "../../src/reports/airtable/client.js";
 import { listWebsites } from "../../src/reports/airtable/websites.js";
 import { listAllReports } from "../../src/reports/airtable/reports.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
-import { listNewSubmissions } from "../../src/db/submissions.js";
+import { listNewSubmissions, countAutoSpamSince } from "../../src/db/submissions.js";
 import { listFleetEvents } from "../../src/db/fleet-events.js";
 import { listScreenOutsSince, screenOutsSince } from "../../src/db/screenouts.js";
 import { readDigestState } from "../../src/alerts/digest-state.js";
@@ -137,6 +137,15 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
         // Recently lane simply absent — the cockpit still renders.
       }
     }
+    let autoFilteredCount = 0;
+    if (db) {
+      try {
+        const since = screenOutsSince(new Date(), 7);
+        autoFilteredCount = await countAutoSpamSince(db, since);
+      } catch {
+        // affordance simply absent — never blank the cockpit
+      }
+    }
     const baseUrl = resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL);
     const model = buildCockpitModel(
       websites,
@@ -147,6 +156,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       newSubmissions,
       spamTotals,
       recentEvents,
+      autoFilteredCount,
     );
     return html(renderCockpitHtml(model), 200);
   } catch (err) {

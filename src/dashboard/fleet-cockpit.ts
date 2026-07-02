@@ -201,6 +201,9 @@ export type CockpitModel = {
   spam?: { caught: number; through: number } | null;
   /** Recent fleet-activity events for the "Recently" lane (optional for back-compat). */
   recent?: RecentEntry[];
+  /** Fleet-wide count of submissions auto-filtered as spam in the affordance window
+   *  (optional for back-compat). Drives the cockpit "N auto-filtered this week" line. */
+  autoFiltered?: number;
 };
 
 export type NeedsYouGroup = "broken" | "watch" | "approval";
@@ -337,6 +340,7 @@ export function buildCockpitModel(
   newSubmissions: SubmissionRow[] = [],
   spamTotals: { honeypot: number; tooFast: number; markedSpam: number } | null = null,
   recentEvents: FleetEvent[] = [],
+  autoFilteredCount = 0,
 ): CockpitModel {
   const visible = websites.filter(isDashboardVisible);
   const sitesById = new Map<string, WebsiteRow>(visible.map((w) => [w.id, w]));
@@ -472,6 +476,7 @@ export function buildCockpitModel(
       ? { caught: spamTotals.honeypot + spamTotals.tooFast, through: spamTotals.markedSpam }
       : null,
     recent,
+    autoFiltered: autoFilteredCount,
   };
 }
 

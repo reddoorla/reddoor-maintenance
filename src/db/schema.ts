@@ -20,6 +20,8 @@ export interface SubmissionsTable {
   status: string;
   notify_status: string;
   resend_message_id: string | null;
+  spam_score: number | null;
+  spam_reason: string | null;
 }
 
 export interface SpamScreenoutsTable {

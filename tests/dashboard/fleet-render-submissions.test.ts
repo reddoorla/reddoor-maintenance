@@ -115,3 +115,15 @@ describe("renderCockpitHtml — submissions", () => {
     expect(html).toContain('href="/submissions"');
   });
 });
+
+describe("renderCockpitHtml — auto-filtered affordance", () => {
+  it("omits the affordance when nothing was auto-filtered", () => {
+    const html = renderCockpitHtml(model());
+    expect(html).not.toContain("auto-filtered this week");
+  });
+  it("renders the count and links to /submissions filtered to spam_auto", () => {
+    const html = renderCockpitHtml(model({ autoFiltered: 4 }));
+    expect(html).toContain("4 auto-filtered this week");
+    expect(html).toContain('href="/submissions?status=spam_auto"');
+  });
+});

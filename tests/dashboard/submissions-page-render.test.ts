@@ -74,3 +74,16 @@ describe("renderSubmissionsPageHtml", () => {
     expect(html).not.toContain("<script>x</script>");
   });
 });
+
+describe("renderSubmissionsPageHtml — status filter", () => {
+  it("offers spam_auto as a selectable status so auto-spam is reviewable", () => {
+    const html = renderSubmissionsPageHtml(model());
+    expect(html).toContain('value="spam_auto"');
+  });
+  it("marks spam_auto selected when it is the active filter", () => {
+    const html = renderSubmissionsPageHtml(
+      model({ filter: { site: "", type: "", status: "spam_auto", q: "", from: "", to: "" } }),
+    );
+    expect(html).toContain('value="spam_auto" selected');
+  });
+});

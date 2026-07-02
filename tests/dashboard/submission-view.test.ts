@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   renderSubmissionRow,
   SUBMISSION_STATUS_SCRIPT,
+  isVisibleInStrip,
+  SUBMISSION_STYLES,
 } from "../../src/dashboard/submission-view.js";
 import type { SubmissionRow } from "../../src/reports/submission-row.js";
 
@@ -46,5 +48,50 @@ describe("renderSubmissionRow", () => {
   it("exposes the status client script as a string", () => {
     expect(SUBMISSION_STATUS_SCRIPT).toContain("button.subm-status");
     expect(SUBMISSION_STATUS_SCRIPT).toContain("b.dataset.status");
+  });
+});
+
+describe("isVisibleInStrip", () => {
+  it("hides auto-filtered spam from the per-site strip", () => {
+    expect(isVisibleInStrip(row({ status: "spam_auto" }))).toBe(false);
+  });
+  it("keeps every other status in the strip", () => {
+    for (const s of ["new", "read", "archived", "spam"] as const) {
+      expect(isVisibleInStrip(row({ status: s }))).toBe(true);
+    }
+  });
+});
+
+describe("renderSubmissionRow — auto-spam provenance + recovery", () => {
+  it("shows a provenance badge with score and reasons when scored", () => {
+    const html = renderSubmissionRow(
+      row({ status: "spam_auto", spamScore: 130, spamReason: "turnstile-fail,links:2" }),
+    );
+    expect(html).toContain("subm-provenance");
+    expect(html).toContain("130");
+    expect(html).toContain("turnstile-fail,links:2");
+  });
+  it("omits the provenance badge when there is no score", () => {
+    const html = renderSubmissionRow(row({ status: "new", spamScore: null }));
+    expect(html).not.toContain("subm-provenance");
+  });
+  it("offers a 'Not spam → new' recovery button only on auto-spam rows", () => {
+    const auto = renderSubmissionRow(row({ status: "spam_auto", spamScore: 120 }));
+    expect(auto).toContain("Not spam → new");
+    expect(auto).toContain('data-status="new"');
+    const clean = renderSubmissionRow(row({ status: "new" }));
+    expect(clean).not.toContain("Not spam → new");
+  });
+  it("escapes hostile spamReason content in the badge title", () => {
+    const html = renderSubmissionRow(
+      row({ status: "spam_auto", spamScore: 100, spamReason: '"><img src=x>' }),
+    );
+    expect(html).not.toContain("<img src=x");
+  });
+});
+
+describe("SUBMISSION_STYLES", () => {
+  it("styles the spam_auto pill so a new status is not unstyled", () => {
+    expect(SUBMISSION_STYLES).toContain(".pill.subm-spam_auto");
   });
 });

@@ -59,4 +59,17 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_fleet_events_ts ON fleet_events (ts);
     `,
   },
+  {
+    id: "0003_add_spam_score",
+    // SQLite `ADD COLUMN` has no `IF NOT EXISTS`, so it is NOT self-idempotent: if the
+    // `_migrations` marker is lost after the column is added (crash between statement
+    // and marker write), a re-run would throw `duplicate column name`. `migrate.ts`
+    // recognizes that error as already-applied and records the marker, keeping the
+    // runner idempotent (see `isAlreadyAppliedError`).
+    sql: `ALTER TABLE submissions ADD COLUMN spam_score REAL;`,
+  },
+  {
+    id: "0004_add_spam_reason",
+    sql: `ALTER TABLE submissions ADD COLUMN spam_reason TEXT;`,
+  },
 ];
