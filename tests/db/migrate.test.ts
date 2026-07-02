@@ -6,7 +6,12 @@ describe("runMigrations", () => {
   it("creates the tables on a fresh in-memory db and reports what it ran", async () => {
     const client = createClient({ url: ":memory:" });
     const ran = await runMigrations(client);
-    expect(ran).toEqual(["0001_init", "0002_fleet_events"]);
+    expect(ran).toEqual([
+      "0001_init",
+      "0002_fleet_events",
+      "0003_add_spam_score",
+      "0004_add_spam_reason",
+    ]);
     const tables = await client.execute(
       "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
     );
@@ -23,7 +28,12 @@ describe("runMigrations", () => {
     const ranAgain = await runMigrations(client);
     expect(ranAgain).toEqual([]);
     const applied = await client.execute("SELECT id FROM _migrations");
-    expect(applied.rows.map((r) => String(r.id))).toEqual(["0001_init", "0002_fleet_events"]);
+    expect(applied.rows.map((r) => String(r.id))).toEqual([
+      "0001_init",
+      "0002_fleet_events",
+      "0003_add_spam_score",
+      "0004_add_spam_reason",
+    ]);
   });
 
   it("re-applies cleanly after a lost _migrations marker (every statement is independently idempotent)", async () => {
@@ -44,6 +54,11 @@ describe("runMigrations", () => {
     );
     expect(tables.rows.length).toBe(3);
     const applied = await client.execute("SELECT id FROM _migrations");
-    expect(applied.rows.map((r) => String(r.id))).toEqual(["0001_init", "0002_fleet_events"]);
+    expect(applied.rows.map((r) => String(r.id))).toEqual([
+      "0001_init",
+      "0002_fleet_events",
+      "0003_add_spam_score",
+      "0004_add_spam_reason",
+    ]);
   });
 });

@@ -7,6 +7,9 @@ describe("submission-row validators", () => {
     expect(toStatus("garbage")).toBe("new");
     expect(toStatus(undefined)).toBe("new");
   });
+  it("toStatus accepts spam_auto", () => {
+    expect(toStatus("spam_auto")).toBe("spam_auto");
+  });
   it("toNotifyStatus falls back to skipped", () => {
     expect(toNotifyStatus("sent")).toBe("sent");
     expect(toNotifyStatus("nope")).toBe("skipped");

@@ -59,4 +59,15 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_fleet_events_ts ON fleet_events (ts);
     `,
   },
+  {
+    id: "0003_add_spam_score",
+    // Single-statement migration: SQLite `ADD COLUMN` has no `IF NOT EXISTS`, and the
+    // runner's `executeMultiple` is non-transactional — a lone statement has no
+    // mid-script failure window, and the per-id `_migrations` marker guards re-runs.
+    sql: `ALTER TABLE submissions ADD COLUMN spam_score REAL;`,
+  },
+  {
+    id: "0004_add_spam_reason",
+    sql: `ALTER TABLE submissions ADD COLUMN spam_reason TEXT;`,
+  },
 ];

@@ -3,7 +3,7 @@ import { SUBMISSION_FORM_TYPES, type FormType } from "../forms/types.js";
 export { SUBMISSION_FORM_TYPES };
 export type { FormType };
 
-export const SUBMISSION_STATUSES = ["new", "read", "archived", "spam"] as const;
+export const SUBMISSION_STATUSES = ["new", "read", "archived", "spam", "spam_auto"] as const;
 export type SubmissionStatus = (typeof SUBMISSION_STATUSES)[number];
 
 export const NOTIFY_STATUSES = ["sent", "failed", "skipped"] as const;
@@ -44,6 +44,10 @@ export type SubmissionRow = {
   status: SubmissionStatus;
   notifyStatus: NotifyStatus;
   resendMessageId: string | null;
+  /** Heuristic spam score at ingest time; null for pre-classifier / un-scored rows. */
+  spamScore?: number | null;
+  /** Comma-joined classifier reason codes (e.g. "links:3,disposable-email"); null when unscored. */
+  spamReason?: string | null;
 };
 
 export type SubmissionInput = {
@@ -57,4 +61,7 @@ export type SubmissionInput = {
   sourceUrl?: string;
   utm?: string;
   submittedAt: Date;
+  status?: SubmissionStatus;
+  spamScore?: number | null;
+  spamReason?: string | null;
 };

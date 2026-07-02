@@ -67,6 +67,41 @@ describe("db createSubmission / getSubmissionById", () => {
     const db = await openDb({ url: ":memory:" });
     expect(await getSubmissionById(db, "sub_nope")).toBeNull();
   });
+
+  it("honors input.status and stores spam_score/spam_reason", async () => {
+    const db = await openDb({ url: ":memory:" });
+    const row = await createSubmission(db, {
+      siteId: "recSITE",
+      formType: "contact",
+      name: "Bot",
+      email: "bot@x.com",
+      submittedAt: new Date("2026-07-01T00:00:00.000Z"),
+      status: "spam_auto",
+      spamScore: 120,
+      spamReason: "links:3,disposable-email",
+    });
+    expect(row.status).toBe("spam_auto");
+    expect(row.spamScore).toBe(120);
+    expect(row.spamReason).toBe("links:3,disposable-email");
+    const fetched = await getSubmissionById(db, row.id);
+    expect(fetched!.status).toBe("spam_auto");
+    expect(fetched!.spamScore).toBe(120);
+    expect(fetched!.spamReason).toBe("links:3,disposable-email");
+  });
+
+  it("defaults status to new and spam columns to null", async () => {
+    const db = await openDb({ url: ":memory:" });
+    const row = await createSubmission(db, {
+      siteId: "recSITE",
+      formType: "contact",
+      name: "Real",
+      email: "real@x.com",
+      submittedAt: new Date("2026-07-01T00:00:00.000Z"),
+    });
+    expect(row.status).toBe("new");
+    expect(row.spamScore).toBeNull();
+    expect(row.spamReason).toBeNull();
+  });
 });
 
 import {

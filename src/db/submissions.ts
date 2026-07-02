@@ -43,6 +43,8 @@ function rowFromDb(r: Selectable<SubmissionsTable>): SubmissionRow {
     status: toStatus(r.status),
     notifyStatus: toNotifyStatus(r.notify_status),
     resendMessageId: r.resend_message_id,
+    spamScore: typeof r.spam_score === "number" ? r.spam_score : null,
+    spamReason: r.spam_reason,
   };
 }
 
@@ -79,9 +81,11 @@ export async function createSubmission(db: Db, input: SubmissionInput): Promise<
       source_url: input.sourceUrl ?? null,
       utm: input.utm ?? null,
       submitted_at: input.submittedAt.toISOString(),
-      status: "new",
+      status: input.status ?? "new",
       notify_status: "skipped",
       resend_message_id: null,
+      spam_score: input.spamScore ?? null,
+      spam_reason: input.spamReason ?? null,
     })
     .execute();
   const created = await getSubmissionById(db, id);
@@ -221,6 +225,8 @@ export async function backfillSubmission(db: Db, row: SubmissionRow): Promise<vo
       status: row.status,
       notify_status: row.notifyStatus,
       resend_message_id: row.resendMessageId,
+      spam_score: row.spamScore ?? null,
+      spam_reason: row.spamReason ?? null,
     })
     .onConflict((oc) => oc.column("id").doNothing())
     .execute();
