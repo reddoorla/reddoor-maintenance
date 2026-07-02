@@ -7,6 +7,7 @@ import {
 } from "./client.js";
 import { SUBMISSION_FORM_TYPES, type FormType } from "./types.js";
 import type { IngestActionConfig } from "./action.js";
+import { buildSubmissionMeta } from "./meta.js";
 
 /**
  * Options for {@link createIngestEndpoint} — the JSON sibling of
@@ -26,6 +27,8 @@ export type CreateIngestEndpointOptions = {
   formType?: string;
   /** Honeypot field name in the JSON body. Default "bot-field". */
   botFieldName?: string;
+  /** Field carrying the Cloudflare Turnstile token. Default "cf-turnstile-response". */
+  turnstileFieldName?: string;
   /** json(500) copy when env vars are unset. */
   unavailableMessage?: string;
   /** json(400/502) copy for bad input / ingest failure. */
@@ -50,6 +53,7 @@ export function createIngestEndpoint(
   opts: CreateIngestEndpointOptions,
 ): (event: RequestEvent) => Promise<Response> {
   const botFieldName = opts.botFieldName ?? "bot-field";
+  const turnstileFieldName = opts.turnstileFieldName ?? "cf-turnstile-response";
   const unavailable =
     opts.unavailableMessage ?? "This form is temporarily unavailable. Please email us directly.";
   const failed =
@@ -93,6 +97,7 @@ export function createIngestEndpoint(
       payload = {
         ...opts.buildPayload(body, event),
         ...(opts.formType ? { formType: opts.formType } : {}),
+        _meta: buildSubmissionMeta(event, str(body[turnstileFieldName])),
       };
     } catch (err) {
       console.error(`[forms-ingest] buildPayload threw: ${String(err)}`);

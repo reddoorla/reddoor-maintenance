@@ -5,6 +5,7 @@ import {
   submitScreenOut,
   type SubmissionPayload,
 } from "./client.js";
+import { buildSubmissionMeta } from "./meta.js";
 
 /** Endpoint + token for the dashboard ingest, read per-request from site env. */
 export type IngestActionConfig = { url?: string; token?: string };
@@ -23,6 +24,8 @@ export type CreateIngestActionOptions = {
   botFieldName?: string;
   /** Hidden timestamp input name (planted in `load`). Default "ts". */
   tsFieldName?: string;
+  /** Field carrying the Cloudflare Turnstile token. Default "cf-turnstile-response". */
+  turnstileFieldName?: string;
   /** fail(500) copy when env vars are unset. */
   unavailableMessage?: string;
   /** fail(502) copy when the ingest endpoint rejects/errors. */
@@ -46,6 +49,7 @@ export function createIngestAction(
 ): (event: RequestEvent) => Promise<IngestActionData> {
   const botFieldName = opts.botFieldName ?? "bot-field";
   const tsFieldName = opts.tsFieldName ?? "ts";
+  const turnstileFieldName = opts.turnstileFieldName ?? "cf-turnstile-response";
   const now = opts.now ?? Date.now;
   const unavailable =
     opts.unavailableMessage ?? "This form is temporarily unavailable. Please email us directly.";
@@ -92,7 +96,11 @@ export function createIngestAction(
       url,
       token,
       fetch: event.fetch,
-      payload: { ...opts.buildPayload(form, event), formType: opts.formType },
+      payload: {
+        ...opts.buildPayload(form, event),
+        formType: opts.formType,
+        _meta: buildSubmissionMeta(event, form.get(turnstileFieldName)?.toString()),
+      },
     });
     if (!result.ok) {
       console.error(`[forms-ingest] ${opts.formType} → ${result.status}: ${result.error}`);

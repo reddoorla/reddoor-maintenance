@@ -21,6 +21,27 @@ function fakeEvent(entries: Record<string, string>, fetchImpl: typeof fetch): Re
   } as unknown as RequestEvent;
 }
 
+// Like fakeEvent, but also exposes getClientAddress + request headers so the
+// _meta threading can pick up an IP / user-agent.
+function fakeEventWithMeta(
+  entries: Record<string, string>,
+  fetchImpl: typeof fetch,
+  meta: { ip?: string | (() => string); userAgent?: string } = {},
+): RequestEvent {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(entries)) fd.set(k, v);
+  const headers = new Headers();
+  if (meta.userAgent) headers.set("user-agent", meta.userAgent);
+  const getClientAddress =
+    typeof meta.ip === "function" ? meta.ip : meta.ip ? () => meta.ip as string : undefined;
+  return {
+    request: { formData: async () => fd, headers },
+    fetch: fetchImpl,
+    url: new URL("https://site.test/contact"),
+    getClientAddress,
+  } as unknown as RequestEvent;
+}
+
 const okConfig = () => ({ url: "https://dash/api/forms/acme", token: "tok" });
 // A clock 10s ahead of the planted ts so the timing screen passes.
 const now = () => 1_000_000 + 10_000;
@@ -266,5 +287,103 @@ describe("createIngestAction", () => {
       ([, init]) => init && "screenOut" in JSON.parse((init as RequestInit).body as string),
     );
     expect(anyScreen).toBe(false);
+  });
+
+  it("auto-threads _meta (turnstileToken/clientIp/userAgent) into the forwarded payload", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true, id: "recM" }));
+    const action = createIngestAction({
+      formType: "contact",
+      getConfig: okConfig,
+      buildPayload: (form) => ({ email: form.get("email")?.toString() }),
+      now,
+    });
+    const result = await action(
+      fakeEventWithMeta(
+        { email: "a@b.co", ts: goodTs, "cf-turnstile-response": "TOKEN123" },
+        fetchMock,
+        { ip: "203.0.113.7", userAgent: "Mozilla/5.0 (X)" },
+      ),
+    );
+    expect(result).toEqual({ success: true });
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body._meta).toEqual({
+      turnstileToken: "TOKEN123",
+      clientIp: "203.0.113.7",
+      userAgent: "Mozilla/5.0 (X)",
+    });
+    // buildPayload output is still forwarded intact alongside _meta.
+    expect(body.email).toBe("a@b.co");
+    expect(body.formType).toBe("contact");
+  });
+
+  it("omits _meta entirely when no token/IP/UA are present", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true, id: "recN" }));
+    const action = createIngestAction({
+      formType: "contact",
+      getConfig: okConfig,
+      buildPayload: (form) => ({ email: form.get("email")?.toString() }),
+      now,
+    });
+    await action(fakeEvent({ email: "a@b.co", ts: goodTs }, fetchMock));
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect("_meta" in body).toBe(false);
+  });
+
+  it("reads the turnstile token from a custom turnstileFieldName", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true, id: "recC" }));
+    const action = createIngestAction({
+      formType: "contact",
+      getConfig: okConfig,
+      buildPayload: (form) => ({ email: form.get("email")?.toString() }),
+      turnstileFieldName: "my-token",
+      now,
+    });
+    await action(fakeEventWithMeta({ email: "a@b.co", ts: goodTs, "my-token": "T9" }, fetchMock));
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body._meta).toEqual({ turnstileToken: "T9" });
+  });
+
+  it("still screens out a filled honeypot even when a turnstile token is present", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { ok: true })) as unknown as typeof fetch;
+    const action = createIngestAction({
+      formType: "contact",
+      getConfig: okConfig,
+      buildPayload: () => ({}),
+      now,
+    });
+    const result = await action(
+      fakeEventWithMeta(
+        { email: "a@b.co", ts: goodTs, "bot-field": "i am a bot", "cf-turnstile-response": "T" },
+        fetchMock,
+        { ip: "203.0.113.7" },
+      ),
+    );
+    expect(result).toEqual({ success: true });
+    // Honeypot tier is unchanged: the real submission is never forwarded.
+    const forwarded = (fetchMock as ReturnType<typeof vi.fn>).mock.calls.some(
+      ([, init]) => init && !("screenOut" in JSON.parse((init as RequestInit).body as string)),
+    );
+    expect(forwarded).toBe(false);
+  });
+
+  it("still forwards (with just the token) when getClientAddress throws", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true, id: "recT" }));
+    const action = createIngestAction({
+      formType: "contact",
+      getConfig: okConfig,
+      buildPayload: (form) => ({ email: form.get("email")?.toString() }),
+      now,
+    });
+    await action(
+      fakeEventWithMeta({ email: "a@b.co", ts: goodTs, "cf-turnstile-response": "TOK" }, fetchMock, {
+        ip: () => {
+          throw new Error("no address");
+        },
+      }),
+    );
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body._meta).toEqual({ turnstileToken: "TOK" });
   });
 });
