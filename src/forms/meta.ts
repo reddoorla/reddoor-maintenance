@@ -32,3 +32,46 @@ export function readMeta(payload: unknown): SubmissionMeta {
   if (ua) meta.userAgent = ua;
   return meta;
 }
+
+/**
+ * SITE-side event shape `buildSubmissionMeta` reads. Structural (not SvelteKit's
+ * `RequestEvent`) so this leaf stays SDK-free; a real `RequestEvent` is
+ * structurally assignable (`getClientAddress: () => string`, `request.headers`
+ * is a `Headers` with a `get`).
+ */
+type MetaEvent = {
+  getClientAddress?: () => string;
+  request?: { headers?: { get?: (name: string) => string | null } };
+};
+
+/**
+ * Build the transient `_meta` envelope a site forwards to central ingest:
+ * `{ turnstileToken?, clientIp?, userAgent? }`. Returns `undefined` when no
+ * field yields a value so callers can attach it unconditionally without
+ * polluting the payload (an `undefined` value is dropped by `JSON.stringify`).
+ * `getClientAddress` is guarded (some adapters lack a client address and can
+ * throw); UA is read defensively. None of this is ever persisted.
+ */
+export function buildSubmissionMeta(
+  event: MetaEvent,
+  turnstileToken: string | null | undefined,
+): SubmissionMeta | undefined {
+  const meta: SubmissionMeta = {};
+
+  const token = typeof turnstileToken === "string" ? turnstileToken.trim() : "";
+  if (token) meta.turnstileToken = token;
+
+  if (typeof event.getClientAddress === "function") {
+    try {
+      const ip = event.getClientAddress();
+      if (typeof ip === "string" && ip.trim()) meta.clientIp = ip.trim();
+    } catch {
+      // Some adapters have no client address and throw; drop clientIp silently.
+    }
+  }
+
+  const ua = event.request?.headers?.get?.("user-agent");
+  if (typeof ua === "string" && ua.trim()) meta.userAgent = ua.trim();
+
+  return Object.keys(meta).length > 0 ? meta : undefined;
+}
