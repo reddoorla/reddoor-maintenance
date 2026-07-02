@@ -161,3 +161,22 @@ describe("parseSecurityAdvisories", () => {
     ]);
   });
 });
+
+describe("websites/mapRow → requireTurnstile (ships dark, boolean guard)", () => {
+  it("maps Require Turnstile true when the column is boolean true", () => {
+    expect(row({ "Require Turnstile": true }).requireTurnstile).toBe(true);
+  });
+
+  it("maps Require Turnstile false when the column is boolean false", () => {
+    expect(row({ "Require Turnstile": false }).requireTurnstile).toBe(false);
+  });
+
+  it("defaults to false when the column is absent (ships dark)", () => {
+    expect(row({}).requireTurnstile).toBe(false);
+  });
+
+  it("defaults to false for a non-boolean value (never coerces a truthy string)", () => {
+    expect(row({ "Require Turnstile": "true" }).requireTurnstile).toBe(false);
+    expect(row({ "Require Turnstile": 1 }).requireTurnstile).toBe(false);
+  });
+});

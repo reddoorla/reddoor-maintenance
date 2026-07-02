@@ -289,7 +289,9 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     notifyRouting: parseNotifyRouting(f["Notify Routing"]),
     mailchimpApiKey: trimToNull(f["Mailchimp API Key"]),
     mailchimpAudienceId: trimToNull(f["Mailchimp Audience ID"]),
-    requireTurnstile: f["Require Turnstile"] === true,
+    // Boolean guard like crossbrowserOk, but defaults FALSE (not null) when absent: an
+    // unset/unknown column must read as "not required" so the feature ships dark.
+    requireTurnstile: typeof f["Require Turnstile"] === "boolean" ? (f["Require Turnstile"] as boolean) : false,
     renovateFailingCis: (f["Renovate Failing CIs"] as number | undefined) ?? null,
     defaultBranchCi: (f["Default Branch CI"] as string | undefined) ?? null,
     lastCommitAt: (f["Last Commit At"] as string | undefined) ?? null,
