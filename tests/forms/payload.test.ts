@@ -84,4 +84,26 @@ describe("normalizeSubmission", () => {
       expect(({} as Record<string, unknown>).polluted).toBeUndefined();
     }
   });
+
+  it("strips the reserved _meta envelope wholesale (never lands in extraFields)", () => {
+    // The forwarded { turnstileToken, clientIp, userAgent } envelope is transport
+    // metadata, not lead data. It must be dropped BEFORE the unknown-keys→extraFields
+    // merge so IP/UA/token can never leak into stored data or the operator email.
+    const r = normalizeSubmission({
+      email: "a@b.co",
+      message: "hi",
+      company: "Acme",
+      _meta: { turnstileToken: "tok", clientIp: "1.2.3.4", userAgent: "Mozilla/5.0" },
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      // a normal unknown key still lands…
+      expect(r.value.extraFields).toEqual({ company: "Acme" });
+      // …but _meta and its contents never do.
+      expect("_meta" in r.value.extraFields).toBe(false);
+      expect(r.value.extraFields.turnstileToken).toBeUndefined();
+      expect(r.value.extraFields.clientIp).toBeUndefined();
+      expect(r.value.extraFields.userAgent).toBeUndefined();
+    }
+  });
 });

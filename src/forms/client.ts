@@ -1,4 +1,5 @@
 import { SUBMISSION_FORM_TYPES, type FormType } from "./types.js";
+import type { SubmissionMeta } from "./meta.js";
 
 /**
  * The JSON a fleet site forwards to the dashboard ingest endpoint. Typed fields
@@ -20,6 +21,8 @@ export type SubmissionPayload = {
   message?: string | undefined;
   sourceUrl?: string | undefined;
   utm?: string | undefined;
+  /** Reserved transport envelope (token/IP/UA); stripped centrally, never persisted. */
+  _meta?: SubmissionMeta | undefined;
   [key: string]: unknown;
 };
 
