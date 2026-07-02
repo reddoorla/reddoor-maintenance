@@ -42,7 +42,7 @@ export function renderSubmissionRow(s: SubmissionRow): string {
   const btn = (label: string, action: string) =>
     `<button class="subm-status" data-id="${id}" data-status="${action}" data-url="${url}">${label}</button>`;
   const provenance =
-    s.spamScore !== null && s.spamScore !== undefined
+    s.status === "spam_auto" && s.spamScore !== null && s.spamScore !== undefined
       ? ` <span class="subm-provenance" title="${escapeHtml(s.spamReason ?? "")}">auto-spam · ${escapeHtml(String(s.spamScore))}</span>`
       : "";
   const recover = s.status === "spam_auto" ? btn("Not spam → new", "new") : "";
