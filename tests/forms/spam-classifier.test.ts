@@ -61,9 +61,10 @@ describe("classifySpam", () => {
       reasons: ["links:1"],
     });
     // two scheme+www links must score as 2 links, not 4
-    expect(
-      clean({ message: "see https://www.a.com and https://www.b.com for details" }),
-    ).toEqual({ score: 60, reasons: ["links:2"] });
+    expect(clean({ message: "see https://www.a.com and https://www.b.com for details" })).toEqual({
+      score: 60,
+      reasons: ["links:2"],
+    });
   });
 
   it("flags html/bbcode link markup at 40 (link-markup) without a bare-URL match", () => {
