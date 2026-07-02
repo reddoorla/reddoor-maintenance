@@ -5,6 +5,9 @@ import { openDb, readDbConfig } from "../../src/db/client.js";
 import { createSubmission, stampNotified } from "../../src/db/submissions.js";
 import { recordScreenOut } from "../../src/db/screenouts.js";
 import { ingestSubmission, parseScreenOut, ingestScreenOut } from "../../src/forms/ingest.js";
+import { verifyTurnstile } from "../../src/forms/turnstile.js";
+import { classifySpam } from "../../src/forms/spam-classifier.js";
+import { readMeta } from "../../src/forms/meta.js";
 import { forwardNewsletterToWebhook } from "../../src/forms/webhook.js";
 import { addMailchimpMember } from "../../src/forms/mailchimp.js";
 import { makeNotify } from "../../src/forms/notify.js";
@@ -27,6 +30,11 @@ export const config: Config = {
   },
 };
 
+// Log the unset-secret fail-open path once per warm instance (not per request).
+// verifyTurnstile already returns "unverifiable" when the secret is missing, so
+// this is an operator breadcrumb only — it never blocks a lead.
+let warnedTurnstileUnset = false;
+
 function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -46,6 +54,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
           TURSO_DATABASE_URL: typeof process.env.TURSO_DATABASE_URL === "string",
           RESEND_API_KEY: typeof process.env.RESEND_API_KEY === "string",
           FORMS_INGEST_TOKEN: typeof process.env.FORMS_INGEST_TOKEN === "string",
+          TURNSTILE_SECRET_KEY: typeof process.env.TURNSTILE_SECRET_KEY === "string",
         },
       },
       { status: 200 },
@@ -119,6 +128,25 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
         `[form-ingest] Resend unconfigured; submissions captured but not emailed: ${String(err)}`,
       );
     }
+    // Tier A — verify the Cloudflare Turnstile token (fail-open). readMeta pulls
+    // the forwarded { turnstileToken, clientIp, userAgent } envelope off the
+    // payload; IP/UA are used transiently here (remoteip + scoring) and are
+    // NEVER persisted. Unset secret / network error / timeout / absent token →
+    // "unverifiable" (contributes 0 to the score), so verify never blocks a lead.
+    const turnstileSecret = process.env.TURNSTILE_SECRET_KEY;
+    if (!turnstileSecret && !warnedTurnstileUnset) {
+      console.warn(
+        "[form-ingest] TURNSTILE_SECRET_KEY unset; Turnstile verification disabled (fail-open)",
+      );
+      warnedTurnstileUnset = true;
+    }
+    const meta = readMeta(payload);
+    const turnstile = await verifyTurnstile({
+      secret: turnstileSecret,
+      token: meta.turnstileToken,
+      remoteip: meta.clientIp ?? undefined,
+    });
+
     const result = await ingestSubmission(
       {
         getWebsiteBySlug: (s) => getWebsiteBySlug(base, s),
@@ -135,9 +163,25 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
             email: submission.email,
             name: submission.name,
           }),
+        // Tier B — pure heuristic classifier folded into the ingest decision.
+        // ingestSubmission calls this with the SAME Turnstile outcome (the 4th
+        // arg below) and derives status (+ requireTurnstile escalation, read off
+        // the resolved site — no per-handler wiring needed).
+        classifySpam: (n, outcome) =>
+          classifySpam({
+            name: n.name,
+            email: n.email,
+            // message is optional on NormalizedSubmission; exactOptionalPropertyTypes
+            // forbids passing `undefined`, so spread only when present.
+            ...(n.message !== undefined ? { message: n.message } : {}),
+            formType: n.formType,
+            extraFields: n.extraFields,
+            turnstile: outcome,
+          }),
       },
       slug,
       payload,
+      turnstile,
     );
 
     if (result.status === "unknown-site") return json({ ok: false, error: "unknown-site" }, 404);
