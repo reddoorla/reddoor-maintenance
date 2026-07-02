@@ -234,6 +234,21 @@ describe("ingestSubmission — spam decision", () => {
     expect(d.stampNotified).toHaveBeenCalledWith("recSUB", "sent", "msg_1");
   });
 
+  it("fails open to score 0 when classifySpam throws — the lead is still accepted as new", async () => {
+    const d = deps({
+      classifySpam: () => {
+        throw new Error("boom");
+      },
+    });
+    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: "hi" });
+    expect(r.status).toBe("accepted");
+    if (r.status === "accepted") expect(r.notifyStatus).toBe("sent");
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "new", spamScore: 0, spamReason: null }),
+    );
+    expect(d.notify).toHaveBeenCalledTimes(1);
+  });
+
   it("forces spam_auto on a requireTurnstile site when Turnstile fails, even at score 0", async () => {
     const site = makeWebsiteRow({ id: "recSITE", requireTurnstile: true });
     const row = makeSubmissionRow({ id: "recSUB", status: "spam_auto" });

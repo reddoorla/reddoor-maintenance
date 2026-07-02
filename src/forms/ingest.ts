@@ -92,12 +92,19 @@ export async function ingestSubmission(
   const n = normalized.value;
 
   // Fold the content signals + the Turnstile verdict into ONE spam decision.
-  // Absent classifier → treat as clean (fail-open). A `requireTurnstile` site
-  // escalates an ACTUAL "fail" to auto-spam regardless of score (never an absent
-  // token or an "unverifiable" error — those stay neutral).
-  const verdict: SpamVerdict = deps.classifySpam
-    ? deps.classifySpam(n, turnstile)
-    : { score: 0, reasons: [] };
+  // Absent classifier → treat as clean (fail-open). A throwing classifier is
+  // swallowed the same way — a bug in the heuristic must never turn an
+  // otherwise-good lead into a 500; it just scores clean. A `requireTurnstile`
+  // site escalates an ACTUAL "fail" to auto-spam regardless of score (never an
+  // absent token or an "unverifiable" error — those stay neutral).
+  let verdict: SpamVerdict = { score: 0, reasons: [] };
+  if (deps.classifySpam) {
+    try {
+      verdict = deps.classifySpam(n, turnstile);
+    } catch (err) {
+      console.error(`[ingest] classifySpam threw: ${String(err)}`);
+    }
+  }
   const reasons = [...verdict.reasons];
   let status: SubmissionStatus = verdict.score >= SPAM_THRESHOLD ? "spam_auto" : "new";
   if (site.requireTurnstile && turnstile === "fail") {
