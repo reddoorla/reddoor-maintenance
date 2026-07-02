@@ -187,7 +187,10 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     if (result.status === "unknown-site") return json({ ok: false, error: "unknown-site" }, 404);
     if (result.status === "rejected")
       return json({ ok: false, error: "invalid-payload", details: result.errors }, 400);
-    return json({ ok: true, id: result.submissionId, notify: result.notifyStatus }, 200);
+    // notifyStatus deliberately NOT echoed here: it deterministically reads
+    // "skipped" for auto-spam, which is a weak spam oracle a bot could poll to
+    // learn whether it was flagged. Keep the response minimal.
+    return json({ ok: true, id: result.submissionId }, 200);
   } catch (err) {
     return handlerError("form-ingest", err);
   }
