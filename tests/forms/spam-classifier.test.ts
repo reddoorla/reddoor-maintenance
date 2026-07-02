@@ -83,9 +83,54 @@ describe("classifySpam", () => {
       score: 25,
       reasons: ["keywords:1"],
     });
-    const many = clean({ message: "viagra casino porn crypto" });
+    const many = clean({ message: "viagra casino porn buy crypto" });
     expect(many.score).toBe(75); // 4 hits -> capped
     expect(many.reasons).toEqual(["keywords:4"]);
+  });
+
+  it("does not false-positive on legitimate finance/SEO client inquiries", () => {
+    // bare "crypto"/"bitcoin"/"forex" and a plain "SEO services" request are
+    // plausible real inquiries — only the narrowed, clearly-promotional
+    // phrasing should fire.
+    expect(clean({ message: "We run a crypto exchange and need a new site." })).toEqual({
+      score: 0,
+      reasons: [],
+    });
+    expect(clean({ message: "I'm a bitcoin trader looking for a landing page." })).toEqual({
+      score: 0,
+      reasons: [],
+    });
+    expect(clean({ message: "We're a forex brokerage, can you redesign our site?" })).toEqual({
+      score: 0,
+      reasons: [],
+    });
+    expect(clean({ message: "Do you offer SEO services for small businesses?" })).toEqual({
+      score: 0,
+      reasons: [],
+    });
+  });
+
+  it("still flags clearly-promotional spam phrasing for the narrowed keywords", () => {
+    expect(clean({ message: "buy crypto now, guaranteed returns" })).toEqual({
+      score: 25,
+      reasons: ["keywords:1"],
+    });
+    expect(clean({ message: "protect your crypto wallet today" })).toEqual({
+      score: 25,
+      reasons: ["keywords:1"],
+    });
+    expect(clean({ message: "huge bitcoin investment opportunity" })).toEqual({
+      score: 25,
+      reasons: ["keywords:1"],
+    });
+    expect(clean({ message: "get rich with our forex signals" })).toEqual({
+      score: 25,
+      reasons: ["keywords:1"],
+    });
+    expect(clean({ message: "cheap seo, rank #1 guaranteed" })).toEqual({
+      score: 25,
+      reasons: ["keywords:1"],
+    });
   });
 
   it("flags >30% non-latin script in the message OR the name at 50 (non-latin)", () => {
