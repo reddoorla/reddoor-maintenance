@@ -137,6 +137,10 @@ export type WebsiteRow = {
    *  blank → skipped. The API key is `key-dc` format; dc is derived from it. */
   mailchimpApiKey: string | null;
   mailchimpAudienceId: string | null;
+  /** Per-site Cloudflare Turnstile gate. When true, a submission whose Turnstile
+   *  token verifies as "fail" is escalated to auto-spam regardless of content score
+   *  (an absent/unverifiable token stays neutral — fail-open). Airtable checkbox. */
+  requireTurnstile: boolean;
   /** GitHub-signals sweep (slice 2a), written nightly by `github-signals --fleet`. */
   renovateFailingCis: number | null;
   defaultBranchCi: string | null; // "passing" | "failing" | "pending" | "none"
@@ -285,6 +289,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     notifyRouting: parseNotifyRouting(f["Notify Routing"]),
     mailchimpApiKey: trimToNull(f["Mailchimp API Key"]),
     mailchimpAudienceId: trimToNull(f["Mailchimp Audience ID"]),
+    requireTurnstile: f["Require Turnstile"] === true,
     renovateFailingCis: (f["Renovate Failing CIs"] as number | undefined) ?? null,
     defaultBranchCi: (f["Default Branch CI"] as string | undefined) ?? null,
     lastCommitAt: (f["Last Commit At"] as string | undefined) ?? null,

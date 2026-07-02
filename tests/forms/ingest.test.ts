@@ -190,3 +190,73 @@ describe("ingestSubmission", () => {
     expect(addToMailchimp).toHaveBeenCalledWith(site, row);
   });
 });
+
+describe("ingestSubmission — spam decision", () => {
+  it("stores spam_auto + score + reason, suppresses notify and newsletter fan-out on a spam verdict", async () => {
+    const site = makeWebsiteRow({ id: "recSITE", newsletterWebhook: "https://hooks.zapier.com/x" });
+    const row = makeSubmissionRow({ id: "recSUB", formType: "newsletter", status: "spam_auto" });
+    const forwardNewsletter = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    const d = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(site),
+      createSubmission: vi.fn().mockResolvedValue(row),
+      forwardNewsletter,
+      classifySpam: () => ({ score: 130, reasons: ["links:3", "keywords:1"] }),
+    });
+    const r = await ingestSubmission(
+      d,
+      "acme",
+      { formType: "newsletter", email: "a@b.co", message: "buy now http://x http://y http://z" },
+      "unverifiable",
+    );
+    expect(r.status).toBe("accepted");
+    if (r.status === "accepted") expect(r.notifyStatus).toBe("skipped");
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "spam_auto",
+        spamScore: 130,
+        spamReason: "links:3,keywords:1",
+      }),
+    );
+    expect(d.notify).not.toHaveBeenCalled();
+    expect(d.stampNotified).toHaveBeenCalledWith("recSUB", "skipped", null);
+    expect(forwardNewsletter).not.toHaveBeenCalled();
+  });
+
+  it("takes the normal notify + stamp path on a clean verdict", async () => {
+    const d = deps({ classifySpam: () => ({ score: 0, reasons: [] }) });
+    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: "hi" });
+    expect(r.status).toBe("accepted");
+    if (r.status === "accepted") expect(r.notifyStatus).toBe("sent");
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "new", spamScore: 0, spamReason: null }),
+    );
+    expect(d.notify).toHaveBeenCalledTimes(1);
+    expect(d.stampNotified).toHaveBeenCalledWith("recSUB", "sent", "msg_1");
+  });
+
+  it("forces spam_auto on a requireTurnstile site when Turnstile fails, even at score 0", async () => {
+    const site = makeWebsiteRow({ id: "recSITE", requireTurnstile: true });
+    const row = makeSubmissionRow({ id: "recSUB", status: "spam_auto" });
+    const d = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(site),
+      createSubmission: vi.fn().mockResolvedValue(row),
+      classifySpam: () => ({ score: 0, reasons: [] }),
+    });
+    const r = await ingestSubmission(
+      d,
+      "acme",
+      { email: "a@b.co", message: "totally normal enquiry" },
+      "fail",
+    );
+    expect(r.status).toBe("accepted");
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "spam_auto",
+        spamScore: 0,
+        spamReason: "turnstile-required-failed",
+      }),
+    );
+    expect(d.notify).not.toHaveBeenCalled();
+    expect(d.stampNotified).toHaveBeenCalledWith("recSUB", "skipped", null);
+  });
+});

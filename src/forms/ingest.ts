@@ -1,6 +1,13 @@
 import type { WebsiteRow } from "../reports/airtable/websites.js";
-import type { SubmissionRow, SubmissionInput, NotifyStatus } from "../reports/submission-row.js";
-import { normalizeSubmission } from "./payload.js";
+import type {
+  SubmissionRow,
+  SubmissionInput,
+  NotifyStatus,
+  SubmissionStatus,
+} from "../reports/submission-row.js";
+import { normalizeSubmission, type NormalizedSubmission } from "./payload.js";
+import type { TurnstileOutcome } from "./turnstile.js";
+import { SPAM_THRESHOLD, type SpamVerdict } from "./spam-classifier.js";
 
 export type IngestDeps = {
   getWebsiteBySlug: (slug: string) => Promise<WebsiteRow | null>;
@@ -11,6 +18,10 @@ export type IngestDeps = {
   ) => Promise<{ status: NotifyStatus; messageId: string | null }>;
   stampNotified: (id: string, status: NotifyStatus, messageId: string | null) => Promise<void>;
   now: () => Date;
+  /** Optional spam classifier. When present, its verdict drives the stored
+   *  status/score/reason; absent → every submission scores 0 (fail-open, clean).
+   *  Injected so the classifier stays a pure, transport-agnostic leaf. */
+  classifySpam?: (n: NormalizedSubmission, turnstile: TurnstileOutcome) => SpamVerdict;
   /** Optional: POST a newsletter submission to the site's configured webhook
    *  (best-effort). Omitted in tests/handlers that don't need it. */
   forwardNewsletter?: (
@@ -69,6 +80,7 @@ export async function ingestSubmission(
   deps: IngestDeps,
   slug: string,
   rawPayload: unknown,
+  turnstile: TurnstileOutcome = "unverifiable",
 ): Promise<IngestResult> {
   const normalized = normalizeSubmission(rawPayload);
   if (!normalized.ok) {
@@ -78,12 +90,31 @@ export async function ingestSubmission(
   if (!site) return { status: "unknown-site", slug };
 
   const n = normalized.value;
+
+  // Fold the content signals + the Turnstile verdict into ONE spam decision.
+  // Absent classifier → treat as clean (fail-open). A `requireTurnstile` site
+  // escalates an ACTUAL "fail" to auto-spam regardless of score (never an absent
+  // token or an "unverifiable" error — those stay neutral).
+  const verdict: SpamVerdict = deps.classifySpam
+    ? deps.classifySpam(n, turnstile)
+    : { score: 0, reasons: [] };
+  const reasons = [...verdict.reasons];
+  let status: SubmissionStatus = verdict.score >= SPAM_THRESHOLD ? "spam_auto" : "new";
+  if (site.requireTurnstile && turnstile === "fail") {
+    status = "spam_auto";
+    if (!reasons.includes("turnstile-required-failed")) reasons.push("turnstile-required-failed");
+  }
+  const spamReason = reasons.length > 0 ? reasons.join(",") : null;
+
   const row = await deps.createSubmission({
     siteId: site.id,
     formType: n.formType,
     name: n.name,
     email: n.email,
     extraFields: n.extraFields,
+    status,
+    spamScore: verdict.score,
+    spamReason,
     // Optional fields spread only when present — exactOptionalPropertyTypes
     // forbids assigning `undefined` to an optional `phone?: string` etc.
     ...(n.phone !== undefined ? { phone: n.phone } : {}),
@@ -93,12 +124,22 @@ export async function ingestSubmission(
     submittedAt: deps.now(),
   });
 
+  // Auto-spam (and operator-marked spam) is captured but silent: no operator
+  // email, no autoresponder, no newsletter fan-out. Skip notify entirely and
+  // record the honest "skipped" stamp. notify.ts also nulls both builders for
+  // these statuses (defense in depth), but short-circuiting here means the
+  // injected notify dep is never even invoked for a spam row.
+  const isSpam = row.status === "spam_auto" || row.status === "spam";
   let notify: { status: NotifyStatus; messageId: string | null };
-  try {
-    notify = await deps.notify(site, row);
-  } catch (err) {
-    console.error(`[ingest] notify threw: ${String(err)}`);
-    notify = { status: "failed", messageId: null };
+  if (isSpam) {
+    notify = { status: "skipped", messageId: null };
+  } else {
+    try {
+      notify = await deps.notify(site, row);
+    } catch (err) {
+      console.error(`[ingest] notify threw: ${String(err)}`);
+      notify = { status: "failed", messageId: null };
+    }
   }
   try {
     await deps.stampNotified(row.id, notify.status, notify.messageId);
@@ -108,7 +149,9 @@ export async function ingestSubmission(
 
   // Newsletter fan-out: each configured destination fires best-effort and is
   // swallowed+logged — the lead is already persisted; never turn it into a 502.
-  if (n.formType === "newsletter") {
+  // Guarded on the row status so a spam signup is never forwarded to a site
+  // webhook or added to a Mailchimp audience.
+  if (n.formType === "newsletter" && !isSpam) {
     if (site.newsletterWebhook && deps.forwardNewsletter) {
       try {
         const fwd = await deps.forwardNewsletter(site.newsletterWebhook, row, site);
