@@ -61,9 +61,11 @@ export const MIGRATIONS: Migration[] = [
   },
   {
     id: "0003_add_spam_score",
-    // Single-statement migration: SQLite `ADD COLUMN` has no `IF NOT EXISTS`, and the
-    // runner's `executeMultiple` is non-transactional — a lone statement has no
-    // mid-script failure window, and the per-id `_migrations` marker guards re-runs.
+    // SQLite `ADD COLUMN` has no `IF NOT EXISTS`, so it is NOT self-idempotent: if the
+    // `_migrations` marker is lost after the column is added (crash between statement
+    // and marker write), a re-run would throw `duplicate column name`. `migrate.ts`
+    // recognizes that error as already-applied and records the marker, keeping the
+    // runner idempotent (see `isAlreadyAppliedError`).
     sql: `ALTER TABLE submissions ADD COLUMN spam_score REAL;`,
   },
   {
