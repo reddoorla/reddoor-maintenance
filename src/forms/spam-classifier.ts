@@ -41,7 +41,7 @@ export const DISPOSABLE_EMAIL_DOMAINS: readonly string[] = [
   "maildrop.cc",
 ];
 
-const URL_RE = /(https?:\/\/|www\.)/gi;
+const URL_RE = /https?:\/\/\S+|www\.\S+/gi;
 const LINK_MARKUP_RE = /<a\s[^>]*href|\[url[=\]]/i;
 const ONLY_URL_RE = /^(https?:\/\/\S+|www\.\S+)$/i;
 
