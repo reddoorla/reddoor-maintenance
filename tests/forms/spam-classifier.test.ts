@@ -131,6 +131,23 @@ describe("classifySpam", () => {
     expect(clean({ message: "SHORT SHOUT" })).toEqual({ score: 0, reasons: [] });
   });
 
+  it("scores spam signals found in extraFields free text, not just message", () => {
+    const spamText = "buy viagra now http://a.com http://b.com";
+    const viaMessage = clean({ message: spamText });
+    const viaExtra = clean({ message: "", extraFields: { comments: spamText } });
+    expect(viaExtra).toEqual(viaMessage);
+    expect(viaExtra.score).toBeGreaterThan(0);
+  });
+
+  it("ignores non-string extraFields values when building the scanned body", () => {
+    expect(
+      clean({
+        message: "",
+        extraFields: { count: 5, agreed: true, meta: { nested: "viagra" }, empty: null },
+      }),
+    ).toEqual({ score: 0, reasons: [] });
+  });
+
   it("threshold boundaries: fail + one link = 100 -> at/over threshold; three bare links = 90 -> under", () => {
     const over = clean({ turnstile: "fail" as TurnstileOutcome, message: "visit http://a.com" });
     expect(over).toEqual({ score: 100, reasons: ["turnstile-fail", "links:1"] });

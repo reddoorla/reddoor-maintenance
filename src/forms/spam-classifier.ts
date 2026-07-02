@@ -103,29 +103,38 @@ export function classifySpam(input: {
   const reasons: string[] = [];
   let score = 0;
 
+  // Site-specific free-text fields (e.g. extra.comments) carry the same spam
+  // signals as message — fold every STRING extraFields value into the scanned
+  // body so a site with a custom "comments"/"details" field isn't a blind spot.
+  // Non-string values (numbers, booleans, nested objects) are ignored.
+  const extraText = Object.values(input.extraFields ?? {})
+    .filter((v): v is string => typeof v === "string")
+    .join(" ");
+  const body = extraText ? `${message} ${extraText}` : message;
+
   if (input.turnstile === "fail") {
     score += 70;
     reasons.push("turnstile-fail");
   }
 
-  const urls = countUrls(message);
+  const urls = countUrls(body);
   if (urls > 0) {
     score += Math.min(urls, 3) * 30;
     reasons.push(`links:${urls}`);
   }
 
-  if (LINK_MARKUP_RE.test(message)) {
+  if (LINK_MARKUP_RE.test(body)) {
     score += 40;
     reasons.push("link-markup");
   }
 
-  const keywords = countKeywordHits(message);
+  const keywords = countKeywordHits(body);
   if (keywords > 0) {
     score += Math.min(keywords, 3) * 25;
     reasons.push(`keywords:${keywords}`);
   }
 
-  if (nonLatinRatio(message) > 0.3 || nonLatinRatio(name) > 0.3) {
+  if (nonLatinRatio(body) > 0.3 || nonLatinRatio(name) > 0.3) {
     score += 50;
     reasons.push("non-latin");
   }
@@ -140,7 +149,7 @@ export function classifySpam(input: {
     reasons.push("url-in-name");
   }
 
-  const trimmedMsg = message.trim();
+  const trimmedMsg = body.trim();
   const degenerate =
     (trimmedMsg.length > 0 && trimmedMsg === name.trim()) || ONLY_URL_RE.test(trimmedMsg);
   if (degenerate) {
@@ -148,7 +157,7 @@ export function classifySpam(input: {
     reasons.push("degenerate");
   }
 
-  if (isAllCaps(message)) {
+  if (isAllCaps(body)) {
     score += 15;
     reasons.push("all-caps");
   }
