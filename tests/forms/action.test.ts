@@ -377,11 +377,15 @@ describe("createIngestAction", () => {
       now,
     });
     await action(
-      fakeEventWithMeta({ email: "a@b.co", ts: goodTs, "cf-turnstile-response": "TOK" }, fetchMock, {
-        ip: () => {
-          throw new Error("no address");
+      fakeEventWithMeta(
+        { email: "a@b.co", ts: goodTs, "cf-turnstile-response": "TOK" },
+        fetchMock,
+        {
+          ip: () => {
+            throw new Error("no address");
+          },
         },
-      }),
+      ),
     );
     const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
     expect(body._meta).toEqual({ turnstileToken: "TOK" });
