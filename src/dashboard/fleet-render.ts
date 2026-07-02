@@ -253,7 +253,9 @@ function renderInboxLane(model: CockpitModel): string {
   const subs: SubmissionEntry[] = model.submissions ?? [];
   const spam = model.spam;
   const hasSpam = !!spam && (spam.caught > 0 || spam.through > 0);
-  if (subs.length === 0 && !hasSpam) return "";
+  const autoFiltered = model.autoFiltered ?? 0;
+  const hasAutoFiltered = autoFiltered > 0;
+  if (subs.length === 0 && !hasSpam && !hasAutoFiltered) return "";
 
   const shown = [...subs]
     .sort((a, b) => (b.submittedAt ?? "").localeCompare(a.submittedAt ?? ""))
@@ -280,10 +282,14 @@ function renderInboxLane(model: CockpitModel): string {
     ? `<div class="spam-rollup muted">🛡 Spam (30d) — caught ${spam!.caught} · through ${spam!.through}</div>`
     : "";
   const spamInSummary = hasSpam ? " · 🛡 Spam (30d)" : "";
+  const autoFilteredLine = hasAutoFiltered
+    ? `<div class="spam-rollup muted">🚫 ${autoFiltered} auto-filtered this week — <a href="/submissions?status=spam_auto">review</a></div>`
+    : "";
   return `<details class="inbox">
     <summary>📥 Submissions (${subs.length} new)${spamInSummary}</summary>
     ${rows}${subs.length > 0 ? more : ""}
     ${spamLine}
+    ${autoFilteredLine}
   </details>`;
 }
 
