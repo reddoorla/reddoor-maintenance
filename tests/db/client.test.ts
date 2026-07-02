@@ -34,7 +34,12 @@ describe("openDb", () => {
     expect(row?.name).toBe("Ada");
     // _migrations exists too (proves runMigrations ran on the same connection).
     const m = await sql<{ id: string }>`SELECT id FROM _migrations`.execute(db);
-    expect(m.rows.map((r) => r.id)).toEqual(["0001_init", "0002_fleet_events"]);
+    expect(m.rows.map((r) => r.id)).toEqual([
+      "0001_init",
+      "0002_fleet_events",
+      "0003_add_spam_score",
+      "0004_add_spam_reason",
+    ]);
     await db.destroy();
   });
 });
