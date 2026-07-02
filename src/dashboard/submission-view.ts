@@ -24,6 +24,13 @@ function extraFieldsList(raw: string | null): string {
   return rows;
 }
 
+/** A submission belongs in the per-site strip unless it was auto-filtered as spam
+ *  (status "spam_auto"): auto-spam is reviewed only on /submissions, so it never
+ *  crowds the real-lead window. PURE. */
+export function isVisibleInStrip(s: SubmissionRow): boolean {
+  return s.status !== "spam_auto";
+}
+
 export function renderSubmissionRow(s: SubmissionRow): string {
   const when = s.submittedAt ? escapeHtml(relativeTimeFromNow(s.submittedAt)) : "—";
   const type = escapeHtml(s.formType);
@@ -34,6 +41,11 @@ export function renderSubmissionRow(s: SubmissionRow): string {
   const url = `/api/submissions/${encodeURIComponent(s.id)}/status`;
   const btn = (label: string, action: string) =>
     `<button class="subm-status" data-id="${id}" data-status="${action}" data-url="${url}">${label}</button>`;
+  const provenance =
+    s.spamScore !== null && s.spamScore !== undefined
+      ? ` <span class="subm-provenance" title="${escapeHtml(s.spamReason ?? "")}">auto-spam · ${escapeHtml(String(s.spamScore))}</span>`
+      : "";
+  const recover = s.status === "spam_auto" ? btn("Not spam → new", "new") : "";
 
   // One detail row per present field; absent fields are omitted (no blank rows).
   const kv = (label: string, value: string | number | null) =>
@@ -59,10 +71,10 @@ export function renderSubmissionRow(s: SubmissionRow): string {
 
   return `<li class="subm-item">
     <details>
-      <summary class="subm-head"><strong>${type}</strong> · ${who} <span class="muted">${email}</span> <span class="pill subm-${status}">${status}</span> <span class="muted">${when}</span></summary>
+      <summary class="subm-head"><strong>${type}</strong> · ${who} <span class="muted">${email}</span> <span class="pill subm-${status}">${status}</span>${provenance} <span class="muted">${when}</span></summary>
       <div class="subm-detail">${details}</div>
     </details>
-    <div class="subm-actions">${btn("Read", "read")}${btn("Archive", "archived")}${btn("Spam", "spam")}</div>
+    <div class="subm-actions">${recover}${btn("Read", "read")}${btn("Archive", "archived")}${btn("Spam", "spam")}</div>
   </li>`;
 }
 
@@ -85,6 +97,8 @@ button.subm-status:disabled { opacity: 0.6; cursor: default; }
 .pill.subm-read { background: #f0f0f0; color: #555; }
 .pill.subm-archived { background: #eee; color: #888; }
 .pill.subm-spam { background: #fdecea; color: #b00; }
+.pill.subm-spam_auto { background: #fff4e5; color: #a65a00; }
+.subm-provenance { font-size: 0.72rem; border-radius: 0.25rem; padding: 0 0.35rem; white-space: nowrap; background: #fff4e5; color: #a65a00; }
 .subm-viewall { font-size: 0.8rem; font-weight: normal; margin-left: 0.4rem; white-space: nowrap; }`;
 
 /** Client-side JS for the submission status triage buttons. Insert bare (no <script> wrapper). */

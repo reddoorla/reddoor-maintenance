@@ -13,6 +13,7 @@ import {
   renderSubmissionRow,
   SUBMISSION_STYLES,
   SUBMISSION_STATUS_SCRIPT,
+  isVisibleInStrip,
 } from "./submission-view.js";
 import { SITE_STATUS_OPTIONS, FREQ_OPTIONS } from "./site-details.js";
 
@@ -177,19 +178,20 @@ function reportRow(r: ReportRow): string {
 const SUBMISSIONS_PER_SITE_CAP = 25;
 
 function submissionsSection(submissions: SubmissionRow[], site: WebsiteRow): string {
-  if (submissions.length === 0) return "";
-  const recent = [...submissions]
+  const visible = submissions.filter(isVisibleInStrip);
+  if (visible.length === 0) return "";
+  const recent = [...visible]
     .sort((a, b) => (b.submittedAt ?? "").localeCompare(a.submittedAt ?? ""))
     .slice(0, SUBMISSIONS_PER_SITE_CAP);
   // The heading shows the true total; when we only list a slice, say so rather
   // than implying every one of the N is on the page.
   const note =
-    submissions.length > recent.length
-      ? `<span class="muted"> — showing ${recent.length} of ${submissions.length}</span>`
+    visible.length > recent.length
+      ? `<span class="muted"> — showing ${recent.length} of ${visible.length}</span>`
       : "";
   const viewAll = `<a class="subm-viewall" href="/submissions?site=${escapeHtml(siteSlug(site.name))}">View all for this site →</a>`;
   return `<div class="section submissions">
-    <h2>Form submissions (${submissions.length})${note} ${viewAll}</h2>
+    <h2>Form submissions (${visible.length})${note} ${viewAll}</h2>
     <ul class="subm-list">${recent.map(renderSubmissionRow).join("")}</ul>
   </div>`;
 }
