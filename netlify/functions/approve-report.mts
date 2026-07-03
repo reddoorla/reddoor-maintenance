@@ -119,6 +119,13 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     if (result.status === "not-found") {
       return Response.json(result, { status: 404 });
     }
+    // A blocked approve must NOT be a 2xx: the dashboard's inline script keys
+    // success purely off res.ok, so a 200 here would flip the button to
+    // "Approved" for a report that was refused. 409 = the row's current state
+    // conflicts with approval; body carries the reason/blockers.
+    if (result.status === "blocked") {
+      return Response.json(result, { status: 409 });
+    }
     return Response.json(result, { status: 200 });
   } catch (err) {
     // An Airtable 429/500 mid-approve must not surface as an unhandled 500 with
