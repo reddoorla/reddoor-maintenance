@@ -5,6 +5,8 @@ import {
   approveReportRow,
 } from "../../src/reports/airtable/reports.js";
 import { approveReport, verifyBasicAuth } from "../../src/dashboard/index.js";
+import { listWebsites } from "../../src/reports/airtable/websites.js";
+import { approveBlockers, formatBlockers } from "../../src/reports/preflight.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
 
@@ -102,6 +104,14 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
         getReportById: (rid) => getReportByIdAirtable(base, rid),
         approveReportRow: (rid, at, by) => approveReportRow(base, rid, at, by),
         now: () => new Date(),
+        sendBlockers: async (report) => {
+          // One Websites fetch per approve click (30/min rate limit; fine). A
+          // missing Site row is itself a send blocker — sendApprovedReports
+          // fails exactly that way.
+          const site = (await listWebsites(base)).find((w) => w.id === report.siteId);
+          if (!site) return ["site-not-found: this report's Site link points at no Websites row"];
+          return formatBlockers(approveBlockers(site, report));
+        },
       },
       id,
     );

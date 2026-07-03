@@ -11,7 +11,13 @@ export type ApproveResult =
       reportId: string;
       reason: "already-approved" | "already-sent" | "not-draft-ready";
     }
-  | { status: "blocked"; reportId: string; reason: "checklist-incomplete" }
+  | {
+      status: "blocked";
+      reportId: string;
+      reason: "checklist-incomplete" | "send-blocked";
+      /** Human-readable blockers ("check: message"), present for send-blocked. */
+      blockers?: string[];
+    }
   | { status: "not-found"; reportId: string };
 
 /**
@@ -23,6 +29,11 @@ export type ApproveDeps = {
   getReportById: (id: string) => Promise<ReportRow | null>;
   approveReportRow: (id: string, approvedAt: Date, approvedBy: string) => Promise<void>;
   now: () => Date;
+  /** Send-blocking problems for this report (empty = clear to approve). The .mts
+   *  adapter binds approveBlockers() over the live Websites row; tests bind fakes.
+   *  This closes the vacuous gate on Launch/Announcement (no checklist) and stops
+   *  ANY type being approved into a send that is already known to throw. */
+  sendBlockers: (report: ReportRow) => Promise<string[]>;
 };
 
 /**
@@ -45,6 +56,11 @@ export async function approveReport(deps: ApproveDeps, reportId: string): Promis
   // orchestrate.ts the hard backstop for a direct-in-Airtable approval.
   if (!isChecklistComplete(report))
     return { status: "blocked", reportId, reason: "checklist-incomplete" };
+  // The send-blocker gate: approving a report whose send is already known to
+  // throw (no recipients / malformed address / no header image / no report
+  // scores) only schedules a red cron run — block with the reasons instead.
+  const blockers = await deps.sendBlockers(report);
+  if (blockers.length > 0) return { status: "blocked", reportId, reason: "send-blocked", blockers };
   await deps.approveReportRow(reportId, deps.now(), APPROVED_BY);
   return { status: "approved", reportId };
 }

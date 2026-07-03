@@ -2,6 +2,7 @@
 import type { AttentionItem } from "./attention.js";
 import { siteSlug, type WebsiteRow } from "../reports/airtable/websites.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
+import { approveBlockers } from "../reports/preflight.js";
 
 /** Build the same `/s/<slug>` dashboard link the M3 ready-section uses, trailing-slash-safe. */
 function dashboardUrl(baseUrl: string, siteName: string): string {
@@ -122,6 +123,42 @@ export function collectLighthouseAlerts(sites: WebsiteRow[], baseUrl: string): A
  * the M3 ready-section does, so the digest never renders a broken link. The diff
  * key is the report RECORD id, so two failures on one site stay distinct.
  */
+/**
+ * One attention item per unsent draft whose send is ALREADY known to fail
+ * (approveBlockers: recipients / header image / report scores). An APPROVED one
+ * is critical — the next 09:23 UTC run will go red on it; a pending one is a
+ * warning — approving it just schedules that failure. Keyed `preflight:<reportId>`.
+ * PURE; same predicate the approve gate and the dashboard chip use.
+ */
+export function collectPreflightBlocked(
+  reports: ReportRow[],
+  sitesById: Map<string, WebsiteRow>,
+  baseUrl: string,
+): AttentionItem[] {
+  const items: AttentionItem[] = [];
+  for (const r of reports) {
+    if (!r.draftReady || r.sentAt !== null) continue;
+    const site = sitesById.get(r.siteId);
+    if (!site) continue; // orphan → skip rather than render a broken link
+    const fails = approveBlockers(site, r).filter((f) => f.level === "fail");
+    if (fails.length === 0) continue;
+    const first = fails[0]!;
+    const more = fails.length > 1 ? ` (+${fails.length - 1} more)` : "";
+    items.push({
+      key: `preflight:${r.id}`,
+      kind: "preflight",
+      siteName: site.name,
+      title: r.approvedToSend
+        ? `Approved ${r.reportType} will fail at send — ${first.check}${more}`
+        : `${r.reportType} draft can't be approved — ${first.check}${more}`,
+      url: dashboardUrl(baseUrl, site.name),
+      severity: r.approvedToSend ? "critical" : "warning",
+      metric: fails.length,
+    });
+  }
+  return items;
+}
+
 export function collectDeliveryFailures(
   reports: ReportRow[],
   sitesById: Map<string, WebsiteRow>,

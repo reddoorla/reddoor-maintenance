@@ -377,3 +377,82 @@ export async function preflight(deps?: PreflightDeps): Promise<PreflightResult> 
   );
   return { results, fleet: deps?.site ? [] : preflightFleet(selected) };
 }
+
+/**
+ * The send-blocking subset for ONE report, at approve time: exactly the
+ * conditions that make `sendOne` throw (no recipients, malformed To/CC, no
+ * header image, no report-level Lighthouse scores) plus the wrong-inbox warn
+ * (operator address resolved as a client's To). PURE — the approve gate, the
+ * dashboard's pending-row chip, and the digest collector all call this one
+ * function so "approvable" can't drift from "sendable".
+ *
+ * Deliberately narrower than {@link preflightSite}: schedule hygiene and
+ * pending-draft races are fleet/site concerns — blocking THIS report's approval
+ * on them would be over-gating.
+ */
+export function approveBlockers(site: WebsiteRow, report: ReportRow): PreflightFinding[] {
+  const findings: PreflightFinding[] = [];
+
+  const explicitTo = parseAddresses(site.reportRecipientsTo);
+  const fallbackTo = parseAddresses(site.pointOfContact);
+  const to = explicitTo ?? fallbackTo ?? [];
+  if (to.length === 0) {
+    findings.push({
+      level: "fail",
+      check: "recipients-missing",
+      message:
+        "no recipients — Report recipients (To) and point of contact are both empty; the send will throw",
+    });
+  }
+  for (const addr of to) {
+    if (!isProbablyEmail(addr)) {
+      findings.push({
+        level: "fail",
+        check: "recipients-malformed",
+        message: `recipient '${addr}' is malformed — fix Report recipients (To) / point of contact in Airtable`,
+      });
+    }
+  }
+  for (const addr of parseAddresses(site.reportRecipientsCc) ?? []) {
+    if (!isProbablyEmail(addr)) {
+      findings.push({
+        level: "fail",
+        check: "recipients-malformed",
+        message: `CC '${addr}' is malformed — fix Report recipients (CC) in Airtable`,
+      });
+    }
+  }
+  if (!site.headerImage) {
+    findings.push({
+      level: "fail",
+      check: "header-image-missing",
+      message: "no Header image on the Websites row — the send will throw",
+    });
+  }
+  // sendOne throws on a null report.lighthouse (one blank/non-numeric cell nulls
+  // all four) — the REPORT's snapshot, not the Websites-row scores.
+  if (report.lighthouse === null) {
+    findings.push({
+      level: "fail",
+      check: "report-scores-missing",
+      message:
+        "the Reports row has no Lighthouse scores (one blank/non-numeric cell nulls all four) — the send will throw",
+    });
+  }
+  if (!isOperatorSite(site)) {
+    const operatorAddrs = to.filter((a) => OPERATOR_DOMAINS.includes(domainOf(a)));
+    if (operatorAddrs.length > 0 && operatorAddrs.length === to.length) {
+      findings.push({
+        level: "warn",
+        check: "recipient-operator-address",
+        message: `resolved To is ONLY operator address(es) ${operatorAddrs.join(", ")} — the client will NOT receive this report`,
+      });
+    }
+  }
+  return findings;
+}
+
+/** Convenience: just the fail-level blockers, formatted for gate messages. */
+export function formatBlockers(findings: PreflightFinding[]): string[] {
+  return findings.filter((f) => f.level === "fail").map((f) => `${f.check}: ${f.message}`);
+}
