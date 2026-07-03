@@ -1110,6 +1110,13 @@ describe("renderSiteDashboardHtml — preflight chip + send-blocker gate", () =>
     expect(html).not.toMatch(/<button class="approve"[^>]*disabled/);
   });
 
+  it("the approve click handler surfaces the 409 body (Blocked + blockers in the title)", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [pendingReport()]);
+    const script = html.slice(html.indexOf("<script>"), html.indexOf("</script>"));
+    expect(script).toContain('data.reason === "send-blocked" ? "Blocked" : "Failed"');
+    expect(script).toContain("data.blockers");
+  });
+
   it("the client checklist re-gate never re-enables a send-blocked button", () => {
     const html = renderSiteDashboardHtml(siteRow(), [pendingReport()]);
     const script = html.slice(html.indexOf("<script>"), html.indexOf("</script>"));

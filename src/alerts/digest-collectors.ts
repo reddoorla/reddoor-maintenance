@@ -142,14 +142,34 @@ export function collectPreflightBlocked(
   const items: AttentionItem[] = [];
   for (const r of reports) {
     if (!r.draftReady || r.sentAt !== null) continue;
+    // The approved state rides the KEY so a pending→approved escalation with
+    // unchanged blockers re-news as a fresh critical instead of diffing
+    // "standing" against its old warning self.
+    const state = r.approvedToSend ? "approved" : "pending";
     const site = sitesById.get(r.siteId);
-    if (!site) continue; // orphan → skip rather than render a broken link
+    if (!site) {
+      // A dangling/empty Site link is itself a send blocker (sendApprovedReports
+      // fails with "Site row not found") — surface it; the empty-slug
+      // dashboardUrl fallback yields the fleet root, not a broken /s/ link.
+      items.push({
+        key: `preflight:${r.id}:${state}`,
+        kind: "preflight",
+        siteName: "(unlinked site)",
+        title: r.approvedToSend
+          ? `Approved ${r.reportType} will fail at send — site-not-found`
+          : `${r.reportType} draft can't be approved — site-not-found`,
+        url: dashboardUrl(baseUrl, ""),
+        severity: r.approvedToSend ? "critical" : "warning",
+        metric: 1,
+      });
+      continue;
+    }
     const fails = approveBlockers(site, r).filter((f) => f.level === "fail");
     if (fails.length === 0) continue;
     const first = fails[0]!;
     const more = fails.length > 1 ? ` (+${fails.length - 1} more)` : "";
     items.push({
-      key: `preflight:${r.id}`,
+      key: `preflight:${r.id}:${state}`,
       kind: "preflight",
       siteName: site.name,
       title: r.approvedToSend

@@ -544,7 +544,7 @@ describe("collectPreflightBlocked", () => {
     const pending = collectPreflightBlocked([draft()], sitesById, "https://d");
     expect(pending).toHaveLength(1);
     expect(pending[0]).toMatchObject({
-      key: "preflight:recR1",
+      key: "preflight:recR1:pending",
       kind: "preflight",
       severity: "warning",
       siteName: "Acme Co",
@@ -558,15 +558,33 @@ describe("collectPreflightBlocked", () => {
     );
     expect(approved[0]!.severity).toBe("critical");
     expect(approved[0]!.title).toContain("will fail at send");
+    // The approved state rides the key so the pending→approved escalation
+    // re-news as a fresh critical instead of diffing "standing".
+    expect(approved[0]!.key).toBe("preflight:recR1:approved");
+    expect(approved[0]!.key).not.toBe(pending[0]!.key);
   });
 
-  it("skips sent reports and orphan site links", () => {
+  it("skips sent reports", () => {
     const sitesById = new Map([["recS1", site({ pointOfContact: null })]]);
     expect(
       collectPreflightBlocked([draft({ sentAt: "2026-07-01" })], sitesById, "https://d"),
     ).toEqual([]);
-    expect(
-      collectPreflightBlocked([draft({ siteId: "recGHOST" })], sitesById, "https://d"),
-    ).toEqual([]);
+  });
+
+  it("surfaces a dangling Site link as site-not-found (the send fails exactly that way)", () => {
+    const sitesById = new Map([["recS1", site()]]);
+    const items = collectPreflightBlocked(
+      [draft({ siteId: "recGHOST", approvedToSend: true })],
+      sitesById,
+      "https://d",
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      kind: "preflight",
+      severity: "critical",
+      siteName: "(unlinked site)",
+      url: "https://d",
+    });
+    expect(items[0]!.title).toContain("site-not-found");
   });
 });

@@ -207,6 +207,12 @@ export function preflightSite(
       check: "header-image-missing",
       message: "no Header image on the Websites row — the send will throw",
     });
+  } else if (scheduledForType && site.headerImage && !site.headerImage.type.startsWith("image/")) {
+    findings.push({
+      level: "fail",
+      check: "header-image-not-image",
+      message: `Header image attachment is '${site.headerImage.type}' (${site.headerImage.filename}) — not a decodable image; the send throws in prepareHeaderImage`,
+    });
   }
   const scores = [site.pScore, site.rScore, site.bpScore, site.seoScore];
   if (scheduledForType && scores.some((s) => s === null)) {
@@ -427,6 +433,12 @@ export function approveBlockers(site: WebsiteRow, report: ReportRow): PreflightF
       level: "fail",
       check: "header-image-missing",
       message: "no Header image on the Websites row — the send will throw",
+    });
+  } else if (!site.headerImage.type.startsWith("image/")) {
+    findings.push({
+      level: "fail",
+      check: "header-image-not-image",
+      message: `Header image attachment is '${site.headerImage.type}' (${site.headerImage.filename}) — not a decodable image; the send throws in prepareHeaderImage`,
     });
   }
   // sendOne throws on a null report.lighthouse (one blank/non-numeric cell nulls

@@ -343,6 +343,16 @@ describe("approveBlockers", () => {
     expect(fails.join(" ")).toContain(check);
   });
 
+  it("fails when the Header image attachment is not a decodable image (send throws in prepareHeaderImage)", () => {
+    const site = cleanSite({
+      headerImage: { url: "https://x/doc.pdf", filename: "doc.pdf", type: "application/pdf" },
+    });
+    expect(formatBlockers(approveBlockers(site, REPORT())).join(" ")).toContain(
+      "header-image-not-image",
+    );
+    expect(checks(site)).toContain("header-image-not-image");
+  });
+
   it("fails when the REPORT row has no lighthouse snapshot (sendOne throws on it)", () => {
     const fails = formatBlockers(approveBlockers(cleanSite(), makeReportRow({ lighthouse: null })));
     expect(fails.join(" ")).toContain("report-scores-missing");

@@ -10,6 +10,7 @@ import type { FleetEvent, FleetEventType } from "../db/fleet-events.js";
 import {
   collectVulnAlerts,
   collectDeliveryFailures,
+  collectPreflightBlocked,
   collectLighthouseAlerts,
   collectRenovateAlerts,
   collectCiAlerts,
@@ -356,6 +357,7 @@ export function buildCockpitModel(
     ...collectVulnAlerts(visible, baseUrl),
     ...collectLighthouseAlerts(visible, baseUrl),
     ...collectDeliveryFailures(reports, sitesById, baseUrl),
+    ...collectPreflightBlocked(reports, sitesById, baseUrl),
     ...collectRenovateAlerts(visible, baseUrl, now),
     ...collectCiAlerts(visible, baseUrl, now),
     ...collectAnalyticsFailures(visible, baseUrl, now),

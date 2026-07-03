@@ -504,8 +504,17 @@ export function renderSiteDashboardHtml(
         b.disabled = true;
         try {
           const res = await fetch(b.dataset.approveUrl, { method: "POST" });
-          b.textContent = res.ok ? "Approved" : "Failed";
-          if (!res.ok) b.disabled = false;
+          if (res.ok) {
+            b.textContent = "Approved";
+          } else {
+            // A 409 carries { reason, blockers } — surface WHY instead of a bare
+            // "Failed" next to a possibly-stale green chip. textContent/title
+            // assignment only (no innerHTML), so server strings stay inert.
+            const data = await res.json().catch(() => null);
+            b.textContent = data && data.reason === "send-blocked" ? "Blocked" : "Failed";
+            if (data && Array.isArray(data.blockers)) b.title = data.blockers.join("\n");
+            b.disabled = false;
+          }
         } catch {
           // Network rejection (offline, DNS, abort): mirror the !res.ok path so
           // the button doesn't sit permanently disabled reading "Approve".
