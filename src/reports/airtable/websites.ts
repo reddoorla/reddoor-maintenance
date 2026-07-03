@@ -42,6 +42,12 @@ export type WebsiteRow = {
   pointOfContact: string | null;
   maintenanceFreq: Frequency;
   testingFreq: Frequency;
+  /** The literal Airtable cell values behind the coerced frequencies. `toFrequency`
+   *  maps any unrecognized value ("Quaterly", "Monthly ") to "None" so nothing bogus
+   *  reaches a client email — which also makes typos invisible downstream. Preflight
+   *  validates THESE to make that failure mode loud. Null = blank cell. */
+  maintenanceFreqRaw: string | null;
+  testingFreqRaw: string | null;
   /** Last manually-recorded maintenance day (used as fallback when no Reports row exists). */
   maintenanceDay: string | null;
   testingDay: string | null;
@@ -239,6 +245,8 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     pointOfContact: (f["point of contact"] as string | undefined) ?? null,
     maintenanceFreq: toFrequency(f["maintenence freq"]),
     testingFreq: toFrequency(f["testing freq"]),
+    maintenanceFreqRaw: (f["maintenence freq"] as string | undefined) ?? null,
+    testingFreqRaw: (f["testing freq"] as string | undefined) ?? null,
     maintenanceDay: (f["maintenance day"] as string | undefined) ?? null,
     testingDay: (f["testing day"] as string | undefined) ?? null,
     ga4PropertyId: (f["GA4 property ID"] as string | undefined) ?? null,

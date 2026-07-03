@@ -376,6 +376,27 @@ cli
   );
 
 cli
+  .command(
+    "preflight [site]",
+    "Read-only pre-send checks: recipients, header image, pending drafts, schedule hygiene.",
+  )
+  .option("--type <type>", "Report type: announcement (default) | maintenance | testing")
+  .option(
+    "--all",
+    "Fleet mode: announcement→maintenance sites; maintenance/testing→all schedulable sites.",
+  )
+  .action(
+    async (
+      site: string | undefined,
+      opts: { type?: string; all?: boolean; cwd?: string; verbose?: boolean },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/preflight.js")).runPreflightCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
   .command("report [site]", "Draft or send maintenance/testing reports.")
   .option("--due", "Scan all Websites and draft overdue reports.")
   .option("--type <type>", "Single-site draft report type: Maintenance (default) or Testing.")

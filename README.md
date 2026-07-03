@@ -300,6 +300,22 @@ RESEND_WEBHOOK_SECRET=whsec_XXXX  # only for the deployed webhook
 
 ### Operator flow
 
+Before any send day, run the **read-only preflight** — it surfaces everything that
+would make a send fail or reach the wrong inbox (missing/malformed recipients,
+operator-address leftovers in client To fields, To-override shadowing the point of
+contact, missing header image or Lighthouse scores, queued unsent drafts that would
+race the new report, unrecognized/stale schedule values, and renamed Airtable
+columns):
+
+```bash
+reddoor-maint preflight --all            # announcement targets (maintenance sites) + fleet checks
+reddoor-maint preflight <slug>           # one site
+reddoor-maint preflight --all --type maintenance   # everything `report --due` schedules
+```
+
+Exit 0 = safe to send (warnings printed for review); 1 = at least one hard failure.
+Nothing is written and nothing is sent.
+
 0. **Prereq: refresh Lighthouse scores on each Websites row.** From each site's checkout:
 
    ```bash
