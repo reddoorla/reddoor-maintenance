@@ -381,7 +381,10 @@ cli
     "Read-only pre-send checks: recipients, header image, pending drafts, schedule hygiene.",
   )
   .option("--type <type>", "Report type: announcement (default) | maintenance | testing")
-  .option("--all", "Check every maintenance-status site (adds fleet-level column checks).")
+  .option(
+    "--all",
+    "Fleet mode: announcement→maintenance sites; maintenance/testing→all schedulable sites.",
+  )
   .action(
     async (
       site: string | undefined,

@@ -1,10 +1,11 @@
 import { openBase, readAirtableConfig } from "./airtable/client.js";
 import type { AirtableBase } from "./airtable/client.js";
 import { listWebsites, siteSlug } from "./airtable/websites.js";
-import type { WebsiteRow, Frequency } from "./airtable/websites.js";
-import { listReportsForSite } from "./airtable/reports.js";
+import type { WebsiteRow } from "./airtable/websites.js";
+import { listAllReports } from "./airtable/reports.js";
 import type { ReportRow } from "./airtable/reports.js";
 import { parseAddresses, isProbablyEmail } from "./send/orchestrate.js";
+import { ELIGIBLE_STATUSES, reportPeriodKey } from "./due.js";
 import type { ReportType } from "./types.js";
 
 export type PreflightLevel = "fail" | "warn" | "info";
@@ -26,19 +27,23 @@ export type PreflightSiteResult = {
  *  exact misconfiguration that would silently divert a client announcement. */
 const OPERATOR_DOMAINS = ["reddoorla.com", "tuckerlemos.com"];
 
-const KNOWN_FREQS: ReadonlySet<string> = new Set(["Monthly", "Quarterly", "Yearly", "None", ""]);
-
-/** Anchors older than this (with a schedule set) mean the next `report --due` run
- *  drafts a surprise back-dated report — worth an eyeball before any send day. */
+/** Anchors older than this, WHEN the anchor is actually the schedule's base date
+ *  (no newer Sent-at — see nextDueDate's `lastSent ?? fallback`), mean the next
+ *  `report --due` run drafts a surprise back-dated report. */
 const STALE_ANCHOR_DAYS = 396; // ~13 months
 
 function domainOf(addr: string): string {
-  return addr.slice(addr.lastIndexOf("@") + 1).toLowerCase();
+  const at = addr.lastIndexOf("@");
+  return at === -1 ? "" : addr.slice(at + 1).toLowerCase();
 }
 
 function isOperatorSite(site: WebsiteRow): boolean {
+  if (!site.url) return false;
   try {
-    const host = new URL(site.url).hostname.toLowerCase();
+    // Airtable `url` cells aren't guaranteed a scheme; retry with one before giving up.
+    const host = new URL(
+      /^[a-z][a-z0-9+.-]*:\/\//i.test(site.url) ? site.url : `https://${site.url}`,
+    ).hostname.toLowerCase();
     return OPERATOR_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`));
   } catch {
     return false;
@@ -56,30 +61,41 @@ function lastSentForType(reports: ReportRow[], type: ReportType): string | null 
 function checkFrequency(
   site: WebsiteRow,
   which: "maintenance" | "testing",
+  reports: ReportRow[],
   findings: PreflightFinding[],
   now: Date,
 ): void {
-  const raw = which === "maintenance" ? site.maintenanceFreq : site.testingFreq;
-  const freq = (typeof raw === "string" ? raw.trim() : raw) as Frequency | "";
-  if (!KNOWN_FREQS.has(freq ?? "")) {
+  // Validate the RAW Airtable cell, not the coerced Frequency: toFrequency maps any
+  // unrecognized value (typo, trailing space, renamed option) to "None", so by the
+  // time WebsiteRow is built the damage is invisible — the site just silently drops
+  // off the schedule. This is the loud version.
+  const raw = which === "maintenance" ? site.maintenanceFreqRaw : site.testingFreqRaw;
+  const coerced = which === "maintenance" ? site.maintenanceFreq : site.testingFreq;
+  if (raw !== null && raw !== "" && coerced === "None" && raw.trim() !== "None") {
     findings.push({
       level: "fail",
       check: "frequency-unrecognized",
-      message: `${which} frequency '${String(raw)}' is not Monthly/Quarterly/Yearly/None — the scheduler will skip this site; fix the Airtable value`,
+      message: `${which} frequency cell is '${raw}' — not an exact Monthly/Quarterly/Yearly/None, so the scheduler silently treats it as None and the site drops off the calendar; fix the Airtable value`,
     });
     return;
   }
-  if (freq === "None" || freq === "" || freq == null) return;
+  if (coerced === "None") return;
+
   const anchor = which === "maintenance" ? site.maintenanceDay : site.testingDay;
-  if (anchor) {
-    const ageDays = (now.getTime() - new Date(anchor).getTime()) / 86_400_000;
-    if (ageDays > STALE_ANCHOR_DAYS) {
-      findings.push({
-        level: "warn",
-        check: "anchor-stale",
-        message: `${which} day anchor is ${anchor} (>13 months old) — expect a back-dated overdue draft from \`report --due\` unless a newer Sent-at exists; consider resetting the anchor`,
-      });
-    }
+  if (!anchor) return;
+  // nextDueDate uses `lastSent ?? anchor`: once anything has been sent, the anchor
+  // is inert and an old one is normal on every healthy mature site — only warn when
+  // the anchor is genuinely the base date the scheduler would use.
+  const type: ReportType = which === "maintenance" ? "Maintenance" : "Testing";
+  const lastSent = lastSentForType(reports, type);
+  if (lastSent && new Date(lastSent).getTime() >= new Date(anchor).getTime()) return;
+  const ageDays = (now.getTime() - new Date(anchor).getTime()) / 86_400_000;
+  if (ageDays > STALE_ANCHOR_DAYS) {
+    findings.push({
+      level: "warn",
+      check: "anchor-stale",
+      message: `${which} day anchor is ${anchor} (>13 months old) and nothing newer has been sent — \`report --due\` will draft a back-dated overdue report; reset the anchor or clear the schedule`,
+    });
   }
 }
 
@@ -88,10 +104,11 @@ function checkFrequency(
  * go to the wrong inbox, or surprise the operator. Read-only over data already
  * fetched; no Airtable handle, no network — trivially testable.
  *
- * Mirrors the send-time validation in {@link ../send/orchestrate.js} (recipients,
- * header image) so problems surface BEFORE draft/approve instead of exploding at
- * `report --send-ready`, and adds the checks send time cannot do: operator-address
- * leftovers, To-override shadowing, pending-draft races, schedule hygiene.
+ * Mirrors the send/draft-time validation (recipients + header image in
+ * send/orchestrate.ts, Websites-row scores in draft.ts) so problems surface BEFORE
+ * draft/approve instead of exploding at `report --send-ready`, and adds the checks
+ * send time cannot do: operator-address leftovers, To-override shadowing,
+ * pending-draft races, schedule hygiene against the RAW Airtable values.
  */
 export function preflightSite(
   site: WebsiteRow,
@@ -101,11 +118,31 @@ export function preflightSite(
 ): PreflightSiteResult {
   const findings: PreflightFinding[] = [];
 
+  // A site that isn't on the checked calendar never drafts, so its send
+  // requirements (recipients / header image / scores) can't hurt anyone —
+  // checking them anyway would drown the fleet run in fails for legacy hosting
+  // rows. Frequency hygiene and pending-draft checks still run: a typo'd cell
+  // is exactly HOW a site falls off the calendar, and an already-drafted report
+  // can still be approved + sent regardless of schedule.
+  const scheduledForType =
+    type === "Announcement"
+      ? true
+      : type === "Maintenance"
+        ? site.maintenanceFreq !== "None"
+        : site.testingFreq !== "None";
+  if (!scheduledForType) {
+    findings.push({
+      level: "info",
+      check: "not-scheduled",
+      message: `no ${type} schedule (frequency is None/blank) — send-requirement checks skipped; schedule + pending-draft checks still apply`,
+    });
+  }
+
   // --- Recipients: same resolution order as the send path (To override, else contact).
   const explicitTo = parseAddresses(site.reportRecipientsTo);
   const fallbackTo = parseAddresses(site.pointOfContact);
-  const to = explicitTo ?? fallbackTo ?? [];
-  if (to.length === 0) {
+  const to = scheduledForType ? (explicitTo ?? fallbackTo ?? []) : [];
+  if (scheduledForType && to.length === 0) {
     findings.push({
       level: "fail",
       check: "recipients-missing",
@@ -122,7 +159,7 @@ export function preflightSite(
       });
     }
   }
-  const cc = parseAddresses(site.reportRecipientsCc) ?? [];
+  const cc = scheduledForType ? (parseAddresses(site.reportRecipientsCc) ?? []) : [];
   for (const addr of cc) {
     if (!isProbablyEmail(addr)) {
       findings.push({
@@ -135,68 +172,106 @@ export function preflightSite(
   if (!isOperatorSite(site)) {
     const operatorAddrs = to.filter((a) => OPERATOR_DOMAINS.includes(domainOf(a)));
     if (operatorAddrs.length > 0) {
+      const allOperator = operatorAddrs.length === to.length;
       findings.push({
         level: "warn",
         check: "recipient-operator-address",
-        message: `resolved To includes operator address(es) ${operatorAddrs.join(", ")} on a client site — probably a test-send leftover; the client will NOT receive this report`,
+        message: allOperator
+          ? `resolved To is ONLY operator address(es) ${operatorAddrs.join(", ")} — probably a test-send leftover; the client will NOT receive this report`
+          : `resolved To includes operator address(es) ${operatorAddrs.join(", ")} alongside the client's — confirm that's intentional (the ops inbox is already CC'd on every send)`,
       });
     }
   }
-  if (explicitTo && fallbackTo && explicitTo.join(",") !== fallbackTo.join(",")) {
-    findings.push({
-      level: "warn",
-      check: "to-override-shadows-contact",
-      message: `Report recipients (To) [${explicitTo.join(", ")}] overrides point of contact [${fallbackTo.join(", ")}] — confirm the override is intentional`,
-    });
+  if (scheduledForType && explicitTo && fallbackTo) {
+    const a = [...explicitTo]
+      .map((x) => x.toLowerCase())
+      .sort()
+      .join(",");
+    const b = [...fallbackTo]
+      .map((x) => x.toLowerCase())
+      .sort()
+      .join(",");
+    if (a !== b) {
+      findings.push({
+        level: "info",
+        check: "to-override-shadows-contact",
+        message: `Report recipients (To) [${explicitTo.join(", ")}] overrides point of contact [${fallbackTo.join(", ")}] — the contact won't receive this unless also listed`,
+      });
+    }
   }
 
-  // --- Send-time hard requirements, surfaced early.
-  if (!site.headerImage) {
+  // --- Hard requirements of the draft/send paths, surfaced early.
+  if (scheduledForType && !site.headerImage) {
     findings.push({
       level: "fail",
       check: "header-image-missing",
       message: "no Header image on the Websites row — the send will throw",
     });
   }
-  if (type === "Announcement") {
-    const scores = [site.pScore, site.rScore, site.bpScore, site.seoScore];
-    if (scores.some((s) => s === null)) {
+  const scores = [site.pScore, site.rScore, site.bpScore, site.seoScore];
+  if (scheduledForType && scores.some((s) => s === null)) {
+    if (type === "Announcement") {
+      // announce() skips score-less sites (skipped-no-scores) rather than throwing.
       findings.push({
         level: "warn",
         check: "scores-missing",
         message:
-          "Websites row is missing Lighthouse scores — `announce` will skip this site (skipped-no-scores); run `audit lighthouse --write-airtable` first",
+          "Websites row is missing Lighthouse scores — `announce` will skip this site; run `audit lighthouse --write-airtable` first",
       });
-    }
-    if (site.status !== "maintenance") {
+    } else {
+      // report <site> / report --due HARD-THROW here (scoresFromWebsite in draft.ts).
       findings.push({
-        level: "info",
-        check: "status-not-maintenance",
-        message: `status is '${site.status ?? "(blank)"}' — \`announce --all\` only drafts for maintenance sites`,
+        level: "fail",
+        check: "scores-missing",
+        message:
+          "Websites row is missing Lighthouse scores — drafting will throw (scoresFromWebsite); run `audit lighthouse --write-airtable` first",
       });
     }
   }
-
-  // --- Pending-draft races: an unsent draft either supersedes or is superseded by the
-  // new report (single-queue tier rule) — the operator should decide, not discover.
-  const pending = reports.filter((r) => r.draftReady && r.sentAt === null);
-  if (pending.length > 0) {
-    const summary = pending
-      .map(
-        (r) =>
-          `${r.reportType} ${r.period ?? "(no period)"}${r.approvedToSend ? " [APPROVED]" : ""}`,
-      )
-      .join(", ");
+  if (type === "Announcement" && site.status !== "maintenance") {
     findings.push({
-      level: "warn",
-      check: "pending-drafts",
-      message: `${pending.length} unsent draft(s) queued: ${summary} — resolve before sending so the client doesn't get the wrong report first`,
+      level: "info",
+      check: "status-not-maintenance",
+      message: `status is '${site.status ?? "(blank)"}' — \`announce --all\` only drafts for maintenance sites`,
     });
   }
 
-  // --- Schedule hygiene.
-  checkFrequency(site, "maintenance", findings, now);
-  checkFrequency(site, "testing", findings, now);
+  // --- Pending drafts. For an Announcement these always race (the queue tier rule
+  // supersedes or blocks). For Maintenance/Testing, the CURRENT cycle's own draft
+  // sitting ready on send day IS the payload — that's the steady state, not a
+  // problem — so only genuinely stale/foreign drafts get the warn.
+  const pending = reports.filter((r) => r.draftReady && r.sentAt === null);
+  if (pending.length > 0) {
+    const currentPeriod = reportPeriodKey(now);
+    const isExpectedPayload = (r: ReportRow): boolean =>
+      type !== "Announcement" && r.reportType === type && r.period === currentPeriod;
+    const expected = pending.filter(isExpectedPayload);
+    const stale = pending.filter((r) => !isExpectedPayload(r));
+    if (expected.length > 0) {
+      findings.push({
+        level: "info",
+        check: "pending-drafts",
+        message: `current-cycle ${type} draft is queued${expected[0]!.approvedToSend ? " and approved" : " (awaiting approval)"} — this is the report \`--send-ready\` will deliver`,
+      });
+    }
+    if (stale.length > 0) {
+      const summary = stale
+        .map(
+          (r) =>
+            `${r.reportType} ${r.period ?? "(no period)"}${r.approvedToSend ? " [APPROVED]" : ""}`,
+        )
+        .join(", ");
+      findings.push({
+        level: "warn",
+        check: "pending-drafts",
+        message: `${stale.length} unsent draft(s) queued: ${summary} — resolve before sending so the client doesn't get the wrong report first`,
+      });
+    }
+  }
+
+  // --- Schedule hygiene (validates the RAW Airtable frequency cells).
+  checkFrequency(site, "maintenance", reports, findings, now);
+  checkFrequency(site, "testing", reports, findings, now);
   if (type === "Announcement") {
     const anySent = lastSentForType(reports, "Maintenance") ?? lastSentForType(reports, "Testing");
     if (!site.maintenanceDay && !site.testingDay && !anySent) {
@@ -213,16 +288,17 @@ export function preflightSite(
 }
 
 /**
- * Fleet-level column-rename heuristics. Airtable renames don't error — the mapper
- * in websites.ts just reads null forever (its own header comment admits this). A
- * load-bearing column that is empty on EVERY selected site is far more likely a
- * rename than 10 coincidences; say so.
+ * Fleet-level heuristics that need the whole selection. Airtable column renames
+ * don't error — the mapper reads null forever (its own header comment admits this).
+ * A load-bearing column empty on EVERY selected site is far more likely a rename
+ * than N coincidences; say so. Likewise two different sites resolving to one
+ * recipient is worth one eyeball (it can be legitimate — same owner, two sites).
  */
 export function preflightFleet(sites: WebsiteRow[]): PreflightFinding[] {
   if (sites.length < 3) return []; // too few rows to distinguish rename from data
   const findings: PreflightFinding[] = [];
   const allEmpty = (get: (s: WebsiteRow) => unknown, column: string): void => {
-    if (sites.every((s) => get(s) === null || get(s) === "None" || get(s) === "")) {
+    if (sites.every((s) => get(s) === null || get(s) === "")) {
       findings.push({
         level: "warn",
         check: "column-possibly-renamed",
@@ -231,11 +307,9 @@ export function preflightFleet(sites: WebsiteRow[]): PreflightFinding[] {
     }
   };
   allEmpty((s) => s.pointOfContact, "point of contact");
-  allEmpty((s) => s.maintenanceFreq, "maintenence freq");
+  allEmpty((s) => s.maintenanceFreqRaw, "maintenence freq");
   allEmpty((s) => s.headerImage, "Header image");
 
-  // Two DIFFERENT sites resolving to the same primary contact is usually a
-  // copy-paste error on one of them — the wrong client gets the other site's report.
   const byContact = new Map<string, string[]>();
   for (const s of sites) {
     const to = parseAddresses(s.reportRecipientsTo) ?? parseAddresses(s.pointOfContact) ?? [];
@@ -247,9 +321,9 @@ export function preflightFleet(sites: WebsiteRow[]): PreflightFinding[] {
   for (const [addr, names] of byContact) {
     if (names.length > 1 && !OPERATOR_DOMAINS.includes(domainOf(addr))) {
       findings.push({
-        level: "warn",
+        level: "info",
         check: "duplicate-contact",
-        message: `${names.join(" and ")} resolve to the same recipient (${addr}) — verify this isn't a copy-paste error on one of the rows`,
+        message: `${names.join(" and ")} resolve to the same recipient (${addr}) — fine if one person owns both; otherwise a copy-paste error on one row`,
       });
     }
   }
@@ -261,7 +335,9 @@ export type PreflightDeps = {
   base?: AirtableBase;
   /** Slug of a single site (matched via siteSlug). Mutually exclusive with `all`. */
   site?: string;
-  /** All maintenance-status sites. */
+  /** Fleet mode: for Announcement, maintenance-status sites (announce's own filter);
+   *  for Maintenance/Testing, everything `report --due` schedules — ELIGIBLE_STATUSES
+   *  plus null-status rows (due.ts treats null as active for legacy rows). */
   all?: boolean;
   type?: ReportType;
   now?: Date;
@@ -273,9 +349,10 @@ export type PreflightResult = {
 };
 
 /**
- * Read-only rollout preflight over the live Airtable base. Fetches Websites (+ each
- * selected site's Reports) and runs {@link preflightSite} per site plus
- * {@link preflightFleet} across the selection. NEVER writes and NEVER sends.
+ * Read-only rollout preflight over the live Airtable base. One Websites fetch, one
+ * Reports fetch (the --due path does the same for the same rate-limit reason), then
+ * {@link preflightSite} per selected site plus {@link preflightFleet} across the
+ * selection. NEVER writes and NEVER sends.
  */
 export async function preflight(deps?: PreflightDeps): Promise<PreflightResult> {
   const base = deps?.base ?? openBase(readAirtableConfig());
@@ -285,12 +362,18 @@ export async function preflight(deps?: PreflightDeps): Promise<PreflightResult> 
   const websites = await listWebsites(base);
   const selected = deps?.site
     ? websites.filter((w) => siteSlug(w.name) === siteSlug(deps.site!))
-    : websites.filter((w) => w.status === "maintenance");
+    : type === "Announcement"
+      ? websites.filter((w) => w.status === "maintenance")
+      : websites.filter((w) => w.status === null || ELIGIBLE_STATUSES.has(w.status));
 
-  const results: PreflightSiteResult[] = [];
-  for (const site of selected) {
-    const reports = await listReportsForSite(base, site.id);
-    results.push(preflightSite(site, reports, type, now));
-  }
+  const allReports = selected.length > 0 ? await listAllReports(base) : [];
+  const results = selected.map((site) =>
+    preflightSite(
+      site,
+      allReports.filter((r) => r.siteId === site.id),
+      type,
+      now,
+    ),
+  );
   return { results, fleet: deps?.site ? [] : preflightFleet(selected) };
 }

@@ -19,6 +19,8 @@ export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     pointOfContact: null,
     maintenanceFreq: "None",
     testingFreq: "None",
+    maintenanceFreqRaw: null,
+    testingFreqRaw: null,
     maintenanceDay: null,
     testingDay: null,
     ga4PropertyId: null,

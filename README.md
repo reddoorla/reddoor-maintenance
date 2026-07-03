@@ -308,9 +308,9 @@ race the new report, unrecognized/stale schedule values, and renamed Airtable
 columns):
 
 ```bash
-reddoor-maint preflight --all            # every maintenance site + fleet-level checks
+reddoor-maint preflight --all            # announcement targets (maintenance sites) + fleet checks
 reddoor-maint preflight <slug>           # one site
-reddoor-maint preflight --all --type maintenance
+reddoor-maint preflight --all --type maintenance   # everything `report --due` schedules
 ```
 
 Exit 0 = safe to send (warnings printed for review); 1 = at least one hard failure.

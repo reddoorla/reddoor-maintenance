@@ -6,7 +6,7 @@ import type { ReportType } from "./types.js";
  * "probably not our problem" — even if the operator left a freq set, we don't
  * want to surface those sites in --due output. Sites with status=null pass
  * through (existing data is partial; better to surface than silently skip). */
-const ELIGIBLE_STATUSES: ReadonlySet<Status> = new Set<Status>([
+export const ELIGIBLE_STATUSES: ReadonlySet<Status> = new Set<Status>([
   "in development",
   "launch period",
   "maintenance",

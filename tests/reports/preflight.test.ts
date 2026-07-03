@@ -45,6 +45,7 @@ function cleanSite(over: Parameters<typeof makeWebsiteRow>[0] = {}) {
     status: "maintenance",
     pointOfContact: "owner@acme.example.com",
     maintenanceFreq: "Monthly",
+    maintenanceFreqRaw: "Monthly",
     testingFreq: "None",
     maintenanceDay: "2026-06-30",
     headerImage: { url: "https://x/img.png", filename: "img.png", type: "image/png" },
@@ -87,6 +88,28 @@ describe("preflightSite", () => {
     expect(f?.message).toContain("tucker@reddoorla.com");
   });
 
+  it("softens the message when operator address rides ALONGSIDE the client's", () => {
+    const site = cleanSite({
+      reportRecipientsTo: "tucker@reddoorla.com, owner@acme.example.com",
+    });
+    const f = preflightSite(site, [], "Announcement", NOW).findings.find(
+      (x) => x.check === "recipient-operator-address",
+    );
+    expect(f?.message).toContain("alongside");
+  });
+
+  it("treats a bare domain pasted as contact as malformed, not as an operator address", () => {
+    const site = cleanSite({ pointOfContact: "reddoorla.com" });
+    const ids = checks(site);
+    expect(ids).toContain("recipients-malformed");
+    expect(ids).not.toContain("recipient-operator-address");
+  });
+
+  it("recognizes the operator's own site even when the url cell has no scheme", () => {
+    const site = cleanSite({ url: "reddoorla.com", pointOfContact: "tucker@reddoorla.com" });
+    expect(checks(site)).not.toContain("recipient-operator-address");
+  });
+
   it("does NOT flag operator addresses on the operator's own site", () => {
     const site = cleanSite({
       url: "https://reddoorla.com",
@@ -95,17 +118,38 @@ describe("preflightSite", () => {
     expect(checks(site)).not.toContain("recipient-operator-address");
   });
 
-  it("warns when the To override shadows a different point of contact", () => {
+  it("notes (info) when the To override shadows a different point of contact", () => {
     const site = cleanSite({ reportRecipientsTo: "other@elsewhere.com" });
-    expect(checks(site)).toContain("to-override-shadows-contact");
+    const f = preflightSite(site, [], "Announcement", NOW).findings.find(
+      (x) => x.check === "to-override-shadows-contact",
+    );
+    expect(f?.level).toBe("info");
+  });
+
+  it("does not flag an override that is the same address set in a different order", () => {
+    const site = cleanSite({
+      pointOfContact: "a@acme.example.com, b@acme.example.com",
+      reportRecipientsTo: "B@acme.example.com, a@acme.example.com",
+    });
+    expect(checks(site)).not.toContain("to-override-shadows-contact");
   });
 
   it("fails when the header image is missing (send-time throw, surfaced early)", () => {
     expect(checks(cleanSite({ headerImage: null }))).toContain("header-image-missing");
   });
 
-  it("warns for announcements when Lighthouse scores are missing", () => {
-    expect(checks(cleanSite({ pScore: null }))).toContain("scores-missing");
+  it("warns for announcements when Lighthouse scores are missing (announce skips the site)", () => {
+    const f = preflightSite(cleanSite({ pScore: null }), [], "Announcement", NOW).findings.find(
+      (x) => x.check === "scores-missing",
+    );
+    expect(f?.level).toBe("warn");
+  });
+
+  it("FAILS for maintenance/testing when scores are missing (drafting hard-throws in scoresFromWebsite)", () => {
+    const f = preflightSite(cleanSite({ pScore: null }), [], "Maintenance", NOW).findings.find(
+      (x) => x.check === "scores-missing",
+    );
+    expect(f?.level).toBe("fail");
   });
 
   it("warns on unsent queued drafts, naming type/period and approval state", () => {
@@ -132,15 +176,56 @@ describe("preflightSite", () => {
     expect(f?.message).toContain("Testing 2026-06 [APPROVED]");
   });
 
-  it("fails on an unrecognized frequency value", () => {
-    expect(checks(cleanSite({ maintenanceFreq: "Quaterly" as never }))).toContain(
-      "frequency-unrecognized",
-    );
+  it("downgrades the current-cycle same-type draft to info for maintenance runs (send-day steady state)", () => {
+    const current = makeReportRow({
+      draftReady: true,
+      approvedToSend: true,
+      reportType: "Maintenance",
+      period: "2026-07",
+    });
+    const staleTesting = makeReportRow({
+      id: "recREP9",
+      draftReady: true,
+      reportType: "Testing",
+      period: "2026-01",
+    });
+    const findings = preflightSite(
+      cleanSite(),
+      [current, staleTesting],
+      "Maintenance",
+      NOW,
+    ).findings;
+    const pendings = findings.filter((x) => x.check === "pending-drafts");
+    expect(pendings.map((p) => p.level).sort()).toEqual(["info", "warn"]);
+    expect(pendings.find((p) => p.level === "info")?.message).toContain("current-cycle");
+    expect(pendings.find((p) => p.level === "warn")?.message).toContain("Testing 2026-01");
   });
 
-  it("warns on an anchor more than ~13 months old (the ERP/Reddoor testing-day case)", () => {
+  it("fails on an unrecognized RAW frequency cell (mapRow coerces it to None before we see it)", () => {
+    const site = cleanSite({ maintenanceFreq: "None", maintenanceFreqRaw: "Quaterly" });
+    expect(checks(site)).toContain("frequency-unrecognized");
+  });
+
+  it("fails on a trailing-space frequency cell ('Monthly ') — production silently unschedules it", () => {
+    const site = cleanSite({ maintenanceFreq: "None", maintenanceFreqRaw: "Monthly " });
+    expect(checks(site)).toContain("frequency-unrecognized");
+  });
+
+  it("stays quiet on a clean raw frequency and on blank cells", () => {
+    expect(checks(cleanSite())).toEqual([]);
+    const blank = cleanSite({ maintenanceFreq: "None", maintenanceFreqRaw: null });
+    expect(checks(blank)).not.toContain("frequency-unrecognized");
+  });
+
+  it("warns on an anchor more than ~13 months old with no newer send (the ERP/Reddoor case)", () => {
     const site = cleanSite({ testingFreq: "Yearly", testingDay: "2025-01-15" });
     expect(checks(site)).toContain("anchor-stale");
+  });
+
+  it("suppresses anchor-stale when a newer Sent-at supersedes the anchor (due.ts uses lastSent ?? anchor)", () => {
+    const site = cleanSite({ testingFreq: "Yearly", testingDay: "2025-01-15" });
+    const sent = makeReportRow({ reportType: "Testing", sentAt: "2026-05-01" });
+    expect(checks(site, [sent])).not.toContain("anchor-stale");
   });
 
   it("infos when no anchors exist and nothing was ever sent (Sonder playbook reminder)", () => {
@@ -156,6 +241,35 @@ describe("preflightSite", () => {
 
   it("infos non-maintenance status for announcements", () => {
     expect(checks(cleanSite({ status: "launch period" }))).toContain("status-not-maintenance");
+  });
+
+  it("skips send-requirement checks for a site not on the checked calendar (freq None)", () => {
+    const site = cleanSite({
+      maintenanceFreq: "None",
+      maintenanceFreqRaw: "None",
+      pointOfContact: null,
+      headerImage: null,
+      pScore: null,
+    });
+    const findings = preflightSite(site, [], "Maintenance", NOW).findings;
+    const ids = findings.map((f) => f.check);
+    expect(ids).toContain("not-scheduled");
+    expect(ids).not.toContain("recipients-missing");
+    expect(ids).not.toContain("header-image-missing");
+    expect(ids).not.toContain("scores-missing");
+    expect(findings.every((f) => f.level === "info")).toBe(true);
+  });
+
+  it("still fails frequency typos and warns pending drafts on unscheduled sites", () => {
+    const site = cleanSite({
+      maintenanceFreq: "None",
+      maintenanceFreqRaw: "Quaterly",
+      pointOfContact: null,
+    });
+    const draft = makeReportRow({ draftReady: true, reportType: "Maintenance", period: "2026-01" });
+    const ids = preflightSite(site, [draft], "Maintenance", NOW).findings.map((f) => f.check);
+    expect(ids).toContain("frequency-unrecognized");
+    expect(ids).toContain("pending-drafts");
   });
 });
 
@@ -189,7 +303,7 @@ describe("preflightFleet", () => {
       cleanSite({ id: "rec3", name: "Other", pointOfContact: "someone@else.example.com" }),
     ];
     const f = preflightFleet(sites).find((x) => x.check === "duplicate-contact");
-    expect(f?.level).toBe("warn");
+    expect(f?.level).toBe("info");
     expect(f?.message).toContain("MSOT and Revogen");
     expect(f?.message).toContain("albert@revogen.example.com");
   });
