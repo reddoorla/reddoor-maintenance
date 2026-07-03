@@ -45,6 +45,7 @@ function deps(over: Partial<ApproveDeps> = {}): ApproveDeps {
     getReportById: vi.fn().mockResolvedValue(reportRow()),
     approveReportRow: vi.fn().mockResolvedValue(undefined),
     now: () => new Date("2026-06-11T15:30:00.000Z"),
+    sendBlockers: vi.fn().mockResolvedValue([]),
     ...over,
   };
 }
@@ -151,5 +152,54 @@ describe("approveReport — idempotency and guards", () => {
     const res = await approveReport(d, "recREP1");
     expect(res.status).toBe("noop");
     expect((res as { reason: string }).reason).toBe("already-sent");
+  });
+});
+
+describe("approveReport — send-blocker gate", () => {
+  it("blocks with reasons when sendBlockers reports problems (even with an empty checklist)", async () => {
+    const d = deps({
+      getReportById: vi
+        .fn()
+        .mockResolvedValue(reportRow({ reportType: "Announcement", checklist: {} })),
+      sendBlockers: vi
+        .fn()
+        .mockResolvedValue(["recipients-missing: no recipients — the send will throw"]),
+    });
+    const res = await approveReport(d, "rec1");
+    expect(res).toEqual({
+      status: "blocked",
+      reportId: "rec1",
+      reason: "send-blocked",
+      blockers: ["recipients-missing: no recipients — the send will throw"],
+    });
+    expect(d.approveReportRow).not.toHaveBeenCalled();
+  });
+
+  it("approves when sendBlockers is empty", async () => {
+    const d = deps({ sendBlockers: vi.fn().mockResolvedValue([]) });
+    const res = await approveReport(d, "rec1");
+    expect(res.status).toBe("approved");
+    expect(d.approveReportRow).toHaveBeenCalledTimes(1);
+  });
+
+  it("checks the checklist gate FIRST — sendBlockers is not even called when checklist is incomplete", async () => {
+    const sendBlockers = vi.fn().mockResolvedValue(["x"]);
+    const d = deps({
+      getReportById: vi.fn().mockResolvedValue(reportRow({ checklist: {} })),
+      sendBlockers,
+    });
+    const res = await approveReport(d, "rec1");
+    expect(res).toMatchObject({ status: "blocked", reason: "checklist-incomplete" });
+    expect(sendBlockers).not.toHaveBeenCalled();
+  });
+
+  it("noop paths (already-sent/approved) never invoke sendBlockers", async () => {
+    const sendBlockers = vi.fn().mockResolvedValue(["x"]);
+    const d = deps({
+      getReportById: vi.fn().mockResolvedValue(reportRow({ sentAt: "2026-06-01" })),
+      sendBlockers,
+    });
+    await approveReport(d, "rec1");
+    expect(sendBlockers).not.toHaveBeenCalled();
   });
 });

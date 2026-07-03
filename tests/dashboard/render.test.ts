@@ -16,6 +16,11 @@ function siteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     testingFreq: "Quarterly",
     maintenanceDay: "2026-05-01",
     testingDay: "2026-04-10",
+    // Send-clean defaults: the approve gate now blocks on missing recipients /
+    // header image, so the fixture site must pass approveBlockers for the
+    // enabled-button tests to exercise the checklist gate in isolation.
+    pointOfContact: "owner@site.example.com",
+    headerImage: { url: "https://x/h.png", filename: "h.png", type: "image/png" },
     pScore: 87,
     rScore: 95,
     bpScore: 90,
@@ -1065,5 +1070,69 @@ describe("renderSiteDashboardHtml — editable site details", () => {
     const html = renderSiteDashboardHtml(siteRow({ name: "Acme", copyIntro: "<b>hi</b>" }), []);
     expect(html).toMatch(/<textarea[^>]*data-detail-field="copyIntro"/);
     expect(html).toContain("&lt;b&gt;hi&lt;/b&gt;");
+  });
+});
+
+describe("renderSiteDashboardHtml — preflight chip + send-blocker gate", () => {
+  const pendingReport = () =>
+    reportRow({ draftReady: true, approvedToSend: false, sentAt: null, period: "2026-07" });
+
+  it("renders a green chip and an enabled button on a send-clean site", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [
+      { ...pendingReport(), checklist: { ...COMPLETE_MAINTENANCE } },
+    ]);
+    expect(html).toContain("preflight ✓");
+    expect(html).not.toMatch(/<button class="approve"[^>]*disabled/);
+  });
+
+  it("renders a red chip, disables Approve, and marks data-send-blocked when recipients are missing", () => {
+    const html = renderSiteDashboardHtml(siteRow({ pointOfContact: null }), [
+      { ...pendingReport(), checklist: { ...COMPLETE_MAINTENANCE } },
+    ]);
+    expect(html).toContain("preflight ✗");
+    expect(html).toContain("recipients-missing");
+    expect(html).toMatch(/<button class="approve"[^>]*data-send-blocked="1"[^>]*disabled/);
+  });
+
+  it("gates an Announcement (empty checklist) on send blockers — the vacuous-gate hole", () => {
+    const html = renderSiteDashboardHtml(siteRow({ headerImage: null }), [
+      { ...pendingReport(), reportType: "Announcement", checklist: {} },
+    ]);
+    expect(html).toContain("header-image-missing");
+    expect(html).toMatch(/<button class="approve"[^>]*disabled/);
+  });
+
+  it("shows an amber chip (button enabled) when the To resolves to only operator addresses", () => {
+    const html = renderSiteDashboardHtml(siteRow({ pointOfContact: "tucker@reddoorla.com" }), [
+      { ...pendingReport(), checklist: { ...COMPLETE_MAINTENANCE } },
+    ]);
+    expect(html).toContain("preflight ⚠");
+    expect(html).not.toMatch(/<button class="approve"[^>]*disabled/);
+  });
+
+  it("the approve click handler surfaces the 409 body (Blocked + blockers in the title)", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [pendingReport()]);
+    const script = html.slice(html.indexOf("<script>"), html.indexOf("</script>"));
+    expect(script).toContain('data.reason === "send-blocked" ? "Blocked" : "Failed"');
+    expect(script).toContain("data.blockers");
+  });
+
+  it("the client checklist re-gate never re-enables a send-blocked button", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [pendingReport()]);
+    const script = html.slice(html.indexOf("<script>"), html.indexOf("</script>"));
+    expect(script).toContain('approveBtn.dataset.sendBlocked === "1"');
+  });
+
+  it("gates the history-table approve action too (no side door)", () => {
+    const html = renderSiteDashboardHtml(siteRow({ pointOfContact: null }), [
+      {
+        ...pendingReport(),
+        completedOn: "2026-06-01",
+        checklist: { ...COMPLETE_MAINTENANCE },
+      },
+    ]);
+    const rows = html.match(/<button class="approve"[^>]*>/g) ?? [];
+    expect(rows.length).toBeGreaterThan(0);
+    for (const b of rows) expect(b).toContain("disabled");
   });
 });

@@ -9,6 +9,7 @@ import { escapeHtml, safeUrl } from "../util/html.js";
 import { FAVICON_LINK } from "./favicon.js";
 import { onboardingStatus, missingOnboarding } from "./onboarding.js";
 import { checklistFor, isChecklistComplete } from "../reports/checklist.js";
+import { approveBlockers, type PreflightFinding } from "../reports/preflight.js";
 import {
   renderSubmissionRow,
   SUBMISSION_STYLES,
@@ -119,25 +120,48 @@ function checklistBlock(r: ReportRow): string {
 }
 
 /** The Approve button for a pending report. Server-renders `disabled` when the
- *  report's checklist is incomplete (the convenience gate — approve.ts + orchestrate.ts
- *  are the hard backstops). Launch/Announcement have an empty checklist → never gated. */
-function approveButton(r: ReportRow): string {
-  const disabled = isChecklistComplete(r) ? "" : " disabled";
-  return `<button class="approve" data-report-id="${escapeHtml(r.id)}" data-approve-url="${escapeHtml(`/api/reports/${encodeURIComponent(r.id)}/approve`)}"${disabled}>Approve</button>`;
+ *  report's checklist is incomplete OR the report has send blockers (the
+ *  convenience gate — approve.ts + orchestrate.ts are the hard backstops).
+ *  `data-send-blocked` keeps the client's checklist re-gate from re-enabling a
+ *  button the server disabled for blocker reasons. */
+function approveButton(r: ReportRow, blocked: boolean): string {
+  const disabled = isChecklistComplete(r) && !blocked ? "" : " disabled";
+  const blockedAttr = blocked ? ` data-send-blocked="1"` : "";
+  return `<button class="approve" data-report-id="${escapeHtml(r.id)}" data-approve-url="${escapeHtml(`/api/reports/${encodeURIComponent(r.id)}/approve`)}"${blockedAttr}${disabled}>Approve</button>`;
 }
 
-function pendingRow(r: ReportRow): string {
+/** The preflight chip for one pending report: red = send blockers (approve
+ *  disabled), amber = wrong-inbox warns, green = clear. Reasons ride the title
+ *  tooltip. Same approveBlockers() the approve endpoint gates on, computed from
+ *  data the page already fetched — the chip can't drift from the gate. */
+function preflightChip(findings: PreflightFinding[]): string {
+  const fails = findings.filter((f) => f.level === "fail");
+  const warns = findings.filter((f) => f.level === "warn");
+  if (fails.length > 0) {
+    const title = escapeHtml(fails.map((f) => `${f.check}: ${f.message}`).join("\n"));
+    return `<span class="preflight preflight-fail" title="${title}">preflight ✗ ${fails.length}</span>`;
+  }
+  if (warns.length > 0) {
+    const title = escapeHtml(warns.map((f) => `${f.check}: ${f.message}`).join("\n"));
+    return `<span class="preflight preflight-warn" title="${title}">preflight ⚠ ${warns.length}</span>`;
+  }
+  return `<span class="preflight preflight-ok" title="recipients, header image and report scores all present">preflight ✓</span>`;
+}
+
+function pendingRow(r: ReportRow, site: WebsiteRow): string {
   const type = escapeHtml(r.reportType);
   const period = r.period ? escapeHtml(r.period) : "—";
-  return `<li><div class="pending-head"><strong>${type}</strong> <span class="muted">${period}</span> ${approveButton(r)}</div>${checklistBlock(r)}</li>`;
+  const findings = approveBlockers(site, r);
+  const blocked = findings.some((f) => f.level === "fail");
+  return `<li><div class="pending-head"><strong>${type}</strong> <span class="muted">${period}</span> ${preflightChip(findings)} ${approveButton(r, blocked)}</div>${checklistBlock(r)}</li>`;
 }
 
-function pendingSection(reports: ReportRow[]): string {
+function pendingSection(reports: ReportRow[], site: WebsiteRow): string {
   const pending = reports.filter(isPendingApproval);
   if (pending.length === 0) return "";
   return `<div class="section pending">
     <h2>Pending your yes (${pending.length})</h2>
-    <ul class="pending-list">${pending.map(pendingRow).join("")}</ul>
+    <ul class="pending-list">${pending.map((r) => pendingRow(r, site)).join("")}</ul>
   </div>`;
 }
 
@@ -162,7 +186,7 @@ function searchCell(r: ReportRow): string {
   return DASH;
 }
 
-function reportRow(r: ReportRow): string {
+function reportRow(r: ReportRow, site: WebsiteRow): string {
   const date = r.completedOn ? escapeHtml(r.completedOn) : DASH;
   const type = escapeHtml(r.reportType);
   const id = escapeHtml(r.reportId);
@@ -171,7 +195,14 @@ function reportRow(r: ReportRow): string {
   const link = r.renderedHtmlAttachment
     ? `<a href="${escapeHtml(safeUrl(r.renderedHtmlAttachment.url))}">view</a>`
     : `<span class="muted">no attachment</span>`;
-  const action = isPendingApproval(r) ? approveButton(r) : "";
+  // Same gate as the pending section: an approve action in the history table
+  // must not be a side door around the send-blocker gate.
+  const action = isPendingApproval(r)
+    ? approveButton(
+        r,
+        approveBlockers(site, r).some((f) => f.level === "fail"),
+      )
+    : "";
   return `<tr><td>${date}</td><td>${type}</td><td><code>${id}</code></td><td>${ga}</td><td>${search}</td><td>${link}</td><td>${action}</td></tr>`;
 }
 
@@ -334,6 +365,10 @@ th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #eee; }
 .empty { color: #999; padding: 1rem; border: 1px dashed #ccc; border-radius: 6px; text-align: center; }
 button.approve { font: inherit; padding: 0.35rem 0.85rem; border: 1px solid #2c7; border-radius: 6px; background: #2c7; color: #fff; cursor: pointer; }
 button.approve:disabled { opacity: 0.6; cursor: default; }
+.preflight { font-size: 0.78rem; padding: 0.1rem 0.45rem; border-radius: 999px; white-space: nowrap; }
+.preflight-ok { background: #1b5e2033; color: #7bc67e; }
+.preflight-warn { background: #f9a82533; color: #d79921; }
+.preflight-fail { background: #b71c1c33; color: #e57373; }
 .pending-list { list-style: none; padding: 0; margin: 0; }
 .pending-list li { padding: 0.5rem; border-bottom: 1px solid #eee; }
 @media (prefers-color-scheme: dark) { .pending-list li { border-color: #2a2a2a; } }
@@ -423,7 +458,7 @@ export function renderSiteDashboardHtml(
       ? `<div class="empty">No reports yet.</div>`
       : `<table>
           <thead><tr><th>Completed</th><th>Type</th><th>ID</th><th>GA users</th><th>Search</th><th>Report</th><th></th></tr></thead>
-          <tbody>${recentReports.map(reportRow).join("")}</tbody>
+          <tbody>${recentReports.map((r) => reportRow(r, site)).join("")}</tbody>
         </table>`;
 
   return `<!doctype html>
@@ -441,7 +476,7 @@ export function renderSiteDashboardHtml(
   <div class="meta"><a href="${escapeHtml(urlSafe)}">${escapeHtml(site.url)}</a></div>
   ${auditedLine}
   ${setupSection(site)}
-  ${pendingSection(reports)}
+  ${pendingSection(reports, site)}
 
   <div class="section">
     <h2>Lighthouse</h2>
@@ -469,8 +504,17 @@ export function renderSiteDashboardHtml(
         b.disabled = true;
         try {
           const res = await fetch(b.dataset.approveUrl, { method: "POST" });
-          b.textContent = res.ok ? "Approved" : "Failed";
-          if (!res.ok) b.disabled = false;
+          if (res.ok) {
+            b.textContent = "Approved";
+          } else {
+            // A 409 carries { reason, blockers } — surface WHY instead of a bare
+            // "Failed" next to a possibly-stale green chip. textContent/title
+            // assignment only (no innerHTML), so server strings stay inert.
+            const data = await res.json().catch(() => null);
+            b.textContent = data && data.reason === "send-blocked" ? "Blocked" : "Failed";
+            if (data && Array.isArray(data.blockers)) b.title = data.blockers.join("\n");
+            b.disabled = false;
+          }
         } catch {
           // Network rejection (offline, DNS, abort): mirror the !res.ok path so
           // the button doesn't sit permanently disabled reading "Approve".
@@ -538,7 +582,7 @@ export function renderSiteDashboardHtml(
           });
           if (!res.ok) throw new Error("bad status");
           const data = await res.json();
-          if (approveBtn) approveBtn.disabled = !data.complete;
+          if (approveBtn) approveBtn.disabled = !data.complete || approveBtn.dataset.sendBlocked === "1";
         } catch {
           // Revert the optimistic flip so the box reflects the (unchanged) server state.
           cb.checked = !cb.checked;

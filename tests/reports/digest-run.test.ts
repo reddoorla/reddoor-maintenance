@@ -31,6 +31,10 @@ function siteRow(over: Partial<FakeRecord["fields"]> = {}): FakeRecord {
     fields: {
       Name: "Acme Co",
       url: "https://acme.example.com",
+      // Send-clean: the preflight collector surfaces unsent drafts with send
+      // blockers, so skip-path fixtures need recipients + header + scores.
+      "point of contact": "owner@acme.example.com",
+      "Header image": [{ url: "https://x/h.png", filename: "h.png", type: "image/png" }],
       ...over,
     },
   };
@@ -252,6 +256,23 @@ describe("runDigest", () => {
     expect(result.output).toContain("skipped");
   });
 
+  it("sends a digest (Needs attention) when an APPROVED report has send blockers", async () => {
+    const base = makeFakeBase({
+      Reports: [approvedReport()],
+      Websites: [siteRow({ "point of contact": undefined, "Header image": undefined })],
+    });
+    const { client, captured } = captureClient();
+    const result = await runDigest({
+      base,
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
+    expect(result.code).toBe(0);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]!.html).toContain("will fail at send");
+    expect(captured[0]!.html).toContain("recipients-missing");
+  });
+
   it("sends a digest when a ready report exists", async () => {
     const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
     const { client, captured } = captureClient();
@@ -353,13 +374,21 @@ describe("runDigest", () => {
     expect(captured[0]!.html).toContain("/s/acme-co");
   });
 
-  it("skips orphan reports whose site row is missing", async () => {
-    // Report points at rec_site_acme but Websites table is empty
+  it("surfaces an orphan report (site row missing) as site-not-found instead of a broken ready-link", async () => {
+    // Report points at rec_site_acme but Websites table is empty. The ready
+    // section still skips it (no broken /s/ link), but the preflight collector
+    // now names it — an orphan draft is a send that WILL fail.
     const base = makeFakeBase({ Reports: [readyReport()], Websites: [] });
-    const result = await runDigest({ base, baseUrl: "https://reddoor-maintenance.netlify.app" });
-    // No site → no ReadyItems → skipped
+    const { client, captured } = captureClient();
+    const result = await runDigest({
+      base,
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
     expect(result.code).toBe(0);
-    expect(result.output).toContain("skipped");
+    expect(captured).toHaveLength(1);
+    expect(captured[0]!.html).toContain("site-not-found");
+    expect(captured[0]!.html).not.toContain("/s/rec");
   });
 
   it("returns the Resend message id in the output string", async () => {

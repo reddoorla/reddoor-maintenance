@@ -18,6 +18,10 @@ function model(
 function siteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
   return makeWebsiteRow({
     pointOfContact: "Tucker",
+    // Send-clean: the cockpit now runs collectPreflightBlocked, so a pending
+    // report on a site missing its header image would tier the site "watch"
+    // and change the verdict these tests assert.
+    headerImage: { url: "https://x/h.png", filename: "h.png", type: "image/png" },
     maintenanceFreq: "Monthly",
     testingFreq: "Quarterly",
     maintenanceDay: "2026-05-01",

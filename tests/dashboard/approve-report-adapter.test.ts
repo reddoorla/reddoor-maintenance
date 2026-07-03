@@ -147,6 +147,22 @@ describe("approve-report adapter — env + method gating", () => {
     expect(res.status).toBe(500);
   });
 
+  it("returns 409 (not 2xx) when approve is blocked, so the client's res.ok check reads Failed", async () => {
+    approveMock.mockResolvedValue({
+      status: "blocked",
+      reportId: "recREP1",
+      reason: "send-blocked",
+      blockers: ["recipients-missing: no recipients"],
+    });
+    const res = await approveReportFn(
+      post("recREP1", { authorization: AUTH, "sec-fetch-site": "same-origin" }),
+      // @ts-expect-error — minimal Context
+      { params: { id: "recREP1" } },
+    );
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ reason: "send-blocked" });
+  });
+
   it("authenticated POST calls approveReport with the :id and returns 200 on approve", async () => {
     approveMock.mockResolvedValue({ status: "approved", reportId: "recREP1" });
     // @ts-expect-error — minimal Context

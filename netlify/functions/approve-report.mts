@@ -5,6 +5,8 @@ import {
   approveReportRow,
 } from "../../src/reports/airtable/reports.js";
 import { approveReport, verifyBasicAuth } from "../../src/dashboard/index.js";
+import { listWebsites } from "../../src/reports/airtable/websites.js";
+import { approveBlockers, formatBlockers } from "../../src/reports/preflight.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
 
@@ -102,12 +104,27 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
         getReportById: (rid) => getReportByIdAirtable(base, rid),
         approveReportRow: (rid, at, by) => approveReportRow(base, rid, at, by),
         now: () => new Date(),
+        sendBlockers: async (report) => {
+          // One Websites fetch per approve click (30/min rate limit; fine). A
+          // missing Site row is itself a send blocker — sendApprovedReports
+          // fails exactly that way.
+          const site = (await listWebsites(base)).find((w) => w.id === report.siteId);
+          if (!site) return ["site-not-found: this report's Site link points at no Websites row"];
+          return formatBlockers(approveBlockers(site, report));
+        },
       },
       id,
     );
 
     if (result.status === "not-found") {
       return Response.json(result, { status: 404 });
+    }
+    // A blocked approve must NOT be a 2xx: the dashboard's inline script keys
+    // success purely off res.ok, so a 200 here would flip the button to
+    // "Approved" for a report that was refused. 409 = the row's current state
+    // conflicts with approval; body carries the reason/blockers.
+    if (result.status === "blocked") {
+      return Response.json(result, { status: 409 });
     }
     return Response.json(result, { status: 200 });
   } catch (err) {

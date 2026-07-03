@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { preflightSite, preflightFleet } from "../../src/reports/preflight.js";
+import {
+  preflightSite,
+  preflightFleet,
+  approveBlockers,
+  formatBlockers,
+} from "../../src/reports/preflight.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
@@ -316,5 +321,59 @@ describe("preflightFleet", () => {
     ];
     const checks = preflightFleet(sites).map((x) => x.check);
     expect(checks).not.toContain("duplicate-contact");
+  });
+});
+
+describe("approveBlockers", () => {
+  const REPORT = () =>
+    makeReportRow({
+      lighthouse: { performance: 90, accessibility: 100, bestPractices: 100, seo: 100 },
+    });
+
+  it("returns no findings for a send-clean site + report", () => {
+    expect(approveBlockers(cleanSite(), REPORT())).toEqual([]);
+  });
+
+  it.each([
+    ["recipients-missing", { pointOfContact: null }],
+    ["recipients-malformed", { pointOfContact: "Bob <bob@x.com>" }],
+    ["header-image-missing", { headerImage: null }],
+  ] as const)("fails on %s", (check, over) => {
+    const fails = formatBlockers(approveBlockers(cleanSite(over), REPORT()));
+    expect(fails.join(" ")).toContain(check);
+  });
+
+  it("fails when the Header image attachment is not a decodable image (send throws in prepareHeaderImage)", () => {
+    const site = cleanSite({
+      headerImage: { url: "https://x/doc.pdf", filename: "doc.pdf", type: "application/pdf" },
+    });
+    expect(formatBlockers(approveBlockers(site, REPORT())).join(" ")).toContain(
+      "header-image-not-image",
+    );
+    expect(checks(site)).toContain("header-image-not-image");
+  });
+
+  it("fails when the REPORT row has no lighthouse snapshot (sendOne throws on it)", () => {
+    const fails = formatBlockers(approveBlockers(cleanSite(), makeReportRow({ lighthouse: null })));
+    expect(fails.join(" ")).toContain("report-scores-missing");
+  });
+
+  it("does not fail on site-level scores — the report snapshot is what sends", () => {
+    const fails = formatBlockers(approveBlockers(cleanSite({ pScore: null }), REPORT()));
+    expect(fails).toEqual([]);
+  });
+
+  it("warns (does not block) when the To is only operator addresses", () => {
+    const findings = approveBlockers(
+      cleanSite({ pointOfContact: "tucker@reddoorla.com" }),
+      REPORT(),
+    );
+    expect(findings.map((f) => f.level)).toEqual(["warn"]);
+    expect(formatBlockers(findings)).toEqual([]);
+  });
+
+  it("ignores schedule hygiene entirely (not this report's problem)", () => {
+    const site = cleanSite({ maintenanceFreq: "None", maintenanceFreqRaw: "Quaterly" });
+    expect(formatBlockers(approveBlockers(site, REPORT()))).toEqual([]);
   });
 });

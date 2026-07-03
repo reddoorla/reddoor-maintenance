@@ -7,6 +7,7 @@ import {
   collectRenovateAlerts,
   collectCiAlerts,
   collectAnalyticsFailures,
+  collectPreflightBlocked,
 } from "../../src/alerts/digest-collectors.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
@@ -489,5 +490,101 @@ describe("collectAnalyticsFailures", () => {
       NOW,
     );
     expect(items.map((i) => i.key).sort()).toEqual(["analytics:recA", "analytics:recB"]);
+  });
+});
+
+describe("collectPreflightBlocked", () => {
+  const site = (over: Partial<WebsiteRow> = {}) =>
+    makeWebsiteRow({
+      id: "recS1",
+      name: "Acme Co",
+      pointOfContact: "owner@acme.example.com",
+      headerImage: { url: "https://x/h.png", filename: "h.png", type: "image/png" },
+      ...over,
+    });
+  const draft = (over: Partial<ReportRow> = {}): ReportRow =>
+    ({
+      id: "recR1",
+      reportId: "rep_1",
+      siteId: "recS1",
+      reportType: "Announcement",
+      period: "2026-07",
+      periodStart: null,
+      periodEnd: null,
+      completedOn: null,
+      lighthouse: { performance: 90, accessibility: 100, bestPractices: 100, seo: 100 },
+      gaUsersCurrent: null,
+      gaUsersPrevious: null,
+      searchFoundPage1: null,
+      searchPosition: null,
+      lastTestedDate: null,
+      commentary: null,
+      subjectOverride: null,
+      draftReady: true,
+      approvedToSend: false,
+      sentAt: null,
+      approvedAt: null,
+      approvedBy: null,
+      deliveryStatus: "pending",
+      renderedHtmlAttachment: null,
+      resendMessageId: null,
+      checklist: {},
+      autoEvidence: null,
+      ...over,
+    }) as ReportRow;
+
+  it("emits nothing for send-clean drafts", () => {
+    const items = collectPreflightBlocked([draft()], new Map([["recS1", site()]]), "https://d");
+    expect(items).toEqual([]);
+  });
+
+  it("warns on a pending draft with blockers; critical when already approved", () => {
+    const blockedSite = site({ pointOfContact: null });
+    const sitesById = new Map([["recS1", blockedSite]]);
+    const pending = collectPreflightBlocked([draft()], sitesById, "https://d");
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({
+      key: "preflight:recR1:pending",
+      kind: "preflight",
+      severity: "warning",
+      siteName: "Acme Co",
+    });
+    expect(pending[0]!.title).toContain("recipients-missing");
+
+    const approved = collectPreflightBlocked(
+      [draft({ approvedToSend: true })],
+      sitesById,
+      "https://d",
+    );
+    expect(approved[0]!.severity).toBe("critical");
+    expect(approved[0]!.title).toContain("will fail at send");
+    // The approved state rides the key so the pending→approved escalation
+    // re-news as a fresh critical instead of diffing "standing".
+    expect(approved[0]!.key).toBe("preflight:recR1:approved");
+    expect(approved[0]!.key).not.toBe(pending[0]!.key);
+  });
+
+  it("skips sent reports", () => {
+    const sitesById = new Map([["recS1", site({ pointOfContact: null })]]);
+    expect(
+      collectPreflightBlocked([draft({ sentAt: "2026-07-01" })], sitesById, "https://d"),
+    ).toEqual([]);
+  });
+
+  it("surfaces a dangling Site link as site-not-found (the send fails exactly that way)", () => {
+    const sitesById = new Map([["recS1", site()]]);
+    const items = collectPreflightBlocked(
+      [draft({ siteId: "recGHOST", approvedToSend: true })],
+      sitesById,
+      "https://d",
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      kind: "preflight",
+      severity: "critical",
+      siteName: "(unlinked site)",
+      url: "https://d",
+    });
+    expect(items[0]!.title).toContain("site-not-found");
   });
 });

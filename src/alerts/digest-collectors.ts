@@ -2,10 +2,15 @@
 import type { AttentionItem } from "./attention.js";
 import { siteSlug, type WebsiteRow } from "../reports/airtable/websites.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
+import { approveBlockers } from "../reports/preflight.js";
 
-/** Build the same `/s/<slug>` dashboard link the M3 ready-section uses, trailing-slash-safe. */
+/** Build the same `/s/<slug>` dashboard link the M3 ready-section uses, trailing-slash-safe.
+ *  An empty Name slugs to "" and `/s/` is a dead link — fall back to the fleet homepage,
+ *  exactly like the ready-section does. */
 function dashboardUrl(baseUrl: string, siteName: string): string {
-  return `${baseUrl.replace(/\/$/, "")}/s/${siteSlug(siteName)}`;
+  const root = baseUrl.replace(/\/$/, "");
+  const slug = siteSlug(siteName);
+  return slug ? `${root}/s/${slug}` : root;
 }
 
 /**
@@ -122,6 +127,62 @@ export function collectLighthouseAlerts(sites: WebsiteRow[], baseUrl: string): A
  * the M3 ready-section does, so the digest never renders a broken link. The diff
  * key is the report RECORD id, so two failures on one site stay distinct.
  */
+/**
+ * One attention item per unsent draft whose send is ALREADY known to fail
+ * (approveBlockers: recipients / header image / report scores). An APPROVED one
+ * is critical — the next 09:23 UTC run will go red on it; a pending one is a
+ * warning — approving it just schedules that failure. Keyed `preflight:<reportId>`.
+ * PURE; same predicate the approve gate and the dashboard chip use.
+ */
+export function collectPreflightBlocked(
+  reports: ReportRow[],
+  sitesById: Map<string, WebsiteRow>,
+  baseUrl: string,
+): AttentionItem[] {
+  const items: AttentionItem[] = [];
+  for (const r of reports) {
+    if (!r.draftReady || r.sentAt !== null) continue;
+    // The approved state rides the KEY so a pending→approved escalation with
+    // unchanged blockers re-news as a fresh critical instead of diffing
+    // "standing" against its old warning self.
+    const state = r.approvedToSend ? "approved" : "pending";
+    const site = sitesById.get(r.siteId);
+    if (!site) {
+      // A dangling/empty Site link is itself a send blocker (sendApprovedReports
+      // fails with "Site row not found") — surface it; the empty-slug
+      // dashboardUrl fallback yields the fleet root, not a broken /s/ link.
+      items.push({
+        key: `preflight:${r.id}:${state}`,
+        kind: "preflight",
+        siteName: "(unlinked site)",
+        title: r.approvedToSend
+          ? `Approved ${r.reportType} will fail at send — site-not-found`
+          : `${r.reportType} draft can't be approved — site-not-found`,
+        url: dashboardUrl(baseUrl, ""),
+        severity: r.approvedToSend ? "critical" : "warning",
+        metric: 1,
+      });
+      continue;
+    }
+    const fails = approveBlockers(site, r).filter((f) => f.level === "fail");
+    if (fails.length === 0) continue;
+    const first = fails[0]!;
+    const more = fails.length > 1 ? ` (+${fails.length - 1} more)` : "";
+    items.push({
+      key: `preflight:${r.id}:${state}`,
+      kind: "preflight",
+      siteName: site.name,
+      title: r.approvedToSend
+        ? `Approved ${r.reportType} will fail at send — ${first.check}${more}`
+        : `${r.reportType} draft can't be approved — ${first.check}${more}`,
+      url: dashboardUrl(baseUrl, site.name),
+      severity: r.approvedToSend ? "critical" : "warning",
+      metric: fails.length,
+    });
+  }
+  return items;
+}
+
 export function collectDeliveryFailures(
   reports: ReportRow[],
   sitesById: Map<string, WebsiteRow>,
