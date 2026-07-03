@@ -4,9 +4,13 @@ import { siteSlug, type WebsiteRow } from "../reports/airtable/websites.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
 import { approveBlockers } from "../reports/preflight.js";
 
-/** Build the same `/s/<slug>` dashboard link the M3 ready-section uses, trailing-slash-safe. */
+/** Build the same `/s/<slug>` dashboard link the M3 ready-section uses, trailing-slash-safe.
+ *  An empty Name slugs to "" and `/s/` is a dead link — fall back to the fleet homepage,
+ *  exactly like the ready-section does. */
 function dashboardUrl(baseUrl: string, siteName: string): string {
-  return `${baseUrl.replace(/\/$/, "")}/s/${siteSlug(siteName)}`;
+  const root = baseUrl.replace(/\/$/, "");
+  const slug = siteSlug(siteName);
+  return slug ? `${root}/s/${slug}` : root;
 }
 
 /**
