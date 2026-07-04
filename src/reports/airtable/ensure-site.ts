@@ -1,3 +1,4 @@
+import type { FieldSet, Records } from "airtable";
 import type { AirtableBase } from "./client.js";
 import { WEBSITES_TABLE, listWebsites, siteSlug } from "./websites.js";
 
@@ -43,20 +44,18 @@ export async function ensureSite(
   const existing = (await listWebsites(base)).find((w) => siteSlug(w.name) === slug);
 
   if (!existing) {
-    const fields: Record<string, unknown> = {
+    const fields: FieldSet = {
       Name: slug,
       Status: "in development",
       [COLS.gitRepo]: input.gitRepo ?? `reddoorla/${slug}`,
     };
     if (input.url) fields[COLS.url] = input.url;
     if (input.pointOfContact) fields[COLS.pointOfContact] = input.pointOfContact;
-    const created = (await base(WEBSITES_TABLE).create([{ fields }])) as Array<{
-      id: string;
-    }>;
+    const created = (await base(WEBSITES_TABLE).create([{ fields }])) as Records<FieldSet>;
     return { status: "created", siteId: created[0]!.id, updatedFields: [] };
   }
 
-  const updates: Record<string, unknown> = {};
+  const updates: FieldSet = {};
   const blank = (v: unknown) => v === null || v === undefined || v === "";
   if (input.url && blank(existing.url || null)) updates[COLS.url] = input.url;
   if (input.pointOfContact && blank(existing.pointOfContact))
