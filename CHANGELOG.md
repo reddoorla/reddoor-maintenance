@@ -1,5 +1,51 @@
 # @reddoorla/maintenance
 
+## 0.68.0
+
+### Minor Changes
+
+- 2e0206b: The dashboard's pending-report rows now tell the whole approval story: the
+  resolved recipients exactly as the send path computes them (To override →
+  point of contact, plus the forced ops CC), a draft-time preview link to the rendered
+  email (labeled as such — send re-renders with current Commentary) (or "no preview yet"), and when an approval actually goes out — the next
+  09:23 UTC daily run, with an hours countdown. Approve was the
+  highest-stakes, most information-starved click on the dashboard (operator
+  approve-loop UX memo, proposal 1); it now shows what it sends, to whom, and
+  when.
+- b506b48: Approve-time send-blocker gate. `approveReport` now blocks (with reasons) any
+  report whose send is already known to throw — missing/malformed recipients,
+  missing header image, or a null report-level Lighthouse snapshot — via a new
+  pure `approveBlockers(site, report)` shared by three surfaces: the approve
+  endpoint (closes the vacuous gate on Launch/Announcement, which have no
+  checklist), the per-site dashboard's pending rows (a preflight chip: red =
+  blocked + button disabled, amber = To resolves to operator addresses only,
+  green = clear, reasons in the tooltip; the history-table approve action is
+  gated identically), and a new daily-digest collector that surfaces
+  approved-but-doomed reports as critical "will fail at send" attention items
+  the evening before the 09:23 UTC run would go red.
+- 0fa3b55: New `ensure-site <slug>` command: find-or-create the Airtable Websites row for
+  a new site (Status "in development", Git repo default `reddoorla/<slug>`),
+  fill-blanks-only on re-run so operator edits are never clobbered. Day-one step
+  of the /new-site bootstrap workflow — the row makes audits, form-ingest slug
+  resolution, and reports work from birth.
+- 7a52ab4: New `preflight [site] | --all` command: read-only pre-send checks over the live
+  Airtable rows. Fails on what would make drafting or `report --send-ready` throw
+  (missing/malformed recipients, missing header image, missing Lighthouse scores
+  for Maintenance/Testing drafts) and on RAW frequency cells the mapper would
+  silently coerce to "None" (typos, trailing spaces — the site quietly drops off
+  the schedule). Warns on what send-time validation can't see: operator addresses
+  left in a client site's resolved To, unsent queued drafts that would race the
+  new report (the current cycle's own payload is informational, not a warning),
+  and truly stale schedule anchors (suppressed when a newer Sent-at supersedes
+  them). Fleet mode mirrors the real pipelines: Announcement checks announce's
+  maintenance-status targets; Maintenance/Testing check everything `report --due`
+  schedules (eligible + null-status rows). Exit 0 = safe (warnings printed),
+  1 = hard failure, 2 = bad args. Never writes, never sends.
+
+  Also exposes `maintenanceFreqRaw`/`testingFreqRaw` on `WebsiteRow` (the literal
+  Airtable cells behind the coerced frequencies) and exports `ELIGIBLE_STATUSES`
+  from due.ts.
+
 ## 0.67.0
 
 ### Minor Changes
