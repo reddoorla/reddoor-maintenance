@@ -397,6 +397,30 @@ cli
   );
 
 cli
+  .command("ensure-site <slug>", "Create/verify the Airtable Websites row for a new site.")
+  .option("--name <display name>", "Human Name for the row (client-facing copy uses it verbatim).")
+  .option("--url <url>", "Deployed URL (e.g. the Netlify site URL).")
+  .option("--contact <email>", "point of contact — the client address reports resolve to.")
+  .option("--git-repo <owner/repo>", "GitHub identity. Default on create: reddoorla/<slug>.")
+  .action(
+    async (
+      slug: string,
+      opts: {
+        name?: string;
+        url?: string;
+        contact?: string;
+        gitRepo?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/ensure-site.js")).runEnsureSiteCommand(slug, opts),
+        opts,
+      ),
+  );
+
+cli
   .command("report [site]", "Draft or send maintenance/testing reports.")
   .option("--due", "Scan all Websites and draft overdue reports.")
   .option("--type <type>", "Single-site draft report type: Maintenance (default) or Testing.")
