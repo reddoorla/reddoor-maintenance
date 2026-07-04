@@ -1136,3 +1136,134 @@ describe("renderSiteDashboardHtml — preflight chip + send-blocker gate", () =>
     for (const b of rows) expect(b).toContain("disabled");
   });
 });
+
+describe("renderSiteDashboardHtml — approve-card info (recipients / preview / send time)", () => {
+  const NOW = new Date("2026-07-06T15:00:00Z"); // after today's 09:23 UTC run
+  const pendingReport = (over: Partial<ReportRow> = {}) =>
+    reportRow({
+      draftReady: true,
+      approvedToSend: false,
+      sentAt: null,
+      period: "2026-07",
+      checklist: { ...COMPLETE_MAINTENANCE },
+      ...over,
+    });
+
+  it("shows the resolved To (point of contact fallback) and the forced ops CC", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow({ pointOfContact: "owner@site.example.com" }),
+      [pendingReport()],
+      [],
+      null,
+      NOW,
+    );
+    expect(html).toContain("owner@site.example.com");
+    expect(html).toContain("info@reddoorla.com");
+  });
+
+  it("shows the To OVERRIDE when Report recipients (To) is set — what approve actually sends to", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow({
+        pointOfContact: "owner@site.example.com",
+        reportRecipientsTo: "billing@site.example.com",
+      }),
+      [pendingReport()],
+      [],
+      null,
+      NOW,
+    );
+    const pending = html.slice(html.indexOf("Pending your yes"), html.indexOf("Lighthouse"));
+    expect(pending).toContain("billing@site.example.com");
+    expect(pending).not.toContain("owner@site.example.com");
+  });
+
+  it("says so plainly when no recipients resolve", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow({ pointOfContact: null }),
+      [pendingReport()],
+      [],
+      null,
+      NOW,
+    );
+    expect(html).toContain("recipients: none resolve");
+    expect(html).toContain("recipients-missing");
+  });
+
+  it("links the rendered-email preview next to Approve when the attachment exists", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow(),
+      [
+        pendingReport({
+          renderedHtmlAttachment: { url: "https://dl.airtable.com/x.html", filename: "x.html" },
+        }),
+      ],
+      [],
+      null,
+      NOW,
+    );
+    const pending = html.slice(html.indexOf("Pending your yes"), html.indexOf("Lighthouse"));
+    expect(pending).toContain("https://dl.airtable.com/x.html");
+    expect(pending).toContain("draft preview");
+    expect(pending).toContain("rendered at draft time");
+  });
+
+  it("notes when there is no preview attachment", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow(),
+      [pendingReport({ renderedHtmlAttachment: null })],
+      [],
+      null,
+      NOW,
+    );
+    const pending = html.slice(html.indexOf("Pending your yes"), html.indexOf("Lighthouse"));
+    expect(pending).toMatch(/no preview/i);
+  });
+
+  it("states when an approved report actually sends: the NEXT 09:23 UTC daily run", () => {
+    // 2026-07-06T15:00Z → next run is 2026-07-07 09:23 UTC, ~18h away.
+    const html = renderSiteDashboardHtml(siteRow(), [pendingReport()], [], null, NOW);
+    const pending = html.slice(html.indexOf("Pending your yes"), html.indexOf("Lighthouse"));
+    expect(pending).toContain("09:23");
+    expect(pending).toMatch(/~18\s?h/);
+  });
+
+  it("computes the same-day run when now precedes 09:23 UTC", () => {
+    const early = new Date("2026-07-06T08:23:00Z"); // 1h before today's run
+    const html = renderSiteDashboardHtml(siteRow(), [pendingReport()], [], null, early);
+    const pending = html.slice(html.indexOf("Pending your yes"), html.indexOf("Lighthouse"));
+    expect(pending).toMatch(/~1\s?h/);
+  });
+
+  it("warns instead of counting down while today's run may still be in flight", () => {
+    const inFlight = new Date("2026-07-06T09:40:00Z");
+    const html = renderSiteDashboardHtml(siteRow(), [pendingReport()], [], null, inFlight);
+    const pending = html.slice(html.indexOf("Pending your yes"), html.indexOf("Lighthouse"));
+    expect(pending).toContain("may still be in flight");
+    expect(pending).not.toMatch(/~\d+\s?h/);
+  });
+
+  it("switches to minute granularity under an hour and never overstates", () => {
+    const soon = new Date("2026-07-06T09:00:00Z"); // 23 min before the run
+    const html = renderSiteDashboardHtml(siteRow(), [pendingReport()], [], null, soon);
+    const pending = html.slice(html.indexOf("Pending your yes"), html.indexOf("Lighthouse"));
+    expect(pending).toContain("~23 min");
+  });
+
+  it("floors the hour countdown (19h31m shows ~19h, not ~20h)", () => {
+    const t = new Date("2026-07-06T13:52:00Z");
+    const html = renderSiteDashboardHtml(siteRow(), [pendingReport()], [], null, t);
+    const pending = html.slice(html.indexOf("Pending your yes"), html.indexOf("Lighthouse"));
+    expect(pending).toContain("~19h");
+  });
+
+  it("escapes recipient addresses sourced from Airtable", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow({ pointOfContact: "<img src=x onerror=alert(1)>@evil.com" }),
+      [pendingReport()],
+      [],
+      null,
+      NOW,
+    );
+    expect(html).not.toContain("<img src=x");
+  });
+});

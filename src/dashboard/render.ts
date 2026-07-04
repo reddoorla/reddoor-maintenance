@@ -10,6 +10,7 @@ import { FAVICON_LINK } from "./favicon.js";
 import { onboardingStatus, missingOnboarding } from "./onboarding.js";
 import { checklistFor, isChecklistComplete } from "../reports/checklist.js";
 import { approveBlockers, type PreflightFinding } from "../reports/preflight.js";
+import { parseAddresses, withGlobalCc } from "../reports/send/orchestrate.js";
 import {
   renderSubmissionRow,
   SUBMISSION_STYLES,
@@ -148,20 +149,72 @@ function preflightChip(findings: PreflightFinding[]): string {
   return `<span class="preflight preflight-ok" title="recipients, header image and report scores all present">preflight ✓</span>`;
 }
 
-function pendingRow(r: ReportRow, site: WebsiteRow): string {
+/** The next 09:23 UTC daily-run strictly after `now` — when an approved report
+ *  actually sends (daily-reports.yml cron). Approve is not send; the row says so. */
+function nextDailyRun(now: Date): Date {
+  const run = new Date(now);
+  run.setUTCHours(9, 23, 0, 0);
+  if (run.getTime() <= now.getTime()) run.setUTCDate(run.getUTCDate() + 1);
+  return run;
+}
+
+/** The send-timing line for a pending row. Two honesty rules: (1) between 09:23
+ *  and ~10:30 UTC TODAY's run may still be mid-flight (cron start delay + install
+ *  + build + the draft step) and would sweep a fresh approval within minutes —
+ *  claiming "~24h" there would be a lie in the harmful direction, so say the
+ *  window out loud instead; (2) the countdown floors (minutes under an hour) so
+ *  it never claims more remaining time than exists. */
+function sendTimingLine(now: Date): string {
+  const minuteOfDay = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const RUN_START = 9 * 60 + 23;
+  const GRACE_END = 10 * 60 + 30;
+  if (minuteOfDay >= RUN_START && minuteOfDay < GRACE_END) {
+    return `<span class="muted">today's 09:23 UTC run may still be in flight — approving now can send within minutes</span>`;
+  }
+  const run = nextDailyRun(now);
+  const leadMin = Math.floor((run.getTime() - now.getTime()) / 60_000);
+  const lead =
+    leadMin >= 60
+      ? `~${Math.floor(leadMin / 60)}h`
+      : leadMin >= 1
+        ? `~${leadMin} min`
+        : "under 1 min";
+  return `<span class="muted">approve ≠ send: goes out at the next daily run, 09:23 UTC (${lead})</span>`;
+}
+
+/** Exactly what a send of this report would address, resolved the way the send
+ *  path resolves it (To override → point of contact; forced ops CC appended) —
+ *  computed from the same inputs so the row can't drift from orchestrate.ts. */
+function recipientsLine(site: WebsiteRow): string {
+  const to = parseAddresses(site.reportRecipientsTo) ?? parseAddresses(site.pointOfContact) ?? [];
+  if (to.length === 0) {
+    return `<span class="recipients recipients-missing">recipients: none resolve — set point of contact in Airtable</span>`;
+  }
+  const cc = withGlobalCc(parseAddresses(site.reportRecipientsCc), to);
+  const ccPart = cc.length > 0 ? ` · CC ${cc.map(escapeHtml).join(", ")}` : "";
+  return `<span class="recipients">To ${to.map(escapeHtml).join(", ")}${ccPart}</span>`;
+}
+
+function pendingRow(r: ReportRow, site: WebsiteRow, now: Date): string {
   const type = escapeHtml(r.reportType);
   const period = r.period ? escapeHtml(r.period) : "—";
   const findings = approveBlockers(site, r);
   const blocked = findings.some((f) => f.level === "fail");
-  return `<li><div class="pending-head"><strong>${type}</strong> <span class="muted">${period}</span> ${preflightChip(findings)} ${approveButton(r, blocked)}</div>${checklistBlock(r)}</li>`;
+  // Draft-time render: sendOne re-renders at send with current Commentary /
+  // subject override, so this is the DRAFT preview, labeled as such.
+  const preview = r.renderedHtmlAttachment
+    ? `<a href="${escapeHtml(safeUrl(r.renderedHtmlAttachment.url))}" rel="noopener noreferrer" title="rendered at draft time — Commentary/subject edits after drafting are not reflected">draft preview ▸</a>`
+    : `<span class="muted">no preview yet</span>`;
+  const sendLine = sendTimingLine(now);
+  return `<li><div class="pending-head"><strong>${type}</strong> <span class="muted">${period}</span> ${preflightChip(findings)} ${preview} ${approveButton(r, blocked)}</div><div class="pending-info">${recipientsLine(site)} ${sendLine}</div>${checklistBlock(r)}</li>`;
 }
 
-function pendingSection(reports: ReportRow[], site: WebsiteRow): string {
+function pendingSection(reports: ReportRow[], site: WebsiteRow, now: Date): string {
   const pending = reports.filter(isPendingApproval);
   if (pending.length === 0) return "";
   return `<div class="section pending">
     <h2>Pending your yes (${pending.length})</h2>
-    <ul class="pending-list">${pending.map((r) => pendingRow(r, site)).join("")}</ul>
+    <ul class="pending-list">${pending.map((r) => pendingRow(r, site, now)).join("")}</ul>
   </div>`;
 }
 
@@ -365,6 +418,8 @@ th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #eee; }
 .empty { color: #999; padding: 1rem; border: 1px dashed #ccc; border-radius: 6px; text-align: center; }
 button.approve { font: inherit; padding: 0.35rem 0.85rem; border: 1px solid #2c7; border-radius: 6px; background: #2c7; color: #fff; cursor: pointer; }
 button.approve:disabled { opacity: 0.6; cursor: default; }
+.pending-info { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; font-size: 0.82rem; margin: 0.3rem 0 0.15rem; }
+.recipients-missing { color: #e57373; }
 .preflight { font-size: 0.78rem; padding: 0.1rem 0.45rem; border-radius: 999px; white-space: nowrap; }
 .preflight-ok { background: #1b5e2033; color: #7bc67e; }
 .preflight-warn { background: #f9a82533; color: #d79921; }
@@ -372,7 +427,7 @@ button.approve:disabled { opacity: 0.6; cursor: default; }
 .pending-list { list-style: none; padding: 0; margin: 0; }
 .pending-list li { padding: 0.5rem; border-bottom: 1px solid #eee; }
 @media (prefers-color-scheme: dark) { .pending-list li { border-color: #2a2a2a; } }
-.pending-head { display: flex; align-items: center; gap: 0.5rem; }
+.pending-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; row-gap: 0.25rem; }
 .checklist { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; margin: 0.5rem 0 0.25rem 0.25rem; }
 .check-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; }
 .check-item input { margin: 0; }
@@ -476,7 +531,7 @@ export function renderSiteDashboardHtml(
   <div class="meta"><a href="${escapeHtml(urlSafe)}">${escapeHtml(site.url)}</a></div>
   ${auditedLine}
   ${setupSection(site)}
-  ${pendingSection(reports, site)}
+  ${pendingSection(reports, site, now)}
 
   <div class="section">
     <h2>Lighthouse</h2>
