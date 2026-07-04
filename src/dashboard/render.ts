@@ -10,6 +10,7 @@ import { FAVICON_LINK } from "./favicon.js";
 import { onboardingStatus, missingOnboarding } from "./onboarding.js";
 import { checklistFor, isChecklistComplete } from "../reports/checklist.js";
 import { approveBlockers, type PreflightFinding } from "../reports/preflight.js";
+import { parseAddresses, withGlobalCc } from "../reports/send/orchestrate.js";
 import {
   renderSubmissionRow,
   SUBMISSION_STYLES,
@@ -148,20 +149,48 @@ function preflightChip(findings: PreflightFinding[]): string {
   return `<span class="preflight preflight-ok" title="recipients, header image and report scores all present">preflight ✓</span>`;
 }
 
-function pendingRow(r: ReportRow, site: WebsiteRow): string {
+/** The next 09:23 UTC daily-run strictly after `now` — when an approved report
+ *  actually sends (daily-reports.yml cron). Approve is not send; the row says so. */
+function nextDailyRun(now: Date): Date {
+  const run = new Date(now);
+  run.setUTCHours(9, 23, 0, 0);
+  if (run.getTime() <= now.getTime()) run.setUTCDate(run.getUTCDate() + 1);
+  return run;
+}
+
+/** Exactly what a send of this report would address, resolved the way the send
+ *  path resolves it (To override → point of contact; forced ops CC appended) —
+ *  computed from the same inputs so the row can't drift from orchestrate.ts. */
+function recipientsLine(site: WebsiteRow): string {
+  const to = parseAddresses(site.reportRecipientsTo) ?? parseAddresses(site.pointOfContact) ?? [];
+  if (to.length === 0) {
+    return `<span class="recipients recipients-missing">recipients: none resolve — set point of contact in Airtable</span>`;
+  }
+  const cc = withGlobalCc(parseAddresses(site.reportRecipientsCc), to);
+  const ccPart = cc.length > 0 ? ` · CC ${cc.map(escapeHtml).join(", ")}` : "";
+  return `<span class="recipients">To ${to.map(escapeHtml).join(", ")}${ccPart}</span>`;
+}
+
+function pendingRow(r: ReportRow, site: WebsiteRow, now: Date): string {
   const type = escapeHtml(r.reportType);
   const period = r.period ? escapeHtml(r.period) : "—";
   const findings = approveBlockers(site, r);
   const blocked = findings.some((f) => f.level === "fail");
-  return `<li><div class="pending-head"><strong>${type}</strong> <span class="muted">${period}</span> ${preflightChip(findings)} ${approveButton(r, blocked)}</div>${checklistBlock(r)}</li>`;
+  const preview = r.renderedHtmlAttachment
+    ? `<a href="${escapeHtml(safeUrl(r.renderedHtmlAttachment.url))}" rel="noopener noreferrer">preview ▸</a>`
+    : `<span class="muted">no preview yet</span>`;
+  const run = nextDailyRun(now);
+  const hours = Math.max(1, Math.round((run.getTime() - now.getTime()) / 3_600_000));
+  const sendLine = `<span class="muted">approve ≠ send: goes out at the next daily run, 09:23 UTC (~${hours}h)</span>`;
+  return `<li><div class="pending-head"><strong>${type}</strong> <span class="muted">${period}</span> ${preflightChip(findings)} ${preview} ${approveButton(r, blocked)}</div><div class="pending-info">${recipientsLine(site)} ${sendLine}</div>${checklistBlock(r)}</li>`;
 }
 
-function pendingSection(reports: ReportRow[], site: WebsiteRow): string {
+function pendingSection(reports: ReportRow[], site: WebsiteRow, now: Date): string {
   const pending = reports.filter(isPendingApproval);
   if (pending.length === 0) return "";
   return `<div class="section pending">
     <h2>Pending your yes (${pending.length})</h2>
-    <ul class="pending-list">${pending.map((r) => pendingRow(r, site)).join("")}</ul>
+    <ul class="pending-list">${pending.map((r) => pendingRow(r, site, now)).join("")}</ul>
   </div>`;
 }
 
@@ -365,6 +394,8 @@ th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #eee; }
 .empty { color: #999; padding: 1rem; border: 1px dashed #ccc; border-radius: 6px; text-align: center; }
 button.approve { font: inherit; padding: 0.35rem 0.85rem; border: 1px solid #2c7; border-radius: 6px; background: #2c7; color: #fff; cursor: pointer; }
 button.approve:disabled { opacity: 0.6; cursor: default; }
+.pending-info { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; font-size: 0.82rem; margin: 0.3rem 0 0.15rem; }
+.recipients-missing { color: #e57373; }
 .preflight { font-size: 0.78rem; padding: 0.1rem 0.45rem; border-radius: 999px; white-space: nowrap; }
 .preflight-ok { background: #1b5e2033; color: #7bc67e; }
 .preflight-warn { background: #f9a82533; color: #d79921; }
@@ -476,7 +507,7 @@ export function renderSiteDashboardHtml(
   <div class="meta"><a href="${escapeHtml(urlSafe)}">${escapeHtml(site.url)}</a></div>
   ${auditedLine}
   ${setupSection(site)}
-  ${pendingSection(reports, site)}
+  ${pendingSection(reports, site, now)}
 
   <div class="section">
     <h2>Lighthouse</h2>
