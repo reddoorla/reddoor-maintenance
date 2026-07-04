@@ -1203,7 +1203,8 @@ describe("renderSiteDashboardHtml — approve-card info (recipients / preview / 
     );
     const pending = html.slice(html.indexOf("Pending your yes"), html.indexOf("Lighthouse"));
     expect(pending).toContain("https://dl.airtable.com/x.html");
-    expect(pending).toMatch(/preview/i);
+    expect(pending).toContain("draft preview");
+    expect(pending).toContain("rendered at draft time");
   });
 
   it("notes when there is no preview attachment", () => {
@@ -1231,6 +1232,28 @@ describe("renderSiteDashboardHtml — approve-card info (recipients / preview / 
     const html = renderSiteDashboardHtml(siteRow(), [pendingReport()], [], null, early);
     const pending = html.slice(html.indexOf("Pending your yes"), html.indexOf("Lighthouse"));
     expect(pending).toMatch(/~1\s?h/);
+  });
+
+  it("warns instead of counting down while today's run may still be in flight", () => {
+    const inFlight = new Date("2026-07-06T09:40:00Z");
+    const html = renderSiteDashboardHtml(siteRow(), [pendingReport()], [], null, inFlight);
+    const pending = html.slice(html.indexOf("Pending your yes"), html.indexOf("Lighthouse"));
+    expect(pending).toContain("may still be in flight");
+    expect(pending).not.toMatch(/~\d+\s?h/);
+  });
+
+  it("switches to minute granularity under an hour and never overstates", () => {
+    const soon = new Date("2026-07-06T09:00:00Z"); // 23 min before the run
+    const html = renderSiteDashboardHtml(siteRow(), [pendingReport()], [], null, soon);
+    const pending = html.slice(html.indexOf("Pending your yes"), html.indexOf("Lighthouse"));
+    expect(pending).toContain("~23 min");
+  });
+
+  it("floors the hour countdown (19h31m shows ~19h, not ~20h)", () => {
+    const t = new Date("2026-07-06T13:52:00Z");
+    const html = renderSiteDashboardHtml(siteRow(), [pendingReport()], [], null, t);
+    const pending = html.slice(html.indexOf("Pending your yes"), html.indexOf("Lighthouse"));
+    expect(pending).toContain("~19h");
   });
 
   it("escapes recipient addresses sourced from Airtable", () => {

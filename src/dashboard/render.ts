@@ -158,6 +158,30 @@ function nextDailyRun(now: Date): Date {
   return run;
 }
 
+/** The send-timing line for a pending row. Two honesty rules: (1) between 09:23
+ *  and ~10:30 UTC TODAY's run may still be mid-flight (cron start delay + install
+ *  + build + the draft step) and would sweep a fresh approval within minutes —
+ *  claiming "~24h" there would be a lie in the harmful direction, so say the
+ *  window out loud instead; (2) the countdown floors (minutes under an hour) so
+ *  it never claims more remaining time than exists. */
+function sendTimingLine(now: Date): string {
+  const minuteOfDay = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const RUN_START = 9 * 60 + 23;
+  const GRACE_END = 10 * 60 + 30;
+  if (minuteOfDay >= RUN_START && minuteOfDay < GRACE_END) {
+    return `<span class="muted">today's 09:23 UTC run may still be in flight — approving now can send within minutes</span>`;
+  }
+  const run = nextDailyRun(now);
+  const leadMin = Math.floor((run.getTime() - now.getTime()) / 60_000);
+  const lead =
+    leadMin >= 60
+      ? `~${Math.floor(leadMin / 60)}h`
+      : leadMin >= 1
+        ? `~${leadMin} min`
+        : "under 1 min";
+  return `<span class="muted">approve ≠ send: goes out at the next daily run, 09:23 UTC (${lead})</span>`;
+}
+
 /** Exactly what a send of this report would address, resolved the way the send
  *  path resolves it (To override → point of contact; forced ops CC appended) —
  *  computed from the same inputs so the row can't drift from orchestrate.ts. */
@@ -176,12 +200,12 @@ function pendingRow(r: ReportRow, site: WebsiteRow, now: Date): string {
   const period = r.period ? escapeHtml(r.period) : "—";
   const findings = approveBlockers(site, r);
   const blocked = findings.some((f) => f.level === "fail");
+  // Draft-time render: sendOne re-renders at send with current Commentary /
+  // subject override, so this is the DRAFT preview, labeled as such.
   const preview = r.renderedHtmlAttachment
-    ? `<a href="${escapeHtml(safeUrl(r.renderedHtmlAttachment.url))}" rel="noopener noreferrer">preview ▸</a>`
+    ? `<a href="${escapeHtml(safeUrl(r.renderedHtmlAttachment.url))}" rel="noopener noreferrer" title="rendered at draft time — Commentary/subject edits after drafting are not reflected">draft preview ▸</a>`
     : `<span class="muted">no preview yet</span>`;
-  const run = nextDailyRun(now);
-  const hours = Math.max(1, Math.round((run.getTime() - now.getTime()) / 3_600_000));
-  const sendLine = `<span class="muted">approve ≠ send: goes out at the next daily run, 09:23 UTC (~${hours}h)</span>`;
+  const sendLine = sendTimingLine(now);
   return `<li><div class="pending-head"><strong>${type}</strong> <span class="muted">${period}</span> ${preflightChip(findings)} ${preview} ${approveButton(r, blocked)}</div><div class="pending-info">${recipientsLine(site)} ${sendLine}</div>${checklistBlock(r)}</li>`;
 }
 
@@ -403,7 +427,7 @@ button.approve:disabled { opacity: 0.6; cursor: default; }
 .pending-list { list-style: none; padding: 0; margin: 0; }
 .pending-list li { padding: 0.5rem; border-bottom: 1px solid #eee; }
 @media (prefers-color-scheme: dark) { .pending-list li { border-color: #2a2a2a; } }
-.pending-head { display: flex; align-items: center; gap: 0.5rem; }
+.pending-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; row-gap: 0.25rem; }
 .checklist { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; margin: 0.5rem 0 0.25rem 0.25rem; }
 .check-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; }
 .check-item input { margin: 0; }
