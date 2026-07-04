@@ -20,10 +20,13 @@ describe("runEnsureSiteCommand", () => {
       status: "created",
       siteId: "recNEW",
       updatedFields: [],
+      skippedMismatches: [],
     });
     const res = await runEnsureSiteCommand("roalson", {
+      name: "Roalson",
       url: "https://roalson.netlify.app",
       contact: "owner@roalson.com",
+      gitRepo: "reddoorla/custom",
     });
     expect(res.code).toBe(0);
     expect(res.output).toContain("created");
@@ -31,8 +34,10 @@ describe("runEnsureSiteCommand", () => {
       "FAKE_BASE",
       expect.objectContaining({
         slug: "roalson",
+        displayName: "Roalson",
         url: "https://roalson.netlify.app",
         pointOfContact: "owner@roalson.com",
+        gitRepo: "reddoorla/custom",
       }),
     );
   });
@@ -42,11 +47,35 @@ describe("runEnsureSiteCommand", () => {
       status: "exists",
       siteId: "recEXIST",
       updatedFields: ["url"],
+      skippedMismatches: [],
     });
     const res = await runEnsureSiteCommand("acme-co", {});
     expect(res.code).toBe(0);
     expect(res.output).toContain("exists");
     expect(res.output).toContain("url");
+  });
+
+  it("tells the operator when inputs differ from existing cells", async () => {
+    vi.mocked(ensureSite).mockResolvedValue({
+      status: "exists",
+      siteId: "recEXIST",
+      updatedFields: [],
+      skippedMismatches: ["url"],
+    });
+    const res = await runEnsureSiteCommand("acme-co", { url: "https://x.example.com" });
+    expect(res.output).toContain("left untouched");
+    expect(res.output).toContain("url");
+  });
+
+  it("warns that a bare-slug create leaves a machine Name in client-facing copy", async () => {
+    vi.mocked(ensureSite).mockResolvedValue({
+      status: "created",
+      siteId: "recNEW",
+      updatedFields: [],
+      skippedMismatches: [],
+    });
+    const res = await runEnsureSiteCommand("roalson", {});
+    expect(res.output).toContain("retitle in Airtable");
   });
 
   it("surfaces errors as exit 1", async () => {

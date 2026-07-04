@@ -80,6 +80,70 @@ describe("ensureSite", () => {
     expect(base.__calls.some((c) => c.kind === "update")).toBe(false);
   });
 
+  it("re-running after create finds the row as exists — exactly one create ever happens", async () => {
+    const base = makeFakeBase({ Websites: [] });
+    const first = await ensureSite(base, { slug: "roalson" });
+    expect(first.status).toBe("created");
+    const second = await ensureSite(base, { slug: "roalson" });
+    expect(second.status).toBe("exists");
+    expect(second.updatedFields).toEqual([]);
+    expect(base.__calls.filter((c) => c.kind === "create")).toHaveLength(1);
+  });
+
+  it("bare create writes EXACTLY the three defaults — no frequencies, no extras", async () => {
+    const base = makeFakeBase({ Websites: [] });
+    await ensureSite(base, { slug: "roalson" });
+    const create = base.__calls.find((c) => c.kind === "create")!;
+    const fields = (create as { records: Array<{ fields: Record<string, unknown> }> }).records[0]!
+      .fields;
+    expect(fields).toEqual({
+      Name: "roalson",
+      Status: "in development",
+      "Git repo": "reddoorla/roalson",
+    });
+  });
+
+  it("slugifies a messy input for Name and the Git repo default", async () => {
+    const base = makeFakeBase({ Websites: [] });
+    await ensureSite(base, { slug: "Roalson.TX" });
+    const create = base.__calls.find((c) => c.kind === "create")!;
+    const fields = (create as { records: Array<{ fields: Record<string, unknown> }> }).records[0]!
+      .fields;
+    expect(fields["Name"]).toBe("roalson-tx");
+    expect(fields["Git repo"]).toBe("reddoorla/roalson-tx");
+  });
+
+  it("writes the display name on create and rejects one that slugifies elsewhere", async () => {
+    const base = makeFakeBase({ Websites: [] });
+    await ensureSite(base, { slug: "roalson", displayName: "Roalson" });
+    const create = base.__calls.find((c) => c.kind === "create")!;
+    const fields = (create as { records: Array<{ fields: Record<string, unknown> }> }).records[0]!
+      .fields;
+    expect(fields["Name"]).toBe("Roalson");
+    await expect(
+      ensureSite(makeFakeBase({ Websites: [] }), { slug: "roalson", displayName: "Acme" }),
+    ).rejects.toThrow(/slugifies/);
+  });
+
+  it("fills a blank Git repo on the exists path", async () => {
+    const base = makeFakeBase({ Websites: [existingSite()] });
+    const result = await ensureSite(base, { slug: "acme-co", gitRepo: "reddoorla/acme-co" });
+    expect(result.updatedFields).toEqual(["Git repo"]);
+  });
+
+  it("reports differing non-blank inputs as skipped mismatches, untouched", async () => {
+    const base = makeFakeBase({
+      Websites: [existingSite({ "point of contact": "kept@client.com" })],
+    });
+    const result = await ensureSite(base, {
+      slug: "acme-co",
+      url: "https://DIFFERENT.example.com",
+      pointOfContact: "other@client.com",
+    });
+    expect(result.skippedMismatches).toEqual(["url", "point of contact"]);
+    expect(base.__calls.some((c) => c.kind === "update")).toBe(false);
+  });
+
   it("rejects an empty/unslugifiable slug", async () => {
     const base = makeFakeBase({ Websites: [] });
     await expect(ensureSite(base, { slug: "  " })).rejects.toThrow(/slug/i);

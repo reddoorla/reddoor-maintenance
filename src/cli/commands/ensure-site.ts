@@ -2,6 +2,7 @@ import { openBase, readAirtableConfig } from "../../reports/airtable/client.js";
 import { ensureSite } from "../../reports/airtable/ensure-site.js";
 
 export type EnsureSiteCommandOptions = {
+  name?: string;
   url?: string;
   contact?: string;
   gitRepo?: string;
@@ -21,6 +22,7 @@ export async function runEnsureSiteCommand(
     const base = openBase(readAirtableConfig());
     const result = await ensureSite(base, {
       slug,
+      ...(opts.name ? { displayName: opts.name } : {}),
       ...(opts.url ? { url: opts.url } : {}),
       ...(opts.contact ? { pointOfContact: opts.contact } : {}),
       ...(opts.gitRepo ? { gitRepo: opts.gitRepo } : {}),
@@ -29,8 +31,16 @@ export async function runEnsureSiteCommand(
       result.updatedFields.length > 0
         ? ` — filled blank field(s): ${result.updatedFields.join(", ")}`
         : "";
+    const skipped =
+      result.skippedMismatches.length > 0
+        ? ` — differs from existing, left untouched (edit in Airtable): ${result.skippedMismatches.join(", ")}`
+        : "";
+    const nameNote =
+      result.status === "created" && !opts.name
+        ? ` — Name set to "${slug}"; retitle in Airtable before forms/announce go live (or re-create with --name)`
+        : "";
     return {
-      output: `[${slug}] ${result.status} (${result.siteId})${filled}`,
+      output: `[${slug}] ${result.status} (${result.siteId})${filled}${skipped}${nameNote}`,
       code: 0,
     };
   } catch (err) {
