@@ -105,6 +105,7 @@ await check("cli/bin.js loads with central-only deps blocked (lazy command loadi
 
 const subpathEntries = {
   "forms/index.js": resolve(repoRoot, "dist/forms/index.js"),
+  "client/index.js": resolve(repoRoot, "dist/client/index.js"),
   "configs/lighthouse.js": resolve(repoRoot, "dist/configs/lighthouse.js"),
   "configs/eslint.js": resolve(repoRoot, "dist/configs/eslint.js"),
   "configs/prettier.js": resolve(repoRoot, "dist/configs/prettier.js"),
