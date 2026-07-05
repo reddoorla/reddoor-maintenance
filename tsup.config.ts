@@ -28,6 +28,7 @@ export default defineConfig({
   entry: [
     "src/index.ts",
     "src/forms/index.ts",
+    "src/client/index.ts",
     "src/cli/bin.ts",
     "src/cli/commands/audit.ts",
     "src/configs/lighthouse.ts",
