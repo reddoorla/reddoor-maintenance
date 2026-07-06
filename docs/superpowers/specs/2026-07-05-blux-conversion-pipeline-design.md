@@ -27,7 +27,7 @@ same Blux export in → byte-identical IR out, every run. This is what makes the
 pipeline testable (snapshot the IR), debuggable (diff the mapping), and safe to
 re-run (idempotent emit). The only human judgment is the final visual sign-off,
 which is a review gate on rendered output — never a step inside the pipeline. Any
-future AI use is confined to optional, off-path *suggestions* for flagged
+future AI use is confined to optional, off-path _suggestions_ for flagged
 low-confidence blocks and must never affect the reproducible output.
 
 ## Why this shape (rejected alternatives)
@@ -35,7 +35,7 @@ low-confidence blocks and must never affect the reproducible output.
 - **Direct HTML/CSS transcode** (pixel-faithful Svelte components from the exported
   `index.html`): rejected — produces a dead static snapshot with no content model,
   not client-editable, doesn't live "on our stack," and makes the eventual redesign
-  *harder*. Wrong for a stopgap that becomes a redesign.
+  _harder_. Wrong for a stopgap that becomes a redesign.
 - **Assisted per-section mapping** (human confirms each block's mapping): rejected —
   puts the human in the middle of every site, contradicting the "approve only at the
   end" goal and not scaling across 12 sites. Ambiguity is handled by confidence
@@ -72,50 +72,62 @@ type SiteIR = {
   meta: { name: string; domain: string; bluxSiteId: string };
   theme: ThemeIR;
   pages: PageIR[];
-  collections: CollectionIR[];   // Blux feeds → Prismic repeatable custom types
-  assets: AssetRef[];            // deduped across the whole site
-  diagnostics: Diagnostic[];     // flagged low-confidence mappings, unresolved assets, unwired refs
+  collections: CollectionIR[]; // Blux feeds → Prismic repeatable custom types
+  assets: AssetRef[]; // deduped across the whole site
+  diagnostics: Diagnostic[]; // flagged low-confidence mappings, unresolved assets, unwired refs
 };
 
 type PageIR = { uid: string; title: string; description: string; sections: SectionIR[] };
 
 type SectionIR = {
   sliceType: "hero" | "media_text" | "rich_text" | "grid" | "slider" | "collection_list";
-  variation: string;            // e.g. "default" | "imageLeft" | "imageRight"
-  confidence: number;           // 0–1; < threshold ⇒ Diagnostic + rich_text fallback
+  variation: string; // e.g. "default" | "imageLeft" | "imageRight"
+  confidence: number; // 0–1; < threshold ⇒ Diagnostic + rich_text fallback
   fields: {
-    heading?: RichText; body?: RichText;
-    media?: AssetId; backgroundMedia?: AssetId;
-    ratio?: string; columns?: number; align?: string; anim?: string;
+    heading?: RichText;
+    body?: RichText;
+    media?: AssetId;
+    backgroundMedia?: AssetId;
+    ratio?: string;
+    columns?: number;
+    align?: string;
+    anim?: string;
   };
   // Set on collection_list (a block that renders a feed). wired:false ⇒ the collection
   // is imported but this link is a best-guess, Diagnostic-flagged to connect back later.
   collectionRef?: { apiId: string; mode: "all" | "items"; itemUids?: string[]; wired: boolean };
-  children?: SectionIR[];       // containers (grid/slider) nest their items
+  children?: SectionIR[]; // containers (grid/slider) nest their items
 };
 
 // A Blux feed becomes a Prismic repeatable Custom Type + one document per item.
 type CollectionIR = {
-  apiId: string;                // derived, e.g. "product" | "team_member" | "news_article"
-  label: string;                // Blux feed name ("Products", "Team", …)
-  publishRoute: string | null;  // Blux feed.publish ("products"/"news"); null = embedded-only
-  fields: FieldDef[];           // deterministically derived schema (see modeling section)
+  apiId: string; // derived, e.g. "product" | "team_member" | "news_article"
+  label: string; // Blux feed name ("Products", "Team", …)
+  publishRoute: string | null; // Blux feed.publish ("products"/"news"); null = embedded-only
+  fields: FieldDef[]; // deterministically derived schema (see modeling section)
   records: RecordIR[];
 };
-type FieldDef = { key: string; type: "text" | "richtext" | "image" | "group" | "date" | "boolean" | "number" | "link" };
+type FieldDef = {
+  key: string;
+  type: "text" | "richtext" | "image" | "group" | "date" | "boolean" | "number" | "link";
+};
 type RecordIR = { uid: string; values: Record<string, unknown>; mediaRefs: AssetId[] };
 
 type ThemeIR = {
-  colors: { role: string; value: string }[];   // Blux 7-slot palette → token roles
+  colors: { role: string; value: string }[]; // Blux 7-slot palette → token roles
   fonts: { heading: string; body: string };
   textStyles: { role: string; size: string; weight: number; lineHeight: number }[];
-  buttons: { role: string; /* fill, radius, etc. */ }[];
+  buttons: { role: string /* fill, radius, etc. */ }[];
 };
 
 type AssetRef = {
-  id: AssetId;                  // Blux media uuid
-  sourceUrl: string | null;     // resolved CDN URL (null ⇒ unresolved, see diagnostics)
-  name: string; mime: string; width?: number; height?: number; alt: string;
+  id: AssetId; // Blux media uuid
+  sourceUrl: string | null; // resolved CDN URL (null ⇒ unresolved, see diagnostics)
+  name: string;
+  mime: string;
+  width?: number;
+  height?: number;
+  alt: string;
 };
 ```
 
@@ -131,9 +143,10 @@ files on disk are redundant mirrors of those feeds — not read.
 (recursively), derives an archetype from its populated-field signature (heading =
 `title`/`_title`; text = `body`/`_body`; `media`; `backgroundMedia`; `items` ⇒
 container; `class` ⇒ grid/slides layout) and maps it to a `sliceType` + `variation`
-+ `confidence`. The census `archetype()` function is the seed. Emits page `SectionIR`s.
-Rich text (`_body`) is converted with `htmlAsRichText` at emit time; `normalize`
-keeps it as HTML in the IR. Blux `styles` → `ThemeIR`.
+
+- `confidence`. The census `archetype()` function is the seed. Emits page `SectionIR`s.
+  Rich text (`_body`) is converted with `htmlAsRichText` at emit time; `normalize`
+  keeps it as HTML in the IR. Blux `styles` → `ThemeIR`.
 
 **`model-collections`** — turns each `site.json.feeds` entry into a `CollectionIR`
 (→ a Prismic repeatable Custom Type + one document per item). Deterministic: see the
@@ -201,7 +214,7 @@ them first. Census-scoped, cover the whole fleet:
 Blux has an explicit **feed** = a reusable, structured collection authored once and
 referenced across pages. The corpus has **18 feeds / 1,789 records**, and their shapes
 are regular enough to model deterministically — the part you flagged as maybe-too-hard
-turns out to be tractable for the *type + records*; only the *reference wiring* needs a
+turns out to be tractable for the _type + records_; only the _reference wiring_ needs a
 fallback.
 
 **Schema derivation (deterministic).** A feed's field schema comes from `feed.fields`
@@ -239,7 +252,7 @@ properties) are modeled on the owning export and referenced where used.
 ## Asset migration to Prismic
 
 Media never touches our disk in the conversion path — it moves **Blux CDN → Prismic
-asset store** via the Migration API. For every `AssetRef` (page-block media *and*
+asset store** via the Migration API. For every `AssetRef` (page-block media _and_
 collection-record media alike), `emit-prismic` calls
 `migration.createAsset(asset.sourceUrl, asset.alt)`, which makes Prismic fetch the bytes
 from the resolved CloudFront URL, store them in the repo's asset library, and dedupe by
@@ -299,7 +312,7 @@ full library for preservation; this uploads only what a converted site reference
 - **Last-mile reference wiring** — where feed↔page links can't be resolved
   deterministically, the type + records import faithfully but the final linking is a
   manual Prismic step (flagged by Diagnostics), not automated. (Collection modeling
-  itself — including compositionHospitality's 552-product feed — is now *in* scope, via
+  itself — including compositionHospitality's 552-product feed — is now _in_ scope, via
   the "Reusable content" section.)
 
 ## Corpus reference (as of 2026-07-05)
