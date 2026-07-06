@@ -100,6 +100,8 @@
     "@libsql/client": "^0.8.1",
     "@libsql/kysely-libsql": "^0.4.1",
     "@netlify/functions": "^5.2.2",
+    "@prismicio/client": "^7.21.8",
+    "@prismicio/migrate": "^0.0.2",
     "@sveltejs/kit": "^2.61.1",
     "@types/mjml": "^4.7.4",
     "@types/node": "^22.0.0",

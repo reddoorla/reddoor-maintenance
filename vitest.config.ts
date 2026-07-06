@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { coverageConfigDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
@@ -18,6 +18,9 @@ export default defineConfig({
       // the floor isn't limited to the test import graph. (Verified: the number
       // is identical with/without forcing all, i.e. all src is already counted.)
       include: ["src/**/*.ts"],
+      // The gated live Prismic runner is pure I/O against the Migration API —
+      // no unit test can exercise it, so keep it out of the coverage graph.
+      exclude: [...coverageConfigDefaults.exclude, "src/blux/emit/run-migration.ts"],
       reporter: ["text-summary"],
       // A regression FLOOR a few points under the current numbers (S 81 / B 70 /
       // F 81 / L 84, 2026-06-10) — headroom for normal refactoring, but a large

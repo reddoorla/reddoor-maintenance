@@ -1,0 +1,113 @@
+import { mkdtemp, writeFile, readFile, mkdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, it, expect, beforeAll, afterEach } from "vitest";
+import { runBluxCommand } from "../../src/cli/commands/blux.js";
+import { minimalSite, minimalHtml } from "../blux/fixtures/minimal-site.js";
+
+/** Write a fake Blux export dir (site.json + rendered index.html). */
+async function makeExportDir(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "blux-export-"));
+  await writeFile(join(dir, "site.json"), JSON.stringify(minimalSite));
+  await writeFile(join(dir, "index.html"), minimalHtml);
+  return dir;
+}
+
+describe("blux emit", () => {
+  let exportDir: string;
+  let out: string;
+  let result: { output: string; code: number };
+
+  beforeAll(async () => {
+    exportDir = await makeExportDir();
+    out = join(exportDir, "out");
+    result = await runBluxCommand("emit", exportDir, { out });
+  });
+
+  it("exits 0 and summarizes pages, documents, and assets", () => {
+    expect(result.code).toBe(0);
+    expect(result.output).toContain("pages: 1");
+    expect(result.output).toContain("documents: 3"); // 1 page + 2 team records
+    expect(result.output).toContain("custom types: 1");
+  });
+
+  it("writes the migration plan with page + collection documents", async () => {
+    const plan = JSON.parse(await readFile(join(out, "migration-plan.json"), "utf-8"));
+    expect(plan.documents).toHaveLength(3);
+    expect(plan.documents[0]).toMatchObject({ type: "page", uid: "home" });
+    expect(plan.customTypes).toHaveLength(1);
+    expect(plan.assets.length).toBeGreaterThan(0);
+  });
+
+  it("writes one customtypes/<id>.json per collection", async () => {
+    const ct = JSON.parse(await readFile(join(out, "customtypes", "team.json"), "utf-8"));
+    expect(ct.id).toBe("team");
+    expect(ct.repeatable).toBe(true);
+  });
+
+  it("writes the theme stylesheet", async () => {
+    const css = await readFile(join(out, "theme.css"), "utf-8");
+    expect(css).toContain("@theme {");
+    expect(css).toContain("--color-c1: #111111;");
+  });
+
+  it("writes a review manifest pairing pages with Blux originals", async () => {
+    const manifest = JSON.parse(await readFile(join(out, "review-manifest.json"), "utf-8"));
+    expect(manifest.pairs).toHaveLength(1);
+    expect(manifest.pairs[0].original).toContain("www.testsite.com");
+  });
+
+  it("writes the assembled IR for inspection", () => {
+    expect(existsSync(join(out, "ir.json"))).toBe(true);
+  });
+
+  it("is deterministic across runs", async () => {
+    const first = await readFile(join(out, "migration-plan.json"), "utf-8");
+    await runBluxCommand("emit", exportDir, { out });
+    const second = await readFile(join(out, "migration-plan.json"), "utf-8");
+    expect(second).toBe(first);
+  });
+});
+
+describe("blux emit errors", () => {
+  it("fails cleanly when the export dir has no site.json", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-empty-"));
+    const result = await runBluxCommand("emit", dir, {});
+    expect(result.code).toBe(1);
+    expect(result.output).toContain("site.json");
+  });
+
+  it("rejects an unknown action", async () => {
+    const result = await runBluxCommand("nope", undefined, {});
+    expect(result.code).toBe(1);
+    expect(result.output).toContain("unknown blux action");
+  });
+});
+
+describe("blux migrate gate", () => {
+  const saved: Record<string, string | undefined> = {};
+
+  afterEach(() => {
+    for (const k of ["PRISMIC_REPOSITORY_NAME", "PRISMIC_WRITE_TOKEN"]) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  it("refuses to run without Prismic credentials", async () => {
+    for (const k of ["PRISMIC_REPOSITORY_NAME", "PRISMIC_WRITE_TOKEN"]) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+    const dir = await mkdtemp(join(tmpdir(), "blux-plan-"));
+    await mkdir(join(dir, "out"), { recursive: true });
+    await writeFile(
+      join(dir, "out", "migration-plan.json"),
+      JSON.stringify({ customTypes: [], documents: [], assets: [] }),
+    );
+    const result = await runBluxCommand("migrate", join(dir, "out"), {});
+    expect(result.code).toBe(1);
+    expect(result.output).toContain("PRISMIC_REPOSITORY_NAME");
+  });
+});
