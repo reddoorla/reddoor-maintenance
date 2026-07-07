@@ -84,7 +84,8 @@ export function summarizeBrowser(
 
   // reachableOk: every sampled route returned 2xx/3xx. Empty observations → false (fail-safe).
   const reachableOk =
-    routes.length > 0 && routes.every((r) => r.status !== null && r.status >= 200 && r.status < 400);
+    routes.length > 0 &&
+    routes.every((r) => r.status !== null && r.status >= 200 && r.status < 400);
 
   // titleMetaOk (chromium-only signals): every route has a non-empty title ≤ 70 chars + a non-empty
   // meta description, AND no two routes share a title. Empty observations → false (fail-safe).
@@ -300,7 +301,15 @@ export async function defaultBrowserRunner(): Promise<BrowserRunner> {
             mobile.push({ device, ok });
           }
 
-          results.push({ url, desktop, mobile, links: [...linkSet], status, title, metaDescription });
+          results.push({
+            url,
+            desktop,
+            mobile,
+            links: [...linkSet],
+            status,
+            title,
+            metaDescription,
+          });
         }
       } finally {
         await Promise.all([...browsers, ...mobileBrowsers].map((b) => b.close().catch(() => {})));
