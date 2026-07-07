@@ -7,6 +7,7 @@ import type { ReportRow } from "./airtable/reports.js";
 import { parseAddresses, isProbablyEmail } from "./send/orchestrate.js";
 import { ELIGIBLE_STATUSES, reportPeriodKey } from "./due.js";
 import type { ReportType } from "./types.js";
+import { gatingHealth } from "./checklist.js";
 
 export type PreflightLevel = "fail" | "warn" | "info";
 
@@ -385,6 +386,35 @@ export async function preflight(deps?: PreflightDeps): Promise<PreflightResult> 
 }
 
 /**
+ * Health-gate blockers for one report: every GATING field whose evidence is not `pass`/`n/a`
+ * (i.e. `fail`, `unknown`, or absent) becomes a fail-level finding, keyed `health-gate`. PURE.
+ * Folded into {@link approveBlockers} so health failures ride the existing send-blocked reason +
+ * 409 + dashboard chip (the second gate — no third gate is added).
+ *
+ * NOTE: override suppression is added in Phase 10 (a guard at the top of this function). Until
+ * then a health-red report always blocks approve/send.
+ */
+export function healthBlockers(report: ReportRow): PreflightFinding[] {
+  const findings: PreflightFinding[] = [];
+  for (const { field, status } of gatingHealth({
+    reportType: report.reportType,
+    autoEvidence: report.autoEvidence ?? {},
+  })) {
+    if (status === "pass" || status === "n/a") continue;
+    const note = report.autoEvidence?.[field]?.note ?? "no signal yet";
+    findings.push({
+      level: "fail",
+      check: "health-gate",
+      message:
+        status === "fail"
+          ? `${field}: failing — ${note}`
+          : `${field}: not yet green (${status}) — ${note}`,
+    });
+  }
+  return findings;
+}
+
+/**
  * The send-blocking subset for ONE report, at approve time: exactly the
  * conditions that make `sendOne` throw (no recipients, malformed To/CC, no
  * header image, no report-level Lighthouse scores) plus the wrong-inbox warn
@@ -461,6 +491,7 @@ export function approveBlockers(site: WebsiteRow, report: ReportRow): PreflightF
       });
     }
   }
+  findings.push(...healthBlockers(report));
   return findings;
 }
 
