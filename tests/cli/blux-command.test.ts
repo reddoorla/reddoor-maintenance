@@ -70,6 +70,24 @@ describe("blux emit", () => {
   });
 });
 
+describe("blux emit --probe", () => {
+  it("resolves used assets via the injected prober when the HTML scrape misses", async () => {
+    const dir = await makeExportDir();
+    // strip the rendered HTML so the scrape finds nothing
+    await writeFile(join(dir, "index.html"), "<html><body>shell</body></html>");
+    const out = join(dir, "probed-out");
+    const fetchImpl = (async (url: string) =>
+      ({ ok: url.includes("img-1") || url.includes("img-2") }) as Response) as unknown as typeof fetch;
+    const result = await runBluxCommand("emit", dir, { out, probe: true, fetchImpl });
+    expect(result.code).toBe(0);
+    expect(result.output).toContain("probe resolved 2/2");
+    const plan = JSON.parse(await readFile(join(out, "migration-plan.json"), "utf-8"));
+    expect(plan.assets.map((a: { id: string }) => a.id).sort()).toEqual(["img-1", "img-2"]);
+    // probe-resolved assets are no longer unresolved diagnostics
+    expect(result.output).not.toContain("unresolved-asset");
+  });
+});
+
 describe("blux emit errors", () => {
   it("fails cleanly when the export dir has no site.json", async () => {
     const dir = await mkdtemp(join(tmpdir(), "blux-empty-"));

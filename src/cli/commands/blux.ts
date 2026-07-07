@@ -6,6 +6,7 @@ import { buildMigrationPlan } from "../../blux/emit/migration-plan.js";
 import { emitThemeCss } from "../../blux/emit/theme.js";
 import { buildReviewManifest } from "../../blux/emit/review.js";
 import type { MigrationPlan } from "../../blux/emit/plan.js";
+import type { SectionIR } from "../../blux/ir.js";
 
 export type BluxCommandOptions = {
   /** Output directory for emit (default: <exportDir>/blux-out). */
@@ -14,6 +15,10 @@ export type BluxCommandOptions = {
   convertedBase?: string;
   /** Base URL of the original Blux site (default: https://<site.json domain>). */
   bluxBase?: string;
+  /** Reconstruct + HEAD-probe CDN URLs for used assets the HTML scrape missed (network). */
+  probe?: boolean;
+  /** Test seam for --probe; defaults to global fetch. */
+  fetchImpl?: typeof fetch;
   cwd?: string;
   verbose?: boolean;
 };
@@ -45,6 +50,36 @@ export async function runBluxCommand(
     const htmls = await Promise.all(htmlPaths.map((p) => readFile(p, "utf-8")));
 
     const ir = assembleIR({ siteJson, htmls });
+
+    let probeLine = "";
+    if (opts.probe) {
+      const { probeAssetUrls } = await import("../../blux/emit/probe.js");
+      const used = new Set<string>();
+      const walk = (s: SectionIR): void => {
+        if (s.fields.media) used.add(s.fields.media);
+        if (s.fields.backgroundMedia) used.add(s.fields.backgroundMedia);
+        (s.children ?? []).forEach(walk);
+      };
+      ir.pages.forEach((p) => p.sections.forEach(walk));
+      for (const c of ir.collections)
+        for (const r of c.records) r.mediaRefs.forEach((m) => used.add(m));
+
+      const targets = ir.assets.filter((a) => used.has(a.id) && !a.sourceUrl);
+      const probed = await probeAssetUrls(targets, ir.meta.bluxSiteId, opts.fetchImpl ?? fetch);
+      let hits = 0;
+      for (const a of ir.assets) {
+        const url = probed.get(a.id);
+        if (url) {
+          a.sourceUrl = url;
+          hits++;
+        }
+      }
+      ir.diagnostics = ir.diagnostics.filter(
+        (d) => !(d.kind === "unresolved-asset" && probed.get(d.where)),
+      );
+      probeLine = `probe resolved ${hits}/${targets.length} used assets`;
+    }
+
     const plan = buildMigrationPlan(ir);
     const manifest = buildReviewManifest(ir, {
       convertedBase: opts.convertedBase ?? "http://localhost:5173",
@@ -64,6 +99,7 @@ export async function runBluxCommand(
     const diagnostics = [...ir.diagnostics, ...plan.diagnostics];
     const lines = [
       `site: ${ir.meta.name} (${ir.meta.domain})`,
+      ...(probeLine ? [probeLine] : []),
       `pages: ${ir.pages.length} | custom types: ${plan.customTypes.length} | documents: ${plan.documents.length} | assets: ${resolved}/${ir.assets.length} resolved`,
       `diagnostics: ${diagnostics.length}`,
       ...diagnostics.map((d) => `  - [${d.kind}] ${d.where}: ${d.message}`),
