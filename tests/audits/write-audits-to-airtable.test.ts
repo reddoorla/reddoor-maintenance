@@ -445,4 +445,52 @@ describe("writeAuditsToAirtable", () => {
       exitCode: 2,
     });
   });
+
+  it("merges the function-health verdicts into the single atomic write", async () => {
+    const { base, calls } = makeFakeBase();
+    const fhResult: AuditResult = {
+      audit: "function-health",
+      site: "acme",
+      status: "pass",
+      summary: "health ok (prismic ok)",
+      details: { ok: true, prismic: "ok", forms: null, checkedAt: "2026-07-06T00:00:00.000Z" },
+    } as unknown as AuditResult;
+    await writeAuditsToAirtable({
+      base,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
+        fhResult,
+      ],
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.fields).toMatchObject({
+      "Function health": "pass",
+      "CMS Reachable": "pass",
+      "Function health checked at": "2026-07-06T00:00:00.000Z",
+    });
+    // Must NOT touch Deploy status — function-health is separate from the Netlify build state.
+    expect(calls[0]!.fields).not.toHaveProperty("Deploy status");
+  });
+
+  it("does NOT write a function-health verdict when the audit self-skipped (no details)", async () => {
+    const { base, calls } = makeFakeBase();
+    const skipped: AuditResult = {
+      audit: "function-health",
+      site: "acme",
+      status: "skip",
+      summary: "health endpoint unreachable / not JSON",
+    } as unknown as AuditResult;
+    await writeAuditsToAirtable({
+      base,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
+        skipped,
+      ],
+    });
+    expect(calls[0]!.fields).not.toHaveProperty("Function health");
+  });
 });

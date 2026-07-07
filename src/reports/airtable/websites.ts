@@ -432,6 +432,18 @@ export type BrowserAuditFields = {
   brokenLinks: number;
   checkedAt: string;
 };
+export type FunctionHealthResult = {
+  /** `pass` when `/health` answered `ok:true`, else `fail`. Never null — the audit only produces a
+   *  result when it ran (a self-skip carries no details, so this extractor isn't reached). */
+  functionHealth: "pass" | "fail";
+  /** From the same body's `prismic` sub-status (R2.2): `"ok"` → `"pass"`, `"error"` → `"fail"`.
+   *  Anything else (`"skipped"` — a placeholder repo with no live Prismic — or a raw `null`, e.g.
+   *  the synthetic "deployed but erroring" body) → `null`: the CMS probe never actually ran, so it
+   *  must NOT red CMS reachability for a site that simply hasn't wired Prismic yet. */
+  cmsReachable: "pass" | "fail" | null;
+  /** When the audit ran (freshness stamp for both verdicts). */
+  checkedAt: string;
+};
 
 function scoreFields(scores: LighthouseScoreWriteback): FieldSet {
   // A null score CLEARS the cell (→ dashboard "—"), distinguishing a metric that
@@ -584,6 +596,24 @@ function browserFields(r: BrowserAuditFields): FieldSet {
   };
 }
 
+function functionHealthFields(r: FunctionHealthResult): FieldSet {
+  // "CMS Reachable" is written UNCONDITIONALLY (null clears the cell): the audit only supplies a
+  // result when it ran, but `cmsReachable` itself can legitimately be null this run (R2.2 — the CMS
+  // probe never actually happened, e.g. a placeholder repo with no live Prismic). Clearing rather
+  // than leaving a stale pass/fail sitting next to a freshly-stamped checked-at is what keeps a
+  // placeholder site from showing a stale CMS verdict. FieldSet's type doesn't model null, hence the
+  // cast through a widened record (same approach as domainFields/netlifyDeployFields).
+  // "Function health" is never null — the audit only writes when it ran, so it's always a concrete
+  // pass/fail. Written SEPARATELY from "Deploy status" so the Netlify build state keeps its own
+  // meaning.
+  const fields: Record<string, string | null> = {
+    "Function health": r.functionHealth,
+    "CMS Reachable": r.cmsReachable,
+    "Function health checked at": r.checkedAt,
+  };
+  return fields as FieldSet;
+}
+
 /**
  * Write the four Lighthouse scores + a refreshed-at timestamp onto a Websites row.
  * Called by `audit lighthouse --write-airtable` after a successful audit run, so
@@ -705,6 +735,7 @@ export async function updateAuditFields(
     domain?: DomainResult;
     browser?: BrowserAuditFields;
     netlifyDeploy?: NetlifyDeployResult;
+    functionHealth?: FunctionHealthResult;
   },
 ): Promise<FieldSet> {
   const fields: FieldSet = {};
@@ -719,6 +750,7 @@ export async function updateAuditFields(
   if (audits.domain) Object.assign(fields, domainFields(audits.domain));
   if (audits.browser) Object.assign(fields, browserFields(audits.browser));
   if (audits.netlifyDeploy) Object.assign(fields, netlifyDeployFields(audits.netlifyDeploy));
+  if (audits.functionHealth) Object.assign(fields, functionHealthFields(audits.functionHealth));
   await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
   return fields;
 }
