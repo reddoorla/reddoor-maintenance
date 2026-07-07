@@ -1,5 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { autoTickChecklist, type AutoTickSignals } from "../../src/reports/auto-tick.js";
+import {
+  autoTickChecklist,
+  deployEvidence,
+  cmsEvidence,
+  uptimeEvidence,
+  titlesEvidence,
+  formsEvidence,
+  interactionsEvidence,
+  updatesEvidence,
+  type AutoTickSignals,
+} from "../../src/reports/auto-tick.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 const NOW = new Date("2026-06-18T12:00:00.000Z");
@@ -235,5 +245,203 @@ describe("autoTickChecklist — browser checks (Desktop / Mobile / Links)", () =
     expect(ev.has(DESKTOP)).toBe(false);
     expect(ev.has(MOBILE)).toBe(false);
     expect(ev.has(LINKS)).toBe(false);
+  });
+});
+
+// --- Direct unit tests for the 7 new evidence fns (health-gate Plan 4, Task 2) -----------------
+//
+// Per R4.2, these fns are only DISPATCHED by `autoTickChecklist` in a follow-up task, so they're
+// exercised directly here (not through `autoTickChecklist`) to get a green signal now. The
+// dispatch-level integration assertions (via `autoTickChecklist(...).get(FIELD)`) land alongside
+// the dispatch wiring itself.
+const STALE = "2026-06-01T00:00:00.000Z"; // > 3 days before NOW
+
+describe("deployEvidence — Deploy & Function Health", () => {
+  it("passes when the build is ready AND function-health is pass, both fresh", () => {
+    const site = makeWebsiteRow({
+      deployStatus: "ready",
+      deployCheckedAt: FRESH,
+      functionHealth: "pass",
+      functionHealthCheckedAt: FRESH,
+    });
+    const e = deployEvidence(site, NOW)!;
+    expect(e.result).toBe("pass");
+    expect(e.note).toMatch(/build ready/i);
+  });
+
+  it("fails when the build is not ready", () => {
+    const site = makeWebsiteRow({
+      deployStatus: "error",
+      deployCheckedAt: FRESH,
+      functionHealth: "pass",
+      functionHealthCheckedAt: FRESH,
+    });
+    expect(deployEvidence(site, NOW)!.result).toBe("fail");
+  });
+
+  it("fails when the function is unhealthy", () => {
+    const site = makeWebsiteRow({
+      deployStatus: "ready",
+      deployCheckedAt: FRESH,
+      functionHealth: "fail",
+      functionHealthCheckedAt: FRESH,
+    });
+    expect(deployEvidence(site, NOW)!.result).toBe("fail");
+  });
+
+  it("is unknown when either freshness stamp is stale", () => {
+    const site = makeWebsiteRow({
+      deployStatus: "ready",
+      deployCheckedAt: FRESH,
+      functionHealth: "pass",
+      functionHealthCheckedAt: STALE,
+    });
+    expect(deployEvidence(site, NOW)!.result).toBe("unknown");
+  });
+
+  it("omits evidence (null) when neither check has ever run", () => {
+    expect(deployEvidence(makeWebsiteRow(), NOW)).toBeNull();
+  });
+});
+
+describe("cmsEvidence — CMS Checked", () => {
+  it("passes when cmsReachable is pass and the function-health stamp is fresh", () => {
+    const site = makeWebsiteRow({ cmsReachable: "pass", functionHealthCheckedAt: FRESH });
+    expect(cmsEvidence(site, NOW)!.result).toBe("pass");
+  });
+
+  it("fails when cmsReachable is fail", () => {
+    const site = makeWebsiteRow({ cmsReachable: "fail", functionHealthCheckedAt: FRESH });
+    expect(cmsEvidence(site, NOW)!.result).toBe("fail");
+  });
+
+  it("is unknown when the check is stale", () => {
+    const site = makeWebsiteRow({ cmsReachable: "pass", functionHealthCheckedAt: STALE });
+    expect(cmsEvidence(site, NOW)!.result).toBe("unknown");
+  });
+
+  it("omits evidence (null) when the function-health probe never ran", () => {
+    expect(cmsEvidence(makeWebsiteRow(), NOW)).toBeNull();
+  });
+});
+
+describe("uptimeEvidence — Uptime Checked", () => {
+  it("passes when reachableOk is pass and the browser check is fresh", () => {
+    const site = makeWebsiteRow({ reachableOk: "pass", browserCheckedAt: FRESH });
+    expect(uptimeEvidence(site, NOW)!.result).toBe("pass");
+  });
+
+  it("fails when reachableOk is fail", () => {
+    const site = makeWebsiteRow({ reachableOk: "fail", browserCheckedAt: FRESH });
+    expect(uptimeEvidence(site, NOW)!.result).toBe("fail");
+  });
+
+  it("is unknown when the browser check is stale", () => {
+    const site = makeWebsiteRow({ reachableOk: "pass", browserCheckedAt: STALE });
+    expect(uptimeEvidence(site, NOW)!.result).toBe("unknown");
+  });
+
+  it("omits evidence (null) when the browser audit never ran", () => {
+    expect(uptimeEvidence(makeWebsiteRow(), NOW)).toBeNull();
+  });
+});
+
+describe("titlesEvidence — Page Titles & Meta", () => {
+  it("passes when titleMetaOk is pass and fresh", () => {
+    const site = makeWebsiteRow({ titleMetaOk: "pass", browserCheckedAt: FRESH });
+    expect(titlesEvidence(site, NOW)!.result).toBe("pass");
+  });
+
+  it("fails when titleMetaOk is fail", () => {
+    const site = makeWebsiteRow({ titleMetaOk: "fail", browserCheckedAt: FRESH });
+    expect(titlesEvidence(site, NOW)!.result).toBe("fail");
+  });
+
+  it("is unknown when the browser check is stale", () => {
+    const site = makeWebsiteRow({ titleMetaOk: "pass", browserCheckedAt: STALE });
+    expect(titlesEvidence(site, NOW)!.result).toBe("unknown");
+  });
+
+  it("omits evidence (null) when the browser audit never ran", () => {
+    expect(titlesEvidence(makeWebsiteRow(), NOW)).toBeNull();
+  });
+});
+
+describe("formsEvidence — Form Functionality", () => {
+  it("passes when formE2eOk is pass and fresh", () => {
+    const site = makeWebsiteRow({ formE2eOk: "pass", formE2eCheckedAt: FRESH });
+    expect(formsEvidence(site, NOW)!.result).toBe("pass");
+  });
+
+  it("fails when formE2eOk is fail", () => {
+    const site = makeWebsiteRow({ formE2eOk: "fail", formE2eCheckedAt: FRESH });
+    expect(formsEvidence(site, NOW)!.result).toBe("fail");
+  });
+
+  it("is n/a when the audit ran but the site has no contact form (verdict cleared, stamp fresh)", () => {
+    const site = makeWebsiteRow({ formE2eOk: null, formE2eCheckedAt: FRESH });
+    expect(formsEvidence(site, NOW)!.result).toBe("n/a");
+  });
+
+  it("is unknown when the form-e2e check is stale", () => {
+    const site = makeWebsiteRow({ formE2eOk: "pass", formE2eCheckedAt: STALE });
+    expect(formsEvidence(site, NOW)!.result).toBe("unknown");
+  });
+
+  it("omits evidence (null) when the form-e2e audit never ran (no stamp)", () => {
+    expect(formsEvidence(makeWebsiteRow(), NOW)).toBeNull();
+  });
+});
+
+describe("interactionsEvidence — Interactions & Animations", () => {
+  it("passes when smokeOk is pass and fresh", () => {
+    const site = makeWebsiteRow({ smokeOk: "pass", lastSmokeAt: FRESH });
+    expect(interactionsEvidence(site, NOW)!.result).toBe("pass");
+  });
+
+  it("fails when smokeOk is fail", () => {
+    const site = makeWebsiteRow({ smokeOk: "fail", lastSmokeAt: FRESH });
+    expect(interactionsEvidence(site, NOW)!.result).toBe("fail");
+  });
+
+  it("is unknown when the smoke suite is stale", () => {
+    const site = makeWebsiteRow({ smokeOk: "pass", lastSmokeAt: STALE });
+    expect(interactionsEvidence(site, NOW)!.result).toBe("unknown");
+  });
+
+  it("omits evidence (null) when the smoke suite never ran", () => {
+    expect(interactionsEvidence(makeWebsiteRow(), NOW)).toBeNull();
+  });
+});
+
+describe("updatesEvidence — Tested After Updates", () => {
+  it("passes when defaultBranchCi is passing and fresh", () => {
+    const site = makeWebsiteRow({ defaultBranchCi: "passing", githubSignalsAt: FRESH });
+    expect(updatesEvidence(site, NOW)!.result).toBe("pass");
+  });
+
+  it("fails when defaultBranchCi is failing", () => {
+    const site = makeWebsiteRow({ defaultBranchCi: "failing", githubSignalsAt: FRESH });
+    expect(updatesEvidence(site, NOW)!.result).toBe("fail");
+  });
+
+  it("is n/a when the repo has no CI (defaultBranchCi === 'none'), even if the stamp is stale", () => {
+    const site = makeWebsiteRow({ defaultBranchCi: "none", githubSignalsAt: STALE });
+    expect(updatesEvidence(site, NOW)!.result).toBe("n/a");
+  });
+
+  it("is unknown when defaultBranchCi is pending", () => {
+    const site = makeWebsiteRow({ defaultBranchCi: "pending", githubSignalsAt: FRESH });
+    expect(updatesEvidence(site, NOW)!.result).toBe("unknown");
+  });
+
+  it("is unknown when a passing/failing signal is stale", () => {
+    const site = makeWebsiteRow({ defaultBranchCi: "passing", githubSignalsAt: STALE });
+    expect(updatesEvidence(site, NOW)!.result).toBe("unknown");
+  });
+
+  it("omits evidence (null) when CI was never swept (null defaultBranchCi)", () => {
+    const site = makeWebsiteRow({ defaultBranchCi: null });
+    expect(updatesEvidence(site, NOW)).toBeNull();
   });
 });

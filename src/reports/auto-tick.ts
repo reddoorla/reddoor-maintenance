@@ -190,3 +190,156 @@ function domainEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
   }
   return { result: "pass", checkedAt: at, note: `Custom domain, valid cert (${days}d left)` };
 }
+
+/**
+ * Deploy & Function Health: the Netlify build is `ready` AND the deployed function responds
+ * healthy. Two freshness stamps must both be fresh (deploy check + function-health check). Never
+ * measured → null (omit → the gating dispatch coerces to unknown); either stale → unknown; both
+ * fresh + ready + fn pass → pass; otherwise fail.
+ *
+ * Exported (not module-private) so it can be exercised directly in unit tests ahead of the
+ * `autoTickChecklist` dispatch wiring landing in a follow-up task.
+ */
+export function deployEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
+  if (!site.deployCheckedAt && !site.functionHealthCheckedAt) return null;
+  if (!isFresh(site.deployCheckedAt, now) || !isFresh(site.functionHealthCheckedAt, now)) {
+    return {
+      result: "unknown",
+      checkedAt: site.functionHealthCheckedAt ?? site.deployCheckedAt,
+      note: "Deploy/function-health check is stale (>3d)",
+    };
+  }
+  const ready = site.deployStatus === "ready";
+  const fnOk = site.functionHealth === "pass";
+  if (ready && fnOk) {
+    return {
+      result: "pass",
+      checkedAt: site.functionHealthCheckedAt,
+      note: "Netlify build ready + functions respond",
+    };
+  }
+  const why =
+    !ready && !fnOk
+      ? "build not ready + functions unhealthy"
+      : !ready
+        ? "build not ready"
+        : "functions unhealthy";
+  return {
+    result: "fail",
+    checkedAt: site.functionHealthCheckedAt,
+    note: `Deploy/function-health failing — ${why}`,
+  };
+}
+
+/**
+ * CMS Checked: the server-side `/health` Prismic probe reported reachable. Freshness rides the
+ * function-health check stamp (one `/health` fetch feeds both Deploy and CMS). Never measured →
+ * null; stale → unknown; pass/fail mirror the stored verdict; a fresh stamp with no verdict →
+ * unknown.
+ */
+export function cmsEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
+  if (!site.functionHealthCheckedAt) return null;
+  const at = site.functionHealthCheckedAt;
+  if (!isFresh(at, now)) {
+    return { result: "unknown", checkedAt: at, note: "CMS check is stale (>3d)" };
+  }
+  if (site.cmsReachable === "pass") {
+    return { result: "pass", checkedAt: at, note: "Prismic reachable (server-side)" };
+  }
+  if (site.cmsReachable === "fail") {
+    return { result: "fail", checkedAt: at, note: "Prismic unreachable (server-side)" };
+  }
+  return { result: "unknown", checkedAt: at, note: "CMS reachability not reported" };
+}
+
+/**
+ * Uptime Checked: every sampled route returned 2xx/3xx on the browser audit (point-in-time).
+ * Freshness rides the shared `browserCheckedAt`. Never ran → null; stale → unknown.
+ */
+export function uptimeEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
+  if (site.reachableOk === null || !site.browserCheckedAt) return null;
+  const at = site.browserCheckedAt;
+  if (!isFresh(at, now)) {
+    return { result: "unknown", checkedAt: at, note: "Uptime check is stale (>3d)" };
+  }
+  return site.reachableOk === "pass"
+    ? { result: "pass", checkedAt: at, note: "All sampled routes reachable (point-in-time)" }
+    : { result: "fail", checkedAt: at, note: "One or more sampled routes did not respond 2xx/3xx" };
+}
+
+/**
+ * Page Titles & Meta: every sampled route had a non-empty title + meta description with no
+ * duplicate titles (browser audit, chromium). Freshness rides `browserCheckedAt`.
+ */
+export function titlesEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
+  if (site.titleMetaOk === null || !site.browserCheckedAt) return null;
+  const at = site.browserCheckedAt;
+  if (!isFresh(at, now)) {
+    return { result: "unknown", checkedAt: at, note: "Titles/meta check is stale (>3d)" };
+  }
+  return site.titleMetaOk === "pass"
+    ? { result: "pass", checkedAt: at, note: "Titles + meta present" }
+    : {
+        result: "fail",
+        checkedAt: at,
+        note: "Missing/duplicate title or missing meta description",
+      };
+}
+
+/**
+ * Form Functionality: a synthetic prod submission succeeded (form-e2e audit). `n/a` when the audit
+ * ran (checked-at stamp set) but the site has no contact form (verdict cleared to null). Never ran
+ * (no stamp) → null; stale → unknown.
+ */
+export function formsEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
+  if (!site.formE2eCheckedAt) return null;
+  const at = site.formE2eCheckedAt;
+  if (!isFresh(at, now)) {
+    return { result: "unknown", checkedAt: at, note: "Form E2E check is stale (>3d)" };
+  }
+  if (site.formE2eOk === "pass") {
+    return { result: "pass", checkedAt: at, note: "Synthetic submission succeeded" };
+  }
+  if (site.formE2eOk === "fail") {
+    return { result: "fail", checkedAt: at, note: "Synthetic submission failed" };
+  }
+  return { result: "n/a", checkedAt: at, note: "No contact form on this site" };
+}
+
+/**
+ * Interactions & Animations: the per-site smoke suite is green. Freshness rides `lastSmokeAt`.
+ * Never ran → null; stale → unknown.
+ */
+export function interactionsEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
+  if (site.smokeOk === null || !site.lastSmokeAt) return null;
+  const at = site.lastSmokeAt;
+  if (!isFresh(at, now)) {
+    return { result: "unknown", checkedAt: at, note: "Smoke suite is stale (>3d)" };
+  }
+  return site.smokeOk === "pass"
+    ? { result: "pass", checkedAt: at, note: "Smoke suite green" }
+    : { result: "fail", checkedAt: at, note: "Smoke suite red" };
+}
+
+/**
+ * Tested After Updates: default-branch CI is green on the latest commit (github-signals). A repo
+ * with no CI (`defaultBranchCi === "none"`) is `n/a`. Never swept (null / no stamp) → null; stale
+ * → unknown; passing → pass; failing → fail; pending → unknown.
+ */
+export function updatesEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
+  if (site.defaultBranchCi === null || !site.githubSignalsAt) return null;
+  const at = site.githubSignalsAt;
+  if (site.defaultBranchCi === "none") {
+    return { result: "n/a", checkedAt: at, note: "Repository has no CI" };
+  }
+  if (!isFresh(at, now)) {
+    return { result: "unknown", checkedAt: at, note: "CI signal is stale (>3d)" };
+  }
+  if (site.defaultBranchCi === "passing") {
+    return { result: "pass", checkedAt: at, note: "Default-branch CI green on latest commit" };
+  }
+  if (site.defaultBranchCi === "failing") {
+    return { result: "fail", checkedAt: at, note: "Default-branch CI is failing" };
+  }
+  return { result: "unknown", checkedAt: at, note: "Default-branch CI is pending" };
+}
