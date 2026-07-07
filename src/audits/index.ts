@@ -12,6 +12,7 @@ import { browserAudit } from "./browser.js";
 import { netlifyDeployAudit } from "./netlify-deploy.js";
 import { functionHealthAudit } from "./function-health.js";
 import { smokeAudit } from "./smoke.js";
+import { formE2eAudit } from "./form-e2e.js";
 
 const REGISTRY: Record<AuditName, (ctx: AuditContext) => Promise<AuditResult>> = {
   deps: depsAudit,
@@ -24,15 +25,7 @@ const REGISTRY: Record<AuditName, (ctx: AuditContext) => Promise<AuditResult>> =
   "netlify-deploy": netlifyDeployAudit,
   "function-health": functionHealthAudit,
   smoke: smokeAudit,
-  // TEMP (replaced in Plan 3 Task 3 by the real formE2eAudit import): keeps
-  // Record<AuditName> total so `pnpm typecheck` passes between tasks. Never
-  // reached — form-e2e is not requested until Task 3 wires the real audit.
-  "form-e2e": async (ctx) => ({
-    audit: "form-e2e",
-    site: ctx.site.name || ctx.site.path,
-    status: "skip",
-    summary: "form-e2e not yet wired",
-  }),
+  "form-e2e": formE2eAudit,
 };
 
 export const ALL_AUDIT_NAMES = Object.keys(REGISTRY) as AuditName[];

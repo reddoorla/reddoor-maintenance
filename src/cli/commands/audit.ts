@@ -221,6 +221,7 @@ const CHECKOUT_FREE_AUDITS: ReadonlySet<AuditName> = new Set<AuditName>([
   "browser",
   "netlify-deploy",
   "function-health",
+  "form-e2e",
 ]);
 
 /** Audits whose checkout-free run is keyed off `site.netlifyId` (the Netlify API) rather than
