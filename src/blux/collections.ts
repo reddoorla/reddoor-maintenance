@@ -22,6 +22,10 @@ function fieldType(key: string, value: unknown): FieldDef["type"] {
   return "text";
 }
 
+/** Underscore-prefixed keys are per-element style config (same convention as
+ * page blocks' _title/_body), not content — never model or migrate them. */
+const isStyleKey = (key: string) => key.startsWith("_");
+
 function deriveFields(feed: BluxFeed): FieldDef[] {
   const seen = new Map<string, FieldDef["type"]>();
   // Declared custom fields first (Blux feed.fields), then observed item keys.
@@ -30,6 +34,7 @@ function deriveFields(feed: BluxFeed): FieldDef[] {
   }
   for (const item of feed.items ?? []) {
     for (const [key, value] of Object.entries(item)) {
+      if (isStyleKey(key)) continue;
       if (!seen.has(key) || seen.get(key) === "text") seen.set(key, fieldType(key, value));
     }
   }
@@ -61,7 +66,8 @@ export function modelCollections(raw: BluxRaw): CollectionIR[] {
           mediaRefs.push((value as { media: string }).media);
         }
       }
-      return { uid: recordUid(item, i), values: item, mediaRefs };
+      const values = Object.fromEntries(Object.entries(item).filter(([key]) => !isStyleKey(key)));
+      return { uid: recordUid(item, i), values, mediaRefs };
     });
     out.push({
       apiId: singularSlug(label),

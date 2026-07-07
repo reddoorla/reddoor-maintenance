@@ -1,4 +1,4 @@
-import type { BluxBlock, BluxRaw } from "./parse.js";
+import { visibleText, type BluxBlock, type BluxRaw } from "./parse.js";
 import { archetype } from "./archetype.js";
 import type { PageIR, SectionIR, ThemeIR, Diagnostic } from "./ir.js";
 
@@ -13,13 +13,15 @@ function sectionFromBlock(b: BluxBlock, pageUid: string, diagnostics: Diagnostic
       message: `block mapped to ${a.sliceType} at ${a.confidence}`,
     });
   }
+  const heading = visibleText(b.title, b._title);
+  const body = visibleText(b.body, b._body);
   const section: SectionIR = {
     sliceType: a.sliceType,
     variation: a.variation,
     confidence: a.confidence,
     fields: {
-      ...(b._title || b.title ? { heading: String(b._title ?? b.title) } : {}),
-      ...(b._body || b.body ? { body: String(b._body ?? b.body) } : {}),
+      ...(heading !== undefined ? { heading } : {}),
+      ...(body !== undefined ? { body } : {}),
       ...(b.media?.media ? { media: b.media.media } : {}),
       ...(b.backgroundMedia?.media ? { backgroundMedia: b.backgroundMedia.media } : {}),
       ...(b.ratio ? { ratio: String(b.ratio) } : {}),

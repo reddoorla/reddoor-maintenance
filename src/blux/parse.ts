@@ -1,8 +1,12 @@
+/** Style config for a block's title/body. `class: "disable"` (or the bare
+ * string "disable") hides that element on the rendered site. */
+export type BluxTextStyle = string | { class?: string; [key: string]: unknown };
+
 export type BluxBlock = {
   title?: string;
-  _title?: string;
+  _title?: BluxTextStyle;
   body?: string;
-  _body?: string;
+  _body?: BluxTextStyle;
   media?: { media?: string };
   backgroundMedia?: { media?: string };
   class?: string;
@@ -11,6 +15,21 @@ export type BluxBlock = {
   items?: BluxBlock[];
   styles?: Record<string, unknown>;
 };
+
+const hasDisable = (cls: unknown) =>
+  typeof cls === "string" && cls.split(/\s+/).includes("disable");
+
+/** Display text of a Blux title/body pair, or undefined when the element is
+ * hidden. Blux stores the text itself in `title`/`body`; the underscore twin
+ * (`_title`/`_body`) is style config whose `class: "disable"` hides the
+ * element, so its text must not be migrated. */
+export function visibleText(text: unknown, style: BluxTextStyle | undefined): string | undefined {
+  const s = typeof text === "number" && Number.isFinite(text) ? String(text) : text;
+  if (typeof s !== "string" || s.trim() === "") return undefined;
+  if (hasDisable(style)) return undefined;
+  if (typeof style === "object" && style !== null && hasDisable(style.class)) return undefined;
+  return s.trim();
+}
 export type BluxPage = { title?: string; description?: string; items?: BluxBlock[] };
 export type BluxFeed = {
   name?: string;

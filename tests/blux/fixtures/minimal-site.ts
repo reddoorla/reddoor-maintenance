@@ -1,6 +1,8 @@
 // A hand-authored minimal Blux site.json exercising each archetype, one feed,
-// and shared media. Field names match the real export (title/_title, body/_body,
-// media, backgroundMedia, class, items, styles).
+// and shared media. Field names match the real export: display text lives in
+// `title`/`body`; the underscore twins `_title`/`_body` are per-element style
+// config objects where `class: "disable"` hides the element on the rendered
+// site (media, backgroundMedia, class, items, styles as in the export).
 export const minimalSite = {
   name: "Test Site",
   id: "site-1",
@@ -11,36 +13,42 @@ export const minimalSite = {
         title: "Home",
         description: "",
         items: [
-          // hero: backgroundMedia + copy
+          // hero: backgroundMedia + copy (styled title, empty body style config)
           {
-            _title: "<h1>Welcome</h1>",
-            _body: "<p>Intro copy.</p>",
+            title: "Welcome",
+            _title: { color: "#ffffff", "font-size": "44px" },
+            body: "<p>Intro copy.</p>",
+            _body: {},
             backgroundMedia: { media: "img-1" },
             class: "",
             styles: {},
           },
           // heading + text + media
           {
-            _title: "<h2>About</h2>",
-            _body: "<p>About us.</p>",
+            title: "About",
+            _title: {},
+            body: "<p>About us.</p>",
             media: { media: "img-1" },
             styles: {},
           },
-          // heading + text
-          { _title: "<h2>Mission</h2>", _body: "<p>Our mission.</p>", styles: {} },
-          // grid container of two children
+          // heading + text (no style config at all)
+          { title: "Mission", body: "<p>Our mission.</p>", styles: {} },
+          // grid container of two children; Card B's title is a disabled
+          // editor label and must not be migrated
           {
             class: "grid",
             items: [
               {
-                _title: "<h3>Card A</h3>",
-                _body: "<p>A.</p>",
+                title: "Card A",
+                _title: { color: "#111111" },
+                body: "<p>A.</p>",
                 media: { media: "img-2" },
                 styles: {},
               },
               {
-                _title: "<h3>Card B</h3>",
-                _body: "<p>B.</p>",
+                title: "Card B",
+                _title: { class: "disable" },
+                body: "<p>B.</p>",
                 media: { media: "img-2" },
                 styles: {},
               },
