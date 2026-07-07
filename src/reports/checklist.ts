@@ -1,4 +1,5 @@
 import type { ReportType } from "./types.js";
+import type { EvidenceResult, EvidenceRecord } from "./auto-tick.js";
 
 /**
  * One operator checklist item: a stable `key`, its display `label` (which mirrors
@@ -88,4 +89,43 @@ export function gatingFields(type: ReportType): string[] {
   if (type === "Maintenance") return MAINTENANCE_GATING_FIELDS;
   if (type === "Testing") return checklistFor("Testing").map((i) => i.field);
   return [];
+}
+
+/**
+ * The health gate: clear iff EVERY gating field's evidence result is `pass` or `n/a`. A `fail`,
+ * an `unknown`, or an ABSENT record all block — the semantic inversion (no fresh signal → cannot
+ * confirm health → don't send). Launch/Announcement have no gating fields → vacuously clear. PURE.
+ */
+export function isHealthGateClear(report: {
+  reportType: ReportType;
+  autoEvidence: Record<string, EvidenceRecord>;
+}): boolean {
+  return gatingFields(report.reportType).every((field) => {
+    const r = report.autoEvidence[field]?.result;
+    return r === "pass" || r === "n/a";
+  });
+}
+
+/** Per-gating-field status for by-name blocker messaging (send log, dashboard). An absent record
+ *  surfaces as `unknown`. PURE. */
+export function gatingHealth(report: {
+  reportType: ReportType;
+  autoEvidence: Record<string, EvidenceRecord>;
+}): { field: string; status: EvidenceResult }[] {
+  return gatingFields(report.reportType).map((field) => ({
+    field,
+    status: report.autoEvidence[field]?.result ?? "unknown",
+  }));
+}
+
+/**
+ * True when a logged send-anyway override is active AND carries a non-empty reason. The effective
+ * send gate is `isHealthGateClear(report) || isSendOverridden(report)`. PURE — takes the minimal
+ * structural shape so it can be evaluated over a ReportRow or a synthetic "about to override" copy.
+ */
+export function isSendOverridden(report: {
+  sendOverride: boolean;
+  overrideReason: string | null;
+}): boolean {
+  return report.sendOverride && (report.overrideReason ?? "").trim() !== "";
 }
