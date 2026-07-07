@@ -68,3 +68,24 @@ export function isChecklistComplete(report: {
 }): boolean {
   return checklistFor(report.reportType).every((i) => report.checklist[i.field] === true);
 }
+
+/** The maintenance items whose HEALTH gates a Maintenance send. Google Indexed is advisory
+ *  (reported, never blocks) so it is excluded. */
+const MAINTENANCE_GATING_FIELDS: string[] = [
+  "Maint: Deploy & Function Health",
+  "Maint: CMS Checked",
+  "Maint: Domain, DNS & SSL",
+  "Maint: Security Updates",
+  "Maint: Uptime Checked",
+];
+
+/**
+ * The checklist fields whose health gates a send of this report type. Maintenance gates
+ * availability/integrity only (Google Indexed is advisory); Testing holds the full bar (all 13,
+ * including Google Indexed); Launch/Announcement are ungated. PURE.
+ */
+export function gatingFields(type: ReportType): string[] {
+  if (type === "Maintenance") return MAINTENANCE_GATING_FIELDS;
+  if (type === "Testing") return checklistFor("Testing").map((i) => i.field);
+  return [];
+}

@@ -1,7 +1,7 @@
 import type { ReportType } from "./types.js";
 import type { WebsiteRow } from "./airtable/websites.js";
 import type { SearchPresence } from "./search/client.js";
-import { checklistFor } from "./checklist.js";
+import { checklistFor, gatingFields } from "./checklist.js";
 import { isNetlifyAppUrl } from "../util/url.js";
 
 /** A persisted audit signal is only trusted within this window — a stale "pass" degrades to
@@ -35,11 +35,14 @@ export type AutoTickSignals = {
 };
 
 /**
- * Decide, per checklist item for this report type, an evidence record — ONLY for items that
- * currently have a signal. Items with no signal are omitted, so the caller leaves them manual.
- * PURE. The fail-safe invariant lives here: a box is only tickable when `result === "pass"`.
- * Google Indexed is an inline signal (fetched at draft), so its evidence is inherently fresh
- * (`checkedAt = now`).
+ * Decide, per checklist item for this report type, an evidence record. PURE. The fail-safe
+ * invariant lives here: a box is only tickable when `result === "pass"`. Google Indexed is an
+ * inline signal (fetched at draft), so its evidence is inherently fresh (`checkedAt = now`).
+ *
+ * The semantic inversion: every GATING item for this report type gets a status even with no
+ * signal — a never-measured gating item resolves to `unknown` (which blocks the send gate), not
+ * an omission the caller could read as "manual/OK". Only non-gating (advisory) items keep the old
+ * omit-when-absent behavior, so an unconfigured advisory check stays silently manual.
  */
 export function autoTickChecklist(
   site: WebsiteRow,
@@ -48,54 +51,70 @@ export function autoTickChecklist(
   signals: AutoTickSignals,
 ): Map<string, EvidenceRecord> {
   const out = new Map<string, EvidenceRecord>();
-  const fields = new Set(checklistFor(reportType).map((i) => i.field));
+  const gating = new Set(gatingFields(reportType));
 
-  // Google Indexed — Search Console (inline, always fresh).
-  if (fields.has("Maint: Google Indexed")) {
-    const g = googleEvidence(now, signals.search);
-    if (g) out.set("Maint: Google Indexed", g);
-  }
-
-  // Security Updates — the nightly `security` audit's persisted vuln counts.
-  if (fields.has("Maint: Security Updates")) {
-    const s = securityEvidence(site, now);
-    if (s) out.set("Maint: Security Updates", s);
-  }
-
-  // Domain, DNS & SSL — the nightly `domain` audit's persisted cert/resolve signal.
-  if (fields.has("Maint: Domain, DNS & SSL")) {
-    const d = domainEvidence(site, now);
-    if (d) out.set("Maint: Domain, DNS & SSL", d);
-  }
-
-  // Desktop / Mobile / Links — the nightly `browser` audit's persisted verdicts (one timestamp
-  // gates all three). Each is a stored boolean computed by the audit (multi-engine/route);
-  // here we add freshness + omit-when-absent.
-  if (fields.has("Test: Desktop Browsers")) {
-    const e = browserEvidence(
-      site.crossbrowserOk,
-      site,
-      now,
-      "Desktop renders cleanly",
-      "render errors",
-    );
-    if (e) out.set("Test: Desktop Browsers", e);
-  }
-  if (fields.has("Test: Mobile Browsers")) {
-    const e = browserEvidence(
-      site.mobileOk,
-      site,
-      now,
-      "Mobile renders cleanly",
-      "overflow/errors",
-    );
-    if (e) out.set("Test: Mobile Browsers", e);
-  }
-  if (fields.has("Test: Links & Navigation")) {
-    const broken = site.brokenLinks;
-    const failNote = broken && broken > 0 ? `${broken} broken link(s)` : "broken links / nav";
-    const e = browserEvidence(site.linksOk, site, now, "All internal links resolve", failNote);
-    if (e) out.set("Test: Links & Navigation", e);
+  for (const item of checklistFor(reportType)) {
+    let ev: EvidenceRecord | null;
+    switch (item.field) {
+      case "Maint: Google Indexed":
+        ev = googleEvidence(now, signals.search);
+        break;
+      case "Maint: Deploy & Function Health":
+        ev = deployEvidence(site, now);
+        break;
+      case "Maint: CMS Checked":
+        ev = cmsEvidence(site, now);
+        break;
+      case "Maint: Domain, DNS & SSL":
+        ev = domainEvidence(site, now);
+        break;
+      case "Maint: Security Updates":
+        ev = securityEvidence(site, now);
+        break;
+      case "Maint: Uptime Checked":
+        ev = uptimeEvidence(site, now);
+        break;
+      case "Test: Desktop Browsers":
+        ev = browserEvidence(
+          site.crossbrowserOk,
+          site,
+          now,
+          "Desktop renders cleanly",
+          "render errors",
+        );
+        break;
+      case "Test: Mobile Browsers":
+        ev = browserEvidence(site.mobileOk, site, now, "Mobile renders cleanly", "overflow/errors");
+        break;
+      case "Test: Page Titles & Meta":
+        ev = titlesEvidence(site, now);
+        break;
+      case "Test: Links & Navigation": {
+        const broken = site.brokenLinks;
+        const failNote = broken && broken > 0 ? `${broken} broken link(s)` : "broken links / nav";
+        ev = browserEvidence(site.linksOk, site, now, "All internal links resolve", failNote);
+        break;
+      }
+      case "Test: Form Functionality":
+        ev = formsEvidence(site, now);
+        break;
+      case "Test: Interactions & Animations":
+        ev = interactionsEvidence(site, now);
+        break;
+      case "Test: Verified After Updates":
+        ev = updatesEvidence(site, now);
+        break;
+      default:
+        ev = null;
+    }
+    // The semantic inversion: a GATING item with no fresh signal must still carry a status —
+    // `unknown` (blocks) — so an unwired/absent signal can never leave the gate silently
+    // passable. Advisory items (e.g. Google Indexed on a Maintenance report) keep the old
+    // omit-when-absent behavior.
+    if (ev === null && gating.has(item.field)) {
+      ev = { result: "unknown", checkedAt: null, note: "Not yet measured" };
+    }
+    if (ev !== null) out.set(item.field, ev);
   }
 
   return out;

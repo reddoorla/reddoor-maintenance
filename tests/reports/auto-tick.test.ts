@@ -11,6 +11,7 @@ import {
   type AutoTickSignals,
 } from "../../src/reports/auto-tick.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
+import { gatingFields } from "../../src/reports/checklist.js";
 
 const NOW = new Date("2026-06-18T12:00:00.000Z");
 const GOOGLE = "Maint: Google Indexed";
@@ -146,12 +147,16 @@ describe("autoTickChecklist — Domain, DNS & SSL", () => {
       certDaysRemaining: 73,
       domainCheckedAt: FRESH,
     });
-    expect(autoTickChecklist(site, "Maintenance", NOW, signals()).has(DOMAIN)).toBe(false);
+    expect(autoTickChecklist(site, "Maintenance", NOW, signals()).get(DOMAIN)!.result).toBe(
+      "unknown",
+    );
   });
 
   it("omits domain evidence when the domain was never checked", () => {
     const site = makeWebsiteRow({ url: "https://acme.com", domainCheckedAt: null });
-    expect(autoTickChecklist(site, "Maintenance", NOW, signals()).has(DOMAIN)).toBe(false);
+    expect(autoTickChecklist(site, "Maintenance", NOW, signals()).get(DOMAIN)!.result).toBe(
+      "unknown",
+    );
   });
 });
 
@@ -192,9 +197,9 @@ describe("autoTickChecklist — Security Updates", () => {
   });
 
   it("omits when the security audit never ran (null counts / no timestamp)", () => {
-    expect(autoTickChecklist(makeWebsiteRow(), "Maintenance", NOW, signals()).has(SECURITY)).toBe(
-      false,
-    );
+    expect(
+      autoTickChecklist(makeWebsiteRow(), "Maintenance", NOW, signals()).get(SECURITY)!.result,
+    ).toBe("unknown");
   });
 });
 
@@ -242,9 +247,29 @@ describe("autoTickChecklist — browser checks (Desktop / Mobile / Links)", () =
 
   it("omits browser evidence entirely when the audit never ran (null verdict / no timestamp)", () => {
     const ev = autoTickChecklist(makeWebsiteRow(), "Testing", NOW, signals());
-    expect(ev.has(DESKTOP)).toBe(false);
-    expect(ev.has(MOBILE)).toBe(false);
-    expect(ev.has(LINKS)).toBe(false);
+    expect(ev.get(DESKTOP)!.result).toBe("unknown");
+    expect(ev.get(MOBILE)!.result).toBe("unknown");
+    expect(ev.get(LINKS)!.result).toBe("unknown");
+  });
+});
+
+describe("autoTickChecklist — the semantic inversion (a status for every gating item)", () => {
+  it("emits 'unknown' for every gating Maintenance field when nothing has been measured", () => {
+    const ev = autoTickChecklist(makeWebsiteRow(), "Maintenance", NOW, signals());
+    for (const field of gatingFields("Maintenance")) {
+      expect(ev.get(field)?.result).toBe("unknown");
+    }
+    // Google Indexed is ADVISORY for Maintenance → still omitted when unconfigured.
+    expect(ev.has("Maint: Google Indexed")).toBe(false);
+  });
+  it("emits 'unknown' for every one of the 13 gating Testing fields when nothing has been measured", () => {
+    const ev = autoTickChecklist(makeWebsiteRow(), "Testing", NOW, signals());
+    for (const field of gatingFields("Testing")) {
+      expect(ev.get(field)?.result).toBe("unknown");
+    }
+  });
+  it("emits nothing for Launch/Announcement (no gating fields)", () => {
+    expect(autoTickChecklist(makeWebsiteRow(), "Launch", NOW, signals()).size).toBe(0);
   });
 });
 

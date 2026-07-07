@@ -97,4 +97,25 @@ describe("createDraft writes checklist booleans + auto-evidence", () => {
     expect(fields["Checklist auto-evidence"]).toBeUndefined();
     expect(fields["Maint: Google Indexed"]).toBeUndefined();
   });
+
+  it("persists an 'unknown' evidence record for an unmeasured gating item (the inversion)", async () => {
+    const base = makeFakeBase({ Reports: [] });
+    await createDraft(base, {
+      reportId: "Acme Co — Maintenance — 2026-07-06",
+      siteId: "rec_site",
+      reportType: "Maintenance",
+      periodStart: new Date("2026-07-01T00:00:00Z"),
+      periodEnd: new Date("2026-07-06T00:00:00Z"),
+      completedOn: new Date("2026-07-06T00:00:00Z"),
+      lighthouse: { performance: 90, accessibility: 100, bestPractices: 82, seo: 100 },
+      lastTestedDate: null,
+      autoEvidence: {
+        "Maint: Uptime Checked": { result: "unknown", checkedAt: null, note: "Not yet measured" },
+      },
+    });
+    const create = base.__calls.find((c) => c.kind === "create")!;
+    if (create.kind !== "create") throw new Error("expected create");
+    const ev = JSON.parse(create.records[0]!.fields["Checklist auto-evidence"] as string);
+    expect(ev["Maint: Uptime Checked"].result).toBe("unknown");
+  });
 });
