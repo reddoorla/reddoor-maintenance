@@ -32,7 +32,16 @@ export function flattenSections(sections: SectionIR[]): SectionIR[] {
       continue;
     }
 
-    if (!children.length || (isContainer(s) && children.every(isFlatLeaf))) {
+    // a container may keep its items form only when it has no content of its
+    // own beyond a heading — section_grid's primary cannot carry media/body
+    const keepable = isContainer(s) && !s.fields.media && !s.fields.body;
+    if (!children.length) {
+      if (isContainer(s) && !keepable) {
+        out.push({ ...s, sliceType: s.fields.media ? "media_text" : "rich_text" });
+      } else {
+        out.push(s);
+      }
+    } else if (keepable && children.every(isFlatLeaf)) {
       out.push(s);
     } else if (isContainer(s)) {
       // the container's own content leads its exploded children: with media
