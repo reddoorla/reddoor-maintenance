@@ -110,25 +110,48 @@ describe("normalizeTheme", () => {
     expect(t0.transform).toBe("capitalize");
     expect(t0.letterSpacing).toBeUndefined();
   });
+  it("names roles from the .textN key and skips deleted-style tombstones", () => {
+    // fixture index 4 is a { removed: true } tombstone — no phantom text4 role
+    expect(theme.textStyles.map((t) => t.role)).toEqual(["text0", "text1", "text5", "text11"]);
+    expect(theme.textStyles.find((t) => t.role === "text4")).toBeUndefined();
+  });
+  it("drops malformed CSS values but keeps a role's real ones + mobile overrides", () => {
+    const t11 = theme.textStyles.find((t) => t.role === "text11")!;
+    expect(t11).toEqual({
+      role: "text11",
+      label: "Page Title Serif",
+      fontFamily: "Martel",
+      size: "50px",
+      weight: 200,
+      lineHeight: "80px",
+      transform: "capitalize",
+      mobileSize: "40px",
+      mobileLineHeight: "60px",
+    });
+    // "0.px" is malformed and must not reach the theme
+    expect(t11.letterSpacing).toBeUndefined();
+  });
+  it("parses settings.fonts.google into families + numeric weights", () => {
+    expect(theme.fontLoad).toEqual([
+      { family: "Scope One", weights: ["400"] },
+      { family: "Montserrat", weights: ["300", "500", "400"] },
+      { family: "Martel", weights: ["200"] },
+    ]);
+  });
   it("falls back to Blux's default roles (text0/text1) when settings name no fonts", () => {
     const site = structuredClone(minimalSite) as Record<string, unknown>;
     site.settings = { widgets: {} };
     const t = normalizeTheme(parseBluxSite(site));
     expect(t.fonts).toEqual({ heading: "Scope One", body: "Montserrat" });
+    expect(t.fontLoad).toEqual([]);
   });
-  it("defaults a role whose css object is missing instead of crashing", () => {
-    const site = structuredClone(minimalSite) as { styles: { text: Record<string, unknown> } };
-    site.styles.text["9"] = { _label: "Broken" };
+  it("ignores a non-string font setting instead of stringifying it", () => {
+    const site = structuredClone(minimalSite) as {
+      settings: { fonts: Record<string, unknown> };
+    };
+    site.settings.fonts = { heading: { nested: true } };
     const t = normalizeTheme(parseBluxSite(site));
-    const t9 = t.textStyles.find((x) => x.role === "text9")!;
-    expect(t9).toEqual({
-      role: "text9",
-      label: "Broken",
-      fontFamily: "",
-      size: "16px",
-      weight: 400,
-      lineHeight: "1.5",
-    });
+    expect(t.fonts.heading).toBe("Scope One"); // not "[object Object]"
   });
 });
 
@@ -174,6 +197,25 @@ describe("section presentation extraction", () => {
     const s = first({ title: "hidden", _title: { class: "disable text5" }, body: "b" });
     expect(s.fields.heading).toBeUndefined();
     expect(s.presentation?.headingRole).toBeUndefined();
+  });
+  it("captures a title's inline overrides (a hero's white color) alongside its role", () => {
+    const s = first({
+      title: "STAND ABOVE",
+      _title: { class: "text0", color: "#ffffff", "font-size": "44px", padding: "px" },
+      body: "b",
+    });
+    expect(s.presentation).toEqual({
+      headingRole: "text0",
+      headingStyle: { color: "#ffffff", "font-size": "44px" }, // padding "px" dropped
+    });
+  });
+  it("captures inline overrides on a classless title as headingStyle", () => {
+    const s = first({ title: "Welcome", _title: { color: "#053a6c", margin: "0" }, body: "b" });
+    expect(s.presentation).toEqual({ headingStyle: { color: "#053a6c", margin: "0" } });
+  });
+  it("drops inline overrides when the text itself is hidden", () => {
+    const s = first({ title: "x", _title: { class: "disable", color: "#fff" }, body: "b" });
+    expect(s.presentation?.headingStyle).toBeUndefined();
   });
   it("omits presentation entirely when a block carries no hints", () => {
     const s = first({ title: "t", _title: {}, body: "b", styles: {} });

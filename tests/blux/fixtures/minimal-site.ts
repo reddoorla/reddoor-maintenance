@@ -65,9 +65,12 @@ export const minimalSite = {
   footer: [{ items: [], styles: {}, config: {} }],
   styles: {
     colors: { c1: "#111111", c2: "#ffffff", c3: "#3bb0c9" },
-    // Real export shape: numbered roles, each { _label, ".textN": css props }.
-    // text0/text1 are Blux's default title/body roles; text5 is a named role
-    // blocks reference via `_title: { class: "text5" }`.
+    // Real export shape: a position-stable array whose slots are
+    // { _label, ".textN": css props }. text0/text1 are Blux's default
+    // title/body roles; text5 is a named role blocks reference via
+    // `_title: { class: "text5" }`. Index 4 is a deleted-style tombstone;
+    // text11 mirrors the real export's malformed `letter-spacing: "0.px"`,
+    // `padding: "px"`, and `__media_mobile_*` responsive overrides.
     text: {
       "0": {
         _label: "Title (Default)",
@@ -90,6 +93,7 @@ export const minimalSite = {
           "font-ident": "G:Montserrat:300:",
         },
       },
+      "4": { removed: true },
       "5": {
         _label: "Grid Titles",
         ".text5": {
@@ -100,6 +104,21 @@ export const minimalSite = {
           "text-transform": "uppercase",
           "letter-spacing": "1.5px",
           "font-ident": "G:Montserrat:500:",
+        },
+      },
+      "11": {
+        _label: "Page Title Serif",
+        ".text11": {
+          "font-family": "'Martel'",
+          "font-size": "50px",
+          "font-weight": 200,
+          "line-height": "80px",
+          "text-transform": "capitalize",
+          padding: "px",
+          "letter-spacing": "0.px",
+          "__media_mobile_font-size": "40px",
+          "__media_mobile_line-height": "60px",
+          "font-ident": "G:Martel:200:",
         },
       },
     },
@@ -121,7 +140,16 @@ export const minimalSite = {
       ],
     },
   },
-  settings: { fonts: { heading: "Inter", body: "Inter" }, widgets: {} },
+  settings: {
+    // heading/body drive the CSS font-family pair; `google` is the separate
+    // load manifest (which weights to install), matching the real export.
+    fonts: {
+      heading: "Inter",
+      body: "Inter",
+      google: "Scope+One:regular|Montserrat:300,500,regular|Martel:200",
+    },
+    widgets: {},
+  },
 };
 
 // A rendered HTML string that references the assets via the real CDN URL shape

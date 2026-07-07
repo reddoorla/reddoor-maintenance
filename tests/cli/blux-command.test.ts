@@ -56,7 +56,12 @@ describe("blux emit", () => {
 
   it("writes the styles manifest beside the plan", async () => {
     const manifest = JSON.parse(await readFile(join(out, "styles-manifest.json"), "utf-8"));
-    expect(manifest).toEqual([{ pageUid: "home", slices: [] }]);
+    expect(manifest[0].pageUid).toBe("home");
+    expect(manifest[0].slices[0]).toMatchObject({ index: 0, sliceType: "hero" });
+    expect(manifest[0].slices[0].presentation.headingStyle).toEqual({
+      color: "#ffffff",
+      "font-size": "44px",
+    });
   });
 
   it("writes a review manifest pairing pages with Blux originals", async () => {

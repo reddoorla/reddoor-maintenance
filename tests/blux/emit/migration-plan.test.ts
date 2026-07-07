@@ -141,8 +141,24 @@ describe("buildMigrationPlan", () => {
     );
   });
 
-  it("emits a styles-manifest entry per page, empty when no block carries hints", () => {
-    expect(plan.stylesManifest).toEqual([{ pageUid: "home", slices: [] }]);
+  it("emits per-page presentation hints keyed by slice index, with grid items aligned", () => {
+    expect(plan.stylesManifest).toEqual([
+      {
+        pageUid: "home",
+        slices: [
+          {
+            index: 0,
+            sliceType: "hero",
+            presentation: { headingStyle: { color: "#ffffff", "font-size": "44px" } },
+          },
+          {
+            index: 3,
+            sliceType: "section_grid",
+            items: [{ headingStyle: { color: "#111111" } }, null],
+          },
+        ],
+      },
+    ]);
   });
 
   it("keys stylesManifest entries by post-filter slice index", () => {

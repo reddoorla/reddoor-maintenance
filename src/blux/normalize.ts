@@ -1,12 +1,61 @@
 import { visibleText, type BluxBlock, type BluxRaw, type BluxTextStyle } from "./parse.js";
 import { archetype } from "./archetype.js";
-import type { PageIR, SectionIR, TextStyleIR, ThemeIR, Diagnostic } from "./ir.js";
+import type { FontLoad, PageIR, SectionIR, TextStyleIR, ThemeIR, Diagnostic } from "./ir.js";
 
 /** The styles.text role ("text5") a block's _title/_body class points at. */
 function textRole(style: BluxTextStyle | undefined): string | undefined {
   const cls = typeof style === "object" && style !== null ? style.class : style;
   if (typeof cls !== "string") return undefined;
   return cls.split(/\s+/).find((c) => /^text\d+$/.test(c));
+}
+
+const str = (x: unknown): string =>
+  typeof x === "string" ? x : typeof x === "number" ? String(x) : "";
+
+/** A cleaned CSS value, or "" when the export left a malformed one. Blux emits
+ * degenerate placeholders — "" and "px" for unset lengths, "0.px" for a zeroed
+ * one — which would poison a Tailwind custom property (an invalid `var()` value
+ * collapses the whole declaration). A px length is kept only with a real
+ * numeric prefix; everything else (colors, "0", keywords, multi-value) passes. */
+export function cleanCssValue(x: unknown): string {
+  const s = str(x).trim();
+  if (s === "" || s === "px") return "";
+  if (/px$/.test(s) && !/^-?(\d+(\.\d+)?|\.\d+)px$/.test(s)) return "";
+  return s;
+}
+
+/** Per-element inline style overrides on a _title/_body element (color,
+ * font-size, margin, …) minus the `class` token, cleaned. undefined when none
+ * survive — e.g. a hero title's `{ class: "text0", color: "#fff" }` white
+ * override that a role reference alone would lose. */
+function inlineStyle(style: BluxTextStyle | undefined): Record<string, string> | undefined {
+  if (typeof style !== "object" || style === null) return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(style)) {
+    if (k === "class") continue;
+    const cleaned = cleanCssValue(v);
+    if (cleaned) out[k] = cleaned;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+/** Parse `settings.fonts.google` ("Scope+One:regular|Montserrat:300,500,regular")
+ * into families + numeric weights ("regular" → "400"). */
+function parseGoogleFonts(google: string): FontLoad[] {
+  if (!google.trim()) return [];
+  return google
+    .split("|")
+    .map((spec) => {
+      const [rawFamily = "", rawWeights = ""] = spec.split(":");
+      const family = rawFamily.replace(/\+/g, " ").trim();
+      const weights = rawWeights
+        .split(",")
+        .map((w) => w.trim())
+        .filter(Boolean)
+        .map((w) => (w === "regular" ? "400" : w));
+      return { family, weights: weights.length ? weights : ["400"] };
+    })
+    .filter((f) => f.family);
 }
 
 const CONFIDENCE_MIN = 0.5;
@@ -24,14 +73,19 @@ function sectionFromBlock(b: BluxBlock, pageUid: string, diagnostics: Diagnostic
   const body = visibleText(b.body, b._body);
   const headingRole = heading !== undefined ? textRole(b._title) : undefined;
   const bodyRole = body !== undefined ? textRole(b._body) : undefined;
-  const block = Object.fromEntries(
-    Object.entries(b.styles ?? {}).filter(
-      ([, v]) => typeof v === "string" && v !== "" && v !== "px",
-    ),
-  ) as Record<string, string>;
+  const headingStyle = heading !== undefined ? inlineStyle(b._title) : undefined;
+  const bodyStyle = body !== undefined ? inlineStyle(b._body) : undefined;
+  const block: Record<string, string> = {};
+  for (const [k, v] of Object.entries(b.styles ?? {})) {
+    if (typeof v !== "string") continue;
+    const cleaned = cleanCssValue(v);
+    if (cleaned) block[k] = cleaned;
+  }
   const presentation = {
     ...(headingRole ? { headingRole } : {}),
     ...(bodyRole ? { bodyRole } : {}),
+    ...(headingStyle ? { headingStyle } : {}),
+    ...(bodyStyle ? { bodyStyle } : {}),
     ...(Object.keys(block).length ? { block } : {}),
   };
   const section: SectionIR = {
@@ -82,39 +136,46 @@ export function normalizeTheme(raw: BluxRaw): ThemeIR {
     role,
     value: String(value),
   }));
-  // A styles.text entry is { _label, ".textN": { css props incl font-ident } }.
-  const textStyles: TextStyleIR[] = Object.entries(raw.styles.text ?? {}).map(([key, v]) => {
+  // styles.text is a position-stable array whose slots are { _label,
+  // ".textN": { css props incl font-ident } }. A deleted style leaves a
+  // { removed: true } tombstone with no ".textN" key — the role name comes
+  // from that inner key (not the array index), so tombstones drop out and
+  // roles never renumber if the array is ever compacted.
+  const textStyles: TextStyleIR[] = [];
+  for (const v of Object.values(raw.styles.text ?? {})) {
     const entry = (v ?? {}) as Record<string, unknown>;
-    const inner = (entry[`.text${key}`] ??
-      Object.values(entry).find((x) => x && typeof x === "object")) as
-      | Record<string, unknown>
-      | undefined;
-    const m = inner ?? {};
-    const str = (x: unknown) =>
-      typeof x === "string" ? x : typeof x === "number" ? String(x) : "";
-    const transform = str(m["text-transform"]);
-    const tracking = str(m["letter-spacing"]);
-    return {
-      role: `text${key}`,
+    const innerKey = Object.keys(entry).find((k) => /^\.text\d+$/.test(k));
+    if (!innerKey) continue;
+    const m = (entry[innerKey] ?? {}) as Record<string, unknown>;
+    const transform = cleanCssValue(m["text-transform"]);
+    const tracking = cleanCssValue(m["letter-spacing"]);
+    const mobileSize = cleanCssValue(m["__media_mobile_font-size"]);
+    const mobileLineHeight = cleanCssValue(m["__media_mobile_line-height"]);
+    textStyles.push({
+      role: innerKey.slice(1), // ".text11" -> "text11"
       label: str(entry._label),
       fontFamily: str(m["font-family"]).replace(/['"]/g, ""),
-      size: str(m["font-size"]) || "16px",
+      size: cleanCssValue(m["font-size"]) || "16px",
       weight:
         typeof m["font-weight"] === "number" ? m["font-weight"] : str(m["font-weight"]) || 400,
-      lineHeight: str(m["line-height"]) || "1.5",
+      lineHeight: cleanCssValue(m["line-height"]) || "1.5",
       ...(transform && transform !== "none" ? { transform } : {}),
       ...(tracking ? { letterSpacing: tracking } : {}),
-    };
-  });
+      ...(mobileSize ? { mobileSize } : {}),
+      ...(mobileLineHeight ? { mobileLineHeight } : {}),
+    });
+  }
   // Fonts: explicit settings win; otherwise Blux's own default roles —
   // text0 "Title (Default)" and text1 "Body (Default)".
+  const fonts = (raw.settings.fonts ?? {}) as Record<string, unknown>;
   const roleFont = (r: string) => textStyles.find((t) => t.role === r)?.fontFamily ?? "";
   return {
     colors,
     fonts: {
-      heading: String(raw.settings.fonts?.heading ?? "") || roleFont("text0"),
-      body: String(raw.settings.fonts?.body ?? "") || roleFont("text1"),
+      heading: str(fonts.heading) || roleFont("text0"),
+      body: str(fonts.body) || roleFont("text1"),
     },
+    fontLoad: parseGoogleFonts(str(fonts.google)),
     textStyles,
   };
 }
