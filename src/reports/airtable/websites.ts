@@ -123,6 +123,22 @@ export type WebsiteRow = {
   deployStatus: string | null;
   lastDeployAt: string | null;
   deployLogUrl: string | null;
+  /** When the `netlify-deploy` audit last RAN (freshness stamp for `deployStatus`). The audit
+   *  already writes "Deploy checked at"; this read-back is the Plan-2 fix so `deployEvidence`
+   *  (Plan 4) can gate on check time — NOT on `lastDeployAt`, which is deploy time, not check time. */
+  deployCheckedAt: string | null;
+  /** Function-health verdict (the `function-health` audit): the deployed `/health` function
+   *  answered `ok:true` (pass) or `ok:false` (fail). Single-select `pass`/`fail`; null = never ran
+   *  / unreachable (→ Plan 4 maps to unknown/amber). Kept SEPARATE from `deployStatus` so
+   *  `isFailedDeployStatus` keeps meaning "the build failed". */
+  functionHealth: "pass" | "fail" | null;
+  /** CMS reachability (server-side), derived from the same `/health` body's `details.prismic ===
+   *  "ok"`. Single-select `pass`/`fail`; null = never ran. No per-site Prismic token or identity
+   *  column is ever built — this rides `/health`. */
+  cmsReachable: "pass" | "fail" | null;
+  /** When the `function-health` audit last ran — the freshness gate for BOTH `functionHealth` and
+   *  `cmsReachable`. Null = never ran. */
+  functionHealthCheckedAt: string | null;
   /** Deployed-URL browser probe (the `browser` audit): cross-engine render OK, mobile render OK,
    *  internal-links OK + broken count, and when it last ran (one timestamp gates all three). */
   crossbrowserOk: boolean | null;
@@ -130,6 +146,13 @@ export type WebsiteRow = {
   linksOk: boolean | null;
   brokenLinks: number | null;
   browserCheckedAt: string | null;
+  /** Uptime-reachable verdict (browser audit): every sampled route returned 2xx/3xx. Single-select
+   *  `pass`/`fail`; null = never ran. Point-in-time. Freshness-gated by `browserCheckedAt`. */
+  reachableOk: "pass" | "fail" | null;
+  /** Titles & meta verdict (browser audit, chromium): every sampled route has a non-empty `<title>`
+   *  ≤ 70 chars + a non-empty meta description, and no duplicate titles across the sample.
+   *  Single-select `pass`/`fail`; null = never ran. Freshness-gated by `browserCheckedAt`. */
+  titleMetaOk: "pass" | "fail" | null;
   /** Per-site copy overrides (M6a). Blank → null → the DEFAULT_COPY value. */
   copyIntro: string | null;
   copyContact: string | null;
@@ -226,6 +249,16 @@ function toFrequency(raw: unknown): Frequency {
     : "None";
 }
 
+/** Coerce an Airtable tri-state single-select verdict cell (`pass`/`fail`/blank) to
+ *  `"pass" | "fail" | null`. Any value other than the literal strings "pass"/"fail" — blank,
+ *  an unrecognized option, a typo, wrong type — reads as null ("never ran"), never guessed. The
+ *  ONE shared reader for every verdict column of this shape: `Function health`, `CMS Reachable`,
+ *  `Uptime Reachable`, `Titles & Meta OK` (Plan 2), and reused (not redeclared) by Plan 3's
+ *  `Smoke OK` / `Form E2E OK` read-backs. */
+export function toVerdict(raw: unknown): "pass" | "fail" | null {
+  return raw === "pass" || raw === "fail" ? raw : null;
+}
+
 // NOTE: every `f["..."]` key below is a load-bearing magic string that must match
 // the live Airtable "Websites" column name EXACTLY — including the legacy
 // misspelling `"maintenence freq"`, the mixed-case `"GA4 property ID"`, and the
@@ -283,12 +316,18 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     deployStatus: (f["Deploy status"] as string | undefined) ?? null,
     lastDeployAt: (f["Last deploy at"] as string | undefined) ?? null,
     deployLogUrl: (f["Deploy log URL"] as string | undefined) ?? null,
+    deployCheckedAt: (f["Deploy checked at"] as string | undefined) ?? null,
+    functionHealth: toVerdict(f["Function health"]),
+    cmsReachable: toVerdict(f["CMS Reachable"]),
+    functionHealthCheckedAt: (f["Function health checked at"] as string | undefined) ?? null,
     crossbrowserOk:
       typeof f["Crossbrowser OK"] === "boolean" ? (f["Crossbrowser OK"] as boolean) : null,
     mobileOk: typeof f["Mobile OK"] === "boolean" ? (f["Mobile OK"] as boolean) : null,
     linksOk: typeof f["Links OK"] === "boolean" ? (f["Links OK"] as boolean) : null,
     brokenLinks: typeof f["Broken links"] === "number" ? (f["Broken links"] as number) : null,
     browserCheckedAt: (f["Browser checked at"] as string | undefined) ?? null,
+    reachableOk: toVerdict(f["Uptime Reachable"]),
+    titleMetaOk: toVerdict(f["Titles & Meta OK"]),
     copyIntro: trimToNull(f["Copy — Intro"]),
     copyContact: trimToNull(f["Copy — Contact"]),
     copyFooter: trimToNull(f["Copy — Footer"]),
