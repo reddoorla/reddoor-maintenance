@@ -82,6 +82,30 @@ describe("flattenSections", () => {
     });
   });
 
+  it("explodes a flat-leaf container when it carries its own media, so that content survives", () => {
+    const container: SectionIR = {
+      sliceType: "grid",
+      variation: "default",
+      confidence: 1,
+      fields: { heading: "<h2>Cafe</h2>", body: "<p>Copy.</p>", media: "img-8" },
+      children: [leaf()],
+    };
+    const out = flattenSections([container]);
+    expect(out.map((s) => s.sliceType)).toEqual(["media_text", "media_text"]);
+    expect(out[0]!.fields.media).toBe("img-8");
+  });
+
+  it("rewrites a childless container with its own media to media_text", () => {
+    const container: SectionIR = {
+      sliceType: "grid",
+      variation: "default",
+      confidence: 1,
+      fields: { media: "img-9" },
+      children: [],
+    };
+    expect(flattenSections([container])[0]!.sliceType).toBe("media_text");
+  });
+
   it("surfaces a hero's foreground image as a sibling when it also has a background", () => {
     const hero: SectionIR = {
       sliceType: "hero",
