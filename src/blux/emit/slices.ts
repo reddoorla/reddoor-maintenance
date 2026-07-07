@@ -72,13 +72,16 @@ export function sectionToSlice(s: SectionIR): PlanSlice {
           heading: rtHeading(f.heading, "section_grid"),
           columns: f.columns ?? 3,
         }),
-        items: (s.children ?? []).map((c) =>
-          compact({
-            item_heading: rtHeading(c.fields.heading, "section_grid_item"),
-            item_body: rtBody(c.fields.body),
-            item_media: img(c.fields.media),
-          }),
-        ),
+        items: (s.children ?? [])
+          .map((c) =>
+            compact({
+              item_heading: rtHeading(c.fields.heading, "section_grid_item"),
+              item_body: rtBody(c.fields.body),
+              item_media: img(c.fields.media),
+            }),
+          )
+          // a child whose only content was hidden text has nothing to show
+          .filter((item) => Object.keys(item).length > 0),
       };
     case "rich_text":
     default:

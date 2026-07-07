@@ -77,12 +77,27 @@ export function buildMigrationPlan(ir: SiteIR): MigrationPlan {
       });
       continue;
     }
-    const slices = flattenSections(page.sections).map(sectionToSlice);
-    for (const slice of slices) {
-      for (const rec of [slice.primary, ...slice.items]) {
-        dropNonImages(rec, IMAGE_FIELDS, `${page.uid}/${slice.slice_type}`);
-      }
-    }
+    const slices = flattenSections(page.sections)
+      .map(sectionToSlice)
+      .filter((slice) => {
+        for (const rec of [slice.primary, ...slice.items]) {
+          dropNonImages(rec, IMAGE_FIELDS, `${page.uid}/${slice.slice_type}`);
+        }
+        // Structural defaults aren't content — a slice with nothing else to
+        // show (e.g. a block whose only content was hidden text, or whose
+        // sole video was dropped from an image field) is invisible; skip it.
+        const STRUCTURAL = new Set(["columns", "collection_type", "max_items"]);
+        const hasContent =
+          Object.keys(slice.primary).some((k) => !STRUCTURAL.has(k)) || slice.items.length > 0;
+        if (!hasContent) {
+          diagnostics.push({
+            kind: "empty-slice",
+            where: `${page.uid}/${slice.slice_type}`,
+            message: "slice has no content after filtering; dropped",
+          });
+        }
+        return hasContent;
+      });
     documents.push({
       type: "page",
       uid: page.uid,

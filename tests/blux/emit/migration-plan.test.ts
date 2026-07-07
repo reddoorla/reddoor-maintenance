@@ -124,4 +124,35 @@ describe("buildMigrationPlan", () => {
     // the deep media_text survived as an item of the hoisted inner grid
     expect(slices[0]!.items[0]!.item_body).toEqual({ __richtext_html: "<p>deep</p>" });
   });
+  it("drops slices left with no content, with a diagnostic", () => {
+    const ir = assembleIR({ siteJson: minimalSite, htmls: [minimalHtml] });
+    // a leaf whose only content was disabled text normalizes to empty fields
+    ir.pages[0]!.sections.push({
+      sliceType: "rich_text",
+      variation: "default",
+      confidence: 0.2,
+      fields: {},
+    });
+    const p = buildMigrationPlan(ir);
+    const slices = p.documents[0]!.data.slices as { slice_type: string; primary: object }[];
+    expect(slices.some((s) => Object.keys(s.primary).length === 0)).toBe(false);
+    expect(p.diagnostics).toContainEqual(
+      expect.objectContaining({ kind: "empty-slice", where: "home/rich_text" }),
+    );
+  });
+
+  it("drops empty grid items", () => {
+    const ir = assembleIR({ siteJson: minimalSite, htmls: [minimalHtml] });
+    const grid = ir.pages[0]!.sections.find((s) => s.sliceType === "grid")!;
+    grid.children!.push({
+      sliceType: "rich_text",
+      variation: "default",
+      confidence: 0.2,
+      fields: {},
+    });
+    const p = buildMigrationPlan(ir);
+    const slices = p.documents[0]!.data.slices as { slice_type: string; items: object[] }[];
+    const sg = slices.find((s) => s.slice_type === "section_grid")!;
+    expect(sg.items.every((i) => Object.keys(i).length > 0)).toBe(true);
+  });
 });

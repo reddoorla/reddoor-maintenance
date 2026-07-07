@@ -49,6 +49,14 @@ describe("archetype", () => {
   it("maps a slides container to slider", () => {
     expect(archetype({ class: "slides", items: [{ title: "a" }] }).sliceType).toBe("slider");
   });
+  it("keeps a slides container a slider even with a background image", () => {
+    const r = archetype({
+      class: "slides",
+      backgroundMedia: { media: "m" },
+      items: [{ title: "a" }],
+    });
+    expect(r.sliceType).toBe("slider");
+  });
   it("flags an empty/unknown block as low confidence", () => {
     expect(archetype({}).confidence).toBeLessThan(0.5);
   });

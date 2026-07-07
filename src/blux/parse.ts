@@ -16,15 +16,19 @@ export type BluxBlock = {
   styles?: Record<string, unknown>;
 };
 
+const hasDisable = (cls: unknown) =>
+  typeof cls === "string" && cls.split(/\s+/).includes("disable");
+
 /** Display text of a Blux title/body pair, or undefined when the element is
  * hidden. Blux stores the text itself in `title`/`body`; the underscore twin
  * (`_title`/`_body`) is style config whose `class: "disable"` hides the
  * element, so its text must not be migrated. */
 export function visibleText(text: unknown, style: BluxTextStyle | undefined): string | undefined {
-  if (typeof text !== "string" || text.trim() === "") return undefined;
-  if (style === "disable") return undefined;
-  if (typeof style === "object" && style !== null && style.class === "disable") return undefined;
-  return text;
+  const s = typeof text === "number" && Number.isFinite(text) ? String(text) : text;
+  if (typeof s !== "string" || s.trim() === "") return undefined;
+  if (hasDisable(style)) return undefined;
+  if (typeof style === "object" && style !== null && hasDisable(style.class)) return undefined;
+  return s.trim();
 }
 export type BluxPage = { title?: string; description?: string; items?: BluxBlock[] };
 export type BluxFeed = {

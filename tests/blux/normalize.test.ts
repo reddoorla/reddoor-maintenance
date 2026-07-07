@@ -66,6 +66,23 @@ describe("visible text extraction (_title/_body are style config, not text)", ()
     const { pages } = normalizePages(rawFor({ title: "  \n", _title: {}, body: "b" }));
     expect(pages[0]!.sections[0]!.fields.heading).toBeUndefined();
   });
+
+  it("treats any class list containing 'disable' as hidden", () => {
+    const { pages } = normalizePages(
+      rawFor({ title: "hidden", _title: { class: "disable fade-up" }, body: "b" }),
+    );
+    expect(pages[0]!.sections[0]!.fields.heading).toBeUndefined();
+  });
+
+  it("trims surrounding whitespace from migrated text", () => {
+    const { pages } = normalizePages(rawFor({ title: "\n  Welcome  ", _title: {}, body: "b" }));
+    expect(pages[0]!.sections[0]!.fields.heading).toBe("Welcome");
+  });
+
+  it("coerces a numeric title to text instead of dropping it", () => {
+    const { pages } = normalizePages(rawFor({ title: 2024, _title: {}, body: "b" }));
+    expect(pages[0]!.sections[0]!.fields.heading).toBe("2024");
+  });
 });
 
 describe("normalizeTheme", () => {

@@ -7,6 +7,7 @@ export type Diagnostic = {
     | "unwired-collection"
     | "malformed-feed-field"
     | "empty-page"
+    | "empty-slice"
     | "non-image-in-image-field";
   where: string; // page uid / feed apiId / asset uuid
   message: string;

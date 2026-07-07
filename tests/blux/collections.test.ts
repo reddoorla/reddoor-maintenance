@@ -26,4 +26,21 @@ describe("modelCollections", () => {
     expect(c.records[0]!.mediaRefs).toEqual(["img-2"]);
     expect(c.records[1]!.mediaRefs).toEqual([]);
   });
+  it("ignores underscore-prefixed style-config keys in feed items", () => {
+    const raw = parseBluxSite({
+      ...minimalSite,
+      feeds: {
+        "feed-2": {
+          name: "News",
+          source: "manual",
+          publish: "news",
+          fields: [],
+          items: [{ title: "Launch", _title: { class: "disable" }, body: "<p>x</p>" }],
+        },
+      },
+    });
+    const [news] = modelCollections(raw);
+    expect(news!.fields.map((f) => f.key)).not.toContain("_title");
+    expect(Object.keys(news!.records[0]!.values)).not.toContain("_title");
+  });
 });
