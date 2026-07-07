@@ -57,6 +57,45 @@ describe("flattenSections", () => {
     expect(out[1]!.fields.media).toBe("img-9");
   });
 
+  it("keeps an exploded container's own media/body as a leading media_text", () => {
+    const container: SectionIR = {
+      sliceType: "grid",
+      variation: "default",
+      confidence: 1,
+      fields: { heading: "<h2>Story</h2>", body: "<p>Copy.</p>", media: "img-7" },
+      children: [
+        {
+          sliceType: "grid",
+          variation: "default",
+          confidence: 1,
+          fields: {},
+          children: [leaf()],
+        },
+      ],
+    };
+    const out = flattenSections([container]);
+    expect(out[0]!.sliceType).toBe("media_text");
+    expect(out[0]!.fields).toEqual({
+      heading: "<h2>Story</h2>",
+      body: "<p>Copy.</p>",
+      media: "img-7",
+    });
+  });
+
+  it("surfaces a hero's foreground image as a sibling when it also has a background", () => {
+    const hero: SectionIR = {
+      sliceType: "hero",
+      variation: "default",
+      confidence: 1,
+      fields: { heading: "<h1>Hi</h1>", media: "logo-1", backgroundMedia: "bg-1" },
+    };
+    const out = flattenSections([hero]);
+    expect(out.map((s) => s.sliceType)).toEqual(["hero", "media_text"]);
+    expect(out[0]!.fields.media).toBeUndefined();
+    expect(out[0]!.fields.backgroundMedia).toBe("bg-1");
+    expect(out[1]!.fields.media).toBe("logo-1");
+  });
+
   it("explodes a grid containing a hero so the hero keeps its background", () => {
     const hero = leaf({ sliceType: "hero", fields: { backgroundMedia: "img-1" } });
     const grid: SectionIR = {

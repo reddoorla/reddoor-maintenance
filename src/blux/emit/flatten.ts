@@ -8,23 +8,41 @@ const isFlatLeaf = (s: SectionIR) =>
  *  as a section_grid-with-items only when every child is representable as a
  *  flat item (childless media_text/rich_text). Anything richer — nested
  *  containers, heroes with backgrounds — explodes into sequential sibling
- *  sections; the container's heading becomes a rich_text section so the
- *  visual grouping label survives. Proven need: thePointe's depth-4 tree
- *  kept only 7/53 images under one-level flattening. */
+ *  sections, and the container's OWN content (heading/body/media) survives
+ *  as a leading media_text or rich_text section. Proven need: thePointe's
+ *  depth-4 tree kept only 7/53 images under one-level flattening. */
 export function flattenSections(sections: SectionIR[]): SectionIR[] {
   const out: SectionIR[] = [];
   for (const s of sections) {
     const children = s.children ?? [];
+
+    if (s.sliceType === "hero" && s.fields.media && s.fields.backgroundMedia) {
+      // the hero slice only models the background image — surface the
+      // foreground image (a logo/overlay in Blux) as a sibling media_text
+      const { media, ...heroFields } = s.fields;
+      const { children: _heroKids, ...heroSelf } = s;
+      out.push({ ...heroSelf, fields: heroFields });
+      out.push({
+        sliceType: "media_text",
+        variation: "imageRight",
+        confidence: s.confidence,
+        fields: { media },
+      });
+      out.push(...flattenSections(children));
+      continue;
+    }
+
     if (!children.length || (isContainer(s) && children.every(isFlatLeaf))) {
       out.push(s);
     } else if (isContainer(s)) {
-      if (s.fields.heading) {
-        out.push({
-          sliceType: "rich_text",
-          variation: "default",
-          confidence: s.confidence,
-          fields: { heading: s.fields.heading },
-        });
+      // the container's own content leads its exploded children: with media
+      // it is a media_text-shaped section that merely carries a subtree,
+      // otherwise its heading/body become a rich_text grouping label
+      const { children: _kids, ...self } = s;
+      if (self.fields.media) {
+        out.push({ ...self, sliceType: "media_text" });
+      } else if (self.fields.heading || self.fields.body) {
+        out.push({ ...self, sliceType: "rich_text" });
       }
       out.push(...flattenSections(children));
     } else {
