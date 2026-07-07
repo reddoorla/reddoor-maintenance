@@ -61,11 +61,12 @@ export async function runBluxCommand(
     }
 
     const resolved = ir.assets.filter((a) => a.sourceUrl !== null).length;
+    const diagnostics = [...ir.diagnostics, ...plan.diagnostics];
     const lines = [
       `site: ${ir.meta.name} (${ir.meta.domain})`,
       `pages: ${ir.pages.length} | custom types: ${plan.customTypes.length} | documents: ${plan.documents.length} | assets: ${resolved}/${ir.assets.length} resolved`,
-      `diagnostics: ${ir.diagnostics.length}`,
-      ...ir.diagnostics.map((d) => `  - [${d.kind}] ${d.where}: ${d.message}`),
+      `diagnostics: ${diagnostics.length}`,
+      ...diagnostics.map((d) => `  - [${d.kind}] ${d.where}: ${d.message}`),
       `wrote ${out}`,
     ];
     return { output: lines.join("\n"), code: 0 };

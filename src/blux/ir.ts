@@ -1,7 +1,13 @@
 export type AssetId = string;
 
 export type Diagnostic = {
-  kind: "low-confidence-block" | "unresolved-asset" | "unwired-collection" | "malformed-feed-field";
+  kind:
+    | "low-confidence-block"
+    | "unresolved-asset"
+    | "unwired-collection"
+    | "malformed-feed-field"
+    | "empty-page"
+    | "non-image-in-image-field";
   where: string; // page uid / feed apiId / asset uuid
   message: string;
 };

@@ -32,4 +32,55 @@ describe("buildMigrationPlan", () => {
     const again = buildMigrationPlan(assembleIR({ siteJson: minimalSite, htmls: [minimalHtml] }));
     expect(again).toEqual(plan);
   });
+
+  it("skips empty pages with a diagnostic instead of emitting hollow documents", () => {
+    const ir = assembleIR({ siteJson: minimalSite, htmls: [minimalHtml] });
+    ir.pages.push({ uid: "stub", title: "", description: "", sections: [] });
+    const p = buildMigrationPlan(ir);
+    expect(p.documents.find((d) => d.uid === "stub")).toBeUndefined();
+    expect(p.diagnostics).toContainEqual(expect.objectContaining({ kind: "empty-page", where: "stub" }));
+  });
+
+  it("drops non-image assets from image fields with a diagnostic", () => {
+    const ir = assembleIR({ siteJson: minimalSite, htmls: [minimalHtml] });
+    const bgId = ir.pages[0]!.sections[0]!.fields.backgroundMedia!;
+    ir.assets.find((a) => a.id === bgId)!.mime = "video/mp4";
+    const p = buildMigrationPlan(ir);
+    const hero = (p.documents[0]!.data.slices as { slice_type: string; primary: Record<string, unknown> }[]).find(
+      (s) => s.slice_type === "hero",
+    )!;
+    expect(hero.primary.background_image).toBeUndefined();
+    expect(p.diagnostics).toContainEqual(expect.objectContaining({ kind: "non-image-in-image-field" }));
+  });
+
+  it("applies flattening before emitting slices", () => {
+    const ir = assembleIR({ siteJson: minimalSite, htmls: [minimalHtml] });
+    ir.pages[0]!.sections = [
+      {
+        sliceType: "grid",
+        variation: "default",
+        confidence: 1,
+        fields: {},
+        children: [
+          {
+            sliceType: "grid",
+            variation: "default",
+            confidence: 1,
+            fields: {},
+            children: [
+              { sliceType: "media_text", variation: "imageRight", confidence: 1, fields: { body: "<p>deep</p>" } },
+            ],
+          },
+        ],
+      },
+    ];
+    const p = buildMigrationPlan(ir);
+    const slices = p.documents[0]!.data.slices as {
+      slice_type: string;
+      items: Record<string, unknown>[];
+    }[];
+    expect(slices.map((s) => s.slice_type)).toEqual(["section_grid"]);
+    // the deep media_text survived as an item of the hoisted inner grid
+    expect(slices[0]!.items[0]!.item_body).toEqual({ __richtext_html: "<p>deep</p>" });
+  });
 });
