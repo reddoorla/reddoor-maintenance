@@ -179,6 +179,12 @@ export type WebsiteRow = {
    *  Single-select pass/fail; null = never ran. `lastSmokeAt` gates freshness. */
   smokeOk: "pass" | "fail" | null;
   lastSmokeAt: string | null;
+  /** Synthetic form end-to-end verdict (the `form-e2e` audit submits the real prod
+   *  contact form in test-mode). Single-select pass/fail; null = never ran OR (with
+   *  a fresh `formE2eCheckedAt`) no contact form → n/a. `formE2eCheckedAt` gates
+   *  freshness AND encodes the n/a-vs-never-ran distinction. */
+  formE2eOk: "pass" | "fail" | null;
+  formE2eCheckedAt: string | null;
   notifyRouting: NotifyRouting | null;
 };
 
@@ -350,6 +356,8 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     githubSignalsAt: (f["GitHub Signals At"] as string | undefined) ?? null,
     smokeOk: toVerdict(f["Smoke OK"]),
     lastSmokeAt: (f["Last Smoke At"] as string | undefined) ?? null,
+    formE2eOk: toVerdict(f["Form E2E OK"]),
+    formE2eCheckedAt: (f["Form E2E checked at"] as string | undefined) ?? null,
   };
 }
 
@@ -454,6 +462,10 @@ export type FunctionHealthResult = {
 };
 
 export type SmokeResult = { ok: "pass" | "fail"; checkedAt: string };
+
+/** `ok` null clears the single-select cell (n/a — no contact form); a fresh
+ *  `checkedAt` still stamps the row so Plan 4 reads null+fresh as n/a. */
+export type FormE2eResult = { ok: "pass" | "fail" | null; checkedAt: string };
 
 function scoreFields(scores: LighthouseScoreWriteback): FieldSet {
   // A null score CLEARS the cell (→ dashboard "—"), distinguishing a metric that
@@ -637,6 +649,18 @@ function smokeFields(r: SmokeResult): FieldSet {
   return { "Smoke OK": r.ok, "Last Smoke At": r.checkedAt };
 }
 
+function formE2eFields(r: FormE2eResult): FieldSet {
+  // `ok` is already the single-select value ("pass"/"fail") or null. Writing null
+  // CLEARS the cell (→ n/a, distinguished from "never ran" by the fresh checked-at
+  // stamped alongside). FieldSet's type omits null, hence the widened-record cast
+  // (same approach as domainFields / netlifyDeployFields).
+  const fields: Record<string, string | null> = {
+    "Form E2E OK": r.ok,
+    "Form E2E checked at": r.checkedAt,
+  };
+  return fields as FieldSet;
+}
+
 /**
  * Write the four Lighthouse scores + a refreshed-at timestamp onto a Websites row.
  * Called by `audit lighthouse --write-airtable` after a successful audit run, so
@@ -760,6 +784,7 @@ export async function updateAuditFields(
     netlifyDeploy?: NetlifyDeployResult;
     functionHealth?: FunctionHealthResult;
     smoke?: SmokeResult;
+    formE2e?: FormE2eResult;
   },
 ): Promise<FieldSet> {
   const fields: FieldSet = {};
@@ -776,6 +801,7 @@ export async function updateAuditFields(
   if (audits.netlifyDeploy) Object.assign(fields, netlifyDeployFields(audits.netlifyDeploy));
   if (audits.functionHealth) Object.assign(fields, functionHealthFields(audits.functionHealth));
   if (audits.smoke) Object.assign(fields, smokeFields(audits.smoke));
+  if (audits.formE2e) Object.assign(fields, formE2eFields(audits.formE2e));
   await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
   return fields;
 }

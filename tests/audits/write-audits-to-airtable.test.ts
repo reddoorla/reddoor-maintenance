@@ -90,6 +90,15 @@ const smokeResult = (ok: "pass" | "fail"): AuditResult =>
     details: { ok, checkedAt: "2026-07-06T00:00:00.000Z" },
   }) as unknown as AuditResult;
 
+const formE2eResult = (ok: "pass" | "fail" | null): AuditResult =>
+  ({
+    audit: "form-e2e",
+    site: "acme",
+    status: ok === "pass" ? "pass" : ok === "fail" ? "warn" : "skip",
+    summary: "ok",
+    details: { ok, formPresent: ok !== null, checkedAt: "2026-07-06T00:00:00.000Z" },
+  }) as unknown as AuditResult;
+
 const domResult = (certDaysRemaining: number | null): AuditResult =>
   ({
     audit: "domain",
@@ -521,5 +530,32 @@ describe("writeAuditsToAirtable", () => {
       "Last Smoke At": "2026-07-06T00:00:00.000Z",
     });
     expect(summary.writes.map((w) => w.audit)).toEqual(["smoke"]);
+  });
+
+  it("writes the Form E2E OK verdict + checked-at from a form-e2e result", async () => {
+    const { base, calls } = makeFakeBase();
+    await writeAuditsToAirtable({
+      base,
+      websites: [row()],
+      slug: "acme",
+      results: [formE2eResult("pass")],
+    });
+    expect(calls[0]?.fields).toMatchObject({
+      "Form E2E OK": "pass",
+      "Form E2E checked at": "2026-07-06T00:00:00.000Z",
+    });
+  });
+
+  it("clears Form E2E OK (n/a) but stamps checked-at when there is no contact form", async () => {
+    const { base, calls } = makeFakeBase();
+    await writeAuditsToAirtable({
+      base,
+      websites: [row()],
+      slug: "acme",
+      results: [formE2eResult(null)],
+    });
+    // null verdict clears the cell; a fresh checked-at distinguishes n/a from never-ran.
+    expect(calls[0]?.fields["Form E2E OK"]).toBeNull();
+    expect(calls[0]?.fields["Form E2E checked at"]).toBe("2026-07-06T00:00:00.000Z");
   });
 });

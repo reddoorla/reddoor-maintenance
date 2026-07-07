@@ -85,6 +85,8 @@ export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     githubSignalsAt: new Date().toISOString(),
     smokeOk: null,
     lastSmokeAt: null,
+    formE2eOk: null,
+    formE2eCheckedAt: null,
     ...over,
   };
 }

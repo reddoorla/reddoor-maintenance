@@ -11,6 +11,7 @@ import type {
   NetlifyDeployResult,
   FunctionHealthResult,
   SmokeResult,
+  FormE2eResult,
 } from "../reports/airtable/websites.js";
 import type { LighthouseScoreWriteback } from "../reports/types.js";
 import { hasRealScores, lighthouseScoresFromResult } from "./lighthouse-airtable.js";
@@ -29,6 +30,7 @@ import {
   functionHealthResultFromAudit,
 } from "./function-health-airtable.js";
 import { hasSmokeResult, smokeResultFromAudit } from "./smoke-airtable.js";
+import { hasFormE2eResult, formE2eResultFromAudit } from "./form-e2e-airtable.js";
 import { detectAuditEvents } from "./fleet-event-detectors.js";
 import type { FleetEvent } from "../db/fleet-events.js";
 
@@ -98,6 +100,7 @@ export async function writeAuditsToAirtable(args: {
     netlifyDeploy?: NetlifyDeployResult;
     functionHealth?: FunctionHealthResult;
     smoke?: SmokeResult;
+    formE2e?: FormE2eResult;
   } = {};
 
   // Collect every audit that produced real values into ONE merged input, then do a
@@ -173,6 +176,13 @@ export async function writeAuditsToAirtable(args: {
     const result = smokeResultFromAudit(smoke);
     audits.smoke = result;
     writes.push({ audit: "smoke", counts: result });
+  }
+
+  const formE2e = results.find((r) => r.audit === "form-e2e");
+  if (formE2e && hasFormE2eResult(formE2e)) {
+    const result = formE2eResultFromAudit(formE2e);
+    audits.formE2e = result;
+    writes.push({ audit: "form-e2e", counts: result });
   }
 
   // One atomic write of everything that ran. Skip the call only if there is nothing
