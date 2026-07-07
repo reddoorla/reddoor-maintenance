@@ -11,7 +11,7 @@ import type { ReportData } from "../types.js";
 import { prepareHeaderImage } from "../maintenance-email/header-image.js";
 import { defaultResendClient, type ResendClient } from "./resend.js";
 import { isIdempotencyConflict } from "./idempotency.js";
-import { gatingHealth, isHealthGateClear } from "../checklist.js";
+import { gatingHealth } from "../checklist.js";
 import { recordFleetEventsBestEffort } from "../../audits/fleet-events-writer.js";
 
 const FROM_ADDRESS = "Reddoor Reports <reports@reddoorla.com>";
@@ -114,9 +114,10 @@ async function sendOne(
   // skipped and `Sent at` stays null (at-least-once retry preserved). Launch/Announcement have no
   // gating fields → vacuously clear. (Override honoring is added in Phase 10.)
   const gateReport = { reportType: report.reportType, autoEvidence: report.autoEvidence ?? {} };
-  if (!isHealthGateClear(gateReport)) {
-    const failing = gatingHealth(gateReport)
-      .filter((h) => h.status !== "pass" && h.status !== "n/a")
+  const health = gatingHealth(gateReport);
+  const failingHealth = health.filter((h) => h.status !== "pass" && h.status !== "n/a");
+  if (failingHealth.length > 0) {
+    const failing = failingHealth
       .map((h) => {
         const note = report.autoEvidence?.[h.field]?.note;
         return `${h.field} (${h.status}${note ? `: ${note}` : ""})`;

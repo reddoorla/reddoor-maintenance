@@ -836,6 +836,7 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
         approvedToSend: false,
         sentAt: null,
         checklist: {}, // nothing checked → incomplete
+        autoEvidence: {}, // no evidence recorded yet → health gate also blocked
       }),
     ]);
     // One checkbox per maintenance item, each labelled and carrying the report id
@@ -867,6 +868,15 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
         approvedToSend: false,
         sentAt: null,
         checklist: partial,
+        // Health evidence mirrors the unchecked item so the gate stays blocked too.
+        autoEvidence: {
+          ...healthCleanEvidence("Maintenance"),
+          "Maint: Security Updates": {
+            result: "fail",
+            checkedAt: "2026-07-06T00:00:00.000Z",
+            note: "",
+          },
+        },
       }),
     ]);
     // The 5 true items render a checked attribute on their input; "Security Updates" does not.
@@ -949,6 +959,7 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
         approvedToSend: false,
         sentAt: null,
         checklist: {},
+        autoEvidence: {}, // no evidence recorded yet → health gate also blocked
       }),
     ]);
     // A Testing pass also does the maintenance checks, so both lists render and gate it.
