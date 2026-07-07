@@ -2,9 +2,28 @@ import { describe, it, expect, vi } from "vitest";
 import { setChecklistItem, type ChecklistItemDeps } from "../../src/dashboard/checklist.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
 import { MAINTENANCE_CHECKLIST, TESTING_CHECKLIST } from "../../src/reports/checklist.js";
+import type { EvidenceRecord } from "../../src/reports/auto-tick.js";
 
-/** All 6 maintenance cells true. */
-const COMPLETE_MAINTENANCE = Object.fromEntries(MAINTENANCE_CHECKLIST.map((i) => [i.field, true]));
+const pass = (): EvidenceRecord => ({
+  result: "pass",
+  checkedAt: "2026-07-06T00:00:00.000Z",
+  note: "",
+});
+const maintAllPass = (): Record<string, EvidenceRecord> =>
+  Object.fromEntries(
+    [
+      "Maint: Deploy & Function Health",
+      "Maint: CMS Checked",
+      "Maint: Domain, DNS & SSL",
+      "Maint: Security Updates",
+      "Maint: Uptime Checked",
+    ].map((f) => [f, pass()]),
+  );
+/** All 13 gating fields (maintenance + testing) pass — the full Testing gate. */
+const testingAllPass = (): Record<string, EvidenceRecord> =>
+  Object.fromEntries(
+    [...MAINTENANCE_CHECKLIST, ...TESTING_CHECKLIST].map((i) => [i.field, pass()]),
+  );
 
 function reportRow(over: Partial<ReportRow> = {}): ReportRow {
   return {
@@ -62,101 +81,52 @@ describe("setChecklistItem", () => {
     expect(d.setReportChecklistItem).not.toHaveBeenCalled();
   });
 
-  it("writes a known field and reports complete=false while other items are still unchecked", async () => {
-    // Only the field we're flipping is true; the other 5 maintenance items remain unchecked.
+  it("reports complete=false when the health gate is not clear (a gating item is unmeasured)", async () => {
     const d = deps({
       getReportById: vi
         .fn()
-        .mockResolvedValue(reportRow({ reportType: "Maintenance", checklist: {} })),
+        .mockResolvedValue(reportRow({ reportType: "Maintenance", autoEvidence: {} })),
     });
     const r = await setChecklistItem(d, "recREP1", "Maint: Deploy & Function Health", true);
+    expect(r).toMatchObject({ status: "ok", complete: false });
+    // The box is still written (advisory record) even though it no longer drives the gate.
     expect(d.setReportChecklistItem).toHaveBeenCalledWith(
       "recREP1",
       "Maint: Deploy & Function Health",
       true,
     );
-    expect(r).toEqual({
-      status: "ok",
-      reportId: "recREP1",
-      field: "Maint: Deploy & Function Health",
-      value: true,
-      complete: false,
-    });
   });
 
-  it("reports complete=true when the flip completes the set", async () => {
-    // Five maintenance items already checked; flipping the sixth completes the checklist.
-    const fiveChecked = { ...COMPLETE_MAINTENANCE, "Maint: Security Updates": false };
+  it("reports complete=true when every gating item's evidence is pass", async () => {
     const d = deps({
       getReportById: vi
         .fn()
-        .mockResolvedValue(reportRow({ reportType: "Maintenance", checklist: fiveChecked })),
+        .mockResolvedValue(reportRow({ reportType: "Maintenance", autoEvidence: maintAllPass() })),
     });
     const r = await setChecklistItem(d, "recREP1", "Maint: Security Updates", true);
-    expect(d.setReportChecklistItem).toHaveBeenCalledWith(
-      "recREP1",
-      "Maint: Security Updates",
-      true,
-    );
-    expect(r).toEqual({
-      status: "ok",
-      reportId: "recREP1",
-      field: "Maint: Security Updates",
-      value: true,
-      complete: true,
-    });
+    expect(r).toMatchObject({ status: "ok", complete: true });
   });
 
-  it("reports complete=false after un-checking an item (value reflected in post-update state)", async () => {
+  it("completes a Testing report only when all 13 (maintenance + testing) items' evidence is pass", async () => {
+    // A Testing pass also does the maintenance checks; the gate requires all 13 gating fields.
     const d = deps({
       getReportById: vi
         .fn()
-        .mockResolvedValue(
-          reportRow({ reportType: "Maintenance", checklist: COMPLETE_MAINTENANCE }),
-        ),
-    });
-    const r = await setChecklistItem(d, "recREP1", "Maint: Deploy & Function Health", false);
-    expect(d.setReportChecklistItem).toHaveBeenCalledWith(
-      "recREP1",
-      "Maint: Deploy & Function Health",
-      false,
-    );
-    expect(r).toEqual({
-      status: "ok",
-      reportId: "recREP1",
-      field: "Maint: Deploy & Function Health",
-      value: false,
-      complete: false,
-    });
-  });
-
-  it("completes a Testing report only when all 13 (maintenance + testing) items are checked", async () => {
-    // A Testing pass also does the maintenance checks; the email shows both lists, so the
-    // gate requires both. Twelve already checked, Interactions left → flipping it completes.
-    const nearlyComplete: Record<string, boolean> = Object.fromEntries(
-      [...MAINTENANCE_CHECKLIST, ...TESTING_CHECKLIST].map((i) => [i.field, true]),
-    );
-    nearlyComplete["Test: Interactions & Animations"] = false;
-    const d = deps({
-      getReportById: vi
-        .fn()
-        .mockResolvedValue(reportRow({ reportType: "Testing", checklist: nearlyComplete })),
+        .mockResolvedValue(reportRow({ reportType: "Testing", autoEvidence: testingAllPass() })),
     });
     const r = await setChecklistItem(d, "recREP1", "Test: Interactions & Animations", true);
     expect(r.status).toBe("ok");
     expect((r as { complete: boolean }).complete).toBe(true);
   });
 
-  it("a Testing report is NOT complete on the testing items alone (maintenance items gate it too)", async () => {
-    // All 7 testing items checked but the maintenance items still false → incomplete.
-    const onlyTesting: Record<string, boolean> = Object.fromEntries(
-      TESTING_CHECKLIST.map((i) => [i.field, true]),
-    );
-    onlyTesting["Test: Interactions & Animations"] = false;
+  it("a Testing report is NOT complete when one gating item's evidence is missing", async () => {
+    // All 13 gating fields pass except one missing evidence record → incomplete.
+    const missingOne = testingAllPass();
+    delete missingOne["Test: Interactions & Animations"];
     const d = deps({
       getReportById: vi
         .fn()
-        .mockResolvedValue(reportRow({ reportType: "Testing", checklist: onlyTesting })),
+        .mockResolvedValue(reportRow({ reportType: "Testing", autoEvidence: missingOne })),
     });
     const r = await setChecklistItem(d, "recREP1", "Test: Interactions & Animations", true);
     expect(r.status).toBe("ok");

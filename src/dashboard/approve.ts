@@ -1,5 +1,4 @@
 import type { ReportRow } from "../reports/airtable/reports.js";
-import { isChecklistComplete } from "../reports/checklist.js";
 
 /** Constant operator marker stamped into the audit trail (single operator). */
 export const APPROVED_BY = "dashboard";
@@ -14,8 +13,8 @@ export type ApproveResult =
   | {
       status: "blocked";
       reportId: string;
-      reason: "checklist-incomplete" | "send-blocked";
-      /** Human-readable blockers ("check: message"), present for send-blocked. */
+      reason: "send-blocked";
+      /** Human-readable blockers ("check: message"). */
       blockers?: string[];
     }
   | { status: "not-found"; reportId: string };
@@ -50,12 +49,6 @@ export async function approveReport(deps: ApproveDeps, reportId: string): Promis
   // must never be approvable, even via a hand-crafted authed POST. Without this
   // guard such a POST would pre-approve a row before its draft was prepared.
   if (!report.draftReady) return { status: "noop", reportId, reason: "not-draft-ready" };
-  // The checklist gate: a Maintenance/Testing report cannot be approved until every
-  // item for its type is checked (Launch/Announcement have no checklist → vacuously
-  // complete). The send path enforces this too — this is the convenient front door,
-  // orchestrate.ts the hard backstop for a direct-in-Airtable approval.
-  if (!isChecklistComplete(report))
-    return { status: "blocked", reportId, reason: "checklist-incomplete" };
   // The send-blocker gate: approving a report whose send is already known to
   // throw (no recipients / malformed address / no header image / no report
   // scores) only schedules a red cron run — block with the reasons instead.

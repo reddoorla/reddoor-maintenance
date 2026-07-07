@@ -11,7 +11,7 @@ import type { ReportData } from "../types.js";
 import { prepareHeaderImage } from "../maintenance-email/header-image.js";
 import { defaultResendClient, type ResendClient } from "./resend.js";
 import { isIdempotencyConflict } from "./idempotency.js";
-import { checklistFor, isChecklistComplete } from "../checklist.js";
+import { gatingHealth, isHealthGateClear } from "../checklist.js";
 import { recordFleetEventsBestEffort } from "../../audits/fleet-events-writer.js";
 
 const FROM_ADDRESS = "Reddoor Reports <reports@reddoorla.com>";
@@ -109,17 +109,20 @@ async function sendOne(
   site: WebsiteRow,
   report: ReportRow,
 ): Promise<string> {
-  // Hard checklist gate: a Maintenance/Testing report whose operator checklist isn't
-  // fully checked must never go out — even if "Approved to send" was ticked directly in
-  // Airtable, bypassing the dashboard's approve gate. Throw so the report is skipped and
-  // `Sent at` stays null (at-least-once retry preserved), exactly like the other sendOne
-  // guards. Launch/Announcement have an empty checklist → vacuously complete, never gated.
-  if (!isChecklistComplete(report)) {
-    const items = checklistFor(report.reportType);
-    const done = items.filter((i) => report.checklist[i.field] === true).length;
-    throw new Error(
-      `Report ${report.reportId} checklist incomplete — ${done}/${items.length} items checked`,
-    );
+  // Hard health gate: a Maintenance/Testing report whose gating evidence isn't all pass/n/a must
+  // never go out — even if "Approved to send" was set directly in Airtable. Throw so the row is
+  // skipped and `Sent at` stays null (at-least-once retry preserved). Launch/Announcement have no
+  // gating fields → vacuously clear. (Override honoring is added in Phase 10.)
+  const gateReport = { reportType: report.reportType, autoEvidence: report.autoEvidence ?? {} };
+  if (!isHealthGateClear(gateReport)) {
+    const failing = gatingHealth(gateReport)
+      .filter((h) => h.status !== "pass" && h.status !== "n/a")
+      .map((h) => {
+        const note = report.autoEvidence?.[h.field]?.note;
+        return `${h.field} (${h.status}${note ? `: ${note}` : ""})`;
+      })
+      .join("; ");
+    throw new Error(`Report ${report.reportId} health gate not clear — ${failing}`);
   }
   if (!site.headerImage) {
     throw new Error(`Site '${site.name}' has no Header image set on the Websites row`);

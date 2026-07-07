@@ -104,14 +104,13 @@ describe("approveReport — idempotency and guards", () => {
     expect(d.approveReportRow).not.toHaveBeenCalled();
   });
 
-  it("blocks (no write) a Maintenance report whose checklist is incomplete", async () => {
+  it("blocks (send-blocked) when the injected sendBlockers reports a health-gate failure", async () => {
     const d = deps({
-      getReportById: vi
-        .fn()
-        .mockResolvedValue(reportRow({ reportType: "Maintenance", checklist: {} })),
+      sendBlockers: vi.fn().mockResolvedValue(["health-gate: Maint: CMS Checked: failing — down"]),
     });
     const res = await approveReport(d, "recREP1");
-    expect(res).toEqual({ status: "blocked", reportId: "recREP1", reason: "checklist-incomplete" });
+    expect(res).toMatchObject({ status: "blocked", reason: "send-blocked" });
+    expect((res as { blockers: string[] }).blockers[0]).toContain("Maint: CMS Checked");
     expect(d.approveReportRow).not.toHaveBeenCalled();
   });
 
@@ -182,15 +181,10 @@ describe("approveReport — send-blocker gate", () => {
     expect(d.approveReportRow).toHaveBeenCalledTimes(1);
   });
 
-  it("checks the checklist gate FIRST — sendBlockers is not even called when checklist is incomplete", async () => {
-    const sendBlockers = vi.fn().mockResolvedValue(["x"]);
-    const d = deps({
-      getReportById: vi.fn().mockResolvedValue(reportRow({ checklist: {} })),
-      sendBlockers,
-    });
-    const res = await approveReport(d, "rec1");
-    expect(res).toMatchObject({ status: "blocked", reason: "checklist-incomplete" });
-    expect(sendBlockers).not.toHaveBeenCalled();
+  it("approves a report whose sendBlockers is empty (health gate clear)", async () => {
+    const d = deps();
+    const res = await approveReport(d, "recREP1");
+    expect(res).toEqual({ status: "approved", reportId: "recREP1" });
   });
 
   it("noop paths (already-sent/approved) never invoke sendBlockers", async () => {

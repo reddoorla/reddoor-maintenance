@@ -8,7 +8,7 @@ import { relativeTimeFromNow } from "./relative-time.js";
 import { escapeHtml, safeUrl } from "../util/html.js";
 import { FAVICON_LINK } from "./favicon.js";
 import { onboardingStatus, missingOnboarding } from "./onboarding.js";
-import { checklistFor, isChecklistComplete } from "../reports/checklist.js";
+import { checklistFor, isHealthGateClear } from "../reports/checklist.js";
 import { approveBlockers, type PreflightFinding } from "../reports/preflight.js";
 import { parseAddresses, withGlobalCc } from "../reports/send/orchestrate.js";
 import {
@@ -121,12 +121,16 @@ function checklistBlock(r: ReportRow): string {
 }
 
 /** The Approve button for a pending report. Server-renders `disabled` when the
- *  report's checklist is incomplete OR the report has send blockers (the
+ *  report's health gate is not clear OR the report has send blockers (the
  *  convenience gate — approve.ts + orchestrate.ts are the hard backstops).
  *  `data-send-blocked` keeps the client's checklist re-gate from re-enabling a
  *  button the server disabled for blocker reasons. */
 function approveButton(r: ReportRow, blocked: boolean): string {
-  const disabled = isChecklistComplete(r) && !blocked ? "" : " disabled";
+  const gateClear = isHealthGateClear({
+    reportType: r.reportType,
+    autoEvidence: r.autoEvidence ?? {},
+  });
+  const disabled = gateClear && !blocked ? "" : " disabled";
   const blockedAttr = blocked ? ` data-send-blocked="1"` : "";
   return `<button class="approve" data-report-id="${escapeHtml(r.id)}" data-approve-url="${escapeHtml(`/api/reports/${encodeURIComponent(r.id)}/approve`)}"${blockedAttr}${disabled}>Approve</button>`;
 }
