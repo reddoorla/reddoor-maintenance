@@ -18,6 +18,33 @@ describe("audits/form-e2e", () => {
     expect(r.details).toBeUndefined();
   });
 
+  it("skips (no details) a deployed site when no runner is injected and the live gate is off", async () => {
+    const originalEnv = process.env.REDDOOR_FORM_E2E_LIVE;
+    delete process.env.REDDOOR_FORM_E2E_LIVE;
+    try {
+      const r = await formE2eAudit({ site, now: NOW });
+      expect(r.status).toBe("skip");
+      expect(r.details).toBeUndefined();
+      expect(r.summary).toMatch(/live form-e2e disabled/);
+      expect(r.summary).toMatch(/REDDOOR_FORM_E2E_LIVE/);
+    } finally {
+      if (originalEnv === undefined) delete process.env.REDDOOR_FORM_E2E_LIVE;
+      else process.env.REDDOOR_FORM_E2E_LIVE = originalEnv;
+    }
+  });
+
+  it("does NOT consult the live gate when a formRunner is injected (tests always run)", async () => {
+    const originalEnv = process.env.REDDOOR_FORM_E2E_LIVE;
+    delete process.env.REDDOOR_FORM_E2E_LIVE;
+    try {
+      const r = await formE2eAudit({ site, now: NOW, formRunner: runner() });
+      expect(r.status).toBe("pass");
+    } finally {
+      if (originalEnv === undefined) delete process.env.REDDOOR_FORM_E2E_LIVE;
+      else process.env.REDDOOR_FORM_E2E_LIVE = originalEnv;
+    }
+  });
+
   it("passes when the synthetic submission succeeds", async () => {
     const r = await formE2eAudit({ site, now: NOW, formRunner: runner() });
     expect(r.status).toBe("pass");

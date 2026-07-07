@@ -4,8 +4,10 @@ import { siteLabel } from "../util/site.js";
 
 /** Cloudflare's PUBLIC test sitekey — always issues a passing client token with no
  *  real challenge, so the probe can satisfy a site's Turnstile widget without any
- *  secret. Central verify is fail-open and the testMode ingest branch skips
- *  enforcement anyway, so the token's validity is never actually required. */
+ *  secret. Once the central `testMode` ingest branch lands (health-gate plan3
+ *  Task 5), it will skip Turnstile enforcement for testMode submissions anyway,
+ *  making the token's validity moot — but until then, treat this as a live token
+ *  that must actually pass. */
 export const CF_TEST_SITEKEY = "1x00000000000000000000AA";
 
 /** The canonical starter contact route. Sites built from reddoor-starter serve the
@@ -36,14 +38,37 @@ export type FormRunner = {
   close?: () => Promise<void>;
 };
 
+/** Opt-in gate for the live Playwright fallback. `defaultFormRunner` drives a REAL
+ *  browser against `site.deployedUrl` and submits the REAL production contact form;
+ *  the `testMode` marker it injects is only safe to send once TWO other things
+ *  exist — central ingest's `testMode` short-circuit (health-gate plan3 Task 5,
+ *  `src/forms/ingest.ts`) and the starter's `buildPayload` forwarding it (Task 6,
+ *  `reddoor-starter/src/routes/contact/+page.server.ts`). Neither has landed yet
+ *  (verified: no `testMode` handling anywhere in `src/forms/`). Until they do, a
+ *  live run submits fake lead data through the exact path a real visitor uses, with
+ *  zero suppression on either end. This audit is wired into the default
+ *  registry/checkout-free set and is therefore reachable from any unfiltered
+ *  `runAudits` call (e.g. the `init` recipe's final step, or the `audit` CLI without
+ *  `--only`) — this gate is what keeps that reachability inert. Flip via
+ *  `REDDOOR_FORM_E2E_LIVE=1` only once Tasks 5+6 land. */
+const LIVE_ENV_VAR = "REDDOOR_FORM_E2E_LIVE";
+
+function liveRunnerEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env[LIVE_ENV_VAR] === "1" || env[LIVE_ENV_VAR] === "true";
+}
+
 /**
  * Submit the REAL production contact form against `site.deployedUrl` in test-mode
  * and reduce the outcome to a verdict. Checkout-free (drives the deployed URL, like
- * browser.ts). The submission carries a `testMode` marker the central ingest
- * recognizes and routes away from every real sink (no inbox/DB/webhook, Turnstile
- * enforcement bypassed) — so this exercises the whole prod ingest path safely.
+ * browser.ts). The submission carries a `testMode` marker that central ingest is
+ * INTENDED to recognize and route away from every real sink (no inbox/DB/webhook,
+ * Turnstile enforcement bypassed) once that branch exists — see `liveRunnerEnabled`
+ * above for why the live Playwright fallback stays gated off until then. Tests that
+ * inject `ctx.formRunner` bypass the gate entirely (it only guards the real,
+ * dynamically-imported Playwright runner).
  *
  * - no deployedUrl → skip, NO details → writer preserves the prior verdict.
+ * - no injected runner + live gate off → skip, NO details (not yet safe to run live).
  * - no contact form → skip WITH details (ok:null + fresh checkedAt) → persisted as n/a.
  * - form submitted, success → pass (ok:"pass"); not success → warn (ok:"fail").
  */
@@ -52,6 +77,16 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
   const label = siteLabel(site);
   if (!site.deployedUrl) {
     return { audit: "form-e2e", site: label, status: "skip", summary: "no deployed URL" };
+  }
+  if (!ctx.formRunner && !liveRunnerEnabled()) {
+    return {
+      audit: "form-e2e",
+      site: label,
+      status: "skip",
+      summary:
+        "live form-e2e disabled (central testMode ingest suppression not yet wired — " +
+        `set ${LIVE_ENV_VAR}=1 once it is)`,
+    };
   }
   const now = ctx.now ?? new Date();
   const checkedAt = now.toISOString();
@@ -131,10 +166,13 @@ export async function defaultFormRunner(): Promise<FormRunner> {
           .catch(() => {});
 
         // Inject the testMode marker + a Turnstile token into the submitted form.
-        // The marker routes the submission away from every real sink centrally; the
-        // token satisfies any client widget (central verify is fail-open + testMode
-        // skips enforcement, so the value is inconsequential — the CF public test
-        // sitekey documents the intended zero-secret path). String-form evaluate
+        // Once the central testMode ingest branch exists, the marker will route the
+        // submission away from every real sink and central verify's fail-open +
+        // testMode skip will make the token's value inconsequential — the CF public
+        // test sitekey documents that intended zero-secret path. Until that branch
+        // lands, `liveRunnerEnabled` (see above) keeps this whole runner unreachable
+        // by default, so this comment describes the target behavior, not a live
+        // guarantee. String-form evaluate
         // (mirrors browser.ts) so the browser-context code isn't type-checked
         // against the Node lib (no DOM globals in this project's tsconfig). The
         // token value is a hardcoded constant (never user input), so inlining it
