@@ -10,6 +10,7 @@ import { a11yAudit } from "./a11y.js";
 import { domainAudit } from "./domain.js";
 import { browserAudit } from "./browser.js";
 import { netlifyDeployAudit } from "./netlify-deploy.js";
+import { functionHealthAudit } from "./function-health.js";
 
 const REGISTRY: Record<AuditName, (ctx: AuditContext) => Promise<AuditResult>> = {
   deps: depsAudit,
@@ -20,6 +21,7 @@ const REGISTRY: Record<AuditName, (ctx: AuditContext) => Promise<AuditResult>> =
   domain: domainAudit,
   browser: browserAudit,
   "netlify-deploy": netlifyDeployAudit,
+  "function-health": functionHealthAudit,
 };
 
 export const ALL_AUDIT_NAMES = Object.keys(REGISTRY) as AuditName[];

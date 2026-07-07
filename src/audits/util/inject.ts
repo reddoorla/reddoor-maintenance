@@ -4,6 +4,7 @@ import type { DomainDeps } from "../domain.js";
 import type { DiscoverDeps } from "../route-discovery.js";
 import type { BrowserRunner } from "../browser.js";
 import type { NetlifyDeployDeps } from "../netlify-deploy.js";
+import type { FunctionHealthDeps } from "../function-health.js";
 import type { DependabotDeps } from "../security.js";
 
 export type AuditContext = {
@@ -19,6 +20,8 @@ export type AuditContext = {
   browserRunner?: BrowserRunner;
   /** Netlify API injection for the netlify-deploy audit (tests). Defaults to a real API call. */
   netlifyDeployDeps?: NetlifyDeployDeps;
+  /** `/health` fetch injection for the function-health audit (tests). Defaults to a real GET. */
+  functionHealthDeps?: FunctionHealthDeps;
   /** GitHub Dependabot fetch injection for the security audit (tests). Defaults to a real client
    *  from GITHUB_TOKEN; absent token or no site.gitRepo → the pnpm/npm audit fallback. */
   dependabotDeps?: DependabotDeps;
