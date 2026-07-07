@@ -215,11 +215,8 @@ function domainEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
  * healthy. Two freshness stamps must both be fresh (deploy check + function-health check). Never
  * measured → null (omit → the gating dispatch coerces to unknown); either stale → unknown; both
  * fresh + ready + fn pass → pass; otherwise fail.
- *
- * Exported (not module-private) so it can be exercised directly in unit tests ahead of the
- * `autoTickChecklist` dispatch wiring landing in a follow-up task.
  */
-export function deployEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
+function deployEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
   if (!site.deployCheckedAt && !site.functionHealthCheckedAt) return null;
   if (!isFresh(site.deployCheckedAt, now) || !isFresh(site.functionHealthCheckedAt, now)) {
     return {
@@ -256,7 +253,7 @@ export function deployEvidence(site: WebsiteRow, now: Date): EvidenceRecord | nu
  * null; stale → unknown; pass/fail mirror the stored verdict; a fresh stamp with no verdict →
  * unknown.
  */
-export function cmsEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
+function cmsEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
   if (!site.functionHealthCheckedAt) return null;
   const at = site.functionHealthCheckedAt;
   if (!isFresh(at, now)) {
@@ -275,7 +272,7 @@ export function cmsEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null 
  * Uptime Checked: every sampled route returned 2xx/3xx on the browser audit (point-in-time).
  * Freshness rides the shared `browserCheckedAt`. Never ran → null; stale → unknown.
  */
-export function uptimeEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
+function uptimeEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
   if (site.reachableOk === null || !site.browserCheckedAt) return null;
   const at = site.browserCheckedAt;
   if (!isFresh(at, now)) {
@@ -290,7 +287,7 @@ export function uptimeEvidence(site: WebsiteRow, now: Date): EvidenceRecord | nu
  * Page Titles & Meta: every sampled route had a non-empty title + meta description with no
  * duplicate titles (browser audit, chromium). Freshness rides `browserCheckedAt`.
  */
-export function titlesEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
+function titlesEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
   if (site.titleMetaOk === null || !site.browserCheckedAt) return null;
   const at = site.browserCheckedAt;
   if (!isFresh(at, now)) {
@@ -310,7 +307,7 @@ export function titlesEvidence(site: WebsiteRow, now: Date): EvidenceRecord | nu
  * ran (checked-at stamp set) but the site has no contact form (verdict cleared to null). Never ran
  * (no stamp) → null; stale → unknown.
  */
-export function formsEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
+function formsEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
   if (!site.formE2eCheckedAt) return null;
   const at = site.formE2eCheckedAt;
   if (!isFresh(at, now)) {
@@ -329,7 +326,7 @@ export function formsEvidence(site: WebsiteRow, now: Date): EvidenceRecord | nul
  * Interactions & Animations: the per-site smoke suite is green. Freshness rides `lastSmokeAt`.
  * Never ran → null; stale → unknown.
  */
-export function interactionsEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
+function interactionsEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
   if (site.smokeOk === null || !site.lastSmokeAt) return null;
   const at = site.lastSmokeAt;
   if (!isFresh(at, now)) {
@@ -345,7 +342,7 @@ export function interactionsEvidence(site: WebsiteRow, now: Date): EvidenceRecor
  * with no CI (`defaultBranchCi === "none"`) is `n/a`. Never swept (null / no stamp) → null; stale
  * → unknown; passing → pass; failing → fail; pending → unknown.
  */
-export function updatesEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
+function updatesEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
   if (site.defaultBranchCi === null || !site.githubSignalsAt) return null;
   const at = site.githubSignalsAt;
   if (site.defaultBranchCi === "none") {
