@@ -499,6 +499,32 @@ cli
     ),
   );
 
+cli
+  .command(
+    "blux <action> [dir]",
+    "Blux conversion pipeline. emit: export dir → migration plan + custom types + theme + review manifest. migrate: emitted plan → live Prismic (needs PRISMIC_REPOSITORY_NAME + PRISMIC_WRITE_TOKEN).",
+  )
+  .option("--out <dir>", "Output directory for emit (default: <exportDir>/blux-out)")
+  .option("--converted-base <url>", "Converted-site base URL for the review manifest")
+  .option("--blux-base <url>", "Original Blux site base URL (default: https://<site.json domain>)")
+  .action(
+    async (
+      action: string,
+      dir: string | undefined,
+      opts: {
+        out?: string;
+        convertedBase?: string;
+        bluxBase?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/blux.js")).runBluxCommand(action, dir, opts),
+        opts,
+      ),
+  );
+
 cli.help();
 cli.version(version);
 
