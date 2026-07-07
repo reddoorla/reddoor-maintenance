@@ -135,7 +135,7 @@ export async function functionHealthAudit(ctx: AuditContext): Promise<AuditResul
       audit: "function-health",
       site: label,
       status: "skip",
-      summary: "health endpoint unreachable / not JSON",
+      summary: "health endpoint unreachable / not adopted",
     };
   }
   const checkedAt = now.toISOString();

@@ -96,7 +96,7 @@ describe("functionHealthAudit", () => {
       functionHealthDeps: deps({ fetchHealth: async () => ({ present: false }) }),
     });
     expect(r.status).toBe("skip");
-    expect(r.summary).toBe("health endpoint unreachable / not JSON");
+    expect(r.summary).toBe("health endpoint unreachable / not adopted");
     expect(r.details).toBeUndefined();
   });
 
@@ -122,7 +122,11 @@ describe("defaultFunctionHealthDeps (real-shape, injected fetch — no network)"
     const fakeFetch = (async (url: string, init?: { signal?: AbortSignal }) => {
       calledUrl = String(url);
       hadSignal = init?.signal instanceof AbortSignal;
-      return { ok: true, status: 200, json: async () => ({ ok: true, prismic: "ok", forms: null }) };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, prismic: "ok", forms: null }),
+      };
     }) as unknown as typeof fetch;
     const d = defaultFunctionHealthDeps(NOW, fakeFetch);
     const r = await d.fetchHealth("https://acme.example.com");
