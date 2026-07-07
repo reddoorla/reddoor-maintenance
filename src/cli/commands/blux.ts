@@ -126,12 +126,17 @@ export async function runBluxCommand(
     const { pushCustomTypes, runMigration } = await import("../../blux/emit/run-migration.js");
     const progress: string[] = [];
     const pushed = await pushCustomTypes(plan.customTypes);
-    await runMigration(plan, (line) => progress.push(line));
+    const r = await runMigration(plan, (line) => progress.push(line));
+    const missing = r.missingAssets.length
+      ? `\nWARNING missing assets: ${r.missingAssets.join(", ")}`
+      : "";
     return {
       output:
         `custom types pushed: ${pushed.join(", ") || "none"}\n` +
-        `migrated ${plan.documents.length} documents + ${plan.assets.length} assets into ` +
-        `${process.env.PRISMIC_REPOSITORY_NAME} (${progress.length} migration events)`,
+        `assets: ${r.assetsUploaded} uploaded, ${r.assetsReused} reused | ` +
+        `documents: ${r.docsCreated} created, ${r.docsUpdated} updated → ` +
+        `${process.env.PRISMIC_REPOSITORY_NAME} (publish the migration release in the dashboard)` +
+        missing,
       code: 0,
     };
   }
