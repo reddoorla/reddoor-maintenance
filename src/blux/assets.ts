@@ -1,4 +1,7 @@
-const HOSTS = ["d3syaxnfm3oj0e.cloudfront.net", "dv4tl7yyk1zlp.cloudfront.net"];
+/** The two Blux CDN hosts (images + files). Shared with the probe stage so the
+ *  scrape and the reconstruct-probe can never disagree about what a CDN URL is. */
+export const CDN_HOSTS = ["d3syaxnfm3oj0e.cloudfront.net", "dv4tl7yyk1zlp.cloudfront.net"];
+const HOSTS = CDN_HOSTS;
 
 /** Strip Blux transform segments (any path part containing ':') to the proven
  *  original `<host>/<siteId>/<uuid>.<ext>`. Returns null for non-CDN urls. */

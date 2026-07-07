@@ -14,6 +14,10 @@ export type BluxCommandOptions = {
   convertedBase?: string;
   /** Base URL of the original Blux site (default: https://<site.json domain>). */
   bluxBase?: string;
+  /** Reconstruct + HEAD-probe CDN URLs for used assets the HTML scrape missed (network). */
+  probe?: boolean;
+  /** Test seam for --probe; defaults to global fetch. */
+  fetchImpl?: typeof fetch;
   cwd?: string;
   verbose?: boolean;
 };
@@ -45,6 +49,37 @@ export async function runBluxCommand(
     const htmls = await Promise.all(htmlPaths.map((p) => readFile(p, "utf-8")));
 
     const ir = assembleIR({ siteJson, htmls });
+
+    let probeLine = "";
+    if (opts.probe) {
+      const { probeAssetUrls } = await import("../../blux/emit/probe.js");
+      // derive "used" from the plan's own __asset_id markers — the single
+      // source of truth for which assets documents actually reference
+      const used = new Set<string>();
+      const collect = (v: unknown): void => {
+        if (!v || typeof v !== "object") return;
+        if ("__asset_id" in v) used.add((v as { __asset_id: string }).__asset_id);
+        else if (Array.isArray(v)) v.forEach(collect);
+        else Object.values(v).forEach(collect);
+      };
+      buildMigrationPlan(ir).documents.forEach((d) => collect(d.data));
+
+      const targets = ir.assets.filter((a) => used.has(a.id) && !a.sourceUrl);
+      const probed = await probeAssetUrls(targets, ir.meta.bluxSiteId, opts.fetchImpl ?? fetch);
+      let hits = 0;
+      for (const a of ir.assets) {
+        const url = probed.get(a.id);
+        if (url) {
+          a.sourceUrl = url;
+          hits++;
+        }
+      }
+      ir.diagnostics = ir.diagnostics.filter(
+        (d) => !(d.kind === "unresolved-asset" && probed.get(d.where)),
+      );
+      probeLine = `probe resolved ${hits}/${targets.length} used assets`;
+    }
+
     const plan = buildMigrationPlan(ir);
     const manifest = buildReviewManifest(ir, {
       convertedBase: opts.convertedBase ?? "http://localhost:5173",
@@ -61,11 +96,13 @@ export async function runBluxCommand(
     }
 
     const resolved = ir.assets.filter((a) => a.sourceUrl !== null).length;
+    const diagnostics = [...ir.diagnostics, ...plan.diagnostics];
     const lines = [
       `site: ${ir.meta.name} (${ir.meta.domain})`,
+      ...(probeLine ? [probeLine] : []),
       `pages: ${ir.pages.length} | custom types: ${plan.customTypes.length} | documents: ${plan.documents.length} | assets: ${resolved}/${ir.assets.length} resolved`,
-      `diagnostics: ${ir.diagnostics.length}`,
-      ...ir.diagnostics.map((d) => `  - [${d.kind}] ${d.where}: ${d.message}`),
+      `diagnostics: ${diagnostics.length}`,
+      ...diagnostics.map((d) => `  - [${d.kind}] ${d.where}: ${d.message}`),
       `wrote ${out}`,
     ];
     return { output: lines.join("\n"), code: 0 };
@@ -87,14 +124,20 @@ export async function runBluxCommand(
     const planPath = dir.endsWith(".json") ? dir : join(dir, "migration-plan.json");
     const plan = JSON.parse(await readFile(planPath, "utf-8")) as MigrationPlan;
     const { pushCustomTypes, runMigration } = await import("../../blux/emit/run-migration.js");
-    const progress: string[] = [];
     const pushed = await pushCustomTypes(plan.customTypes);
-    await runMigration(plan, (line) => progress.push(line));
+    // stream progress to stderr — a throttled run over many assets/docs takes
+    // minutes and silence reads as a hang; stdout stays the result summary
+    const r = await runMigration(plan, (line) => process.stderr.write(`${line}\n`));
+    const missing = r.missingAssets.length
+      ? `\nWARNING missing assets: ${r.missingAssets.join(", ")}`
+      : "";
     return {
       output:
         `custom types pushed: ${pushed.join(", ") || "none"}\n` +
-        `migrated ${plan.documents.length} documents + ${plan.assets.length} assets into ` +
-        `${process.env.PRISMIC_REPOSITORY_NAME} (${progress.length} migration events)`,
+        `assets: ${r.assetsUploaded} uploaded, ${r.assetsReused} reused | ` +
+        `documents: ${r.docsCreated} created, ${r.docsUpdated} updated → ` +
+        `${process.env.PRISMIC_REPOSITORY_NAME} (publish the migration release in the dashboard)` +
+        missing,
       code: 0,
     };
   }

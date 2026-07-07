@@ -1,3 +1,5 @@
+import type { Diagnostic } from "../ir.js";
+
 export type RichTextMarker = { __richtext_html: string };
 export type AssetMarker = { __asset_id: string };
 export const richText = (html: string): RichTextMarker => ({ __richtext_html: html });
@@ -16,4 +18,6 @@ export type MigrationPlan = {
   customTypes: PlanCustomType[];
   documents: PlanDocument[];
   assets: PlanAsset[];
+  /** Plan-time findings (skipped empty pages, dropped non-image assets, …). */
+  diagnostics: Diagnostic[];
 };

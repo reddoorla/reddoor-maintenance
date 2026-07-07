@@ -507,6 +507,10 @@ cli
   .option("--out <dir>", "Output directory for emit (default: <exportDir>/blux-out)")
   .option("--converted-base <url>", "Converted-site base URL for the review manifest")
   .option("--blux-base <url>", "Original Blux site base URL (default: https://<site.json domain>)")
+  .option(
+    "--probe",
+    "Reconstruct + HEAD-probe CDN URLs for used assets the HTML scrape missed (network)",
+  )
   .action(
     async (
       action: string,
@@ -515,6 +519,7 @@ cli
         out?: string;
         convertedBase?: string;
         bluxBase?: string;
+        probe?: boolean;
         cwd?: string;
         verbose?: boolean;
       },
