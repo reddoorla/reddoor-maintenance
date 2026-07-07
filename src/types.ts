@@ -24,7 +24,9 @@ export type AuditName =
   | "domain"
   | "browser"
   | "netlify-deploy"
-  | "function-health";
+  | "function-health"
+  | "smoke"
+  | "form-e2e";
 
 export type RecipeName =
   | "sync-configs"

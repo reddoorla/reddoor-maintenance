@@ -42,6 +42,9 @@ const AUDIT_DESCRIPTIONS: Record<AuditName, string> = {
     "Latest production deploy health via the Netlify API by site id (checkout-free; needs NETLIFY_PAT).",
   "function-health":
     "GET {deployedUrl}/health and read its ok/prismic/forms status (checkout-free).",
+  smoke: "Run the site's own `pnpm test:smoke` suite in its checkout (clone-based).",
+  "form-e2e":
+    "Submit the real production contact form in test-mode against the deployed URL (checkout-free).",
 };
 
 const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {

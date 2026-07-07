@@ -38,7 +38,7 @@ describe("runAudits", () => {
     expect(results[0]?.audit).toBe("deps");
   });
 
-  it("dispatches all nine audits when `which` is undefined", async () => {
+  it("dispatches all eleven audits when `which` is undefined", async () => {
     const results = await runAudits({ path: "/fixtures/pristine-starter" });
     const names = results.map((r) => r.audit).sort();
     expect(names).toEqual([
@@ -46,11 +46,13 @@ describe("runAudits", () => {
       "browser",
       "deps",
       "domain",
+      "form-e2e",
       "function-health",
       "lighthouse",
       "lint",
       "netlify-deploy",
       "security",
+      "smoke",
     ]);
   });
 
