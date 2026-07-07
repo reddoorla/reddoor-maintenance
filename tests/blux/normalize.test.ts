@@ -85,10 +85,98 @@ describe("visible text extraction (_title/_body are style config, not text)", ()
   });
 });
 
+// styles.text entries are { _label, ".textN": { css props incl "font-ident" } } —
+// the values live one level down, keyed by the role's own selector.
 describe("normalizeTheme", () => {
-  it("maps the palette + font pair", () => {
-    const theme = normalizeTheme(parseBluxSite(minimalSite));
+  const theme = normalizeTheme(parseBluxSite(minimalSite));
+  it("maps the palette + font pair (explicit settings win)", () => {
     expect(theme.colors).toHaveLength(3);
     expect(theme.fonts).toEqual({ heading: "Inter", body: "Inter" });
+  });
+  it("parses the nested .textN shape into named roles, stripping font quotes", () => {
+    const t5 = theme.textStyles.find((t) => t.role === "text5")!;
+    expect(t5).toEqual({
+      role: "text5",
+      label: "Grid Titles",
+      fontFamily: "Montserrat",
+      size: "15px",
+      weight: 500,
+      lineHeight: "26px",
+      transform: "uppercase",
+      letterSpacing: "1.5px",
+    });
+    const t0 = theme.textStyles.find((t) => t.role === "text0")!;
+    expect(t0.fontFamily).toBe("Scope One");
+    expect(t0.transform).toBe("capitalize");
+    expect(t0.letterSpacing).toBeUndefined();
+  });
+  it("falls back to Blux's default roles (text0/text1) when settings name no fonts", () => {
+    const site = structuredClone(minimalSite) as Record<string, unknown>;
+    site.settings = { widgets: {} };
+    const t = normalizeTheme(parseBluxSite(site));
+    expect(t.fonts).toEqual({ heading: "Scope One", body: "Montserrat" });
+  });
+  it("defaults a role whose css object is missing instead of crashing", () => {
+    const site = structuredClone(minimalSite) as { styles: { text: Record<string, unknown> } };
+    site.styles.text["9"] = { _label: "Broken" };
+    const t = normalizeTheme(parseBluxSite(site));
+    const t9 = t.textStyles.find((x) => x.role === "text9")!;
+    expect(t9).toEqual({
+      role: "text9",
+      label: "Broken",
+      fontFamily: "",
+      size: "16px",
+      weight: 400,
+      lineHeight: "1.5",
+    });
+  });
+});
+
+// Presentation hints: the text role a block's _title/_body class points at,
+// plus the block's own string-valued styles. Never migrated into Prismic —
+// they surface through the plan's styles manifest for the design pass.
+describe("section presentation extraction", () => {
+  const rawFor = (block: Record<string, unknown>) =>
+    parseBluxSite({
+      ...minimalSite,
+      content: { pages: [{ title: "Home", description: "", items: [block] }] },
+    });
+  const first = (block: Record<string, unknown>) =>
+    normalizePages(rawFor(block)).pages[0]!.sections[0]!;
+
+  it("captures heading/body roles from the first textN class token", () => {
+    const s = first({
+      title: "amenities",
+      _title: { class: "text5 fade-up" },
+      body: "<p>b</p>",
+      _body: { class: "text14" },
+    });
+    expect(s.presentation).toEqual({ headingRole: "text5", bodyRole: "text14" });
+  });
+  it("captures string-valued block styles, dropping blanks and bare units", () => {
+    const s = first({
+      title: "t",
+      body: "b",
+      styles: {
+        "background-color": "#edeff4",
+        "text-align": "center",
+        _contentPadding: "",
+        height: "px",
+        ratio: 2,
+      },
+    });
+    expect(s.presentation!.block).toEqual({
+      "background-color": "#edeff4",
+      "text-align": "center",
+    });
+  });
+  it("assigns no role to hidden text, even when its class also names one", () => {
+    const s = first({ title: "hidden", _title: { class: "disable text5" }, body: "b" });
+    expect(s.fields.heading).toBeUndefined();
+    expect(s.presentation?.headingRole).toBeUndefined();
+  });
+  it("omits presentation entirely when a block carries no hints", () => {
+    const s = first({ title: "t", _title: {}, body: "b", styles: {} });
+    expect(s.presentation).toBeUndefined();
   });
 });

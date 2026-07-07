@@ -46,10 +46,17 @@ describe("blux emit", () => {
     expect(ct.repeatable).toBe(true);
   });
 
-  it("writes the theme stylesheet", async () => {
+  it("writes the theme stylesheet with the export's real text roles", async () => {
     const css = await readFile(join(out, "theme.css"), "utf-8");
     expect(css).toContain("@theme {");
     expect(css).toContain("--color-c1: #111111;");
+    expect(css).toContain("/* text5 — Grid Titles */");
+    expect(css).toContain("--text-text5--letter-spacing: 1.5px;");
+  });
+
+  it("writes the styles manifest beside the plan", async () => {
+    const manifest = JSON.parse(await readFile(join(out, "styles-manifest.json"), "utf-8"));
+    expect(manifest).toEqual([{ pageUid: "home", slices: [] }]);
   });
 
   it("writes a review manifest pairing pages with Blux originals", async () => {

@@ -91,6 +91,10 @@ export async function runBluxCommand(
     await writeFile(join(out, "migration-plan.json"), JSON.stringify(plan, null, 2));
     await writeFile(join(out, "theme.css"), emitThemeCss(ir.theme));
     await writeFile(join(out, "review-manifest.json"), JSON.stringify(manifest, null, 2));
+    await writeFile(
+      join(out, "styles-manifest.json"),
+      JSON.stringify(plan.stylesManifest, null, 2),
+    );
     for (const ct of plan.customTypes) {
       await writeFile(join(out, "customtypes", `${ct.id}.json`), JSON.stringify(ct.json, null, 2));
     }

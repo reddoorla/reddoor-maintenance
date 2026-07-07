@@ -1,5 +1,11 @@
 import type { SiteIR, RecordIR, PageIR, AssetRef, Diagnostic } from "../ir.js";
-import { richText, assetRef, type MigrationPlan, type PlanDocument } from "./plan.js";
+import {
+  richText,
+  assetRef,
+  type MigrationPlan,
+  type PlanDocument,
+  type SliceStyleEntry,
+} from "./plan.js";
 import { buildCustomType } from "./custom-types.js";
 import { sectionToSlice } from "./slices.js";
 import { coerceHeadingHtml, demoteHeadingsHtml } from "./coerce-html.js";
@@ -68,6 +74,7 @@ export function buildMigrationPlan(ir: SiteIR): MigrationPlan {
   };
 
   const documents: PlanDocument[] = [];
+  const stylesManifest: MigrationPlan["stylesManifest"] = [];
   for (const page of ir.pages) {
     if (isEmptyPage(page)) {
       diagnostics.push({
@@ -77,27 +84,44 @@ export function buildMigrationPlan(ir: SiteIR): MigrationPlan {
       });
       continue;
     }
-    const slices = flattenSections(page.sections)
-      .map(sectionToSlice)
-      .filter((slice) => {
-        for (const rec of [slice.primary, ...slice.items]) {
-          dropNonImages(rec, IMAGE_FIELDS, `${page.uid}/${slice.slice_type}`);
-        }
-        // Structural defaults aren't content — a slice with nothing else to
-        // show (e.g. a block whose only content was hidden text, or whose
-        // sole video was dropped from an image field) is invisible; skip it.
-        const STRUCTURAL = new Set(["columns", "collection_type", "max_items"]);
-        const hasContent =
-          Object.keys(slice.primary).some((k) => !STRUCTURAL.has(k)) || slice.items.length > 0;
-        if (!hasContent) {
-          diagnostics.push({
-            kind: "empty-slice",
-            where: `${page.uid}/${slice.slice_type}`,
-            message: "slice has no content after filtering; dropped",
-          });
-        }
-        return hasContent;
-      });
+    const slices: ReturnType<typeof sectionToSlice>[] = [];
+    const styleEntries: SliceStyleEntry[] = [];
+    for (const section of flattenSections(page.sections)) {
+      const slice = sectionToSlice(section);
+      for (const rec of [slice.primary, ...slice.items]) {
+        dropNonImages(rec, IMAGE_FIELDS, `${page.uid}/${slice.slice_type}`);
+      }
+      // Structural defaults aren't content — a slice with nothing else to
+      // show (e.g. a block whose only content was hidden text, or whose
+      // sole video was dropped from an image field) is invisible; skip it.
+      const STRUCTURAL = new Set(["columns", "collection_type", "max_items"]);
+      const hasContent =
+        Object.keys(slice.primary).some((k) => !STRUCTURAL.has(k)) || slice.items.length > 0;
+      if (!hasContent) {
+        diagnostics.push({
+          kind: "empty-slice",
+          where: `${page.uid}/${slice.slice_type}`,
+          message: "slice has no content after filtering; dropped",
+        });
+        continue;
+      }
+      // Presentation hints ride beside the slice, keyed by its final index.
+      // Grid items mirror sectionToSlice's emptiness rule so they stay aligned.
+      const itemPresentations = (section.children ?? [])
+        .filter((c) => c.fields.heading || c.fields.body || c.fields.media)
+        .map((c) => c.presentation ?? null);
+      const entry: SliceStyleEntry = {
+        index: slices.length,
+        sliceType: slice.slice_type,
+        ...(section.presentation ? { presentation: section.presentation } : {}),
+        ...(slice.slice_type === "section_grid" && itemPresentations.some(Boolean)
+          ? { items: itemPresentations }
+          : {}),
+      };
+      if (entry.presentation || entry.items) styleEntries.push(entry);
+      slices.push(slice);
+    }
+    stylesManifest.push({ pageUid: page.uid, slices: styleEntries });
     documents.push({
       type: "page",
       uid: page.uid,
@@ -121,5 +145,5 @@ export function buildMigrationPlan(ir: SiteIR): MigrationPlan {
     .filter((a) => a.sourceUrl !== null)
     .map((a) => ({ id: a.id, url: a.sourceUrl as string, alt: a.alt }));
 
-  return { customTypes, documents, assets, diagnostics };
+  return { customTypes, documents, assets, stylesManifest, diagnostics };
 }

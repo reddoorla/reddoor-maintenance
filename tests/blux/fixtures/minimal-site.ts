@@ -65,7 +65,44 @@ export const minimalSite = {
   footer: [{ items: [], styles: {}, config: {} }],
   styles: {
     colors: { c1: "#111111", c2: "#ffffff", c3: "#3bb0c9" },
-    text: { t1: { size: "16px", weight: 400, lineHeight: 1.5 } },
+    // Real export shape: numbered roles, each { _label, ".textN": css props }.
+    // text0/text1 are Blux's default title/body roles; text5 is a named role
+    // blocks reference via `_title: { class: "text5" }`.
+    text: {
+      "0": {
+        _label: "Title (Default)",
+        ".text0": {
+          "font-family": "'Scope One'",
+          "font-size": "44px",
+          "font-weight": 400,
+          "line-height": "60px",
+          "text-transform": "capitalize",
+          "font-ident": "G:Scope One:400:",
+        },
+      },
+      "1": {
+        _label: "Body (Default)",
+        ".text1": {
+          "font-family": "'Montserrat'",
+          "font-size": "18px",
+          "font-weight": 300,
+          "line-height": "36px",
+          "font-ident": "G:Montserrat:300:",
+        },
+      },
+      "5": {
+        _label: "Grid Titles",
+        ".text5": {
+          "font-family": "'Montserrat'",
+          "font-size": "15px",
+          "font-weight": 500,
+          "line-height": "26px",
+          "text-transform": "uppercase",
+          "letter-spacing": "1.5px",
+          "font-ident": "G:Montserrat:500:",
+        },
+      },
+    },
     buttons: {},
   },
   media: {

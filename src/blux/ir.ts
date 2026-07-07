@@ -27,6 +27,15 @@ export type SectionIR = {
     anim?: string;
   };
   collectionRef?: { apiId: string; mode: "all" | "items"; itemUids?: string[]; wired: boolean };
+  /** Presentation hints from the export — the text roles a block references
+   * (_title/_body class → styles.text) and its raw block-level styles. Never
+   * migrated into Prismic; surfaced via the plan's styles manifest so the
+   * site's design pass works from data. */
+  presentation?: {
+    headingRole?: string;
+    bodyRole?: string;
+    block?: Record<string, string>;
+  };
   children?: SectionIR[];
 };
 
@@ -45,10 +54,23 @@ export type CollectionIR = {
   records: RecordIR[];
 };
 
+/** One named Blux text style ("Grid Titles", "Page Title Serif", …). Values
+ * are the raw CSS strings from the export. */
+export type TextStyleIR = {
+  role: string; // "text5" — referenced by blocks via _title/_body class
+  label: string;
+  fontFamily: string;
+  size: string;
+  weight: number | string;
+  lineHeight: string;
+  transform?: string;
+  letterSpacing?: string;
+};
+
 export type ThemeIR = {
   colors: { role: string; value: string }[];
   fonts: { heading: string; body: string };
-  textStyles: { role: string; size: string; weight: number; lineHeight: number }[];
+  textStyles: TextStyleIR[];
 };
 
 export type AssetRef = {
