@@ -83,6 +83,8 @@ export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     // sweep) flag the signal fields the factory's callers set. A test exercising
     // the staleness gate overrides this with an old/null value via `over`.
     githubSignalsAt: new Date().toISOString(),
+    smokeOk: null,
+    lastSmokeAt: null,
     ...over,
   };
 }

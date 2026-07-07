@@ -10,6 +10,7 @@ import type {
   BrowserAuditFields,
   NetlifyDeployResult,
   FunctionHealthResult,
+  SmokeResult,
 } from "../reports/airtable/websites.js";
 import type { LighthouseScoreWriteback } from "../reports/types.js";
 import { hasRealScores, lighthouseScoresFromResult } from "./lighthouse-airtable.js";
@@ -27,6 +28,7 @@ import {
   hasFunctionHealthResult,
   functionHealthResultFromAudit,
 } from "./function-health-airtable.js";
+import { hasSmokeResult, smokeResultFromAudit } from "./smoke-airtable.js";
 import { detectAuditEvents } from "./fleet-event-detectors.js";
 import type { FleetEvent } from "../db/fleet-events.js";
 
@@ -42,7 +44,9 @@ type WriteSummary = {
       | "domain"
       | "browser"
       | "netlify-deploy"
-      | "function-health";
+      | "function-health"
+      | "smoke"
+      | "form-e2e";
     counts: object;
   }>;
   /** Fleet-activity events detected from this site's prior row vs the fresh audits.
@@ -93,6 +97,7 @@ export async function writeAuditsToAirtable(args: {
     browser?: BrowserAuditFields;
     netlifyDeploy?: NetlifyDeployResult;
     functionHealth?: FunctionHealthResult;
+    smoke?: SmokeResult;
   } = {};
 
   // Collect every audit that produced real values into ONE merged input, then do a
@@ -161,6 +166,13 @@ export async function writeAuditsToAirtable(args: {
     const result = functionHealthResultFromAudit(functionHealth);
     audits.functionHealth = result;
     writes.push({ audit: "function-health", counts: result });
+  }
+
+  const smoke = results.find((r) => r.audit === "smoke");
+  if (smoke && hasSmokeResult(smoke)) {
+    const result = smokeResultFromAudit(smoke);
+    audits.smoke = result;
+    writes.push({ audit: "smoke", counts: result });
   }
 
   // One atomic write of everything that ran. Skip the call only if there is nothing

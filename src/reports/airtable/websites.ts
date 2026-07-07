@@ -175,6 +175,10 @@ export type WebsiteRow = {
   defaultBranchCi: string | null; // "passing" | "failing" | "pending" | "none"
   lastCommitAt: string | null;
   githubSignalsAt: string | null;
+  /** Per-site smoke-suite verdict (the `smoke` audit runs `pnpm test:smoke`).
+   *  Single-select pass/fail; null = never ran. `lastSmokeAt` gates freshness. */
+  smokeOk: "pass" | "fail" | null;
+  lastSmokeAt: string | null;
   notifyRouting: NotifyRouting | null;
 };
 
@@ -344,6 +348,8 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     defaultBranchCi: (f["Default Branch CI"] as string | undefined) ?? null,
     lastCommitAt: (f["Last Commit At"] as string | undefined) ?? null,
     githubSignalsAt: (f["GitHub Signals At"] as string | undefined) ?? null,
+    smokeOk: toVerdict(f["Smoke OK"]),
+    lastSmokeAt: (f["Last Smoke At"] as string | undefined) ?? null,
   };
 }
 
@@ -446,6 +452,8 @@ export type FunctionHealthResult = {
   /** When the audit ran (freshness stamp for both verdicts). */
   checkedAt: string;
 };
+
+export type SmokeResult = { ok: "pass" | "fail"; checkedAt: string };
 
 function scoreFields(scores: LighthouseScoreWriteback): FieldSet {
   // A null score CLEARS the cell (→ dashboard "—"), distinguishing a metric that
@@ -622,6 +630,13 @@ function functionHealthFields(r: FunctionHealthResult): FieldSet {
   return fields as FieldSet;
 }
 
+function smokeFields(r: SmokeResult): FieldSet {
+  // The verdict is stored as the literal single-select option ("pass"/"fail"), so
+  // no boolean→string coercion is needed. A skip never reaches here (it produces no
+  // SmokeResult), so this column is only ever written with a concrete verdict.
+  return { "Smoke OK": r.ok, "Last Smoke At": r.checkedAt };
+}
+
 /**
  * Write the four Lighthouse scores + a refreshed-at timestamp onto a Websites row.
  * Called by `audit lighthouse --write-airtable` after a successful audit run, so
@@ -744,6 +759,7 @@ export async function updateAuditFields(
     browser?: BrowserAuditFields;
     netlifyDeploy?: NetlifyDeployResult;
     functionHealth?: FunctionHealthResult;
+    smoke?: SmokeResult;
   },
 ): Promise<FieldSet> {
   const fields: FieldSet = {};
@@ -759,6 +775,7 @@ export async function updateAuditFields(
   if (audits.browser) Object.assign(fields, browserFields(audits.browser));
   if (audits.netlifyDeploy) Object.assign(fields, netlifyDeployFields(audits.netlifyDeploy));
   if (audits.functionHealth) Object.assign(fields, functionHealthFields(audits.functionHealth));
+  if (audits.smoke) Object.assign(fields, smokeFields(audits.smoke));
   await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
   return fields;
 }

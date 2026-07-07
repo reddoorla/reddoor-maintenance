@@ -81,6 +81,15 @@ const secResult = (counts: {
     details: { counts, advisories: [] },
   }) as unknown as AuditResult;
 
+const smokeResult = (ok: "pass" | "fail"): AuditResult =>
+  ({
+    audit: "smoke",
+    site: "acme",
+    status: ok === "pass" ? "pass" : "fail",
+    summary: "ok",
+    details: { ok, checkedAt: "2026-07-06T00:00:00.000Z" },
+  }) as unknown as AuditResult;
+
 const domResult = (certDaysRemaining: number | null): AuditResult =>
   ({
     audit: "domain",
@@ -496,5 +505,21 @@ describe("writeAuditsToAirtable", () => {
       ],
     });
     expect(calls[0]!.fields).not.toHaveProperty("Function health");
+  });
+
+  it("writes the Smoke OK verdict + Last Smoke At from a smoke result", async () => {
+    const { base, calls } = makeFakeBase();
+    const summary = await writeAuditsToAirtable({
+      base,
+      websites: [row()],
+      slug: "acme",
+      results: [smokeResult("fail")],
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.fields).toMatchObject({
+      "Smoke OK": "fail",
+      "Last Smoke At": "2026-07-06T00:00:00.000Z",
+    });
+    expect(summary.writes.map((w) => w.audit)).toEqual(["smoke"]);
   });
 });
