@@ -20,21 +20,22 @@
 
 The field-type contract (mirrors `reddoor-starter/src/lib/slices/*/model.json` — keep in sync):
 
-| field | allowed blocks | single |
-|---|---|---|
-| page `title` | heading1 | yes |
-| `hero.primary.heading` | h1, h2 | yes |
-| `media_text.primary.heading` | h2, h3 | yes |
-| `section_grid.primary.heading` | h2, h3 | yes |
-| `section_grid.items.item_heading` | h3, h4 | yes |
-| all `body`/`item_body` | paragraph (+inline, lists on media_text) | no |
-| `rich_text.primary.content` | everything | no |
+| field                             | allowed blocks                           | single |
+| --------------------------------- | ---------------------------------------- | ------ |
+| page `title`                      | heading1                                 | yes    |
+| `hero.primary.heading`            | h1, h2                                   | yes    |
+| `media_text.primary.heading`      | h2, h3                                   | yes    |
+| `section_grid.primary.heading`    | h2, h3                                   | yes    |
+| `section_grid.items.item_heading` | h3, h4                                   | yes    |
+| all `body`/`item_body`            | paragraph (+inline, lists on media_text) | no     |
+| `rich_text.primary.content`       | everything                               | no     |
 
 ---
 
 ### Task 1: HTML-level rich-text coercion helpers
 
 **Files:**
+
 - Create: `src/blux/emit/coerce-html.ts`
 - Test: `tests/blux/emit/coerce-html.test.ts`
 
@@ -49,7 +50,7 @@ describe("coerceHeadingHtml", () => {
     expect(coerceHeadingHtml("<h2>Hi</h2>", ["h1", "h2"])).toBe("<h2>Hi</h2>");
   });
   it("clamps a disallowed heading to the nearest allowed level", () => {
-    expect(coerceHeadingHtml("<h5 class=\"x\">Hi</h5>", ["h2", "h3"])).toBe('<h3 class="x">Hi</h3>');
+    expect(coerceHeadingHtml('<h5 class="x">Hi</h5>', ["h2", "h3"])).toBe('<h3 class="x">Hi</h3>');
     expect(coerceHeadingHtml("<h1>Hi</h1>", ["h3", "h4"])).toBe("<h3>Hi</h3>");
   });
   it("promotes a paragraph to the lowest allowed heading", () => {
@@ -121,6 +122,7 @@ export function demoteHeadingsHtml(html: string): string {
 ### Task 2: apply coercion in sectionToSlice + page title
 
 **Files:**
+
 - Modify: `src/blux/emit/slices.ts`
 - Modify: `src/blux/emit/migration-plan.ts` (title only; rest in Task 4)
 - Test: `tests/blux/emit/slices.test.ts` (update expectations), `tests/blux/emit/migration-plan.test.ts`
@@ -130,7 +132,9 @@ export function demoteHeadingsHtml(html: string): string {
 ```ts
 it("coerces heading HTML to each field's allowed tags", () => {
   const s = sectionToSlice({
-    sliceType: "media_text", variation: "imageRight", confidence: 1,
+    sliceType: "media_text",
+    variation: "imageRight",
+    confidence: 1,
     fields: { heading: "<h5>Deep</h5>", body: "<h3>Not a heading slot</h3><p>ok</p>" },
   });
   expect(s.primary.heading).toEqual({ __richtext_html: "<h3>Deep</h3>" });
@@ -192,6 +196,7 @@ documents.push({
 ### Task 3: flatten deep section trees
 
 **Files:**
+
 - Create: `src/blux/emit/flatten.ts`
 - Test: `tests/blux/emit/flatten.test.ts`
 
@@ -205,19 +210,38 @@ import { flattenSections } from "../../../src/blux/emit/flatten.js";
 import type { SectionIR } from "../../../src/blux/ir.js";
 
 const leaf = (over: Partial<SectionIR> = {}): SectionIR => ({
-  sliceType: "media_text", variation: "imageRight", confidence: 1, fields: { body: "<p>x</p>" }, ...over,
+  sliceType: "media_text",
+  variation: "imageRight",
+  confidence: 1,
+  fields: { body: "<p>x</p>" },
+  ...over,
 });
 
 describe("flattenSections", () => {
   it("keeps a pure-leaf grid intact", () => {
-    const grid: SectionIR = { sliceType: "grid", variation: "default", confidence: 1, fields: {}, children: [leaf(), leaf()] };
+    const grid: SectionIR = {
+      sliceType: "grid",
+      variation: "default",
+      confidence: 1,
+      fields: {},
+      children: [leaf(), leaf()],
+    };
     expect(flattenSections([grid])).toEqual([grid]);
   });
   it("explodes a grid containing a nested container, hoisting grandchildren", () => {
-    const inner: SectionIR = { sliceType: "grid", variation: "default", confidence: 1, fields: {}, children: [leaf(), leaf()] };
+    const inner: SectionIR = {
+      sliceType: "grid",
+      variation: "default",
+      confidence: 1,
+      fields: {},
+      children: [leaf(), leaf()],
+    };
     const outer: SectionIR = {
-      sliceType: "grid", variation: "default", confidence: 1,
-      fields: { heading: "<h2>Section</h2>" }, children: [leaf(), inner],
+      sliceType: "grid",
+      variation: "default",
+      confidence: 1,
+      fields: { heading: "<h2>Section</h2>" },
+      children: [leaf(), inner],
     };
     const out = flattenSections([outer]);
     expect(out.map((s) => s.sliceType)).toEqual(["rich_text", "media_text", "grid"]);
@@ -226,7 +250,13 @@ describe("flattenSections", () => {
   });
   it("explodes a grid containing a hero so the hero keeps its background", () => {
     const hero = leaf({ sliceType: "hero", fields: { backgroundMedia: "img-1" } });
-    const grid: SectionIR = { sliceType: "grid", variation: "default", confidence: 1, fields: {}, children: [hero, leaf()] };
+    const grid: SectionIR = {
+      sliceType: "grid",
+      variation: "default",
+      confidence: 1,
+      fields: {},
+      children: [hero, leaf()],
+    };
     expect(flattenSections([grid]).map((s) => s.sliceType)).toEqual(["hero", "media_text"]);
   });
 });
@@ -254,7 +284,12 @@ export function flattenSections(sections: SectionIR[]): SectionIR[] {
     const children = s.children ?? [];
     if (isContainer(s) && children.length && !children.every(isFlatLeaf)) {
       if (s.fields.heading) {
-        out.push({ sliceType: "rich_text", variation: "default", confidence: s.confidence, fields: { heading: s.fields.heading } });
+        out.push({
+          sliceType: "rich_text",
+          variation: "default",
+          confidence: s.confidence,
+          fields: { heading: s.fields.heading },
+        });
       }
       out.push(...flattenSections(children));
     } else {
@@ -274,6 +309,7 @@ export function flattenSections(sections: SectionIR[]): SectionIR[] {
 ### Task 4: migration-plan hardening (flatten + skip-empty + non-image + diagnostics)
 
 **Files:**
+
 - Modify: `src/blux/emit/plan.ts` (add `diagnostics` to `MigrationPlan`)
 - Modify: `src/blux/emit/migration-plan.ts`
 - Modify: `src/cli/commands/blux.ts` (print plan diagnostics; count skipped pages)
@@ -283,7 +319,10 @@ export function flattenSections(sections: SectionIR[]): SectionIR[] {
 
 ```ts
 it("skips empty pages with a diagnostic instead of emitting hollow documents", () => {
-  const withEmpty = { ...ir, pages: [...ir.pages, { uid: "stub", title: "", description: "", sections: [] }] };
+  const withEmpty = {
+    ...ir,
+    pages: [...ir.pages, { uid: "stub", title: "", description: "", sections: [] }],
+  };
   const plan = buildMigrationPlan(withEmpty);
   expect(plan.documents.find((d) => d.uid === "stub")).toBeUndefined();
   expect(plan.diagnostics).toContainEqual(
@@ -294,22 +333,44 @@ it("skips empty pages with a diagnostic instead of emitting hollow documents", (
 it("drops non-image assets from image fields with a diagnostic", () => {
   // minimal fixture: give the hero's backgroundMedia asset a video mime
   const videoIr = structuredClone(ir);
-  const heroAsset = videoIr.assets.find((a) => a.id === videoIr.pages[0].sections[0].fields.backgroundMedia);
+  const heroAsset = videoIr.assets.find(
+    (a) => a.id === videoIr.pages[0].sections[0].fields.backgroundMedia,
+  );
   heroAsset.mime = "video/mp4";
   const plan = buildMigrationPlan(videoIr);
   const hero = plan.documents[0].data.slices.find((s) => s.slice_type === "hero");
   expect(hero.primary.background_image).toBeUndefined();
-  expect(plan.diagnostics).toContainEqual(expect.objectContaining({ kind: "non-image-in-image-field" }));
+  expect(plan.diagnostics).toContainEqual(
+    expect.objectContaining({ kind: "non-image-in-image-field" }),
+  );
 });
 
 it("applies flattening before emitting slices", () => {
   const deep = structuredClone(ir);
-  deep.pages[0].sections = [{
-    sliceType: "grid", variation: "default", confidence: 1, fields: {},
-    children: [{ sliceType: "grid", variation: "default", confidence: 1, fields: {}, children: [
-      { sliceType: "media_text", variation: "imageRight", confidence: 1, fields: { body: "<p>deep</p>" } },
-    ] }],
-  }];
+  deep.pages[0].sections = [
+    {
+      sliceType: "grid",
+      variation: "default",
+      confidence: 1,
+      fields: {},
+      children: [
+        {
+          sliceType: "grid",
+          variation: "default",
+          confidence: 1,
+          fields: {},
+          children: [
+            {
+              sliceType: "media_text",
+              variation: "imageRight",
+              confidence: 1,
+              fields: { body: "<p>deep</p>" },
+            },
+          ],
+        },
+      ],
+    },
+  ];
   const plan = buildMigrationPlan(deep);
   const types = plan.documents[0].data.slices.map((s) => s.slice_type);
   expect(types).toEqual(["section_grid"]); // inner pure-leaf grid hoisted to a kept grid
@@ -337,14 +398,19 @@ export function buildMigrationPlan(ir: SiteIR): MigrationPlan {
   const documents: PlanDocument[] = [];
   for (const page of ir.pages) {
     if (!page.sections.length && !page.title.trim()) {
-      diagnostics.push({ kind: "empty-page", where: page.uid, message: "page has no title and no sections; skipped" });
+      diagnostics.push({
+        kind: "empty-page",
+        where: page.uid,
+        message: "page has no title and no sections; skipped",
+      });
       continue;
     }
     const slices = flattenSections(page.sections).map(sectionToSlice);
     for (const slice of slices) {
       for (const rec of [slice.primary, ...slice.items]) {
         for (const [key, val] of Object.entries(rec)) {
-          if (!IMAGE_FIELDS.has(key) || !val || typeof val !== "object" || !("__asset_id" in val)) continue;
+          if (!IMAGE_FIELDS.has(key) || !val || typeof val !== "object" || !("__asset_id" in val))
+            continue;
           const mime = mimeById.get((val as { __asset_id: string }).__asset_id) ?? "";
           if (!mime.startsWith("image/")) {
             diagnostics.push({
@@ -379,6 +445,7 @@ In `src/cli/commands/blux.ts` extend the emit summary: total diagnostics = `ir.d
 ### Task 5: CDN reconstruct + ext-probe module
 
 **Files:**
+
 - Create: `src/blux/emit/probe.ts`
 - Test: `tests/blux/emit/probe.test.ts` (injected fetch — no network)
 
@@ -394,8 +461,15 @@ const miss = { ok: false } as Response;
 describe("probeAssetUrls", () => {
   it("tries name-ext first on the image host and returns the hit", async () => {
     const tried: string[] = [];
-    const fetchImpl = (async (url: string) => { tried.push(url); return url.endsWith("u1.jpg") && url.includes("d3syaxnfm3oj0e") ? ok : miss; }) as unknown as typeof fetch;
-    const map = await probeAssetUrls([{ id: "u1", name: "Photo.jpg", mime: "image/jpeg" }], "site-1", fetchImpl);
+    const fetchImpl = (async (url: string) => {
+      tried.push(url);
+      return url.endsWith("u1.jpg") && url.includes("d3syaxnfm3oj0e") ? ok : miss;
+    }) as unknown as typeof fetch;
+    const map = await probeAssetUrls(
+      [{ id: "u1", name: "Photo.jpg", mime: "image/jpeg" }],
+      "site-1",
+      fetchImpl,
+    );
     expect(map.get("u1")).toBe("https://d3syaxnfm3oj0e.cloudfront.net/site-1/u1.jpg");
     expect(tried[0]).toContain("/site-1/u1.jpg");
   });
@@ -451,7 +525,11 @@ export async function probeAssetUrls(
   return results;
 }
 
-async function probeOne(t: ProbeTarget, siteId: string, fetchImpl: typeof fetch): Promise<string | null> {
+async function probeOne(
+  t: ProbeTarget,
+  siteId: string,
+  fetchImpl: typeof fetch,
+): Promise<string | null> {
   for (const ext of extCandidates(t)) {
     for (const host of HOSTS) {
       const url = `https://${host}/${siteId}/${t.id}.${ext}`;
@@ -475,6 +553,7 @@ async function probeOne(t: ProbeTarget, siteId: string, fetchImpl: typeof fetch)
 ### Task 6: wire `--probe` into `blux emit`
 
 **Files:**
+
 - Modify: `src/cli/commands/blux.ts`, `src/cli/bin.ts`
 - Test: `tests/cli/blux-command.test.ts`
 
@@ -487,7 +566,9 @@ it("emit --probe resolves used assets via the injected prober", async () => {
   await writeFile(join(dir, "index.html"), "<html><body>shell</body></html>");
   const out = join(dir, "probed-out");
   const fetchImpl = (async (url: string) =>
-    ({ ok: url.includes("img-1") || url.includes("img-2") }) as Response) as unknown as typeof fetch;
+    ({
+      ok: url.includes("img-1") || url.includes("img-2"),
+    }) as Response) as unknown as typeof fetch;
   const result = await runBluxCommand("emit", dir, { out, probe: true, fetchImpl });
   expect(result.code).toBe(0);
   const plan = JSON.parse(await readFile(join(out, "migration-plan.json"), "utf-8"));
@@ -510,14 +591,18 @@ if (opts.probe) {
     (s.children ?? []).forEach(walk);
   };
   ir.pages.forEach((p) => p.sections.forEach(walk));
-  for (const c of ir.collections) for (const r of c.records) r.mediaRefs.forEach((m) => used.add(m));
+  for (const c of ir.collections)
+    for (const r of c.records) r.mediaRefs.forEach((m) => used.add(m));
 
   const targets = ir.assets.filter((a) => used.has(a.id) && !a.sourceUrl);
   const probed = await probeAssetUrls(targets, ir.meta.bluxSiteId, opts.fetchImpl ?? fetch);
   let hits = 0;
   for (const a of ir.assets) {
     const url = probed.get(a.id);
-    if (url) { a.sourceUrl = url; hits++; }
+    if (url) {
+      a.sourceUrl = url;
+      hits++;
+    }
   }
   // probe-resolved assets are no longer unresolved diagnostics
   ir.diagnostics = ir.diagnostics.filter(
@@ -538,6 +623,7 @@ if (opts.probe) {
 ### Task 7: pure marker resolution module
 
 **Files:**
+
 - Create: `src/blux/emit/resolve-doc.ts`
 - Test: `tests/blux/emit/resolve-doc.test.ts`
 
@@ -552,7 +638,14 @@ describe("resolveDocData", () => {
     const { data, missingAssets } = resolveDocData(
       {
         title: { __richtext_html: "<h1>Hi</h1>" },
-        slices: [{ slice_type: "hero", variation: "default", primary: { background_image: { __asset_id: "u1" }, media: { __asset_id: "nope" } }, items: [] }],
+        slices: [
+          {
+            slice_type: "hero",
+            variation: "default",
+            primary: { background_image: { __asset_id: "u1" }, media: { __asset_id: "nope" } },
+            items: [],
+          },
+        ],
       },
       new Map([["u1", "prismic-asset-1"]]),
     );
@@ -589,12 +682,17 @@ export function resolveDocData(
       if ("__asset_id" in v) {
         const uuid = (v as { __asset_id: string }).__asset_id;
         const id = assetIdByUuid.get(uuid);
-        if (!id) { missing.push(uuid); return undefined; }
+        if (!id) {
+          missing.push(uuid);
+          return undefined;
+        }
         return { id };
       }
       if (Array.isArray(v)) return v.map(resolve);
       return Object.fromEntries(
-        Object.entries(v).map(([k, val]) => [k, resolve(val)]).filter(([, val]) => val !== undefined),
+        Object.entries(v)
+          .map(([k, val]) => [k, resolve(val)])
+          .filter(([, val]) => val !== undefined),
       );
     }
     return v;
@@ -612,6 +710,7 @@ export function resolveDocData(
 ### Task 8: runner v2 — raw APIs, upsert, no-dupe assets, full error details
 
 **Files:**
+
 - Rewrite: `src/blux/emit/run-migration.ts` (stays in vitest `coverage.exclude`)
 - Modify: `src/cli/commands/blux.ts` (migrate branch uses the new return shape)
 
@@ -657,9 +756,17 @@ export async function pushCustomTypes(types: PlanCustomType[]): Promise<string[]
   const pushed: string[] = [];
   for (const t of types) {
     const body = JSON.stringify(t.json);
-    let res = await fetch("https://customtypes.prismic.io/customtypes/insert", { method: "POST", headers, body });
+    let res = await fetch("https://customtypes.prismic.io/customtypes/insert", {
+      method: "POST",
+      headers,
+      body,
+    });
     if (res.status === 409 || res.status === 400) {
-      res = await fetch("https://customtypes.prismic.io/customtypes/update", { method: "POST", headers, body });
+      res = await fetch("https://customtypes.prismic.io/customtypes/update", {
+        method: "POST",
+        headers,
+        body,
+      });
     }
     await expectOk(res, `custom type ${t.id}`);
     pushed.push(t.id);
@@ -672,10 +779,15 @@ async function listAssetIdsByFilename(repo: string, token: string): Promise<Map<
   let cursor = "";
   for (;;) {
     const res = await expectOk(
-      await fetch(`https://asset-api.prismic.io/assets?limit=500${cursor}`, { headers: apiHeaders(repo, token) }),
+      await fetch(`https://asset-api.prismic.io/assets?limit=500${cursor}`, {
+        headers: apiHeaders(repo, token),
+      }),
       "asset list",
     );
-    const page = (await res.json()) as { items: { id: string; filename: string }[]; cursor?: string };
+    const page = (await res.json()) as {
+      items: { id: string; filename: string }[];
+      cursor?: string;
+    };
     for (const a of page.items) map.set(a.filename, a.id);
     if (!page.cursor || !page.items.length) return map;
     cursor = `&cursor=${encodeURIComponent(page.cursor)}`;
@@ -691,7 +803,9 @@ async function lookupDocIds(repo: string): Promise<Map<string, string>> {
   const master = api.refs.find((r) => r.id === "master")?.ref;
   const sep = qs ? "&" : "?";
   const search = (await (
-    await fetch(`https://${repo}.prismic.io/api/v2/documents/search${qs}${sep}ref=${master}&pageSize=100`)
+    await fetch(
+      `https://${repo}.prismic.io/api/v2/documents/search${qs}${sep}ref=${master}&pageSize=100`,
+    )
   ).json()) as { results: { id: string; uid: string }[] };
   return new Map(search.results.map((d) => [d.uid, d.id]));
 }
@@ -727,7 +841,11 @@ export async function runMigration(
     form.append("file", blob, filename);
     if (a.alt) form.append("alt", a.alt);
     const res = await expectOk(
-      await fetch("https://asset-api.prismic.io/assets", { method: "POST", headers: apiHeaders(repo, token), body: form }),
+      await fetch("https://asset-api.prismic.io/assets", {
+        method: "POST",
+        headers: apiHeaders(repo, token),
+        body: form,
+      }),
       `upload asset ${filename}`,
     );
     const created = (await res.json()) as { id: string };
@@ -745,20 +863,38 @@ export async function runMigration(
   for (const doc of plan.documents) {
     const { data, missingAssets: miss } = resolveDocData(doc.data, assetIdByUuid);
     missingAssets.push(...miss);
-    const body = JSON.stringify({ type: doc.type, uid: doc.uid, lang: "en-us", title: doc.uid, data });
+    const body = JSON.stringify({
+      type: doc.type,
+      uid: doc.uid,
+      lang: "en-us",
+      title: doc.uid,
+      data,
+    });
     const headers = { ...apiHeaders(repo, token), "Content-Type": "application/json" };
-    const res = await fetch("https://migration.prismic.io/documents", { method: "POST", headers, body });
+    const res = await fetch("https://migration.prismic.io/documents", {
+      method: "POST",
+      headers,
+      body,
+    });
     if (res.ok) {
       docsCreated++;
       log(`created ${doc.uid}`);
     } else {
       const text = await res.text();
-      if (!/already exists/i.test(text)) throw new Error(`create ${doc.uid}: ${res.status} ${text}`);
+      if (!/already exists/i.test(text))
+        throw new Error(`create ${doc.uid}: ${res.status} ${text}`);
       docIds ??= await lookupDocIds(repo);
       const id = docIds.get(doc.uid);
-      if (!id) throw new Error(`update ${doc.uid}: uid exists but not found via Document API (set PRISMIC_ACCESS_TOKEN?)`);
+      if (!id)
+        throw new Error(
+          `update ${doc.uid}: uid exists but not found via Document API (set PRISMIC_ACCESS_TOKEN?)`,
+        );
       await expectOk(
-        await fetch(`https://migration.prismic.io/documents/${id}`, { method: "PUT", headers, body }),
+        await fetch(`https://migration.prismic.io/documents/${id}`, {
+          method: "PUT",
+          headers,
+          body,
+        }),
         `update ${doc.uid}`,
       );
       docsUpdated++;
@@ -777,7 +913,9 @@ const { pushCustomTypes, runMigration } = await import("../../blux/emit/run-migr
 const pushed = await pushCustomTypes(plan.customTypes);
 const progress: string[] = [];
 const r = await runMigration(plan, (line) => progress.push(line));
-const missing = r.missingAssets.length ? `\nWARNING missing assets: ${r.missingAssets.join(", ")}` : "";
+const missing = r.missingAssets.length
+  ? `\nWARNING missing assets: ${r.missingAssets.join(", ")}`
+  : "";
 return {
   output:
     `custom types pushed: ${pushed.join(", ") || "none"}\n` +
@@ -824,6 +962,7 @@ Operator/creds steps, from the worktree with `PRISMIC_REPOSITORY_NAME=the-pointe
 ### Task 11: reddoor-starter — register the slices in the page type
 
 **Files (in `~/Documents/GitHub/reddoor-starter`):**
+
 - Modify: `customtypes/page/index.json` — slice zone `choices` gains `hero`, `media_text`, `section_grid`, `collection_list` (each `{ "type": "SharedSlice" }`) alongside `rich_text`.
 
 - [ ] **Step 1:** Branch, edit, verify `git diff` shows only the four added choices.

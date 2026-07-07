@@ -68,7 +68,10 @@ export function sectionToSlice(s: SectionIR): PlanSlice {
       return {
         slice_type: "section_grid",
         variation: "default",
-        primary: compact({ heading: rtHeading(f.heading, "section_grid"), columns: f.columns ?? 3 }),
+        primary: compact({
+          heading: rtHeading(f.heading, "section_grid"),
+          columns: f.columns ?? 3,
+        }),
         items: (s.children ?? []).map((c) =>
           compact({
             item_heading: rtHeading(c.fields.heading, "section_grid_item"),

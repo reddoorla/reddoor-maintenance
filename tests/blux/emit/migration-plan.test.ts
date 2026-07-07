@@ -38,7 +38,9 @@ describe("buildMigrationPlan", () => {
     ir.pages.push({ uid: "stub", title: "", description: "", sections: [] });
     const p = buildMigrationPlan(ir);
     expect(p.documents.find((d) => d.uid === "stub")).toBeUndefined();
-    expect(p.diagnostics).toContainEqual(expect.objectContaining({ kind: "empty-page", where: "stub" }));
+    expect(p.diagnostics).toContainEqual(
+      expect.objectContaining({ kind: "empty-page", where: "stub" }),
+    );
   });
 
   it("drops non-image assets from image fields with a diagnostic", () => {
@@ -46,11 +48,13 @@ describe("buildMigrationPlan", () => {
     const bgId = ir.pages[0]!.sections[0]!.fields.backgroundMedia!;
     ir.assets.find((a) => a.id === bgId)!.mime = "video/mp4";
     const p = buildMigrationPlan(ir);
-    const hero = (p.documents[0]!.data.slices as { slice_type: string; primary: Record<string, unknown> }[]).find(
-      (s) => s.slice_type === "hero",
-    )!;
+    const hero = (
+      p.documents[0]!.data.slices as { slice_type: string; primary: Record<string, unknown> }[]
+    ).find((s) => s.slice_type === "hero")!;
     expect(hero.primary.background_image).toBeUndefined();
-    expect(p.diagnostics).toContainEqual(expect.objectContaining({ kind: "non-image-in-image-field" }));
+    expect(p.diagnostics).toContainEqual(
+      expect.objectContaining({ kind: "non-image-in-image-field" }),
+    );
   });
 
   it("applies flattening before emitting slices", () => {
@@ -68,7 +72,12 @@ describe("buildMigrationPlan", () => {
             confidence: 1,
             fields: {},
             children: [
-              { sliceType: "media_text", variation: "imageRight", confidence: 1, fields: { body: "<p>deep</p>" } },
+              {
+                sliceType: "media_text",
+                variation: "imageRight",
+                confidence: 1,
+                fields: { body: "<p>deep</p>" },
+              },
             ],
           },
         ],

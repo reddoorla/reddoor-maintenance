@@ -77,7 +77,9 @@ describe("blux emit --probe", () => {
     await writeFile(join(dir, "index.html"), "<html><body>shell</body></html>");
     const out = join(dir, "probed-out");
     const fetchImpl = (async (url: string) =>
-      ({ ok: url.includes("img-1") || url.includes("img-2") }) as Response) as unknown as typeof fetch;
+      ({
+        ok: url.includes("img-1") || url.includes("img-2"),
+      }) as Response) as unknown as typeof fetch;
     const result = await runBluxCommand("emit", dir, { out, probe: true, fetchImpl });
     expect(result.code).toBe(0);
     expect(result.output).toContain("probe resolved 2/2");

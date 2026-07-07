@@ -11,7 +11,11 @@ describe("probeAssetUrls", () => {
       tried.push(url);
       return url.endsWith("u1.jpg") && url.includes("d3syaxnfm3oj0e") ? ok : miss;
     }) as unknown as typeof fetch;
-    const map = await probeAssetUrls([{ id: "u1", name: "Photo.jpg", mime: "image/jpeg" }], "site-1", fetchImpl);
+    const map = await probeAssetUrls(
+      [{ id: "u1", name: "Photo.jpg", mime: "image/jpeg" }],
+      "site-1",
+      fetchImpl,
+    );
     expect(map.get("u1")).toBe("https://d3syaxnfm3oj0e.cloudfront.net/site-1/u1.jpg");
     expect(tried[0]).toContain("/site-1/u1.jpg");
   });
@@ -27,7 +31,11 @@ describe("probeAssetUrls", () => {
       if (url.endsWith("u3.jpg")) throw new Error("ECONNRESET");
       return url.endsWith("u3.png") ? ok : miss;
     }) as unknown as typeof fetch;
-    const map = await probeAssetUrls([{ id: "u3", name: "pic.jpg", mime: "" }], "site-1", fetchImpl);
+    const map = await probeAssetUrls(
+      [{ id: "u3", name: "pic.jpg", mime: "" }],
+      "site-1",
+      fetchImpl,
+    );
     expect(map.get("u3")).toContain("u3.png");
   });
 });
