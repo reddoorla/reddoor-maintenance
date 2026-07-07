@@ -6,7 +6,6 @@ import { buildMigrationPlan } from "../../blux/emit/migration-plan.js";
 import { emitThemeCss } from "../../blux/emit/theme.js";
 import { buildReviewManifest } from "../../blux/emit/review.js";
 import type { MigrationPlan } from "../../blux/emit/plan.js";
-import type { SectionIR } from "../../blux/ir.js";
 
 export type BluxCommandOptions = {
   /** Output directory for emit (default: <exportDir>/blux-out). */
@@ -54,15 +53,16 @@ export async function runBluxCommand(
     let probeLine = "";
     if (opts.probe) {
       const { probeAssetUrls } = await import("../../blux/emit/probe.js");
+      // derive "used" from the plan's own __asset_id markers — the single
+      // source of truth for which assets documents actually reference
       const used = new Set<string>();
-      const walk = (s: SectionIR): void => {
-        if (s.fields.media) used.add(s.fields.media);
-        if (s.fields.backgroundMedia) used.add(s.fields.backgroundMedia);
-        (s.children ?? []).forEach(walk);
+      const collect = (v: unknown): void => {
+        if (!v || typeof v !== "object") return;
+        if ("__asset_id" in v) used.add((v as { __asset_id: string }).__asset_id);
+        else if (Array.isArray(v)) v.forEach(collect);
+        else Object.values(v).forEach(collect);
       };
-      ir.pages.forEach((p) => p.sections.forEach(walk));
-      for (const c of ir.collections)
-        for (const r of c.records) r.mediaRefs.forEach((m) => used.add(m));
+      buildMigrationPlan(ir).documents.forEach((d) => collect(d.data));
 
       const targets = ir.assets.filter((a) => used.has(a.id) && !a.sourceUrl);
       const probed = await probeAssetUrls(targets, ir.meta.bluxSiteId, opts.fetchImpl ?? fetch);
@@ -124,9 +124,10 @@ export async function runBluxCommand(
     const planPath = dir.endsWith(".json") ? dir : join(dir, "migration-plan.json");
     const plan = JSON.parse(await readFile(planPath, "utf-8")) as MigrationPlan;
     const { pushCustomTypes, runMigration } = await import("../../blux/emit/run-migration.js");
-    const progress: string[] = [];
     const pushed = await pushCustomTypes(plan.customTypes);
-    const r = await runMigration(plan, (line) => progress.push(line));
+    // stream progress to stderr — a throttled run over many assets/docs takes
+    // minutes and silence reads as a hang; stdout stays the result summary
+    const r = await runMigration(plan, (line) => process.stderr.write(`${line}\n`));
     const missing = r.missingAssets.length
       ? `\nWARNING missing assets: ${r.missingAssets.join(", ")}`
       : "";

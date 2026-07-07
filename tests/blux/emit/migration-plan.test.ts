@@ -57,6 +57,38 @@ describe("buildMigrationPlan", () => {
     );
   });
 
+  it("demotes headings in record rich-text fields (their models allow no headings)", () => {
+    const site = structuredClone(minimalSite) as typeof minimalSite;
+    site.feeds["feed-1"]!.items[0]!.body = "<h2>Story</h2><p>Bio.</p>";
+    const p = buildMigrationPlan(assembleIR({ siteJson: site, htmls: [minimalHtml] }));
+    const jane = p.documents.find((d) => d.uid === "jane-doe")!;
+    expect(jane.data.body).toEqual({ __richtext_html: "<p>Story</p><p>Bio.</p>" });
+  });
+
+  it("drops non-image assets from record image fields with a diagnostic", () => {
+    const ir = assembleIR({ siteJson: minimalSite, htmls: [minimalHtml] });
+    ir.assets.find((a) => a.id === "img-2")!.mime = "video/mp4";
+    const p = buildMigrationPlan(ir);
+    const jane = p.documents.find((d) => d.uid === "jane-doe")!;
+    expect(jane.data.media).toBeUndefined();
+    expect(
+      p.diagnostics.some(
+        (d) => d.kind === "non-image-in-image-field" && d.where.includes("jane-doe"),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps image-extension assets whose mime is missing", () => {
+    const ir = assembleIR({ siteJson: minimalSite, htmls: [minimalHtml] });
+    const bgId = ir.pages[0]!.sections[0]!.fields.backgroundMedia!;
+    ir.assets.find((a) => a.id === bgId)!.mime = ""; // export omitted `type`; name is Hero.jpg
+    const p = buildMigrationPlan(ir);
+    const hero = (
+      p.documents[0]!.data.slices as { slice_type: string; primary: Record<string, unknown> }[]
+    ).find((s) => s.slice_type === "hero")!;
+    expect(hero.primary.background_image).toEqual({ __asset_id: bgId });
+  });
+
   it("applies flattening before emitting slices", () => {
     const ir = assembleIR({ siteJson: minimalSite, htmls: [minimalHtml] });
     ir.pages[0]!.sections = [

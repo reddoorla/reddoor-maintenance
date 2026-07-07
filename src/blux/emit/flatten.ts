@@ -15,7 +15,9 @@ export function flattenSections(sections: SectionIR[]): SectionIR[] {
   const out: SectionIR[] = [];
   for (const s of sections) {
     const children = s.children ?? [];
-    if (isContainer(s) && children.length && !children.every(isFlatLeaf)) {
+    if (!children.length || (isContainer(s) && children.every(isFlatLeaf))) {
+      out.push(s);
+    } else if (isContainer(s)) {
       if (s.fields.heading) {
         out.push({
           sliceType: "rich_text",
@@ -26,7 +28,12 @@ export function flattenSections(sections: SectionIR[]): SectionIR[] {
       }
       out.push(...flattenSections(children));
     } else {
-      out.push(s);
+      // normalize attaches `children` to ANY block with items — a hero or
+      // media_text can carry a subtree. Its own slice mapping ignores
+      // children, so hoist them as following siblings instead of losing them.
+      const { children: _hoisted, ...self } = s;
+      out.push(self);
+      out.push(...flattenSections(children));
     }
   }
   return out;

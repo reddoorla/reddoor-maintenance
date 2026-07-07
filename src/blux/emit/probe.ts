@@ -4,8 +4,10 @@
  *  resolved the remaining 52/52 used ones. Network-touching by design — wired
  *  to `blux emit --probe`, never into the pure builders. */
 
-const HOSTS = ["d3syaxnfm3oj0e.cloudfront.net", "dv4tl7yyk1zlp.cloudfront.net"];
-const COMMON_EXTS = ["jpg", "png", "jpeg", "webp", "gif", "svg", "mp4", "pdf"];
+import { CDN_HOSTS as HOSTS } from "../assets.js";
+
+const IMAGE_EXTS = ["jpg", "png", "jpeg", "webp", "gif", "svg"];
+const FILE_EXTS = ["mp4", "pdf"];
 
 export type ProbeTarget = { id: string; name: string; mime: string };
 
@@ -15,7 +17,13 @@ function extCandidates(t: ProbeTarget): string[] {
   if (nameExt) c.push(nameExt);
   const mimeExt = t.mime.split("/")[1]?.replace("jpeg", "jpg");
   if (mimeExt && !c.includes(mimeExt)) c.push(mimeExt);
-  for (const e of COMMON_EXTS) if (!c.includes(e)) c.push(e);
+  // a known image mime never needs the video/pdf probes (and vice versa)
+  const commons = t.mime.startsWith("image/")
+    ? IMAGE_EXTS
+    : t.mime
+      ? FILE_EXTS
+      : [...IMAGE_EXTS, ...FILE_EXTS];
+  for (const e of commons) if (!c.includes(e)) c.push(e);
   return c;
 }
 

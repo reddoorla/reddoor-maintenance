@@ -21,4 +21,10 @@ describe("buildReviewManifest", () => {
     const m = buildReviewManifest(ir, { convertedBase: "x", bluxBase: "y" });
     expect(Array.isArray(m.diagnostics)).toBe(true);
   });
+  it("omits empty pages — they emit no document, so there is nothing to review", () => {
+    const withStub = assembleIR({ siteJson: minimalSite, htmls: [minimalHtml] });
+    withStub.pages.push({ uid: "stub", title: "", description: "", sections: [] });
+    const m = buildReviewManifest(withStub, { convertedBase: "x", bluxBase: "y" });
+    expect(m.pairs.find((p) => p.uid === "stub")).toBeUndefined();
+  });
 });

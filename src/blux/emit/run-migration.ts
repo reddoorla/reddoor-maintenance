@@ -15,6 +15,16 @@ import { resolveDocData } from "./resolve-doc.js";
 const THROTTLE_MS = 1200; // migration API limit ~1 req/s
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** fetch with backoff on 429 — the Asset/Migration APIs rate-limit hard and a
+ *  single 429 must not abort a minutes-long migration. */
+async function fetchWithRetry(url: string, init?: RequestInit, tries = 4): Promise<Response> {
+  for (let i = 0; ; i++) {
+    const res = await fetch(url, init);
+    if (res.status !== 429 || i >= tries - 1) return res;
+    await sleep(1500 * (i + 1));
+  }
+}
+
 function readCreds(): { repo: string; token: string } {
   const repo = process.env.PRISMIC_REPOSITORY_NAME;
   const token = process.env.PRISMIC_WRITE_TOKEN;
@@ -37,22 +47,27 @@ async function expectOk(res: Response, what: string): Promise<Response> {
 export async function pushCustomTypes(types: PlanCustomType[]): Promise<string[]> {
   const { repo, token } = readCreds();
   const headers = { ...apiHeaders(repo, token), "Content-Type": "application/json" };
-  const pushed: string[] = [];
-  for (const t of types) {
-    const body = JSON.stringify(t.json);
-    let res = await fetch("https://customtypes.prismic.io/customtypes/insert", {
+  const post = (path: "insert" | "update", body: string) =>
+    fetchWithRetry(`https://customtypes.prismic.io/customtypes/${path}`, {
       method: "POST",
       headers,
       body,
     });
-    if (res.status === 409 || res.status === 400) {
-      res = await fetch("https://customtypes.prismic.io/customtypes/update", {
-        method: "POST",
-        headers,
-        body,
-      });
+  const pushed: string[] = [];
+  for (const t of types) {
+    const body = JSON.stringify(t.json);
+    const ins = await post("insert", body);
+    if (!ins.ok) {
+      const insErr = `insert ${ins.status} ${await ins.text()}`;
+      // 409/400 usually means "type exists" — but keep the insert body: when
+      // the update ALSO fails, the insert's validation detail is the real clue
+      if (ins.status !== 409 && ins.status !== 400)
+        throw new Error(`custom type ${t.id}: ${insErr}`);
+      const upd = await post("update", body);
+      if (!upd.ok) {
+        throw new Error(`custom type ${t.id}: ${insErr}; update ${upd.status} ${await upd.text()}`);
+      }
     }
-    await expectOk(res, `custom type ${t.id}`);
     pushed.push(t.id);
   }
   return pushed;
@@ -63,7 +78,7 @@ async function listAssetIdsByFilename(repo: string, token: string): Promise<Map<
   let cursor = "";
   for (;;) {
     const res = await expectOk(
-      await fetch(`https://asset-api.prismic.io/assets?limit=500${cursor}`, {
+      await fetchWithRetry(`https://asset-api.prismic.io/assets?limit=500${cursor}`, {
         headers: apiHeaders(repo, token),
       }),
       "asset list",
@@ -78,21 +93,35 @@ async function listAssetIdsByFilename(repo: string, token: string): Promise<Map<
   }
 }
 
-/** uid → document id on the target repo, for the PUT-update path. */
+/** uid → document id on the target repo, for the PUT-update path. Reads the
+ *  MASTER ref, so it only sees PUBLISHED documents — docs sitting in an
+ *  unpublished migration release are invisible here (the miss error explains
+ *  that). Follows next_page so >100-doc repos resolve fully. */
 async function lookupDocIds(repo: string): Promise<Map<string, string>> {
   const access = process.env.PRISMIC_ACCESS_TOKEN;
   const qs = access ? `?access_token=${access}` : "";
-  const api = (await (await fetch(`https://${repo}.prismic.io/api/v2${qs}`)).json()) as {
-    refs: { id: string; ref: string }[];
-  };
-  const master = api.refs.find((r) => r.id === "master")?.ref;
+  const apiRes = await expectOk(
+    await fetchWithRetry(`https://${repo}.prismic.io/api/v2${qs}`),
+    "Document API /api/v2 (set PRISMIC_ACCESS_TOKEN for a private repo)",
+  );
+  const api = (await apiRes.json()) as { refs?: { id: string; ref: string }[] };
+  const master = api.refs?.find((r) => r.id === "master")?.ref;
+  if (!master) throw new Error(`Document API for ${repo} returned no master ref`);
+
+  const map = new Map<string, string>();
   const sep = qs ? "&" : "?";
-  const search = (await (
-    await fetch(
-      `https://${repo}.prismic.io/api/v2/documents/search${qs}${sep}ref=${master}&pageSize=100`,
-    )
-  ).json()) as { results: { id: string; uid: string }[] };
-  return new Map(search.results.map((d) => [d.uid, d.id]));
+  let url: string | null =
+    `https://${repo}.prismic.io/api/v2/documents/search${qs}${sep}ref=${master}&pageSize=100`;
+  while (url) {
+    const res = await expectOk(await fetchWithRetry(url), "Document API search");
+    const page = (await res.json()) as {
+      results: { id: string; uid: string | null }[];
+      next_page: string | null;
+    };
+    for (const d of page.results) if (d.uid) map.set(d.uid, d.id);
+    url = page.next_page;
+  }
+  return map;
 }
 
 export type MigrationResult = {
@@ -117,7 +146,10 @@ export async function runMigration(
   let assetsReused = 0;
 
   for (const a of plan.assets) {
-    const filename = a.url.split("/").pop() ?? a.id;
+    // Blux filenames are `<uuid>.<ext>` — globally unique, so filename keying
+    // is a sound dedup. Reused assets keep their existing alt (trade-off:
+    // alt from the plan is only applied on first upload).
+    const filename = (a.url.split("/").pop() ?? a.id).split("?")[0]!;
     const known = existing.get(filename);
     if (known) {
       assetIdByUuid.set(a.id, known);
@@ -129,7 +161,7 @@ export async function runMigration(
     form.append("file", blob, filename);
     if (a.alt) form.append("alt", a.alt);
     const res = await expectOk(
-      await fetch("https://asset-api.prismic.io/assets", {
+      await fetchWithRetry("https://asset-api.prismic.io/assets", {
         method: "POST",
         headers: apiHeaders(repo, token),
         body: form,
@@ -159,7 +191,7 @@ export async function runMigration(
       data,
     });
     const headers = { ...apiHeaders(repo, token), "Content-Type": "application/json" };
-    const res = await fetch("https://migration.prismic.io/documents", {
+    const res = await fetchWithRetry("https://migration.prismic.io/documents", {
       method: "POST",
       headers,
       body,
@@ -176,11 +208,17 @@ export async function runMigration(
       const id = docIds.get(doc.uid);
       if (!id) {
         throw new Error(
-          `update ${doc.uid}: uid exists but not found via the Document API (set PRISMIC_ACCESS_TOKEN?)`,
+          `update ${doc.uid}: the uid exists but is not visible on the master ref — ` +
+            `most likely it sits in an UNPUBLISHED migration release; publish the release ` +
+            `in the Prismic dashboard, then re-run to update` +
+            (process.env.PRISMIC_ACCESS_TOKEN
+              ? ""
+              : " (if the repo's Document API is private, also set PRISMIC_ACCESS_TOKEN)"),
         );
       }
+      await sleep(THROTTLE_MS); // the failed POST already hit the migration API
       await expectOk(
-        await fetch(`https://migration.prismic.io/documents/${id}`, {
+        await fetchWithRetry(`https://migration.prismic.io/documents/${id}`, {
           method: "PUT",
           headers,
           body,
