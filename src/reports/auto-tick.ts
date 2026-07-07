@@ -23,7 +23,7 @@ function isFresh(checkedAt: string | null, now: Date): boolean {
 const CERT_MIN_DAYS = 14;
 
 /** A single auto-check outcome. `pass` + fresh ⇒ the caller ticks the box. */
-export type EvidenceResult = "pass" | "fail" | "unknown";
+export type EvidenceResult = "pass" | "fail" | "unknown" | "n/a";
 export type EvidenceRecord = { result: EvidenceResult; checkedAt: string | null; note: string };
 
 /**

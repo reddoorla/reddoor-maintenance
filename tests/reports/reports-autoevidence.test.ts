@@ -35,6 +35,18 @@ describe("parseAutoEvidence", () => {
   it("returns null when no entry has a valid shape", () => {
     expect(parseAutoEvidence(JSON.stringify({ x: { result: "nope" } }))).toBeNull();
   });
+
+  it("accepts an 'n/a' result (the widened union — a per-site not-applicable state)", () => {
+    const raw = JSON.stringify({
+      "Test: Form Functionality": {
+        result: "n/a",
+        checkedAt: "2026-07-06T12:00:00.000Z",
+        note: "No contact form on this site",
+      },
+    });
+    const ev = parseAutoEvidence(raw);
+    expect(ev?.["Test: Form Functionality"]?.result).toBe("n/a");
+  });
 });
 
 describe("createDraft writes checklist booleans + auto-evidence", () => {

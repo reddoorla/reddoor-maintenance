@@ -121,13 +121,14 @@ export function parseAutoEvidence(raw: unknown): Record<string, EvidenceRecord> 
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
   // Validate each entry's inner shape (it drives display) — drop any record whose `result` isn't
-  // one of the three literals, and coerce `note`/`checkedAt` to safe types. A garbage blob yields
+  // one of the four literals, and coerce `note`/`checkedAt` to safe types. A garbage blob yields
   // null rather than a record that would render "auto: undefined" on the dashboard.
   const out: Record<string, EvidenceRecord> = {};
   for (const [field, v] of Object.entries(parsed as Record<string, unknown>)) {
     if (!v || typeof v !== "object") continue;
     const o = v as Record<string, unknown>;
-    if (o.result !== "pass" && o.result !== "fail" && o.result !== "unknown") continue;
+    if (o.result !== "pass" && o.result !== "fail" && o.result !== "unknown" && o.result !== "n/a")
+      continue;
     out[field] = {
       result: o.result,
       checkedAt: typeof o.checkedAt === "string" ? o.checkedAt : null,
