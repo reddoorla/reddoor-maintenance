@@ -189,6 +189,56 @@ describe("ingestSubmission", () => {
     expect(forwardNewsletter).toHaveBeenCalledWith("https://hooks.zapier.com/x", row, site);
     expect(addToMailchimp).toHaveBeenCalledWith(site, row);
   });
+
+  it("testMode: suppresses ALL routing — no row, no notify, no fan-out — and accepts", async () => {
+    const forwardNewsletter = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    const addToMailchimp = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    const d = deps({ forwardNewsletter, addToMailchimp });
+    const r = await ingestSubmission(d, "acme", {
+      email: "monitor+e2e@reddoorla.com",
+      message: "hi",
+      testMode: true,
+    });
+    expect(r).toEqual({ status: "accepted", submissionId: "test-mode", notifyStatus: "skipped" });
+    expect(d.createSubmission).not.toHaveBeenCalled();
+    expect(d.notify).not.toHaveBeenCalled();
+    expect(d.stampNotified).not.toHaveBeenCalled();
+    expect(forwardNewsletter).not.toHaveBeenCalled();
+    expect(addToMailchimp).not.toHaveBeenCalled();
+  });
+
+  it("testMode: bypasses Turnstile enforcement even on a requireTurnstile site with a fail token", async () => {
+    const d = deps({
+      getWebsiteBySlug: vi
+        .fn()
+        .mockResolvedValue(makeWebsiteRow({ id: "recSITE", requireTurnstile: true })),
+    });
+    // 4th arg "fail" would auto-spam a normal submission; testMode routes away entirely.
+    const r = await ingestSubmission(d, "acme", { email: "a@b.co", testMode: true }, "fail");
+    expect(r.status).toBe("accepted");
+    if (r.status === "accepted") expect(r.notifyStatus).toBe("skipped");
+    expect(d.createSubmission).not.toHaveBeenCalled();
+  });
+
+  it("testMode: still validates the payload first (a junk body is rejected, not smuggled through)", async () => {
+    const d = deps();
+    const r = await ingestSubmission(d, "acme", { testMode: true });
+    expect(r.status).toBe("rejected");
+    expect(d.createSubmission).not.toHaveBeenCalled();
+  });
+
+  it("testMode: an unknown site still returns unknown-site (marker grants no bypass of resolution)", async () => {
+    const d = deps({ getWebsiteBySlug: vi.fn().mockResolvedValue(null) });
+    const r = await ingestSubmission(d, "nope", { email: "a@b.co", testMode: true });
+    expect(r).toEqual({ status: "unknown-site", slug: "nope" });
+  });
+
+  it("a normal submission (no testMode) is unaffected — still persists + notifies", async () => {
+    const d = deps();
+    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: "hi" });
+    expect(r.status).toBe("accepted");
+    expect(d.createSubmission).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("ingestSubmission — spam decision", () => {
