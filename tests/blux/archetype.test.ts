@@ -4,26 +4,50 @@ import { archetype } from "../../src/blux/archetype.js";
 describe("archetype", () => {
   it("maps bg-media + copy to hero", () => {
     const r = archetype({
-      _title: "<h1>x</h1>",
-      _body: "<p>y</p>",
+      title: "x",
+      _title: { color: "#fff" },
+      body: "<p>y</p>",
       backgroundMedia: { media: "m" },
     });
     expect(r.sliceType).toBe("hero");
     expect(r.confidence).toBeGreaterThanOrEqual(0.8);
   });
+  it("maps a bare background banner (all text disabled) to hero", () => {
+    const r = archetype({
+      title: "Hero Video",
+      _title: { class: "disable" },
+      backgroundMedia: { media: "m" },
+    });
+    expect(r.sliceType).toBe("hero");
+    expect(r.confidence).toBeGreaterThanOrEqual(0.5);
+  });
   it("maps heading+text+media to media_text", () => {
-    expect(
-      archetype({ _title: "<h2>x</h2>", _body: "<p>y</p>", media: { media: "m" } }).sliceType,
-    ).toBe("media_text");
+    expect(archetype({ title: "x", body: "<p>y</p>", media: { media: "m" } }).sliceType).toBe(
+      "media_text",
+    );
+  });
+  it("maps heading+media without body to media_text (image is kept)", () => {
+    const r = archetype({ title: "x", _title: { color: "#000" }, media: { media: "m" } });
+    expect(r.sliceType).toBe("media_text");
+    expect(r.confidence).toBeGreaterThanOrEqual(0.5);
   });
   it("maps heading+text to rich_text", () => {
-    expect(archetype({ _title: "<h2>x</h2>", _body: "<p>y</p>" }).sliceType).toBe("rich_text");
+    expect(archetype({ title: "x", body: "<p>y</p>" }).sliceType).toBe("rich_text");
+  });
+  it("does not count disabled text as content", () => {
+    const r = archetype({
+      title: "x",
+      _title: { class: "disable" },
+      body: "y",
+      _body: "disable",
+    });
+    expect(r.confidence).toBeLessThan(0.5);
   });
   it("maps a grid container to grid", () => {
-    expect(archetype({ class: "grid", items: [{ _title: "a" }] }).sliceType).toBe("grid");
+    expect(archetype({ class: "grid", items: [{ title: "a" }] }).sliceType).toBe("grid");
   });
   it("maps a slides container to slider", () => {
-    expect(archetype({ class: "slides", items: [{ _title: "a" }] }).sliceType).toBe("slider");
+    expect(archetype({ class: "slides", items: [{ title: "a" }] }).sliceType).toBe("slider");
   });
   it("flags an empty/unknown block as low confidence", () => {
     expect(archetype({}).confidence).toBeLessThan(0.5);

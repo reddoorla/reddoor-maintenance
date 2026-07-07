@@ -1,4 +1,4 @@
-import type { BluxBlock } from "./parse.js";
+import { visibleText, type BluxBlock } from "./parse.js";
 
 const nonEmpty = (v: unknown): boolean =>
   v != null &&
@@ -13,23 +13,29 @@ export type ArchetypeResult = {
 };
 
 export function archetype(b: BluxBlock): ArchetypeResult {
-  const heading = nonEmpty(b.title) || nonEmpty(b._title);
-  const text = nonEmpty(b.body) || nonEmpty(b._body);
+  const heading = visibleText(b.title, b._title) !== undefined;
+  const text = visibleText(b.body, b._body) !== undefined;
   const media = nonEmpty(b.media?.media);
   const bg = nonEmpty(b.backgroundMedia?.media);
   const kids = Array.isArray(b.items) && b.items.length > 0;
   const cls = nonEmpty(b.class) ? String(b.class) : null;
 
-  if (bg && (heading || text)) return { sliceType: "hero", variation: "default", confidence: 0.9 };
+  // A background image/video makes a hero even with no visible copy — Blux
+  // uses text-less full-bleed banners (e.g. a hero video with a disabled label).
+  if (bg)
+    return { sliceType: "hero", variation: "default", confidence: heading || text ? 0.9 : 0.7 };
   if (kids && cls === "slides")
     return { sliceType: "slider", variation: "default", confidence: 0.85 };
   if (kids)
     return { sliceType: "grid", variation: "default", confidence: cls === "grid" ? 0.9 : 0.7 };
-  if (heading && text && media)
+  // Any visible copy next to media is a media_text; media alone still is,
+  // just with less certainty.
+  if (media && heading && text)
     return { sliceType: "media_text", variation: "imageRight", confidence: 0.9 };
+  if (media && (heading || text))
+    return { sliceType: "media_text", variation: "imageRight", confidence: 0.75 };
+  if (media) return { sliceType: "media_text", variation: "imageRight", confidence: 0.6 };
   if (heading && text) return { sliceType: "rich_text", variation: "default", confidence: 0.85 };
-  if (media && !heading && !text)
-    return { sliceType: "media_text", variation: "imageRight", confidence: 0.6 };
-  if (text) return { sliceType: "rich_text", variation: "default", confidence: 0.6 };
+  if (heading || text) return { sliceType: "rich_text", variation: "default", confidence: 0.6 };
   return { sliceType: "rich_text", variation: "default", confidence: 0.2 };
 }
