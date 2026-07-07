@@ -161,7 +161,7 @@ throwing.
 
 One `/health` fetch feeds **two** items (Deploy & Function Health, CMS Checked) via its structured
 body. Each evidence fn is a pure `*Evidence(site, now): EvidenceRecord | null`, freshness-gated by
-`isFresh` (STALE_DAYS = 3). Honest notes remain (e.g. Uptime "point-in-time"), but as _descriptions_
+`isFresh` (STALE*DAYS = 3). Honest notes remain (e.g. Uptime "point-in-time"), but as \_descriptions*
 not apologies.
 
 ## Producer subsystems
