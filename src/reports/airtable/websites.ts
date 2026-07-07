@@ -429,6 +429,8 @@ export type BrowserAuditFields = {
   desktopOk: boolean;
   mobileOk: boolean;
   linksOk: boolean;
+  reachableOk: boolean;
+  titleMetaOk: boolean;
   brokenLinks: number;
   checkedAt: string;
 };
@@ -593,6 +595,12 @@ function browserFields(r: BrowserAuditFields): FieldSet {
     "Links OK": r.linksOk,
     "Broken links": r.brokenLinks,
     "Browser checked at": r.checkedAt,
+    // NEW tri-state single-select verdicts (empty = never ran). The browser audit only produces a
+    // BrowserAuditFields when it actually ran (hasBrowserResult guards on checkedAt), so each verdict
+    // is always a concrete boolean here — serialize true→"pass", false→"fail". The existing boolean
+    // columns above are deliberately NOT retrofitted (out of scope).
+    "Uptime Reachable": r.reachableOk ? "pass" : "fail",
+    "Titles & Meta OK": r.titleMetaOk ? "pass" : "fail",
   };
 }
 

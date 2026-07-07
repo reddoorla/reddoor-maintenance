@@ -5,6 +5,8 @@ type BrowserDetails = {
   desktopOk: boolean;
   mobileOk: boolean;
   linksOk: boolean;
+  reachableOk: boolean;
+  titleMetaOk: boolean;
   brokenLinks: number;
   checkedAt: string;
 };
@@ -27,6 +29,8 @@ export function browserFieldsFromAudit(result: AuditResult): BrowserAuditFields 
     desktopOk: d?.desktopOk === true,
     mobileOk: d?.mobileOk === true,
     linksOk: d?.linksOk === true,
+    reachableOk: d?.reachableOk === true,
+    titleMetaOk: d?.titleMetaOk === true,
     brokenLinks: typeof d?.brokenLinks === "number" ? d.brokenLinks : 0,
     checkedAt: typeof d?.checkedAt === "string" ? d.checkedAt : new Date().toISOString(),
   };

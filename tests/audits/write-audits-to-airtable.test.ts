@@ -242,6 +242,8 @@ describe("writeAuditsToAirtable", () => {
         desktopOk: true,
         mobileOk: false,
         linksOk: true,
+        reachableOk: true,
+        titleMetaOk: false,
         brokenLinks: 0,
         checkedAt: "2026-06-18T00:00:00.000Z",
       },
@@ -263,6 +265,8 @@ describe("writeAuditsToAirtable", () => {
       "Links OK": true,
       "Broken links": 0,
       "Browser checked at": "2026-06-18T00:00:00.000Z",
+      "Uptime Reachable": "pass",
+      "Titles & Meta OK": "fail",
     });
   });
 
