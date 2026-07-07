@@ -40,6 +40,24 @@ function siteRow(over: Partial<FakeRecord["fields"]> = {}): FakeRecord {
   };
 }
 
+/** An all-pass Maintenance gating-evidence map, so the pending/approved report
+ *  fixtures below stay health-clean and keep testing exactly what they tested
+ *  before healthBlockers was folded into approveBlockers (health-gate phase 8)
+ *  — the digest's preflight collector now reads this too. Tests that care about
+ *  health override the field explicitly. */
+const healthCleanEvidence = (): string =>
+  JSON.stringify({
+    "Maint: Deploy & Function Health": {
+      result: "pass",
+      checkedAt: "2026-07-06T00:00:00.000Z",
+      note: "",
+    },
+    "Maint: CMS Checked": { result: "pass", checkedAt: "2026-07-06T00:00:00.000Z", note: "" },
+    "Maint: Domain, DNS & SSL": { result: "pass", checkedAt: "2026-07-06T00:00:00.000Z", note: "" },
+    "Maint: Security Updates": { result: "pass", checkedAt: "2026-07-06T00:00:00.000Z", note: "" },
+    "Maint: Uptime Checked": { result: "pass", checkedAt: "2026-07-06T00:00:00.000Z", note: "" },
+  });
+
 /** A report that IS pending approval: draftReady=true, approvedToSend=false, sentAt=null. */
 function readyReport(over: Partial<FakeRecord["fields"]> = {}): FakeRecord {
   return {
@@ -60,6 +78,7 @@ function readyReport(over: Partial<FakeRecord["fields"]> = {}): FakeRecord {
       "Approved to send": false,
       // "Sent at" absent → sentAt === null
       "Delivery status": "pending",
+      "Checklist auto-evidence": healthCleanEvidence(),
       ...over,
     },
   };

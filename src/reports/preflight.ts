@@ -401,7 +401,9 @@ export function healthBlockers(report: ReportRow): PreflightFinding[] {
     autoEvidence: report.autoEvidence ?? {},
   })) {
     if (status === "pass" || status === "n/a") continue;
-    const note = report.autoEvidence?.[field]?.note ?? "no signal yet";
+    // `||`, not `??`: an explicit empty-string note (no message recorded) must
+    // also fall back to the placeholder, not render as a trailing blank.
+    const note = report.autoEvidence?.[field]?.note || "no signal yet";
     findings.push({
       level: "fail",
       check: "health-gate",
@@ -418,9 +420,11 @@ export function healthBlockers(report: ReportRow): PreflightFinding[] {
  * The send-blocking subset for ONE report, at approve time: exactly the
  * conditions that make `sendOne` throw (no recipients, malformed To/CC, no
  * header image, no report-level Lighthouse scores) plus the wrong-inbox warn
- * (operator address resolved as a client's To). PURE — the approve gate, the
- * dashboard's pending-row chip, and the digest collector all call this one
- * function so "approvable" can't drift from "sendable".
+ * (operator address resolved as a client's To) plus every {@link healthBlockers}
+ * finding (a gating checklist item whose auto-evidence isn't `pass`/`n/a` fails
+ * the health gate). PURE — the approve gate, the dashboard's pending-row chip,
+ * and the digest collector all call this one function so "approvable" can't
+ * drift from "sendable".
  *
  * Deliberately narrower than {@link preflightSite}: schedule hygiene and
  * pending-draft races are fleet/site concerns — blocking THIS report's approval

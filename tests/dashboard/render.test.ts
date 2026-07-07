@@ -4,11 +4,29 @@ import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
 import type { SubmissionRow } from "../../src/reports/submission-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
-import { MAINTENANCE_CHECKLIST, TESTING_CHECKLIST } from "../../src/reports/checklist.js";
+import {
+  MAINTENANCE_CHECKLIST,
+  TESTING_CHECKLIST,
+  gatingFields,
+} from "../../src/reports/checklist.js";
 import { escapeHtml } from "../../src/util/html.js";
+import type { EvidenceRecord } from "../../src/reports/auto-tick.js";
 
 /** All 6 maintenance cells true → a complete Maintenance checklist. */
 const COMPLETE_MAINTENANCE = Object.fromEntries(MAINTENANCE_CHECKLIST.map((i) => [i.field, true]));
+
+/** An all-pass gating-evidence map for the given report type, so pre-existing
+ *  recipients/header/scores/checklist tests below stay health-clean and keep
+ *  testing exactly what they tested before healthBlockers was folded into
+ *  approveBlockers (health-gate phase 8). Tests that care about health override
+ *  `autoEvidence` explicitly. */
+const healthCleanEvidence = (type: ReportRow["reportType"]): Record<string, EvidenceRecord> =>
+  Object.fromEntries(
+    gatingFields(type).map((f) => [
+      f,
+      { result: "pass" as const, checkedAt: "2026-07-06T00:00:00.000Z", note: "" },
+    ]),
+  );
 
 function siteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
   return makeWebsiteRow({
@@ -60,7 +78,7 @@ function reportRow(over: Partial<ReportRow> = {}): ReportRow {
     approvedAt: null,
     approvedBy: null,
     checklist: {},
-    autoEvidence: null,
+    autoEvidence: healthCleanEvidence(over.reportType ?? "Maintenance"),
     ...over,
   };
 }

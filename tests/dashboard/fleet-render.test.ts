@@ -3,9 +3,22 @@ import { renderCockpitHtml } from "../../src/dashboard/fleet-render.js";
 import { buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
+import { gatingFields } from "../../src/reports/checklist.js";
 
 const BASE = "https://reddoor-maintenance.netlify.app";
 const NOW = new Date("2026-06-11T12:00:00Z");
+
+/** An all-pass Maintenance gating-evidence map, so pending-approval fixtures below
+ *  stay health-clean and keep testing exactly what they tested before healthBlockers
+ *  was folded into approveBlockers (health-gate phase 8) — the cockpit's
+ *  collectPreflightBlocked collector now reads this too. */
+const healthCleanEvidence = () =>
+  Object.fromEntries(
+    gatingFields("Maintenance").map((f) => [
+      f,
+      { result: "pass" as const, checkedAt: "2026-07-06T00:00:00.000Z", note: "" },
+    ]),
+  );
 
 /** Build a real model from site rows so render tests exercise the true shape. */
 function model(
@@ -307,6 +320,7 @@ describe("verdict bar", () => {
           approvedToSend: false,
           sentAt: null,
           deliveryStatus: "pending",
+          autoEvidence: healthCleanEvidence(),
         } as never,
       ],
       {},
@@ -345,6 +359,7 @@ describe("renderCockpitHtml — verdict bar (replaces the summary tally)", () =>
           approvedToSend: false,
           sentAt: null,
           deliveryStatus: "pending",
+          autoEvidence: healthCleanEvidence(),
         } as never,
       ],
       {},
@@ -408,6 +423,7 @@ describe("needs-you feed", () => {
         draftReady: true,
         approvedToSend: false,
         sentAt: null,
+        autoEvidence: healthCleanEvidence(),
         deliveryStatus: "pending",
       } as never,
     ];
