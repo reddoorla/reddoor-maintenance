@@ -2,6 +2,7 @@ import type { SiteIR, RecordIR } from "../ir.js";
 import { richText, assetRef, type MigrationPlan, type PlanDocument } from "./plan.js";
 import { buildCustomType } from "./custom-types.js";
 import { sectionToSlice } from "./slices.js";
+import { coerceHeadingHtml } from "./coerce-html.js";
 
 const RICHTEXT = new Set(["body", "description"]);
 
@@ -31,7 +32,11 @@ export function buildMigrationPlan(ir: SiteIR): MigrationPlan {
     documents.push({
       type: "page",
       uid: page.uid,
-      data: { title: page.title, slices: page.sections.map(sectionToSlice) },
+      // the page type's title is StructuredText(single heading1)
+      data: {
+        title: richText(coerceHeadingHtml(page.title || page.uid, ["h1"])),
+        slices: page.sections.map(sectionToSlice),
+      },
     });
   }
   for (const c of ir.collections) {

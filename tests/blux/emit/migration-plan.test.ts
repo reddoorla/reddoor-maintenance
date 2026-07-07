@@ -24,6 +24,10 @@ describe("buildMigrationPlan", () => {
     expect(plan.assets.every((a) => a.url.startsWith("https://"))).toBe(true);
     expect(plan.assets.map((a) => a.id).sort()).toEqual(["img-1", "img-2"]);
   });
+  it("emits the page title as single-heading1 rich text", () => {
+    const page = plan.documents.find((d) => d.type === "page")!;
+    expect(page.data.title).toEqual({ __richtext_html: "<h1>Home</h1>" });
+  });
   it("is deterministic", () => {
     const again = buildMigrationPlan(assembleIR({ siteJson: minimalSite, htmls: [minimalHtml] }));
     expect(again).toEqual(plan);

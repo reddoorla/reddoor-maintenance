@@ -1,8 +1,24 @@
 import type { SectionIR } from "../ir.js";
 import { richText, assetRef, type PlanSlice } from "./plan.js";
+import { coerceHeadingHtml, demoteHeadingsHtml } from "./coerce-html.js";
+
+/** Allowed heading tags per slice heading slot — MUST mirror the
+ *  StructuredText configs in reddoor-starter/src/lib/slices/<Slice>/model.json. */
+const HEADING_TAGS = {
+  hero: ["h1", "h2"],
+  media_text: ["h2", "h3"],
+  section_grid: ["h2", "h3"],
+  section_grid_item: ["h3", "h4"],
+} satisfies Record<string, string[]>;
 
 function rt(html?: string) {
   return html ? richText(html) : undefined;
+}
+function rtHeading(html: string | undefined, slot: keyof typeof HEADING_TAGS) {
+  return html ? richText(coerceHeadingHtml(html, HEADING_TAGS[slot])) : undefined;
+}
+function rtBody(html?: string) {
+  return html ? richText(demoteHeadingsHtml(html)) : undefined;
 }
 function img(id?: string) {
   return id ? assetRef(id) : undefined;
@@ -19,8 +35,8 @@ export function sectionToSlice(s: SectionIR): PlanSlice {
         slice_type: "hero",
         variation: "default",
         primary: compact({
-          heading: rt(f.heading),
-          body: rt(f.body),
+          heading: rtHeading(f.heading, "hero"),
+          body: rtBody(f.body),
           background_image: img(f.backgroundMedia ?? f.media),
         }),
         items: [],
@@ -29,7 +45,11 @@ export function sectionToSlice(s: SectionIR): PlanSlice {
       return {
         slice_type: "media_text",
         variation: s.variation === "imageLeft" ? "imageLeft" : "imageRight",
-        primary: compact({ heading: rt(f.heading), body: rt(f.body), media: img(f.media) }),
+        primary: compact({
+          heading: rtHeading(f.heading, "media_text"),
+          body: rtBody(f.body),
+          media: img(f.media),
+        }),
         items: [],
       };
     case "collection_list":
@@ -37,7 +57,7 @@ export function sectionToSlice(s: SectionIR): PlanSlice {
         slice_type: "collection_list",
         variation: s.variation === "list" ? "list" : "grid",
         primary: compact({
-          heading: rt(f.heading),
+          heading: rtHeading(f.heading, "section_grid"),
           collection_type: s.collectionRef?.apiId ?? "",
           max_items: 24,
         }),
@@ -48,17 +68,18 @@ export function sectionToSlice(s: SectionIR): PlanSlice {
       return {
         slice_type: "section_grid",
         variation: "default",
-        primary: compact({ heading: rt(f.heading), columns: f.columns ?? 3 }),
+        primary: compact({ heading: rtHeading(f.heading, "section_grid"), columns: f.columns ?? 3 }),
         items: (s.children ?? []).map((c) =>
           compact({
-            item_heading: rt(c.fields.heading),
-            item_body: rt(c.fields.body),
+            item_heading: rtHeading(c.fields.heading, "section_grid_item"),
+            item_body: rtBody(c.fields.body),
             item_media: img(c.fields.media),
           }),
         ),
       };
     case "rich_text":
     default:
+      // rich_text content allows every block type — no coercion needed
       return {
         slice_type: "rich_text",
         variation: "default",
