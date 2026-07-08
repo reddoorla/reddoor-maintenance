@@ -3,6 +3,7 @@ import { openBase } from "../../src/reports/airtable/client.js";
 import {
   getReportById as getReportByIdAirtable,
   approveReportRow,
+  overrideReportRow,
 } from "../../src/reports/airtable/reports.js";
 import { approveReport, verifyBasicAuth } from "../../src/dashboard/index.js";
 import { listWebsites } from "../../src/reports/airtable/websites.js";
@@ -97,12 +98,24 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   const id = ctx.params?.id;
   if (!id) return plainText("Missing report id", 400);
 
+  // A logged send-anyway override is opt-in via `?override=1` (query flag, since
+  // this route is invoked with a fixed method+path from the dashboard's inline
+  // fetch) plus a JSON body carrying the required reason. Absent/invalid JSON
+  // reads as an empty reason, which approveReport refuses outright (no bypass).
+  const url = new URL(req.url);
+  let override: { reason: string } | undefined;
+  if (url.searchParams.get("override") === "1") {
+    const body = (await req.json().catch(() => ({}))) as { reason?: unknown };
+    override = { reason: typeof body.reason === "string" ? body.reason : "" };
+  }
+
   try {
     const base = openBase({ apiKey, baseId });
     const result = await approveReport(
       {
         getReportById: (rid) => getReportByIdAirtable(base, rid),
         approveReportRow: (rid, at, by) => approveReportRow(base, rid, at, by),
+        overrideReport: (rid, at, by, reason) => overrideReportRow(base, rid, at, by, reason),
         now: () => new Date(),
         sendBlockers: async (report) => {
           // One Websites fetch per approve click (30/min rate limit; fine). A
@@ -114,6 +127,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
         },
       },
       id,
+      override,
     );
 
     if (result.status === "not-found") {

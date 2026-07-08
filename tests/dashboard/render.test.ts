@@ -872,6 +872,39 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
     expect(html).toContain("advisory — never blocks");
   });
 
+  it("renders a 'Send anyway…' override control on a health-red pending report", () => {
+    const autoEvidence = {
+      "Maint: CMS Checked": {
+        result: "fail" as const,
+        checkedAt: "2026-05-01T00:00:00Z",
+        note: "Prismic unreachable",
+      },
+    };
+    const html = renderSiteDashboardHtml(siteRow(), [
+      reportRow({ id: "recREP1", approvedToSend: false, sentAt: null, autoEvidence }),
+    ]);
+    expect(html).toContain('data-override-for="recREP1"');
+    expect(html).toContain("Send anyway");
+    // A required-reason text input, and the submit posts to the approve endpoint
+    // with the override query param — never silently bypasses via a hidden default.
+    expect(html).toMatch(/class="override-reason"/);
+    expect(html).toContain("/api/reports/recREP1/approve?override=1");
+  });
+
+  it("omits the override control entirely when the health gate is already clear", () => {
+    const html = renderSiteDashboardHtml(siteRow(), [
+      reportRow({
+        id: "recREP1",
+        approvedToSend: false,
+        sentAt: null,
+        // Default reportRow() autoEvidence is healthCleanEvidence — gate clear.
+      }),
+    ]);
+    expect(html).not.toContain("data-override-for");
+    expect(html).not.toContain("Send anyway");
+    expect(html).not.toContain("override=1");
+  });
+
   it("renders every checklist item's label with no manual checkbox markup", () => {
     const html = renderSiteDashboardHtml(siteRow(), [
       reportRow({

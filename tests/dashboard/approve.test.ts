@@ -48,6 +48,7 @@ function deps(over: Partial<ApproveDeps> = {}): ApproveDeps {
   return {
     getReportById: vi.fn().mockResolvedValue(reportRow()),
     approveReportRow: vi.fn().mockResolvedValue(undefined),
+    overrideReport: vi.fn().mockResolvedValue(undefined),
     now: () => new Date("2026-06-11T15:30:00.000Z"),
     sendBlockers: vi.fn().mockResolvedValue([]),
     ...over,
@@ -199,5 +200,50 @@ describe("approveReport — send-blocker gate", () => {
     });
     await approveReport(d, "rec1");
     expect(sendBlockers).not.toHaveBeenCalled();
+  });
+});
+
+describe("approveReport — logged override", () => {
+  it("rejects an empty reason as override-reason-required (no write)", async () => {
+    const d = deps();
+    const res = await approveReport(d, "recREP1", { reason: "   " });
+    expect(res).toEqual({
+      status: "blocked",
+      reportId: "recREP1",
+      reason: "override-reason-required",
+    });
+    expect(d.overrideReport).not.toHaveBeenCalled();
+    expect(d.approveReportRow).not.toHaveBeenCalled();
+  });
+
+  it("overrides a health-blocked report with a reason: stamps who/when/reason and returns overridden", async () => {
+    // sendBlockers returns health blockers for the plain report but NONE for the synthetic
+    // overridden copy (healthBlockers self-suppress on isSendOverridden).
+    const d = deps({
+      sendBlockers: vi.fn(async (r) =>
+        r.sendOverride ? [] : ["health-gate: Maint: CMS Checked: failing — down"],
+      ),
+    });
+    const res = await approveReport(d, "recREP1", { reason: "client verbally signed off" });
+    expect(res).toEqual({
+      status: "overridden",
+      reportId: "recREP1",
+      reason: "client verbally signed off",
+    });
+    expect(d.overrideReport).toHaveBeenCalledWith(
+      "recREP1",
+      new Date("2026-06-11T15:30:00.000Z"),
+      "dashboard",
+      "client verbally signed off",
+    );
+  });
+
+  it("still blocks an override when a REAL send blocker (missing header) remains", async () => {
+    const d = deps({
+      sendBlockers: vi.fn().mockResolvedValue(["header-image-missing: no Header image"]),
+    });
+    const res = await approveReport(d, "recREP1", { reason: "ship it" });
+    expect(res).toMatchObject({ status: "blocked", reason: "send-blocked" });
+    expect(d.overrideReport).not.toHaveBeenCalled();
   });
 });

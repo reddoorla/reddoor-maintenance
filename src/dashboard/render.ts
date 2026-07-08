@@ -148,6 +148,30 @@ function approveButton(r: ReportRow, blocked: boolean): string {
   return `<button class="approve" data-report-id="${escapeHtml(r.id)}" data-approve-url="${escapeHtml(`/api/reports/${encodeURIComponent(r.id)}/approve`)}"${blockedAttr}${disabled}>Approve</button>`;
 }
 
+/** The "Send anyway…" override affordance for a health-red pending report: a required-reason
+ *  text input plus a submit button that POSTs to the approve endpoint with `?override=1`.
+ *  Rendered ONLY when `!isHealthGateClear(r)` — a healthy report has nothing to override, and a
+ *  gate that's already clear hides/omits the control entirely (R4.1). This is NOT a bypass of the
+ *  real send blockers (missing recipients / header image / report scores): the endpoint still
+ *  evaluates those against the synthetic overridden report and can refuse the override too. */
+function overrideControl(r: ReportRow): string {
+  const gateClear = isHealthGateClear({
+    reportType: r.reportType,
+    autoEvidence: r.autoEvidence ?? {},
+  });
+  if (gateClear) return "";
+  const rid = escapeHtml(r.id);
+  const overrideUrl = escapeHtml(`/api/reports/${encodeURIComponent(r.id)}/approve?override=1`);
+  return `<div class="override" data-override-for="${rid}">
+    <button type="button" class="override-toggle" data-report-id="${rid}">Send anyway…</button>
+    <div class="override-form" hidden>
+      <input type="text" class="override-reason" placeholder="Reason for overriding the health gate (required)" />
+      <button type="button" class="override-submit" data-report-id="${rid}" data-override-url="${overrideUrl}">Confirm override</button>
+      <span class="override-status"></span>
+    </div>
+  </div>`;
+}
+
 /** The preflight chip for one pending report: red = send blockers (approve
  *  disabled), amber = wrong-inbox warns, green = clear. Reasons ride the title
  *  tooltip. Same approveBlockers() the approve endpoint gates on, computed from
@@ -223,7 +247,7 @@ function pendingRow(r: ReportRow, site: WebsiteRow, now: Date): string {
     ? `<a href="${escapeHtml(safeUrl(r.renderedHtmlAttachment.url))}" rel="noopener noreferrer" title="rendered at draft time — Commentary/subject edits after drafting are not reflected">draft preview ▸</a>`
     : `<span class="muted">no preview yet</span>`;
   const sendLine = sendTimingLine(now);
-  return `<li><div class="pending-head"><strong>${type}</strong> <span class="muted">${period}</span> ${preflightChip(findings)} ${preview} ${approveButton(r, blocked)}</div><div class="pending-info">${recipientsLine(site)} ${sendLine}</div>${checklistBlock(r)}</li>`;
+  return `<li><div class="pending-head"><strong>${type}</strong> <span class="muted">${period}</span> ${preflightChip(findings)} ${preview} ${approveButton(r, blocked)}</div><div class="pending-info">${recipientsLine(site)} ${sendLine}</div>${checklistBlock(r)}${overrideControl(r)}</li>`;
 }
 
 function pendingSection(reports: ReportRow[], site: WebsiteRow, now: Date): string {
@@ -503,6 +527,15 @@ button.approve:disabled { opacity: 0.6; cursor: default; }
   }
 }
 .pill { font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 999px; font-weight: 700; }
+.override { margin: 0.4rem 0 0.15rem 0.25rem; }
+button.override-toggle { font: inherit; font-size: 0.78rem; padding: 0.15rem 0.6rem; border: 1px solid #b00; border-radius: 6px; background: transparent; color: #b00; cursor: pointer; }
+@media (prefers-color-scheme: dark) { button.override-toggle { border-color: #ff8a80; color: #ff8a80; } }
+.override-form { margin-top: 0.35rem; display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+.override-reason { font: inherit; font-size: 0.85rem; padding: 0.25rem 0.45rem; border: 1px solid #ccc; border-radius: 4px; background: transparent; color: inherit; min-width: 220px; flex: 1 1 220px; }
+@media (prefers-color-scheme: dark) { .override-reason { border-color: #444; } }
+button.override-submit { font: inherit; font-size: 0.8rem; padding: 0.25rem 0.7rem; border: 1px solid #b00; border-radius: 6px; background: #b00; color: #fff; cursor: pointer; }
+button.override-submit:disabled { opacity: 0.6; cursor: default; }
+.override-status { font-size: 0.78rem; color: #999; }
 .vuln-list { list-style: none; padding: 0; margin: 0; }
 .vuln-item { padding: 0.45rem 0; border-bottom: 1px solid #eee; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: baseline; }
 @media (prefers-color-scheme: dark) { .vuln-item { border-color: #2a2a2a; } }
@@ -642,6 +675,64 @@ export function renderSiteDashboardHtml(
           // Network rejection (offline, DNS, abort): mirror the !res.ok path so
           // the button doesn't sit permanently disabled reading "Approve".
           b.textContent = "Failed";
+          b.disabled = false;
+        }
+      });
+    });
+    // Health-gate override affordance: the toggle reveals a required-reason field; the
+    // submit POSTs the server-provided override URL with { reason } as the body — a
+    // distinct, deliberate action, never a silent default (an empty reason is
+    // refused client-side AND server-side).
+    document.querySelectorAll("button.override-toggle").forEach((b) => {
+      b.addEventListener("click", () => {
+        const form = b.nextElementSibling;
+        if (form) form.hidden = !form.hidden;
+      });
+    });
+    document.querySelectorAll("button.override-submit").forEach((b) => {
+      b.addEventListener("click", async () => {
+        const wrap = b.closest(".override-form");
+        const input = wrap ? wrap.querySelector(".override-reason") : null;
+        const status = wrap ? wrap.querySelector(".override-status") : null;
+        const reason = input ? input.value.trim() : "";
+        if (!reason) {
+          if (status) status.textContent = "Reason required";
+          return;
+        }
+        b.disabled = true;
+        if (status) status.textContent = "Sending…";
+        try {
+          const res = await fetch(b.dataset.overrideUrl, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ reason }),
+          });
+          if (res.ok) {
+            if (status) status.textContent = "Overridden ✓";
+            if (input) input.disabled = true;
+            // Reflect the send-anyway state on the row's own Approve button too —
+            // it stays server-gated disabled, but the label should stop implying
+            // "waiting on you" once an override has gone through.
+            const approveBtn = document.querySelector(
+              'button.approve[data-report-id="' + b.dataset.reportId + '"]',
+            );
+            if (approveBtn) approveBtn.textContent = "Overridden";
+          } else {
+            // A 409 carries { reason, blockers } — surface WHY (textContent only,
+            // never innerHTML, so server strings stay inert).
+            const data = await res.json().catch(() => null);
+            if (status) {
+              status.textContent =
+                data && Array.isArray(data.blockers) && data.blockers.length > 0
+                  ? data.blockers.join("; ")
+                  : data && data.reason === "override-reason-required"
+                    ? "Reason required"
+                    : "Failed";
+            }
+            b.disabled = false;
+          }
+        } catch {
+          if (status) status.textContent = "Failed";
           b.disabled = false;
         }
       });

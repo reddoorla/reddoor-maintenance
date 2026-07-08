@@ -7,7 +7,7 @@ import type { ReportRow } from "./airtable/reports.js";
 import { parseAddresses, isProbablyEmail } from "./send/orchestrate.js";
 import { ELIGIBLE_STATUSES, reportPeriodKey } from "./due.js";
 import type { ReportType } from "./types.js";
-import { gatingHealth } from "./checklist.js";
+import { gatingHealth, isSendOverridden } from "./checklist.js";
 
 export type PreflightLevel = "fail" | "warn" | "info";
 
@@ -391,10 +391,12 @@ export async function preflight(deps?: PreflightDeps): Promise<PreflightResult> 
  * Folded into {@link approveBlockers} so health failures ride the existing send-blocked reason +
  * 409 + dashboard chip (the second gate — no third gate is added).
  *
- * NOTE: override suppression is added in Phase 10 (a guard at the top of this function). Until
- * then a health-red report always blocks approve/send.
+ * A logged send-anyway override ({@link isSendOverridden}) suppresses these findings — but never
+ * the REAL send blockers (recipients/header/scores), which are computed outside this function and
+ * still gate an overridden send.
  */
 export function healthBlockers(report: ReportRow): PreflightFinding[] {
+  if (isSendOverridden(report)) return [];
   const findings: PreflightFinding[] = [];
   for (const { field, status } of gatingHealth({
     reportType: report.reportType,
