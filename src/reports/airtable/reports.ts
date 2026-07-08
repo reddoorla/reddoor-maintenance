@@ -55,9 +55,17 @@ export type ReportRow = {
    *  subset (see src/reports/checklist.ts). */
   checklist: Record<string, boolean>;
   /** Snapshot of the auto-tick evidence at draft time, keyed by checklist field → evidence
-   *  record. Null when the report predates auto-tick or carried no auto-checked items. Drives the
-   *  dashboard's green/amber badges; the gate still reads the booleans, not this. */
+   *  record. Null when the report predates auto-tick or carried no auto-checked items. This is the
+   *  health gate's source of truth: `isHealthGateClear`/`gatingHealth` (src/reports/checklist.ts)
+   *  read these evidence records, NOT the checklist booleans — and also drive the dashboard badges. */
   autoEvidence: Record<string, EvidenceRecord> | null;
+  /** Logged send-anyway override (Phase 10). When `sendOverride` is true AND `overrideReason` is
+   *  non-empty, the health gate is bypassed for THIS report; `overrideBy`/`overrideAt` are the
+   *  audit trail (parallel to approvedBy/approvedAt). Missing cells read false/null. */
+  sendOverride: boolean;
+  overrideReason: string | null;
+  overrideBy: string | null;
+  overrideAt: string | null;
 };
 
 /**
@@ -103,6 +111,10 @@ function mapRow(rec: { id: string; fields: Record<string, unknown> }): ReportRow
     resendMessageId: (f["Resend message ID"] as string | undefined) ?? null,
     checklist: Object.fromEntries(ALL_CHECKLIST_FIELDS.map((name) => [name, Boolean(f[name])])),
     autoEvidence: parseAutoEvidence(f["Checklist auto-evidence"]),
+    sendOverride: Boolean(f["Send override"]),
+    overrideReason: (f["Override reason"] as string | undefined) ?? null,
+    overrideBy: (f["Override by"] as string | undefined) ?? null,
+    overrideAt: (f["Override at"] as string | undefined) ?? null,
   };
 }
 
@@ -121,13 +133,14 @@ export function parseAutoEvidence(raw: unknown): Record<string, EvidenceRecord> 
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
   // Validate each entry's inner shape (it drives display) — drop any record whose `result` isn't
-  // one of the three literals, and coerce `note`/`checkedAt` to safe types. A garbage blob yields
+  // one of the four literals, and coerce `note`/`checkedAt` to safe types. A garbage blob yields
   // null rather than a record that would render "auto: undefined" on the dashboard.
   const out: Record<string, EvidenceRecord> = {};
   for (const [field, v] of Object.entries(parsed as Record<string, unknown>)) {
     if (!v || typeof v !== "object") continue;
     const o = v as Record<string, unknown>;
-    if (o.result !== "pass" && o.result !== "fail" && o.result !== "unknown") continue;
+    if (o.result !== "pass" && o.result !== "fail" && o.result !== "unknown" && o.result !== "n/a")
+      continue;
     out[field] = {
       result: o.result,
       checkedAt: typeof o.checkedAt === "string" ? o.checkedAt : null,
@@ -230,7 +243,8 @@ export async function createDraft(base: AirtableBase, input: DraftInput): Promis
   if (input.period !== undefined) fields["Period"] = input.period;
   if (input.subjectOverride !== undefined) fields["Subject override"] = input.subjectOverride;
   // Auto-ticked checklist boxes + the evidence snapshot. The booleans are the same columns the
-  // operator/dashboard toggle; the JSON drives the dashboard's green/amber badges.
+  // operator/dashboard toggle; the JSON is what the health gate reads (isHealthGateClear/gatingHealth)
+  // and also drives the dashboard's green/amber badges.
   for (const field of input.checklistTicks ?? []) fields[field] = true;
   if (input.autoEvidence && Object.keys(input.autoEvidence).length > 0) {
     fields["Checklist auto-evidence"] = JSON.stringify(input.autoEvidence);
@@ -383,18 +397,32 @@ export async function approveReportRow(
 }
 
 /**
- * Set one operator-checklist checkbox on a Reports row. `field` MUST be one of the
- * 12 known checklist columns (ALL_CHECKLIST_FIELDS) — the caller (setChecklistItem)
- * validates this before calling, so an arbitrary Airtable column can never be written.
- * The raw write mirror of `approveReportRow`; touches only the one checkbox.
+ * Stamp a logged send-anyway override on a Reports row: sets `Send override` TRUE, the reason, and
+ * who/when — AND flips `Approved to send` TRUE (with the same Approved At/By stamp) so the daily
+ * cron delivers the overridden report. Mirrors {@link approveReportRow}; never touches `Sent at`.
  */
-export async function setReportChecklistItem(
+export async function overrideReportRow(
   base: AirtableBase,
   recordId: string,
-  field: string,
-  value: boolean,
+  overrideAt: Date,
+  overrideBy: string,
+  reason: string,
 ): Promise<void> {
-  await base(REPORTS_TABLE).update([{ id: recordId, fields: { [field]: value } }]);
+  const at = overrideAt.toISOString();
+  await base(REPORTS_TABLE).update([
+    {
+      id: recordId,
+      fields: {
+        "Send override": true,
+        "Override reason": reason,
+        "Override by": overrideBy,
+        "Override at": at,
+        "Approved to send": true,
+        "Approved At": at,
+        "Approved By": overrideBy,
+      },
+    },
+  ]);
 }
 
 /**

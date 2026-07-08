@@ -64,6 +64,31 @@ function reportRow(over: Partial<FakeRecord["fields"]> = {}): FakeRecord {
       "Maint: Google Indexed": true,
       "Maint: Security Updates": true,
       "Maint: Uptime Checked": true,
+      // The gate now reads HEALTH evidence, not the manual booleans above — all 5 gating
+      // fields pass so the many non-gate send tests (using this default fixture) keep passing.
+      "Checklist auto-evidence": JSON.stringify({
+        "Maint: Deploy & Function Health": {
+          result: "pass",
+          checkedAt: "2026-05-26T00:00:00.000Z",
+          note: "",
+        },
+        "Maint: CMS Checked": { result: "pass", checkedAt: "2026-05-26T00:00:00.000Z", note: "" },
+        "Maint: Domain, DNS & SSL": {
+          result: "pass",
+          checkedAt: "2026-05-26T00:00:00.000Z",
+          note: "",
+        },
+        "Maint: Security Updates": {
+          result: "pass",
+          checkedAt: "2026-05-26T00:00:00.000Z",
+          note: "",
+        },
+        "Maint: Uptime Checked": {
+          result: "pass",
+          checkedAt: "2026-05-26T00:00:00.000Z",
+          note: "",
+        },
+      }),
       ...over,
     },
   };
@@ -137,7 +162,12 @@ vi.mock("../../../src/reports/airtable/client.js", async () => {
   };
 });
 
+vi.mock("../../../src/audits/fleet-events-writer.js", () => ({
+  recordFleetEventsBestEffort: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { openBase } from "../../../src/reports/airtable/client.js";
+import { recordFleetEventsBestEffort } from "../../../src/audits/fleet-events-writer.js";
 
 describe("sendApprovedReports", () => {
   it("returns 0 and 'No reports ready' when nothing is sendable", async () => {
@@ -298,20 +328,16 @@ describe("sendApprovedReports", () => {
     expect(res.output).toMatch(/numeric/i);
   });
 
-  // ── checklist gate: a Maintenance/Testing report can't escape with items unchecked ──
-  it("does NOT send a Maintenance report whose checklist is incomplete (no Resend call, Sent at not stamped)", async () => {
-    // Clear all 6 maintenance cells → the row is approved-to-send (e.g. ticked directly
-    // in Airtable) but its checklist is incomplete. The send gate must skip it as a
-    // failure, leaving Sent at blank so at-least-once retry is preserved.
+  // ── health gate: a Maintenance/Testing report can't escape with unmeasured/failing evidence ──
+  it("does NOT send a Maintenance report whose health gate is not clear (no Resend call, Sent at not stamped)", async () => {
+    // No auto-evidence recorded at all → every gating field reads "unknown" → the health gate
+    // blocks, even though the row is approved-to-send (e.g. ticked directly in Airtable, with
+    // the operator checklist booleans ticked too — those no longer drive the gate). The send
+    // gate must skip it as a failure, leaving Sent at blank so at-least-once retry is preserved.
     const base = makeFakeBase({
       Reports: [
         reportRow({
-          "Maint: Deploy & Function Health": false,
-          "Maint: CMS Checked": false,
-          "Maint: Domain, DNS & SSL": false,
-          "Maint: Google Indexed": false,
-          "Maint: Security Updates": false,
-          "Maint: Uptime Checked": false,
+          "Checklist auto-evidence": JSON.stringify({}),
         }),
       ],
       Websites: [siteRow()],
@@ -322,10 +348,10 @@ describe("sendApprovedReports", () => {
 
     expect(res.code).toBe(1);
     expect(res.output).toContain("✗");
-    expect(res.output).toMatch(/checklist incomplete/i);
+    expect(res.output).toMatch(/health gate not clear/i);
     // No email went out.
     expect(captured).toHaveLength(0);
-    // Sent at stays blank → the row replays next run once the operator finishes the checklist.
+    // Sent at stays blank → the row replays next run once the evidence is fresh and green.
     const stamp = base.__calls
       .filter((c) => c.kind === "update")
       .find((u) => u.records[0]!.fields["Sent at"] !== undefined);
@@ -366,9 +392,97 @@ describe("sendApprovedReports", () => {
     expect(html).toContain("RECENT IMPROVEMENTS"); // improvements survive the send re-render
   });
 
+  it("does NOT send a Maintenance report whose health gate is not clear, with a by-name message", async () => {
+    const base = makeFakeBase({
+      Reports: [
+        reportRow({
+          "Checklist auto-evidence": JSON.stringify({
+            "Maint: Deploy & Function Health": {
+              result: "pass",
+              checkedAt: "2026-05-26T00:00:00.000Z",
+              note: "",
+            },
+            "Maint: CMS Checked": {
+              result: "fail",
+              checkedAt: "2026-05-26T00:00:00.000Z",
+              note: "Prismic unreachable",
+            },
+            "Maint: Domain, DNS & SSL": {
+              result: "pass",
+              checkedAt: "2026-05-26T00:00:00.000Z",
+              note: "",
+            },
+            "Maint: Security Updates": {
+              result: "pass",
+              checkedAt: "2026-05-26T00:00:00.000Z",
+              note: "",
+            },
+            "Maint: Uptime Checked": {
+              result: "pass",
+              checkedAt: "2026-05-26T00:00:00.000Z",
+              note: "",
+            },
+          }),
+        }),
+      ],
+      Websites: [siteRow()],
+    });
+    vi.mocked(openBase).mockReturnValue(base);
+    const { client, captured } = captureClient();
+    const res = await sendApprovedReports({ resend: client });
+    expect(res.code).toBe(1);
+    expect(captured).toHaveLength(0);
+    expect(res.output).toContain("Maint: CMS Checked");
+  });
+
+  it("sends an overridden Maintenance report even though its health gate is red, and logs the override event", async () => {
+    const overriddenReport = reportRow({
+      "Checklist auto-evidence": JSON.stringify({
+        "Maint: Deploy & Function Health": {
+          result: "pass",
+          checkedAt: "2026-05-26T00:00:00.000Z",
+          note: "",
+        },
+        "Maint: CMS Checked": {
+          result: "fail",
+          checkedAt: "2026-05-26T00:00:00.000Z",
+          note: "Prismic unreachable",
+        },
+        "Maint: Domain, DNS & SSL": {
+          result: "pass",
+          checkedAt: "2026-05-26T00:00:00.000Z",
+          note: "",
+        },
+        "Maint: Security Updates": {
+          result: "pass",
+          checkedAt: "2026-05-26T00:00:00.000Z",
+          note: "",
+        },
+        "Maint: Uptime Checked": {
+          result: "pass",
+          checkedAt: "2026-05-26T00:00:00.000Z",
+          note: "",
+        },
+      }),
+      "Send override": true,
+      "Override reason": "client verbally signed off",
+      "Override by": "dashboard",
+    });
+    const base = makeFakeBase({ Reports: [overriddenReport], Websites: [siteRow()] });
+    vi.mocked(openBase).mockReturnValue(base);
+    const { client, captured } = captureClient();
+    const res = await sendApprovedReports({ resend: client });
+    expect(res.code).toBe(0);
+    expect(captured).toHaveLength(1);
+    expect(vi.mocked(recordFleetEventsBestEffort)).toHaveBeenCalled();
+    const [events] = vi.mocked(recordFleetEventsBestEffort).mock.calls.at(-1)!;
+    expect(events[0]!.type).toBe("report_sent_with_override");
+    expect(events[0]!.summary).toContain("client verbally signed off");
+  });
+
   it("sends a Launch report regardless of checklist (Launch has no checklist gate)", async () => {
-    // A Launch report has all 13 checkbox cells absent (false) — but checklistFor(Launch)
-    // is [] so isChecklistComplete is vacuously true and the gate never fires.
+    // A Launch report has all 13 checkbox cells absent (false) — but gatingFields(Launch)
+    // is [] so isHealthGateClear is vacuously true and the gate never fires.
     const base = makeFakeBase({
       Reports: [
         {
@@ -438,8 +552,10 @@ describe("sendApprovedReports", () => {
           reportRow({
             "Report ID": "Acme Co — Testing — 2026-05-26",
             "Report type": "Testing",
-            // checklistFor(Testing) = Maintenance + Testing cells; default fixture has the 6
-            // Maint cells, so add the 7 Test cells to satisfy the send gate.
+            // checklistFor(Testing) = Maintenance + Testing cells; the operator-checklist
+            // booleans below are advisory only now — gatingFields(Testing) is all 13 cells
+            // (including Maint: Google Indexed), so the evidence override supplies pass for
+            // all 13 to satisfy the health gate.
             "Test: Desktop Browsers": true,
             "Test: Mobile Browsers": true,
             "Test: Page Titles & Meta": true,
@@ -447,6 +563,73 @@ describe("sendApprovedReports", () => {
             "Test: Form Functionality": true,
             "Test: Interactions & Animations": true,
             "Test: Verified After Updates": true,
+            "Checklist auto-evidence": JSON.stringify({
+              "Maint: Deploy & Function Health": {
+                result: "pass",
+                checkedAt: "2026-05-26T00:00:00.000Z",
+                note: "",
+              },
+              "Maint: CMS Checked": {
+                result: "pass",
+                checkedAt: "2026-05-26T00:00:00.000Z",
+                note: "",
+              },
+              "Maint: Domain, DNS & SSL": {
+                result: "pass",
+                checkedAt: "2026-05-26T00:00:00.000Z",
+                note: "",
+              },
+              "Maint: Google Indexed": {
+                result: "pass",
+                checkedAt: "2026-05-26T00:00:00.000Z",
+                note: "",
+              },
+              "Maint: Security Updates": {
+                result: "pass",
+                checkedAt: "2026-05-26T00:00:00.000Z",
+                note: "",
+              },
+              "Maint: Uptime Checked": {
+                result: "pass",
+                checkedAt: "2026-05-26T00:00:00.000Z",
+                note: "",
+              },
+              "Test: Desktop Browsers": {
+                result: "pass",
+                checkedAt: "2026-05-26T00:00:00.000Z",
+                note: "",
+              },
+              "Test: Mobile Browsers": {
+                result: "pass",
+                checkedAt: "2026-05-26T00:00:00.000Z",
+                note: "",
+              },
+              "Test: Page Titles & Meta": {
+                result: "pass",
+                checkedAt: "2026-05-26T00:00:00.000Z",
+                note: "",
+              },
+              "Test: Links & Navigation": {
+                result: "pass",
+                checkedAt: "2026-05-26T00:00:00.000Z",
+                note: "",
+              },
+              "Test: Form Functionality": {
+                result: "pass",
+                checkedAt: "2026-05-26T00:00:00.000Z",
+                note: "",
+              },
+              "Test: Interactions & Animations": {
+                result: "pass",
+                checkedAt: "2026-05-26T00:00:00.000Z",
+                note: "",
+              },
+              "Test: Verified After Updates": {
+                result: "pass",
+                checkedAt: "2026-05-26T00:00:00.000Z",
+                note: "",
+              },
+            }),
           }),
         ],
         Websites: [siteRow({ "testing freq": "Monthly" })],

@@ -89,6 +89,20 @@ export async function ingestSubmission(
   const site = await deps.getWebsiteBySlug(slug);
   if (!site) return { status: "unknown-site", slug };
 
+  // Synthetic end-to-end probe (the `form-e2e` fleet audit). A central-only marker
+  // on the payload routes the submission away from EVERY real sink: no row is
+  // persisted, no spam classification, no operator/autoresponder email, no
+  // newsletter fan-out — and Turnstile enforcement is bypassed (the short-circuit
+  // sits before that check). The marker therefore grants a bot NO benefit: it
+  // reaches no inbox/DB/webhook, so skipping Turnstile costs nothing. This
+  // suppression MUST be central — the submitting site alone cannot stop the real
+  // inbox firing. Validity + site resolution are still enforced above (a junk body
+  // is rejected, an unknown slug is unknown-site), so the marker can't smuggle
+  // anything through. Return accepted+skipped so the probe asserts success.
+  if (isTestMode(rawPayload)) {
+    return { status: "accepted", submissionId: "test-mode", notifyStatus: "skipped" };
+  }
+
   const n = normalized.value;
 
   // Fold the content signals + the Turnstile verdict into ONE spam decision.
@@ -177,4 +191,14 @@ export async function ingestSubmission(
     }
   }
   return { status: "accepted", submissionId: row.id, notifyStatus: notify.status };
+}
+
+/** True when an untrusted ingest payload carries the synthetic-probe marker
+ *  (top-level `testMode: true`). Read from the RAW payload so the branch never
+ *  depends on normalization internals; any non-`true` value is ignored (a real
+ *  visitor's form never sets it — the starter only forwards it when the submitted
+ *  form field `testMode` equals "true"). */
+export function isTestMode(rawPayload: unknown): boolean {
+  if (!rawPayload || typeof rawPayload !== "object") return false;
+  return (rawPayload as Record<string, unknown>).testMode === true;
 }

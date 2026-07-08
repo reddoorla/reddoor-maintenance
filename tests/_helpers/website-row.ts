@@ -55,11 +55,17 @@ export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     deployStatus: null,
     lastDeployAt: null,
     deployLogUrl: null,
+    deployCheckedAt: null,
+    functionHealth: null,
+    cmsReachable: null,
+    functionHealthCheckedAt: null,
     crossbrowserOk: null,
     mobileOk: null,
     linksOk: null,
     brokenLinks: null,
     browserCheckedAt: null,
+    reachableOk: null,
+    titleMetaOk: null,
     copyIntro: null,
     copyContact: null,
     copyFooter: null,
@@ -77,6 +83,10 @@ export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     // sweep) flag the signal fields the factory's callers set. A test exercising
     // the staleness gate overrides this with an old/null value via `over`.
     githubSignalsAt: new Date().toISOString(),
+    smokeOk: null,
+    lastSmokeAt: null,
+    formE2eOk: null,
+    formE2eCheckedAt: null,
     ...over,
   };
 }

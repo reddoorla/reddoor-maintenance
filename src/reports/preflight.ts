@@ -7,6 +7,7 @@ import type { ReportRow } from "./airtable/reports.js";
 import { parseAddresses, isProbablyEmail } from "./send/orchestrate.js";
 import { ELIGIBLE_STATUSES, reportPeriodKey } from "./due.js";
 import type { ReportType } from "./types.js";
+import { gatingHealth, isSendOverridden } from "./checklist.js";
 
 export type PreflightLevel = "fail" | "warn" | "info";
 
@@ -385,12 +386,47 @@ export async function preflight(deps?: PreflightDeps): Promise<PreflightResult> 
 }
 
 /**
+ * Health-gate blockers for one report: every GATING field whose evidence is not `pass`/`n/a`
+ * (i.e. `fail`, `unknown`, or absent) becomes a fail-level finding, keyed `health-gate`. PURE.
+ * Folded into {@link approveBlockers} so health failures ride the existing send-blocked reason +
+ * 409 + dashboard chip (the second gate — no third gate is added).
+ *
+ * A logged send-anyway override ({@link isSendOverridden}) suppresses these findings — but never
+ * the REAL send blockers (recipients/header/scores), which are computed outside this function and
+ * still gate an overridden send.
+ */
+export function healthBlockers(report: ReportRow): PreflightFinding[] {
+  if (isSendOverridden(report)) return [];
+  const findings: PreflightFinding[] = [];
+  for (const { field, status } of gatingHealth({
+    reportType: report.reportType,
+    autoEvidence: report.autoEvidence ?? {},
+  })) {
+    if (status === "pass" || status === "n/a") continue;
+    // `||`, not `??`: an explicit empty-string note (no message recorded) must
+    // also fall back to the placeholder, not render as a trailing blank.
+    const note = report.autoEvidence?.[field]?.note || "no signal yet";
+    findings.push({
+      level: "fail",
+      check: "health-gate",
+      message:
+        status === "fail"
+          ? `${field}: failing — ${note}`
+          : `${field}: not yet green (${status}) — ${note}`,
+    });
+  }
+  return findings;
+}
+
+/**
  * The send-blocking subset for ONE report, at approve time: exactly the
  * conditions that make `sendOne` throw (no recipients, malformed To/CC, no
  * header image, no report-level Lighthouse scores) plus the wrong-inbox warn
- * (operator address resolved as a client's To). PURE — the approve gate, the
- * dashboard's pending-row chip, and the digest collector all call this one
- * function so "approvable" can't drift from "sendable".
+ * (operator address resolved as a client's To) plus every {@link healthBlockers}
+ * finding (a gating checklist item whose auto-evidence isn't `pass`/`n/a` fails
+ * the health gate). PURE — the approve gate, the dashboard's pending-row chip,
+ * and the digest collector all call this one function so "approvable" can't
+ * drift from "sendable".
  *
  * Deliberately narrower than {@link preflightSite}: schedule hygiene and
  * pending-draft races are fleet/site concerns — blocking THIS report's approval
@@ -461,6 +497,7 @@ export function approveBlockers(site: WebsiteRow, report: ReportRow): PreflightF
       });
     }
   }
+  findings.push(...healthBlockers(report));
   return findings;
 }
 

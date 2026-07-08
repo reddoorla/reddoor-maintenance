@@ -16,6 +16,7 @@ function route(
   desktopOk: boolean,
   mobileOk: boolean,
   links: string[] = [],
+  over: { status?: number | null; title?: string | null; metaDescription?: string | null } = {},
 ): RouteResult {
   return {
     url,
@@ -29,6 +30,9 @@ function route(
       { device: "iPhone 14", ok: mobileOk },
     ],
     links,
+    status: over.status !== undefined ? over.status : 200,
+    title: over.title !== undefined ? over.title : `Title for ${url}`,
+    metaDescription: over.metaDescription !== undefined ? over.metaDescription : `Meta for ${url}`,
   };
 }
 
@@ -79,7 +83,15 @@ describe("summarizeBrowser", () => {
 
   it("fail-safe: a route that produced NO desktop/mobile observations is not excused", () => {
     const ok = route("https://a.com/", true, true);
-    const blind: RouteResult = { url: "https://a.com/work/x", desktop: [], mobile: [], links: [] };
+    const blind: RouteResult = {
+      url: "https://a.com/work/x",
+      desktop: [],
+      mobile: [],
+      links: [],
+      status: 200,
+      title: "Work",
+      metaDescription: "Work meta",
+    };
     const s = summarizeBrowser([ok, blind], [{ url: "x", status: 200 }], { "/": 1, "/work": 1 });
     expect(s.desktopOk).toBe(false);
     expect(s.mobileOk).toBe(false);
@@ -93,6 +105,80 @@ describe("summarizeBrowser", () => {
     expect(s.note).toMatch(/1 routes/);
     expect(s.note).toMatch(/work ×3/);
     expect(s.note).toMatch(/chromium\/firefox\/webkit/);
+  });
+});
+
+describe("summarizeBrowser → reachableOk + titleMetaOk", () => {
+  it("reachableOk true when every sampled route is 2xx/3xx", () => {
+    const s = summarizeBrowser(
+      [
+        route("https://a.com/", true, true, [], { status: 200 }),
+        route("https://a.com/b", true, true, [], { status: 301 }),
+      ],
+      [],
+      { "/": 2 },
+    );
+    expect(s.reachableOk).toBe(true);
+  });
+
+  it("reachableOk false when any route is 4xx/5xx or unreachable (null status)", () => {
+    expect(
+      summarizeBrowser([route("https://a.com/", true, true, [], { status: 404 })], [], { "/": 1 })
+        .reachableOk,
+    ).toBe(false);
+    expect(
+      summarizeBrowser([route("https://a.com/", true, true, [], { status: null })], [], { "/": 1 })
+        .reachableOk,
+    ).toBe(false);
+  });
+
+  it("reachableOk false for empty observations (prove, don't assume)", () => {
+    expect(summarizeBrowser([], [], {}).reachableOk).toBe(false);
+  });
+
+  it("titleMetaOk true when every route has a non-empty title ≤70 + meta, all titles unique", () => {
+    const s = summarizeBrowser(
+      [
+        route("https://a.com/", true, true, [], { title: "Home", metaDescription: "Welcome home" }),
+        route("https://a.com/b", true, true, [], { title: "About", metaDescription: "About us" }),
+      ],
+      [],
+      { "/": 2 },
+    );
+    expect(s.titleMetaOk).toBe(true);
+  });
+
+  it("titleMetaOk false when a title is empty, missing meta, or >70 chars", () => {
+    expect(
+      summarizeBrowser([route("https://a.com/", true, true, [], { title: "" })], [], { "/": 1 })
+        .titleMetaOk,
+    ).toBe(false);
+    expect(
+      summarizeBrowser([route("https://a.com/", true, true, [], { metaDescription: "" })], [], {
+        "/": 1,
+      }).titleMetaOk,
+    ).toBe(false);
+    expect(
+      summarizeBrowser([route("https://a.com/", true, true, [], { title: "x".repeat(71) })], [], {
+        "/": 1,
+      }).titleMetaOk,
+    ).toBe(false);
+  });
+
+  it("titleMetaOk false on duplicate titles across the sample", () => {
+    const s = summarizeBrowser(
+      [
+        route("https://a.com/", true, true, [], { title: "Same", metaDescription: "one" }),
+        route("https://a.com/b", true, true, [], { title: "Same", metaDescription: "two" }),
+      ],
+      [],
+      { "/": 2 },
+    );
+    expect(s.titleMetaOk).toBe(false);
+  });
+
+  it("titleMetaOk false for empty observations (nothing proven)", () => {
+    expect(summarizeBrowser([], [], {}).titleMetaOk).toBe(false);
   });
 });
 
@@ -130,6 +216,7 @@ describe("browserAudit", () => {
     });
     expect(r.status).toBe("pass");
     expect(r.details).toMatchObject({ desktopOk: true, mobileOk: true, linksOk: true });
+    expect(r.details).toMatchObject({ reachableOk: true, titleMetaOk: true });
     expect((r.details as { checkedAt: string }).checkedAt).toBe(NOW.toISOString());
   });
 

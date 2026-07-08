@@ -2,13 +2,14 @@ import type { WebsiteRow, SecurityAdvisory } from "../reports/airtable/websites.
 import { SEVERITY_RANK, siteSlug } from "../reports/airtable/websites.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
 import { isPendingApproval } from "../reports/airtable/reports.js";
+import type { EvidenceResult } from "../reports/auto-tick.js";
 import type { SubmissionRow } from "../reports/submission-row.js";
 import type { ScreenOutTotals } from "../db/screenouts.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 import { escapeHtml, safeUrl } from "../util/html.js";
 import { FAVICON_LINK } from "./favicon.js";
 import { onboardingStatus, missingOnboarding } from "./onboarding.js";
-import { checklistFor, isChecklistComplete } from "../reports/checklist.js";
+import { checklistFor, gatingFields, isHealthGateClear } from "../reports/checklist.js";
 import { approveBlockers, type PreflightFinding } from "../reports/preflight.js";
 import { parseAddresses, withGlobalCc } from "../reports/send/orchestrate.js";
 import {
@@ -92,43 +93,83 @@ function securitySection(site: WebsiteRow): string {
   </div>`;
 }
 
-/** The interactive operator-checklist for one pending report: one checkbox per
- *  `checklistFor(reportType)` item, current state from `report.checklist`, each
- *  carrying the report record id + the Airtable field name so the client can POST
- *  to /api/reports/:id/checklist and re-gate the Approve button. Launch/Announcement
- *  reports (empty checklist) render NOTHING — they are never gated. */
+/** Map an evidence result onto the existing site-Tier bands (green/amber/red) — pass→healthy,
+ *  fail→attention, unknown/absent→watch; `n/a` is a muted, non-blocking annotation. No 4th scale. */
+function healthPresentation(status: EvidenceResult): { cls: string; word: string } {
+  switch (status) {
+    case "pass":
+      return { cls: "healthy", word: "clear" };
+    case "fail":
+      return { cls: "attention", word: "blocks" };
+    case "n/a":
+      return { cls: "na", word: "n/a" };
+    default:
+      return { cls: "watch", word: "needs you" }; // unknown / absent
+  }
+}
+
+/** The per-report health panel: one Tier-colored pill per `checklistFor(reportType)` item, driven
+ *  by `report.autoEvidence` (absent → unknown/amber). Advisory items (in the checklist but not
+ *  `gatingFields`) render their color but are annotated "advisory — never blocks". Launch/
+ *  Announcement (empty checklist) render NOTHING — never gated. No manual checkboxes: ticking is
+ *  retired from the gating path. */
 function checklistBlock(r: ReportRow): string {
   const items = checklistFor(r.reportType);
   if (items.length === 0) return "";
+  const gating = new Set(gatingFields(r.reportType));
   const rid = escapeHtml(r.id);
-  const url = `/api/reports/${encodeURIComponent(r.id)}/checklist`;
-  const boxes = items
+  const rows = items
     .map((item) => {
-      const checked = r.checklist[item.field] === true ? " checked" : "";
       const ev = r.autoEvidence?.[item.field];
-      // Auto-tick provenance beside the box: green when the signal proved it (box also `checked`),
-      // amber when a signal ran but isn't green (box left unticked, reason shown). No evidence →
-      // a plain manual checkbox, exactly as before.
-      const badge = ev
-        ? ev.result === "pass"
-          ? ` <span class="auto-badge auto-pass" title="${escapeHtml(ev.note)}">auto ✓</span>`
-          : ` <span class="auto-badge auto-amber" title="${escapeHtml(ev.note)}">auto: ${escapeHtml(ev.note)}</span>`
-        : "";
-      return `<label class="check-item"><input type="checkbox" class="checklist-checkbox" data-checklist-report-id="${rid}" data-field="${escapeHtml(item.field)}" data-checklist-url="${escapeHtml(url)}"${checked} /> ${escapeHtml(item.label)}${badge}</label>`;
+      const status: EvidenceResult = ev?.result ?? "unknown";
+      const { cls, word } = healthPresentation(status);
+      const advisory = gating.has(item.field)
+        ? ""
+        : ` <span class="advisory">advisory — never blocks</span>`;
+      const note = ev?.note ? ` <span class="check-note">${escapeHtml(ev.note)}</span>` : "";
+      return `<li class="check-item"><span class="pill ${cls}" title="${escapeHtml(ev?.note ?? "not yet measured")}">${word}</span> ${escapeHtml(item.label)}${advisory}${note}</li>`;
     })
     .join("");
-  return `<div class="checklist" data-checklist-for="${rid}">${boxes}</div>`;
+  return `<ul class="checklist" data-checklist-for="${rid}">${rows}</ul>`;
 }
 
 /** The Approve button for a pending report. Server-renders `disabled` when the
- *  report's checklist is incomplete OR the report has send blockers (the
+ *  report's health gate is not clear OR the report has send blockers (the
  *  convenience gate — approve.ts + orchestrate.ts are the hard backstops).
- *  `data-send-blocked` keeps the client's checklist re-gate from re-enabling a
- *  button the server disabled for blocker reasons. */
+ *  `data-send-blocked` marks the reason for tests/tooling; there is no client-side
+ *  re-gate to guard against (checklist ticking no longer drives this button). */
 function approveButton(r: ReportRow, blocked: boolean): string {
-  const disabled = isChecklistComplete(r) && !blocked ? "" : " disabled";
+  const gateClear = isHealthGateClear({
+    reportType: r.reportType,
+    autoEvidence: r.autoEvidence ?? {},
+  });
+  const disabled = gateClear && !blocked ? "" : " disabled";
   const blockedAttr = blocked ? ` data-send-blocked="1"` : "";
   return `<button class="approve" data-report-id="${escapeHtml(r.id)}" data-approve-url="${escapeHtml(`/api/reports/${encodeURIComponent(r.id)}/approve`)}"${blockedAttr}${disabled}>Approve</button>`;
+}
+
+/** The "Send anyway…" override affordance for a health-red pending report: a required-reason
+ *  text input plus a submit button that POSTs to the approve endpoint with `?override=1`.
+ *  Rendered ONLY when `!isHealthGateClear(r)` — a healthy report has nothing to override, and a
+ *  gate that's already clear hides/omits the control entirely (R4.1). This is NOT a bypass of the
+ *  real send blockers (missing recipients / header image / report scores): the endpoint still
+ *  evaluates those against the synthetic overridden report and can refuse the override too. */
+function overrideControl(r: ReportRow): string {
+  const gateClear = isHealthGateClear({
+    reportType: r.reportType,
+    autoEvidence: r.autoEvidence ?? {},
+  });
+  if (gateClear) return "";
+  const rid = escapeHtml(r.id);
+  const overrideUrl = escapeHtml(`/api/reports/${encodeURIComponent(r.id)}/approve?override=1`);
+  return `<div class="override" data-override-for="${rid}">
+    <button type="button" class="override-toggle" data-report-id="${rid}">Send anyway…</button>
+    <div class="override-form" hidden>
+      <input type="text" class="override-reason" placeholder="Reason for overriding the health gate (required)" />
+      <button type="button" class="override-submit" data-report-id="${rid}" data-override-url="${overrideUrl}">Confirm override</button>
+      <span class="override-status"></span>
+    </div>
+  </div>`;
 }
 
 /** The preflight chip for one pending report: red = send blockers (approve
@@ -206,7 +247,7 @@ function pendingRow(r: ReportRow, site: WebsiteRow, now: Date): string {
     ? `<a href="${escapeHtml(safeUrl(r.renderedHtmlAttachment.url))}" rel="noopener noreferrer" title="rendered at draft time — Commentary/subject edits after drafting are not reflected">draft preview ▸</a>`
     : `<span class="muted">no preview yet</span>`;
   const sendLine = sendTimingLine(now);
-  return `<li><div class="pending-head"><strong>${type}</strong> <span class="muted">${period}</span> ${preflightChip(findings)} ${preview} ${approveButton(r, blocked)}</div><div class="pending-info">${recipientsLine(site)} ${sendLine}</div>${checklistBlock(r)}</li>`;
+  return `<li><div class="pending-head"><strong>${type}</strong> <span class="muted">${period}</span> ${preflightChip(findings)} ${preview} ${approveButton(r, blocked)}</div><div class="pending-info">${recipientsLine(site)} ${sendLine}</div>${checklistBlock(r)}${overrideControl(r)}</li>`;
 }
 
 function pendingSection(reports: ReportRow[], site: WebsiteRow, now: Date): string {
@@ -428,13 +469,73 @@ button.approve:disabled { opacity: 0.6; cursor: default; }
 .pending-list li { padding: 0.5rem; border-bottom: 1px solid #eee; }
 @media (prefers-color-scheme: dark) { .pending-list li { border-color: #2a2a2a; } }
 .pending-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; row-gap: 0.25rem; }
-.checklist { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; margin: 0.5rem 0 0.25rem 0.25rem; }
-.check-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; }
-.check-item input { margin: 0; }
-.auto-badge { font-size: 0.72rem; border-radius: 0.25rem; padding: 0 0.35rem; white-space: nowrap; }
-.auto-pass { background: #e6f4ea; color: #137333; }
-.auto-amber { background: #fef7e0; color: #b06000; }
+.checklist {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0.25rem 0.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.check-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+.pill.healthy {
+  background: #e8f5e9;
+  color: #1b7a2f;
+}
+.pill.watch {
+  background: #fff4e5;
+  color: #a65a00;
+}
+.pill.attention {
+  background: #fdecea;
+  color: #b00;
+}
+.pill.na {
+  background: #f0f0f0;
+  color: #666;
+}
+.advisory {
+  font-size: 0.72rem;
+  color: #999;
+  font-style: italic;
+}
+.check-note {
+  font-size: 0.75rem;
+  color: #999;
+}
+@media (prefers-color-scheme: dark) {
+  .pill.healthy {
+    background: #10240f;
+    color: #7fce85;
+  }
+  .pill.watch {
+    background: #2a2410;
+    color: #ffd454;
+  }
+  .pill.attention {
+    background: #2a0f0d;
+    color: #ff8a80;
+  }
+  .pill.na {
+    background: #222;
+    color: #999;
+  }
+}
 .pill { font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 999px; font-weight: 700; }
+.override { margin: 0.4rem 0 0.15rem 0.25rem; }
+button.override-toggle { font: inherit; font-size: 0.78rem; padding: 0.15rem 0.6rem; border: 1px solid #b00; border-radius: 6px; background: transparent; color: #b00; cursor: pointer; }
+@media (prefers-color-scheme: dark) { button.override-toggle { border-color: #ff8a80; color: #ff8a80; } }
+.override-form { margin-top: 0.35rem; display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+.override-reason { font: inherit; font-size: 0.85rem; padding: 0.25rem 0.45rem; border: 1px solid #ccc; border-radius: 4px; background: transparent; color: inherit; min-width: 220px; flex: 1 1 220px; }
+@media (prefers-color-scheme: dark) { .override-reason { border-color: #444; } }
+button.override-submit { font: inherit; font-size: 0.8rem; padding: 0.25rem 0.7rem; border: 1px solid #b00; border-radius: 6px; background: #b00; color: #fff; cursor: pointer; }
+button.override-submit:disabled { opacity: 0.6; cursor: default; }
+.override-status { font-size: 0.78rem; color: #999; }
 .vuln-list { list-style: none; padding: 0; margin: 0; }
 .vuln-item { padding: 0.45rem 0; border-bottom: 1px solid #eee; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: baseline; }
 @media (prefers-color-scheme: dark) { .vuln-item { border-color: #2a2a2a; } }
@@ -578,6 +679,64 @@ export function renderSiteDashboardHtml(
         }
       });
     });
+    // Health-gate override affordance: the toggle reveals a required-reason field; the
+    // submit POSTs the server-provided override URL with { reason } as the body — a
+    // distinct, deliberate action, never a silent default (an empty reason is
+    // refused client-side AND server-side).
+    document.querySelectorAll("button.override-toggle").forEach((b) => {
+      b.addEventListener("click", () => {
+        const form = b.nextElementSibling;
+        if (form) form.hidden = !form.hidden;
+      });
+    });
+    document.querySelectorAll("button.override-submit").forEach((b) => {
+      b.addEventListener("click", async () => {
+        const wrap = b.closest(".override-form");
+        const input = wrap ? wrap.querySelector(".override-reason") : null;
+        const status = wrap ? wrap.querySelector(".override-status") : null;
+        const reason = input ? input.value.trim() : "";
+        if (!reason) {
+          if (status) status.textContent = "Reason required";
+          return;
+        }
+        b.disabled = true;
+        if (status) status.textContent = "Sending…";
+        try {
+          const res = await fetch(b.dataset.overrideUrl, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ reason }),
+          });
+          if (res.ok) {
+            if (status) status.textContent = "Overridden ✓";
+            if (input) input.disabled = true;
+            // Reflect the send-anyway state on the row's own Approve button too —
+            // it stays server-gated disabled, but the label should stop implying
+            // "waiting on you" once an override has gone through.
+            const approveBtn = document.querySelector(
+              'button.approve[data-report-id="' + b.dataset.reportId + '"]',
+            );
+            if (approveBtn) approveBtn.textContent = "Overridden";
+          } else {
+            // A 409 carries { reason, blockers } — surface WHY (textContent only,
+            // never innerHTML, so server strings stay inert).
+            const data = await res.json().catch(() => null);
+            if (status) {
+              status.textContent =
+                data && Array.isArray(data.blockers) && data.blockers.length > 0
+                  ? data.blockers.join("; ")
+                  : data && data.reason === "override-reason-required"
+                    ? "Reason required"
+                    : "Failed";
+            }
+            b.disabled = false;
+          }
+        } catch {
+          if (status) status.textContent = "Failed";
+          b.disabled = false;
+        }
+      });
+    });
     // Trigger-renovate button: async on-demand dispatch (mirrors the cockpit).
     document.querySelectorAll("button.trigger-renovate").forEach((b) => {
       b.addEventListener("click", async () => {
@@ -618,34 +777,6 @@ export function renderSiteDashboardHtml(
       });
     });
     ${SUBMISSION_STATUS_SCRIPT}
-    // Checklist gate: ticking a box POSTs the one field; the response { complete }
-    // decides whether THIS report's Approve button is enabled. Scoped per report by
-    // matching the checkbox's report id to the Approve button's id, so multiple
-    // pending reports on one page never cross-toggle. On failure the checkbox reverts.
-    document.querySelectorAll("input.checklist-checkbox").forEach((cb) => {
-      cb.addEventListener("change", async () => {
-        const reportId = cb.dataset.checklistReportId;
-        const approveBtn = document.querySelector(
-          'button.approve[data-report-id="' + (window.CSS && CSS.escape ? CSS.escape(reportId) : reportId) + '"]',
-        );
-        cb.disabled = true;
-        try {
-          const res = await fetch(cb.dataset.checklistUrl, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ reportId, field: cb.dataset.field, value: cb.checked }),
-          });
-          if (!res.ok) throw new Error("bad status");
-          const data = await res.json();
-          if (approveBtn) approveBtn.disabled = !data.complete || approveBtn.dataset.sendBlocked === "1";
-        } catch {
-          // Revert the optimistic flip so the box reflects the (unchanged) server state.
-          cb.checked = !cb.checked;
-        } finally {
-          cb.disabled = false;
-        }
-      });
-    });
   </script>
 </body>
 </html>`;

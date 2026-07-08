@@ -40,6 +40,11 @@ const AUDIT_DESCRIPTIONS: Record<AuditName, string> = {
     "Playwright across desktop engines + mobile devices + link-check against the deployed URL (checkout-free).",
   "netlify-deploy":
     "Latest production deploy health via the Netlify API by site id (checkout-free; needs NETLIFY_PAT).",
+  "function-health":
+    "GET {deployedUrl}/health and read its ok/prismic/forms status (checkout-free).",
+  smoke: "Run the site's own `pnpm test:smoke` suite in its checkout (clone-based).",
+  "form-e2e":
+    "Submit the real production contact form in test-mode against the deployed URL (checkout-free).",
 };
 
 const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {
@@ -542,7 +547,7 @@ cli
 cli
   .command(
     "blux <action> [dir]",
-    "Blux conversion pipeline. emit: export dir → migration plan + custom types + theme + review manifest. migrate: emitted plan → live Prismic (needs PRISMIC_REPOSITORY_NAME + PRISMIC_WRITE_TOKEN).",
+    "Blux conversion pipeline. emit: export dir → migration plan + custom types + theme + review manifest. migrate: emitted plan → live Prismic (needs PRISMIC_REPOSITORY_NAME + PRISMIC_WRITE_TOKEN). validate: content coverage of a rendered site against the export answer key.",
   )
   .option("--out <dir>", "Output directory for emit (default: <exportDir>/blux-out)")
   .option("--converted-base <url>", "Converted-site base URL for the review manifest")
@@ -550,6 +555,10 @@ cli
   .option(
     "--probe",
     "Reconstruct + HEAD-probe CDN URLs for used assets the HTML scrape missed (network)",
+  )
+  .option(
+    "--against <target>",
+    "validate: rendered HTML of the converted site — a file path or http(s) URL",
   )
   .action(
     async (
@@ -560,6 +569,7 @@ cli
         convertedBase?: string;
         bluxBase?: string;
         probe?: boolean;
+        against?: string;
         cwd?: string;
         verbose?: boolean;
       },

@@ -4,8 +4,10 @@ import {
   preflightFleet,
   approveBlockers,
   formatBlockers,
+  healthBlockers,
 } from "../../src/reports/preflight.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
+import type { EvidenceRecord } from "../../src/reports/auto-tick.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 const NOW = new Date("2026-07-02T12:00:00Z");
@@ -38,6 +40,10 @@ function makeReportRow(over: Partial<ReportRow> = {}): ReportRow {
     resendMessageId: null,
     checklist: {},
     autoEvidence: null,
+    sendOverride: false,
+    overrideReason: null,
+    overrideBy: null,
+    overrideAt: null,
     ...over,
   };
 }
@@ -324,10 +330,26 @@ describe("preflightFleet", () => {
   });
 });
 
+/** An all-pass Maintenance gating evidence map, so pre-existing recipients/header/scores
+ *  tests below stay health-clean and keep testing exactly what they tested before
+ *  healthBlockers was folded into approveBlockers. Tests that care about health override
+ *  autoEvidence explicitly. */
+const healthCleanEvidence = (): Record<string, EvidenceRecord> =>
+  Object.fromEntries(
+    [
+      "Maint: Deploy & Function Health",
+      "Maint: CMS Checked",
+      "Maint: Domain, DNS & SSL",
+      "Maint: Security Updates",
+      "Maint: Uptime Checked",
+    ].map((f) => [f, { result: "pass", checkedAt: "2026-07-06T00:00:00.000Z", note: "" }]),
+  );
+
 describe("approveBlockers", () => {
   const REPORT = () =>
     makeReportRow({
       lighthouse: { performance: 90, accessibility: 100, bestPractices: 100, seo: 100 },
+      autoEvidence: healthCleanEvidence(),
     });
 
   it("returns no findings for a send-clean site + report", () => {
@@ -375,5 +397,47 @@ describe("approveBlockers", () => {
   it("ignores schedule hygiene entirely (not this report's problem)", () => {
     const site = cleanSite({ maintenanceFreq: "None", maintenanceFreqRaw: "Quaterly" });
     expect(formatBlockers(approveBlockers(site, REPORT()))).toEqual([]);
+  });
+});
+
+const passEv = { result: "pass" as const, checkedAt: "2026-07-06T00:00:00.000Z", note: "" };
+const failEv = { result: "fail" as const, checkedAt: "2026-07-06T00:00:00.000Z", note: "down" };
+
+describe("healthBlockers", () => {
+  it("returns [] when every gating field is pass (Maintenance)", () => {
+    const autoEvidence = Object.fromEntries(
+      [
+        "Maint: Deploy & Function Health",
+        "Maint: CMS Checked",
+        "Maint: Domain, DNS & SSL",
+        "Maint: Security Updates",
+        "Maint: Uptime Checked",
+      ].map((f) => [f, passEv]),
+    );
+    expect(healthBlockers(makeReportRow({ reportType: "Maintenance", autoEvidence }))).toEqual([]);
+  });
+  it("emits a fail finding for a failing gating field and for an absent one", () => {
+    const autoEvidence = { "Maint: CMS Checked": failEv };
+    const findings = healthBlockers(makeReportRow({ reportType: "Maintenance", autoEvidence }));
+    expect(findings.every((f) => f.level === "fail" && f.check === "health-gate")).toBe(true);
+    expect(findings.some((f) => f.message.includes("Maint: CMS Checked"))).toBe(true);
+    // Uptime is absent → unknown → blocks too.
+    expect(findings.some((f) => f.message.includes("Maint: Uptime Checked"))).toBe(true);
+  });
+});
+
+describe("approveBlockers folds in health-gate findings", () => {
+  it("adds a health-gate fail when a gating item is not green (recipients/header/scores clean)", () => {
+    const site = makeWebsiteRow({
+      reportRecipientsTo: "client@acme.com",
+      headerImage: { url: "u", filename: "h.png", type: "image/png" },
+    });
+    const report = makeReportRow({
+      reportType: "Maintenance",
+      lighthouse: { performance: 90, accessibility: 90, bestPractices: 90, seo: 90 },
+      autoEvidence: { "Maint: CMS Checked": failEv },
+    });
+    const findings = approveBlockers(site, report);
+    expect(findings.some((f) => f.check === "health-gate")).toBe(true);
   });
 });

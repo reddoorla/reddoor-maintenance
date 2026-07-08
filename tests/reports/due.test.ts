@@ -42,6 +42,10 @@ function report(over: Partial<ReportRow> = {}): ReportRow {
     approvedBy: null,
     checklist: {},
     autoEvidence: null,
+    sendOverride: false,
+    overrideReason: null,
+    overrideBy: null,
+    overrideAt: null,
     ...over,
   };
 }

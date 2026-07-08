@@ -8,7 +8,9 @@ import {
   type DiscoveredRoutes,
 } from "./route-discovery.js";
 
-/** One route probed across desktop engines + mobile devices, plus the internal links found on it. */
+/** One route probed across desktop engines + mobile devices, plus the internal links found on it,
+ *  plus the chromium-derived reachability + SEO signals (captured on the page chromium already
+ *  opened — no extra navigation). */
 export type RouteResult = {
   url: string;
   /** Per desktop engine (chromium/firefox/webkit): loaded with no JS error + a visible main landmark. */
@@ -17,6 +19,12 @@ export type RouteResult = {
   mobile: Array<{ device: string; ok: boolean }>;
   /** Same-origin links discovered on the page (absolute URLs), for the Links check. */
   links: string[];
+  /** HTTP status of the chromium navigation (2xx/3xx = reachable). null = the nav failed/threw. */
+  status: number | null;
+  /** The chromium `<title>` (trimmed by the reducer), or null when not captured. */
+  title: string | null;
+  /** The chromium `meta[name="description"]` content, or null when absent/not captured. */
+  metaDescription: string | null;
 };
 
 export type LinkResult = { url: string; status: number | null };
@@ -32,6 +40,11 @@ export type BrowserSummary = {
   desktopOk: boolean;
   mobileOk: boolean;
   linksOk: boolean;
+  /** Every sampled route returned a 2xx/3xx status (point-in-time uptime). */
+  reachableOk: boolean;
+  /** Every sampled route has a non-empty `<title>` ≤ 70 chars + a non-empty meta description, and
+   *  no two routes share a title. */
+  titleMetaOk: boolean;
   brokenLinks: number;
   routesChecked: number;
   note: string;
@@ -69,6 +82,24 @@ export function summarizeBrowser(
   // that threw → []). Otherwise the box would assert "all links resolve" having checked nothing.
   const linksOk = links.length > 0 && brokenLinks === 0;
 
+  // reachableOk: every sampled route returned 2xx/3xx. Empty observations → false (fail-safe).
+  const reachableOk =
+    routes.length > 0 &&
+    routes.every((r) => r.status !== null && r.status >= 200 && r.status < 400);
+
+  // titleMetaOk (chromium-only signals): every route has a non-empty title ≤ 70 chars + a non-empty
+  // meta description, AND no two routes share a title. Empty observations → false (fail-safe).
+  const trimmedTitles = routes.map((r) => (r.title ?? "").trim());
+  const eachTitleMetaValid =
+    routes.length > 0 &&
+    routes.every((r, i) => {
+      const t = trimmedTitles[i]!;
+      const desc = (r.metaDescription ?? "").trim();
+      return t.length > 0 && t.length <= 70 && desc.length > 0;
+    });
+  const noDuplicateTitles = new Set(trimmedTitles).size === trimmedTitles.length;
+  const titleMetaOk = eachTitleMetaValid && noDuplicateTitles;
+
   const engines = [...new Set(desktopChecks.map((d) => d.engine))];
   const devices = [...new Set(mobileChecks.map((m) => m.device))];
   const families = Object.entries(familyCounts)
@@ -79,7 +110,16 @@ export function summarizeBrowser(
     `desktop ${engines.join("/") || "—"}; mobile ${devices.join("/") || "—"}; ` +
     `${links.length} links, ${brokenLinks} broken`;
 
-  return { desktopOk, mobileOk, linksOk, brokenLinks, routesChecked: routes.length, note };
+  return {
+    desktopOk,
+    mobileOk,
+    linksOk,
+    reachableOk,
+    titleMetaOk,
+    brokenLinks,
+    routesChecked: routes.length,
+    note,
+  };
 }
 
 /**
@@ -177,6 +217,9 @@ export async function defaultBrowserRunner(): Promise<BrowserRunner> {
         for (const url of urls) {
           const desktop: RouteResult["desktop"] = [];
           const linkSet = new Set<string>();
+          let status: number | null = null;
+          let title: string | null = null;
+          let metaDescription: string | null = null;
           for (let i = 0; i < desktopEngines.length; i++) {
             const engine = desktopEngines[i]!.engine;
             const browser = browsers[i]!;
@@ -197,6 +240,16 @@ export async function defaultBrowserRunner(): Promise<BrowserRunner> {
                 .catch(() => false);
               ok = !!resp && resp.ok() && errors.length === 0 && hasMain;
               if (engine === "chromium") {
+                status = resp ? resp.status() : null;
+                title = ((await page.title().catch(() => "")) as string).trim() || null;
+                metaDescription =
+                  (
+                    ((await page
+                      .evaluate(
+                        "document.querySelector('meta[name=\"description\"]')?.getAttribute('content') || ''",
+                      )
+                      .catch(() => "")) as string) || ""
+                  ).trim() || null;
                 // Link discovery runs on chromium only (cost). Links coverage therefore depends on
                 // chromium loading this route + the evaluate succeeding; if it yields nothing, the
                 // Links verdict is "not proven" (links.length===0 ⇒ linksOk false), never a pass.
@@ -248,7 +301,15 @@ export async function defaultBrowserRunner(): Promise<BrowserRunner> {
             mobile.push({ device, ok });
           }
 
-          results.push({ url, desktop, mobile, links: [...linkSet] });
+          results.push({
+            url,
+            desktop,
+            mobile,
+            links: [...linkSet],
+            status,
+            title,
+            metaDescription,
+          });
         }
       } finally {
         await Promise.all([...browsers, ...mobileBrowsers].map((b) => b.close().catch(() => {})));
