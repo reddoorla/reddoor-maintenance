@@ -130,7 +130,12 @@ function submBadge(c: SiteCard): string {
   return n > 0 ? `<span class="chip">📥 ${n} new</span>` : "";
 }
 
-const PILL_LABEL: Record<Tier, string> = { attention: "failing", watch: "watch", healthy: "ok" };
+const PILL_LABEL: Record<Tier, string> = {
+  attention: "failing",
+  watch: "watch",
+  healthy: "ok",
+  "pre-launch": "pre-launch",
+};
 
 function attentionBadge(status?: string): string {
   if (status === "new") return `<span class="badge">NEW</span>`;

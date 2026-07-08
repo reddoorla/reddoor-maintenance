@@ -1,6 +1,11 @@
 import type { Site, InventoryProvider } from "../types.js";
 import type { AirtableBase } from "../reports/airtable/client.js";
-import { listWebsites, siteSlug, ACTIVE_STATUSES } from "../reports/airtable/websites.js";
+import {
+  listWebsites,
+  siteSlug,
+  ACTIVE_STATUSES,
+  isPreLaunch,
+} from "../reports/airtable/websites.js";
 import { isHttpUrl } from "../util/url.js";
 
 export type AirtableInventoryOptions = {
@@ -15,11 +20,15 @@ export type AirtableInventoryOptions = {
 /**
  * Read sites from the Airtable Websites table as an InventoryProvider.
  * Each row becomes one Site; `path` is computed as `{workdir}/{slug}`.
- * Only `maintenance` / `launch period` sites that have a `url` are included
- * (the live sites we audit + report on). The production URL is exposed as
- * `Site.deployedUrl` so the lighthouse audit can run against it with no
- * checkout. `repoUrl` is intentionally NOT set from `url` — a clone source
- * must come from `gitRepo` (`owner/repo`), never the production URL.
+ * Only LIVE `maintenance` sites that have a `url` are included — pre-launch
+ * stages ("launch period" / "in development", via isPreLaunch) are excluded so a
+ * not-yet-live site is never audited as production (its deploy/domain/uptime/CMS
+ * audits would fail against nothing and red its Airtable row) nor swept by other
+ * `--fleet airtable` ops; it re-enters the fleet when a Launch report flips its
+ * Status to "maintenance". The production URL is exposed as `Site.deployedUrl` so
+ * the lighthouse audit can run against it with no checkout. `repoUrl` is
+ * intentionally NOT set from `url` — a clone source must come from `gitRepo`
+ * (`owner/repo`), never the production URL.
  */
 export function fromAirtableBase(
   base: AirtableBase,
@@ -34,7 +43,13 @@ export function fromAirtableBase(
     }
     const websites = await listWebsites(base);
     return websites
-      .filter((w) => w.status !== null && ACTIVE_STATUSES.has(w.status) && w.url.length > 0)
+      .filter(
+        (w) =>
+          w.status !== null &&
+          ACTIVE_STATUSES.has(w.status) &&
+          !isPreLaunch(w.status) &&
+          w.url.length > 0,
+      )
       .flatMap((w) => {
         const slug = siteSlug(w.name);
         // An empty slug (a Name with no slug-able characters) can't form a stable

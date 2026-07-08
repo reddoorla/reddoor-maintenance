@@ -19,21 +19,17 @@ describe("fromAirtableBase", () => {
     await expect(fromAirtableBase(base)()).rejects.toThrow(/workdir/);
   });
 
-  it("returns one Site per maintenance/launch site, with deployedUrl from url and no repoUrl", async () => {
+  it("returns one Site per LIVE maintenance site, with deployedUrl from url and no repoUrl", async () => {
     const base = makeFakeBase({
       Websites: [
         {
           id: "rec_1",
           fields: { Name: "Acme Co", url: "https://acme.example.com", Status: "maintenance" },
         },
-        {
-          id: "rec_2",
-          fields: { Name: "Beta Corp", url: "https://beta.example.com", Status: "launch period" },
-        },
       ],
     });
     const sites = await fromAirtableBase(base, { workdir: "/tmp/sites" })();
-    expect(sites).toHaveLength(2);
+    expect(sites).toHaveLength(1);
     expect(sites[0]!.name).toBe("acme-co");
     expect(sites[0]!.path).toBe("/tmp/sites/acme-co");
     expect(sites[0]!.deployedUrl).toBe("https://acme.example.com");
@@ -42,7 +38,29 @@ describe("fromAirtableBase", () => {
     expect(sites[0]!.meta?.displayName).toBe("Acme Co");
   });
 
-  it("excludes sites whose Status is not maintenance or launch period", async () => {
+  it("excludes pre-launch sites (launch period / in development) — not live yet", async () => {
+    const base = makeFakeBase({
+      Websites: [
+        {
+          id: "rec_live",
+          fields: { Name: "Live Co", url: "https://live.example.com", Status: "maintenance" },
+        },
+        {
+          id: "rec_launch",
+          fields: { Name: "Beta Corp", url: "https://beta.example.com", Status: "launch period" },
+        },
+        {
+          id: "rec_dev",
+          fields: { Name: "Dev Site", url: "https://dev.example.com", Status: "in development" },
+        },
+      ],
+    });
+    const sites = await fromAirtableBase(base, { workdir: "/tmp/sites" })();
+    // Pre-launch rows are dropped so they're never audited as production.
+    expect(sites.map((s) => s.name)).toEqual(["live-co"]);
+  });
+
+  it("excludes sites whose Status is not live maintenance", async () => {
     const base = makeFakeBase({
       Websites: [
         {

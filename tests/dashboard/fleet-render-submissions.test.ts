@@ -10,6 +10,7 @@ function model(over: Partial<CockpitModel> = {}): CockpitModel {
       attention: 0,
       watch: 0,
       healthy: 0,
+      preLaunch: 0,
       criticalHighVulns: 0,
       lighthouseBelowFloor: 0,
       deliveryFailures: 0,

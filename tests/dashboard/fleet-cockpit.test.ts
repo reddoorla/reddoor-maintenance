@@ -102,6 +102,20 @@ describe("assignTier", () => {
     expect(assignTier(site({ deployStatus: null }), [], NOW).tier).toBe("healthy");
   });
 
+  it("mutes a pre-live 'launch period' site to 'pre-launch' even with attention items", () => {
+    // The lifecycle short-circuit beats the items>0 rule: a not-yet-live site's
+    // expected pre-launch failures must never read as broken.
+    const r = assignTier(site({ status: "launch period" }), [item()], NOW);
+    expect(r.tier).toBe("pre-launch");
+    expect(r.watchReasons).toEqual([]);
+  });
+
+  it("mutes a 'launch period' site to 'pre-launch' even with a failed deploy", () => {
+    expect(assignTier(site({ status: "launch period", deployStatus: "error" }), [], NOW).tier).toBe(
+      "pre-launch",
+    );
+  });
+
   it("routes an accepted Lighthouse watch category to acceptedReasons and stays healthy", () => {
     const r = assignTier(
       site({ bpScore: 78, acceptedWatchConditions: ["Best Practices"] }),
@@ -242,6 +256,30 @@ describe("buildCockpitModel", () => {
     expect(bad.items).toHaveLength(1);
     expect(good.tier).toBe("healthy");
     expect(m.summary).toMatchObject({ attention: 1, healthy: 1, criticalHighVulns: 3 });
+  });
+
+  it("mutes a pre-live 'launch period' site to pre-launch, never broken nor in the feed", () => {
+    const m = buildCockpitModel(
+      [
+        site({
+          id: "p",
+          name: "Launching",
+          status: "launch period",
+          securityVulnsCritical: 2, // would be 🔴 attention on a live site
+        }),
+      ],
+      [],
+      {},
+      BASE,
+      NOW,
+    );
+    const card = m.cards.find((c) => c.site.name === "Launching")!;
+    expect(card.tier).toBe("pre-launch");
+    expect(m.summary.attention).toBe(0);
+    expect(m.summary.preLaunch).toBe(1);
+    // A pre-launch card must never surface as "needs you" (not broken).
+    const feed = buildNeedsYouFeed(m);
+    expect(feed.some((r) => r.siteName === "Launching")).toBe(false);
   });
 
   it("tags items NEW/WORSE from the prior snapshot but never returns a written snapshot", () => {
@@ -455,6 +493,7 @@ const ZERO_SUMMARY: CockpitSummary = {
   attention: 0,
   watch: 0,
   healthy: 0,
+  preLaunch: 0,
   criticalHighVulns: 0,
   lighthouseBelowFloor: 0,
   deliveryFailures: 0,

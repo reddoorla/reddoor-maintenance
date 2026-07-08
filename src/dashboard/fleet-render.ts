@@ -65,6 +65,8 @@ details.fleet-browse > summary, details.inbox > summary { cursor:pointer; font-w
 .pill.attention { background:#fdecea; color:#b00; }
 .pill.watch { background:#fff4e5; color:#a65a00; }
 .pill.healthy { background:#e8f5e9; color:#1b7a2f; }
+.pill.pre-launch { background:#eef1f5; color:#5b6570; }
+@media (prefers-color-scheme: dark) { .pill.pre-launch { background:#1c2530; color:#9aa7b4; } }
 .chips { display:flex; flex-wrap:wrap; gap:0.4rem; margin-top:0.5rem; }
 .chip { font-size:0.8rem; padding:0.1rem 0.5rem; border-radius:6px; background:#f0f0f0; }
 @media (prefers-color-scheme: dark) { .chip { background:#222; } }
@@ -132,9 +134,13 @@ function verdictBar(model: CockpitModel, feed: NeedsYouItem[]): string {
     : null;
   const total = model.cards.length;
   const { broken, watch, approval } = needsYouCounts(feed);
+  // Pre-launch (pre-live) cards never enter the feed and must not be counted as
+  // "healthy" nor as "broken" — surface them as their own neutral meta term.
+  const preLaunch = model.summary.preLaunch;
+  const preLaunchTerm = preLaunch > 0 ? `${preLaunch} pre-launch` : null;
   // Clamp: feed counts include pending-report sites, which (rarely) may not be among
   // the visible cards, so total − feed could otherwise underflow to a negative "healthy".
-  const healthy = Math.max(0, total - (broken + watch + approval));
+  const healthy = Math.max(0, total - (broken + watch + approval + preLaunch));
   const actions = `<div class="fleet-actions">
       <button type="button" class="refresh-fleet" data-refresh-url="/api/fleet/refresh">↻ Audit fleet</button>
       <div id="rf-status" class="rf-status" aria-live="polite"></div>
@@ -147,8 +153,8 @@ function verdictBar(model: CockpitModel, feed: NeedsYouItem[]): string {
   </div>`;
 
   if (broken === 0 && watch === 0 && approval === 0) {
-    const sitesWord = `${total} site${total === 1 ? "" : "s"}`;
-    return render("ok", "✓ All clear", [`${sitesWord} healthy`, auditedTerm]);
+    const healthyWord = healthy > 0 ? `${healthy} site${healthy === 1 ? "" : "s"} healthy` : null;
+    return render("ok", "✓ All clear", [healthyWord, preLaunchTerm, auditedTerm]);
   }
 
   // Count terms are integer-derived static English — no escaping needed (unlike auditedTerm).
@@ -161,6 +167,7 @@ function verdictBar(model: CockpitModel, feed: NeedsYouItem[]): string {
       watchTerm,
       approvalTerm,
       healthyTerm,
+      preLaunchTerm,
       auditedTerm,
     ]);
   }
@@ -168,10 +175,11 @@ function verdictBar(model: CockpitModel, feed: NeedsYouItem[]): string {
     return render("watch", `${watch} site${watch === 1 ? "" : "s"} to watch`, [
       approvalTerm,
       healthyTerm,
+      preLaunchTerm,
       auditedTerm,
     ]);
   }
-  return render("soft", `${approval} waiting on you`, [healthyTerm, auditedTerm]);
+  return render("soft", `${approval} waiting on you`, [healthyTerm, preLaunchTerm, auditedTerm]);
 }
 
 const NEEDS_YOU_GROUP_LABEL: Record<NeedsYouGroup, string> = {

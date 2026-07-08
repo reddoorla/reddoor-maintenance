@@ -2,16 +2,16 @@ import type { WebsiteRow, Frequency, Status } from "./airtable/websites.js";
 import type { ReportRow } from "./airtable/reports.js";
 import type { ReportType } from "./types.js";
 
-/** Statuses where reports are appropriate. Drops "deprecated" and
- * "probably not our problem" — even if the operator left a freq set, we don't
- * want to surface those sites in --due output. Sites with status=null pass
- * through (existing data is partial; better to surface than silently skip). */
-export const ELIGIBLE_STATUSES: ReadonlySet<Status> = new Set<Status>([
-  "in development",
-  "launch period",
-  "maintenance",
-  "hosting",
-]);
+/** Statuses where recurring Maintenance/Testing reports are appropriate. Only
+ * LIVE sites: "maintenance" (actively maintained) and "hosting". Pre-launch
+ * stages ("in development" / "launch period") are excluded — a not-yet-live site
+ * must not be drafted a recurring Maintenance/Testing report (that's what was
+ * emailing/alarming pre-launch sites); it starts its report cadence when a Launch
+ * report flips its Status to "maintenance". Launch reports themselves are a
+ * separate manual flow (recipes/launch.ts), never scheduled here. "deprecated" /
+ * "probably not our problem" are dropped too. Sites with status=null pass through
+ * (partial data; better to surface than silently skip). */
+export const ELIGIBLE_STATUSES: ReadonlySet<Status> = new Set<Status>(["maintenance", "hosting"]);
 
 export type DueItem = {
   site: WebsiteRow;
