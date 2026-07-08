@@ -125,6 +125,30 @@ describe("blux emit errors", () => {
   });
 });
 
+describe("blux validate", () => {
+  it("reports content coverage of a render against the export answer key", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-validate-"));
+    await writeFile(
+      join(dir, "index.html"),
+      "<body><h1>The Pointe</h1><p>The Space</p><p>Burbank</p></body>",
+    );
+    const renderedPath = join(dir, "rendered.html");
+    await writeFile(renderedPath, "<main>The Pointe The Space</main>");
+    const r = await runBluxCommand("validate", dir, { against: renderedPath });
+    expect(r.output).toContain("content coverage: 2/3");
+    // the run the render never produced is named so the gap is actionable
+    expect(r.output).toContain("burbank");
+  });
+
+  it("needs an --against target", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-validate-"));
+    await writeFile(join(dir, "index.html"), "<body>x</body>");
+    const r = await runBluxCommand("validate", dir, {});
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("--against");
+  });
+});
+
 describe("blux migrate gate", () => {
   const saved: Record<string, string | undefined> = {};
 
