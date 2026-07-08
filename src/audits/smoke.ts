@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AuditResult } from "../types.js";
 import type { AuditContext } from "./util/inject.js";
@@ -20,6 +20,15 @@ async function hasTestSmokeScript(sitePath: string): Promise<boolean> {
     const raw = await readFile(join(sitePath, "package.json"), "utf-8");
     const pkg = JSON.parse(raw) as { scripts?: Record<string, string> };
     return typeof pkg.scripts?.["test:smoke"] === "string";
+  } catch {
+    return false;
+  }
+}
+
+async function hasNodeModules(sitePath: string): Promise<boolean> {
+  try {
+    await access(join(sitePath, "node_modules"));
+    return true;
   } catch {
     return false;
   }
@@ -53,6 +62,42 @@ export async function smokeAudit(ctx: AuditContext): Promise<AuditResult> {
       status: "skip",
       summary: "no test:smoke script",
     };
+  }
+
+  // The nightly fleet producer runs against FRESH clones (cloneIfNeeded does a
+  // bare `git clone`, no install), so the site's own playwright/vite aren't on
+  // PATH yet — without this, `pnpm test:smoke` exits non-zero and we'd persist a
+  // FALSE Smoke OK=fail. Install only when node_modules is absent (a local
+  // already-installed checkout is untouched). Any install failure → skip (NO
+  // details), so the Airtable writer preserves the prior verdict rather than
+  // recording a false fail. Mirrors deps-outdated.ts.
+  if (!(await hasNodeModules(site.path))) {
+    let install;
+    try {
+      install = await spawn("pnpm", ["install", "--frozen-lockfile"], {
+        cwd: site.path,
+        timeoutMs: 5 * 60_000,
+      });
+    } catch (err) {
+      const e = err as NodeJS.ErrnoException;
+      if (e.code === "ENOENT" || /ENOENT/.test(String(err))) {
+        return { audit: "smoke", site: label, status: "skip", summary: "pnpm not available" };
+      }
+      throw err;
+    }
+    if (install.code !== 0) {
+      // Lockfile drift shouldn't red a site — retry unfrozen once (the clone is
+      // ephemeral, so a rewritten lockfile is harmless). Still failing → skip.
+      const retry = await spawn("pnpm", ["install"], { cwd: site.path, timeoutMs: 5 * 60_000 });
+      if (retry.code !== 0) {
+        return {
+          audit: "smoke",
+          site: label,
+          status: "skip",
+          summary: `smoke: pnpm install failed (exit ${retry.code}) — deps unavailable`,
+        };
+      }
+    }
   }
 
   const port = await findFreePort();
