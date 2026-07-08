@@ -58,6 +58,13 @@ export type ReportRow = {
    *  record. Null when the report predates auto-tick or carried no auto-checked items. Drives the
    *  dashboard's green/amber badges; the gate still reads the booleans, not this. */
   autoEvidence: Record<string, EvidenceRecord> | null;
+  /** Logged send-anyway override (Phase 10). When `sendOverride` is true AND `overrideReason` is
+   *  non-empty, the health gate is bypassed for THIS report; `overrideBy`/`overrideAt` are the
+   *  audit trail (parallel to approvedBy/approvedAt). Missing cells read false/null. */
+  sendOverride: boolean;
+  overrideReason: string | null;
+  overrideBy: string | null;
+  overrideAt: string | null;
 };
 
 /**
@@ -103,6 +110,10 @@ function mapRow(rec: { id: string; fields: Record<string, unknown> }): ReportRow
     resendMessageId: (f["Resend message ID"] as string | undefined) ?? null,
     checklist: Object.fromEntries(ALL_CHECKLIST_FIELDS.map((name) => [name, Boolean(f[name])])),
     autoEvidence: parseAutoEvidence(f["Checklist auto-evidence"]),
+    sendOverride: Boolean(f["Send override"]),
+    overrideReason: (f["Override reason"] as string | undefined) ?? null,
+    overrideBy: (f["Override by"] as string | undefined) ?? null,
+    overrideAt: (f["Override at"] as string | undefined) ?? null,
   };
 }
 
@@ -378,6 +389,35 @@ export async function approveReportRow(
         "Approved to send": true,
         "Approved At": approvedAt.toISOString(),
         "Approved By": approvedBy,
+      },
+    },
+  ]);
+}
+
+/**
+ * Stamp a logged send-anyway override on a Reports row: sets `Send override` TRUE, the reason, and
+ * who/when — AND flips `Approved to send` TRUE (with the same Approved At/By stamp) so the daily
+ * cron delivers the overridden report. Mirrors {@link approveReportRow}; never touches `Sent at`.
+ */
+export async function overrideReportRow(
+  base: AirtableBase,
+  recordId: string,
+  overrideAt: Date,
+  overrideBy: string,
+  reason: string,
+): Promise<void> {
+  const at = overrideAt.toISOString();
+  await base(REPORTS_TABLE).update([
+    {
+      id: recordId,
+      fields: {
+        "Send override": true,
+        "Override reason": reason,
+        "Override by": overrideBy,
+        "Override at": at,
+        "Approved to send": true,
+        "Approved At": at,
+        "Approved By": overrideBy,
       },
     },
   ]);

@@ -53,6 +53,10 @@ function reportRow(over: Partial<ReportRow> = {}): ReportRow {
     resendMessageId: null,
     checklist: {},
     autoEvidence: null,
+    sendOverride: false,
+    overrideReason: null,
+    overrideBy: null,
+    overrideAt: null,
     ...over,
   };
 }

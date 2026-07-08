@@ -79,6 +79,10 @@ function reportRow(over: Partial<ReportRow> = {}): ReportRow {
     approvedBy: null,
     checklist: {},
     autoEvidence: healthCleanEvidence(over.reportType ?? "Maintenance"),
+    sendOverride: false,
+    overrideReason: null,
+    overrideBy: null,
+    overrideAt: null,
     ...over,
   };
 }

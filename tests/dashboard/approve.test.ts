@@ -36,6 +36,10 @@ function reportRow(over: Partial<ReportRow> = {}): ReportRow {
     // exercise the path AFTER the checklist gate; the gate-specific tests override.
     checklist: { ...COMPLETE_MAINTENANCE },
     autoEvidence: null,
+    sendOverride: false,
+    overrideReason: null,
+    overrideBy: null,
+    overrideAt: null,
     ...over,
   };
 }

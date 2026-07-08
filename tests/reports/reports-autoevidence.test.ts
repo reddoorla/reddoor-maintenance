@@ -119,3 +119,23 @@ describe("createDraft writes checklist booleans + auto-evidence", () => {
     expect(ev["Maint: Uptime Checked"].result).toBe("unknown");
   });
 });
+
+describe("ReportRow carries the override audit fields", () => {
+  it("defaults sendOverride=false and the reason/by/at to null on a fresh draft", async () => {
+    const base = makeFakeBase({ Reports: [] });
+    const row = await createDraft(base, {
+      reportId: "Acme Co — Maintenance — 2026-07-06",
+      siteId: "rec_site",
+      reportType: "Maintenance",
+      periodStart: new Date("2026-07-01T00:00:00Z"),
+      periodEnd: new Date("2026-07-06T00:00:00Z"),
+      completedOn: new Date("2026-07-06T00:00:00Z"),
+      lighthouse: { performance: 90, accessibility: 100, bestPractices: 82, seo: 100 },
+      lastTestedDate: null,
+    });
+    expect(row.sendOverride).toBe(false);
+    expect(row.overrideReason).toBeNull();
+    expect(row.overrideBy).toBeNull();
+    expect(row.overrideAt).toBeNull();
+  });
+});
