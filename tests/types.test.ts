@@ -62,6 +62,8 @@ describe("types", () => {
       "convert-to-pnpm",
       "onboard",
       "a11y-fixtures-page",
+      "health-endpoint",
+      "smoke-suite",
       "self-updating",
       "init",
     ];
