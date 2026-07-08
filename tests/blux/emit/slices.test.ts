@@ -41,6 +41,16 @@ describe("sectionToSlice", () => {
     });
     expect(s.variation).toBe("imageLeft");
   });
+  it("coerces heading HTML to each field's allowed tags and demotes headings in bodies", () => {
+    const s = sectionToSlice({
+      sliceType: "media_text",
+      variation: "imageRight",
+      confidence: 1,
+      fields: { heading: "<h5>Deep</h5>", body: "<h3>Not a heading slot</h3><p>ok</p>" },
+    });
+    expect(s.primary.heading).toEqual({ __richtext_html: "<h3>Deep</h3>" });
+    expect(s.primary.body).toEqual({ __richtext_html: "<p>Not a heading slot</p><p>ok</p>" });
+  });
   it("maps collection_list with its linked apiId", () => {
     const s = sectionToSlice({
       sliceType: "collection_list",

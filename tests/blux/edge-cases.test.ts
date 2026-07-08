@@ -13,12 +13,12 @@ describe("archetype — lower-confidence branches", () => {
     expect(r.confidence).toBeCloseTo(0.6);
   });
   it("maps text-only to rich_text at reduced confidence", () => {
-    const r = archetype({ _body: "<p>only body</p>" });
+    const r = archetype({ body: "<p>only body</p>" });
     expect(r.sliceType).toBe("rich_text");
     expect(r.confidence).toBeCloseTo(0.6);
   });
   it("maps a non-grid/non-slides container to grid at reduced confidence", () => {
-    const r = archetype({ class: "columns", items: [{ _title: "a" }] });
+    const r = archetype({ class: "columns", items: [{ title: "a" }] });
     expect(r.sliceType).toBe("grid");
     expect(r.confidence).toBeCloseTo(0.7);
   });
