@@ -118,7 +118,8 @@ describe("recipes/smoke-suite", () => {
   it("flags an unusual existing config for manual patch, applies the rest", async () => {
     const cwd = await copyFixtureToTmp(pristine);
     const cfg = join(cwd, PLAYWRIGHT_CONFIG_RELATIVE);
-    const weird = "import { defineConfig } from '@playwright/test';\nexport default defineConfig({ testDir: 'e2e' });\n";
+    const weird =
+      "import { defineConfig } from '@playwright/test';\nexport default defineConfig({ testDir: 'e2e' });\n";
     await writeFile(cfg, weird);
     commitSetup(cwd);
 
@@ -145,8 +146,8 @@ describe("recipes/smoke-suite", () => {
     const after = await readPkg(cwd);
     expect(after.devDependencies?.["@playwright/test"]).toBe("^1.60.0");
     expect(spawn.calls).toHaveLength(1);
-    expect(spawn.calls[0].cmd).toBe("pnpm");
-    expect(spawn.calls[0].args).toEqual(["install"]);
+    expect(spawn.calls[0]?.cmd).toBe("pnpm");
+    expect(spawn.calls[0]?.args).toEqual(["install"]);
   });
 
   it("fails the recipe when pnpm install exits non-zero", async () => {

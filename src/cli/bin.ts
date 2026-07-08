@@ -54,9 +54,10 @@ const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {
     "Write src/routes/dev/a11y-fixtures/+page.svelte (stub for lhci + axe targets).",
   "health-endpoint":
     "Write src/routes/health/+server.ts (function-health probe for the report gate).",
+  "smoke-suite": "Add the smoke suite (test:smoke + playwright config + /health smoke routes).",
   "self-updating":
     "Bootstrap CI + Renovate + auto-merge per repo (writes workflows, opens PR, sets RENOVATE_TOKEN).",
-  init: "Run the full onboarding chain (convert-to-pnpm → onboard → sync-configs → svelte-codemods → a11y-fixtures-page → audit).",
+  init: "Run the full onboarding chain (convert-to-pnpm → onboard → sync-configs → svelte-codemods → a11y-fixtures-page → health-endpoint → smoke-suite → audit).",
 };
 
 /** Run a command thunk and surface its result, falling back to a clean error
@@ -303,6 +304,24 @@ cli
 
 cli
   .command(
+    "smoke-suite [site]",
+    "Add the smoke suite (test:smoke + playwright config + /health smoke routes).",
+  )
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "airtable" to read from Websites table',
+  )
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(
+    async (site, opts: { fleet?: string; workdir?: string; cwd?: string; verbose?: boolean }) =>
+      runOrExit(
+        async () => (await import("./commands/smoke-suite.js")).runSmokeSuiteCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
     "onboard [site]",
     "Install @reddoorla/maintenance + audit deps on a site (run after convert-to-pnpm).",
   )
@@ -332,7 +351,7 @@ cli
 cli
   .command(
     "init [site]",
-    "One-shot guided onboarding: convert-to-pnpm → onboard → sync-configs → svelte-codemods → a11y-fixtures-page → audit.",
+    "One-shot guided onboarding: convert-to-pnpm → onboard → sync-configs → svelte-codemods → a11y-fixtures-page → health-endpoint → smoke-suite → audit.",
   )
   .option(
     "--fleet <inventory>",
