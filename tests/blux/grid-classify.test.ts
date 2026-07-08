@@ -78,3 +78,26 @@ describe("classifyBand — fallback + wiring", () => {
     if (spec.slice === "Grid") expect(spec.root.kind).toBe("row");
   });
 });
+
+describe("classifyBand — text-only", () => {
+  it("heading + subtitle with no media/bg → TitleBand", () => {
+    const spec = classifyBand(band(realBands(), 2)); // stack[h2,subtitle]
+    expect(spec.slice).toBe("TitleBand");
+    if (spec.slice === "TitleBand") {
+      expect(spec.heading.length).toBeGreaterThan(0);
+      expect(spec.subtitle).toBeDefined();
+    }
+  });
+
+  it("a bare heading → TitleBand", () => {
+    const spec = classifyBand(band(realBands(), 15)); // h2
+    expect(spec.slice).toBe("TitleBand");
+  });
+
+  it("only body text → RichText", () => {
+    const only: Band = { index: 99, root: { kind: "body", html: "<p>hello</p>" } };
+    const spec = classifyBand(only);
+    expect(spec.slice).toBe("RichText");
+    if (spec.slice === "RichText") expect(spec.html).toContain("hello");
+  });
+});

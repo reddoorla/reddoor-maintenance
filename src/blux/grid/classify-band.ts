@@ -68,10 +68,54 @@ function base(band: Band): { index: number; background?: Media } {
   return { index: band.index, ...(band.background ? { background: band.background } : {}) };
 }
 
+/** Plain text of a heading/subtitle/body node (tags stripped, whitespace collapsed). */
+function nodeText(node: Node): string {
+  const html =
+    node.kind === "heading" || node.kind === "body"
+      ? node.html
+      : node.kind === "subtitle"
+        ? node.text
+        : "";
+  return html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** Classify one band into a SliceSpec. Conservative: only unambiguous shapes
  * become pattern slices; everything else is a render-faithful Grid fallback. */
 export function classifyBand(band: Band, opts: ClassifyOptions = {}): SliceSpec {
   void opts; // used by the widget router (Task 8)
+
+  const root = band.root;
+  const media = collectMedia(root);
+  const text = collectText(root);
+  const row = topRow(root);
+  const headings = text.filter((n) => n.kind === "heading");
+  const subtitles = text.filter((n) => n.kind === "subtitle");
+  const bodies = text.filter((n) => n.kind === "body");
+
+  // Text-only bands (no media, no row).
+  if (media.length === 0 && row === null) {
+    if (headings.length > 0 && !band.background) {
+      const first = headings[0];
+      const sub = subtitles[0];
+      return {
+        slice: "TitleBand",
+        ...base(band),
+        heading: first ? nodeText(first) : "",
+        ...(sub ? { subtitle: nodeText(sub) } : {}),
+      };
+    }
+    if (headings.length === 0 && bodies.length > 0 && !band.background) {
+      return {
+        slice: "RichText",
+        ...base(band),
+        html: bodies.map((b) => (b.kind === "body" ? b.html : "")).join("\n"),
+      };
+    }
+  }
+
   return { slice: "Grid", ...base(band), root: band.root };
 }
 
