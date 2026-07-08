@@ -458,7 +458,11 @@ describe("sendApprovedReports", () => {
           checkedAt: "2026-05-26T00:00:00.000Z",
           note: "",
         },
-        "Maint: Uptime Checked": { result: "pass", checkedAt: "2026-05-26T00:00:00.000Z", note: "" },
+        "Maint: Uptime Checked": {
+          result: "pass",
+          checkedAt: "2026-05-26T00:00:00.000Z",
+          note: "",
+        },
       }),
       "Send override": true,
       "Override reason": "client verbally signed off",
