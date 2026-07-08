@@ -15,6 +15,12 @@ import {
 
 export type SmokeSuiteDeps = { spawn: SpawnFn };
 
+type PackageJson = {
+  scripts?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  dependencies?: Record<string, string>;
+};
+
 async function fileExists(path: string): Promise<boolean> {
   try {
     await access(path);
@@ -46,14 +52,25 @@ export async function smokeSuite(
   deps: SmokeSuiteDeps = { spawn: defaultSpawn },
 ): Promise<RecipeResult> {
   const pkgPath = join(site.path, "package.json");
-  return withRecipe<{ pkgPath: string }>({
+  return withRecipe<{ pkgPath: string; pkg: PackageJson }>({
     name: "smoke-suite",
     site,
     plan: async () => {
-      if (!(await fileExists(pkgPath))) {
+      // Parse in the read-only plan phase so a missing OR unparseable
+      // package.json noops cleanly (spec: structurally unrecognizable → noop),
+      // BEFORE apply writes any file. A bad JSON that only threw in apply would
+      // leave the (safely-restored) branch as a `failed`, not the graceful noop.
+      const raw = await readIfExists(pkgPath);
+      if (raw === null) {
         return { kind: "noop", notes: "no package.json (not a node project)" };
       }
-      return { kind: "apply", plan: { pkgPath } };
+      let pkg: PackageJson;
+      try {
+        pkg = JSON.parse(raw) as PackageJson;
+      } catch {
+        return { kind: "noop", notes: "unparseable package.json — skipped" };
+      }
+      return { kind: "apply", plan: { pkgPath, pkg } };
     },
     apply: async (planned, { commit, cwd }) => {
       const notes: string[] = [];
@@ -90,12 +107,8 @@ export async function smokeSuite(
 
       // 3. package.json — add-if-absent scripts + @playwright/test. Only rewrite
       //    when something changed, so a re-run of a fully-adopted site noops
-      //    instead of churning the file.
-      const pkg = JSON.parse(await readFile(planned.pkgPath, "utf-8")) as {
-        scripts?: Record<string, string>;
-        devDependencies?: Record<string, string>;
-        dependencies?: Record<string, string>;
-      };
+      //    instead of churning the file. (Parsed in plan; see above.)
+      const pkg = planned.pkg;
       let pkgChanged = false;
       pkg.scripts ??= {};
       if (!pkg.scripts["test:smoke"]) {

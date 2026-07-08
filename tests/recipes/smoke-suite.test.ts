@@ -174,6 +174,44 @@ describe("recipes/smoke-suite", () => {
     expect(result.notes).toMatch(/no package\.json/);
   });
 
+  it("noops gracefully (not failed) on an unparseable package.json — nothing written", async () => {
+    const cwd = await copyFixtureToTmp(pristine);
+    await writeFile(join(cwd, "package.json"), "{ this is: not valid json,, }\n");
+    commitSetup(cwd);
+
+    const result = await smokeSuite({ path: cwd }, { spawn: fakeSpawn().fn });
+    expect(result.status).toBe("noop");
+    expect(result.notes).toMatch(/unparseable package\.json/);
+    // The parse happens in the read-only plan phase, so no spec file leaked out.
+    await expect(readFile(join(cwd, SMOKE_SPEC_RELATIVE), "utf-8")).rejects.toThrow();
+  });
+
+  it("still surfaces the config flag on a full re-run where nothing needs writing (noop + note)", async () => {
+    const cwd = await copyFixtureToTmp(pristine);
+    // Fully adopted EXCEPT an unusual config: specs present, all scripts present,
+    // @playwright/test present (fixture). The only outstanding item is the config,
+    // which must not be touched — but its flag must still reach the operator even
+    // though the recipe stages nothing and reports noop.
+    await mkdir(dirname(join(cwd, SMOKE_ROUTES_RELATIVE)), { recursive: true });
+    await writeFile(join(cwd, SMOKE_ROUTES_RELATIVE), SMOKE_ROUTES_TEMPLATE);
+    await writeFile(join(cwd, SMOKE_SPEC_RELATIVE), SMOKE_SPEC_TEMPLATE);
+    await writeFile(join(cwd, PLAYWRIGHT_CONFIG_RELATIVE), "export default { custom: true };\n");
+    const pkgPath = join(cwd, "package.json");
+    const pkg = JSON.parse(await readFile(pkgPath, "utf-8"));
+    pkg.scripts = {
+      ...pkg.scripts,
+      test: "vitest run",
+      "test:unit": "vitest run",
+      "test:smoke": "playwright install chromium && playwright test",
+    };
+    await writeFile(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+    commitSetup(cwd);
+
+    const result = await smokeSuite({ path: cwd }, { spawn: fakeSpawn().fn });
+    expect(result.status).toBe("noop"); // nothing left to write
+    expect(result.notes).toMatch(/playwright\.config\.ts exists without REDDOOR_SMOKE_PORT/);
+  });
+
   it("is idempotent: a second run makes no further changes", async () => {
     const cwd = await copyFixtureToTmp(pristine);
     await smokeSuite({ path: cwd }, { spawn: fakeSpawn().fn });
