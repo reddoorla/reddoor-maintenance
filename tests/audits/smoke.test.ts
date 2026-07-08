@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { smokeAudit } from "../../src/audits/smoke.js";
@@ -10,14 +10,18 @@ const NOW = new Date("2026-07-06T00:00:00.000Z");
 /** A site checkout with a real `package.json` carrying a `test:smoke` script —
  *  the audit reads this from disk (R3.2) before ever spawning `pnpm`, so the
  *  pass/fail/ENOENT-skip tests below need a real file on disk, not the fake
- *  `/tmp/acme` path (mirrors deps.test.ts's mkdtemp-fixture pattern). */
-async function siteWithSmokeScript(): Promise<{ path: string; name: string }> {
+ *  `/tmp/acme` path (mirrors deps.test.ts's mkdtemp-fixture pattern). Defaults
+ *  to an ALREADY-INSTALLED checkout (a node_modules dir) so the suite-behavior
+ *  tests skip the install step; pass `installed: false` to exercise the
+ *  fresh-clone install path. */
+async function siteWithSmokeScript(installed = true): Promise<{ path: string; name: string }> {
   const dir = await mkdtemp(join(tmpdir(), "reddoor-smoke-"));
   await writeFile(
     join(dir, "package.json"),
     JSON.stringify({ name: "acme", scripts: { "test:smoke": "playwright test smoke" } }),
     "utf-8",
   );
+  if (installed) await mkdir(join(dir, "node_modules"), { recursive: true });
   return { path: dir, name: "acme" };
 }
 
@@ -48,6 +52,47 @@ describe("audits/smoke", () => {
     expect(r.audit).toBe("smoke");
     expect(r.status).toBe("pass");
     expect(r.details).toEqual({ ok: "pass", checkedAt: NOW.toISOString() });
+  });
+
+  it("installs deps (frozen) on a fresh clone before running the suite", async () => {
+    const site = await siteWithSmokeScript(false); // no node_modules
+    const calls: Array<{ cmd: string; args: readonly string[]; cwd: string | undefined }> = [];
+    const spawn: SpawnFn = async (c, a, opts) => {
+      calls.push({ cmd: c, args: a, cwd: opts?.cwd });
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const r = await smokeAudit({ site, spawn, now: NOW });
+    expect(calls[0]?.cmd).toBe("pnpm");
+    expect(calls[0]?.args).toEqual(["install", "--frozen-lockfile"]);
+    expect(calls[0]?.cwd).toBe(site.path);
+    expect(calls[1]?.args).toEqual(["test:smoke"]);
+    expect(r.status).toBe("pass");
+  });
+
+  it("skips (no false fail) when the fresh-clone install fails", async () => {
+    const site = await siteWithSmokeScript(false);
+    const calls: string[][] = [];
+    const spawn: SpawnFn = async (_c, a) => {
+      calls.push([...a]);
+      return { code: 1, stdout: "", stderr: "lockfile drift" };
+    };
+    const r = await smokeAudit({ site, spawn, now: NOW });
+    expect(r.status).toBe("skip");
+    expect(r.details).toBeUndefined();
+    // frozen install + one unfrozen retry attempted; the suite never ran.
+    expect(calls).toEqual([["install", "--frozen-lockfile"], ["install"]]);
+  });
+
+  it("does not install when node_modules already exists", async () => {
+    const site = await siteWithSmokeScript(true); // node_modules present
+    const calls: string[][] = [];
+    const spawn: SpawnFn = async (_c, a) => {
+      calls.push([...a]);
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const r = await smokeAudit({ site, spawn, now: NOW });
+    expect(calls).toEqual([["test:smoke"]]); // only the suite, no install
+    expect(r.status).toBe("pass");
   });
 
   it("fails when the smoke suite exits non-zero", async () => {

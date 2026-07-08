@@ -1,0 +1,143 @@
+name: fleet-smoke
+
+# Nightly fleet-wide smoke suite → the Report Health Gate's `Smoke OK` signal.
+# Unlike fleet-lighthouse (checkout-free, hits each DEPLOYED url), `smoke` is
+# clone-based: it clones each active site and runs the site's OWN `pnpm test:smoke`
+# (which boots a local vite dev server on an audit-allocated REDDOOR_SMOKE_PORT and
+# runs Playwright/chromium smoke specs against localhost), writing Smoke OK +
+# Last Smoke At back to its Airtable row. This repo is the central scheduler (it's
+# active, so GitHub's 60-day cron-disable never fires). Sequential (--concurrency 1):
+# each site boots its own dev server + browser, so parallelism would thrash a
+# 2-core runner. A separate file from fleet-lighthouse so this slow producer never
+# couples to (or slows) the fast deployed-URL sweep.
+on:
+  schedule:
+    - cron: "0 10 * * *" # 10:00 UTC — clear of 06:00 security / 08:00 lighthouse
+  workflow_dispatch: {} # manual run from the Actions tab
+
+# Never overlap a manual run with the scheduled one.
+concurrency:
+  group: fleet-smoke
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write # open/close the nightly-smoke-failure tracking issue
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.7.0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      # Each site's `test:smoke` runs `playwright install chromium` (the browser
+      # BINARY, no --with-deps), so pre-provision chromium's OS libraries once at
+      # the runner level or the browser launch fails on a bare ubuntu runner.
+      - run: pnpm exec playwright install --with-deps chromium
+
+      - name: Fleet smoke suite + Airtable write-back
+        # Clone + install + chromium + vite boot + specs, ~10 sites sequential — the
+        # heaviest nightly leg. Backstop a wedged run so it can't pin the runner and
+        # (via concurrency.cancel-in-progress=false) block the next night too.
+        timeout-minutes: 90
+        env:
+          AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
+          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          set -o pipefail
+          # A failing smoke suite makes the CLI exit non-zero BY DESIGN; tolerate it
+          # and key the gate on the machine-readable FLEET_WRITE_SUMMARY line, exactly
+          # like fleet-lighthouse. A site that hasn't adopted `test:smoke` skips
+          # (counts as written, not failed), so the gate stays green during rollout.
+          # The smoke audit self-installs deps into each fresh clone before running,
+          # so a missing node_modules degrades to skip — never a false Smoke OK=fail.
+          node dist/cli/bin.js audit \
+            --fleet airtable \
+            --only smoke \
+            --write-airtable \
+            --concurrency 1 \
+            --workdir /tmp/fleet-smoke | tee /tmp/smoke.out || true
+
+          # `|| true`: under Actions' default `set -e`, a no-match grep in a command
+          # substitution would abort the step before the diagnostic below runs.
+          summary=$(grep -oE "FLEET_WRITE_SUMMARY wrote=[0-9]+ failed=[0-9]+ total=[0-9]+" /tmp/smoke.out | tail -n1 || true)
+          if [ -z "$summary" ]; then
+            echo "::error::fleet smoke printed no write summary — the run crashed before write-back (check Airtable creds / API)."
+            exit 1
+          fi
+          wrote=$(echo "$summary" | grep -oE "wrote=[0-9]+" | cut -d= -f2)
+          failed=$(echo "$summary" | grep -oE "failed=[0-9]+" | cut -d= -f2)
+          total=$(echo "$summary" | grep -oE "total=[0-9]+" | cut -d= -f2)
+          echo "fleet smoke write-back: wrote=$wrote failed=$failed total=$total"
+
+          # Surface every partial miss as a visible annotation, even one within tolerance.
+          if [ "$failed" -gt 0 ]; then
+            notwritten=$(grep -oE "[0-9]+ site\(s\) not written:.*" /tmp/smoke.out | tail -n1 || true)
+            echo "::warning::fleet smoke: $failed/$total site(s) not written — $notwritten"
+          fi
+
+          # A site that couldn't be prepared (bad URL/repo) is dropped from the run
+          # rather than crashing it; raise it so the misconfigured Airtable row is fixed.
+          skipped=$(grep -oE "⚠ [0-9]+ site\(s\) skipped \(could not prepare\):.*" /tmp/smoke.out | tail -n1 || true)
+          if [ -n "$skipped" ]; then
+            echo "::warning::fleet smoke: $skipped"
+          fi
+
+          # Total write-back failure: nothing landed at all (creds/API/inventory).
+          if [ "$wrote" -eq 0 ]; then
+            echo "::error::fleet smoke wrote 0 of $total site(s) — total write-back failure (check Airtable creds / API)."
+            exit 1
+          fi
+
+          # Mass flake: more than 25% of attempted sites failed to write.
+          if [ $((failed * 4)) -gt "$total" ]; then
+            echo "::error::fleet smoke: $failed/$total site(s) failed to write (>25%) — investigate (not a single-site flake)."
+            exit 1
+          fi
+
+      # A red nightly is otherwise only GitHub's best-effort email to the last pusher.
+      # File/reopen a single deduped tracking issue so a failure is durably visible,
+      # and auto-close it once the run goes green again. continue-on-error so the alert
+      # machinery can NEVER turn a run's status red.
+      - name: Open/update the nightly-smoke-failure tracking issue
+        if: failure()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Nightly fleet smoke failing"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body=$(printf 'The nightly **fleet-smoke** run failed.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          existing=$(gh issue list --state open --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close the nightly-smoke-failure issue on recovery
+        if: success()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Nightly fleet smoke failing"
+          for n in $(gh issue list --state open --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+            gh issue close "$n" --comment "Recovered — the nightly fleet-smoke run is green again." && echo "closed #$n"
+          done
