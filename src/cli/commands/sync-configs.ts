@@ -84,6 +84,7 @@ export async function runSyncConfigsCommand(
   let sites = await resolveSites({
     ...(site !== undefined ? { site } : {}),
     ...(opts.fleet !== undefined ? { fleet: opts.fleet } : {}),
+    ...(opts.workdir !== undefined ? { workdir: opts.workdir } : {}),
     cwd,
   });
 
