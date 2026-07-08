@@ -55,8 +55,9 @@ export type ReportRow = {
    *  subset (see src/reports/checklist.ts). */
   checklist: Record<string, boolean>;
   /** Snapshot of the auto-tick evidence at draft time, keyed by checklist field → evidence
-   *  record. Null when the report predates auto-tick or carried no auto-checked items. Drives the
-   *  dashboard's green/amber badges; the gate still reads the booleans, not this. */
+   *  record. Null when the report predates auto-tick or carried no auto-checked items. This is the
+   *  health gate's source of truth: `isHealthGateClear`/`gatingHealth` (src/reports/checklist.ts)
+   *  read these evidence records, NOT the checklist booleans — and also drive the dashboard badges. */
   autoEvidence: Record<string, EvidenceRecord> | null;
   /** Logged send-anyway override (Phase 10). When `sendOverride` is true AND `overrideReason` is
    *  non-empty, the health gate is bypassed for THIS report; `overrideBy`/`overrideAt` are the
@@ -242,7 +243,8 @@ export async function createDraft(base: AirtableBase, input: DraftInput): Promis
   if (input.period !== undefined) fields["Period"] = input.period;
   if (input.subjectOverride !== undefined) fields["Subject override"] = input.subjectOverride;
   // Auto-ticked checklist boxes + the evidence snapshot. The booleans are the same columns the
-  // operator/dashboard toggle; the JSON drives the dashboard's green/amber badges.
+  // operator/dashboard toggle; the JSON is what the health gate reads (isHealthGateClear/gatingHealth)
+  // and also drives the dashboard's green/amber badges.
   for (const field of input.checklistTicks ?? []) fields[field] = true;
   if (input.autoEvidence && Object.keys(input.autoEvidence).length > 0) {
     fields["Checklist auto-evidence"] = JSON.stringify(input.autoEvidence);
