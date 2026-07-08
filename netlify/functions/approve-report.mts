@@ -111,24 +111,28 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
 
   try {
     const base = openBase({ apiKey, baseId });
-    const result = await approveReport(
-      {
-        getReportById: (rid) => getReportByIdAirtable(base, rid),
-        approveReportRow: (rid, at, by) => approveReportRow(base, rid, at, by),
-        overrideReport: (rid, at, by, reason) => overrideReportRow(base, rid, at, by, reason),
-        now: () => new Date(),
-        sendBlockers: async (report) => {
-          // One Websites fetch per approve click (30/min rate limit; fine). A
-          // missing Site row is itself a send blocker — sendApprovedReports
-          // fails exactly that way.
-          const site = (await listWebsites(base)).find((w) => w.id === report.siteId);
-          if (!site) return ["site-not-found: this report's Site link points at no Websites row"];
-          return formatBlockers(approveBlockers(site, report));
-        },
+    const deps = {
+      getReportById: (rid: string) => getReportByIdAirtable(base, rid),
+      approveReportRow: (rid: string, at: Date, by: string) => approveReportRow(base, rid, at, by),
+      overrideReport: (rid: string, at: Date, by: string, reason: string) =>
+        overrideReportRow(base, rid, at, by, reason),
+      now: () => new Date(),
+      sendBlockers: async (report: Parameters<typeof approveBlockers>[1]) => {
+        // One Websites fetch per approve click (30/min rate limit; fine). A
+        // missing Site row is itself a send blocker — sendApprovedReports
+        // fails exactly that way.
+        const site = (await listWebsites(base)).find((w) => w.id === report.siteId);
+        if (!site) return ["site-not-found: this report's Site link points at no Websites row"];
+        return formatBlockers(approveBlockers(site, report));
       },
-      id,
-      override,
-    );
+    };
+    // Only pass the third argument when an override is actually in play — an
+    // explicit trailing `undefined` is a different call arity than omitting
+    // the arg (mock assertion equality cares), and approveReport's `override`
+    // param is already optional for exactly this no-override path.
+    const result = override
+      ? await approveReport(deps, id, override)
+      : await approveReport(deps, id);
 
     if (result.status === "not-found") {
       return Response.json(result, { status: 404 });
