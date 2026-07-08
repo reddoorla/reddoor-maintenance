@@ -54,6 +54,14 @@ describe("blux emit", () => {
     expect(css).toContain("--text-text5--letter-spacing: 1.5px;");
   });
 
+  it("appends the .txt-role utilities so a site consumes theme.css directly", async () => {
+    const css = await readFile(join(out, "theme.css"), "utf-8");
+    // the @theme tokens come first, then the utilities that reference them
+    expect(css).toContain(".txt-role-text5 :is(h1, h2, h3, h4, h5, h6, p) {");
+    expect(css).toContain("font-size: var(--text-text5);");
+    expect(css.indexOf("@theme {")).toBeLessThan(css.indexOf(".txt-role-text5"));
+  });
+
   it("writes the styles manifest beside the plan", async () => {
     const manifest = JSON.parse(await readFile(join(out, "styles-manifest.json"), "utf-8"));
     expect(manifest[0].pageUid).toBe("home");
@@ -114,6 +122,54 @@ describe("blux emit errors", () => {
     const result = await runBluxCommand("nope", undefined, {});
     expect(result.code).toBe(1);
     expect(result.output).toContain("unknown blux action");
+  });
+});
+
+describe("blux validate", () => {
+  it("reports content coverage of a render against the export answer key", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-validate-"));
+    await writeFile(
+      join(dir, "index.html"),
+      "<body><h1>The Pointe</h1><p>The Space</p><p>Burbank</p></body>",
+    );
+    const renderedPath = join(dir, "rendered.html");
+    await writeFile(renderedPath, "<main>The Pointe The Space</main>");
+    const r = await runBluxCommand("validate", dir, { against: renderedPath });
+    expect(r.output).toContain("content coverage: 2/3");
+    // the run the render never produced is named so the gap is actionable
+    expect(r.output).toContain("burbank");
+  });
+
+  it("needs an --against target", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-validate-"));
+    await writeFile(join(dir, "index.html"), "<body>x</body>");
+    const r = await runBluxCommand("validate", dir, {});
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("--against");
+  });
+
+  it("fails cleanly when the --against file is missing", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-validate-"));
+    await writeFile(join(dir, "index.html"), "<body>The Pointe</body>");
+    const r = await runBluxCommand("validate", dir, {
+      against: join(dir, "does-not-exist.html"),
+    });
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("against");
+  });
+
+  it("fails cleanly when the --against URL returns a non-OK status", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-validate-"));
+    await writeFile(join(dir, "index.html"), "<body>The Pointe</body>");
+    const fetchImpl = (async () =>
+      new Response("<h1>Not Found</h1>", { status: 404 })) as unknown as typeof fetch;
+    const r = await runBluxCommand("validate", dir, {
+      against: "https://example.com/typo",
+      fetchImpl,
+    });
+    // a 404 error page must not be coverage-checked as if it were the render
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("404");
   });
 });
 

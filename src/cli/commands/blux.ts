@@ -3,8 +3,9 @@ import { join } from "node:path";
 import { glob } from "tinyglobby";
 import { assembleIR } from "../../blux/assemble.js";
 import { buildMigrationPlan } from "../../blux/emit/migration-plan.js";
-import { emitThemeCss } from "../../blux/emit/theme.js";
+import { emitThemeCss, emitRolesCss } from "../../blux/emit/theme.js";
 import { buildReviewManifest } from "../../blux/emit/review.js";
+import { validateCoverage } from "../../blux/validate.js";
 import type { MigrationPlan } from "../../blux/emit/plan.js";
 
 export type BluxCommandOptions = {
@@ -16,6 +17,8 @@ export type BluxCommandOptions = {
   bluxBase?: string;
   /** Reconstruct + HEAD-probe CDN URLs for used assets the HTML scrape missed (network). */
   probe?: boolean;
+  /** validate: the converted site's rendered HTML — a file path or http(s) URL. */
+  against?: string;
   /** Test seam for --probe; defaults to global fetch. */
   fetchImpl?: typeof fetch;
   cwd?: string;
@@ -25,7 +28,10 @@ export type BluxCommandOptions = {
 /** `blux <action> [dir]` — emit: Blux export dir → migration plan + custom-type
  *  schemas + theme CSS + review manifest, all deterministic and offline.
  *  migrate: a previously emitted plan → live Prismic (creds-gated; the runner
- *  is imported lazily so emit runs never touch @prismicio). */
+ *  is imported lazily so emit runs never touch @prismicio).
+ *  validate: content coverage of a converted site's render (--against a file or
+ *  URL) against the export's index.html answer key — names any text the
+ *  transform dropped, no tokens spent eyeballing. */
 export async function runBluxCommand(
   action: string,
   dir: string | undefined,
@@ -89,7 +95,11 @@ export async function runBluxCommand(
     await mkdir(join(out, "customtypes"), { recursive: true });
     await writeFile(join(out, "ir.json"), JSON.stringify(ir, null, 2));
     await writeFile(join(out, "migration-plan.json"), JSON.stringify(plan, null, 2));
-    await writeFile(join(out, "theme.css"), emitThemeCss(ir.theme));
+    const rolesCss = emitRolesCss(ir.theme);
+    await writeFile(
+      join(out, "theme.css"),
+      emitThemeCss(ir.theme) + (rolesCss ? "\n" + rolesCss : ""),
+    );
     await writeFile(join(out, "review-manifest.json"), JSON.stringify(manifest, null, 2));
     await writeFile(
       join(out, "styles-manifest.json"),
@@ -146,5 +156,58 @@ export async function runBluxCommand(
     };
   }
 
-  return { output: `unknown blux action '${action}'. Use: emit, migrate.`, code: 1 };
+  if (action === "validate") {
+    if (!dir) return { output: "blux validate needs a Blux export directory.", code: 1 };
+    if (!opts.against) {
+      return {
+        output: "blux validate needs --against <rendered html file or url>.",
+        code: 1,
+      };
+    }
+    let exportHtml: string;
+    try {
+      exportHtml = await readFile(join(dir, "index.html"), "utf-8");
+    } catch (err) {
+      return {
+        output: `could not read index.html in ${dir}: ${(err as Error).message}`,
+        code: 1,
+      };
+    }
+    let rendered: string;
+    try {
+      if (/^https?:\/\//.test(opts.against)) {
+        const res = await (opts.fetchImpl ?? fetch)(opts.against);
+        // fetch resolves on 4xx/5xx; without this an error page would be
+        // coverage-checked as if it were the render (a bogus 1% "gap" alarm)
+        if (!res.ok) {
+          return {
+            output: `could not fetch --against ${opts.against}: HTTP ${res.status}`,
+            code: 1,
+          };
+        }
+        rendered = await res.text();
+      } else {
+        rendered = await readFile(opts.against, "utf-8");
+      }
+    } catch (err) {
+      return {
+        output: `could not read --against ${opts.against}: ${(err as Error).message}`,
+        code: 1,
+      };
+    }
+
+    const report = validateCoverage(exportHtml, rendered);
+    const lines = [
+      `content coverage: ${report.covered}/${report.total} runs (${report.coveragePct}%)`,
+      ...(report.missing.length
+        ? [
+            "missing runs — export text absent from the render:",
+            ...report.missing.map((m) => `  - ${m}`),
+          ]
+        : ["all export text runs present in the render"]),
+    ];
+    return { output: lines.join("\n"), code: 0 };
+  }
+
+  return { output: `unknown blux action '${action}'. Use: emit, migrate, validate.`, code: 1 };
 }
