@@ -25,6 +25,13 @@ function uuidFromUrl(url: string): { id: string; ext?: string } {
     : { id: file };
 }
 
+/** Blux `data-media` is sometimes `uuid.ext` and sometimes a bare `uuid`; the
+ * existing asset pipeline keys on the bare uuid (extension stripped), matching the
+ * video path. Strip a trailing `.<ext>` when `data-ext` names it. */
+export function stripAssetExt(rawId: string, ext?: string): string {
+  return ext && rawId.endsWith(`.${ext}`) ? rawId.slice(0, -(ext.length + 1)) : rawId;
+}
+
 /** Resolve the media an element carries: a `.camediaload` descendant (image, via
  * `data-media`) or a `<video>` (via its src uuid). Returns null when there is none. */
 export function mediaFromElement(el: HTMLElement): Media | null {
@@ -38,10 +45,10 @@ export function mediaFromElement(el: HTMLElement): Media | null {
       ? el
       : el.querySelector(".camediaload[data-media]");
   if (img) {
-    const assetId = img.getAttribute("data-media");
-    if (assetId) {
+    const rawId = img.getAttribute("data-media");
+    if (rawId) {
       const ext = img.getAttribute("data-ext") ?? undefined;
-      return { kind: "image", assetId, ...(ext ? { ext } : {}) };
+      return { kind: "image", assetId: stripAssetExt(rawId, ext), ...(ext ? { ext } : {}) };
     }
   }
   const video = el.querySelector("video");

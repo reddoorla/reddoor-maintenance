@@ -2,7 +2,7 @@ import { parse } from "node-html-parser";
 import type { HTMLElement, Node as HTMLNode } from "node-html-parser";
 import type { Band, Cell, GridToken, Media, Node } from "./types.js";
 import { parseGridToken } from "./token.js";
-import { textRoleFromClass, headingLevel, mediaFromElement } from "./leaf.js";
+import { textRoleFromClass, headingLevel, mediaFromElement, stripAssetExt } from "./leaf.js";
 
 const DEFAULT_TOKEN: GridToken = { cols: 1, raw: "grid-1" };
 
@@ -17,7 +17,7 @@ const isLeafElement = (el: HTMLElement): boolean =>
   hasClass(el, "block-body") ||
   hasClass(el, "block-subtitle") ||
   hasClass(el, "block-media-holder") ||
-  (hasClass(el, "camediaload") && el.getAttribute("data-media") !== null) ||
+  (hasClass(el, "camediaload") && !!el.getAttribute("data-media")) ||
   el.tagName === "VIDEO";
 
 /** Is this element a structural boundary (a leaf, a grid row, or a token-bearing
@@ -60,7 +60,7 @@ export function parseNode(el: HTMLElement): Node {
   }
   if (
     hasClass(el, "block-media-holder") ||
-    (hasClass(el, "camediaload") && el.getAttribute("data-media") !== null) ||
+    (hasClass(el, "camediaload") && !!el.getAttribute("data-media")) ||
     el.tagName === "VIDEO"
   ) {
     const media = mediaFromElement(el);
@@ -95,10 +95,10 @@ const BAND_ID_RE = /^page-block-(\d+)$/;
 /** Read the band-level background media off a `camediaload` band wrapper. */
 function bandBackground(el: HTMLElement): Media | undefined {
   if (!hasClass(el, "camediaload")) return undefined;
-  const assetId = el.getAttribute("data-media");
-  if (!assetId) return undefined;
+  const rawId = el.getAttribute("data-media");
+  if (!rawId) return undefined;
   const ext = el.getAttribute("data-ext") ?? undefined;
-  return { kind: "image", assetId, ...(ext ? { ext } : {}) };
+  return { kind: "image", assetId: stripAssetExt(rawId, ext), ...(ext ? { ext } : {}) };
 }
 
 /** Parse the rendered Blux index.html into the page's top-level band tree. */

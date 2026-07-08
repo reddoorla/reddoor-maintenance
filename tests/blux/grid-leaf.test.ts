@@ -57,4 +57,14 @@ describe("mediaFromElement", () => {
     );
     expect(mediaFromElement(holder)).toBeNull();
   });
+  it("strips a file extension from data-media so the assetId is a bare uuid", () => {
+    const holder = el(
+      '<div class="block-media-holder"><div class="camediaload" data-media="a37733d6-2c4f-f2397.jpg" data-ext="jpg"></div></div>',
+    );
+    expect(mediaFromElement(holder)).toEqual({
+      kind: "image",
+      assetId: "a37733d6-2c4f-f2397",
+      ext: "jpg",
+    });
+  });
 });

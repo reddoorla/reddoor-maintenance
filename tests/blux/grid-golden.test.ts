@@ -8,6 +8,10 @@ const fixture = fileURLToPath(
 );
 const hasFixture = existsSync(fixture);
 
+it("keeps the golden fixture committed (the fidelity gate must not silently disable)", () => {
+  expect(hasFixture).toBe(true);
+});
+
 describe.skipIf(!hasFixture)("grid parser — the-pointe golden", () => {
   const bands = parseGridBands(readFileSync(fixture, "utf-8"));
 

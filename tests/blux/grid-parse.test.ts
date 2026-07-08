@@ -103,8 +103,12 @@ describe("parseNode", () => {
   });
 
   it("does not treat a camediaload placeholder without data-media as a media leaf", () => {
-    // a lazy placeholder with no asset id should not become a media node
+    // a lazy placeholder with no asset id should not become a media node; it is
+    // not structural either, so it surfaces verbatim inside the wrapper's raw html
     const html = "<div class='block-content'><div class='camediaload'></div></div>";
-    expect(node(html)).toEqual({ kind: "raw", html: "" });
+    expect(node(html)).toEqual({
+      kind: "raw",
+      html: "<div class='camediaload'></div>",
+    });
   });
 });
