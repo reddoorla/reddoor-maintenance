@@ -116,6 +116,20 @@ export function classifyBand(band: Band, opts: ClassifyOptions = {}): SliceSpec 
     }
   }
 
+  // Full-bleed hero: a background image with overlay text and no grid row.
+  if (band.background && headings.length > 0 && row === null && media.length === 0) {
+    const h = headings[0];
+    const sub = subtitles[0];
+    const bod = bodies[0];
+    return {
+      slice: "Hero",
+      ...base(band),
+      ...(h ? { heading: nodeText(h) } : {}),
+      ...(sub ? { subtitle: nodeText(sub) } : {}),
+      ...(bod && bod.kind === "body" ? { body: bod.html } : {}),
+    };
+  }
+
   return { slice: "Grid", ...base(band), root: band.root };
 }
 

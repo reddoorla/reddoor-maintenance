@@ -101,3 +101,20 @@ describe("classifyBand — text-only", () => {
     if (spec.slice === "RichText") expect(spec.html).toContain("hello");
   });
 });
+
+describe("classifyBand — Hero", () => {
+  it("background + overlay heading, no foreground media → Hero", () => {
+    const spec = classifyBand(band(realBands(), 7)); // (bg) stack[h2,subtitle]
+    expect(spec.slice).toBe("Hero");
+    if (spec.slice === "Hero") {
+      expect(spec.background?.kind).toBe("image");
+      expect(spec.heading).toBeDefined();
+      expect(spec.subtitle).toBeDefined();
+    }
+  });
+
+  it("background but no heading (bg-only) stays Grid", () => {
+    const spec = classifyBand(band(realBands(), 4)); // (bg) raw
+    expect(spec.slice).toBe("Grid");
+  });
+});
