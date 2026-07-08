@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { parse } from "node-html-parser";
+import { parse, type HTMLElement } from "node-html-parser";
 import { parseNode } from "../../src/blux/grid/parse-grid.js";
 
-const node = (html: string) => parseNode(parse(html).firstChild as any);
+const node = (html: string) => parseNode(parse(html).firstChild as HTMLElement);
 
 describe("parseNode", () => {
   it("parses a heading leaf with its role and level", () => {

@@ -1,12 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { parse } from "node-html-parser";
-import {
-  textRoleFromClass,
-  headingLevel,
-  mediaFromElement,
-} from "../../src/blux/grid/leaf.js";
+import { parse, type HTMLElement } from "node-html-parser";
+import { textRoleFromClass, headingLevel, mediaFromElement } from "../../src/blux/grid/leaf.js";
 
-const el = (html: string) => parse(html).firstChild as any;
+const el = (html: string) => parse(html).firstChild as HTMLElement;
 
 describe("textRoleFromClass", () => {
   it("extracts the textN role token", () => {
@@ -52,9 +48,7 @@ describe("mediaFromElement", () => {
     expect(mediaFromElement(el("<div class='block-content'>x</div>"))).toBeNull();
   });
   it("does not match a class that merely contains 'camediaload' as a substring", () => {
-    const holder = el(
-      '<div class="notcamediaload-thing" data-media="x"></div>',
-    );
+    const holder = el('<div class="notcamediaload-thing" data-media="x"></div>');
     expect(mediaFromElement(holder)).toBeNull();
   });
   it("strips a file extension from data-media so the assetId is a bare uuid", () => {
