@@ -34,7 +34,7 @@ export function mediaFromElement(el: HTMLElement): Media | null {
     return id ? { kind: "video", assetId: id, ...(ext ? { ext } : {}) } : null;
   }
   const img =
-    el.classNames.includes("camediaload") && el.getAttribute("data-media")
+    el.classList.contains("camediaload") && el.getAttribute("data-media")
       ? el
       : el.querySelector(".camediaload[data-media]");
   if (img) {

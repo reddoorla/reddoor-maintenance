@@ -51,4 +51,10 @@ describe("mediaFromElement", () => {
   it("returns null when the element holds no media", () => {
     expect(mediaFromElement(el("<div class='block-content'>x</div>"))).toBeNull();
   });
+  it("does not match a class that merely contains 'camediaload' as a substring", () => {
+    const holder = el(
+      '<div class="notcamediaload-thing" data-media="x"></div>',
+    );
+    expect(mediaFromElement(holder)).toBeNull();
+  });
 });
