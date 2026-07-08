@@ -1,0 +1,22 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`grid parser — the-pointe golden > has a stable structural signature 1`] = `
+[
+  "band0(bg): subtitle",
+  "band1(bg): row[grid-2-r60:stack[h1,h4,body],grid-2-r40:raw]",
+  "band2: stack[h2,subtitle]",
+  "band3: row[grid-2:raw,grid-2:row[grid-1-s40:row[grid-2-r20:media:image,grid-2-r80:h5],grid-1-s40:row[grid-2-r20:media:image,grid-2-r80:h5],grid-1-s40:row[grid-2-r20:media:image,grid-2-r80:h5],grid-1-s40:row[grid-2-r20:media:image,grid-2-r80:h5]]]",
+  "band4(bg): raw",
+  "band5: row[grid-2-r60:stack[h4,h4,body]]",
+  "band6: row[grid-1:row[grid-2-r70:raw,grid-2-r30:body],grid-1:row[grid-2-r30:body,grid-2-r70:raw],grid-1:row[grid-2-r70:raw,grid-2-r30:body]]",
+  "band7(bg): stack[h2,subtitle]",
+  "band8: row[grid-1:h5,grid-1:h5,grid-1:h5]",
+  "band9(bg): stack[h4,body]",
+  "band10: stack[media:video,row[grid-2:raw,grid-2:stack[h4,row[grid-any-s20:raw,grid-any-s20:raw]]]]",
+  "band11(bg): stack[h4,h4,body]",
+  "band12: row[grid-1:row[grid-2-r30:body,grid-2-r70:raw],grid-1:row[grid-2-r70:raw,grid-2-r30:body],grid-1:row[grid-2-r30:body,grid-2-r70:raw]]",
+  "band13: stack[h2,subtitle]",
+  "band14: row[grid-1:row[grid-4:stack[h4,body],grid-4:stack[h4,body],grid-4:stack[h4,body],grid-4:stack[h4,body],grid-4:stack[h4,body],grid-4:stack[h4,body],grid-4:stack[h4,body]],grid-1:row[grid-2:raw,grid-2:raw,grid-2:raw,grid-2:raw,grid-2:raw,grid-2:raw,grid-2:raw],grid-1:row[grid-2:raw,grid-2:raw,grid-2:raw,grid-2:raw,grid-2:raw,grid-2:raw,grid-2:raw,grid-2:raw],grid-1:row[grid-2:raw,grid-2:raw,grid-2:raw,grid-2:raw,grid-2:raw]]",
+  "band15: h2",
+]
+`;
