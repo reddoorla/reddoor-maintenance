@@ -865,3 +865,23 @@ describe("deploy badge", () => {
     expect(html).not.toContain('href="#"');
   });
 });
+
+describe("renderCockpitHtml — Recently lane", () => {
+  it("renders a Recently row for a report_sent_with_override event", () => {
+    const m = {
+      ...model([]),
+      recent: [
+        {
+          type: "report_sent_with_override" as const,
+          summary: "sent with override — client asked",
+          siteName: "Acme Co",
+          slug: "acme-co",
+          url: null,
+          ts: "2026-07-06T09:30:00.000Z",
+        },
+      ],
+    };
+    const html = renderCockpitHtml(m);
+    expect(html).toContain("sent with override");
+  });
+});

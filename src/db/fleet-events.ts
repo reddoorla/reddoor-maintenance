@@ -8,7 +8,8 @@ export type FleetEventType =
   | "ci_recovered"
   | "site_launched"
   | "fleet_swept"
-  | "cert_renewed";
+  | "cert_renewed"
+  | "report_sent_with_override";
 
 /** One recorded fleet activity event. `id` is deterministic (see the detectors)
  *  so re-runs INSERT OR IGNORE without duplicating. `siteId`/`siteName` are null
