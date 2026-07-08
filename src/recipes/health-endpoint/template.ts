@@ -61,3 +61,33 @@ export const GET: RequestHandler = async ({ fetch }) => {
   return json({ ok, prismic, forms });
 };
 `;
+
+/** Prismic-free /health for sites WITHOUT a `$lib/prismicio` module (non-Prismic
+ * sites, e.g. a static/bespoke build). Feature-detection can survive a missing
+ * *export*, but a static `import * as prismicio from "$lib/prismicio"` fails the
+ * Vite build when the *module* doesn't exist — so those sites need a variant with
+ * no import at all. CMS is reported as a constant "skipped" (the gate treats it as
+ * "never ran" and never false-greens it). Same JSON shape as the Prismic template
+ * (ok/prismic/forms) so the function-health audit parses both identically. */
+export const HEALTH_ENDPOINT_TEMPLATE_NO_PRISMIC = `import { json } from "@sveltejs/kit";
+import { env as privateEnv } from "$env/dynamic/private";
+import { env as publicEnv } from "$env/dynamic/public";
+import type { RequestHandler } from "./$types";
+
+// A live probe — must never be prerendered.
+export const prerender = false;
+
+export const GET: RequestHandler = async () => {
+  // This site has no $lib/prismicio module, so there is no CMS to probe: report
+  // "skipped" (the gate treats CMS as "never ran", never a false green).
+  const prismic = "skipped" as const;
+  const forms = {
+    ingestUrl: !!privateEnv.FORMS_INGEST_URL,
+    ingestToken: !!privateEnv.FORMS_INGEST_TOKEN,
+    turnstile: !!publicEnv.PUBLIC_TURNSTILE_SITE_KEY?.trim(),
+  };
+  // We're inside the handler, so the function ran.
+  const ok = true;
+  return json({ ok, prismic, forms });
+};
+`;
