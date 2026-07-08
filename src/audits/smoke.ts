@@ -9,6 +9,51 @@ import { findFreePort } from "../util/free-port.js";
 /** Persisted smoke verdict: the site's own `test:smoke` suite passed or failed. */
 export type SmokeDetails = { ok: "pass" | "fail"; checkedAt: string };
 
+// ESC built from a char code so the regex source carries no literal control
+// char (keeps `no-control-regex` quiet). Matches the SGR color codes Playwright emits.
+const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+
+/**
+ * Distill the actionable failure out of a Playwright run. The list reporter writes
+ * its failing-test list — "N) [chromium] › file:line › title" followed by the
+ * Error/Expected/Received head — plus an "N failed" tally to STDOUT; STDERR only
+ * carries dev-server/npm noise (e.g. `[WebServer] npm warn …`). So summarize stdout
+ * first (which test, and why) and fall back to stderr only when stdout yielded
+ * nothing useful (a crash before the reporter ran). Capped so a runaway report
+ * can't bloat the CLI/Airtable summary.
+ */
+export function summarizeSmokeFailure(stdout: string, stderr: string): string {
+  const lines = stdout
+    .replace(ANSI, "")
+    .split("\n")
+    .map((l) => l.trim());
+  const failing: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line === undefined) continue;
+    // The list reporter numbers each failing test: "1) [chromium] › file › title".
+    if (/^\d+\)\s/.test(line)) {
+      failing.push(line);
+      // Grab the next 3 NON-BLANK lines — the Error:/Expected:/Received: head.
+      // Skip blanks without spending the budget, and stop at the next failing block.
+      let taken = 0;
+      for (let j = i + 1; j < lines.length && taken < 3; j++) {
+        const next = lines[j];
+        if (!next) continue;
+        if (/^\d+\)\s/.test(next)) break;
+        failing.push(next);
+        taken++;
+      }
+      break;
+    }
+  }
+  const tally = lines.find((l) => l !== undefined && /\b\d+\s+failed\b/.test(l));
+  const distilled = [tally, ...failing].filter(Boolean).join(" | ");
+  if (distilled) return distilled.slice(0, 300);
+  const err = stderr.replace(ANSI, "").trim();
+  return err ? err.slice(0, 200) : "no reporter output";
+}
+
 /**
  * R3.2: a site whose `package.json` has no `test:smoke` script (or no
  * `package.json` at all) has simply not adopted the suite yet — treat both
@@ -132,9 +177,7 @@ export async function smokeAudit(ctx: AuditContext): Promise<AuditResult> {
     audit: "smoke",
     site: label,
     status: "fail",
-    summary: `smoke: suite failed (exit ${raw.code})${
-      raw.stderr ? ` — ${raw.stderr.slice(0, 200)}` : ""
-    }`,
+    summary: `smoke: suite failed (exit ${raw.code}) — ${summarizeSmokeFailure(raw.stdout, raw.stderr)}`,
     details: { ok: "fail", checkedAt } satisfies SmokeDetails,
   };
 }

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { smokeAudit } from "../../src/audits/smoke.js";
+import { smokeAudit, summarizeSmokeFailure } from "../../src/audits/smoke.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 
 const NOW = new Date("2026-07-06T00:00:00.000Z");
@@ -104,6 +104,47 @@ describe("audits/smoke", () => {
     expect(r.summary).toMatch(/failed/i);
   });
 
+  // Regression: Playwright writes its failure report to STDOUT; the old code read
+  // only stderr.slice(0,200), which on the fleet run captured a `[WebServer] npm
+  // warn …` line and threw away WHICH test failed — leaving the operator blind.
+  it("surfaces the failing Playwright test + assertion from stdout, not stderr noise", async () => {
+    const site = await siteWithSmokeScript();
+    const stdout = [
+      "Running 2 tests using 1 worker",
+      "",
+      "  1) [chromium] › tests/smoke/pages.spec.ts:94:1 › 404 page renders the custom error component",
+      "",
+      "    Error: expect(received).toBe(expected)",
+      "    Expected: 404",
+      "    Received: 200",
+      "",
+      "  1 failed",
+      "  1 passed (7s)",
+    ].join("\n");
+    const spawn: SpawnFn = async () => ({
+      code: 1,
+      stdout,
+      stderr: '[WebServer] npm warn Unknown env config "manage-package-manager-versions".',
+    });
+    const r = await smokeAudit({ site, spawn, now: NOW });
+    expect(r.status).toBe("fail");
+    expect(r.summary).toContain("404 page renders the custom error component");
+    expect(r.summary).toContain("Received: 200");
+    expect(r.summary).toContain("1 failed");
+    expect(r.summary).not.toContain("npm warn");
+  });
+
+  it("falls back to stderr when stdout carries no reporter output (crash before run)", async () => {
+    const site = await siteWithSmokeScript();
+    const spawn: SpawnFn = async () => ({
+      code: 1,
+      stdout: "",
+      stderr: "Error: Cannot find module '@playwright/test'",
+    });
+    const r = await smokeAudit({ site, spawn, now: NOW });
+    expect(r.summary).toContain("@playwright/test");
+  });
+
   it("skips (no details) when pnpm is not available (ENOENT)", async () => {
     const site = await siteWithSmokeScript();
     const spawn: SpawnFn = async () => {
@@ -148,5 +189,25 @@ describe("audits/smoke", () => {
     expect(r.status).toBe("skip");
     expect(r.details).toBeUndefined();
     expect(spawnCalled).toBe(false);
+  });
+});
+
+describe("summarizeSmokeFailure", () => {
+  const ESC = String.fromCharCode(27);
+
+  it("strips ANSI color codes from the extracted failure", () => {
+    const stdout = [
+      `  ${ESC}[31m1) [chromium] › pages.spec.ts:73:5 › / (home) loads with no console errors${ESC}[39m`,
+      `    ${ESC}[31mError: console errors on /${ESC}[39m`,
+      `  ${ESC}[31m1 failed${ESC}[39m`,
+    ].join("\n");
+    const out = summarizeSmokeFailure(stdout, "");
+    expect(out).not.toContain(ESC);
+    expect(out).toContain("home) loads with no console errors");
+    expect(out).toContain("1 failed");
+  });
+
+  it("returns a sentinel when neither stream carries anything useful", () => {
+    expect(summarizeSmokeFailure("", "")).toBe("no reporter output");
   });
 });
