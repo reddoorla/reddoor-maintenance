@@ -5,6 +5,8 @@ import { onboard } from "./onboard.js";
 import { syncConfigs } from "./sync-configs.js";
 import { svelteCodemods } from "./svelte-codemods.js";
 import { a11yFixturesPage } from "./a11y-fixtures-page/index.js";
+import { healthEndpoint } from "./health-endpoint/index.js";
+import { smokeSuite } from "./smoke-suite/index.js";
 import { runAudits } from "../audits/index.js";
 
 export type InitStepResult =
@@ -39,16 +41,19 @@ function recipeStep(name: string, fn: (site: Site) => Promise<RecipeResult>): In
 }
 
 /** convert-to-pnpm → onboard → sync-configs → svelte-codemods →
- * a11y-fixtures-page → audit. Order is deliberate — every step depends on
- * the prior one's output (pnpm before onboard's installs, onboard's deps
- * before sync-configs writes lighthouserc, fixtures page before audit
- * actually has a route to hit). */
+ * a11y-fixtures-page → health-endpoint → smoke-suite → audit. Order is
+ * deliberate — every step depends on the prior one's output (pnpm before
+ * onboard's installs, onboard's deps before sync-configs writes lighthouserc,
+ * fixtures page before audit actually has a route to hit; smoke-suite's
+ * `pnpm install` lands before the closing audit). */
 export const DEFAULT_INIT_STEPS: InitStep[] = [
   recipeStep("convert-to-pnpm", convertToPnpm),
   recipeStep("onboard", onboard),
   recipeStep("sync-configs", syncConfigs),
   recipeStep("svelte-codemods", svelteCodemods),
   recipeStep("a11y-fixtures-page", a11yFixturesPage),
+  recipeStep("health-endpoint", healthEndpoint),
+  recipeStep("smoke-suite", smokeSuite),
   {
     name: "audit",
     run: async (site) => ({ kind: "audit", results: await runAudits(site) }),
