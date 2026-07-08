@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import type { RecipeResult, Site } from "../../types.js";
 import { withRecipe } from "../_with-recipe.js";
 import { defaultSpawn, type SpawnFn } from "../../audits/util/spawn.js";
+import { formatWithPrettier, PRETTIER_FLAG_NOTE } from "../_prettier.js";
 import {
   SMOKE_ROUTES_RELATIVE,
   SMOKE_ROUTES_TEMPLATE,
@@ -74,6 +75,9 @@ export async function smokeSuite(
     },
     apply: async (planned, { commit, cwd }) => {
       const notes: string[] = [];
+      // Relative paths this run actually wrote/changed — prettier-formatted to the
+      // site's own config before committing (never operator files we left alone).
+      const written: string[] = [];
 
       // 1. Spec files — write if absent (never clobber operator edits).
       const specFiles: Array<[string, string]> = [
@@ -85,6 +89,7 @@ export async function smokeSuite(
         if (!(await fileExists(target))) {
           await mkdir(dirname(target), { recursive: true });
           await writeFile(target, tmpl, "utf-8");
+          written.push(rel);
         }
       }
 
@@ -95,10 +100,12 @@ export async function smokeSuite(
       const existingCfg = await readIfExists(cfgPath);
       if (existingCfg === null) {
         await writeFile(cfgPath, PLAYWRIGHT_CONFIG_TEMPLATE, "utf-8");
+        written.push(PLAYWRIGHT_CONFIG_RELATIVE);
       } else if (existingCfg.includes("REDDOOR_SMOKE_PORT")) {
         // Already R1.1-aware; leave it.
       } else if (existingCfg.trim() === PLAYWRIGHT_CONFIG_PRE_R11.trim()) {
         await writeFile(cfgPath, PLAYWRIGHT_CONFIG_TEMPLATE, "utf-8");
+        written.push(PLAYWRIGHT_CONFIG_RELATIVE);
       } else {
         notes.push(
           "playwright.config.ts exists without REDDOOR_SMOKE_PORT — add the R1.1 port block manually",
@@ -134,6 +141,7 @@ export async function smokeSuite(
       }
       if (pkgChanged) {
         await writeFile(planned.pkgPath, JSON.stringify(pkg, null, 2) + "\n", "utf-8");
+        written.push("package.json");
       }
 
       // 4. Install only when a dep was added (streaming, so the operator sees
@@ -145,7 +153,15 @@ export async function smokeSuite(
         }
       }
 
-      // 5. Commit. If nothing was written/changed the commit stages nothing and
+      // 5. Format everything this run wrote to the site's own prettier config, so
+      //    fleet CI's format check stays green across heterogeneous configs
+      //    (quotes/tabs/printWidth vary). Best-effort — a site without prettier
+      //    just commits unformatted with a flag note.
+      if (!(await formatWithPrettier(deps.spawn, cwd, written))) {
+        notes.push(PRETTIER_FLAG_NOTE);
+      }
+
+      // 6. Commit. If nothing was written/changed the commit stages nothing and
       //    withRecipe reports noop (the flag note, if any, is still surfaced).
       await commit("feat: add smoke suite (test:smoke + playwright config + /health smoke routes)");
       return notes.length > 0 ? { kind: "ok", notes: notes.join("; ") } : { kind: "ok" };
