@@ -1,5 +1,6 @@
+import { parse } from "node-html-parser";
 import type { HTMLElement, Node as HTMLNode } from "node-html-parser";
-import type { Cell, GridToken, Node } from "./types.js";
+import type { Band, Cell, GridToken, Media, Node } from "./types.js";
 import { parseGridToken } from "./token.js";
 import { textRoleFromClass, headingLevel, mediaFromElement } from "./leaf.js";
 
@@ -82,4 +83,37 @@ export function parseContainer(el: HTMLElement): Node {
   if (kids.length === 1 && only) return parseNode(only);
   if (kids.length === 0) return { kind: "raw", html: el.innerHTML };
   return { kind: "stack", children: kids.map((k) => parseNode(k)) };
+}
+
+const BAND_ID_RE = /^page-block-(\d+)$/;
+
+/** Read the band-level background media off a `camediaload` band wrapper. */
+function bandBackground(el: HTMLElement): Media | undefined {
+  if (!hasClass(el, "camediaload")) return undefined;
+  const assetId = el.getAttribute("data-media");
+  if (!assetId) return undefined;
+  const ext = el.getAttribute("data-ext") ?? undefined;
+  return { kind: "image", assetId, ...(ext ? { ext } : {}) };
+}
+
+/** Parse the rendered Blux index.html into the page's top-level band tree. */
+export function parseGridBands(html: string): Band[] {
+  const root = parse(html);
+  const content = root.querySelector("#page-content");
+  if (!content) return [];
+  const bands: Band[] = [];
+  for (const child of content.childNodes) {
+    if (!isElement(child)) continue;
+    const m = BAND_ID_RE.exec(child.getAttribute("id") ?? "");
+    if (!m) continue;
+    const idStr = m[1];
+    if (idStr === undefined) continue;
+    const background = bandBackground(child);
+    bands.push({
+      index: Number(idStr),
+      ...(background ? { background } : {}),
+      root: parseContainer(child),
+    });
+  }
+  return bands;
 }
