@@ -63,8 +63,21 @@ describe("recipes/smoke-suite", () => {
     expect(pkg.scripts?.["test:smoke"]).toBe("playwright install chromium && playwright test");
     expect(pkg.scripts?.["test:unit"]).toBe("vitest run");
     expect(pkg.scripts?.["test"]).toBe("vitest run");
-    // @playwright/test already present in the fixture → no install spawned.
-    expect(spawn.calls).toHaveLength(0);
+    // @playwright/test already present in the fixture → no install spawned. The
+    // only spawn is prettier formatting the files this run wrote.
+    const installCalls = spawn.calls.filter((c) => c.args[0] === "install");
+    expect(installCalls).toHaveLength(0);
+    const prettierCalls = spawn.calls.filter((c) => c.args[0] === "exec");
+    expect(prettierCalls).toHaveLength(1);
+    expect(prettierCalls[0]?.args).toEqual([
+      "exec",
+      "prettier",
+      "--write",
+      SMOKE_ROUTES_RELATIVE,
+      SMOKE_SPEC_RELATIVE,
+      PLAYWRIGHT_CONFIG_RELATIVE,
+      "package.json",
+    ]);
   });
 
   it("preserves an existing test:unit runner and never overwrites a present script", async () => {
@@ -131,6 +144,40 @@ describe("recipes/smoke-suite", () => {
     expect(await readFile(join(cwd, SMOKE_SPEC_RELATIVE), "utf-8")).toBe(SMOKE_SPEC_TEMPLATE);
   });
 
+  it("prettier-formats only the files it wrote, leaving an untouched operator config out", async () => {
+    const cwd = await copyFixtureToTmp(pristine);
+    const cfg = join(cwd, PLAYWRIGHT_CONFIG_RELATIVE);
+    const weird =
+      "import { defineConfig } from '@playwright/test';\nexport default defineConfig({ testDir: 'e2e' });\n";
+    await writeFile(cfg, weird);
+    commitSetup(cwd);
+
+    const spawn = fakeSpawn();
+    await smokeSuite({ path: cwd }, { spawn: spawn.fn });
+
+    const prettierCalls = spawn.calls.filter((c) => c.args[0] === "exec");
+    expect(prettierCalls).toHaveLength(1);
+    const formatted = prettierCalls[0]?.args ?? [];
+    expect(formatted).toContain(SMOKE_ROUTES_RELATIVE);
+    expect(formatted).toContain(SMOKE_SPEC_RELATIVE);
+    expect(formatted).toContain("package.json");
+    // The operator's config was left untouched, so it must NOT be reformatted.
+    expect(formatted).not.toContain(PLAYWRIGHT_CONFIG_RELATIVE);
+  });
+
+  it("flags a prettier failure in notes but still commits (best-effort)", async () => {
+    const cwd = await copyFixtureToTmp(pristine); // @playwright/test present → no install
+    // Prettier exits non-zero (e.g. not installed); the recipe must still commit.
+    const flakyPrettier: SpawnFn = async (_cmd, args) =>
+      args[0] === "exec"
+        ? { code: 1, stdout: "", stderr: "prettier: not found" }
+        : { code: 0, stdout: "", stderr: "" };
+    const result = await smokeSuite({ path: cwd }, { spawn: flakyPrettier });
+
+    expect(result.status).toBe("applied");
+    expect(result.notes).toMatch(/could not prettier-format/);
+  });
+
   it("adds @playwright/test and runs pnpm install when the dep is missing", async () => {
     const cwd = await copyFixtureToTmp(pristine);
     const pkgPath = join(cwd, "package.json");
@@ -145,9 +192,12 @@ describe("recipes/smoke-suite", () => {
     expect(result.status).toBe("applied");
     const after = await readPkg(cwd);
     expect(after.devDependencies?.["@playwright/test"]).toBe("^1.60.0");
-    expect(spawn.calls).toHaveLength(1);
-    expect(spawn.calls[0]?.cmd).toBe("pnpm");
-    expect(spawn.calls[0]?.args).toEqual(["install"]);
+    // Both spawns fired: `pnpm install` (dep added) then prettier formatting.
+    const installCalls = spawn.calls.filter((c) => c.args[0] === "install");
+    expect(installCalls).toHaveLength(1);
+    expect(installCalls[0]?.cmd).toBe("pnpm");
+    const prettierCalls = spawn.calls.filter((c) => c.args[0] === "exec");
+    expect(prettierCalls).toHaveLength(1);
   });
 
   it("fails the recipe when pnpm install exits non-zero", async () => {

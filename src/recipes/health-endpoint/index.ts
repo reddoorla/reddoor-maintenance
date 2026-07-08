@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import type { RecipeResult, Site } from "../../types.js";
 import { withRecipe } from "../_with-recipe.js";
 import { defaultSpawn, type SpawnFn } from "../../audits/util/spawn.js";
+import { formatWithPrettier, PRETTIER_FLAG_NOTE } from "../_prettier.js";
 import {
   HEALTH_ENDPOINT_RELATIVE,
   HEALTH_ENDPOINT_TEMPLATE,
@@ -79,21 +80,8 @@ export async function healthEndpoint(
       // Format to the SITE's own prettier config so CI's format check stays green
       // across the heterogeneous fleet. Best-effort: a site without prettier just
       // commits unformatted with a flag note (never fails the /health rollout).
-      try {
-        const res = await deps.spawn(
-          "pnpm",
-          ["exec", "prettier", "--write", HEALTH_ENDPOINT_RELATIVE],
-          { cwd },
-        );
-        if (res.code !== 0) {
-          notes.push(
-            "could not prettier-format /health (prettier unavailable?) — verify CI formatting",
-          );
-        }
-      } catch {
-        notes.push(
-          "could not prettier-format /health (prettier unavailable?) — verify CI formatting",
-        );
+      if (!(await formatWithPrettier(deps.spawn, cwd, [HEALTH_ENDPOINT_RELATIVE]))) {
+        notes.push(PRETTIER_FLAG_NOTE);
       }
 
       await commit("feat: add /health endpoint (function-health probe)");
