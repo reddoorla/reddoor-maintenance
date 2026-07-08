@@ -52,6 +52,8 @@ const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {
   onboard: "Install @reddoorla/maintenance + audit deps on a site (preferred first step).",
   "a11y-fixtures-page":
     "Write src/routes/dev/a11y-fixtures/+page.svelte (stub for lhci + axe targets).",
+  "health-endpoint":
+    "Write src/routes/health/+server.ts (function-health probe for the report gate).",
   "self-updating":
     "Bootstrap CI + Renovate + auto-merge per repo (writes workflows, opens PR, sets RENOVATE_TOKEN).",
   init: "Run the full onboarding chain (convert-to-pnpm → onboard → sync-configs → svelte-codemods → a11y-fixtures-page → audit).",
@@ -276,6 +278,25 @@ cli
       runOrExit(
         async () =>
           (await import("./commands/svelte-codemods.js")).runSvelteCodemodsCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
+    "health-endpoint [site]",
+    "Write src/routes/health/+server.ts (function-health probe for the report gate).",
+  )
+  .option(
+    "--fleet <inventory>",
+    'Inventory file (.json or .mjs/.js), or "airtable" to read from Websites table',
+  )
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(
+    async (site, opts: { fleet?: string; workdir?: string; cwd?: string; verbose?: boolean }) =>
+      runOrExit(
+        async () =>
+          (await import("./commands/health-endpoint.js")).runHealthEndpointCommand(site, opts),
         opts,
       ),
   );

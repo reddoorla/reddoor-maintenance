@@ -33,6 +33,7 @@ export type RecipeName =
   | "convert-to-pnpm"
   | "onboard"
   | "a11y-fixtures-page"
+  | "health-endpoint"
   | "self-updating"
   | "init";
 

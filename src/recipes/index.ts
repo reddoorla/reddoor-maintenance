@@ -6,6 +6,7 @@ import { svelteCodemods } from "./svelte-codemods.js";
 import { convertToPnpm, type ConvertToPnpmOptions } from "./convert-to-pnpm.js";
 import { onboard, type OnboardOptions, type OnboardAudit } from "./onboard.js";
 import { a11yFixturesPage } from "./a11y-fixtures-page/index.js";
+import { healthEndpoint } from "./health-endpoint/index.js";
 import {
   init,
   DEFAULT_INIT_STEPS,
@@ -23,6 +24,7 @@ export {
   convertToPnpm,
   onboard,
   a11yFixturesPage,
+  healthEndpoint,
   init,
   DEFAULT_INIT_STEPS,
 };
@@ -47,6 +49,7 @@ export const ALL_RECIPE_NAMES: RecipeName[] = [
   "convert-to-pnpm",
   "onboard",
   "a11y-fixtures-page",
+  "health-endpoint",
   "self-updating",
   "init",
 ];

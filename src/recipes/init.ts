@@ -5,6 +5,7 @@ import { onboard } from "./onboard.js";
 import { syncConfigs } from "./sync-configs.js";
 import { svelteCodemods } from "./svelte-codemods.js";
 import { a11yFixturesPage } from "./a11y-fixtures-page/index.js";
+import { healthEndpoint } from "./health-endpoint/index.js";
 import { runAudits } from "../audits/index.js";
 
 export type InitStepResult =
@@ -49,6 +50,7 @@ export const DEFAULT_INIT_STEPS: InitStep[] = [
   recipeStep("sync-configs", syncConfigs),
   recipeStep("svelte-codemods", svelteCodemods),
   recipeStep("a11y-fixtures-page", a11yFixturesPage),
+  recipeStep("health-endpoint", healthEndpoint),
   {
     name: "audit",
     run: async (site) => ({ kind: "audit", results: await runAudits(site) }),
