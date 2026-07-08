@@ -95,7 +95,11 @@ export async function runBluxCommand(
     await mkdir(join(out, "customtypes"), { recursive: true });
     await writeFile(join(out, "ir.json"), JSON.stringify(ir, null, 2));
     await writeFile(join(out, "migration-plan.json"), JSON.stringify(plan, null, 2));
-    await writeFile(join(out, "theme.css"), emitThemeCss(ir.theme) + "\n" + emitRolesCss(ir.theme));
+    const rolesCss = emitRolesCss(ir.theme);
+    await writeFile(
+      join(out, "theme.css"),
+      emitThemeCss(ir.theme) + (rolesCss ? "\n" + rolesCss : ""),
+    );
     await writeFile(join(out, "review-manifest.json"), JSON.stringify(manifest, null, 2));
     await writeFile(
       join(out, "styles-manifest.json"),
@@ -169,9 +173,28 @@ export async function runBluxCommand(
         code: 1,
       };
     }
-    const rendered = /^https?:\/\//.test(opts.against)
-      ? await (opts.fetchImpl ?? fetch)(opts.against).then((r) => r.text())
-      : await readFile(opts.against, "utf-8");
+    let rendered: string;
+    try {
+      if (/^https?:\/\//.test(opts.against)) {
+        const res = await (opts.fetchImpl ?? fetch)(opts.against);
+        // fetch resolves on 4xx/5xx; without this an error page would be
+        // coverage-checked as if it were the render (a bogus 1% "gap" alarm)
+        if (!res.ok) {
+          return {
+            output: `could not fetch --against ${opts.against}: HTTP ${res.status}`,
+            code: 1,
+          };
+        }
+        rendered = await res.text();
+      } else {
+        rendered = await readFile(opts.against, "utf-8");
+      }
+    } catch (err) {
+      return {
+        output: `could not read --against ${opts.against}: ${(err as Error).message}`,
+        code: 1,
+      };
+    }
 
     const report = validateCoverage(exportHtml, rendered);
     const lines = [

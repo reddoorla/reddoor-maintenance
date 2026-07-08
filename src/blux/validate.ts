@@ -11,15 +11,21 @@ const COMMENTS = /<!--[\s\S]*?-->/g;
 /** Decode the entity forms an export mixes in so they match the raw characters
  * a Prismic render emits. Numeric first, then the common named ones. */
 function decodeEntities(s: string): string {
-  return s
-    .replace(/&#(\d+);/g, (_, n) => codePoint(Number(n)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, h) => codePoint(parseInt(h, 16)))
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&(?:amp);/gi, "&")
-    .replace(/&(?:lt);/gi, "<")
-    .replace(/&(?:gt);/gi, ">")
-    .replace(/&(?:quot);/gi, '"')
-    .replace(/&(?:apos|#39);/gi, "'");
+  return (
+    s
+      .replace(/&#(\d+);/g, (_, n) => codePoint(Number(n)))
+      .replace(/&#x([0-9a-f]+);/gi, (_, h) => codePoint(parseInt(h, 16)))
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&(?:amp);/gi, "&")
+      .replace(/&(?:lt);/gi, "<")
+      .replace(/&(?:gt);/gi, ">")
+      .replace(/&(?:quot);/gi, '"')
+      .replace(/&(?:apos|#39);/gi, "'")
+      // any remaining named entity (&mdash; &rsquo; &copy; …) becomes a space,
+      // not the literal token "mdash"/"rsquo" — a phantom word would break the
+      // substring match and report otherwise-present text as a false gap
+      .replace(/&[a-z][a-z0-9]*;/gi, " ")
+  );
 }
 
 function codePoint(n: number): string {
@@ -83,8 +89,11 @@ export type CoverageReport = {
  * render; the ones that don't are the content the transform dropped. */
 export function validateCoverage(exportHtml: string, renderedHtml: string): CoverageReport {
   const runs = extractTextRuns(exportHtml);
-  const blob = flattenText(renderedHtml);
-  const missing = runs.filter((run) => !blob.includes(run));
+  // Pad with spaces and match a space-bounded run so a short label ("art")
+  // isn't counted as covered because it sits inside a longer word
+  // ("apartments") — that would silently hide a real content gap.
+  const blob = ` ${flattenText(renderedHtml)} `;
+  const missing = runs.filter((run) => !blob.includes(` ${run} `));
   const covered = runs.length - missing.length;
   const coveragePct = runs.length === 0 ? 100 : Math.round((covered / runs.length) * 100);
   return { total: runs.length, covered, missing, coveragePct };

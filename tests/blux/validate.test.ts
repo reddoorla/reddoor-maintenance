@@ -24,6 +24,15 @@ describe("extractTextRuns", () => {
     expect(runs).toContain("cbre co leasing");
   });
 
+  it("drops unknown named entities instead of leaving phantom words", () => {
+    // &mdash;/&rsquo; aren't in the small decode table; they must not survive
+    // as the literal tokens "mdash"/"rsquo" or every entity becomes a false gap
+    const runs = extractTextRuns("<p>We&rsquo;re open&mdash;always</p>");
+    expect(runs.join(" ")).not.toContain("mdash");
+    expect(runs.join(" ")).not.toContain("rsquo");
+    expect(runs).toContain("we re open always");
+  });
+
   it("drops runs with no real word (whitespace, lone punctuation, tiny)", () => {
     const runs = extractTextRuns("<p>   </p><span>·</span><b>ok</b><i>a</i>");
     expect(runs).not.toContain("");
@@ -58,5 +67,13 @@ describe("validateCoverage", () => {
     expect(r.covered).toBe(4);
     expect(r.missing).toEqual([]);
     expect(r.coveragePct).toBe(100);
+  });
+
+  it("matches on word boundaries so a short run isn't hidden inside a longer word", () => {
+    // the export's dropped "Art" gallery label must not count as covered just
+    // because the render says "apartments" — that would hide a real gap
+    const r = validateCoverage("<body><h1>Art</h1></body>", "<main>Luxury apartments</main>");
+    expect(r.missing).toEqual(["art"]);
+    expect(r.covered).toBe(0);
   });
 });

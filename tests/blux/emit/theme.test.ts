@@ -113,6 +113,14 @@ describe("emitRolesCss", () => {
         weight: 200,
         lineHeight: "80px",
       },
+      {
+        role: "text1",
+        label: "Body (Default)",
+        fontFamily: "",
+        size: "18px",
+        weight: 300,
+        lineHeight: "36px",
+      },
     ],
   };
   const css = emitRolesCss(theme);
@@ -126,7 +134,18 @@ describe("emitRolesCss", () => {
     expect(css).toContain("font-size: var(--text-text5);");
     expect(css).toContain("font-weight: var(--text-text5--font-weight);");
     expect(css).toContain("line-height: var(--text-text5--line-height);");
-    expect(css).toContain("font-family: var(--text-text5--font-family, var(--font-heading));");
+    expect(css).toContain("font-family: var(--text-text5--font-family);");
+  });
+
+  it("sets font-family only for a role that declares one, so a family-less body role keeps the natural cascade", () => {
+    // text1 declares no family — the utility must NOT force one (a fallback to
+    // the heading font would render body paragraphs in the serif display face).
+    // The trailing space disambiguates .txt-role-text1 from .txt-role-text11.
+    const from = css.indexOf(".txt-role-text1 ");
+    const rule = css.slice(from, from + css.slice(from).indexOf("}"));
+    expect(rule).not.toContain("font-family");
+    // it still sets the role's size/weight
+    expect(rule).toContain("font-size: var(--text-text1);");
   });
 
   it("defaults letter-spacing/text-transform so a role that omits them is inert", () => {

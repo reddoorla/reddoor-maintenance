@@ -36,10 +36,11 @@ export function emitThemeCss(theme: ThemeIR): string {
  * per-site `gen-blux-theme.mjs` script used to hand-generate, now owned by
  * `blux emit` so a converted site consumes it with zero hand-tuning.
  *
- * The utility references every var unconditionally; when a role omits an
- * optional one (letter-spacing, text-transform, font-family) the `var(…, …)`
- * fallback resolves to a safe default, so the rule is inert for that property.
- * Returns "" when the theme has no text styles. */
+ * letter-spacing and text-transform fall back through `var(…, default)` so a
+ * role that omits them is inert for that property. font-family is set only when
+ * the role declares one — a family-less role (a body default) keeps the natural
+ * cascade (headings stay heading font, paragraphs stay body font) rather than
+ * being forced onto either. Returns "" when the theme has no text styles. */
 export function emitRolesCss(theme: ThemeIR): string {
   if (!theme.textStyles.length) return "";
   const lines: string[] = [
@@ -48,9 +49,9 @@ export function emitRolesCss(theme: ThemeIR): string {
   ];
   for (const t of theme.textStyles) {
     const r = t.role;
+    lines.push(`.txt-role-${r} :is(h1, h2, h3, h4, h5, h6, p) {`);
+    if (t.fontFamily) lines.push(`  font-family: var(--text-${r}--font-family);`);
     lines.push(
-      `.txt-role-${r} :is(h1, h2, h3, h4, h5, h6, p) {`,
-      `  font-family: var(--text-${r}--font-family, var(--font-heading));`,
       `  font-size: var(--text-${r});`,
       `  font-weight: var(--text-${r}--font-weight);`,
       `  line-height: var(--text-${r}--line-height);`,

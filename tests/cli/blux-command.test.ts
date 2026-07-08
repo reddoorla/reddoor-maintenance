@@ -147,6 +147,30 @@ describe("blux validate", () => {
     expect(r.code).toBe(1);
     expect(r.output).toContain("--against");
   });
+
+  it("fails cleanly when the --against file is missing", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-validate-"));
+    await writeFile(join(dir, "index.html"), "<body>The Pointe</body>");
+    const r = await runBluxCommand("validate", dir, {
+      against: join(dir, "does-not-exist.html"),
+    });
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("against");
+  });
+
+  it("fails cleanly when the --against URL returns a non-OK status", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-validate-"));
+    await writeFile(join(dir, "index.html"), "<body>The Pointe</body>");
+    const fetchImpl = (async () =>
+      new Response("<h1>Not Found</h1>", { status: 404 })) as unknown as typeof fetch;
+    const r = await runBluxCommand("validate", dir, {
+      against: "https://example.com/typo",
+      fetchImpl,
+    });
+    // a 404 error page must not be coverage-checked as if it were the render
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("404");
+  });
 });
 
 describe("blux migrate gate", () => {
