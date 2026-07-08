@@ -1,4 +1,5 @@
-import type { Cell, Media, Node } from "./types.js";
+import type { Band, Cell, Media, Node } from "./types.js";
+import type { SliceSpec } from "./slice-spec.js";
 
 /** Depth-first collect of every `media` node's `Media` in a subtree. */
 export function collectMedia(node: Node): Media[] {
@@ -53,4 +54,27 @@ export function isEmptyRaw(node: Node): boolean {
   if (node.kind !== "raw") return false;
   const text = node.html.replace(/<[^>]*>/g, "").trim();
   return text.length === 0;
+}
+
+/** Options for the classifier. `isMapMount` is injected by plan 4
+ * (`extract-map.ts`); by default nothing is recognized as a map. */
+export type ClassifyOptions = {
+  isMapMount?: (node: Node) => boolean;
+};
+
+/** The band's slice-zone base carried onto every spec (conditional spread keeps
+ * `background` absent, not `undefined`, under exactOptionalPropertyTypes). */
+function base(band: Band): { index: number; background?: Media } {
+  return { index: band.index, ...(band.background ? { background: band.background } : {}) };
+}
+
+/** Classify one band into a SliceSpec. Conservative: only unambiguous shapes
+ * become pattern slices; everything else is a render-faithful Grid fallback. */
+export function classifyBand(band: Band, opts: ClassifyOptions = {}): SliceSpec {
+  void opts; // used by the widget router (Task 8)
+  return { slice: "Grid", ...base(band), root: band.root };
+}
+
+export function classifyBands(bands: Band[], opts: ClassifyOptions = {}): SliceSpec[] {
+  return bands.map((b) => classifyBand(b, opts));
 }

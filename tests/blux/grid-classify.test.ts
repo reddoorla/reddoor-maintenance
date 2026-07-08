@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { Node } from "../../src/blux/grid/types.js";
 import {
   collectMedia,
@@ -6,6 +8,9 @@ import {
   topRow,
   isEmptyRaw,
 } from "../../src/blux/grid/classify-band.js";
+import { parseGridBands } from "../../src/blux/grid/index.js";
+import { classifyBand, classifyBands } from "../../src/blux/grid/classify-band.js";
+import type { Band } from "../../src/blux/grid/types.js";
 
 const media = (kind: "image" | "video"): Node => ({ kind: "media", media: { kind, assetId: "a" } });
 const heading = (level: number): Node => ({ kind: "heading", level, html: "H" });
@@ -41,5 +46,35 @@ describe("node-inspection helpers", () => {
     expect(isEmptyRaw({ kind: "raw", html: '<div class="block-content"></div>' })).toBe(true);
     expect(isEmptyRaw({ kind: "raw", html: "<p>hi</p>" })).toBe(false);
     expect(isEmptyRaw(heading(1))).toBe(false);
+  });
+});
+
+const FIXTURE = fileURLToPath(new URL("./fixtures/the-pointe-page-content.html", import.meta.url));
+const realBands = (): Band[] => parseGridBands(readFileSync(FIXTURE, "utf-8"));
+const band = (bands: Band[], index: number): Band => {
+  const b = bands.find((x) => x.index === index);
+  if (!b) throw new Error(`no band ${index}`);
+  return b;
+};
+
+describe("classifyBand — fallback + wiring", () => {
+  it("carries index and background onto every spec", () => {
+    const spec = classifyBand(band(realBands(), 4)); // tall bg-only raw → Grid
+    expect(spec.slice).toBe("Grid");
+    expect(spec.index).toBe(4);
+    expect(spec.background?.kind).toBe("image");
+  });
+
+  it("classifyBands preserves order and length", () => {
+    const bands = realBands();
+    const specs = classifyBands(bands);
+    expect(specs).toHaveLength(bands.length);
+    expect(specs.map((s) => s.index)).toEqual(bands.map((b) => b.index));
+  });
+
+  it("a deeply nested band falls back to Grid carrying its root tree", () => {
+    const spec = classifyBand(band(realBands(), 3));
+    expect(spec.slice).toBe("Grid");
+    if (spec.slice === "Grid") expect(spec.root.kind).toBe("row");
   });
 });
