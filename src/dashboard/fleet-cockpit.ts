@@ -20,7 +20,7 @@ import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 import { isNetlifyAppUrl } from "../util/url.js";
 
-export type Tier = "attention" | "watch" | "healthy";
+export type Tier = "attention" | "watch" | "healthy" | "pre-launch";
 
 /** Watch-tier thresholds (the soft band beneath the M5 alert floor). */
 const LIGHTHOUSE_FLOOR = 75; // mirrors collectLighthouseAlerts — at/above is not an attention item
@@ -76,6 +76,15 @@ export function assignTier(
   items: AttentionItem[],
   now: Date,
 ): { tier: Tier; watchReasons: string[]; watchSignals: string[]; acceptedReasons: string[] } {
+  // Lifecycle short-circuit (FIRST, before any alarm rule): a "launch period" site
+  // is PRE-LIVE prep, not a live site (Status flips to "maintenance" at go-live).
+  // Its expected pre-launch conditions — CI not yet green, no GA4 property, early/
+  // absent Lighthouse, an errored/absent Netlify deploy — would otherwise force it
+  // to 🔴 attention and read as "broken". Mute it as a calm "pre-launch" tier that
+  // never alarms and is excluded from the "needs you" feed. (Only "launch period"
+  // reaches the cockpit — isDashboardVisible = {maintenance, launch period}.)
+  if (site.status === "launch period")
+    return { tier: "pre-launch", watchReasons: [], watchSignals: [], acceptedReasons: [] };
   if (items.length > 0)
     return { tier: "attention", watchReasons: [], watchSignals: [], acceptedReasons: [] };
   // A failed latest production deploy is an active break — tier it 🔴 attention, the
@@ -168,6 +177,8 @@ export type CockpitSummary = {
   attention: number;
   watch: number;
   healthy: number;
+  /** Count of pre-live "launch period" sites — muted, never counted as broken. */
+  preLaunch: number;
   criticalHighVulns: number;
   lighthouseBelowFloor: number;
   deliveryFailures: number;
@@ -262,6 +273,8 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
   };
 
   for (const card of model.cards) {
+    // Only "attention" (broken) and "watch" cards enter the feed; a "pre-launch"
+    // card is pre-live prep and intentionally never surfaces here as needing you.
     if (card.tier === "attention") {
       // A self-patching vuln (present but not yet exhausted) is amber WATCH — the fleet
       // is auto-patching it. Every other item, INCLUDING an exhausted vuln, is a hard
@@ -322,7 +335,7 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
 }
 
 const SEVERITY_RANK: Record<AttentionItem["severity"], number> = { critical: 0, warning: 1 };
-const TIER_RANK: Record<Tier, number> = { attention: 0, watch: 1, healthy: 2 };
+const TIER_RANK: Record<Tier, number> = { attention: 0, watch: 1, healthy: 2, "pre-launch": 3 };
 
 /**
  * Assemble the render-ready cockpit model from already-fetched Airtable rows. PURE
@@ -440,6 +453,7 @@ export function buildCockpitModel(
     attention: cards.filter((c) => c.tier === "attention").length,
     watch: cards.filter((c) => c.tier === "watch").length,
     healthy: cards.filter((c) => c.tier === "healthy").length,
+    preLaunch: cards.filter((c) => c.tier === "pre-launch").length,
     criticalHighVulns: tagged.filter((i) => i.kind === "vuln").reduce((s, i) => s + i.metric, 0),
     lighthouseBelowFloor: tagged.filter((i) => i.kind === "lighthouse").length,
     deliveryFailures: tagged.filter((i) => i.kind === "delivery").length,

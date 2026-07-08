@@ -595,6 +595,26 @@ describe("renderCockpitHtml — cockpit cards", () => {
     expect(html).toMatch(/Lighthouse Performance 60/); // lighthouse chip
   });
 
+  it("renders a pre-live 'launch period' site with a muted pre-launch pill, never broken", () => {
+    const html = renderCockpitHtml(
+      model([
+        siteRow({
+          id: "p",
+          name: "Launching",
+          status: "launch period",
+          securityVulnsCritical: 2, // would be a red attention pill on a live site
+        }),
+      ]),
+    );
+    expect(html).toMatch(/class="pill pre-launch"/);
+    expect(html).not.toMatch(/class="pill attention"/);
+    // The fleet's only non-green site is pre-launch → calm verdict, not broken.
+    expect(html).toContain('class="verdict ok"');
+    expect(html).toContain("✓ All clear");
+    expect(html).toContain("1 pre-launch");
+    expect(html).not.toMatch(/site[s]? broken/);
+  });
+
   it("renders a NEW badge for a freshly-flagged item and WORSE for a risen metric", () => {
     const newHtml = renderCockpitHtml(
       model([siteRow({ id: "a", name: "Bad", securityVulnsCritical: 1 })]), // prior {} → NEW

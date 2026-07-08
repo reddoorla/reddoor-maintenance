@@ -141,16 +141,25 @@ describe("findDueReports", () => {
     expect(due).toEqual([]);
   });
 
-  it("includes sites with status=launch period or hosting (also eligible)", () => {
+  it("skips pre-launch sites (launch period / in development) — not live yet", () => {
     const due = findDueReports(
       [
         site({ id: "rec_a", status: "launch period", maintenanceDay: "2026-01-01" }),
-        site({ id: "rec_b", status: "hosting", maintenanceDay: "2026-01-01" }),
+        site({ id: "rec_b", status: "in development", maintenanceDay: "2026-01-01" }),
       ],
       [],
       TODAY,
     );
-    expect(due).toHaveLength(2);
+    expect(due).toEqual([]);
+  });
+
+  it("includes hosting sites (eligible, live)", () => {
+    const due = findDueReports(
+      [site({ id: "rec_b", status: "hosting", maintenanceDay: "2026-01-01" })],
+      [],
+      TODAY,
+    );
+    expect(due).toHaveLength(1);
   });
 
   it("treats null status as eligible (backwards compat with partial data)", () => {
@@ -319,6 +328,15 @@ describe("nextDueDate", () => {
 
   it("returns null when the frequency is None", () => {
     expect(nextDueDate(site({ maintenanceFreq: "None" }), [], "Maintenance", TODAY)).toBeNull();
+  });
+
+  it("returns null for a pre-launch status (launch period — not live yet)", () => {
+    const s = site({
+      status: "launch period",
+      maintenanceFreq: "Monthly",
+      maintenanceDay: "2026-06-30",
+    });
+    expect(nextDueDate(s, [], "Maintenance", TODAY)).toBeNull();
   });
 
   it("returns null for an ineligible status", () => {

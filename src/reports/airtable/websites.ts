@@ -247,6 +247,22 @@ export function isDashboardVisible(site: WebsiteRow): boolean {
   return site.status !== null && ACTIVE_STATUSES.has(site.status);
 }
 
+/**
+ * Pre-launch lifecycle stages: the site is being built/prepared, NOT yet live. A
+ * Launch report (recipes/launch.ts) flips Status → "maintenance" at go-live
+ * (updateLaunched), so "maintenance" is the true live state. Pre-launch sites must
+ * not be audited as production (their deploy/domain/uptime/CMS audits fail because
+ * nothing is live yet) nor scheduled recurring Maintenance/Testing reports.
+ */
+export const PRE_LAUNCH_STATUSES: ReadonlySet<Status> = new Set<Status>([
+  "in development",
+  "launch period",
+]);
+
+export function isPreLaunch(status: Status | null): boolean {
+  return status !== null && PRE_LAUNCH_STATUSES.has(status);
+}
+
 const FREQUENCIES: readonly Frequency[] = ["None", "Monthly", "Quarterly", "Yearly"];
 
 /** Coerce an Airtable single-select value to a known Frequency. An unrecognized value — a
