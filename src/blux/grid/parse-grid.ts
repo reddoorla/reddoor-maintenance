@@ -17,6 +17,7 @@ const isLeafElement = (el: HTMLElement): boolean =>
   hasClass(el, "block-body") ||
   hasClass(el, "block-subtitle") ||
   hasClass(el, "block-media-holder") ||
+  (hasClass(el, "camediaload") && el.getAttribute("data-media") !== null) ||
   el.tagName === "VIDEO";
 
 /** Is this element a structural boundary (a leaf, a grid row, or a token-bearing
@@ -57,7 +58,11 @@ export function parseNode(el: HTMLElement): Node {
     const role = textRoleFromClass(el.classNames);
     return { kind: "subtitle", ...(role ? { role } : {}), text: el.text.trim() };
   }
-  if (hasClass(el, "block-media-holder") || el.tagName === "VIDEO") {
+  if (
+    hasClass(el, "block-media-holder") ||
+    (hasClass(el, "camediaload") && el.getAttribute("data-media") !== null) ||
+    el.tagName === "VIDEO"
+  ) {
     const media = mediaFromElement(el);
     if (media) return { kind: "media", media };
   }

@@ -92,4 +92,19 @@ describe("parseNode", () => {
       html: "",
     });
   });
+
+  it("parses a bare .camediaload image (no block-media-holder wrapper) as media", () => {
+    const html =
+      "<div class='block-content'><div class='ib img imgfit camediaload' data-media='bare1' data-ext='jpg'></div></div>";
+    expect(node(html)).toEqual({
+      kind: "media",
+      media: { kind: "image", assetId: "bare1", ext: "jpg" },
+    });
+  });
+
+  it("does not treat a camediaload placeholder without data-media as a media leaf", () => {
+    // a lazy placeholder with no asset id should not become a media node
+    const html = "<div class='block-content'><div class='camediaload'></div></div>";
+    expect(node(html)).toEqual({ kind: "raw", html: "" });
+  });
 });
