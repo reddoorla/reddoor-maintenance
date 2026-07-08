@@ -162,7 +162,12 @@ vi.mock("../../../src/reports/airtable/client.js", async () => {
   };
 });
 
+vi.mock("../../../src/audits/fleet-events-writer.js", () => ({
+  recordFleetEventsBestEffort: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { openBase } from "../../../src/reports/airtable/client.js";
+import { recordFleetEventsBestEffort } from "../../../src/audits/fleet-events-writer.js";
 
 describe("sendApprovedReports", () => {
   it("returns 0 and 'No reports ready' when nothing is sendable", async () => {
@@ -428,6 +433,47 @@ describe("sendApprovedReports", () => {
     expect(res.code).toBe(1);
     expect(captured).toHaveLength(0);
     expect(res.output).toContain("Maint: CMS Checked");
+  });
+
+  it("sends an overridden Maintenance report even though its health gate is red, and logs the override event", async () => {
+    const overriddenReport = reportRow({
+      "Checklist auto-evidence": JSON.stringify({
+        "Maint: Deploy & Function Health": {
+          result: "pass",
+          checkedAt: "2026-05-26T00:00:00.000Z",
+          note: "",
+        },
+        "Maint: CMS Checked": {
+          result: "fail",
+          checkedAt: "2026-05-26T00:00:00.000Z",
+          note: "Prismic unreachable",
+        },
+        "Maint: Domain, DNS & SSL": {
+          result: "pass",
+          checkedAt: "2026-05-26T00:00:00.000Z",
+          note: "",
+        },
+        "Maint: Security Updates": {
+          result: "pass",
+          checkedAt: "2026-05-26T00:00:00.000Z",
+          note: "",
+        },
+        "Maint: Uptime Checked": { result: "pass", checkedAt: "2026-05-26T00:00:00.000Z", note: "" },
+      }),
+      "Send override": true,
+      "Override reason": "client verbally signed off",
+      "Override by": "dashboard",
+    });
+    const base = makeFakeBase({ Reports: [overriddenReport], Websites: [siteRow()] });
+    vi.mocked(openBase).mockReturnValue(base);
+    const { client, captured } = captureClient();
+    const res = await sendApprovedReports({ resend: client });
+    expect(res.code).toBe(0);
+    expect(captured).toHaveLength(1);
+    expect(vi.mocked(recordFleetEventsBestEffort)).toHaveBeenCalled();
+    const [events] = vi.mocked(recordFleetEventsBestEffort).mock.calls.at(-1)!;
+    expect(events[0]!.type).toBe("report_sent_with_override");
+    expect(events[0]!.summary).toContain("client verbally signed off");
   });
 
   it("sends a Launch report regardless of checklist (Launch has no checklist gate)", async () => {
