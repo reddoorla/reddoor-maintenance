@@ -22,5 +22,4 @@
 # `config.path` rather than a [[redirects]] rule here, so ctx.params is
 # populated:
 #   /api/reports/:id/approve      → approve-report.mts
-#   /api/reports/:id/checklist    → report-checklist.mts
 #   /api/submissions/:id/status   → submission-status.mts

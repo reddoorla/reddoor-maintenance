@@ -5,8 +5,6 @@ export { approveReport, APPROVED_BY } from "./approve.js";
 export type { ApproveDeps, ApproveResult } from "./approve.js";
 export { setSubmissionStatus } from "./submission-status.js";
 export type { SubmissionStatusDeps, SubmissionStatusResult } from "./submission-status.js";
-export { setChecklistItem } from "./checklist.js";
-export type { ChecklistItemDeps, ChecklistItemResult } from "./checklist.js";
 export { triggerRenovateForSite } from "./trigger-renovate.js";
 export type { TriggerRenovateDeps, TriggerRenovateResult } from "./trigger-renovate.js";
 export {

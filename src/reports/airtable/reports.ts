@@ -426,21 +426,6 @@ export async function overrideReportRow(
 }
 
 /**
- * Set one operator-checklist checkbox on a Reports row. `field` MUST be one of the
- * 12 known checklist columns (ALL_CHECKLIST_FIELDS) — the caller (setChecklistItem)
- * validates this before calling, so an arbitrary Airtable column can never be written.
- * The raw write mirror of `approveReportRow`; touches only the one checkbox.
- */
-export async function setReportChecklistItem(
-  base: AirtableBase,
-  recordId: string,
-  field: string,
-  value: boolean,
-): Promise<void> {
-  await base(REPORTS_TABLE).update([{ id: recordId, fields: { [field]: value } }]);
-}
-
-/**
  * True when an `.find` rejection is a GENUINE not-found, not a transient failure.
  * The Airtable SDK stamps `.statusCode` (404) and/or `.error` ("NOT_FOUND") on
  * its errors. Anything else (429 rate-limit, 500 outage, bad-PAT 401, network

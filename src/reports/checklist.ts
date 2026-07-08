@@ -58,18 +58,6 @@ export function checklistFor(type: ReportType): ChecklistItem[] {
   return [];
 }
 
-/**
- * True when every checklist item for the report's type is checked. Launch/Announcement
- * have an empty checklist → vacuously true. A missing or false cell → incomplete. PURE —
- * the single predicate behind both the approve gate and the send gate.
- */
-export function isChecklistComplete(report: {
-  reportType: ReportType;
-  checklist: Record<string, boolean>;
-}): boolean {
-  return checklistFor(report.reportType).every((i) => report.checklist[i.field] === true);
-}
-
 /** The maintenance items whose HEALTH gates a Maintenance send. Google Indexed is advisory
  *  (reported, never blocks) so it is excluded. */
 const MAINTENANCE_GATING_FIELDS: string[] = [
