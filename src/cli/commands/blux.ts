@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { glob } from "tinyglobby";
 import { assembleIR } from "../../blux/assemble.js";
 import { buildMigrationPlan } from "../../blux/emit/migration-plan.js";
-import { emitThemeCss } from "../../blux/emit/theme.js";
+import { emitThemeCss, emitRolesCss } from "../../blux/emit/theme.js";
 import { buildReviewManifest } from "../../blux/emit/review.js";
 import type { MigrationPlan } from "../../blux/emit/plan.js";
 
@@ -89,7 +89,7 @@ export async function runBluxCommand(
     await mkdir(join(out, "customtypes"), { recursive: true });
     await writeFile(join(out, "ir.json"), JSON.stringify(ir, null, 2));
     await writeFile(join(out, "migration-plan.json"), JSON.stringify(plan, null, 2));
-    await writeFile(join(out, "theme.css"), emitThemeCss(ir.theme));
+    await writeFile(join(out, "theme.css"), emitThemeCss(ir.theme) + "\n" + emitRolesCss(ir.theme));
     await writeFile(join(out, "review-manifest.json"), JSON.stringify(manifest, null, 2));
     await writeFile(
       join(out, "styles-manifest.json"),

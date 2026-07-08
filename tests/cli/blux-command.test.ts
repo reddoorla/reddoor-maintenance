@@ -54,6 +54,14 @@ describe("blux emit", () => {
     expect(css).toContain("--text-text5--letter-spacing: 1.5px;");
   });
 
+  it("appends the .txt-role utilities so a site consumes theme.css directly", async () => {
+    const css = await readFile(join(out, "theme.css"), "utf-8");
+    // the @theme tokens come first, then the utilities that reference them
+    expect(css).toContain(".txt-role-text5 :is(h1, h2, h3, h4, h5, h6, p) {");
+    expect(css).toContain("font-size: var(--text-text5);");
+    expect(css.indexOf("@theme {")).toBeLessThan(css.indexOf(".txt-role-text5"));
+  });
+
   it("writes the styles manifest beside the plan", async () => {
     const manifest = JSON.parse(await readFile(join(out, "styles-manifest.json"), "utf-8"));
     expect(manifest[0].pageUid).toBe("home");
