@@ -17,7 +17,8 @@ export function headingLevel(el: HTMLElement): number {
 
 /** The last path segment of a CDN url, sans extension (the Blux asset uuid). */
 function uuidFromUrl(url: string): { id: string; ext?: string } {
-  const file = url.split(/[?#]/)[0].split("/").pop() ?? "";
+  const base = url.split(/[?#]/)[0] ?? "";
+  const file = base.split("/").pop() ?? "";
   const dot = file.lastIndexOf(".");
   return dot > 0
     ? { id: file.slice(0, dot), ext: file.slice(dot + 1) }
@@ -30,7 +31,7 @@ export function mediaFromElement(el: HTMLElement): Media | null {
   if (el.tagName === "VIDEO") {
     const src = el.getAttribute("src") ?? "";
     const { id, ext } = uuidFromUrl(src);
-    return id ? { kind: "video", assetId: id, ext } : null;
+    return id ? { kind: "video", assetId: id, ...(ext ? { ext } : {}) } : null;
   }
   const img =
     el.classNames.includes("camediaload") && el.getAttribute("data-media")
