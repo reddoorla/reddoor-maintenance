@@ -6,9 +6,7 @@ import type { Band, Node } from "./types.js";
 function sig(node: Node): string {
   switch (node.kind) {
     case "row":
-      return `row[${node.cells
-        .map((c) => `${c.token.raw}:${sig(c.node)}`)
-        .join(",")}]`;
+      return `row[${node.cells.map((c) => `${c.token.raw}:${sig(c.node)}`).join(",")}]`;
     case "stack":
       return `stack[${node.children.map(sig).join(",")}]`;
     case "heading":
@@ -28,7 +26,5 @@ function sig(node: Node): string {
 
 /** One signature line per band: `bandN(bg?): <node-signature>`. */
 export function gridSignature(bands: Band[]): string[] {
-  return bands.map(
-    (b) => `band${b.index}${b.background ? "(bg)" : ""}: ${sig(b.root)}`,
-  );
+  return bands.map((b) => `band${b.index}${b.background ? "(bg)" : ""}: ${sig(b.root)}`);
 }

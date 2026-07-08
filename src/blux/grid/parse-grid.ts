@@ -9,8 +9,7 @@ const DEFAULT_TOKEN: GridToken = { cols: 1, raw: "grid-1" };
 const isElement = (n: HTMLNode): n is HTMLElement =>
   (n as HTMLElement).tagName !== undefined && (n as HTMLElement).tagName !== null;
 
-const hasClass = (el: HTMLElement, c: string) =>
-  el.classNames.split(/\s+/).includes(c);
+const hasClass = (el: HTMLElement, c: string) => el.classNames.split(/\s+/).includes(c);
 
 const isLeafElement = (el: HTMLElement): boolean =>
   hasClass(el, "block-title") ||
@@ -23,9 +22,7 @@ const isLeafElement = (el: HTMLElement): boolean =>
 /** Is this element a structural boundary (a leaf, a grid row, or a token-bearing
  * cell/holder), as opposed to a pure wrapper div we should peel through? */
 const isStructural = (el: HTMLElement): boolean =>
-  isLeafElement(el) ||
-  hasClass(el, "cagrid") ||
-  parseGridToken(el.classNames) !== null;
+  isLeafElement(el) || hasClass(el, "cagrid") || parseGridToken(el.classNames) !== null;
 
 /** The child elements that carry structure, peeling pure wrapper divs. */
 export function collectStructuralChildren(el: HTMLElement): HTMLElement[] {

@@ -3,9 +3,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseGridBands, gridSignature } from "../../src/blux/grid/index.js";
 
-const fixture = fileURLToPath(
-  new URL("./fixtures/the-pointe-page-content.html", import.meta.url),
-);
+const fixture = fileURLToPath(new URL("./fixtures/the-pointe-page-content.html", import.meta.url));
 const hasFixture = existsSync(fixture);
 
 it("keeps the golden fixture committed (the fidelity gate must not silently disable)", () => {
@@ -17,9 +15,7 @@ describe.skipIf(!hasFixture)("grid parser — the-pointe golden", () => {
 
   it("parses the top-level bands with contiguous indices", () => {
     expect(bands.length).toBe(16);
-    expect(bands.map((b) => b.index)).toEqual(
-      bands.map((_, i) => i),
-    );
+    expect(bands.map((b) => b.index)).toEqual(bands.map((_, i) => i));
   });
 
   it("finds the hero band background and real grid rows", () => {

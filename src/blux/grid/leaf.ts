@@ -20,9 +20,7 @@ function uuidFromUrl(url: string): { id: string; ext?: string } {
   const base = url.split(/[?#]/)[0] ?? "";
   const file = base.split("/").pop() ?? "";
   const dot = file.lastIndexOf(".");
-  return dot > 0
-    ? { id: file.slice(0, dot), ext: file.slice(dot + 1) }
-    : { id: file };
+  return dot > 0 ? { id: file.slice(0, dot), ext: file.slice(dot + 1) } : { id: file };
 }
 
 /** Blux `data-media` is sometimes `uuid.ext` and sometimes a bare `uuid`; the
