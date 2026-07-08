@@ -23,7 +23,10 @@ export type AuditName =
   | "lint"
   | "domain"
   | "browser"
-  | "netlify-deploy";
+  | "netlify-deploy"
+  | "function-health"
+  | "smoke"
+  | "form-e2e";
 
 export type RecipeName =
   | "sync-configs"

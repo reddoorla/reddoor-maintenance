@@ -99,6 +99,14 @@ describe("auditNeedsCheckout", () => {
   it("is true when the site has no deployedUrl", () => {
     expect(auditNeedsCheckout({ path: "/x" }, ["lighthouse"])).toBe(true);
   });
+
+  it("form-e2e is checkout-free when the site has a deployed URL", () => {
+    expect(auditNeedsCheckout({ path: "/x", deployedUrl: "https://a.example" }, ["form-e2e"])).toBe(
+      false,
+    );
+    // …but still needs a checkout if pointed at a site with no deployed URL.
+    expect(auditNeedsCheckout({ path: "/x" }, ["form-e2e"])).toBe(true);
+  });
 });
 
 describe("parseConcurrency", () => {

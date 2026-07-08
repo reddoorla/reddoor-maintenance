@@ -123,6 +123,22 @@ export type WebsiteRow = {
   deployStatus: string | null;
   lastDeployAt: string | null;
   deployLogUrl: string | null;
+  /** When the `netlify-deploy` audit last RAN (freshness stamp for `deployStatus`). The audit
+   *  already writes "Deploy checked at"; this read-back is the Plan-2 fix so `deployEvidence`
+   *  (Plan 4) can gate on check time — NOT on `lastDeployAt`, which is deploy time, not check time. */
+  deployCheckedAt: string | null;
+  /** Function-health verdict (the `function-health` audit): the deployed `/health` function
+   *  answered `ok:true` (pass) or `ok:false` (fail). Single-select `pass`/`fail`; null = never ran
+   *  / unreachable (→ Plan 4 maps to unknown/amber). Kept SEPARATE from `deployStatus` so
+   *  `isFailedDeployStatus` keeps meaning "the build failed". */
+  functionHealth: "pass" | "fail" | null;
+  /** CMS reachability (server-side), derived from the same `/health` body's `details.prismic ===
+   *  "ok"`. Single-select `pass`/`fail`; null = never ran. No per-site Prismic token or identity
+   *  column is ever built — this rides `/health`. */
+  cmsReachable: "pass" | "fail" | null;
+  /** When the `function-health` audit last ran — the freshness gate for BOTH `functionHealth` and
+   *  `cmsReachable`. Null = never ran. */
+  functionHealthCheckedAt: string | null;
   /** Deployed-URL browser probe (the `browser` audit): cross-engine render OK, mobile render OK,
    *  internal-links OK + broken count, and when it last ran (one timestamp gates all three). */
   crossbrowserOk: boolean | null;
@@ -130,6 +146,13 @@ export type WebsiteRow = {
   linksOk: boolean | null;
   brokenLinks: number | null;
   browserCheckedAt: string | null;
+  /** Uptime-reachable verdict (browser audit): every sampled route returned 2xx/3xx. Single-select
+   *  `pass`/`fail`; null = never ran. Point-in-time. Freshness-gated by `browserCheckedAt`. */
+  reachableOk: "pass" | "fail" | null;
+  /** Titles & meta verdict (browser audit, chromium): every sampled route has a non-empty `<title>`
+   *  ≤ 70 chars + a non-empty meta description, and no duplicate titles across the sample.
+   *  Single-select `pass`/`fail`; null = never ran. Freshness-gated by `browserCheckedAt`. */
+  titleMetaOk: "pass" | "fail" | null;
   /** Per-site copy overrides (M6a). Blank → null → the DEFAULT_COPY value. */
   copyIntro: string | null;
   copyContact: string | null;
@@ -152,6 +175,16 @@ export type WebsiteRow = {
   defaultBranchCi: string | null; // "passing" | "failing" | "pending" | "none"
   lastCommitAt: string | null;
   githubSignalsAt: string | null;
+  /** Per-site smoke-suite verdict (the `smoke` audit runs `pnpm test:smoke`).
+   *  Single-select pass/fail; null = never ran. `lastSmokeAt` gates freshness. */
+  smokeOk: "pass" | "fail" | null;
+  lastSmokeAt: string | null;
+  /** Synthetic form end-to-end verdict (the `form-e2e` audit submits the real prod
+   *  contact form in test-mode). Single-select pass/fail; null = never ran OR (with
+   *  a fresh `formE2eCheckedAt`) no contact form → n/a. `formE2eCheckedAt` gates
+   *  freshness AND encodes the n/a-vs-never-ran distinction. */
+  formE2eOk: "pass" | "fail" | null;
+  formE2eCheckedAt: string | null;
   notifyRouting: NotifyRouting | null;
 };
 
@@ -226,6 +259,16 @@ function toFrequency(raw: unknown): Frequency {
     : "None";
 }
 
+/** Coerce an Airtable tri-state single-select verdict cell (`pass`/`fail`/blank) to
+ *  `"pass" | "fail" | null`. Any value other than the literal strings "pass"/"fail" — blank,
+ *  an unrecognized option, a typo, wrong type — reads as null ("never ran"), never guessed. The
+ *  ONE shared reader for every verdict column of this shape: `Function health`, `CMS Reachable`,
+ *  `Uptime Reachable`, `Titles & Meta OK` (Plan 2), and reused (not redeclared) by Plan 3's
+ *  `Smoke OK` / `Form E2E OK` read-backs. */
+export function toVerdict(raw: unknown): "pass" | "fail" | null {
+  return raw === "pass" || raw === "fail" ? raw : null;
+}
+
 // NOTE: every `f["..."]` key below is a load-bearing magic string that must match
 // the live Airtable "Websites" column name EXACTLY — including the legacy
 // misspelling `"maintenence freq"`, the mixed-case `"GA4 property ID"`, and the
@@ -283,12 +326,18 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     deployStatus: (f["Deploy status"] as string | undefined) ?? null,
     lastDeployAt: (f["Last deploy at"] as string | undefined) ?? null,
     deployLogUrl: (f["Deploy log URL"] as string | undefined) ?? null,
+    deployCheckedAt: (f["Deploy checked at"] as string | undefined) ?? null,
+    functionHealth: toVerdict(f["Function health"]),
+    cmsReachable: toVerdict(f["CMS Reachable"]),
+    functionHealthCheckedAt: (f["Function health checked at"] as string | undefined) ?? null,
     crossbrowserOk:
       typeof f["Crossbrowser OK"] === "boolean" ? (f["Crossbrowser OK"] as boolean) : null,
     mobileOk: typeof f["Mobile OK"] === "boolean" ? (f["Mobile OK"] as boolean) : null,
     linksOk: typeof f["Links OK"] === "boolean" ? (f["Links OK"] as boolean) : null,
     brokenLinks: typeof f["Broken links"] === "number" ? (f["Broken links"] as number) : null,
     browserCheckedAt: (f["Browser checked at"] as string | undefined) ?? null,
+    reachableOk: toVerdict(f["Uptime Reachable"]),
+    titleMetaOk: toVerdict(f["Titles & Meta OK"]),
     copyIntro: trimToNull(f["Copy — Intro"]),
     copyContact: trimToNull(f["Copy — Contact"]),
     copyFooter: trimToNull(f["Copy — Footer"]),
@@ -305,6 +354,10 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     defaultBranchCi: (f["Default Branch CI"] as string | undefined) ?? null,
     lastCommitAt: (f["Last Commit At"] as string | undefined) ?? null,
     githubSignalsAt: (f["GitHub Signals At"] as string | undefined) ?? null,
+    smokeOk: toVerdict(f["Smoke OK"]),
+    lastSmokeAt: (f["Last Smoke At"] as string | undefined) ?? null,
+    formE2eOk: toVerdict(f["Form E2E OK"]),
+    formE2eCheckedAt: (f["Form E2E checked at"] as string | undefined) ?? null,
   };
 }
 
@@ -390,9 +443,29 @@ export type BrowserAuditFields = {
   desktopOk: boolean;
   mobileOk: boolean;
   linksOk: boolean;
+  reachableOk: boolean;
+  titleMetaOk: boolean;
   brokenLinks: number;
   checkedAt: string;
 };
+export type FunctionHealthResult = {
+  /** `pass` when `/health` answered `ok:true`, else `fail`. Never null — the audit only produces a
+   *  result when it ran (a self-skip carries no details, so this extractor isn't reached). */
+  functionHealth: "pass" | "fail";
+  /** From the same body's `prismic` sub-status (R2.2): `"ok"` → `"pass"`, `"error"` → `"fail"`.
+   *  Anything else (`"skipped"` — a placeholder repo with no live Prismic — or a raw `null`, e.g.
+   *  the synthetic "deployed but erroring" body) → `null`: the CMS probe never actually ran, so it
+   *  must NOT red CMS reachability for a site that simply hasn't wired Prismic yet. */
+  cmsReachable: "pass" | "fail" | null;
+  /** When the audit ran (freshness stamp for both verdicts). */
+  checkedAt: string;
+};
+
+export type SmokeResult = { ok: "pass" | "fail"; checkedAt: string };
+
+/** `ok` null clears the single-select cell (n/a — no contact form); a fresh
+ *  `checkedAt` still stamps the row so Plan 4 reads null+fresh as n/a. */
+export type FormE2eResult = { ok: "pass" | "fail" | null; checkedAt: string };
 
 function scoreFields(scores: LighthouseScoreWriteback): FieldSet {
   // A null score CLEARS the cell (→ dashboard "—"), distinguishing a metric that
@@ -542,7 +615,50 @@ function browserFields(r: BrowserAuditFields): FieldSet {
     "Links OK": r.linksOk,
     "Broken links": r.brokenLinks,
     "Browser checked at": r.checkedAt,
+    // NEW tri-state single-select verdicts (empty = never ran). The browser audit only produces a
+    // BrowserAuditFields when it actually ran (hasBrowserResult guards on checkedAt), so each verdict
+    // is always a concrete boolean here — serialize true→"pass", false→"fail". The existing boolean
+    // columns above are deliberately NOT retrofitted (out of scope).
+    "Uptime Reachable": r.reachableOk ? "pass" : "fail",
+    "Titles & Meta OK": r.titleMetaOk ? "pass" : "fail",
   };
+}
+
+function functionHealthFields(r: FunctionHealthResult): FieldSet {
+  // "CMS Reachable" is written UNCONDITIONALLY (null clears the cell): the audit only supplies a
+  // result when it ran, but `cmsReachable` itself can legitimately be null this run (R2.2 — the CMS
+  // probe never actually happened, e.g. a placeholder repo with no live Prismic). Clearing rather
+  // than leaving a stale pass/fail sitting next to a freshly-stamped checked-at is what keeps a
+  // placeholder site from showing a stale CMS verdict. FieldSet's type doesn't model null, hence the
+  // cast through a widened record (same approach as domainFields/netlifyDeployFields).
+  // "Function health" is never null — the audit only writes when it ran, so it's always a concrete
+  // pass/fail. Written SEPARATELY from "Deploy status" so the Netlify build state keeps its own
+  // meaning.
+  const fields: Record<string, string | null> = {
+    "Function health": r.functionHealth,
+    "CMS Reachable": r.cmsReachable,
+    "Function health checked at": r.checkedAt,
+  };
+  return fields as FieldSet;
+}
+
+function smokeFields(r: SmokeResult): FieldSet {
+  // The verdict is stored as the literal single-select option ("pass"/"fail"), so
+  // no boolean→string coercion is needed. A skip never reaches here (it produces no
+  // SmokeResult), so this column is only ever written with a concrete verdict.
+  return { "Smoke OK": r.ok, "Last Smoke At": r.checkedAt };
+}
+
+function formE2eFields(r: FormE2eResult): FieldSet {
+  // `ok` is already the single-select value ("pass"/"fail") or null. Writing null
+  // CLEARS the cell (→ n/a, distinguished from "never ran" by the fresh checked-at
+  // stamped alongside). FieldSet's type omits null, hence the widened-record cast
+  // (same approach as domainFields / netlifyDeployFields).
+  const fields: Record<string, string | null> = {
+    "Form E2E OK": r.ok,
+    "Form E2E checked at": r.checkedAt,
+  };
+  return fields as FieldSet;
 }
 
 /**
@@ -666,6 +782,9 @@ export async function updateAuditFields(
     domain?: DomainResult;
     browser?: BrowserAuditFields;
     netlifyDeploy?: NetlifyDeployResult;
+    functionHealth?: FunctionHealthResult;
+    smoke?: SmokeResult;
+    formE2e?: FormE2eResult;
   },
 ): Promise<FieldSet> {
   const fields: FieldSet = {};
@@ -680,6 +799,9 @@ export async function updateAuditFields(
   if (audits.domain) Object.assign(fields, domainFields(audits.domain));
   if (audits.browser) Object.assign(fields, browserFields(audits.browser));
   if (audits.netlifyDeploy) Object.assign(fields, netlifyDeployFields(audits.netlifyDeploy));
+  if (audits.functionHealth) Object.assign(fields, functionHealthFields(audits.functionHealth));
+  if (audits.smoke) Object.assign(fields, smokeFields(audits.smoke));
+  if (audits.formE2e) Object.assign(fields, formE2eFields(audits.formE2e));
   await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
   return fields;
 }

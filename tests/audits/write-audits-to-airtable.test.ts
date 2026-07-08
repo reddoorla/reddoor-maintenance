@@ -81,6 +81,24 @@ const secResult = (counts: {
     details: { counts, advisories: [] },
   }) as unknown as AuditResult;
 
+const smokeResult = (ok: "pass" | "fail"): AuditResult =>
+  ({
+    audit: "smoke",
+    site: "acme",
+    status: ok === "pass" ? "pass" : "fail",
+    summary: "ok",
+    details: { ok, checkedAt: "2026-07-06T00:00:00.000Z" },
+  }) as unknown as AuditResult;
+
+const formE2eResult = (ok: "pass" | "fail" | null): AuditResult =>
+  ({
+    audit: "form-e2e",
+    site: "acme",
+    status: ok === "pass" ? "pass" : ok === "fail" ? "warn" : "skip",
+    summary: "ok",
+    details: { ok, formPresent: ok !== null, checkedAt: "2026-07-06T00:00:00.000Z" },
+  }) as unknown as AuditResult;
+
 const domResult = (certDaysRemaining: number | null): AuditResult =>
   ({
     audit: "domain",
@@ -242,6 +260,8 @@ describe("writeAuditsToAirtable", () => {
         desktopOk: true,
         mobileOk: false,
         linksOk: true,
+        reachableOk: true,
+        titleMetaOk: false,
         brokenLinks: 0,
         checkedAt: "2026-06-18T00:00:00.000Z",
       },
@@ -263,6 +283,8 @@ describe("writeAuditsToAirtable", () => {
       "Links OK": true,
       "Broken links": 0,
       "Browser checked at": "2026-06-18T00:00:00.000Z",
+      "Uptime Reachable": "pass",
+      "Titles & Meta OK": "fail",
     });
   });
 
@@ -444,5 +466,96 @@ describe("writeAuditsToAirtable", () => {
       message: expect.stringMatching(/No Websites row matched slug "acme"/),
       exitCode: 2,
     });
+  });
+
+  it("merges the function-health verdicts into the single atomic write", async () => {
+    const { base, calls } = makeFakeBase();
+    const fhResult: AuditResult = {
+      audit: "function-health",
+      site: "acme",
+      status: "pass",
+      summary: "health ok (prismic ok)",
+      details: { ok: true, prismic: "ok", forms: null, checkedAt: "2026-07-06T00:00:00.000Z" },
+    } as unknown as AuditResult;
+    await writeAuditsToAirtable({
+      base,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
+        fhResult,
+      ],
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.fields).toMatchObject({
+      "Function health": "pass",
+      "CMS Reachable": "pass",
+      "Function health checked at": "2026-07-06T00:00:00.000Z",
+    });
+    // Must NOT touch Deploy status — function-health is separate from the Netlify build state.
+    expect(calls[0]!.fields).not.toHaveProperty("Deploy status");
+  });
+
+  it("does NOT write a function-health verdict when the audit self-skipped (no details)", async () => {
+    const { base, calls } = makeFakeBase();
+    const skipped: AuditResult = {
+      audit: "function-health",
+      site: "acme",
+      status: "skip",
+      summary: "health endpoint unreachable / not JSON",
+    } as unknown as AuditResult;
+    await writeAuditsToAirtable({
+      base,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
+        skipped,
+      ],
+    });
+    expect(calls[0]!.fields).not.toHaveProperty("Function health");
+  });
+
+  it("writes the Smoke OK verdict + Last Smoke At from a smoke result", async () => {
+    const { base, calls } = makeFakeBase();
+    const summary = await writeAuditsToAirtable({
+      base,
+      websites: [row()],
+      slug: "acme",
+      results: [smokeResult("fail")],
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.fields).toMatchObject({
+      "Smoke OK": "fail",
+      "Last Smoke At": "2026-07-06T00:00:00.000Z",
+    });
+    expect(summary.writes.map((w) => w.audit)).toEqual(["smoke"]);
+  });
+
+  it("writes the Form E2E OK verdict + checked-at from a form-e2e result", async () => {
+    const { base, calls } = makeFakeBase();
+    await writeAuditsToAirtable({
+      base,
+      websites: [row()],
+      slug: "acme",
+      results: [formE2eResult("pass")],
+    });
+    expect(calls[0]?.fields).toMatchObject({
+      "Form E2E OK": "pass",
+      "Form E2E checked at": "2026-07-06T00:00:00.000Z",
+    });
+  });
+
+  it("clears Form E2E OK (n/a) but stamps checked-at when there is no contact form", async () => {
+    const { base, calls } = makeFakeBase();
+    await writeAuditsToAirtable({
+      base,
+      websites: [row()],
+      slug: "acme",
+      results: [formE2eResult(null)],
+    });
+    // null verdict clears the cell; a fresh checked-at distinguishes n/a from never-ran.
+    expect(calls[0]?.fields["Form E2E OK"]).toBeNull();
+    expect(calls[0]?.fields["Form E2E checked at"]).toBe("2026-07-06T00:00:00.000Z");
   });
 });

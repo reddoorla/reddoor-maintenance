@@ -3,6 +3,7 @@ import { openBase } from "../../src/reports/airtable/client.js";
 import {
   getReportById as getReportByIdAirtable,
   approveReportRow,
+  overrideReportRow,
 } from "../../src/reports/airtable/reports.js";
 import { approveReport, verifyBasicAuth } from "../../src/dashboard/index.js";
 import { listWebsites } from "../../src/reports/airtable/websites.js";
@@ -97,24 +98,41 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   const id = ctx.params?.id;
   if (!id) return plainText("Missing report id", 400);
 
+  // A logged send-anyway override is opt-in via `?override=1` (query flag, since
+  // this route is invoked with a fixed method+path from the dashboard's inline
+  // fetch) plus a JSON body carrying the required reason. Absent/invalid JSON
+  // reads as an empty reason, which approveReport refuses outright (no bypass).
+  const url = new URL(req.url);
+  let override: { reason: string } | undefined;
+  if (url.searchParams.get("override") === "1") {
+    const body = (await req.json().catch(() => ({}))) as { reason?: unknown };
+    override = { reason: typeof body.reason === "string" ? body.reason : "" };
+  }
+
   try {
     const base = openBase({ apiKey, baseId });
-    const result = await approveReport(
-      {
-        getReportById: (rid) => getReportByIdAirtable(base, rid),
-        approveReportRow: (rid, at, by) => approveReportRow(base, rid, at, by),
-        now: () => new Date(),
-        sendBlockers: async (report) => {
-          // One Websites fetch per approve click (30/min rate limit; fine). A
-          // missing Site row is itself a send blocker — sendApprovedReports
-          // fails exactly that way.
-          const site = (await listWebsites(base)).find((w) => w.id === report.siteId);
-          if (!site) return ["site-not-found: this report's Site link points at no Websites row"];
-          return formatBlockers(approveBlockers(site, report));
-        },
+    const deps = {
+      getReportById: (rid: string) => getReportByIdAirtable(base, rid),
+      approveReportRow: (rid: string, at: Date, by: string) => approveReportRow(base, rid, at, by),
+      overrideReport: (rid: string, at: Date, by: string, reason: string) =>
+        overrideReportRow(base, rid, at, by, reason),
+      now: () => new Date(),
+      sendBlockers: async (report: Parameters<typeof approveBlockers>[1]) => {
+        // One Websites fetch per approve click (30/min rate limit; fine). A
+        // missing Site row is itself a send blocker — sendApprovedReports
+        // fails exactly that way.
+        const site = (await listWebsites(base)).find((w) => w.id === report.siteId);
+        if (!site) return ["site-not-found: this report's Site link points at no Websites row"];
+        return formatBlockers(approveBlockers(site, report));
       },
-      id,
-    );
+    };
+    // Only pass the third argument when an override is actually in play — an
+    // explicit trailing `undefined` is a different call arity than omitting
+    // the arg (mock assertion equality cares), and approveReport's `override`
+    // param is already optional for exactly this no-override path.
+    const result = override
+      ? await approveReport(deps, id, override)
+      : await approveReport(deps, id);
 
     if (result.status === "not-found") {
       return Response.json(result, { status: 404 });

@@ -9,6 +9,9 @@ import type {
   DomainResult,
   BrowserAuditFields,
   NetlifyDeployResult,
+  FunctionHealthResult,
+  SmokeResult,
+  FormE2eResult,
 } from "../reports/airtable/websites.js";
 import type { LighthouseScoreWriteback } from "../reports/types.js";
 import { hasRealScores, lighthouseScoresFromResult } from "./lighthouse-airtable.js";
@@ -22,6 +25,12 @@ import {
 import { hasDomainResult, domainResultFromAudit } from "./domain-airtable.js";
 import { hasBrowserResult, browserFieldsFromAudit } from "./browser-airtable.js";
 import { hasNetlifyDeployResult, netlifyDeployResultFromAudit } from "./netlify-deploy-airtable.js";
+import {
+  hasFunctionHealthResult,
+  functionHealthResultFromAudit,
+} from "./function-health-airtable.js";
+import { hasSmokeResult, smokeResultFromAudit } from "./smoke-airtable.js";
+import { hasFormE2eResult, formE2eResultFromAudit } from "./form-e2e-airtable.js";
 import { detectAuditEvents } from "./fleet-event-detectors.js";
 import type { FleetEvent } from "../db/fleet-events.js";
 
@@ -36,7 +45,10 @@ type WriteSummary = {
       | "github-signals"
       | "domain"
       | "browser"
-      | "netlify-deploy";
+      | "netlify-deploy"
+      | "function-health"
+      | "smoke"
+      | "form-e2e";
     counts: object;
   }>;
   /** Fleet-activity events detected from this site's prior row vs the fresh audits.
@@ -86,6 +98,9 @@ export async function writeAuditsToAirtable(args: {
     domain?: DomainResult;
     browser?: BrowserAuditFields;
     netlifyDeploy?: NetlifyDeployResult;
+    functionHealth?: FunctionHealthResult;
+    smoke?: SmokeResult;
+    formE2e?: FormE2eResult;
   } = {};
 
   // Collect every audit that produced real values into ONE merged input, then do a
@@ -147,6 +162,27 @@ export async function writeAuditsToAirtable(args: {
     const result = netlifyDeployResultFromAudit(netlifyDeploy);
     audits.netlifyDeploy = result;
     writes.push({ audit: "netlify-deploy", counts: result });
+  }
+
+  const functionHealth = results.find((r) => r.audit === "function-health");
+  if (functionHealth && hasFunctionHealthResult(functionHealth)) {
+    const result = functionHealthResultFromAudit(functionHealth);
+    audits.functionHealth = result;
+    writes.push({ audit: "function-health", counts: result });
+  }
+
+  const smoke = results.find((r) => r.audit === "smoke");
+  if (smoke && hasSmokeResult(smoke)) {
+    const result = smokeResultFromAudit(smoke);
+    audits.smoke = result;
+    writes.push({ audit: "smoke", counts: result });
+  }
+
+  const formE2e = results.find((r) => r.audit === "form-e2e");
+  if (formE2e && hasFormE2eResult(formE2e)) {
+    const result = formE2eResultFromAudit(formE2e);
+    audits.formE2e = result;
+    writes.push({ audit: "form-e2e", counts: result });
   }
 
   // One atomic write of everything that ran. Skip the call only if there is nothing

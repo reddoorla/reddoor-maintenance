@@ -180,3 +180,31 @@ describe("websites/mapRow → requireTurnstile (ships dark, boolean guard)", () 
     expect(row({ "Require Turnstile": 1 }).requireTurnstile).toBe(false);
   });
 });
+
+describe("websites/mapRow → function-health + deploy-freshness fields", () => {
+  it("maps the Function health single-select (pass/fail/null)", () => {
+    expect(row({ "Function health": "pass" }).functionHealth).toBe("pass");
+    expect(row({ "Function health": "fail" }).functionHealth).toBe("fail");
+    expect(row({}).functionHealth).toBeNull();
+  });
+
+  it("maps the CMS Reachable single-select (pass/fail/null)", () => {
+    expect(row({ "CMS Reachable": "pass" }).cmsReachable).toBe("pass");
+    expect(row({ "CMS Reachable": "fail" }).cmsReachable).toBe("fail");
+    expect(row({}).cmsReachable).toBeNull();
+  });
+
+  it("maps Function health checked at (freshness stamp for functionHealth AND cmsReachable)", () => {
+    expect(
+      row({ "Function health checked at": "2026-07-06T00:00:00.000Z" }).functionHealthCheckedAt,
+    ).toBe("2026-07-06T00:00:00.000Z");
+    expect(row({}).functionHealthCheckedAt).toBeNull();
+  });
+
+  it("reads back Deploy checked at (the freshness fix — netlify-deploy already writes it)", () => {
+    expect(row({ "Deploy checked at": "2026-07-06T01:00:00.000Z" }).deployCheckedAt).toBe(
+      "2026-07-06T01:00:00.000Z",
+    );
+    expect(row({}).deployCheckedAt).toBeNull();
+  });
+});

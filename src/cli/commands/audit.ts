@@ -213,12 +213,15 @@ export function deployedUrlNotice(
 
 /** Audits that need no repo checkout — they probe an external resource. lighthouse hits the
  *  live URL; domain probes DNS/TLS of the URL's host; browser drives the deployed URL;
- *  netlify-deploy queries the Netlify API by site id. */
+ *  netlify-deploy queries the Netlify API by site id; function-health fetches the deployed
+ *  `/health` endpoint. */
 const CHECKOUT_FREE_AUDITS: ReadonlySet<AuditName> = new Set<AuditName>([
   "lighthouse",
   "domain",
   "browser",
   "netlify-deploy",
+  "function-health",
+  "form-e2e",
 ]);
 
 /** Audits whose checkout-free run is keyed off `site.netlifyId` (the Netlify API) rather than

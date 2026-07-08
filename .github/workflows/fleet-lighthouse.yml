@@ -64,12 +64,13 @@ jobs:
           # machine-readable `FLEET_WRITE_SUMMARY wrote=N failed=M total=T` line
           # (see formatFleetWriteSummary). This replaces the old "wrote ≥ 1"
           # heuristic, which went green even when 9 of 10 sites flaked.
-          # lighthouse + domain + browser + netlify-deploy are all checkout-free (deployed-URL /
-          # API only), so this one nightly pass also probes DNS/TLS, drives cross-engine/mobile/link
-          # checks, and records each site's latest production Netlify deploy state — no extra clone.
+          # lighthouse + domain + browser + netlify-deploy + function-health are all checkout-free
+          # (deployed-URL / API only), so this one nightly pass also probes DNS/TLS, drives
+          # cross-engine/mobile/link checks, records each site's latest production Netlify deploy
+          # state, and checks the deployed `/health` function + CMS reachability — no extra clone.
           node dist/cli/bin.js audit \
             --fleet airtable \
-            --only lighthouse,domain,browser,netlify-deploy \
+            --only lighthouse,domain,browser,netlify-deploy,function-health \
             --write-airtable \
             --concurrency 1 \
             --workdir /tmp/fleet-audit | tee /tmp/audit.out || true

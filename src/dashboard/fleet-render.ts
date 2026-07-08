@@ -215,6 +215,7 @@ const RECENT_ICON: Record<FleetEventType, string> = {
   site_launched: "🚀",
   cert_renewed: "🔒",
   fleet_swept: "🔄",
+  report_sent_with_override: "✳️",
 };
 
 /** The calm "Recently" lane: what the fleet did for you, collapsed by default
