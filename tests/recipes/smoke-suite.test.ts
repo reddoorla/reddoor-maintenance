@@ -95,6 +95,24 @@ describe("recipes/smoke-suite", () => {
     expect(after.scripts?.["test:smoke"]).toBe("playwright install chromium && playwright test");
   });
 
+  it("adds only test:smoke on a site without vitest (no failing `test`/`test:unit`)", async () => {
+    const cwd = await copyFixtureToTmp(pristine);
+    const pkgPath = join(cwd, "package.json");
+    const pkg = JSON.parse(await readFile(pkgPath, "utf-8"));
+    delete pkg.devDependencies.vitest; // non-vitest site, and fixture has no `test` script
+    await writeFile(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+    commitSetup(cwd);
+
+    const result = await smokeSuite({ path: cwd }, { spawn: fakeSpawn().fn });
+    expect(result.status).toBe("applied");
+
+    const after = await readPkg(cwd);
+    expect(after.scripts?.["test:smoke"]).toBe("playwright install chromium && playwright test");
+    // No vitest → the shared CI would fail on `vitest: not found`, so neither is added.
+    expect(after.scripts?.["test"]).toBeUndefined();
+    expect(after.scripts?.["test:unit"]).toBeUndefined();
+  });
+
   it("noops the spec files when they already exist (no clobber)", async () => {
     const cwd = await copyFixtureToTmp(pristine);
     const routes = join(cwd, SMOKE_ROUTES_RELATIVE);

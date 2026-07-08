@@ -122,13 +122,22 @@ export async function smokeSuite(
         pkg.scripts["test:smoke"] = "playwright install chromium && playwright test";
         pkgChanged = true;
       }
-      if (!pkg.scripts["test:unit"]) {
-        pkg.scripts["test:unit"] = pkg.scripts["test"] ?? "vitest run";
-        pkgChanged = true;
-      }
-      if (!pkg.scripts["test"]) {
-        pkg.scripts["test"] = "vitest run";
-        pkgChanged = true;
+      // Unit-test scripts (`test:unit` / `test` → "vitest run") only when the site
+      // actually runs vitest — either it depends on vitest, or it already defines a
+      // `test` script. Adding `test: "vitest run"` to a site WITHOUT vitest makes
+      // the shared CI's "run the test script if present" step fail with
+      // `vitest: not found` (the whole fleet-smoke batch red'd on exactly this).
+      const hasVitest = !!(pkg.devDependencies?.vitest || pkg.dependencies?.vitest);
+      const existingTest = pkg.scripts["test"];
+      if (hasVitest || existingTest !== undefined) {
+        if (!pkg.scripts["test:unit"]) {
+          pkg.scripts["test:unit"] = existingTest ?? "vitest run";
+          pkgChanged = true;
+        }
+        if (pkg.scripts["test"] === undefined) {
+          pkg.scripts["test"] = "vitest run";
+          pkgChanged = true;
+        }
       }
       let depsChanged = false;
       const hasPlaywright =
