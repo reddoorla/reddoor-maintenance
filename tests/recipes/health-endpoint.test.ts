@@ -33,7 +33,7 @@ describe("recipes/health-endpoint", () => {
     await healthEndpoint({ path: cwd });
     const written = await readFile(join(cwd, HEALTH_ENDPOINT_RELATIVE), "utf-8");
     expect(written).toContain('import * as prismicio from "$lib/prismicio"');
-    expect(written).not.toContain('import { createClient, isPlaceholderRepo }');
+    expect(written).not.toContain("import { createClient, isPlaceholderRepo }");
     expect(written).toContain("export const prerender = false");
   });
 
