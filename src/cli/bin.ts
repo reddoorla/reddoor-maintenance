@@ -547,9 +547,9 @@ cli
 cli
   .command(
     "blux <action> [dir]",
-    "Blux conversion pipeline. emit: export dir → migration plan + custom types + theme + review manifest. migrate: emitted plan → live Prismic (needs PRISMIC_REPOSITORY_NAME + PRISMIC_WRITE_TOKEN). validate: content coverage of a rendered site against the export answer key.",
+    "Blux conversion pipeline. emit: export dir → migration plan + custom types + theme + review manifest. migrate: emitted plan → live Prismic (needs PRISMIC_REPOSITORY_NAME + PRISMIC_WRITE_TOKEN). validate: content coverage of a rendered site against the export answer key. grid: parse rendered index.html → grid-tree.json (layout tree).",
   )
-  .option("--out <dir>", "Output directory for emit (default: <exportDir>/blux-out)")
+  .option("--out <dir>", "Output directory for emit/grid (default: <exportDir>/blux-out)")
   .option("--converted-base <url>", "Converted-site base URL for the review manifest")
   .option("--blux-base <url>", "Original Blux site base URL (default: https://<site.json domain>)")
   .option(

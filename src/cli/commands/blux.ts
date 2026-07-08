@@ -6,6 +6,7 @@ import { buildMigrationPlan } from "../../blux/emit/migration-plan.js";
 import { emitThemeCss, emitRolesCss } from "../../blux/emit/theme.js";
 import { buildReviewManifest } from "../../blux/emit/review.js";
 import { validateCoverage } from "../../blux/validate.js";
+import { parseGridBands } from "../../blux/grid/index.js";
 import type { MigrationPlan } from "../../blux/emit/plan.js";
 
 export type BluxCommandOptions = {
@@ -31,7 +32,8 @@ export type BluxCommandOptions = {
  *  is imported lazily so emit runs never touch @prismicio).
  *  validate: content coverage of a converted site's render (--against a file or
  *  URL) against the export's index.html answer key — names any text the
- *  transform dropped, no tokens spent eyeballing. */
+ *  transform dropped, no tokens spent eyeballing.
+ *  grid: parse rendered index.html → grid-tree.json (layout tree). */
 export async function runBluxCommand(
   action: string,
   dir: string | undefined,
@@ -209,5 +211,29 @@ export async function runBluxCommand(
     return { output: lines.join("\n"), code: 0 };
   }
 
-  return { output: `unknown blux action '${action}'. Use: emit, migrate, validate.`, code: 1 };
+  if (action === "grid") {
+    if (!dir) return { output: "blux grid needs a Blux export directory.", code: 1 };
+    let html: string;
+    try {
+      html = await readFile(join(dir, "index.html"), "utf-8");
+    } catch (err) {
+      return {
+        output: `could not read index.html in ${dir}: ${(err as Error).message}`,
+        code: 1,
+      };
+    }
+    const bands = parseGridBands(html);
+    const outDir = opts.out ?? join(dir, "blux-out");
+    await mkdir(outDir, { recursive: true });
+    await writeFile(join(outDir, "grid-tree.json"), JSON.stringify(bands, null, 2));
+    return {
+      output: `Parsed ${bands.length} bands → ${join(outDir, "grid-tree.json")}`,
+      code: 0,
+    };
+  }
+
+  return {
+    output: `unknown blux action '${action}'. Use: emit, migrate, validate, grid.`,
+    code: 1,
+  };
 }
