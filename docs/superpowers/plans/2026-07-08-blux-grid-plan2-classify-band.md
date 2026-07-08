@@ -22,24 +22,24 @@
 
 Measured signatures (from `gridSignature`) and their target slice under this plan:
 
-| Band | Signature (abbrev)                                                    | Slice                       |
-| ---- | -------------------------------------------------------------------- | --------------------------- |
-| 0    | `(bg) stack[media:image,subtitle]`                                   | `Grid` (no heading; fuzzy)  |
-| 1    | `(bg) row[grid-2-r60:stack[h1,media,h4,body,media], grid-2-r40:media]`| `SplitFeature` (mediaSide=right, ratio 60) |
-| 2    | `stack[h2,subtitle]`                                                  | `TitleBand`                 |
-| 3    | `row[grid-2:…, grid-2:row[4× stat]]` (deep)                          | `Grid`                      |
-| 4    | `(bg) raw` (tall bg-only block-holder)                               | `Grid`                      |
-| 5    | `row[grid-2-r60:stack[h4,media,h4,body]]` (1 cell)                   | `Grid`                      |
-| 6    | `row[3× grid-1:row[media|body] zigzag]`                              | `Grid`                      |
-| 7    | `(bg) stack[h2,subtitle]`                                            | `Hero` (bg + overlay heading)|
-| 8    | `row[grid-1:media, grid-1:media, grid-1:media]`                       | `Gallery` (3)               |
-| 9    | `(bg) stack[h4,media,media,body]`                                    | `Grid`                      |
-| 10   | `stack[media:video, row[grid-2:raw(map mount), grid-2:stack[h4,row[2× media]]]]` | `Grid` (nested video + map mount) |
-| 11   | `(bg) stack[h4,media,h4,body]`                                       | `Grid`                      |
-| 12   | `row[3× grid-1:row[body|media] zigzag]`                              | `Grid`                      |
-| 13   | `stack[h2,subtitle]`                                                  | `TitleBand`                 |
-| 14   | `row[grid-1:row[7× grid-4 stat], grid-1:row[7× media], …]` (deep)   | `Grid`                      |
-| 15   | `h2`                                                                  | `TitleBand`                 |
+| Band | Signature (abbrev)                                                               | Slice                                      |
+| ---- | -------------------------------------------------------------------------------- | ------------------------------------------ | ------ |
+| 0    | `(bg) stack[media:image,subtitle]`                                               | `Grid` (no heading; fuzzy)                 |
+| 1    | `(bg) row[grid-2-r60:stack[h1,media,h4,body,media], grid-2-r40:media]`           | `SplitFeature` (mediaSide=right, ratio 60) |
+| 2    | `stack[h2,subtitle]`                                                             | `TitleBand`                                |
+| 3    | `row[grid-2:…, grid-2:row[4× stat]]` (deep)                                      | `Grid`                                     |
+| 4    | `(bg) raw` (tall bg-only block-holder)                                           | `Grid`                                     |
+| 5    | `row[grid-2-r60:stack[h4,media,h4,body]]` (1 cell)                               | `Grid`                                     |
+| 6    | `row[3× grid-1:row[media                                                         | body] zigzag]`                             | `Grid` |
+| 7    | `(bg) stack[h2,subtitle]`                                                        | `Hero` (bg + overlay heading)              |
+| 8    | `row[grid-1:media, grid-1:media, grid-1:media]`                                  | `Gallery` (3)                              |
+| 9    | `(bg) stack[h4,media,media,body]`                                                | `Grid`                                     |
+| 10   | `stack[media:video, row[grid-2:raw(map mount), grid-2:stack[h4,row[2× media]]]]` | `Grid` (nested video + map mount)          |
+| 11   | `(bg) stack[h4,media,h4,body]`                                                   | `Grid`                                     |
+| 12   | `row[3× grid-1:row[body                                                          | media] zigzag]`                            | `Grid` |
+| 13   | `stack[h2,subtitle]`                                                             | `TitleBand`                                |
+| 14   | `row[grid-1:row[7× grid-4 stat], grid-1:row[7× media], …]` (deep)                | `Grid`                                     |
+| 15   | `h2`                                                                             | `TitleBand`                                |
 
 So on the-pointe: **3 TitleBand, 1 Hero, 1 Gallery, 1 SplitFeature, 10 Grid**. This is expected and correct — the fallback + plan-3 `Grid.svelte` carry layout fidelity; the pattern slices provide editability where the shape is unambiguous. `MediaFull`/`RichText`/`VideoFeature`/`LocationMap` fire on 0 the-pointe bands but are implemented (cheap, real on other sites) and tested with synthetic bands.
 
@@ -182,7 +182,13 @@ const body = (): Node => ({ kind: "body", html: "<p>b</p>" });
 
 describe("node-inspection helpers", () => {
   it("collectMedia gathers media across rows and stacks", () => {
-    const tree: Node = { kind: "stack", children: [media("image"), { kind: "row", cells: [{ token: { cols: 1, raw: "grid-1" }, node: media("video") }] }] };
+    const tree: Node = {
+      kind: "stack",
+      children: [
+        media("image"),
+        { kind: "row", cells: [{ token: { cols: 1, raw: "grid-1" }, node: media("video") }] },
+      ],
+    };
     expect(collectMedia(tree).map((m) => m.kind)).toEqual(["image", "video"]);
   });
 
@@ -192,7 +198,10 @@ describe("node-inspection helpers", () => {
   });
 
   it("topRow returns cells when the root is a row, else null", () => {
-    const row: Node = { kind: "row", cells: [{ token: { cols: 2, raw: "grid-2" }, node: media("image") }] };
+    const row: Node = {
+      kind: "row",
+      cells: [{ token: { cols: 2, raw: "grid-2" }, node: media("image") }],
+    };
     expect(topRow(row)?.length).toBe(1);
     expect(topRow(heading(1))).toBeNull();
   });
@@ -412,6 +421,7 @@ git commit -m "feat(blux): classifyBand skeleton + Grid fallback + barrel export
 - Test: `tests/blux/grid-classify.test.ts`
 
 Rule (checked in this order, only when there is **no media, no widget, and `topRow` is null**):
+
 - **TitleBand:** ≥1 heading. `heading` = first heading's plain text; `subtitle` = first subtitle's text if present.
 - **RichText:** no heading but ≥1 body node (no background). `html` = the body node(s)' HTML joined.
 
@@ -459,41 +469,44 @@ function nodeText(node: Node): string {
       : node.kind === "subtitle"
         ? node.text
         : "";
-  return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  return html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 ```
 
 Insert at the top of `classifyBand`, after computing shared locals:
 
 ```ts
-  const root = band.root;
-  const media = collectMedia(root);
-  const text = collectText(root);
-  const row = topRow(root);
-  const headings = text.filter((n) => n.kind === "heading");
-  const subtitles = text.filter((n) => n.kind === "subtitle");
-  const bodies = text.filter((n) => n.kind === "body");
+const root = band.root;
+const media = collectMedia(root);
+const text = collectText(root);
+const row = topRow(root);
+const headings = text.filter((n) => n.kind === "heading");
+const subtitles = text.filter((n) => n.kind === "subtitle");
+const bodies = text.filter((n) => n.kind === "body");
 
-  // Text-only bands (no media, no row).
-  if (media.length === 0 && row === null) {
-    if (headings.length > 0 && !band.background) {
-      const first = headings[0];
-      const sub = subtitles[0];
-      return {
-        slice: "TitleBand",
-        ...base(band),
-        heading: first ? nodeText(first) : "",
-        ...(sub ? { subtitle: nodeText(sub) } : {}),
-      };
-    }
-    if (headings.length === 0 && bodies.length > 0 && !band.background) {
-      return {
-        slice: "RichText",
-        ...base(band),
-        html: bodies.map((b) => (b.kind === "body" ? b.html : "")).join("\n"),
-      };
-    }
+// Text-only bands (no media, no row).
+if (media.length === 0 && row === null) {
+  if (headings.length > 0 && !band.background) {
+    const first = headings[0];
+    const sub = subtitles[0];
+    return {
+      slice: "TitleBand",
+      ...base(band),
+      heading: first ? nodeText(first) : "",
+      ...(sub ? { subtitle: nodeText(sub) } : {}),
+    };
   }
+  if (headings.length === 0 && bodies.length > 0 && !band.background) {
+    return {
+      slice: "RichText",
+      ...base(band),
+      html: bodies.map((b) => (b.kind === "body" ? b.html : "")).join("\n"),
+    };
+  }
+}
 ```
 
 > Note: the `!band.background` guard defers backgrounded text bands to the Hero branch (Task 5). `band 7` (bg + heading) intentionally does NOT match TitleBand here.
@@ -546,19 +559,19 @@ describe("classifyBand — Hero", () => {
 - [ ] **Step 3: Implement** — insert after the text-only block:
 
 ```ts
-  // Full-bleed hero: a background image with overlay text and no grid row.
-  if (band.background && headings.length > 0 && row === null && media.length === 0) {
-    const h = headings[0];
-    const sub = subtitles[0];
-    const bod = bodies[0];
-    return {
-      slice: "Hero",
-      ...base(band),
-      ...(h ? { heading: nodeText(h) } : {}),
-      ...(sub ? { subtitle: nodeText(sub) } : {}),
-      ...(bod && bod.kind === "body" ? { body: bod.html } : {}),
-    };
-  }
+// Full-bleed hero: a background image with overlay text and no grid row.
+if (band.background && headings.length > 0 && row === null && media.length === 0) {
+  const h = headings[0];
+  const sub = subtitles[0];
+  const bod = bodies[0];
+  return {
+    slice: "Hero",
+    ...base(band),
+    ...(h ? { heading: nodeText(h) } : {}),
+    ...(sub ? { subtitle: nodeText(sub) } : {}),
+    ...(bod && bod.kind === "body" ? { body: bod.html } : {}),
+  };
+}
 ```
 
 - [ ] **Step 4: Run → PASS.**
@@ -580,6 +593,7 @@ git commit -m "feat(blux): classify Hero (background + overlay heading)"
 - Test: `tests/blux/grid-classify.test.ts`
 
 Rules (after Hero, before `Grid`):
+
 - **Gallery:** `topRow` is non-null, has ≥2 cells, and **every** cell's node is a single `media`. `media` = each cell's media, in order.
 - **MediaFull:** exactly one media in the subtree, no text, and (`row === null` or a single-cell media row).
 
@@ -594,7 +608,10 @@ describe("classifyBand — media", () => {
   });
 
   it("a single lone media → MediaFull", () => {
-    const only: Band = { index: 98, root: { kind: "media", media: { kind: "image", assetId: "x" } } };
+    const only: Band = {
+      index: 98,
+      root: { kind: "media", media: { kind: "image", assetId: "x" } },
+    };
     const spec = classifyBand(only);
     expect(spec.slice).toBe("MediaFull");
     if (spec.slice === "MediaFull") expect(spec.media.assetId).toBe("x");
@@ -621,17 +638,17 @@ function galleryMedia(cells: Cell[]): Media[] | null {
 Insert before the fallback:
 
 ```ts
-  // Gallery: a row whose cells are all single media.
-  if (row) {
-    const gm = galleryMedia(row);
-    if (gm) return { slice: "Gallery", ...base(band), media: gm };
-  }
+// Gallery: a row whose cells are all single media.
+if (row) {
+  const gm = galleryMedia(row);
+  if (gm) return { slice: "Gallery", ...base(band), media: gm };
+}
 
-  // MediaFull: one media, no text.
-  if (media.length === 1 && text.length === 0) {
-    const m = media[0];
-    if (m) return { slice: "MediaFull", ...base(band), media: m };
-  }
+// MediaFull: one media, no text.
+if (media.length === 1 && text.length === 0) {
+  const m = media[0];
+  if (m) return { slice: "MediaFull", ...base(band), media: m };
+}
 ```
 
 - [ ] **Step 4: Run → PASS.**
@@ -653,6 +670,7 @@ git commit -m "feat(blux): classify Gallery + MediaFull"
 - Test: `tests/blux/grid-classify.test.ts`
 
 Rule (after Gallery/MediaFull, before `Grid`): `topRow` has **exactly 2 cells**; **one** cell is a single pure `media` node; the **other** cell contains ≥1 text node. Then:
+
 - `media` = the media cell's media; `mediaSide` = `"left"` if it is cells[0] else `"right"`; `ratio` = the media cell's `token.ratio` (fallback: `100/(token.cols as number)` when no explicit ratio, or `50` when `cols === "any"`); `text` = the other cell's node.
 
 - [ ] **Step 1: Write the failing test**
@@ -676,8 +694,14 @@ describe("classifyBand — SplitFeature", () => {
       root: {
         kind: "row",
         cells: [
-          { token: { cols: 2, ratio: 60, raw: "grid-2-r60" }, node: { kind: "media", media: { kind: "image", assetId: "m" } } },
-          { token: { cols: 2, ratio: 40, raw: "grid-2-r40" }, node: { kind: "body", html: "<p>t</p>" } },
+          {
+            token: { cols: 2, ratio: 60, raw: "grid-2-r60" },
+            node: { kind: "media", media: { kind: "image", assetId: "m" } },
+          },
+          {
+            token: { cols: 2, ratio: 40, raw: "grid-2-r40" },
+            node: { kind: "body", html: "<p>t</p>" },
+          },
         ],
       },
     };
@@ -716,22 +740,36 @@ function cellRatio(cell: Cell): number {
 Insert before the fallback:
 
 ```ts
-  // SplitFeature: exactly two cells, one pure media, one text-bearing.
-  if (row && row.length === 2) {
-    const [c0, c1] = row;
-    if (c0 && c1) {
-      const m0 = pureCellMedia(c0);
-      const m1 = pureCellMedia(c1);
-      const t0 = collectText(c0.node).length > 0;
-      const t1 = collectText(c1.node).length > 0;
-      if (m0 && !m1 && t1) {
-        return { slice: "SplitFeature", ...base(band), media: m0, mediaSide: "left", ratio: cellRatio(c0), text: c1.node };
-      }
-      if (m1 && !m0 && t0) {
-        return { slice: "SplitFeature", ...base(band), media: m1, mediaSide: "right", ratio: cellRatio(c1), text: c0.node };
-      }
+// SplitFeature: exactly two cells, one pure media, one text-bearing.
+if (row && row.length === 2) {
+  const [c0, c1] = row;
+  if (c0 && c1) {
+    const m0 = pureCellMedia(c0);
+    const m1 = pureCellMedia(c1);
+    const t0 = collectText(c0.node).length > 0;
+    const t1 = collectText(c1.node).length > 0;
+    if (m0 && !m1 && t1) {
+      return {
+        slice: "SplitFeature",
+        ...base(band),
+        media: m0,
+        mediaSide: "left",
+        ratio: cellRatio(c0),
+        text: c1.node,
+      };
+    }
+    if (m1 && !m0 && t0) {
+      return {
+        slice: "SplitFeature",
+        ...base(band),
+        media: m1,
+        mediaSide: "right",
+        ratio: cellRatio(c1),
+        text: c0.node,
+      };
     }
   }
+}
 ```
 
 - [ ] **Step 4: Run → PASS.**
@@ -830,7 +868,13 @@ function rewriteMapMounts(node: Node, isMapMount: (n: Node) => boolean): Node {
   if (isMapMount(node)) return { kind: "widget", widget: { type: "map" } };
   switch (node.kind) {
     case "row":
-      return { kind: "row", cells: node.cells.map((c) => ({ token: c.token, node: rewriteMapMounts(c.node, isMapMount) })) };
+      return {
+        kind: "row",
+        cells: node.cells.map((c) => ({
+          token: c.token,
+          node: rewriteMapMounts(c.node, isMapMount),
+        })),
+      };
     case "stack":
       return { kind: "stack", children: node.children.map((n) => rewriteMapMounts(n, isMapMount)) };
     case "heading":
@@ -846,7 +890,12 @@ function rewriteMapMounts(node: Node, isMapMount: (n: Node) => boolean): Node {
 /** The single significant child of a container (ignoring empty raw), or the node
  * itself. Used to detect a band whose dominant content is one widget. */
 function soleSignificant(node: Node): Node {
-  const kids = node.kind === "row" ? node.cells.map((c) => c.node) : node.kind === "stack" ? node.children : [node];
+  const kids =
+    node.kind === "row"
+      ? node.cells.map((c) => c.node)
+      : node.kind === "stack"
+        ? node.children
+        : [node];
   const significant = kids.filter((n) => !isEmptyRaw(n));
   return significant.length === 1 && significant[0] ? significant[0] : node;
 }
@@ -855,30 +904,30 @@ function soleSignificant(node: Node): Node {
 Then at the **very top** of `classifyBand`, replace `const root = band.root;` with the rewrite + widget promotion:
 
 ```ts
-  const root = opts.isMapMount ? rewriteMapMounts(band.root, opts.isMapMount) : band.root;
-  const widgets = collectWidgets(root);
+const root = opts.isMapMount ? rewriteMapMounts(band.root, opts.isMapMount) : band.root;
+const widgets = collectWidgets(root);
 
-  // Top-level widget promotion (before structural patterns).
-  const sole = soleSignificant(root);
-  if (sole.kind === "widget" && sole.widget.type === "map") {
-    return { slice: "LocationMap", ...base(band) };
-  }
+// Top-level widget promotion (before structural patterns).
+const sole = soleSignificant(root);
+if (sole.kind === "widget" && sole.widget.type === "map") {
+  return { slice: "LocationMap", ...base(band) };
+}
 ```
 
 And update the media/text/row locals to use `root` (they already do). Add the VideoFeature branch right after the LocationMap check:
 
 ```ts
-  const mediaAll = collectMedia(root);
-  if (
-    mediaAll.length === 1 &&
-    mediaAll[0]?.kind === "video" &&
-    collectText(root).length === 0 &&
-    widgets.length === 0 &&
-    topRow(root) === null
-  ) {
-    const v = mediaAll[0];
-    return { slice: "VideoFeature", ...base(band), media: v };
-  }
+const mediaAll = collectMedia(root);
+if (
+  mediaAll.length === 1 &&
+  mediaAll[0]?.kind === "video" &&
+  collectText(root).length === 0 &&
+  widgets.length === 0 &&
+  topRow(root) === null
+) {
+  const v = mediaAll[0];
+  return { slice: "VideoFeature", ...base(band), media: v };
+}
 ```
 
 > Reconcile locals: ensure the later branches (Tasks 4–7) read from the same `root`/`media`/`text`/`row` computed once here. Remove the duplicate `const media = collectMedia(root)` if it now shadows; keep a single set of locals at the top of the function. The `void opts;` line from Task 3 is deleted.
