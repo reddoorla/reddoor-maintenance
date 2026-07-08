@@ -27,6 +27,18 @@ export type SectionIR = {
     anim?: string;
   };
   collectionRef?: { apiId: string; mode: "all" | "items"; itemUids?: string[]; wired: boolean };
+  /** Presentation hints from the export — the text roles a block references
+   * (_title/_body class → styles.text), any per-element inline overrides on
+   * those elements (e.g. a hero title's white `color`), and the block's own
+   * layout styles. Never migrated into Prismic; surfaced via the plan's styles
+   * manifest so the site's design pass works from data. */
+  presentation?: {
+    headingRole?: string;
+    bodyRole?: string;
+    headingStyle?: Record<string, string>;
+    bodyStyle?: Record<string, string>;
+    block?: Record<string, string>;
+  };
   children?: SectionIR[];
 };
 
@@ -45,10 +57,32 @@ export type CollectionIR = {
   records: RecordIR[];
 };
 
+/** One named Blux text style ("Grid Titles", "Page Title Serif", …). Values
+ * are cleaned CSS strings from the export; mobile* carry the role's
+ * `__media_mobile_*` responsive overrides when present. */
+export type TextStyleIR = {
+  role: string; // "text5" — referenced by blocks via _title/_body class
+  label: string;
+  fontFamily: string;
+  size: string;
+  weight: number | string;
+  lineHeight: string;
+  transform?: string;
+  letterSpacing?: string;
+  mobileSize?: string;
+  mobileLineHeight?: string;
+};
+
+/** A web font the export declares (family + the weights it loads), parsed from
+ * `settings.fonts.google`. Tells the design pass exactly which @fontsource
+ * weights to install instead of measuring them off the rendered site. */
+export type FontLoad = { family: string; weights: string[] };
+
 export type ThemeIR = {
   colors: { role: string; value: string }[];
   fonts: { heading: string; body: string };
-  textStyles: { role: string; size: string; weight: number; lineHeight: number }[];
+  fontLoad: FontLoad[];
+  textStyles: TextStyleIR[];
 };
 
 export type AssetRef = {

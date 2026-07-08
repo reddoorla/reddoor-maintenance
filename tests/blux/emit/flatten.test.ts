@@ -120,6 +120,32 @@ describe("flattenSections", () => {
     expect(out[1]!.fields.media).toBe("logo-1");
   });
 
+  it("carries presentation hints through explosion and the hero split", () => {
+    const pres = { headingRole: "text5", block: { "background-color": "#edeff4" } };
+    const container: SectionIR = {
+      sliceType: "grid",
+      variation: "default",
+      confidence: 1,
+      fields: { heading: "<h2>Story</h2>" },
+      presentation: pres,
+      children: [
+        { sliceType: "grid", variation: "default", confidence: 1, fields: {}, children: [leaf()] },
+      ],
+    };
+    const hero: SectionIR = {
+      sliceType: "hero",
+      variation: "default",
+      confidence: 1,
+      fields: { heading: "<h1>Hi</h1>", media: "logo-1", backgroundMedia: "bg-1" },
+      presentation: { headingRole: "text2" },
+    };
+    const out = flattenSections([container, hero]);
+    expect(out.find((s) => s.fields.heading === "<h2>Story</h2>")!.presentation).toEqual(pres);
+    expect(out.find((s) => s.sliceType === "hero")!.presentation).toEqual({
+      headingRole: "text2",
+    });
+  });
+
   it("explodes a grid containing a hero so the hero keeps its background", () => {
     const hero = leaf({ sliceType: "hero", fields: { backgroundMedia: "img-1" } });
     const grid: SectionIR = {

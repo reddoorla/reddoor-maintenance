@@ -141,6 +141,82 @@ describe("buildMigrationPlan", () => {
     );
   });
 
+  it("emits per-page presentation hints keyed by slice index, with grid items aligned", () => {
+    expect(plan.stylesManifest).toEqual([
+      {
+        pageUid: "home",
+        slices: [
+          {
+            index: 0,
+            sliceType: "hero",
+            presentation: { headingStyle: { color: "#ffffff", "font-size": "44px" } },
+          },
+          {
+            index: 3,
+            sliceType: "section_grid",
+            items: [{ headingStyle: { color: "#111111" } }, null],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("keys stylesManifest entries by post-filter slice index", () => {
+    const ir = assembleIR({ siteJson: minimalSite, htmls: [minimalHtml] });
+    ir.pages[0]!.sections = [
+      // empty → dropped from the slice zone, so it must not consume an index
+      { sliceType: "rich_text", variation: "default", confidence: 1, fields: {} },
+      {
+        sliceType: "rich_text",
+        variation: "default",
+        confidence: 1,
+        fields: { body: "<p>x</p>" },
+        presentation: { bodyRole: "text14", block: { "text-align": "center" } },
+      },
+    ];
+    const p = buildMigrationPlan(ir);
+    expect(p.stylesManifest.find((e) => e.pageUid === "home")!.slices).toEqual([
+      {
+        index: 0,
+        sliceType: "rich_text",
+        presentation: { bodyRole: "text14", block: { "text-align": "center" } },
+      },
+    ]);
+  });
+
+  it("aligns grid item presentations with the items the slice actually keeps", () => {
+    const ir = assembleIR({ siteJson: minimalSite, htmls: [minimalHtml] });
+    ir.pages[0]!.sections = [
+      {
+        sliceType: "grid",
+        variation: "default",
+        confidence: 1,
+        fields: {},
+        children: [
+          {
+            sliceType: "media_text",
+            variation: "imageRight",
+            confidence: 1,
+            fields: { heading: "A" },
+            presentation: { headingRole: "text5" },
+          },
+          // contentless child → dropped from slice items AND from the manifest
+          { sliceType: "rich_text", variation: "default", confidence: 1, fields: {} },
+          {
+            sliceType: "media_text",
+            variation: "imageRight",
+            confidence: 1,
+            fields: { body: "<p>B</p>" },
+          },
+        ],
+      },
+    ];
+    const p = buildMigrationPlan(ir);
+    const entry = p.stylesManifest[0]!.slices[0]!;
+    expect(entry.sliceType).toBe("section_grid");
+    expect(entry.items).toEqual([{ headingRole: "text5" }, null]);
+  });
+
   it("drops empty grid items", () => {
     const ir = assembleIR({ siteJson: minimalSite, htmls: [minimalHtml] });
     const grid = ir.pages[0]!.sections.find((s) => s.sliceType === "grid")!;
