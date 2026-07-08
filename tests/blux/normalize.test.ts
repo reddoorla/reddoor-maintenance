@@ -1,7 +1,29 @@
 import { describe, it, expect } from "vitest";
 import { parseBluxSite } from "../../src/blux/parse.js";
-import { normalizePages, normalizeTheme } from "../../src/blux/normalize.js";
+import { cleanCssValue, normalizePages, normalizeTheme } from "../../src/blux/normalize.js";
 import { minimalSite } from "./fixtures/minimal-site.js";
+
+describe("cleanCssValue", () => {
+  it("keeps well-formed single lengths", () => {
+    for (const v of ["44px", "1.5px", "0px", ".5px", "-2px"]) expect(cleanCssValue(v)).toBe(v);
+  });
+  it("rejects Blux's malformed single-token placeholders", () => {
+    for (const v of ["", "px", "0.px", "1.px", ".px", "  "]) expect(cleanCssValue(v)).toBe("");
+  });
+  it("keeps multi-value declarations regardless of which token ends in px", () => {
+    // the single-length px guard must not fire on a shorthand — real exports
+    // carry `_contentPadding: "10px 40px 10px 40px"`
+    for (const v of ["40px 20px", "10px 40px 10px 40px", "20px 0", "0 10px"])
+      expect(cleanCssValue(v)).toBe(v);
+  });
+  it("keeps non-length values and coerces numbers to strings", () => {
+    expect(cleanCssValue("0")).toBe("0");
+    expect(cleanCssValue("capitalize")).toBe("capitalize");
+    expect(cleanCssValue("#fff")).toBe("#fff");
+    expect(cleanCssValue(10)).toBe("10");
+    expect(cleanCssValue(0.9)).toBe("0.9");
+  });
+});
 
 describe("normalizePages", () => {
   const raw = parseBluxSite(minimalSite);
@@ -176,21 +198,24 @@ describe("section presentation extraction", () => {
     });
     expect(s.presentation).toEqual({ headingRole: "text5", bodyRole: "text14" });
   });
-  it("captures string-valued block styles, dropping blanks and bare units", () => {
+  it("captures block styles, dropping blanks and bare units, keeping shorthands + numbers", () => {
     const s = first({
       title: "t",
       body: "b",
       styles: {
         "background-color": "#edeff4",
         "text-align": "center",
-        _contentPadding: "",
+        _contentPadding: "10px 40px 10px 40px", // real shorthand — must survive
+        "z-index": 10, // numeric — coerced, matching inline-override handling
+        _emptyPad: "",
         height: "px",
-        ratio: 2,
       },
     });
     expect(s.presentation!.block).toEqual({
       "background-color": "#edeff4",
       "text-align": "center",
+      _contentPadding: "10px 40px 10px 40px",
+      "z-index": "10",
     });
   });
   it("assigns no role to hidden text, even when its class also names one", () => {

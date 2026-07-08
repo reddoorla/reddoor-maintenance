@@ -1,5 +1,5 @@
 ---
-"reddoor-maintenance": minor
+"@reddoorla/maintenance": minor
 ---
 
 blux: parse the export's style data and surface it for the design pass.

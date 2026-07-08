@@ -15,12 +15,13 @@ const str = (x: unknown): string =>
 /** A cleaned CSS value, or "" when the export left a malformed one. Blux emits
  * degenerate placeholders — "" and "px" for unset lengths, "0.px" for a zeroed
  * one — which would poison a Tailwind custom property (an invalid `var()` value
- * collapses the whole declaration). A px length is kept only with a real
- * numeric prefix; everything else (colors, "0", keywords, multi-value) passes. */
+ * collapses the whole declaration). Those are always single tokens, so the
+ * numeric-prefix guard runs only on a lone length; multi-value shorthands
+ * ("10px 40px 10px 40px"), colors, "0", and keywords all pass through. */
 export function cleanCssValue(x: unknown): string {
   const s = str(x).trim();
   if (s === "" || s === "px") return "";
-  if (/px$/.test(s) && !/^-?(\d+(\.\d+)?|\.\d+)px$/.test(s)) return "";
+  if (!/\s/.test(s) && /px$/.test(s) && !/^-?(\d+(\.\d+)?|\.\d+)px$/.test(s)) return "";
   return s;
 }
 
@@ -75,9 +76,10 @@ function sectionFromBlock(b: BluxBlock, pageUid: string, diagnostics: Diagnostic
   const bodyRole = body !== undefined ? textRole(b._body) : undefined;
   const headingStyle = heading !== undefined ? inlineStyle(b._title) : undefined;
   const bodyStyle = body !== undefined ? inlineStyle(b._body) : undefined;
+  // Route every value through cleanCssValue (as inlineStyle does) so numeric
+  // block styles (a JSON `"z-index": 10`) are kept, not silently dropped.
   const block: Record<string, string> = {};
   for (const [k, v] of Object.entries(b.styles ?? {})) {
-    if (typeof v !== "string") continue;
     const cleaned = cleanCssValue(v);
     if (cleaned) block[k] = cleaned;
   }
