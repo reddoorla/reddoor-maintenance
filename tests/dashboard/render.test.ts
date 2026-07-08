@@ -825,7 +825,50 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
     expect(html).toContain("/api/reports/recOLDPENDING/approve");
   });
 
-  it("renders interactive checklist checkboxes for a pending Maintenance report with a disabled Approve when incomplete", () => {
+  it("renders a Tier-colored health pill per check for a pending Maintenance report", () => {
+    const autoEvidence = {
+      "Maint: Deploy & Function Health": {
+        result: "pass" as const,
+        checkedAt: "2026-05-01T00:00:00Z",
+        note: "ok",
+      },
+      "Maint: CMS Checked": {
+        result: "fail" as const,
+        checkedAt: "2026-05-01T00:00:00Z",
+        note: "Prismic unreachable",
+      },
+      "Maint: Uptime Checked": {
+        result: "unknown" as const,
+        checkedAt: null,
+        note: "Not yet measured",
+      },
+    };
+    const html = renderSiteDashboardHtml(siteRow(), [
+      reportRow({ id: "recREP1", approvedToSend: false, sentAt: null, autoEvidence }),
+    ]);
+    expect(html).toContain('data-checklist-for="recREP1"');
+    expect(html).toMatch(/pill healthy/); // pass → green
+    expect(html).toMatch(/pill attention/); // fail → red
+    expect(html).toMatch(/pill watch/); // unknown → amber
+    // A health-red report keeps its Approve button disabled (server gate).
+    expect(html).toMatch(/<button class="approve"[^>]*data-report-id="recREP1"[^>]*disabled/);
+  });
+
+  it("annotates an advisory item (Google Indexed on Maintenance) as never-blocking", () => {
+    const autoEvidence = {
+      "Maint: Google Indexed": {
+        result: "fail" as const,
+        checkedAt: "2026-05-01T00:00:00Z",
+        note: "Not on page 1",
+      },
+    };
+    const html = renderSiteDashboardHtml(siteRow(), [
+      reportRow({ id: "recREP1", approvedToSend: false, sentAt: null, autoEvidence }),
+    ]);
+    expect(html).toContain("advisory — never blocks");
+  });
+
+  it("renders every checklist item's label with no manual checkbox markup", () => {
     const html = renderSiteDashboardHtml(siteRow(), [
       reportRow({
         id: "recREP1",
@@ -835,31 +878,22 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
         draftReady: true,
         approvedToSend: false,
         sentAt: null,
-        checklist: {}, // nothing checked → incomplete
         autoEvidence: {}, // no evidence recorded yet → health gate also blocked
       }),
     ]);
-    // One checkbox per maintenance item, each labelled and carrying the report id
-    // + the Airtable field name so the client can POST to the endpoint.
     for (const item of MAINTENANCE_CHECKLIST) {
-      // Labels/fields can contain "&" (e.g. "Domain, DNS & SSL"), escaped to &amp; in HTML.
-      expect(html).toContain(`data-field="${escapeHtml(item.field)}"`);
+      // Labels can contain "&" (e.g. "Domain, DNS & SSL"), escaped to &amp; in HTML.
       expect(html).toContain(escapeHtml(item.label));
     }
-    expect(html).toMatch(/type="checkbox"/);
-    // The checkboxes carry the report record id so the client scopes the POST.
-    expect(html).toContain('data-checklist-report-id="recREP1"');
-    // None are checked (all false in the row).
-    expect(html).not.toMatch(/type="checkbox"[^>]*checked/);
-    // The Approve button for THIS report starts disabled (server-rendered gate).
+    expect(html).not.toMatch(/type="checkbox"/);
+    expect(html).not.toContain("checklist-checkbox");
+    // The Approve button for THIS report starts disabled (server-rendered health gate).
     expect(html).toMatch(/<button class="approve"[^>]*data-report-id="recREP1"[^>]*disabled/);
-    // It still targets the approve endpoint and the toggle endpoint is present.
     expect(html).toContain("/api/reports/recREP1/approve");
-    expect(html).toContain("/api/reports/recREP1/checklist");
+    expect(html).not.toContain("/api/reports/recREP1/checklist");
   });
 
-  it("reflects each item's checked state from report.checklist", () => {
-    const partial = { ...COMPLETE_MAINTENANCE, "Maint: Security Updates": false };
+  it("renders an ENABLED Approve button when every gating item's evidence passes", () => {
     const html = renderSiteDashboardHtml(siteRow(), [
       reportRow({
         id: "recREP1",
@@ -867,82 +901,9 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
         draftReady: true,
         approvedToSend: false,
         sentAt: null,
-        checklist: partial,
-        // Health evidence mirrors the unchecked item so the gate stays blocked too.
-        autoEvidence: {
-          ...healthCleanEvidence("Maintenance"),
-          "Maint: Security Updates": {
-            result: "fail",
-            checkedAt: "2026-07-06T00:00:00.000Z",
-            note: "",
-          },
-        },
+        // Default reportRow() autoEvidence is healthCleanEvidence — all gating fields pass.
       }),
     ]);
-    // The 5 true items render a checked attribute on their input; "Security Updates" does not.
-    const checkedCount = (html.match(/type="checkbox"[^>]*checked/g) ?? []).length;
-    expect(checkedCount).toBe(5);
-    // And the still-disabled Approve, because one item is unchecked.
-    expect(html).toMatch(/<button class="approve"[^>]*data-report-id="recREP1"[^>]*disabled/);
-  });
-
-  it("renders an auto-green badge + evidence note for a passed auto-check", () => {
-    const html = renderSiteDashboardHtml(siteRow(), [
-      reportRow({
-        id: "recREP1",
-        reportType: "Maintenance",
-        draftReady: true,
-        approvedToSend: false,
-        sentAt: null,
-        checklist: { ...COMPLETE_MAINTENANCE, "Maint: Google Indexed": true },
-        autoEvidence: {
-          "Maint: Google Indexed": {
-            result: "pass",
-            checkedAt: "2026-06-18T12:00:00.000Z",
-            note: "Page 1 on Google (#3)",
-          },
-        },
-      }),
-    ]);
-    expect(html).toContain("auto-pass");
-    expect(html).toContain("Page 1 on Google (#3)");
-  });
-
-  it("renders an amber badge (box left unchecked) for a failed auto-check", () => {
-    const html = renderSiteDashboardHtml(siteRow(), [
-      reportRow({
-        id: "recREP1",
-        reportType: "Maintenance",
-        draftReady: true,
-        approvedToSend: false,
-        sentAt: null,
-        checklist: { "Maint: Google Indexed": false },
-        autoEvidence: {
-          "Maint: Google Indexed": {
-            result: "fail",
-            checkedAt: "2026-06-18T12:00:00.000Z",
-            note: "Not on page 1 (avg #22)",
-          },
-        },
-      }),
-    ]);
-    expect(html).toContain("auto-amber");
-    expect(html).toContain("Not on page 1 (avg #22)");
-  });
-
-  it("renders an ENABLED Approve button for a fully-checked pending Maintenance report", () => {
-    const html = renderSiteDashboardHtml(siteRow(), [
-      reportRow({
-        id: "recREP1",
-        reportType: "Maintenance",
-        draftReady: true,
-        approvedToSend: false,
-        sentAt: null,
-        checklist: COMPLETE_MAINTENANCE,
-      }),
-    ]);
-    // All 6 checked.
-    expect((html.match(/type="checkbox"[^>]*checked/g) ?? []).length).toBe(6);
     // The Approve button is NOT disabled.
     expect(html).toMatch(
       /<button class="approve"[^>]*data-report-id="recREP1"(?![^>]*disabled)[^>]*>/,
@@ -958,13 +919,11 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
         draftReady: true,
         approvedToSend: false,
         sentAt: null,
-        checklist: {},
         autoEvidence: {}, // no evidence recorded yet → health gate also blocked
       }),
     ]);
     // A Testing pass also does the maintenance checks, so both lists render and gate it.
     for (const item of [...MAINTENANCE_CHECKLIST, ...TESTING_CHECKLIST]) {
-      expect(html).toContain(`data-field="${escapeHtml(item.field)}"`);
       expect(html).toContain(escapeHtml(item.label));
     }
     expect(html).toMatch(/<button class="approve"[^>]*data-report-id="recREP1"[^>]*disabled/);
@@ -978,11 +937,10 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
         draftReady: true,
         approvedToSend: false,
         sentAt: null,
-        checklist: {},
       }),
     ]);
     expect(html).not.toMatch(/type="checkbox"/);
-    expect(html).not.toContain("data-checklist-report-id");
+    expect(html).not.toContain("data-checklist-for");
     // Launch/Announcement Approve is never gated → not disabled.
     expect(html).toContain("/api/reports/recREP1/approve");
     expect(html).not.toMatch(/<button class="approve"[^>]*data-report-id="recREP1"[^>]*disabled/);
@@ -996,14 +954,13 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
         draftReady: true,
         approvedToSend: false,
         sentAt: null,
-        checklist: {},
       }),
     ]);
     expect(html).not.toMatch(/type="checkbox"/);
     expect(html).not.toMatch(/<button class="approve"[^>]*data-report-id="recREP1"[^>]*disabled/);
   });
 
-  it("escapes the field name and report id in the checklist data attributes", () => {
+  it("escapes the report id in the checklist data attribute", () => {
     const html = renderSiteDashboardHtml(siteRow(), [
       reportRow({
         id: 'rec"><img src=x>',
@@ -1011,34 +968,10 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
         draftReady: true,
         approvedToSend: false,
         sentAt: null,
-        checklist: {},
       }),
     ]);
     expect(html).not.toContain('rec"><img src=x>');
     expect(html).toContain("&quot;");
-  });
-
-  it("wires the checklist checkboxes to the toggle endpoint and scopes the Approve toggle per report", () => {
-    const html = renderSiteDashboardHtml(siteRow(), [
-      reportRow({
-        id: "recREP1",
-        reportType: "Maintenance",
-        draftReady: true,
-        approvedToSend: false,
-        sentAt: null,
-        checklist: {},
-      }),
-    ]);
-    const script = html.slice(html.indexOf("<script>"), html.lastIndexOf("</script>"));
-    // The client listens on checklist checkboxes and POSTs JSON to the endpoint.
-    expect(script).toMatch(/checklist-checkbox/);
-    expect(script).toMatch(/method:\s*"POST"/);
-    expect(script).toMatch(/JSON\.stringify/);
-    // It reads the field + value from the checkbox and the report id to scope
-    // which Approve button it toggles.
-    expect(script).toMatch(/complete/);
-    // Failure path reverts the checkbox (mirrors the existing buttons' recovery).
-    expect(script).toMatch(/catch\b/);
   });
 
   it("trims the report-history table to the 6 most recent (by completedOn) but not the pending list", () => {
@@ -1144,12 +1077,6 @@ describe("renderSiteDashboardHtml — preflight chip + send-blocker gate", () =>
     const script = html.slice(html.indexOf("<script>"), html.indexOf("</script>"));
     expect(script).toContain('data.reason === "send-blocked" ? "Blocked" : "Failed"');
     expect(script).toContain("data.blockers");
-  });
-
-  it("the client checklist re-gate never re-enables a send-blocked button", () => {
-    const html = renderSiteDashboardHtml(siteRow(), [pendingReport()]);
-    const script = html.slice(html.indexOf("<script>"), html.indexOf("</script>"));
-    expect(script).toContain('approveBtn.dataset.sendBlocked === "1"');
   });
 
   it("gates the history-table approve action too (no side door)", () => {
