@@ -118,3 +118,21 @@ describe("classifyBand — Hero", () => {
     expect(spec.slice).toBe("Grid");
   });
 });
+
+describe("classifyBand — media", () => {
+  it("a row of media cells → Gallery", () => {
+    const spec = classifyBand(band(realBands(), 8)); // row[grid-1:media ×3]
+    expect(spec.slice).toBe("Gallery");
+    if (spec.slice === "Gallery") expect(spec.media).toHaveLength(3);
+  });
+
+  it("a single lone media → MediaFull", () => {
+    const only: Band = {
+      index: 98,
+      root: { kind: "media", media: { kind: "image", assetId: "x" } },
+    };
+    const spec = classifyBand(only);
+    expect(spec.slice).toBe("MediaFull");
+    if (spec.slice === "MediaFull") expect(spec.media.assetId).toBe("x");
+  });
+});

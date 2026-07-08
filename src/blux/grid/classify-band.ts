@@ -82,6 +82,16 @@ function nodeText(node: Node): string {
     .trim();
 }
 
+/** If every cell of a row is exactly one media node, return them in order. */
+function galleryMedia(cells: Cell[]): Media[] | null {
+  const out: Media[] = [];
+  for (const c of cells) {
+    if (c.node.kind !== "media") return null;
+    out.push(c.node.media);
+  }
+  return out.length >= 2 ? out : null;
+}
+
 /** Classify one band into a SliceSpec. Conservative: only unambiguous shapes
  * become pattern slices; everything else is a render-faithful Grid fallback. */
 export function classifyBand(band: Band, opts: ClassifyOptions = {}): SliceSpec {
@@ -128,6 +138,18 @@ export function classifyBand(band: Band, opts: ClassifyOptions = {}): SliceSpec 
       ...(sub ? { subtitle: nodeText(sub) } : {}),
       ...(bod && bod.kind === "body" ? { body: bod.html } : {}),
     };
+  }
+
+  // Gallery: a row whose cells are all single media.
+  if (row) {
+    const gm = galleryMedia(row);
+    if (gm) return { slice: "Gallery", ...base(band), media: gm };
+  }
+
+  // MediaFull: one media, no text.
+  if (media.length === 1 && text.length === 0) {
+    const m = media[0];
+    if (m) return { slice: "MediaFull", ...base(band), media: m };
   }
 
   return { slice: "Grid", ...base(band), root: band.root };
