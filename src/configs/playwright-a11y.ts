@@ -15,6 +15,17 @@ export const a11yRoutes: A11yRoute[] = [
 // assert only that they don't crash on hydrate.
 export const smokeRoutes: A11yRoute[] = [{ path: "/", name: "home" }];
 
+// R1.1 (health-gate): the central `smoke` audit (src/audits/smoke.ts) allocates
+// a free port and passes it as REDDOOR_SMOKE_PORT so a zombie vite already
+// squatting the default 5173 can't silently hijack the run and green a stale
+// build. The per-site R1.1 config template honors it, but sites whose
+// playwright.config.ts merely re-exports this shared base (pre-R1.1 adopters
+// the smoke-suite recipe flags-but-never-rewrites) would otherwise ignore it —
+// so honor it here too and every re-exporter inherits the port binding on its
+// next package bump. Unset (local `pnpm test:smoke`) → the fixed 5173.
+const smokePort = process.env.REDDOOR_SMOKE_PORT;
+const port = smokePort || "5173";
+
 export const playwrightA11yConfig: PlaywrightTestConfig = defineConfig({
   testDir: "tests",
   testMatch: /.*\.spec\.ts$/,
@@ -23,7 +34,7 @@ export const playwrightA11yConfig: PlaywrightTestConfig = defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? "github" : "list",
   use: {
-    baseURL: "http://localhost:5173",
+    baseURL: `http://localhost:${port}`,
     trace: "on-first-retry",
   },
   projects: [
@@ -34,8 +45,12 @@ export const playwrightA11yConfig: PlaywrightTestConfig = defineConfig({
   ],
   webServer: {
     // Portable across pnpm and npm sites — pnpm respects `npm run` too.
-    command: "npm run vite:dev",
-    url: "http://localhost:5173/dev/a11y-fixtures",
+    // `--strictPort` only when a port was explicitly allocated: fail loudly
+    // rather than let vite drift to a free port the baseURL doesn't point at.
+    command: smokePort
+      ? `npm run vite:dev -- --port ${smokePort} --strictPort`
+      : "npm run vite:dev",
+    url: `http://localhost:${port}/dev/a11y-fixtures`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },
