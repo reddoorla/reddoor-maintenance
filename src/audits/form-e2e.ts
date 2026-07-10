@@ -4,10 +4,9 @@ import { siteLabel } from "../util/site.js";
 
 /** Cloudflare's PUBLIC test sitekey — always issues a passing client token with no
  *  real challenge, so the probe can satisfy a site's Turnstile widget without any
- *  secret. Once the central `testMode` ingest branch lands (health-gate plan3
- *  Task 5), it will skip Turnstile enforcement for testMode submissions anyway,
- *  making the token's validity moot — but until then, treat this as a live token
- *  that must actually pass. */
+ *  secret. The central `testMode` ingest branch (src/forms/ingest.ts, health-gate
+ *  plan3 Task 5) skips Turnstile enforcement for testMode submissions, making the
+ *  token's validity moot — it exists to get past the CLIENT widget only. */
 export const CF_TEST_SITEKEY = "1x00000000000000000000AA";
 
 /** The canonical starter contact route. Sites built from reddoor-starter serve the
@@ -23,10 +22,14 @@ export type FormE2eDetails = {
   checkedAt: string;
 };
 
-/** Outcome of driving one site's contact form. `formPresent:false` ⇒ n/a. */
+/** Outcome of driving one site's contact form. `formPresent:false` ⇒ n/a
+ *  (persisted). `testModeUndeclared` ⇒ the site's /health does not declare
+ *  `forms.testMode`, so the probe refused to submit — a plain skip, prior
+ *  verdict preserved. */
 export type FormSubmitOutcome =
   | { formPresent: false }
-  | { formPresent: true; success: boolean; detail?: string };
+  | { formPresent: true; success: boolean; detail?: string }
+  | { testModeUndeclared: true };
 
 /** Injected browser IO. The real impl drives Playwright; tests pass a fake. */
 export type FormRunner = {
@@ -39,18 +42,19 @@ export type FormRunner = {
 };
 
 /** Opt-in gate for the live Playwright fallback. `defaultFormRunner` drives a REAL
- *  browser against `site.deployedUrl` and submits the REAL production contact form;
- *  the `testMode` marker it injects is only safe to send once TWO other things
- *  exist — central ingest's `testMode` short-circuit (health-gate plan3 Task 5,
- *  `src/forms/ingest.ts`) and the starter's `buildPayload` forwarding it (Task 6,
- *  `reddoor-starter/src/routes/contact/+page.server.ts`). Neither has landed yet
- *  (verified: no `testMode` handling anywhere in `src/forms/`). Until they do, a
- *  live run submits fake lead data through the exact path a real visitor uses, with
- *  zero suppression on either end. This audit is wired into the default
- *  registry/checkout-free set and is therefore reachable from any unfiltered
- *  `runAudits` call (e.g. the `init` recipe's final step, or the `audit` CLI without
- *  `--only`) — this gate is what keeps that reachability inert. Flip via
- *  `REDDOOR_FORM_E2E_LIVE=1` only once Tasks 5+6 land. */
+ *  browser against `site.deployedUrl` and submits the REAL production contact form.
+ *  Both central prerequisites HAVE landed: ingest's `testMode` short-circuit
+ *  (health-gate plan3 Task 5, `src/forms/ingest.ts`) and the starter's
+ *  `buildPayload` forwarding (Task 6, `reddoor-starter/src/routes/contact/
+ *  +page.server.ts`). But forwarding is PER-SITE — a site built before Task 6
+ *  ignores the injected marker and would deliver the probe as a REAL lead. Two
+ *  layers keep that impossible: (1) this env gate keeps the runner inert in any
+ *  unfiltered `runAudits` call (e.g. the `init` recipe's final step) unless the
+ *  operator/producer explicitly arms it (`REDDOOR_FORM_E2E_LIVE=1` — the nightly
+ *  fleet-form-e2e workflow does); (2) even armed, the runner preflights the
+ *  site's /health and refuses to submit unless it DECLARES `forms.testMode`
+ *  (see `declaresTestModeForwarding`) — the declaration ships in the same deploy
+ *  as the forwarding, so it is always truthful. */
 const LIVE_ENV_VAR = "REDDOOR_FORM_E2E_LIVE";
 
 function liveRunnerEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -97,6 +101,19 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
       testMode: true,
       testSitekey: CF_TEST_SITEKEY,
     });
+    if ("testModeUndeclared" in outcome) {
+      // Not n/a — the site may well have a form; it just hasn't rolled out
+      // testMode forwarding, so probing it would submit a real lead. Plain
+      // skip with NO details preserves the prior verdict.
+      return {
+        audit: "form-e2e",
+        site: label,
+        status: "skip",
+        summary:
+          "site /health does not declare forms.testMode — probe refused " +
+          "(testMode forwarding not yet rolled out here)",
+      };
+    }
     if (!outcome.formPresent) {
       return {
         audit: "form-e2e",
@@ -126,6 +143,32 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
  *  never reached), so the probe waits past this before submitting. */
 const FILL_SETTLE_MS = 1200;
 const PAGE_TIMEOUT_MS = 30_000;
+const HEALTH_TIMEOUT_MS = 10_000;
+
+/**
+ * GET `{baseUrl}/health` and report whether the site DECLARES that its contact
+ * form forwards the `testMode` marker (`forms.testMode === true`, strict
+ * boolean). The starter sets the flag in the same deploy whose `buildPayload`
+ * forwards the marker, so a declaration is proof the injected field round-trips
+ * to central ingest's short-circuit instead of landing as a real lead.
+ * Fail-closed: unreachable /health, non-2xx, unparseable body, or a missing/
+ * non-boolean flag all return false — the probe then refuses to submit.
+ */
+export async function declaresTestModeForwarding(baseUrl: string): Promise<boolean> {
+  try {
+    const res = await fetch(new URL("/health", baseUrl), {
+      signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+    });
+    if (!res.ok) return false;
+    const body: unknown = await res.json();
+    if (typeof body !== "object" || body === null) return false;
+    const forms = (body as Record<string, unknown>).forms;
+    if (typeof forms !== "object" || forms === null) return false;
+    return (forms as Record<string, unknown>).testMode === true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Real Playwright form runner. Lazily imports @playwright/test so unit tests (which
@@ -138,6 +181,10 @@ export async function defaultFormRunner(): Promise<FormRunner> {
   const { chromium } = await import("@playwright/test");
   return {
     async submit({ baseUrl, testSitekey }) {
+      // Per-site safety preflight — refuse before a browser even launches.
+      if (!(await declaresTestModeForwarding(baseUrl))) {
+        return { testModeUndeclared: true };
+      }
       const browser = await chromium.launch();
       try {
         const ctx = await browser.newContext();
@@ -166,13 +213,11 @@ export async function defaultFormRunner(): Promise<FormRunner> {
           .catch(() => {});
 
         // Inject the testMode marker + a Turnstile token into the submitted form.
-        // Once the central testMode ingest branch exists, the marker will route the
-        // submission away from every real sink and central verify's fail-open +
-        // testMode skip will make the token's value inconsequential — the CF public
-        // test sitekey documents that intended zero-secret path. Until that branch
-        // lands, `liveRunnerEnabled` (see above) keeps this whole runner unreachable
-        // by default, so this comment describes the target behavior, not a live
-        // guarantee. String-form evaluate
+        // The site declared forwarding (preflight above), so the marker routes the
+        // submission away from every real sink via central ingest's testMode
+        // short-circuit; that branch also skips Turnstile enforcement, making the
+        // token's value inconsequential — the CF public test sitekey documents the
+        // zero-secret path past the client widget. String-form evaluate
         // (mirrors browser.ts) so the browser-context code isn't type-checked
         // against the Node lib (no DOM globals in this project's tsconfig). The
         // token value is a hardcoded constant (never user input), so inlining it
