@@ -132,7 +132,8 @@ function galleryMedia(cells: Cell[]): Media[] | null {
 }
 
 /** Return a copy of the tree with every node matching `isMapMount` replaced by a
- * `widget:map` node. Pure — does not mutate the input. */
+ * `widget:map` node. Pure — does not mutate the input. Top-down: a matched
+ * container is replaced whole, so its children are never visited. */
 function rewriteMapMounts(node: Node, isMapMount: (n: Node) => boolean): Node {
   if (isMapMount(node)) return { kind: "widget", widget: { type: "map" } };
   switch (node.kind) {
@@ -200,8 +201,9 @@ export function classifyBand(band: Band, opts: ClassifyOptions = {}): SliceSpec 
   const subtitles = text.filter((n) => n.kind === "subtitle");
   const bodies = text.filter((n) => n.kind === "body");
 
-  // Text-only bands (no media, no row).
-  if (media.length === 0 && row === null) {
+  // Text-only bands (no media, no row, no widgets — a co-located widget must
+  // survive via the Grid fallback, not be swallowed by a prose slice).
+  if (media.length === 0 && row === null && widgets.length === 0) {
     if (headings.length > 0 && !band.background) {
       const first = headings[0];
       const sub = subtitles[0];
@@ -222,7 +224,13 @@ export function classifyBand(band: Band, opts: ClassifyOptions = {}): SliceSpec 
   }
 
   // Full-bleed hero: a background image with overlay text and no grid row.
-  if (band.background && headings.length > 0 && row === null && media.length === 0) {
+  if (
+    band.background &&
+    headings.length > 0 &&
+    row === null &&
+    media.length === 0 &&
+    widgets.length === 0
+  ) {
     const h = headings[0];
     const sub = subtitles[0];
     const bod = bodies[0];
@@ -241,9 +249,10 @@ export function classifyBand(band: Band, opts: ClassifyOptions = {}): SliceSpec 
     if (gm) return { slice: "Gallery", ...base(band), media: gm };
   }
 
-  // MediaFull: one media, no text, no top row — a row sibling (e.g. an
-  // empty-raw mount) would be silently dropped, so those stay Grid.
-  if (media.length === 1 && text.length === 0 && row === null) {
+  // MediaFull: one media, no text, no top row, no widgets — a row sibling or a
+  // co-located widget (e.g. a map mount) would be silently dropped, so those
+  // stay Grid.
+  if (media.length === 1 && text.length === 0 && row === null && widgets.length === 0) {
     const m = media[0];
     if (m) return { slice: "MediaFull", ...base(band), media: m };
   }

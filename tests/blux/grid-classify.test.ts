@@ -228,8 +228,7 @@ describe("classifyBand — widget router", () => {
 
   it("injected isMapMount rewrites the mount to a widget:map node (band 10 → Grid with a map widget)", () => {
     const bands = realBands();
-    const isMapMount = (n: Node) => isEmptyRaw(n);
-    const spec = classifyBand(band(bands, 10), { isMapMount });
+    const spec = classifyBand(band(bands, 10), { isMapMount: isEmptyRaw });
     expect(spec.slice).toBe("Grid");
     if (spec.slice === "Grid") {
       expect(collectWidgets(spec.root).some((w) => w.type === "map")).toBe(true);
@@ -240,5 +239,55 @@ describe("classifyBand — widget router", () => {
     const b: Band = { index: 95, root: { kind: "raw", html: '<div class="block-content"></div>' } };
     const spec = classifyBand(b, { isMapMount: (n) => n.kind === "raw" });
     expect(spec.slice).toBe("LocationMap");
+  });
+});
+
+// A distinguishable mount: only THIS raw matches the predicate, so sibling
+// empty raws stay raw.
+const MOUNT_HTML = '<div class="block-content" data-mount></div>';
+const mount = (): Node => ({ kind: "raw", html: MOUNT_HTML });
+const isMount = (n: Node): boolean => n.kind === "raw" && n.html === MOUNT_HTML;
+
+describe("classifyBand — widget router edges", () => {
+  it("stack[empty raw, mount] → LocationMap (empty raw is not significant)", () => {
+    const b: Band = {
+      index: 92,
+      root: { kind: "stack", children: [{ kind: "raw", html: "<div></div>" }, mount()] },
+    };
+    expect(classifyBand(b, { isMapMount: isMount }).slice).toBe("LocationMap");
+  });
+
+  it("a nested mount (stack[stack[mount]]) is not promoted — Grid carrying the widget", () => {
+    const b: Band = {
+      index: 91,
+      root: { kind: "stack", children: [{ kind: "stack", children: [mount()] }] },
+    };
+    const spec = classifyBand(b, { isMapMount: isMount });
+    expect(spec.slice).toBe("Grid");
+    if (spec.slice === "Grid") {
+      expect(collectWidgets(spec.root).some((w) => w.type === "map")).toBe(true);
+    }
+  });
+
+  it("a widget beside a heading stays Grid with the widget preserved (not TitleBand)", () => {
+    const b: Band = {
+      index: 90,
+      root: { kind: "stack", children: [{ kind: "heading", level: 2, html: "H" }, mount()] },
+    };
+    const spec = classifyBand(b, { isMapMount: isMount });
+    expect(spec.slice).toBe("Grid");
+    if (spec.slice === "Grid") {
+      expect(collectWidgets(spec.root).some((w) => w.type === "map")).toBe(true);
+    }
+  });
+
+  it("classifyBand with isMapMount does not mutate the input band", () => {
+    const b: Band = {
+      index: 89,
+      root: { kind: "stack", children: [{ kind: "heading", level: 2, html: "H" }, mount()] },
+    };
+    const before = structuredClone(b);
+    classifyBand(b, { isMapMount: isMount });
+    expect(b).toEqual(before);
   });
 });
