@@ -16,6 +16,8 @@ import type { Band } from "../../src/blux/grid/types.js";
 const media = (kind: "image" | "video"): Node => ({ kind: "media", media: { kind, assetId: "a" } });
 const heading = (level: number): Node => ({ kind: "heading", level, html: "H" });
 const body = (): Node => ({ kind: "body", html: "<p>b</p>" });
+const subtitle = (): Node => ({ kind: "subtitle", text: "s" });
+const stack = (...children: Node[]): Node => ({ kind: "stack", children });
 
 describe("node-inspection helpers", () => {
   it("collectMedia gathers media across rows and stacks", () => {
@@ -289,5 +291,62 @@ describe("classifyBand — widget router edges", () => {
     const before = structuredClone(b);
     classifyBand(b, { isMapMount: isMount });
     expect(b).toEqual(before);
+  });
+});
+
+describe("classifyBand — surplus content stays Grid", () => {
+  const textRaw = (): Node => ({ kind: "raw", html: "<p>copy</p>" });
+
+  it("stack[h2, raw with text] → Grid (raw prose must not be dropped)", () => {
+    const b: Band = { index: 88, root: stack(heading(2), textRaw()) };
+    expect(classifyBand(b).slice).toBe("Grid");
+  });
+
+  it("stack[h2, body] → Grid (TitleBand has no body field)", () => {
+    const b: Band = { index: 87, root: stack(heading(2), body()) };
+    expect(classifyBand(b).slice).toBe("Grid");
+  });
+
+  it("stack[h2, h3] → Grid (surplus heading)", () => {
+    const b: Band = { index: 86, root: stack(heading(2), heading(3)) };
+    expect(classifyBand(b).slice).toBe("Grid");
+  });
+
+  it("hero shape with two subtitles → Grid (surplus overlay text)", () => {
+    const b: Band = {
+      index: 85,
+      background: { kind: "image", assetId: "bg" },
+      root: stack(heading(2), subtitle(), subtitle()),
+    };
+    expect(classifyBand(b).slice).toBe("Grid");
+  });
+
+  it("stack[subtitle, body] → Grid (RichText must not drop the subtitle)", () => {
+    const b: Band = { index: 84, root: stack(subtitle(), body()) };
+    expect(classifyBand(b).slice).toBe("Grid");
+  });
+
+  it("stack[image, row[raw with text]] → Grid (MediaFull must not drop the row)", () => {
+    const b: Band = {
+      index: 83,
+      root: stack(media("image"), {
+        kind: "row",
+        cells: [{ token: { cols: 1, raw: "grid-1" }, node: textRaw() }],
+      }),
+    };
+    expect(classifyBand(b).slice).toBe("Grid");
+  });
+
+  it("video plus significant raw → Grid (VideoFeature must not drop raw prose)", () => {
+    const b: Band = { index: 82, root: stack(media("video"), textRaw()) };
+    expect(classifyBand(b).slice).toBe("Grid");
+  });
+
+  it("row[grid-1: single media cell] → Grid (conservative: MediaFull never fires on a row)", () => {
+    const b: Band = {
+      index: 81,
+      root: { kind: "row", cells: [{ token: { cols: 1, raw: "grid-1" }, node: media("image") }] },
+    };
+    expect(classifyBand(b).slice).toBe("Grid");
   });
 });

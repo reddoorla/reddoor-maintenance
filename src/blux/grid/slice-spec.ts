@@ -39,7 +39,8 @@ export type GallerySpec = SpecBase & { slice: "Gallery"; media: Media[] };
 /** A single full-width media node, no text. */
 export type MediaFullSpec = SpecBase & { slice: "MediaFull"; media: Media };
 
-/** Only rich text (one body node, no media / rows). */
+/** Only rich text: the band's body node(s), joined with `\n` (no media / rows /
+ * headings / subtitles). */
 export type RichTextSpec = SpecBase & { slice: "RichText"; html: string };
 
 /** A band whose sole content is one video. */

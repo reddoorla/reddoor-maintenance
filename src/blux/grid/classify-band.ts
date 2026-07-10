@@ -55,6 +55,24 @@ export function collectWidgets(node: Node): Widget[] {
   }
 }
 
+/** Depth-first collect of every `raw` node in a subtree. */
+function collectRaws(node: Node): Node[] {
+  switch (node.kind) {
+    case "raw":
+      return [node];
+    case "row":
+      return node.cells.flatMap((c) => collectRaws(c.node));
+    case "stack":
+      return node.children.flatMap(collectRaws);
+    case "heading":
+    case "body":
+    case "subtitle":
+    case "media":
+    case "widget":
+      return [];
+  }
+}
+
 /** The cells of the root row, or null when the root is not a single row. A
  * `stack` whose only child is a row also counts (Blux wraps rows in holders). */
 export function topRow(node: Node): Cell[] | null {
@@ -88,12 +106,23 @@ function base(band: Band): { index: number; background?: Media } {
 
 /** Plain text of a heading/subtitle/body node (tags stripped, whitespace collapsed). */
 function nodeText(node: Node): string {
-  const html =
-    node.kind === "heading" || node.kind === "body"
-      ? node.html
-      : node.kind === "subtitle"
-        ? node.text
-        : "";
+  let html: string;
+  switch (node.kind) {
+    case "heading":
+    case "body":
+      html = node.html;
+      break;
+    case "subtitle":
+      html = node.text;
+      break;
+    case "row":
+    case "stack":
+    case "media":
+    case "widget":
+    case "raw":
+      html = "";
+      break;
+  }
   return html
     .replace(/<[^>]*>/g, " ")
     .replace(/\s+/g, " ")
@@ -160,12 +189,23 @@ function rewriteMapMounts(node: Node, isMapMount: (n: Node) => boolean): Node {
 /** The single significant child of a container (ignoring empty raw), or the node
  * itself. Used to detect a band whose dominant content is one widget. */
 function soleSignificant(node: Node): Node {
-  const kids =
-    node.kind === "row"
-      ? node.cells.map((c) => c.node)
-      : node.kind === "stack"
-        ? node.children
-        : [node];
+  let kids: Node[];
+  switch (node.kind) {
+    case "row":
+      kids = node.cells.map((c) => c.node);
+      break;
+    case "stack":
+      kids = node.children;
+      break;
+    case "heading":
+    case "body":
+    case "subtitle":
+    case "media":
+    case "widget":
+    case "raw":
+      kids = [node];
+      break;
+  }
   const significant = kids.filter((n) => !isEmptyRaw(n));
   return significant.length === 1 && significant[0] ? significant[0] : node;
 }
@@ -180,6 +220,9 @@ export function classifyBand(band: Band, opts: ClassifyOptions = {}): SliceSpec 
   const media = collectMedia(root);
   const text = collectText(root);
   const row = topRow(root);
+  // A raw node with real content is text we cannot account for — every
+  // promotion must refuse to fire over it (only the Grid fallback keeps it).
+  const hasSignificantRaw = collectRaws(root).some((n) => !isEmptyRaw(n));
 
   // Top-level widget promotion (before the structural patterns).
   const sole = soleSignificant(root);
@@ -191,7 +234,8 @@ export function classifyBand(band: Band, opts: ClassifyOptions = {}): SliceSpec 
     media[0]?.kind === "video" &&
     text.length === 0 &&
     widgets.length === 0 &&
-    row === null
+    row === null &&
+    !hasSignificantRaw
   ) {
     const v = media[0];
     return { slice: "VideoFeature", ...base(band), media: v };
@@ -201,10 +245,12 @@ export function classifyBand(band: Band, opts: ClassifyOptions = {}): SliceSpec 
   const subtitles = text.filter((n) => n.kind === "subtitle");
   const bodies = text.filter((n) => n.kind === "body");
 
-  // Text-only bands (no media, no row, no widgets — a co-located widget must
-  // survive via the Grid fallback, not be swallowed by a prose slice).
-  if (media.length === 0 && row === null && widgets.length === 0) {
-    if (headings.length > 0 && !band.background) {
+  // Text-only bands (no media, no row, no widgets, no significant raw — any
+  // co-located content must survive via the Grid fallback, not be swallowed).
+  if (media.length === 0 && row === null && widgets.length === 0 && !hasSignificantRaw) {
+    // TitleBand: exactly one heading + at most one subtitle, nothing else —
+    // TitleBandSpec has nowhere to carry surplus text.
+    if (headings.length === 1 && subtitles.length <= 1 && bodies.length === 0 && !band.background) {
       const first = headings[0];
       const sub = subtitles[0];
       return {
@@ -214,7 +260,8 @@ export function classifyBand(band: Band, opts: ClassifyOptions = {}): SliceSpec 
         ...(sub ? { subtitle: nodeText(sub) } : {}),
       };
     }
-    if (headings.length === 0 && bodies.length > 0 && !band.background) {
+    // RichText: body node(s) only — a subtitle would be dropped from the html.
+    if (headings.length === 0 && subtitles.length === 0 && bodies.length > 0 && !band.background) {
       return {
         slice: "RichText",
         ...base(band),
@@ -223,13 +270,18 @@ export function classifyBand(band: Band, opts: ClassifyOptions = {}): SliceSpec 
     }
   }
 
-  // Full-bleed hero: a background image with overlay text and no grid row.
+  // Full-bleed hero: a background image with overlay text and no grid row. At
+  // most one of each overlay text kind — HeroSpec keeps one heading/subtitle/
+  // body, so surplus would be silently dropped.
   if (
     band.background &&
-    headings.length > 0 &&
+    headings.length === 1 &&
+    subtitles.length <= 1 &&
+    bodies.length <= 1 &&
     row === null &&
     media.length === 0 &&
-    widgets.length === 0
+    widgets.length === 0 &&
+    !hasSignificantRaw
   ) {
     const h = headings[0];
     const sub = subtitles[0];
@@ -249,10 +301,16 @@ export function classifyBand(band: Band, opts: ClassifyOptions = {}): SliceSpec 
     if (gm) return { slice: "Gallery", ...base(band), media: gm };
   }
 
-  // MediaFull: one media, no text, no top row, no widgets — a row sibling or a
-  // co-located widget (e.g. a map mount) would be silently dropped, so those
-  // stay Grid.
-  if (media.length === 1 && text.length === 0 && row === null && widgets.length === 0) {
+  // MediaFull: one media, no text, no top row, no widgets, no significant raw —
+  // a row sibling, a co-located widget (e.g. a map mount), or raw prose would
+  // be silently dropped, so those stay Grid.
+  if (
+    media.length === 1 &&
+    text.length === 0 &&
+    row === null &&
+    widgets.length === 0 &&
+    !hasSignificantRaw
+  ) {
     const m = media[0];
     if (m) return { slice: "MediaFull", ...base(band), media: m };
   }

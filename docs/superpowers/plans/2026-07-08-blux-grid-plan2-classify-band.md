@@ -25,7 +25,7 @@ Measured signatures (from `gridSignature`) and their target slice under this pla
 | Band | Signature (abbrev)                                                               | Slice                                      |
 | ---- | -------------------------------------------------------------------------------- | ------------------------------------------ | ------ |
 | 0    | `(bg) stack[media:image,subtitle]`                                               | `Grid` (no heading; fuzzy)                 |
-| 1    | `(bg) row[grid-2-r60:stack[h1,media,h4,body,media], grid-2-r40:media]`           | `SplitFeature` (mediaSide=right, ratio 60) |
+| 1    | `(bg) row[grid-2-r60:stack[h1,media,h4,body,media], grid-2-r40:media]`           | `SplitFeature` (mediaSide=right, ratio 40) |
 | 2    | `stack[h2,subtitle]`                                                             | `TitleBand`                                |
 | 3    | `row[grid-2:…, grid-2:row[4× stat]]` (deep)                                      | `Grid`                                     |
 | 4    | `(bg) raw` (tall bg-only block-holder)                                           | `Grid`                                     |
