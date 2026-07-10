@@ -1,5 +1,54 @@
 # @reddoorla/maintenance
 
+## 0.70.0
+
+### Minor Changes
+
+- 95e7aa3: `blux` CLI command group. `blux emit <exportDir>` runs the deterministic conversion offline and writes the migration plan, `customtypes/*.json` schemas, theme CSS, review manifest, and assembled IR (plus a diagnostics summary). `blux migrate <outDir>` executes an emitted plan against a live Prismic repo — creds-gated on `PRISMIC_REPOSITORY_NAME` + `PRISMIC_WRITE_TOKEN`, pushing custom types via the Custom Types API and documents + assets via the Migration API (`@prismicio/*` are lazily-imported devDependencies, so consumer installs and CLI startup stay clean).
+- 32c92bb: blux emit: emit the `.txt-role-textN` utility layer into `theme.css`
+
+  `blux emit` now appends one `.txt-role-textN :is(h1…h6,p)` utility per text
+  role directly after the `@theme` block, generated from the IR's text styles.
+  A converted site imports the emitted `theme.css` and gets both the role
+  tokens and the utilities that map them onto headings/paragraphs — the same
+  CSS the-pointe hand-generated with a per-site script, now owned by the
+  pipeline so future conversions cost zero hand-tuning. Verified byte-identical
+  (all 14 roles) to the-pointe's hand-generated file.
+
+- 749d472: Blux pipeline hardening from the first live conversion: emit now coerces rich text to each slice's allowed block types, flattens deep section trees into sequential slices, skips empty pages, and drops non-image assets from image fields (all recorded as plan diagnostics); `blux emit --probe` reconstructs + HEAD-probes CDN URLs for used assets the HTML scrape missed; the migration runner is rewritten on the raw Prismic APIs — upserts documents by uid, reuses already-uploaded assets, and surfaces full validation details.
+- f265d2e: blux: parse the export's style data and surface it for the design pass.
+  - `normalizeTheme` now parses the real `styles.text` shape (`{ _label, ".textN": { css props } }`) into named `TextStyleIR` roles — font family (quotes stripped), size, weight, line height, text-transform, letter-spacing, and `__media_mobile_*` responsive overrides. Roles are named from the entry's own `.textN` key, so deleted-style `{ removed: true }` tombstones drop out instead of emitting phantom default roles and role names never renumber. Every value passes a shared CSS cleaner that rejects Blux's malformed placeholders (`""`, `"px"`, `"0.px"`) so they can't poison a Tailwind custom property.
+  - The theme font pair falls back to Blux's default roles (text0/text1) when `settings.fonts` names none, and `settings.fonts.google` is parsed into a font-load spec (family + numeric weights) so the design pass installs the exact `@fontsource` weights instead of measuring them off the rendered site.
+  - `theme.css` emits the full var set per role (`--text-textN` and `--line-height`/`--font-weight`/`--font-family`/`--text-transform`/`--letter-spacing`/`--mobile-font-size`/`--mobile-line-height`), labeled with the role's export name, led by a `/* Fonts to load — … */` comment.
+  - Sections gain `presentation` hints: the text roles a block's `_title`/`_body` class references, per-element inline overrides on those elements (e.g. a hero title's white `color`), and the block's own layout styles. These ride the migration plan as `stylesManifest` (emitted as `styles-manifest.json`, indexes aligned with each document's post-filter slice zone) and are never pushed to Prismic — the consuming site's design pass works from data instead of screenshots.
+
+- 32c92bb: blux validate: deterministic content-coverage check against the export
+
+  New `blux validate <exportDir> --against <rendered.html | url>` action. The
+  export's `index.html` is the answer key; the command extracts its visible
+  text runs and reports which appear in the converted site's rendered HTML, so a
+  conversion's fidelity is a one-command coverage score instead of a per-page
+  eyeball. On the live the-pointe render it scores 81% and names the real gaps
+  (un-migrated hero overlay copy, portfolio section labels), spending zero
+  tokens to find them. Matching folds case, entities, and punctuation to
+  compare words rather than typography.
+
+### Patch Changes
+
+- ab664c1: fix(blux): read display text from `title`/`body`, not the `_title`/`_body` style objects
+
+  Blux stores a block's display text in `title`/`body`; the underscore twins are
+  per-element style config where `class: "disable"` hides the element on the
+  rendered site. The normalizer preferred the style object and stringified it,
+  migrating literal "[object Object]" text (230 spots on thePointe) plus 66
+  disabled editor labels that never render. Text now comes from the right field,
+  disabled elements are omitted, and the archetype rules gain honest signals:
+  a background image/video alone is a hero (Blux text-less banners), and media
+  next to any visible copy stays a media_text instead of falling to the bare
+  fallback and losing the image.
+
+- 58f0b66: `smoke` audit now surfaces the actual Playwright failure. On a non-zero run it distilled `stderr.slice(0, 200)`, but Playwright writes its failing-test list (which test, expected vs received) to **stdout** — so the fleet-smoke summary/Airtable captured only a `[WebServer] npm warn …` line and hid what broke. `summarizeSmokeFailure` now extracts the failing test title + Error/Expected/Received head + the "N failed" tally from stdout (ANSI-stripped, capped), falling back to stderr only when stdout carried no reporter output.
+
 ## 0.69.0
 
 ### Minor Changes

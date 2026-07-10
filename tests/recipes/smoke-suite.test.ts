@@ -113,6 +113,55 @@ describe("recipes/smoke-suite", () => {
     expect(after.scripts?.["test:unit"]).toBeUndefined();
   });
 
+  it("keeps the verbatim starter manifest when the site's svelte source renders a <footer>", async () => {
+    const cwd = await copyFixtureToTmp(pristine);
+    await mkdir(join(cwd, "src/lib/components"), { recursive: true });
+    await writeFile(
+      join(cwd, "src/lib/components/Footer.svelte"),
+      '<footer class="site-footer">© site</footer>\n',
+    );
+    commitSetup(cwd);
+
+    const result = await smokeSuite({ path: cwd }, { spawn: fakeSpawn().fn });
+    expect(result.status).toBe("applied");
+    expect(await readFile(join(cwd, SMOKE_ROUTES_RELATIVE), "utf-8")).toBe(SMOKE_ROUTES_TEMPLATE);
+    expect(result.notes ?? "").not.toMatch(/hydration marker/);
+  });
+
+  it("falls back to a `main` hydration marker when svelte source exists but renders no <footer>", async () => {
+    const cwd = await copyFixtureToTmp(pristine);
+    await mkdir(join(cwd, "src/routes"), { recursive: true });
+    // A capital-F <Footer /> component tag is NOT a footer element — unless some
+    // file renders the literal lowercase tag, the browser never paints a footer
+    // landmark and the starter's default marker false-fails every route check
+    // (exactly what happened on la-homelessness-initiative).
+    await writeFile(
+      join(cwd, "src/routes/+page.svelte"),
+      '<script>import Footer from "$lib/Footer.svelte";</script>\n<main><h1>bespoke</h1></main>\n<Footer />\n',
+    );
+    commitSetup(cwd);
+
+    const result = await smokeSuite({ path: cwd }, { spawn: fakeSpawn().fn });
+    expect(result.status).toBe("applied");
+    const routes = await readFile(join(cwd, SMOKE_ROUTES_RELATIVE), "utf-8");
+    expect(routes).toContain('hydrationMarker: "main"');
+    expect(routes).not.toContain('hydrationMarker: "footer"');
+    expect(routes).toContain("no <footer> element"); // the manifest comment explains the fallback
+    expect(result.notes).toMatch(/hydration marker set to "main"/);
+  });
+
+  it("falls back to `body` when the svelte source has neither <footer> nor <main>", async () => {
+    const cwd = await copyFixtureToTmp(pristine);
+    await mkdir(join(cwd, "src/routes"), { recursive: true });
+    await writeFile(join(cwd, "src/routes/+page.svelte"), '<div class="app">hi</div>\n');
+    commitSetup(cwd);
+
+    const result = await smokeSuite({ path: cwd }, { spawn: fakeSpawn().fn });
+    const routes = await readFile(join(cwd, SMOKE_ROUTES_RELATIVE), "utf-8");
+    expect(routes).toContain('hydrationMarker: "body"');
+    expect(result.notes).toMatch(/hydration marker set to "body"/);
+  });
+
   it("noops the spec files when they already exist (no clobber)", async () => {
     const cwd = await copyFixtureToTmp(pristine);
     const routes = join(cwd, SMOKE_ROUTES_RELATIVE);
