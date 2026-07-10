@@ -5,6 +5,7 @@ import type { Node } from "../../src/blux/grid/types.js";
 import {
   collectMedia,
   collectText,
+  collectWidgets,
   topRow,
   isEmptyRaw,
 } from "../../src/blux/grid/classify-band.js";
@@ -214,5 +215,30 @@ describe("classifyBand — SplitFeature", () => {
       },
     };
     expect(classifyBand(b).slice).toBe("Grid");
+  });
+});
+
+describe("classifyBand — widget router", () => {
+  it("video-only band → VideoFeature", () => {
+    const b: Band = { index: 96, root: { kind: "media", media: { kind: "video", assetId: "v" } } };
+    const spec = classifyBand(b);
+    expect(spec.slice).toBe("VideoFeature");
+    if (spec.slice === "VideoFeature") expect(spec.media.kind).toBe("video");
+  });
+
+  it("injected isMapMount rewrites the mount to a widget:map node (band 10 → Grid with a map widget)", () => {
+    const bands = realBands();
+    const isMapMount = (n: Node) => isEmptyRaw(n);
+    const spec = classifyBand(band(bands, 10), { isMapMount });
+    expect(spec.slice).toBe("Grid");
+    if (spec.slice === "Grid") {
+      expect(collectWidgets(spec.root).some((w) => w.type === "map")).toBe(true);
+    }
+  });
+
+  it("a map-dominant band → LocationMap", () => {
+    const b: Band = { index: 95, root: { kind: "raw", html: '<div class="block-content"></div>' } };
+    const spec = classifyBand(b, { isMapMount: (n) => n.kind === "raw" });
+    expect(spec.slice).toBe("LocationMap");
   });
 });

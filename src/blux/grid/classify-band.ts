@@ -1,4 +1,4 @@
-import type { Band, Cell, Media, Node } from "./types.js";
+import type { Band, Cell, Media, Node, Widget } from "./types.js";
 import type { SliceSpec } from "./slice-spec.js";
 
 /** Depth-first collect of every `media` node's `Media` in a subtree. */
@@ -32,6 +32,24 @@ export function collectText(node: Node): Node[] {
       return node.children.flatMap(collectText);
     case "media":
     case "widget":
+    case "raw":
+      return [];
+  }
+}
+
+/** Depth-first collect of every widget in a subtree. */
+export function collectWidgets(node: Node): Widget[] {
+  switch (node.kind) {
+    case "widget":
+      return [node.widget];
+    case "row":
+      return node.cells.flatMap((c) => collectWidgets(c.node));
+    case "stack":
+      return node.children.flatMap(collectWidgets);
+    case "heading":
+    case "body":
+    case "subtitle":
+    case "media":
     case "raw":
       return [];
   }
@@ -113,15 +131,71 @@ function galleryMedia(cells: Cell[]): Media[] | null {
   return out.length >= 2 ? out : null;
 }
 
+/** Return a copy of the tree with every node matching `isMapMount` replaced by a
+ * `widget:map` node. Pure — does not mutate the input. */
+function rewriteMapMounts(node: Node, isMapMount: (n: Node) => boolean): Node {
+  if (isMapMount(node)) return { kind: "widget", widget: { type: "map" } };
+  switch (node.kind) {
+    case "row":
+      return {
+        kind: "row",
+        cells: node.cells.map((c) => ({
+          token: c.token,
+          node: rewriteMapMounts(c.node, isMapMount),
+        })),
+      };
+    case "stack":
+      return { kind: "stack", children: node.children.map((n) => rewriteMapMounts(n, isMapMount)) };
+    case "heading":
+    case "body":
+    case "subtitle":
+    case "media":
+    case "widget":
+    case "raw":
+      return node;
+  }
+}
+
+/** The single significant child of a container (ignoring empty raw), or the node
+ * itself. Used to detect a band whose dominant content is one widget. */
+function soleSignificant(node: Node): Node {
+  const kids =
+    node.kind === "row"
+      ? node.cells.map((c) => c.node)
+      : node.kind === "stack"
+        ? node.children
+        : [node];
+  const significant = kids.filter((n) => !isEmptyRaw(n));
+  return significant.length === 1 && significant[0] ? significant[0] : node;
+}
+
 /** Classify one band into a SliceSpec. Conservative: only unambiguous shapes
  * become pattern slices; everything else is a render-faithful Grid fallback. */
 export function classifyBand(band: Band, opts: ClassifyOptions = {}): SliceSpec {
-  void opts; // used by the widget router (Task 8)
-
-  const root = band.root;
+  // Widget rewrite runs FIRST, so the pattern branches and the Grid fallback
+  // all see `widget` nodes in place of injected mounts.
+  const root = opts.isMapMount ? rewriteMapMounts(band.root, opts.isMapMount) : band.root;
+  const widgets = collectWidgets(root);
   const media = collectMedia(root);
   const text = collectText(root);
   const row = topRow(root);
+
+  // Top-level widget promotion (before the structural patterns).
+  const sole = soleSignificant(root);
+  if (sole.kind === "widget" && sole.widget.type === "map") {
+    return { slice: "LocationMap", ...base(band) };
+  }
+  if (
+    media.length === 1 &&
+    media[0]?.kind === "video" &&
+    text.length === 0 &&
+    widgets.length === 0 &&
+    row === null
+  ) {
+    const v = media[0];
+    return { slice: "VideoFeature", ...base(band), media: v };
+  }
+
   const headings = text.filter((n) => n.kind === "heading");
   const subtitles = text.filter((n) => n.kind === "subtitle");
   const bodies = text.filter((n) => n.kind === "body");
@@ -205,7 +279,7 @@ export function classifyBand(band: Band, opts: ClassifyOptions = {}): SliceSpec 
     }
   }
 
-  return { slice: "Grid", ...base(band), root: band.root };
+  return { slice: "Grid", ...base(band), root };
 }
 
 export function classifyBands(bands: Band[], opts: ClassifyOptions = {}): SliceSpec[] {
