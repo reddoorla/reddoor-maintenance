@@ -82,6 +82,20 @@ function nodeText(node: Node): string {
     .trim();
 }
 
+/** The single media of a pure-media cell, or null if the cell isn't pure media. */
+function pureCellMedia(cell: Cell): Media | null {
+  return cell.node.kind === "media" ? cell.node.media : null;
+}
+
+/** A cell's effective column share as a percentage, from its grid token. */
+function cellRatio(cell: Cell): number {
+  const t = cell.token;
+  if (typeof t.ratio === "number") return t.ratio;
+  if (typeof t.sized === "number") return t.sized;
+  if (t.cols === "any") return 50;
+  return Math.round(100 / t.cols);
+}
+
 /** If every cell of a row is exactly one media node, return them in order. */
 function galleryMedia(cells: Cell[]): Media[] | null {
   const out: Media[] = [];
@@ -150,6 +164,37 @@ export function classifyBand(band: Band, opts: ClassifyOptions = {}): SliceSpec 
   if (media.length === 1 && text.length === 0) {
     const m = media[0];
     if (m) return { slice: "MediaFull", ...base(band), media: m };
+  }
+
+  // SplitFeature: exactly two cells, one pure media, one text-bearing.
+  if (row && row.length === 2) {
+    const [c0, c1] = row;
+    if (c0 && c1) {
+      const m0 = pureCellMedia(c0);
+      const m1 = pureCellMedia(c1);
+      const t0 = collectText(c0.node).length > 0;
+      const t1 = collectText(c1.node).length > 0;
+      if (m0 && !m1 && t1) {
+        return {
+          slice: "SplitFeature",
+          ...base(band),
+          media: m0,
+          mediaSide: "left",
+          ratio: cellRatio(c0),
+          text: c1.node,
+        };
+      }
+      if (m1 && !m0 && t0) {
+        return {
+          slice: "SplitFeature",
+          ...base(band),
+          media: m1,
+          mediaSide: "right",
+          ratio: cellRatio(c1),
+          text: c0.node,
+        };
+      }
+    }
   }
 
   return { slice: "Grid", ...base(band), root: band.root };

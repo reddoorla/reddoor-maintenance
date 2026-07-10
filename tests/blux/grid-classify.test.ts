@@ -136,3 +136,41 @@ describe("classifyBand — media", () => {
     if (spec.slice === "MediaFull") expect(spec.media.assetId).toBe("x");
   });
 });
+
+describe("classifyBand — SplitFeature", () => {
+  it("2-cell row [text-stack | media] → SplitFeature, mediaSide=right", () => {
+    const spec = classifyBand(band(realBands(), 1)); // r60 text+media stack | r40 media
+    expect(spec.slice).toBe("SplitFeature");
+    if (spec.slice === "SplitFeature") {
+      expect(spec.mediaSide).toBe("right");
+      expect(spec.ratio).toBe(40); // the media cell is grid-2-r40
+      expect(spec.media.kind).toBe("image");
+      expect(spec.text.kind).toBe("stack");
+    }
+  });
+
+  it("synthetic [media | text] → mediaSide=left", () => {
+    const b: Band = {
+      index: 97,
+      root: {
+        kind: "row",
+        cells: [
+          {
+            token: { cols: 2, ratio: 60, raw: "grid-2-r60" },
+            node: { kind: "media", media: { kind: "image", assetId: "m" } },
+          },
+          {
+            token: { cols: 2, ratio: 40, raw: "grid-2-r40" },
+            node: { kind: "body", html: "<p>t</p>" },
+          },
+        ],
+      },
+    };
+    const spec = classifyBand(b);
+    expect(spec.slice).toBe("SplitFeature");
+    if (spec.slice === "SplitFeature") {
+      expect(spec.mediaSide).toBe("left");
+      expect(spec.ratio).toBe(60);
+    }
+  });
+});
