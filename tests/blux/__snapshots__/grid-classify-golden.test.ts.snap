@@ -1,0 +1,22 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`classify golden (the-pointe) > classifies the 16 bands to a stable set of slices 1`] = `
+[
+  "0(bg) Grid",
+  "1(bg) SplitFeature right r40",
+  "2 TitleBand heading="the space"",
+  "3 Grid",
+  "4(bg) Grid",
+  "5 Grid",
+  "6 Grid",
+  "7(bg) Hero heading="the outdoors"",
+  "8 Gallery n=3",
+  "9(bg) Grid",
+  "10 Grid",
+  "11(bg) Grid",
+  "12 Grid",
+  "13 TitleBand heading="the location"",
+  "14 Grid",
+  "15 TitleBand heading="Come Be A Part Of It."",
+]
+`;
