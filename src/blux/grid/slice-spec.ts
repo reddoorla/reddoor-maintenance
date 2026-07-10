@@ -22,7 +22,9 @@ export type TitleBandSpec = SpecBase & {
 };
 
 /** One row, exactly two cells: one pure-media, one text-bearing. `ratio` is the
- * media cell's grid share (e.g. 40 for `grid-2-r40`); `mediaSide` says which side. */
+ * media cell's grid share (e.g. 40 for `grid-2-r40`); `mediaSide` says which side.
+ * The text side may itself contain nested media (band 1 does), so renderers must
+ * render `text` recursively, not as prose only. */
 export type SplitFeatureSpec = SpecBase & {
   slice: "SplitFeature";
   ratio: number;

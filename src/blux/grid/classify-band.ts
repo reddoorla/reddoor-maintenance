@@ -87,7 +87,13 @@ function pureCellMedia(cell: Cell): Media | null {
   return cell.node.kind === "media" ? cell.node.media : null;
 }
 
-/** A cell's effective column share as a percentage, from its grid token. */
+/** A cell's effective column share as a percentage, from its grid token.
+ *
+ * Assumes an `s`-token's `sized` value is already a percent of the row width
+ * (e.g. `grid-any-s20` → 20), matching how the export's CSS uses it. The
+ * `"any"` → 50 fallback assumes a 2-cell row — the only shape that reaches
+ * here today (SplitFeature requires exactly two cells); a bare-`any` cell in a
+ * wider row would need real division. */
 function cellRatio(cell: Cell): number {
   const t = cell.token;
   if (typeof t.ratio === "number") return t.ratio;
@@ -100,8 +106,9 @@ function cellRatio(cell: Cell): number {
 function galleryMedia(cells: Cell[]): Media[] | null {
   const out: Media[] = [];
   for (const c of cells) {
-    if (c.node.kind !== "media") return null;
-    out.push(c.node.media);
+    const m = pureCellMedia(c);
+    if (!m) return null;
+    out.push(m);
   }
   return out.length >= 2 ? out : null;
 }
@@ -160,8 +167,9 @@ export function classifyBand(band: Band, opts: ClassifyOptions = {}): SliceSpec 
     if (gm) return { slice: "Gallery", ...base(band), media: gm };
   }
 
-  // MediaFull: one media, no text.
-  if (media.length === 1 && text.length === 0) {
+  // MediaFull: one media, no text, no top row — a row sibling (e.g. an
+  // empty-raw mount) would be silently dropped, so those stay Grid.
+  if (media.length === 1 && text.length === 0 && row === null) {
     const m = media[0];
     if (m) return { slice: "MediaFull", ...base(band), media: m };
   }

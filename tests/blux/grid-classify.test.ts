@@ -173,4 +173,46 @@ describe("classifyBand — SplitFeature", () => {
       expect(spec.ratio).toBe(60);
     }
   });
+
+  it("an s-token media cell (grid-any-s20) yields its sized share as the ratio", () => {
+    const b: Band = {
+      index: 94,
+      root: {
+        kind: "row",
+        cells: [
+          {
+            token: { cols: "any", sized: 20, raw: "grid-any-s20" },
+            node: { kind: "media", media: { kind: "image", assetId: "m" } },
+          },
+          { token: { cols: "any", raw: "grid-any" }, node: { kind: "body", html: "<p>t</p>" } },
+        ],
+      },
+    };
+    const spec = classifyBand(b);
+    expect(spec.slice).toBe("SplitFeature");
+    if (spec.slice === "SplitFeature") {
+      expect(spec.mediaSide).toBe("left");
+      expect(spec.ratio).toBe(20);
+    }
+  });
+
+  it("near-miss: 2-cell row [pure media | empty raw] (no text) stays Grid", () => {
+    const b: Band = {
+      index: 93,
+      root: {
+        kind: "row",
+        cells: [
+          {
+            token: { cols: 2, raw: "grid-2" },
+            node: { kind: "media", media: { kind: "image", assetId: "m" } },
+          },
+          {
+            token: { cols: 2, raw: "grid-2" },
+            node: { kind: "raw", html: '<div class="block-content"></div>' },
+          },
+        ],
+      },
+    };
+    expect(classifyBand(b).slice).toBe("Grid");
+  });
 });
