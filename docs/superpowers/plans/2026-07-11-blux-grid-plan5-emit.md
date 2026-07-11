@@ -57,8 +57,8 @@ type Presentation = { bands: Record<string, BandPresentation> };
 
 **Locked design decisions for this plan** (rationale in the "Decisions" section at the bottom — read it):
 
-1. **Media URLs in the manifest = resolved CDN source URLs** (from `ir.assets[].sourceUrl`), not Prismic URLs. Emit stays offline/deterministic. Prismic-rehosting is a documented follow-up, not in scope.
-2. **All media lives in the manifest**, matching the shipped render contract (gallery/media_full/split/hero-bg/grid-tree media all read from `bands[i]`, not Prismic Image fields). The Prismic page doc carries **text + band-index numbers only** — no Image fields, so `plan.assets = []` and no upload happens.
+1. **Media is Prismic-hosted (Tucker's decision), two-phase.** `convert` (offline) writes the manifest with the CDN URLs (`data-base` + uuid, renders immediately) **and** populates `plan.assets`. `migrate` (online, creds-gated) uploads those assets to the Prismic library, then **rewrites** `blux-presentation.json`'s media URLs to the uploaded Prismic URLs (durable — survives the client dropping Blux). No API key or network at `convert` time.
+2. **All media lives in the manifest**, matching the shipped render contract (gallery/media_full/split/hero-bg/grid-tree media all read from `bands[i]`, not Prismic Image fields). The Prismic page doc carries **text + band-index numbers only** — no Image fields. The uploaded assets are library assets the manifest points at by URL, not doc-field references (so media is Prismic-hosted and durable, but not individually CMS-editable — accepted per spec decision #4).
 3. **Text placement:** heading/subtitle/body for `hero` (band variation) and `title_band`, and `content` for `rich_text`, go into the **page doc**. Split text goes into the **manifest** (`split.text`); the split_feature `body` override is left empty (manifest renders it) — CMS-editability of split text is a nice-to-have.
 4. **Band-index key:** `SpecBase.index` (== `Band.index`, the source `page-block-N` number) is used **identically** for the manifest key `String(index)` and the doc `primary.band` Number. They must match or `bandFor` returns null.
 5. **New `convert` CLI action** (parse → classify → emit); `grid` stays inspection-only; `migrate` is reused unchanged. `convert` writes `migration-plan.json`, `blux-presentation.json`, `map-config.json`, `theme.css`.
@@ -402,30 +402,36 @@ git commit -m "feat(blux/emit): sliceSpecToPlanSlice — grid slice → page-doc
 
 ---
 
-## Task 3: `buildGridPlan` — SliceSpec[] + IR → MigrationPlan (page document)
+## Task 3: `buildGridPlan` — SliceSpec[] + IR → MigrationPlan (page doc + assets to upload)
 
-**Why:** Assemble the whole `MigrationPlan` the unchanged `run-migration.ts` consumes: a `page` document (`title` + `slices`) plus reused custom types (collections) and an empty asset list (media is manifest-side).
+**Why:** Assemble the whole `MigrationPlan` the unchanged `run-migration.ts` consumes: a `page` document (`title` + `slices`, text only), reused custom types (collections), and — because media is Prismic-hosted (Tucker's decision) — a **populated `assets` list** of every image/video referenced by the manifest, so `runMigration` uploads them. The uploaded assets are library assets the manifest points at (they are not doc Image fields); the page doc stays text-only.
 
 **Files:**
-- Create: `src/blux/emit/grid-plan.ts`
+- Create: `src/blux/emit/grid-plan.ts` (`buildGridPlan` + `collectPlanAssets`)
 - Test: `tests/blux/emit/grid-plan.test.ts`
+
+Media lives in three places per spec: the band `background`, direct media fields (`Gallery.media[]`, `MediaFull`/`VideoFeature.media`, `SplitFeature.media`), and inside node trees (`SplitFeature.text`, `Grid.root`). Node-tree media is collected with the classifier's exported `collectMedia(node)`. The CDN URL is built from `Media.base` (Task 1B); `alt` comes from `ir.assets`.
 
 - [ ] **Step 1: Write the failing test** — `tests/blux/emit/grid-plan.test.ts`:
 
 ```ts
 import { describe, it, expect } from "vitest";
 import { buildGridPlan } from "../../../src/blux/emit/grid-plan.js";
-import type { SliceSpec } from "../../../src/blux/grid/index.js";
+import type { SliceSpec, Media } from "../../../src/blux/grid/index.js";
 import type { SiteIR } from "../../../src/blux/ir.js";
 
+const img = (id: string): Media => ({ kind: "image", assetId: id, ext: "png", base: "https://cdn/f/" });
 const ir = {
-  meta: {}, theme: {} as never, collections: [], assets: [], diagnostics: [],
+  meta: {}, theme: {} as never, collections: [],
+  assets: [{ id: "a", sourceUrl: "https://cdn/f/a.png", name: "a.png", mime: "image/png", alt: "Alt A" }],
+  diagnostics: [],
   pages: [{ uid: "the-pointe", title: "The Pointe", description: "", sections: [] }],
 } as unknown as SiteIR;
 
 const specs: SliceSpec[] = [
-  { index: 0, slice: "Hero", heading: "Hi" },
-  { index: 1, slice: "Grid", root: { kind: "row", cells: [] } },
+  { index: 0, slice: "Hero", heading: "Hi", background: img("a") },
+  { index: 1, slice: "Gallery", media: [img("a"), img("b")] },   // "a" dedups
+  { index: 2, slice: "Grid", root: { kind: "row", cells: [{ token: { cols: 1, raw: "grid-1" }, node: { kind: "media", media: img("c") } }] } },
 ];
 
 describe("buildGridPlan", () => {
@@ -437,13 +443,17 @@ describe("buildGridPlan", () => {
     expect(doc.uid).toBe("the-pointe");
     expect(doc.data.title).toEqual({ __richtext_html: "<h1>The Pointe</h1>" });
     const slices = doc.data.slices as { slice_type: string; primary: { band: number } }[];
-    expect(slices.map((s) => s.slice_type)).toEqual(["hero", "grid_band"]);
-    expect(slices.map((s) => s.primary.band)).toEqual([0, 1]);
+    expect(slices.map((s) => s.slice_type)).toEqual(["hero", "gallery", "grid_band"]);
+    expect(slices.map((s) => s.primary.band)).toEqual([0, 1, 2]);
   });
 
-  it("emits no assets (media is manifest-side) and passes collections through", () => {
-    const plan = buildGridPlan(specs, { ...ir, customTypesPassthrough: undefined } as SiteIR);
-    expect(plan.assets).toEqual([]);
+  it("collects every referenced asset (deduped) with CDN url + alt for upload", () => {
+    const plan = buildGridPlan(specs, ir);
+    expect(plan.assets).toEqual([
+      { id: "a", url: "https://cdn/f/a.png", alt: "Alt A" },
+      { id: "b", url: "https://cdn/f/b.png", alt: "" },
+      { id: "c", url: "https://cdn/f/c.png", alt: "" },
+    ]);
     expect(Array.isArray(plan.customTypes)).toBe(true);
   });
 });
@@ -457,16 +467,45 @@ Expected: FAIL — module not found.
 - [ ] **Step 3: Implement** — `src/blux/emit/grid-plan.ts`:
 
 ```ts
-import type { SliceSpec } from "../grid/index.js";
+import { type SliceSpec, type Media, collectMedia } from "../grid/index.js";
 import type { SiteIR } from "../ir.js";
 import { buildCustomType } from "./custom-types.js";
 import { sliceSpecToPlanSlice } from "./grid-slice.js";
-import { type MigrationPlan, type PlanDocument, richText } from "./plan.js";
+import { type MigrationPlan, type PlanAsset, type PlanDocument, richText } from "./plan.js";
 
-/** Build the Prismic migration plan for a grid-converted site. One page
- * document whose slices are the classified bands (text + band index); media is
- * NOT here (it lives in the presentation manifest), so `assets` is empty.
- * Collections still flow through `buildCustomType`, unchanged from archetype. */
+/** Build the CDN url for a media from its parser-captured base + uuid + ext. */
+function cdnUrl(m: Media): string | null {
+  return m.base ? `${m.base}${m.assetId}${m.ext ? `.${m.ext}` : ""}` : null;
+}
+
+/** Every Media referenced across all specs: band backgrounds, direct media
+ * fields, and media inside node trees (SplitFeature.text / Grid.root). Deduped
+ * by assetId, first occurrence wins, insertion order preserved. */
+export function collectPlanAssets(specs: SliceSpec[], altFor: (id: string) => string): PlanAsset[] {
+  const byId = new Map<string, PlanAsset>();
+  const add = (m: Media) => {
+    if (byId.has(m.assetId)) return;
+    const url = cdnUrl(m);
+    if (url) byId.set(m.assetId, { id: m.assetId, url, alt: altFor(m.assetId) });
+  };
+  for (const spec of specs) {
+    if (spec.background) add(spec.background);
+    switch (spec.slice) {
+      case "Gallery": spec.media.forEach(add); break;
+      case "MediaFull":
+      case "VideoFeature": add(spec.media); break;
+      case "SplitFeature": add(spec.media); collectMedia(spec.text).forEach(add); break;
+      case "Grid": collectMedia(spec.root).forEach(add); break;
+      default: break; // Hero/TitleBand/RichText/LocationMap: only background (handled above)
+    }
+  }
+  return [...byId.values()];
+}
+
+/** Build the Prismic migration plan for a grid-converted site: one text-only
+ * page document + the assets its manifest references (uploaded so the manifest
+ * can be rewritten to Prismic urls at migrate time). Collections flow through
+ * `buildCustomType`, unchanged from archetype. */
 export function buildGridPlan(specs: SliceSpec[], ir: SiteIR): MigrationPlan {
   const page = ir.pages[0];
   const uid = page?.uid ?? "home";
@@ -474,17 +513,16 @@ export function buildGridPlan(specs: SliceSpec[], ir: SiteIR): MigrationPlan {
   const doc: PlanDocument = {
     type: "page",
     uid,
-    data: {
-      title: richText(`<h1>${title}</h1>`),
-      slices: specs.map(sliceSpecToPlanSlice),
-    },
+    data: { title: richText(`<h1>${title}</h1>`), slices: specs.map(sliceSpecToPlanSlice) },
   };
+  const altById = new Map(ir.assets.map((a) => [a.id, a.alt ?? ""]));
+  const assets = collectPlanAssets(specs, (id) => altById.get(id) ?? "");
   const customTypes = ir.collections.map(buildCustomType);
-  return { customTypes, documents: [doc], assets: [], stylesManifest: [], diagnostics: ir.diagnostics ?? [] };
+  return { customTypes, documents: [doc], assets, stylesManifest: [], diagnostics: ir.diagnostics ?? [] };
 }
 ```
 
-> Note: confirm `buildCustomType`'s exact import name/signature in `src/blux/emit/custom-types.ts` and `ir.collections`'s shape in `src/blux/ir.ts`; adjust the `.map` if `buildCustomType` needs extra args. If `ir.diagnostics` isn't on `SiteIR`, drop it to `[]`.
+> Confirm `collectMedia` is exported from `src/blux/grid/index.js` (it is, per the classifier barrel) and returns `Media[]`. Confirm `buildCustomType`/`ir.collections`/`ir.assets` shapes as in the archetype. If `ir.diagnostics` isn't on `SiteIR`, use `[]`.
 
 - [ ] **Step 4: Run — verify it passes**
 
@@ -495,7 +533,7 @@ Expected: PASS.
 
 ```bash
 git add src/blux/emit/grid-plan.ts tests/blux/emit/grid-plan.test.ts
-git commit -m "feat(blux/emit): buildGridPlan — SliceSpec[] → page-document MigrationPlan"
+git commit -m "feat(blux/emit): buildGridPlan + collectPlanAssets — page doc + assets to upload"
 ```
 
 ---
@@ -1032,6 +1070,148 @@ git commit -m "feat(blux): blux convert — parse+classify+emit page doc + prese
 
 ---
 
+## Task 6B: Prismic-host media — rewrite the manifest's URLs at migrate time
+
+**Why:** Tucker's decision: media is Prismic-hosted for durability. `convert` writes the manifest with CDN URLs (renders offline immediately); `migrate` uploads the assets (Task 3 populated `plan.assets`) and then **rewrites** `blux-presentation.json`'s media URLs from the CDN URL to the uploaded Prismic URL. The rewrite is a pure, structured walk keyed by URL; the `migrate` CLI action drives it after `runMigration`.
+
+**Files:**
+- Create: `src/blux/emit/rewrite-manifest.ts` (`rewriteManifestUrls`)
+- Modify: `src/blux/emit/run-migration.ts` (expose `assetUrlById` on the result)
+- Modify: `src/cli/commands/blux.ts` (the `migrate` action rewrites the manifest when present)
+- Test: `tests/blux/emit/rewrite-manifest.test.ts`
+
+- [ ] **Step 1: Write the failing test** — `tests/blux/emit/rewrite-manifest.test.ts`:
+
+```ts
+import { describe, it, expect } from "vitest";
+import { rewriteManifestUrls } from "../../../src/blux/emit/rewrite-manifest.js";
+import type { Presentation } from "../../../src/blux/emit/presentation.js";
+
+const manifest: Presentation = {
+  bands: {
+    "0": { background: { kind: "image", url: "https://cdn/f/a.png", alt: "A" } },
+    "1": { gallery: [{ kind: "image", url: "https://cdn/f/a.png" }, { kind: "image", url: "https://cdn/f/b.png" }] },
+    "2": { split: { mediaSide: "left", ratio: 40, media: { kind: "image", url: "https://cdn/f/c.png" }, text: { kind: "row", cells: [{ token: { cols: 1 }, node: { kind: "media", media: { kind: "image", url: "https://cdn/f/b.png" } } }] } } },
+    "3": { tree: { kind: "media", media: { kind: "image", url: "https://cdn/f/a.png" } }, media: { kind: "video", url: "https://cdn/f/v.mp4" } },
+  },
+};
+
+describe("rewriteManifestUrls", () => {
+  it("swaps every RenderMedia url found in the map, deep, leaving unknowns intact", () => {
+    const map = new Map([
+      ["https://cdn/f/a.png", "https://images.prismic.io/repo/a"],
+      ["https://cdn/f/b.png", "https://images.prismic.io/repo/b"],
+      ["https://cdn/f/c.png", "https://images.prismic.io/repo/c"],
+      // v.mp4 intentionally absent → left as-is
+    ]);
+    const out = rewriteManifestUrls(manifest, map);
+    expect(out.bands["0"].background!.url).toBe("https://images.prismic.io/repo/a");
+    expect(out.bands["1"].gallery!.map((m) => m.url)).toEqual(["https://images.prismic.io/repo/a", "https://images.prismic.io/repo/b"]);
+    expect(out.bands["2"].split!.media.url).toBe("https://images.prismic.io/repo/c");
+    // nested media inside split.text tree
+    const cell = (out.bands["2"].split!.text as { cells: { node: { media: { url: string } } }[] }).cells[0]!;
+    expect(cell.node.media.url).toBe("https://images.prismic.io/repo/b");
+    expect((out.bands["3"].tree as { media: { url: string } }).media.url).toBe("https://images.prismic.io/repo/a");
+    expect(out.bands["3"].media!.url).toBe("https://cdn/f/v.mp4"); // unknown left intact
+    // input not mutated
+    expect(manifest.bands["0"].background!.url).toBe("https://cdn/f/a.png");
+  });
+});
+```
+
+- [ ] **Step 2: Run — verify it fails**
+
+Run: `pnpm vitest run tests/blux/emit/rewrite-manifest.test.ts`
+Expected: FAIL — module not found.
+
+- [ ] **Step 3: Implement** — `src/blux/emit/rewrite-manifest.ts`:
+
+```ts
+import type { BandPresentation, Presentation, RenderMedia, RenderNode } from "./presentation.js";
+
+const swap = (m: RenderMedia, map: Map<string, string>): RenderMedia => {
+  const url = map.get(m.url);
+  return url ? { ...m, url } : m;
+};
+
+function walkNode(node: RenderNode, map: Map<string, string>): RenderNode {
+  switch (node.kind) {
+    case "row":
+      return { kind: "row", cells: node.cells.map((c) => ({ token: c.token, node: walkNode(c.node, map) })) };
+    case "stack":
+      return { kind: "stack", children: node.children.map((c) => walkNode(c, map)) };
+    case "media":
+      return { kind: "media", media: swap(node.media, map) };
+    default:
+      return node; // heading/body/subtitle/raw/widget carry no media url
+  }
+}
+
+function walkBand(bp: BandPresentation, map: Map<string, string>): BandPresentation {
+  const out: BandPresentation = { ...bp };
+  if (bp.background) out.background = swap(bp.background, map);
+  if (bp.media) out.media = swap(bp.media, map);
+  if (bp.gallery) out.gallery = bp.gallery.map((m) => swap(m, map));
+  if (bp.tree) out.tree = walkNode(bp.tree, map);
+  if (bp.split) out.split = { ...bp.split, media: swap(bp.split.media, map), text: walkNode(bp.split.text, map) };
+  return out; // style / map are untouched (no media urls)
+}
+
+/** Return a deep copy of the manifest with every RenderMedia.url present in
+ * `urlMap` replaced by its mapped value. Unknown urls are left intact. Pure. */
+export function rewriteManifestUrls(manifest: Presentation, urlMap: Map<string, string>): Presentation {
+  const bands: Record<string, BandPresentation> = {};
+  for (const [k, bp] of Object.entries(manifest.bands)) bands[k] = walkBand(bp, urlMap);
+  return { bands };
+}
+```
+
+- [ ] **Step 4: Run — verify it passes**
+
+Run: `pnpm vitest run tests/blux/emit/rewrite-manifest.test.ts`
+Expected: PASS.
+
+- [ ] **Step 5: Expose the CDN→Prismic url map from `runMigration`**
+
+In `src/blux/emit/run-migration.ts`: the asset phase already fetches each library asset's Prismic `url` and knows each `PlanAsset` (`{id, url: cdnUrl, alt}`). Build a `Map<cdnUrl, prismicUrl>` alongside the existing `assetIdByUuid` and add it to the returned `MigrationResult` as `assetUrlByCdn`. Concretely: whenever you resolve/upload an asset and learn its Prismic `url`, also record `assetUrlByCdn.set(planAsset.url, prismicUrl)` (keyed by the plan asset's CDN url — the same string the manifest carries). Add `assetUrlByCdn: Map<string, string>` to the `MigrationResult` type and return it. Do **not** change any existing field or the push logic.
+
+Add a focused test in `tests/blux/emit/` (or extend the existing run-migration test) that stubs the asset API `fetch` and asserts `result.assetUrlByCdn` maps each plan asset's CDN url → its Prismic url. If the existing run-migration test already stubs uploads, extend it; otherwise add `tests/blux/emit/run-migration-asseturls.test.ts` mirroring the existing stub pattern.
+
+- [ ] **Step 6: Wire the rewrite into the `migrate` CLI action**
+
+In `src/cli/commands/blux.ts`, in the `migrate` action, after `runMigration(plan, onLine)` returns, if a `blux-presentation.json` sits next to the plan, rewrite it:
+
+```ts
+import { rewriteManifestUrls } from "../../blux/emit/rewrite-manifest.js";
+import type { Presentation } from "../../blux/emit/presentation.js";
+// … after: const result = await runMigration(plan, (line) => process.stderr.write(line + "\n"));
+const manifestPath = join(dirname(planPath), "blux-presentation.json");
+try {
+  const manifest = JSON.parse(await readFile(manifestPath, "utf-8")) as Presentation;
+  const rewritten = rewriteManifestUrls(manifest, result.assetUrlByCdn);
+  await writeFile(manifestPath, JSON.stringify(rewritten, null, 2) + "\n");
+  // add to the summary: `manifest media rewritten to Prismic urls`
+} catch {
+  /* no manifest beside the plan (archetype emit) — skip silently */
+}
+```
+
+> `planPath` is the resolved plan path the `migrate` action already computes; use `dirname(planPath)` (import `dirname` from `node:path`). `readFile`/`writeFile` are already imported. Keep this inside the creds-gated `migrate` branch so no offline run touches it.
+
+- [ ] **Step 7: Test the migrate rewrite wiring** — extend `tests/cli/blux-command.test.ts`'s `migrate` describe with a case that: writes a `migration-plan.json` + a `blux-presentation.json` (CDN urls) to a temp dir, stubs creds + the run-migration import (or the asset-API fetch) to return a known `assetUrlByCdn`, runs `runBluxCommand("migrate", dir, …)`, and asserts the on-disk `blux-presentation.json` now has Prismic urls. If stubbing the lazy `run-migration` import is awkward, assert instead that with no creds the action refuses and does NOT touch the manifest (the pure rewrite is already covered by Step 1–4).
+
+Run: `pnpm vitest run tests/cli/blux-command.test.ts -t "migrate"`
+Expected: PASS.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add src/blux/emit/rewrite-manifest.ts src/blux/emit/run-migration.ts src/cli/commands/blux.ts tests/blux/emit/rewrite-manifest.test.ts tests/cli/blux-command.test.ts tests/blux/emit/run-migration-asseturls.test.ts 2>/dev/null
+git commit -m "feat(blux/emit): migrate rewrites manifest media urls to Prismic (durable hosting)"
+```
+
+---
+
 ## Task 7: Fidelity goldens — the-pointe manifest + map emit path
 
 **Why:** The snapshot golden is the fidelity gate (like the parse/classify goldens). It runs the full `parse → classify → buildPresentation` on the committed the-pointe fixture with a deterministic stub resolver, and separately proves the map path with the map-band fixture + a real `extractMapConfig`.
@@ -1140,10 +1320,10 @@ Expected: clean (CI prettier-checks markdown too; the new `.ts` public exports m
 Run: `pnpm tsx src/cli/bin.ts blux convert ~/Desktop/thePointe --out /tmp/blux-convert-smoke`
 Expected: exit 0, prints "Converted 16 bands …, map config extracted". Then inspect:
 - `/tmp/blux-convert-smoke/blux-presentation.json` — band 14 has both a `tree` (with the map `raw`/`widget`) and a `map` payload; media `url`s are real cloudfront URLs (`data-base` + uuid + ext, resolved offline for **every** image — no probe); `style` present on white/hero bands.
-- `/tmp/blux-convert-smoke/migration-plan.json` — one `page` doc, 16 slices, `title` heading1, no assets.
+- `/tmp/blux-convert-smoke/migration-plan.json` — one `page` doc, 16 slices, `title` heading1, and a populated `assets` array (every unique image/video with a CDN url + alt) ready for upload.
 - `/tmp/blux-convert-smoke/map-config.json` + `theme.css` present.
 
-This is the real-data confirmation the fixture goldens can't give (fixtures have scripts stripped / no site.json). Capture the output in the PR description.
+This is the real-data confirmation the fixture goldens can't give (fixtures have scripts stripped / no site.json). The **migrate-time rewrite** to Prismic urls needs creds + a live push — verified in plan 7, not here; this smoke confirms `convert`'s offline half. Capture the output in the PR description.
 
 - [ ] **Step 4: Changeset** — `.changeset/blux-grid-emit.md`:
 
@@ -1154,9 +1334,11 @@ This is the real-data confirmation the fixture goldens can't give (fixtures have
 
 feat(blux): faithful-grid plan 5 — `blux convert` emits the Prismic page document
 (text + band indices) and the `blux-presentation.json` render manifest (layout
-tree + resolved media + block styles + map payload), keyed by band index. Parser
-fix: Blux custom-code embeds (`[data-exec]`, incl. the map mount) now survive as
-`raw` leaves instead of being peeled away.
+tree + resolved media + block styles + map payload), keyed by band index. Media
+is Prismic-hosted: `convert` writes CDN urls + the asset list, and `blux migrate`
+uploads the assets and rewrites the manifest urls to Prismic for durability.
+Parser fix: Blux custom-code embeds (`[data-exec]`, incl. the map mount) now
+survive as `raw` leaves instead of being peeled away.
 ```
 
 - [ ] **Step 5: Commit**
@@ -1179,8 +1361,8 @@ Per the merge-authority policy: auto-merge once CI-green + review-clean (this is
 
 ## Decisions (rationale — read before executing)
 
-- **Why CDN URLs, not Prismic URLs, in the manifest (Decision 1):** emit is the offline/deterministic stage (Tucker's load-bearing "get 95% there with zero tokens, don't look at the live site" strategy). Prismic URLs aren't known until assets are uploaded (a creds-gated network step). CDN source URLs render the-pointe faithfully today with zero creds. **Follow-up (not this plan):** a `migrate`-time pass that uploads the manifest's media to Prismic and rewrites `url`s for durability (Blux cloudfront could lapse if the client stops paying Blux). Tracked as an open item.
-- **Why no Image fields in the page doc (Decision 2):** the shipped render contract (plans 3–4) reads *all* media from the manifest (`bands[i].gallery/media/split/background/tree`), not Prismic Image fields. Emit conforms to what shipped. Consequence: media is not individually CMS-editable — accepted per spec decision #4 (CMS is a nice-to-have).
+- **Why two-phase Prismic hosting (Decision 1):** Prismic URLs aren't known until assets are uploaded (a creds-gated network step), but `convert` must stay offline/deterministic (Tucker's "zero-token, don't touch the live site" strategy). So `convert` writes the CDN URL (which renders faithfully with zero creds — the exact URL the live page uses, from `data-base`) and populates `plan.assets`; the creds-gated `migrate` uploads those assets and rewrites the manifest URLs to Prismic. This gives durability (Blux cloudfront could lapse if the client stops paying Blux) without coupling `convert` to the network. Convert-only = CDN preview; convert+migrate = Prismic-hosted production.
+- **Why no Image fields in the page doc (Decision 2):** the shipped render contract (plans 3–4) reads *all* media from the manifest (`bands[i].gallery/media/split/background/tree`), not Prismic Image fields. Emit conforms to what shipped, so the uploaded assets are library assets the manifest references by URL, not doc-field images. Consequence: media is Prismic-hosted/durable but not individually CMS-editable — accepted per spec decision #4 (CMS is a nice-to-have). Making media CMS-editable (Prismic Image fields in the slices) would require changing the-pointe's render slices — out of scope here.
 - **Why split text → manifest, hero/title/richtext text → doc (Decision 3):** `BandPresentation` has slots for `split.text` (a `RenderNode`, so nested media survives) but none for heading/subtitle/hero-body/richtext-content; those map to Prismic Text/StructuredText fields the band slices read from `primary`. Leaving the split_feature `body` override empty means the manifest text renders — faithful, just not separately CMS-editable.
 - **Why a new `convert` action (Decision 5):** the legacy `emit`/archetype pipeline has different inputs (all page HTML + `site.json`) and outputs (`SectionIR`-based). Fusing them risks the `migrate` contract that reads `migration-plan.json`. `convert` reuses the plan/marker/runner plumbing but is a clean separate entry; `grid` stays a pure inspect step. `migrate` is untouched and pushes `convert`'s `migration-plan.json` verbatim.
 - **Why block styles from site.json by index (Decision 6):** the values are already structured data in `site.json` (`b.styles`) and already cleaned by `normalize.ts` (`cleanCssValue`) — reuse beats writing a CSS-rule parser for the rendered `<style>`. Risk: the array-position↔`page-block-N` join can misalign on a page that skips block indices; the contiguity assertion in the golden (Task 7 step 3: indices 0–15 contiguous) is the tripwire, and a non-contiguous site fails loudly rather than mis-styling.
@@ -1189,5 +1371,5 @@ Per the merge-authority policy: auto-merge once CI-green + review-clean (this is
 
 - **the-pointe consumption / render wiring** (dropping the new `blux-presentation.json` in, updating `Grid.svelte` to mount a real `LocationMap` for a co-located `widget:map`, adding the six band slices + hero `band` variation to the `page` custom type's slice-zone choices, Slice Machine push) — **plan 7**.
 - **`validate.ts` layout-signature check** (parse both answer key + rendered page → compare signature sequences) — **plan 6**.
-- **Prismic-rehosting of manifest media** (durability) — follow-up.
+- **CMS-editable media** (Prismic Image fields in the render slices) — a bigger the-pointe render change; not needed for durable hosting.
 - **Promoting the emit/manifest generic pieces to reddoor-starter** — **plan 8**.
