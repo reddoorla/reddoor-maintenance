@@ -15,7 +15,7 @@ export type {
   LocationMapSpec,
   GridSpec,
 } from "./slice-spec.js";
-export { classifyBand, classifyBands } from "./classify-band.js";
+export { classifyBand, classifyBands, collectMedia } from "./classify-band.js";
 export type { ClassifyOptions } from "./classify-band.js";
 export type { MapConfig, MapKmlLayer, MapToggleGroup } from "./extract-map.js";
 export { extractMapConfig, makeIsMapMount } from "./extract-map.js";

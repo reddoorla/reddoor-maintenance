@@ -73,8 +73,14 @@ export async function pushCustomTypes(types: PlanCustomType[]): Promise<string[]
   return pushed;
 }
 
-async function listAssetIdsByFilename(repo: string, token: string): Promise<Map<string, string>> {
-  const map = new Map<string, string>();
+/** filename → { id, url } for every asset already in the media library. `url`
+ *  is the servable CDN url (the Asset API asset object's `url` field, e.g.
+ *  https://images.prismic.io/...) that the render side loads. */
+async function listAssetsByFilename(
+  repo: string,
+  token: string,
+): Promise<Map<string, { id: string; url: string }>> {
+  const map = new Map<string, { id: string; url: string }>();
   let cursor = "";
   for (;;) {
     const res = await expectOk(
@@ -84,10 +90,10 @@ async function listAssetIdsByFilename(repo: string, token: string): Promise<Map<
       "asset list",
     );
     const page = (await res.json()) as {
-      items: { id: string; filename: string }[];
+      items: { id: string; filename: string; url: string }[];
       cursor?: string;
     };
-    for (const a of page.items) map.set(a.filename, a.id);
+    for (const a of page.items) map.set(a.filename, { id: a.id, url: a.url });
     if (!page.cursor || !page.items.length) return map;
     cursor = `&cursor=${encodeURIComponent(page.cursor)}`;
   }
@@ -130,6 +136,10 @@ export type MigrationResult = {
   docsCreated: number;
   docsUpdated: number;
   missingAssets: string[];
+  /** cdn url (the manifest/plan-asset url) → resolved Prismic servable url, for
+   *  every asset uploaded or reused. Lets the caller rewrite the render manifest
+   *  onto durable Prismic-hosted media. */
+  assetUrlByCdn: Map<string, string>;
 };
 
 /** Execute a MigrationPlan: upload missing assets (reusing existing ones by
@@ -140,8 +150,9 @@ export async function runMigration(
   log: (line: string) => void = console.log,
 ): Promise<MigrationResult> {
   const { repo, token } = readCreds();
-  const existing = await listAssetIdsByFilename(repo, token);
+  const existing = await listAssetsByFilename(repo, token);
   const assetIdByUuid = new Map<string, string>();
+  const assetUrlByCdn = new Map<string, string>();
   let assetsUploaded = 0;
   let assetsReused = 0;
 
@@ -152,7 +163,8 @@ export async function runMigration(
     const filename = (a.url.split("/").pop() ?? a.id).split("?")[0]!;
     const known = existing.get(filename);
     if (known) {
-      assetIdByUuid.set(a.id, known);
+      assetIdByUuid.set(a.id, known.id);
+      assetUrlByCdn.set(a.url, known.url);
       assetsReused++;
       continue;
     }
@@ -168,8 +180,9 @@ export async function runMigration(
       }),
       `upload asset ${filename}`,
     );
-    const created = (await res.json()) as { id: string };
+    const created = (await res.json()) as { id: string; url: string };
     assetIdByUuid.set(a.id, created.id);
+    assetUrlByCdn.set(a.url, created.url);
     assetsUploaded++;
     log(`asset ${assetsUploaded + assetsReused}/${plan.assets.length} ${filename}`);
     await sleep(THROTTLE_MS);
@@ -230,5 +243,5 @@ export async function runMigration(
     }
     await sleep(THROTTLE_MS);
   }
-  return { assetsUploaded, assetsReused, docsCreated, docsUpdated, missingAssets };
+  return { assetsUploaded, assetsReused, docsCreated, docsUpdated, missingAssets, assetUrlByCdn };
 }

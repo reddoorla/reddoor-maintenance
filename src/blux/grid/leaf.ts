@@ -46,7 +46,13 @@ export function mediaFromElement(el: HTMLElement): Media | null {
     const rawId = img.getAttribute("data-media");
     if (rawId) {
       const ext = img.getAttribute("data-ext") ?? undefined;
-      return { kind: "image", assetId: stripAssetExt(rawId, ext), ...(ext ? { ext } : {}) };
+      const base = img.getAttribute("data-base") ?? undefined;
+      return {
+        kind: "image",
+        assetId: stripAssetExt(rawId, ext),
+        ...(ext ? { ext } : {}),
+        ...(base ? { base } : {}),
+      };
     }
   }
   const video = el.querySelector("video");

@@ -209,6 +209,26 @@ describe("blux grid map config", () => {
   });
 });
 
+describe("blux convert", () => {
+  it("writes blux-presentation.json + migration-plan.json offline", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-convert-"));
+    await writeFile(
+      join(dir, "index.html"),
+      `<div id="page-content"><section class="blocks0" id="page-block-0"><div class="block-content"><h1 class="block-title text5">Hi</h1></div></section></div>`,
+    );
+    // site.json must use the REAL Blux shape parseBluxSite expects.
+    await writeFile(join(dir, "site.json"), JSON.stringify(minimalSite));
+    const res = await runBluxCommand("convert", dir, { cwd: dir });
+    expect(res.code).toBe(0);
+    const manifest = JSON.parse(
+      await readFile(join(dir, "blux-out", "blux-presentation.json"), "utf-8"),
+    );
+    expect(manifest.bands["0"]).toBeDefined();
+    const plan = JSON.parse(await readFile(join(dir, "blux-out", "migration-plan.json"), "utf-8"));
+    expect(plan.documents[0].data.slices[0].slice_type).toBe("title_band");
+  });
+});
+
 describe("blux migrate gate", () => {
   const saved: Record<string, string | undefined> = {};
 
@@ -233,5 +253,31 @@ describe("blux migrate gate", () => {
     const result = await runBluxCommand("migrate", join(dir, "out"), {});
     expect(result.code).toBe(1);
     expect(result.output).toContain("PRISMIC_REPOSITORY_NAME");
+  });
+
+  it("leaves the presentation manifest untouched when creds are absent (rewrite is inside the creds-gated branch)", async () => {
+    for (const k of ["PRISMIC_REPOSITORY_NAME", "PRISMIC_WRITE_TOKEN"]) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+    const dir = await mkdtemp(join(tmpdir(), "blux-plan-"));
+    await mkdir(join(dir, "out"), { recursive: true });
+    await writeFile(
+      join(dir, "out", "migration-plan.json"),
+      JSON.stringify({ customTypes: [], documents: [], assets: [] }),
+    );
+    const manifestPath = join(dir, "out", "blux-presentation.json");
+    const original =
+      JSON.stringify(
+        { bands: { "0": { background: { kind: "image", url: "https://cdn/f/a.png" } } } },
+        null,
+        2,
+      ) + "\n";
+    await writeFile(manifestPath, original);
+
+    const result = await runBluxCommand("migrate", join(dir, "out"), {});
+    expect(result.code).toBe(1);
+    // offline gate must return BEFORE any manifest I/O — CDN urls stay put
+    expect(await readFile(manifestPath, "utf-8")).toBe(original);
   });
 });

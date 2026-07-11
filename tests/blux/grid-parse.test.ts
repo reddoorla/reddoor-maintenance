@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { parse, type HTMLElement } from "node-html-parser";
-import { parseNode } from "../../src/blux/grid/parse-grid.js";
+import { parseNode, parseGridBands } from "../../src/blux/grid/parse-grid.js";
 
 const node = (html: string) => parseNode(parse(html).firstChild as HTMLElement);
 
@@ -110,5 +110,38 @@ describe("parseNode", () => {
       kind: "raw",
       html: "<div class='camediaload'></div>",
     });
+  });
+});
+
+describe("data-exec custom-code embeds", () => {
+  it("preserves a data-exec embed as a single raw leaf (outerHTML)", () => {
+    const html = `<div id="page-content"><section class="blocks0" id="page-block-0">
+      <div class="block-content">
+        <div id="custom-element0" data-exec="custom_abc">
+          <div id="burbank_map" style="height:600px">map loading...</div>
+        </div>
+      </div></section></div>`;
+    const [band] = parseGridBands(html);
+    expect(band?.root).toEqual({
+      kind: "raw",
+      html: `<div id="custom-element0" data-exec="custom_abc">
+          <div id="burbank_map" style="height:600px">map loading...</div>
+        </div>`,
+    });
+  });
+
+  it("keeps a data-exec embed alongside a sibling grid as a stack[raw,row]", () => {
+    const html = `<div id="page-content"><section class="blocks0" id="page-block-0">
+      <div class="block-content">
+        <div id="custom-element0" data-exec="x"><div id="burbank_map">m</div></div>
+        <div class="block-grid-container cagrid" data-columns="1">
+          <div class="block-subcontent cagriditem top grid-1 "><p class="block-body text2">hi</p></div>
+        </div>
+      </div></section></div>`;
+    const [band] = parseGridBands(html);
+    expect(band?.root.kind).toBe("stack");
+    const stack = band?.root as { kind: "stack"; children: { kind: string }[] };
+    expect(stack.children[0]?.kind).toBe("raw");
+    expect(stack.children[1]?.kind).toBe("row");
   });
 });

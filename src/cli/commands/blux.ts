@@ -1,12 +1,28 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { glob } from "tinyglobby";
 import { assembleIR } from "../../blux/assemble.js";
 import { buildMigrationPlan } from "../../blux/emit/migration-plan.js";
 import { emitThemeCss, emitRolesCss } from "../../blux/emit/theme.js";
 import { buildReviewManifest } from "../../blux/emit/review.js";
 import { validateCoverage } from "../../blux/validate.js";
-import { parseGridBands, extractMapConfig } from "../../blux/grid/index.js";
+import {
+  parseGridBands,
+  extractMapConfig,
+  classifyBands,
+  makeIsMapMount,
+} from "../../blux/grid/index.js";
+import type { MapConfig } from "../../blux/grid/index.js";
+import { buildGridPlan, mediaUrl } from "../../blux/emit/grid-plan.js";
+import {
+  buildPresentation,
+  type PresentationDeps,
+  type RenderMedia,
+  type MapRenderConfig,
+  type Presentation,
+} from "../../blux/emit/presentation.js";
+import { rewriteManifestUrls } from "../../blux/emit/rewrite-manifest.js";
+import { blockStylesByIndex } from "../../blux/emit/block-styles.js";
 import type { MigrationPlan } from "../../blux/emit/plan.js";
 
 export type BluxCommandOptions = {
@@ -33,7 +49,10 @@ export type BluxCommandOptions = {
  *  validate: content coverage of a converted site's render (--against a file or
  *  URL) against the export's index.html answer key — names any text the
  *  transform dropped, no tokens spent eyeballing.
- *  grid: parse rendered index.html → grid-tree.json (layout tree). */
+ *  grid: parse rendered index.html → grid-tree.json (layout tree).
+ *  convert: parse+classify index.html + assemble IR from site.json → the grid
+ *  migration-plan.json (page doc) + blux-presentation.json (render manifest) +
+ *  theme.css (+ map-config.json when a map is present), all offline, no creds. */
 export async function runBluxCommand(
   action: string,
   dir: string | undefined,
@@ -147,13 +166,27 @@ export async function runBluxCommand(
     const missing = r.missingAssets.length
       ? `\nWARNING missing assets: ${r.missingAssets.join(", ")}`
       : "";
+    // Rewrite the render manifest's media urls from the CDN url the export
+    // carries → the durable Prismic url we just uploaded to. Skipped silently
+    // when no manifest sits beside the plan (e.g. an archetype-only emit).
+    let manifestNote = "";
+    const manifestPath = join(dirname(planPath), "blux-presentation.json");
+    try {
+      const manifest = JSON.parse(await readFile(manifestPath, "utf-8")) as Presentation;
+      const rewritten = rewriteManifestUrls(manifest, r.assetUrlByCdn);
+      await writeFile(manifestPath, JSON.stringify(rewritten, null, 2) + "\n");
+      manifestNote = "\nmanifest media rewritten to Prismic urls";
+    } catch {
+      /* no manifest beside the plan (e.g. archetype emit) — skip silently */
+    }
     return {
       output:
         `custom types pushed: ${pushed.join(", ") || "none"}\n` +
         `assets: ${r.assetsUploaded} uploaded, ${r.assetsReused} reused | ` +
         `documents: ${r.docsCreated} created, ${r.docsUpdated} updated → ` +
         `${process.env.PRISMIC_REPOSITORY_NAME} (publish the migration release in the dashboard)` +
-        missing,
+        missing +
+        manifestNote,
       code: 0,
     };
   }
@@ -242,8 +275,79 @@ export async function runBluxCommand(
     };
   }
 
+  if (action === "convert") {
+    if (!dir) return { output: "blux convert needs a Blux export directory.", code: 1 };
+    let html: string;
+    let siteJson: unknown;
+    try {
+      html = await readFile(join(dir, "index.html"), "utf-8");
+      siteJson = JSON.parse(await readFile(join(dir, "site.json"), "utf-8"));
+    } catch (err) {
+      return { output: `could not read export in ${dir}: ${(err as Error).message}`, code: 1 };
+    }
+    const bands = parseGridBands(html);
+    const mapConfig = extractMapConfig(html);
+    const specs = classifyBands(bands, mapConfig ? { isMapMount: makeIsMapMount(mapConfig) } : {});
+    const ir = assembleIR({ siteJson, htmls: [html] });
+
+    const assetsById = new Map(ir.assets.map((a) => [a.id, a] as const));
+    const sourceUrlById = new Map(ir.assets.map((a) => [a.id, a.sourceUrl] as const));
+    const styles = blockStylesByIndex(siteJson);
+    const deps: PresentationDeps = {
+      resolveMedia: (m) => {
+        const url = mediaUrl(m, sourceUrlById);
+        if (!url) return null;
+        const alt = assetsById.get(m.assetId)?.alt;
+        const rm: RenderMedia = { kind: m.kind, url, ...(alt ? { alt } : {}) };
+        return rm;
+      },
+      styleFor: (i) => styles.get(i),
+      map: mapConfig ? mapRenderFromConfig(mapConfig) : null,
+    };
+
+    const plan = buildGridPlan(specs, ir);
+    const presentation = buildPresentation(specs, deps);
+
+    const outDir = opts.out ?? join(dir, "blux-out");
+    await mkdir(outDir, { recursive: true });
+    await writeFile(join(outDir, "migration-plan.json"), JSON.stringify(plan, null, 2));
+    await writeFile(
+      join(outDir, "blux-presentation.json"),
+      JSON.stringify(presentation, null, 2) + "\n",
+    );
+    await writeFile(
+      join(outDir, "theme.css"),
+      emitThemeCss(ir.theme) + "\n" + emitRolesCss(ir.theme),
+    );
+    if (mapConfig) {
+      await writeFile(join(outDir, "map-config.json"), JSON.stringify(mapConfig, null, 2) + "\n");
+    }
+    const sliceCount = (plan.documents[0]?.data.slices as unknown[] | undefined)?.length ?? 0;
+    return {
+      output:
+        `Converted ${bands.length} bands → ${outDir} ` +
+        `(${Object.keys(presentation.bands).length} manifest bands, ${sliceCount} slices` +
+        (mapConfig ? ", map config extracted" : "") +
+        ")",
+      code: 0,
+    };
+  }
+
   return {
-    output: `unknown blux action '${action}'. Use: emit, migrate, validate, grid.`,
+    output: `unknown blux action '${action}'. Use: emit, migrate, validate, grid, convert.`,
     code: 1,
+  };
+}
+
+/** Drop the source-only `mountId` from an extracted MapConfig → the render-side
+ * MapRenderConfig the presentation manifest carries. */
+function mapRenderFromConfig(c: MapConfig): MapRenderConfig {
+  return {
+    mid: c.mid,
+    layers: c.layers,
+    toggles: c.toggles,
+    styles: c.styles,
+    ...(c.center ? { center: c.center } : {}),
+    ...(c.zoom !== undefined ? { zoom: c.zoom } : {}),
   };
 }

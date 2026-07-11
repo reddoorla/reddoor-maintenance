@@ -5,7 +5,7 @@ export type GridToken = {
   raw: string;
 };
 
-export type Media = { kind: "image" | "video"; assetId: string; ext?: string };
+export type Media = { kind: "image" | "video"; assetId: string; ext?: string; base?: string };
 // Forward-declared for plan 2's widget router. The parser does not emit
 // `widget` nodes yet — map mounts currently parse to `raw`.
 export type Widget = { type: "map" };
