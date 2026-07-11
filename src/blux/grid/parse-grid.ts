@@ -22,7 +22,10 @@ const isLeafElement = (el: HTMLElement): boolean =>
 /** Is this element a structural boundary (a leaf, a grid row, or a token-bearing
  * cell/holder), as opposed to a pure wrapper div we should peel through? */
 const isStructural = (el: HTMLElement): boolean =>
-  isLeafElement(el) || hasClass(el, "cagrid") || parseGridToken(el.classNames) !== null;
+  isLeafElement(el) ||
+  el.hasAttribute("data-exec") || // Blux custom-code embed (e.g. map mount)
+  hasClass(el, "cagrid") ||
+  parseGridToken(el.classNames) !== null;
 
 /** The child elements that carry structure, peeling pure wrapper divs. */
 export function collectStructuralChildren(el: HTMLElement): HTMLElement[] {
@@ -62,6 +65,12 @@ export function parseNode(el: HTMLElement): Node {
   ) {
     const media = mediaFromElement(el);
     if (media) return { kind: "media", media };
+  }
+  if (el.hasAttribute("data-exec")) {
+    // Custom-code embed (map, third-party widget). Keep the whole subtree —
+    // including id="burbank_map" and any inline initMap/KmlLayer scripts — so
+    // extract-map can read it and Grid.svelte can render it verbatim.
+    return { kind: "raw", html: el.outerHTML };
   }
   return parseContainer(el);
 }
