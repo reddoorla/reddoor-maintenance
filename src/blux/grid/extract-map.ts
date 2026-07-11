@@ -89,7 +89,7 @@ export function extractMapConfig(html: string): MapConfig | null {
     layers.push({
       name,
       lid,
-      initiallyVisible: /map\s*:\s*map\b/.test(args),
+      initiallyVisible: /\bmap\s*:\s*map\b/.test(args),
       preserveViewport: /preserveViewport\s*:\s*true/.test(args),
     });
   }
@@ -147,5 +147,6 @@ function extractToggles(html: string): MapToggleGroup[] {
     if (label === undefined) return [];
     groups[idx] = { label, layers: layerNames };
   }
-  return groups.length === labels.length ? groups : [];
+  // Non-contiguous clickMap indices would leave holes that serialize as null.
+  return groups.length === labels.length && groups.every((g) => g !== undefined) ? groups : [];
 }
