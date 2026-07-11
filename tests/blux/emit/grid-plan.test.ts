@@ -39,4 +39,26 @@ describe("buildGridPlan", () => {
     ]);
     expect(Array.isArray(plan.customTypes)).toBe(true);
   });
+
+  it("falls back to ir.assets sourceUrl when a media carries no CDN base", () => {
+    const noBase: Media = { kind: "image", assetId: "d", ext: "png" };
+    const ir2 = {
+      ...ir,
+      assets: [{ id: "d", sourceUrl: "https://legacy/d.png", name: "d.png", mime: "image/png", alt: "Legacy D" }],
+    } as unknown as SiteIR;
+    const specs2: SliceSpec[] = [{ index: 0, slice: "MediaFull", media: noBase }];
+    const plan = buildGridPlan(specs2, ir2);
+    expect(plan.assets).toEqual([{ id: "d", url: "https://legacy/d.png", alt: "Legacy D" }]);
+  });
+
+  it("excludes a media with neither CDN base nor ir sourceUrl and records a diagnostic", () => {
+    const orphan: Media = { kind: "image", assetId: "z", ext: "png" };
+    const ir3 = { ...ir, assets: [] } as unknown as SiteIR;
+    const specs3: SliceSpec[] = [{ index: 0, slice: "MediaFull", media: orphan }];
+    const plan = buildGridPlan(specs3, ir3);
+    expect(plan.assets).toEqual([]);
+    expect(plan.diagnostics).toContainEqual(
+      expect.objectContaining({ kind: "unresolved-asset", where: "z" }),
+    );
+  });
 });

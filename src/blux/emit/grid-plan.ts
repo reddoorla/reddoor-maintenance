@@ -1,24 +1,40 @@
-import type { SliceSpec, Media } from "../grid/index.js";
-import { collectMedia } from "../grid/classify-band.js";
-import type { SiteIR } from "../ir.js";
+import { type SliceSpec, type Media, collectMedia } from "../grid/index.js";
+import type { Diagnostic, SiteIR } from "../ir.js";
 import { buildCustomType } from "./custom-types.js";
 import { sliceSpecToPlanSlice } from "./grid-slice.js";
 import { type MigrationPlan, type PlanAsset, type PlanDocument, richText } from "./plan.js";
 
-/** Build the CDN url for a media from its parser-captured base + uuid + ext. */
+/** Build the CDN url for a media from its parser-captured base + uuid + ext.
+ * Null when the node carried no `data-base` (the manifest resolver then falls
+ * back to the IR asset's sourceUrl — see `buildGridPlan`). */
 function cdnUrl(m: Media): string | null {
   return m.base ? `${m.base}${m.assetId}${m.ext ? `.${m.ext}` : ""}` : null;
 }
 
 /** Every Media referenced across all specs: band backgrounds, direct media
  * fields, and media inside node trees (SplitFeature.text / Grid.root). Deduped
- * by assetId, first occurrence wins, insertion order preserved. */
-export function collectPlanAssets(specs: SliceSpec[], altFor: (id: string) => string): PlanAsset[] {
+ * by assetId, first occurrence wins, insertion order preserved. `resolve`
+ * turns a media into its upload entry (CDN-base url, else IR sourceUrl) or null
+ * when neither is available — an unresolvable media is dropped and (if a
+ * `diagnostics` sink is passed) recorded once per assetId. */
+export function collectPlanAssets(
+  specs: SliceSpec[],
+  resolve: (m: Media) => PlanAsset | null,
+  diagnostics?: Diagnostic[],
+): PlanAsset[] {
   const byId = new Map<string, PlanAsset>();
+  const seen = new Set<string>();
   const add = (m: Media) => {
-    if (byId.has(m.assetId)) return;
-    const url = cdnUrl(m);
-    if (url) byId.set(m.assetId, { id: m.assetId, url, alt: altFor(m.assetId) });
+    if (seen.has(m.assetId)) return;
+    seen.add(m.assetId);
+    const asset = resolve(m);
+    if (asset) byId.set(m.assetId, asset);
+    else
+      diagnostics?.push({
+        kind: "unresolved-asset",
+        where: m.assetId,
+        message: `media ${m.assetId} has no CDN base nor IR source url — not uploaded`,
+      });
   };
   for (const spec of specs) {
     if (spec.background) add(spec.background);
@@ -57,8 +73,16 @@ export function buildGridPlan(specs: SliceSpec[], ir: SiteIR): MigrationPlan {
     uid,
     data: { title: richText(`<h1>${title}</h1>`), slices: specs.map(sliceSpecToPlanSlice) },
   };
-  const altById = new Map(ir.assets.map((a) => [a.id, a.alt ?? ""]));
-  const assets = collectPlanAssets(specs, (id) => altById.get(id) ?? "");
+  // Upload-url resolution MUST stay identical to the later manifest resolver:
+  // CDN-base url first, else the IR asset's sourceUrl.
+  const assetById = new Map(ir.assets.map((a) => [a.id, a] as const));
+  const resolve = (m: Media): PlanAsset | null => {
+    const asset = assetById.get(m.assetId);
+    const url = cdnUrl(m) ?? asset?.sourceUrl ?? null;
+    return url ? { id: m.assetId, url, alt: asset?.alt ?? "" } : null;
+  };
+  const diagnostics: Diagnostic[] = [...(ir.diagnostics ?? [])];
+  const assets = collectPlanAssets(specs, resolve, diagnostics);
   const customTypes = ir.collections.map(buildCustomType);
-  return { customTypes, documents: [doc], assets, stylesManifest: [], diagnostics: ir.diagnostics ?? [] };
+  return { customTypes, documents: [doc], assets, stylesManifest: [], diagnostics };
 }
