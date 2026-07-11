@@ -1,5 +1,5 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { glob } from "tinyglobby";
 import { assembleIR } from "../../blux/assemble.js";
 import { buildMigrationPlan } from "../../blux/emit/migration-plan.js";
@@ -19,7 +19,9 @@ import {
   type PresentationDeps,
   type RenderMedia,
   type MapRenderConfig,
+  type Presentation,
 } from "../../blux/emit/presentation.js";
+import { rewriteManifestUrls } from "../../blux/emit/rewrite-manifest.js";
 import { blockStylesByIndex } from "../../blux/emit/block-styles.js";
 import type { MigrationPlan } from "../../blux/emit/plan.js";
 
@@ -164,13 +166,27 @@ export async function runBluxCommand(
     const missing = r.missingAssets.length
       ? `\nWARNING missing assets: ${r.missingAssets.join(", ")}`
       : "";
+    // Rewrite the render manifest's media urls from the CDN url the export
+    // carries → the durable Prismic url we just uploaded to. Skipped silently
+    // when no manifest sits beside the plan (e.g. an archetype-only emit).
+    let manifestNote = "";
+    const manifestPath = join(dirname(planPath), "blux-presentation.json");
+    try {
+      const manifest = JSON.parse(await readFile(manifestPath, "utf-8")) as Presentation;
+      const rewritten = rewriteManifestUrls(manifest, r.assetUrlByCdn);
+      await writeFile(manifestPath, JSON.stringify(rewritten, null, 2) + "\n");
+      manifestNote = "\nmanifest media rewritten to Prismic urls";
+    } catch {
+      /* no manifest beside the plan (e.g. archetype emit) — skip silently */
+    }
     return {
       output:
         `custom types pushed: ${pushed.join(", ") || "none"}\n` +
         `assets: ${r.assetsUploaded} uploaded, ${r.assetsReused} reused | ` +
         `documents: ${r.docsCreated} created, ${r.docsUpdated} updated → ` +
         `${process.env.PRISMIC_REPOSITORY_NAME} (publish the migration release in the dashboard)` +
-        missing,
+        missing +
+        manifestNote,
       code: 0,
     };
   }

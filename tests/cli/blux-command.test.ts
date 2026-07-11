@@ -256,4 +256,30 @@ describe("blux migrate gate", () => {
     expect(result.code).toBe(1);
     expect(result.output).toContain("PRISMIC_REPOSITORY_NAME");
   });
+
+  it("leaves the presentation manifest untouched when creds are absent (rewrite is inside the creds-gated branch)", async () => {
+    for (const k of ["PRISMIC_REPOSITORY_NAME", "PRISMIC_WRITE_TOKEN"]) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+    const dir = await mkdtemp(join(tmpdir(), "blux-plan-"));
+    await mkdir(join(dir, "out"), { recursive: true });
+    await writeFile(
+      join(dir, "out", "migration-plan.json"),
+      JSON.stringify({ customTypes: [], documents: [], assets: [] }),
+    );
+    const manifestPath = join(dir, "out", "blux-presentation.json");
+    const original =
+      JSON.stringify(
+        { bands: { "0": { background: { kind: "image", url: "https://cdn/f/a.png" } } } },
+        null,
+        2,
+      ) + "\n";
+    await writeFile(manifestPath, original);
+
+    const result = await runBluxCommand("migrate", join(dir, "out"), {});
+    expect(result.code).toBe(1);
+    // offline gate must return BEFORE any manifest I/O — CDN urls stay put
+    expect(await readFile(manifestPath, "utf-8")).toBe(original);
+  });
 });
