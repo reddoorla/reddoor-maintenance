@@ -5,6 +5,8 @@
 // script. The Google API key lives only in the separate loader URL and is
 // deliberately NOT extracted — render uses VITE_GOOGLE_MAPS_KEY.
 
+import type { Node } from "./types.js";
+
 export type MapKmlLayer = {
   /** mapLayers key in the source script, e.g. "Hotels". */
   name: string;
@@ -109,6 +111,14 @@ export function extractMapConfig(html: string): MapConfig | null {
       : {}),
     ...(zoomM?.[1] ? { zoom: Number(zoomM[1]) } : {}),
   };
+}
+
+/** The classifier predicate (plan-2 `ClassifyOptions.isMapMount`): matches the
+ * raw node carrying the map mount element. Mounts parse to `raw` nodes; the
+ * mount id survives verbatim in the serialized html. */
+export function makeIsMapMount(config: MapConfig): (node: Node) => boolean {
+  const marker = `id="${config.mountId}"`;
+  return (node) => node.kind === "raw" && node.html.includes(marker);
 }
 
 /** Pairs the band's map_icon chip labels (DOM order) with the clickMap
