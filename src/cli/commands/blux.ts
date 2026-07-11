@@ -13,7 +13,7 @@ import {
   makeIsMapMount,
 } from "../../blux/grid/index.js";
 import type { MapConfig } from "../../blux/grid/index.js";
-import { buildGridPlan, mediaCdnUrl } from "../../blux/emit/grid-plan.js";
+import { buildGridPlan, mediaUrl } from "../../blux/emit/grid-plan.js";
 import {
   buildPresentation,
   type PresentationDeps,
@@ -291,10 +291,11 @@ export async function runBluxCommand(
     const ir = assembleIR({ siteJson, htmls: [html] });
 
     const assetsById = new Map(ir.assets.map((a) => [a.id, a] as const));
+    const sourceUrlById = new Map(ir.assets.map((a) => [a.id, a.sourceUrl] as const));
     const styles = blockStylesByIndex(siteJson);
     const deps: PresentationDeps = {
       resolveMedia: (m) => {
-        const url = mediaCdnUrl(m) ?? assetsById.get(m.assetId)?.sourceUrl ?? null;
+        const url = mediaUrl(m, sourceUrlById);
         if (!url) return null;
         const alt = assetsById.get(m.assetId)?.alt;
         const rm: RenderMedia = { kind: m.kind, url, ...(alt ? { alt } : {}) };

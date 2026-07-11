@@ -13,6 +13,14 @@ export function mediaCdnUrl(m: Media): string | null {
   return m.base ? `${m.base}${m.assetId}${m.ext ? `.${m.ext}` : ""}` : null;
 }
 
+/** The absolute source url for a media: the parser-captured CDN url
+ * (data-base + uuid + ext) if present, else the IR asset's scraped sourceUrl,
+ * else null. Shared by the plan's asset list and the manifest resolver so the
+ * two url strings are byte-identical (the migrate rewrite keys on that). */
+export function mediaUrl(m: Media, sourceUrlById: Map<string, string | null | undefined>): string | null {
+  return mediaCdnUrl(m) ?? sourceUrlById.get(m.assetId) ?? null;
+}
+
 /** Every Media referenced across all specs: band backgrounds, direct media
  * fields, and media inside node trees (SplitFeature.text / Grid.root). Deduped
  * by assetId, first occurrence wins, insertion order preserved. `resolve`
@@ -76,11 +84,13 @@ export function buildGridPlan(specs: SliceSpec[], ir: SiteIR): MigrationPlan {
     data: { title: richText(`<h1>${title}</h1>`), slices: specs.map(sliceSpecToPlanSlice) },
   };
   // Upload-url resolution MUST stay identical to the later manifest resolver:
-  // CDN-base url first, else the IR asset's sourceUrl.
+  // CDN-base url first, else the IR asset's sourceUrl. `mediaUrl` is the
+  // single shared implementation (see its doc comment above).
   const assetById = new Map(ir.assets.map((a) => [a.id, a] as const));
+  const sourceUrlById = new Map(ir.assets.map((a) => [a.id, a.sourceUrl] as const));
   const resolve = (m: Media): PlanAsset | null => {
     const asset = assetById.get(m.assetId);
-    const url = mediaCdnUrl(m) ?? asset?.sourceUrl ?? null;
+    const url = mediaUrl(m, sourceUrlById);
     return url ? { id: m.assetId, url, alt: asset?.alt ?? "" } : null;
   };
   const diagnostics: Diagnostic[] = [...(ir.diagnostics ?? [])];

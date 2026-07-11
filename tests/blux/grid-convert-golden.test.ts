@@ -29,6 +29,10 @@ describe("grid convert golden — the-pointe", () => {
     const bands = parseGridBands(fixture("the-pointe-page-content.html"));
     const specs = classifyBands(bands);
     expect(specs.map((s) => `${s.index} ${s.slice}`)).toMatchSnapshot();
+    // Tripwire: block-style alignment (blockStylesByIndex keys by site.json items
+    // array-position) is only valid when band indices are contiguous from 0. If a
+    // future the-pointe re-export skips a block index, this fails loudly.
+    expect(specs.map((s) => s.index)).toEqual(Array.from({ length: specs.length }, (_, i) => i));
   });
 
   it("builds a stable presentation manifest (structure + media placeholders)", () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildGridPlan } from "../../../src/blux/emit/grid-plan.js";
+import { buildGridPlan, mediaUrl } from "../../../src/blux/emit/grid-plan.js";
 import type { SliceSpec, Media } from "../../../src/blux/grid/index.js";
 import type { SiteIR } from "../../../src/blux/ir.js";
 
@@ -16,6 +16,25 @@ const specs: SliceSpec[] = [
   { index: 1, slice: "Gallery", media: [img("a"), img("b")] },   // "a" dedups
   { index: 2, slice: "Grid", root: { kind: "row", cells: [{ token: { cols: 1, raw: "grid-1" }, node: { kind: "media", media: img("c") } }] } },
 ];
+
+describe("mediaUrl", () => {
+  it("prefers the CDN base url when the media carries data-base", () => {
+    const m = img("a");
+    const sourceUrlById = new Map([["a", "https://legacy/a.png"]]);
+    expect(mediaUrl(m, sourceUrlById)).toBe("https://cdn/f/a.png");
+  });
+
+  it("falls back to the sourceUrl map when there is no CDN base", () => {
+    const m: Media = { kind: "image", assetId: "d", ext: "png" };
+    const sourceUrlById = new Map([["d", "https://legacy/d.png"]]);
+    expect(mediaUrl(m, sourceUrlById)).toBe("https://legacy/d.png");
+  });
+
+  it("returns null when neither a CDN base nor a mapped sourceUrl exists", () => {
+    const m: Media = { kind: "image", assetId: "z", ext: "png" };
+    expect(mediaUrl(m, new Map())).toBeNull();
+  });
+});
 
 describe("buildGridPlan", () => {
   it("builds a page document with a heading1 title and one slice per band", () => {
