@@ -209,6 +209,28 @@ describe("blux grid map config", () => {
   });
 });
 
+describe("blux convert", () => {
+  it("writes blux-presentation.json + migration-plan.json offline", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-convert-"));
+    await writeFile(
+      join(dir, "index.html"),
+      `<div id="page-content"><section class="blocks0" id="page-block-0"><div class="block-content"><h1 class="block-title text5">Hi</h1></div></section></div>`,
+    );
+    // site.json must use the REAL Blux shape parseBluxSite expects.
+    await writeFile(join(dir, "site.json"), JSON.stringify(minimalSite));
+    const res = await runBluxCommand("convert", dir, { cwd: dir });
+    expect(res.code).toBe(0);
+    const manifest = JSON.parse(
+      await readFile(join(dir, "blux-out", "blux-presentation.json"), "utf-8"),
+    );
+    expect(manifest.bands["0"]).toBeDefined();
+    const plan = JSON.parse(
+      await readFile(join(dir, "blux-out", "migration-plan.json"), "utf-8"),
+    );
+    expect(plan.documents[0].data.slices[0].slice_type).toBe("title_band");
+  });
+});
+
 describe("blux migrate gate", () => {
   const saved: Record<string, string | undefined> = {};
 

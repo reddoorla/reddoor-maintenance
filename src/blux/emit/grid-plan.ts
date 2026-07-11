@@ -6,8 +6,10 @@ import { type MigrationPlan, type PlanAsset, type PlanDocument, richText } from 
 
 /** Build the CDN url for a media from its parser-captured base + uuid + ext.
  * Null when the node carried no `data-base` (the manifest resolver then falls
- * back to the IR asset's sourceUrl — see `buildGridPlan`). */
-function cdnUrl(m: Media): string | null {
+ * back to the IR asset's sourceUrl — see `buildGridPlan`). Exported so the
+ * `blux convert` manifest resolver builds byte-identical urls (a later task
+ * rewrites the manifest by matching plan.assets urls). */
+export function mediaCdnUrl(m: Media): string | null {
   return m.base ? `${m.base}${m.assetId}${m.ext ? `.${m.ext}` : ""}` : null;
 }
 
@@ -78,7 +80,7 @@ export function buildGridPlan(specs: SliceSpec[], ir: SiteIR): MigrationPlan {
   const assetById = new Map(ir.assets.map((a) => [a.id, a] as const));
   const resolve = (m: Media): PlanAsset | null => {
     const asset = assetById.get(m.assetId);
-    const url = cdnUrl(m) ?? asset?.sourceUrl ?? null;
+    const url = mediaCdnUrl(m) ?? asset?.sourceUrl ?? null;
     return url ? { id: m.assetId, url, alt: asset?.alt ?? "" } : null;
   };
   const diagnostics: Diagnostic[] = [...(ir.diagnostics ?? [])];
