@@ -244,7 +244,12 @@ export async function defaultFormRunner(): Promise<FormRunner> {
         // Beat the bot-timing screen, then submit and wait for the success banner
         // (role="status") the starter renders on a successful action.
         await page.waitForTimeout(FILL_SETTLE_MS);
-        await page.locator('button[type="submit"]').first().click({ timeout: PAGE_TIMEOUT_MS });
+        // Both standard submit controls: reddoor-website uses `<input type="submit">`
+        // (its first enrolled run timed out matching button-only and false-failed).
+        await page
+          .locator('button[type="submit"], input[type="submit"]')
+          .first()
+          .click({ timeout: PAGE_TIMEOUT_MS });
         const ok = await page
           .locator('[role="status"]')
           .first()
