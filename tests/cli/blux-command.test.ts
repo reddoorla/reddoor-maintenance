@@ -2,6 +2,7 @@ import { mkdtemp, writeFile, readFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { runBluxCommand } from "../../src/cli/commands/blux.js";
 import { minimalSite, minimalHtml } from "../blux/fixtures/minimal-site.js";
@@ -170,6 +171,41 @@ describe("blux validate", () => {
     // a 404 error page must not be coverage-checked as if it were the render
     expect(r.code).toBe(1);
     expect(r.output).toContain("404");
+  });
+});
+
+describe("blux grid map config", () => {
+  it("writes map-config.json when the export's index.html carries an initMap script", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-grid-map-"));
+    const band = await readFile(
+      fileURLToPath(new URL("../blux/fixtures/the-pointe-map-band.html", import.meta.url)),
+      "utf-8",
+    );
+    // The band fixture leaves custom-element0 unclosed (EOF-closed when it
+    // stood alone), so the wrapper adds the balancing </div>.
+    await writeFile(
+      join(dir, "index.html"),
+      `<html><body><div id="page-content"><section class="blocks0" id="page-block-0"><div class="block-content">${band}</div></div></section></div></body></html>`,
+    );
+    const res = await runBluxCommand("grid", dir, {});
+    expect(res.code).toBe(0);
+    expect(res.output).toContain("map config extracted");
+    const cfg = JSON.parse(await readFile(join(dir, "blux-out", "map-config.json"), "utf-8"));
+    expect(cfg.mountId).toBe("burbank_map");
+    expect(cfg.layers).toHaveLength(8);
+  });
+
+  it("writes no map-config.json for an export without initMap (and still succeeds)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-grid-nomap-"));
+    await writeFile(
+      join(dir, "index.html"),
+      `<html><body><div id="page-content"><section class="blocks0" id="page-block-0"><div class="block-content"><h1 class="block-title text5">Hi</h1></div></section></div></body></html>`,
+    );
+    const res = await runBluxCommand("grid", dir, {});
+    expect(res.code).toBe(0);
+    expect(res.output).not.toContain("map config extracted");
+    expect(existsSync(join(dir, "blux-out", "map-config.json"))).toBe(false);
+    expect(existsSync(join(dir, "blux-out", "grid-tree.json"))).toBe(true);
   });
 });
 

@@ -6,7 +6,7 @@ import { buildMigrationPlan } from "../../blux/emit/migration-plan.js";
 import { emitThemeCss, emitRolesCss } from "../../blux/emit/theme.js";
 import { buildReviewManifest } from "../../blux/emit/review.js";
 import { validateCoverage } from "../../blux/validate.js";
-import { parseGridBands } from "../../blux/grid/index.js";
+import { parseGridBands, extractMapConfig } from "../../blux/grid/index.js";
 import type { MigrationPlan } from "../../blux/emit/plan.js";
 
 export type BluxCommandOptions = {
@@ -226,8 +226,18 @@ export async function runBluxCommand(
     const outDir = opts.out ?? join(dir, "blux-out");
     await mkdir(outDir, { recursive: true });
     await writeFile(join(outDir, "grid-tree.json"), JSON.stringify(bands, null, 2));
+    const mapConfig = extractMapConfig(html);
+    if (mapConfig) {
+      await writeFile(
+        join(outDir, "map-config.json"),
+        JSON.stringify(mapConfig, null, 2) + "\n",
+        "utf-8",
+      );
+    }
     return {
-      output: `Parsed ${bands.length} bands → ${join(outDir, "grid-tree.json")}`,
+      output:
+        `Parsed ${bands.length} bands → ${join(outDir, "grid-tree.json")}` +
+        (mapConfig ? ", map config extracted" : ""),
       code: 0,
     };
   }
