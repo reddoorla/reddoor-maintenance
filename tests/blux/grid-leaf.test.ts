@@ -61,4 +61,10 @@ describe("mediaFromElement", () => {
       ext: "jpg",
     });
   });
+  it("captures data-base as Media.base for a camediaload image", () => {
+    const el = parse(
+      `<div class="ib img imgfit camediaload" data-ext="png" data-base="https://cdn.example/folder/" data-media="abc123.png"></div>`,
+    ).firstChild as never;
+    expect(mediaFromElement(el)).toEqual({ kind: "image", assetId: "abc123", ext: "png", base: "https://cdn.example/folder/" });
+  });
 });

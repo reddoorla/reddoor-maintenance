@@ -104,7 +104,13 @@ function bandBackground(el: HTMLElement): Media | undefined {
   const rawId = el.getAttribute("data-media");
   if (!rawId) return undefined;
   const ext = el.getAttribute("data-ext") ?? undefined;
-  return { kind: "image", assetId: stripAssetExt(rawId, ext), ...(ext ? { ext } : {}) };
+  const base = el.getAttribute("data-base") ?? undefined;
+  return {
+    kind: "image",
+    assetId: stripAssetExt(rawId, ext),
+    ...(ext ? { ext } : {}),
+    ...(base ? { base } : {}),
+  };
 }
 
 /** Parse the rendered Blux index.html into the page's top-level band tree. */
