@@ -11,9 +11,8 @@ import { cleanCssValue } from "../normalize.js";
  * of the export's top level might suggest. */
 export function blockStylesByIndex(siteJson: unknown): Map<number, Record<string, string>> {
   const out = new Map<number, Record<string, string>>();
-  const blocks = (
-    siteJson as { content?: { pages?: { items?: unknown[] }[] } }
-  )?.content?.pages?.[0]?.items;
+  const blocks = (siteJson as { content?: { pages?: { items?: unknown[] }[] } })?.content
+    ?.pages?.[0]?.items;
   if (!Array.isArray(blocks)) return out;
   blocks.forEach((b, i) => {
     const styles = (b as { styles?: Record<string, unknown> })?.styles ?? {};

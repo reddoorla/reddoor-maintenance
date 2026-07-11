@@ -24,15 +24,15 @@ Read these before Task 1 — they define the contracts this plan joins:
 ```ts
 // the-pointe src/lib/blux/presentation.ts  (READ-ONLY REFERENCE)
 type RenderMedia = { kind: "image" | "video"; url: string; alt?: string };
-type GridToken   = { cols: number | "any"; ratio?: number; sized?: number };   // NB: no `raw`
+type GridToken = { cols: number | "any"; ratio?: number; sized?: number }; // NB: no `raw`
 type RenderNode =
-  | { kind: "row";    cells: RenderCell[] }
-  | { kind: "stack";  children: RenderNode[] }
+  | { kind: "row"; cells: RenderCell[] }
+  | { kind: "stack"; children: RenderNode[] }
   | { kind: "heading"; level: number; html: string; role?: string }
-  | { kind: "body";    html: string; role?: string }
+  | { kind: "body"; html: string; role?: string }
   | { kind: "subtitle"; text: string; role?: string }
-  | { kind: "media";  media: RenderMedia }
-  | { kind: "raw";    html: string }
+  | { kind: "media"; media: RenderMedia }
+  | { kind: "raw"; html: string }
   | { kind: "widget"; widget: { type: "map" } };
 type RenderCell = { token: GridToken; node: RenderNode };
 type MapRenderConfig = {
@@ -63,13 +63,14 @@ type Presentation = { bands: Record<string, BandPresentation> };
 4. **Band-index key:** `SpecBase.index` (== `Band.index`, the source `page-block-N` number) is used **identically** for the manifest key `String(index)` and the doc `primary.band` Number. They must match or `bandFor` returns null.
 5. **New `convert` CLI action** (parse → classify → emit); `grid` stays inspection-only; `migrate` is reused unchanged. `convert` writes `migration-plan.json`, `blux-presentation.json`, `map-config.json`, `theme.css`.
 6. **Block `style` source:** `site.json` block styles (`b.styles` cleaned by `cleanCssValue`), joined to grid bands by array-position/render-order with a loud contiguity assertion — NOT a new CSS parser.
-7. **Map render wiring** (the-pointe `Grid.svelte` mounting a real map for a co-located `widget:map`) is **plan 7**, not here. Plan 5 only *attaches* the `map` payload to the correct band in the manifest.
+7. **Map render wiring** (the-pointe `Grid.svelte` mounting a real map for a co-located `widget:map`) is **plan 7**, not here. Plan 5 only _attaches_ the `map` payload to the correct band in the manifest.
 
 ---
 
 ## File Structure
 
 **Create (reddoor-maintenance):**
+
 - `src/blux/emit/grid-slice.ts` — `sliceSpecToPlanSlice(spec): PlanSlice`. Pure `SliceSpec` → Prismic page-doc slice (text + band number). Replaces the archetype `slices.ts` for the grid path.
 - `src/blux/emit/grid-plan.ts` — `buildGridPlan(specs, ir): MigrationPlan`. Assembles the page `PlanDocument` (title + slices), carries reused `customTypes` (collections) and empty `assets`.
 - `src/blux/emit/block-styles.ts` — `blockStylesByIndex(siteJson): Map<number, Record<string, string>>`. Reuses `cleanCssValue`.
@@ -77,6 +78,7 @@ type Presentation = { bands: Record<string, BandPresentation> };
 - Tests: `tests/blux/emit/grid-slice.test.ts`, `tests/blux/emit/grid-plan.test.ts`, `tests/blux/emit/block-styles.test.ts`, `tests/blux/emit/presentation.test.ts`, plus a fidelity golden `tests/blux/grid-convert-golden.test.ts` + its snapshot.
 
 **Modify:**
+
 - `src/blux/grid/parse-grid.ts` — treat `[data-exec]` embeds as `raw` leaves (Task 1).
 - `src/cli/commands/blux.ts` — add the `convert` action (Task 6).
 - `src/cli/bin.ts` — extend the `blux` action list/description to include `convert` (Task 6).
@@ -93,6 +95,7 @@ type Presentation = { bands: Record<string, BandPresentation> };
 **Why:** On the real page the map mount (`<div id="custom-element0" data-exec=…>`) is class-less, so `isStructural` (class/token-based) returns false and `collectStructuralChildren` peels the whole subtree to nothing — the map is silently dropped, even from the Grid fallback. Making the `[data-exec]` wrapper a `raw` leaf preserves it; map recognition stays the classifier's job (`isMapMount`), so the parser remains map-agnostic.
 
 **Files:**
+
 - Modify: `src/blux/grid/parse-grid.ts` (`isStructural` ~lines 24–25; `parseNode` before its final `return parseContainer(el)` ~line 66)
 - Test: `tests/blux/grid-parse.test.ts` (add cases)
 - Snapshot: `tests/blux/__snapshots__/grid-golden.test.ts.snap` (band 14 line regenerates)
@@ -149,7 +152,7 @@ Add the `data-exec` clause to `isStructural` (so the wrapper stops being peeled)
 ```ts
 const isStructural = (el: HTMLElement): boolean =>
   isLeafElement(el) ||
-  el.hasAttribute("data-exec") ||           // Blux custom-code embed (e.g. map mount)
+  el.hasAttribute("data-exec") || // Blux custom-code embed (e.g. map mount)
   hasClass(el, "cagrid") ||
   parseGridToken(el.classNames) !== null;
 ```
@@ -194,6 +197,7 @@ git commit -m "fix(blux/grid): data-exec embeds survive as raw leaves (map mount
 **Why:** The manifest needs an absolute `RenderMedia.url`. The rendered HTML already carries the exact working CDN URL per image: `data-base` (full prefix, e.g. `https://d3syaxnfm3oj0e.cloudfront.net/<folder>/`) + `data-media` (`<uuid>.<ext>`). The current parser drops `data-base`, so emit would have no URL without a network probe. Capturing it into `Media.base` makes `convert` fully offline and deterministic (no probe), using the same URL the live page uses. `alt` still comes from `site.json` (`ir.assets`) at emit time — the HTML has none.
 
 **Files:**
+
 - Modify: `src/blux/grid/types.ts` (add `base?` to `Media`)
 - Modify: `src/blux/grid/leaf.ts` (`mediaFromElement` reads `data-base`)
 - Modify: `src/blux/grid/parse-grid.ts` (`bandBackground` reads `data-base` too — band backgrounds are `camediaload` divs)
@@ -209,7 +213,12 @@ it("captures data-base as Media.base for a camediaload image", () => {
   const el = parse(
     `<div class="ib img imgfit camediaload" data-ext="png" data-base="https://cdn.example/folder/" data-media="abc123.png"></div>`,
   ).firstChild as never;
-  expect(mediaFromElement(el)).toEqual({ kind: "image", assetId: "abc123", ext: "png", base: "https://cdn.example/folder/" });
+  expect(mediaFromElement(el)).toEqual({
+    kind: "image",
+    assetId: "abc123",
+    ext: "png",
+    base: "https://cdn.example/folder/",
+  });
 });
 ```
 
@@ -229,16 +238,16 @@ export type Media = { kind: "image" | "video"; assetId: string; ext?: string; ba
 In `src/blux/grid/leaf.ts`, in `mediaFromElement`'s image branch, read `data-base` and spread it conditionally:
 
 ```ts
-    if (rawId) {
-      const ext = img.getAttribute("data-ext") ?? undefined;
-      const base = img.getAttribute("data-base") ?? undefined;
-      return {
-        kind: "image",
-        assetId: stripAssetExt(rawId, ext),
-        ...(ext ? { ext } : {}),
-        ...(base ? { base } : {}),
-      };
-    }
+if (rawId) {
+  const ext = img.getAttribute("data-ext") ?? undefined;
+  const base = img.getAttribute("data-base") ?? undefined;
+  return {
+    kind: "image",
+    assetId: stripAssetExt(rawId, ext),
+    ...(ext ? { ext } : {}),
+    ...(base ? { base } : {}),
+  };
+}
 ```
 
 In `src/blux/grid/parse-grid.ts`, apply the same `data-base` capture inside `bandBackground` (the `camediaload` band-wrapper reader ~line 92) so band backgrounds also carry `base`. If `bandBackground` already delegates to `mediaFromElement`, this is free; otherwise add the identical `...(base ? { base } : {})` spread there.
@@ -262,22 +271,23 @@ git commit -m "feat(blux/grid): capture data-base into Media.base for offline UR
 **Why:** The page doc carries only CMS-editable text and the band index; everything visual is in the manifest (Decision 2/3). This mapper is table-driven and pure.
 
 **Files:**
+
 - Create: `src/blux/emit/grid-slice.ts`
 - Test: `tests/blux/emit/grid-slice.test.ts`
 
 Reference — the page-doc field contract per slice (from the-pointe `model.json`s; verified in the render-contract scout):
 
-| SliceSpec | slice_type | variation | primary fields |
-| --- | --- | --- | --- |
-| Hero | `hero` | `band` | `band` (Number), `heading` (Text), `subtitle` (Text), `body` (Text) |
-| TitleBand | `title_band` | `default` | `band`, `heading` (Text), `subtitle` (Text) |
-| RichText | `rich_text` | `default` | `content` (StructuredText = `richText(html)`), `band` (Number) |
-| SplitFeature | `split_feature` | `default` | `band` |
-| Gallery | `gallery` | `default` | `band` |
-| MediaFull | `media_full` | `default` | `band` |
-| VideoFeature | `media_full` | `default` | `band` |
-| LocationMap | `location_map` | `default` | `band` |
-| Grid | `grid_band` | `default` | `band` |
+| SliceSpec    | slice_type      | variation | primary fields                                                      |
+| ------------ | --------------- | --------- | ------------------------------------------------------------------- |
+| Hero         | `hero`          | `band`    | `band` (Number), `heading` (Text), `subtitle` (Text), `body` (Text) |
+| TitleBand    | `title_band`    | `default` | `band`, `heading` (Text), `subtitle` (Text)                         |
+| RichText     | `rich_text`     | `default` | `content` (StructuredText = `richText(html)`), `band` (Number)      |
+| SplitFeature | `split_feature` | `default` | `band`                                                              |
+| Gallery      | `gallery`       | `default` | `band`                                                              |
+| MediaFull    | `media_full`    | `default` | `band`                                                              |
+| VideoFeature | `media_full`    | `default` | `band`                                                              |
+| LocationMap  | `location_map`  | `default` | `band`                                                              |
+| Grid         | `grid_band`     | `default` | `band`                                                              |
 
 Text fields are **plain strings** (omit when absent); StructuredText uses the `richText()` marker. `items` is always `[]`.
 
@@ -292,9 +302,17 @@ const base = { index: 3 };
 
 describe("sliceSpecToPlanSlice", () => {
   it("maps Hero to hero/band with Text heading+subtitle+body (tags stripped)", () => {
-    const spec: SliceSpec = { ...base, slice: "Hero", heading: "THE OUTDOORS", subtitle: "eyebrow", body: "<p>Green <em>space</em>.</p>" };
+    const spec: SliceSpec = {
+      ...base,
+      slice: "Hero",
+      heading: "THE OUTDOORS",
+      subtitle: "eyebrow",
+      body: "<p>Green <em>space</em>.</p>",
+    };
     expect(sliceSpecToPlanSlice(spec)).toEqual({
-      slice_type: "hero", variation: "band", items: [],
+      slice_type: "hero",
+      variation: "band",
+      items: [],
       primary: { band: 3, heading: "THE OUTDOORS", subtitle: "eyebrow", body: "Green space." },
     });
   });
@@ -302,28 +320,53 @@ describe("sliceSpecToPlanSlice", () => {
   it("maps TitleBand to title_band/default", () => {
     const spec: SliceSpec = { ...base, slice: "TitleBand", heading: "THE SPACE" };
     expect(sliceSpecToPlanSlice(spec)).toEqual({
-      slice_type: "title_band", variation: "default", items: [], primary: { band: 3, heading: "THE SPACE" },
+      slice_type: "title_band",
+      variation: "default",
+      items: [],
+      primary: { band: 3, heading: "THE SPACE" },
     });
   });
 
   it("maps RichText to rich_text/default with a richtext marker", () => {
     const spec: SliceSpec = { ...base, slice: "RichText", html: "<p>Body copy.</p>" };
     expect(sliceSpecToPlanSlice(spec)).toEqual({
-      slice_type: "rich_text", variation: "default", items: [],
+      slice_type: "rich_text",
+      variation: "default",
+      items: [],
       primary: { content: { __richtext_html: "<p>Body copy.</p>" }, band: 3 },
     });
   });
 
   it("maps VideoFeature onto media_full (band only)", () => {
-    const spec: SliceSpec = { ...base, slice: "VideoFeature", media: { kind: "video", assetId: "u" } };
-    expect(sliceSpecToPlanSlice(spec)).toEqual({ slice_type: "media_full", variation: "default", items: [], primary: { band: 3 } });
+    const spec: SliceSpec = {
+      ...base,
+      slice: "VideoFeature",
+      media: { kind: "video", assetId: "u" },
+    };
+    expect(sliceSpecToPlanSlice(spec)).toEqual({
+      slice_type: "media_full",
+      variation: "default",
+      items: [],
+      primary: { band: 3 },
+    });
   });
 
   it.each([
-    ["SplitFeature", "split_feature"], ["Gallery", "gallery"], ["MediaFull", "media_full"],
-    ["LocationMap", "location_map"], ["Grid", "grid_band"],
+    ["SplitFeature", "split_feature"],
+    ["Gallery", "gallery"],
+    ["MediaFull", "media_full"],
+    ["LocationMap", "location_map"],
+    ["Grid", "grid_band"],
   ] as const)("maps %s to %s/default with band only", (slice, slice_type) => {
-    const spec = { ...base, slice, ratio: 40, mediaSide: "right", media: { kind: "image", assetId: "u" }, text: { kind: "body", html: "x" }, root: { kind: "row", cells: [] } } as unknown as SliceSpec;
+    const spec = {
+      ...base,
+      slice,
+      ratio: 40,
+      mediaSide: "right",
+      media: { kind: "image", assetId: "u" },
+      text: { kind: "body", html: "x" },
+      root: { kind: "row", cells: [] },
+    } as unknown as SliceSpec;
     const out = sliceSpecToPlanSlice({ ...spec, slice } as SliceSpec);
     expect(out.slice_type).toBe(slice_type);
     expect(out.variation).toBe("default");
@@ -346,7 +389,10 @@ import { type PlanSlice, richText } from "./plan.js";
 
 /** Strip all tags → the plain text a Prismic "Text" (key-text) field holds. */
 function stripTags(html: string): string {
-  return html.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+  return html
+    .replace(/<[^>]*>/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /** Map one classified band to its page-doc slice. Text + band index only —
@@ -355,7 +401,9 @@ export function sliceSpecToPlanSlice(spec: SliceSpec): PlanSlice {
   switch (spec.slice) {
     case "Hero":
       return {
-        slice_type: "hero", variation: "band", items: [],
+        slice_type: "hero",
+        variation: "band",
+        items: [],
         primary: {
           band: spec.index,
           ...(spec.heading ? { heading: spec.heading } : {}),
@@ -365,25 +413,58 @@ export function sliceSpecToPlanSlice(spec: SliceSpec): PlanSlice {
       };
     case "TitleBand":
       return {
-        slice_type: "title_band", variation: "default", items: [],
-        primary: { band: spec.index, heading: spec.heading, ...(spec.subtitle ? { subtitle: spec.subtitle } : {}) },
+        slice_type: "title_band",
+        variation: "default",
+        items: [],
+        primary: {
+          band: spec.index,
+          heading: spec.heading,
+          ...(spec.subtitle ? { subtitle: spec.subtitle } : {}),
+        },
       };
     case "RichText":
       return {
-        slice_type: "rich_text", variation: "default", items: [],
+        slice_type: "rich_text",
+        variation: "default",
+        items: [],
         primary: { content: richText(spec.html), band: spec.index },
       };
     case "SplitFeature":
-      return { slice_type: "split_feature", variation: "default", items: [], primary: { band: spec.index } };
+      return {
+        slice_type: "split_feature",
+        variation: "default",
+        items: [],
+        primary: { band: spec.index },
+      };
     case "Gallery":
-      return { slice_type: "gallery", variation: "default", items: [], primary: { band: spec.index } };
+      return {
+        slice_type: "gallery",
+        variation: "default",
+        items: [],
+        primary: { band: spec.index },
+      };
     case "MediaFull":
     case "VideoFeature":
-      return { slice_type: "media_full", variation: "default", items: [], primary: { band: spec.index } };
+      return {
+        slice_type: "media_full",
+        variation: "default",
+        items: [],
+        primary: { band: spec.index },
+      };
     case "LocationMap":
-      return { slice_type: "location_map", variation: "default", items: [], primary: { band: spec.index } };
+      return {
+        slice_type: "location_map",
+        variation: "default",
+        items: [],
+        primary: { band: spec.index },
+      };
     case "Grid":
-      return { slice_type: "grid_band", variation: "default", items: [], primary: { band: spec.index } };
+      return {
+        slice_type: "grid_band",
+        variation: "default",
+        items: [],
+        primary: { band: spec.index },
+      };
   }
 }
 ```
@@ -407,6 +488,7 @@ git commit -m "feat(blux/emit): sliceSpecToPlanSlice — grid slice → page-doc
 **Why:** Assemble the whole `MigrationPlan` the unchanged `run-migration.ts` consumes: a `page` document (`title` + `slices`, text only), reused custom types (collections), and — because media is Prismic-hosted (Tucker's decision) — a **populated `assets` list** of every image/video referenced by the manifest, so `runMigration` uploads them. The uploaded assets are library assets the manifest points at (they are not doc Image fields); the page doc stays text-only.
 
 **Files:**
+
 - Create: `src/blux/emit/grid-plan.ts` (`buildGridPlan` + `collectPlanAssets`)
 - Test: `tests/blux/emit/grid-plan.test.ts`
 
@@ -420,18 +502,34 @@ import { buildGridPlan } from "../../../src/blux/emit/grid-plan.js";
 import type { SliceSpec, Media } from "../../../src/blux/grid/index.js";
 import type { SiteIR } from "../../../src/blux/ir.js";
 
-const img = (id: string): Media => ({ kind: "image", assetId: id, ext: "png", base: "https://cdn/f/" });
+const img = (id: string): Media => ({
+  kind: "image",
+  assetId: id,
+  ext: "png",
+  base: "https://cdn/f/",
+});
 const ir = {
-  meta: {}, theme: {} as never, collections: [],
-  assets: [{ id: "a", sourceUrl: "https://cdn/f/a.png", name: "a.png", mime: "image/png", alt: "Alt A" }],
+  meta: {},
+  theme: {} as never,
+  collections: [],
+  assets: [
+    { id: "a", sourceUrl: "https://cdn/f/a.png", name: "a.png", mime: "image/png", alt: "Alt A" },
+  ],
   diagnostics: [],
   pages: [{ uid: "the-pointe", title: "The Pointe", description: "", sections: [] }],
 } as unknown as SiteIR;
 
 const specs: SliceSpec[] = [
   { index: 0, slice: "Hero", heading: "Hi", background: img("a") },
-  { index: 1, slice: "Gallery", media: [img("a"), img("b")] },   // "a" dedups
-  { index: 2, slice: "Grid", root: { kind: "row", cells: [{ token: { cols: 1, raw: "grid-1" }, node: { kind: "media", media: img("c") } }] } },
+  { index: 1, slice: "Gallery", media: [img("a"), img("b")] }, // "a" dedups
+  {
+    index: 2,
+    slice: "Grid",
+    root: {
+      kind: "row",
+      cells: [{ token: { cols: 1, raw: "grid-1" }, node: { kind: "media", media: img("c") } }],
+    },
+  },
 ];
 
 describe("buildGridPlan", () => {
@@ -491,12 +589,22 @@ export function collectPlanAssets(specs: SliceSpec[], altFor: (id: string) => st
   for (const spec of specs) {
     if (spec.background) add(spec.background);
     switch (spec.slice) {
-      case "Gallery": spec.media.forEach(add); break;
+      case "Gallery":
+        spec.media.forEach(add);
+        break;
       case "MediaFull":
-      case "VideoFeature": add(spec.media); break;
-      case "SplitFeature": add(spec.media); collectMedia(spec.text).forEach(add); break;
-      case "Grid": collectMedia(spec.root).forEach(add); break;
-      default: break; // Hero/TitleBand/RichText/LocationMap: only background (handled above)
+      case "VideoFeature":
+        add(spec.media);
+        break;
+      case "SplitFeature":
+        add(spec.media);
+        collectMedia(spec.text).forEach(add);
+        break;
+      case "Grid":
+        collectMedia(spec.root).forEach(add);
+        break;
+      default:
+        break; // Hero/TitleBand/RichText/LocationMap: only background (handled above)
     }
   }
   return [...byId.values()];
@@ -518,7 +626,13 @@ export function buildGridPlan(specs: SliceSpec[], ir: SiteIR): MigrationPlan {
   const altById = new Map(ir.assets.map((a) => [a.id, a.alt ?? ""]));
   const assets = collectPlanAssets(specs, (id) => altById.get(id) ?? "");
   const customTypes = ir.collections.map(buildCustomType);
-  return { customTypes, documents: [doc], assets, stylesManifest: [], diagnostics: ir.diagnostics ?? [] };
+  return {
+    customTypes,
+    documents: [doc],
+    assets,
+    stylesManifest: [],
+    diagnostics: ir.diagnostics ?? [],
+  };
 }
 ```
 
@@ -543,6 +657,7 @@ git commit -m "feat(blux/emit): buildGridPlan + collectPlanAssets — page doc +
 **Why:** `BandPresentation.style` (background-color, min-height, text-align — the design-pass band styling) comes from `site.json` block `styles`, cleaned exactly as `normalize.ts` already does. Grid bands are keyed by render-order index; site.json top-level page blocks are in the same order.
 
 **Files:**
+
 - Create: `src/blux/emit/block-styles.ts`
 - Test: `tests/blux/emit/block-styles.test.ts`
 
@@ -555,15 +670,19 @@ import { blockStylesByIndex } from "../../../src/blux/emit/block-styles.js";
 describe("blockStylesByIndex", () => {
   it("cleans + keys each top-level block's styles by its position", () => {
     const siteJson = {
-      pages: [{ blocks: [
-        { styles: { "background-color": "#fff", "min-height": "100vh" } },
-        { styles: {} },
-        { styles: { "text-align": "center", "z-index": 10 } },  // numeric kept as string
-      ] }],
+      pages: [
+        {
+          blocks: [
+            { styles: { "background-color": "#fff", "min-height": "100vh" } },
+            { styles: {} },
+            { styles: { "text-align": "center", "z-index": 10 } }, // numeric kept as string
+          ],
+        },
+      ],
     };
     const map = blockStylesByIndex(siteJson);
     expect(map.get(0)).toEqual({ "background-color": "#fff", "min-height": "100vh" });
-    expect(map.has(1)).toBe(false);                       // empty → no entry
+    expect(map.has(1)).toBe(false); // empty → no entry
     expect(map.get(2)).toEqual({ "text-align": "center", "z-index": "10" });
   });
 
@@ -626,6 +745,7 @@ git commit -m "feat(blux/emit): blockStylesByIndex — per-band block styles fro
 **Why:** This is the render-faithful half: the `{bands: {...}}` manifest the-pointe loads. It transforms the source node tree → `RenderNode` (dropping `GridToken.raw`, resolving `Media` → `RenderMedia`), fans each variant into the right `BandPresentation` field, attaches per-band `style`/`background`, and joins the map config. All media/style resolution is injected (`deps`) so the builder is pure, offline and snapshot-testable.
 
 **Files:**
+
 - Create: `src/blux/emit/presentation.ts`
 - Test: `tests/blux/emit/presentation.test.ts`
 
@@ -650,8 +770,16 @@ import { describe, it, expect } from "vitest";
 import { buildPresentation, type PresentationDeps } from "../../../src/blux/emit/presentation.js";
 import type { SliceSpec, Media, Node } from "../../../src/blux/grid/index.js";
 
-const url = (m: Media) => ({ kind: m.kind, url: `https://cdn/${m.assetId}.jpg`, alt: `alt-${m.assetId}` });
-const deps: PresentationDeps = { resolveMedia: url, styleFor: (i) => (i === 7 ? { "background-color": "#fff" } : undefined), map: null };
+const url = (m: Media) => ({
+  kind: m.kind,
+  url: `https://cdn/${m.assetId}.jpg`,
+  alt: `alt-${m.assetId}`,
+});
+const deps: PresentationDeps = {
+  resolveMedia: url,
+  styleFor: (i) => (i === 7 ? { "background-color": "#fff" } : undefined),
+  map: null,
+};
 
 const img = (id: string): Media => ({ kind: "image", assetId: id });
 
@@ -675,15 +803,24 @@ describe("buildPresentation", () => {
     const p = buildPresentation(specs, deps);
     expect(p.bands["0"]).toEqual({ gallery: [url(img("a")), url(img("b"))] });
     expect(p.bands["1"]).toEqual({ media: url(img("c")) });
-    expect(p.bands["2"]).toEqual({ media: { kind: "video", url: "https://cdn/v.jpg", alt: "alt-v" } });
+    expect(p.bands["2"]).toEqual({
+      media: { kind: "video", url: "https://cdn/v.jpg", alt: "alt-v" },
+    });
   });
 
   it("SplitFeature → split payload with resolved media + recursively-serialized text", () => {
     const text: Node = { kind: "body", html: "<p>copy</p>" };
-    const specs: SliceSpec[] = [{ index: 1, slice: "SplitFeature", ratio: 40, mediaSide: "right", media: img("m"), text }];
+    const specs: SliceSpec[] = [
+      { index: 1, slice: "SplitFeature", ratio: 40, mediaSide: "right", media: img("m"), text },
+    ];
     const p = buildPresentation(specs, deps);
     expect(p.bands["1"]).toEqual({
-      split: { mediaSide: "right", ratio: 40, media: url(img("m")), text: { kind: "body", html: "<p>copy</p>" } },
+      split: {
+        mediaSide: "right",
+        ratio: 40,
+        media: url(img("m")),
+        text: { kind: "body", html: "<p>copy</p>" },
+      },
     });
   });
 
@@ -692,7 +829,10 @@ describe("buildPresentation", () => {
       kind: "row",
       cells: [
         { token: { cols: 2, raw: "grid-2" }, node: { kind: "body", html: "<p>x</p>" } },
-        { token: { cols: 2, ratio: 40, raw: "grid-2-r40" }, node: { kind: "media", media: img("z") } },
+        {
+          token: { cols: 2, ratio: 40, raw: "grid-2-r40" },
+          node: { kind: "media", media: img("z") },
+        },
       ],
     };
     const p = buildPresentation([{ index: 3, slice: "Grid", root }], deps);
@@ -713,15 +853,24 @@ describe("buildPresentation", () => {
 
   it("attaches deps.map to a Grid band whose tree contains a widget:map", () => {
     const map = { mid: "M", layers: [], toggles: [], styles: [] };
-    const root: Node = { kind: "stack", children: [{ kind: "widget", widget: { type: "map" } }, { kind: "body", html: "<p>addr</p>" }] };
+    const root: Node = {
+      kind: "stack",
+      children: [
+        { kind: "widget", widget: { type: "map" } },
+        { kind: "body", html: "<p>addr</p>" },
+      ],
+    };
     const p = buildPresentation([{ index: 9, slice: "Grid", root }], { ...deps, map });
     expect(p.bands["9"].map).toEqual(map);
     expect(p.bands["9"].tree?.kind).toBe("stack");
   });
 
   it("drops a media node whose asset is unresolved rather than emitting a bad url", () => {
-    const p = buildPresentation([{ index: 0, slice: "MediaFull", media: img("gone") }], { ...deps, resolveMedia: () => null });
-    expect(p.bands["0"]).toEqual({});   // media omitted, band still present
+    const p = buildPresentation([{ index: 0, slice: "MediaFull", media: img("gone") }], {
+      ...deps,
+      resolveMedia: () => null,
+    });
+    expect(p.bands["0"]).toEqual({}); // media omitted, band still present
   });
 });
 ```
@@ -802,14 +951,19 @@ function renderNode(node: Node, resolve: PresentationDeps["resolveMedia"]): Rend
       return { kind: "stack", children };
     }
     case "heading":
-      return { kind: "heading", level: node.level, html: node.html, ...(node.role ? { role: node.role } : {}) };
+      return {
+        kind: "heading",
+        level: node.level,
+        html: node.html,
+        ...(node.role ? { role: node.role } : {}),
+      };
     case "body":
       return { kind: "body", html: node.html, ...(node.role ? { role: node.role } : {}) };
     case "subtitle":
       return { kind: "subtitle", text: node.text, ...(node.role ? { role: node.role } : {}) };
     case "media": {
       const m = resolve(node.media);
-      return m ? { kind: "media", media: m } : null;   // drop unresolved media
+      return m ? { kind: "media", media: m } : null; // drop unresolved media
     }
     case "raw":
       return { kind: "raw", html: node.html };
@@ -907,6 +1061,7 @@ git commit -m "feat(blux/emit): buildPresentation — SliceSpec[] → render man
 **Why:** One offline, creds-free command that reads an export and writes all four artifacts. It resolves the injected `deps` from the real IR (media → CDN URLs via `ir.assets`; block styles via Task 4; map via `extractMapConfig`).
 
 **Files:**
+
 - Modify: `src/cli/commands/blux.ts` (add the `convert` action + update the unknown-action list)
 - Modify: `src/cli/bin.ts` (extend the `blux` description/`--out` already exists; ensure `convert` is documented)
 - Reference: the existing `emit` action (assembleIR + writes) and `grid` action (parseGridBands + extractMapConfig + map-config.json) in the same file.
@@ -929,11 +1084,18 @@ describe("blux convert", () => {
     );
     await writeFile(
       join(dir, "site.json"),
-      JSON.stringify({ pages: [{ uid: "home", title: "Home", blocks: [{ styles: { "background-color": "#fff" } }] }], settings: {} }),
+      JSON.stringify({
+        pages: [
+          { uid: "home", title: "Home", blocks: [{ styles: { "background-color": "#fff" } }] },
+        ],
+        settings: {},
+      }),
     );
     const res = await runBluxCommand("convert", dir, { cwd: dir });
     expect(res.code).toBe(0);
-    const manifest = JSON.parse(await readFile(join(dir, "blux-out", "blux-presentation.json"), "utf-8"));
+    const manifest = JSON.parse(
+      await readFile(join(dir, "blux-out", "blux-presentation.json"), "utf-8"),
+    );
     expect(manifest.bands["0"]).toBeDefined();
     const plan = JSON.parse(await readFile(join(dir, "blux-out", "migration-plan.json"), "utf-8"));
     expect(plan.documents[0].data.slices[0].slice_type).toBe("title_band");
@@ -953,9 +1115,18 @@ Expected: FAIL — `unknown blux action 'convert'`.
 First extend the imports at the top of the file:
 
 ```ts
-import { parseGridBands, extractMapConfig, makeIsMapMount, classifyBands } from "../../blux/grid/index.js";
+import {
+  parseGridBands,
+  extractMapConfig,
+  makeIsMapMount,
+  classifyBands,
+} from "../../blux/grid/index.js";
 import { buildGridPlan } from "../../blux/emit/grid-plan.js";
-import { buildPresentation, type PresentationDeps, type RenderMedia } from "../../blux/emit/presentation.js";
+import {
+  buildPresentation,
+  type PresentationDeps,
+  type RenderMedia,
+} from "../../blux/emit/presentation.js";
 import { blockStylesByIndex } from "../../blux/emit/block-styles.js";
 ```
 
@@ -988,7 +1159,9 @@ if (action === "convert") {
   const deps: PresentationDeps = {
     resolveMedia: (m) => {
       const a = assetsById.get(m.assetId);
-      const url = m.base ? `${m.base}${m.assetId}${m.ext ? `.${m.ext}` : ""}` : (a?.sourceUrl ?? null);
+      const url = m.base
+        ? `${m.base}${m.assetId}${m.ext ? `.${m.ext}` : ""}`
+        : (a?.sourceUrl ?? null);
       if (!url) return null;
       const alt = a?.alt;
       const rm: RenderMedia = { kind: m.kind, url, ...(alt ? { alt } : {}) };
@@ -1004,8 +1177,14 @@ if (action === "convert") {
   const outDir = opts.out ?? join(dir, "blux-out");
   await mkdir(outDir, { recursive: true });
   await writeFile(join(outDir, "migration-plan.json"), JSON.stringify(plan, null, 2));
-  await writeFile(join(outDir, "blux-presentation.json"), JSON.stringify(presentation, null, 2) + "\n");
-  await writeFile(join(outDir, "theme.css"), emitThemeCss(ir.theme) + "\n" + emitRolesCss(ir.theme));
+  await writeFile(
+    join(outDir, "blux-presentation.json"),
+    JSON.stringify(presentation, null, 2) + "\n",
+  );
+  await writeFile(
+    join(outDir, "theme.css"),
+    emitThemeCss(ir.theme) + "\n" + emitRolesCss(ir.theme),
+  );
   if (mapConfig) {
     await writeFile(join(outDir, "map-config.json"), JSON.stringify(mapConfig, null, 2) + "\n");
   }
@@ -1013,7 +1192,8 @@ if (action === "convert") {
     output:
       `Converted ${bands.length} bands → ${outDir} ` +
       `(${Object.keys(presentation.bands).length} manifest bands, ${plan.documents[0]?.data.slices ? (plan.documents[0].data.slices as unknown[]).length : 0} slices` +
-      (mapConfig ? ", map config extracted" : "") + ")",
+      (mapConfig ? ", map config extracted" : "") +
+      ")",
     code: 0,
   };
 }
@@ -1039,7 +1219,10 @@ function mapRenderFromConfig(c: MapConfig): MapRenderConfig {
 Update the fallthrough action list string to include `convert`:
 
 ```ts
-return { output: `unknown blux action '${action}'. Use: emit, migrate, validate, grid, convert.`, code: 1 };
+return {
+  output: `unknown blux action '${action}'. Use: emit, migrate, validate, grid, convert.`,
+  code: 1,
+};
 ```
 
 > Confirm against the real file: `assembleIR`, `emitThemeCss`, `emitRolesCss`, `readFile`, `writeFile`, `mkdir`, `join` are already imported for `emit`/`grid`; `ir.assets` fields (`id`, `sourceUrl`, `alt`) — verify names in `src/blux/assemble.ts`. If the probe wiring is non-trivial, copy the `emit` action's `--probe` block verbatim and have it mutate `ir.assets[].sourceUrl` before building `deps`. Keep `MapConfig`/`MapRenderConfig` type-only imports.
@@ -1075,6 +1258,7 @@ git commit -m "feat(blux): blux convert — parse+classify+emit page doc + prese
 **Why:** Tucker's decision: media is Prismic-hosted for durability. `convert` writes the manifest with CDN URLs (renders offline immediately); `migrate` uploads the assets (Task 3 populated `plan.assets`) and then **rewrites** `blux-presentation.json`'s media URLs from the CDN URL to the uploaded Prismic URL. The rewrite is a pure, structured walk keyed by URL; the `migrate` CLI action drives it after `runMigration`.
 
 **Files:**
+
 - Create: `src/blux/emit/rewrite-manifest.ts` (`rewriteManifestUrls`)
 - Modify: `src/blux/emit/run-migration.ts` (expose `assetUrlById` on the result)
 - Modify: `src/cli/commands/blux.ts` (the `migrate` action rewrites the manifest when present)
@@ -1090,9 +1274,32 @@ import type { Presentation } from "../../../src/blux/emit/presentation.js";
 const manifest: Presentation = {
   bands: {
     "0": { background: { kind: "image", url: "https://cdn/f/a.png", alt: "A" } },
-    "1": { gallery: [{ kind: "image", url: "https://cdn/f/a.png" }, { kind: "image", url: "https://cdn/f/b.png" }] },
-    "2": { split: { mediaSide: "left", ratio: 40, media: { kind: "image", url: "https://cdn/f/c.png" }, text: { kind: "row", cells: [{ token: { cols: 1 }, node: { kind: "media", media: { kind: "image", url: "https://cdn/f/b.png" } } }] } } },
-    "3": { tree: { kind: "media", media: { kind: "image", url: "https://cdn/f/a.png" } }, media: { kind: "video", url: "https://cdn/f/v.mp4" } },
+    "1": {
+      gallery: [
+        { kind: "image", url: "https://cdn/f/a.png" },
+        { kind: "image", url: "https://cdn/f/b.png" },
+      ],
+    },
+    "2": {
+      split: {
+        mediaSide: "left",
+        ratio: 40,
+        media: { kind: "image", url: "https://cdn/f/c.png" },
+        text: {
+          kind: "row",
+          cells: [
+            {
+              token: { cols: 1 },
+              node: { kind: "media", media: { kind: "image", url: "https://cdn/f/b.png" } },
+            },
+          ],
+        },
+      },
+    },
+    "3": {
+      tree: { kind: "media", media: { kind: "image", url: "https://cdn/f/a.png" } },
+      media: { kind: "video", url: "https://cdn/f/v.mp4" },
+    },
   },
 };
 
@@ -1106,12 +1313,18 @@ describe("rewriteManifestUrls", () => {
     ]);
     const out = rewriteManifestUrls(manifest, map);
     expect(out.bands["0"].background!.url).toBe("https://images.prismic.io/repo/a");
-    expect(out.bands["1"].gallery!.map((m) => m.url)).toEqual(["https://images.prismic.io/repo/a", "https://images.prismic.io/repo/b"]);
+    expect(out.bands["1"].gallery!.map((m) => m.url)).toEqual([
+      "https://images.prismic.io/repo/a",
+      "https://images.prismic.io/repo/b",
+    ]);
     expect(out.bands["2"].split!.media.url).toBe("https://images.prismic.io/repo/c");
     // nested media inside split.text tree
-    const cell = (out.bands["2"].split!.text as { cells: { node: { media: { url: string } } }[] }).cells[0]!;
+    const cell = (out.bands["2"].split!.text as { cells: { node: { media: { url: string } } }[] })
+      .cells[0]!;
     expect(cell.node.media.url).toBe("https://images.prismic.io/repo/b");
-    expect((out.bands["3"].tree as { media: { url: string } }).media.url).toBe("https://images.prismic.io/repo/a");
+    expect((out.bands["3"].tree as { media: { url: string } }).media.url).toBe(
+      "https://images.prismic.io/repo/a",
+    );
     expect(out.bands["3"].media!.url).toBe("https://cdn/f/v.mp4"); // unknown left intact
     // input not mutated
     expect(manifest.bands["0"].background!.url).toBe("https://cdn/f/a.png");
@@ -1137,7 +1350,10 @@ const swap = (m: RenderMedia, map: Map<string, string>): RenderMedia => {
 function walkNode(node: RenderNode, map: Map<string, string>): RenderNode {
   switch (node.kind) {
     case "row":
-      return { kind: "row", cells: node.cells.map((c) => ({ token: c.token, node: walkNode(c.node, map) })) };
+      return {
+        kind: "row",
+        cells: node.cells.map((c) => ({ token: c.token, node: walkNode(c.node, map) })),
+      };
     case "stack":
       return { kind: "stack", children: node.children.map((c) => walkNode(c, map)) };
     case "media":
@@ -1153,13 +1369,21 @@ function walkBand(bp: BandPresentation, map: Map<string, string>): BandPresentat
   if (bp.media) out.media = swap(bp.media, map);
   if (bp.gallery) out.gallery = bp.gallery.map((m) => swap(m, map));
   if (bp.tree) out.tree = walkNode(bp.tree, map);
-  if (bp.split) out.split = { ...bp.split, media: swap(bp.split.media, map), text: walkNode(bp.split.text, map) };
+  if (bp.split)
+    out.split = {
+      ...bp.split,
+      media: swap(bp.split.media, map),
+      text: walkNode(bp.split.text, map),
+    };
   return out; // style / map are untouched (no media urls)
 }
 
 /** Return a deep copy of the manifest with every RenderMedia.url present in
  * `urlMap` replaced by its mapped value. Unknown urls are left intact. Pure. */
-export function rewriteManifestUrls(manifest: Presentation, urlMap: Map<string, string>): Presentation {
+export function rewriteManifestUrls(
+  manifest: Presentation,
+  urlMap: Map<string, string>,
+): Presentation {
   const bands: Record<string, BandPresentation> = {};
   for (const [k, bp] of Object.entries(manifest.bands)) bands[k] = walkBand(bp, urlMap);
   return { bands };
@@ -1217,6 +1441,7 @@ git commit -m "feat(blux/emit): migrate rewrites manifest media urls to Prismic 
 **Why:** The snapshot golden is the fidelity gate (like the parse/classify goldens). It runs the full `parse → classify → buildPresentation` on the committed the-pointe fixture with a deterministic stub resolver, and separately proves the map path with the map-band fixture + a real `extractMapConfig`.
 
 **Files:**
+
 - Create: `tests/blux/grid-convert-golden.test.ts` (+ its snapshot, generated)
 - Fixtures used (already committed on this branch's base `b087dc7`): `tests/blux/fixtures/the-pointe-page-content.html`, `tests/blux/fixtures/the-pointe-map-band.html`
 
@@ -1226,8 +1451,17 @@ git commit -m "feat(blux/emit): migrate rewrites manifest media urls to Prismic 
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseGridBands, classifyBands, extractMapConfig, makeIsMapMount } from "../../src/blux/grid/index.js";
-import { buildPresentation, type PresentationDeps, type RenderMedia } from "../../src/blux/emit/presentation.js";
+import {
+  parseGridBands,
+  classifyBands,
+  extractMapConfig,
+  makeIsMapMount,
+} from "../../src/blux/grid/index.js";
+import {
+  buildPresentation,
+  type PresentationDeps,
+  type RenderMedia,
+} from "../../src/blux/emit/presentation.js";
 import { sliceSpecToPlanSlice } from "../../src/blux/emit/grid-slice.js";
 
 const fixture = (name: string) => readFileSync(join(__dirname, "fixtures", name), "utf-8");
@@ -1265,7 +1499,17 @@ describe("grid convert golden — the-pointe", () => {
     expect(cfg).not.toBeNull();
     const bands = parseGridBands(html);
     const specs = classifyBands(bands, { isMapMount: makeIsMapMount(cfg!) });
-    const mapDeps: PresentationDeps = { ...deps, map: { mid: cfg!.mid, layers: cfg!.layers, toggles: cfg!.toggles, styles: cfg!.styles, ...(cfg!.center ? { center: cfg!.center } : {}), ...(cfg!.zoom !== undefined ? { zoom: cfg!.zoom } : {}) } };
+    const mapDeps: PresentationDeps = {
+      ...deps,
+      map: {
+        mid: cfg!.mid,
+        layers: cfg!.layers,
+        toggles: cfg!.toggles,
+        styles: cfg!.styles,
+        ...(cfg!.center ? { center: cfg!.center } : {}),
+        ...(cfg!.zoom !== undefined ? { zoom: cfg!.zoom } : {}),
+      },
+    };
     const manifest = buildPresentation(specs, mapDeps);
     // Exactly one band carries a map payload; its mid matches the extracted config.
     const withMap = Object.values(manifest.bands).filter((b) => b.map);
@@ -1283,6 +1527,7 @@ Expected: PASS, snapshot file created.
 - [ ] **Step 3: Eyeball the golden (the fidelity check — do NOT skip)**
 
 Open `tests/blux/__snapshots__/grid-convert-golden.test.ts.snap` and verify:
+
 - 16 bands present, indices contiguous 0–15.
 - Band 14's `tree` is a `stack` whose first child is a `raw` node containing `id="burbank_map"` (the Task-1 fix carried the map into the manifest).
 - Band 1 has a `split` payload (`mediaSide:"right"`, `ratio:40`); band 8 has a `gallery` of 3; the three `TitleBand` bands (2, 13, 15) have no `tree`/`media`/`split` (text is doc-side), only possibly `style`.
@@ -1302,6 +1547,7 @@ git commit -m "test(blux): grid convert fidelity golden — the-pointe manifest 
 ## Task 8: Full-suite verification, changeset, docs
 
 **Files:**
+
 - Create: `.changeset/<name>.md`
 - Modify (optional): a short note in the spec's "rollout" section marking step 4's emit paths done.
 
@@ -1319,6 +1565,7 @@ Expected: clean (CI prettier-checks markdown too; the new `.ts` public exports m
 
 Run: `pnpm tsx src/cli/bin.ts blux convert ~/Desktop/thePointe --out /tmp/blux-convert-smoke`
 Expected: exit 0, prints "Converted 16 bands …, map config extracted". Then inspect:
+
 - `/tmp/blux-convert-smoke/blux-presentation.json` — band 14 has both a `tree` (with the map `raw`/`widget`) and a `map` payload; media `url`s are real cloudfront URLs (`data-base` + uuid + ext, resolved offline for **every** image — no probe); `style` present on white/hero bands.
 - `/tmp/blux-convert-smoke/migration-plan.json` — one `page` doc, 16 slices, `title` heading1, and a populated `assets` array (every unique image/video with a CDN url + alt) ready for upload.
 - `/tmp/blux-convert-smoke/map-config.json` + `theme.css` present.
@@ -1362,7 +1609,7 @@ Per the merge-authority policy: auto-merge once CI-green + review-clean (this is
 ## Decisions (rationale — read before executing)
 
 - **Why two-phase Prismic hosting (Decision 1):** Prismic URLs aren't known until assets are uploaded (a creds-gated network step), but `convert` must stay offline/deterministic (Tucker's "zero-token, don't touch the live site" strategy). So `convert` writes the CDN URL (which renders faithfully with zero creds — the exact URL the live page uses, from `data-base`) and populates `plan.assets`; the creds-gated `migrate` uploads those assets and rewrites the manifest URLs to Prismic. This gives durability (Blux cloudfront could lapse if the client stops paying Blux) without coupling `convert` to the network. Convert-only = CDN preview; convert+migrate = Prismic-hosted production.
-- **Why no Image fields in the page doc (Decision 2):** the shipped render contract (plans 3–4) reads *all* media from the manifest (`bands[i].gallery/media/split/background/tree`), not Prismic Image fields. Emit conforms to what shipped, so the uploaded assets are library assets the manifest references by URL, not doc-field images. Consequence: media is Prismic-hosted/durable but not individually CMS-editable — accepted per spec decision #4 (CMS is a nice-to-have). Making media CMS-editable (Prismic Image fields in the slices) would require changing the-pointe's render slices — out of scope here.
+- **Why no Image fields in the page doc (Decision 2):** the shipped render contract (plans 3–4) reads _all_ media from the manifest (`bands[i].gallery/media/split/background/tree`), not Prismic Image fields. Emit conforms to what shipped, so the uploaded assets are library assets the manifest references by URL, not doc-field images. Consequence: media is Prismic-hosted/durable but not individually CMS-editable — accepted per spec decision #4 (CMS is a nice-to-have). Making media CMS-editable (Prismic Image fields in the slices) would require changing the-pointe's render slices — out of scope here.
 - **Why split text → manifest, hero/title/richtext text → doc (Decision 3):** `BandPresentation` has slots for `split.text` (a `RenderNode`, so nested media survives) but none for heading/subtitle/hero-body/richtext-content; those map to Prismic Text/StructuredText fields the band slices read from `primary`. Leaving the split_feature `body` override empty means the manifest text renders — faithful, just not separately CMS-editable.
 - **Why a new `convert` action (Decision 5):** the legacy `emit`/archetype pipeline has different inputs (all page HTML + `site.json`) and outputs (`SectionIR`-based). Fusing them risks the `migrate` contract that reads `migration-plan.json`. `convert` reuses the plan/marker/runner plumbing but is a clean separate entry; `grid` stays a pure inspect step. `migrate` is untouched and pushes `convert`'s `migration-plan.json` verbatim.
 - **Why block styles from site.json by index (Decision 6):** the values are already structured data in `site.json` (`b.styles`) and already cleaned by `normalize.ts` (`cleanCssValue`) — reuse beats writing a CSS-rule parser for the rendered `<style>`. Risk: the array-position↔`page-block-N` join can misalign on a page that skips block indices; the contiguity assertion in the golden (Task 7 step 3: indices 0–15 contiguous) is the tripwire, and a non-contiguous site fails loudly rather than mis-styling.

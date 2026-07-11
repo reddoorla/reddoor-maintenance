@@ -4,7 +4,12 @@ import type { MigrationPlan } from "../../../src/blux/emit/plan.js";
 
 /** Minimal Response-like whose only used members are `.ok`, `.json`, `.blob`. */
 function jsonRes(body: unknown): Response {
-  return { ok: true, status: 200, json: async () => body, text: async () => "" } as unknown as Response;
+  return {
+    ok: true,
+    status: 200,
+    json: async () => body,
+    text: async () => "",
+  } as unknown as Response;
 }
 function blobRes(): Response {
   return { ok: true, status: 200, blob: async () => new Blob(["x"]) } as unknown as Response;
@@ -31,7 +36,13 @@ describe("runMigration assetUrlByCdn", () => {
       const url = String(input);
       if (url.startsWith("https://asset-api.prismic.io/assets?")) {
         return jsonRes({
-          items: [{ id: "existing-id", filename: "reused.png", url: "https://images.prismic.io/repo/reused" }],
+          items: [
+            {
+              id: "existing-id",
+              filename: "reused.png",
+              url: "https://images.prismic.io/repo/reused",
+            },
+          ],
         });
       }
       if (url === "https://asset-api.prismic.io/assets" && init?.method === "POST") {
@@ -57,7 +68,11 @@ describe("runMigration assetUrlByCdn", () => {
 
     expect(result.assetsReused).toBe(1);
     expect(result.assetsUploaded).toBe(1);
-    expect(result.assetUrlByCdn.get("https://cdn/f/reused.png")).toBe("https://images.prismic.io/repo/reused");
-    expect(result.assetUrlByCdn.get("https://cdn/f/new.png")).toBe("https://images.prismic.io/repo/new");
+    expect(result.assetUrlByCdn.get("https://cdn/f/reused.png")).toBe(
+      "https://images.prismic.io/repo/reused",
+    );
+    expect(result.assetUrlByCdn.get("https://cdn/f/new.png")).toBe(
+      "https://images.prismic.io/repo/new",
+    );
   });
 });

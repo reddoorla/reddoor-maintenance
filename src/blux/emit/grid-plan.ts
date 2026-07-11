@@ -17,7 +17,10 @@ export function mediaCdnUrl(m: Media): string | null {
  * (data-base + uuid + ext) if present, else the IR asset's scraped sourceUrl,
  * else null. Shared by the plan's asset list and the manifest resolver so the
  * two url strings are byte-identical (the migrate rewrite keys on that). */
-export function mediaUrl(m: Media, sourceUrlById: Map<string, string | null | undefined>): string | null {
+export function mediaUrl(
+  m: Media,
+  sourceUrlById: Map<string, string | null | undefined>,
+): string | null {
   return mediaCdnUrl(m) ?? sourceUrlById.get(m.assetId) ?? null;
 }
 

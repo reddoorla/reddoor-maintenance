@@ -3,18 +3,34 @@ import { buildGridPlan, mediaUrl } from "../../../src/blux/emit/grid-plan.js";
 import type { SliceSpec, Media } from "../../../src/blux/grid/index.js";
 import type { SiteIR } from "../../../src/blux/ir.js";
 
-const img = (id: string): Media => ({ kind: "image", assetId: id, ext: "png", base: "https://cdn/f/" });
+const img = (id: string): Media => ({
+  kind: "image",
+  assetId: id,
+  ext: "png",
+  base: "https://cdn/f/",
+});
 const ir = {
-  meta: {}, theme: {} as never, collections: [],
-  assets: [{ id: "a", sourceUrl: "https://cdn/f/a.png", name: "a.png", mime: "image/png", alt: "Alt A" }],
+  meta: {},
+  theme: {} as never,
+  collections: [],
+  assets: [
+    { id: "a", sourceUrl: "https://cdn/f/a.png", name: "a.png", mime: "image/png", alt: "Alt A" },
+  ],
   diagnostics: [],
   pages: [{ uid: "the-pointe", title: "The Pointe", description: "", sections: [] }],
 } as unknown as SiteIR;
 
 const specs: SliceSpec[] = [
   { index: 0, slice: "Hero", heading: "Hi", background: img("a") },
-  { index: 1, slice: "Gallery", media: [img("a"), img("b")] },   // "a" dedups
-  { index: 2, slice: "Grid", root: { kind: "row", cells: [{ token: { cols: 1, raw: "grid-1" }, node: { kind: "media", media: img("c") } }] } },
+  { index: 1, slice: "Gallery", media: [img("a"), img("b")] }, // "a" dedups
+  {
+    index: 2,
+    slice: "Grid",
+    root: {
+      kind: "row",
+      cells: [{ token: { cols: 1, raw: "grid-1" }, node: { kind: "media", media: img("c") } }],
+    },
+  },
 ];
 
 describe("mediaUrl", () => {
@@ -63,7 +79,15 @@ describe("buildGridPlan", () => {
     const noBase: Media = { kind: "image", assetId: "d", ext: "png" };
     const ir2 = {
       ...ir,
-      assets: [{ id: "d", sourceUrl: "https://legacy/d.png", name: "d.png", mime: "image/png", alt: "Legacy D" }],
+      assets: [
+        {
+          id: "d",
+          sourceUrl: "https://legacy/d.png",
+          name: "d.png",
+          mime: "image/png",
+          alt: "Legacy D",
+        },
+      ],
     } as unknown as SiteIR;
     const specs2: SliceSpec[] = [{ index: 0, slice: "MediaFull", media: noBase }];
     const plan = buildGridPlan(specs2, ir2);

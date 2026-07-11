@@ -224,9 +224,7 @@ describe("blux convert", () => {
       await readFile(join(dir, "blux-out", "blux-presentation.json"), "utf-8"),
     );
     expect(manifest.bands["0"]).toBeDefined();
-    const plan = JSON.parse(
-      await readFile(join(dir, "blux-out", "migration-plan.json"), "utf-8"),
-    );
+    const plan = JSON.parse(await readFile(join(dir, "blux-out", "migration-plan.json"), "utf-8"));
     expect(plan.documents[0].data.slices[0].slice_type).toBe("title_band");
   });
 });

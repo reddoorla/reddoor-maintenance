@@ -315,7 +315,10 @@ export async function runBluxCommand(
       join(outDir, "blux-presentation.json"),
       JSON.stringify(presentation, null, 2) + "\n",
     );
-    await writeFile(join(outDir, "theme.css"), emitThemeCss(ir.theme) + "\n" + emitRolesCss(ir.theme));
+    await writeFile(
+      join(outDir, "theme.css"),
+      emitThemeCss(ir.theme) + "\n" + emitRolesCss(ir.theme),
+    );
     if (mapConfig) {
       await writeFile(join(outDir, "map-config.json"), JSON.stringify(mapConfig, null, 2) + "\n");
     }

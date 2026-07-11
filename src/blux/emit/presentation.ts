@@ -26,7 +26,12 @@ export type RenderNode =
 
 export type RenderCell = { token: RenderToken; node: RenderNode };
 
-export type MapLayer = { name: string; lid: string; initiallyVisible: boolean; preserveViewport: boolean };
+export type MapLayer = {
+  name: string;
+  lid: string;
+  initiallyVisible: boolean;
+  preserveViewport: boolean;
+};
 export type MapToggle = { label: string; layers: string[] };
 export type MapRenderConfig = {
   mid: string;
@@ -89,7 +94,12 @@ function renderNode(node: Node, resolve: PresentationDeps["resolveMedia"]): Rend
       return { kind: "stack", children };
     }
     case "heading":
-      return { kind: "heading", level: node.level, html: node.html, ...(node.role ? { role: node.role } : {}) };
+      return {
+        kind: "heading",
+        level: node.level,
+        html: node.html,
+        ...(node.role ? { role: node.role } : {}),
+      };
     case "body":
       return { kind: "body", html: node.html, ...(node.role ? { role: node.role } : {}) };
     case "subtitle":
