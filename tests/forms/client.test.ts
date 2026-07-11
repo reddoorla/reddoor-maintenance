@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
-import { submitToIngest, screenSubmission, MIN_FILL_MS } from "../../src/forms/client.js";
+import {
+  submitToIngest,
+  screenSubmission,
+  MIN_FILL_MS,
+  INGEST_TIMEOUT_MS,
+} from "../../src/forms/client.js";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -47,6 +52,64 @@ describe("submitToIngest", () => {
     });
     expect(out.ok).toBe(false);
     if (!out.ok) expect(out.status).toBe(0);
+  });
+
+  /** A fetch that never settles until its abort signal fires — models a central
+   *  ingest hung mid-deploy. Without a bounded budget the site action awaits
+   *  until Netlify kills the function (espada's 2026-07-10 form-e2e warns). */
+  function hungFetch() {
+    return vi.fn(
+      (_url: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("This operation was aborted", "AbortError")),
+          );
+        }),
+    );
+  }
+
+  it("passes an abort signal to fetch (the timeout budget's hook)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true, id: "recX" }));
+    await submitToIngest({
+      url: "https://dash/api/forms/reddoor",
+      token: "tok",
+      payload: { email: "a@b.co" },
+      fetch: fetchMock,
+    });
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("aborts a hung ingest call once timeoutMs elapses, with a friendly error", async () => {
+    const fetchMock = hungFetch();
+    const pending = submitToIngest({
+      url: "https://dash/api/forms/reddoor",
+      token: "tok",
+      payload: { email: "a@b.co" },
+      fetch: fetchMock as unknown as typeof fetch,
+      timeoutMs: 50,
+    });
+    // Real-time sentinel so a regression (no abort budget) fails instead of
+    // wedging the suite on a never-settling promise. Generous margin over the
+    // 50ms budget — it only fires when the abort never happens at all.
+    const out = await Promise.race([
+      pending,
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("submitToIngest never aborted — no timeout budget exists")),
+          10_000,
+        ),
+      ),
+    ]);
+    expect(out.ok).toBe(false);
+    if (!out.ok) {
+      expect(out.status).toBe(0);
+      expect(out.error).toMatch(/abort/i);
+    }
+  });
+
+  it("defaults the budget to 8s (bounded well inside a 10s Netlify sync function)", () => {
+    expect(INGEST_TIMEOUT_MS).toBe(8000);
   });
 });
 
