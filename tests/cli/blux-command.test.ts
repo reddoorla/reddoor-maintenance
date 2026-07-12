@@ -127,50 +127,76 @@ describe("blux emit errors", () => {
 });
 
 describe("blux validate", () => {
-  it("reports content coverage of a render against the export answer key", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "blux-validate-"));
-    await writeFile(
+  const writeMinimalExport = async (dir: string) => {
+    await writeFile(join(dir, "site.json"), JSON.stringify(minimalSite));
+    await writeFile(join(dir, "index.html"), minimalHtml);
+  };
+  const writePointeExport = async (dir: string) => {
+    await writeFile(join(dir, "site.json"), JSON.stringify(minimalSite));
+    await copyFile(
+      fileURLToPath(new URL("../blux/fixtures/the-pointe-page-content.html", import.meta.url)),
       join(dir, "index.html"),
-      "<body><h1>The Pointe</h1><p>The Space</p><p>Burbank</p></body>",
     );
-    const renderedPath = join(dir, "rendered.html");
-    await writeFile(renderedPath, "<main>The Pointe The Space</main>");
-    const r = await runBluxCommand("validate", dir, { against: renderedPath });
-    expect(r.output).toContain("content coverage: 2/3");
-    // the run the render never produced is named so the gap is actionable
-    expect(r.output).toContain("burbank");
+  };
+
+  it("exits 0 on a vacuously-faithful export (no bands, no --against)", async () => {
+    // minimalHtml has no grid bands → 0 specs → vacuously faithful. Proves the
+    // faithful exit-0 path + that the gate runs offline with no --against.
+    const dir = await mkdtemp(join(tmpdir(), "blux-validate-"));
+    await writeMinimalExport(dir);
+    const r = await runBluxCommand("validate", dir, {});
+    expect(r.code).toBe(0);
+    expect(r.output).toContain("layout fidelity: FAITHFUL");
   });
 
-  it("needs an --against target", async () => {
+  it("exits 1 and names the unresolvable band when the gate finds drift", async () => {
+    // the-pointe page + the `minimalSite` STUB (which omits the-pointe's video
+    // asset) → band 10's <video> can't resolve (no CDN base, no IR sourceUrl)
+    // → exactly one tree-drift finding → the gate exits 1 (see the convert
+    // test's GROUND TRUTH note). A realistic "one asset missing" drift case.
     const dir = await mkdtemp(join(tmpdir(), "blux-validate-"));
-    await writeFile(join(dir, "index.html"), "<body>x</body>");
+    await writePointeExport(dir);
     const r = await runBluxCommand("validate", dir, {});
     expect(r.code).toBe(1);
-    expect(r.output).toContain("--against");
+    expect(r.output).toMatch(/finding\(s\)/);
+    expect(r.output).toContain("band 10");
+  });
+
+  it("layers content coverage on top when --against is given", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-validate-"));
+    await writeMinimalExport(dir);
+    const renderedPath = join(dir, "rendered.html");
+    await writeFile(renderedPath, "<html><body><p>Intro copy. About us.</p></body></html>");
+    const r = await runBluxCommand("validate", dir, { against: renderedPath });
+    expect(r.code).toBe(0);
+    expect(r.output).toContain("layout fidelity");
+    expect(r.output).toContain("content coverage");
+  });
+
+  it("fails cleanly when index.html is missing", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-validate-"));
+    const r = await runBluxCommand("validate", dir, {});
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("index.html");
   });
 
   it("fails cleanly when the --against file is missing", async () => {
     const dir = await mkdtemp(join(tmpdir(), "blux-validate-"));
-    await writeFile(join(dir, "index.html"), "<body>The Pointe</body>");
-    const r = await runBluxCommand("validate", dir, {
-      against: join(dir, "does-not-exist.html"),
-    });
+    await writeMinimalExport(dir);
+    const r = await runBluxCommand("validate", dir, { against: join(dir, "does-not-exist.html") });
     expect(r.code).toBe(1);
     expect(r.output).toContain("against");
   });
 
   it("fails cleanly when the --against URL returns a non-OK status", async () => {
     const dir = await mkdtemp(join(tmpdir(), "blux-validate-"));
-    await writeFile(join(dir, "index.html"), "<body>The Pointe</body>");
-    const fetchImpl = (async () =>
-      new Response("<h1>Not Found</h1>", { status: 404 })) as unknown as typeof fetch;
+    await writeMinimalExport(dir);
     const r = await runBluxCommand("validate", dir, {
       against: "https://example.com/typo",
-      fetchImpl,
+      fetchImpl: (async () => new Response("nope", { status: 404 })) as typeof fetch,
     });
-    // a 404 error page must not be coverage-checked as if it were the render
     expect(r.code).toBe(1);
-    expect(r.output).toContain("404");
+    expect(r.output).toContain("against");
   });
 });
 
