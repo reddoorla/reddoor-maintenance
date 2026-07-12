@@ -4,7 +4,12 @@
 // media, or map drifted. Pure + offline — the render side (Playwright DOM
 // signature) is plan 7's verify. See the plan's "The comparison, precisely".
 import type { Cell, Node, SliceSpec } from "../grid/index.js";
-import { hasMapWidget, type Presentation, type RenderCell, type RenderNode } from "./presentation.js";
+import {
+  hasMapWidget,
+  type Presentation,
+  type RenderCell,
+  type RenderNode,
+} from "./presentation.js";
 
 /** Canonical grid-token key — cols + optional ratio/sized, WITHOUT the
  * source-only `raw` string, so a source token and its render-side twin (which
@@ -129,7 +134,12 @@ export function validateLayout(specs: SliceSpec[], presentation: Presentation): 
         gridBands++;
         converted = bp.tree ? sigOf(bp.tree) : "∅";
         if (source !== converted) {
-          findings.push({ kind: "tree-drift", band: spec.index, expected: source, actual: converted });
+          findings.push({
+            kind: "tree-drift",
+            band: spec.index,
+            expected: source,
+            actual: converted,
+          });
         }
         if (hasMapWidget(spec.root) && !bp.map) {
           findings.push({ kind: "map-missing", band: spec.index });
@@ -140,7 +150,11 @@ export function validateLayout(specs: SliceSpec[], presentation: Presentation): 
         const got = bp.gallery?.length ?? 0;
         converted = `gallery(${got})`;
         if (got < spec.media.length) {
-          findings.push({ kind: "media-dropped", band: spec.index, where: `gallery ${got}/${spec.media.length}` });
+          findings.push({
+            kind: "media-dropped",
+            band: spec.index,
+            where: `gallery ${got}/${spec.media.length}`,
+          });
         }
         break;
       }
@@ -172,8 +186,44 @@ export function validateLayout(specs: SliceSpec[], presentation: Presentation): 
         break; // text lives in the page doc (gated by grid-slice.test.ts); nothing manifest-carried to lose beyond background
     }
 
-    rows.push({ band: spec.index, slice: spec.slice, source, converted, ok: findings.length === before });
+    rows.push({
+      band: spec.index,
+      slice: spec.slice,
+      source,
+      converted,
+      ok: findings.length === before,
+    });
   }
 
   return { bands: specs.length, gridBands, faithful: findings.length === 0, findings, rows };
+}
+
+function fmtFinding(f: LayoutFinding): string {
+  switch (f.kind) {
+    case "band-count":
+      return `  band count mismatch: ${f.specs} source bands vs ${f.manifest} manifest bands`;
+    case "band-missing":
+      return `  band ${f.band}: no manifest entry`;
+    case "tree-drift":
+      return `  band ${f.band}: grid tree drift\n      expected ${f.expected}\n      actual   ${f.actual}`;
+    case "media-dropped":
+      return `  band ${f.band}: media dropped (${f.where})`;
+    case "map-missing":
+      return `  band ${f.band}: map config missing`;
+  }
+}
+
+/** Render a LayoutReport as a terminal summary: a headline verdict, a per-band
+ * signature table (`ok` / `!!` per band), then the findings detail. */
+export function formatLayoutReport(r: LayoutReport): string {
+  const headline = `layout fidelity: ${
+    r.faithful ? "FAITHFUL" : `${r.findings.length} finding(s)`
+  } — ${r.bands} bands (${r.gridBands} grid-tree checked)`;
+  const table = r.rows.map((x) => {
+    const tag = x.ok ? "ok" : "!!";
+    const sig = x.ok ? x.source : `${x.source} -> ${x.converted}`;
+    return `  band ${String(x.band).padStart(2)} ${x.slice.padEnd(13)} ${tag}  ${sig}`;
+  });
+  const detail = r.findings.length ? ["findings:", ...r.findings.map(fmtFinding)] : [];
+  return [headline, ...table, ...detail].join("\n");
 }

@@ -107,7 +107,9 @@ describe("validateLayout — findings", () => {
         ],
       },
     ];
-    const pres: Presentation = { bands: { "8": { gallery: [{ kind: "image", url: "asset://a" }] } } };
+    const pres: Presentation = {
+      bands: { "8": { gallery: [{ kind: "image", url: "asset://a" }] } },
+    };
     const r = validateLayout(specs, pres);
     expect(r.findings).toContainEqual({ kind: "media-dropped", band: 8, where: "gallery 1/3" });
     expect(r.rows[0]).toMatchObject({ source: "gallery(3)", converted: "gallery(1)", ok: false });
@@ -153,7 +155,9 @@ describe("validateLayout — findings", () => {
 
   it("flags a Grid band with a co-located map widget but no manifest map", () => {
     const root: Node = { kind: "widget", widget: { type: "map" } };
-    const pres: Presentation = { bands: { "14": { tree: { kind: "widget", widget: { type: "map" } } } } };
+    const pres: Presentation = {
+      bands: { "14": { tree: { kind: "widget", widget: { type: "map" } } } },
+    };
     const r = validateLayout([gridSpec(14, root)], pres);
     expect(r.findings).toContainEqual({ kind: "map-missing", band: 14 });
   });
@@ -170,5 +174,31 @@ describe("validateLayout — findings", () => {
     };
     const r = validateLayout([gridSpec(14, root)], pres);
     expect(r.faithful).toBe(true);
+  });
+});
+
+import { formatLayoutReport } from "../../../src/blux/emit/validate-layout.js";
+
+describe("formatLayoutReport", () => {
+  it("summarizes a faithful report as one FAITHFUL line + a per-band table", () => {
+    const specs = [gridSpec(0, srcRow)];
+    const out = formatLayoutReport(validateLayout(specs, { bands: { "0": { tree: renRow } } }));
+    expect(out).toContain("layout fidelity: FAITHFUL");
+    expect(out).toContain("1 bands");
+    expect(out).toContain("1 grid-tree checked");
+    expect(out).toMatch(/band\s+0\s+Grid\s+ok/);
+    expect(out).not.toContain("findings:");
+  });
+
+  it("lists each finding with the expected/actual signatures", () => {
+    const droppedRow: RenderNode = { kind: "row", cells: [renRow.cells[0]!] };
+    const out = formatLayoutReport(
+      validateLayout([gridSpec(0, srcRow)], { bands: { "0": { tree: droppedRow } } }),
+    );
+    expect(out).toContain("1 finding(s)");
+    expect(out).toContain("findings:");
+    expect(out).toContain("band 0: grid tree drift");
+    expect(out).toContain("row[6:h2,6:media:image]");
+    expect(out).toContain("row[6:h2]");
   });
 });
