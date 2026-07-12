@@ -95,6 +95,14 @@ describe("validateLayout — findings", () => {
     expect(r.findings).toContainEqual({ kind: "band-count", specs: 1, manifest: 0 });
   });
 
+  it("flags a band-count mismatch when the manifest has more bands than specs", () => {
+    // spec 0 is present + faithful; the stray manifest band "1" surfaces only via band-count.
+    const pres: Presentation = { bands: { "0": { tree: renRow }, "1": {} } };
+    const r = validateLayout([gridSpec(0, srcRow)], pres);
+    expect(r.findings).toContainEqual({ kind: "band-count", specs: 1, manifest: 2 });
+    expect(r.findings.some((f) => f.kind === "band-missing")).toBe(false);
+  });
+
   it("flags a short gallery (an image dropped)", () => {
     const specs: SliceSpec[] = [
       {
@@ -130,12 +138,82 @@ describe("validateLayout — findings", () => {
     expect(r.findings).toContainEqual({ kind: "media-dropped", band: 1, where: "split" });
   });
 
+  it("passes a SplitFeature whose side/ratio match the manifest", () => {
+    const specs: SliceSpec[] = [
+      {
+        slice: "SplitFeature",
+        index: 1,
+        ratio: 40,
+        mediaSide: "right",
+        media: { kind: "image", assetId: "m" },
+        text: { kind: "body", html: "<p>t</p>" },
+      },
+    ];
+    const pres: Presentation = {
+      bands: {
+        "1": {
+          split: {
+            mediaSide: "right",
+            ratio: 40,
+            media: { kind: "image", url: "asset://m" },
+            text: { kind: "body", html: "<p>t</p>" },
+          },
+        },
+      },
+    };
+    const r = validateLayout(specs, pres);
+    expect(r.faithful).toBe(true);
+    expect(r.rows[0]).toMatchObject({ ok: true, converted: "split(right,40)" });
+  });
+
+  it("flags a SplitFeature whose media side flipped", () => {
+    const specs: SliceSpec[] = [
+      {
+        slice: "SplitFeature",
+        index: 1,
+        ratio: 40,
+        mediaSide: "right",
+        media: { kind: "image", assetId: "m" },
+        text: { kind: "body", html: "<p>t</p>" },
+      },
+    ];
+    const pres: Presentation = {
+      bands: {
+        "1": {
+          split: {
+            mediaSide: "left",
+            ratio: 40,
+            media: { kind: "image", url: "asset://m" },
+            text: { kind: "body", html: "<p>t</p>" },
+          },
+        },
+      },
+    };
+    const r = validateLayout(specs, pres);
+    expect(r.findings).toContainEqual({
+      kind: "tree-drift",
+      band: 1,
+      expected: "split(right,40)",
+      actual: "split(left,40)",
+    });
+    expect(r.rows[0]!.ok).toBe(false);
+  });
+
   it("flags a media_full band whose media dropped", () => {
     const specs: SliceSpec[] = [
       { slice: "MediaFull", index: 5, media: { kind: "image", assetId: "m" } },
     ];
     const r = validateLayout(specs, { bands: { "5": {} } });
     expect(r.findings).toContainEqual({ kind: "media-dropped", band: 5, where: "media" });
+  });
+
+  it("flags a video_feature band whose media dropped", () => {
+    const specs: SliceSpec[] = [
+      { slice: "VideoFeature", index: 6, media: { kind: "video", assetId: "v" } },
+    ];
+    const r = validateLayout(specs, { bands: { "6": {} } });
+    expect(r.findings).toContainEqual({ kind: "media-dropped", band: 6, where: "media" });
+    expect(r.rows[0]).toMatchObject({ source: "video" });
   });
 
   it("flags a dropped band background", () => {

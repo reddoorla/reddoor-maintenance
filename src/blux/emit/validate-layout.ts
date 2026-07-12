@@ -113,6 +113,7 @@ export function validateLayout(specs: SliceSpec[], presentation: Presentation): 
     findings.push({ kind: "band-count", specs: specs.length, manifest: manifestKeys.length });
   }
 
+  // We iterate specs (the source answer key): a stray manifest band with no spec surfaces only via the band-count mismatch above, never named — by design.
   for (const spec of specs) {
     const source = sourceLabel(spec);
     const bp = presentation.bands[String(spec.index)];
@@ -170,6 +171,16 @@ export function validateLayout(specs: SliceSpec[], presentation: Presentation): 
         if (!bp.split) {
           converted = "∅";
           findings.push({ kind: "media-dropped", band: spec.index, where: "split" });
+        } else {
+          converted = `split(${bp.split.mediaSide},${bp.split.ratio})`;
+          if (converted !== source) {
+            findings.push({
+              kind: "tree-drift",
+              band: spec.index,
+              expected: source,
+              actual: converted,
+            });
+          }
         }
         break;
       }
