@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { runBluxCommand } from "../../src/cli/commands/blux.js";
-import type { LayoutFinding } from "../../src/blux/emit/validate-layout.js";
 import { minimalSite, minimalHtml } from "../blux/fixtures/minimal-site.js";
 
 /** Write a fake Blux export dir (site.json + rendered index.html). */
@@ -139,6 +138,17 @@ describe("blux validate", () => {
       join(dir, "index.html"),
     );
   };
+  // An export whose one media genuinely can't resolve: a bare camediaload image
+  // with NO data-base (no offline CDN url) and an assetId absent from site.json
+  // (no IR sourceUrl). Exercises the gate's core "media dropped" signal without
+  // depending on any real asset.
+  const writeUnresolvableExport = async (dir: string) => {
+    await writeFile(join(dir, "site.json"), JSON.stringify(minimalSite));
+    await writeFile(
+      join(dir, "index.html"),
+      `<div id="page-content"><section class="blocks0" id="page-block-0"><div class="block-content"><div class="ib img imgfit camediaload" data-media="ghost-unresolvable" data-ext="jpg"></div></div></section></div>`,
+    );
+  };
 
   it("exits 0 on a vacuously-faithful export (no bands, no --against)", async () => {
     // minimalHtml has no grid bands → 0 specs → vacuously faithful. Proves the
@@ -150,17 +160,25 @@ describe("blux validate", () => {
     expect(r.output).toContain("layout fidelity: FAITHFUL");
   });
 
-  it("exits 1 and names the unresolvable band when the gate finds drift", async () => {
-    // the-pointe page + the `minimalSite` STUB (which omits the-pointe's video
-    // asset) → band 10's <video> can't resolve (no CDN base, no IR sourceUrl)
-    // → exactly one tree-drift finding → the gate exits 1 (see the convert
-    // test's GROUND TRUTH note). A realistic "one asset missing" drift case.
+  it("exits 0 on the-pointe — all media (images + the video) resolve offline", async () => {
+    // The-pointe's images carry data-base and its <video> carries its CDN url on
+    // `src` (captured as `base`), so the whole page resolves offline from the
+    // markup alone — no site.json asset list needed. This is the real page's
+    // faithful path through the CLI gate.
     const dir = await mkdtemp(join(tmpdir(), "blux-validate-"));
     await writePointeExport(dir);
     const r = await runBluxCommand("validate", dir, {});
+    expect(r.code).toBe(0);
+    expect(r.output).toContain("layout fidelity: FAITHFUL");
+  });
+
+  it("exits 1 and names the band when a media cannot resolve", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-validate-"));
+    await writeUnresolvableExport(dir);
+    const r = await runBluxCommand("validate", dir, {});
     expect(r.code).toBe(1);
     expect(r.output).toMatch(/finding\(s\)/);
-    expect(r.output).toContain("band 10");
+    expect(r.output).toContain("band 0");
   });
 
   it("layers content coverage as informational text — a coverage gap does not gate", async () => {
@@ -265,17 +283,10 @@ describe("blux convert", () => {
     expect(plan.documents[0].data.slices[0].slice_type).toBe("title_band");
   });
 
-  // GROUND TRUTH (verified against the real ~/Desktop/thePointe export): the
-  // real site.json declares the-pointe's video asset, so production converts
-  // FAITHFUL. But `minimalSite` is a STUB that omits that video (band 10). A
-  // <video> parses with an assetId+ext but NO CDN `base` (its url is on
-  // `<video src>`), so it resolves only via the IR asset's sourceUrl — which
-  // minimalSite can't supply → band 10's video drops → exactly one tree-drift.
-  // (Images resolve offline via their own data-base, independent of site.json.)
-  // The fully-resolved faithful path is proven at the module level by Task 6's
-  // grid-validate golden. This CLI test asserts convert REPORTS the gap yet
-  // still exits 0 — a generator never gates (Decision #6).
-  it("appends a layout-fidelity summary and writes layout-report.json (non-gating)", async () => {
+  it("converts the-pointe with a FAITHFUL fidelity report + writes layout-report.json", async () => {
+    // The-pointe resolves fully offline (images via data-base, the <video> via
+    // its src-derived base), so convert reports zero findings. Proves convert
+    // appends the summary and writes the report on the real 16-band page.
     const dir = await mkdtemp(join(tmpdir(), "blux-convert-"));
     await writeFile(join(dir, "site.json"), JSON.stringify(minimalSite));
     await copyFile(
@@ -283,14 +294,29 @@ describe("blux convert", () => {
       join(dir, "index.html"),
     );
     const res = await runBluxCommand("convert", dir, { cwd: dir });
+    expect(res.code).toBe(0);
+    expect(res.output).toContain("layout fidelity: FAITHFUL");
+    const report = JSON.parse(await readFile(join(dir, "blux-out", "layout-report.json"), "utf-8"));
+    expect(report.bands).toBe(16);
+    expect(report.faithful).toBe(true);
+    expect(report.findings).toEqual([]);
+  });
+
+  it("reports findings but still exits 0 — a generator never gates (Decision #6)", async () => {
+    // A synthetic export with one unresolvable media (no data-base, absent from
+    // site.json) → the report carries a finding, yet convert exits 0.
+    const dir = await mkdtemp(join(tmpdir(), "blux-convert-"));
+    await writeFile(join(dir, "site.json"), JSON.stringify(minimalSite));
+    await writeFile(
+      join(dir, "index.html"),
+      `<div id="page-content"><section class="blocks0" id="page-block-0"><div class="block-content"><div class="ib img imgfit camediaload" data-media="ghost-unresolvable" data-ext="jpg"></div></div></section></div>`,
+    );
+    const res = await runBluxCommand("convert", dir, { cwd: dir });
     expect(res.code).toBe(0); // convert reports but never gates
     expect(res.output).toContain("layout fidelity:");
     const report = JSON.parse(await readFile(join(dir, "blux-out", "layout-report.json"), "utf-8"));
-    expect(report.bands).toBe(16);
     expect(report.faithful).toBe(false);
-    expect(
-      report.findings.some((f: LayoutFinding) => f.kind === "tree-drift" && f.band === 10),
-    ).toBe(true);
+    expect(report.findings.length).toBeGreaterThan(0);
   });
 });
 
