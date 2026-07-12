@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile, readFile, mkdir } from "node:fs/promises";
+import { mkdtemp, writeFile, readFile, mkdir, copyFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -226,6 +226,36 @@ describe("blux convert", () => {
     expect(manifest.bands["0"]).toBeDefined();
     const plan = JSON.parse(await readFile(join(dir, "blux-out", "migration-plan.json"), "utf-8"));
     expect(plan.documents[0].data.slices[0].slice_type).toBe("title_band");
+  });
+
+  // GROUND TRUTH (verified against the real ~/Desktop/thePointe export): the
+  // real site.json declares the-pointe's video asset, so production converts
+  // FAITHFUL. But `minimalSite` is a STUB that omits that video (band 10). A
+  // <video> parses with an assetId+ext but NO CDN `base` (its url is on
+  // `<video src>`), so it resolves only via the IR asset's sourceUrl — which
+  // minimalSite can't supply → band 10's video drops → exactly one tree-drift.
+  // (Images resolve offline via their own data-base, independent of site.json.)
+  // The fully-resolved faithful path is proven at the module level by Task 6's
+  // grid-validate golden. This CLI test asserts convert REPORTS the gap yet
+  // still exits 0 — a generator never gates (Decision #6).
+  it("appends a layout-fidelity summary and writes layout-report.json (non-gating)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-convert-"));
+    await writeFile(join(dir, "site.json"), JSON.stringify(minimalSite));
+    await copyFile(
+      fileURLToPath(new URL("../blux/fixtures/the-pointe-page-content.html", import.meta.url)),
+      join(dir, "index.html"),
+    );
+    const res = await runBluxCommand("convert", dir, { cwd: dir });
+    expect(res.code).toBe(0); // convert reports but never gates
+    expect(res.output).toContain("layout fidelity:");
+    const report = JSON.parse(await readFile(join(dir, "blux-out", "layout-report.json"), "utf-8"));
+    expect(report.bands).toBe(16);
+    expect(report.faithful).toBe(false);
+    expect(
+      report.findings.some(
+        (f: { kind: string; band: number }) => f.kind === "tree-drift" && f.band === 10,
+      ),
+    ).toBe(true);
   });
 });
 

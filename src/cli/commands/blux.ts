@@ -8,6 +8,7 @@ import { buildReviewManifest } from "../../blux/emit/review.js";
 import { validateCoverage } from "../../blux/validate.js";
 import { parseGridBands, extractMapConfig } from "../../blux/grid/index.js";
 import { convertExport } from "../../blux/emit/convert.js";
+import { validateLayout, formatLayoutReport } from "../../blux/emit/validate-layout.js";
 import { rewriteManifestUrls } from "../../blux/emit/rewrite-manifest.js";
 import type { Presentation } from "../../blux/emit/presentation.js";
 import type { MigrationPlan } from "../../blux/emit/plan.js";
@@ -272,7 +273,7 @@ export async function runBluxCommand(
     } catch (err) {
       return { output: `could not read export in ${dir}: ${(err as Error).message}`, code: 1 };
     }
-    const { bands, mapConfig, plan, presentation, ir } = convertExport({ html, siteJson });
+    const { bands, mapConfig, plan, presentation, ir, specs } = convertExport({ html, siteJson });
 
     const outDir = opts.out ?? join(dir, "blux-out");
     await mkdir(outDir, { recursive: true });
@@ -288,13 +289,16 @@ export async function runBluxCommand(
     if (mapConfig) {
       await writeFile(join(outDir, "map-config.json"), JSON.stringify(mapConfig, null, 2) + "\n");
     }
+    const layout = validateLayout(specs, presentation);
+    await writeFile(join(outDir, "layout-report.json"), JSON.stringify(layout, null, 2) + "\n");
     const sliceCount = (plan.documents[0]?.data.slices as unknown[] | undefined)?.length ?? 0;
     return {
       output:
         `Converted ${bands.length} bands → ${outDir} ` +
         `(${Object.keys(presentation.bands).length} manifest bands, ${sliceCount} slices` +
         (mapConfig ? ", map config extracted" : "") +
-        ")",
+        ")\n" +
+        formatLayoutReport(layout),
       code: 0,
     };
   }
