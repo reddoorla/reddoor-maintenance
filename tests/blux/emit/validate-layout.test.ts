@@ -199,6 +199,50 @@ describe("validateLayout — findings", () => {
     expect(r.rows[0]!.ok).toBe(false);
   });
 
+  it("flags a SplitFeature whose text-side nested media dropped", () => {
+    // The split's text side is a full node subtree (band 1 of the-pointe nests
+    // media in it). If a nested media fails to resolve, renderNode drops it from
+    // bp.split.text while side/ratio still match — the gate must still flag it.
+    const textWithMedia: Node = {
+      kind: "stack",
+      children: [{ kind: "heading", level: 3, html: "<h3>x</h3>" }, img("nested")],
+    };
+    const specs: SliceSpec[] = [
+      {
+        slice: "SplitFeature",
+        index: 1,
+        ratio: 40,
+        mediaSide: "right",
+        media: { kind: "image", assetId: "m" },
+        text: textWithMedia,
+      },
+    ];
+    const droppedText: RenderNode = {
+      kind: "stack",
+      children: [{ kind: "heading", level: 3, html: "<h3>x</h3>" }], // nested media gone
+    };
+    const pres: Presentation = {
+      bands: {
+        "1": {
+          split: {
+            mediaSide: "right",
+            ratio: 40,
+            media: { kind: "image", url: "asset://m" },
+            text: droppedText,
+          },
+        },
+      },
+    };
+    const r = validateLayout(specs, pres);
+    expect(r.faithful).toBe(false);
+    expect(r.findings).toContainEqual({
+      kind: "tree-drift",
+      band: 1,
+      expected: "split.text stack[h3,media:image]",
+      actual: "split.text stack[h3]",
+    });
+  });
+
   it("flags a media_full band whose media dropped", () => {
     const specs: SliceSpec[] = [
       { slice: "MediaFull", index: 5, media: { kind: "image", assetId: "m" } },

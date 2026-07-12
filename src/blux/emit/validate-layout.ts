@@ -173,12 +173,29 @@ export function validateLayout(specs: SliceSpec[], presentation: Presentation): 
           findings.push({ kind: "media-dropped", band: spec.index, where: "split" });
         } else {
           converted = `split(${bp.split.mediaSide},${bp.split.ratio})`;
+          // Defensive: the current builder copies mediaSide/ratio verbatim, so
+          // this can't fire against real convertExport output — it guards a
+          // future transforming builder that reshapes the split.
           if (converted !== source) {
             findings.push({
               kind: "tree-drift",
               band: spec.index,
               expected: source,
               actual: converted,
+            });
+          }
+          // The split's text side is a full node subtree (band 1 of the-pointe
+          // nests media inside it); buildPresentation serializes it via
+          // renderNode, which DROPS unresolved media. Signature-check it like a
+          // Grid tree so a dropped nested media isn't silently reported faithful.
+          const expectedText = sigOf(spec.text);
+          const actualText = sigOf(bp.split.text);
+          if (expectedText !== actualText) {
+            findings.push({
+              kind: "tree-drift",
+              band: spec.index,
+              expected: `split.text ${expectedText}`,
+              actual: `split.text ${actualText}`,
             });
           }
         }
@@ -195,6 +212,13 @@ export function validateLayout(specs: SliceSpec[], presentation: Presentation): 
       case "TitleBand":
       case "RichText":
         break; // text lives in the page doc (gated by grid-slice.test.ts); nothing manifest-carried to lose beyond background
+      default: {
+        // A new slice kind must be handled explicitly, not silently pass as
+        // faithful. `sourceLabel` above is also exhaustive, so this is a local
+        // belt-and-suspenders guard rather than the sole gate.
+        const _exhaustive: never = spec;
+        throw new Error(`validateLayout: unhandled slice ${(_exhaustive as SliceSpec).slice}`);
+      }
     }
 
     rows.push({
