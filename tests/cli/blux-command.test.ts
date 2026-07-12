@@ -1,10 +1,11 @@
-import { mkdtemp, writeFile, readFile, mkdir } from "node:fs/promises";
+import { mkdtemp, writeFile, readFile, mkdir, copyFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { runBluxCommand } from "../../src/cli/commands/blux.js";
+import type { LayoutFinding } from "../../src/blux/emit/validate-layout.js";
 import { minimalSite, minimalHtml } from "../blux/fixtures/minimal-site.js";
 
 /** Write a fake Blux export dir (site.json + rendered index.html). */
@@ -127,50 +128,86 @@ describe("blux emit errors", () => {
 });
 
 describe("blux validate", () => {
-  it("reports content coverage of a render against the export answer key", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "blux-validate-"));
-    await writeFile(
+  const writeMinimalExport = async (dir: string) => {
+    await writeFile(join(dir, "site.json"), JSON.stringify(minimalSite));
+    await writeFile(join(dir, "index.html"), minimalHtml);
+  };
+  const writePointeExport = async (dir: string) => {
+    await writeFile(join(dir, "site.json"), JSON.stringify(minimalSite));
+    await copyFile(
+      fileURLToPath(new URL("../blux/fixtures/the-pointe-page-content.html", import.meta.url)),
       join(dir, "index.html"),
-      "<body><h1>The Pointe</h1><p>The Space</p><p>Burbank</p></body>",
     );
-    const renderedPath = join(dir, "rendered.html");
-    await writeFile(renderedPath, "<main>The Pointe The Space</main>");
-    const r = await runBluxCommand("validate", dir, { against: renderedPath });
-    expect(r.output).toContain("content coverage: 2/3");
-    // the run the render never produced is named so the gap is actionable
-    expect(r.output).toContain("burbank");
+  };
+
+  it("exits 0 on a vacuously-faithful export (no bands, no --against)", async () => {
+    // minimalHtml has no grid bands → 0 specs → vacuously faithful. Proves the
+    // faithful exit-0 path + that the gate runs offline with no --against.
+    const dir = await mkdtemp(join(tmpdir(), "blux-validate-"));
+    await writeMinimalExport(dir);
+    const r = await runBluxCommand("validate", dir, {});
+    expect(r.code).toBe(0);
+    expect(r.output).toContain("layout fidelity: FAITHFUL");
   });
 
-  it("needs an --against target", async () => {
+  it("exits 1 and names the unresolvable band when the gate finds drift", async () => {
+    // the-pointe page + the `minimalSite` STUB (which omits the-pointe's video
+    // asset) → band 10's <video> can't resolve (no CDN base, no IR sourceUrl)
+    // → exactly one tree-drift finding → the gate exits 1 (see the convert
+    // test's GROUND TRUTH note). A realistic "one asset missing" drift case.
     const dir = await mkdtemp(join(tmpdir(), "blux-validate-"));
-    await writeFile(join(dir, "index.html"), "<body>x</body>");
+    await writePointeExport(dir);
     const r = await runBluxCommand("validate", dir, {});
     expect(r.code).toBe(1);
-    expect(r.output).toContain("--against");
+    expect(r.output).toMatch(/finding\(s\)/);
+    expect(r.output).toContain("band 10");
+  });
+
+  it("layers content coverage as informational text — a coverage gap does not gate", async () => {
+    // A band-less but text-bearing export → layout is vacuously faithful (0
+    // bands), while content coverage has a REAL gap ("absent sentence here" is
+    // in the export but not the render). Proves coverage is informational only:
+    // a missing run coexists with exit 0; layout fidelity alone gates.
+    const dir = await mkdtemp(join(tmpdir(), "blux-validate-"));
+    await writeFile(join(dir, "site.json"), JSON.stringify(minimalSite));
+    await writeFile(
+      join(dir, "index.html"),
+      "<html><body><h1>Present Headline</h1><p>Absent sentence here.</p></body></html>",
+    );
+    const renderedPath = join(dir, "rendered.html");
+    await writeFile(renderedPath, "<html><body><h1>Present Headline</h1></body></html>");
+    const r = await runBluxCommand("validate", dir, { against: renderedPath });
+    expect(r.code).toBe(0); // layout faithful → exit 0 despite the coverage gap
+    expect(r.output).toContain("layout fidelity: FAITHFUL");
+    expect(r.output).toContain("content coverage");
+    expect(r.output).toContain("missing runs");
+  });
+
+  it("fails cleanly when index.html is missing", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-validate-"));
+    const r = await runBluxCommand("validate", dir, {});
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("index.html");
   });
 
   it("fails cleanly when the --against file is missing", async () => {
     const dir = await mkdtemp(join(tmpdir(), "blux-validate-"));
-    await writeFile(join(dir, "index.html"), "<body>The Pointe</body>");
-    const r = await runBluxCommand("validate", dir, {
-      against: join(dir, "does-not-exist.html"),
-    });
+    await writeMinimalExport(dir);
+    const r = await runBluxCommand("validate", dir, { against: join(dir, "does-not-exist.html") });
     expect(r.code).toBe(1);
     expect(r.output).toContain("against");
   });
 
   it("fails cleanly when the --against URL returns a non-OK status", async () => {
     const dir = await mkdtemp(join(tmpdir(), "blux-validate-"));
-    await writeFile(join(dir, "index.html"), "<body>The Pointe</body>");
-    const fetchImpl = (async () =>
-      new Response("<h1>Not Found</h1>", { status: 404 })) as unknown as typeof fetch;
+    await writeMinimalExport(dir);
     const r = await runBluxCommand("validate", dir, {
       against: "https://example.com/typo",
-      fetchImpl,
+      fetchImpl: (async () => new Response("nope", { status: 404 })) as typeof fetch,
     });
-    // a 404 error page must not be coverage-checked as if it were the render
     expect(r.code).toBe(1);
-    expect(r.output).toContain("404");
+    expect(r.output).toContain("against");
+    expect(r.output).toContain("404"); // the HTTP status is surfaced in the message
   });
 });
 
@@ -226,6 +263,34 @@ describe("blux convert", () => {
     expect(manifest.bands["0"]).toBeDefined();
     const plan = JSON.parse(await readFile(join(dir, "blux-out", "migration-plan.json"), "utf-8"));
     expect(plan.documents[0].data.slices[0].slice_type).toBe("title_band");
+  });
+
+  // GROUND TRUTH (verified against the real ~/Desktop/thePointe export): the
+  // real site.json declares the-pointe's video asset, so production converts
+  // FAITHFUL. But `minimalSite` is a STUB that omits that video (band 10). A
+  // <video> parses with an assetId+ext but NO CDN `base` (its url is on
+  // `<video src>`), so it resolves only via the IR asset's sourceUrl — which
+  // minimalSite can't supply → band 10's video drops → exactly one tree-drift.
+  // (Images resolve offline via their own data-base, independent of site.json.)
+  // The fully-resolved faithful path is proven at the module level by Task 6's
+  // grid-validate golden. This CLI test asserts convert REPORTS the gap yet
+  // still exits 0 — a generator never gates (Decision #6).
+  it("appends a layout-fidelity summary and writes layout-report.json (non-gating)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-convert-"));
+    await writeFile(join(dir, "site.json"), JSON.stringify(minimalSite));
+    await copyFile(
+      fileURLToPath(new URL("../blux/fixtures/the-pointe-page-content.html", import.meta.url)),
+      join(dir, "index.html"),
+    );
+    const res = await runBluxCommand("convert", dir, { cwd: dir });
+    expect(res.code).toBe(0); // convert reports but never gates
+    expect(res.output).toContain("layout fidelity:");
+    const report = JSON.parse(await readFile(join(dir, "blux-out", "layout-report.json"), "utf-8"));
+    expect(report.bands).toBe(16);
+    expect(report.faithful).toBe(false);
+    expect(
+      report.findings.some((f: LayoutFinding) => f.kind === "tree-drift" && f.band === 10),
+    ).toBe(true);
   });
 });
 

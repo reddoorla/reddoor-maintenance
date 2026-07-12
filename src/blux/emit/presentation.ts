@@ -116,7 +116,7 @@ function renderNode(node: Node, resolve: PresentationDeps["resolveMedia"]): Rend
 }
 
 /** Does a (source) node tree contain a map widget anywhere? */
-function hasMapWidget(node: Node): boolean {
+export function hasMapWidget(node: Node): boolean {
   if (node.kind === "widget") return node.widget.type === "map";
   if (node.kind === "row") return node.cells.some((c) => hasMapWidget(c.node));
   if (node.kind === "stack") return node.children.some(hasMapWidget);
