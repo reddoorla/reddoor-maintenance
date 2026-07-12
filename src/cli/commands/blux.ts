@@ -224,6 +224,9 @@ export async function runBluxCommand(
     const layout = validateLayout(specs, presentation);
     const lines = [formatLayoutReport(layout)];
 
+    // Content coverage is informational only — it names export text the render
+    // dropped, but layout fidelity alone gates the exit code below. A coverage
+    // gap never flips a faithful layout to a non-zero exit.
     if (rendered !== null) {
       const report = validateCoverage(exportHtml, rendered);
       lines.push(

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { runBluxCommand } from "../../src/cli/commands/blux.js";
+import type { LayoutFinding } from "../../src/blux/emit/validate-layout.js";
 import { minimalSite, minimalHtml } from "../blux/fixtures/minimal-site.js";
 
 /** Write a fake Blux export dir (site.json + rendered index.html). */
@@ -162,15 +163,24 @@ describe("blux validate", () => {
     expect(r.output).toContain("band 10");
   });
 
-  it("layers content coverage on top when --against is given", async () => {
+  it("layers content coverage as informational text — a coverage gap does not gate", async () => {
+    // A band-less but text-bearing export → layout is vacuously faithful (0
+    // bands), while content coverage has a REAL gap ("absent sentence here" is
+    // in the export but not the render). Proves coverage is informational only:
+    // a missing run coexists with exit 0; layout fidelity alone gates.
     const dir = await mkdtemp(join(tmpdir(), "blux-validate-"));
-    await writeMinimalExport(dir);
+    await writeFile(join(dir, "site.json"), JSON.stringify(minimalSite));
+    await writeFile(
+      join(dir, "index.html"),
+      "<html><body><h1>Present Headline</h1><p>Absent sentence here.</p></body></html>",
+    );
     const renderedPath = join(dir, "rendered.html");
-    await writeFile(renderedPath, "<html><body><p>Intro copy. About us.</p></body></html>");
+    await writeFile(renderedPath, "<html><body><h1>Present Headline</h1></body></html>");
     const r = await runBluxCommand("validate", dir, { against: renderedPath });
-    expect(r.code).toBe(0);
-    expect(r.output).toContain("layout fidelity");
+    expect(r.code).toBe(0); // layout faithful → exit 0 despite the coverage gap
+    expect(r.output).toContain("layout fidelity: FAITHFUL");
     expect(r.output).toContain("content coverage");
+    expect(r.output).toContain("missing runs");
   });
 
   it("fails cleanly when index.html is missing", async () => {
@@ -197,6 +207,7 @@ describe("blux validate", () => {
     });
     expect(r.code).toBe(1);
     expect(r.output).toContain("against");
+    expect(r.output).toContain("404"); // the HTTP status is surfaced in the message
   });
 });
 
@@ -278,9 +289,7 @@ describe("blux convert", () => {
     expect(report.bands).toBe(16);
     expect(report.faithful).toBe(false);
     expect(
-      report.findings.some(
-        (f: { kind: string; band: number }) => f.kind === "tree-drift" && f.band === 10,
-      ),
+      report.findings.some((f: LayoutFinding) => f.kind === "tree-drift" && f.band === 10),
     ).toBe(true);
   });
 });
