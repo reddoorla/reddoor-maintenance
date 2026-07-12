@@ -34,7 +34,7 @@ describe("mediaFromElement", () => {
       ext: "png",
     });
   });
-  it("reads a video asset id from a <video> src", () => {
+  it("reads a video asset id + offline CDN base from a <video> src", () => {
     const v = el(
       '<video src="https://dv4tl7yyk1zlp.cloudfront.net/site-1/c023afe4-996f.mp4" controls></video>',
     );
@@ -42,6 +42,8 @@ describe("mediaFromElement", () => {
       kind: "video",
       assetId: "c023afe4-996f",
       ext: "mp4",
+      // base + assetId + "." + ext reconstructs the src → resolves offline.
+      base: "https://dv4tl7yyk1zlp.cloudfront.net/site-1/",
     });
   });
   it("returns null when the element holds no media", () => {

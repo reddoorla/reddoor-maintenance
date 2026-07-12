@@ -36,7 +36,16 @@ export function mediaFromElement(el: HTMLElement): Media | null {
   if (el.tagName === "VIDEO") {
     const src = el.getAttribute("src") ?? "";
     const { id, ext } = uuidFromUrl(src);
-    return id ? { kind: "video", assetId: id, ...(ext ? { ext } : {}) } : null;
+    if (!id) return null;
+    // The full CDN url sits on `<video src>`; capture its prefix as `base` (the
+    // same field an image carries from `data-base`) so `mediaCdnUrl` rebuilds it
+    // OFFLINE. Without this a video resolves only via the IR sourceUrl, i.e. it
+    // depends on site.json listing the asset — breaking convert's offline
+    // invariant even though the url is right here in the markup.
+    const clean = src.split(/[?#]/)[0] ?? "";
+    const slash = clean.lastIndexOf("/");
+    const base = slash >= 0 ? clean.slice(0, slash + 1) : undefined;
+    return { kind: "video", assetId: id, ...(ext ? { ext } : {}), ...(base ? { base } : {}) };
   }
   const img =
     el.classList.contains("camediaload") && el.getAttribute("data-media")
