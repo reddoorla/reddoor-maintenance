@@ -36,7 +36,7 @@ describe("sigOf — source Node and RenderNode twins share one signature", () =>
     expect(sigOf(renRow)).toBe("row[6:h2,6:media:image]");
     expect(sigOf(srcRow)).toBe(sigOf(renRow));
   });
-  it("encodes ratio/sized tokens without the source-only raw", () => {
+  it("encodes ratio/spacing tokens without the source-only raw", () => {
     const n: Node = {
       kind: "row",
       cells: [{ token: { cols: 2, ratio: 40, raw: "grid-2-r40" }, node: img("a") }],

@@ -22,15 +22,15 @@ describe("parseGridToken", () => {
       raw: "grid-2-r20",
     });
   });
-  it("reads a fixed-sized token", () => {
+  it("reads an s-token as spacing (a gap), not a width", () => {
     expect(parseGridToken("cagriditem top grid-1-s40 ")).toEqual({
       cols: 1,
-      sized: 40,
+      spacing: 40,
       raw: "grid-1-s40",
     });
     expect(parseGridToken("grid-any-s20")).toEqual({
       cols: "any",
-      sized: 20,
+      spacing: 20,
       raw: "grid-any-s20",
     });
   });

@@ -234,14 +234,14 @@ describe("classifyBand — SplitFeature", () => {
     }
   });
 
-  it("an s-token media cell (grid-any-s20) yields its sized share as the ratio", () => {
+  it("an s-token (grid-any-s20) is spacing, not width — split uses the any-split ratio", () => {
     const b: Band = {
       index: 94,
       root: {
         kind: "row",
         cells: [
           {
-            token: { cols: "any", sized: 20, raw: "grid-any-s20" },
+            token: { cols: "any", spacing: 20, raw: "grid-any-s20" },
             node: { kind: "media", media: { kind: "image", assetId: "m" } },
           },
           { token: { cols: "any", raw: "grid-any" }, node: { kind: "body", html: "<p>t</p>" } },
@@ -252,7 +252,8 @@ describe("classifyBand — SplitFeature", () => {
     expect(spec.slice).toBe("SplitFeature");
     if (spec.slice === "SplitFeature") {
       expect(spec.mediaSide).toBe("left");
-      expect(spec.ratio).toBe(20);
+      // spacing:20 no longer masquerades as a width; a bare `any` cell splits 50/50.
+      expect(spec.ratio).toBe(50);
     }
   });
 

@@ -11,11 +11,11 @@ import {
   type RenderNode,
 } from "./presentation.js";
 
-/** Canonical grid-token key — cols + optional ratio/sized, WITHOUT the
+/** Canonical grid-token key — cols + optional ratio/spacing, WITHOUT the
  * source-only `raw` string, so a source token and its render-side twin (which
  * never carries `raw`) compare equal. */
-function tokKey(t: { cols: number | "any"; ratio?: number; sized?: number }): string {
-  return `${t.cols}${t.ratio !== undefined ? `r${t.ratio}` : ""}${t.sized !== undefined ? `s${t.sized}` : ""}`;
+function tokKey(t: { cols: number | "any"; ratio?: number; spacing?: number }): string {
+  return `${t.cols}${t.ratio !== undefined ? `r${t.ratio}` : ""}${t.spacing !== undefined ? `s${t.spacing}` : ""}`;
 }
 
 /** Compact structural signature of a node tree, computed identically for a
