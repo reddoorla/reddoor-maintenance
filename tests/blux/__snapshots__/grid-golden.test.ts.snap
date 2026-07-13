@@ -13,10 +13,10 @@ exports[`grid parser — the-pointe golden > has a stable structural signature 1
   "band8: row[grid-1:media:image,grid-1:media:image,grid-1:media:image]",
   "band9(bg): stack[h4,media:image,media:image,body]",
   "band10: stack[media:video,row[grid-2:raw,grid-2:stack[h4,row[grid-any-s20:media:image,grid-any-s20:media:image]]]]",
-  "band11(bg): stack[h4,media:image,h4,body]",
+  "band11(bg): stack[h4,media:image,h4,body,raw]",
   "band12: row[grid-1:row[grid-2-r30:body,grid-2-r70:media:image],grid-1:row[grid-2-r70:media:image,grid-2-r30:body],grid-1:row[grid-2-r30:body,grid-2-r70:stack[media:image,raw]]]",
   "band13: stack[h2,subtitle]",
-  "band14: stack[raw,row[grid-1:row[grid-4:stack[h4,body],grid-4:stack[h4,body],grid-4:stack[h4,body],grid-4:stack[h4,body],grid-4:stack[h4,body],grid-4:stack[h4,body],grid-4:stack[h4,body]],grid-1:row[grid-2:media:image,grid-2:media:image,grid-2:media:image,grid-2:media:image,grid-2:media:image,grid-2:media:image,grid-2:media:image],grid-1:row[grid-2:media:image,grid-2:media:image,grid-2:media:image,grid-2:media:image,grid-2:media:image,grid-2:media:image,grid-2:media:image,grid-2:media:image],grid-1:row[grid-2:media:image,grid-2:media:image,grid-2:media:image,grid-2:media:image,grid-2:media:image]]]",
+  "band14: stack[raw,row[grid-1:row[grid-4:stack[h4,body,raw],grid-4:stack[h4,body,raw],grid-4:stack[h4,body,raw],grid-4:stack[h4,body,raw],grid-4:stack[h4,body,raw],grid-4:stack[h4,body,raw],grid-4:stack[h4,body,raw]],grid-1:row[grid-2:media:image,grid-2:media:image,grid-2:media:image,grid-2:media:image,grid-2:media:image,grid-2:media:image,grid-2:media:image],grid-1:row[grid-2:media:image,grid-2:media:image,grid-2:media:image,grid-2:media:image,grid-2:media:image,grid-2:media:image,grid-2:media:image,grid-2:media:image],grid-1:row[grid-2:media:image,grid-2:media:image,grid-2:media:image,grid-2:media:image,grid-2:media:image]]]",
   "band15: h2",
 ]
 `;

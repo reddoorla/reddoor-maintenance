@@ -81,10 +81,10 @@ exports[`grid validate golden — the-pointe > converts the 16 bands with zero l
   },
   {
     "band": 11,
-    "converted": "stack[h4,media:image,h4,body]",
+    "converted": "stack[h4,media:image,h4,body,raw]",
     "ok": true,
     "slice": "Grid",
-    "source": "stack[h4,media:image,h4,body]",
+    "source": "stack[h4,media:image,h4,body,raw]",
   },
   {
     "band": 12,
@@ -102,10 +102,10 @@ exports[`grid validate golden — the-pointe > converts the 16 bands with zero l
   },
   {
     "band": 14,
-    "converted": "stack[raw,row[1:row[4:stack[h4,body],4:stack[h4,body],4:stack[h4,body],4:stack[h4,body],4:stack[h4,body],4:stack[h4,body],4:stack[h4,body]],1:row[2:media:image,2:media:image,2:media:image,2:media:image,2:media:image,2:media:image,2:media:image],1:row[2:media:image,2:media:image,2:media:image,2:media:image,2:media:image,2:media:image,2:media:image,2:media:image],1:row[2:media:image,2:media:image,2:media:image,2:media:image,2:media:image]]]",
+    "converted": "stack[raw,row[1:row[4:stack[h4,body,raw],4:stack[h4,body,raw],4:stack[h4,body,raw],4:stack[h4,body,raw],4:stack[h4,body,raw],4:stack[h4,body,raw],4:stack[h4,body,raw]],1:row[2:media:image,2:media:image,2:media:image,2:media:image,2:media:image,2:media:image,2:media:image],1:row[2:media:image,2:media:image,2:media:image,2:media:image,2:media:image,2:media:image,2:media:image,2:media:image],1:row[2:media:image,2:media:image,2:media:image,2:media:image,2:media:image]]]",
     "ok": true,
     "slice": "Grid",
-    "source": "stack[raw,row[1:row[4:stack[h4,body],4:stack[h4,body],4:stack[h4,body],4:stack[h4,body],4:stack[h4,body],4:stack[h4,body],4:stack[h4,body]],1:row[2:media:image,2:media:image,2:media:image,2:media:image,2:media:image,2:media:image,2:media:image],1:row[2:media:image,2:media:image,2:media:image,2:media:image,2:media:image,2:media:image,2:media:image,2:media:image],1:row[2:media:image,2:media:image,2:media:image,2:media:image,2:media:image]]]",
+    "source": "stack[raw,row[1:row[4:stack[h4,body,raw],4:stack[h4,body,raw],4:stack[h4,body,raw],4:stack[h4,body,raw],4:stack[h4,body,raw],4:stack[h4,body,raw],4:stack[h4,body,raw]],1:row[2:media:image,2:media:image,2:media:image,2:media:image,2:media:image,2:media:image,2:media:image],1:row[2:media:image,2:media:image,2:media:image,2:media:image,2:media:image,2:media:image,2:media:image,2:media:image],1:row[2:media:image,2:media:image,2:media:image,2:media:image,2:media:image]]]",
   },
   {
     "band": 15,

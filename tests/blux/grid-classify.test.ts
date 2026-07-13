@@ -88,8 +88,36 @@ describe("classifyBand — text-only", () => {
     expect(spec.slice).toBe("TitleBand");
     if (spec.slice === "TitleBand") {
       expect(spec.heading.length).toBeGreaterThan(0);
-      expect(spec.subtitle).toBeDefined();
+      // The display line's hard line break (source `distinguished<br>design`)
+      // survives as a newline — the render layer splits it back to two lines.
+      expect(spec.subtitle).toBe("distinguished\ndesign");
     }
+  });
+
+  it("preserves a heading's hard line breaks as newlines", () => {
+    const only: Band = {
+      index: 99,
+      root: {
+        kind: "heading",
+        level: 4,
+        html: "a monument <br>of excellence",
+      },
+    };
+    const spec = classifyBand(only);
+    expect(spec.slice).toBe("TitleBand");
+    if (spec.slice === "TitleBand") expect(spec.heading).toBe("a monument\nof excellence");
+  });
+
+  it("collapses source-formatting newlines in a heading, keeping only hard breaks", () => {
+    // A pretty-printed export wraps markup across lines; those newlines are
+    // insignificant whitespace and must NOT become line breaks — only <br> does.
+    const only: Band = {
+      index: 99,
+      root: { kind: "heading", level: 4, html: "a\n      monument <br>of\n      excellence" },
+    };
+    const spec = classifyBand(only);
+    expect(spec.slice).toBe("TitleBand");
+    if (spec.slice === "TitleBand") expect(spec.heading).toBe("a monument\nof excellence");
   });
 
   it("a bare heading → TitleBand", () => {
@@ -118,6 +146,25 @@ describe("classifyBand — Hero", () => {
 
   it("background but no heading (bg-only) stays Grid", () => {
     const spec = classifyBand(band(realBands(), 4)); // (bg) raw
+    expect(spec.slice).toBe("Grid");
+  });
+
+  it("a CTA anchor in an otherwise-Hero band keeps it Grid (link preserved, not dropped)", () => {
+    // A leaf anchor now parses to a significant `raw` node; hasSignificantRaw
+    // refuses Hero promotion over content the Hero spec cannot carry, so the
+    // render-faithful Grid fallback keeps the CTA instead of silently dropping it.
+    const band: Band = {
+      index: 99,
+      background: { kind: "image", assetId: "bg1" },
+      root: {
+        kind: "stack",
+        children: [
+          { kind: "heading", level: 1, html: "Welcome" },
+          { kind: "raw", html: '<a href="http://x/">Learn more</a>' },
+        ],
+      },
+    };
+    const spec = classifyBand(band);
     expect(spec.slice).toBe("Grid");
   });
 });

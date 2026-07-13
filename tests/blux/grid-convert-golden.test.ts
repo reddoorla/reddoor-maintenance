@@ -18,8 +18,17 @@ const fixture = (name: string) =>
   readFileSync(fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url)), "utf-8");
 
 // Deterministic offline resolver: assetId → stable fake URL (no site.json needed).
+// Passes through intrinsic sizing exactly as convert.ts's real resolver does, so
+// the manifest snapshot exercises the parsed width/aspect/fit end-to-end.
 const deps: PresentationDeps = {
-  resolveMedia: (m): RenderMedia => ({ kind: m.kind, url: `asset://${m.assetId}`, alt: m.assetId }),
+  resolveMedia: (m): RenderMedia => ({
+    kind: m.kind,
+    url: `asset://${m.assetId}`,
+    alt: m.assetId,
+    ...(m.width !== undefined ? { width: m.width } : {}),
+    ...(m.aspect !== undefined ? { aspect: m.aspect } : {}),
+    ...(m.fit ? { fit: m.fit } : {}),
+  }),
   styleFor: () => undefined,
   map: null,
 };

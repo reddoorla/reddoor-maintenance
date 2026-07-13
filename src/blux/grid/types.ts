@@ -5,7 +5,20 @@ export type GridToken = {
   raw: string;
 };
 
-export type Media = { kind: "image" | "video"; assetId: string; ext?: string; base?: string };
+export type Media = {
+  kind: "image" | "video";
+  assetId: string;
+  ext?: string;
+  base?: string;
+  // Intrinsic render sizing read off the rendered export (foreground images
+  // only; band backgrounds and video carry none). `width` is the holder's inline
+  // pixel width, `aspect` the `.mediaRatio` `data-og-ratio` (height as a % of
+  // width), `fit` its `background-size`. Blux uses small graphics as rules/logos
+  // whose intrinsic width must be preserved, not stretched full-bleed.
+  width?: number;
+  aspect?: number;
+  fit?: "contain" | "cover";
+};
 // Forward-declared for plan 2's widget router. The parser does not emit
 // `widget` nodes yet — map mounts currently parse to `raw`.
 export type Widget = { type: "map" };

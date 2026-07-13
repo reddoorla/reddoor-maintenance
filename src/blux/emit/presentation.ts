@@ -10,7 +10,18 @@ import type { Media, Node, GridToken as SrcToken, SliceSpec } from "../grid/inde
 // Render-side mirror types (must match the-pointe's src/lib/blux/presentation.ts)
 // ---------------------------------------------------------------------------
 
-export type RenderMedia = { kind: "image" | "video"; url: string; alt?: string };
+export type RenderMedia = {
+  kind: "image" | "video";
+  url: string;
+  alt?: string;
+  // Intrinsic sizing carried from the source (foreground images only). The
+  // render layer renders a graphic at `width` (capped to its cell) with
+  // `aspect-ratio` from `aspect`, so small rules/logos keep their true size
+  // instead of stretching full-bleed. Mirrors the-pointe's src/lib/blux/presentation.ts.
+  width?: number;
+  aspect?: number;
+  fit?: "contain" | "cover";
+};
 
 export type RenderToken = { cols: number | "any"; ratio?: number; sized?: number };
 

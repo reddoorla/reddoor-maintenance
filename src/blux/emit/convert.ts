@@ -67,7 +67,14 @@ export function convertExport({
       const url = mediaUrl(m, sourceUrlById);
       if (!url) return null;
       const alt = assetsById.get(m.assetId)?.alt;
-      const rm: RenderMedia = { kind: m.kind, url, ...(alt ? { alt } : {}) };
+      const rm: RenderMedia = {
+        kind: m.kind,
+        url,
+        ...(alt ? { alt } : {}),
+        ...(m.width !== undefined ? { width: m.width } : {}),
+        ...(m.aspect !== undefined ? { aspect: m.aspect } : {}),
+        ...(m.fit ? { fit: m.fit } : {}),
+      };
       return rm;
     },
     styleFor: (i) => styles.get(i),

@@ -74,4 +74,51 @@ describe("mediaFromElement", () => {
       base: "https://cdn.example/folder/",
     });
   });
+  it("captures intrinsic width, aspect (data-og-ratio), and fit (background-size)", () => {
+    // The shape Blux renders a foreground graphic in: the .ib.camediaload holder
+    // carries an inline pixel width + background-size, and a child .mediaRatio div
+    // carries the intrinsic height:width ratio as a percent in data-og-ratio.
+    const holder = el(
+      '<div class="ib img imgfit camediaload" data-ext="png" data-media="b035b800.png" style="width: 600px; background-position: center center; background-size: contain;"><div class="mediaRatio" data-og-ratio="11.91919191919192"></div></div>',
+    );
+    expect(mediaFromElement(holder)).toEqual({
+      kind: "image",
+      assetId: "b035b800",
+      ext: "png",
+      width: 600,
+      aspect: 11.919,
+      fit: "contain",
+    });
+  });
+  it("reads fit: cover and rounds a fractional width", () => {
+    const holder = el(
+      '<div class="ib img imgfit camediaload" data-media="c1" style="width: 971.4px; background-size: cover;"><div class="mediaRatio" data-og-ratio="118.94953656024715"></div></div>',
+    );
+    expect(mediaFromElement(holder)).toEqual({
+      kind: "image",
+      assetId: "c1",
+      width: 971,
+      aspect: 118.95,
+      fit: "cover",
+    });
+  });
+  it("ignores a non-pixel width (percent/vw) — only px is a faithful intrinsic size", () => {
+    const holder = el(
+      '<div class="ib camediaload" data-media="e1" style="width: 100%; background-size: cover;"><div class="mediaRatio" data-og-ratio="56.25"></div></div>',
+    );
+    expect(mediaFromElement(holder)).toEqual({
+      kind: "image",
+      assetId: "e1",
+      aspect: 56.25,
+      fit: "cover",
+    });
+  });
+  it("omits fit when background-size is neither contain nor cover, and width when absent", () => {
+    // A band-background holder (background-size: auto, no inline width) carries no
+    // faithful foreground sizing — those fields stay absent.
+    const holder = el(
+      '<div class="ib camediaload" data-media="d1" style="background-size: auto;"></div>',
+    );
+    expect(mediaFromElement(holder)).toEqual({ kind: "image", assetId: "d1" });
+  });
 });
