@@ -23,7 +23,7 @@ export type RenderMedia = {
   fit?: "contain" | "cover";
 };
 
-export type RenderToken = { cols: number | "any"; ratio?: number; sized?: number };
+export type RenderToken = { cols: number | "any"; ratio?: number; spacing?: number };
 
 export type RenderNode =
   | { kind: "row"; cells: RenderCell[] }
@@ -75,12 +75,12 @@ export type PresentationDeps = {
 // Node-tree serializer: source Node → RenderNode
 // ---------------------------------------------------------------------------
 
-/** Drop the source-only `raw` field from a grid token; keep only cols/ratio/sized. */
+/** Drop the source-only `raw` field from a grid token; keep only cols/ratio/spacing. */
 function renderToken(t: SrcToken): RenderToken {
   return {
     cols: t.cols,
     ...(t.ratio !== undefined ? { ratio: t.ratio } : {}),
-    ...(t.sized !== undefined ? { sized: t.sized } : {}),
+    ...(t.spacing !== undefined ? { spacing: t.spacing } : {}),
   };
 }
 

@@ -1,7 +1,9 @@
 export type GridToken = {
   cols: number | "any";
   ratio?: number;
-  sized?: number;
+  // The grid's inter-cell spacing in px (Blux `grid-N-sM` / `data-spacing`).
+  // This is a GAP, not a width — the cell's width comes from `cols`/`ratio`.
+  spacing?: number;
   raw: string;
 };
 

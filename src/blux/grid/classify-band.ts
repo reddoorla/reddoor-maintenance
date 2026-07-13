@@ -134,15 +134,14 @@ function pureCellMedia(cell: Cell): Media | null {
 
 /** A cell's effective column share as a percentage, from its grid token.
  *
- * Assumes an `s`-token's `sized` value is already a percent of the row width
- * (e.g. `grid-any-s20` → 20), matching how the export's CSS uses it. The
- * `"any"` → 50 fallback assumes a 2-cell row — the only shape that reaches
- * here today (SplitFeature requires exactly two cells); a bare-`any` cell in a
- * wider row would need real division. */
+ * Width comes from the explicit `ratio` (`grid-2-r60` → 60) or, absent that,
+ * an equal split of the column count. `spacing` (the `s` suffix) is a gap, not
+ * a width, so it never factors in here. The `"any"` → 50 fallback assumes a
+ * 2-cell row — the only shape that reaches here today (SplitFeature requires
+ * exactly two cells); a bare-`any` cell in a wider row would need real division. */
 function cellRatio(cell: Cell): number {
   const t = cell.token;
   if (typeof t.ratio === "number") return t.ratio;
-  if (typeof t.sized === "number") return t.sized;
   if (t.cols === "any") return 50;
   return Math.round(100 / t.cols);
 }

@@ -284,7 +284,7 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                           },
                           "token": {
                             "cols": "any",
-                            "sized": 20,
+                            "spacing": 20,
                           },
                         },
                         {
@@ -301,7 +301,7 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                           },
                           "token": {
                             "cols": "any",
-                            "sized": 20,
+                            "spacing": 20,
                           },
                         },
                       ],
@@ -1133,7 +1133,7 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                   },
                   "token": {
                     "cols": 1,
-                    "sized": 40,
+                    "spacing": 40,
                   },
                 },
                 {
@@ -1173,7 +1173,7 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                   },
                   "token": {
                     "cols": 1,
-                    "sized": 40,
+                    "spacing": 40,
                   },
                 },
                 {
@@ -1213,7 +1213,7 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                   },
                   "token": {
                     "cols": 1,
-                    "sized": 40,
+                    "spacing": 40,
                   },
                 },
                 {
@@ -1253,7 +1253,7 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                   },
                   "token": {
                     "cols": 1,
-                    "sized": 40,
+                    "spacing": 40,
                   },
                 },
               ],
