@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { parse, type HTMLElement } from "node-html-parser";
-import { parseNode, parseGridBands } from "../../src/blux/grid/parse-grid.js";
+import { parseNode, parseContainer, parseGridBands } from "../../src/blux/grid/parse-grid.js";
 
 const node = (html: string) => parseNode(parse(html).firstChild as HTMLElement);
+const container = (html: string) => parseContainer(parse(html).firstChild as HTMLElement);
 
 describe("parseNode", () => {
   it("parses a heading leaf with its role and level", () => {
@@ -29,6 +30,20 @@ describe("parseNode", () => {
       kind: "subtitle",
       role: "text13",
       text: "Eyebrow",
+    });
+  });
+
+  it("keeps a subtitle's <br> as a newline but collapses source-formatting whitespace", () => {
+    // A pretty-printed export wraps the display line across source rows; only the
+    // real <br> is a hard break — the insignificant newlines must collapse.
+    const html = "<div class='block-subtitle text12'>\n  distinguished<br>\n  design\n</div>";
+    expect(node(html)).toEqual({ kind: "subtitle", role: "text12", text: "distinguished\ndesign" });
+  });
+
+  it("decodes HTML entities in a subtitle", () => {
+    expect(node("<div class='block-subtitle'>Health &amp; Wellness</div>")).toEqual({
+      kind: "subtitle",
+      text: "Health & Wellness",
     });
   });
 
@@ -109,6 +124,45 @@ describe("parseNode", () => {
     expect(node(html)).toEqual({
       kind: "raw",
       html: "<div class='camediaload'></div>",
+    });
+  });
+});
+
+describe("leaf anchors (CTA buttons / links)", () => {
+  it("captures a standalone link/button anchor as a raw node instead of dropping it", () => {
+    // The anchor sits in wrapper divs with no structural descendants; peeling
+    // through it (the old behavior) lost the CTA entirely.
+    const node = container(
+      '<div class="block-content"><div class="text8 buttons"><a class="ib middle links" href="http://x/" target="_blank">Visit Website</a></div></div>',
+    );
+    expect(node).toEqual({
+      kind: "raw",
+      html: '<a class="ib middle links" href="http://x/" target="_blank">Visit Website</a>',
+    });
+  });
+
+  it("keeps multiple sibling CTA anchors as raw nodes in a stack", () => {
+    const node = container(
+      '<div class="block-content"><a class="ib links" href="http://a/">One</a><a class="ib links" href="http://b/">Two</a></div>',
+    );
+    expect(node).toEqual({
+      kind: "stack",
+      children: [
+        { kind: "raw", html: '<a class="ib links" href="http://a/">One</a>' },
+        { kind: "raw", html: '<a class="ib links" href="http://b/">Two</a>' },
+      ],
+    });
+  });
+
+  it("peels through a linked-media anchor so the wrapped image still parses to media", () => {
+    // An anchor WITH structural descendants is not a leaf: it keeps peeling so
+    // the inner media resolves normally rather than freezing to raw.
+    const node = container(
+      '<div class="block-content"><a href="http://x/"><div class="ib img imgfit camediaload" data-media="u1" data-ext="jpg"></div></a></div>',
+    );
+    expect(node).toEqual({
+      kind: "media",
+      media: { kind: "image", assetId: "u1", ext: "jpg" },
     });
   });
 });

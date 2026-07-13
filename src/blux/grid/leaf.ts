@@ -1,3 +1,4 @@
+import { parse } from "node-html-parser";
 import type { HTMLElement } from "node-html-parser";
 import type { Media } from "./types.js";
 
@@ -15,6 +16,24 @@ export function headingLevel(el: HTMLElement): number {
   return m ? Number(m[1]) : 2;
 }
 
+/** Plain text of a block's inner HTML for a title field: a hard line break
+ * (`<br>`, with or without attributes/self-close) becomes a newline; every other
+ * tag drops and HTML entities decode (`Bar &amp; Grill` → `Bar & Grill`); all
+ * source-formatting whitespace collapses to single spaces. Robust to
+ * pretty-printed exports — insignificant newlines in the markup are NOT mistaken
+ * for hard breaks — by routing `<br>` through a sentinel that survives the
+ * whitespace collapse. */
+export function blockPlainText(html: string): string {
+  const BR = "\uE000";
+  // node-html-parser `.text` strips tags AND decodes entities; the <br>→BR swap
+  // runs first so hard breaks survive as the sentinel through the collapse below.
+  const text = parse(html.replace(/<br\b[^>]*>/gi, BR)).text;
+  return text
+    .replace(/\s+/g, " ")
+    .replace(/ *\uE000 */g, "\n")
+    .trim();
+}
+
 /** The last path segment of a CDN url, sans extension (the Blux asset uuid). */
 function uuidFromUrl(url: string): { id: string; ext?: string } {
   const base = url.split(/[?#]/)[0] ?? "";
@@ -28,6 +47,36 @@ function uuidFromUrl(url: string): { id: string; ext?: string } {
  * video path. Strip a trailing `.<ext>` when `data-ext` names it. */
 export function stripAssetExt(rawId: string, ext?: string): string {
   return ext && rawId.endsWith(`.${ext}`) ? rawId.slice(0, -(ext.length + 1)) : rawId;
+}
+
+/** Read a single CSS declaration's value out of an inline `style` string. */
+function cssProp(style: string, prop: string): string | undefined {
+  const m = new RegExp(`(?:^|;|\\s)${prop}\\s*:\\s*([^;]+)`, "i").exec(style);
+  return m?.[1]?.trim();
+}
+
+/** Intrinsic render sizing off a foreground image holder: the inline pixel
+ * `width`, the `.mediaRatio` `data-og-ratio` (→ `aspect`), and the
+ * `background-size` (→ `fit`, only when contain/cover — a background's `auto`
+ * is not foreground sizing). Each field is present only when the source has it,
+ * so a plain holder still yields a bare `Media`. */
+function readImgSizing(holder: HTMLElement): Pick<Media, "width" | "aspect" | "fit"> {
+  const style = holder.getAttribute("style") ?? "";
+  const out: Pick<Media, "width" | "aspect" | "fit"> = {};
+  // Only a pixel width is a faithful intrinsic size. A `%`/`vw`/`em`/`calc()`
+  // width is relative to context and must NOT be mistaken for px (which the
+  // render layer would then apply literally) — skip it, leaving `width` absent.
+  const w = cssProp(style, "width");
+  const wpx = w ? /^(\d+(?:\.\d+)?)px$/i.exec(w) : null;
+  if (wpx?.[1]) out.width = Math.round(parseFloat(wpx[1]));
+  const ogr = holder.querySelector(".mediaRatio")?.getAttribute("data-og-ratio");
+  if (ogr) {
+    const n = Number(ogr);
+    if (Number.isFinite(n)) out.aspect = Math.round(n * 1000) / 1000;
+  }
+  const fit = cssProp(style, "background-size")?.toLowerCase();
+  if (fit === "contain" || fit === "cover") out.fit = fit;
+  return out;
 }
 
 /** Resolve the media an element carries: a `.camediaload` descendant (image, via
@@ -61,6 +110,7 @@ export function mediaFromElement(el: HTMLElement): Media | null {
         assetId: stripAssetExt(rawId, ext),
         ...(ext ? { ext } : {}),
         ...(base ? { base } : {}),
+        ...readImgSizing(img),
       };
     }
   }

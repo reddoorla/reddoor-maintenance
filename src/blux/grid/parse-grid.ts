@@ -2,7 +2,13 @@ import { parse } from "node-html-parser";
 import type { HTMLElement, Node as HTMLNode } from "node-html-parser";
 import type { Band, Cell, GridToken, Media, Node } from "./types.js";
 import { parseGridToken } from "./token.js";
-import { textRoleFromClass, headingLevel, mediaFromElement, stripAssetExt } from "./leaf.js";
+import {
+  textRoleFromClass,
+  headingLevel,
+  mediaFromElement,
+  stripAssetExt,
+  blockPlainText,
+} from "./leaf.js";
 
 const DEFAULT_TOKEN: GridToken = { cols: 1, raw: "grid-1" };
 
@@ -19,12 +25,21 @@ const isLeafElement = (el: HTMLElement): boolean =>
   (hasClass(el, "camediaload") && !!el.getAttribute("data-media")) ||
   el.tagName === "VIDEO";
 
+/** A leaf `<a>`: a CTA button / text link with no structural descendants. Such
+ * an anchor is not a wrapper — peeling through it (its inner text/spans are not
+ * structural) would drop the link entirely — so it is treated as a structural
+ * leaf. A linked media/grid wrapper (`<a>` containing a camediaload/grid) is NOT
+ * a leaf anchor: it keeps peeling so the inner media parses normally. */
+const isLeafAnchor = (el: HTMLElement): boolean =>
+  el.tagName === "A" && collectStructuralChildren(el).length === 0;
+
 /** Is this element a structural boundary (a leaf, a grid row, or a token-bearing
  * cell/holder), as opposed to a pure wrapper div we should peel through? */
 const isStructural = (el: HTMLElement): boolean =>
   isLeafElement(el) ||
   el.hasAttribute("data-exec") || // Blux custom-code embed (e.g. map mount)
   hasClass(el, "cagrid") ||
+  isLeafAnchor(el) ||
   parseGridToken(el.classNames) !== null;
 
 /** The child elements that carry structure, peeling pure wrapper divs. */
@@ -56,7 +71,10 @@ export function parseNode(el: HTMLElement): Node {
   }
   if (hasClass(el, "block-subtitle")) {
     const role = textRoleFromClass(el.classNames);
-    return { kind: "subtitle", ...(role ? { role } : {}), text: el.text.trim() };
+    // Route through blockPlainText (not raw `.text`): a `<br>` in a display
+    // subtitle survives as a newline while insignificant source whitespace
+    // collapses — `.text` alone can't tell a hard break from source formatting.
+    return { kind: "subtitle", ...(role ? { role } : {}), text: blockPlainText(el.innerHTML) };
   }
   if (
     hasClass(el, "block-media-holder") ||
@@ -70,6 +88,11 @@ export function parseNode(el: HTMLElement): Node {
     // Custom-code embed (map, third-party widget). Keep the whole subtree —
     // including id="burbank_map" and any inline initMap/KmlLayer scripts — so
     // extract-map can read it and Grid.svelte can render it verbatim.
+    return { kind: "raw", html: el.outerHTML };
+  }
+  if (el.tagName === "A") {
+    // A leaf CTA button / text link (isLeafAnchor). Preserve the whole anchor —
+    // href + label — verbatim so the render layer keeps the clickable link.
     return { kind: "raw", html: el.outerHTML };
   }
   return parseContainer(el);

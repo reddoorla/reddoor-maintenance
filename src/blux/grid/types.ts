@@ -5,7 +5,22 @@ export type GridToken = {
   raw: string;
 };
 
-export type Media = { kind: "image" | "video"; assetId: string; ext?: string; base?: string };
+export type Media = {
+  kind: "image" | "video";
+  assetId: string;
+  ext?: string;
+  base?: string;
+  // Intrinsic render sizing read off the rendered export (foreground images
+  // only; band backgrounds and video carry none). `width` is the holder's inline
+  // pixel width — the width the export actually renders that image at, whether a
+  // 40px rule or an 800px+ photo — `aspect` the `.mediaRatio` `data-og-ratio`
+  // (height as a % of width), `fit` its `background-size`. The render layer
+  // treats `width` as advisory and caps it at 100% of the cell, so a graphic
+  // keeps its true size instead of stretching, and a photo still fills.
+  width?: number;
+  aspect?: number;
+  fit?: "contain" | "cover";
+};
 // Forward-declared for plan 2's widget router. The parser does not emit
 // `widget` nodes yet — map mounts currently parse to `raw`.
 export type Widget = { type: "map" };

@@ -23,7 +23,8 @@ exports[`grid convert golden — the-pointe > builds a stable page-doc slice seq
     "primary": {
       "band": 2,
       "heading": "the space",
-      "subtitle": "distinguished design",
+      "subtitle": "distinguished
+design",
     },
     "slice_type": "title_band",
     "variation": "default",
@@ -65,7 +66,8 @@ exports[`grid convert golden — the-pointe > builds a stable page-doc slice seq
     "primary": {
       "band": 7,
       "heading": "the outdoors",
-      "subtitle": "an impeccably lush haven",
+      "subtitle": "an impeccably
+lush haven",
     },
     "slice_type": "hero",
     "variation": "band",
@@ -115,7 +117,8 @@ exports[`grid convert golden — the-pointe > builds a stable page-doc slice seq
     "primary": {
       "band": 13,
       "heading": "the location",
-      "subtitle": "everything within reach",
+      "subtitle": "everything
+within reach",
     },
     "slice_type": "title_band",
     "variation": "default",
@@ -155,8 +158,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
             "kind": "media",
             "media": {
               "alt": "b035b800-7ed3-479e-bb02-54a3eccfb27a",
+              "aspect": 11.919,
+              "fit": "contain",
               "kind": "image",
               "url": "asset://b035b800-7ed3-479e-bb02-54a3eccfb27a",
+              "width": 600,
             },
           },
           {
@@ -177,8 +183,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
       "split": {
         "media": {
           "alt": "0c78a3e9-984b-4697-a025-2fb1055da37e",
+          "aspect": 166.496,
+          "fit": "contain",
           "kind": "image",
           "url": "asset://0c78a3e9-984b-4697-a025-2fb1055da37e",
+          "width": 779,
         },
         "mediaSide": "right",
         "ratio": 40,
@@ -194,8 +203,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
               "kind": "media",
               "media": {
                 "alt": "ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
+                "aspect": 18.978,
+                "fit": "contain",
                 "kind": "image",
                 "url": "asset://ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
+                "width": 50,
               },
             },
             {
@@ -213,8 +225,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
               "kind": "media",
               "media": {
                 "alt": "e15eb8af-95eb-4aac-b03e-ca1990de534e",
+                "aspect": 78.111,
+                "fit": "contain",
                 "kind": "image",
                 "url": "asset://e15eb8af-95eb-4aac-b03e-ca1990de534e",
+                "width": 1334,
               },
             },
           ],
@@ -260,8 +275,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                             "kind": "media",
                             "media": {
                               "alt": "cfc17af2-ff1f-40a4-a5bf-4123cd5f355c",
+                              "aspect": 26.009,
+                              "fit": "contain",
                               "kind": "image",
                               "url": "asset://cfc17af2-ff1f-40a4-a5bf-4123cd5f355c",
+                              "width": 120,
                             },
                           },
                           "token": {
@@ -274,8 +292,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                             "kind": "media",
                             "media": {
                               "alt": "966adedb-0315-4afd-b070-8c89f8792267",
+                              "aspect": 39.576,
+                              "fit": "contain",
                               "kind": "image",
                               "url": "asset://966adedb-0315-4afd-b070-8c89f8792267",
+                              "width": 160,
                             },
                           },
                           "token": {
@@ -318,8 +339,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
             "kind": "media",
             "media": {
               "alt": "ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
+              "aspect": 18.978,
+              "fit": "contain",
               "kind": "image",
               "url": "asset://ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
+              "width": 50,
             },
           },
           {
@@ -332,6 +356,10 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
             "html": "Burbank offers a wide range of opportunities from its network of world-renowned studios, accessible airport, and recreational activities.",
             "kind": "body",
             "role": "text1",
+          },
+          {
+            "html": "<a class="ib middle buttons2" href="https://dv4tl7yyk1zlp.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/1b5b96c1-16fb-4d8b-8cb0-f71938af22c0.pdf">Burbank Incentives</a>",
+            "kind": "raw",
           },
         ],
         "kind": "stack",
@@ -359,8 +387,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                     "kind": "media",
                     "media": {
                       "alt": "126045fb-2364-4d99-9d6f-5502674ecdc9",
+                      "aspect": 75.232,
+                      "fit": "cover",
                       "kind": "image",
                       "url": "asset://126045fb-2364-4d99-9d6f-5502674ecdc9",
+                      "width": 1078,
                     },
                   },
                   "token": {
@@ -383,8 +414,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                     "kind": "media",
                     "media": {
                       "alt": "da8e7a33-0929-4618-9044-4b2ac23041c0",
+                      "aspect": 56.269,
+                      "fit": "cover",
                       "kind": "image",
                       "url": "asset://da8e7a33-0929-4618-9044-4b2ac23041c0",
+                      "width": 5774,
                     },
                   },
                   "token": {
@@ -431,8 +465,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                         "kind": "media",
                         "media": {
                           "alt": "122c1f54-872a-40af-8437-a6a226ad968a",
+                          "aspect": 66.667,
+                          "fit": "cover",
                           "kind": "image",
                           "url": "asset://122c1f54-872a-40af-8437-a6a226ad968a",
+                          "width": 1080,
                         },
                       },
                       {
@@ -494,6 +531,10 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                             "kind": "body",
                             "role": "text8",
                           },
+                          {
+                            "html": "<a class="ib middle links" href="http://www.thepointeburbank.com/" target="_blank">Visit Website</a>",
+                            "kind": "raw",
+                          },
                         ],
                         "kind": "stack",
                       },
@@ -514,6 +555,10 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                             "html": "3900 West Alameda Ave<br>Burbank, CA 91505",
                             "kind": "body",
                             "role": "text8",
+                          },
+                          {
+                            "html": "<a class="ib middle links" href="http://www.thetowerburbank.com/" target="_blank">Visit Website</a>",
+                            "kind": "raw",
                           },
                         ],
                         "kind": "stack",
@@ -536,6 +581,10 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                             "kind": "body",
                             "role": "text8",
                           },
+                          {
+                            "html": "<a class="ib middle links" href="https://www.thepinnacleburbank.com/" target="_blank">Visit Website</a>",
+                            "kind": "raw",
+                          },
                         ],
                         "kind": "stack",
                       },
@@ -556,6 +605,10 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                             "html": "3300 West Olive Ave<br>Burbank, CA 91505",
                             "kind": "body",
                             "role": "text8",
+                          },
+                          {
+                            "html": "<a class="ib middle links" href="https://www.thepinnacleburbank.com/" target="_blank">Visit Website</a>",
+                            "kind": "raw",
                           },
                         ],
                         "kind": "stack",
@@ -578,6 +631,10 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                             "kind": "body",
                             "role": "text8",
                           },
+                          {
+                            "html": "<a class="ib middle links" href="https://www.theburbankportfolio.com/3800-alameda" target="_blank">Visit Website</a>",
+                            "kind": "raw",
+                          },
                         ],
                         "kind": "stack",
                       },
@@ -599,6 +656,10 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                             "kind": "body",
                             "role": "text8",
                           },
+                          {
+                            "html": "<a class="ib middle links" href="https://www.mediastudiosburbank.com/" target="_blank">Visit Website</a>",
+                            "kind": "raw",
+                          },
                         ],
                         "kind": "stack",
                       },
@@ -619,6 +680,10 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                             "html": "3500 West Olive Ave<br>Burbank, CA 91505",
                             "kind": "body",
                             "role": "text8",
+                          },
+                          {
+                            "html": "<a class="ib middle links" href="https://www.theburbankportfolio.com/central-park" target="_blank">Visit Website</a>",
+                            "kind": "raw",
                           },
                         ],
                         "kind": "stack",
@@ -642,8 +707,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                         "kind": "media",
                         "media": {
                           "alt": "052e9b6f-6abe-4478-8a20-380f73d119ff",
+                          "aspect": 23.692,
+                          "fit": "contain",
                           "kind": "image",
                           "url": "asset://052e9b6f-6abe-4478-8a20-380f73d119ff",
+                          "width": 1701,
                         },
                       },
                       "token": {
@@ -655,8 +723,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                         "kind": "media",
                         "media": {
                           "alt": "f0e78916-7572-4cb2-a931-47b994991ef8",
+                          "aspect": 23.692,
+                          "fit": "contain",
                           "kind": "image",
                           "url": "asset://f0e78916-7572-4cb2-a931-47b994991ef8",
+                          "width": 1701,
                         },
                       },
                       "token": {
@@ -668,8 +739,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                         "kind": "media",
                         "media": {
                           "alt": "b4dd73b4-a59a-426b-8908-a4407632d190",
+                          "aspect": 23.737,
+                          "fit": "contain",
                           "kind": "image",
                           "url": "asset://b4dd73b4-a59a-426b-8908-a4407632d190",
+                          "width": 851,
                         },
                       },
                       "token": {
@@ -681,8 +755,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                         "kind": "media",
                         "media": {
                           "alt": "050cf5e5-2d8b-4712-950e-ad6c353c3e5e",
+                          "aspect": 23.692,
+                          "fit": "contain",
                           "kind": "image",
                           "url": "asset://050cf5e5-2d8b-4712-950e-ad6c353c3e5e",
+                          "width": 1701,
                         },
                       },
                       "token": {
@@ -694,8 +771,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                         "kind": "media",
                         "media": {
                           "alt": "4ea50f1e-25e9-4d60-a67c-2f1aa9410c55",
+                          "aspect": 23.709,
+                          "fit": "contain",
                           "kind": "image",
                           "url": "asset://4ea50f1e-25e9-4d60-a67c-2f1aa9410c55",
+                          "width": 852,
                         },
                       },
                       "token": {
@@ -707,8 +787,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                         "kind": "media",
                         "media": {
                           "alt": "0cfa7062-d911-483c-94be-20e8e4e0f4bb",
+                          "aspect": 23.678,
+                          "fit": "contain",
                           "kind": "image",
                           "url": "asset://0cfa7062-d911-483c-94be-20e8e4e0f4bb",
+                          "width": 1702,
                         },
                       },
                       "token": {
@@ -720,8 +803,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                         "kind": "media",
                         "media": {
                           "alt": "63b7996d-fe0a-4f00-abcc-c3fb521638f5",
+                          "aspect": 23.678,
+                          "fit": "contain",
                           "kind": "image",
                           "url": "asset://63b7996d-fe0a-4f00-abcc-c3fb521638f5",
+                          "width": 1702,
                         },
                       },
                       "token": {
@@ -743,8 +829,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                         "kind": "media",
                         "media": {
                           "alt": "3b966d54-aa06-4d81-ac7a-00a18a31da6f",
+                          "aspect": 23.737,
+                          "fit": "contain",
                           "kind": "image",
                           "url": "asset://3b966d54-aa06-4d81-ac7a-00a18a31da6f",
+                          "width": 851,
                         },
                       },
                       "token": {
@@ -756,8 +845,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                         "kind": "media",
                         "media": {
                           "alt": "6e1b82f7-5bf9-48b1-b956-8d614a319176",
+                          "aspect": 23.678,
+                          "fit": "contain",
                           "kind": "image",
                           "url": "asset://6e1b82f7-5bf9-48b1-b956-8d614a319176",
+                          "width": 1702,
                         },
                       },
                       "token": {
@@ -769,8 +861,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                         "kind": "media",
                         "media": {
                           "alt": "1d601436-8017-4dd1-a548-29b66dd10eab",
+                          "aspect": 23.737,
+                          "fit": "contain",
                           "kind": "image",
                           "url": "asset://1d601436-8017-4dd1-a548-29b66dd10eab",
+                          "width": 851,
                         },
                       },
                       "token": {
@@ -782,8 +877,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                         "kind": "media",
                         "media": {
                           "alt": "fa1b07a4-1c8b-497c-9241-5c013a6e278c",
+                          "aspect": 23.709,
+                          "fit": "contain",
                           "kind": "image",
                           "url": "asset://fa1b07a4-1c8b-497c-9241-5c013a6e278c",
+                          "width": 852,
                         },
                       },
                       "token": {
@@ -795,8 +893,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                         "kind": "media",
                         "media": {
                           "alt": "2116f17d-7cf0-4880-997d-bd3b5d9a08f1",
+                          "aspect": 23.737,
+                          "fit": "contain",
                           "kind": "image",
                           "url": "asset://2116f17d-7cf0-4880-997d-bd3b5d9a08f1",
+                          "width": 851,
                         },
                       },
                       "token": {
@@ -808,8 +909,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                         "kind": "media",
                         "media": {
                           "alt": "fd4d69f3-bb9e-4754-bebc-c2897a1bc1c8",
+                          "aspect": 23.709,
+                          "fit": "contain",
                           "kind": "image",
                           "url": "asset://fd4d69f3-bb9e-4754-bebc-c2897a1bc1c8",
+                          "width": 852,
                         },
                       },
                       "token": {
@@ -821,8 +925,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                         "kind": "media",
                         "media": {
                           "alt": "ae55dfb4-2234-4188-899f-3fe9ee92682b",
+                          "aspect": 23.692,
+                          "fit": "contain",
                           "kind": "image",
                           "url": "asset://ae55dfb4-2234-4188-899f-3fe9ee92682b",
+                          "width": 1701,
                         },
                       },
                       "token": {
@@ -834,8 +941,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                         "kind": "media",
                         "media": {
                           "alt": "ccdd3fcb-7361-4683-a5ff-5558b65746c0",
+                          "aspect": 23.678,
+                          "fit": "contain",
                           "kind": "image",
                           "url": "asset://ccdd3fcb-7361-4683-a5ff-5558b65746c0",
+                          "width": 1702,
                         },
                       },
                       "token": {
@@ -857,8 +967,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                         "kind": "media",
                         "media": {
                           "alt": "80180ff4-c26c-4c3f-8cc5-3ae8df7d64cb",
+                          "aspect": 23.737,
+                          "fit": "contain",
                           "kind": "image",
                           "url": "asset://80180ff4-c26c-4c3f-8cc5-3ae8df7d64cb",
+                          "width": 851,
                         },
                       },
                       "token": {
@@ -870,8 +983,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                         "kind": "media",
                         "media": {
                           "alt": "ea5a8ac9-4bd3-4934-a38c-cf0a9cce6517",
+                          "aspect": 23.678,
+                          "fit": "contain",
                           "kind": "image",
                           "url": "asset://ea5a8ac9-4bd3-4934-a38c-cf0a9cce6517",
+                          "width": 1702,
                         },
                       },
                       "token": {
@@ -883,8 +999,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                         "kind": "media",
                         "media": {
                           "alt": "998c3e5a-f177-4d0e-9e0e-d95f1b803976",
+                          "aspect": 23.737,
+                          "fit": "contain",
                           "kind": "image",
                           "url": "asset://998c3e5a-f177-4d0e-9e0e-d95f1b803976",
+                          "width": 851,
                         },
                       },
                       "token": {
@@ -896,8 +1015,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                         "kind": "media",
                         "media": {
                           "alt": "865149e9-5e82-440f-93e0-6c5279d23e26",
+                          "aspect": 23.678,
+                          "fit": "contain",
                           "kind": "image",
                           "url": "asset://865149e9-5e82-440f-93e0-6c5279d23e26",
+                          "width": 1702,
                         },
                       },
                       "token": {
@@ -909,8 +1031,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                         "kind": "media",
                         "media": {
                           "alt": "c9dffc4f-f371-4007-ba80-71233c827d79",
+                          "aspect": 23.737,
+                          "fit": "contain",
                           "kind": "image",
                           "url": "asset://c9dffc4f-f371-4007-ba80-71233c827d79",
+                          "width": 851,
                         },
                       },
                       "token": {
@@ -943,16 +1068,22 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                   "kind": "media",
                   "media": {
                     "alt": "511a1d2e-2ad5-4d93-857e-463f15bc5b82",
+                    "aspect": 118.95,
+                    "fit": "contain",
                     "kind": "image",
                     "url": "asset://511a1d2e-2ad5-4d93-857e-463f15bc5b82",
+                    "width": 971,
                   },
                 },
                 {
                   "kind": "media",
                   "media": {
                     "alt": "43983b42-cd6d-42ba-b76d-9bce1931e581",
+                    "aspect": 32.462,
+                    "fit": "contain",
                     "kind": "image",
                     "url": "asset://43983b42-cd6d-42ba-b76d-9bce1931e581",
+                    "width": 1645,
                   },
                 },
               ],
@@ -973,8 +1104,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                           "kind": "media",
                           "media": {
                             "alt": "449cb545-61ab-4faa-a1a2-5b802ae27982",
+                            "aspect": 67.917,
+                            "fit": "contain",
                             "kind": "image",
                             "url": "asset://449cb545-61ab-4faa-a1a2-5b802ae27982",
+                            "width": 200,
                           },
                         },
                         "token": {
@@ -1010,8 +1144,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                           "kind": "media",
                           "media": {
                             "alt": "56ceaf76-a802-47e2-9bfa-d48fff84642d",
+                            "aspect": 67.917,
+                            "fit": "contain",
                             "kind": "image",
                             "url": "asset://56ceaf76-a802-47e2-9bfa-d48fff84642d",
+                            "width": 200,
                           },
                         },
                         "token": {
@@ -1047,8 +1184,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                           "kind": "media",
                           "media": {
                             "alt": "39999486-c94a-47f9-9054-699d21955ec5",
+                            "aspect": 68.182,
+                            "fit": "contain",
                             "kind": "image",
                             "url": "asset://39999486-c94a-47f9-9054-699d21955ec5",
+                            "width": 210,
                           },
                         },
                         "token": {
@@ -1084,8 +1224,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                           "kind": "media",
                           "media": {
                             "alt": "1083733e-b211-4e23-8a62-2c6db839a02c",
+                            "aspect": 100,
+                            "fit": "contain",
                             "kind": "image",
                             "url": "asset://1083733e-b211-4e23-8a62-2c6db839a02c",
+                            "width": 123,
                           },
                         },
                         "token": {
@@ -1151,8 +1294,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                   "kind": "media",
                   "media": {
                     "alt": "ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
+                    "aspect": 18.978,
+                    "fit": "contain",
                     "kind": "image",
                     "url": "asset://ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
+                    "width": 50,
                   },
                 },
                 {
@@ -1189,8 +1335,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                     "kind": "media",
                     "media": {
                       "alt": "7c52c8df-a506-4a7a-9a1d-91aa11e5d7c6",
+                      "aspect": 88.006,
+                      "fit": "cover",
                       "kind": "image",
                       "url": "asset://7c52c8df-a506-4a7a-9a1d-91aa11e5d7c6",
+                      "width": 1334,
                     },
                   },
                   "token": {
@@ -1235,8 +1384,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                     "kind": "media",
                     "media": {
                       "alt": "2c05f47c-cfee-4383-8955-5dea66b4df15",
+                      "aspect": 64.69,
+                      "fit": "cover",
                       "kind": "image",
                       "url": "asset://2c05f47c-cfee-4383-8955-5dea66b4df15",
+                      "width": 2563,
                     },
                   },
                   "token": {
@@ -1259,8 +1411,11 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                     "kind": "media",
                     "media": {
                       "alt": "6fefaae2-82b2-4861-9efe-b491cc3d2af1",
+                      "aspect": 66.658,
+                      "fit": "contain",
                       "kind": "image",
                       "url": "asset://6fefaae2-82b2-4861-9efe-b491cc3d2af1",
+                      "width": 3800,
                     },
                   },
                   "token": {
@@ -1301,16 +1456,19 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
       "gallery": [
         {
           "alt": "aefbd53c-205a-402a-ba88-6294a555b0aa",
+          "fit": "cover",
           "kind": "image",
           "url": "asset://aefbd53c-205a-402a-ba88-6294a555b0aa",
         },
         {
           "alt": "cb6f38b7-4ca7-4590-aeb9-11287fc942e4",
+          "fit": "cover",
           "kind": "image",
           "url": "asset://cb6f38b7-4ca7-4590-aeb9-11287fc942e4",
         },
         {
           "alt": "88737f87-d643-4435-9eb7-839516e95b38",
+          "fit": "cover",
           "kind": "image",
           "url": "asset://88737f87-d643-4435-9eb7-839516e95b38",
         },
@@ -1334,16 +1492,22 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
             "kind": "media",
             "media": {
               "alt": "bf56be7d-863c-4f44-8247-6d92ea7762a9",
+              "aspect": 17.5,
+              "fit": "contain",
               "kind": "image",
               "url": "asset://bf56be7d-863c-4f44-8247-6d92ea7762a9",
+              "width": 40,
             },
           },
           {
             "kind": "media",
             "media": {
               "alt": "b640649d-05cf-40c1-9edc-f3fc9d427c76",
+              "aspect": 6.124,
+              "fit": "contain",
               "kind": "image",
               "url": "asset://b640649d-05cf-40c1-9edc-f3fc9d427c76",
+              "width": 996,
             },
           },
           {

@@ -1,5 +1,6 @@
 import type { Band, Cell, Media, Node, Widget } from "./types.js";
 import type { SliceSpec } from "./slice-spec.js";
+import { blockPlainText } from "./leaf.js";
 
 /** Depth-first collect of every `media` node's `Media` in a subtree. */
 export function collectMedia(node: Node): Media[] {
@@ -104,29 +105,26 @@ function base(band: Band): { index: number; background?: Media } {
   return { index: band.index, ...(band.background ? { background: band.background } : {}) };
 }
 
-/** Plain text of a heading/subtitle/body node (tags stripped, whitespace collapsed). */
+/** Plain text of a heading/subtitle/body node. Hard line breaks (Blux `<br>`)
+ * survive as newlines so the render layer can split a display title back into
+ * lines; all other tags and source whitespace collapse to single spaces. */
 function nodeText(node: Node): string {
-  let html: string;
   switch (node.kind) {
     case "heading":
     case "body":
-      html = node.html;
-      break;
+      // Raw markup — `<br>` → newline, other tags + source formatting → spaces.
+      return blockPlainText(node.html);
     case "subtitle":
-      html = node.text;
-      break;
+      // Already normalized at parse via blockPlainText (entities decoded, hard
+      // breaks as newlines, source whitespace collapsed) — pass it through.
+      return node.text.trim();
     case "row":
     case "stack":
     case "media":
     case "widget":
     case "raw":
-      html = "";
-      break;
+      return "";
   }
-  return html
-    .replace(/<[^>]*>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 /** The single media of a pure-media cell, or null if the cell isn't pure media. */
