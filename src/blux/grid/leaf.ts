@@ -1,3 +1,4 @@
+import { parse } from "node-html-parser";
 import type { HTMLElement } from "node-html-parser";
 import type { Media } from "./types.js";
 
@@ -17,15 +18,17 @@ export function headingLevel(el: HTMLElement): number {
 
 /** Plain text of a block's inner HTML for a title field: a hard line break
  * (`<br>`, with or without attributes/self-close) becomes a newline; every other
- * tag and all source-formatting whitespace collapse to single spaces. Robust to
+ * tag drops and HTML entities decode (`Bar &amp; Grill` → `Bar & Grill`); all
+ * source-formatting whitespace collapses to single spaces. Robust to
  * pretty-printed exports — insignificant newlines in the markup are NOT mistaken
  * for hard breaks — by routing `<br>` through a sentinel that survives the
  * whitespace collapse. */
 export function blockPlainText(html: string): string {
   const BR = "\uE000";
-  return html
-    .replace(/<br\b[^>]*>/gi, BR)
-    .replace(/<[^>]*>/g, " ")
+  // node-html-parser `.text` strips tags AND decodes entities; the <br>→BR swap
+  // runs first so hard breaks survive as the sentinel through the collapse below.
+  const text = parse(html.replace(/<br\b[^>]*>/gi, BR)).text;
+  return text
     .replace(/\s+/g, " ")
     .replace(/ *\uE000 */g, "\n")
     .trim();
@@ -64,14 +67,14 @@ function readImgSizing(holder: HTMLElement): Pick<Media, "width" | "aspect" | "f
   // width is relative to context and must NOT be mistaken for px (which the
   // render layer would then apply literally) — skip it, leaving `width` absent.
   const w = cssProp(style, "width");
-  const wpx = w ? /^(\d+(?:\.\d+)?)px$/.exec(w) : null;
+  const wpx = w ? /^(\d+(?:\.\d+)?)px$/i.exec(w) : null;
   if (wpx?.[1]) out.width = Math.round(parseFloat(wpx[1]));
   const ogr = holder.querySelector(".mediaRatio")?.getAttribute("data-og-ratio");
   if (ogr) {
     const n = Number(ogr);
     if (Number.isFinite(n)) out.aspect = Math.round(n * 1000) / 1000;
   }
-  const fit = cssProp(style, "background-size");
+  const fit = cssProp(style, "background-size")?.toLowerCase();
   if (fit === "contain" || fit === "cover") out.fit = fit;
   return out;
 }

@@ -33,6 +33,20 @@ describe("parseNode", () => {
     });
   });
 
+  it("keeps a subtitle's <br> as a newline but collapses source-formatting whitespace", () => {
+    // A pretty-printed export wraps the display line across source rows; only the
+    // real <br> is a hard break — the insignificant newlines must collapse.
+    const html = "<div class='block-subtitle text12'>\n  distinguished<br>\n  design\n</div>";
+    expect(node(html)).toEqual({ kind: "subtitle", role: "text12", text: "distinguished\ndesign" });
+  });
+
+  it("decodes HTML entities in a subtitle", () => {
+    expect(node("<div class='block-subtitle'>Health &amp; Wellness</div>")).toEqual({
+      kind: "subtitle",
+      text: "Health & Wellness",
+    });
+  });
+
   it("stacks multiple sibling leaves under a container", () => {
     const html =
       "<div class='block-content'><h2 class='block-title text5'>Title</h2><div class='block-body text1'>Body</div></div>";

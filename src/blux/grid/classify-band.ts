@@ -115,12 +115,9 @@ function nodeText(node: Node): string {
       // Raw markup — `<br>` → newline, other tags + source formatting → spaces.
       return blockPlainText(node.html);
     case "subtitle":
-      // Already plain text whose hard breaks are newlines (node-html-parser
-      // flattens `<br>` at parse); tidy remaining spaces, keep the newlines.
-      return node.text
-        .replace(/[^\S\n]+/g, " ")
-        .replace(/ *\n */g, "\n")
-        .trim();
+      // Already normalized at parse via blockPlainText (entities decoded, hard
+      // breaks as newlines, source whitespace collapsed) — pass it through.
+      return node.text.trim();
     case "row":
     case "stack":
     case "media":

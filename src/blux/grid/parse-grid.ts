@@ -2,7 +2,13 @@ import { parse } from "node-html-parser";
 import type { HTMLElement, Node as HTMLNode } from "node-html-parser";
 import type { Band, Cell, GridToken, Media, Node } from "./types.js";
 import { parseGridToken } from "./token.js";
-import { textRoleFromClass, headingLevel, mediaFromElement, stripAssetExt } from "./leaf.js";
+import {
+  textRoleFromClass,
+  headingLevel,
+  mediaFromElement,
+  stripAssetExt,
+  blockPlainText,
+} from "./leaf.js";
 
 const DEFAULT_TOKEN: GridToken = { cols: 1, raw: "grid-1" };
 
@@ -65,7 +71,10 @@ export function parseNode(el: HTMLElement): Node {
   }
   if (hasClass(el, "block-subtitle")) {
     const role = textRoleFromClass(el.classNames);
-    return { kind: "subtitle", ...(role ? { role } : {}), text: el.text.trim() };
+    // Route through blockPlainText (not raw `.text`): a `<br>` in a display
+    // subtitle survives as a newline while insignificant source whitespace
+    // collapses — `.text` alone can't tell a hard break from source formatting.
+    return { kind: "subtitle", ...(role ? { role } : {}), text: blockPlainText(el.innerHTML) };
   }
   if (
     hasClass(el, "block-media-holder") ||

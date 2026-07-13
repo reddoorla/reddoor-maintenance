@@ -120,6 +120,16 @@ describe("classifyBand — text-only", () => {
     if (spec.slice === "TitleBand") expect(spec.heading).toBe("a monument\nof excellence");
   });
 
+  it("decodes HTML entities in a heading title", () => {
+    const only: Band = {
+      index: 99,
+      root: { kind: "heading", level: 2, html: "Bar &amp; Grill&nbsp;Co." },
+    };
+    const spec = classifyBand(only);
+    expect(spec.slice).toBe("TitleBand");
+    if (spec.slice === "TitleBand") expect(spec.heading).toBe("Bar & Grill Co.");
+  });
+
   it("a bare heading → TitleBand", () => {
     const spec = classifyBand(band(realBands(), 15)); // h2
     expect(spec.slice).toBe("TitleBand");

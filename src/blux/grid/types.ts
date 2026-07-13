@@ -12,9 +12,11 @@ export type Media = {
   base?: string;
   // Intrinsic render sizing read off the rendered export (foreground images
   // only; band backgrounds and video carry none). `width` is the holder's inline
-  // pixel width, `aspect` the `.mediaRatio` `data-og-ratio` (height as a % of
-  // width), `fit` its `background-size`. Blux uses small graphics as rules/logos
-  // whose intrinsic width must be preserved, not stretched full-bleed.
+  // pixel width — the width the export actually renders that image at, whether a
+  // 40px rule or an 800px+ photo — `aspect` the `.mediaRatio` `data-og-ratio`
+  // (height as a % of width), `fit` its `background-size`. The render layer
+  // treats `width` as advisory and caps it at 100% of the cell, so a graphic
+  // keeps its true size instead of stretching, and a photo still fills.
   width?: number;
   aspect?: number;
   fit?: "contain" | "cover";
