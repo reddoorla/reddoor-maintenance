@@ -244,6 +244,14 @@ export async function defaultFormRunner(): Promise<FormRunner> {
         // Beat the bot-timing screen, then submit and wait for the success banner
         // (role="status") the starter renders on a successful action.
         await page.waitForTimeout(FILL_SETTLE_MS);
+        // Capture the action POST so a failure names the real server response
+        // (espada 2026-07-10: three "no success banner" warns were undiagnosable
+        // without it — the POST status/alert text is the evidence).
+        const postResponse = page
+          .waitForResponse((r) => r.request().method() === "POST", {
+            timeout: PAGE_TIMEOUT_MS,
+          })
+          .catch(() => null);
         // Both standard submit controls: reddoor-website uses `<input type="submit">`
         // (its first enrolled run timed out matching button-only and false-failed).
         await page
@@ -256,9 +264,21 @@ export async function defaultFormRunner(): Promise<FormRunner> {
           .waitFor({ state: "visible", timeout: PAGE_TIMEOUT_MS })
           .then(() => true)
           .catch(() => false);
-        return ok
-          ? { formPresent: true, success: true }
-          : { formPresent: true, success: false, detail: "no success banner after submit" };
+        if (ok) return { formPresent: true, success: true };
+        const actionResp = await postResponse;
+        const alertText = await page
+          .locator('[role="alert"]')
+          .first()
+          .textContent({ timeout: 1000 })
+          .catch(() => null);
+        const respBit = actionResp
+          ? `POST ${actionResp.status()}${actionResp.status() >= 400 ? ` ${(await actionResp.text().catch(() => "")).slice(0, 80)}` : ""}`
+          : "no POST observed";
+        return {
+          formPresent: true,
+          success: false,
+          detail: `no success banner after submit — ${respBit}${alertText ? `; alert: ${alertText.trim().slice(0, 80)}` : ""}`,
+        };
       } catch (err) {
         return { formPresent: true, success: false, detail: String(err).slice(0, 120) };
       } finally {

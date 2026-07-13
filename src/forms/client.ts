@@ -38,7 +38,17 @@ export type SubmitToIngestOptions = {
   payload: SubmissionPayload;
   /** Injectable fetch (pass SvelteKit's `event.fetch`); defaults to global fetch. */
   fetch?: typeof fetch;
+  /** Abort budget for the central call. Default INGEST_TIMEOUT_MS. */
+  timeoutMs?: number;
 };
+
+/** Default abort budget for the site→central ingest call. A central function hung
+ *  mid-deploy otherwise leaves the visitor's submit awaiting until Netlify kills
+ *  the SITE function at its 10s sync limit — a broken response instead of the
+ *  friendly error copy (espada's 2026-07-10 form-e2e warns caught exactly this).
+ *  8s clears warm (~0.3s) and cold (~1-3s) central latency by a wide margin while
+ *  leaving the action ~2s of the 10s envelope to respond cleanly. */
+export const INGEST_TIMEOUT_MS = 8000;
 
 /**
  * Forward a submission to the dashboard ingest endpoint. Never throws — a network
@@ -47,15 +57,20 @@ export type SubmitToIngestOptions = {
  */
 export async function submitToIngest(opts: SubmitToIngestOptions): Promise<IngestClientResult> {
   const doFetch = opts.fetch ?? fetch;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? INGEST_TIMEOUT_MS);
   let res: Response;
   try {
     res = await doFetch(opts.url, {
       method: "POST",
       headers: { "content-type": "application/json", "x-forms-token": opts.token },
       body: JSON.stringify(opts.payload),
+      signal: controller.signal,
     });
   } catch (err) {
     return { ok: false, status: 0, error: `network error: ${String(err)}` };
+  } finally {
+    clearTimeout(timer);
   }
   let body: unknown = null;
   try {
