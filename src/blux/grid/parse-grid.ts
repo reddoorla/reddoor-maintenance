@@ -158,6 +158,14 @@ export function parseContainer(el: HTMLElement): Node {
 
   if ((isGrid || tokenCount >= 2) && parsed.length > 0) {
     const cells: Cell[] = parsed.map((p) => ({ token: p.token ?? DEFAULT_TOKEN, node: p.node }));
+    if (hasClass(el, "caslider")) {
+      // A source slider row. `data-columns` = slides visible at a time; only a
+      // positive integer is meaningful (conditional build keeps `columns`
+      // absent, not undefined, under exactOptionalPropertyTypes).
+      const cols = Number(el.getAttribute("data-columns"));
+      const slider = Number.isInteger(cols) && cols > 0 ? { columns: cols } : {};
+      return { kind: "row", cells, slider };
+    }
     return { kind: "row", cells };
   }
   const [only] = parsed;

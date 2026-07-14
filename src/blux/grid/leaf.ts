@@ -78,9 +78,9 @@ export function readBgSizing(el: HTMLElement): Pick<Media, "fit" | "position"> {
  * `background-size` (→ `fit`, only when contain/cover — a background's `auto`
  * is not foreground sizing). Each field is present only when the source has it,
  * so a plain holder still yields a bare `Media`. */
-function readImgSizing(holder: HTMLElement): Pick<Media, "width" | "aspect" | "fit"> {
+function readImgSizing(holder: HTMLElement): Pick<Media, "width" | "aspect" | "fit" | "minHeight"> {
   const style = holder.getAttribute("style") ?? "";
-  const out: Pick<Media, "width" | "aspect" | "fit"> = {};
+  const out: Pick<Media, "width" | "aspect" | "fit" | "minHeight"> = {};
   // Only a pixel width is a faithful intrinsic size. A `%`/`vw`/`em`/`calc()`
   // width is relative to context and must NOT be mistaken for px (which the
   // render layer would then apply literally) — skip it, leaving `width` absent.
@@ -94,6 +94,10 @@ function readImgSizing(holder: HTMLElement): Pick<Media, "width" | "aspect" | "f
   }
   const fit = cssProp(style, "background-size")?.toLowerCase();
   if (fit === "contain" || fit === "cover") out.fit = fit;
+  // The holder's inline min-height (e.g. "80vh" on a slider slide) is the
+  // height the export reserves for a cover-rendered frame — keep it.
+  const mh = cssProp(style, "min-height");
+  if (mh) out.minHeight = mh;
   return out;
 }
 
