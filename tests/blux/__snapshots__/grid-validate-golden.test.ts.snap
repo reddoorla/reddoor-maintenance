@@ -60,10 +60,10 @@ exports[`grid validate golden — the-pointe > converts the 16 bands with zero l
   },
   {
     "band": 8,
-    "converted": "row[1:stack[media:image,h5],1:stack[media:image,h5],1:stack[media:image,h5]]",
+    "converted": "Carousel(3)",
     "ok": true,
-    "slice": "Grid",
-    "source": "row[1:stack[media:image,h5],1:stack[media:image,h5],1:stack[media:image,h5]]",
+    "slice": "Carousel",
+    "source": "Carousel(3)",
   },
   {
     "band": 9,

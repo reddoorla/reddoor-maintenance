@@ -55,6 +55,9 @@ export function collectPlanAssets(
       case "Gallery":
         spec.media.forEach(add);
         break;
+      case "Carousel":
+        spec.slides.forEach((s) => add(s.media));
+        break;
       case "MediaFull":
       case "VideoFeature":
         add(spec.media);

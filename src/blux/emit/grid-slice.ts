@@ -57,6 +57,15 @@ export function sliceSpecToPlanSlice(spec: SliceSpec): PlanSlice {
         items: [],
         primary: { band: spec.index },
       };
+    case "Carousel":
+      // One item per slide, in slide order (the render zips by index); an
+      // uncaptioned slide contributes {} so the alignment holds.
+      return {
+        slice_type: "carousel",
+        variation: "default",
+        items: spec.slides.map((s) => (s.caption ? { caption: stripTags(s.caption.html) } : {})),
+        primary: { band: spec.index },
+      };
     case "MediaFull":
     case "VideoFeature":
       return {

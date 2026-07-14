@@ -243,6 +243,50 @@ describe("validateLayout — findings", () => {
     });
   });
 
+  it("passes a Carousel whose every slide survived into the manifest", () => {
+    const specs: SliceSpec[] = [
+      {
+        slice: "Carousel",
+        index: 8,
+        slides: [{ media: img("a").media }, { media: img("b").media }],
+      },
+    ];
+    const pres: Presentation = {
+      bands: { "8": { carousel: { slides: [{ media: rImg().media }, { media: rImg().media }] } } },
+    };
+    const r = validateLayout(specs, pres);
+    expect(r.faithful).toBe(true);
+    expect(r.rows[0]).toMatchObject({ source: "Carousel(2)", converted: "Carousel(2)", ok: true });
+  });
+
+  it("flags a Carousel whose manifest is missing a slide", () => {
+    const specs: SliceSpec[] = [
+      {
+        slice: "Carousel",
+        index: 8,
+        slides: [{ media: img("a").media }, { media: img("b").media }, { media: img("c").media }],
+      },
+    ];
+    const pres: Presentation = {
+      bands: { "8": { carousel: { slides: [{ media: rImg().media }, { media: rImg().media }] } } },
+    };
+    const r = validateLayout(specs, pres);
+    expect(r.findings).toContainEqual({ kind: "media-dropped", band: 8, where: "carousel 2/3" });
+    expect(r.rows[0]).toMatchObject({ source: "Carousel(3)", converted: "Carousel(2)", ok: false });
+  });
+
+  it("flags a Carousel band with no carousel payload at all", () => {
+    const specs: SliceSpec[] = [
+      {
+        slice: "Carousel",
+        index: 8,
+        slides: [{ media: img("a").media }, { media: img("b").media }],
+      },
+    ];
+    const r = validateLayout(specs, { bands: { "8": {} } });
+    expect(r.findings).toContainEqual({ kind: "media-dropped", band: 8, where: "carousel 0/2" });
+  });
+
   it("flags a media_full band whose media dropped", () => {
     const specs: SliceSpec[] = [
       { slice: "MediaFull", index: 5, media: { kind: "image", assetId: "m" } },

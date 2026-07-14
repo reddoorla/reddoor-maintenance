@@ -29,6 +29,9 @@ export type RenderMedia = {
   aspect?: number;
   fit?: "contain" | "cover" | "auto";
   position?: string;
+  /** The source holder's inline min-height (e.g. "80vh" on slider slides), so
+   * a cover-frame carousel reserves the original's height. */
+  minHeight?: string;
   playback?: VideoPlayback;
 };
 
@@ -70,6 +73,17 @@ export type BandPresentation = {
   tree?: RenderNode;
   split?: { mediaSide: "left" | "right"; ratio: number; media: RenderMedia; text: RenderNode };
   gallery?: RenderMedia[];
+  /** Carousel payload: the band is a source slider (.caslider). Caption TEXT
+   * lives in the page doc's items (Prismic-editable); the manifest carries the
+   * media and the caption's role metadata. `columns` = slides visible at once
+   * (source data-columns). */
+  carousel?: {
+    slides: {
+      media: RenderMedia;
+      caption?: { level?: number; role?: string };
+    }[];
+    columns?: number;
+  };
   media?: RenderMedia;
   map?: MapRenderConfig;
   /** Hero/TitleBand heading textN role + h-level and subtitle role, so the
@@ -182,6 +196,27 @@ export function buildPresentation(specs: SliceSpec[], deps: PresentationDeps): P
       case "Gallery": {
         const g = spec.media.map(deps.resolveMedia).filter((m): m is RenderMedia => m !== null);
         if (g.length) bp.gallery = g;
+        break;
+      }
+      case "Carousel": {
+        // Caption TEXT lives in the page doc's items; only its role metadata
+        // rides the manifest. An unresolved media drops its whole slide.
+        const slides = spec.slides.flatMap((s) => {
+          const media = deps.resolveMedia(s.media);
+          if (!media) return [];
+          const slide: { media: RenderMedia; caption?: { level?: number; role?: string } } = {
+            media,
+          };
+          if (s.caption) {
+            const caption: { level?: number; role?: string } = { level: s.caption.level };
+            if (s.caption.role !== undefined) caption.role = s.caption.role;
+            slide.caption = caption;
+          }
+          return [slide];
+        });
+        if (slides.length > 0) {
+          bp.carousel = spec.columns !== undefined ? { slides, columns: spec.columns } : { slides };
+        }
         break;
       }
       case "MediaFull":

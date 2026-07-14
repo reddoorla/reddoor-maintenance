@@ -6,8 +6,6 @@ import {
   classifyBands,
   extractMapConfig,
   makeIsMapMount,
-  collectMedia,
-  type Node,
 } from "../../src/blux/grid/index.js";
 import {
   buildPresentation,
@@ -33,16 +31,17 @@ describe("grid validate golden — the-pointe", () => {
     expect(report.faithful).toBe(true);
     expect(report.findings).toEqual([]);
     expect(report.bands).toBe(16);
-    expect(report.gridBands).toBe(11); // 11 Grid-fallback bands checked for tree fidelity
+    expect(report.gridBands).toBe(10); // 10 Grid-fallback bands checked for tree fidelity (band 8 is now a Carousel)
     expect(report.rows).toMatchSnapshot();
   });
 
   it("reports drift when a single asset fails to resolve", () => {
     const specs = classifyBands(parseGridBands(fixture("the-pointe-page-content.html")));
-    // Band 8 (the captioned slider) is a Grid whose tree carries the per-slide
-    // media; dropping its first image makes that tree no longer round-trip.
-    const band8 = specs.find((s) => s.index === 8) as { index: number; root: Node };
-    const dropId = collectMedia(band8.root)[0]!.assetId;
+    // Band 8 (the source slider) is a Carousel; dropping its first slide's
+    // media leaves the manifest a slide short of the spec's count.
+    const band8 = specs.find((s) => s.index === 8);
+    if (band8?.slice !== "Carousel") throw new Error("band 8 is no longer a Carousel");
+    const dropId = band8.slides[0]!.media.assetId;
     const deps: PresentationDeps = {
       ...resolveAll,
       resolveMedia: (m) => (m.assetId === dropId ? null : resolveAll.resolveMedia(m)),
@@ -52,6 +51,11 @@ describe("grid validate golden — the-pointe", () => {
     // Exactly one finding, on band 8 — nothing spurious elsewhere.
     expect(report.findings).toHaveLength(1);
     expect(report.findings.some((f) => "band" in f && f.band === 8)).toBe(true);
+    expect(report.findings[0]).toEqual({
+      kind: "media-dropped",
+      band: 8,
+      where: `carousel 2/${band8.slides.length}`,
+    });
   });
 
   it("keeps a standalone map band's config (LocationMap slice) — no false map-missing", () => {

@@ -216,6 +216,9 @@ function rewriteMapMounts(node: Node, isMapMount: (n: Node) => boolean): Node {
           token: c.token,
           node: rewriteMapMounts(c.node, isMapMount),
         })),
+        // Keep the slider marker — dropping it here would silently demote a
+        // Carousel to Grid whenever a map config is present.
+        ...(node.slider ? { slider: node.slider } : {}),
       };
     case "stack":
       return { kind: "stack", children: node.children.map((n) => rewriteMapMounts(n, isMapMount)) };

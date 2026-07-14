@@ -75,6 +75,24 @@ describe("buildGridPlan", () => {
     expect(Array.isArray(plan.customTypes)).toBe(true);
   });
 
+  it("collects a Carousel's slide media into plan.assets", () => {
+    const specs2: SliceSpec[] = [
+      {
+        index: 0,
+        slice: "Carousel",
+        slides: [
+          { media: img("a") },
+          { media: img("b"), caption: { html: "cap", level: 5, role: "text5" } },
+        ],
+      },
+    ];
+    const plan = buildGridPlan(specs2, ir);
+    expect(plan.assets).toEqual([
+      { id: "a", url: "https://cdn/f/a.png", alt: "Alt A" },
+      { id: "b", url: "https://cdn/f/b.png", alt: "" },
+    ]);
+  });
+
   it("falls back to ir.assets sourceUrl when a media carries no CDN base", () => {
     const noBase: Media = { kind: "image", assetId: "d", ext: "png" };
     const ir2 = {
