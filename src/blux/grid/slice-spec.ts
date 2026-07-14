@@ -48,6 +48,21 @@ export type SplitFeatureSpec = SpecBase & {
 /** One row whose every cell is a single media node (≥2 cells). */
 export type GallerySpec = SpecBase & { slice: "Gallery"; media: Media[] };
 
+/** One slider slide: its media plus the caption text-block nested inside the
+ * holder (band-8 archetype: a single h5.block-title per slide). */
+export type CarouselSlide = {
+  media: Media;
+  caption?: { html: string; level: number; role?: string };
+};
+
+/** A source slider (.caslider): media slides shown `columns` at a time.
+ * The export encodes no autoplay/duration/dots — deliberately absent. */
+export type CarouselSpec = SpecBase & {
+  slice: "Carousel";
+  slides: CarouselSlide[];
+  columns?: number;
+};
+
 /** A single full-width media node, no text. */
 export type MediaFullSpec = SpecBase & { slice: "MediaFull"; media: Media };
 
@@ -71,6 +86,7 @@ export type SliceSpec =
   | TitleBandSpec
   | SplitFeatureSpec
   | GallerySpec
+  | CarouselSpec
   | MediaFullSpec
   | RichTextSpec
   | VideoFeatureSpec

@@ -9,6 +9,8 @@ export type {
   TitleBandSpec,
   SplitFeatureSpec,
   GallerySpec,
+  CarouselSpec,
+  CarouselSlide,
   MediaFullSpec,
   RichTextSpec,
   VideoFeatureSpec,

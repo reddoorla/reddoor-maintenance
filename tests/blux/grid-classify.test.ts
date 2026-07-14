@@ -180,13 +180,64 @@ describe("classifyBand — Hero", () => {
 });
 
 describe("classifyBand — media", () => {
-  it("a captioned media slider (band 8) → Grid, keeping the per-slide captions", () => {
-    // Each band-8 slide nests a caption inside its media holder, so the parser
-    // now emits stack[media, heading] cells — no longer a row of PURE media, so
-    // it classifies as a render-faithful Grid instead of a caption-dropping
-    // Gallery. (Regression guard for the media-leaf de-opaquing fix.)
+  it("a captioned media slider (band 8) → Carousel with per-slide captions", () => {
+    // Band 8's row carries the .caslider marker and every cell is a captioned
+    // media slide (stack[media, heading]) — a first-class Carousel, slides in
+    // source order with their caption text/role metadata.
     const spec = classifyBand(band(realBands(), 8));
-    expect(spec.slice).toBe("Grid");
+    expect(spec.slice).toBe("Carousel");
+    if (spec.slice !== "Carousel") return;
+    expect(spec.slides).toHaveLength(3);
+    expect(spec.columns).toBe(1);
+    expect(spec.slides[0]?.caption).toEqual({
+      html: "a place to sit and breathe",
+      level: 5,
+      role: "text5",
+    });
+  });
+
+  it("a slider row with an unrecognizable slide falls back to Grid", () => {
+    const b: Band = {
+      index: 79,
+      root: {
+        kind: "row",
+        slider: { columns: 1 },
+        cells: [
+          { token: { cols: 1, raw: "grid-1" }, node: media("image") },
+          { token: { cols: 1, raw: "grid-1" }, node: media("image") },
+          { token: { cols: 1, raw: "grid-1" }, node: stack(heading(5)) },
+        ],
+      },
+    };
+    expect(classifyBand(b).slice).toBe("Grid");
+  });
+
+  it("a single-slide slider is not a Carousel", () => {
+    const b: Band = {
+      index: 78,
+      root: {
+        kind: "row",
+        slider: {},
+        cells: [{ token: { cols: 1, raw: "grid-1" }, node: media("image") }],
+      },
+    };
+    expect(classifyBand(b).slice).toBe("Grid");
+  });
+
+  it("an unmarked row of captioned media stays Grid", () => {
+    // The band-8 shape WITHOUT the slider marker — the pre-existing behavior.
+    const captioned = (): Node => stack(media("image"), heading(5));
+    const b: Band = {
+      index: 77,
+      root: {
+        kind: "row",
+        cells: [
+          { token: { cols: 1, raw: "grid-1" }, node: captioned() },
+          { token: { cols: 1, raw: "grid-1" }, node: captioned() },
+        ],
+      },
+    };
+    expect(classifyBand(b).slice).toBe("Grid");
   });
 
   it("a row of PURE media cells → Gallery", () => {
