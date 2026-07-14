@@ -24,14 +24,31 @@ overrides:
   #   - esbuild <0.28.1: dev-server arbitrary file read on Windows (GHSA-g7r4-m6w7-qqqr)
   #   - cookie <0.7.0: out-of-bounds chars in name/path/domain (GHSA-pxg6-pf52-xh8x)
   #   - js-yaml 4.x <4.2.0: quadratic-complexity DoS in merge keys (GHSA-h67p-54hq-rp68);
-  #     scoped to >=4.0.0 so the unrelated 3.x instance (no 3.x fix) isn't force-bumped.
+  #     scoped to >=4.0.0 so the 3.x instance stays on its own 3.x backport line below.
   vite: "8.1.0"
   esbuild@<0.28.1: ">=0.28.1 <0.29"
   cookie@<0.7.0: ">=0.7.0 <1"
   js-yaml@>=4.0.0: ">=4.2.0 <5"
+  # Dev/CI-only transitive CVEs, cleared 2026-07-14. All on the audit/build
+  # toolchain (lighthouse/@lhci pulls ws@7 + js-yaml@3; libsql + puppeteer-core
+  # pull ws@8), none on the published package's runtime surface:
+  #   - ws <7.5.11 / 8.x <8.21.0: memory-exhaustion DoS from tiny fragments
+  #     (GHSA ws advisory, patched per major line — pin each, capped to its major)
+  #   - js-yaml 3.x <3.15.0: the merge-key DoS backport landed in 3.15.0
+  #     (the 4.x line is pinned above)
+  #   - protobufjs <=7.6.2: schema-derived names can shadow runtime-significant
+  #     properties (GHSA-f38q-mgvj-vph7)
+  ws@<7.5.11: ">=7.5.11 <8"
+  ws@>=8.0.0 <8.21.0: ">=8.21.0 <9"
+  js-yaml@<3.15.0: ">=3.15.0 <4"
+  protobufjs@<7.6.3: ">=7.6.3 <8"
 
 # Carried over from the old package.json "pnpm.auditConfig" (pnpm 11 reads it here now).
 auditConfig:
   ignoreGhsas:
     - GHSA-pfq8-rq6v-vf5m
+    # mjml mj-include directory traversal — only patched in 5.0.0-alpha (no 4.x
+    # backport). Not reachable here: we compile only our own repo-committed
+    # templates, never untrusted mjml input. Dependabot alert dismissed
+    # tolerable_risk 2026-07-14; revisit when mjml 5 stabilizes.
     - GHSA-45h5-66jx-r2wf
