@@ -180,8 +180,27 @@ describe("classifyBand — Hero", () => {
 });
 
 describe("classifyBand — media", () => {
-  it("a row of media cells → Gallery", () => {
-    const spec = classifyBand(band(realBands(), 8)); // row[grid-1:media ×3]
+  it("a captioned media slider (band 8) → Grid, keeping the per-slide captions", () => {
+    // Each band-8 slide nests a caption inside its media holder, so the parser
+    // now emits stack[media, heading] cells — no longer a row of PURE media, so
+    // it classifies as a render-faithful Grid instead of a caption-dropping
+    // Gallery. (Regression guard for the media-leaf de-opaquing fix.)
+    const spec = classifyBand(band(realBands(), 8));
+    expect(spec.slice).toBe("Grid");
+  });
+
+  it("a row of PURE media cells → Gallery", () => {
+    const b: Band = {
+      index: 40,
+      root: {
+        kind: "row",
+        cells: ["a", "b", "c"].map((id) => ({
+          token: { cols: 3, raw: "grid-3" },
+          node: { kind: "media", media: { kind: "image", assetId: id } },
+        })),
+      },
+    };
+    const spec = classifyBand(b);
     expect(spec.slice).toBe("Gallery");
     if (spec.slice === "Gallery") expect(spec.media).toHaveLength(3);
   });

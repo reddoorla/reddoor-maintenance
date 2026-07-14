@@ -60,10 +60,10 @@ exports[`grid validate golden — the-pointe > converts the 16 bands with zero l
   },
   {
     "band": 8,
-    "converted": "gallery(3)",
+    "converted": "row[1:stack[media:image,h5],1:stack[media:image,h5],1:stack[media:image,h5]]",
     "ok": true,
-    "slice": "Gallery",
-    "source": "gallery(3)",
+    "slice": "Grid",
+    "source": "row[1:stack[media:image,h5],1:stack[media:image,h5],1:stack[media:image,h5]]",
   },
   {
     "band": 9,
@@ -88,10 +88,10 @@ exports[`grid validate golden — the-pointe > converts the 16 bands with zero l
   },
   {
     "band": 12,
-    "converted": "row[1:row[2r30:body,2r70:media:image],1:row[2r70:media:image,2r30:body],1:row[2r30:body,2r70:stack[media:image,raw]]]",
+    "converted": "row[1:row[2r30:body,2r70:media:image],1:row[2r70:media:image,2r30:body],1:row[2r30:body,2r70:media:image]]",
     "ok": true,
     "slice": "Grid",
-    "source": "row[1:row[2r30:body,2r70:media:image],1:row[2r70:media:image,2r30:body],1:row[2r30:body,2r70:stack[media:image,raw]]]",
+    "source": "row[1:row[2r30:body,2r70:media:image],1:row[2r70:media:image,2r30:body],1:row[2r30:body,2r70:media:image]]",
   },
   {
     "band": 13,

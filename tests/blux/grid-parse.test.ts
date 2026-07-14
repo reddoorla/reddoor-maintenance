@@ -199,3 +199,34 @@ describe("data-exec custom-code embeds", () => {
     expect(stack.children[1]?.kind).toBe("row");
   });
 });
+
+describe("media holder with a nested caption (slider-tile de-opaquing)", () => {
+  it("emits the media PLUS its nested caption as a stack", () => {
+    // Blux slider tiles put the slide caption inside the .camediaload holder.
+    const n = node(
+      '<div class="ib camediaload" data-media="s1" data-bgmedia="1"><div class="block-holder"><div class="block-content"><h5 class="block-title text5">a place to sit and breathe</h5></div></div></div>',
+    );
+    expect(n).toEqual({
+      kind: "stack",
+      children: [
+        { kind: "media", media: { kind: "image", assetId: "s1" } },
+        { kind: "heading", level: 5, role: "text5", html: "a place to sit and breathe" },
+      ],
+    });
+  });
+  it("a pure media holder (no caption descendant) stays a bare media node", () => {
+    expect(node('<div class="ib camediaload" data-media="p1"></div>')).toEqual({
+      kind: "media",
+      media: { kind: "image", assetId: "p1" },
+    });
+  });
+});
+
+describe("empty caslider cleanup", () => {
+  it("drops an empty caslider so a lone poster stays a single media (not [media, empty])", () => {
+    const n = container(
+      '<div class="block-content"><div class="block-media-holder"><div class="camediaload" data-media="m1"></div></div><div class="block-grid-container cagrid caslider"></div></div>',
+    );
+    expect(n).toEqual({ kind: "media", media: { kind: "image", assetId: "m1" } });
+  });
+});
