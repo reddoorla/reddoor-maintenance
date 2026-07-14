@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { findDueReports, nextDueDate, reportPeriodKey } from "../../src/reports/due.js";
-import type { WebsiteRow, Frequency } from "../../src/reports/airtable/websites.js";
+import { mapRow, type WebsiteRow } from "../../src/reports/airtable/websites.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
@@ -12,6 +12,14 @@ function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
     maintenanceFreq: "Monthly",
     ...over,
   });
+}
+
+/** Build a WebsiteRow the way production does — through mapRow — so the frequency
+ *  guard at the read boundary (toFrequency) is exercised instead of bypassed. The
+ *  factory above hands the scheduler pre-coerced values a live Airtable fetch can
+ *  never produce; raw-cell behavior MUST be asserted through this helper. */
+function siteFromAirtable(fields: Record<string, unknown>): WebsiteRow {
+  return mapRow({ id: "rec_site_1", fields: { Name: "Acme", ...fields } });
 }
 
 function report(over: Partial<ReportRow> = {}): ReportRow {
@@ -201,49 +209,55 @@ describe("findDueReports", () => {
     expect(due[0]!.dueDate.toISOString().slice(0, 10)).toBe("2028-02-29");
   });
 
-  describe("unrecognized frequency (Fix #3 — no silent drop)", () => {
+  describe("unrecognized frequency (guarded at the read boundary — mapRow/toFrequency)", () => {
     afterEach(() => {
       vi.restoreAllMocks();
     });
 
-    it("logs a LOUD warning and produces no due entry for a casing/typo frequency", () => {
+    it("warns LOUDLY at mapRow time and never schedules a casing/typo frequency", () => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      // "monthly" (lowercase) is not a known schedule value — it used to silently
-      // make the site vanish from the loop with no error.
-      const due = findDueReports(
-        [site({ maintenanceFreq: "monthly" as never, maintenanceDay: "2026-01-01" })],
-        [],
-        TODAY,
-      );
-      expect(due).toEqual([]);
+      // "monthly" (lowercase) is not a known select option — it used to be silently
+      // coerced to "None" at mapRow time, dropping the site from the schedule with
+      // zero signal (a warn in due.ts existed but sat BELOW the coercion, dead).
+      const s = siteFromAirtable({
+        "maintenence freq": "monthly",
+        "maintenance day": "2026-01-01",
+      });
       expect(warn).toHaveBeenCalledTimes(1);
-      expect(warn.mock.calls[0]![0]).toMatch(/unrecognized maintenance frequency 'monthly'/);
+      expect(warn.mock.calls[0]![0]).toMatch(/unrecognized frequency 'monthly'/);
+      expect(s.maintenanceFreq).toBe("None");
+      expect(findDueReports([s], [], TODAY)).toEqual([]);
     });
 
-    it("warns on a trailing-space-only typo but still does NOT drop a known value", () => {
+    it("accepts a trailing-space typo ('Quarterly ') as Quarterly — schedules, no warning", () => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      // Trailing whitespace is normalized → "Quarterly" still schedules (no warning,
-      // a due entry is produced).
-      const due = findDueReports(
-        [site({ maintenanceFreq: "Quarterly " as never, maintenanceDay: "2026-02-26" })],
-        [],
-        TODAY,
-      );
-      expect(due).toHaveLength(1);
+      // Trailing whitespace is trimmed at the read boundary, so an operator's
+      // trailing-space select option degrades gracefully instead of unscheduling.
+      const s = siteFromAirtable({
+        "maintenence freq": "Quarterly ",
+        "maintenance day": "2026-02-26",
+      });
+      expect(s.maintenanceFreq).toBe("Quarterly");
+      expect(findDueReports([s], [], TODAY)).toHaveLength(1);
       expect(warn).not.toHaveBeenCalled();
     });
 
     it("a known frequency still schedules and never warns", () => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      const due = findDueReports([site({ maintenanceDay: "2026-04-26" })], [], TODAY);
-      expect(due).toHaveLength(1);
+      const s = siteFromAirtable({
+        "maintenence freq": "Monthly",
+        "maintenance day": "2026-04-26",
+      });
+      expect(findDueReports([s], [], TODAY)).toHaveLength(1);
       expect(warn).not.toHaveBeenCalled();
     });
 
-    it("keeps 'None' SILENT — that's an intentional no-schedule, not a mistake", () => {
+    it("keeps 'None' and a blank cell SILENT — intentional no-schedule, not a mistake", () => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      const due = findDueReports([site({ maintenanceFreq: "None" })], [], TODAY);
-      expect(due).toEqual([]);
+      expect(findDueReports([siteFromAirtable({ "maintenence freq": "None" })], [], TODAY)).toEqual(
+        [],
+      );
+      expect(findDueReports([siteFromAirtable({})], [], TODAY)).toEqual([]);
       expect(warn).not.toHaveBeenCalled();
     });
   });
@@ -348,8 +362,13 @@ describe("nextDueDate", () => {
     expect(nextDueDate(s, [], "Maintenance", TODAY)).toBeNull();
   });
 
-  it("returns null for an unrecognized frequency value", () => {
-    const s = site({ maintenanceFreq: "monthly" as Frequency, maintenanceDay: "2026-06-30" });
+  it("returns null for an unrecognized raw frequency (coerced to None at the read boundary)", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const s = siteFromAirtable({
+      "maintenence freq": "monthly",
+      "maintenance day": "2026-06-30",
+    });
     expect(nextDueDate(s, [], "Maintenance", TODAY)).toBeNull();
+    warn.mockRestore();
   });
 });
