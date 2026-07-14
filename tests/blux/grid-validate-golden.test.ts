@@ -6,6 +6,8 @@ import {
   classifyBands,
   extractMapConfig,
   makeIsMapMount,
+  collectMedia,
+  type Node,
 } from "../../src/blux/grid/index.js";
 import {
   buildPresentation,
@@ -31,28 +33,25 @@ describe("grid validate golden — the-pointe", () => {
     expect(report.faithful).toBe(true);
     expect(report.findings).toEqual([]);
     expect(report.bands).toBe(16);
-    expect(report.gridBands).toBe(10); // 10 Grid-fallback bands checked for tree fidelity
+    expect(report.gridBands).toBe(11); // 11 Grid-fallback bands checked for tree fidelity
     expect(report.rows).toMatchSnapshot();
   });
 
   it("reports drift when a single asset fails to resolve", () => {
     const specs = classifyBands(parseGridBands(fixture("the-pointe-page-content.html")));
-    // Drop exactly the gallery band's first image → a media-dropped finding.
-    const gallery = specs.find((s) => s.slice === "Gallery")!;
-    const dropId = (gallery as { media: { assetId: string }[] }).media[0]!.assetId;
+    // Band 8 (the captioned slider) is a Grid whose tree carries the per-slide
+    // media; dropping its first image makes that tree no longer round-trip.
+    const band8 = specs.find((s) => s.index === 8) as { index: number; root: Node };
+    const dropId = collectMedia(band8.root)[0]!.assetId;
     const deps: PresentationDeps = {
       ...resolveAll,
       resolveMedia: (m) => (m.assetId === dropId ? null : resolveAll.resolveMedia(m)),
     };
     const report = validateLayout(specs, buildPresentation(specs, deps));
     expect(report.faithful).toBe(false);
-    // Exactly one finding — the dropped gallery image, nothing spurious.
-    expect(report.findings).toContainEqual({
-      kind: "media-dropped",
-      band: gallery.index,
-      where: "gallery 2/3",
-    });
+    // Exactly one finding, on band 8 — nothing spurious elsewhere.
     expect(report.findings).toHaveLength(1);
+    expect(report.findings.some((f) => "band" in f && f.band === 8)).toBe(true);
   });
 
   it("keeps a standalone map band's config (LocationMap slice) — no false map-missing", () => {

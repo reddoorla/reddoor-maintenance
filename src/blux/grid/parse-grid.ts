@@ -18,13 +18,18 @@ const isElement = (n: HTMLNode): n is HTMLElement =>
 
 const hasClass = (el: HTMLElement, c: string) => el.classNames.split(/\s+/).includes(c);
 
+/** A foreground media holder: a `block-media-holder`, a bare
+ * `camediaload[data-media]`, or a `<video>`. */
+const isMediaHolder = (el: HTMLElement): boolean =>
+  hasClass(el, "block-media-holder") ||
+  (hasClass(el, "camediaload") && !!el.getAttribute("data-media")) ||
+  el.tagName === "VIDEO";
+
 const isLeafElement = (el: HTMLElement): boolean =>
   hasClass(el, "block-title") ||
   hasClass(el, "block-body") ||
   hasClass(el, "block-subtitle") ||
-  hasClass(el, "block-media-holder") ||
-  (hasClass(el, "camediaload") && !!el.getAttribute("data-media")) ||
-  el.tagName === "VIDEO";
+  isMediaHolder(el);
 
 /** A leaf `<a>`: a CTA button / text link with no structural descendants. Such
  * an anchor is not a wrapper — peeling through it (its inner text/spans are not
@@ -54,6 +59,29 @@ export function collectStructuralChildren(el: HTMLElement): HTMLElement[] {
   return out;
 }
 
+/** Does a parsed leaf node carry real text (not just empty markup)? Gates caption
+ * capture so an empty `.block-*` inside a media holder adds nothing. Routes
+ * heading/body through `blockPlainText` (same as the subtitle path) so an
+ * entity- or `&nbsp;`-only block reads as empty, not as text. */
+function nodeHasText(n: Node): boolean {
+  if (n.kind === "heading" || n.kind === "body") return blockPlainText(n.html) !== "";
+  if (n.kind === "subtitle") return n.text.trim() !== "";
+  return false;
+}
+
+/** Is a caption element (or an ancestor up to and including the media holder)
+ * marked `class:"disable"`? Blux omits disabled blocks from the rendered HTML,
+ * but guard anyway so hidden copy is never leaked into a caption. */
+function isDisabledWithin(caption: HTMLElement, holder: HTMLElement): boolean {
+  let a: HTMLElement | null | undefined = caption;
+  while (a) {
+    if (hasClass(a, "disable")) return true;
+    if (a === holder) return false;
+    a = a.parentNode as HTMLElement | null | undefined;
+  }
+  return false;
+}
+
 /** Parse one element into a grid Node. Leaves dispatch by role; everything else
  * becomes a row / stack / single / raw via parseContainer. */
 export function parseNode(el: HTMLElement): Node {
@@ -77,13 +105,27 @@ export function parseNode(el: HTMLElement): Node {
     // collapses — `.text` alone can't tell a hard break from source formatting.
     return { kind: "subtitle", ...(role ? { role } : {}), text: blockPlainText(el.innerHTML) };
   }
-  if (
-    hasClass(el, "block-media-holder") ||
-    (hasClass(el, "camediaload") && !!el.getAttribute("data-media")) ||
-    el.tagName === "VIDEO"
-  ) {
+  if (isMediaHolder(el)) {
     const media = mediaFromElement(el);
-    if (media) return { kind: "media", media };
+    if (media) {
+      // Blux slider tiles nest the slide's CAPTION inside the media holder (the
+      // holder is `data-bgmedia` and the copy overlays it). The holder is an
+      // opaque media leaf, so those captions would be dropped. When one carries
+      // block-title/body/subtitle text, emit the media PLUS the caption(s) as a
+      // stack so the copy survives. Pure-media holders — the vast majority —
+      // stay a bare media node, byte-identical (no `.block-*` descendant → no
+      // extra work). This does NOT change the peel boundary: the holder is still
+      // a structural leaf; only its own internal text is recovered here.
+      const captions = el
+        .querySelectorAll(".block-title, .block-body, .block-subtitle")
+        .filter((c) => !isDisabledWithin(c, el))
+        .map((c) => parseNode(c))
+        .filter(nodeHasText);
+      if (captions.length) {
+        return { kind: "stack", children: [{ kind: "media", media }, ...captions] };
+      }
+      return { kind: "media", media };
+    }
   }
   if (el.hasAttribute("data-exec")) {
     // Custom-code embed (map, third-party widget). Keep the whole subtree —
@@ -103,21 +145,25 @@ export function parseNode(el: HTMLElement): Node {
  * ≥2 token-bearing children, else a stack / single / raw. */
 export function parseContainer(el: HTMLElement): Node {
   const kids = collectStructuralChildren(el);
-  const tokens = kids.map((k) => parseGridToken(k.classNames));
+  // Parse each structural child up front, then drop any that collapse to an
+  // EMPTY raw — an empty `.caslider`/wrapper (no static slides, JS-hydrated)
+  // yields `raw:""`, which would otherwise survive as a phantom sibling (e.g.
+  // turning a lone poster image into `[media, empty-block]`). A non-empty raw
+  // (a `[data-exec]` embed, a leaf `<a>`) always has real html, so it is kept.
+  const parsed = kids
+    .map((k) => ({ token: parseGridToken(k.classNames), node: parseNode(k) }))
+    .filter((p) => !(p.node.kind === "raw" && p.node.html.trim() === ""));
   const isGrid = hasClass(el, "cagrid");
-  const tokenCount = tokens.filter(Boolean).length;
+  const tokenCount = parsed.filter((p) => p.token).length;
 
-  if ((isGrid || tokenCount >= 2) && kids.length > 0) {
-    const cells: Cell[] = kids.map((k, i) => ({
-      token: tokens[i] ?? DEFAULT_TOKEN,
-      node: parseNode(k),
-    }));
+  if ((isGrid || tokenCount >= 2) && parsed.length > 0) {
+    const cells: Cell[] = parsed.map((p) => ({ token: p.token ?? DEFAULT_TOKEN, node: p.node }));
     return { kind: "row", cells };
   }
-  const [only] = kids;
-  if (kids.length === 1 && only) return parseNode(only);
-  if (kids.length === 0) return { kind: "raw", html: el.innerHTML };
-  return { kind: "stack", children: kids.map((k) => parseNode(k)) };
+  const [only] = parsed;
+  if (parsed.length === 1 && only) return only.node;
+  if (parsed.length === 0) return { kind: "raw", html: el.innerHTML };
+  return { kind: "stack", children: parsed.map((p) => p.node) };
 }
 
 const BAND_ID_RE = /^page-block-(\d+)$/;
