@@ -1,5 +1,5 @@
 ---
-"reddoor-maintenance": patch
+"@reddoorla/maintenance": patch
 ---
 
 fix(blux): emit fidelity pass — backgrounds, video, title roles, fonts, map

@@ -1,5 +1,5 @@
 ---
-"reddoor-maintenance": minor
+"@reddoorla/maintenance": minor
 ---
 
 The shared `configs/playwright-a11y` base now honors `REDDOOR_SMOKE_PORT`

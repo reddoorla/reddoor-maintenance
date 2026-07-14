@@ -1,5 +1,5 @@
 ---
-"reddoor-maintenance": patch
+"@reddoorla/maintenance": patch
 ---
 
 fix(blux): capture a `<video>`'s CDN base from its `src` so videos resolve

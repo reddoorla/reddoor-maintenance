@@ -1,5 +1,5 @@
 ---
-"reddoor-maintenance": minor
+"@reddoorla/maintenance": minor
 ---
 
 feat(blux): faithful-grid plan 5 — `blux convert` emits the Prismic page document

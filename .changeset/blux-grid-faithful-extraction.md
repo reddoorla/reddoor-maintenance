@@ -1,5 +1,5 @@
 ---
-"reddoor-maintenance": minor
+"@reddoorla/maintenance": minor
 ---
 
 feat(blux): faithful-grid emit — extract three things the Blux export already
