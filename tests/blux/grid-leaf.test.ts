@@ -120,6 +120,17 @@ describe("mediaFromElement", () => {
       fit: "cover",
     });
   });
+  it("captures the holder's inline min-height (slider slides reserve their height)", () => {
+    const holder = el(
+      '<div class="blocks2 camediaload" data-bgmedia="1" data-media="s1" style="min-height: 80vh; background-size: cover;"></div>',
+    );
+    expect(mediaFromElement(holder)).toEqual({
+      kind: "image",
+      assetId: "s1",
+      fit: "cover",
+      minHeight: "80vh",
+    });
+  });
   it("omits fit when background-size is neither contain nor cover, and width when absent", () => {
     // A band-background holder (background-size: auto, no inline width) carries no
     // faithful foreground sizing — those fields stay absent.

@@ -40,6 +40,9 @@ export type Media = {
   aspect?: number;
   fit?: "contain" | "cover" | "auto";
   position?: string;
+  /** The holder's inline min-height (e.g. "80vh" on slider slides), so a
+   * cover-frame render reserves the original's height. */
+  minHeight?: string;
   playback?: VideoPlayback;
 };
 // Forward-declared for plan 2's widget router. The parser does not emit
@@ -47,7 +50,15 @@ export type Media = {
 export type Widget = { type: "map" };
 
 export type Node =
-  | { kind: "row"; cells: Cell[] }
+  | {
+      kind: "row";
+      cells: Cell[];
+      /** Present when the source grid is a `.caslider` — a JS slider showing
+       * `columns` slides at a time (data-columns). The signature does NOT
+       * encode this (classification is guarded by unit tests instead) so
+       * Grid-fallback drift comparisons stay stable. */
+      slider?: { columns?: number };
+    }
   | { kind: "stack"; children: Node[] }
   | { kind: "heading"; role?: string; level: number; html: string }
   | { kind: "body"; role?: string; html: string }

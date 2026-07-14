@@ -73,11 +73,21 @@ lush haven",
     "variation": "band",
   },
   {
-    "items": [],
+    "items": [
+      {
+        "caption": "a place to sit and breathe",
+      },
+      {
+        "caption": "a calm escape right outside your door",
+      },
+      {
+        "caption": "a building with a view",
+      },
+    ],
     "primary": {
       "band": 8,
     },
-    "slice_type": "grid_band",
+    "slice_type": "carousel",
     "variation": "default",
   },
   {
@@ -1477,85 +1487,49 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
       },
     },
     "8": {
-      "tree": {
-        "cells": [
+      "carousel": {
+        "columns": 1,
+        "slides": [
           {
-            "node": {
-              "children": [
-                {
-                  "kind": "media",
-                  "media": {
-                    "alt": "aefbd53c-205a-402a-ba88-6294a555b0aa",
-                    "fit": "cover",
-                    "kind": "image",
-                    "url": "asset://aefbd53c-205a-402a-ba88-6294a555b0aa",
-                  },
-                },
-                {
-                  "html": "a place to sit and breathe",
-                  "kind": "heading",
-                  "level": 5,
-                  "role": "text5",
-                },
-              ],
-              "kind": "stack",
+            "caption": {
+              "level": 5,
+              "role": "text5",
             },
-            "token": {
-              "cols": 1,
+            "media": {
+              "alt": "aefbd53c-205a-402a-ba88-6294a555b0aa",
+              "fit": "cover",
+              "kind": "image",
+              "minHeight": "80vh",
+              "url": "asset://aefbd53c-205a-402a-ba88-6294a555b0aa",
             },
           },
           {
-            "node": {
-              "children": [
-                {
-                  "kind": "media",
-                  "media": {
-                    "alt": "cb6f38b7-4ca7-4590-aeb9-11287fc942e4",
-                    "fit": "cover",
-                    "kind": "image",
-                    "url": "asset://cb6f38b7-4ca7-4590-aeb9-11287fc942e4",
-                  },
-                },
-                {
-                  "html": "a calm escape right outside your door",
-                  "kind": "heading",
-                  "level": 5,
-                  "role": "text5",
-                },
-              ],
-              "kind": "stack",
+            "caption": {
+              "level": 5,
+              "role": "text5",
             },
-            "token": {
-              "cols": 1,
+            "media": {
+              "alt": "cb6f38b7-4ca7-4590-aeb9-11287fc942e4",
+              "fit": "cover",
+              "kind": "image",
+              "minHeight": "80vh",
+              "url": "asset://cb6f38b7-4ca7-4590-aeb9-11287fc942e4",
             },
           },
           {
-            "node": {
-              "children": [
-                {
-                  "kind": "media",
-                  "media": {
-                    "alt": "88737f87-d643-4435-9eb7-839516e95b38",
-                    "fit": "cover",
-                    "kind": "image",
-                    "url": "asset://88737f87-d643-4435-9eb7-839516e95b38",
-                  },
-                },
-                {
-                  "html": "a building with a view",
-                  "kind": "heading",
-                  "level": 5,
-                  "role": "text5",
-                },
-              ],
-              "kind": "stack",
+            "caption": {
+              "level": 5,
+              "role": "text5",
             },
-            "token": {
-              "cols": 1,
+            "media": {
+              "alt": "88737f87-d643-4435-9eb7-839516e95b38",
+              "fit": "cover",
+              "kind": "image",
+              "minHeight": "80vh",
+              "url": "asset://88737f87-d643-4435-9eb7-839516e95b38",
             },
           },
         ],
-        "kind": "row",
       },
     },
     "9": {
@@ -1619,7 +1593,7 @@ exports[`grid convert golden — the-pointe > classifies 16 bands into a stable 
   "5 Grid",
   "6 Grid",
   "7 Hero",
-  "8 Grid",
+  "8 Carousel",
   "9 Grid",
   "10 Grid",
   "11 Grid",

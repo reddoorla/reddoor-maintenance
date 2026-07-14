@@ -6,6 +6,7 @@ const url = (m: Media) => ({
   kind: m.kind,
   url: `https://cdn/${m.assetId}.jpg`,
   alt: `alt-${m.assetId}`,
+  ...(m.minHeight ? { minHeight: m.minHeight } : {}),
 });
 const deps: PresentationDeps = {
   resolveMedia: url,
@@ -75,6 +76,64 @@ describe("buildPresentation", () => {
         { token: { cols: 2, ratio: 40 }, node: { kind: "media", media: url(img("z")) } },
       ],
     });
+  });
+
+  it("Carousel → carousel slides (resolved media incl. minHeight, caption meta only) + columns", () => {
+    const specs: SliceSpec[] = [
+      {
+        index: 8,
+        slice: "Carousel",
+        columns: 1,
+        slides: [
+          {
+            media: { ...img("a"), minHeight: "80vh" },
+            caption: { html: "a place to sit", level: 5, role: "text5" },
+          },
+          { media: img("b") },
+          { media: img("gone") },
+        ],
+      },
+    ];
+    const p = buildPresentation(specs, {
+      ...deps,
+      // the third slide's media is unresolvable → the list truncates there
+      resolveMedia: (m) => (m.assetId === "gone" ? null : url(m)),
+    });
+    expect(p.bands["8"]).toEqual({
+      carousel: {
+        slides: [
+          {
+            media: url({ ...img("a"), minHeight: "80vh" }),
+            caption: { level: 5, role: "text5" }, // caption TEXT lives in the page doc
+          },
+          { media: url(img("b")) },
+        ],
+        columns: 1,
+      },
+    });
+  });
+
+  it("truncates carousel slides at an unresolved MIDDLE media — later slides must not shift onto the wrong page-doc caption", () => {
+    const specs: SliceSpec[] = [
+      {
+        index: 8,
+        slice: "Carousel",
+        slides: [{ media: img("a") }, { media: img("gone") }, { media: img("c") }],
+      },
+    ];
+    const p = buildPresentation(specs, {
+      ...deps,
+      resolveMedia: (m) => (m.assetId === "gone" ? null : url(m)),
+    });
+    expect(p.bands["8"]).toEqual({ carousel: { slides: [{ media: url(img("a")) }] } });
+  });
+
+  it("omits the carousel payload entirely when every slide's media is unresolved", () => {
+    const specs: SliceSpec[] = [
+      { index: 8, slice: "Carousel", slides: [{ media: img("x") }, { media: img("y") }] },
+    ];
+    const p = buildPresentation(specs, { ...deps, resolveMedia: () => null });
+    expect(p.bands["8"]).toEqual({});
   });
 
   it("LocationMap → map payload from deps.map", () => {

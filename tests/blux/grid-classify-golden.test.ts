@@ -19,6 +19,8 @@ function summary(s: SliceSpec): string {
       return `${s.index}${bg} SplitFeature ${s.mediaSide} r${s.ratio}`;
     case "Gallery":
       return `${s.index}${bg} Gallery n=${s.media.length}`;
+    case "Carousel":
+      return `${s.index}${bg} Carousel(${s.slides.length}${s.columns ? `,cols:${s.columns}` : ""})`;
     case "MediaFull":
       return `${s.index}${bg} MediaFull ${s.media.kind}`;
     case "RichText":

@@ -1,5 +1,5 @@
 import type { Band, Cell, Media, Node, Widget } from "./types.js";
-import type { SliceSpec } from "./slice-spec.js";
+import type { CarouselSlide, CarouselSpec, SliceSpec } from "./slice-spec.js";
 import { blockPlainText } from "./leaf.js";
 
 /** Depth-first collect of every `media` node's `Media` in a subtree. */
@@ -74,15 +74,20 @@ function collectRaws(node: Node): Node[] {
   }
 }
 
-/** The cells of the root row, or null when the root is not a single row. A
- * `stack` whose only child is a row also counts (Blux wraps rows in holders). */
-export function topRow(node: Node): Cell[] | null {
-  if (node.kind === "row") return node.cells;
+/** The root row NODE, or null when the root is not a single row. A `stack`
+ * whose only child is a row also counts (Blux wraps rows in holders). */
+export function topRowNode(node: Node): Extract<Node, { kind: "row" }> | null {
+  if (node.kind === "row") return node;
   if (node.kind === "stack" && node.children.length === 1) {
     const [only] = node.children;
-    if (only && only.kind === "row") return only.cells;
+    if (only && only.kind === "row") return only;
   }
   return null;
+}
+
+/** The cells of the root row, or null when the root is not a single row. */
+export function topRow(node: Node): Cell[] | null {
+  return topRowNode(node)?.cells ?? null;
 }
 
 /** A `raw` node carrying no rendered text or nested block — the shape a
@@ -161,6 +166,32 @@ function cellRatio(cell: Cell): number {
   return Math.round(100 / t.cols);
 }
 
+/** The carousel slides of a slider row, or null when any cell isn't a media
+ * slide. A slide is a bare `media` cell or a `stack[media, heading]` captioned
+ * slide (the band-8 archetype); ≥2 qualifying slides required. */
+function carouselSlides(cells: Cell[]): CarouselSlide[] | null {
+  const out: CarouselSlide[] = [];
+  for (const c of cells) {
+    const n = c.node;
+    if (n.kind === "media") {
+      out.push({ media: n.media });
+      continue;
+    }
+    if (n.kind === "stack" && n.children.length === 2) {
+      const [m, h] = n.children;
+      if (m?.kind === "media" && h?.kind === "heading") {
+        out.push({
+          media: m.media,
+          caption: { html: h.html, level: h.level, ...(h.role ? { role: h.role } : {}) },
+        });
+        continue;
+      }
+    }
+    return null;
+  }
+  return out.length >= 2 ? out : null;
+}
+
 /** If every cell of a row is exactly one media node, return them in order. */
 function galleryMedia(cells: Cell[]): Media[] | null {
   const out: Media[] = [];
@@ -185,6 +216,9 @@ function rewriteMapMounts(node: Node, isMapMount: (n: Node) => boolean): Node {
           token: c.token,
           node: rewriteMapMounts(c.node, isMapMount),
         })),
+        // Keep the slider marker — dropping it here would silently demote a
+        // Carousel to Grid whenever a map config is present.
+        ...(node.slider ? { slider: node.slider } : {}),
       };
     case "stack":
       return { kind: "stack", children: node.children.map((n) => rewriteMapMounts(n, isMapMount)) };
@@ -231,7 +265,8 @@ export function classifyBand(band: Band, opts: ClassifyOptions = {}): SliceSpec 
   const widgets = collectWidgets(root);
   const media = collectMedia(root);
   const text = collectText(root);
-  const row = topRow(root);
+  const rowNode = topRowNode(root);
+  const row = rowNode ? rowNode.cells : null;
   // A raw node with real content is text we cannot account for — every
   // promotion must refuse to fire over it (only the Grid fallback keeps it).
   const hasSignificantRaw = collectRaws(root).some((n) => !isEmptyRaw(n));
@@ -307,6 +342,18 @@ export function classifyBand(band: Band, opts: ClassifyOptions = {}): SliceSpec 
       ...(bod && bod.kind === "body" ? { body: bod.html } : {}),
       ...textRoleMeta(h, sub),
     };
+  }
+
+  // Carousel: a source slider row (.caslider) whose every cell is a media
+  // slide, optionally captioned (stack[media, heading]). Anything richer
+  // falls through to the faithful Grid fallback.
+  if (rowNode?.slider) {
+    const slides = carouselSlides(rowNode.cells);
+    if (slides) {
+      const spec: CarouselSpec = { slice: "Carousel", ...base(band), slides };
+      if (rowNode.slider.columns !== undefined) spec.columns = rowNode.slider.columns;
+      return spec;
+    }
   }
 
   // Gallery: a row whose cells are all single media.

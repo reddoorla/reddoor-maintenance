@@ -31,6 +31,18 @@ const manifest: Presentation = {
       tree: { kind: "media", media: { kind: "image", url: "https://cdn/f/a.png" } },
       media: { kind: "video", url: "https://cdn/f/v.mp4" },
     },
+    "4": {
+      carousel: {
+        slides: [
+          {
+            media: { kind: "image", url: "https://cdn/f/a.png", minHeight: "80vh" },
+            caption: { level: 5, role: "text5" },
+          },
+          { media: { kind: "image", url: "https://cdn/f/d.png" } },
+        ],
+        columns: 1,
+      },
+    },
   },
 };
 
@@ -55,6 +67,16 @@ describe("rewriteManifestUrls", () => {
       "https://images.prismic.io/repo/a",
     );
     expect(out.bands["3"]!.media!.url).toBe("https://cdn/f/v.mp4"); // unknown left intact
+    const carousel = out.bands["4"]!.carousel!;
+    expect(carousel.slides.map((s) => s.media.url)).toEqual([
+      "https://images.prismic.io/repo/a",
+      "https://cdn/f/d.png", // unknown left intact
+    ]);
+    // non-url slide fields survive the rewrite untouched
+    expect(carousel.slides[0]!.media.minHeight).toBe("80vh");
+    expect(carousel.slides[0]!.caption).toEqual({ level: 5, role: "text5" });
+    expect(carousel.columns).toBe(1);
     expect(manifest.bands["0"]!.background!.url).toBe("https://cdn/f/a.png"); // input not mutated
+    expect(manifest.bands["4"]!.carousel!.slides[0]!.media.url).toBe("https://cdn/f/a.png");
   });
 });

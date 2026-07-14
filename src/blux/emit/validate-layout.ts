@@ -81,6 +81,8 @@ function sourceLabel(spec: SliceSpec): string {
       return sigOf(spec.root);
     case "Gallery":
       return `gallery(${spec.media.length})`;
+    case "Carousel":
+      return `carousel(${spec.slides.length})`;
     case "MediaFull":
       return "media_full";
     case "VideoFeature":
@@ -155,6 +157,18 @@ export function validateLayout(specs: SliceSpec[], presentation: Presentation): 
             kind: "media-dropped",
             band: spec.index,
             where: `gallery ${got}/${spec.media.length}`,
+          });
+        }
+        break;
+      }
+      case "Carousel": {
+        const got = bp.carousel?.slides.length ?? 0;
+        converted = `carousel(${got})`;
+        if (got < spec.slides.length) {
+          findings.push({
+            kind: "media-dropped",
+            band: spec.index,
+            where: `carousel ${got}/${spec.slides.length}`,
           });
         }
         break;

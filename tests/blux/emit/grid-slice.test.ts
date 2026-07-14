@@ -58,6 +58,7 @@ describe("sliceSpecToPlanSlice", () => {
   it.each([
     ["SplitFeature", "split_feature"],
     ["Gallery", "gallery"],
+    ["Carousel", "carousel"],
     ["MediaFull", "media_full"],
     ["LocationMap", "location_map"],
     ["Grid", "grid_band"],
@@ -70,11 +71,33 @@ describe("sliceSpecToPlanSlice", () => {
       media: { kind: "image", assetId: "u" },
       text: { kind: "body", html: "x" },
       root: { kind: "row", cells: [] },
+      slides: [],
     } as unknown as SliceSpec;
     const out = sliceSpecToPlanSlice({ ...spec, slice } as SliceSpec);
     expect(out.slice_type).toBe(slice_type);
     expect(out.variation).toBe("default");
     expect(out.primary).toEqual({ band: 3 });
     expect(out.items).toEqual([]);
+  });
+
+  it("maps Carousel items to per-slide captions (entities decoded, <br> kept), {} for an uncaptioned slide", () => {
+    const spec: SliceSpec = {
+      ...base,
+      slice: "Carousel",
+      columns: 1,
+      slides: [
+        {
+          media: { kind: "image", assetId: "a" },
+          caption: { html: "a <em>place</em> to<br>sit &amp; breathe", level: 5, role: "text5" },
+        },
+        { media: { kind: "image", assetId: "b" } },
+      ],
+    };
+    expect(sliceSpecToPlanSlice(spec)).toEqual({
+      slice_type: "carousel",
+      variation: "default",
+      items: [{ caption: "a place to\nsit & breathe" }, {}],
+      primary: { band: 3 },
+    });
   });
 });

@@ -26,6 +26,11 @@ function walkBand(bp: BandPresentation, map: Map<string, string>): BandPresentat
   if (bp.background) out.background = swap(bp.background, map);
   if (bp.media) out.media = swap(bp.media, map);
   if (bp.gallery) out.gallery = bp.gallery.map((m) => swap(m, map));
+  if (bp.carousel)
+    out.carousel = {
+      ...bp.carousel,
+      slides: bp.carousel.slides.map((s) => ({ ...s, media: swap(s.media, map) })),
+    };
   if (bp.tree) out.tree = walkNode(bp.tree, map);
   if (bp.split)
     out.split = {

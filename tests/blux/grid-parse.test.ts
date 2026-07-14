@@ -231,6 +231,51 @@ describe("empty caslider cleanup", () => {
   });
 });
 
+describe("slider marker (.caslider rows)", () => {
+  const slide = (id: string) =>
+    `<div class="block-subcontent cagriditem grid-1"><div class="blocks2 camediaload" data-bgmedia="1" data-ext="jpg" data-base="https://cdn/x/" data-media="${id}.jpg"></div></div>`;
+
+  it("marks a .caslider row as a slider and captures data-columns", () => {
+    const html = `<div id="page-content"><section id="page-block-0" class="blocks0">
+      <div class="block-grid-container cagrid caslider" data-columns="1">${slide("a")}${slide("b")}</div></section></div>`;
+    const [band] = parseGridBands(html);
+    const row = band!.root;
+    expect(row.kind).toBe("row");
+    if (row.kind !== "row") return;
+    expect(row.slider).toEqual({ columns: 1 });
+  });
+
+  it("a plain cagrid row carries no slider marker", () => {
+    const html = `<div id="page-content"><section id="page-block-0" class="blocks0">
+      <div class="block-grid-container cagrid" data-columns="1">${slide("a")}${slide("b")}</div></section></div>`;
+    const [band] = parseGridBands(html);
+    const row = band!.root;
+    expect(row.kind).toBe("row");
+    if (row.kind !== "row") return;
+    expect(row.slider).toBeUndefined();
+  });
+
+  it("a .caslider without a valid data-columns still marks the row (no columns)", () => {
+    const html = `<div id="page-content"><section id="page-block-0" class="blocks0">
+      <div class="block-grid-container cagrid caslider">${slide("a")}${slide("b")}</div></section></div>`;
+    const [band] = parseGridBands(html);
+    const row = band!.root;
+    expect(row.kind).toBe("row");
+    if (row.kind !== "row") return;
+    expect(row.slider).toEqual({});
+  });
+
+  it("captures the media holder's inline min-height", () => {
+    const n = node(
+      '<div class="ib camediaload" data-media="m1" data-bgmedia="1" style="min-height: 80vh; background-size: cover;"></div>',
+    );
+    expect(n).toEqual({
+      kind: "media",
+      media: { kind: "image", assetId: "m1", fit: "cover", minHeight: "80vh" },
+    });
+  });
+});
+
 describe("caption capture hardening", () => {
   it("ignores an entity/whitespace-only caption (no phantom stack)", () => {
     expect(

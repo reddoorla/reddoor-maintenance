@@ -30,6 +30,7 @@ const deps: PresentationDeps = {
     ...(m.aspect !== undefined ? { aspect: m.aspect } : {}),
     ...(m.fit ? { fit: m.fit } : {}),
     ...(m.position ? { position: m.position } : {}),
+    ...(m.minHeight ? { minHeight: m.minHeight } : {}),
     ...(m.playback ? { playback: m.playback } : {}),
   }),
   styleFor: () => undefined,
