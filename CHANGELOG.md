@@ -1,5 +1,183 @@
 # @reddoorla/maintenance
 
+## 0.71.0
+
+### Minor Changes
+
+- 94073af: blux grid plan 2: band classifier + widget router. `classifyBand`/`classifyBands`
+  turn plan-1 `Band` trees into a typed `SliceSpec` IR — unambiguous shapes become
+  CMS-editable pattern slices (TitleBand, RichText, Hero, Gallery, MediaFull,
+  SplitFeature, VideoFeature, LocationMap), everything else falls back to a
+  render-faithful `Grid` spec carrying the raw node tree. Promotion is strictly
+  conservative: bands with surplus text, significant raw markup, or co-located
+  widgets stay `Grid` so no content is ever silently dropped. The map widget is
+  routed via an injected `isMapMount` predicate (plan 4 supplies the real one);
+  a 16-band classification golden over the-pointe pins the fidelity gate
+  (3 TitleBand, 1 Hero, 1 Gallery, 1 SplitFeature, 10 Grid).
+- d3a3caf: feat(blux): Carousel slice type — slider bands emit slides + editable captions
+
+  A source slider row (`.caslider`) whose every cell is a media slide — bare or
+  captioned (`stack[media, heading]`, the band-8 archetype) — now classifies as a
+  first-class `Carousel` instead of the Grid fallback. The spec carries only what
+  the export structurally encodes: the slides, their caption text/role metadata,
+  and `data-columns` — no autoplay/duration/dots (the export encodes none, so the
+  fields are deliberately absent).
+
+  All five emit paths gain a carousel case:
+  - **Page doc:** `slice_type: "carousel"` with one item per slide in slide order
+    (`{ caption }` as entity-decoded plain text with hard breaks preserved; `{}`
+    for an uncaptioned slide) — caption text is Prismic-editable and the render
+    zips items to manifest slides by index.
+  - **Plan assets:** every slide's media is collected for upload.
+  - **Presentation manifest:** new `BandPresentation.carousel` payload — resolved
+    slide media plus caption `{ level, role }` metadata and `columns` — and a new
+    `RenderMedia.minHeight` field carrying the source holder's inline `min-height`
+    (e.g. `80vh`) so a cover-frame carousel reserves the original's height.
+  - **Layout validation:** carousel slide-count completeness check (a dropped
+    slide is a `media-dropped` finding, styled after the gallery check).
+  - **Manifest URL rewrite:** carousel slide urls rewrite CDN→Prismic like gallery.
+
+  Against the real the-pointe export only band 8 changes (`grid_band`→`carousel`,
+  3 captioned `80vh` slides, `columns: 1`); every other band is byte-identical in
+  the goldens and the structural-signature golden is unchanged.
+
+- b087dc7: feat(blux): extract-map stage — map config + real isMapMount classifier predicate; blux grid writes map-config.json
+- 5e38cf9: feat(blux): faithful-grid plan 5 — `blux convert` emits the Prismic page document
+  (text + band indices) and the `blux-presentation.json` render manifest (layout
+  tree + resolved media + block styles + map payload), keyed by band index. Media
+  is Prismic-hosted: `convert` writes CDN urls + the asset list, and `blux migrate`
+  uploads the assets and rewrites the manifest urls to Prismic for durability.
+  Parser fix: Blux custom-code embeds (`[data-exec]`, incl. the map mount) now
+  survive as `raw` leaves instead of being peeled away.
+- ef63b0f: feat(blux): faithful-grid emit — extract three things the Blux export already
+  encodes but the pipeline was dropping, so every future site inherits them
+  instead of needing per-site hand-edits.
+  - **Media intrinsic sizing.** `Media`/`RenderMedia` gain `width`/`aspect`/`fit`,
+    read off a foreground image holder's inline pixel `width` (the width the export
+    actually renders it at — rule, logo, or full photo), its `.mediaRatio`
+    `data-og-ratio` (aspect), and `background-size` (contain/cover, case-insensitive).
+    The render layer treats `width` as advisory and caps it at 100% of the cell, so
+    a graphic keeps its true size and a photo still fills. Non-px widths and band
+    backgrounds carry no sizing.
+  - **Hard line breaks + entity decoding.** Title text now flows through a shared
+    `blockPlainText` (headings and subtitles alike): a display title's `<br>`
+    survives into the page doc as a newline (was collapsed to a space) while
+    insignificant source-formatting whitespace folds to spaces (robust to
+    non-minified exports), and HTML entities decode (`Bar &amp; Grill` →
+    `Bar & Grill`) consistently across both paths.
+  - **CTA links.** A leaf `<a>` (an in-band button/text link with no structural
+    descendants) is captured as a `raw` node instead of being peeled away and
+    dropped; an anchor that wraps media still peels so the inner image resolves.
+    A band whose only surplus content is such a link falls to the render-faithful
+    `Grid` fallback rather than silently dropping the link during promotion.
+
+  Site-level design tuning (content padding, hidden-on-live elements, column
+  widths) is deliberately NOT extracted — it is not encoded in the export and
+  stays a per-site concern.
+
+- e503928: blux grid plan 6: offline layout-signature validation gate. New pure
+  `validateLayout` diffs the classified `SliceSpec[]` (the source answer key,
+  already gated band→spec by the classify golden) against the emitted
+  `blux-presentation.json` manifest and names every band whose layout drifted,
+  media dropped, or map went missing — no browser, fully deterministic. Grid
+  bands must round-trip their structural signature (`sigOf`, token-canonical so a
+  source node and its `raw`-less render twin compare equal); smart slices are
+  payload-checked, and a SplitFeature's text subtree is signature-checked too so
+  a dropped nested media isn't reported faithful. `blux convert` now appends a
+  fidelity summary and writes `layout-report.json` (still exits 0 — a generator
+  never gates); `blux validate <dir>` runs the gate offline and exits non-zero on
+  findings, with `--against <file|url>` layering the existing content-coverage
+  check as informational text. The convert pipeline is extracted into a shared
+  `convertExport` so convert and validate agree on which media resolve. A
+  grid-validate golden pins the-pointe converting with zero findings.
+- f1d7d1c: form-e2e goes live, safely: the live Playwright runner now preflights each site's `/health` and refuses to submit unless it declares `forms.testMode: true` (strict boolean, fail-closed on any fetch/parse error) — a new `testModeUndeclared` outcome maps to a plain skip (no details, prior verdict preserved), distinct from the persisted no-form n/a. A site only becomes probe-eligible by shipping the starter's contact `buildPayload` forwarding and the `/health` declaration in the same deploy, so an armed fleet run can never deliver the probe as a real lead. New nightly `fleet-form-e2e.yml` producer (10:15 UTC, checkout-free, `REDDOOR_FORM_E2E_LIVE=1`) writes `Form E2E OK` + `Form E2E checked at` to Airtable with the same FLEET_WRITE_SUMMARY gate + tracking-issue alerting as fleet-smoke.
+- c899f67: The shared `configs/playwright-a11y` base now honors `REDDOOR_SMOKE_PORT`
+  (R1.1 port binding): when the central smoke audit allocates a port, the base
+  binds vite to it with `--strictPort` and aims the baseURL + readiness probe at
+  it. Previously only sites on the smoke-suite recipe's R1.1 config template got
+  this protection — sites whose `playwright.config.ts` merely re-exports the
+  shared base (the sync-configs canonical shape; pre-R1.1 adopters the recipe
+  flags but never rewrites) hard-coded 5173, so any vite already squatting that
+  port was silently tested instead of the site. Observed live during tonight's
+  fleet-smoke triage: caltex's suite ran against erp-industrial's dev server and
+  reported the wrong site's results. Re-exporting sites inherit the fix on their
+  next `@reddoorla/maintenance` bump; behavior with the variable unset is
+  unchanged (fixed 5173, no `--strictPort`).
+
+### Patch Changes
+
+- 64e3e09: fix(blux): recover captions nested inside a media holder + drop empty casliders
+
+  Two coupled parser fixes for the band-8 archetype (a captioned image slider):
+  - **Media-leaf caption capture (A):** Blux slider tiles nest the slide's caption
+    (`block-title`/`body`/`subtitle`) INSIDE the `.camediaload[data-media]` holder,
+    which the parser treats as an opaque media leaf — so those captions were
+    dropped and the band degraded to a bare image gallery. `parseNode` now, when a
+    media holder carries text descendants, emits the media PLUS the caption(s) as a
+    `stack[media, …caption]`. This does NOT change the peel boundary
+    (`isLeafElement`/`collectStructuralChildren` are untouched) — only the holder's
+    own internal text is recovered. A pure-media holder (the vast majority) stays a
+    bare media node, byte-identical.
+  - **Empty-caslider cleanup (G):** `parseContainer` now parses its structural
+    children up front and drops any that collapse to an empty `raw` (an empty,
+    JS-hydrated `.caslider` with no static slides), so a lone poster image is no
+    longer misrepresented as `[media, empty-block]`. Non-empty raws (`[data-exec]`
+    embeds, leaf anchors) always carry real html and are kept.
+
+  Fleet-regression verified against the real the-pointe export: only band 8
+  (`Gallery`→captioned `Grid`, its 3 captions restored) and band 12 (empty raw
+  removed) change; the other 14 bands — including the `.camediaload`-background
+  Hero/Grid/Split bands 0/1/7/9/11 — are byte-identical in the structural-signature
+  and classify goldens. The carousel _slice type_ (rendering band 8 as a true
+  one-at-a-time slider) is a separate follow-up; band 8 is fully faithful as a
+  captioned grid.
+
+- 7e876e5: fix(blux): emit fidelity pass — backgrounds, video, title roles, fonts, map
+
+  Seven additive faithfulness fixes found by auditing the emit output against the
+  real the-pointe export, none touching the core media-leaf/wrapper-peel path:
+  - **Band backgrounds** now carry `background-size` (`auto`/`contain`) + non-center
+    `background-position`, so a corner-anchored native-size accent (`bg-lines-*.png`
+    on bands 1/7/9) isn't stretched full-bleed like a `cover` photo.
+  - **Foreground video** captures its intrinsic aspect (the `%`-suffixed
+    `data-og-ratio`/`.mediaRatio`, which previously NaN'd) and its `<video>`
+    playback attributes (`controls`/`playsinline`/…), so a user-controlled inline
+    video isn't rendered as a background loop.
+  - **Hero/TitleBand** carry the heading's `textN` role + level and the subtitle's
+    role (band 15's script-accent title no longer renders like a plain title). The
+    text itself stays the Prismic page-doc string.
+  - **Typekit fonts**: a `T:` `font-ident` decodes to the real family (`ysxc` →
+    Montserrat) instead of the obfuscated id, and its weight (n6 → 600) is folded
+    into the font-load hint that `settings.fonts.google` omits.
+  - **Map**: the mount's inline `height` (600px) and the chip→content-panel binding
+    (`panelIndex` + `defaultToggle`) are extracted.
+
+  Render-side consumption of these fields (the-pointe) is a separate front-half PR.
+  Golden + unit tests updated; the convert-golden stub resolver now mirrors the
+  real passthrough so position/playback are exercised end-to-end.
+
+- 511b815: fix(blux): parse the grid `-s<N>` suffix as spacing, not a cell width
+
+  The Blux grid token `grid-1-s40` / `grid-any-s20` encodes the grid's inter-cell
+  spacing (matching `data-spacing`), with the real column count in `data-columns`.
+  The parser was storing that `s` value as `sized` and the render layer treated it
+  as a width percentage — so a single-column stat list (`grid-1-s40`, four items)
+  rendered as a 40%-wide 2×2 grid instead of a full-width vertical stack. Renamed
+  the token field `sized` → `spacing` and stopped using it for width; cell width
+  now comes only from `cols`/`ratio`, faithful to what the export encodes.
+
+- f88ad21: fix(blux): capture a `<video>`'s CDN base from its `src` so videos resolve
+  offline like images. Previously a video parsed with only assetId+ext (no
+  `base`), so `mediaCdnUrl` returned null and the video resolved solely via the IR
+  sourceUrl — i.e. it depended on site.json listing the asset, breaking convert's
+  offline invariant even though the full url sits on `<video src>`. The parser now
+  records the src prefix as `base`, so `blux convert`/`blux validate` resolve
+  the-pointe's hero video (and any `<video>`) from the markup alone, with no
+  site.json asset entry.
+- 722198e: form-e2e live runner: click `input[type="submit"]` as well as `button[type="submit"]`. reddoor-website's contact form uses the input variant — the first enrolled run timed out waiting for a button and recorded a false `Form E2E OK = fail`.
+- d3c32ed: Forms hardening from the espada form-e2e investigation: (1) `submitToIngest` now bounds the site→central call with an abort budget (`timeoutMs`, default `INGEST_TIMEOUT_MS` = 8s) — a central function hung mid-deploy previously left the visitor's submit awaiting until Netlify killed the site function at its 10s limit, returning a broken response instead of the friendly error copy. (2) The form-e2e live runner now captures the action POST status (+ error-body snippet on ≥400) and any `role="alert"` text when the success banner never appears, so a failing site names the real server response instead of an undiagnosable "no success banner after submit".
+- c899f67: smoke-suite recipe: detect the hydration marker instead of hardcoding `footer`. Bespoke sites whose Svelte source renders no literal `<footer>` element (a capital-F `<Footer />` component tag doesn't count) now get a `main` — or, failing that, `body` — marker in the generated `tests/smoke/routes.ts`, with a recipe note flagging the missing landmark. Starter-shaped sites still receive the byte-verbatim template. Prevents the false-fail that red'd la-homelessness-initiative on the first nightly fleet-smoke run.
+
 ## 0.70.0
 
 ### Minor Changes
