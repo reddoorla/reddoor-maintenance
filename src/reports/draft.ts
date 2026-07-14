@@ -277,7 +277,7 @@ export async function fetchGaUsers(
   if (!cfg || !siteRow.ga4PropertyId) return NO_ENRICHMENT;
   try {
     const value = await fetchPeriodUsers(
-      { propertyId: siteRow.ga4PropertyId, subject: cfg.subject, keyPath: cfg.keyPath },
+      { propertyId: siteRow.ga4PropertyId, subjects: cfg.subjects, keyPath: cfg.keyPath },
       periodStart,
       periodEnd,
     );
@@ -306,7 +306,7 @@ export async function fetchSearch(
     const value = await fetchSearchPresence(
       {
         keyPath: cfg.keyPath,
-        subject: cfg.subject,
+        subjects: cfg.subjects,
         property: siteRow.searchConsoleProperty ?? undefined,
         host: siteRow.url,
         query: siteRow.searchQuery,

@@ -1,0 +1,5 @@
+---
+"@reddoorla/maintenance": minor
+---
+
+feat: GA/Search impersonation-subject failover list. `GA_SUBJECT` now accepts a comma-separated list of Workspace subjects tried in order (a single address stays the degenerate case). Both the GA Data client and the Search Console client fall through to the next subject on auth-shaped failures (HTTP 401/403, gRPC PERMISSION_DENIED/UNAUTHENTICATED, OAuth `invalid_grant` from a suspended subject — and, for Search Console, a subject whose `sites.list` resolves zero matching properties, since that API hides inaccessible properties instead of 403ing) and emit one greppable `subject failover` warning when a later subject carries the run. This structurally mitigates the fleet-wide single-subject SPOF flagged in five consecutive review briefs: losing the primary subject now degrades to a visible warning instead of blanking every site's analytics at once. The role-account cutover runbook (docs/runbooks/ga-search-role-account-cutover.md) is updated for a zero-downtime `reports@reddoorla.com,<old>` transition.
