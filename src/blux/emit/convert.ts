@@ -39,6 +39,8 @@ export function mapRenderFromConfig(c: MapConfig): MapRenderConfig {
     styles: c.styles,
     ...(c.center ? { center: c.center } : {}),
     ...(c.zoom !== undefined ? { zoom: c.zoom } : {}),
+    ...(c.height ? { height: c.height } : {}),
+    ...(c.defaultToggle !== undefined ? { defaultToggle: c.defaultToggle } : {}),
   };
 }
 
@@ -74,6 +76,8 @@ export function convertExport({
         ...(m.width !== undefined ? { width: m.width } : {}),
         ...(m.aspect !== undefined ? { aspect: m.aspect } : {}),
         ...(m.fit ? { fit: m.fit } : {}),
+        ...(m.position ? { position: m.position } : {}),
+        ...(m.playback ? { playback: m.playback } : {}),
       };
       return rm;
     },

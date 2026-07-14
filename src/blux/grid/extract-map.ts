@@ -17,7 +17,13 @@ export type MapKmlLayer = {
   preserveViewport: boolean;
 };
 
-export type MapToggleGroup = { label: string; layers: string[] };
+export type MapToggleGroup = {
+  label: string;
+  layers: string[];
+  /** The content panel (0-based `cagrid` cell) this chip reveals — chip index
+   * `i` shows panel `i`, hiding the others; pairs with `MapConfig.defaultToggle`. */
+  panelIndex: number;
+};
 
 export type MapConfig = {
   mountId: string;
@@ -28,6 +34,11 @@ export type MapConfig = {
   styles: unknown[];
   center?: { lat: number; lng: number };
   zoom?: number;
+  /** The mount div's inline height (e.g. "600px"); absent = let the render decide. */
+  height?: string;
+  /** Which toggle/panel is active on load (source default = the first, 0). Present
+   * only when there are toggles. */
+  defaultToggle?: number;
 };
 
 const SCRIPT_RE = /<script\b[^>]*>([\s\S]*?)<\/script>/g;
@@ -100,16 +111,25 @@ export function extractMapConfig(html: string): MapConfig | null {
   );
   const zoomM = /zoom\s*:\s*(\d+)/.exec(init);
 
+  // The mount div's own inline height (`<div id="burbank_map" style="…height:600px">`)
+  // — it lives on the inner mount, not the section, so section-style capture misses it.
+  const mountTag = new RegExp(`<[^>]*\\bid=["']${mountId}["'][^>]*>`, "i").exec(html)?.[0] ?? "";
+  const height = /height\s*:\s*([\d.]+(?:px|%|vh|vw|em|rem))/i.exec(mountTag)?.[1];
+
+  const toggles = extractToggles(html);
+
   return {
     mountId,
     mid,
     layers,
-    toggles: extractToggles(html),
+    toggles,
     styles: extractStyles(init),
     ...(centerM?.[1] && centerM[2]
       ? { center: { lat: Number(centerM[1]), lng: Number(centerM[2]) } }
       : {}),
     ...(zoomM?.[1] ? { zoom: Number(zoomM[1]) } : {}),
+    ...(height ? { height } : {}),
+    ...(toggles.length ? { defaultToggle: 0 } : {}),
   };
 }
 
@@ -145,7 +165,7 @@ function extractToggles(html: string): MapToggleGroup[] {
     ];
     const label = labels[idx];
     if (label === undefined) return [];
-    groups[idx] = { label, layers: layerNames };
+    groups[idx] = { label, layers: layerNames, panelIndex: idx };
   }
   // Non-contiguous clickMap indices would leave holes that serialize as null.
   return groups.length === labels.length && groups.every((g) => g !== undefined) ? groups : [];

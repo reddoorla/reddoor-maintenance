@@ -59,6 +59,55 @@ function parseGoogleFonts(google: string): FontLoad[] {
     .filter((f) => f.family);
 }
 
+/** The real font-family for a text style. A Typekit `font-ident`
+ * (`T:Family:variant:obfuscated`) carries the true family in segment 2 while
+ * `font-family` holds the obfuscated id (e.g. `ysxc`); Google idents (`G:…`) and
+ * missing idents already have the true family in `font-family`. */
+function fontFamilyFromStyle(m: Record<string, unknown>): string {
+  const ident = str(m["font-ident"]);
+  if (ident.startsWith("T:")) {
+    const fam = ident.split(":")[1]?.trim();
+    if (fam) return fam;
+  }
+  return str(m["font-family"]).replace(/['"]/g, "");
+}
+
+/** Typekit fonts to preload, parsed from the comma-separated `settings.fonts.string`
+ * idents (`T:Montserrat:n6:ysxc`). `fonts.google` omits Typekit faces, so the page's
+ * Montserrat 600 would otherwise never be requested. Variant `nN`/`iN` → weight N×100. */
+function typekitFontLoads(fontString: string): FontLoad[] {
+  const byFamily = new Map<string, string[]>();
+  for (const ident of fontString.split(",").map((s) => s.trim())) {
+    if (!ident.startsWith("T:")) continue;
+    const [, family = "", variant = ""] = ident.split(":");
+    const fam = family.trim();
+    if (!fam) continue;
+    const v = variant.trim();
+    const digit = /^[ni](\d)$/.exec(v);
+    const weight = digit ? `${Number(digit[1]) * 100}` : v === "regular" ? "400" : v;
+    if (!weight) continue;
+    const ws = byFamily.get(fam) ?? [];
+    if (!ws.includes(weight)) ws.push(weight);
+    byFamily.set(fam, ws);
+  }
+  return [...byFamily].map(([family, weights]) => ({ family, weights }));
+}
+
+/** Union `extra` font-loads into `base`, preserving `base` order and folding new
+ * weights into an existing family (so Montserrat gains 600 instead of duplicating). */
+function mergeFontLoads(base: FontLoad[], extra: FontLoad[]): FontLoad[] {
+  const out = base.map((f) => ({ family: f.family, weights: [...f.weights] }));
+  for (const e of extra) {
+    const existing = out.find((f) => f.family === e.family);
+    if (existing) {
+      for (const w of e.weights) if (!existing.weights.includes(w)) existing.weights.push(w);
+    } else {
+      out.push({ family: e.family, weights: [...e.weights] });
+    }
+  }
+  return out;
+}
+
 const CONFIDENCE_MIN = 0.5;
 
 function sectionFromBlock(b: BluxBlock, pageUid: string, diagnostics: Diagnostic[]): SectionIR {
@@ -156,7 +205,7 @@ export function normalizeTheme(raw: BluxRaw): ThemeIR {
     textStyles.push({
       role: innerKey.slice(1), // ".text11" -> "text11"
       label: str(entry._label),
-      fontFamily: str(m["font-family"]).replace(/['"]/g, ""),
+      fontFamily: fontFamilyFromStyle(m),
       size: cleanCssValue(m["font-size"]) || "16px",
       weight:
         typeof m["font-weight"] === "number" ? m["font-weight"] : str(m["font-weight"]) || 400,
@@ -177,7 +226,10 @@ export function normalizeTheme(raw: BluxRaw): ThemeIR {
       heading: str(fonts.heading) || roleFont("text0"),
       body: str(fonts.body) || roleFont("text1"),
     },
-    fontLoad: parseGoogleFonts(str(fonts.google)),
+    fontLoad: mergeFontLoads(
+      parseGoogleFonts(str(fonts.google)),
+      typekitFontLoads(str(fonts.string)),
+    ),
     textStyles,
   };
 }

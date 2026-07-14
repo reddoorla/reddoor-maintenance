@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { parse, type HTMLElement } from "node-html-parser";
-import { textRoleFromClass, headingLevel, mediaFromElement } from "../../src/blux/grid/leaf.js";
+import {
+  textRoleFromClass,
+  headingLevel,
+  mediaFromElement,
+  readBgSizing,
+} from "../../src/blux/grid/leaf.js";
 
 const el = (html: string) => parse(html).firstChild as HTMLElement;
 
@@ -44,6 +49,8 @@ describe("mediaFromElement", () => {
       ext: "mp4",
       // base + assetId + "." + ext reconstructs the src → resolves offline.
       base: "https://dv4tl7yyk1zlp.cloudfront.net/site-1/",
+      // only present attributes are captured (this <video> has `controls` only).
+      playback: { controls: true },
     });
   });
   it("returns null when the element holds no media", () => {
@@ -120,5 +127,57 @@ describe("mediaFromElement", () => {
       '<div class="ib camediaload" data-media="d1" style="background-size: auto;"></div>',
     );
     expect(mediaFromElement(holder)).toEqual({ kind: "image", assetId: "d1" });
+  });
+});
+
+describe("readBgSizing (band background)", () => {
+  it("keeps a corner-anchored auto accent's fit + position", () => {
+    const bg = el('<div style="background-size: auto; background-position: right bottom;"></div>');
+    expect(readBgSizing(bg)).toEqual({ fit: "auto", position: "right bottom" });
+  });
+  it("drops cover (render default) but keeps a non-center position", () => {
+    const bg = el('<div style="background-size: cover; background-position: right center;"></div>');
+    expect(readBgSizing(bg)).toEqual({ position: "right center" });
+  });
+  it("is empty for a centered cover background (all defaults)", () => {
+    const bg = el(
+      '<div style="background-size: cover; background-position: center center;"></div>',
+    );
+    expect(readBgSizing(bg)).toEqual({});
+  });
+  it("keeps contain", () => {
+    expect(readBgSizing(el('<div style="background-size: contain;"></div>'))).toEqual({
+      fit: "contain",
+    });
+  });
+});
+
+describe("mediaFromElement — video sizing/playback", () => {
+  it("reads the intrinsic aspect off a percent-suffixed data-og-ratio holder", () => {
+    const holder = el(
+      '<div class="ib" data-og-ratio="56.25%"><video src="https://cdn/site/v1.mp4" controls playsinline></video></div>',
+    );
+    const m = mediaFromElement(holder);
+    expect(m?.kind).toBe("video");
+    expect(m?.aspect).toBe(56.25);
+    expect(m?.playback).toEqual({ controls: true, playsinline: true });
+  });
+  it("reads aspect off a sibling .mediaRatio padding-bottom", () => {
+    const holder = el(
+      '<div class="block-holder"><div class="mediaRatio" style="padding-bottom: 42%"></div><video src="https://cdn/site/v2.mp4"></video></div>',
+    );
+    expect(mediaFromElement(holder)?.aspect).toBe(42);
+  });
+  it("captures all present playback flags, none when the video is bare", () => {
+    const on = el('<video src="https://cdn/s/a.mp4" autoplay loop muted playsinline></video>');
+    expect(mediaFromElement(on)?.playback).toEqual({
+      playsinline: true,
+      autoplay: true,
+      loop: true,
+      muted: true,
+    });
+    const bare = el('<video src="https://cdn/s/b.mp4"></video>');
+    expect(mediaFromElement(bare)?.playback).toBeUndefined();
+    expect(mediaFromElement(bare)?.aspect).toBeUndefined();
   });
 });

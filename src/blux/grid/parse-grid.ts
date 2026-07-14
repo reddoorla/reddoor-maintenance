@@ -8,6 +8,7 @@ import {
   mediaFromElement,
   stripAssetExt,
   blockPlainText,
+  readBgSizing,
 } from "./leaf.js";
 
 const DEFAULT_TOKEN: GridToken = { cols: 1, raw: "grid-1" };
@@ -133,6 +134,9 @@ function bandBackground(el: HTMLElement): Media | undefined {
     assetId: stripAssetExt(rawId, ext),
     ...(ext ? { ext } : {}),
     ...(base ? { base } : {}),
+    // A band background carries its own render sizing (background-size/position);
+    // a corner-anchored `auto` accent must not be centered + full-bleed.
+    ...readBgSizing(el),
   };
 }
 

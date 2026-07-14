@@ -1,6 +1,6 @@
 import { parse } from "node-html-parser";
 import type { HTMLElement } from "node-html-parser";
-import type { Media } from "./types.js";
+import type { Media, VideoPlayback } from "./types.js";
 
 const ROLE_RE = /\btext\d+\b/;
 
@@ -50,9 +50,27 @@ export function stripAssetExt(rawId: string, ext?: string): string {
 }
 
 /** Read a single CSS declaration's value out of an inline `style` string. */
-function cssProp(style: string, prop: string): string | undefined {
+export function cssProp(style: string, prop: string): string | undefined {
   const m = new RegExp(`(?:^|;|\\s)${prop}\\s*:\\s*([^;]+)`, "i").exec(style);
   return m?.[1]?.trim();
+}
+
+const CENTERED = new Set(["center", "center center", "50% 50%", "50%"]);
+
+/** Background sizing off a BAND-background wrapper's inline style: its
+ * `background-size` → `fit` (a background's `auto`/`contain` is meaningful — a
+ * native-size decorative accent, not a full-bleed `cover`) and its
+ * `background-position` → `position` (e.g. "right bottom"). Unlike `readImgSizing`
+ * (foreground), `auto` is kept; `cover` and a centered position are the render
+ * defaults, so they are left absent to keep the manifest to deviations only. */
+export function readBgSizing(el: HTMLElement): Pick<Media, "fit" | "position"> {
+  const style = el.getAttribute("style") ?? "";
+  const out: Pick<Media, "fit" | "position"> = {};
+  const size = cssProp(style, "background-size")?.toLowerCase();
+  if (size === "auto" || size === "contain") out.fit = size;
+  const pos = cssProp(style, "background-position");
+  if (pos && !CENTERED.has(pos.toLowerCase())) out.position = pos;
+  return out;
 }
 
 /** Intrinsic render sizing off a foreground image holder: the inline pixel
@@ -79,6 +97,36 @@ function readImgSizing(holder: HTMLElement): Pick<Media, "width" | "aspect" | "f
   return out;
 }
 
+/** Playback semantics from a `<video>`'s boolean attributes — only those PRESENT
+ * are set (an absent field = attribute absent). Undefined when none is present. */
+function readVideoPlayback(video: HTMLElement): VideoPlayback | undefined {
+  const flags = ["controls", "playsinline", "autoplay", "loop", "muted"] as const;
+  const pb: VideoPlayback = {};
+  for (const f of flags) if (video.hasAttribute(f)) pb[f] = true;
+  return Object.keys(pb).length ? pb : undefined;
+}
+
+/** Intrinsic aspect for a foreground `<video>`, reserved on a nearby
+ * `.ib[data-og-ratio]` holder OR a `.mediaRatio` (inline `padding-bottom:NN%`).
+ * Values are percent-suffixed strings (e.g. "56.25%") — strip the `%` (raw
+ * `Number()` NaNs), then reuse the `aspect` = height-%-of-width convention.
+ * Fail-safe: no parseable ratio → undefined (video keeps its bare shape). */
+function readVideoAspect(video: HTMLElement): number | undefined {
+  let raw: string | undefined;
+  let anc: HTMLElement | null | undefined = video.parentNode;
+  for (let i = 0; i < 3 && anc && !raw; i++) {
+    raw = anc.getAttribute?.("data-og-ratio") ?? undefined;
+    if (!raw) {
+      const mr = anc.querySelector?.(".mediaRatio");
+      raw = mr ? cssProp(mr.getAttribute("style") ?? "", "padding-bottom") : undefined;
+    }
+    anc = anc.parentNode as HTMLElement | null | undefined;
+  }
+  if (!raw) return undefined;
+  const n = parseFloat(raw.replace(/%\s*$/, ""));
+  return Number.isFinite(n) ? Math.round(n * 1000) / 1000 : undefined;
+}
+
 /** Resolve the media an element carries: a `.camediaload` descendant (image, via
  * `data-media`) or a `<video>` (via its src uuid). Returns null when there is none. */
 export function mediaFromElement(el: HTMLElement): Media | null {
@@ -94,7 +142,16 @@ export function mediaFromElement(el: HTMLElement): Media | null {
     const clean = src.split(/[?#]/)[0] ?? "";
     const slash = clean.lastIndexOf("/");
     const base = slash >= 0 ? clean.slice(0, slash + 1) : undefined;
-    return { kind: "video", assetId: id, ...(ext ? { ext } : {}), ...(base ? { base } : {}) };
+    const aspect = readVideoAspect(el);
+    const playback = readVideoPlayback(el);
+    return {
+      kind: "video",
+      assetId: id,
+      ...(ext ? { ext } : {}),
+      ...(base ? { base } : {}),
+      ...(aspect !== undefined ? { aspect } : {}),
+      ...(playback ? { playback } : {}),
+    };
   }
   const img =
     el.classList.contains("camediaload") && el.getAttribute("data-media")

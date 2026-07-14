@@ -7,21 +7,40 @@ export type GridToken = {
   raw: string;
 };
 
+/** Video playback semantics read off the source `<video>` attributes (video
+ * media only). Only attributes PRESENT in the export are set, so an absent field
+ * means the attribute was absent — e.g. band 10's `<video controls playsinline>`
+ * emits `{ controls: true, playsinline: true }` and NOT autoplay/loop/muted,
+ * telling the render layer this is a user-initiated inline video, not a
+ * background loop. */
+export type VideoPlayback = {
+  controls?: boolean;
+  playsinline?: boolean;
+  autoplay?: boolean;
+  loop?: boolean;
+  muted?: boolean;
+};
+
 export type Media = {
   kind: "image" | "video";
   assetId: string;
   ext?: string;
   base?: string;
-  // Intrinsic render sizing read off the rendered export (foreground images
-  // only; band backgrounds and video carry none). `width` is the holder's inline
-  // pixel width — the width the export actually renders that image at, whether a
-  // 40px rule or an 800px+ photo — `aspect` the `.mediaRatio` `data-og-ratio`
-  // (height as a % of width), `fit` its `background-size`. The render layer
-  // treats `width` as advisory and caps it at 100% of the cell, so a graphic
-  // keeps its true size instead of stretching, and a photo still fills.
+  // Intrinsic render sizing read off the rendered export. `width` is the
+  // foreground holder's inline pixel width (the width the export renders that
+  // image at, whether a 40px rule or an 800px+ photo — foreground images only).
+  // `aspect` is the `.mediaRatio` `data-og-ratio` (height as a % of width; also
+  // read for foreground video). `fit` mirrors `background-size` — `contain`/
+  // `cover` for a foreground graphic, or a band BACKGROUND's `cover`/`auto`
+  // (`auto` = a native-size decorative accent, not a full-bleed cover).
+  // `position` mirrors a band background's `background-position` (e.g.
+  // "right bottom") so corner-anchored accents aren't centered. The render layer
+  // treats `width` as advisory and caps it at 100% of the cell.
   width?: number;
   aspect?: number;
-  fit?: "contain" | "cover";
+  fit?: "contain" | "cover" | "auto";
+  position?: string;
+  playback?: VideoPlayback;
 };
 // Forward-declared for plan 2's widget router. The parser does not emit
 // `widget` nodes yet — map mounts currently parse to `raw`.

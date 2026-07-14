@@ -39,16 +39,24 @@ describe("extractMapConfig", () => {
     expect((cfg?.styles as unknown[]).length).toBeGreaterThan(20);
     expect(cfg?.center).toEqual({ lat: -34.397, lng: 150.644 });
     expect(cfg?.zoom).toBe(8);
+    // the mount div's own inline height (lives on the inner mount, not the section).
+    expect(cfg?.height).toBe("600px");
   });
 
   it("extracts the four toggle groups pairing chip labels with clickMap layer sets", () => {
     const cfg = extractMapConfig(html);
     expect(cfg?.toggles).toEqual([
-      { label: "The Burbank Portfolio", layers: ["The_Burbank_Portfolio"] },
-      { label: "Studio And Offices", layers: ["Studios", "Office_Tenants"] },
-      { label: "Retail And Dining", layers: ["Food_And_Drink", "Retail", "Entertainment"] },
-      { label: "Hotel And Services", layers: ["Hotels", "Services"] },
+      { label: "The Burbank Portfolio", layers: ["The_Burbank_Portfolio"], panelIndex: 0 },
+      { label: "Studio And Offices", layers: ["Studios", "Office_Tenants"], panelIndex: 1 },
+      {
+        label: "Retail And Dining",
+        layers: ["Food_And_Drink", "Retail", "Entertainment"],
+        panelIndex: 2,
+      },
+      { label: "Hotel And Services", layers: ["Hotels", "Services"], panelIndex: 3 },
     ]);
+    // chip → content panel binding + the on-load active panel.
+    expect(cfg?.defaultToggle).toBe(0);
   });
 
   it("degrades: toggles [] when clickMap script is absent; null when layers missing", () => {

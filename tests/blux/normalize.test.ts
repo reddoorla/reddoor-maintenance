@@ -160,6 +160,31 @@ describe("normalizeTheme", () => {
       { family: "Martel", weights: ["200"] },
     ]);
   });
+  it("decodes a Typekit font-ident (real family) and folds its weight into fontLoad", () => {
+    const site = structuredClone(minimalSite) as {
+      styles: { text: Record<string, unknown> };
+      settings: { fonts: Record<string, unknown> };
+    };
+    // A Typekit role: `font-family` is the obfuscated id, `font-ident` has the truth.
+    site.styles.text["9"] = {
+      _label: "Uppercase Label",
+      ".text13": {
+        "font-family": "ysxc",
+        "font-ident": "T:Montserrat:n6:ysxc",
+        "font-weight": 600,
+        "font-size": "12px",
+        "line-height": "18px",
+      },
+    };
+    site.settings.fonts.string = "G:Montserrat:300:,T:Montserrat:n6:ysxc";
+    const t = normalizeTheme(parseBluxSite(site));
+    const t13 = t.textStyles.find((s) => s.role === "text13")!;
+    expect(t13.fontFamily).toBe("Montserrat"); // not the obfuscated "ysxc"
+    expect(t13.weight).toBe(600);
+    // the Typekit Montserrat 600 (absent from settings.fonts.google) is folded in.
+    const mont = t.fontLoad.find((f) => f.family === "Montserrat")!;
+    expect(mont.weights).toContain("600");
+  });
   it("falls back to Blux's default roles (text0/text1) when settings name no fonts", () => {
     const site = structuredClone(minimalSite) as Record<string, unknown>;
     site.settings = { widgets: {} };

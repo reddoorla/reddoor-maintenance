@@ -5,21 +5,33 @@ import type { Media, Node } from "./types.js";
  * the background band exactly as today. */
 type SpecBase = { index: number; background?: Media };
 
-/** A full-bleed band with overlay text (structural signal: a band `background`
- * plus an overlay heading, no grid row, no foreground media). */
-export type HeroSpec = SpecBase & {
-  slice: "Hero";
-  heading?: string;
-  subtitle?: string;
-  body?: string;
+/** The source heading's textN role + h-level and the subtitle's role, so the
+ * render applies the right display font/tag. Carried ALONGSIDE the plain-string
+ * heading/subtitle (which stay the Prismic-editable page-doc text) — this is
+ * presentation metadata only. */
+type TextRoleMeta = {
+  headingRole?: string;
+  headingLevel?: number;
+  subtitleRole?: string;
 };
 
+/** A full-bleed band with overlay text (structural signal: a band `background`
+ * plus an overlay heading, no grid row, no foreground media). */
+export type HeroSpec = SpecBase &
+  TextRoleMeta & {
+    slice: "Hero";
+    heading?: string;
+    subtitle?: string;
+    body?: string;
+  };
+
 /** A centered title band: heading (+ optional eyebrow subtitle), no media. */
-export type TitleBandSpec = SpecBase & {
-  slice: "TitleBand";
-  heading: string;
-  subtitle?: string;
-};
+export type TitleBandSpec = SpecBase &
+  TextRoleMeta & {
+    slice: "TitleBand";
+    heading: string;
+    subtitle?: string;
+  };
 
 /** One row, exactly two cells: one pure-media, one text-bearing. `ratio` is the
  * media cell's grid share (e.g. 40 for `grid-2-r40`); `mediaSide` says which side.
