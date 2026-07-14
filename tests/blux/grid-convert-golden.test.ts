@@ -12,6 +12,7 @@ import {
   type PresentationDeps,
   type RenderMedia,
 } from "../../src/blux/emit/presentation.js";
+import { mapRenderFromConfig } from "../../src/blux/emit/convert.js";
 import { sliceSpecToPlanSlice } from "../../src/blux/emit/grid-slice.js";
 
 const fixture = (name: string) =>
@@ -28,6 +29,8 @@ const deps: PresentationDeps = {
     ...(m.width !== undefined ? { width: m.width } : {}),
     ...(m.aspect !== undefined ? { aspect: m.aspect } : {}),
     ...(m.fit ? { fit: m.fit } : {}),
+    ...(m.position ? { position: m.position } : {}),
+    ...(m.playback ? { playback: m.playback } : {}),
   }),
   styleFor: () => undefined,
   map: null,
@@ -69,20 +72,15 @@ describe("grid convert golden — the-pointe", () => {
     const wrapped = `<div id="page-content"><section class="blocks0" id="page-block-16"><div class="block-content">${band}</div></div></section></div>`;
     const bands = parseGridBands(wrapped);
     const specs = classifyBands(bands, { isMapMount: makeIsMapMount(cfg!) });
-    const mapDeps: PresentationDeps = {
-      ...deps,
-      map: {
-        mid: cfg!.mid,
-        layers: cfg!.layers,
-        toggles: cfg!.toggles,
-        styles: cfg!.styles,
-        ...(cfg!.center ? { center: cfg!.center } : {}),
-        ...(cfg!.zoom !== undefined ? { zoom: cfg!.zoom } : {}),
-      },
-    };
+    const mapDeps: PresentationDeps = { ...deps, map: mapRenderFromConfig(cfg!) };
     const manifest = buildPresentation(specs, mapDeps);
     const withMap = Object.values(manifest.bands).filter((b) => b.map);
     expect(withMap).toHaveLength(1);
-    expect(withMap[0]!.map!.mid).toBe(cfg!.mid);
+    const map = withMap[0]!.map!;
+    expect(map.mid).toBe(cfg!.mid);
+    // the mount height + chip→panel binding survive into the render config.
+    expect(map.height).toBe("600px");
+    expect(map.defaultToggle).toBe(0);
+    expect(map.toggles.map((t) => t.panelIndex)).toEqual([0, 1, 2, 3]);
   });
 });

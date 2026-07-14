@@ -150,6 +150,7 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
       "background": {
         "alt": "a37733d6-09cc-4c0c-be9f-e220770f2397",
         "kind": "image",
+        "position": "right center",
         "url": "asset://a37733d6-09cc-4c0c-be9f-e220770f2397",
       },
       "tree": {
@@ -177,7 +178,9 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
     "1": {
       "background": {
         "alt": "a732d1e4-59be-42ba-b87f-5acea9b3c4b9",
+        "fit": "auto",
         "kind": "image",
+        "position": "right bottom",
         "url": "asset://a732d1e4-59be-42ba-b87f-5acea9b3c4b9",
       },
       "split": {
@@ -244,7 +247,12 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
             "kind": "media",
             "media": {
               "alt": "c023afe4-996f-4013-83ab-2634ea55355d",
+              "aspect": 56.25,
               "kind": "video",
+              "playback": {
+                "controls": true,
+                "playsinline": true,
+              },
               "url": "asset://c023afe4-996f-4013-83ab-2634ea55355d",
             },
           },
@@ -325,6 +333,7 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
       "background": {
         "alt": "6dd54dfc-b4d1-4ef2-8165-a1f2421668bf",
         "kind": "image",
+        "position": "left top",
         "url": "asset://6dd54dfc-b4d1-4ef2-8165-a1f2421668bf",
       },
       "tree": {
@@ -495,7 +504,13 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
         "kind": "row",
       },
     },
-    "13": {},
+    "13": {
+      "text": {
+        "headingLevel": 2,
+        "headingRole": "text5",
+        "subtitleRole": "text12",
+      },
+    },
     "14": {
       "tree": {
         "children": [
@@ -1056,8 +1071,19 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
         "kind": "stack",
       },
     },
-    "15": {},
-    "2": {},
+    "15": {
+      "text": {
+        "headingLevel": 2,
+        "headingRole": "text11",
+      },
+    },
+    "2": {
+      "text": {
+        "headingLevel": 2,
+        "headingRole": "text5",
+        "subtitleRole": "text12",
+      },
+    },
     "3": {
       "tree": {
         "cells": [
@@ -1448,8 +1474,15 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
     "7": {
       "background": {
         "alt": "3852eddf-55e3-4f7d-b106-f58a5af214f6",
+        "fit": "auto",
         "kind": "image",
+        "position": "right top",
         "url": "asset://3852eddf-55e3-4f7d-b106-f58a5af214f6",
+      },
+      "text": {
+        "headingLevel": 2,
+        "headingRole": "text5",
+        "subtitleRole": "text12",
       },
     },
     "8": {
@@ -1477,7 +1510,9 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
     "9": {
       "background": {
         "alt": "673cb1d4-af95-4e81-a5dd-5018d4af5e86",
+        "fit": "auto",
         "kind": "image",
+        "position": "left bottom",
         "url": "asset://673cb1d4-af95-4e81-a5dd-5018d4af5e86",
       },
       "tree": {

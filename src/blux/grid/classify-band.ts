@@ -132,6 +132,21 @@ function pureCellMedia(cell: Cell): Media | null {
   return cell.node.kind === "media" ? cell.node.media : null;
 }
 
+/** TitleBand/Hero presentation metadata: the heading's textN role + h-level and
+ * the subtitle's role. Carried alongside the plain-string text (page-doc) so the
+ * render applies the right display font/tag — band 15's script accent heading
+ * (`h2.text11`) must not render like a plain `text5` title. */
+function textRoleMeta(
+  heading: Node | undefined,
+  subtitle: Node | undefined,
+): { headingRole?: string; headingLevel?: number; subtitleRole?: string } {
+  return {
+    ...(heading?.kind === "heading" && heading.role ? { headingRole: heading.role } : {}),
+    ...(heading?.kind === "heading" ? { headingLevel: heading.level } : {}),
+    ...(subtitle?.kind === "subtitle" && subtitle.role ? { subtitleRole: subtitle.role } : {}),
+  };
+}
+
 /** A cell's effective column share as a percentage, from its grid token.
  *
  * Width comes from the explicit `ratio` (`grid-2-r60` → 60) or, absent that,
@@ -255,6 +270,7 @@ export function classifyBand(band: Band, opts: ClassifyOptions = {}): SliceSpec 
         ...base(band),
         heading: first ? nodeText(first) : "",
         ...(sub ? { subtitle: nodeText(sub) } : {}),
+        ...textRoleMeta(first, sub),
       };
     }
     // RichText: body node(s) only — a subtitle would be dropped from the html.
@@ -289,6 +305,7 @@ export function classifyBand(band: Band, opts: ClassifyOptions = {}): SliceSpec 
       ...(h ? { heading: nodeText(h) } : {}),
       ...(sub ? { subtitle: nodeText(sub) } : {}),
       ...(bod && bod.kind === "body" ? { body: bod.html } : {}),
+      ...textRoleMeta(h, sub),
     };
   }
 

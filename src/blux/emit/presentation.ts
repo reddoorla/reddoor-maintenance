@@ -4,7 +4,13 @@
 // Svelte layer loads (src/lib/blux/presentation.ts — that file is the fixed
 // target; these mirror types must match it exactly). Media/style/map are
 // resolved via injected `deps` so this builder stays pure and offline.
-import type { Media, Node, GridToken as SrcToken, SliceSpec } from "../grid/index.js";
+import type {
+  Media,
+  Node,
+  GridToken as SrcToken,
+  SliceSpec,
+  VideoPlayback,
+} from "../grid/index.js";
 
 // ---------------------------------------------------------------------------
 // Render-side mirror types (must match the-pointe's src/lib/blux/presentation.ts)
@@ -14,13 +20,16 @@ export type RenderMedia = {
   kind: "image" | "video";
   url: string;
   alt?: string;
-  // Intrinsic sizing carried from the source (foreground images only). The
-  // render layer renders a graphic at `width` (capped to its cell) with
-  // `aspect-ratio` from `aspect`, so small rules/logos keep their true size
-  // instead of stretching full-bleed. Mirrors the-pointe's src/lib/blux/presentation.ts.
+  // Intrinsic sizing carried from the source. `width`/`aspect` size a foreground
+  // graphic (capped to its cell) so rules/logos keep their true size. `fit` +
+  // `position` carry a band background's `background-size`/`-position` so a
+  // corner-anchored `auto` accent isn't centered full-bleed. `playback` carries a
+  // video's source `<video>` attributes. Mirrors the-pointe's src/lib/blux/presentation.ts.
   width?: number;
   aspect?: number;
-  fit?: "contain" | "cover";
+  fit?: "contain" | "cover" | "auto";
+  position?: string;
+  playback?: VideoPlayback;
 };
 
 export type RenderToken = { cols: number | "any"; ratio?: number; spacing?: number };
@@ -43,7 +52,7 @@ export type MapLayer = {
   initiallyVisible: boolean;
   preserveViewport: boolean;
 };
-export type MapToggle = { label: string; layers: string[] };
+export type MapToggle = { label: string; layers: string[]; panelIndex: number };
 export type MapRenderConfig = {
   mid: string;
   layers: MapLayer[];
@@ -51,6 +60,8 @@ export type MapRenderConfig = {
   styles: unknown[];
   center?: { lat: number; lng: number };
   zoom?: number;
+  height?: string;
+  defaultToggle?: number;
 };
 
 export type BandPresentation = {
@@ -61,6 +72,10 @@ export type BandPresentation = {
   gallery?: RenderMedia[];
   media?: RenderMedia;
   map?: MapRenderConfig;
+  /** Hero/TitleBand heading textN role + h-level and subtitle role, so the
+   * render applies the right display font/tag. The text itself is the Prismic
+   * page-doc string; this is presentation metadata only. */
+  text?: { headingRole?: string; headingLevel?: number; subtitleRole?: string };
 };
 
 export type Presentation = { bands: Record<string, BandPresentation> };
@@ -151,8 +166,17 @@ export function buildPresentation(specs: SliceSpec[], deps: PresentationDeps): P
 
     switch (spec.slice) {
       case "Hero":
-      case "TitleBand":
-        break; // text is in the page doc; only style/background here
+      case "TitleBand": {
+        // Text lives in the page doc; carry only the role/level metadata so the
+        // render picks the right display font + heading tag.
+        const meta = {
+          ...(spec.headingRole ? { headingRole: spec.headingRole } : {}),
+          ...(spec.headingLevel !== undefined ? { headingLevel: spec.headingLevel } : {}),
+          ...(spec.subtitleRole ? { subtitleRole: spec.subtitleRole } : {}),
+        };
+        if (Object.keys(meta).length) bp.text = meta;
+        break;
+      }
       case "RichText":
         break; // content is in the page doc
       case "Gallery": {
