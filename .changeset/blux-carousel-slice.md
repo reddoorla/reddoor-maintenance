@@ -1,5 +1,5 @@
 ---
-"@reddoorla/maintenance": patch
+"@reddoorla/maintenance": minor
 ---
 
 feat(blux): Carousel slice type — slider bands emit slides + editable captions
@@ -14,8 +14,9 @@ fields are deliberately absent).
 All five emit paths gain a carousel case:
 
 - **Page doc:** `slice_type: "carousel"` with one item per slide in slide order
-  (`{ caption }`, tags stripped; `{}` for an uncaptioned slide) — caption text is
-  Prismic-editable and the render zips items to manifest slides by index.
+  (`{ caption }` as entity-decoded plain text with hard breaks preserved; `{}`
+  for an uncaptioned slide) — caption text is Prismic-editable and the render
+  zips items to manifest slides by index.
 - **Plan assets:** every slide's media is collected for upload.
 - **Presentation manifest:** new `BandPresentation.carousel` payload — resolved
   slide media plus caption `{ level, role }` metadata and `columns` — and a new
