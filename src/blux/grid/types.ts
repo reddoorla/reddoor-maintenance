@@ -60,9 +60,37 @@ export type Node =
       slider?: { columns?: number };
     }
   | { kind: "stack"; children: Node[] }
-  | { kind: "heading"; role?: string; level: number; html: string }
-  | { kind: "body"; role?: string; html: string }
-  | { kind: "subtitle"; role?: string; text: string }
+  | {
+      kind: "heading";
+      role?: string;
+      /** Inline deviations the export carries on the text leaf (color, padding)
+       * plus decoded margin utilities (margin-20r → margin-right:20%). The
+       * margin-right percentage is desktop-only in the source (reset ≤800px) —
+       * the render scopes it to md+. */
+      style?: Record<string, string>;
+      level: number;
+      html: string;
+    }
+  | {
+      kind: "body";
+      role?: string;
+      /** Inline deviations the export carries on the text leaf (color, padding)
+       * plus decoded margin utilities (margin-20r → margin-right:20%). The
+       * margin-right percentage is desktop-only in the source (reset ≤800px) —
+       * the render scopes it to md+. */
+      style?: Record<string, string>;
+      html: string;
+    }
+  | {
+      kind: "subtitle";
+      role?: string;
+      /** Inline deviations the export carries on the text leaf (color, padding)
+       * plus decoded margin utilities (margin-20r → margin-right:20%). The
+       * margin-right percentage is desktop-only in the source (reset ≤800px) —
+       * the render scopes it to md+. */
+      style?: Record<string, string>;
+      text: string;
+    }
   | { kind: "media"; media: Media }
   // Forward-declared for plan 2's widget router. The parser does not emit
   // `widget` nodes yet — map mounts currently parse to `raw`.
@@ -72,6 +100,11 @@ export type Node =
 export type Cell = { token: GridToken; node: Node };
 export type Band = {
   index: number; // the source page-block-N number (not necessarily the array position)
+  /** The band wrapper's blocksN class (e.g. "blocks0") — resolves which
+   * .blocksNcontainer class defaults apply when the block's own styles
+   * omit padding/max-width. From the HTML (site.json items[].class is
+   * unreliable — null for 7/16 the-pointe blocks). */
+  blockClass?: string;
   background?: Media;
   root: Node;
 };

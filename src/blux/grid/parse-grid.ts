@@ -9,6 +9,7 @@ import {
   stripAssetExt,
   blockPlainText,
   readBgSizing,
+  textLeafStyle,
 } from "./leaf.js";
 
 const DEFAULT_TOKEN: GridToken = { cols: 1, raw: "grid-1" };
@@ -87,23 +88,37 @@ function isDisabledWithin(caption: HTMLElement, holder: HTMLElement): boolean {
 export function parseNode(el: HTMLElement): Node {
   if (hasClass(el, "block-title") && /^H[1-6]$/.test(el.tagName ?? "")) {
     const role = textRoleFromClass(el.classNames);
+    const style = textLeafStyle(el);
     return {
       kind: "heading",
       ...(role ? { role } : {}),
+      ...(style ? { style } : {}),
       level: headingLevel(el),
       html: el.innerHTML,
     };
   }
   if (hasClass(el, "block-body")) {
     const role = textRoleFromClass(el.classNames);
-    return { kind: "body", ...(role ? { role } : {}), html: el.innerHTML };
+    const style = textLeafStyle(el);
+    return {
+      kind: "body",
+      ...(role ? { role } : {}),
+      ...(style ? { style } : {}),
+      html: el.innerHTML,
+    };
   }
   if (hasClass(el, "block-subtitle")) {
     const role = textRoleFromClass(el.classNames);
+    const style = textLeafStyle(el);
     // Route through blockPlainText (not raw `.text`): a `<br>` in a display
     // subtitle survives as a newline while insignificant source whitespace
     // collapses — `.text` alone can't tell a hard break from source formatting.
-    return { kind: "subtitle", ...(role ? { role } : {}), text: blockPlainText(el.innerHTML) };
+    return {
+      kind: "subtitle",
+      ...(role ? { role } : {}),
+      ...(style ? { style } : {}),
+      text: blockPlainText(el.innerHTML),
+    };
   }
   if (isMediaHolder(el)) {
     const media = mediaFromElement(el);
@@ -175,6 +190,9 @@ export function parseContainer(el: HTMLElement): Node {
 }
 
 const BAND_ID_RE = /^page-block-(\d+)$/;
+// The band wrapper's blocksN class — kept off the HTML because site.json
+// items[].class is unreliable (null for 7/16 the-pointe blocks).
+const BLOCK_CLASS_RE = /\bblocks\d+\b/;
 
 /** Read the band-level background media off a `camediaload` band wrapper. */
 function bandBackground(el: HTMLElement): Media | undefined {
@@ -207,8 +225,10 @@ export function parseGridBands(html: string): Band[] {
     const idStr = m[1];
     if (idStr === undefined) continue;
     const background = bandBackground(child);
+    const blockClass = BLOCK_CLASS_RE.exec(child.classNames)?.[0];
     bands.push({
       index: Number(idStr),
+      ...(blockClass ? { blockClass } : {}),
       ...(background ? { background } : {}),
       root: parseContainer(child),
     });

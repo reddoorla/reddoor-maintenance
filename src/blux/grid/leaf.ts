@@ -55,6 +55,39 @@ export function cssProp(style: string, prop: string): string | undefined {
   return m?.[1]?.trim();
 }
 
+const MARGIN_UTIL_RE = /\bmargin-(\d+)(r|l|t|b)\b/g;
+const MARGIN_SIDES = { r: "right", l: "left", t: "top", b: "bottom" } as const;
+
+/** Decode Blux margin utility classes: `margin-20r` → `margin-right: 20%`.
+ * Only `margin-N(r|l|t|b)` decodes — the `pd_*` padding utilities are always
+ * duplicated inline in the export, so inline capture already covers them. */
+export function utilityStylesFromClass(className: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const m of className.matchAll(MARGIN_UTIL_RE)) {
+    const [, n, side] = m;
+    if (n && side) out[`margin-${MARGIN_SIDES[side as keyof typeof MARGIN_SIDES]}`] = `${n}%`;
+  }
+  return out;
+}
+
+/** A text leaf's style deviations: the allowlisted inline declarations (`color`,
+ * `padding`, `margin*` — everything else is theme noise) merged with the margin
+ * utilities decoded off its class. An inline declaration wins over a class
+ * utility on conflict. Null when the leaf carries neither, so callers can keep
+ * the `style` key absent (exactOptionalPropertyTypes). */
+export function textLeafStyle(el: HTMLElement): Record<string, string> | null {
+  const out = utilityStylesFromClass(el.classNames ?? "");
+  for (const decl of (el.getAttribute("style") ?? "").split(";")) {
+    const colon = decl.indexOf(":");
+    if (colon < 0) continue;
+    const prop = decl.slice(0, colon).trim().toLowerCase();
+    const value = decl.slice(colon + 1).trim();
+    if (!value) continue;
+    if (prop === "color" || prop === "padding" || prop.startsWith("margin")) out[prop] = value;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 const CENTERED = new Set(["center", "center center", "50% 50%", "50%"]);
 
 /** Background sizing off a BAND-background wrapper's inline style: its
