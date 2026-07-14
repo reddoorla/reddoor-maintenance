@@ -391,3 +391,20 @@ describe("createIngestAction", () => {
     expect(body._meta).toEqual({ turnstileToken: "TOK" });
   });
 });
+
+describe("createIngestAction — buildPayload guard", () => {
+  it("returns fail(400), never an uncaught 500, when buildPayload throws on a missing field", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true, id: "recX" }));
+    const action = createIngestAction({
+      formType: "contact",
+      getConfig: okConfig,
+      // A careless site mapping: `.toString()` on an absent field throws at runtime.
+      buildPayload: (form) => ({ email: form.get("email")!.toString() }),
+      now,
+    });
+    // No `email` field submitted → buildPayload throws → must surface as fail(400).
+    const result = await action(fakeEvent({ ts: goodTs }, fetchMock));
+    expect((result as { status?: number }).status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
