@@ -1,5 +1,5 @@
 ---
-"reddoor-maintenance": patch
+"@reddoorla/maintenance": patch
 ---
 
 fix(blux): parse the grid `-s<N>` suffix as spacing, not a cell width

@@ -1,5 +1,5 @@
 ---
-"reddoor-maintenance": minor
+"@reddoorla/maintenance": minor
 ---
 
 blux grid plan 6: offline layout-signature validation gate. New pure

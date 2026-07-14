@@ -1,5 +1,5 @@
 ---
-"reddoor-maintenance": minor
+"@reddoorla/maintenance": minor
 ---
 
 blux grid plan 2: band classifier + widget router. `classifyBand`/`classifyBands`

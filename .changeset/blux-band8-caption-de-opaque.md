@@ -1,5 +1,5 @@
 ---
-"reddoor-maintenance": patch
+"@reddoorla/maintenance": patch
 ---
 
 fix(blux): recover captions nested inside a media holder + drop empty casliders
