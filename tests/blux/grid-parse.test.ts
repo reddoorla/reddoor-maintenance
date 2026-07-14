@@ -230,3 +230,20 @@ describe("empty caslider cleanup", () => {
     expect(n).toEqual({ kind: "media", media: { kind: "image", assetId: "m1" } });
   });
 });
+
+describe("caption capture hardening", () => {
+  it("ignores an entity/whitespace-only caption (no phantom stack)", () => {
+    expect(
+      node(
+        '<div class="ib camediaload" data-media="e1"><h5 class="block-title text5">&nbsp;</h5></div>',
+      ),
+    ).toEqual({ kind: "media", media: { kind: "image", assetId: "e1" } });
+  });
+  it("ignores a disabled caption so hidden copy never leaks", () => {
+    expect(
+      node(
+        '<div class="ib camediaload" data-media="d1"><div class="disable"><h5 class="block-title text5">hidden</h5></div></div>',
+      ),
+    ).toEqual({ kind: "media", media: { kind: "image", assetId: "d1" } });
+  });
+});

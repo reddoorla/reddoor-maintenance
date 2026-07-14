@@ -60,12 +60,25 @@ export function collectStructuralChildren(el: HTMLElement): HTMLElement[] {
 }
 
 /** Does a parsed leaf node carry real text (not just empty markup)? Gates caption
- * capture so an empty `.block-*` inside a media holder adds nothing. */
+ * capture so an empty `.block-*` inside a media holder adds nothing. Routes
+ * heading/body through `blockPlainText` (same as the subtitle path) so an
+ * entity- or `&nbsp;`-only block reads as empty, not as text. */
 function nodeHasText(n: Node): boolean {
-  if (n.kind === "heading" || n.kind === "body") {
-    return n.html.replace(/<[^>]*>/g, "").trim() !== "";
-  }
+  if (n.kind === "heading" || n.kind === "body") return blockPlainText(n.html) !== "";
   if (n.kind === "subtitle") return n.text.trim() !== "";
+  return false;
+}
+
+/** Is a caption element (or an ancestor up to and including the media holder)
+ * marked `class:"disable"`? Blux omits disabled blocks from the rendered HTML,
+ * but guard anyway so hidden copy is never leaked into a caption. */
+function isDisabledWithin(caption: HTMLElement, holder: HTMLElement): boolean {
+  let a: HTMLElement | null | undefined = caption;
+  while (a) {
+    if (hasClass(a, "disable")) return true;
+    if (a === holder) return false;
+    a = a.parentNode as HTMLElement | null | undefined;
+  }
   return false;
 }
 
@@ -105,6 +118,7 @@ export function parseNode(el: HTMLElement): Node {
       // a structural leaf; only its own internal text is recovered here.
       const captions = el
         .querySelectorAll(".block-title, .block-body, .block-subtitle")
+        .filter((c) => !isDisabledWithin(c, el))
         .map((c) => parseNode(c))
         .filter(nodeHasText);
       if (captions.length) {
