@@ -38,7 +38,7 @@ describe("verifyTurnstile", () => {
     expect(params.has("remoteip")).toBe(false);
   });
 
-  it("returns 'fail' on a definite Cloudflare negative (success:false)", async () => {
+  it("returns 'fail' only on invalid-input-response (bad/forged token)", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValue(
@@ -46,6 +46,66 @@ describe("verifyTurnstile", () => {
       );
     const out = await verifyTurnstile({ secret: "sk", token: "tok", fetch: fetchMock });
     expect(out).toBe("fail");
+  });
+
+  it("returns 'fail' when invalid-input-response co-occurs with a benign code", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(200, {
+        success: false,
+        "error-codes": ["timeout-or-duplicate", "invalid-input-response"],
+      }),
+    );
+    const out = await verifyTurnstile({ secret: "sk", token: "tok", fetch: fetchMock });
+    expect(out).toBe("fail");
+  });
+
+  it("returns 'unverifiable' on timeout-or-duplicate (expired 300s TTL / double-submit — real humans)", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(200, { success: false, "error-codes": ["timeout-or-duplicate"] }),
+      );
+    const out = await verifyTurnstile({ secret: "sk", token: "tok", fetch: fetchMock });
+    expect(out).toBe("unverifiable");
+  });
+
+  it("returns 'unverifiable' on internal-error (Cloudflare-side condition)", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { success: false, "error-codes": ["internal-error"] }));
+    const out = await verifyTurnstile({ secret: "sk", token: "tok", fetch: fetchMock });
+    expect(out).toBe("unverifiable");
+  });
+
+  it("returns 'unverifiable' on secret/config error codes (operational, not the visitor's fault)", async () => {
+    for (const code of [
+      "missing-input-secret",
+      "invalid-input-secret",
+      "bad-request",
+      "missing-input-response",
+    ]) {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(jsonResponse(200, { success: false, "error-codes": [code] }));
+      const out = await verifyTurnstile({ secret: "sk", token: "tok", fetch: fetchMock });
+      expect(out, `error code ${code}`).toBe("unverifiable");
+    }
+  });
+
+  it("returns 'unverifiable' on success:false with no error-codes array", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { success: false }));
+    const out = await verifyTurnstile({ secret: "sk", token: "tok", fetch: fetchMock });
+    expect(out).toBe("unverifiable");
+  });
+
+  it("returns 'unverifiable' on an unknown error code", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(200, { success: false, "error-codes": ["some-future-code"] }),
+      );
+    const out = await verifyTurnstile({ secret: "sk", token: "tok", fetch: fetchMock });
+    expect(out).toBe("unverifiable");
   });
 
   it("returns 'unverifiable' when fetch throws (network error) — and never throws", async () => {

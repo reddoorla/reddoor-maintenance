@@ -25,9 +25,9 @@ describe("classifySpam", () => {
     expect(clean()).toEqual({ score: 0, reasons: [] });
   });
 
-  it("turnstile 'fail' adds 70 (turnstile-fail); pass/unverifiable/absent add 0", () => {
+  it("turnstile 'fail' adds 50 (turnstile-fail); pass/unverifiable/absent add 0", () => {
     expect(clean({ turnstile: "fail" as TurnstileOutcome })).toEqual({
-      score: 70,
+      score: 50,
       reasons: ["turnstile-fail"],
     });
     expect(clean({ turnstile: "pass" as TurnstileOutcome })).toEqual({ score: 0, reasons: [] });
@@ -194,13 +194,23 @@ describe("classifySpam", () => {
     ).toEqual({ score: 0, reasons: [] });
   });
 
-  it("threshold boundaries: fail + one link = 100 -> at/over threshold; three bare links = 90 -> under", () => {
-    const over = clean({ turnstile: "fail" as TurnstileOutcome, message: "visit http://a.com" });
-    expect(over).toEqual({ score: 100, reasons: ["turnstile-fail", "links:1"] });
+  it("threshold boundaries: fail + one link = 80 -> under threshold; fail + two links = 110 -> over", () => {
+    // A "fail" plus ONE benign co-signal (a single pasted URL) must NOT
+    // auto-spam a possibly-real human — this exact combination shipped as
+    // spam_auto before the 70->50 reweight.
+    const under = clean({ turnstile: "fail" as TurnstileOutcome, message: "visit http://a.com" });
+    expect(under).toEqual({ score: 80, reasons: ["turnstile-fail", "links:1"] });
+    expect(under.score >= SPAM_THRESHOLD).toBe(false);
+
+    const over = clean({
+      turnstile: "fail" as TurnstileOutcome,
+      message: "http://a.com http://b.com",
+    });
+    expect(over).toEqual({ score: 110, reasons: ["turnstile-fail", "links:2"] });
     expect(over.score >= SPAM_THRESHOLD).toBe(true);
 
-    const under = clean({ message: "http://a.com http://b.com http://c.com" });
-    expect(under.score).toBe(90);
-    expect(under.score >= SPAM_THRESHOLD).toBe(false);
+    const linksOnly = clean({ message: "http://a.com http://b.com http://c.com" });
+    expect(linksOnly.score).toBe(90);
+    expect(linksOnly.score >= SPAM_THRESHOLD).toBe(false);
   });
 });
