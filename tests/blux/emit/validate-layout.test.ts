@@ -256,7 +256,7 @@ describe("validateLayout — findings", () => {
     };
     const r = validateLayout(specs, pres);
     expect(r.faithful).toBe(true);
-    expect(r.rows[0]).toMatchObject({ source: "Carousel(2)", converted: "Carousel(2)", ok: true });
+    expect(r.rows[0]).toMatchObject({ source: "carousel(2)", converted: "carousel(2)", ok: true });
   });
 
   it("flags a Carousel whose manifest is missing a slide", () => {
@@ -272,7 +272,7 @@ describe("validateLayout — findings", () => {
     };
     const r = validateLayout(specs, pres);
     expect(r.findings).toContainEqual({ kind: "media-dropped", band: 8, where: "carousel 2/3" });
-    expect(r.rows[0]).toMatchObject({ source: "Carousel(3)", converted: "Carousel(2)", ok: false });
+    expect(r.rows[0]).toMatchObject({ source: "carousel(3)", converted: "carousel(2)", ok: false });
   });
 
   it("flags a Carousel band with no carousel payload at all", () => {

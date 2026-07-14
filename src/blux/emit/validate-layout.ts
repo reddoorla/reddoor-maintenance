@@ -82,7 +82,7 @@ function sourceLabel(spec: SliceSpec): string {
     case "Gallery":
       return `gallery(${spec.media.length})`;
     case "Carousel":
-      return `Carousel(${spec.slides.length})`;
+      return `carousel(${spec.slides.length})`;
     case "MediaFull":
       return "media_full";
     case "VideoFeature":
@@ -163,7 +163,7 @@ export function validateLayout(specs: SliceSpec[], presentation: Presentation): 
       }
       case "Carousel": {
         const got = bp.carousel?.slides.length ?? 0;
-        converted = `Carousel(${got})`;
+        converted = `carousel(${got})`;
         if (got < spec.slides.length) {
           findings.push({
             kind: "media-dropped",

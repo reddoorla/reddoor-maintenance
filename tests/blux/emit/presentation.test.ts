@@ -96,7 +96,7 @@ describe("buildPresentation", () => {
     ];
     const p = buildPresentation(specs, {
       ...deps,
-      // the third slide's media is unresolvable → the slide is dropped
+      // the third slide's media is unresolvable → the list truncates there
       resolveMedia: (m) => (m.assetId === "gone" ? null : url(m)),
     });
     expect(p.bands["8"]).toEqual({
@@ -111,6 +111,21 @@ describe("buildPresentation", () => {
         columns: 1,
       },
     });
+  });
+
+  it("truncates carousel slides at an unresolved MIDDLE media — later slides must not shift onto the wrong page-doc caption", () => {
+    const specs: SliceSpec[] = [
+      {
+        index: 8,
+        slice: "Carousel",
+        slides: [{ media: img("a") }, { media: img("gone") }, { media: img("c") }],
+      },
+    ];
+    const p = buildPresentation(specs, {
+      ...deps,
+      resolveMedia: (m) => (m.assetId === "gone" ? null : url(m)),
+    });
+    expect(p.bands["8"]).toEqual({ carousel: { slides: [{ media: url(img("a")) }] } });
   });
 
   it("omits the carousel payload entirely when every slide's media is unresolved", () => {

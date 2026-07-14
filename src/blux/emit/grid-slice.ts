@@ -1,4 +1,4 @@
-import type { SliceSpec } from "../grid/index.js";
+import { blockPlainText, type SliceSpec } from "../grid/index.js";
 import { type PlanSlice, richText } from "./plan.js";
 
 /** Strip all tags → the plain text a Prismic "Text" (key-text) field holds. */
@@ -59,11 +59,15 @@ export function sliceSpecToPlanSlice(spec: SliceSpec): PlanSlice {
       };
     case "Carousel":
       // One item per slide, in slide order (the render zips by index); an
-      // uncaptioned slide contributes {} so the alignment holds.
+      // uncaptioned slide contributes {} so the alignment holds. Captions are
+      // heading nodes, so blockPlainText (entities decoded, <br> kept as a
+      // newline) — same as the Hero/TitleBand heading path.
       return {
         slice_type: "carousel",
         variation: "default",
-        items: spec.slides.map((s) => (s.caption ? { caption: stripTags(s.caption.html) } : {})),
+        items: spec.slides.map((s) =>
+          s.caption ? { caption: blockPlainText(s.caption.html) } : {},
+        ),
         primary: { band: spec.index },
       };
     case "MediaFull":

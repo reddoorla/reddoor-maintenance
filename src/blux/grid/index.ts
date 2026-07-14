@@ -1,5 +1,6 @@
 export type { Band, Node, Cell, GridToken, Media, Widget, VideoPlayback } from "./types.js";
 export { parseGridBands, parseNode } from "./parse-grid.js";
+export { blockPlainText } from "./leaf.js";
 export { parseGridToken } from "./token.js";
 export { gridSignature } from "./signature.js";
 export type {

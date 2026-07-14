@@ -80,7 +80,7 @@ describe("sliceSpecToPlanSlice", () => {
     expect(out.items).toEqual([]);
   });
 
-  it("maps Carousel items to per-slide captions (tags stripped), {} for an uncaptioned slide", () => {
+  it("maps Carousel items to per-slide captions (entities decoded, <br> kept), {} for an uncaptioned slide", () => {
     const spec: SliceSpec = {
       ...base,
       slice: "Carousel",
@@ -88,7 +88,7 @@ describe("sliceSpecToPlanSlice", () => {
       slides: [
         {
           media: { kind: "image", assetId: "a" },
-          caption: { html: "a <em>place</em> to sit", level: 5, role: "text5" },
+          caption: { html: "a <em>place</em> to<br>sit &amp; breathe", level: 5, role: "text5" },
         },
         { media: { kind: "image", assetId: "b" } },
       ],
@@ -96,7 +96,7 @@ describe("sliceSpecToPlanSlice", () => {
     expect(sliceSpecToPlanSlice(spec)).toEqual({
       slice_type: "carousel",
       variation: "default",
-      items: [{ caption: "a place to sit" }, {}],
+      items: [{ caption: "a place to\nsit & breathe" }, {}],
       primary: { band: 3 },
     });
   });

@@ -200,10 +200,14 @@ export function buildPresentation(specs: SliceSpec[], deps: PresentationDeps): P
       }
       case "Carousel": {
         // Caption TEXT lives in the page doc's items; only its role metadata
-        // rides the manifest. An unresolved media drops its whole slide.
-        const slides = spec.slides.flatMap((s) => {
+        // rides the manifest. An unresolved media TRUNCATES the slide list —
+        // splicing it out would shift later slides onto the wrong page-doc
+        // caption (the render zips items↔slides by index). Either way the
+        // count shrink trips validateLayout's media-dropped finding.
+        const slides: { media: RenderMedia; caption?: { level?: number; role?: string } }[] = [];
+        for (const s of spec.slides) {
           const media = deps.resolveMedia(s.media);
-          if (!media) return [];
+          if (!media) break;
           const slide: { media: RenderMedia; caption?: { level?: number; role?: string } } = {
             media,
           };
@@ -212,8 +216,8 @@ export function buildPresentation(specs: SliceSpec[], deps: PresentationDeps): P
             if (s.caption.role !== undefined) caption.role = s.caption.role;
             slide.caption = caption;
           }
-          return [slide];
-        });
+          slides.push(slide);
+        }
         if (slides.length > 0) {
           bp.carousel = spec.columns !== undefined ? { slides, columns: spec.columns } : { slides };
         }

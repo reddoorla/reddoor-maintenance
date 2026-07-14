@@ -37,11 +37,12 @@ describe("grid validate golden — the-pointe", () => {
 
   it("reports drift when a single asset fails to resolve", () => {
     const specs = classifyBands(parseGridBands(fixture("the-pointe-page-content.html")));
-    // Band 8 (the source slider) is a Carousel; dropping its first slide's
-    // media leaves the manifest a slide short of the spec's count.
+    // Band 8 (the source slider) is a Carousel; an unresolved media TRUNCATES
+    // its slide list (keeping page-doc caption alignment), so dropping the
+    // last slide's media leaves the manifest a slide short of the spec's count.
     const band8 = specs.find((s) => s.index === 8);
     if (band8?.slice !== "Carousel") throw new Error("band 8 is no longer a Carousel");
-    const dropId = band8.slides[0]!.media.assetId;
+    const dropId = band8.slides.at(-1)!.media.assetId;
     const deps: PresentationDeps = {
       ...resolveAll,
       resolveMedia: (m) => (m.assetId === dropId ? null : resolveAll.resolveMedia(m)),
