@@ -2,6 +2,11 @@ import type { AuditResult } from "../types.js";
 import type { AuditContext } from "./util/inject.js";
 import { siteLabel } from "../util/site.js";
 
+/** Bound the deploy read so a half-open TCP can't stall the sequential fleet sweep
+ *  (parity with the Dependabot fetch). A timeout aborts into the same catch that
+ *  maps every read failure to `{ ok: false }` — i.e. "couldn't read, keep prior status". */
+const NETLIFY_FETCH_TIMEOUT_MS = 15_000;
+
 /** Result of probing a site's latest PRODUCTION Netlify deploy. Every field is
  *  nullable: a site with no production deploy yet degrades to all-nulls (a real
  *  "none" verdict). A read FAILURE is NOT represented here — it surfaces as
@@ -115,6 +120,7 @@ export function defaultNetlifyDeployDeps(
       try {
         res = await fetchImpl(url, {
           headers: { Authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(NETLIFY_FETCH_TIMEOUT_MS),
         });
       } catch {
         return { ok: false }; // network error — couldn't read; preserve prior status
