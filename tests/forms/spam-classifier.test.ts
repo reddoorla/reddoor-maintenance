@@ -189,7 +189,8 @@ describe("classifySpam", () => {
       "payday loans online, instant approval",
       "hot escort girls in your city",
     ]) {
-      expect(clean({ message })).toEqual({ score: 25, reasons: ["keywords:1"] });
+      // label the message so a single-phrase regression is identifiable
+      expect(clean({ message }), message).toEqual({ score: 25, reasons: ["keywords:1"] });
     }
   });
 
@@ -238,6 +239,14 @@ describe("classifySpam", () => {
     expect(clean({ name: "Jane", message: "http://spam.example" })).toEqual({
       score: 70,
       reasons: ["links:1", "degenerate"],
+    });
+    // Guardrail: URL_RE stops at `,`/`;` (2 links) but ONLY_URL_RE deliberately
+    // keeps `\S+`, so a comma-glued URL body is still one token => degenerate.
+    // Pins the intentional divergence: "consistifying" ONLY_URL_RE would drop
+    // this from 100 (spam_auto) to 60 with the rest of the suite still green.
+    expect(clean({ name: "Jane", message: "http://a.com,http://b.com" })).toEqual({
+      score: 100,
+      reasons: ["links:2", "degenerate"],
     });
   });
 
