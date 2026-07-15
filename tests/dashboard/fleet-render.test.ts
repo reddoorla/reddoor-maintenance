@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { renderCockpitHtml } from "../../src/dashboard/fleet-render.js";
 import { buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import { mapRow } from "../../src/reports/airtable/websites.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import { gatingFields } from "../../src/reports/checklist.js";
 
@@ -402,6 +403,111 @@ describe("renderCockpitHtml — verdict bar (replaces the summary tally)", () =>
     const html = renderCockpitHtml(model([siteRow({ id: "b", name: "Watched", bpScore: 78 })]));
     expect(html).toContain('class="verdict watch"');
     expect(html).not.toContain("chip accepted");
+  });
+});
+
+describe("renderCockpitHtml — generic accept matcher + accept-key discoverability", () => {
+  const netlify = (over: Partial<WebsiteRow> = {}) =>
+    siteRow({
+      id: "nl",
+      name: "NetlifyOnly",
+      status: "maintenance",
+      url: "https://x.netlify.app",
+      ...over,
+    });
+
+  it("mutes the no-custom-domain watch when accepted via the alias 'netlify'", () => {
+    const html = renderCockpitHtml(model([netlify({ acceptedWatchConditions: ["netlify"] })]));
+    expect(html).toContain('class="verdict ok"');
+    expect(html).toContain("✓ All clear");
+    expect(html).toContain('class="chip accepted">✓ accepted: on *.netlify.app (no custom domain)');
+  });
+
+  it("still mutes the no-custom-domain watch via canonical 'no custom domain' (back-compat)", () => {
+    const html = renderCockpitHtml(
+      model([netlify({ acceptedWatchConditions: ["no custom domain"] })]),
+    );
+    expect(html).toContain('class="verdict ok"');
+    expect(html).toContain('class="chip accepted">✓ accepted: on *.netlify.app (no custom domain)');
+  });
+
+  it("surfaces the canonical accept token next to an un-accepted watch chip", () => {
+    const html = renderCockpitHtml(model([netlify()]));
+    expect(html).toContain('class="verdict watch"');
+    // The operator can see the EXACT string that would mute this watch.
+    expect(html).toContain('accept: "no custom domain"');
+  });
+
+  it("keys Lighthouse acceptance on the label and tolerates a changed score (78 muted)", () => {
+    const html = renderCockpitHtml(
+      model([
+        siteRow({ id: "p", name: "Perf78", pScore: 78, acceptedWatchConditions: ["performance"] }),
+      ]),
+    );
+    expect(html).toContain('class="verdict ok"');
+    expect(html).toContain("✓ accepted: Performance 78");
+  });
+
+  it("re-alarms (attention, NOT muted) when the accepted category drops below the floor", () => {
+    // pScore 72 < 75 arrives as an AttentionItem ABOVE the accept logic → broken; the
+    // accepted "performance" key can never mute a sub-floor score.
+    const html = renderCockpitHtml(
+      model([
+        siteRow({ id: "p", name: "Perf72", pScore: 72, acceptedWatchConditions: ["performance"] }),
+      ]),
+    );
+    expect(html).toContain('class="verdict warn"');
+    expect(html).toMatch(/⚠ 1 site broken/);
+    expect(html).not.toContain("chip accepted");
+  });
+
+  it("mutes only the accepted conditions among several simultaneous watches", () => {
+    const html = renderCockpitHtml(
+      model([
+        siteRow({
+          id: "m",
+          name: "Multi",
+          status: "maintenance",
+          url: "https://x.netlify.app",
+          bpScore: 78,
+          acceptedWatchConditions: ["best practices"],
+        }),
+      ]),
+    );
+    // BP muted; netlify still an open watch with its accept token surfaced.
+    expect(html).toContain('class="verdict watch"');
+    expect(html).toContain("✓ accepted: Best Practices 78");
+    expect(html).toContain('accept: "no custom domain"');
+  });
+});
+
+describe("mapRow — tolerant Accepted Watch Conditions parse", () => {
+  it("parses a comma/newline string to the same array a Multiple-Select yields", () => {
+    const asArray = mapRow({
+      id: "r1",
+      fields: { "Accepted Watch Conditions": ["no custom domain", "performance"] },
+    });
+    const asString = mapRow({
+      id: "r2",
+      fields: { "Accepted Watch Conditions": "no custom domain,\nperformance" },
+    });
+    expect(asArray.acceptedWatchConditions).toEqual(["no custom domain", "performance"]);
+    expect(asString.acceptedWatchConditions).toEqual(asArray.acceptedWatchConditions);
+  });
+
+  it("trims and drops empties from a delimited string", () => {
+    const row = mapRow({
+      id: "r3",
+      fields: { "Accepted Watch Conditions": " netlify , ,\n stale \n" },
+    });
+    expect(row.acceptedWatchConditions).toEqual(["netlify", "stale"]);
+  });
+
+  it("defaults to an empty array for a missing or other-typed field", () => {
+    expect(mapRow({ id: "r4", fields: {} }).acceptedWatchConditions).toEqual([]);
+    expect(
+      mapRow({ id: "r5", fields: { "Accepted Watch Conditions": 42 } }).acceptedWatchConditions,
+    ).toEqual([]);
   });
 });
 
