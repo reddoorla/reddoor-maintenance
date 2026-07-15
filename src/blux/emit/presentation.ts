@@ -39,7 +39,16 @@ export type RenderMedia = {
 export type RenderToken = { cols: number | "any"; ratio?: number; spacing?: number };
 
 export type RenderNode =
-  | { kind: "row"; cells: RenderCell[]; style?: Record<string, string> }
+  | {
+      kind: "row";
+      cells: RenderCell[];
+      style?: Record<string, string>;
+      /** This row's cells are the map widget's toggle-switched content panels
+       * (the Blux clickMap wiring): cell i shows when toggle i is active, the
+       * rest are hidden. Set only on the row that directly follows a widget:map
+       * sibling and has exactly one cell per map toggle. */
+      panels?: boolean;
+    }
   | { kind: "stack"; children: RenderNode[]; style?: Record<string, string> }
   | {
       kind: "heading";
@@ -207,6 +216,38 @@ export function hasMapWidget(node: Node): boolean {
   return false;
 }
 
+/** Mark the map widget's content-panel row: in the Blux export the clickMap
+ * widget switches the area below the map between N sibling panels (the address
+ * grid + lazy logo strips on the-pointe), one per toggle. Structurally that is
+ * a row directly following the widget:map inside a stack, with exactly one cell
+ * per toggle — the marker lets the render show only the active toggle's panel
+ * instead of stacking all of them. Anything else is left untouched. */
+export function markPanelRows(node: RenderNode, toggleCount: number): RenderNode {
+  if (node.kind === "row") {
+    return {
+      ...node,
+      cells: node.cells.map((c) => ({ ...c, node: markPanelRows(c.node, toggleCount) })),
+    };
+  }
+  if (node.kind === "stack") {
+    const children = node.children.map((c) => markPanelRows(c, toggleCount));
+    for (let i = 0; i + 1 < children.length; i++) {
+      const cur = children[i];
+      const next = children[i + 1];
+      if (
+        cur?.kind === "widget" &&
+        cur.widget.type === "map" &&
+        next?.kind === "row" &&
+        next.cells.length === toggleCount
+      ) {
+        children[i + 1] = { ...next, panels: true };
+      }
+    }
+    return { ...node, children };
+  }
+  return node;
+}
+
 // ---------------------------------------------------------------------------
 // Per-variant builder: SliceSpec[] → Presentation
 // ---------------------------------------------------------------------------
@@ -304,9 +345,11 @@ export function buildPresentation(specs: SliceSpec[], deps: PresentationDeps): P
         break;
       case "Grid": {
         const tree = renderNode(spec.root, deps.resolveMedia);
-        if (tree) bp.tree = tree;
-        // Co-located map (widget:map inside the tree): attach the map config too.
-        if (deps.map && hasMapWidget(spec.root)) bp.map = deps.map;
+        // Co-located map (widget:map inside the tree): attach the map config and
+        // mark the toggle-switched panel row so the render can wire them up.
+        const co = deps.map && hasMapWidget(spec.root) ? deps.map : null;
+        if (co) bp.map = co;
+        if (tree) bp.tree = co ? markPanelRows(tree, co.toggles.length) : tree;
         break;
       }
     }

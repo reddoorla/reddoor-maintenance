@@ -167,6 +167,74 @@ describe("buildPresentation", () => {
     expect(p.bands["9"]!.tree?.kind).toBe("stack");
   });
 
+  it("marks the toggle-panel row directly after a widget:map (one cell per toggle)", () => {
+    // The Blux clickMap shape: stack[widget:map, row of N panels] with N toggles.
+    const toggles = Array.from({ length: 2 }, (_, i) => ({
+      label: `t${i}`,
+      layers: [],
+      panelIndex: i,
+    }));
+    const map = { mid: "M", layers: [], toggles, styles: [] };
+    const panel = (t: string): Node => ({ kind: "subtitle", text: t });
+    const root: Node = {
+      kind: "stack",
+      children: [
+        { kind: "widget", widget: { type: "map" } },
+        {
+          kind: "row",
+          cells: [
+            { token: { cols: 1, raw: "grid-1" }, node: panel("a") },
+            { token: { cols: 1, raw: "grid-1" }, node: panel("b") },
+          ],
+        },
+      ],
+    };
+    const p = buildPresentation([{ index: 9, slice: "Grid", root }], { ...deps, map });
+    const tree = p.bands["9"]!.tree;
+    expect(tree?.kind).toBe("stack");
+    const row = tree?.kind === "stack" ? tree.children[1] : undefined;
+    expect(row?.kind === "row" && row.panels).toBe(true);
+  });
+
+  it("does not mark a row whose cell count differs from the toggle count", () => {
+    const map = {
+      mid: "M",
+      layers: [],
+      toggles: [{ label: "only", layers: [], panelIndex: 0 }],
+      styles: [],
+    };
+    const root: Node = {
+      kind: "stack",
+      children: [
+        { kind: "widget", widget: { type: "map" } },
+        {
+          kind: "row",
+          cells: [
+            { token: { cols: 1, raw: "grid-1" }, node: { kind: "subtitle", text: "a" } },
+            { token: { cols: 1, raw: "grid-1" }, node: { kind: "subtitle", text: "b" } },
+          ],
+        },
+      ],
+    };
+    const p = buildPresentation([{ index: 9, slice: "Grid", root }], { ...deps, map });
+    const tree = p.bands["9"]!.tree;
+    const row = tree?.kind === "stack" ? tree.children[1] : undefined;
+    expect(row?.kind === "row" && "panels" in row).toBe(false);
+  });
+
+  it("a Grid band without a map never gains a panels marker", () => {
+    const root: Node = {
+      kind: "row",
+      cells: [
+        { token: { cols: 1, raw: "grid-1" }, node: { kind: "subtitle", text: "a" } },
+        { token: { cols: 1, raw: "grid-1" }, node: { kind: "subtitle", text: "b" } },
+      ],
+    };
+    const p = buildPresentation([{ index: 4, slice: "Grid", root }], deps);
+    const tree = p.bands["4"]!.tree;
+    expect(tree?.kind === "row" && "panels" in tree).toBe(false);
+  });
+
   it("drops a media node whose asset is unresolved rather than emitting a bad url", () => {
     const p = buildPresentation([{ index: 0, slice: "MediaFull", media: img("gone") }], {
       ...deps,
