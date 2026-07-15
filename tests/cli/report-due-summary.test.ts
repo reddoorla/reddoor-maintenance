@@ -39,12 +39,17 @@ import { draftReportForSite } from "../../src/reports/draft.js";
 
 const draftMock = vi.mocked(draftReportForSite);
 
-function draftResult(reportId: string, softFailures: Array<"ga" | "search"> = []) {
+function draftResult(
+  reportId: string,
+  softFailures: Array<"ga" | "search"> = [],
+  searchDefaultMissed = false,
+) {
   return {
     reportRow: { reportId } as never,
     htmlPath: null,
     html: "",
     softFailures,
+    searchDefaultMissed,
     queued: true,
     supersededIds: [],
   };
@@ -79,5 +84,28 @@ describe("report --due summary", () => {
 
     expect(code).toBe(0);
     expect(output).not.toContain("⚠");
+  });
+
+  it("appends a name-default Search-miss line counting sites whose site-name query found no data", async () => {
+    draftMock
+      .mockResolvedValueOnce(draftResult("A — Maintenance — 2026-06-09", [], true))
+      .mockResolvedValueOnce(draftResult("B — Maintenance — 2026-06-09", [], false));
+
+    const { output, code } = await runReportCommand(undefined, { due: true });
+
+    // Name-default miss is non-fatal (the draft still ships) → exit 0.
+    expect(code).toBe(0);
+    // Counts SITES, singular here (only A missed).
+    expect(output).toMatch(/⚑ 1 site returned no Search Console data for their name/);
+  });
+
+  it("omits the name-default Search-miss line when no site missed", async () => {
+    draftMock
+      .mockResolvedValueOnce(draftResult("A — Maintenance — 2026-06-09", [], false))
+      .mockResolvedValueOnce(draftResult("B — Maintenance — 2026-06-09", [], false));
+
+    const { output } = await runReportCommand(undefined, { due: true });
+
+    expect(output).not.toContain("⚑");
   });
 });

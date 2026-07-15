@@ -31,7 +31,11 @@ beforeEach(() => {
   // Default: enrichment not configured → null (no GA/search written), matching the live
   // soft-skip when GA_SUBJECT / a property ID is unset.
   vi.mocked(fetchGaUsers).mockResolvedValue({ value: null, softFailed: false });
-  vi.mocked(fetchSearch).mockResolvedValue({ value: null, softFailed: false });
+  vi.mocked(fetchSearch).mockResolvedValue({
+    value: null,
+    softFailed: false,
+    defaultQueryMissed: false,
+  });
 });
 
 /** A Websites-row field record carrying the four stored Lighthouse scores. */
@@ -297,6 +301,7 @@ describe("recipes/announce", () => {
     vi.mocked(fetchSearch).mockResolvedValue({
       value: { foundOnPage1: true, position: 3 },
       softFailed: false,
+      defaultQueryMissed: false,
     });
     const base = makeFakeBase({
       Websites: [
