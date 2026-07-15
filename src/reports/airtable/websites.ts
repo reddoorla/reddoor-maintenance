@@ -167,9 +167,16 @@ export type WebsiteRow = {
    *  blank → skipped. The API key is `key-dc` format; dc is derived from it. */
   mailchimpApiKey: string | null;
   mailchimpAudienceId: string | null;
-  /** Per-site Cloudflare Turnstile gate. When true, a submission whose Turnstile
-   *  token verifies as "fail" is escalated to auto-spam regardless of content score
-   *  (an absent/unverifiable token stays neutral — fail-open). Airtable checkbox. */
+  /** Per-site Cloudflare Turnstile gate (Airtable checkbox). When true, a submission
+   *  whose Turnstile token verifies as "fail" (forged) OR "absent" (secret configured
+   *  centrally but NO token forwarded — the direct-POST-bot signature) is escalated to
+   *  auto-spam regardless of content score. A present-but-expired token stays
+   *  "unverifiable" and neutral (a real browser DID render the widget — fail-open).
+   *  ROLLOUT PRECONDITION: only enable on a site whose DEPLOYED package forwards
+   *  `_meta.turnstileToken` from EVERY form (widget rendered + `cf-turnstile-response`
+   *  posted; check the site's `/health` → forms.turnstile:true). A site that never
+   *  forwards tokens would silently bucket 100% of its real leads — and the form-e2e
+   *  probe cannot catch that state (testMode bypasses the gate). */
   requireTurnstile: boolean;
   /** GitHub-signals sweep (slice 2a), written nightly by `github-signals --fleet`. */
   renovateFailingCis: number | null;
@@ -328,9 +335,15 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     reportRecipientsCc: (f["Report recipients (CC)"] as string | undefined) ?? null,
     // Tolerate BOTH the current Multiple-Select array shape AND a delimited long-text
     // string (comma/newline separated), so the field can migrate to a plain text column
-    // with no code change here. Trim + drop empties either way.
+    // with no code change here. Trim + drop empties either way. The array branch also
+    // validates ELEMENT types: a collaborator/attachment-shaped field passes
+    // Array.isArray with OBJECT elements, and an unchecked cast would make assignTier's
+    // `.trim()` throw — one misconfigured row must not 500 the whole cockpit build.
     acceptedWatchConditions: Array.isArray(f["Accepted Watch Conditions"])
-      ? (f["Accepted Watch Conditions"] as string[])
+      ? (f["Accepted Watch Conditions"] as unknown[])
+          .filter((x): x is string => typeof x === "string")
+          .map((s) => s.trim())
+          .filter(Boolean)
       : typeof f["Accepted Watch Conditions"] === "string"
         ? (f["Accepted Watch Conditions"] as string)
             .split(/[\n,]/)

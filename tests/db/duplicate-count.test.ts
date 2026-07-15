@@ -100,4 +100,26 @@ describe("countRecentDuplicateMessages", () => {
     const long = "This unique message has never been submitted before by anyone at all, ever.";
     expect(await countRecentDuplicateMessages(db, long, "2026-06-20")).toBe(0);
   });
+
+  it("matches byte-identical NON-ASCII bodies (SQLite lower() is ASCII-only — fold both sides in SQL)", async () => {
+    // Regression: JS toLowerCase() folds 'П'→'п' but libSQL lower() does not, so
+    // normalizing the query in JS and the column in SQL made every sentence-cased
+    // Cyrillic spray permanently unmatchable against its own identical copy.
+    const cyrillic =
+      "Привет! Мы продвинем ваш сайт в топ поисковой выдачи за одну неделю, гарантия результата.";
+    await createSubmission(db, {
+      siteId: "recA",
+      formType: "contact",
+      name: "Spray",
+      email: "spray@x.com",
+      message: cyrillic,
+      submittedAt: new Date("2026-06-28T00:00:00.000Z"),
+    });
+    // The byte-identical copy must match (this returned 0 before the fix)…
+    expect(await countRecentDuplicateMessages(db, cyrillic, "2026-06-20")).toBe(1);
+    // …and ASCII-case + whitespace variation still normalizes (contract unchanged).
+    expect(await countRecentDuplicateMessages(db, `  ${PITCH.toUpperCase()}  `, "2026-06-20")).toBe(
+      2,
+    );
+  });
 });
