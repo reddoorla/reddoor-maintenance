@@ -69,6 +69,10 @@ export type TextStyleIR = {
   lineHeight: string;
   transform?: string;
   letterSpacing?: string;
+  /** The style's own block margin (e.g. "10px 0") — Blux's vertical rhythm
+   * between stacked text blocks lives HERE, not in container gaps. Absent when
+   * the style declares none or an explicit "0" (the render's default). */
+  margin?: string;
   mobileSize?: string;
   mobileLineHeight?: string;
 };

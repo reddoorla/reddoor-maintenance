@@ -126,11 +126,15 @@ describe("normalizeTheme", () => {
       lineHeight: "26px",
       transform: "uppercase",
       letterSpacing: "1.5px",
+      margin: "10px 0",
     });
     const t0 = theme.textStyles.find((t) => t.role === "text0")!;
     expect(t0.fontFamily).toBe("Scope One");
     expect(t0.transform).toBe("capitalize");
     expect(t0.letterSpacing).toBeUndefined();
+    // no margin declared (and an explicit "0" would also stay off the IR —
+    // it matches the render's fallback)
+    expect(t0.margin).toBeUndefined();
   });
   it("names roles from the .textN key and skips deleted-style tombstones", () => {
     // fixture index 4 is a { removed: true } tombstone — no phantom text4 role

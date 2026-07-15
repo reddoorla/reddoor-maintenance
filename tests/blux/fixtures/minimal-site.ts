@@ -103,6 +103,7 @@ export const minimalSite = {
           "line-height": "26px",
           "text-transform": "uppercase",
           "letter-spacing": "1.5px",
+          margin: "10px 0",
           "font-ident": "G:Montserrat:500:",
         },
       },

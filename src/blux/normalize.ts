@@ -200,6 +200,10 @@ export function normalizeTheme(raw: BluxRaw): ThemeIR {
     const m = (entry[innerKey] ?? {}) as Record<string, unknown>;
     const transform = cleanCssValue(m["text-transform"]);
     const tracking = cleanCssValue(m["letter-spacing"]);
+    // The style's block margin carries Blux's stack rhythm (e.g. "10px 0" on
+    // Grid Titles / Caption Body). An explicit "0" matches the render default,
+    // so only real values ride the IR.
+    const margin = cleanCssValue(m["margin"]);
     const mobileSize = cleanCssValue(m["__media_mobile_font-size"]);
     const mobileLineHeight = cleanCssValue(m["__media_mobile_line-height"]);
     textStyles.push({
@@ -212,6 +216,7 @@ export function normalizeTheme(raw: BluxRaw): ThemeIR {
       lineHeight: cleanCssValue(m["line-height"]) || "1.5",
       ...(transform && transform !== "none" ? { transform } : {}),
       ...(tracking ? { letterSpacing: tracking } : {}),
+      ...(margin && margin !== "0" ? { margin } : {}),
       ...(mobileSize ? { mobileSize } : {}),
       ...(mobileLineHeight ? { mobileLineHeight } : {}),
     });
