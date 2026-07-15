@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import { parseGridBands } from "../../src/blux/grid/parse-grid.js";
 import { classifyBands } from "../../src/blux/grid/classify-band.js";
 import { extractMapConfig, makeIsMapMount } from "../../src/blux/grid/extract-map.js";
+import { buildPresentation } from "../../src/blux/emit/presentation.js";
+import { mapRenderFromConfig } from "../../src/blux/emit/convert.js";
 
 const page = readFileSync(
   fileURLToPath(new URL("./fixtures/the-pointe-page-content.html", import.meta.url)),
@@ -58,5 +60,29 @@ describe("makeIsMapMount + classifier", () => {
     // The whole card style object survives — both the fill and the content inset.
     expect(style?.["background-color"]).toBe("rgb(255, 255, 255)");
     expect(style?.padding).toBe("100px 4% 80px");
+  });
+
+  it("marks band 14's toggle-panel row in the built presentation (real fixture)", () => {
+    // End-to-end: the real page's band 14 is stack[widget:map, row of 4 panels]
+    // (address grid + 3 hidden logo strips) with 4 map toggles — the presentation
+    // must mark that row `panels: true` so the render switches them per toggle.
+    const cfg = extractMapConfig(band);
+    const specs = classifyBands(parseGridBands(page), {
+      isMapMount: makeIsMapMount(cfg!),
+    });
+    const p = buildPresentation(specs, {
+      resolveMedia: (m) => ({ kind: m.kind, url: `https://cdn/${m.assetId}`, alt: "" }),
+      styleFor: () => undefined,
+      defaultsFor: () => undefined,
+      map: mapRenderFromConfig(cfg!),
+    });
+    const tree = p.bands["14"]?.tree;
+    expect(tree?.kind).toBe("stack");
+    const [widget, row] = tree?.kind === "stack" ? tree.children : [];
+    expect(widget?.kind).toBe("widget");
+    expect(row?.kind).toBe("row");
+    if (row?.kind !== "row") return;
+    expect(row.cells).toHaveLength(4);
+    expect(row.panels).toBe(true);
   });
 });
