@@ -217,6 +217,32 @@ export async function countAutoSpamSince(db: Db, sinceDate: string): Promise<num
   return Number(res.n);
 }
 
+/** A body shorter than this never triggers the duplicate-spray signal — short/boilerplate
+ *  lines (a newsletter "subscribe", "hi") legitimately repeat across real people. */
+export const MIN_DUP_BODY_LEN = 40;
+
+/** Fleet-wide count of submissions whose message body equals `message` (trimmed +
+ *  lowercased) and were submitted on/after `sinceDate` (ISO). Powers the velocity /
+ *  duplicate-spray spam signal — the same pitch blasted across sites (or re-run) shows
+ *  up as identical bodies. Bodies shorter than `MIN_DUP_BODY_LEN` return 0 so a short
+ *  line never collides two real leads. Case/whitespace-normalized to catch trivial
+ *  variation; the SQL `lower(trim())` mirrors the JS normalization for an exact match. */
+export async function countRecentDuplicateMessages(
+  db: Db,
+  message: string,
+  sinceDate: string,
+): Promise<number> {
+  const norm = message.trim().toLowerCase();
+  if (norm.length < MIN_DUP_BODY_LEN) return 0;
+  const res = await db
+    .selectFrom("submissions")
+    .select((eb) => eb.fn.countAll<number>().as("n"))
+    .where("submitted_at", ">=", sinceDate)
+    .where((eb) => sql<SqlBool>`lower(trim(${eb.ref("message")})) = ${norm}`)
+    .executeTakeFirstOrThrow();
+  return Number(res.n);
+}
+
 /** Insert a SubmissionRow verbatim, preserving its id, display number, and status.
  *  ON CONFLICT(id) DO NOTHING makes the whole backfill re-runnable. */
 export async function backfillSubmission(db: Db, row: SubmissionRow): Promise<void> {

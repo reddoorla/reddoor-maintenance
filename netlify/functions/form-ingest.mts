@@ -2,7 +2,11 @@ import type { Context, Config } from "@netlify/functions";
 import { openBase } from "../../src/reports/airtable/client.js";
 import { getWebsiteBySlug } from "../../src/reports/airtable/websites.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
-import { createSubmission, stampNotified } from "../../src/db/submissions.js";
+import {
+  createSubmission,
+  stampNotified,
+  countRecentDuplicateMessages,
+} from "../../src/db/submissions.js";
 import { recordScreenOut } from "../../src/db/screenouts.js";
 import { ingestSubmission, parseScreenOut, ingestScreenOut } from "../../src/forms/ingest.js";
 import { verifyTurnstile } from "../../src/forms/turnstile.js";
@@ -134,8 +138,9 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     // the forwarded { turnstileToken, clientIp } envelope off the payload (a
     // legacy userAgent from older senders is ignored); the IP is used transiently
     // here (remoteip) and is NEVER persisted. Unset secret / network error /
-    // timeout / absent token → "unverifiable" (contributes 0 to the score), so
-    // verify never blocks a lead.
+    // timeout / expired token → "unverifiable" (contributes 0 to the score); a
+    // configured-secret-but-missing-token → "absent" (only a requireTurnstile site
+    // acts on it — see ingest.ts). Neither ever blocks a lead on a non-opted site.
     const turnstileSecret = process.env.TURNSTILE_SECRET_KEY;
     if (!turnstileSecret && !warnedTurnstileUnset) {
       console.warn(
@@ -181,6 +186,9 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
             extraFields: n.extraFields,
             turnstile: outcome,
           }),
+        // Tier C — velocity/duplicate-spray signal: fleet-wide identical-body lookup.
+        countRecentDuplicates: (message, since) =>
+          countRecentDuplicateMessages(db, message, since.toISOString()),
       },
       slug,
       payload,

@@ -156,15 +156,27 @@ describe("verifyTurnstile", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("returns 'unverifiable' and never calls fetch when the token is absent or blank", async () => {
+  it("returns 'absent' (not 'unverifiable') and never calls fetch when the secret IS set but the token is missing/blank", async () => {
+    // A real browser that renders the widget ALWAYS forwards a token; a completely
+    // missing one on a configured site is the direct-POST-bot tell, so it gets its
+    // own outcome that a requireTurnstile site can escalate (see ingest.ts).
     const fetchMock = vi.fn();
     expect(await verifyTurnstile({ secret: "sk", token: undefined, fetch: fetchMock })).toBe(
+      "absent",
+    );
+    expect(await verifyTurnstile({ secret: "sk", token: null, fetch: fetchMock })).toBe("absent");
+    expect(await verifyTurnstile({ secret: "sk", token: "   ", fetch: fetchMock })).toBe("absent");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 'unverifiable' (secret wins) when the secret is unset AND the token is also missing", async () => {
+    // Precedence: an unconfigured central secret can't distinguish absent from
+    // anything, so it collapses to unverifiable before the token is even inspected.
+    const fetchMock = vi.fn();
+    expect(await verifyTurnstile({ secret: undefined, token: undefined, fetch: fetchMock })).toBe(
       "unverifiable",
     );
-    expect(await verifyTurnstile({ secret: "sk", token: null, fetch: fetchMock })).toBe(
-      "unverifiable",
-    );
-    expect(await verifyTurnstile({ secret: "sk", token: "   ", fetch: fetchMock })).toBe(
+    expect(await verifyTurnstile({ secret: "", token: null, fetch: fetchMock })).toBe(
       "unverifiable",
     );
     expect(fetchMock).not.toHaveBeenCalled();
