@@ -152,8 +152,17 @@ function chips(c: SiteCard): string {
         : "chip";
     return `<span class="${cls}">${attentionBadge(it.status)}${escapeHtml(it.title)}</span>`;
   });
-  for (const reason of c.watchReasons)
-    items.push(`<span class="chip">${escapeHtml(reason)}</span>`);
+  // Surface the exact accept token beside each watch chip so the operator can discover
+  // what string mutes it — e.g. `on *.netlify.app (no custom domain) · accept: "no custom
+  // domain"`. The literal quotes stay outside escapeHtml (the key itself is escaped).
+  const acceptKeys = c.watchAcceptKeys ?? [];
+  c.watchReasons.forEach((reason, i) => {
+    const key = acceptKeys[i];
+    const hint = key ? ` · accept: "${escapeHtml(key)}"` : "";
+    items.push(
+      `<span class="chip" title="Add this exact text to the site's Accepted Watch Conditions to mute this watch">${escapeHtml(reason)}${hint}</span>`,
+    );
+  });
   for (const reason of c.acceptedReasons)
     items.push(`<span class="chip accepted">✓ accepted: ${escapeHtml(reason)}</span>`);
   return items.length ? `<div class="chips">${items.join("")}</div>` : "";

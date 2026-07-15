@@ -61,21 +61,41 @@ const WATCH_CATEGORIES: ReadonlyArray<{
  * category sits in [75,85), the last commit to `main` is older than 30 days, or a
  * maintenance site is still on `*.netlify.app`. Else 🟢 healthy.
  *
- * A condition the operator has marked accepted (`site.acceptedWatchConditions`,
- * case-insensitive: a Lighthouse category label, "stale repo", or "no custom domain")
- * is routed to `acceptedReasons` instead of `watchReasons` — it leaves the watch band
- * (an all-accepted site becomes healthy) but stays visible as a muted chip. Acceptance
- * is watch-only: a sub-floor Lighthouse score arrives as an AttentionItem above and
- * still alarms broken, so accepting "78" never hides a drop to "72".
+ * Each active watch condition is a structured candidate with a set of accept keys
+ * (aliases — e.g. the Netlify/no-custom-domain condition accepts "no custom domain",
+ * "netlify", "netlify.app", …); a condition the operator has marked accepted (any of
+ * its keys, case-insensitive, in `site.acceptedWatchConditions`) is routed to
+ * `acceptedReasons` instead of `watchReasons` — it leaves the watch band (an
+ * all-accepted site becomes healthy) but stays visible as a muted chip. Acceptance is
+ * keyed on the STABLE signal token, not the volatile reason text, so accepting
+ * "performance" tolerates a score of 82→78 (both watch). Acceptance is watch-only: a
+ * sub-floor Lighthouse score arrives as an AttentionItem above and still alarms broken,
+ * so accepting "78" never hides a drop to "72".
  *
- * `watchReasons` are the human labels for the card; `watchSignals` are the STRUCTURED
- * filter tags ("lighthouse" / "stale") the client filter keys off.
+ * `watchReasons` are the human labels for the card; `watchAcceptKeys` is the primary/
+ * canonical accept token per un-accepted reason (index-aligned — surfaced on the card so
+ * the operator can see the exact string that would mute it); `watchSignals` are the
+ * STRUCTURED filter tags ("lighthouse" / "stale") the client filter keys off.
  */
+/** One detected watch condition, before acceptance is applied. `signal` is the
+ *  client-filter tag; `acceptKeys` is every string the operator can type to mute it,
+ *  PRIMARY FIRST — that primary is the token surfaced on the card for discoverability;
+ *  `reason` is the human label. The tuple type guarantees a primary exists. */
+type WatchCandidate = { signal: string; acceptKeys: [string, ...string[]]; reason: string };
+
 export function assignTier(
   site: WebsiteRow,
   items: AttentionItem[],
   now: Date,
-): { tier: Tier; watchReasons: string[]; watchSignals: string[]; acceptedReasons: string[] } {
+): {
+  tier: Tier;
+  watchReasons: string[];
+  /** Primary accept token per un-accepted watch reason, index-aligned with
+   *  `watchReasons` — the exact string that would mute it (discoverability). */
+  watchAcceptKeys: string[];
+  watchSignals: string[];
+  acceptedReasons: string[];
+} {
   // Lifecycle short-circuit (FIRST, before any alarm rule): a "launch period" site
   // is PRE-LIVE prep, not a live site (Status flips to "maintenance" at go-live).
   // Its expected pre-launch conditions — CI not yet green, no GA4 property, early/
@@ -84,59 +104,95 @@ export function assignTier(
   // never alarms and is excluded from the "needs you" feed. (Only "launch period"
   // reaches the cockpit — isDashboardVisible = {maintenance, launch period}.)
   if (site.status === "launch period")
-    return { tier: "pre-launch", watchReasons: [], watchSignals: [], acceptedReasons: [] };
+    return {
+      tier: "pre-launch",
+      watchReasons: [],
+      watchAcceptKeys: [],
+      watchSignals: [],
+      acceptedReasons: [],
+    };
   if (items.length > 0)
-    return { tier: "attention", watchReasons: [], watchSignals: [], acceptedReasons: [] };
+    return {
+      tier: "attention",
+      watchReasons: [],
+      watchAcceptKeys: [],
+      watchSignals: [],
+      acceptedReasons: [],
+    };
   // A failed latest production deploy is an active break — tier it 🔴 attention, the
   // same severity a sub-floor Lighthouse score gets (which arrives as an item above).
   if (isFailedDeployStatus(site.deployStatus))
-    return { tier: "attention", watchReasons: [], watchSignals: [], acceptedReasons: [] };
+    return {
+      tier: "attention",
+      watchReasons: [],
+      watchAcceptKeys: [],
+      watchSignals: [],
+      acceptedReasons: [],
+    };
 
   // Conditions the operator has reviewed and accepted (case-insensitive). An accepted
   // watch reason is routed to acceptedReasons instead of raising the watch band.
   const accepted = new Set(site.acceptedWatchConditions.map((c) => c.trim().toLowerCase()));
-  const watchReasons: string[] = [];
-  const acceptedReasons: string[] = [];
-  const signals = new Set<string>();
+
+  // Collect every active watch condition as a structured candidate; a single generic
+  // matcher below routes each to acceptedReasons (muted) or watchReasons, keyed on the
+  // stable signal/category token (never the volatile reason text, which carries a
+  // score/age that changes daily). Adding a new watch candidate here makes it acceptable
+  // AND discoverable with no new accept branch.
+  const candidates: WatchCandidate[] = [];
   for (const cat of WATCH_CATEGORIES) {
     const score = site[cat.field];
     if (score !== null && score >= LIGHTHOUSE_FLOOR && score < LIGHTHOUSE_WATCH_HIGH) {
-      const reason = `${cat.label} ${score}`;
-      if (accepted.has(cat.label.toLowerCase())) {
-        acceptedReasons.push(reason);
-      } else {
-        watchReasons.push(reason);
-        signals.add("lighthouse");
-      }
+      candidates.push({
+        signal: "lighthouse",
+        acceptKeys: [cat.label.toLowerCase()],
+        reason: `${cat.label} ${score}`,
+      });
     }
   }
   if (site.lastCommitAt !== null) {
     const ageMs = now.getTime() - Date.parse(site.lastCommitAt);
     if (Number.isFinite(ageMs) && ageMs > STALE_DAYS * MS_PER_DAY) {
-      const reason = `last commit ${relativeTimeFromNow(site.lastCommitAt, now)}`;
-      if (accepted.has("stale repo")) {
-        acceptedReasons.push(reason);
-      } else {
-        watchReasons.push(reason);
-        signals.add("stale");
-      }
+      candidates.push({
+        signal: "stale",
+        acceptKeys: ["stale repo", "stale"],
+        reason: `last commit ${relativeTimeFromNow(site.lastCommitAt, now)}`,
+      });
     }
   }
   // A live (maintenance) site still served from *.netlify.app never got a custom
   // domain — a launch-completeness gap. Only for maintenance: a launch-period site on
   // netlify.app is expected (not launched yet).
   if (site.status === "maintenance" && isNetlifyAppUrl(site.url)) {
-    const reason = "on *.netlify.app (no custom domain)";
-    if (accepted.has("no custom domain")) {
-      acceptedReasons.push(reason);
+    candidates.push({
+      signal: "no-domain",
+      acceptKeys: ["no custom domain", "no-domain", "netlify", "netlify.app", "on netlify"],
+      reason: "on *.netlify.app (no custom domain)",
+    });
+  }
+
+  const watchReasons: string[] = [];
+  const watchAcceptKeys: string[] = [];
+  const acceptedReasons: string[] = [];
+  const signals = new Set<string>();
+  for (const cand of candidates) {
+    if (cand.acceptKeys.some((k) => accepted.has(k))) {
+      acceptedReasons.push(cand.reason);
     } else {
-      watchReasons.push(reason);
-      signals.add("no-domain");
+      watchReasons.push(cand.reason);
+      watchAcceptKeys.push(cand.acceptKeys[0]); // primary/canonical token — surfaced on the card
+      signals.add(cand.signal);
     }
   }
   return watchReasons.length > 0
-    ? { tier: "watch", watchReasons, watchSignals: [...signals], acceptedReasons }
-    : { tier: "healthy", watchReasons: [], watchSignals: [], acceptedReasons };
+    ? { tier: "watch", watchReasons, watchAcceptKeys, watchSignals: [...signals], acceptedReasons }
+    : {
+        tier: "healthy",
+        watchReasons: [],
+        watchAcceptKeys: [],
+        watchSignals: [],
+        acceptedReasons,
+      };
 }
 
 export type SiteCard = {
@@ -146,6 +202,10 @@ export type SiteCard = {
   items: AttentionItem[];
   /** Why the site is on Watch — human labels (empty unless tier === "watch"). */
   watchReasons: string[];
+  /** Primary accept token per watch reason, index-aligned with `watchReasons` — the
+   *  exact string the operator can add to Accepted Watch Conditions to mute it. Optional
+   *  for back-compat with hand-built card fixtures; the renderer falls back to no hint. */
+  watchAcceptKeys?: string[];
   /** Structured watch tags ("lighthouse" / "stale") for the client filter. */
   watchSignals: string[];
   /** Watch reasons the operator has accepted: suppressed from the band, shown as a
@@ -392,12 +452,17 @@ export function buildCockpitModel(
     const items = (bySite.get(site.name) ?? []).sort(
       (a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity],
     );
-    const { tier, watchReasons, watchSignals, acceptedReasons } = assignTier(site, items, now);
+    const { tier, watchReasons, watchAcceptKeys, watchSignals, acceptedReasons } = assignTier(
+      site,
+      items,
+      now,
+    );
     return {
       site,
       tier,
       items,
       watchReasons,
+      watchAcceptKeys,
       watchSignals,
       acceptedReasons,
       newSubmissions: subCountBySite.get(site.id) ?? 0,

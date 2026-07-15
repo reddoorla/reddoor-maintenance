@@ -201,6 +201,89 @@ describe("assignTier", () => {
   });
 });
 
+describe("assignTier — generic accept-key matcher + discoverability", () => {
+  it("accepts the no-custom-domain watch via the friendly alias 'netlify'", () => {
+    const r = assignTier(
+      site({
+        status: "maintenance",
+        url: "https://foo.netlify.app/",
+        acceptedWatchConditions: ["netlify"],
+      }),
+      [],
+      NOW,
+    );
+    expect(r.tier).toBe("healthy");
+    expect(r.acceptedReasons).toContain("on *.netlify.app (no custom domain)");
+    expect(r.watchReasons).toEqual([]);
+  });
+
+  it("still accepts the no-custom-domain watch via canonical 'no custom domain' (back-compat)", () => {
+    const r = assignTier(
+      site({
+        status: "maintenance",
+        url: "https://foo.netlify.app/",
+        acceptedWatchConditions: ["no custom domain"],
+      }),
+      [],
+      NOW,
+    );
+    expect(r.tier).toBe("healthy");
+    expect(r.acceptedReasons).toContain("on *.netlify.app (no custom domain)");
+  });
+
+  it("exposes the primary accept key aligned to each un-accepted watch reason", () => {
+    const r = assignTier(site({ status: "maintenance", url: "https://foo.netlify.app/" }), [], NOW);
+    expect(r.tier).toBe("watch");
+    expect(r.watchReasons).toEqual(["on *.netlify.app (no custom domain)"]);
+    expect(r.watchAcceptKeys).toEqual(["no custom domain"]);
+  });
+
+  it("keys Lighthouse acceptance on the category label, tolerating a changed score", () => {
+    // Accepted earlier at some score; today it reads 78 (still in [75,85)) → muted.
+    const r = assignTier(site({ pScore: 78, acceptedWatchConditions: ["performance"] }), [], NOW);
+    expect(r.tier).toBe("healthy");
+    expect(r.acceptedReasons).toEqual(["Performance 78"]);
+    expect(r.watchAcceptKeys).toEqual([]);
+  });
+
+  it("surfaces the Lighthouse category label as its accept key when un-accepted", () => {
+    const r = assignTier(site({ pScore: 80 }), [], NOW);
+    expect(r.watchReasons).toEqual(["Performance 80"]);
+    expect(r.watchAcceptKeys).toEqual(["performance"]);
+  });
+
+  it("accepts the stale-repo watch via the short alias 'stale'", () => {
+    const r = assignTier(
+      site({ lastCommitAt: "2026-01-01T00:00:00Z", acceptedWatchConditions: ["stale"] }),
+      [],
+      NOW,
+    );
+    expect(r.tier).toBe("healthy");
+    expect(r.acceptedReasons.some((x) => x.startsWith("last commit"))).toBe(true);
+  });
+
+  it("mutes only the accepted ones among several simultaneous watch conditions", () => {
+    const r = assignTier(
+      site({
+        status: "maintenance",
+        url: "https://foo.netlify.app/",
+        bpScore: 78,
+        lastCommitAt: "2026-01-01T00:00:00Z",
+        acceptedWatchConditions: ["best practices", "stale"],
+      }),
+      [],
+      NOW,
+    );
+    expect(r.tier).toBe("watch");
+    expect(r.acceptedReasons).toContain("Best Practices 78");
+    expect(r.acceptedReasons.some((x) => x.startsWith("last commit"))).toBe(true);
+    // netlify is the only un-accepted watch → the sole watch reason + key + signal.
+    expect(r.watchReasons).toEqual(["on *.netlify.app (no custom domain)"]);
+    expect(r.watchAcceptKeys).toEqual(["no custom domain"]);
+    expect(r.watchSignals).toEqual(["no-domain"]);
+  });
+});
+
 const BASE = "https://reddoor-maintenance.netlify.app";
 
 function report(over: Partial<ReportRow> = {}): ReportRow {
