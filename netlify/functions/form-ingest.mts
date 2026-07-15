@@ -131,10 +131,11 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
       );
     }
     // Tier A — verify the Cloudflare Turnstile token (fail-open). readMeta pulls
-    // the forwarded { turnstileToken, clientIp, userAgent } envelope off the
-    // payload; IP/UA are used transiently here (remoteip + scoring) and are
-    // NEVER persisted. Unset secret / network error / timeout / absent token →
-    // "unverifiable" (contributes 0 to the score), so verify never blocks a lead.
+    // the forwarded { turnstileToken, clientIp } envelope off the payload (a
+    // legacy userAgent from older senders is ignored); the IP is used transiently
+    // here (remoteip) and is NEVER persisted. Unset secret / network error /
+    // timeout / absent token → "unverifiable" (contributes 0 to the score), so
+    // verify never blocks a lead.
     const turnstileSecret = process.env.TURNSTILE_SECRET_KEY;
     if (!turnstileSecret && !warnedTurnstileUnset) {
       console.warn(
