@@ -30,8 +30,26 @@ export function assembleIR(input: { siteJson: unknown; htmls: string[] }): SiteI
     };
   });
 
+  // The favicon is declared only in settings (settings.favicon.media) and its
+  // uuid is routinely ABSENT from the media dict — so resolve it straight from
+  // the scraped urlMap (the <link rel="icon"> tags are part of the HTML scrape)
+  // rather than through the assets list above. It lives on meta, not in
+  // `assets`, because migration-plan assets get uploaded to Prismic media —
+  // the wrong destination for a favicon (convert downloads it beside the plan).
+  const faviconId = raw.settings.favicon?.media;
+  const favicon = faviconId
+    ? { assetId: faviconId, sourceUrl: urlMap.get(faviconId) ?? null }
+    : undefined;
+  if (favicon && !favicon.sourceUrl) {
+    diagnostics.push({
+      kind: "unresolved-asset",
+      where: favicon.assetId,
+      message: `no CDN url for favicon ${favicon.assetId}`,
+    });
+  }
+
   return {
-    meta: raw.meta,
+    meta: { ...raw.meta, ...(favicon ? { favicon } : {}) },
     theme,
     pages,
     collections,

@@ -94,7 +94,17 @@ export type AssetRef = {
 };
 
 export type SiteIR = {
-  meta: { name: string; domain: string; bluxSiteId: string };
+  meta: {
+    name: string;
+    domain: string;
+    bluxSiteId: string;
+    /** The site favicon (settings.favicon in the export). Kept on meta rather
+     * than in `assets` because it must never ride the migration plan into
+     * Prismic media — convert downloads it beside the plan instead. sourceUrl
+     * is the canonical CDN url scraped from the <link rel="icon"> tags, or
+     * null when the scrape missed it (an unresolved-asset diagnostic names it). */
+    favicon?: { assetId: AssetId; sourceUrl: string | null };
+  };
   theme: ThemeIR;
   pages: PageIR[];
   collections: CollectionIR[];

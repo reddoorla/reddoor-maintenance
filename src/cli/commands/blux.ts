@@ -301,6 +301,31 @@ export async function runBluxCommand(
     if (mapConfig) {
       await writeFile(join(outDir, "map-config.json"), JSON.stringify(mapConfig, null, 2) + "\n");
     }
+    // The favicon never rides the migration plan (plan assets get uploaded to
+    // Prismic media — the wrong destination), so convert downloads it directly
+    // beside the other outputs. This is convert's ONLY network touch and it
+    // uses the same injectable fetch seam as --probe, so tests stay offline
+    // and convertExport itself stays pure. A fetch failure never fails the
+    // command — the {assetId, url} pair is preserved as favicon.json so the
+    // download can be re-run by hand.
+    let faviconLine = "";
+    if (ir.meta.favicon?.sourceUrl) {
+      const { assetId, sourceUrl } = ir.meta.favicon;
+      try {
+        const res = await (opts.fetchImpl ?? fetch)(sourceUrl);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        await writeFile(join(outDir, "favicon.png"), new Uint8Array(await res.arrayBuffer()));
+        faviconLine = `\nfavicon → ${join(outDir, "favicon.png")}`;
+      } catch (err) {
+        await writeFile(
+          join(outDir, "favicon.json"),
+          JSON.stringify({ assetId, url: sourceUrl }, null, 2) + "\n",
+        );
+        faviconLine =
+          `\nfavicon fetch failed (${(err as Error).message}) — ` +
+          `url preserved in ${join(outDir, "favicon.json")}`;
+      }
+    }
     const layout = validateLayout(specs, presentation);
     await writeFile(join(outDir, "layout-report.json"), JSON.stringify(layout, null, 2) + "\n");
     const sliceCount = (plan.documents[0]?.data.slices as unknown[] | undefined)?.length ?? 0;
@@ -309,7 +334,9 @@ export async function runBluxCommand(
         `Converted ${bands.length} bands → ${outDir} ` +
         `(${Object.keys(presentation.bands).length} manifest bands, ${sliceCount} slices` +
         (mapConfig ? ", map config extracted" : "") +
-        ")\n" +
+        ")" +
+        faviconLine +
+        "\n" +
         formatLayoutReport(layout),
       code: 0,
     };

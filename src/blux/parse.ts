@@ -50,7 +50,11 @@ export type BluxRaw = {
     buttons?: Record<string, unknown>;
   };
   nav: { title?: string; url?: string }[];
-  settings: { fonts?: { heading?: string; body?: string } };
+  settings: {
+    fonts?: { heading?: string; body?: string };
+    /** The site favicon, declared as a bare media uuid ({"media": "<uuid>"}). */
+    favicon?: { media?: string };
+  };
 };
 
 function asObject(v: unknown): Record<string, unknown> {
