@@ -62,4 +62,13 @@ describe("buildMjml contact heading", () => {
       `<mj-text color="#C00" font-family="helvetica, sans-serif" font-size="24px" font-weight="700" padding-top="0px" line-height="30px" padding-bottom="36px">Just hit reply.</mj-text>`,
     );
   });
+
+  it("renders the second contact line grey, matching the launch/announcement templates", () => {
+    // Without an explicit color the line fell to MJML's near-black default —
+    // the sibling templates render every non-first contact line #757575.
+    const mjml = buildMjml(baseData());
+    expect(mjml).toContain(
+      `<mj-text color="#757575" font-family="helvetica, sans-serif" font-size="24px" font-weight="300" padding-top="0px" line-height="30px" padding-bottom="36px">We&#39;re here to help in any way we can.</mj-text>`,
+    );
+  });
 });
