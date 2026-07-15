@@ -10,6 +10,7 @@ import {
   blockPlainText,
   readBgSizing,
   textLeafStyle,
+  cssProp,
 } from "./leaf.js";
 
 const DEFAULT_TOKEN: GridToken = { cols: 1, raw: "grid-1" };
@@ -49,13 +50,33 @@ const isStructural = (el: HTMLElement): boolean =>
   isLeafAnchor(el) ||
   parseGridToken(el.classNames) !== null;
 
-/** The child elements that carry structure, peeling pure wrapper divs. */
-export function collectStructuralChildren(el: HTMLElement): HTMLElement[] {
-  const out: HTMLElement[] = [];
+/** A structural child plus any `background-color` inherited from the wrapper
+ * div(s) peeled to reach it — a Blux "card" background the plain peel drops. */
+type StructuralChild = { el: HTMLElement; background?: string };
+
+/** Inline `background-color` off an element's style attribute, ignoring the
+ * transparent default (which is not a deviation worth carrying). */
+function inlineBg(el: HTMLElement): string | undefined {
+  const c = cssProp(el.getAttribute("style") ?? "", "background-color")?.trim();
+  if (!c) return undefined;
+  const low = c.toLowerCase().replace(/\s+/g, "");
+  if (low === "transparent" || low === "rgba(0,0,0,0)") return undefined;
+  return c;
+}
+
+/** The child elements that carry structure, peeling pure wrapper divs. A peeled
+ * wrapper's inline background-color rides along to the structural node it wraps
+ * (the nearest wrapper wins) so a card's background survives the peel. */
+export function collectStructuralChildren(
+  el: HTMLElement,
+  inheritedBg?: string,
+): StructuralChild[] {
+  const out: StructuralChild[] = [];
   for (const child of el.childNodes) {
     if (!isElement(child)) continue;
-    if (isStructural(child)) out.push(child);
-    else out.push(...collectStructuralChildren(child));
+    const bg = inlineBg(child) ?? inheritedBg;
+    if (isStructural(child)) out.push({ el: child, ...(bg ? { background: bg } : {}) });
+    else out.push(...collectStructuralChildren(child, bg));
   }
   return out;
 }
@@ -156,6 +177,14 @@ export function parseNode(el: HTMLElement): Node {
   return parseContainer(el);
 }
 
+/** Attach a peeled wrapper's background-color to a container node's `style`
+ * (row/stack only — a Blux card wraps a grid or a stack of blocks, never a bare
+ * leaf). Other node kinds carry no container background. */
+function withCardBackground(node: Node, background?: string): Node {
+  if (!background || (node.kind !== "row" && node.kind !== "stack")) return node;
+  return { ...node, style: { ...(node.style ?? {}), "background-color": background } };
+}
+
 /** Parse a wrapper/cell/band-body element: a row when it is a grid or holds
  * ≥2 token-bearing children, else a stack / single / raw. */
 export function parseContainer(el: HTMLElement): Node {
@@ -165,8 +194,13 @@ export function parseContainer(el: HTMLElement): Node {
   // yields `raw:""`, which would otherwise survive as a phantom sibling (e.g.
   // turning a lone poster image into `[media, empty-block]`). A non-empty raw
   // (a `[data-exec]` embed, a leaf `<a>`) always has real html, so it is kept.
+  // A structural child may carry a `background` peeled off a card wrapper — it
+  // rides onto that child's container node via withCardBackground.
   const parsed = kids
-    .map((k) => ({ token: parseGridToken(k.classNames), node: parseNode(k) }))
+    .map((k) => ({
+      token: parseGridToken(k.el.classNames),
+      node: withCardBackground(parseNode(k.el), k.background),
+    }))
     .filter((p) => !(p.node.kind === "raw" && p.node.html.trim() === ""));
   const isGrid = hasClass(el, "cagrid");
   const tokenCount = parsed.filter((p) => p.token).length;
