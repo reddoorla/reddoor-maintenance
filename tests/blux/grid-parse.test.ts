@@ -389,17 +389,53 @@ describe("card background capture", () => {
     if (result.kind === "row") expect(result.cells).toHaveLength(2);
   });
 
-  it("carries only background-color, not the wrapper's other inline styles", () => {
-    // text-align / vertical-align are band-level layout concerns, not the card's
-    // deviation — only the background rides along.
+  it("carries the card's fill and padding, but not text-align/vertical-align", () => {
+    // A card's background (fill) and its content padding (inset) both ride along;
+    // text-align / vertical-align are band-level layout concerns, dropped.
     const html =
       '<div class="block-content">' +
-      '<div class="blocks0" style="background-color: rgb(0, 0, 0); text-align: center; padding: 40px;">' +
+      '<div class="blocks0" style="background-color: rgb(0, 0, 0); text-align: center; vertical-align: middle;">' +
+      '<div class="blocks0container valignmiddle" style="padding: 40px;">' +
+      '<div class="block-grid-container cagrid">' +
+      '<div class="block-subcontent grid-1"><h5 class="block-title text5">A</h5></div>' +
+      '<div class="block-subcontent grid-1"><h5 class="block-title text5">B</h5></div>' +
+      "</div></div></div></div>";
+    expect(styleOf(container(html))).toEqual({
+      "background-color": "rgb(0, 0, 0)",
+      padding: "40px",
+    });
+  });
+
+  it("rides the inner .blocksNcontainer padding onto the card (fill outer, inset inner)", () => {
+    // The real Blux card shape: background sits on the `.blocksN` fill, padding on
+    // its `.blocksNcontainer` content wrapper — a *different* peeled element. Both
+    // must reach the card node (the nearest wrapper wins for each).
+    const html =
+      '<div class="block-content">' +
+      '<div class="blocks0" style="background-color: rgb(255, 255, 255);">' +
+      '<div class="blocks0container" style="padding: 100px 4% 80px;">' +
+      '<div class="block-grid-container cagrid">' +
+      '<div class="block-subcontent grid-1"><h5 class="block-title text5">A</h5></div>' +
+      '<div class="block-subcontent grid-1"><h5 class="block-title text5">B</h5></div>' +
+      "</div></div></div></div>";
+    expect(styleOf(container(html))).toEqual({
+      "background-color": "rgb(255, 255, 255)",
+      padding: "100px 4% 80px",
+    });
+  });
+
+  it("ignores a container's padding when no card background marks it", () => {
+    // A `.blocksNcontainer` padding with no card fill is a band-level inset, already
+    // handled by the band's blockClass defaults — it must not ride onto a nested
+    // node, or the inset would be applied twice.
+    const html =
+      '<div class="block-content">' +
+      '<div class="blocks0container" style="padding: 100px 4% 80px;">' +
       '<div class="block-grid-container cagrid">' +
       '<div class="block-subcontent grid-1"><h5 class="block-title text5">A</h5></div>' +
       '<div class="block-subcontent grid-1"><h5 class="block-title text5">B</h5></div>' +
       "</div></div></div>";
-    expect(styleOf(container(html))).toEqual({ "background-color": "rgb(0, 0, 0)" });
+    expect(styleOf(container(html))).toBeUndefined();
   });
 
   it("ignores a transparent background (not a real deviation)", () => {
@@ -435,9 +471,15 @@ describe("card background capture", () => {
     expect(root.kind).toBe("row");
     if (root.kind !== "row") return;
     const [left, right] = root.cells;
-    expect(styleOf(right!.node)).toEqual({ "background-color": "rgb(255, 255, 255)" });
+    // The white fill plus the card's 100px/4%/80px content inset both ride along.
+    expect(styleOf(right!.node)).toEqual({
+      "background-color": "rgb(255, 255, 255)",
+      padding: "100px 4% 80px",
+    });
     // The building-image column and the band root itself stay transparent.
     expect(styleOf(left!.node)?.["background-color"]).toBeUndefined();
     expect(styleOf(root)?.["background-color"]).toBeUndefined();
+    // The band root carries no card padding (only the nested stats card does).
+    expect(styleOf(root)?.padding).toBeUndefined();
   });
 });

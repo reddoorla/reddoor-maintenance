@@ -54,8 +54,9 @@ describe("makeIsMapMount + classifier", () => {
     const root = band3?.slice === "Grid" ? band3.root : undefined;
     expect(root?.kind).toBe("row");
     const statsCard = root?.kind === "row" ? root.cells[1]?.node : undefined;
-    expect(
-      (statsCard as { style?: Record<string, string> } | undefined)?.style?.["background-color"],
-    ).toBe("rgb(255, 255, 255)");
+    const style = (statsCard as { style?: Record<string, string> } | undefined)?.style;
+    // The whole card style object survives — both the fill and the content inset.
+    expect(style?.["background-color"]).toBe("rgb(255, 255, 255)");
+    expect(style?.padding).toBe("100px 4% 80px");
   });
 });

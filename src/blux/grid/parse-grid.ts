@@ -50,9 +50,13 @@ const isStructural = (el: HTMLElement): boolean =>
   isLeafAnchor(el) ||
   parseGridToken(el.classNames) !== null;
 
-/** A structural child plus any `background-color` inherited from the wrapper
- * div(s) peeled to reach it — a Blux "card" background the plain peel drops. */
-type StructuralChild = { el: HTMLElement; background?: string };
+/** The "card" styling inherited from the wrapper div(s) peeled to reach a
+ * structural child — a Blux card's inline `background-color` (on the `.blocksN`
+ * fill) and the `padding` its `.blocksNcontainer` insets the content by, both of
+ * which the plain peel drops. The nearest wrapper wins for each. */
+type CardStyle = { background?: string; padding?: string };
+/** A structural child plus any card styling peeled off its wrapper(s). */
+type StructuralChild = { el: HTMLElement; card?: CardStyle };
 
 /** Inline `background-color` off an element's style attribute, ignoring the
  * transparent default (which is not a deviation worth carrying). */
@@ -64,19 +68,40 @@ function inlineBg(el: HTMLElement): string | undefined {
   return c;
 }
 
+/** Inline `padding` shorthand off an element's style attribute, ignoring an
+ * all-zero value (no inset worth carrying). */
+function inlinePadding(el: HTMLElement): string | undefined {
+  const c = cssProp(el.getAttribute("style") ?? "", "padding")?.trim();
+  if (!c) return undefined;
+  if (/^(0(px|%|em|rem)?\s*)+$/i.test(c)) return undefined;
+  return c;
+}
+
 /** The child elements that carry structure, peeling pure wrapper divs. A peeled
- * wrapper's inline background-color rides along to the structural node it wraps
- * (the nearest wrapper wins) so a card's background survives the peel. */
+ * card wrapper's inline background-color and content padding ride along to the
+ * structural node it wraps (the nearest wrapper wins for each) so a card's fill
+ * and inset survive the peel. */
 export function collectStructuralChildren(
   el: HTMLElement,
-  inheritedBg?: string,
+  inherited: CardStyle = {},
 ): StructuralChild[] {
   const out: StructuralChild[] = [];
   for (const child of el.childNodes) {
     if (!isElement(child)) continue;
-    const bg = inlineBg(child) ?? inheritedBg;
-    if (isStructural(child)) out.push({ el: child, ...(bg ? { background: bg } : {}) });
-    else out.push(...collectStructuralChildren(child, bg));
+    const background = inlineBg(child) ?? inherited.background;
+    const padding = inlinePadding(child) ?? inherited.padding;
+    const card: CardStyle = {
+      ...(background !== undefined ? { background } : {}),
+      ...(padding !== undefined ? { padding } : {}),
+    };
+    if (isStructural(child)) {
+      out.push({
+        el: child,
+        ...(background !== undefined || padding !== undefined ? { card } : {}),
+      });
+    } else {
+      out.push(...collectStructuralChildren(child, card));
+    }
   }
   return out;
 }
@@ -177,12 +202,20 @@ export function parseNode(el: HTMLElement): Node {
   return parseContainer(el);
 }
 
-/** Attach a peeled wrapper's background-color to a container node's `style`
+/** Attach a peeled card wrapper's styling to a container node's `style`
  * (row/stack only — a Blux card wraps a grid or a stack of blocks, never a bare
- * leaf). Other node kinds carry no container background. */
-function withCardBackground(node: Node, background?: string): Node {
-  if (!background || (node.kind !== "row" && node.kind !== "stack")) return node;
-  return { ...node, style: { ...(node.style ?? {}), "background-color": background } };
+ * leaf). The background is the card's fill; the padding is the content inset its
+ * `.blocksNcontainer` applies. Padding rides only when a background marks this a
+ * real card, so a plain band container's padding (already handled via the band's
+ * blockClass defaults) is not double-captured onto a nested node. */
+function withCardStyle(node: Node, card?: CardStyle): Node {
+  if (!card?.background || (node.kind !== "row" && node.kind !== "stack")) return node;
+  const style: Record<string, string> = {
+    ...(node.style ?? {}),
+    "background-color": card.background,
+  };
+  if (card.padding) style.padding = card.padding;
+  return { ...node, style };
 }
 
 /** Parse a wrapper/cell/band-body element: a row when it is a grid or holds
@@ -194,12 +227,12 @@ export function parseContainer(el: HTMLElement): Node {
   // yields `raw:""`, which would otherwise survive as a phantom sibling (e.g.
   // turning a lone poster image into `[media, empty-block]`). A non-empty raw
   // (a `[data-exec]` embed, a leaf `<a>`) always has real html, so it is kept.
-  // A structural child may carry a `background` peeled off a card wrapper — it
-  // rides onto that child's container node via withCardBackground.
+  // A structural child may carry `card` styling (background + padding) peeled off
+  // a card wrapper — it rides onto that child's container node via withCardStyle.
   const parsed = kids
     .map((k) => ({
       token: parseGridToken(k.el.classNames),
-      node: withCardBackground(parseNode(k.el), k.background),
+      node: withCardStyle(parseNode(k.el), k.card),
     }))
     .filter((p) => !(p.node.kind === "raw" && p.node.html.trim() === ""));
   const isGrid = hasClass(el, "cagrid");

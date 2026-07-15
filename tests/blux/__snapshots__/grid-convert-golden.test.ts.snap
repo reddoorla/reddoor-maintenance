@@ -753,6 +753,7 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                   "kind": "row",
                   "style": {
                     "background-color": "rgb(255, 255, 255)",
+                    "padding": "20px 0px",
                   },
                 },
                 "token": {
@@ -878,6 +879,7 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                   "kind": "row",
                   "style": {
                     "background-color": "rgb(255, 255, 255)",
+                    "padding": "20px 0px",
                   },
                 },
                 "token": {
@@ -1019,6 +1021,7 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                   "kind": "row",
                   "style": {
                     "background-color": "rgb(255, 255, 255)",
+                    "padding": "20px 0px",
                   },
                 },
                 "token": {
@@ -1112,6 +1115,7 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                   "kind": "row",
                   "style": {
                     "background-color": "rgb(255, 255, 255)",
+                    "padding": "20px 0px",
                   },
                 },
                 "token": {
@@ -1367,6 +1371,7 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
               "kind": "row",
               "style": {
                 "background-color": "rgb(255, 255, 255)",
+                "padding": "100px 4% 80px",
               },
             },
             "token": {
