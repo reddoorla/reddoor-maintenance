@@ -99,7 +99,8 @@ AIRTABLE_BASE_ID=appHG8nLOzULzXOER
 RESEND_API_KEY=re_xxx
 # optional GA4 + Search Console enrichment (domain-wide-delegation SA):
 GA_SA_KEY_PATH=/Users/you/.config/reddoor-maint/ga-sa.json
-GA_SUBJECT=you@yourdomain.com
+# comma-separated impersonation subjects, tried in order (failover); one address is fine
+GA_SUBJECT=reports@yourdomain.com,you@yourdomain.com
 # optional: where fleet checkouts are cloned (default ~/.reddoor-maint/sites)
 # REDDOOR_FLEET_WORKDIR=/path/to/workdir
 EOF

@@ -166,7 +166,7 @@ describe("fetchSearchPresence", () => {
     const out = await fetchSearchPresence(
       {
         keyPath,
-        subject: "tucker@reddoorla.com",
+        subjects: ["tucker@reddoorla.com"],
         property: "sc-domain:erpfunds.com",
         host: "erpfunds.com",
         query: "ERP funds",
@@ -204,7 +204,7 @@ describe("fetchSearchPresence", () => {
     const out = await fetchSearchPresence(
       {
         keyPath,
-        subject: "s@x.com",
+        subjects: ["s@x.com"],
         property: "sc-domain:reddoorla.com",
         host: "reddoorla.com",
         query: "red door creative",
@@ -232,7 +232,7 @@ describe("fetchSearchPresence", () => {
     const out = await fetchSearchPresence(
       {
         keyPath,
-        subject: "s@x.com",
+        subjects: ["s@x.com"],
         property: "sc-domain:reddoorla.com",
         host: "reddoorla.com",
         query: "red door creative",
@@ -257,7 +257,7 @@ describe("fetchSearchPresence", () => {
     const out = await fetchSearchPresence(
       {
         keyPath,
-        subject: "s@x.com",
+        subjects: ["s@x.com"],
         property: "sc-domain:reddoorla.com",
         host: "reddoorla.com",
         query: "red door creative",
@@ -275,7 +275,7 @@ describe("fetchSearchPresence", () => {
     const out = await fetchSearchPresence(
       {
         keyPath,
-        subject: "tucker@reddoorla.com",
+        subjects: ["tucker@reddoorla.com"],
         property: "sc-domain:erpfunds.com",
         host: "erpfunds.com",
         query: "erp funds",
@@ -291,7 +291,7 @@ describe("fetchSearchPresence", () => {
       .mockResolvedValueOnce(ok({ siteEntry: [{ siteUrl: "sc-domain:erpfunds.com" }] })) // sites.list
       .mockResolvedValueOnce(ok({ rows: [{ position: 8 }] })); // query
     const out = await fetchSearchPresence(
-      { keyPath, subject: "s@x.com", host: "erpfunds.com", query: "erp funds" },
+      { keyPath, subjects: ["s@x.com"], host: "erpfunds.com", query: "erp funds" },
       start,
       end,
     );
@@ -316,7 +316,7 @@ describe("fetchSearchPresence", () => {
       .mockResolvedValueOnce(ok({ rows: [] })) // sc-domain: no data
       .mockResolvedValueOnce(ok({ rows: [{ position: 2 }] })); // url-prefix: found
     const out = await fetchSearchPresence(
-      { keyPath, subject: "s@x.com", host: "erpfunds.com", query: "erp funds" },
+      { keyPath, subjects: ["s@x.com"], host: "erpfunds.com", query: "erp funds" },
       start,
       end,
     );
@@ -333,7 +333,7 @@ describe("fetchSearchPresence", () => {
     const out = await fetchSearchPresence(
       {
         keyPath,
-        subject: "s@x.com",
+        subjects: ["s@x.com"],
         property: "sc-domain:erpfunds.com",
         host: "erpfunds.com",
         query: "q",
@@ -348,7 +348,7 @@ describe("fetchSearchPresence", () => {
   it("returns not-found without querying when no property resolves", async () => {
     request.mockResolvedValueOnce(ok({ siteEntry: [{ siteUrl: "sc-domain:other.com" }] }));
     const out = await fetchSearchPresence(
-      { keyPath, subject: "s@x.com", host: "erpfunds.com", query: "q" },
+      { keyPath, subjects: ["s@x.com"], host: "erpfunds.com", query: "q" },
       start,
       end,
     );
@@ -369,7 +369,7 @@ describe("fetchSearchPresence", () => {
       .mockResolvedValueOnce(ok({ rows: [] }))
       .mockResolvedValueOnce(ok({ rows: [] }));
     const out = await fetchSearchPresence(
-      { keyPath, subject: "s@x.com", host: "erpfunds.com", query: "q" },
+      { keyPath, subjects: ["s@x.com"], host: "erpfunds.com", query: "q" },
       start,
       end,
     );
@@ -382,7 +382,7 @@ describe("fetchSearchPresence", () => {
     const out = await fetchSearchPresence(
       {
         keyPath,
-        subject: "s@x.com",
+        subjects: ["s@x.com"],
         property: "sc-domain:erpfunds.com",
         host: "erpfunds.com",
         query: "q",
@@ -398,7 +398,7 @@ describe("fetchSearchPresence", () => {
     await fetchSearchPresence(
       {
         keyPath,
-        subject: "imp@reddoorla.com",
+        subjects: ["imp@reddoorla.com"],
         property: "sc-domain:x.com",
         host: "x.com",
         query: "q",
@@ -422,7 +422,7 @@ describe("fetchSearchPresence", () => {
       fetchSearchPresence(
         {
           keyPath,
-          subject: "s@x.com",
+          subjects: ["s@x.com"],
           property: "sc-domain:x.com",
           host: "x.com",
           query: "q",
@@ -431,5 +431,126 @@ describe("fetchSearchPresence", () => {
         end,
       ),
     ).rejects.toThrow("403");
+  });
+
+  it("fails over to the next subject on an auth error and warns", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    request
+      .mockRejectedValueOnce(
+        Object.assign(new Error("PERMISSION_DENIED"), { response: { status: 403 } }),
+      )
+      .mockResolvedValueOnce(ok({ rows: [{ position: 4 }] }));
+    const out = await fetchSearchPresence(
+      {
+        keyPath,
+        subjects: ["dead@reddoorla.com", "reports@reddoorla.com"],
+        property: "sc-domain:x.com",
+        host: "x.com",
+        query: "q",
+      },
+      start,
+      end,
+    );
+    expect(out).toEqual({ foundOnPage1: true, position: 4 });
+    const subjectsTried = vi
+      .mocked(JWT)
+      .mock.calls.map((c) => (c[0] as { subject: string }).subject);
+    expect(subjectsTried).toEqual(["dead@reddoorla.com", "reports@reddoorla.com"]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("Search Console subject failover"));
+    warn.mockRestore();
+  });
+
+  it("fails over when a subject can see NO matching property (sites.list is per-user)", async () => {
+    // sites.list only returns properties the impersonated user can access, so a subject that
+    // lost access resolves an EMPTY candidate list without any auth error — that must count
+    // as a failover condition, not a silent "brand not found".
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    request
+      .mockResolvedValueOnce(ok({ siteEntry: [] })) // dead subject sees nothing
+      .mockResolvedValueOnce(ok({ siteEntry: [{ siteUrl: "sc-domain:erpfunds.com" }] }))
+      .mockResolvedValueOnce(ok({ rows: [{ position: 8 }] }));
+    const out = await fetchSearchPresence(
+      {
+        keyPath,
+        subjects: ["dead@reddoorla.com", "reports@reddoorla.com"],
+        host: "erpfunds.com",
+        query: "erp funds",
+      },
+      start,
+      end,
+    );
+    expect(out).toEqual({ foundOnPage1: true, position: 8 });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("Search Console subject failover"));
+    warn.mockRestore();
+  });
+
+  it("still returns not-found (no throw) when EVERY subject resolves no matching property", async () => {
+    request
+      .mockResolvedValueOnce(ok({ siteEntry: [{ siteUrl: "sc-domain:other.com" }] }))
+      .mockResolvedValueOnce(ok({ siteEntry: [] }));
+    const out = await fetchSearchPresence(
+      { keyPath, subjects: ["a@x.com", "b@x.com"], host: "erpfunds.com", query: "q" },
+      start,
+      end,
+    );
+    expect(out).toEqual({ foundOnPage1: false, position: null });
+    expect(request).toHaveBeenCalledTimes(2); // two sites.list calls, no query
+  });
+
+  // A real auth failure on ANY subject must propagate (→ caller soft-fails), never be masked
+  // by a later subject's empty sites.list into an affirmative "not on page 1". Both orderings
+  // must behave the same; the [auth, empty] order is the one that used to silently self-heal.
+  it("does NOT mask a real auth failure behind a later subject's empty property list [auth, empty]", async () => {
+    request
+      .mockRejectedValueOnce(
+        Object.assign(new Error("PERMISSION_DENIED"), { response: { status: 403 } }),
+      ) // dead subject: real auth error
+      .mockResolvedValueOnce(ok({ siteEntry: [] })); // backup subject: sees no property (sentinel)
+    await expect(
+      fetchSearchPresence(
+        {
+          keyPath,
+          subjects: ["dead@reddoorla.com", "backup@reddoorla.com"],
+          host: "x.com",
+          query: "q",
+        },
+        start,
+        end,
+      ),
+    ).rejects.toThrow(/403|PERMISSION_DENIED/);
+  });
+
+  it("propagates the same auth failure in the reverse order too [empty, auth]", async () => {
+    request
+      .mockResolvedValueOnce(ok({ siteEntry: [] })) // first subject: no property (sentinel)
+      .mockRejectedValueOnce(
+        Object.assign(new Error("PERMISSION_DENIED"), { response: { status: 403 } }),
+      ); // second subject: real auth error
+    await expect(
+      fetchSearchPresence(
+        { keyPath, subjects: ["a@reddoorla.com", "dead@reddoorla.com"], host: "x.com", query: "q" },
+        start,
+        end,
+      ),
+    ).rejects.toThrow(/403|PERMISSION_DENIED/);
+  });
+
+  it("throws the last error when every subject fails auth (caller soft-fails)", async () => {
+    request
+      .mockRejectedValueOnce(Object.assign(new Error("first"), { response: { status: 403 } }))
+      .mockRejectedValueOnce(Object.assign(new Error("last"), { response: { status: 403 } }));
+    await expect(
+      fetchSearchPresence(
+        {
+          keyPath,
+          subjects: ["a@x.com", "b@x.com"],
+          property: "sc-domain:x.com",
+          host: "x.com",
+          query: "q",
+        },
+        start,
+        end,
+      ),
+    ).rejects.toThrow("last");
   });
 });
