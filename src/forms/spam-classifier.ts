@@ -113,8 +113,10 @@ export function classifySpam(input: {
     .join(" ");
   const body = extraText ? `${message} ${extraText}` : message;
 
+  // 50 (not more): a lone "fail" plus one benign co-signal (a single pasted
+  // URL, +30) must stay under SPAM_THRESHOLD — a real human can trip both.
   if (input.turnstile === "fail") {
-    score += 70;
+    score += 50;
     reasons.push("turnstile-fail");
   }
 
