@@ -9,25 +9,36 @@ import type { TurnstileOutcome } from "./turnstile.js";
  * bypass — human-plausible Latin-script cold outreach (SEO / virtual-assistant
  * pitches) with 0-1 links — sums only 25-55 from content signals. 60 lets the
  * high-precision multi-word keyword phrases + the gibberish/bare-domain signals
- * below actually bite, while every individual new signal stays low enough that
- * none buckets alone (each needs corroboration). `spam_auto` is recoverable, so
- * a false positive is a nuisance the operator can undo, not a lost lead.
+ * below actually bite. No single signal buckets alone (each needs corroboration),
+ * with ONE deliberate exception: lorem-ipsum filler (+60) is machine-generated
+ * content with zero genuine use. `spam_auto` is recoverable, so a false positive
+ * is a nuisance the operator can undo, not a lost lead.
  */
 export const SPAM_THRESHOLD = 60;
 
 export type SpamVerdict = { score: number; reasons: string[] };
 
 /**
- * Maintained SELLER-VOICE spam-keyword list (case-insensitive substring match).
- * Tunable from the `spam_score` / `spam_reason` data the pipeline records.
- * Keep entries specific enough to avoid false positives: where a term is also
- * legitimate business vocabulary (casino resorts, weight-loss studios, transport
- * escorts, payday lenders, backlink audits), list only the clearly-promotional
- * phrasing, never the bare term. Split 2026-07-15 (post-review): phrases a
- * genuine PROSPECT asking the agency for SEO/marketing help naturally writes in
- * first person ("our google ranking tanked", "we want to rank higher") moved to
- * BUYER_KEYWORDS below — a review pass proved 3-4 of them stack past the
- * threshold on exactly the inquiry category a web agency wants most.
+ * Maintained SELLER-VOICE spam-keyword list (case-insensitive substring match on
+ * hyphen-normalized text — see countKeywordHits). Tunable from the `spam_score` /
+ * `spam_reason` data the pipeline records. Keep entries specific enough to avoid
+ * false positives: where a term is also legitimate business vocabulary (casino
+ * resorts, weight-loss studios, transport escorts, payday lenders), list only the
+ * clearly-promotional phrasing, never the bare term.
+ *
+ * SEO/marketing-topic policy (operator decision 2026-07-15): the fleet's sites are
+ * niche and specific — they rank top for their own names — and clients who want
+ * SEO/marketing help ask the agency DIRECTLY, so SEO-topic content arriving through
+ * a public contact form is near-always solicitation. SEO-topic phrases therefore
+ * live HERE at full weight (an SEO-help ask through the form is deliberately
+ * filtered; `spam_auto` is recoverable and the operator prefers hand-delivering the
+ * rare real one over receiving the flood). Each entry is +30, so TWO seller phrases
+ * bucket; no single phrase can (max single non-lorem signal is turnstile-fail's 50).
+ *
+ * NOTE: entries must not be substrings of each other ("page one" + "page one of
+ * google" would double-count one occurrence) and must be written hyphen-free (the
+ * matcher folds `-–—` to spaces, so "link-building" in a message matches
+ * "link building" here).
  */
 export const SPAM_KEYWORDS: readonly string[] = [
   "viagra",
@@ -39,47 +50,63 @@ export const SPAM_KEYWORDS: readonly string[] = [
   "buy crypto",
   "crypto wallet",
   "bitcoin investment",
-  "buy backlinks",
   "cheap seo",
   "forex signals",
   "escort girls",
   "replica watches",
   "weight loss pills",
-  // Cold-outreach / SEO-pitch vertical (added 2026-07-15). Kept MULTI-WORD and
-  // SELLER-VOICE (second-person / self-promotional) so they stay high-precision —
-  // each is a phrase a solicitor writes, not something a real lead asking for help
-  // would say about themselves. Individually only +25, so a single ambiguous match
-  // can never reach the threshold without corroboration.
+  // Cold-outreach / SEO-pitch vertical (2026-07-15, expanded from the live miss
+  // corpus the same day). Multi-word and solicitation-shaped: a real lead describing
+  // their OWN site/needs occasionally grazes one of these, but never two.
   "guest post",
   "guest article",
+  "article for your website",
   "link building",
-  "first page of google",
-  "page one of google",
-  "increase your traffic",
-  "position your brand",
-  "above competitors",
-  "no obligation",
-  "would you be interested",
-];
-
-/**
- * BUYER-COMPATIBLE outreach phrases: common in cold pitches but ALSO natural in a
- * genuine prospect's own words ("our google ranking tanked", "we tried a virtual
- * assistant", "do you offer a free consultation?"). Alone they score a weak +10
- * (capped at 2 hits / +20) so no pile of buyer-voice phrasing can bucket a real
- * SEO-help inquiry — but when at least one seller-voice phrase is present the
- * message is demonstrably a pitch, and these PROMOTE to full keyword weight as
- * corroboration.
- */
-export const BUYER_KEYWORDS: readonly string[] = [
+  "backlinks",
+  "page one", // "You're not on page one. Your competitors are." (covers "page one of google" too)
+  "first page", // covers "first page of google"
+  "1st page", // "The Wiki links show up on the 1st page of Google 97% of the time"
   "google ranking",
   "rank higher",
   "drive traffic",
-  "within 24 hours",
-  "virtual assistant",
-  "free consultation",
+  "increase your traffic",
+  "top of search results",
+  "people already searching",
   "seo problem",
+  "seo process", // "no long SEO process, no delay"
+  "leads and sales",
+  "position your brand",
+  "above competitors",
+  "businesses like yours",
+  "no obligation",
+  "would you be interested",
+  "would you be open",
+  "tried emailing you", // the "I tried emailing you, but it seems it didn't go through" opener
+  // Virtual-assistant flood (MAVIS et al. — rotating sender names/domains with
+  // reworded bodies, so the exact-duplicate velocity signal can't see it; these are
+  // the template's invariants).
+  "virtual assistant",
+  "virtual intelligent system", // "MAVIS (My Advanced Virtual Intelligent System)" — in every copy
+  "mavis",
+  "overtake and handle",
+  "custom built ai", // matches "custom-built AI" via hyphen folding
+  // Wikipedia-page-creation vertical.
+  "wikipedia page",
+  "wiki links",
+  // Product-blast ad copy (the dog-harness family).
+  "get yours today",
+  "free shipping",
 ];
+
+/**
+ * BUYER-COMPATIBLE outreach phrases: common in cold pitches but also plausible in a
+ * genuine prospect's own words ("do you offer a free consultation?", "we need it
+ * within 24 hours"). Alone they score a weak +10 (capped at 2 hits / +20) so they
+ * can never carry a message toward the threshold — but when at least one
+ * seller-voice phrase is present the message is demonstrably a pitch, and these
+ * PROMOTE to full keyword weight as corroboration.
+ */
+export const BUYER_KEYWORDS: readonly string[] = ["within 24 hours", "free consultation"];
 
 /** Maintained disposable / throwaway email domains. */
 export const DISPOSABLE_EMAIL_DOMAINS: readonly string[] = [
@@ -106,10 +133,37 @@ function countUrls(text: string): number {
   return (text.match(URL_RE) ?? []).length;
 }
 
-/** How many of `keywords` appear in `text` (each counted once). */
+/** How many of `keywords` appear in `text` (each counted once). Hyphens/dashes fold
+ *  to spaces first so "link-building" / "custom-built AI" match their space-separated
+ *  list entries — the hyphenated spelling was a live keyword dodge. */
 function countKeywordHits(text: string, keywords: readonly string[]): number {
-  const lower = text.toLowerCase();
+  const lower = text.toLowerCase().replace(/[-–—]/g, " ");
   return keywords.filter((kw) => lower.includes(kw)).length;
+}
+
+/** Distinct lorem-ipsum vocabulary stems. Form-tester bots submit truncated filler
+ *  ("Velit ullam reprehen", "Dolore harum volupta") — too short for the velocity
+ *  signal and invisible to gibberish (they're real Latin words). Two DISTINCT stems
+ *  are required so a lone romance-language cognate (voluptuous, tempora) can never
+ *  fire; no human writes two lorem-ipsum words in a genuine inquiry. */
+const LOREM_STEMS: readonly RegExp[] = [
+  /\blorem\b/i,
+  /\bipsum\b/i,
+  /\bvelit\b/i,
+  /\bullam/i,
+  /\bharum\b/i,
+  /\breprehen/i,
+  /\bvolupt/i,
+  /\bnostrud\b/i,
+  /\badipisc/i,
+  /\beiusmod\b/i,
+  /\bincididunt\b/i,
+  /\bconsectetur\b/i,
+  /\baliqua\b/i,
+];
+
+function countLoremStems(text: string): number {
+  return LOREM_STEMS.filter((re) => re.test(text)).length;
 }
 
 /** Fraction of letters that are outside the Latin script (0..1). */
@@ -238,23 +292,33 @@ export function classifySpam(input: {
     reasons.push("link-markup");
   }
 
-  // Two-tier keywords. Seller-voice phrases are unambiguous pitch language: +25
-  // each (capped at 3 hits / +75), and their presence PROMOTES any buyer-compatible
-  // phrases in the same message to full weight — a pitch that says "would you be
-  // interested" AND "free consultation" is corroborating itself. WITHOUT a
-  // seller-voice phrase, buyer-compatible hits alone score a weak +10 capped at
-  // +20: a genuine "our google ranking tanked, can we rank higher? free
-  // consultation?" inquiry (the exact lead category this agency wants) tops out at
-  // 20 + its own site link (25) = 45, always under the threshold.
+  // Two-tier keywords. Seller-voice phrases are unambiguous pitch language: +30
+  // each (capped at 3 hits / +90) — TWO seller phrases bucket outright, per the
+  // operator's 2026-07-15 steer (see the SPAM_KEYWORDS docstring): genuine leads on
+  // this fleet write zero solicitor phrases, and SEO/marketing-help asks through
+  // the public form are deliberately filtered. A seller hit also PROMOTES any
+  // buyer-compatible phrases in the same message to full weight — a pitch that says
+  // "would you be interested" AND "within 24 hours" is corroborating itself.
+  // WITHOUT a seller-voice phrase, buyer-compatible hits alone score a weak +10
+  // capped at +20, never enough to carry a message toward the threshold.
   const seller = countKeywordHits(body, SPAM_KEYWORDS);
   const buyer = countKeywordHits(body, BUYER_KEYWORDS);
   if (seller > 0) {
     const hits = seller + buyer;
-    score += Math.min(hits, 3) * 25;
+    score += Math.min(hits, 3) * 30;
     reasons.push(`keywords:${hits}`);
   } else if (buyer > 0) {
     score += Math.min(buyer, 2) * 10;
     reasons.push(`keywords-buyer:${buyer}`);
+  }
+
+  // Lorem-ipsum form-tester bots: >=2 distinct filler stems is machine-generated
+  // content with zero genuine use, so this is the one signal allowed to bucket
+  // alone (+60) — the bodies are too short for the velocity signal and are real
+  // Latin words, invisible to the gibberish detector.
+  if (countLoremStems(body) >= 2) {
+    score += 60;
+    reasons.push("lorem-ipsum");
   }
 
   // Body only — a native-script NAME (王小明, Владимир) is not a spam signal.

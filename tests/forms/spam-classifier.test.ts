@@ -89,14 +89,20 @@ describe("classifySpam", () => {
     });
   });
 
-  it("counts each spam keyword at 25 capped at 75, reason keywords:N", () => {
+  it("counts each seller keyword at 30 capped at 90, reason keywords:N", () => {
     expect(clean({ message: "buy viagra today" })).toEqual({
-      score: 25,
+      score: 30,
       reasons: ["keywords:1"],
     });
     const many = clean({ message: "viagra online casino porn buy crypto" });
-    expect(many.score).toBe(75); // 4 hits -> capped
+    expect(many.score).toBe(90); // 4 hits -> capped at 3
     expect(many.reasons).toEqual(["keywords:4"]);
+  });
+
+  it("TWO seller phrases bucket outright (operator 2026-07-15: solicitation language pairs never occur in genuine leads)", () => {
+    const v = clean({ message: "buy viagra at our online casino" });
+    expect(v.score).toBe(60);
+    expect(v.score >= SPAM_THRESHOLD).toBe(true);
   });
 
   it("does not false-positive on legitimate finance/SEO client inquiries", () => {
@@ -123,23 +129,23 @@ describe("classifySpam", () => {
 
   it("still flags clearly-promotional spam phrasing for the narrowed keywords", () => {
     expect(clean({ message: "buy crypto now, guaranteed returns" })).toEqual({
-      score: 25,
+      score: 30,
       reasons: ["keywords:1"],
     });
     expect(clean({ message: "protect your crypto wallet today" })).toEqual({
-      score: 25,
+      score: 30,
       reasons: ["keywords:1"],
     });
     expect(clean({ message: "huge bitcoin investment opportunity" })).toEqual({
-      score: 25,
+      score: 30,
       reasons: ["keywords:1"],
     });
     expect(clean({ message: "get rich with our forex signals" })).toEqual({
-      score: 25,
+      score: 30,
       reasons: ["keywords:1"],
     });
     expect(clean({ message: "cheap seo, rank #1 guaranteed" })).toEqual({
-      score: 25,
+      score: 30,
       reasons: ["keywords:1"],
     });
   });
@@ -160,10 +166,14 @@ describe("classifySpam", () => {
     expect(
       clean({ message: "We're a payday loan storefront and need a compliance page." }),
     ).toEqual({ score: 0, reasons: [] });
-    expect(clean({ message: "Can you audit the backlinks pointing to our domain?" })).toEqual({
-      score: 0,
-      reasons: [],
-    });
+    // POLICY CHANGE (operator 2026-07-15): "backlinks" is now a seller keyword —
+    // SEO-topic asks through the public form are deliberately filtered (clients ask
+    // the agency directly; the fleet's sites rank top for their own specific names).
+    // One phrase alone still scores 30 < 60, so a lone audit ask is DELIVERED —
+    // it only buckets alongside a second solicitation signal.
+    const backlinkAsk = clean({ message: "Can you audit the backlinks pointing to our domain?" });
+    expect(backlinkAsk).toEqual({ score: 30, reasons: ["keywords:1"] });
+    expect(backlinkAsk.score >= SPAM_THRESHOLD).toBe(false);
   });
 
   it("legit vertical mention + two links stays under threshold (links 50 only, no keyword hit)", () => {
@@ -180,7 +190,7 @@ describe("classifySpam", () => {
     expect(resort.score >= SPAM_THRESHOLD).toBe(false);
   });
 
-  it("still flags promotional phrasing for the narrowed vertical keywords at 25 each", () => {
+  it("still flags promotional phrasing for the narrowed vertical keywords at 30 each", () => {
     for (const message of [
       "play at our online casino tonight",
       "claim your casino bonus now",
@@ -190,7 +200,7 @@ describe("classifySpam", () => {
       "hot escort girls in your city",
     ]) {
       // label the message so a single-phrase regression is identifiable
-      expect(clean({ message }), message).toEqual({ score: 25, reasons: ["keywords:1"] });
+      expect(clean({ message }), message).toEqual({ score: 30, reasons: ["keywords:1"] });
     }
   });
 
@@ -303,7 +313,7 @@ describe("classifySpam", () => {
 });
 
 describe("classifySpam — cold-outreach / gibberish / bare-domain tuning (2026-07-15)", () => {
-  it("scores each SELLER-VOICE cold-outreach / SEO phrase as a keyword (25)", () => {
+  it("scores each SELLER-VOICE cold-outreach / SEO phrase as a keyword (30)", () => {
     for (const message of [
       "I'd love to write a guest post for your blog",
       "our link building service gets results",
@@ -311,11 +321,29 @@ describe("classifySpam — cold-outreach / gibberish / bare-domain tuning (2026-
       "we can position your brand for more reach",
       "we could increase your traffic significantly",
       "no obligation, would love to chat",
+      // SEO-topic phrases moved (back) to seller per the 2026-07-15 operator policy:
+      // SEO asks through the public form are solicitation on this fleet.
+      "we noticed an seo problem on your site",
+      "we provide a trained virtual assistant",
+      "your backlinks are weak",
+      "we can get you to the top of search results",
     ]) {
       const v = clean({ message });
       expect(v.reasons, message).toContain("keywords:1");
-      expect(v.score, message).toBe(25);
+      expect(v.score, message).toBe(30);
     }
+  });
+
+  it("folds hyphens before matching — 'link-building' / 'custom-built AI' were live keyword dodges", () => {
+    expect(clean({ message: "I run a link-building package that fixes this" }).reasons).toContain(
+      "keywords:1",
+    );
+    const mavis = clean({
+      message: "our custom-built AI tool MAVIS handles your advertising",
+    });
+    // "custom built ai" + "mavis" = 2 seller hits = 60: bucketed.
+    expect(mavis.reasons).toContain("keywords:2");
+    expect(mavis.score).toBeGreaterThanOrEqual(SPAM_THRESHOLD);
   });
 
   it("scores BUYER-COMPATIBLE phrases at a weak 10 (capped 20) without seller corroboration", () => {
@@ -323,31 +351,66 @@ describe("classifySpam — cold-outreach / gibberish / bare-domain tuning (2026-
     // never carry a message toward the threshold.
     for (const message of [
       "results within 24 hours guaranteed",
-      "we provide a trained virtual assistant",
-      "we noticed an seo problem on your site",
+      "could we book a free consultation next week?",
     ]) {
       const v = clean({ message });
       expect(v.reasons, message).toContain("keywords-buyer:1");
       expect(v.score, message).toBe(10);
     }
-    // 4 buyer phrases still cap at 20 — a pile of buyer-voice phrasing is not a pitch.
-    const four = clean({
-      message:
-        "Our google ranking tanked. We want to rank higher and drive traffic. Free consultation?",
+    const both = clean({
+      message: "We'd like a free consultation and we need the quote within 24 hours please.",
     });
-    expect(four.reasons).toContain("keywords-buyer:4");
-    expect(four.score).toBe(20);
+    expect(both.reasons).toContain("keywords-buyer:2");
+    expect(both.score).toBe(20);
   });
 
   it("a seller-voice phrase PROMOTES buyer phrases to full weight (pitch corroborates itself)", () => {
-    // "would you be interested" (seller) + virtual assistant + free consultation +
-    // within 24 hours (buyer) -> 4 hits, capped at 3 -> 75 >= 60: the classic VA pitch.
+    // "virtual assistant" + "would you be interested" (seller) + free consultation +
+    // within 24 hours (buyer) -> 4 hits, capped at 3 -> 90: the classic VA pitch.
     const pitch = clean({
       message:
         "I'm a virtual assistant. Would you be interested in a free consultation? I can start within 24 hours.",
     });
     expect(pitch.reasons).toContain("keywords:4");
     expect(pitch.score).toBeGreaterThanOrEqual(SPAM_THRESHOLD);
+  });
+
+  it("buckets each observed live-flood family (2026-07-15 miss corpus)", () => {
+    // Every message here is a (lightly trimmed) real submission the previous
+    // classifier delivered; each family must now reach >= 60.
+    const families: Record<string, string> = {
+      mavis:
+        "I'm Amanda with Trusted Virtual Team. We offer MAVIS (My Advanced Virtual Intelligent System), that easily replaces a 20-man team.",
+      "search-results":
+        "We specialize in putting businesses like yours right at the top of search results. Setup is fast and effortless.",
+      "seo-questionnaire":
+        "Most websites don't have an SEO problem — they have a visibility problem. Getting the right traffic that turns into leads and sales is hard.",
+      backlinks:
+        "I looked up your site. You're not on page one. I run a link-building package — 46 types of premium backlinks.",
+      wikipedia:
+        "The Wiki links show up on the 1st page of Google 97% of the time. Thinking of getting a Wikipedia Page created?",
+      "searching-for-what-you-sell":
+        "We place your business directly in front of people already searching for what you sell - live within 24 hours. Would you be interested?",
+      "product-blast":
+        "Get yours today with 50% OFF: https://caredogbest.com FREE Shipping on all orders.",
+    };
+    for (const [family, message] of Object.entries(families)) {
+      expect(clean({ message }).score, family).toBeGreaterThanOrEqual(SPAM_THRESHOLD);
+    }
+  });
+
+  it("flags lorem-ipsum filler at 60 (buckets alone — machine content, zero genuine use)", () => {
+    // Live bot bodies: truncated Latin filler, too short for velocity, invisible to
+    // gibberish (real words).
+    for (const message of ["Velit ullam reprehen", "Dolore harum volupta"]) {
+      const v = clean({ message });
+      expect(v.reasons, message).toContain("lorem-ipsum");
+      expect(v.score, message).toBeGreaterThanOrEqual(SPAM_THRESHOLD);
+    }
+    // A single romance-language cognate never fires — two DISTINCT stems required.
+    expect(
+      clean({ message: "The voluptuous figures in this painting are striking." }).reasons,
+    ).not.toContain("lorem-ipsum");
   });
 
   it("does NOT bucket a single ambiguous outreach phrase on its own (needs corroboration)", () => {
@@ -430,19 +493,29 @@ describe("classifySpam — cold-outreach / gibberish / bare-domain tuning (2026-
     expect(therapist.score).toBeLessThan(SPAM_THRESHOLD);
   });
 
-  it("a genuine SEO-help inquiry (buyer phrases + own site link) stays well under the threshold", () => {
-    // The review's confirmed-FP scenarios, pinned: buyer phrases cap at 20, so even
-    // with the lead's own link (25) or bare domain (20) the sum stays < 60.
-    const inquiry = clean({
+  it("SEO-topic asks: a single phrase is DELIVERED, stacked SEO phrasing is filtered (operator policy 2026-07-15)", () => {
+    // POLICY: the fleet's sites are niche and rank top for their own names; clients
+    // wanting SEO/marketing help ask the agency directly. Multi-phrase SEO content
+    // through the public form is deliberately filtered — overblock accepted,
+    // spam_auto is recoverable. (This inverts the earlier buyer-protection for the
+    // SEO-topic phrases specifically.)
+    const stacked = clean({
       message:
         "Our google ranking tanked after the redesign. We want to rank higher and drive traffic to the booking page. Do you offer a free consultation? Site: https://sunsetyoga.com",
     });
-    expect(inquiry.score).toBeLessThan(SPAM_THRESHOLD);
+    expect(stacked.score).toBeGreaterThanOrEqual(SPAM_THRESHOLD);
 
     const bareDomain = clean({
       message: "sunsetbakery.com has an seo problem and we'd like to rank higher locally",
     });
-    expect(bareDomain.score).toBeLessThan(SPAM_THRESHOLD);
+    expect(bareDomain.score).toBeGreaterThanOrEqual(SPAM_THRESHOLD);
+
+    // A lead who grazes ONE SEO phrase while asking for real work is still delivered.
+    const single = clean({
+      message: "We want to rank higher on Google — could you redesign our site with that in mind?",
+    });
+    expect(single.reasons).toEqual(["keywords:1"]);
+    expect(single.score).toBeLessThan(SPAM_THRESHOLD);
   });
 
   it("flags a bare pasted domain (no scheme/www) at 20, only when no real URL is present, and not an email domain", () => {
@@ -469,7 +542,8 @@ describe("classifySpam — cold-outreach / gibberish / bare-domain tuning (2026-
   });
 
   it("buckets a representative multi-phrase SEO outreach pitch (>= 60)", () => {
-    // "position your brand" + "above competitors" + "within 24 hours" = 3 phrases -> 75
+    // "position your brand" + "above competitors" (seller) + "within 24 hours"
+    // (buyer, promoted) = 3 hits -> 90
     const v = clean({
       message: "We can position your brand above competitors within 24 hours.",
     });
