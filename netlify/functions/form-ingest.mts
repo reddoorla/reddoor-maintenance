@@ -99,8 +99,10 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     const base = openBase({ apiKey, baseId });
     const db = await openDb(readDbConfig());
 
-    // Screen-out beacon: a no-PII { screenOut: honeypot|too-fast } body is routed
+    // Screen-out beacon: a no-PII { _screenOut: honeypot|too-fast } body is routed
     // to the per-site/day Spam Screenouts counter instead of the submission path.
+    // (parseScreenOut also accepts the deprecated bare `screenOut` key that older
+    // package versions on sites still send.)
     const screenOutReason = parseScreenOut(payload);
     if (screenOutReason) {
       const date = new Date().toISOString().slice(0, 10);

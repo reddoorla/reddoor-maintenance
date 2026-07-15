@@ -111,7 +111,9 @@ export async function submitScreenOut(
     const res = await doFetch(opts.url, {
       method: "POST",
       headers: { "content-type": "application/json", "x-forms-token": opts.token },
-      body: JSON.stringify({ screenOut: opts.reason }),
+      // `_screenOut` is a reserved wire key (underscore-namespaced like `_meta`)
+      // so a site's real form field named "screenOut" can never read as a beacon.
+      body: JSON.stringify({ _screenOut: opts.reason }),
       signal: controller.signal,
     });
     return { ok: res.ok, status: res.status };

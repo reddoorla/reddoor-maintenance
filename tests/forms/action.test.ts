@@ -90,7 +90,7 @@ describe("createIngestAction", () => {
     expect(result).toEqual({ success: true });
     // No submission is forwarded — only the no-PII screen-out beacon may fire.
     const forwarded = (fetchMock as ReturnType<typeof vi.fn>).mock.calls.some(
-      ([, init]) => init && !("screenOut" in JSON.parse((init as RequestInit).body as string)),
+      ([, init]) => init && !("_screenOut" in JSON.parse((init as RequestInit).body as string)),
     );
     expect(forwarded).toBe(false);
   });
@@ -108,7 +108,7 @@ describe("createIngestAction", () => {
     const result = await action(fakeEvent({ email: "a@b.co", ts: goodTs }, fetchMock));
     expect(result).toEqual({ success: true });
     const forwarded = (fetchMock as ReturnType<typeof vi.fn>).mock.calls.some(
-      ([, init]) => init && !("screenOut" in JSON.parse((init as RequestInit).body as string)),
+      ([, init]) => init && !("_screenOut" in JSON.parse((init as RequestInit).body as string)),
     );
     expect(forwarded).toBe(false);
   });
@@ -215,7 +215,7 @@ describe("createIngestAction", () => {
     ).rejects.toMatchObject({ status: 303, location: "/thank-you" });
     // The submission is not forwarded — only the no-PII screen-out beacon may fire.
     const forwarded = (fetchMock as ReturnType<typeof vi.fn>).mock.calls.some(
-      ([, init]) => init && !("screenOut" in JSON.parse((init as RequestInit).body as string)),
+      ([, init]) => init && !("_screenOut" in JSON.parse((init as RequestInit).body as string)),
     );
     expect(forwarded).toBe(false);
   });
@@ -263,7 +263,7 @@ describe("createIngestAction", () => {
     expect(res).toEqual({ success: true });
     const screenBeacon = fetch.mock.calls.find(
       ([, init]) =>
-        init && JSON.parse((init as RequestInit).body as string).screenOut === "honeypot",
+        init && JSON.parse((init as RequestInit).body as string)._screenOut === "honeypot",
     );
     expect(screenBeacon).toBeTruthy();
   });
@@ -284,7 +284,7 @@ describe("createIngestAction", () => {
     );
     expect(res).toEqual({ success: true });
     const anyScreen = fetch.mock.calls.some(
-      ([, init]) => init && "screenOut" in JSON.parse((init as RequestInit).body as string),
+      ([, init]) => init && "_screenOut" in JSON.parse((init as RequestInit).body as string),
     );
     expect(anyScreen).toBe(false);
   });
@@ -363,7 +363,7 @@ describe("createIngestAction", () => {
     expect(result).toEqual({ success: true });
     // Honeypot tier is unchanged: the real submission is never forwarded.
     const forwarded = (fetchMock as ReturnType<typeof vi.fn>).mock.calls.some(
-      ([, init]) => init && !("screenOut" in JSON.parse((init as RequestInit).body as string)),
+      ([, init]) => init && !("_screenOut" in JSON.parse((init as RequestInit).body as string)),
     );
     expect(forwarded).toBe(false);
   });
