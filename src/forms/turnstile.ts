@@ -2,8 +2,11 @@
  * Server-side Cloudflare Turnstile verification. Central-only — NOT exported from
  * `src/forms/index.ts`. Never throws: every network failure, timeout, unset secret,
  * absent token, or malformed response collapses to `"unverifiable"` so the ingest
- * caller can fail open (never 502 an accepted lead). Only a definite Cloudflare
- * negative (`success: false`) is `"fail"`.
+ * caller can fail open (never 502 an accepted lead). Only a bad/forged token
+ * (`success: false` with `invalid-input-response`) is `"fail"` — every other
+ * `success: false` is a Cloudflare-side or operational condition (expired 300s
+ * token, double-submit, internal-error, secret misconfig) that must never
+ * punish a possibly-real visitor, so it too collapses to `"unverifiable"`.
  */
 export type TurnstileOutcome = "pass" | "fail" | "unverifiable";
 
@@ -49,7 +52,13 @@ export async function verifyTurnstile(opts: {
     }
     const obj = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
     if (!obj || typeof obj.success !== "boolean") return "unverifiable";
-    return obj.success ? "pass" : "fail";
+    if (obj.success) return "pass";
+    // success:false is only a definite negative for a bad/forged token. Benign
+    // codes (`timeout-or-duplicate` = expired 300s token or double-submit —
+    // real humans), Cloudflare-side `internal-error`, secret/config errors,
+    // and unknown/absent codes all fail open.
+    const codes = Array.isArray(obj["error-codes"]) ? obj["error-codes"] : [];
+    return codes.includes("invalid-input-response") ? "fail" : "unverifiable";
   } catch {
     // Network error or aborted (timeout) — fail open, distinct from a "fail".
     return "unverifiable";

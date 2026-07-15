@@ -324,4 +324,29 @@ describe("ingestSubmission — spam decision", () => {
     expect(d.notify).not.toHaveBeenCalled();
     expect(d.stampNotified).toHaveBeenCalledWith("recSUB", "skipped", null);
   });
+
+  it("stays fail-open on a requireTurnstile site when Turnstile is 'unverifiable' (outage / JS-off)", async () => {
+    // Guardrail: only a definite "fail" may force spam_auto on a gated site.
+    // A Cloudflare outage, missing token, or expired-token "unverifiable" must
+    // never spam-bucket an otherwise-clean lead — pin it against a future
+    // `=== "fail"` -> `!== "pass"` tightening.
+    const site = makeWebsiteRow({ id: "recSITE", requireTurnstile: true });
+    const d = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(site),
+      classifySpam: () => ({ score: 0, reasons: [] }),
+    });
+    const r = await ingestSubmission(
+      d,
+      "acme",
+      { email: "a@b.co", message: "totally normal enquiry" },
+      "unverifiable",
+    );
+    expect(r.status).toBe("accepted");
+    if (r.status === "accepted") expect(r.notifyStatus).toBe("sent");
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "new", spamScore: 0, spamReason: null }),
+    );
+    expect(d.notify).toHaveBeenCalledTimes(1);
+    expect(d.stampNotified).toHaveBeenCalledWith("recSUB", "sent", "msg_1");
+  });
 });
