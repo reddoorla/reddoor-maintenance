@@ -2,8 +2,10 @@ import type { Media, Node } from "./types.js";
 
 /** Every SliceSpec carries the band's slice-zone index and (optional) band
  * background, so the runtime can line slices up with the emit outputs and render
- * the background band exactly as today. */
-type SpecBase = { index: number; background?: Media };
+ * the background band exactly as today. `blockClass` rides along from
+ * `Band.blockClass` so emit can resolve the `.blocksNcontainer` class defaults
+ * (padding/max-width) the block's own styles omit. */
+type SpecBase = { index: number; blockClass?: string; background?: Media };
 
 /** The source heading's textN role + h-level and the subtitle's role, so the
  * render applies the right display font/tag. Carried ALONGSIDE the plain-string

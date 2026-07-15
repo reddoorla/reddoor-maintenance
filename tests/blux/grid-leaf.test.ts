@@ -5,6 +5,8 @@ import {
   headingLevel,
   mediaFromElement,
   readBgSizing,
+  textLeafStyle,
+  utilityStylesFromClass,
 } from "../../src/blux/grid/leaf.js";
 
 const el = (html: string) => parse(html).firstChild as HTMLElement;
@@ -160,6 +162,65 @@ describe("readBgSizing (band background)", () => {
     expect(readBgSizing(el('<div style="background-size: contain;"></div>'))).toEqual({
       fit: "contain",
     });
+  });
+});
+
+describe("utilityStylesFromClass", () => {
+  it("decodes margin-N(r|l|t|b) utilities to margin-side percentages", () => {
+    expect(utilityStylesFromClass("block-body text1 margin-20r")).toEqual({
+      "margin-right": "20%",
+    });
+    expect(utilityStylesFromClass("margin-5l margin-10t margin-15b")).toEqual({
+      "margin-left": "5%",
+      "margin-top": "10%",
+      "margin-bottom": "15%",
+    });
+  });
+  it("ignores pd_* utilities (always duplicated inline) and non-matching classes", () => {
+    expect(utilityStylesFromClass("block-title text5 pd_l8 pd_t0")).toEqual({});
+    expect(utilityStylesFromClass("margin-r margin-20x margin20r")).toEqual({});
+    expect(utilityStylesFromClass("")).toEqual({});
+  });
+});
+
+describe("textLeafStyle", () => {
+  it("keeps allowlisted inline props (color, padding, margin*) and drops the rest", () => {
+    // The hero subtitle shape in the-pointe's export, plus non-allowlisted noise.
+    const leaf = el(
+      '<div class="block-subtitle text13" style="padding: 10px 0px 0px; color: rgb(255, 255, 255); font-size: 18px; text-align: left;">x</div>',
+    );
+    expect(textLeafStyle(leaf)).toEqual({
+      padding: "10px 0px 0px",
+      color: "rgb(255, 255, 255)",
+    });
+  });
+  it("captures a heading's inline padding deviation", () => {
+    const leaf = el('<h3 class="block-title text6" style="padding: 0px 0px 0px 8px">x</h3>');
+    expect(textLeafStyle(leaf)).toEqual({ padding: "0px 0px 0px 8px" });
+  });
+  it("decodes margin utilities off the class when there is no inline twin", () => {
+    const leaf = el('<div class="block-body text1 margin-20r">x</div>');
+    expect(textLeafStyle(leaf)).toEqual({ "margin-right": "20%" });
+  });
+  it("lets an inline declaration win over a class utility on conflict", () => {
+    const leaf = el('<div class="block-body text1 margin-20r" style="margin-right: 4px">x</div>');
+    expect(textLeafStyle(leaf)).toEqual({ "margin-right": "4px" });
+  });
+  it("returns null when the leaf carries neither", () => {
+    expect(textLeafStyle(el('<div class="block-body text1">x</div>'))).toBeNull();
+    expect(
+      textLeafStyle(el('<div class="block-body" style="font-weight: bold">x</div>')),
+    ).toBeNull();
+  });
+  it("normalizes uppercase/whitespace-padded inline declarations", () => {
+    const leaf = el('<div class="block-body text1" style="COLOR : red">x</div>');
+    expect(textLeafStyle(leaf)).toEqual({ color: "red" });
+  });
+  it("leaks no fragments of a non-allowlisted declaration whose value embeds colons/semicolons", () => {
+    const leaf = el(
+      '<div class="block-body text1" style="background-image: url(data:image/png;base64,xyz)">x</div>',
+    );
+    expect(textLeafStyle(leaf)).toBeNull();
   });
 });
 

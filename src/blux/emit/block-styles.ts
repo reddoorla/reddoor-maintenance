@@ -25,3 +25,45 @@ export function blockStylesByIndex(siteJson: unknown): Map<number, Record<string
   });
   return out;
 }
+
+/** A block class's `.blocksNcontainer` defaults: the content padding (with its
+ * `__media_mobile_padding` responsive override) and max-width that apply when a
+ * block's own styles omit them. */
+export type BlockDefaults = {
+  padding?: string;
+  mobilePadding?: string;
+  maxWidth?: string;
+};
+
+const CONTAINER_RE = /^\.(blocks\d+)container$/;
+
+/** Per-block-class container defaults keyed by the bare class ("blocks0",
+ * "blocks2", …), sourced from site.json's `styles.blocks` — a position-stable
+ * array of `{ _label, ".blocksN": …, ".blocksNcontainer": … }` slots. Only the
+ * `.blocksNcontainer` entries matter here; the head `<style>` is never parsed
+ * (styles.blocks is its structured source). Values are cleaned exactly as
+ * `blockStylesByIndex` cleans them, so the export's malformed tombstones
+ * (`padding: "px"`, empty strings) drop instead of leaking. */
+export function blockClassDefaults(siteJson: unknown): Map<string, BlockDefaults> {
+  const out = new Map<string, BlockDefaults>();
+  const blocks = (siteJson as { styles?: { blocks?: unknown[] } })?.styles?.blocks;
+  if (!Array.isArray(blocks)) return out;
+  for (const slot of blocks) {
+    if (slot === null || typeof slot !== "object") continue;
+    for (const [selector, css] of Object.entries(slot as Record<string, unknown>)) {
+      const blockClass = CONTAINER_RE.exec(selector)?.[1];
+      if (!blockClass || css === null || typeof css !== "object") continue;
+      const rec = css as Record<string, unknown>;
+      const padding = cleanCssValue(rec["padding"]);
+      const mobilePadding = cleanCssValue(rec["__media_mobile_padding"]);
+      const maxWidth = cleanCssValue(rec["max-width"]);
+      const defaults: BlockDefaults = {
+        ...(padding ? { padding } : {}),
+        ...(mobilePadding ? { mobilePadding } : {}),
+        ...(maxWidth ? { maxWidth } : {}),
+      };
+      if (Object.keys(defaults).length) out.set(blockClass, defaults);
+    }
+  }
+  return out;
+}

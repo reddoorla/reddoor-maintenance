@@ -276,6 +276,78 @@ describe("slider marker (.caslider rows)", () => {
   });
 });
 
+describe("text-leaf style deviations", () => {
+  it("captures an allowlisted inline padding on a heading", () => {
+    expect(node('<h3 class="block-title text6" style="padding: 0px 0px 0px 8px">T</h3>')).toEqual({
+      kind: "heading",
+      role: "text6",
+      style: { padding: "0px 0px 0px 8px" },
+      level: 3,
+      html: "T",
+    });
+  });
+  it("captures a subtitle's inline color (the hero-subtitle shape)", () => {
+    expect(
+      node('<div class="block-subtitle text13" style="color: rgb(255, 255, 255)">Eyebrow</div>'),
+    ).toEqual({
+      kind: "subtitle",
+      role: "text13",
+      style: { color: "rgb(255, 255, 255)" },
+      text: "Eyebrow",
+    });
+  });
+  it("decodes a margin utility class on a body with no inline style", () => {
+    expect(node('<div class="block-body text1 margin-20r"><p>B</p></div>')).toEqual({
+      kind: "body",
+      role: "text1",
+      style: { "margin-right": "20%" },
+      html: "<p>B</p>",
+    });
+  });
+  it("emits no style key when the leaf has neither inline deviations nor utilities", () => {
+    expect(node('<div class="block-body text1"><p>B</p></div>')).not.toHaveProperty("style");
+  });
+  it("captures caption styles inside a media holder (the #395 path)", () => {
+    // Band-8-style slider tiles nest the caption in the .camediaload holder;
+    // the recovered caption must carry its style deviations too.
+    const n = node(
+      '<div class="ib camediaload" data-media="s1" data-bgmedia="1"><div class="block-content"><h5 class="block-title text5" style="color: rgb(255, 255, 255)">cap</h5></div></div>',
+    );
+    expect(n).toEqual({
+      kind: "stack",
+      children: [
+        { kind: "media", media: { kind: "image", assetId: "s1" } },
+        {
+          kind: "heading",
+          role: "text5",
+          style: { color: "rgb(255, 255, 255)" },
+          level: 5,
+          html: "cap",
+        },
+      ],
+    });
+  });
+});
+
+describe("band blockClass capture", () => {
+  it("captures the wrapper's blocksN class (div hero band and plain section)", () => {
+    const html = `<div id="page-content">
+      <div id="page-block-0" class="blocks2 camediaload" data-bgmedia="1" data-ext="jpg" data-media="bg1.jpg"><div class="block-content"><div class="block-body text1">x</div></div></div>
+      <section id="page-block-1" class="blocks0"><div class="block-content"><div class="block-body text1">y</div></div></section>
+    </div>`;
+    const bands = parseGridBands(html);
+    expect(bands[0]?.blockClass).toBe("blocks2");
+    expect(bands[1]?.blockClass).toBe("blocks0");
+  });
+  it("leaves blockClass absent when no blocksN class matches", () => {
+    const html = `<div id="page-content">
+      <section id="page-block-0" class="fancy blocksy"><div class="block-body text1">y</div></section>
+    </div>`;
+    const [band] = parseGridBands(html);
+    expect(band).not.toHaveProperty("blockClass");
+  });
+});
+
 describe("caption capture hardening", () => {
   it("ignores an entity/whitespace-only caption (no phantom stack)", () => {
     expect(

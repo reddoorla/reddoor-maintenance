@@ -17,11 +17,13 @@ describe("parseGridBands", () => {
     expect(bands).toHaveLength(2);
     expect(bands[0]).toEqual({
       index: 0,
+      blockClass: "blocks2",
       background: { kind: "image", assetId: "bg0", ext: "jpg" },
       root: { kind: "subtitle", role: "text13", text: "Eyebrow" },
     });
     expect(bands[1]).toEqual({
       index: 1,
+      blockClass: "blocks0",
       root: { kind: "heading", role: "text5", level: 2, html: "Title" },
     });
   });

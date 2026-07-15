@@ -11,8 +11,19 @@ const url = (m: Media) => ({
 const deps: PresentationDeps = {
   resolveMedia: url,
   styleFor: (i) => (i === 7 ? { "background-color": "#fff" } : undefined),
+  defaultsFor: () => undefined,
   map: null,
 };
+
+// The real the-pointe class defaults (blocks0/blocks2), for the fill tests.
+const pointeDefaults: PresentationDeps["defaultsFor"] = (blockClass) =>
+  blockClass === "blocks0"
+    ? {
+        padding: "120px 4% 120px 4%",
+        mobilePadding: "80px 4% 80px 4%",
+        maxWidth: "1280px",
+      }
+    : undefined;
 
 const img = (id: string): Media => ({ kind: "image", assetId: id });
 
@@ -162,5 +173,105 @@ describe("buildPresentation", () => {
       resolveMedia: () => null,
     });
     expect(p.bands["0"]).toEqual({}); // media omitted, band still present
+  });
+
+  it("fills class-default padding (+mobile, +max-width) when the block's own styles omit them", () => {
+    // A TitleBand on purpose: the fill runs before the per-slice switch, so
+    // text-only slices get their band padding too.
+    const specs: SliceSpec[] = [
+      { index: 4, slice: "TitleBand", heading: "T", blockClass: "blocks0" },
+    ];
+    const p = buildPresentation(specs, { ...deps, defaultsFor: pointeDefaults });
+    expect(p.bands["4"]!.style).toEqual({
+      _contentPadding: "120px 4% 120px 4%",
+      _contentPaddingMobile: "80px 4% 80px 4%",
+      "_max-content-width": "1280px",
+    });
+  });
+
+  it("keeps a block's own styles alongside the fill (own keys win, missing ones fill)", () => {
+    const specs: SliceSpec[] = [
+      { index: 1, slice: "TitleBand", heading: "T", blockClass: "blocks0" },
+    ];
+    const p = buildPresentation(specs, {
+      ...deps,
+      styleFor: () => ({ "text-align": "center", "_max-content-width": "1280px" }),
+      defaultsFor: pointeDefaults,
+    });
+    expect(p.bands["1"]!.style).toEqual({
+      "text-align": "center",
+      "_max-content-width": "1280px", // the block's own value, not re-filled
+      _contentPadding: "120px 4% 120px 4%",
+      _contentPaddingMobile: "80px 4% 80px 4%",
+    });
+  });
+
+  it("leaves a block that carries its own _contentPadding untouched — no mobile key added", () => {
+    const specs: SliceSpec[] = [
+      { index: 0, slice: "TitleBand", heading: "T", blockClass: "blocks0" },
+    ];
+    const own = { _contentPadding: "0 4% 0 4%", "_max-content-width": "1280px" };
+    const p = buildPresentation(specs, {
+      ...deps,
+      styleFor: () => ({ ...own }),
+      defaultsFor: pointeDefaults,
+    });
+    expect(p.bands["0"]!.style).toEqual(own);
+    expect(p.bands["0"]!.style).not.toHaveProperty("_contentPaddingMobile");
+  });
+
+  it("never mutates the shared styleFor record; sibling bands stay independent", () => {
+    const shared = { "text-align": "center" };
+    const specs: SliceSpec[] = [
+      { index: 0, slice: "TitleBand", heading: "A", blockClass: "blocks0" },
+      { index: 1, slice: "TitleBand", heading: "B", blockClass: "blocks0" },
+    ];
+    const p = buildPresentation(specs, {
+      ...deps,
+      styleFor: () => shared, // one cached record handed to every band
+      defaultsFor: pointeDefaults,
+    });
+    // The source record is left exactly as it was — no fill leaked back in.
+    expect(shared).toEqual({ "text-align": "center" });
+    // Each band got its own filled copy, not a shared reference.
+    expect(p.bands["0"]!.style).not.toBe(p.bands["1"]!.style);
+    expect(p.bands["0"]!.style).toEqual({
+      "text-align": "center",
+      _contentPadding: "120px 4% 120px 4%",
+      _contentPaddingMobile: "80px 4% 80px 4%",
+      "_max-content-width": "1280px",
+    });
+  });
+
+  it("leaves a band with no blockClass, or no defaults entry for it, untouched", () => {
+    const specs: SliceSpec[] = [
+      { index: 0, slice: "TitleBand", heading: "A" }, // no blockClass
+      { index: 1, slice: "TitleBand", heading: "B", blockClass: "blocks9" }, // no entry
+    ];
+    const p = buildPresentation(specs, { ...deps, defaultsFor: pointeDefaults });
+    expect(p.bands["0"]).toEqual({});
+    expect(p.bands["1"]).toEqual({});
+  });
+
+  it("passes text-node style deviations through to the RenderNode (all three variants)", () => {
+    const root: Node = {
+      kind: "stack",
+      children: [
+        { kind: "heading", level: 3, html: "H", style: { padding: "0px 0px 0px 8px" } },
+        { kind: "body", html: "<p>B</p>", style: { "margin-right": "20%" } },
+        { kind: "subtitle", text: "S", style: { color: "rgb(255, 255, 255)" } },
+        { kind: "body", html: "<p>plain</p>" }, // absent stays absent
+      ],
+    };
+    const p = buildPresentation([{ index: 2, slice: "Grid", root }], deps);
+    expect(p.bands["2"]!.tree).toEqual({
+      kind: "stack",
+      children: [
+        { kind: "heading", level: 3, html: "H", style: { padding: "0px 0px 0px 8px" } },
+        { kind: "body", html: "<p>B</p>", style: { "margin-right": "20%" } },
+        { kind: "subtitle", text: "S", style: { color: "rgb(255, 255, 255)" } },
+        { kind: "body", html: "<p>plain</p>" },
+      ],
+    });
   });
 });
