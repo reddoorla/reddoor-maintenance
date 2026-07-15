@@ -325,11 +325,11 @@ describe("ingestSubmission — spam decision", () => {
     expect(d.stampNotified).toHaveBeenCalledWith("recSUB", "skipped", null);
   });
 
-  it("stays fail-open on a requireTurnstile site when Turnstile is 'unverifiable' (outage / JS-off)", async () => {
-    // Guardrail: only a definite "fail" may force spam_auto on a gated site.
-    // A Cloudflare outage, missing token, or expired-token "unverifiable" must
-    // never spam-bucket an otherwise-clean lead — pin it against a future
-    // `=== "fail"` -> `!== "pass"` tightening.
+  it("stays fail-open on a requireTurnstile site when Turnstile is 'unverifiable' (outage / JS-off / expired)", async () => {
+    // Guardrail: only a definite "fail" or an "absent" token may force spam_auto on a
+    // gated site. A Cloudflare outage or an EXPIRED/duplicate token ("unverifiable" —
+    // a real browser DID render the widget) must never spam-bucket an otherwise-clean
+    // lead — pin it against a future `!== "pass"` over-tightening.
     const site = makeWebsiteRow({ id: "recSITE", requireTurnstile: true });
     const d = deps({
       getWebsiteBySlug: vi.fn().mockResolvedValue(site),
@@ -348,5 +348,166 @@ describe("ingestSubmission — spam decision", () => {
     );
     expect(d.notify).toHaveBeenCalledTimes(1);
     expect(d.stampNotified).toHaveBeenCalledWith("recSUB", "sent", "msg_1");
+  });
+
+  it("forces spam_auto with 'turnstile-required-absent' on a requireTurnstile site when the token is ABSENT", async () => {
+    // The direct-POST-bot signature: a configured site whose widget was never
+    // rendered (no token forwarded). Distinct reason from a forged-token "fail".
+    const site = makeWebsiteRow({ id: "recSITE", requireTurnstile: true });
+    const row = makeSubmissionRow({ id: "recSUB", status: "spam_auto" });
+    const d = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(site),
+      createSubmission: vi.fn().mockResolvedValue(row),
+      classifySpam: () => ({ score: 0, reasons: [] }),
+    });
+    const r = await ingestSubmission(
+      d,
+      "acme",
+      { email: "a@b.co", message: "totally normal enquiry" },
+      "absent",
+    );
+    expect(r.status).toBe("accepted");
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "spam_auto",
+        spamScore: 0,
+        spamReason: "turnstile-required-absent",
+      }),
+    );
+    expect(d.notify).not.toHaveBeenCalled();
+    expect(d.stampNotified).toHaveBeenCalledWith("recSUB", "skipped", null);
+  });
+
+  it("leaves an 'absent' token NEUTRAL on a site that has NOT opted into requireTurnstile", async () => {
+    // Only opted-in sites escalate absent tokens; every other site (the fleet
+    // default) must keep fail-open behavior so a widget-less form still delivers.
+    const site = makeWebsiteRow({ id: "recSITE", requireTurnstile: false });
+    const d = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(site),
+      classifySpam: () => ({ score: 0, reasons: [] }),
+    });
+    const r = await ingestSubmission(
+      d,
+      "acme",
+      { email: "a@b.co", message: "totally normal enquiry" },
+      "absent",
+    );
+    expect(r.status).toBe("accepted");
+    if (r.status === "accepted") expect(r.notifyStatus).toBe("sent");
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "new", spamScore: 0, spamReason: null }),
+    );
+    expect(d.notify).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ingestSubmission — velocity / duplicate-body signal", () => {
+  const body = "I represent an SEO agency and can get you to page one within 24 hours guaranteed.";
+
+  it("marks spam_auto + 'duplicate-body' when an identical body was already seen", async () => {
+    const row = makeSubmissionRow({ id: "recSUB", status: "spam_auto" });
+    const countRecentDuplicates = vi.fn().mockResolvedValue(1);
+    const d = deps({
+      createSubmission: vi.fn().mockResolvedValue(row),
+      classifySpam: () => ({ score: 0, reasons: [] }),
+      countRecentDuplicates,
+    });
+    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
+    expect(r.status).toBe("accepted");
+    expect(countRecentDuplicates).toHaveBeenCalledWith(body, expect.any(Date));
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "spam_auto", spamReason: "duplicate-body" }),
+    );
+    expect(d.notify).not.toHaveBeenCalled();
+    expect(d.stampNotified).toHaveBeenCalledWith("recSUB", "skipped", null);
+  });
+
+  it("passes a 30-day lookback window derived from now()", async () => {
+    const countRecentDuplicates = vi.fn().mockResolvedValue(0);
+    const d = deps({
+      classifySpam: () => ({ score: 0, reasons: [] }),
+      countRecentDuplicates,
+    });
+    await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
+    const since = countRecentDuplicates.mock.calls[0]![1] as Date;
+    // now() is 2026-06-14T12:00:00Z → 30 days earlier.
+    expect(since.toISOString()).toBe("2026-05-15T12:00:00.000Z");
+  });
+
+  it("stays clean (new) when no duplicate exists", async () => {
+    const countRecentDuplicates = vi.fn().mockResolvedValue(0);
+    const d = deps({
+      classifySpam: () => ({ score: 0, reasons: [] }),
+      countRecentDuplicates,
+    });
+    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
+    expect(r.status).toBe("accepted");
+    if (r.status === "accepted") expect(r.notifyStatus).toBe("sent");
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "new", spamReason: null }),
+    );
+    expect(d.notify).toHaveBeenCalledTimes(1);
+  });
+
+  it("never runs the lookup for a newsletter form (legit repeat 'subscribe' bodies)", async () => {
+    const countRecentDuplicates = vi.fn().mockResolvedValue(5);
+    const d = deps({
+      classifySpam: () => ({ score: 0, reasons: [] }),
+      countRecentDuplicates,
+    });
+    const r = await ingestSubmission(
+      d,
+      "acme",
+      { formType: "newsletter", email: "a@b.co", message: body },
+      "unverifiable",
+    );
+    expect(r.status).toBe("accepted");
+    expect(countRecentDuplicates).not.toHaveBeenCalled();
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "new", spamReason: null }),
+    );
+  });
+
+  it("does not run the lookup (or re-flag) when the row is ALREADY spam_auto from Turnstile", async () => {
+    // Short-circuit: an absent-token gated site already bucketed this row; the
+    // velocity lookup is wasted work and would append a redundant reason.
+    const site = makeWebsiteRow({ id: "recSITE", requireTurnstile: true });
+    const row = makeSubmissionRow({ id: "recSUB", status: "spam_auto" });
+    const countRecentDuplicates = vi.fn().mockResolvedValue(3);
+    const d = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(site),
+      createSubmission: vi.fn().mockResolvedValue(row),
+      classifySpam: () => ({ score: 0, reasons: [] }),
+      countRecentDuplicates,
+    });
+    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "absent");
+    expect(r.status).toBe("accepted");
+    expect(countRecentDuplicates).not.toHaveBeenCalled();
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "spam_auto", spamReason: "turnstile-required-absent" }),
+    );
+  });
+
+  it("swallows a countRecentDuplicates failure — the lead is still accepted as new", async () => {
+    const countRecentDuplicates = vi.fn().mockRejectedValue(new Error("db down"));
+    const d = deps({
+      classifySpam: () => ({ score: 0, reasons: [] }),
+      countRecentDuplicates,
+    });
+    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
+    expect(r.status).toBe("accepted");
+    if (r.status === "accepted") expect(r.notifyStatus).toBe("sent");
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "new", spamReason: null }),
+    );
+    expect(d.notify).toHaveBeenCalledTimes(1);
+  });
+
+  it("is a no-op when the countRecentDuplicates dep is absent (fail-open clean)", async () => {
+    const d = deps({ classifySpam: () => ({ score: 0, reasons: [] }) });
+    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
+    expect(r.status).toBe("accepted");
+    if (r.status === "accepted") expect(r.notifyStatus).toBe("sent");
+    expect(d.createSubmission).toHaveBeenCalledWith(expect.objectContaining({ status: "new" }));
   });
 });

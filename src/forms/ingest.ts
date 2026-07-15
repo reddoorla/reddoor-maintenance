@@ -9,6 +9,10 @@ import { normalizeSubmission, type NormalizedSubmission } from "./payload.js";
 import type { TurnstileOutcome } from "./turnstile.js";
 import { SPAM_THRESHOLD, type SpamVerdict } from "./spam-classifier.js";
 
+/** How far back the velocity/duplicate-spray lookup scans. Sprays arrive in bursts but
+ *  bots also re-run for weeks; 30 days catches repeats without an unbounded table scan. */
+const DUPLICATE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
 export type IngestDeps = {
   getWebsiteBySlug: (slug: string) => Promise<WebsiteRow | null>;
   createSubmission: (input: SubmissionInput) => Promise<SubmissionRow>;
@@ -22,6 +26,11 @@ export type IngestDeps = {
    *  status/score/reason; absent → every submission scores 0 (fail-open, clean).
    *  Injected so the classifier stays a pure, transport-agnostic leaf. */
   classifySpam?: (n: NormalizedSubmission, turnstile: TurnstileOutcome) => SpamVerdict;
+  /** Optional: count recent fleet-wide submissions whose (normalized) message body
+   *  equals `message`, since `since`. Drives the velocity/duplicate-spray signal —
+   *  the same pitch blasted to many sites shows up as duplicates. Absent → the check
+   *  is skipped (fail-open clean). */
+  countRecentDuplicates?: (message: string, since: Date) => Promise<number>;
   /** Optional: POST a newsletter submission to the site's configured webhook
    *  (best-effort). Omitted in tests/handlers that don't need it. */
   forwardNewsletter?: (
@@ -113,9 +122,12 @@ export async function ingestSubmission(
   // Fold the content signals + the Turnstile verdict into ONE spam decision.
   // Absent classifier → treat as clean (fail-open). A throwing classifier is
   // swallowed the same way — a bug in the heuristic must never turn an
-  // otherwise-good lead into a 500; it just scores clean. A `requireTurnstile`
-  // site escalates an ACTUAL "fail" to auto-spam regardless of score (never an
-  // absent token or an "unverifiable" error — those stay neutral).
+  // otherwise-good lead into a 500; it just scores clean. On a `requireTurnstile`
+  // site, both an ACTUAL "fail" (forged token) AND an "absent" token escalate to
+  // auto-spam regardless of score — a real browser that renders the widget ALWAYS
+  // sends a token, so a completely missing one is the direct-POST-bot signature. A
+  // present-but-"unverifiable" token (expired/duplicate — a real browser DID render
+  // the widget) stays neutral, as does anything on a site that hasn't opted in.
   let verdict: SpamVerdict = { score: 0, reasons: [] };
   if (deps.classifySpam) {
     try {
@@ -126,9 +138,33 @@ export async function ingestSubmission(
   }
   const reasons = [...verdict.reasons];
   let status: SubmissionStatus = verdict.score >= SPAM_THRESHOLD ? "spam_auto" : "new";
-  if (site.requireTurnstile && turnstile === "fail") {
+  if (site.requireTurnstile && (turnstile === "fail" || turnstile === "absent")) {
     status = "spam_auto";
-    if (!reasons.includes("turnstile-required-failed")) reasons.push("turnstile-required-failed");
+    const reason = turnstile === "fail" ? "turnstile-required-failed" : "turnstile-required-absent";
+    if (!reasons.includes(reason)) reasons.push(reason);
+  }
+
+  // Velocity/spray signal: the same pitch blasted across the fleet (or repeated) is a
+  // bot tell a lone content scan can't see. If an identical message body was already
+  // seen recently, this is a duplicate → auto-spam (recoverable). Guarded: only for
+  // non-newsletter forms with a real body, only when not already spam, and the db helper
+  // ignores short/empty bodies. Best-effort — a lookup failure never blocks a lead.
+  if (
+    status !== "spam_auto" &&
+    n.formType !== "newsletter" &&
+    n.message !== undefined &&
+    deps.countRecentDuplicates
+  ) {
+    try {
+      const since = new Date(deps.now().getTime() - DUPLICATE_WINDOW_MS);
+      const dupes = await deps.countRecentDuplicates(n.message, since);
+      if (dupes >= 1) {
+        status = "spam_auto";
+        if (!reasons.includes("duplicate-body")) reasons.push("duplicate-body");
+      }
+    } catch (err) {
+      console.error(`[ingest] countRecentDuplicates threw: ${String(err)}`);
+    }
   }
   const spamReason = reasons.length > 0 ? reasons.join(",") : null;
 
