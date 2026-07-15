@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { openBase, readAirtableConfig } from "../reports/airtable/client.js";
 import type { AirtableBase } from "../reports/airtable/client.js";
 import { listWebsites, siteSlug } from "../reports/airtable/websites.js";
+import { ELIGIBLE_STATUSES } from "../reports/due.js";
 import type { WebsiteRow } from "../reports/airtable/websites.js";
 import { fetchAttachmentBytes } from "../reports/airtable/attachments.js";
 import { prepareHeaderImage } from "../reports/maintenance-email/header-image.js";
@@ -70,7 +71,11 @@ export async function selftestEmail(deps: SelftestEmailDeps): Promise<SelftestEm
   const websites = await listWebsites(base);
   let targets: WebsiteRow[];
   if (deps.all) {
-    targets = websites.filter((w) => w.status === "maintenance");
+    // The report-eligible set (maintenance + hosting), not a hard-coded "maintenance" —
+    // the latter silently excluded hosting sites and implied a type↔status coupling that
+    // doesn't exist (the requested --type drives the rendered template; single-site mode
+    // applies no status filter at all).
+    targets = websites.filter((w) => w.status !== null && ELIGIBLE_STATUSES.has(w.status));
   } else if (deps.site) {
     const wanted = siteSlug(deps.site);
     targets = websites.filter((w) => siteSlug(w.name) === wanted);

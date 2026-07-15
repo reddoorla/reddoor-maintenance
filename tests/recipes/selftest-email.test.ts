@@ -122,7 +122,7 @@ describe("selftestEmail", () => {
     expect(sent[0]!.subject).toContain("Testing Report");
   });
 
-  it("--all sends one email per maintenance site; a scores-less site is skipped", async () => {
+  it("--all sends one email per report-eligible site (maintenance + hosting); a scores-less site is skipped", async () => {
     const base = makeFakeBase({
       Websites: [
         {
@@ -150,8 +150,8 @@ describe("selftestEmail", () => {
     const byName = new Map(res.results.map((r) => [r.site, r.status]));
     expect(byName.get("Good Co")).toBe("sent");
     expect(byName.get("No Scores")).toBe("skipped");
-    expect(byName.has("Hosting Co")).toBe(false); // not a maintenance site
-    expect(sent).toHaveLength(1);
+    expect(byName.get("Hosting Co")).toBe("sent"); // hosting is report-eligible, not excluded
+    expect(sent).toHaveLength(2);
   });
 
   it("--dry-run renders without sending", async () => {
