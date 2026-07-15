@@ -1,5 +1,30 @@
 # @reddoorla/maintenance
 
+## 0.72.0
+
+### Minor Changes
+
+- a3b4873: feat: GA/Search impersonation-subject failover list. `GA_SUBJECT` now accepts a comma-separated list of Workspace subjects tried in order (a single address stays the degenerate case). Both the GA Data client and the Search Console client fall through to the next subject on auth-shaped failures (HTTP 401/403, gRPC PERMISSION_DENIED/UNAUTHENTICATED, OAuth `invalid_grant` from a suspended subject — and, for Search Console, a subject whose `sites.list` resolves zero matching properties, since that API hides inaccessible properties instead of 403ing) and emit one greppable `subject failover` warning when a later subject carries the run. This structurally mitigates the fleet-wide single-subject SPOF flagged in five consecutive review briefs: losing the primary subject now degrades to a visible warning instead of blanking every site's analytics at once. A genuine auth failure always dominates a later subject's empty-`sites.list` sentinel when deciding the thrown error, so a dying primary can never be masked as an affirmative "not on page 1" (which would clear the analytics alarm and record false data) regardless of subject order. Transient per-user quota/rate-limit 403s are distinguished from access loss so the failover warning doesn't send operators to the offboarding runbook over a rate-limit blip. The role-account cutover runbook (docs/runbooks/ga-search-role-account-cutover.md) is updated for a zero-downtime `reports@reddoorla.com,<old>` transition.
+
+### Patch Changes
+
+- 4c4a036: Spam-classifier false-positive tuning: non-Latin script now scores on the message body only (never the name) at a reduced weight of 25 so it needs corroboration to cross the threshold; ambiguous vertical keywords (casino, weight loss, escort, payday loan, backlinks) narrowed to clearly-promotional phrasings so legitimate business enquiries no longer score; comma/semicolon-glued URLs now count individually instead of matching as one link.
+- 2ab91f6: Move the unrecognized-frequency guard to the read boundary. `toFrequency` (mapRow) used to silently coerce any non-exact Airtable frequency value to "None", which made due.ts's `⚠ unrecognized frequency` warning dead code and its trailing-space tolerance moot — a renamed or trailing-space select option silently dropped a site from report scheduling with zero signal. Now `toFrequency` trims first (so "Quarterly " schedules as Quarterly, preserving #197's intent), warns LOUDLY on any still-unrecognized non-empty value before coercing it to "None", and stays silent for blank cells. The unreachable warn/trim branches in due.ts are deleted, and the two due.test.ts cases that asserted the old behavior through a factory bypass now feed raw Airtable-shaped records through mapRow.
+- 0b9c57c: LOW-severity sweep (evening-review backlog). Forms: `createIngestAction` guards `buildPayload`/`buildSubmissionMeta` so a bad field access becomes `fail(400)` not a 500 (endpoint parity); the screen-out beacon key is namespaced to `_screenOut` (both keys accepted for wire-compat with older senders); the unused visitor user-agent is no longer forwarded in `_meta`. Audits: distinct greppable log labels for `fleet_events` prune failure and the Dependabot→pnpm-audit degradation; the Netlify deploy fetch is bounded with an `AbortSignal.timeout` so a half-open TCP can't stall the fleet sweep. Dashboard: `trigger-renovate` rejects a malformed legacy `Git repo` cell (reuses `REPO_RE`) instead of dispatching into a 502, and its stale `makeGitHub` comment is corrected to `makeGitHubRest`. Recipes: `selftest email --all` targets report-eligible statuses (maintenance + hosting) rather than a hard-coded `maintenance`. Configs: the unused `playwrightA11yConfig` export is removed. Tests: `draft.test.ts` writes its preview under `os.tmpdir()` via `mkdtemp` instead of a hardcoded `/tmp` path. Docs: `TURNSTILE_SECRET_KEY` added to the deploy-env table; three stranded morning-report briefs recovered into the repo.
+- 76d39a1: fix(forms): map benign Turnstile error-codes to unverifiable; fail weight 70→50
+
+  `verifyTurnstile` now parses the siteverify `error-codes` array and returns
+  `"fail"` only for `invalid-input-response` (an actual bad/forged token). Every
+  other `success:false` — `timeout-or-duplicate` (expired 300s token from a
+  human filling a long form, or a double-submit), `internal-error`, secret/config
+  errors, unknown or absent codes — fails open to `"unverifiable"`, so a
+  Cloudflare-side or operational condition never punishes a possibly-real
+  visitor. The classifier's turnstile-fail weight drops from 70 to 50 so a lone
+  "fail" plus one benign co-signal (a single pasted URL, +30) no longer reaches
+  the spam_auto threshold of 100, and a new guardrail test pins that
+  `requireTurnstile` sites keep accepting + notifying on `"unverifiable"`
+  (Cloudflare outage / JS-off visitors never spam-bucket on gated sites).
+
 ## 0.71.0
 
 ### Minor Changes
