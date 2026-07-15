@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { preflight } from "../../src/reports/preflight.js";
 import { makeFakeBase, type FakeRecord } from "./_helpers/fake-airtable-base.js";
 
@@ -97,11 +97,20 @@ describe("preflight() orchestrator (fake Airtable base)", () => {
   });
 
   it("end-to-end through mapRow: a typo'd frequency cell fails preflight (the reachability regression)", async () => {
-    const base = makeFakeBase({
-      Websites: [siteRecord("rec1", "Acme", { "maintenence freq": "Quaterly" })],
-      Reports: [],
-    });
-    const { results } = await preflight({ base, site: "acme", now: NOW });
-    expect(results[0]!.findings.map((f) => f.check)).toContain("frequency-unrecognized");
+    // The rows go through the REAL mapRow, so toFrequency's read-boundary warn
+    // fires here too — spy on it (silencing the stderr noise) and assert it.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const base = makeFakeBase({
+        Websites: [siteRecord("rec1", "Acme", { "maintenence freq": "Quaterly" })],
+        Reports: [],
+      });
+      const { results } = await preflight({ base, site: "acme", now: NOW });
+      expect(results[0]!.findings.map((f) => f.check)).toContain("frequency-unrecognized");
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]![0]).toMatch(/Acme.*unrecognized frequency 'Quaterly'/);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
