@@ -49,6 +49,11 @@ export type DraftResult = {
   html: string;
   /** Enrichment fetches that errored for this site (empty on success or skip). */
   softFailures: SoftFailure[];
+  /** True when search enrichment fell back to the site name (no explicit `Search query`)
+   *  AND that default matched nothing in Search Console — the signal that this site needs
+   *  a hand-tuned brand query. Distinct from a soft-failure/outage: the fetch succeeded, it
+   *  just found no data for the name. */
+  searchDefaultMissed: boolean;
   /** Whether the draft was placed in the approve queue. False when a higher-or-equal-tier
    *  report is already queued for the site (single-queue rule); null on the previewOnly path. */
   queued: boolean | null;
@@ -121,7 +126,9 @@ export async function draftReportForSite(
   const gaResult =
     base !== null ? await fetchGaUsers(siteRow, periodStart, periodEnd) : NO_ENRICHMENT;
   const searchResult =
-    base !== null ? await fetchSearch(siteRow, periodStart, periodEnd) : NO_ENRICHMENT;
+    base !== null
+      ? await fetchSearch(siteRow, periodStart, periodEnd)
+      : { ...NO_ENRICHMENT, defaultQueryMissed: false };
   const gaUsers = gaResult.value;
   const search = searchResult.value;
   const softFailures: SoftFailure[] = [
@@ -149,7 +156,15 @@ export async function draftReportForSite(
     const path = options.previewPath ?? `reports/${slug}/draft.html`;
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, html, "utf-8");
-    return { reportRow: null, htmlPath: path, html, softFailures, queued: null, supersededIds: [] };
+    return {
+      reportRow: null,
+      htmlPath: path,
+      html,
+      softFailures,
+      searchDefaultMissed: searchResult.defaultQueryMissed,
+      queued: null,
+      supersededIds: [],
+    };
   }
 
   if (base === null) throw new Error("base required when previewOnly=false");
@@ -190,6 +205,7 @@ export async function draftReportForSite(
       htmlPath: null,
       html,
       softFailures,
+      searchDefaultMissed: searchResult.defaultQueryMissed,
       queued: outcome.queued,
       supersededIds: outcome.supersededIds,
     };
@@ -237,6 +253,7 @@ export async function draftReportForSite(
     htmlPath: null,
     html,
     softFailures,
+    searchDefaultMissed: searchResult.defaultQueryMissed,
     queued: outcome.queued,
     supersededIds: outcome.supersededIds,
   };
@@ -288,20 +305,37 @@ export async function fetchGaUsers(
   }
 }
 
+/** A search enrichment, plus whether it fell back to the site-name default and that
+ *  default found nothing (see `fetchSearch` / `DraftResult.searchDefaultMissed`). */
+type SearchEnrichment = Enrichment<SearchPresence> & { defaultQueryMissed: boolean };
+
 /**
- * Fetch the site's Google search presence for the period, soft-failing to null. Returns a null
- * value when GA/SA isn't configured (`readGaConfig()` null — search shares the SA credentials)
- * or the site has no `searchQuery` (legitimate skips, `softFailed: false`). When the Search
- * Console API errors it logs a one-line warning and returns `softFailed: true`. Never throws,
- * so a search problem can never block a draft.
+ * Fetch the site's Google search presence for the period, soft-failing to null. Runs whenever
+ * GA/SA is configured (`readGaConfig()` non-null — search shares the SA credentials) AND the
+ * site is analytics-enrolled (has a `ga4PropertyId` OR an explicit `searchQuery`); otherwise a
+ * legitimate skip (null value, `softFailed: false`). The brand query defaults to the site NAME
+ * when no explicit `searchQuery` is set (whitespace-only counts as unset) — so brand presence is
+ * tracked automatically, and the operator only hand-tunes the handful of sites the name misses.
+ *
+ * `defaultQueryMissed` is true ONLY when the site-name default was used AND Search Console
+ * returned no data for it (`position === null`) — the signal to set an explicit `Search query`.
+ * It is false for an explicit query (even one that finds nothing — that's a valid measurement),
+ * a default that does find a position, the not-enrolled skip, and the errored soft-fail path.
+ *
+ * When the Search Console API errors it logs a one-line warning and returns `softFailed: true`.
+ * Never throws, so a search problem can never block a draft.
  */
 export async function fetchSearch(
   siteRow: WebsiteRow,
   periodStart: Date,
   periodEnd: Date,
-): Promise<Enrichment<SearchPresence>> {
+): Promise<SearchEnrichment> {
   const cfg = readGaConfig();
-  if (!cfg || !siteRow.searchQuery) return NO_ENRICHMENT;
+  if (!cfg || !(siteRow.ga4PropertyId || siteRow.searchQuery))
+    return { ...NO_ENRICHMENT, defaultQueryMissed: false };
+  const explicit = siteRow.searchQuery?.trim();
+  const query = explicit || siteRow.name;
+  const usedDefault = !explicit;
   try {
     const value = await fetchSearchPresence(
       {
@@ -309,15 +343,21 @@ export async function fetchSearch(
         subjects: cfg.subjects,
         property: siteRow.searchConsoleProperty ?? undefined,
         host: siteRow.url,
-        query: siteRow.searchQuery,
+        query,
       },
       periodStart,
       periodEnd,
     );
-    return { value, softFailed: false };
+    const defaultQueryMissed = usedDefault && value.position === null;
+    if (defaultQueryMissed) {
+      console.warn(
+        `⚑ Search: site-name default "${query}" found no Search Console data for ${siteRow.name} — set an explicit "Search query" in Airtable to track brand presence.`,
+      );
+    }
+    return { value, softFailed: false, defaultQueryMissed };
   } catch (e) {
     console.warn(`⚠ Search presence skipped for ${siteRow.name}: ${(e as Error).message}`);
-    return { value: null, softFailed: true };
+    return { value: null, softFailed: true, defaultQueryMissed: false };
   }
 }
 

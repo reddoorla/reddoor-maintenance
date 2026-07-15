@@ -50,6 +50,7 @@ beforeEach(() => {
   vi.mocked(fetchSearch).mockResolvedValue({
     value: { foundOnPage1: true, position: 3 },
     softFailed: false,
+    defaultQueryMissed: false,
   });
 });
 
@@ -98,7 +99,11 @@ describe("buildReportDataForSite", () => {
 
   it("omits GA fields when enrichment is unavailable (null)", async () => {
     vi.mocked(fetchGaUsers).mockResolvedValue({ value: null, softFailed: false });
-    vi.mocked(fetchSearch).mockResolvedValue({ value: null, softFailed: false });
+    vi.mocked(fetchSearch).mockResolvedValue({
+      value: null,
+      softFailed: false,
+      defaultQueryMissed: false,
+    });
     const d = await buildReportDataForSite(site(), "Maintenance", NOW, { scores, header: HEADER });
     expect(d.gaUsersCurrent).toBeUndefined();
     expect(d.searchPosition).toBeUndefined();

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { draftReportForSite } from "../../src/reports/draft.js";
+import { draftReportForSite, fetchSearch } from "../../src/reports/draft.js";
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import { makeFakeBase } from "./_helpers/fake-airtable-base.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
@@ -237,6 +237,15 @@ describe("draftReportForSite", () => {
   });
 
   describe("GA enrichment", () => {
+    // These cases assert only on GA fields, but a GA-enrolled site (ga4PropertyId set) now also
+    // traverses the search branch with the site-name default. Give the search client a faithful
+    // production-shaped no-data response so that branch exercises a clean miss (defaultQueryMissed,
+    // no soft-fail) rather than throwing on an unmocked `undefined.position`. The search-specific
+    // and fetchSearch describe blocks below keep their own explicit mocks.
+    beforeEach(() => {
+      vi.mocked(fetchSearchPresence).mockResolvedValue({ foundOnPage1: false, position: null });
+    });
+
     it("writes GA users into the row when configured and the site has a property ID", async () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
       vi.mocked(fetchPeriodUsers).mockResolvedValue({ current: 666, previous: 540 });
@@ -340,6 +349,117 @@ describe("draftReportForSite", () => {
         "Maintenance",
       );
       expect(result.softFailures).toContain("search");
+    });
+
+    it("surfaces searchDefaultMissed on the DraftResult when the site-name default finds nothing", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      // No explicit searchQuery, but GA-enrolled → search runs with the site name as the
+      // default query. position:null means the name matched nothing in Search Console.
+      vi.mocked(fetchSearchPresence).mockResolvedValue({ foundOnPage1: false, position: null });
+      const base = makeFakeBase({ Reports: [] });
+      const result = await draftReportForSite(
+        base,
+        siteFixture({ searchQuery: null, ga4PropertyId: "471880366" }),
+        "Maintenance",
+      );
+      expect(result.searchDefaultMissed).toBe(true);
+    });
+
+    it("leaves searchDefaultMissed false when an explicit query finds nothing", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({ foundOnPage1: false, position: null });
+      const base = makeFakeBase({ Reports: [] });
+      const result = await draftReportForSite(
+        base,
+        siteFixture({ searchQuery: "erp funds" }),
+        "Maintenance",
+      );
+      expect(result.searchDefaultMissed).toBe(false);
+    });
+  });
+
+  describe("fetchSearch — default query + name-default miss flag", () => {
+    const period = { start: new Date("2026-05-01"), end: new Date("2026-05-31") };
+    const lastQuery = () => vi.mocked(fetchSearchPresence).mock.calls[0]![0].query;
+
+    it("passes an explicit searchQuery verbatim and does not flag a default miss", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({ foundOnPage1: true, position: 3 });
+      const res = await fetchSearch(
+        siteFixture({ searchQuery: "erp funds", ga4PropertyId: null }),
+        period.start,
+        period.end,
+      );
+      expect(lastQuery()).toBe("erp funds");
+      expect(res.defaultQueryMissed).toBe(false);
+    });
+
+    it("defaults the query to the site name when searchQuery is empty but GA is enrolled", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({ foundOnPage1: true, position: 3 });
+      await fetchSearch(
+        siteFixture({ searchQuery: null, ga4PropertyId: "471880366" }),
+        period.start,
+        period.end,
+      );
+      expect(lastQuery()).toBe("Acme Co");
+    });
+
+    it("treats a whitespace-only searchQuery as empty and falls back to the site name", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({ foundOnPage1: true, position: 3 });
+      await fetchSearch(
+        siteFixture({ searchQuery: "   ", ga4PropertyId: "471880366" }),
+        period.start,
+        period.end,
+      );
+      expect(lastQuery()).toBe("Acme Co");
+    });
+
+    it("skips search (never calls the API) when the site has neither a query nor a GA property", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      const res = await fetchSearch(
+        siteFixture({ searchQuery: null, ga4PropertyId: null }),
+        period.start,
+        period.end,
+      );
+      expect(fetchSearchPresence).not.toHaveBeenCalled();
+      expect(res.value).toBeNull();
+      expect(res.softFailed).toBe(false);
+      expect(res.defaultQueryMissed).toBe(false);
+    });
+
+    it("flags defaultQueryMissed when the site-name default returns position:null", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({ foundOnPage1: false, position: null });
+      const res = await fetchSearch(
+        siteFixture({ searchQuery: null, ga4PropertyId: "471880366" }),
+        period.start,
+        period.end,
+      );
+      expect(res.defaultQueryMissed).toBe(true);
+    });
+
+    it("does NOT flag defaultQueryMissed when the site-name default finds a position", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({ foundOnPage1: true, position: 3 });
+      const res = await fetchSearch(
+        siteFixture({ searchQuery: null, ga4PropertyId: "471880366" }),
+        period.start,
+        period.end,
+      );
+      expect(res.defaultQueryMissed).toBe(false);
+    });
+
+    it("does NOT flag defaultQueryMissed when an EXPLICIT query returns position:null", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({ foundOnPage1: false, position: null });
+      const res = await fetchSearch(
+        siteFixture({ searchQuery: "erp funds", ga4PropertyId: null }),
+        period.start,
+        period.end,
+      );
+      expect(res.defaultQueryMissed).toBe(false);
     });
   });
 

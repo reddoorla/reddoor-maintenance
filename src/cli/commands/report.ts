@@ -208,6 +208,7 @@ export async function draftDueReports(
 
   const lines: string[] = [];
   let softFailedSites = 0;
+  let searchDefaultMisses = 0;
   let gaConfiguredSites = 0;
   let skipped = 0;
   for (const item of due) {
@@ -269,6 +270,7 @@ export async function draftDueReports(
         );
         if (isAnalyticsConfigured(item.site)) gaConfiguredSites++;
         if (result.softFailures.length > 0) softFailedSites++;
+        if (result.searchDefaultMissed) searchDefaultMisses++;
       } catch (e) {
         lines.push(`✗ failed: ${item.site.name} ${item.reportType} — ${(e as Error).message}`);
       }
@@ -316,6 +318,7 @@ export async function draftDueReports(
       // outage is one obvious line at the bottom, not 200 buried console.warns.
       if (isAnalyticsConfigured(item.site)) gaConfiguredSites++;
       if (result.softFailures.length > 0) softFailedSites++;
+      if (result.searchDefaultMissed) searchDefaultMisses++;
     } catch (e) {
       lines.push(`✗ failed: ${item.site.name} ${item.reportType} — ${(e as Error).message}`);
     }
@@ -326,6 +329,11 @@ export async function draftDueReports(
   if (softFailedSites > 0) {
     lines.push(
       `⚠ ${softFailedSites} site${softFailedSites === 1 ? "" : "s"} had GA/Search enrichment fail — drafted with blank analytics; check the logs above`,
+    );
+  }
+  if (searchDefaultMisses > 0) {
+    lines.push(
+      `⚑ ${searchDefaultMisses} site${searchDefaultMisses === 1 ? "" : "s"} returned no Search Console data for their name — set an explicit "Search query" in Airtable to track brand presence.`,
     );
   }
   return {
