@@ -1,6 +1,7 @@
 import type { WebsiteRow } from "../reports/airtable/websites.js";
+import { REPO_RE } from "./site-details.js";
 
-/** Injected IO — the `.mts` binds these to a live Airtable base + makeGitHub; tests bind fakes. */
+/** Injected IO — the `.mts` binds these to a live Airtable base + makeGitHubRest; tests bind fakes. */
 export type TriggerRenovateDeps = {
   getSite: (slug: string) => Promise<WebsiteRow | null>;
   /** Dispatch the repo's renovate.yml (the adapter resolves the default branch). */
@@ -26,8 +27,11 @@ export async function triggerRenovateForSite(
 ): Promise<TriggerRenovateResult> {
   const site = await deps.getSite(slug);
   if (!site) return { status: "not-found", slug };
+  // Legacy rows hold free-text `Git repo` values (site-details validates only
+  // NEW edits) — gate on the same owner/repo shape so a malformed cell maps to
+  // a clean no-repo instead of a doomed dispatch call.
   const repo = site.gitRepo?.trim();
-  if (!repo) return { status: "no-repo", slug };
+  if (!repo || !REPO_RE.test(repo)) return { status: "no-repo", slug };
   try {
     await deps.dispatch(repo);
     return { status: "dispatched", slug, repo };

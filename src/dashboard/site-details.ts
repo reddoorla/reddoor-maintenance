@@ -41,7 +41,9 @@ export const EDITABLE_SITE_FIELDS: Record<string, EditableField> = {
 };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
+/** `owner/repo` shape. Exported for other dashboard surfaces that consume the
+ *  legacy free-text `Git repo` cell (e.g. trigger-renovate). */
+export const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 
 /**
  * Validate/normalize a raw value for a field kind. Returns the string to write, or
