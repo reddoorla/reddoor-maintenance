@@ -63,15 +63,16 @@ function lastSentForType(reports: ReportRow[], siteId: string, type: ReportType)
 /**
  * The next-due date for one (site, type): the date the next report of that type is
  * scheduled to draft, whether or not it's due yet. `null` when there's no schedule —
- * an ineligible status, a "None"/blank frequency, or an unrecognized frequency value.
+ * an ineligible status or a "None" frequency. Unrecognized/blank raw Airtable values
+ * never reach here: mapRow's `toFrequency` trims, warns LOUDLY, and coerces them to
+ * "None" at the read boundary.
  *
  * baseDate = the last `Sent at` for this (site, type), else the site's
  * `maintenance day`/`testing day` anchor. With no baseDate at all the next report is
  * due now (returns `today` at UTC midnight). Otherwise baseDate + frequency.
  *
  * Shared with {@link findDueReports} so the scheduler and any schedule display can't
- * drift on what "next" means. NOTE: callers wanting the LOUD unrecognized-frequency
- * warning use findDueReports; this returns null silently for that case.
+ * drift on what "next" means.
  */
 export function nextDueDate(
   site: WebsiteRow,
@@ -80,10 +81,8 @@ export function nextDueDate(
   today: Date,
 ): Date | null {
   if (site.status !== null && !ELIGIBLE_STATUSES.has(site.status)) return null;
-  const rawFreq = type === "Maintenance" ? site.maintenanceFreq : site.testingFreq;
-  const freq = (typeof rawFreq === "string" ? rawFreq.trim() : rawFreq) as Frequency;
-  if (freq === "None" || freq === ("" as Frequency)) return null;
-  if (!(freq in MONTHS)) return null;
+  const freq = type === "Maintenance" ? site.maintenanceFreq : site.testingFreq;
+  if (freq === "None") return null;
   const lastSent = lastSentForType(reports, site.id, type);
   const fallback = type === "Maintenance" ? site.maintenanceDay : site.testingDay;
   const baseIso = lastSent ?? fallback;
@@ -116,23 +115,13 @@ export function findDueReports(
     if (site.status !== null && !ELIGIBLE_STATUSES.has(site.status)) continue;
 
     for (const type of ["Maintenance", "Testing"] as const) {
-      const rawFreq = type === "Maintenance" ? site.maintenanceFreq : site.testingFreq;
-      // Normalize obvious whitespace so a trailing-space typo ("Quarterly ") still
-      // schedules. The LOUD warning below is the real safety net for genuine
-      // casing/spelling mistakes ("monthly", "Quaterly").
-      const freq = (typeof rawFreq === "string" ? rawFreq.trim() : rawFreq) as Frequency;
-      // Intentional silent skip — "None" (and the empty/blank default) means "no
-      // schedule", not a mistake.
-      if (freq === "None" || freq === ("" as Frequency)) continue;
-      // A non-empty, non-None value that doesn't match a known schedule used to
-      // silently produce no due date — the site just vanished from the loop. Warn
-      // LOUDLY so a casing/typo Airtable value is fixable instead of invisible.
-      if (!(freq in MONTHS)) {
-        console.warn(
-          `⚠ ${site.name}: unrecognized ${type === "Maintenance" ? "maintenance" : "testing"} frequency '${rawFreq}' — not scheduling; fix the Airtable value`,
-        );
-        continue;
-      }
+      const freq = type === "Maintenance" ? site.maintenanceFreq : site.testingFreq;
+      // Intentional silent skip — "None" (also the coerced default for blank cells)
+      // means "no schedule", not a mistake. A trailing-space or typo'd raw Airtable
+      // value never reaches here: mapRow's `toFrequency` trims (so "Quarterly "
+      // schedules) and warns LOUDLY on anything still unrecognized before coercing
+      // it to "None" — the guard lives at the read boundary, not in this loop.
+      if (freq === "None") continue;
 
       const lastSent = lastSentForType(reports, site.id, type);
       // Same computation as the schedule write-back uses. The guards above already

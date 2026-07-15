@@ -43,9 +43,10 @@ export type WebsiteRow = {
   maintenanceFreq: Frequency;
   testingFreq: Frequency;
   /** The literal Airtable cell values behind the coerced frequencies. `toFrequency`
-   *  maps any unrecognized value ("Quaterly", "Monthly ") to "None" so nothing bogus
-   *  reaches a client email — which also makes typos invisible downstream. Preflight
-   *  validates THESE to make that failure mode loud. Null = blank cell. */
+   *  trims whitespace ("Monthly " reads as Monthly), then maps any still-unrecognized
+   *  value ("Quaterly") to "None" with a LOUD console.warn so nothing bogus reaches a
+   *  client email and the drop is never invisible. Preflight validates THESE to surface
+   *  the same failure as a structured finding. Null = blank cell. */
   maintenanceFreqRaw: string | null;
   testingFreqRaw: string | null;
   /** Last manually-recorded maintenance day (used as fallback when no Reports row exists). */
@@ -265,14 +266,23 @@ export function isPreLaunch(status: Status | null): boolean {
 
 const FREQUENCIES: readonly Frequency[] = ["None", "Monthly", "Quarterly", "Yearly"];
 
-/** Coerce an Airtable single-select value to a known Frequency. An unrecognized value — a
- *  renamed / typo'd / whitespace option — falls back to "None" (its section is simply omitted)
- *  rather than flowing a bogus string downstream, which the announcement would otherwise render
- *  as "We do this undefined." into a client email. */
-function toFrequency(raw: unknown): Frequency {
-  return typeof raw === "string" && (FREQUENCIES as readonly string[]).includes(raw)
-    ? (raw as Frequency)
-    : "None";
+/** Coerce an Airtable single-select value to a known Frequency at the read boundary.
+ *  Whitespace is trimmed first, so an operator's trailing-space option ("Quarterly ")
+ *  still schedules instead of silently unscheduling the site. Any other non-empty,
+ *  unrecognized value — a renamed / typo'd option — warns LOUDLY and falls back to
+ *  "None" (its section is simply omitted) rather than flowing a bogus string downstream,
+ *  which the announcement would otherwise render as "We do this undefined." into a
+ *  client email. Blank/undefined is a silent "None": no schedule is intentional. */
+function toFrequency(raw: unknown, context: string): Frequency {
+  if (typeof raw !== "string") return "None";
+  const trimmed = raw.trim();
+  if ((FREQUENCIES as readonly string[]).includes(trimmed)) return trimmed as Frequency;
+  if (trimmed !== "") {
+    console.warn(
+      `⚠ ${context}: unrecognized frequency '${raw}' — treating as None (not scheduling); fix the Airtable value`,
+    );
+  }
+  return "None";
 }
 
 /** Coerce an Airtable tri-state single-select verdict cell (`pass`/`fail`/blank) to
@@ -293,17 +303,18 @@ export function toVerdict(raw: unknown): "pass" | "fail" | null {
 // empty) with no error. If you rename a column, change it here too.
 export function mapRow(rec: { id: string; fields: Record<string, unknown> }): WebsiteRow {
   const f = rec.fields;
+  const name = String(f["Name"] ?? "");
   const attachments =
     (f["Header image"] as Array<{ url: string; filename: string; type: string }> | undefined) ?? [];
   const header = attachments[0] ?? null;
   return {
     id: rec.id,
-    name: String(f["Name"] ?? ""),
+    name,
     url: String(f["url"] ?? ""),
     status: (f["Status"] as Status | undefined) ?? null,
     pointOfContact: (f["point of contact"] as string | undefined) ?? null,
-    maintenanceFreq: toFrequency(f["maintenence freq"]),
-    testingFreq: toFrequency(f["testing freq"]),
+    maintenanceFreq: toFrequency(f["maintenence freq"], `${name} maintenance`),
+    testingFreq: toFrequency(f["testing freq"], `${name} testing`),
     maintenanceFreqRaw: (f["maintenence freq"] as string | undefined) ?? null,
     testingFreqRaw: (f["testing freq"] as string | undefined) ?? null,
     maintenanceDay: (f["maintenance day"] as string | undefined) ?? null,
