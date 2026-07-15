@@ -1,8 +1,9 @@
-/** The reserved wire envelope a fleet site forwards alongside the lead fields. */
+/** The reserved wire envelope a fleet site forwards alongside the lead fields.
+ *  (Older package versions also sent a `userAgent` — central never consumed it,
+ *  so it is no longer forwarded; `readMeta` simply ignores it from old senders.) */
 export type SubmissionMeta = {
   turnstileToken?: string;
   clientIp?: string;
-  userAgent?: string;
 };
 
 function str(v: unknown): string {
@@ -11,11 +12,12 @@ function str(v: unknown): string {
 
 /**
  * Defensively read the reserved `_meta` envelope off an untrusted ingest payload
- * (CENTRAL side, used by the ingest handler). Keeps only non-blank string fields,
- * dropping the rest, so a bot cannot smuggle a non-string clientIp/userAgent into
- * the transient scoring path. The token/IP/UA read here are used transiently
- * (Turnstile `remoteip` + scoring) and are NEVER persisted; the token is never
- * stored. The SITE-side writer (`buildSubmissionMeta`) is added by the
+ * (CENTRAL side, used by the ingest handler). Keeps only non-blank string fields
+ * among the KNOWN keys, dropping everything else — a bot cannot smuggle a
+ * non-string clientIp in, and unknown fields (e.g. the `userAgent` older package
+ * versions still send) are silently ignored. The token/IP read here are used
+ * transiently (Turnstile verify + `remoteip`) and are NEVER persisted; the token
+ * is never stored. The SITE-side writer (`buildSubmissionMeta`) is added by the
  * site-factory task; `readMeta` is the single reader (there is no `parseMeta`).
  */
 export function readMeta(payload: unknown): SubmissionMeta {
@@ -28,29 +30,26 @@ export function readMeta(payload: unknown): SubmissionMeta {
   if (token) meta.turnstileToken = token;
   const ip = str(m.clientIp);
   if (ip) meta.clientIp = ip;
-  const ua = str(m.userAgent);
-  if (ua) meta.userAgent = ua;
   return meta;
 }
 
 /**
  * SITE-side event shape `buildSubmissionMeta` reads. Structural (not SvelteKit's
  * `RequestEvent`) so this leaf stays SDK-free; a real `RequestEvent` is
- * structurally assignable (`getClientAddress: () => string`, `request.headers`
- * is a `Headers` with a `get`).
+ * structurally assignable (`getClientAddress: () => string`).
  */
 type MetaEvent = {
   getClientAddress?: () => string;
-  request?: { headers?: { get?: (name: string) => string | null } };
 };
 
 /**
  * Build the transient `_meta` envelope a site forwards to central ingest:
- * `{ turnstileToken?, clientIp?, userAgent? }`. Returns `undefined` when no
- * field yields a value so callers can attach it unconditionally without
- * polluting the payload (an `undefined` value is dropped by `JSON.stringify`).
- * `getClientAddress` is guarded (some adapters lack a client address and can
- * throw); UA is read defensively. None of this is ever persisted.
+ * `{ turnstileToken?, clientIp? }`. Returns `undefined` when no field yields a
+ * value so callers can attach it unconditionally without polluting the payload
+ * (an `undefined` value is dropped by `JSON.stringify`). `getClientAddress` is
+ * guarded (some adapters lack a client address and can throw). The visitor's
+ * user-agent is deliberately NOT forwarded — central never consumed it, so
+ * shipping it was pure transient-PII surface. None of this is ever persisted.
  */
 export function buildSubmissionMeta(
   event: MetaEvent,
@@ -69,9 +68,6 @@ export function buildSubmissionMeta(
       // Some adapters have no client address and throw; drop clientIp silently.
     }
   }
-
-  const ua = event.request?.headers?.get?.("user-agent");
-  if (typeof ua === "string" && ua.trim()) meta.userAgent = ua.trim();
 
   return Object.keys(meta).length > 0 ? meta : undefined;
 }

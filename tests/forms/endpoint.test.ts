@@ -86,7 +86,7 @@ describe("createIngestEndpoint", () => {
     expect(await res.json()).toEqual({ ok: true });
     // No submission is forwarded — only the no-PII screen-out beacon may fire.
     const forwarded = (fetchMock as ReturnType<typeof vi.fn>).mock.calls.some(
-      ([, init]) => init && !("screenOut" in JSON.parse((init as RequestInit).body as string)),
+      ([, init]) => init && !("_screenOut" in JSON.parse((init as RequestInit).body as string)),
     );
     expect(forwarded).toBe(false);
   });
@@ -216,7 +216,7 @@ describe("createIngestEndpoint", () => {
     expect(await res.json()).toEqual({ ok: true });
     const screenBeacon = fetch.mock.calls.find(
       ([, init]) =>
-        init && JSON.parse((init as RequestInit).body as string).screenOut === "honeypot",
+        init && JSON.parse((init as RequestInit).body as string)._screenOut === "honeypot",
     );
     expect(screenBeacon).toBeTruthy();
   });
@@ -235,12 +235,12 @@ describe("createIngestEndpoint", () => {
     );
     expect(res.status).toBe(200);
     const anyScreen = fetch.mock.calls.some(
-      ([, init]) => init && "screenOut" in JSON.parse((init as RequestInit).body as string),
+      ([, init]) => init && "_screenOut" in JSON.parse((init as RequestInit).body as string),
     );
     expect(anyScreen).toBe(false);
   });
 
-  it("auto-threads _meta (turnstileToken/clientIp/userAgent) into the forwarded payload", async () => {
+  it("auto-threads _meta (turnstileToken/clientIp — never the user-agent) into the forwarded payload", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true, id: "recM" }));
     const endpoint = createIngestEndpoint({
       getConfig: okConfig,
@@ -261,7 +261,6 @@ describe("createIngestEndpoint", () => {
     expect(body._meta).toEqual({
       turnstileToken: "TOKEN123",
       clientIp: "203.0.113.7",
-      userAgent: "Mozilla/5.0 (X)",
     });
     // buildPayload output is still forwarded intact alongside _meta.
     expect(body.email).toBe("a@b.co");

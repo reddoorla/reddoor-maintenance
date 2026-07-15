@@ -99,8 +99,10 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     const base = openBase({ apiKey, baseId });
     const db = await openDb(readDbConfig());
 
-    // Screen-out beacon: a no-PII { screenOut: honeypot|too-fast } body is routed
+    // Screen-out beacon: a no-PII { _screenOut: honeypot|too-fast } body is routed
     // to the per-site/day Spam Screenouts counter instead of the submission path.
+    // (parseScreenOut also accepts the deprecated bare `screenOut` key that older
+    // package versions on sites still send.)
     const screenOutReason = parseScreenOut(payload);
     if (screenOutReason) {
       const date = new Date().toISOString().slice(0, 10);
@@ -129,10 +131,11 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
       );
     }
     // Tier A — verify the Cloudflare Turnstile token (fail-open). readMeta pulls
-    // the forwarded { turnstileToken, clientIp, userAgent } envelope off the
-    // payload; IP/UA are used transiently here (remoteip + scoring) and are
-    // NEVER persisted. Unset secret / network error / timeout / absent token →
-    // "unverifiable" (contributes 0 to the score), so verify never blocks a lead.
+    // the forwarded { turnstileToken, clientIp } envelope off the payload (a
+    // legacy userAgent from older senders is ignored); the IP is used transiently
+    // here (remoteip) and is NEVER persisted. Unset secret / network error /
+    // timeout / absent token → "unverifiable" (contributes 0 to the score), so
+    // verify never blocks a lead.
     const turnstileSecret = process.env.TURNSTILE_SECRET_KEY;
     if (!turnstileSecret && !warnedTurnstileUnset) {
       console.warn(

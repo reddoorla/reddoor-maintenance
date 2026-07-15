@@ -131,15 +131,24 @@ describe("draftReportForSite", () => {
   });
 
   it("writes a local preview file when previewOnly=true and never calls Airtable", async () => {
-    const result = await draftReportForSite(null, siteFixture(), "Maintenance", {
-      previewOnly: true,
-      previewPath: "/tmp/draft-test-preview.html",
-    });
-    expect(result.reportRow).toBeNull();
-    expect(result.htmlPath).toBe("/tmp/draft-test-preview.html");
-    expect(result.html).toContain("Acme Co");
-    const { unlink } = await import("node:fs/promises");
-    await unlink("/tmp/draft-test-preview.html");
+    // A unique per-run dir under os.tmpdir() — a hardcoded /tmp path isn't
+    // parallel-safe and is unwritable in sandboxed runners.
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "draft-test-"));
+    const previewPath = join(dir, "draft-test-preview.html");
+    try {
+      const result = await draftReportForSite(null, siteFixture(), "Maintenance", {
+        previewOnly: true,
+        previewPath,
+      });
+      expect(result.reportRow).toBeNull();
+      expect(result.htmlPath).toBe(previewPath);
+      expect(result.html).toContain("Acme Co");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("derives periodStart as the day AFTER the latest prior report's periodEnd (half-open)", async () => {

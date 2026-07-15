@@ -24,8 +24,15 @@ export async function recordFleetEventsBestEffort(
   }
   try {
     for (const e of events) await recordFleetEvent(db, e);
-    await pruneFleetEvents(db, new Date(now.getTime() - RETENTION_MS).toISOString());
   } catch (e) {
     console.error(`[fleet-events] write failed: ${String(e)}`);
+    return; // no point pruning over the same broken connection
+  }
+  // Prune failures get their own greppable label — a recurring prune failure
+  // (table growing unbounded) must be distinguishable from a write failure.
+  try {
+    await pruneFleetEvents(db, new Date(now.getTime() - RETENTION_MS).toISOString());
+  } catch (e) {
+    console.error(`[fleet-events] prune failed: ${String(e)}`);
   }
 }

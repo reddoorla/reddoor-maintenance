@@ -90,7 +90,7 @@ describe("createIngestAction", () => {
     expect(result).toEqual({ success: true });
     // No submission is forwarded — only the no-PII screen-out beacon may fire.
     const forwarded = (fetchMock as ReturnType<typeof vi.fn>).mock.calls.some(
-      ([, init]) => init && !("screenOut" in JSON.parse((init as RequestInit).body as string)),
+      ([, init]) => init && !("_screenOut" in JSON.parse((init as RequestInit).body as string)),
     );
     expect(forwarded).toBe(false);
   });
@@ -108,7 +108,7 @@ describe("createIngestAction", () => {
     const result = await action(fakeEvent({ email: "a@b.co", ts: goodTs }, fetchMock));
     expect(result).toEqual({ success: true });
     const forwarded = (fetchMock as ReturnType<typeof vi.fn>).mock.calls.some(
-      ([, init]) => init && !("screenOut" in JSON.parse((init as RequestInit).body as string)),
+      ([, init]) => init && !("_screenOut" in JSON.parse((init as RequestInit).body as string)),
     );
     expect(forwarded).toBe(false);
   });
@@ -215,7 +215,7 @@ describe("createIngestAction", () => {
     ).rejects.toMatchObject({ status: 303, location: "/thank-you" });
     // The submission is not forwarded — only the no-PII screen-out beacon may fire.
     const forwarded = (fetchMock as ReturnType<typeof vi.fn>).mock.calls.some(
-      ([, init]) => init && !("screenOut" in JSON.parse((init as RequestInit).body as string)),
+      ([, init]) => init && !("_screenOut" in JSON.parse((init as RequestInit).body as string)),
     );
     expect(forwarded).toBe(false);
   });
@@ -263,7 +263,7 @@ describe("createIngestAction", () => {
     expect(res).toEqual({ success: true });
     const screenBeacon = fetch.mock.calls.find(
       ([, init]) =>
-        init && JSON.parse((init as RequestInit).body as string).screenOut === "honeypot",
+        init && JSON.parse((init as RequestInit).body as string)._screenOut === "honeypot",
     );
     expect(screenBeacon).toBeTruthy();
   });
@@ -284,12 +284,12 @@ describe("createIngestAction", () => {
     );
     expect(res).toEqual({ success: true });
     const anyScreen = fetch.mock.calls.some(
-      ([, init]) => init && "screenOut" in JSON.parse((init as RequestInit).body as string),
+      ([, init]) => init && "_screenOut" in JSON.parse((init as RequestInit).body as string),
     );
     expect(anyScreen).toBe(false);
   });
 
-  it("auto-threads _meta (turnstileToken/clientIp/userAgent) into the forwarded payload", async () => {
+  it("auto-threads _meta (turnstileToken/clientIp — never the user-agent) into the forwarded payload", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true, id: "recM" }));
     const action = createIngestAction({
       formType: "contact",
@@ -309,7 +309,6 @@ describe("createIngestAction", () => {
     expect(body._meta).toEqual({
       turnstileToken: "TOKEN123",
       clientIp: "203.0.113.7",
-      userAgent: "Mozilla/5.0 (X)",
     });
     // buildPayload output is still forwarded intact alongside _meta.
     expect(body.email).toBe("a@b.co");
@@ -363,7 +362,7 @@ describe("createIngestAction", () => {
     expect(result).toEqual({ success: true });
     // Honeypot tier is unchanged: the real submission is never forwarded.
     const forwarded = (fetchMock as ReturnType<typeof vi.fn>).mock.calls.some(
-      ([, init]) => init && !("screenOut" in JSON.parse((init as RequestInit).body as string)),
+      ([, init]) => init && !("_screenOut" in JSON.parse((init as RequestInit).body as string)),
     );
     expect(forwarded).toBe(false);
   });
@@ -389,5 +388,22 @@ describe("createIngestAction", () => {
     );
     const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
     expect(body._meta).toEqual({ turnstileToken: "TOK" });
+  });
+});
+
+describe("createIngestAction — buildPayload guard", () => {
+  it("returns fail(400), never an uncaught 500, when buildPayload throws on a missing field", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true, id: "recX" }));
+    const action = createIngestAction({
+      formType: "contact",
+      getConfig: okConfig,
+      // A careless site mapping: `.toString()` on an absent field throws at runtime.
+      buildPayload: (form) => ({ email: form.get("email")!.toString() }),
+      now,
+    });
+    // No `email` field submitted → buildPayload throws → must surface as fail(400).
+    const result = await action(fakeEvent({ ts: goodTs }, fetchMock));
+    expect((result as { status?: number }).status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

@@ -18,7 +18,9 @@ describe("submitScreenOut", () => {
     expect(url).toBe("https://dash/api/forms/acme");
     expect((init as RequestInit).method).toBe("POST");
     expect((init as RequestInit).headers).toMatchObject({ "x-forms-token": "T" });
-    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ screenOut: "honeypot" });
+    // The reserved beacon key is namespaced (`_screenOut`, matching `_meta`) so a
+    // site's real form field named "screenOut" can never be mistaken for a beacon.
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ _screenOut: "honeypot" });
   });
 
   it("never throws on a network error", async () => {

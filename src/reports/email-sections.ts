@@ -13,8 +13,10 @@ import type { ReportData } from "./types.js";
  */
 export const escapeXml = escapeHtml;
 
-const RED = "#C00";
-const GREY = "#757575";
+// Brand palette shared across the report-email family (maintenance/testing,
+// launch, announcement) so a template can't drift onto hand-typed literals.
+export const RED = "#C00";
+export const GREY = "#757575";
 const BORDER = "#CCCCCC";
 const TREND_UP = "#2E7D32"; // positive green — growth reads as good
 const TREND_NEUTRAL = GREY; // muted grey — dips/flat aren't failures (brand red is reserved)

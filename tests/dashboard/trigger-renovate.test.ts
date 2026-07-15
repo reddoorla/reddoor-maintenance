@@ -41,6 +41,22 @@ describe("triggerRenovateForSite", () => {
     expect(r).toEqual({ status: "no-repo", slug: "x" });
   });
 
+  it("returns no-repo (no dispatch) for a malformed legacy Git repo cell", async () => {
+    const calls: string[] = [];
+    const r = await triggerRenovateForSite(
+      deps({
+        getSite: async () =>
+          makeWebsiteRow({ id: "r", name: "X", gitRepo: "https://github.com/reddoorla/x" }),
+        dispatch: async (repo) => {
+          calls.push(repo);
+        },
+      }),
+      "x",
+    );
+    expect(r).toEqual({ status: "no-repo", slug: "x" });
+    expect(calls).toEqual([]); // a non-owner/repo value never reaches a doomed dispatch
+  });
+
   it("returns failed (never throws) when dispatch throws", async () => {
     const r = await triggerRenovateForSite(
       deps({

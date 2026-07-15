@@ -1,7 +1,13 @@
 import { SUBMISSION_FORM_TYPES, type FormType } from "./types.js";
 import type { SubmissionMeta } from "./meta.js";
 
-/** The JSON wire format a fleet site forwards to the ingest endpoint. */
+/** The JSON wire format a fleet site forwards to the ingest endpoint.
+ *
+ *  Underscore-prefixed keys are RESERVED for transport concerns and are never
+ *  lead data: `_meta` (below) and `_screenOut` (the bot screen-out beacon —
+ *  a `{ _screenOut: "honeypot" | "too-fast" }` body is a counter ping, not a
+ *  submission; see ingest.ts `parseScreenOut`). Site field names must not
+ *  start with `_`. */
 export type SubmissionPayload = {
   formType?: string;
   name?: string;

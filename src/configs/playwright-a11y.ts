@@ -26,7 +26,10 @@ export const smokeRoutes: A11yRoute[] = [{ path: "/", name: "home" }];
 const smokePort = process.env.REDDOOR_SMOKE_PORT;
 const port = smokePort || "5173";
 
-export const playwrightA11yConfig: PlaywrightTestConfig = defineConfig({
+// NOTE: default export only — sites consume this as `import base from
+// "@reddoorla/maintenance/configs/playwright-a11y"` (or re-export the default).
+// The old `playwrightA11yConfig` named alias had zero importers and was removed.
+const playwrightA11yConfig: PlaywrightTestConfig = defineConfig({
   testDir: "tests",
   testMatch: /.*\.spec\.ts$/,
   fullyParallel: true,

@@ -92,15 +92,27 @@ export function createIngestAction(
       return fail(500, { error: unavailable });
     }
 
+    // buildPayload runs on untrusted form data; a careless field access (e.g.
+    // `form.get("email")!.toString()` on an absent field) would otherwise escape
+    // as an uncaught 500. Treat a throw as a malformed request (400), mirroring
+    // endpoint.ts's guard and its "never 500s" guarantee.
+    let payload: SubmissionPayload;
+    try {
+      payload = {
+        ...opts.buildPayload(form, event),
+        formType: opts.formType,
+        _meta: buildSubmissionMeta(event, form.get(turnstileFieldName)?.toString()),
+      };
+    } catch (err) {
+      console.error(`[forms-ingest] ${opts.formType}: buildPayload threw: ${String(err)}`);
+      return fail(400, { error: failed });
+    }
+
     const result = await submitToIngest({
       url,
       token,
       fetch: event.fetch,
-      payload: {
-        ...opts.buildPayload(form, event),
-        formType: opts.formType,
-        _meta: buildSubmissionMeta(event, form.get(turnstileFieldName)?.toString()),
-      },
+      payload,
     });
     if (!result.ok) {
       console.error(`[forms-ingest] ${opts.formType} → ${result.status}: ${result.error}`);

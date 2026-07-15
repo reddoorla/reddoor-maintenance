@@ -51,10 +51,15 @@ export type ScreenOutResult =
   | { status: "recorded"; slug: string }
   | { status: "unknown-site"; slug: string };
 
-/** Extract the screen-out reason from a beacon body, or null if it isn't one. */
+/** Extract the screen-out reason from a beacon body, or null if it isn't one.
+ *  The beacon key is the reserved `_screenOut` (underscore-namespaced like `_meta`,
+ *  see payload.ts). The bare `screenOut` key is the DEPRECATED pre-namespacing wire
+ *  shape — sites run older package versions for a while, so the central receiver
+ *  keeps accepting it. `_screenOut` wins when both are present. */
 export function parseScreenOut(payload: unknown): "honeypot" | "too-fast" | null {
   if (!payload || typeof payload !== "object") return null;
-  const v = (payload as Record<string, unknown>)["screenOut"];
+  const body = payload as Record<string, unknown>;
+  const v = "_screenOut" in body ? body["_screenOut"] : body["screenOut"];
   return v === "honeypot" || v === "too-fast" ? v : null;
 }
 

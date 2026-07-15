@@ -4,12 +4,24 @@ import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 describe("parseScreenOut", () => {
-  it("accepts the two valid reasons, rejects anything else", () => {
+  it("accepts the two valid reasons on the _screenOut key, rejects anything else", () => {
+    expect(parseScreenOut({ _screenOut: "honeypot" })).toBe("honeypot");
+    expect(parseScreenOut({ _screenOut: "too-fast" })).toBe("too-fast");
+    expect(parseScreenOut({ _screenOut: "nope" })).toBeNull();
+    expect(parseScreenOut({ name: "Jane" })).toBeNull();
+    expect(parseScreenOut(null)).toBeNull();
+  });
+
+  it("still accepts the deprecated bare screenOut key (older package versions on sites)", () => {
+    // Sites run older @reddoorla/maintenance versions for a while; the central
+    // receiver must keep honoring the pre-namespacing wire shape.
     expect(parseScreenOut({ screenOut: "honeypot" })).toBe("honeypot");
     expect(parseScreenOut({ screenOut: "too-fast" })).toBe("too-fast");
     expect(parseScreenOut({ screenOut: "nope" })).toBeNull();
-    expect(parseScreenOut({ name: "Jane" })).toBeNull();
-    expect(parseScreenOut(null)).toBeNull();
+  });
+
+  it("prefers _screenOut when both keys are present", () => {
+    expect(parseScreenOut({ _screenOut: "too-fast", screenOut: "honeypot" })).toBe("too-fast");
   });
 });
 

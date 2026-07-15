@@ -1,8 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import playwrightA11yConfig, {
-  a11yRoutes,
-  playwrightA11yConfig as named,
-} from "../../src/configs/playwright-a11y.js";
+import playwrightA11yConfig, { a11yRoutes } from "../../src/configs/playwright-a11y.js";
 
 // The config captures REDDOOR_SMOKE_PORT at import time (Playwright imports the
 // config fresh per run), so the env-var behavior is only observable through a
@@ -19,10 +16,6 @@ async function importWithSmokePort(port: string | undefined) {
 }
 
 describe("configs/playwright-a11y", () => {
-  it("default equals named export", () => {
-    expect(playwrightA11yConfig).toBe(named);
-  });
-
   it("exports the canonical starter routes", () => {
     expect(a11yRoutes).toEqual([
       { path: "/dev/a11y-fixtures", name: "a11y fixtures" },
@@ -58,8 +51,8 @@ describe("configs/playwright-a11y", () => {
 
     it("binds baseURL, readiness probe, and --strictPort to the allocated port", async () => {
       const mod = await importWithSmokePort("41234");
-      expect(mod.playwrightA11yConfig.use?.baseURL).toBe("http://localhost:41234");
-      expect(mod.playwrightA11yConfig.webServer).toMatchObject({
+      expect(mod.default.use?.baseURL).toBe("http://localhost:41234");
+      expect(mod.default.webServer).toMatchObject({
         command: "npm run vite:dev -- --port 41234 --strictPort",
         url: "http://localhost:41234/dev/a11y-fixtures",
       });
@@ -67,8 +60,8 @@ describe("configs/playwright-a11y", () => {
 
     it("keeps the fixed 5173 behavior byte-identical when unset", async () => {
       const mod = await importWithSmokePort(undefined);
-      expect(mod.playwrightA11yConfig.use?.baseURL).toBe("http://localhost:5173");
-      expect(mod.playwrightA11yConfig.webServer).toMatchObject({
+      expect(mod.default.use?.baseURL).toBe("http://localhost:5173");
+      expect(mod.default.webServer).toMatchObject({
         command: "npm run vite:dev",
         url: "http://localhost:5173/dev/a11y-fixtures",
       });

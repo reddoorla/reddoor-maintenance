@@ -5,6 +5,8 @@ import {
   checklistRowsSection,
   lighthouseScoresSection,
   analyticsSection,
+  RED,
+  GREY,
 } from "../email-sections.js";
 import { escapeHtml } from "../../util/html.js";
 import { isHttpUrl } from "../../util/url.js";
@@ -76,8 +78,8 @@ function testingIntroSection(copy: ResolvedCopy): string {
   return `
     <mj-section background-color="#F4F4F4">
       <mj-column>
-        <mj-text color="#C00" font-size="20px" font-weight="700" padding-top="75px">TESTING</mj-text>
-        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">${escapeXml(copy.testingIntro)}</mj-text>
+        <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="75px">TESTING</mj-text>
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">${escapeXml(copy.testingIntro)}</mj-text>
       </mj-column>
     </mj-section>`;
 }
@@ -86,8 +88,8 @@ function commentarySection(text: string, copy: ResolvedCopy): string {
   return `
     <mj-section background-color="white">
       <mj-column>
-        <mj-text color="#C00" font-size="20px" font-weight="700" padding-top="55px">${escapeXml(copy.notesHeader)}</mj-text>
-        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">${escapeXml(text).replace(/\r\n?|\n/g, "<br/>")}</mj-text>
+        <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="55px">${escapeXml(copy.notesHeader)}</mj-text>
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">${escapeXml(text).replace(/\r\n?|\n/g, "<br/>")}</mj-text>
       </mj-column>
     </mj-section>`;
 }
@@ -150,10 +152,10 @@ export function buildMjml(data: ReportData): string {
     </mj-section>
     <mj-section background-color="white">
       <mj-column>
-        <mj-text color="#C00" font-size="20px" font-weight="700" padding-top="75px">COMPLETED ON</mj-text>
-        <mj-text color="#C00" font-size="44px" font-weight="400">${fmtDate(data.completedOn)}</mj-text>
-        <mj-text color="#C00" font-size="20px" font-weight="700" padding-top="75px">MAINTENANCE CHECKS</mj-text>
-        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">${escapeXml(copy.maintenanceIntro)}</mj-text>
+        <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="75px">COMPLETED ON</mj-text>
+        <mj-text color="${RED}" font-size="44px" font-weight="400">${fmtDate(data.completedOn)}</mj-text>
+        <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="75px">MAINTENANCE CHECKS</mj-text>
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">${escapeXml(copy.maintenanceIntro)}</mj-text>
       </mj-column>
     </mj-section>
     ${maintenanceChecksSection(copy, data.searchPosition)}
@@ -169,29 +171,30 @@ export function buildMjml(data: ReportData): string {
     ${data.commentary ? commentarySection(data.commentary, copy) : ""}
     <mj-section background-color="white">
       <mj-column padding-top="36px">
-        <mj-text color="#C00" font-family="helvetica, sans-serif" font-size="24px" font-weight="700" padding-top="36px" line-height="36px">Any questions, concerns or requests?</mj-text>
+        <mj-text color="${RED}" font-family="helvetica, sans-serif" font-size="24px" font-weight="700" padding-top="36px" line-height="36px">Any questions, concerns or requests?</mj-text>
         ${copy.contact
           .map((line, i) => {
             // First line ("Just hit reply.") renders as a red bold heading, matching the
-            // "Any questions, concerns or requests?" title above it; the last line keeps
-            // its closing padding.
+            // "Any questions, concerns or requests?" title above it; later lines are grey
+            // (matching the launch/announcement templates); the last line keeps its
+            // closing padding.
             const isLast = i === copy.contact.length - 1;
             const emphasis =
               i === 0
-                ? `color="#C00" font-family="helvetica, sans-serif" font-size="24px" font-weight="700"`
-                : `font-family="helvetica, sans-serif" font-size="24px" font-weight="300"`;
+                ? `color="${RED}" font-family="helvetica, sans-serif" font-size="24px" font-weight="700"`
+                : `color="${GREY}" font-family="helvetica, sans-serif" font-size="24px" font-weight="300"`;
             return isLast
               ? `<mj-text ${emphasis} padding-top="0px" line-height="30px" padding-bottom="36px">${escapeXml(line)}</mj-text>`
               : `<mj-text ${emphasis} line-height="30px">${escapeXml(line)}</mj-text>`;
           })
           .join("\n        ")}
         <mj-divider border-width="1px" border-style="solid" border-color="#CCCCCC" padding="0" />
-        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" padding-top="24px" line-height="20px" font-style="italic">Copyright ${new Date().getUTCFullYear()} ${escapeXml(copy.footerOrg)}. All rights reserved.</mj-text>
-        <mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="700" line-height="16px" padding-top="0" padding-bottom="0px">Our mailing address is:</mj-text>
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" padding-top="24px" line-height="20px" font-style="italic">Copyright ${new Date().getUTCFullYear()} ${escapeXml(copy.footerOrg)}. All rights reserved.</mj-text>
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="12px" font-weight="700" line-height="16px" padding-top="0" padding-bottom="0px">Our mailing address is:</mj-text>
         ${[copy.footerOrg, ...copy.footerAddress]
           .map(
             (line) =>
-              `<mj-text color="#757575" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" line-height="16px" padding-top="0" padding-bottom="0px">${escapeXml(line)}</mj-text>`,
+              `<mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" line-height="16px" padding-top="0" padding-bottom="0px">${escapeXml(line)}</mj-text>`,
           )
           .join("\n        ")}
       </mj-column>
