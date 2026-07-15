@@ -220,6 +220,29 @@ describe("buildPresentation", () => {
     expect(p.bands["0"]!.style).not.toHaveProperty("_contentPaddingMobile");
   });
 
+  it("never mutates the shared styleFor record; sibling bands stay independent", () => {
+    const shared = { "text-align": "center" };
+    const specs: SliceSpec[] = [
+      { index: 0, slice: "TitleBand", heading: "A", blockClass: "blocks0" },
+      { index: 1, slice: "TitleBand", heading: "B", blockClass: "blocks0" },
+    ];
+    const p = buildPresentation(specs, {
+      ...deps,
+      styleFor: () => shared, // one cached record handed to every band
+      defaultsFor: pointeDefaults,
+    });
+    // The source record is left exactly as it was — no fill leaked back in.
+    expect(shared).toEqual({ "text-align": "center" });
+    // Each band got its own filled copy, not a shared reference.
+    expect(p.bands["0"]!.style).not.toBe(p.bands["1"]!.style);
+    expect(p.bands["0"]!.style).toEqual({
+      "text-align": "center",
+      _contentPadding: "120px 4% 120px 4%",
+      _contentPaddingMobile: "80px 4% 80px 4%",
+      "_max-content-width": "1280px",
+    });
+  });
+
   it("leaves a band with no blockClass, or no defaults entry for it, untouched", () => {
     const specs: SliceSpec[] = [
       { index: 0, slice: "TitleBand", heading: "A" }, // no blockClass
