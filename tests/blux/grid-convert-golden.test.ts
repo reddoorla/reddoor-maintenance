@@ -14,13 +14,23 @@ import {
 } from "../../src/blux/emit/presentation.js";
 import { mapRenderFromConfig } from "../../src/blux/emit/convert.js";
 import { sliceSpecToPlanSlice } from "../../src/blux/emit/grid-slice.js";
+import { blockClassDefaults, blockStylesByIndex } from "../../src/blux/emit/block-styles.js";
+import { pointeBlockStyles } from "./fixtures/the-pointe-block-styles.js";
 
 const fixture = (name: string) =>
   readFileSync(fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url)), "utf-8");
 
-// Deterministic offline resolver: assetId → stable fake URL (no site.json needed).
-// Passes through intrinsic sizing exactly as convert.ts's real resolver does, so
-// the manifest snapshot exercises the parsed width/aspect/fit end-to-end.
+// The export's real block styles + `.blocksNcontainer` class defaults, threaded
+// exactly as convert.ts threads them, so the manifest snapshot locks the
+// class-default padding fill: bands 1,2,3,4,5,9,10,11,15 carry no usable own
+// `_contentPadding` and gain `_contentPadding`/`_contentPaddingMobile` from
+// their block class (band 2 — a blocks2 spacer — gets `40px 0`).
+const blockStyles = blockStylesByIndex(pointeBlockStyles);
+const classDefaults = blockClassDefaults(pointeBlockStyles);
+
+// Deterministic offline resolver: assetId → stable fake URL (no full site.json
+// needed). Passes through intrinsic sizing exactly as convert.ts's real resolver
+// does, so the manifest snapshot exercises the parsed width/aspect/fit end-to-end.
 const deps: PresentationDeps = {
   resolveMedia: (m): RenderMedia => ({
     kind: m.kind,
@@ -33,7 +43,8 @@ const deps: PresentationDeps = {
     ...(m.minHeight ? { minHeight: m.minHeight } : {}),
     ...(m.playback ? { playback: m.playback } : {}),
   }),
-  styleFor: () => undefined,
+  styleFor: (i) => blockStyles.get(i),
+  defaultsFor: (blockClass) => classDefaults.get(blockClass),
   map: null,
 };
 

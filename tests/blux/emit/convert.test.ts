@@ -22,6 +22,41 @@ describe("convertExport — shared offline pipeline", () => {
     expect(r.mapConfig).toBeNull(); // page-content fixture has no initMap
   });
 
+  it("threads styles.blocks class defaults into the presentation's band styles", () => {
+    const html = fixture("the-pointe-page-content.html");
+    // minimalSite's page items carry no styles at all, so every band relies on
+    // its class default — the trap case (a band with no own padding declaration).
+    const siteJson = {
+      ...minimalSite,
+      styles: {
+        ...minimalSite.styles,
+        blocks: [
+          {
+            ".blocks0container": {
+              "max-width": "1280px",
+              padding: "120px 4% 120px 4%",
+              __media_mobile_padding: "80px 4% 80px 4%",
+            },
+          },
+          {},
+          { ".blocks2container": { padding: "40px 0", __media_mobile_padding: "20px 0" } },
+        ],
+      },
+    };
+    const r = convertExport({ html, siteJson });
+    // band 15 is a blocks0 band whose site.json styles omit _contentPadding
+    expect(r.presentation.bands["15"]!.style).toEqual({
+      _contentPadding: "120px 4% 120px 4%",
+      _contentPaddingMobile: "80px 4% 80px 4%",
+      "_max-content-width": "1280px",
+    });
+    // band 0 is a blocks2 spacer band — the special grid-spacer default
+    expect(r.presentation.bands["0"]!.style).toEqual({
+      _contentPadding: "40px 0",
+      _contentPaddingMobile: "20px 0",
+    });
+  });
+
   it("is a no-op-safe pure function (no throw) on the minimal band-less html", () => {
     const r = convertExport({ html: minimalHtml, siteJson: minimalSite });
     expect(r.bands).toEqual([]);

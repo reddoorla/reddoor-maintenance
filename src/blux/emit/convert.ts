@@ -9,7 +9,7 @@ import {
 } from "../grid/index.js";
 import { assembleIR } from "../assemble.js";
 import type { SiteIR } from "../ir.js";
-import { blockStylesByIndex } from "./block-styles.js";
+import { blockClassDefaults, blockStylesByIndex } from "./block-styles.js";
 import { buildGridPlan, mediaUrl } from "./grid-plan.js";
 import type { MigrationPlan } from "./plan.js";
 import {
@@ -64,6 +64,7 @@ export function convertExport({
   const assetsById = new Map(ir.assets.map((a) => [a.id, a] as const));
   const sourceUrlById = new Map(ir.assets.map((a) => [a.id, a.sourceUrl] as const));
   const styles = blockStylesByIndex(siteJson);
+  const defaults = blockClassDefaults(siteJson);
   const deps: PresentationDeps = {
     resolveMedia: (m) => {
       const url = mediaUrl(m, sourceUrlById);
@@ -83,6 +84,7 @@ export function convertExport({
       return rm;
     },
     styleFor: (i) => styles.get(i),
+    defaultsFor: (blockClass) => defaults.get(blockClass),
     map: mapConfig ? mapRenderFromConfig(mapConfig) : null,
   };
 

@@ -11,6 +11,7 @@ import type {
   SliceSpec,
   VideoPlayback,
 } from "../grid/index.js";
+import type { BlockDefaults } from "./block-styles.js";
 
 // ---------------------------------------------------------------------------
 // Render-side mirror types (must match the-pointe's src/lib/blux/presentation.ts)
@@ -40,9 +41,37 @@ export type RenderToken = { cols: number | "any"; ratio?: number; spacing?: numb
 export type RenderNode =
   | { kind: "row"; cells: RenderCell[] }
   | { kind: "stack"; children: RenderNode[] }
-  | { kind: "heading"; level: number; html: string; role?: string }
-  | { kind: "body"; html: string; role?: string }
-  | { kind: "subtitle"; text: string; role?: string }
+  | {
+      kind: "heading";
+      level: number;
+      html: string;
+      role?: string;
+      /** Inline deviations the export carries on the text leaf (color, padding)
+       * plus decoded margin utilities (margin-20r → margin-right:20%). The
+       * margin-right percentage is desktop-only in the source (reset ≤800px) —
+       * the render scopes it to md+. */
+      style?: Record<string, string>;
+    }
+  | {
+      kind: "body";
+      html: string;
+      role?: string;
+      /** Inline deviations the export carries on the text leaf (color, padding)
+       * plus decoded margin utilities (margin-20r → margin-right:20%). The
+       * margin-right percentage is desktop-only in the source (reset ≤800px) —
+       * the render scopes it to md+. */
+      style?: Record<string, string>;
+    }
+  | {
+      kind: "subtitle";
+      text: string;
+      role?: string;
+      /** Inline deviations the export carries on the text leaf (color, padding)
+       * plus decoded margin utilities (margin-20r → margin-right:20%). The
+       * margin-right percentage is desktop-only in the source (reset ≤800px) —
+       * the render scopes it to md+. */
+      style?: Record<string, string>;
+    }
   | { kind: "media"; media: RenderMedia }
   | { kind: "raw"; html: string }
   | { kind: "widget"; widget: { type: "map" } };
@@ -97,6 +126,10 @@ export type Presentation = { bands: Record<string, BandPresentation> };
 export type PresentationDeps = {
   resolveMedia: (media: Media) => RenderMedia | null;
   styleFor: (index: number) => Record<string, string> | undefined;
+  /** The `.blocksNcontainer` class defaults for a band's `blockClass`
+   * (see `blockClassDefaults`) — filled into `BandPresentation.style` only
+   * where the block's own styles omit the key. */
+  defaultsFor: (blockClass: string) => BlockDefaults | undefined;
   map?: MapRenderConfig | null;
 };
 
@@ -139,11 +172,22 @@ function renderNode(node: Node, resolve: PresentationDeps["resolveMedia"]): Rend
         level: node.level,
         html: node.html,
         ...(node.role ? { role: node.role } : {}),
+        ...(node.style ? { style: node.style } : {}),
       };
     case "body":
-      return { kind: "body", html: node.html, ...(node.role ? { role: node.role } : {}) };
+      return {
+        kind: "body",
+        html: node.html,
+        ...(node.role ? { role: node.role } : {}),
+        ...(node.style ? { style: node.style } : {}),
+      };
     case "subtitle":
-      return { kind: "subtitle", text: node.text, ...(node.role ? { role: node.role } : {}) };
+      return {
+        kind: "subtitle",
+        text: node.text,
+        ...(node.role ? { role: node.role } : {}),
+        ...(node.style ? { style: node.style } : {}),
+      };
     case "media": {
       const m = resolve(node.media);
       return m ? { kind: "media", media: m } : null; // drop unresolved media
@@ -173,6 +217,26 @@ export function buildPresentation(specs: SliceSpec[], deps: PresentationDeps): P
     const bp: BandPresentation = {};
     const style = deps.styleFor(spec.index);
     if (style) bp.style = style;
+    // Class-default padding/max-width — for EVERY slice type (TitleBand/Hero
+    // bands need their band padding too), filling only the keys the block's
+    // own styles omit. The trigger is "no `_contentPadding` in the block's
+    // styles", never "no style record" (a block can style other things and
+    // still rely on the class padding). `_contentPaddingMobile` only ever
+    // pairs with a filled default: a block's own padding has no mobile twin.
+    const defaults = spec.blockClass ? deps.defaultsFor(spec.blockClass) : undefined;
+    if (defaults) {
+      const own = bp.style ?? {};
+      const fill: Record<string, string> = {};
+      if (own["_contentPadding"] === undefined && defaults.padding) {
+        fill["_contentPadding"] = defaults.padding;
+        if (defaults.mobilePadding) fill["_contentPaddingMobile"] = defaults.mobilePadding;
+      }
+      if (own["_max-content-width"] === undefined && defaults.maxWidth) {
+        fill["_max-content-width"] = defaults.maxWidth;
+      }
+      // Copy, never mutate — the styleFor record may be shared/cached.
+      if (Object.keys(fill).length) bp.style = { ...own, ...fill };
+    }
     if (spec.background) {
       const bg = deps.resolveMedia(spec.background);
       if (bg) bp.background = bg;

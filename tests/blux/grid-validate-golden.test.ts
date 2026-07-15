@@ -13,14 +13,22 @@ import {
   type RenderMedia,
 } from "../../src/blux/emit/presentation.js";
 import { validateLayout } from "../../src/blux/emit/validate-layout.js";
+import { blockClassDefaults, blockStylesByIndex } from "../../src/blux/emit/block-styles.js";
+import { pointeBlockStyles } from "./fixtures/the-pointe-block-styles.js";
 
 const fixture = (name: string) =>
   readFileSync(fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url)), "utf-8");
 
-// Every media resolves → a faithful conversion has zero findings.
+// Every media resolves → a faithful conversion has zero findings. The real
+// block styles + class defaults ride along on purpose: the layout comparison
+// is structural (sigOf ignores `style`), so neither the band-style padding
+// fill nor text-node style deviations may ever surface as a drift finding.
+const blockStyles = blockStylesByIndex(pointeBlockStyles);
+const classDefaults = blockClassDefaults(pointeBlockStyles);
 const resolveAll: PresentationDeps = {
   resolveMedia: (m): RenderMedia => ({ kind: m.kind, url: `asset://${m.assetId}`, alt: m.assetId }),
-  styleFor: () => undefined,
+  styleFor: (i) => blockStyles.get(i),
+  defaultsFor: (blockClass) => classDefaults.get(blockClass),
   map: null,
 };
 

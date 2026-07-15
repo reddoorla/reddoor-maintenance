@@ -212,6 +212,16 @@ describe("textLeafStyle", () => {
       textLeafStyle(el('<div class="block-body" style="font-weight: bold">x</div>')),
     ).toBeNull();
   });
+  it("normalizes uppercase/whitespace-padded inline declarations", () => {
+    const leaf = el('<div class="block-body text1" style="COLOR : red">x</div>');
+    expect(textLeafStyle(leaf)).toEqual({ color: "red" });
+  });
+  it("leaks no fragments of a non-allowlisted declaration whose value embeds colons/semicolons", () => {
+    const leaf = el(
+      '<div class="block-body text1" style="background-image: url(data:image/png;base64,xyz)">x</div>',
+    );
+    expect(textLeafStyle(leaf)).toBeNull();
+  });
 });
 
 describe("mediaFromElement — video sizing/playback", () => {

@@ -105,9 +105,14 @@ export type ClassifyOptions = {
 };
 
 /** The band's slice-zone base carried onto every spec (conditional spread keeps
- * `background` absent, not `undefined`, under exactOptionalPropertyTypes). */
-function base(band: Band): { index: number; background?: Media } {
-  return { index: band.index, ...(band.background ? { background: band.background } : {}) };
+ * `blockClass`/`background` absent, not `undefined`, under
+ * exactOptionalPropertyTypes). */
+function base(band: Band): { index: number; blockClass?: string; background?: Media } {
+  return {
+    index: band.index,
+    ...(band.blockClass ? { blockClass: band.blockClass } : {}),
+    ...(band.background ? { background: band.background } : {}),
+  };
 }
 
 /** Plain text of a heading/subtitle/body node. Hard line breaks (Blux `<br>`)
