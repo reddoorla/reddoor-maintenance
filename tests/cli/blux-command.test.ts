@@ -320,6 +320,75 @@ describe("blux convert", () => {
   });
 });
 
+describe("blux convert favicon", () => {
+  // Real export shape: settings.favicon names a media uuid absent from the
+  // media dict; the index.html <link rel="icon"> (with a transform segment)
+  // is the only place its CDN url appears.
+  const withFavicon = {
+    ...minimalSite,
+    settings: { ...minimalSite.settings, favicon: { media: "img-fav" } },
+  };
+  const makeFaviconExport = async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-convert-fav-"));
+    await writeFile(join(dir, "site.json"), JSON.stringify(withFavicon));
+    await writeFile(
+      join(dir, "index.html"),
+      `<link rel="icon" href="https://d3syaxnfm3oj0e.cloudfront.net/site-1/w:96/from:jpg/img-fav.png">` +
+        `<div id="page-content"><section class="blocks0" id="page-block-0"><div class="block-content"><h1 class="block-title text5">Hi</h1></div></section></div>`,
+    );
+    return dir;
+  };
+
+  it("downloads favicon.png beside the plan via the injected fetch", async () => {
+    const dir = await makeFaviconExport();
+    const bytes = new Uint8Array([137, 80, 78, 71]); // PNG magic
+    const seen: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      seen.push(url);
+      return { ok: true, arrayBuffer: async () => bytes.buffer } as unknown as Response;
+    }) as unknown as typeof fetch;
+    const res = await runBluxCommand("convert", dir, { fetchImpl });
+    expect(res.code).toBe(0);
+    expect(res.output).toContain("favicon → ");
+    // fetched by CANONICAL url (transform segments stripped), exactly once
+    expect(seen).toEqual(["https://d3syaxnfm3oj0e.cloudfront.net/site-1/img-fav.png"]);
+    const written = await readFile(join(dir, "blux-out", "favicon.png"));
+    expect(new Uint8Array(written)).toEqual(bytes);
+  });
+
+  it("preserves {assetId, url} as favicon.json when the fetch fails — convert still exits 0", async () => {
+    const dir = await makeFaviconExport();
+    const fetchImpl = (async () => {
+      throw new Error("network down");
+    }) as unknown as typeof fetch;
+    const res = await runBluxCommand("convert", dir, { fetchImpl });
+    expect(res.code).toBe(0); // a network blip never fails an otherwise-offline convert
+    expect(res.output).toContain("favicon fetch failed");
+    expect(existsSync(join(dir, "blux-out", "favicon.png"))).toBe(false);
+    const fallback = JSON.parse(await readFile(join(dir, "blux-out", "favicon.json"), "utf-8"));
+    expect(fallback).toEqual({
+      assetId: "img-fav",
+      url: "https://d3syaxnfm3oj0e.cloudfront.net/site-1/img-fav.png",
+    });
+  });
+
+  it("touches no network and writes no favicon files when the export declares none", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-convert-nofav-"));
+    await writeFile(join(dir, "site.json"), JSON.stringify(minimalSite));
+    await writeFile(
+      join(dir, "index.html"),
+      `<div id="page-content"><section class="blocks0" id="page-block-0"><div class="block-content"><h1 class="block-title text5">Hi</h1></div></section></div>`,
+    );
+    const fetchImpl = (async () => {
+      throw new Error("must not be called");
+    }) as unknown as typeof fetch;
+    const res = await runBluxCommand("convert", dir, { fetchImpl });
+    expect(res.code).toBe(0);
+    expect(existsSync(join(dir, "blux-out", "favicon.png"))).toBe(false);
+    expect(existsSync(join(dir, "blux-out", "favicon.json"))).toBe(false);
+  });
+});
+
 describe("blux migrate gate", () => {
   const saved: Record<string, string | undefined> = {};
 
