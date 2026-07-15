@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { JWT } from "google-auth-library";
+import { withSubjectFailover } from "../ga/failover.js";
 
 const WEBMASTERS_READONLY = "https://www.googleapis.com/auth/webmasters.readonly";
 const SC_BASE = "https://searchconsole.googleapis.com/webmasters/v3";
@@ -14,8 +15,9 @@ export const BRAND_QUERY_ROW_LIMIT = 100;
 export type SearchPresenceQuery = {
   /** Path to the service-account JSON key (same one GA uses). */
   keyPath: string;
-  /** Workspace user to impersonate via domain-wide delegation. */
-  subject: string;
+  /** Workspace users to impersonate via domain-wide delegation, tried in order
+   *  (auth-failure failover — see `withSubjectFailover`). */
+  subjects: string[];
   /** Explicit Search Console property (`sc-domain:...` or `https://.../`). Overrides auto-resolution. */
   property?: string | undefined;
   /** Site host, used to auto-resolve the property from `sites.list` when `property` is absent. */
@@ -118,16 +120,29 @@ export function selectBrandPosition(
   return pickBrandQuery(rows);
 }
 
+/** Per-subject "this subject resolved NO matching Search Console property". sites.list only
+ *  returns properties the impersonated user can access — a subject that lost access sees an
+ *  empty list with no auth error at all — so this opts into subject failover explicitly.
+ *  When EVERY subject resolves empty, `fetchSearchPresence` restores the pre-failover
+ *  behavior: a plain not-found result, not a throw. */
+class NoPropertyForSubjectError extends Error {
+  readonly failoverToNextSubject = true;
+  constructor(subject: string, host: string) {
+    super(`no Search Console property matching ${host} is visible to ${subject}`);
+  }
+}
+
 /**
  * Query Google Search Console for the brand's average position on the site over the report
- * period, via a domain-wide-delegation service account impersonating `subject`. `query` is a
- * case-insensitive SUBSTRING (`contains`) hint; among the matching user queries we report the
- * position of the exact-match query when present, else the most-searched one (see
- * `selectBrandPosition`) — so it doesn't depend on the operator typing the exact search string,
- * yet honors one verbatim when they do. Uses `property` verbatim when given (operator's
- * choice is final — no fallback); otherwise auto-discovers all matching properties via
- * `sites.list` and tries them in order (Domain first) until one returns data. Throws on any
- * auth/API error — the caller (draftReportForSite) soft-fails.
+ * period, via a domain-wide-delegation service account impersonating each of `subjects` in
+ * order until one authenticates. `query` is a case-insensitive SUBSTRING (`contains`) hint;
+ * among the matching user queries we report the position of the exact-match query when
+ * present, else the most-searched one (see `selectBrandPosition`) — so it doesn't depend on
+ * the operator typing the exact search string, yet honors one verbatim when they do. Uses
+ * `property` verbatim when given (operator's choice is final — no fallback); otherwise
+ * auto-discovers all matching properties via `sites.list` and tries them in order (Domain
+ * first) until one returns data. Throws on any non-auth API error, or once every subject
+ * has failed auth — the caller (draftReportForSite) soft-fails.
  */
 export async function fetchSearchPresence(
   q: SearchPresenceQuery,
@@ -138,52 +153,65 @@ export async function fetchSearchPresence(
     client_email: string;
     private_key: string;
   };
-  const jwt = new JWT({
-    email: key.client_email,
-    key: key.private_key,
-    scopes: [WEBMASTERS_READONLY],
-    subject: q.subject,
-  });
 
-  const explicit = q.property?.trim();
-  let candidates: string[];
-  if (explicit) {
-    candidates = [explicit];
-  } else {
-    const list = await jwt.request<{ siteEntry?: SiteEntry[] }>({
-      url: `${SC_BASE}/sites`,
-      method: "GET",
-    });
-    candidates = resolvePropertyCandidates(list.data.siteEntry ?? [], q.host);
-    if (candidates.length === 0) return { foundOnPage1: false, position: null };
-  }
+  try {
+    return await withSubjectFailover(q.subjects, "Search Console", async (subject) => {
+      const jwt = new JWT({
+        email: key.client_email,
+        key: key.private_key,
+        scopes: [WEBMASTERS_READONLY],
+        subject,
+      });
 
-  for (const property of candidates) {
-    const res = await jwt.request<{
-      rows?: Array<{ keys?: string[]; position?: number; impressions?: number }>;
-    }>({
-      url: `${SC_BASE}/sites/${encodeURIComponent(property)}/searchAnalytics/query`,
-      method: "POST",
-      data: {
-        startDate: ymd(periodStart),
-        endDate: ymd(periodEnd),
-        dimensions: ["query"],
-        dimensionFilterGroups: [
-          {
-            filters: [
-              { dimension: "query", operator: "contains", expression: q.query.toLowerCase() },
+      const explicit = q.property?.trim();
+      let candidates: string[];
+      if (explicit) {
+        candidates = [explicit];
+      } else {
+        const list = await jwt.request<{ siteEntry?: SiteEntry[] }>({
+          url: `${SC_BASE}/sites`,
+          method: "GET",
+        });
+        candidates = resolvePropertyCandidates(list.data.siteEntry ?? [], q.host);
+        if (candidates.length === 0) throw new NoPropertyForSubjectError(subject, q.host);
+      }
+
+      for (const property of candidates) {
+        const res = await jwt.request<{
+          rows?: Array<{ keys?: string[]; position?: number; impressions?: number }>;
+        }>({
+          url: `${SC_BASE}/sites/${encodeURIComponent(property)}/searchAnalytics/query`,
+          method: "POST",
+          data: {
+            startDate: ymd(periodStart),
+            endDate: ymd(periodEnd),
+            dimensions: ["query"],
+            dimensionFilterGroups: [
+              {
+                filters: [
+                  { dimension: "query", operator: "contains", expression: q.query.toLowerCase() },
+                ],
+              },
             ],
+            rowLimit: BRAND_QUERY_ROW_LIMIT,
           },
-        ],
-        rowLimit: BRAND_QUERY_ROW_LIMIT,
-      },
+        });
+        const pos = selectBrandPosition(res.data.rows ?? [], q.query.toLowerCase());
+        if (typeof pos === "number") {
+          // Search Console can average below 1; floor to 1 so the template never
+          // renders a nonsensical "#0" (positions are 1-indexed).
+          return {
+            foundOnPage1: pos <= PAGE_1_MAX_POSITION,
+            position: Math.max(1, Math.round(pos)),
+          };
+        }
+      }
+      return { foundOnPage1: false, position: null };
     });
-    const pos = selectBrandPosition(res.data.rows ?? [], q.query.toLowerCase());
-    if (typeof pos === "number") {
-      // Search Console can average below 1; floor to 1 so the template never
-      // renders a nonsensical "#0" (positions are 1-indexed).
-      return { foundOnPage1: pos <= PAGE_1_MAX_POSITION, position: Math.max(1, Math.round(pos)) };
-    }
+  } catch (e) {
+    // Every subject resolved zero matching properties — same legitimate "no property"
+    // outcome as before failover existed, NOT an analytics soft-failure.
+    if (e instanceof NoPropertyForSubjectError) return { foundOnPage1: false, position: null };
+    throw e;
   }
-  return { foundOnPage1: false, position: null };
 }

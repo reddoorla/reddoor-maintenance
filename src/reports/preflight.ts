@@ -66,17 +66,17 @@ function checkFrequency(
   findings: PreflightFinding[],
   now: Date,
 ): void {
-  // Validate the RAW Airtable cell, not the coerced Frequency: toFrequency maps any
-  // unrecognized value (typo, trailing space, renamed option) to "None", so by the
-  // time WebsiteRow is built the damage is invisible — the site just silently drops
-  // off the schedule. This is the loud version.
+  // Validate the RAW Airtable cell, not the coerced Frequency: toFrequency trims
+  // whitespace (so "Monthly " schedules), then coerces any still-unrecognized value
+  // (typo, renamed option) to "None" with a console.warn. That warn only lands in
+  // logs — this finding is the structured, surfaced version of the same failure.
   const raw = which === "maintenance" ? site.maintenanceFreqRaw : site.testingFreqRaw;
   const coerced = which === "maintenance" ? site.maintenanceFreq : site.testingFreq;
   if (raw !== null && raw !== "" && coerced === "None" && raw.trim() !== "None") {
     findings.push({
       level: "fail",
       check: "frequency-unrecognized",
-      message: `${which} frequency cell is '${raw}' — not an exact Monthly/Quarterly/Yearly/None, so the scheduler silently treats it as None and the site drops off the calendar; fix the Airtable value`,
+      message: `${which} frequency cell is '${raw}' — not a recognized Monthly/Quarterly/Yearly/None (even after trimming), so the scheduler treats it as None and the site drops off the calendar; fix the Airtable value`,
     });
     return;
   }
