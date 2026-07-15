@@ -25,9 +25,9 @@ describe("classifySpam", () => {
     expect(clean()).toEqual({ score: 0, reasons: [] });
   });
 
-  it("turnstile 'fail' adds 70 (turnstile-fail); pass/unverifiable/absent add 0", () => {
+  it("turnstile 'fail' adds 50 (turnstile-fail); pass/unverifiable/absent add 0", () => {
     expect(clean({ turnstile: "fail" as TurnstileOutcome })).toEqual({
-      score: 70,
+      score: 50,
       reasons: ["turnstile-fail"],
     });
     expect(clean({ turnstile: "pass" as TurnstileOutcome })).toEqual({ score: 0, reasons: [] });
@@ -67,6 +67,16 @@ describe("classifySpam", () => {
     });
   });
 
+  it("counts comma/semicolon-glued URLs individually (bots pack links with no separators)", () => {
+    expect(clean({ message: "deals at http://a.com,http://b.com today" })).toEqual({
+      score: 60,
+      reasons: ["links:2"],
+    });
+    const glued = clean({ message: "grab www.a.com,www.b.com;www.c.com now" });
+    expect(glued.score).toBe(90);
+    expect(glued.reasons).toEqual(["links:3"]);
+  });
+
   it("flags html/bbcode link markup at 40 (link-markup) without a bare-URL match", () => {
     // relative href: markup present, but no http(s)/www so links does NOT fire
     expect(clean({ message: 'click <a href="/contact">here</a>' })).toEqual({
@@ -84,7 +94,7 @@ describe("classifySpam", () => {
       score: 25,
       reasons: ["keywords:1"],
     });
-    const many = clean({ message: "viagra casino porn buy crypto" });
+    const many = clean({ message: "viagra online casino porn buy crypto" });
     expect(many.score).toBe(75); // 4 hits -> capped
     expect(many.reasons).toEqual(["keywords:4"]);
   });
@@ -134,12 +144,76 @@ describe("classifySpam", () => {
     });
   });
 
-  it("flags >30% non-latin script in the message OR the name at 50 (non-latin)", () => {
+  it("does not false-positive on legitimate casino/wellness/escort/lending/SEO-audit verticals", () => {
+    // bare vertical vocabulary from a plausible real business enquiry — only
+    // the narrowed, clearly-promotional phrasing should fire.
+    expect(
+      clean({ message: "Our resort features a casino and spa; can you redesign our site?" }),
+    ).toEqual({ score: 0, reasons: [] });
+    expect(clean({ message: "I run a weight loss studio and need a booking page." })).toEqual({
+      score: 0,
+      reasons: [],
+    });
+    expect(
+      clean({ message: "We provide secure transport and escort services for private events." }),
+    ).toEqual({ score: 0, reasons: [] });
+    expect(
+      clean({ message: "We're a payday loan storefront and need a compliance page." }),
+    ).toEqual({ score: 0, reasons: [] });
+    expect(clean({ message: "Can you audit the backlinks pointing to our domain?" })).toEqual({
+      score: 0,
+      reasons: [],
+    });
+  });
+
+  it("legit vertical mention + two links stays under threshold (links 60 only, no keyword hit)", () => {
+    const wellness = clean({
+      message: "I run a weight loss studio, here are our sites: http://a.com http://b.com",
+    });
+    expect(wellness).toEqual({ score: 60, reasons: ["links:2"] });
+    expect(wellness.score >= SPAM_THRESHOLD).toBe(false);
+
+    const resort = clean({
+      message: "Our resort has a casino, portfolio at http://a.com and http://b.com",
+    });
+    expect(resort).toEqual({ score: 60, reasons: ["links:2"] });
+    expect(resort.score >= SPAM_THRESHOLD).toBe(false);
+  });
+
+  it("still flags promotional phrasing for the narrowed vertical keywords at 25 each", () => {
+    for (const message of [
+      "play at our online casino tonight",
+      "claim your casino bonus now",
+      "weight loss pills that melt fat fast",
+      "buy backlinks cheap, DA 90+",
+      "payday loans online, instant approval",
+      "hot escort girls in your city",
+    ]) {
+      // label the message so a single-phrase regression is identifiable
+      expect(clean({ message }), message).toEqual({ score: 25, reasons: ["keywords:1"] });
+    }
+  });
+
+  it("flags >30% non-latin script in the message body at 25 (non-latin); the name never scores", () => {
     expect(clean({ message: "Привет это спам сообщение" })).toEqual({
-      score: 50,
+      score: 25,
       reasons: ["non-latin"],
     });
-    expect(clean({ name: "Привет" })).toEqual({ score: 50, reasons: ["non-latin"] });
+    // a native-script name is not a spam signal
+    expect(clean({ name: "王小明" })).toEqual({ score: 0, reasons: [] });
+    expect(clean({ name: "Владимир" })).toEqual({ score: 0, reasons: [] });
+  });
+
+  it("non-latin needs corroboration: native-script name + two links = 60 -> under; non-latin body + two links = 25 + 60 = 85 -> under (both scored 110 -> spam_auto before)", () => {
+    const nameCase = clean({ name: "王小明", message: "see http://a.com and http://b.com" });
+    expect(nameCase).toEqual({ score: 60, reasons: ["links:2"] });
+    expect(nameCase.score >= SPAM_THRESHOLD).toBe(false);
+
+    const bodyCase = clean({
+      message: "Портфолио: http://a.com http://b.com — жду вашего ответа, спасибо",
+    });
+    expect(bodyCase).toEqual({ score: 85, reasons: ["links:2", "non-latin"] });
+    expect(bodyCase.score >= SPAM_THRESHOLD).toBe(false);
   });
 
   it("flags a disposable-email domain at 45 (disposable-email)", () => {
@@ -165,6 +239,14 @@ describe("classifySpam", () => {
     expect(clean({ name: "Jane", message: "http://spam.example" })).toEqual({
       score: 70,
       reasons: ["links:1", "degenerate"],
+    });
+    // Guardrail: URL_RE stops at `,`/`;` (2 links) but ONLY_URL_RE deliberately
+    // keeps `\S+`, so a comma-glued URL body is still one token => degenerate.
+    // Pins the intentional divergence: "consistifying" ONLY_URL_RE would drop
+    // this from 100 (spam_auto) to 60 with the rest of the suite still green.
+    expect(clean({ name: "Jane", message: "http://a.com,http://b.com" })).toEqual({
+      score: 100,
+      reasons: ["links:2", "degenerate"],
     });
   });
 
@@ -194,13 +276,23 @@ describe("classifySpam", () => {
     ).toEqual({ score: 0, reasons: [] });
   });
 
-  it("threshold boundaries: fail + one link = 100 -> at/over threshold; three bare links = 90 -> under", () => {
-    const over = clean({ turnstile: "fail" as TurnstileOutcome, message: "visit http://a.com" });
-    expect(over).toEqual({ score: 100, reasons: ["turnstile-fail", "links:1"] });
+  it("threshold boundaries: fail + one link = 80 -> under threshold; fail + two links = 110 -> over", () => {
+    // A "fail" plus ONE benign co-signal (a single pasted URL) must NOT
+    // auto-spam a possibly-real human — this exact combination shipped as
+    // spam_auto before the 70->50 reweight.
+    const under = clean({ turnstile: "fail" as TurnstileOutcome, message: "visit http://a.com" });
+    expect(under).toEqual({ score: 80, reasons: ["turnstile-fail", "links:1"] });
+    expect(under.score >= SPAM_THRESHOLD).toBe(false);
+
+    const over = clean({
+      turnstile: "fail" as TurnstileOutcome,
+      message: "http://a.com http://b.com",
+    });
+    expect(over).toEqual({ score: 110, reasons: ["turnstile-fail", "links:2"] });
     expect(over.score >= SPAM_THRESHOLD).toBe(true);
 
-    const under = clean({ message: "http://a.com http://b.com http://c.com" });
-    expect(under.score).toBe(90);
-    expect(under.score >= SPAM_THRESHOLD).toBe(false);
+    const linksOnly = clean({ message: "http://a.com http://b.com http://c.com" });
+    expect(linksOnly.score).toBe(90);
+    expect(linksOnly.score >= SPAM_THRESHOLD).toBe(false);
   });
 });

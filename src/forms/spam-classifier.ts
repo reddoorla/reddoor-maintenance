@@ -9,23 +9,27 @@ export type SpamVerdict = { score: number; reasons: string[] };
 /**
  * Maintained spam-keyword list (case-insensitive substring match). Tunable from
  * the `spam_score` / `spam_reason` data the pipeline now records — a defensible
- * v1, not final. Keep entries specific enough to avoid false positives.
+ * v1, not final. Keep entries specific enough to avoid false positives: where a
+ * term is also legitimate business vocabulary (casino resorts, weight-loss
+ * studios, transport escorts, payday lenders, backlink audits), list only the
+ * clearly-promotional phrasing, never the bare term.
  */
 export const SPAM_KEYWORDS: readonly string[] = [
   "viagra",
   "cialis",
-  "casino",
+  "online casino",
+  "casino bonus",
   "porn",
-  "payday loan",
+  "payday loans online",
   "buy crypto",
   "crypto wallet",
   "bitcoin investment",
-  "backlinks",
+  "buy backlinks",
   "cheap seo",
   "forex signals",
-  "escort",
+  "escort girls",
   "replica watches",
-  "weight loss",
+  "weight loss pills",
 ];
 
 /** Maintained disposable / throwaway email domains. */
@@ -42,7 +46,9 @@ export const DISPOSABLE_EMAIL_DOMAINS: readonly string[] = [
   "maildrop.cc",
 ];
 
-const URL_RE = /https?:\/\/\S+|www\.\S+/gi;
+// A URL candidate ends at whitespace, `,` or `;` so comma/semicolon-glued
+// URLs ("a.com,b.com") count individually instead of matching as one.
+const URL_RE = /https?:\/\/[^\s,;]+|www\.[^\s,;]+/gi;
 const LINK_MARKUP_RE = /<a\s[^>]*href|\[url[=\]]/i;
 const ONLY_URL_RE = /^(https?:\/\/\S+|www\.\S+)$/i;
 
@@ -113,8 +119,10 @@ export function classifySpam(input: {
     .join(" ");
   const body = extraText ? `${message} ${extraText}` : message;
 
+  // 50 (not more): a lone "fail" plus one benign co-signal (a single pasted
+  // URL, +30) must stay under SPAM_THRESHOLD — a real human can trip both.
   if (input.turnstile === "fail") {
-    score += 70;
+    score += 50;
     reasons.push("turnstile-fail");
   }
 
@@ -135,8 +143,11 @@ export function classifySpam(input: {
     reasons.push(`keywords:${keywords}`);
   }
 
-  if (nonLatinRatio(body) > 0.3 || nonLatinRatio(name) > 0.3) {
-    score += 50;
+  // Body only — a native-script NAME (王小明, Владимир) is not a spam signal.
+  // 25 (not 50): non-Latin alone must need corroboration from other signals
+  // before it can reach SPAM_THRESHOLD.
+  if (nonLatinRatio(body) > 0.3) {
+    score += 25;
     reasons.push("non-latin");
   }
 
