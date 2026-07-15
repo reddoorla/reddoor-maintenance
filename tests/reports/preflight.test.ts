@@ -217,9 +217,11 @@ describe("preflightSite", () => {
     expect(checks(site)).toContain("frequency-unrecognized");
   });
 
-  it("fails on a trailing-space frequency cell ('Monthly ') — production silently unschedules it", () => {
-    const site = cleanSite({ maintenanceFreq: "None", maintenanceFreqRaw: "Monthly " });
-    expect(checks(site)).toContain("frequency-unrecognized");
+  it("stays quiet on a trailing-space frequency cell ('Monthly ') — toFrequency trims, so it schedules", () => {
+    // mapRow now reads "Monthly " as Monthly, so the coerced value is NOT "None"
+    // and there is nothing to flag — the site stays on the calendar.
+    const site = cleanSite({ maintenanceFreq: "Monthly", maintenanceFreqRaw: "Monthly " });
+    expect(checks(site)).not.toContain("frequency-unrecognized");
   });
 
   it("stays quiet on a clean raw frequency and on blank cells", () => {
