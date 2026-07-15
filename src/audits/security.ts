@@ -216,7 +216,14 @@ async function dependabotAudit(
   let alerts: DependabotAlert[];
   try {
     alerts = await deps.listAlerts(repo);
-  } catch {
+  } catch (e) {
+    // Loud, greppable degradation marker: the caller silently falls back to the
+    // weaker lockfile `pnpm audit`, so a systematic token/permission regression
+    // would otherwise be invisible across the whole fleet.
+    console.error(
+      `[security] ${label}: dependabot API failed — degraded to pnpm audit: ` +
+        `${e instanceof Error ? e.message : String(e)}`,
+    );
     return null;
   }
 
