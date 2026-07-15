@@ -751,6 +751,9 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                     },
                   ],
                   "kind": "row",
+                  "style": {
+                    "background-color": "rgb(255, 255, 255)",
+                  },
                 },
                 "token": {
                   "cols": 1,
@@ -873,6 +876,9 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                     },
                   ],
                   "kind": "row",
+                  "style": {
+                    "background-color": "rgb(255, 255, 255)",
+                  },
                 },
                 "token": {
                   "cols": 1,
@@ -1011,6 +1017,9 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                     },
                   ],
                   "kind": "row",
+                  "style": {
+                    "background-color": "rgb(255, 255, 255)",
+                  },
                 },
                 "token": {
                   "cols": 1,
@@ -1101,6 +1110,9 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                     },
                   ],
                   "kind": "row",
+                  "style": {
+                    "background-color": "rgb(255, 255, 255)",
+                  },
                 },
                 "token": {
                   "cols": 1,
@@ -1353,6 +1365,9 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                 },
               ],
               "kind": "row",
+              "style": {
+                "background-color": "rgb(255, 255, 255)",
+              },
             },
             "token": {
               "cols": 2,

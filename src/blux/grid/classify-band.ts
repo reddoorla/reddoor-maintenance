@@ -221,12 +221,18 @@ function rewriteMapMounts(node: Node, isMapMount: (n: Node) => boolean): Node {
           token: c.token,
           node: rewriteMapMounts(c.node, isMapMount),
         })),
-        // Keep the slider marker — dropping it here would silently demote a
-        // Carousel to Grid whenever a map config is present.
+        // Preserve the row's own markers when rebuilding: dropping the slider
+        // would silently demote a Carousel to Grid, and dropping the style would
+        // lose a card background — for every band whenever a map config exists.
         ...(node.slider ? { slider: node.slider } : {}),
+        ...(node.style ? { style: node.style } : {}),
       };
     case "stack":
-      return { kind: "stack", children: node.children.map((n) => rewriteMapMounts(n, isMapMount)) };
+      return {
+        kind: "stack",
+        children: node.children.map((n) => rewriteMapMounts(n, isMapMount)),
+        ...(node.style ? { style: node.style } : {}),
+      };
     case "heading":
     case "body":
     case "subtitle":

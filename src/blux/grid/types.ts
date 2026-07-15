@@ -58,8 +58,13 @@ export type Node =
        * encode this (classification is guarded by unit tests instead) so
        * Grid-fallback drift comparisons stay stable. */
       slider?: { columns?: number };
+      /** Inline deviations inherited from a peeled container wrapper (a Blux
+       * "card": a `.blocks0` whose inline `background-color` the layout wrappers
+       * would otherwise drop). Same shape as a text leaf's `style`; currently
+       * only `background-color`. Distinct from `Band.background` (a Media image). */
+      style?: Record<string, string>;
     }
-  | { kind: "stack"; children: Node[] }
+  | { kind: "stack"; children: Node[]; style?: Record<string, string> }
   | {
       kind: "heading";
       role?: string;

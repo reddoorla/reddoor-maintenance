@@ -1,9 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { parse, type HTMLElement } from "node-html-parser";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { parseNode, parseContainer, parseGridBands } from "../../src/blux/grid/parse-grid.js";
+import type { Node } from "../../src/blux/grid/types.js";
 
 const node = (html: string) => parseNode(parse(html).firstChild as HTMLElement);
 const container = (html: string) => parseContainer(parse(html).firstChild as HTMLElement);
+
+const fixture = fileURLToPath(new URL("./fixtures/the-pointe-page-content.html", import.meta.url));
+const styleOf = (n: Node) => (n as { style?: Record<string, string> }).style;
 
 describe("parseNode", () => {
   it("parses a heading leaf with its role and level", () => {
@@ -362,5 +368,76 @@ describe("caption capture hardening", () => {
         '<div class="ib camediaload" data-media="d1"><div class="disable"><h5 class="block-title text5">hidden</h5></div></div>',
       ),
     ).toEqual({ kind: "media", media: { kind: "image", assetId: "d1" } });
+  });
+});
+
+describe("card background capture", () => {
+  it("rides a peeled wrapper's background-color onto the grid row it wraps", () => {
+    // A Blux "card": a `.blocks0` with an inline white background wrapping a
+    // grid. The wrapper is peeled (no token/cagrid of its own), so its color
+    // would be lost — instead it lands on the row as a `style` deviation.
+    const html =
+      '<div class="block-content">' +
+      '<div class="blocks0" style="background-color: rgb(255, 255, 255); text-align: left;">' +
+      '<div class="block-grid-container cagrid">' +
+      '<div class="block-subcontent grid-2-r50"><h5 class="block-title text5">A</h5></div>' +
+      '<div class="block-subcontent grid-2-r50"><h5 class="block-title text5">B</h5></div>' +
+      "</div></div></div>";
+    const result = container(html);
+    expect(result.kind).toBe("row");
+    expect(styleOf(result)).toEqual({ "background-color": "rgb(255, 255, 255)" });
+    if (result.kind === "row") expect(result.cells).toHaveLength(2);
+  });
+
+  it("carries only background-color, not the wrapper's other inline styles", () => {
+    // text-align / vertical-align are band-level layout concerns, not the card's
+    // deviation — only the background rides along.
+    const html =
+      '<div class="block-content">' +
+      '<div class="blocks0" style="background-color: rgb(0, 0, 0); text-align: center; padding: 40px;">' +
+      '<div class="block-grid-container cagrid">' +
+      '<div class="block-subcontent grid-1"><h5 class="block-title text5">A</h5></div>' +
+      '<div class="block-subcontent grid-1"><h5 class="block-title text5">B</h5></div>' +
+      "</div></div></div>";
+    expect(styleOf(container(html))).toEqual({ "background-color": "rgb(0, 0, 0)" });
+  });
+
+  it("ignores a transparent background (not a real deviation)", () => {
+    const html =
+      '<div class="block-content">' +
+      '<div class="blocks0" style="background-color: rgba(0, 0, 0, 0);">' +
+      '<div class="block-grid-container cagrid">' +
+      '<div class="block-subcontent grid-1"><h5 class="block-title text5">A</h5></div>' +
+      '<div class="block-subcontent grid-1"><h5 class="block-title text5">B</h5></div>' +
+      "</div></div></div>";
+    expect(styleOf(container(html))).toBeUndefined();
+  });
+
+  it("drops a card background around a bare leaf (no container node to carry it)", () => {
+    // A leaf has no `style` slot for a container background; such cards (the
+    // the-pointe carousel captions) are handled by their own render path, and
+    // the Grid tree must not invent one — the leaf parses unchanged.
+    const html =
+      '<div class="block-content">' +
+      '<div class="blocks0" style="background-color: rgb(255, 255, 255);">' +
+      '<h5 class="block-title text5">Solo</h5>' +
+      "</div></div>";
+    expect(container(html)).toEqual({ kind: "heading", role: "text5", level: 5, html: "Solo" });
+  });
+
+  it("restores the-pointe band 3's white stats card (real fixture)", () => {
+    const bands = parseGridBands(readFileSync(fixture, "utf-8"));
+    const band3 = bands.find((b) => b.index === 3);
+    expect(band3).toBeDefined();
+    // Band 3 is a 50/50 row: cell[0] = building images (left), cell[1] = the
+    // stats grid (right) — the card that carries the white background.
+    const root = band3!.root;
+    expect(root.kind).toBe("row");
+    if (root.kind !== "row") return;
+    const [left, right] = root.cells;
+    expect(styleOf(right!.node)).toEqual({ "background-color": "rgb(255, 255, 255)" });
+    // The building-image column and the band root itself stay transparent.
+    expect(styleOf(left!.node)?.["background-color"]).toBeUndefined();
+    expect(styleOf(root)?.["background-color"]).toBeUndefined();
   });
 });

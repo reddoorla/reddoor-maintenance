@@ -39,8 +39,8 @@ export type RenderMedia = {
 export type RenderToken = { cols: number | "any"; ratio?: number; spacing?: number };
 
 export type RenderNode =
-  | { kind: "row"; cells: RenderCell[] }
-  | { kind: "stack"; children: RenderNode[] }
+  | { kind: "row"; cells: RenderCell[]; style?: Record<string, string> }
+  | { kind: "stack"; children: RenderNode[]; style?: Record<string, string> }
   | {
       kind: "heading";
       level: number;
@@ -156,7 +156,7 @@ function renderNode(node: Node, resolve: PresentationDeps["resolveMedia"]): Rend
         const rn = renderNode(c.node, resolve);
         if (rn) cells.push({ token: renderToken(c.token), node: rn });
       }
-      return { kind: "row", cells };
+      return { kind: "row", cells, ...(node.style ? { style: node.style } : {}) };
     }
     case "stack": {
       const children: RenderNode[] = [];
@@ -164,7 +164,7 @@ function renderNode(node: Node, resolve: PresentationDeps["resolveMedia"]): Rend
         const rn = renderNode(c, resolve);
         if (rn) children.push(rn);
       }
-      return { kind: "stack", children };
+      return { kind: "stack", children, ...(node.style ? { style: node.style } : {}) };
     }
     case "heading":
       return {

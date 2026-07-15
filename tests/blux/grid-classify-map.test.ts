@@ -40,4 +40,22 @@ describe("makeIsMapMount + classifier", () => {
     const others = (a: typeof withMap) => a.filter((s) => s.index !== 16).map((s) => s.slice);
     expect(others(withMap)).toEqual(others(without));
   });
+
+  it("preserves a card background through the map-mount rewrite", () => {
+    // With a map config, every band's tree is rebuilt by rewriteMapMounts. That
+    // rebuild must carry a row/stack's `style` (a captured card background), not
+    // just its cells — else band 3's white stats card is silently dropped.
+    const cfg = extractMapConfig(band);
+    const withMap = classifyBands(parseGridBands(page), {
+      isMapMount: makeIsMapMount(cfg!),
+    });
+    const band3 = withMap.find((s) => s.index === 3);
+    expect(band3?.slice).toBe("Grid");
+    const root = band3?.slice === "Grid" ? band3.root : undefined;
+    expect(root?.kind).toBe("row");
+    const statsCard = root?.kind === "row" ? root.cells[1]?.node : undefined;
+    expect(
+      (statsCard as { style?: Record<string, string> } | undefined)?.style?.["background-color"],
+    ).toBe("rgb(255, 255, 255)");
+  });
 });
