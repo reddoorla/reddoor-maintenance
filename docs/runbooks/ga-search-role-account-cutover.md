@@ -71,7 +71,7 @@ Set `GA_SUBJECT=reports@reddoorla.com,<current-subject>` in **both** places the 
 On the next `reddoor-maint report --due` run, confirm:
 
 - **No** `⚠ N site(s) had GA/Search enrichment fail` line in the run output.
-- **No** `subject failover` warning line — one means `reports@` failed auth and the OLD subject carried the run; finish the step-2/3 grants before step 8.
+- **No** `subject failover` warning line that points at THIS runbook — one means `reports@` failed auth (or its `sites.list` saw no property) and the OLD subject carried the run; finish the step-2/3 grants before step 8. A `subject failover: … (transient quota/rate-limit, not an access loss)` line is benign — a per-user rate-limit blip that failed over to spread load, **not** a grant problem, so it needs no action.
 - A freshly drafted Reports row has **GA users (period)** populated.
 
 A botched flip surfaces immediately as a **fleet-wide analytics-failure alert email** (and the per-site cockpit/digest signal) instead of a silent blanking — so you'll know within one cron run if a grant was missed. Make sure `OPERATOR_EMAIL` is set in the report cron's environment so that alert reaches you (not the `info@` fallback).

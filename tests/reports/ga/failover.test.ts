@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { withSubjectFailover, isAuthShapedError } from "../../../src/reports/ga/failover.js";
+import {
+  withSubjectFailover,
+  isAuthShapedError,
+  isQuotaShapedError,
+} from "../../../src/reports/ga/failover.js";
 
 let warn: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
@@ -11,6 +15,20 @@ afterEach(() => {
 
 function authError(msg = "403 PERMISSION_DENIED"): Error {
   return Object.assign(new Error(msg), { code: 7 });
+}
+
+/** A marked "this subject can't see the resource" sentinel (the search client's
+ *  empty-sites.list case) — auth-shaped for failover purposes, but weaker evidence
+ *  than a real auth failure. */
+function sentinelError(msg = "no property visible"): Error {
+  return Object.assign(new Error(msg), { failoverToNextSubject: true });
+}
+
+/** A webmasters-v3-style per-user quota 403 (gaxios shape). */
+function quotaError(reason = "userRateLimitExceeded"): Error {
+  return Object.assign(new Error("User Rate Limit Exceeded"), {
+    response: { status: 403, data: { error: { errors: [{ reason }] } } },
+  });
 }
 
 describe("isAuthShapedError", () => {
@@ -42,6 +60,26 @@ describe("isAuthShapedError", () => {
     expect(isAuthShapedError(new Error("socket hang up"))).toBe(false);
     expect(isAuthShapedError(Object.assign(new Error("boom"), { status: 500 }))).toBe(false);
     expect(isAuthShapedError(new Error("3 INVALID_ARGUMENT: property required"))).toBe(false);
+  });
+});
+
+describe("isQuotaShapedError", () => {
+  it("matches webmasters-v3 per-user quota 403s by structured reason", () => {
+    expect(isQuotaShapedError(quotaError("userRateLimitExceeded"))).toBe(true);
+    expect(isQuotaShapedError(quotaError("quotaExceeded"))).toBe(true);
+    expect(isQuotaShapedError(quotaError("dailyLimitExceeded"))).toBe(true);
+    expect(isQuotaShapedError(quotaError("rateLimitExceeded"))).toBe(true);
+  });
+
+  it("matches quota-shaped messages when no structured reason survives", () => {
+    expect(isQuotaShapedError(new Error("Quota exceeded for quota metric"))).toBe(true);
+    expect(isQuotaShapedError(new Error("User Rate Limit Exceeded"))).toBe(true);
+  });
+
+  it("does NOT match real access failures", () => {
+    expect(isQuotaShapedError(quotaError("forbidden"))).toBe(false);
+    expect(isQuotaShapedError(new Error("7 PERMISSION_DENIED: no access"))).toBe(false);
+    expect(isQuotaShapedError(new Error("invalid_grant: Invalid email or User ID"))).toBe(false);
   });
 });
 
@@ -85,5 +123,58 @@ describe("withSubjectFailover", () => {
     const attempt = vi.fn();
     await expect(withSubjectFailover([], "GA", attempt)).rejects.toThrow(/no.*subject/i);
     expect(attempt).not.toHaveBeenCalled();
+  });
+
+  // A real auth failure must dominate a soft sentinel regardless of subject order — otherwise
+  // the search client would convert the last-thrown sentinel into a clean not-found and mask
+  // the outage (the confirmed masking bug this fix closes).
+  it("throws the REAL auth error, not a later sentinel [real-auth, sentinel]", async () => {
+    const real = authError("suspended primary");
+    const attempt = vi.fn().mockRejectedValueOnce(real).mockRejectedValueOnce(sentinelError());
+    await expect(withSubjectFailover(["a@x.com", "b@x.com"], "SEARCH", attempt)).rejects.toBe(real);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("throws the REAL auth error, not an earlier sentinel [sentinel, real-auth]", async () => {
+    const real = authError("suspended backup");
+    const attempt = vi.fn().mockRejectedValueOnce(sentinelError()).mockRejectedValueOnce(real);
+    await expect(withSubjectFailover(["a@x.com", "b@x.com"], "SEARCH", attempt)).rejects.toBe(real);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("throws the sentinel only when EVERY subject returns the sentinel", async () => {
+    const last = sentinelError("b has no property");
+    const attempt = vi
+      .fn()
+      .mockRejectedValueOnce(sentinelError("a has no property"))
+      .mockRejectedValueOnce(last);
+    const err = await withSubjectFailover(["a@x.com", "b@x.com"], "SEARCH", attempt).catch(
+      (e) => e,
+    );
+    expect(err).toBe(last);
+    expect((err as { failoverToNextSubject?: boolean }).failoverToNextSubject).toBe(true);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("softens the warning to 'transient quota/rate-limit' when all failures were quota", async () => {
+    const attempt = vi.fn().mockRejectedValueOnce(quotaError()).mockResolvedValueOnce(9);
+    await expect(withSubjectFailover(["a@x.com", "b@x.com"], "SEARCH", attempt)).resolves.toBe(9);
+    const msg = warn.mock.calls[0]![0] as string;
+    expect(msg).toMatch(/transient quota\/rate-limit/i);
+    expect(msg).not.toContain("runbook");
+    expect(msg).not.toContain("ga-search-role-account-cutover");
+  });
+
+  it("keeps the runbook warning when any failure was a real access loss (not quota)", async () => {
+    const attempt = vi
+      .fn()
+      .mockRejectedValueOnce(quotaError())
+      .mockRejectedValueOnce(authError("invalid_grant"))
+      .mockResolvedValueOnce(9);
+    await expect(
+      withSubjectFailover(["a@x.com", "b@x.com", "c@x.com"], "SEARCH", attempt),
+    ).resolves.toBe(9);
+    const msg = warn.mock.calls[0]![0] as string;
+    expect(msg).toContain("ga-search-role-account-cutover.md");
   });
 });

@@ -497,6 +497,44 @@ describe("fetchSearchPresence", () => {
     expect(request).toHaveBeenCalledTimes(2); // two sites.list calls, no query
   });
 
+  // A real auth failure on ANY subject must propagate (→ caller soft-fails), never be masked
+  // by a later subject's empty sites.list into an affirmative "not on page 1". Both orderings
+  // must behave the same; the [auth, empty] order is the one that used to silently self-heal.
+  it("does NOT mask a real auth failure behind a later subject's empty property list [auth, empty]", async () => {
+    request
+      .mockRejectedValueOnce(
+        Object.assign(new Error("PERMISSION_DENIED"), { response: { status: 403 } }),
+      ) // dead subject: real auth error
+      .mockResolvedValueOnce(ok({ siteEntry: [] })); // backup subject: sees no property (sentinel)
+    await expect(
+      fetchSearchPresence(
+        {
+          keyPath,
+          subjects: ["dead@reddoorla.com", "backup@reddoorla.com"],
+          host: "x.com",
+          query: "q",
+        },
+        start,
+        end,
+      ),
+    ).rejects.toThrow(/403|PERMISSION_DENIED/);
+  });
+
+  it("propagates the same auth failure in the reverse order too [empty, auth]", async () => {
+    request
+      .mockResolvedValueOnce(ok({ siteEntry: [] })) // first subject: no property (sentinel)
+      .mockRejectedValueOnce(
+        Object.assign(new Error("PERMISSION_DENIED"), { response: { status: 403 } }),
+      ); // second subject: real auth error
+    await expect(
+      fetchSearchPresence(
+        { keyPath, subjects: ["a@reddoorla.com", "dead@reddoorla.com"], host: "x.com", query: "q" },
+        start,
+        end,
+      ),
+    ).rejects.toThrow(/403|PERMISSION_DENIED/);
+  });
+
   it("throws the last error when every subject fails auth (caller soft-fails)", async () => {
     request
       .mockRejectedValueOnce(Object.assign(new Error("first"), { response: { status: 403 } }))
