@@ -303,16 +303,14 @@ describe("classifySpam", () => {
 });
 
 describe("classifySpam — cold-outreach / gibberish / bare-domain tuning (2026-07-15)", () => {
-  it("scores each new cold-outreach / SEO phrase as a keyword (25)", () => {
+  it("scores each SELLER-VOICE cold-outreach / SEO phrase as a keyword (25)", () => {
     for (const message of [
       "I'd love to write a guest post for your blog",
       "our link building service gets results",
       "we get you on the first page of google",
       "we can position your brand for more reach",
-      "results within 24 hours guaranteed",
-      "we provide a trained virtual assistant",
-      "we noticed an seo problem on your site",
       "we could increase your traffic significantly",
+      "no obligation, would love to chat",
     ]) {
       const v = clean({ message });
       expect(v.reasons, message).toContain("keywords:1");
@@ -320,10 +318,42 @@ describe("classifySpam — cold-outreach / gibberish / bare-domain tuning (2026-
     }
   });
 
+  it("scores BUYER-COMPATIBLE phrases at a weak 10 (capped 20) without seller corroboration", () => {
+    // Each of these is natural in a genuine prospect's own words — alone they must
+    // never carry a message toward the threshold.
+    for (const message of [
+      "results within 24 hours guaranteed",
+      "we provide a trained virtual assistant",
+      "we noticed an seo problem on your site",
+    ]) {
+      const v = clean({ message });
+      expect(v.reasons, message).toContain("keywords-buyer:1");
+      expect(v.score, message).toBe(10);
+    }
+    // 4 buyer phrases still cap at 20 — a pile of buyer-voice phrasing is not a pitch.
+    const four = clean({
+      message:
+        "Our google ranking tanked. We want to rank higher and drive traffic. Free consultation?",
+    });
+    expect(four.reasons).toContain("keywords-buyer:4");
+    expect(four.score).toBe(20);
+  });
+
+  it("a seller-voice phrase PROMOTES buyer phrases to full weight (pitch corroborates itself)", () => {
+    // "would you be interested" (seller) + virtual assistant + free consultation +
+    // within 24 hours (buyer) -> 4 hits, capped at 3 -> 75 >= 60: the classic VA pitch.
+    const pitch = clean({
+      message:
+        "I'm a virtual assistant. Would you be interested in a free consultation? I can start within 24 hours.",
+    });
+    expect(pitch.reasons).toContain("keywords:4");
+    expect(pitch.score).toBeGreaterThanOrEqual(SPAM_THRESHOLD);
+  });
+
   it("does NOT bucket a single ambiguous outreach phrase on its own (needs corroboration)", () => {
-    // A genuine lead can plausibly ask for a "free consultation" — 25 alone is < 60.
+    // A genuine lead can plausibly ask for a "free consultation" — weak +10, < 60.
     const v = clean({ message: "Could I get a free consultation about a new website?" });
-    expect(v.reasons).toContain("keywords:1");
+    expect(v.reasons).toContain("keywords-buyer:1");
     expect(v.score).toBeLessThan(SPAM_THRESHOLD);
   });
 
@@ -333,23 +363,86 @@ describe("classifySpam — cold-outreach / gibberish / bare-domain tuning (2026-
     expect(v.score).toBe(35);
   });
 
-  it("gibberish-name needs a single long low-vowel token; a bot with a mashed name+body is caught, a real consonant-heavy surname is not bucketed", () => {
+  it("flags case-flip mash whose consonant runs stay short (the second live-mash shape)", () => {
+    // Live samples 'IjIiJuhkojCYrNDFTXe' / 'XiwkUDgrboTgMSVX' max out at a 6-run with
+    // y-as-vowel — the >=3 interior lower→upper flips discriminator catches them.
+    for (const message of ["IjIiJuhkojCYrNDFTXe", "XiwkUDgrboTgMSVX"]) {
+      expect(clean({ message }).reasons, message).toContain("gibberish-body");
+    }
+    // Real CamelCase brands have at most 1-2 humps — never flagged.
+    for (const message of [
+      "we build on JavaScript and TypeScript",
+      "our shop runs on SquareSpace with MailChimp",
+    ]) {
+      expect(clean({ message }).reasons, message).not.toContain("gibberish-body");
+    }
+  });
+
+  it("gibberish-name needs a single long low-vowel token; a bot with a mashed name+body is caught, a real consonant-heavy surname never trips at all", () => {
     // bot: single mashed name token (35) + mashed body (35) = 70, bucketed
     const bot = clean({ name: "OsDMQohNGefhfCqqQCwr", message: "zddDVjhArCJbvfgXJmqQ" });
     expect(bot.reasons).toEqual(expect.arrayContaining(["gibberish-body", "gibberish-name"]));
     expect(bot.score).toBe(70);
     expect(bot.score >= SPAM_THRESHOLD).toBe(true);
 
-    // A real consonant-heavy surname may trip gibberish-name (+35) but with a normal
-    // message that is the only signal — 35 is well under the 60 threshold, never bucketed.
+    // A real consonant-heavy surname no longer trips gibberish-name AT ALL under the
+    // 7-run/y-as-vowel rule (Krzysztofowicz's longest run is 3) — so surname + a pasted
+    // site link can never stack toward the threshold.
     const surname = clean({
       name: "Krzysztofowicz",
       message: "Hi, could you help redesign our homepage?",
     });
-    expect(surname.score).toBeLessThan(SPAM_THRESHOLD);
+    expect(surname.reasons).not.toContain("gibberish-name");
+    expect(surname.score).toBe(0);
 
     // A native-script (non-latin) name never trips gibberish — latin a-z only.
     expect(clean({ name: "王小明" }).reasons).not.toContain("gibberish-name");
+  });
+
+  it("gibberish never fires on ordinary long English words (7-run, y-as-vowel) — the psych* regression", () => {
+    // The original >=5-consonant-run rule (y as consonant) fired on 3,138 dictionary
+    // words: every psych* word >= 10 letters (p-s-y-c-h is itself a 5-run),
+    // "worthwhile" (rthwh), "downstream" (wnstr), "nightclubs" (ghtcl), "catchphrase"
+    // (tchphr, a 6-run), "arrhythmia" (rrhythm) — so gibberish(35) + one pasted
+    // link(25) silently bucketed whole genuine-lead verticals. Pin each named word.
+    for (const word of [
+      "psychology",
+      "psychiatrist",
+      "psychotherapy",
+      "worthwhile",
+      "downstream",
+      "nightclubs",
+      "catchphrase",
+      "postscript",
+      "arrhythmia",
+      "strengthens",
+    ]) {
+      expect(clean({ message: `regarding ${word} services` }).reasons, word).not.toContain(
+        "gibberish-body",
+      );
+    }
+
+    // THE archetypal genuine lead that the review proved was silently bucketed at 60:
+    const therapist = clean({
+      message: "We run a psychology practice and want a modern site. Current one: https://x.com",
+    });
+    expect(therapist.reasons).toEqual(["links:1"]);
+    expect(therapist.score).toBeLessThan(SPAM_THRESHOLD);
+  });
+
+  it("a genuine SEO-help inquiry (buyer phrases + own site link) stays well under the threshold", () => {
+    // The review's confirmed-FP scenarios, pinned: buyer phrases cap at 20, so even
+    // with the lead's own link (25) or bare domain (20) the sum stays < 60.
+    const inquiry = clean({
+      message:
+        "Our google ranking tanked after the redesign. We want to rank higher and drive traffic to the booking page. Do you offer a free consultation? Site: https://sunsetyoga.com",
+    });
+    expect(inquiry.score).toBeLessThan(SPAM_THRESHOLD);
+
+    const bareDomain = clean({
+      message: "sunsetbakery.com has an seo problem and we'd like to rank higher locally",
+    });
+    expect(bareDomain.score).toBeLessThan(SPAM_THRESHOLD);
   });
 
   it("flags a bare pasted domain (no scheme/www) at 20, only when no real URL is present, and not an email domain", () => {

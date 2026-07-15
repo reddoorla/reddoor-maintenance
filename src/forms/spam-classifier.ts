@@ -18,12 +18,16 @@ export const SPAM_THRESHOLD = 60;
 export type SpamVerdict = { score: number; reasons: string[] };
 
 /**
- * Maintained spam-keyword list (case-insensitive substring match). Tunable from
- * the `spam_score` / `spam_reason` data the pipeline now records — a defensible
- * v1, not final. Keep entries specific enough to avoid false positives: where a
- * term is also legitimate business vocabulary (casino resorts, weight-loss
- * studios, transport escorts, payday lenders, backlink audits), list only the
- * clearly-promotional phrasing, never the bare term.
+ * Maintained SELLER-VOICE spam-keyword list (case-insensitive substring match).
+ * Tunable from the `spam_score` / `spam_reason` data the pipeline records.
+ * Keep entries specific enough to avoid false positives: where a term is also
+ * legitimate business vocabulary (casino resorts, weight-loss studios, transport
+ * escorts, payday lenders, backlink audits), list only the clearly-promotional
+ * phrasing, never the bare term. Split 2026-07-15 (post-review): phrases a
+ * genuine PROSPECT asking the agency for SEO/marketing help naturally writes in
+ * first person ("our google ranking tanked", "we want to rank higher") moved to
+ * BUYER_KEYWORDS below — a review pass proved 3-4 of them stack past the
+ * threshold on exactly the inquiry category a web agency wants most.
  */
 export const SPAM_KEYWORDS: readonly string[] = [
   "viagra",
@@ -41,26 +45,39 @@ export const SPAM_KEYWORDS: readonly string[] = [
   "escort girls",
   "replica watches",
   "weight loss pills",
-  // Cold-outreach / SEO-pitch vertical (added 2026-07-15). Kept MULTI-WORD so they
-  // stay high-precision — each is a phrase a solicitor writes, not a bare word a real
-  // lead trips. Individually only +25, so a single ambiguous match ("free consultation"
-  // from a genuine lead) can never reach the threshold without corroboration.
+  // Cold-outreach / SEO-pitch vertical (added 2026-07-15). Kept MULTI-WORD and
+  // SELLER-VOICE (second-person / self-promotional) so they stay high-precision —
+  // each is a phrase a solicitor writes, not something a real lead asking for help
+  // would say about themselves. Individually only +25, so a single ambiguous match
+  // can never reach the threshold without corroboration.
   "guest post",
   "guest article",
   "link building",
   "first page of google",
   "page one of google",
-  "google ranking",
-  "rank higher",
   "increase your traffic",
-  "drive traffic",
   "position your brand",
   "above competitors",
+  "no obligation",
+  "would you be interested",
+];
+
+/**
+ * BUYER-COMPATIBLE outreach phrases: common in cold pitches but ALSO natural in a
+ * genuine prospect's own words ("our google ranking tanked", "we tried a virtual
+ * assistant", "do you offer a free consultation?"). Alone they score a weak +10
+ * (capped at 2 hits / +20) so no pile of buyer-voice phrasing can bucket a real
+ * SEO-help inquiry — but when at least one seller-voice phrase is present the
+ * message is demonstrably a pitch, and these PROMOTE to full keyword weight as
+ * corroboration.
+ */
+export const BUYER_KEYWORDS: readonly string[] = [
+  "google ranking",
+  "rank higher",
+  "drive traffic",
   "within 24 hours",
   "virtual assistant",
   "free consultation",
-  "no obligation",
-  "would you be interested",
   "seo problem",
 ];
 
@@ -89,10 +106,10 @@ function countUrls(text: string): number {
   return (text.match(URL_RE) ?? []).length;
 }
 
-/** How many maintained keywords appear (each counted once). */
-function countKeywordHits(text: string): number {
+/** How many of `keywords` appear in `text` (each counted once). */
+function countKeywordHits(text: string, keywords: readonly string[]): number {
   const lower = text.toLowerCase();
-  return SPAM_KEYWORDS.filter((kw) => lower.includes(kw)).length;
+  return keywords.filter((kw) => lower.includes(kw)).length;
 }
 
 /** Fraction of letters that are outside the Latin script (0..1). */
@@ -124,19 +141,36 @@ function isAllCaps(text: string): boolean {
 }
 
 /**
- * True when `text` has a run of >= `minLen` ASCII letters containing >= 5 CONSECUTIVE
- * consonants — the signature of a random keyboard-mash token (`zddDVjhArCJ`, `OsDMQohNGefh`).
- * Consecutive-consonant count is the discriminator, NOT a vowel ratio: real English words
- * (even long consonant-clustered ones like "investment"/"strengthens") stay at or below 4
- * consecutive consonants, so normal prose never trips this, while a mashed token blows past
- * 5. LATIN a-z ONLY: a native-script name (王小明, Владимир) has no a-z letters here and is
- * never flagged — that is the non-latin signal's job, deliberately de-weighted so a real
- * foreign name isn't spam. (`y` is treated as a consonant here — conservative for detection,
- * and it only ever adds a name-path +35 that cannot bucket on its own.)
+ * True when `text` has a token of >= `minLen` ASCII letters that looks like random
+ * keyboard mash, via EITHER of two discriminators (measured 2026-07-15 against
+ * /usr/share/dict/words + the live mash corpus — each alone misses live samples the
+ * other catches, and together they flag ZERO dictionary words or common brand names):
+ *
+ * 1. A run of >= 7 consecutive non-vowels, with `y` counted as a VOWEL
+ *    (`OsDMQohNGefhfCqqQCwr` has a 10-run, `zddDVjhArCJ` a 7-run). The original
+ *    >=5-with-y-as-consonant rule fired on ordinary English — every psych* word
+ *    >= 10 letters (p-s-y-c-h is itself a 5-run), "worthwhile", "nightclubs",
+ *    3,138 dictionary words in all — i.e. gibberish(+35) + one pasted link(+25)
+ *    silently bucketed whole genuine-lead verticals (a psychology practice!).
+ * 2. >= 3 interior lower→upper case flips (`IjIiJuhkojCYrNDFTXe`, `XiwkUDgrboTgMSVX`
+ *    — live samples whose longest y-as-vowel run is only 6). Real CamelCase tokens
+ *    (JavaScript, SquareSpace, MailChimp) have at most 1-2 humps.
+ *
+ * LATIN a-z ONLY: a native-script name (王小明, Владимир) has no a-z letters here and
+ * is never flagged — that is the non-latin signal's job, deliberately de-weighted so
+ * a real foreign name isn't spam.
  */
 function hasGibberishToken(text: string, minLen: number): boolean {
   for (const run of text.match(/[A-Za-z]+/g) ?? []) {
-    if (run.length >= minLen && /[^aeiouAEIOU]{5,}/.test(run)) return true;
+    if (run.length < minLen) continue;
+    if (/[^aeiouyAEIOUY]{7,}/.test(run)) return true;
+    let flips = 0;
+    for (let i = 1; i < run.length; i++) {
+      const prev = run[i - 1]!;
+      const cur = run[i]!;
+      if (prev >= "a" && prev <= "z" && cur >= "A" && cur <= "Z") flips++;
+    }
+    if (flips >= 3) return true;
   }
   return false;
 }
@@ -204,10 +238,23 @@ export function classifySpam(input: {
     reasons.push("link-markup");
   }
 
-  const keywords = countKeywordHits(body);
-  if (keywords > 0) {
-    score += Math.min(keywords, 3) * 25;
-    reasons.push(`keywords:${keywords}`);
+  // Two-tier keywords. Seller-voice phrases are unambiguous pitch language: +25
+  // each (capped at 3 hits / +75), and their presence PROMOTES any buyer-compatible
+  // phrases in the same message to full weight — a pitch that says "would you be
+  // interested" AND "free consultation" is corroborating itself. WITHOUT a
+  // seller-voice phrase, buyer-compatible hits alone score a weak +10 capped at
+  // +20: a genuine "our google ranking tanked, can we rank higher? free
+  // consultation?" inquiry (the exact lead category this agency wants) tops out at
+  // 20 + its own site link (25) = 45, always under the threshold.
+  const seller = countKeywordHits(body, SPAM_KEYWORDS);
+  const buyer = countKeywordHits(body, BUYER_KEYWORDS);
+  if (seller > 0) {
+    const hits = seller + buyer;
+    score += Math.min(hits, 3) * 25;
+    reasons.push(`keywords:${hits}`);
+  } else if (buyer > 0) {
+    score += Math.min(buyer, 2) * 10;
+    reasons.push(`keywords-buyer:${buyer}`);
   }
 
   // Body only — a native-script NAME (王小明, Владимир) is not a spam signal.
@@ -219,9 +266,9 @@ export function classifySpam(input: {
   }
 
   // Random keyboard-mash tokens (form-filler bots): body is the strong tell (+35); the
-  // NAME corroborates only under a stricter rule (single token, >=12 chars) so a real
-  // consonant-heavy surname (Krzysztofowicz) adds at most 35 — never enough to bucket on
-  // its own. A bot with both name and body mashed sums 70 and is caught.
+  // NAME corroborates only under a stricter rule (single token, >=12 chars). A real
+  // consonant-heavy surname (Krzysztofowicz — max 3-run with y as vowel) no longer trips
+  // at all under the 7-run rule. A bot with both name and body mashed sums 70 and is caught.
   if (hasGibberishToken(body, 10)) {
     score += 35;
     reasons.push("gibberish-body");

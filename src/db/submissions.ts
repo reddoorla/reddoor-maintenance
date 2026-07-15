@@ -225,20 +225,32 @@ export const MIN_DUP_BODY_LEN = 40;
  *  lowercased) and were submitted on/after `sinceDate` (ISO). Powers the velocity /
  *  duplicate-spray spam signal — the same pitch blasted across sites (or re-run) shows
  *  up as identical bodies. Bodies shorter than `MIN_DUP_BODY_LEN` return 0 so a short
- *  line never collides two real leads. Case/whitespace-normalized to catch trivial
- *  variation; the SQL `lower(trim())` mirrors the JS normalization for an exact match. */
+ *  line never collides two real leads. BOTH sides are folded in SQL — `lower(trim())`
+ *  on the column AND on the bound parameter — because SQLite/libSQL `lower()` is
+ *  ASCII-only while JS `toLowerCase()` is full Unicode; folding one side in JS and the
+ *  other in SQL silently missed every byte-identical non-ASCII copy (a sentence-cased
+ *  Cyrillic spray could repeat forever unmatched). Same-side folding guarantees
+ *  byte-identical copies always match; ASCII case variation still normalizes, and
+ *  Unicode case VARIANTS (not byte-identical) are near-dupe territory, out of scope
+ *  for an exact-match signal. SQLite's bare `trim()` strips SPACES only (JS `.trim()`
+ *  also strips tabs/newlines — textarea bodies often carry a trailing newline), so
+ *  both sides trim an explicit whitespace char set instead. */
+const SQL_TRIM_WS = " \t\n\r";
+
 export async function countRecentDuplicateMessages(
   db: Db,
   message: string,
   sinceDate: string,
 ): Promise<number> {
-  const norm = message.trim().toLowerCase();
-  if (norm.length < MIN_DUP_BODY_LEN) return 0;
+  if (message.trim().length < MIN_DUP_BODY_LEN) return 0;
   const res = await db
     .selectFrom("submissions")
     .select((eb) => eb.fn.countAll<number>().as("n"))
     .where("submitted_at", ">=", sinceDate)
-    .where((eb) => sql<SqlBool>`lower(trim(${eb.ref("message")})) = ${norm}`)
+    .where(
+      (eb) =>
+        sql<SqlBool>`lower(trim(${eb.ref("message")}, ${SQL_TRIM_WS})) = lower(trim(${message}, ${SQL_TRIM_WS}))`,
+    )
     .executeTakeFirstOrThrow();
   return Number(res.n);
 }

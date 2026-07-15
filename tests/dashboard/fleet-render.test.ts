@@ -509,6 +509,26 @@ describe("mapRow — tolerant Accepted Watch Conditions parse", () => {
       mapRow({ id: "r5", fields: { "Accepted Watch Conditions": 42 } }).acceptedWatchConditions,
     ).toEqual([]);
   });
+
+  it("drops non-string ARRAY elements instead of crashing the cockpit build downstream", () => {
+    // A collaborator/attachment-shaped field passes Array.isArray with object
+    // elements; assignTier calls .trim() on every entry, so one misconfigured row
+    // must not take down the whole fleet cockpit. Strings survive, junk is dropped,
+    // and the array branch now trims + drops empties like the string branch.
+    const row = mapRow({
+      id: "r6",
+      fields: {
+        "Accepted Watch Conditions": [
+          { id: "usr123", name: "Someone" },
+          " netlify ",
+          42,
+          "",
+          "stale",
+        ],
+      },
+    });
+    expect(row.acceptedWatchConditions).toEqual(["netlify", "stale"]);
+  });
 });
 
 describe("needs-you feed", () => {
