@@ -459,3 +459,49 @@ export async function markFilteredAsRead(db: Db, filter: SubmissionFilter): Prom
     .executeTakeFirst();
   return Number(res.numUpdatedRows);
 }
+
+/** Flip a submission's notify_status to 'bounced' by its Resend message id — the
+ *  resend-webhook's mapping from a bounce/complaint event back onto the lead whose
+ *  notification it was (2026-07-16, the Espada failure mode: 'sent' only means Resend
+ *  ACCEPTED the email). Returns whether any row matched, so the webhook can tell a
+ *  submission notification apart from a report email (unknown id → false → the report
+ *  path handles it). Idempotent: a svix replay re-writes the same terminal value. In
+ *  practice only 'sent' rows can match — stampNotified stamps the message id and the
+ *  'sent' status together, and failed/skipped rows carry no id. */
+export async function markNotifyBouncedByMessageId(db: Db, messageId: string): Promise<boolean> {
+  if (messageId === "") return false;
+  const res = await db
+    .updateTable("submissions")
+    .set({ notify_status: "bounced" })
+    .where("resend_message_id", "=", messageId)
+    .executeTakeFirst();
+  if (Number(res.numUpdatedRows) > 0) return true;
+  // A replayed webhook must still report "this was a submission" (200, stop svix
+  // retrying) even though the terminal value is already written — matched-but-
+  // unchanged rows still count in numUpdatedRows on SQLite, but don't rely on it.
+  const existing = await db
+    .selectFrom("submissions")
+    .select("id")
+    .where("resend_message_id", "=", messageId)
+    .executeTakeFirst();
+  return existing !== undefined;
+}
+
+/** Per-site counts of bounced lead notifications on/after `sinceDate` (ISO), keyed by
+ *  the Websites record id (`site_id`). Powers the notify-bounce attention collector —
+ *  the caller picks the window (like `countAutoSpamSince`), keeping this query pure.
+ *  Windowed on `submitted_at`: the bounce lands minutes after the submission, and
+ *  submissions carry no bounce timestamp column (append-only schema, 2026-07-16). */
+export async function countNotifyBouncedBySite(
+  db: Db,
+  sinceDate: string,
+): Promise<Map<string, number>> {
+  const rows = await db
+    .selectFrom("submissions")
+    .select(["site_id", (eb) => eb.fn.countAll<number>().as("n")])
+    .where("notify_status", "=", "bounced")
+    .where("submitted_at", ">=", sinceDate)
+    .groupBy("site_id")
+    .execute();
+  return new Map(rows.map((r) => [r.site_id, Number(r.n)]));
+}

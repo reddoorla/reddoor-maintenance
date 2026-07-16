@@ -3,7 +3,12 @@ import { openBase } from "../../src/reports/airtable/client.js";
 import { listWebsites } from "../../src/reports/airtable/websites.js";
 import { listAllReports } from "../../src/reports/airtable/reports.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
-import { listNewSubmissions, countAutoSpamSince } from "../../src/db/submissions.js";
+import {
+  listNewSubmissions,
+  countAutoSpamSince,
+  countNotifyBouncedBySite,
+} from "../../src/db/submissions.js";
+import { NOTIFY_BOUNCE_WINDOW_DAYS } from "../../src/alerts/digest-collectors.js";
 import { listFleetEvents } from "../../src/db/fleet-events.js";
 import { listScreenOutsSince, screenOutsSince } from "../../src/db/screenouts.js";
 import { readDigestState } from "../../src/alerts/digest-state.js";
@@ -146,6 +151,15 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
         // affordance simply absent — never blank the cockpit
       }
     }
+    let notifyBounces: ReadonlyMap<string, number> = new Map();
+    if (db) {
+      try {
+        const since = screenOutsSince(new Date(), NOTIFY_BOUNCE_WINDOW_DAYS);
+        notifyBounces = await countNotifyBouncedBySite(db, since);
+      } catch {
+        // bounce alarm simply absent — never blank the cockpit
+      }
+    }
     const baseUrl = resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL);
     const model = buildCockpitModel(
       websites,
@@ -157,6 +171,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       spamTotals,
       recentEvents,
       autoFilteredCount,
+      notifyBounces,
     );
     return html(renderCockpitHtml(model), 200);
   } catch (err) {

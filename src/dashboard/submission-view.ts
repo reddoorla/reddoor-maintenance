@@ -73,6 +73,14 @@ export function renderSubmissionRow(s: SubmissionRow): string {
       ? ` <span class="subm-provenance" title="${escapeHtml(s.spamReason ?? "")}">auto-spam · ${escapeHtml(String(s.spamScore))}</span>${reasonChip}`
       : "";
   const recover = s.status === "spam_auto" ? btn("Not spam → new", "new") : "";
+  // Bounce marker (2026-07-16): visible summary-line text, not just the Notify
+  // detail row — a bounced notification means the LEAD never reached the client
+  // even though the row looks healthy (same visible-not-tooltip rule as the
+  // reason chip above). The resend-webhook flips notifyStatus to "bounced".
+  const bounceChip =
+    s.notifyStatus === "bounced"
+      ? ` <span class="subm-bounce" title="The lead notification email bounced — the point-of-contact address may be dead">notify bounced</span>`
+      : "";
 
   // One detail row per present field; absent fields are omitted (no blank rows).
   const kv = (label: string, value: string | number | null) =>
@@ -108,7 +116,7 @@ export function renderSubmissionRow(s: SubmissionRow): string {
 
   return `<li class="subm-item">
     <details>
-      <summary class="subm-head"><strong>${type}</strong> · ${who} <span class="muted">${email}</span> <span class="pill subm-${status}">${status}</span>${provenance} <span class="muted">${when}</span></summary>
+      <summary class="subm-head"><strong>${type}</strong> · ${who} <span class="muted">${email}</span> <span class="pill subm-${status}">${status}</span>${provenance}${bounceChip} <span class="muted">${when}</span></summary>
       <div class="subm-detail">${details}</div>
     </details>
     <div class="subm-actions">${recover}${btn("Read", "read")}${btn("Archive", "archived")}${btn("Spam", "spam")}</div>
@@ -136,6 +144,7 @@ button.subm-status:disabled { opacity: 0.6; cursor: default; }
 .pill.subm-spam { background: #fdecea; color: #b00; }
 .pill.subm-spam_auto { background: #fff4e5; color: #a65a00; }
 .subm-provenance { font-size: 0.72rem; border-radius: 0.25rem; padding: 0 0.35rem; white-space: nowrap; background: #fff4e5; color: #a65a00; }
+.subm-bounce { font-size: 0.72rem; border-radius: 0.25rem; padding: 0 0.35rem; white-space: nowrap; background: #fdecea; color: #b00; font-weight: 700; }
 .subm-reasons { font-size: 0.72rem; color: #999; }
 .subm-viewall { font-size: 0.8rem; font-weight: normal; margin-left: 0.4rem; white-space: nowrap; }`;
 

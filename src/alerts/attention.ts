@@ -44,7 +44,8 @@ export type AttentionItem = {
     | "ci"
     | "analytics"
     | "preflight"
-    | "turnstile";
+    | "turnstile"
+    | "notify-bounce";
   /** Grouping key in the (component-3) render. */
   siteName: string;
   title: string;

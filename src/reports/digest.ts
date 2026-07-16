@@ -14,6 +14,8 @@ import {
   collectCiAlerts,
   collectAnalyticsFailures,
   collectTurnstileGuardrailAlerts,
+  collectNotifyBounceAlerts,
+  NOTIFY_BOUNCE_WINDOW_DAYS,
 } from "../alerts/digest-collectors.js";
 import { diffAttention, readDigestState, writeDigestState } from "../alerts/digest-state.js";
 import { escapeHtml as esc } from "../util/html.js";
@@ -161,7 +163,34 @@ export type CollectAttentionDeps = {
    *  runDigest threads its run-start `today` so a quiet repo's frozen CI/Renovate
    *  signal stops badging once its sweep goes stale. */
   now?: Date;
+  /** Pre-fetched per-site bounced-lead-notification counts (tests, or a caller with
+   *  an open db). When omitted, collectAttention reads them from libSQL itself —
+   *  defensively, so a missing TURSO env or a Turso blip drops just this signal. */
+  notifyBounces?: ReadonlyMap<string, number>;
 };
+
+/** Per-site bounced-notification counts for the notify-bounce collector, read from
+ *  libSQL over the collector's own window. The db modules are imported DYNAMICALLY:
+ *  src/db/submissions.ts pulls kysely at top level, and kysely/libsql live in
+ *  devDependencies consuming fleet sites don't install — a static import here would
+ *  crash their CLI at require time (same rule as openDb's own lazy loads). Any
+ *  failure (no TURSO env, Turso down) logs and yields an empty map: the digest
+ *  must never blank over a missing optional signal. */
+async function fetchNotifyBounceCounts(now: Date): Promise<ReadonlyMap<string, number>> {
+  try {
+    const [{ openDb, readDbConfig }, { countNotifyBouncedBySite }, { screenOutsSince }] =
+      await Promise.all([
+        import("../db/client.js"),
+        import("../db/submissions.js"),
+        import("../db/screenouts.js"),
+      ]);
+    const db = await openDb(readDbConfig());
+    return await countNotifyBouncedBySite(db, screenOutsSince(now, NOTIFY_BOUNCE_WINDOW_DAYS));
+  } catch (e) {
+    console.warn(`⚠ notify-bounce counts unavailable (libSQL): ${(e as Error).message}`);
+    return new Map();
+  }
+}
 
 /** Run a single collector under a try/catch: a thrown collector logs and yields []
  *  so one broken signal never blanks the whole "Needs attention" section. */
@@ -194,6 +223,7 @@ export async function collectAttention(deps: CollectAttentionDeps): Promise<Atte
   const reports = deps.reports ?? (await listAllReports(deps.base));
   const websites = deps.websites ?? (await listWebsites(deps.base));
   const now = deps.now ?? new Date();
+  const notifyBounces = deps.notifyBounces ?? (await fetchNotifyBounceCounts(now));
   const sitesById = new Map<string, WebsiteRow>(websites.map((w) => [w.id, w]));
   return [
     ...runCollector("vuln", () => collectVulnAlerts(websites, deps.baseUrl)),
@@ -205,6 +235,9 @@ export async function collectAttention(deps: CollectAttentionDeps): Promise<Atte
     ...runCollector("analytics", () => collectAnalyticsFailures(websites, deps.baseUrl, now)),
     ...runCollector("turnstile", () =>
       collectTurnstileGuardrailAlerts(websites, deps.baseUrl, now),
+    ),
+    ...runCollector("notify-bounce", () =>
+      collectNotifyBounceAlerts(websites, notifyBounces, deps.baseUrl),
     ),
   ];
 }

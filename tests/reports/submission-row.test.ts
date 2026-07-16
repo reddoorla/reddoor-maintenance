@@ -14,6 +14,9 @@ describe("submission-row validators", () => {
     expect(toNotifyStatus("sent")).toBe("sent");
     expect(toNotifyStatus("nope")).toBe("skipped");
   });
+  it("toNotifyStatus accepts bounced (webhook-written terminal failure)", () => {
+    expect(toNotifyStatus("bounced")).toBe("bounced");
+  });
   it("toFormType falls back to contact", () => {
     expect(toFormType("newsletter")).toBe("newsletter");
     expect(toFormType("weird")).toBe("contact");

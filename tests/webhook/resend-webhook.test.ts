@@ -16,6 +16,20 @@ vi.mock("../../src/reports/airtable/reports.js", () => ({
 }));
 import { findReportByMessageId, setDeliveryStatus } from "../../src/reports/airtable/reports.js";
 
+// The bounce path additionally maps the event onto a SUBMISSION via libSQL; mock
+// both db modules so no real database is opened. markNotifyBouncedByMessageId
+// defaults to "no match" (see beforeEach) — the report path must stay untouched
+// for report email ids.
+vi.mock("../../src/db/client.js", () => ({
+  openDb: vi.fn().mockResolvedValue({}),
+  readDbConfig: vi.fn().mockReturnValue({ url: ":memory:" }),
+}));
+vi.mock("../../src/db/submissions.js", () => ({
+  markNotifyBouncedByMessageId: vi.fn(),
+}));
+import { openDb } from "../../src/db/client.js";
+import { markNotifyBouncedByMessageId } from "../../src/db/submissions.js";
+
 // Imports the real STATUS_MAP from the webhook handler so a drift between code
 // and "expected" mapping fails this test. (Previously this file declared its
 // own copy of STATUS_MAP and asserted on it — drift-blind.)
@@ -205,6 +219,8 @@ function resendEvent(
 
 const findReportMock = vi.mocked(findReportByMessageId);
 const setStatusMock = vi.mocked(setDeliveryStatus);
+const markBouncedMock = vi.mocked(markNotifyBouncedByMessageId);
+const openDbMock = vi.mocked(openDb);
 const fakeReport = { id: "recReport123" } as Awaited<ReturnType<typeof findReportByMessageId>>;
 
 describe("Resend webhook signed-POST path", () => {
@@ -216,6 +232,12 @@ describe("Resend webhook signed-POST path", () => {
     process.env.AIRTABLE_BASE_ID = "appTestBase";
     findReportMock.mockReset();
     setStatusMock.mockReset();
+    markBouncedMock.mockReset();
+    // Default: the message id is NOT a submission notification, so every existing
+    // report-path expectation below still holds for bounce/complaint events.
+    markBouncedMock.mockResolvedValue(false);
+    openDbMock.mockReset();
+    openDbMock.mockResolvedValue({} as Awaited<ReturnType<typeof openDb>>);
   });
 
   afterEach(() => {
@@ -324,5 +346,61 @@ describe("Resend webhook signed-POST path", () => {
     findReportMock.mockResolvedValue(null);
     const res = await post({ type: "email.delivered", data: { email_id: "msgId_no_ts" } });
     expect(res.status).toBe(500);
+  });
+
+  // ── submission-notification bounces (the Espada failure mode) ──────────────
+  // A lead notification's bounce carries the submission's resend_message_id, not
+  // a Reports row id. The handler checks submissions FIRST on bounce/complaint;
+  // a match short-circuits with 200 and the report path is never consulted.
+
+  it("maps a bounce onto the matching SUBMISSION (200, no Airtable lookup)", async () => {
+    markBouncedMock.mockResolvedValue(true);
+    const res = await post(resendEvent("email.bounced", { emailId: "msg_sub_1" }));
+    expect(res.status).toBe(200);
+    expect(markBouncedMock).toHaveBeenCalledWith(expect.anything(), "msg_sub_1");
+    expect(findReportMock).not.toHaveBeenCalled();
+    expect(setStatusMock).not.toHaveBeenCalled();
+  });
+
+  it("maps a COMPLAINT onto the matching submission too (either way the lead didn't land)", async () => {
+    markBouncedMock.mockResolvedValue(true);
+    const res = await post(resendEvent("email.complained", { emailId: "msg_sub_2" }));
+    expect(res.status).toBe(200);
+    expect(markBouncedMock).toHaveBeenCalledWith(expect.anything(), "msg_sub_2");
+    expect(findReportMock).not.toHaveBeenCalled();
+  });
+
+  it("leaves a REPORT bounce on the report path untouched (submissions miss → Airtable write)", async () => {
+    markBouncedMock.mockResolvedValue(false);
+    findReportMock.mockResolvedValue(fakeReport);
+    const res = await post(resendEvent("email.bounced", { emailId: "msg_report_9" }));
+    expect(res.status).toBe(200);
+    expect(setStatusMock).toHaveBeenCalledWith(expect.anything(), "recReport123", "bounced");
+  });
+
+  it("never consults submissions for a delivered event (bounce/complaint only)", async () => {
+    findReportMock.mockResolvedValue(fakeReport);
+    const res = await post(resendEvent("email.delivered"));
+    expect(res.status).toBe(200);
+    expect(markBouncedMock).not.toHaveBeenCalled();
+  });
+
+  it("is idempotent on a svix replay: the re-matched bounce returns 200 again", async () => {
+    markBouncedMock.mockResolvedValue(true); // helper re-matches the already-bounced row
+    const event = resendEvent("email.bounced", { emailId: "msg_replayed" });
+    expect((await post(event)).status).toBe(200);
+    expect((await post(event)).status).toBe(200);
+    expect(markBouncedMock).toHaveBeenCalledTimes(2);
+    expect(findReportMock).not.toHaveBeenCalled();
+  });
+
+  it("fails open when libSQL is down: the bounce falls through to the report path", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    openDbMock.mockRejectedValue(new Error("turso down"));
+    findReportMock.mockResolvedValue(fakeReport);
+    const res = await post(resendEvent("email.bounced", { emailId: "msg_during_outage" }));
+    expect(res.status).toBe(200);
+    expect(setStatusMock).toHaveBeenCalledWith(expect.anything(), "recReport123", "bounced");
+    errorSpy.mockRestore();
   });
 });
