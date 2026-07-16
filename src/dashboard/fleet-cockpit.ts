@@ -1,6 +1,11 @@
 // src/dashboard/fleet-cockpit.ts
 import type { WebsiteRow } from "../reports/airtable/websites.js";
-import { siteSlug, isDashboardVisible } from "../reports/airtable/websites.js";
+import {
+  siteSlug,
+  isDashboardVisible,
+  isArchivedStatus,
+  isUnrecognizedStatus,
+} from "../reports/airtable/websites.js";
 import type { AttentionItem } from "../alerts/attention.js";
 import { isPendingApproval } from "../reports/airtable/reports.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
@@ -85,6 +90,21 @@ const WATCH_CATEGORIES: ReadonlyArray<{
  *  `reason` is the human label. The tuple type guarantees a primary exists. */
 type WatchCandidate = { signal: string; acceptKeys: [string, ...string[]]; reason: string };
 
+/** Which attention items PIERCE the pre-launch mute. A "launch period" site mutes
+ *  expected pre-launch conditions (early/absent Lighthouse, errored deploy,
+ *  Renovate/analytics warnings) — but a genuine alarm must not hide behind the
+ *  mute: 2026-07, a human content push left hedloc's default-branch CI red for
+ *  two days and the cockpit hid it; the daily digest (which runs these same
+ *  collectors over ALL sites with no pre-launch mute) was the only alarm surface.
+ *  The cockpit now surfaces the genuine subset of what the digest already shows —
+ *  not a third behavior. Pierces: any CRITICAL-severity item (critical/exhausted
+ *  vuln, turnstile guardrail, notify-bounce, spam complaint, approved-report
+ *  preflight) plus default-branch CI red (`kind === "ci"` — warning severity, but
+ *  a broken repo is never expected pre-launch noise). PURE. */
+export function piercesPreLaunchMute(item: AttentionItem): boolean {
+  return item.severity === "critical" || item.kind === "ci";
+}
+
 export function assignTier(
   site: WebsiteRow,
   items: AttentionItem[],
@@ -100,12 +120,27 @@ export function assignTier(
 } {
   // Lifecycle short-circuit (FIRST, before any alarm rule): a "launch period" site
   // is PRE-LIVE prep, not a live site (Status flips to "maintenance" at go-live).
-  // Its expected pre-launch conditions — CI not yet green, no GA4 property, early/
-  // absent Lighthouse, an errored/absent Netlify deploy — would otherwise force it
-  // to 🔴 attention and read as "broken". Mute it as a calm "pre-launch" tier that
-  // never alarms and is excluded from the "needs you" feed. (Only "launch period"
-  // reaches the cockpit — isDashboardVisible = {maintenance, launch period}.)
-  if (site.status === "launch period")
+  // Its expected pre-launch conditions — no GA4 property, early/absent Lighthouse,
+  // an errored/absent Netlify deploy, Renovate warnings — would otherwise force it
+  // to 🔴 attention and read as "broken". Mute those as a calm "pre-launch" tier
+  // that never alarms and is excluded from the "needs you" feed — but a GENUINE
+  // alarm (piercesPreLaunchMute: any critical item, or CI red) re-tiers the site
+  // to 🔴 attention through the normal machinery. (Only "launch period" reaches
+  // the cockpit — isDashboardVisible = {maintenance, launch period}.)
+  if (site.status === "launch period") {
+    // Genuine alarms pierce the mute; this attention return sits ABOVE the
+    // accepted-watch loop, so an operator ack can never silence a pierced alarm —
+    // the same invariant the live-site items short-circuit keeps. Everything else
+    // (incl. a failed deploy, checked further below only for live sites) stays
+    // muted as expected pre-launch conditions.
+    if (items.some(piercesPreLaunchMute))
+      return {
+        tier: "attention",
+        watchReasons: [],
+        watchAcceptKeys: [],
+        watchSignals: [],
+        acceptedReasons: [],
+      };
     return {
       tier: "pre-launch",
       watchReasons: [],
@@ -113,6 +148,7 @@ export function assignTier(
       watchSignals: [],
       acceptedReasons: [],
     };
+  }
   if (items.length > 0)
     return {
       tier: "attention",
@@ -257,7 +293,9 @@ export type CockpitSummary = {
   attention: number;
   watch: number;
   healthy: number;
-  /** Count of pre-live "launch period" sites — muted, never counted as broken. */
+  /** Count of pre-live "launch period" sites still muted as expected pre-launch
+   *  conditions. A piercing alarm (piercesPreLaunchMute) re-tiers such a site to
+   *  attention, so it counts there instead — muted never means "hidden if broken". */
   preLaunch: number;
   criticalHighVulns: number;
   lighthouseBelowFloor: number;
@@ -282,6 +320,10 @@ export type RecentEntry = {
   ts: string;
 };
 
+/** A Websites row surfaced OUTSIDE the fleet cards: archived (legacy/deprecated)
+ *  or holding an unrecognized Status cell. `status` is the raw cell value. */
+export type OffFleetSiteEntry = { name: string; slug: string; status: string };
+
 export type CockpitModel = {
   summary: CockpitSummary;
   /** All visible sites, ordered: attention (worst-first) → watch (A-Z) → healthy (A-Z). */
@@ -296,6 +338,13 @@ export type CockpitModel = {
   /** Fleet-wide count of submissions auto-filtered as spam in the affordance window
    *  (optional for back-compat). Drives the cockpit "N auto-filtered this week" line. */
   autoFiltered?: number;
+  /** Archived (legacy/deprecated) rows — excluded from every fleet op, listed on a
+   *  neutral collapsed lane so a row can never silently vanish (optional for back-compat). */
+  archived?: OffFleetSiteEntry[];
+  /** Rows whose Status cell is outside the code's union (typo / renamed option) —
+   *  invisible to every fleet op, so the Needs-you feed surfaces them as amber watch
+   *  rows (optional for back-compat). */
+  unrecognizedStatus?: OffFleetSiteEntry[];
 };
 
 export type NeedsYouGroup = "broken" | "watch" | "approval";
@@ -355,6 +404,8 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
   for (const card of model.cards) {
     // Only "attention" (broken) and "watch" cards enter the feed; a "pre-launch"
     // card is pre-live prep and intentionally never surfaces here as needing you.
+    // (A launch-period site with a PIERCING alarm arrives as tier "attention" —
+    // assignTier re-tiers it — so genuine pre-launch breaks do reach the feed.)
     if (card.tier === "attention") {
       // A self-patching vuln (present but not yet exhausted) is amber WATCH — the fleet
       // is auto-patching it. Every other item, INCLUDING an exhausted vuln, is a hard
@@ -388,6 +439,16 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
     const a = get(p.siteName);
     a.reasons.push(`${p.reportType} ${p.period} ready`);
     a.approval = true;
+  }
+
+  // A Websites row whose Status is outside the union is invisible to every fleet
+  // op — surface it amber so a typo can never silently vanish a site.
+  for (const u of model.unrecognizedStatus ?? []) {
+    const a = get(u.name);
+    a.reasons.push(
+      `Status "${u.status}" is not a recognized value — fix it in Airtable (site is invisible to fleet ops)`,
+    );
+    a.watch = true;
   }
 
   const items: NeedsYouItem[] = [];
@@ -443,6 +504,17 @@ export function buildCockpitModel(
   const visible = websites.filter(isDashboardVisible);
   const sitesById = new Map<string, WebsiteRow>(visible.map((w) => [w.id, w]));
 
+  // Off-fleet visibility: archived rows get a neutral roster lane; a typo'd Status
+  // (outside the union) gets an amber watch row in the Needs-you feed. Both are
+  // read-only surfacing — neither joins `visible`, so no fleet op gains a site.
+  const archived: OffFleetSiteEntry[] = websites
+    .filter((w) => isArchivedStatus(w.status))
+    .map((w) => ({ name: w.name, slug: siteSlug(w.name), status: w.status as string }))
+    .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+  const unrecognizedStatus: OffFleetSiteEntry[] = websites
+    .filter((w) => isUnrecognizedStatus(w.status))
+    .map((w) => ({ name: w.name, slug: siteSlug(w.name), status: w.status as string }));
+
   // Per-site NEW-submission counts, keyed by Websites record id. Used for the
   // per-card badge below; the strip resolves entries against ALL sites.
   const subCountBySite = new Map<string, number>();
@@ -475,9 +547,14 @@ export function buildCockpitModel(
   }
 
   const cards: SiteCard[] = visible.map((site) => {
-    const items = (bySite.get(site.name) ?? []).sort(
+    const collected = (bySite.get(site.name) ?? []).sort(
       (a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity],
     );
+    // A launch-period card carries only the piercing alarms: muted pre-launch noise
+    // must not ride into the chips or the needs-you feed when a genuine alarm flips
+    // the tier (and a still-muted card shows no alarm chips at all).
+    const items =
+      site.status === "launch period" ? collected.filter(piercesPreLaunchMute) : collected;
     const { tier, watchReasons, watchAcceptKeys, watchSignals, acceptedReasons } = assignTier(
       site,
       items,
@@ -584,6 +661,8 @@ export function buildCockpitModel(
       : null,
     recent,
     autoFiltered: autoFilteredCount,
+    archived,
+    unrecognizedStatus,
   };
 }
 

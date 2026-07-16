@@ -138,6 +138,10 @@ function verdictBar(model: CockpitModel, feed: NeedsYouItem[]): string {
   // "healthy" nor as "broken" — surface them as their own neutral meta term.
   const preLaunch = model.summary.preLaunch;
   const preLaunchTerm = preLaunch > 0 ? `${preLaunch} pre-launch` : null;
+  // Archived (legacy/deprecated) rows are not in model.cards, so they never join
+  // the healthy math below — a neutral count term only, mirroring pre-launch.
+  const archivedCount = model.archived?.length ?? 0;
+  const archivedTerm = archivedCount > 0 ? `${archivedCount} archived` : null;
   // Clamp: feed counts include pending-report sites, which (rarely) may not be among
   // the visible cards, so total − feed could otherwise underflow to a negative "healthy".
   const healthy = Math.max(0, total - (broken + watch + approval + preLaunch));
@@ -154,7 +158,7 @@ function verdictBar(model: CockpitModel, feed: NeedsYouItem[]): string {
 
   if (broken === 0 && watch === 0 && approval === 0) {
     const healthyWord = healthy > 0 ? `${healthy} site${healthy === 1 ? "" : "s"} healthy` : null;
-    return render("ok", "✓ All clear", [healthyWord, preLaunchTerm, auditedTerm]);
+    return render("ok", "✓ All clear", [healthyWord, preLaunchTerm, archivedTerm, auditedTerm]);
   }
 
   // Count terms are integer-derived static English — no escaping needed (unlike auditedTerm).
@@ -168,6 +172,7 @@ function verdictBar(model: CockpitModel, feed: NeedsYouItem[]): string {
       approvalTerm,
       healthyTerm,
       preLaunchTerm,
+      archivedTerm,
       auditedTerm,
     ]);
   }
@@ -176,10 +181,16 @@ function verdictBar(model: CockpitModel, feed: NeedsYouItem[]): string {
       approvalTerm,
       healthyTerm,
       preLaunchTerm,
+      archivedTerm,
       auditedTerm,
     ]);
   }
-  return render("soft", `${approval} waiting on you`, [healthyTerm, preLaunchTerm, auditedTerm]);
+  return render("soft", `${approval} waiting on you`, [
+    healthyTerm,
+    preLaunchTerm,
+    archivedTerm,
+    auditedTerm,
+  ]);
 }
 
 const NEEDS_YOU_GROUP_LABEL: Record<NeedsYouGroup, string> = {
@@ -254,6 +265,22 @@ function renderRecentlyLane(model: CockpitModel): string {
     <summary>🔧 Recently (${events.length})</summary>
     ${rows}
   </details>`;
+}
+
+/** Neutral roster of archived (legacy/deprecated) rows — excluded from every
+ *  fleet op, listed so rows can never silently vanish from the cockpit. Reuses
+ *  the approve-row/muted styling; /s/<slug> works for archived rows because
+ *  getWebsiteBySlug does not status-filter. Returns "" when there are none. */
+function renderArchivedLane(model: CockpitModel): string {
+  const rows = model.archived ?? [];
+  if (rows.length === 0) return "";
+  const lis = rows
+    .map(
+      (s) =>
+        `<div class="approve-row"><strong>${escapeHtml(s.name)}</strong> <span class="muted">${escapeHtml(s.status)}</span> <a href="/s/${escapeHtml(s.slug)}">open ▸</a></div>`,
+    )
+    .join("");
+  return `<details class="archived"><summary>🗄 Archived (${rows.length})</summary>${lis}</details>`;
 }
 
 /** The quiet inbox lane: newest submissions + the 30-day spam roll-up, in one collapsed
@@ -448,6 +475,7 @@ export function renderCockpitHtml(model: CockpitModel): string {
   ${renderNeedsYouFeed(feed)}
   ${renderFleetBrowsePanel(model)}
   ${renderRecentlyLane(model)}
+  ${renderArchivedLane(model)}
   ${renderInboxLane(model)}
   ${AUDIT_SCRIPT}
   ${FLEET_BROWSE_SCRIPT}

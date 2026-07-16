@@ -318,7 +318,80 @@ describe("computeAutoFixAttemptUpdates", () => {
     expect(computeAutoFixAttemptUpdates(sites, result())).toEqual([]);
   });
 
-  it("excludes inactive and repo-less sites", () => {
+  it("resets a stale counter on a fully-clean fleet (empty dispatch result)", () => {
+    // The Alamo case: episode long closed (vulns 0 everywhere), counter still at 7.
+    const sites = [
+      makeWebsiteRow({
+        id: "rAlamo",
+        status: "maintenance",
+        gitRepo: "reddoorla/alamo",
+        securityVulnsCritical: 0,
+        securityVulnsHigh: 0,
+        securityAutoFixAttempts: 7,
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result())).toEqual([{ id: "rAlamo", attempts: 0 }]);
+  });
+
+  it("resets a stale counter even for a non-visible (legacy) or repo-less site", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rLeg",
+        status: "legacy",
+        gitRepo: "reddoorla/leg",
+        securityVulnsCritical: 0,
+        securityVulnsHigh: 0,
+        securityAutoFixAttempts: 5,
+      }),
+      makeWebsiteRow({
+        id: "rNoRepo",
+        status: "maintenance",
+        gitRepo: null,
+        securityVulnsCritical: 0,
+        securityVulnsHigh: 0,
+        securityAutoFixAttempts: 5,
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result())).toEqual([
+      { id: "rLeg", attempts: 0 },
+      { id: "rNoRepo", attempts: 0 },
+    ]);
+  });
+
+  it("does NOT reset while critical/high advisories remain (nothing dispatched)", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintenance",
+        gitRepo: "reddoorla/a",
+        securityVulnsCritical: 2,
+        securityAutoFixAttempts: 4,
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result())).toEqual([]);
+  });
+
+  it("emits no write for a clean site already at 0 / null on an empty result", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rZero",
+        status: "maintenance",
+        gitRepo: "reddoorla/z",
+        securityVulnsHigh: 0,
+        securityAutoFixAttempts: 0,
+      }),
+      makeWebsiteRow({
+        id: "rNull",
+        status: "maintenance",
+        gitRepo: "reddoorla/n",
+        securityVulnsHigh: 0,
+        securityAutoFixAttempts: null,
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result())).toEqual([]);
+  });
+
+  it("excludes inactive and repo-less sites from INCREMENTS (never counts their attempts)", () => {
     const sites = [
       makeWebsiteRow({
         id: "rIn",

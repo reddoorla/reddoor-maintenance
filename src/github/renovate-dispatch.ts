@@ -126,13 +126,20 @@ export function formatRenovateDispatchSummary(result: RenovateDispatchResult): s
 
 /**
  * Plan the per-site auto-fix-attempt counter writes from a dispatch result. PURE.
- * For each active, repo-backed site:
- *   - vulns now 0                         → reset to 0   (episode resolved)
- *   - else dispatched this run            → attempts + 1 (a fresh failed-so-far attempt)
- *   - else (skipped / failed / untouched) → unchanged
- * Returns only the rows whose value CHANGES (a steady fleet writes nothing). A
- * skipped repo (healthy Renovate PR in flight) is NOT a failed attempt — a fix is
- * genuinely moving toward merge — so its counter holds.
+ * For each site:
+ *   - vulns now 0 (or never counted)       → reset to 0   (episode resolved)
+ *   - else dispatched this run             → attempts + 1 (a fresh failed-so-far attempt)
+ *   - else (skipped / failed / untouched)  → unchanged
+ * The RESET applies fleet-wide — regardless of Status or Git repo — so a site
+ * archived or un-repo'd after its episode can't carry a stale counter into its
+ * next vuln (Alamo sat at 7 from a long-closed episode). A null vuln count
+ * (never-audited) reads as zero, consistent with the existing null-as-zero
+ * semantics, so a lingering counter on such a row also clears. The INCREMENT
+ * keeps its active + repo-backed filters (only those sites are dispatched).
+ * Returns only the rows whose value CHANGES (a steady fleet writes nothing —
+ * a 0→0 site emits no write). A skipped repo (healthy Renovate PR in flight) is
+ * NOT a failed attempt — a fix is genuinely moving toward merge — so its counter
+ * holds.
  */
 export function computeAutoFixAttemptUpdates(
   sites: WebsiteRow[],
@@ -141,15 +148,19 @@ export function computeAutoFixAttemptUpdates(
   const dispatched = new Set(result.dispatched);
   const updates: { id: string; attempts: number }[] = [];
   for (const s of sites) {
-    if (!isDashboardVisible(s)) continue;
-    const repo = s.gitRepo?.trim();
-    if (!repo) continue;
     const current = s.securityAutoFixAttempts ?? 0;
     const vulns = (s.securityVulnsCritical ?? 0) + (s.securityVulnsHigh ?? 0);
-    let next = current;
-    if (vulns === 0) next = 0;
-    else if (dispatched.has(repo)) next = current + 1;
-    if (next !== current) updates.push({ id: s.id, attempts: next });
+    if (vulns === 0) {
+      // Episode resolved (or never confirmed): reset REGARDLESS of status/repo —
+      // a site archived or un-repo'd after its episode must not carry a stale
+      // counter into its next vuln (Alamo sat at 7 from a long-closed episode).
+      if (current !== 0) updates.push({ id: s.id, attempts: 0 });
+      continue;
+    }
+    if (!isDashboardVisible(s)) continue; // increments stay active-only
+    const repo = s.gitRepo?.trim();
+    if (!repo) continue; // …and repo-backed-only
+    if (dispatched.has(repo)) updates.push({ id: s.id, attempts: current + 1 });
   }
   return updates;
 }

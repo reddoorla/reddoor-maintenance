@@ -167,10 +167,18 @@ describe("assignTier", () => {
     expect(assignTier(site({ deployStatus: null }), [], NOW).tier).toBe("healthy");
   });
 
-  it("mutes a pre-live 'launch period' site to 'pre-launch' even with attention items", () => {
-    // The lifecycle short-circuit beats the items>0 rule: a not-yet-live site's
-    // expected pre-launch failures must never read as broken.
-    const r = assignTier(site({ status: "launch period" }), [item()], NOW);
+  it("mutes a pre-live 'launch period' site to 'pre-launch' for warning-level non-CI noise", () => {
+    // The lifecycle short-circuit still beats expected pre-launch conditions:
+    // early Lighthouse, Renovate churn, analytics warnings never read as broken.
+    const r = assignTier(
+      site({ status: "launch period" }),
+      [
+        item({ kind: "lighthouse", severity: "warning", key: "lighthouse:recSITE:performance" }),
+        item({ kind: "renovate", severity: "warning", key: "renovate:recSITE" }),
+        item({ kind: "analytics", severity: "warning", key: "analytics:recSITE" }),
+      ],
+      NOW,
+    );
     expect(r.tier).toBe("pre-launch");
     expect(r.watchReasons).toEqual([]);
   });
@@ -179,6 +187,48 @@ describe("assignTier", () => {
     expect(assignTier(site({ status: "launch period", deployStatus: "error" }), [], NOW).tier).toBe(
       "pre-launch",
     );
+  });
+
+  it("a CRITICAL item pierces the pre-launch mute (attention, not muted)", () => {
+    // item() defaults to a critical vuln.
+    expect(assignTier(site({ status: "launch period" }), [item()], NOW).tier).toBe("attention");
+    expect(
+      assignTier(
+        site({ status: "launch period" }),
+        [item({ kind: "turnstile", severity: "critical", key: "turnstile:recSITE" })],
+        NOW,
+      ).tier,
+    ).toBe("attention");
+    expect(
+      assignTier(
+        site({ status: "launch period" }),
+        [item({ kind: "notify-bounce", severity: "critical", key: "notify-bounce:recSITE" })],
+        NOW,
+      ).tier,
+    ).toBe("attention");
+  });
+
+  it("default-branch CI red pierces the pre-launch mute despite its warning severity", () => {
+    const r = assignTier(
+      site({ status: "launch period" }),
+      [item({ kind: "ci", severity: "warning", key: "ci:recSITE" })],
+      NOW,
+    );
+    expect(r.tier).toBe("attention");
+  });
+
+  it("accept keys can never mute a pierced pre-launch alarm", () => {
+    // The pierce return sits ABOVE the accepted-watch loop, same invariant as the
+    // live-site items short-circuit.
+    const r = assignTier(
+      site({
+        status: "launch period",
+        acceptedWatchConditions: ["ci", "turnstile", "performance"],
+      }),
+      [item({ kind: "ci", severity: "warning", key: "ci:recSITE" })],
+      NOW,
+    );
+    expect(r.tier).toBe("attention");
   });
 
   it("routes an accepted Lighthouse watch category to acceptedReasons and stays healthy", () => {
@@ -378,6 +428,7 @@ describe("buildCockpitModel", () => {
         site({ id: "c", name: "Hosted", status: "hosting" }),
         site({ id: "d", name: "Deprecated", status: "deprecated" }),
         site({ id: "e", name: "NoStatus", status: null }),
+        site({ id: "f", name: "Old Legacy", status: "legacy" }),
       ],
       [],
       {},
@@ -385,6 +436,51 @@ describe("buildCockpitModel", () => {
       NOW,
     );
     expect(m.cards.map((c) => c.site.name).sort()).toEqual(["Launching", "Maintained"]);
+  });
+
+  it("lists archived (legacy/deprecated) rows on model.archived, A-Z, never as cards", () => {
+    const m = buildCockpitModel(
+      [
+        site({ id: "l", name: "Old Legacy", status: "legacy" }),
+        site({ id: "d", name: "Dead", status: "deprecated" }),
+        site({ id: "a", name: "Maintained", status: "maintenance" }),
+      ],
+      [],
+      {},
+      BASE,
+      NOW,
+    );
+    expect(m.cards.map((c) => c.site.name)).toEqual(["Maintained"]);
+    expect(m.archived).toEqual([
+      { name: "Dead", slug: "dead", status: "deprecated" },
+      { name: "Old Legacy", slug: "old-legacy", status: "legacy" },
+    ]);
+    // Archived statuses are RECOGNIZED — they never read as typos.
+    expect(m.unrecognizedStatus).toEqual([]);
+    expect(buildNeedsYouFeed(m)).toEqual([]);
+  });
+
+  it("surfaces a typo'd Status as an amber watch row instead of silently vanishing it", () => {
+    const m = buildCockpitModel(
+      [
+        site({ id: "t", name: "Typo Site", status: "maintenence " as WebsiteRow["status"] }),
+        site({ id: "a", name: "Maintained", status: "maintenance" }),
+      ],
+      [],
+      {},
+      BASE,
+      NOW,
+    );
+    expect(m.cards.map((c) => c.site.name)).toEqual(["Maintained"]);
+    expect(m.unrecognizedStatus).toEqual([
+      { name: "Typo Site", slug: "typo-site", status: "maintenence " },
+    ]);
+    expect(m.archived).toEqual([]);
+    const feed = buildNeedsYouFeed(m);
+    const row = feed.find((r) => r.siteName === "Typo Site")!;
+    expect(row.group).toBe("watch");
+    expect(row.url).toBe("/s/typo-site");
+    expect(row.reasons.join(" ")).toContain('Status "maintenence "');
   });
 
   it("tiers a vuln site as attention and a clean site as healthy", () => {
@@ -433,14 +529,15 @@ describe("buildCockpitModel", () => {
     expect(m.cards[0]!.items.some((i) => i.kind === "notify-bounce")).toBe(false);
   });
 
-  it("mutes a pre-live 'launch period' site to pre-launch, never broken nor in the feed", () => {
+  it("mutes a 'launch period' site with only pre-launch noise, filtering it off the card", () => {
     const m = buildCockpitModel(
       [
         site({
           id: "p",
           name: "Launching",
           status: "launch period",
-          securityVulnsCritical: 2, // would be 🔴 attention on a live site
+          pScore: 60, // sub-floor Lighthouse — expected early, warning severity
+          deployStatus: "error", // errored deploy — expected pre-launch
         }),
       ],
       [],
@@ -450,11 +547,83 @@ describe("buildCockpitModel", () => {
     );
     const card = m.cards.find((c) => c.site.name === "Launching")!;
     expect(card.tier).toBe("pre-launch");
+    expect(card.items).toEqual([]); // muted noise never reaches the chips
     expect(m.summary.attention).toBe(0);
     expect(m.summary.preLaunch).toBe(1);
-    // A pre-launch card must never surface as "needs you" (not broken).
+    // A still-muted pre-launch card must never surface as "needs you".
     const feed = buildNeedsYouFeed(m);
     expect(feed.some((r) => r.siteName === "Launching")).toBe(false);
+  });
+
+  it("critical vulns PIERCE the pre-launch mute: attention tier + feed row", () => {
+    const m = buildCockpitModel(
+      [
+        site({
+          id: "p",
+          name: "Launching",
+          status: "launch period",
+          securityVulnsCritical: 2, // a genuine alarm, pre-launch or not
+        }),
+      ],
+      [],
+      {},
+      BASE,
+      NOW,
+    );
+    const card = m.cards.find((c) => c.site.name === "Launching")!;
+    expect(card.tier).toBe("attention");
+    expect(m.summary.attention).toBe(1);
+    expect(m.summary.preLaunch).toBe(0);
+    // The pierced site flows through the EXISTING feed machinery: a non-exhausted
+    // vuln is self-patching → amber watch (same as a live site), never hidden.
+    const feed = buildNeedsYouFeed(m);
+    const row = feed.find((r) => r.siteName === "Launching")!;
+    expect(row.group).toBe("watch");
+  });
+
+  it("an EXHAUSTED vuln on a launch-period site reaches the broken band, critical-first", () => {
+    const m = buildCockpitModel(
+      [
+        site({
+          id: "p",
+          name: "Launching",
+          status: "launch period",
+          securityVulnsCritical: 2,
+          securityAutoFixAttempts: 3, // auto-fix exhausted → hard break
+        }),
+      ],
+      [],
+      {},
+      BASE,
+      NOW,
+    );
+    expect(m.cards.find((c) => c.site.name === "Launching")!.tier).toBe("attention");
+    const feed = buildNeedsYouFeed(m);
+    const row = feed.find((r) => r.siteName === "Launching")!;
+    expect(row.group).toBe("broken");
+    expect(row.hasCritical).toBe(true);
+  });
+
+  it("CI red pierces the pre-launch mute and the card carries ONLY the piercing item", () => {
+    const m = buildCockpitModel(
+      [
+        site({
+          id: "p",
+          name: "Launching",
+          status: "launch period",
+          defaultBranchCi: "failing", // factory's githubSignalsAt default is fresh
+          pScore: 60, // sub-floor noise — stays filtered off the card
+        }),
+      ],
+      [],
+      {},
+      BASE,
+      NOW,
+    );
+    const card = m.cards.find((c) => c.site.name === "Launching")!;
+    expect(card.tier).toBe("attention");
+    expect(card.items).toHaveLength(1);
+    expect(card.items[0]!.kind).toBe("ci");
   });
 
   it("tags items NEW/WORSE from the prior snapshot but never returns a written snapshot", () => {
