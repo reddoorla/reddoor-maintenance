@@ -215,27 +215,40 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
         "text": {
           "children": [
             {
-              "html": "The Pointe",
-              "kind": "heading",
-              "level": 1,
-              "role": "text5",
+              "children": [
+                {
+                  "html": "The Pointe",
+                  "kind": "heading",
+                  "level": 1,
+                  "role": "text5",
+                },
+                {
+                  "kind": "media",
+                  "media": {
+                    "alt": "ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
+                    "aspect": 18.978,
+                    "fit": "contain",
+                    "kind": "image",
+                    "url": "asset://ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
+                    "width": 50,
+                  },
+                },
+              ],
+              "kind": "stack",
             },
             {
-              "kind": "media",
-              "media": {
-                "alt": "ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
-                "aspect": 18.978,
-                "fit": "contain",
-                "kind": "image",
-                "url": "asset://ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
-                "width": 50,
+              "children": [
+                {
+                  "html": "a monument <br>of excellence",
+                  "kind": "heading",
+                  "level": 4,
+                  "role": "text11",
+                },
+              ],
+              "kind": "stack",
+              "style": {
+                "padding": "20px 0px 30px",
               },
-            },
-            {
-              "html": "a monument <br>of excellence",
-              "kind": "heading",
-              "level": 4,
-              "role": "text11",
             },
             {
               "html": "Nestled among the biggest names in entertainment, The Pointe  is a modern and elegant haven for the finest tenants in Burbank.",
@@ -246,18 +259,29 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
               },
             },
             {
-              "kind": "media",
-              "media": {
-                "alt": "e15eb8af-95eb-4aac-b03e-ca1990de534e",
-                "aspect": 78.111,
-                "fit": "contain",
-                "kind": "image",
-                "url": "asset://e15eb8af-95eb-4aac-b03e-ca1990de534e",
-                "width": 1334,
+              "children": [
+                {
+                  "kind": "media",
+                  "media": {
+                    "alt": "e15eb8af-95eb-4aac-b03e-ca1990de534e",
+                    "aspect": 78.111,
+                    "fit": "contain",
+                    "kind": "image",
+                    "url": "asset://e15eb8af-95eb-4aac-b03e-ca1990de534e",
+                    "width": 1334,
+                  },
+                },
+              ],
+              "kind": "stack",
+              "style": {
+                "padding": "100px 0px 0px",
               },
             },
           ],
           "kind": "stack",
+          "style": {
+            "padding": "80px 4% 0px",
+          },
         },
       },
       "style": {
@@ -311,14 +335,22 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                       "cells": [
                         {
                           "node": {
-                            "kind": "media",
-                            "media": {
-                              "alt": "cfc17af2-ff1f-40a4-a5bf-4123cd5f355c",
-                              "aspect": 26.009,
-                              "fit": "contain",
-                              "kind": "image",
-                              "url": "asset://cfc17af2-ff1f-40a4-a5bf-4123cd5f355c",
-                              "width": 120,
+                            "children": [
+                              {
+                                "kind": "media",
+                                "media": {
+                                  "alt": "cfc17af2-ff1f-40a4-a5bf-4123cd5f355c",
+                                  "aspect": 26.009,
+                                  "fit": "contain",
+                                  "kind": "image",
+                                  "url": "asset://cfc17af2-ff1f-40a4-a5bf-4123cd5f355c",
+                                  "width": 120,
+                                },
+                              },
+                            ],
+                            "kind": "stack",
+                            "style": {
+                              "padding": "10px 40px 6px 0px",
                             },
                           },
                           "token": {
@@ -328,14 +360,22 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                         },
                         {
                           "node": {
-                            "kind": "media",
-                            "media": {
-                              "alt": "966adedb-0315-4afd-b070-8c89f8792267",
-                              "aspect": 39.576,
-                              "fit": "contain",
-                              "kind": "image",
-                              "url": "asset://966adedb-0315-4afd-b070-8c89f8792267",
-                              "width": 160,
+                            "children": [
+                              {
+                                "kind": "media",
+                                "media": {
+                                  "alt": "966adedb-0315-4afd-b070-8c89f8792267",
+                                  "aspect": 39.576,
+                                  "fit": "contain",
+                                  "kind": "image",
+                                  "url": "asset://966adedb-0315-4afd-b070-8c89f8792267",
+                                  "width": 160,
+                                },
+                              },
+                            ],
+                            "kind": "stack",
+                            "style": {
+                              "padding": "10px 40px 0px 0px",
                             },
                           },
                           "token": {
@@ -355,6 +395,9 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
               },
             ],
             "kind": "row",
+            "style": {
+              "padding": "20px 0px 0px",
+            },
           },
         ],
         "kind": "stack",
@@ -375,39 +418,65 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
       "tree": {
         "children": [
           {
-            "html": "local amenities",
-            "kind": "heading",
-            "level": 4,
-            "role": "text5",
+            "children": [
+              {
+                "html": "local amenities",
+                "kind": "heading",
+                "level": 4,
+                "role": "text5",
+              },
+              {
+                "kind": "media",
+                "media": {
+                  "alt": "ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
+                  "aspect": 18.978,
+                  "fit": "contain",
+                  "kind": "image",
+                  "url": "asset://ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
+                  "width": 50,
+                },
+              },
+            ],
+            "kind": "stack",
           },
           {
-            "kind": "media",
-            "media": {
-              "alt": "ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
-              "aspect": 18.978,
-              "fit": "contain",
-              "kind": "image",
-              "url": "asset://ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
-              "width": 50,
-            },
-          },
-          {
-            "html": "a city full of possibilities",
-            "kind": "heading",
-            "level": 4,
-            "role": "text11",
-          },
-          {
-            "html": "Burbank offers a wide range of opportunities from its network of world-renowned studios, accessible airport, and recreational activities.",
-            "kind": "body",
-            "role": "text1",
+            "children": [
+              {
+                "html": "a city full of possibilities",
+                "kind": "heading",
+                "level": 4,
+                "role": "text11",
+              },
+            ],
+            "kind": "stack",
             "style": {
-              "margin-right": "20%",
+              "padding": "20px 0px 30px 0%",
             },
           },
           {
-            "html": "<a class="ib middle buttons2" href="https://dv4tl7yyk1zlp.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/1b5b96c1-16fb-4d8b-8cb0-f71938af22c0.pdf">Burbank Incentives</a>",
-            "kind": "raw",
+            "children": [
+              {
+                "html": "Burbank offers a wide range of opportunities from its network of world-renowned studios, accessible airport, and recreational activities.",
+                "kind": "body",
+                "role": "text1",
+                "style": {
+                  "margin-right": "20%",
+                },
+              },
+              {
+                "children": [
+                  {
+                    "html": "<a class="ib middle buttons2" href="https://dv4tl7yyk1zlp.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/1b5b96c1-16fb-4d8b-8cb0-f71938af22c0.pdf">Burbank Incentives</a>",
+                    "kind": "raw",
+                  },
+                ],
+                "kind": "stack",
+                "style": {
+                  "padding": "40px 0px 0px",
+                },
+              },
+            ],
+            "kind": "stack",
           },
         ],
         "kind": "stack",
@@ -425,9 +494,17 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
               "cells": [
                 {
                   "node": {
-                    "html": "Be part of the community among the biggest names in entertainment. <br>",
-                    "kind": "body",
-                    "role": "text14",
+                    "children": [
+                      {
+                        "html": "Be part of the community among the biggest names in entertainment. <br>",
+                        "kind": "body",
+                        "role": "text14",
+                      },
+                    ],
+                    "kind": "stack",
+                    "style": {
+                      "padding": "8% 6% 30px 4%",
+                    },
                   },
                   "token": {
                     "cols": 2,
@@ -453,6 +530,9 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                 },
               ],
               "kind": "row",
+              "style": {
+                "padding": "20px 4%",
+              },
             },
             "token": {
               "cols": 1,
@@ -480,9 +560,17 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                 },
                 {
                   "node": {
-                    "html": "Fly, surf, ski, all within an hour away. Plus every business partner is around the corner.<br>",
-                    "kind": "body",
-                    "role": "text14",
+                    "children": [
+                      {
+                        "html": "Fly, surf, ski, all within an hour away. Plus every business partner is around the corner.<br>",
+                        "kind": "body",
+                        "role": "text14",
+                      },
+                    ],
+                    "kind": "stack",
+                    "style": {
+                      "padding": "8% 0px 30px 4%",
+                    },
                   },
                   "token": {
                     "cols": 2,
@@ -491,6 +579,9 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                 },
               ],
               "kind": "row",
+              "style": {
+                "padding": "20px 4%",
+              },
             },
             "token": {
               "cols": 1,
@@ -501,9 +592,17 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
               "cells": [
                 {
                   "node": {
-                    "html": "Day or night, Burbank delights with vibrant energy and one-of-a-kind character.",
-                    "kind": "body",
-                    "role": "text14",
+                    "children": [
+                      {
+                        "html": "Day or night, Burbank delights with vibrant energy and one-of-a-kind character.",
+                        "kind": "body",
+                        "role": "text14",
+                      },
+                    ],
+                    "kind": "stack",
+                    "style": {
+                      "padding": "8% 6% 40px 4%",
+                    },
                   },
                   "token": {
                     "cols": 2,
@@ -529,6 +628,9 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                 },
               ],
               "kind": "row",
+              "style": {
+                "padding": "20px 4%",
+              },
             },
             "token": {
               "cols": 1,
@@ -594,6 +696,9 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                           },
                         ],
                         "kind": "stack",
+                        "style": {
+                          "padding": "20px 4%",
+                        },
                       },
                       "token": {
                         "cols": 4,
@@ -619,6 +724,9 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                           },
                         ],
                         "kind": "stack",
+                        "style": {
+                          "padding": "20px 4%",
+                        },
                       },
                       "token": {
                         "cols": 4,
@@ -644,6 +752,9 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                           },
                         ],
                         "kind": "stack",
+                        "style": {
+                          "padding": "20px 4%",
+                        },
                       },
                       "token": {
                         "cols": 4,
@@ -669,6 +780,9 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                           },
                         ],
                         "kind": "stack",
+                        "style": {
+                          "padding": "20px 4%",
+                        },
                       },
                       "token": {
                         "cols": 4,
@@ -694,6 +808,9 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                           },
                         ],
                         "kind": "stack",
+                        "style": {
+                          "padding": "20px 4%",
+                        },
                       },
                       "token": {
                         "cols": 4,
@@ -719,6 +836,9 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                           },
                         ],
                         "kind": "stack",
+                        "style": {
+                          "padding": "20px 4%",
+                        },
                       },
                       "token": {
                         "cols": 4,
@@ -744,6 +864,9 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                           },
                         ],
                         "kind": "stack",
+                        "style": {
+                          "padding": "20px 4%",
+                        },
                       },
                       "token": {
                         "cols": 4,
@@ -1175,14 +1298,22 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                   },
                 },
                 {
-                  "kind": "media",
-                  "media": {
-                    "alt": "43983b42-cd6d-42ba-b76d-9bce1931e581",
-                    "aspect": 32.462,
-                    "fit": "contain",
-                    "kind": "image",
-                    "url": "asset://43983b42-cd6d-42ba-b76d-9bce1931e581",
-                    "width": 1645,
+                  "children": [
+                    {
+                      "kind": "media",
+                      "media": {
+                        "alt": "43983b42-cd6d-42ba-b76d-9bce1931e581",
+                        "aspect": 32.462,
+                        "fit": "contain",
+                        "kind": "image",
+                        "url": "asset://43983b42-cd6d-42ba-b76d-9bce1931e581",
+                        "width": 1645,
+                      },
+                    },
+                  ],
+                  "kind": "stack",
+                  "style": {
+                    "padding": "0px 4% 20px",
                   },
                 },
               ],
@@ -1410,27 +1541,40 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
             "node": {
               "children": [
                 {
-                  "html": "on-site luxuries",
-                  "kind": "heading",
-                  "level": 4,
-                  "role": "text5",
+                  "children": [
+                    {
+                      "html": "on-site luxuries",
+                      "kind": "heading",
+                      "level": 4,
+                      "role": "text5",
+                    },
+                    {
+                      "kind": "media",
+                      "media": {
+                        "alt": "ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
+                        "aspect": 18.978,
+                        "fit": "contain",
+                        "kind": "image",
+                        "url": "asset://ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
+                        "width": 50,
+                      },
+                    },
+                  ],
+                  "kind": "stack",
                 },
                 {
-                  "kind": "media",
-                  "media": {
-                    "alt": "ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
-                    "aspect": 18.978,
-                    "fit": "contain",
-                    "kind": "image",
-                    "url": "asset://ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
-                    "width": 50,
+                  "children": [
+                    {
+                      "html": "premium <br>amenities",
+                      "kind": "heading",
+                      "level": 4,
+                      "role": "text11",
+                    },
+                  ],
+                  "kind": "stack",
+                  "style": {
+                    "padding": "20px 0px 30px",
                   },
-                },
-                {
-                  "html": "premium <br>amenities",
-                  "kind": "heading",
-                  "level": 4,
-                  "role": "text11",
                 },
                 {
                   "html": "A campus built for the modern worker, The Pointe offers amenities that enrich the every day.",
@@ -1481,9 +1625,17 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                 },
                 {
                   "node": {
-                    "html": "Renew and recover with exclusive access to a state-of-the-art <a href="https://www.tbpfit.com/" class="links">FIT Health Club</a> with full-service locker rooms in a spa-like atmosphere. <br>",
-                    "kind": "body",
-                    "role": "text14",
+                    "children": [
+                      {
+                        "html": "Renew and recover with exclusive access to a state-of-the-art <a href="https://www.tbpfit.com/" class="links">FIT Health Club</a> with full-service locker rooms in a spa-like atmosphere. <br>",
+                        "kind": "body",
+                        "role": "text14",
+                      },
+                    ],
+                    "kind": "stack",
+                    "style": {
+                      "padding": "8% 0px 30px 4%",
+                    },
                   },
                   "token": {
                     "cols": 2,
@@ -1492,6 +1644,9 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                 },
               ],
               "kind": "row",
+              "style": {
+                "padding": "20px 0px",
+              },
             },
             "token": {
               "cols": 1,
@@ -1502,9 +1657,17 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
               "cells": [
                 {
                   "node": {
-                    "html": "Enjoy exclusive access to on-site production and filming studios.",
-                    "kind": "body",
-                    "role": "text14",
+                    "children": [
+                      {
+                        "html": "Enjoy exclusive access to on-site production and filming studios.",
+                        "kind": "body",
+                        "role": "text14",
+                      },
+                    ],
+                    "kind": "stack",
+                    "style": {
+                      "padding": "8% 6% 40px 4%",
+                    },
                   },
                   "token": {
                     "cols": 2,
@@ -1530,6 +1693,9 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                 },
               ],
               "kind": "row",
+              "style": {
+                "padding": "20px 0px",
+              },
             },
             "token": {
               "cols": 1,
@@ -1557,9 +1723,17 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                 },
                 {
                   "node": {
-                    "html": "Head to the MRKT for a quick bite on-the-go, or dine in for a filling meal.",
-                    "kind": "body",
-                    "role": "text14",
+                    "children": [
+                      {
+                        "html": "Head to the MRKT for a quick bite on-the-go, or dine in for a filling meal.",
+                        "kind": "body",
+                        "role": "text14",
+                      },
+                    ],
+                    "kind": "stack",
+                    "style": {
+                      "padding": "8% 0px 30px 4%",
+                    },
                   },
                   "token": {
                     "cols": 2,
@@ -1568,6 +1742,9 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                 },
               ],
               "kind": "row",
+              "style": {
+                "padding": "20px 0px",
+              },
             },
             "token": {
               "cols": 1,
@@ -1661,34 +1838,47 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
       "tree": {
         "children": [
           {
-            "html": "a property within",
-            "kind": "heading",
-            "level": 4,
-            "role": "text5",
+            "children": [
+              {
+                "html": "a property within",
+                "kind": "heading",
+                "level": 4,
+                "role": "text5",
+                "style": {
+                  "color": "rgb(0, 0, 0)",
+                },
+              },
+              {
+                "kind": "media",
+                "media": {
+                  "alt": "bf56be7d-863c-4f44-8247-6d92ea7762a9",
+                  "aspect": 17.5,
+                  "fit": "contain",
+                  "kind": "image",
+                  "url": "asset://bf56be7d-863c-4f44-8247-6d92ea7762a9",
+                  "width": 40,
+                },
+              },
+            ],
+            "kind": "stack",
+          },
+          {
+            "children": [
+              {
+                "kind": "media",
+                "media": {
+                  "alt": "b640649d-05cf-40c1-9edc-f3fc9d427c76",
+                  "aspect": 6.124,
+                  "fit": "contain",
+                  "kind": "image",
+                  "url": "asset://b640649d-05cf-40c1-9edc-f3fc9d427c76",
+                  "width": 996,
+                },
+              },
+            ],
+            "kind": "stack",
             "style": {
-              "color": "rgb(0, 0, 0)",
-            },
-          },
-          {
-            "kind": "media",
-            "media": {
-              "alt": "bf56be7d-863c-4f44-8247-6d92ea7762a9",
-              "aspect": 17.5,
-              "fit": "contain",
-              "kind": "image",
-              "url": "asset://bf56be7d-863c-4f44-8247-6d92ea7762a9",
-              "width": 40,
-            },
-          },
-          {
-            "kind": "media",
-            "media": {
-              "alt": "b640649d-05cf-40c1-9edc-f3fc9d427c76",
-              "aspect": 6.124,
-              "fit": "contain",
-              "kind": "image",
-              "url": "asset://b640649d-05cf-40c1-9edc-f3fc9d427c76",
-              "width": 996,
+              "padding": "40px 4% 30px 0%",
             },
           },
           {

@@ -53,10 +53,20 @@ const isStructural = (el: HTMLElement): boolean =>
 /** The "card" styling inherited from the wrapper div(s) peeled to reach a
  * structural child — a Blux card's inline `background-color` (on the `.blocksN`
  * fill) and the `padding` its `.blocksNcontainer` insets the content by, both of
- * which the plain peel drops. The nearest wrapper wins for each. */
-type CardStyle = { background?: string; padding?: string };
+ * which the plain peel drops. The nearest wrapper wins for each. `nested` marks
+ * that the walk has passed a grid-cell boundary (block-grid-container /
+ * block-subcontent): only cell-level container padding is captured — the
+ * BAND-level container's padding is the band's own content padding, already
+ * handled via the band style/blockClass defaults, and capturing it here would
+ * inset the content twice. */
+type CardStyle = { background?: string; padding?: string; nested?: boolean };
 /** A structural child plus any card styling peeled off its wrapper(s). */
 type StructuralChild = { el: HTMLElement; card?: CardStyle };
+
+/** A grid-cell boundary: once the peel passes one of these, wrappers below are
+ * cell-level (their padding is real content inset, not band chrome). */
+const isCellBoundary = (el: HTMLElement): boolean =>
+  hasClass(el, "block-grid-container") || hasClass(el, "block-subcontent");
 
 /** Inline `background-color` off an element's style attribute, ignoring the
  * transparent default (which is not a deviation worth carrying). */
@@ -78,9 +88,19 @@ function inlinePadding(el: HTMLElement): string | undefined {
 }
 
 /** The child elements that carry structure, peeling pure wrapper divs. A peeled
- * card wrapper's inline background-color and content padding ride along to the
- * structural node it wraps (the nearest wrapper wins for each) so a card's fill
- * and inset survive the peel. */
+ * card wrapper's inline background-color and (cell-level) content padding ride
+ * along to the structural node it wraps (the nearest wrapper wins for each) so
+ * a card's fill and inset survive the peel.
+ *
+ * Two wrapper shapes are PROMOTED to structural instead of peeled, so they
+ * parse to their own stack and the styling/containment attaches exactly once:
+ * - a multi-child `block-subcontent`: a Blux grid CELL groups its blocks —
+ *   the original contains their margins per cell (a block-content clearfix
+ *   blocks the collapse), so flattening the boundary away merges rhythm that
+ *   the original keeps separate;
+ * - a padded wrapper around ≥2 structural children: threading the padding
+ *   onto each child would inset every one of them (duplication) — the group
+ *   is the thing that's padded. */
 export function collectStructuralChildren(
   el: HTMLElement,
   inherited: CardStyle = {},
@@ -88,16 +108,25 @@ export function collectStructuralChildren(
   const out: StructuralChild[] = [];
   for (const child of el.childNodes) {
     if (!isElement(child)) continue;
+    const nested = inherited.nested === true || isCellBoundary(child);
     const background = inlineBg(child) ?? inherited.background;
-    const padding = inlinePadding(child) ?? inherited.padding;
+    // Cell-level wrappers only — a band-level container's padding is the
+    // band's own content padding (see CardStyle.nested).
+    const padding = (nested ? inlinePadding(child) : undefined) ?? inherited.padding;
     const card: CardStyle = {
       ...(background !== undefined ? { background } : {}),
       ...(padding !== undefined ? { padding } : {}),
+      ...(nested ? { nested } : {}),
     };
-    if (isStructural(child)) {
+    const group =
+      !isStructural(child) &&
+      ((hasClass(child, "block-subcontent") && parseGridToken(child.classNames) === null) ||
+        (nested && inlinePadding(child) !== undefined)) &&
+      collectStructuralChildren(child).length >= 2;
+    if (isStructural(child) || group) {
       out.push({
         el: child,
-        ...(background !== undefined || padding !== undefined ? { card } : {}),
+        ...(background !== undefined || padding !== undefined || nested ? { card } : {}),
       });
     } else {
       out.push(...collectStructuralChildren(child, card));
@@ -209,19 +238,33 @@ export function parseNode(el: HTMLElement): Node {
  * real card, so a plain band container's padding (already handled via the band's
  * blockClass defaults) is not double-captured onto a nested node. */
 function withCardStyle(node: Node, card?: CardStyle): Node {
-  if (!card?.background || (node.kind !== "row" && node.kind !== "stack")) return node;
-  const style: Record<string, string> = {
-    ...(node.style ?? {}),
-    "background-color": card.background,
-  };
-  if (card.padding) style.padding = card.padding;
-  return { ...node, style };
+  if (!card || (card.background === undefined && card.padding === undefined)) return node;
+  if (node.kind === "row" || node.kind === "stack") {
+    const style: Record<string, string> = { ...(node.style ?? {}) };
+    if (card.background !== undefined) style["background-color"] = card.background;
+    if (card.padding !== undefined) style.padding = card.padding;
+    return { ...node, style };
+  }
+  // A PADDED wrapper around a bare leaf (e.g. band 11's `20px 0 30px` cell
+  // container wrapping a single heading): the leaf has no container-style slot,
+  // so a synthetic one-child stack carries the box. A background-ONLY card
+  // around a leaf still drops, as before — those (the carousel captions) are
+  // handled by their own render path, and the Grid tree must not invent one.
+  if (card.padding === undefined) return node;
+  const style: Record<string, string> = { padding: card.padding };
+  if (card.background !== undefined) style["background-color"] = card.background;
+  return { kind: "stack", children: [node], style };
 }
 
 /** Parse a wrapper/cell/band-body element: a row when it is a grid or holds
  * ≥2 token-bearing children, else a stack / single / raw. */
 export function parseContainer(el: HTMLElement): Node {
-  const kids = collectStructuralChildren(el);
+  // A container that IS a cell/grid element starts its walk inside the cell
+  // context, so its own inner wrappers' padding is captured (CardStyle.nested).
+  const kids = collectStructuralChildren(
+    el,
+    isCellBoundary(el) || hasClass(el, "cagrid") ? { nested: true } : {},
+  );
   // Parse each structural child up front, then drop any that collapse to an
   // EMPTY raw — an empty `.caslider`/wrapper (no static slides, JS-hydrated)
   // yields `raw:""`, which would otherwise survive as a phantom sibling (e.g.
