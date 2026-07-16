@@ -1,6 +1,14 @@
 import { visibleText, type BluxBlock, type BluxRaw, type BluxTextStyle } from "./parse.js";
 import { archetype } from "./archetype.js";
-import type { FontLoad, PageIR, SectionIR, TextStyleIR, ThemeIR, Diagnostic } from "./ir.js";
+import type {
+  ButtonStyleIR,
+  FontLoad,
+  PageIR,
+  SectionIR,
+  TextStyleIR,
+  ThemeIR,
+  Diagnostic,
+} from "./ir.js";
 
 /** The styles.text role ("text5") a block's _title/_body class points at. */
 function textRole(style: BluxTextStyle | undefined): string | undefined {
@@ -221,6 +229,38 @@ export function normalizeTheme(raw: BluxRaw): ThemeIR {
       ...(mobileLineHeight ? { mobileLineHeight } : {}),
     });
   }
+  // Button skins: styles.buttons mirrors the text-styles shape (an entry per
+  // role with the values one level down under the ".buttonsN" key, tombstones
+  // as { removed: true }). Values pass through in DECLARATION ORDER — the
+  // skins rely on it (a `border` shorthand then `border-top/right/left: 0`
+  // overrides nets a bottom-only rule) — dropping empties and the internal
+  // `font-ident` marker.
+  const cleanCssMap = (v: unknown): Record<string, string> => {
+    const out: Record<string, string> = {};
+    for (const [k, val] of Object.entries((v ?? {}) as Record<string, unknown>)) {
+      if (k === "font-ident") continue;
+      const s = cleanCssValue(typeof val === "number" ? String(val) : val);
+      if (s) out[k] = s;
+    }
+    return out;
+  };
+  const buttonStyles: ButtonStyleIR[] = [];
+  for (const v of Object.values(raw.styles.buttons ?? {})) {
+    const entry = (v ?? {}) as Record<string, unknown>;
+    const innerKey = Object.keys(entry).find((k) => /^\.buttons\d+$/.test(k));
+    if (!innerKey) continue;
+    const css = cleanCssMap(entry[innerKey]);
+    if (Object.keys(css).length === 0) continue;
+    const hover = cleanCssMap(entry[`${innerKey}:hover`]);
+    const active = cleanCssMap(entry[`${innerKey}:active`]);
+    buttonStyles.push({
+      role: innerKey.slice(1), // ".buttons2" -> "buttons2"
+      label: str(entry._label),
+      css,
+      ...(Object.keys(hover).length ? { hover } : {}),
+      ...(Object.keys(active).length ? { active } : {}),
+    });
+  }
   // Fonts: explicit settings win; otherwise Blux's own default roles —
   // text0 "Title (Default)" and text1 "Body (Default)".
   const fonts = (raw.settings.fonts ?? {}) as Record<string, unknown>;
@@ -236,5 +276,6 @@ export function normalizeTheme(raw: BluxRaw): ThemeIR {
       typekitFontLoads(str(fonts.string)),
     ),
     textStyles,
+    buttonStyles,
   };
 }

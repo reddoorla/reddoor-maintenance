@@ -82,11 +82,25 @@ export type TextStyleIR = {
  * weights to install instead of measuring them off the rendered site. */
 export type FontLoad = { family: string; weights: string[] };
 
+/** A Blux button skin (styles.buttons[N]) — converted trees carry the raw
+ * anchors verbatim (`class="ib middle buttonsN"`), so the declared skin must
+ * ship as CSS or the button renders as a bare link. `css` preserves the
+ * export's own declaration order: the skins rely on it (a `border` shorthand
+ * followed by `border-top/right/left: 0` overrides nets a bottom-only rule). */
+export type ButtonStyleIR = {
+  role: string; // "buttons2"
+  label: string;
+  css: Record<string, string>;
+  hover?: Record<string, string>;
+  active?: Record<string, string>;
+};
+
 export type ThemeIR = {
   colors: { role: string; value: string }[];
   fonts: { heading: string; body: string };
   fontLoad: FontLoad[];
   textStyles: TextStyleIR[];
+  buttonStyles: ButtonStyleIR[];
 };
 
 export type AssetRef = {

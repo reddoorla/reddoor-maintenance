@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { emitThemeCss, emitRolesCss } from "../../../src/blux/emit/theme.js";
+import { emitThemeCss, emitRolesCss, emitButtonsCss } from "../../../src/blux/emit/theme.js";
 import type { ThemeIR } from "../../../src/blux/ir.js";
 
 describe("emitThemeCss", () => {
@@ -44,6 +44,7 @@ describe("emitThemeCss", () => {
         lineHeight: "36px",
       },
     ],
+    buttonStyles: [],
   });
   it("emits a Tailwind v4 @theme block with color + font vars", () => {
     expect(css).toContain("@theme {");
@@ -91,9 +92,68 @@ describe("emitThemeCss", () => {
       fonts: { heading: "", body: "" },
       fontLoad: [],
       textStyles: [],
+      buttonStyles: [],
     });
     expect(c).toContain("--font-heading: sans-serif;");
     expect(c).not.toContain("Fonts to load");
+  });
+});
+
+describe("emitButtonsCss", () => {
+  const theme: ThemeIR = {
+    colors: [],
+    fonts: { heading: "", body: "" },
+    fontLoad: [],
+    textStyles: [],
+    buttonStyles: [
+      {
+        role: "buttons2",
+        label: "Blue Buttons",
+        // Declaration order is load-bearing: border shorthand first, then the
+        // side zero-overrides net a bottom-only rule.
+        css: {
+          padding: "6px 0 6px 0",
+          "font-size": "18px",
+          border: "1px solid #053a6c",
+          "font-family": "'Montserrat'",
+          "font-weight": "300",
+          color: "#053a6c",
+          "border-top": "0",
+          "border-right": "0",
+          "border-left": "0",
+        },
+        hover: { "background-color": "transparent" },
+      },
+    ],
+  };
+  const css = emitButtonsCss(theme);
+
+  it("emits the .ib inline-block base plus one rule per skin, labeled", () => {
+    expect(css).toContain(".ib {\n  display: inline-block;\n}");
+    expect(css).toContain("/* buttons2 — Blue Buttons */");
+    expect(css).toContain(".buttons2 {");
+  });
+
+  it("preserves the export's declaration order (border shorthand before side overrides)", () => {
+    const rule = css.slice(css.indexOf(".buttons2 {"));
+    expect(rule.indexOf("border: 1px solid #053a6c;")).toBeGreaterThan(-1);
+    expect(rule.indexOf("border: 1px solid #053a6c;")).toBeLessThan(rule.indexOf("border-top: 0;"));
+  });
+
+  it("emits :hover variants when declared", () => {
+    expect(css).toContain(".buttons2:hover {\n  background-color: transparent;\n}");
+  });
+
+  it("is empty when the theme declares no button styles", () => {
+    expect(
+      emitButtonsCss({
+        colors: [],
+        fonts: { heading: "", body: "" },
+        fontLoad: [],
+        textStyles: [],
+        buttonStyles: [],
+      }),
+    ).toBe("");
   });
 });
 
@@ -102,6 +162,7 @@ describe("emitRolesCss", () => {
     colors: [],
     fonts: { heading: "Martel", body: "Montserrat" },
     fontLoad: [],
+    buttonStyles: [],
     textStyles: [
       {
         role: "text5",
@@ -177,6 +238,7 @@ describe("emitRolesCss", () => {
         fonts: { heading: "", body: "" },
         fontLoad: [],
         textStyles: [],
+        buttonStyles: [],
       }),
     ).toBe("");
   });

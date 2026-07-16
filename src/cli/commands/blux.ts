@@ -3,7 +3,7 @@ import { join, dirname } from "node:path";
 import { glob } from "tinyglobby";
 import { assembleIR } from "../../blux/assemble.js";
 import { buildMigrationPlan } from "../../blux/emit/migration-plan.js";
-import { emitThemeCss, emitRolesCss } from "../../blux/emit/theme.js";
+import { emitThemeCss, emitRolesCss, emitButtonsCss } from "../../blux/emit/theme.js";
 import { buildReviewManifest } from "../../blux/emit/review.js";
 import { validateCoverage } from "../../blux/validate.js";
 import { parseGridBands, extractMapConfig } from "../../blux/grid/index.js";
@@ -105,9 +105,12 @@ export async function runBluxCommand(
     await writeFile(join(out, "ir.json"), JSON.stringify(ir, null, 2));
     await writeFile(join(out, "migration-plan.json"), JSON.stringify(plan, null, 2));
     const rolesCss = emitRolesCss(ir.theme);
+    const buttonsCss = emitButtonsCss(ir.theme);
     await writeFile(
       join(out, "theme.css"),
-      emitThemeCss(ir.theme) + (rolesCss ? "\n" + rolesCss : ""),
+      emitThemeCss(ir.theme) +
+        (rolesCss ? "\n" + rolesCss : "") +
+        (buttonsCss ? "\n" + buttonsCss : ""),
     );
     await writeFile(join(out, "review-manifest.json"), JSON.stringify(manifest, null, 2));
     await writeFile(
@@ -294,10 +297,16 @@ export async function runBluxCommand(
       join(outDir, "blux-presentation.json"),
       JSON.stringify(presentation, null, 2) + "\n",
     );
-    await writeFile(
-      join(outDir, "theme.css"),
-      emitThemeCss(ir.theme) + "\n" + emitRolesCss(ir.theme),
-    );
+    {
+      const buttonsCss = emitButtonsCss(ir.theme);
+      await writeFile(
+        join(outDir, "theme.css"),
+        emitThemeCss(ir.theme) +
+          "\n" +
+          emitRolesCss(ir.theme) +
+          (buttonsCss ? "\n" + buttonsCss : ""),
+      );
+    }
     if (mapConfig) {
       await writeFile(join(outDir, "map-config.json"), JSON.stringify(mapConfig, null, 2) + "\n");
     }
