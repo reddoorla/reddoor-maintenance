@@ -62,9 +62,22 @@ const isStructural = (el: HTMLElement): boolean =>
 type CardStyle = {
   background?: string;
   padding?: string;
+  /** A nested block-in-cell's inline `min-height` (e.g. the-tower band 1's
+   * 80vh gradient panel): the cell's block pins its own box height, which the
+   * plain peel would drop — the cell then renders at content height. Captured
+   * only inside a cell (like padding): a band-level container's min-height is
+   * the band's full-height chrome, handled at the band level. */
+  minHeight?: string;
+  /** A `block-background-layer` sibling's paint — the abs-fill div a nested
+   * block uses for gradient (or plain) fills that `inlineBg` never sees
+   * (they're not a wrapper `background-color`). Emitted as the `background`
+   * shorthand so gradients survive. Image layers (camediaload) stay out of
+   * scope — those are band-background territory. */
+  layerBackground?: string;
   /** A peeled `valignmiddle` wrapper: the original vertically centers this
    * cell's content against its row siblings (band 6/12's side captions sit
-   * centered on their photos; band 3's stats card centers in its column).
+   * centered on their photos; band 3's stats card centers in its column) —
+   * and, paired with `minHeight`, centers content within the block's own box.
    * Rides the node style as the `_valign` presentation hint. */
   valign?: boolean;
   nested?: boolean;
@@ -96,6 +109,30 @@ function inlinePadding(el: HTMLElement): string | undefined {
   return c;
 }
 
+/** Inline `min-height` off an element's style attribute, ignoring zero/auto
+ * (no sizing worth carrying). Blux repeats the value on the item AND its
+ * inner `height: 1px` container — same value, either capture works. */
+function inlineMinHeight(el: HTMLElement): string | undefined {
+  const c = cssProp(el.getAttribute("style") ?? "", "min-height")?.trim();
+  if (!c) return undefined;
+  if (/^(0(px|%|em|rem|vh|vw)?|auto)$/i.test(c)) return undefined;
+  return c;
+}
+
+/** The paint of a `block-background-layer` child, if `el` has one: the
+ * abs-fill div that fills a nested block-in-cell (gradient or plain color —
+ * carried in the `background` shorthand, which `inlineBg`'s background-color
+ * read never sees). `none`/`transparent` carry no paint. */
+function layerBackground(el: HTMLElement): string | undefined {
+  for (const child of el.childNodes) {
+    if (!isElement(child) || !hasClass(child, "block-background-layer")) continue;
+    const s = child.getAttribute("style") ?? "";
+    const bg = (cssProp(s, "background") ?? cssProp(s, "background-color"))?.trim();
+    if (bg && !/^(none|transparent)$/i.test(bg)) return bg;
+  }
+  return undefined;
+}
+
 /** The child elements that carry structure, peeling pure wrapper divs. A peeled
  * card wrapper's inline background-color and (cell-level) content padding ride
  * along to the structural node it wraps (the nearest wrapper wins for each) so
@@ -115,17 +152,29 @@ export function collectStructuralChildren(
   inherited: CardStyle = {},
 ): StructuralChild[] {
   const out: StructuralChild[] = [];
+  // A nested block's background-layer sibling paints the whole block: fold it
+  // onto the card its content siblings inherit. Band-level layers stay out —
+  // a band's background is SectionBand territory.
+  const layerBg = inherited.nested === true ? layerBackground(el) : undefined;
+  const base: CardStyle =
+    layerBg !== undefined ? { ...inherited, layerBackground: layerBg } : inherited;
   for (const child of el.childNodes) {
     if (!isElement(child)) continue;
-    const nested = inherited.nested === true || isCellBoundary(child);
-    const background = inlineBg(child) ?? inherited.background;
-    // Cell-level wrappers only — a band-level container's padding is the
-    // band's own content padding (see CardStyle.nested).
-    const padding = (nested ? inlinePadding(child) : undefined) ?? inherited.padding;
-    const valign = (nested && hasClass(child, "valignmiddle")) || inherited.valign === true;
+    // The layer itself is pure paint (abs-fill, never content) — consumed above.
+    if (hasClass(child, "block-background-layer")) continue;
+    const nested = base.nested === true || isCellBoundary(child);
+    const background = inlineBg(child) ?? base.background;
+    // Cell-level wrappers only — a band-level container's padding (and
+    // min-height: the full-height band chrome) is the band's own concern
+    // (see CardStyle.nested).
+    const padding = (nested ? inlinePadding(child) : undefined) ?? base.padding;
+    const minHeight = (nested ? inlineMinHeight(child) : undefined) ?? base.minHeight;
+    const valign = (nested && hasClass(child, "valignmiddle")) || base.valign === true;
     const card: CardStyle = {
       ...(background !== undefined ? { background } : {}),
       ...(padding !== undefined ? { padding } : {}),
+      ...(minHeight !== undefined ? { minHeight } : {}),
+      ...(base.layerBackground !== undefined ? { layerBackground: base.layerBackground } : {}),
       ...(valign ? { valign } : {}),
       ...(nested ? { nested } : {}),
     };
@@ -249,25 +298,39 @@ export function parseNode(el: HTMLElement): Node {
  * real card, so a plain band container's padding (already handled via the band's
  * blockClass defaults) is not double-captured onto a nested node. */
 function withCardStyle(node: Node, card?: CardStyle): Node {
-  if (!card || (card.background === undefined && card.padding === undefined && !card.valign))
+  if (
+    !card ||
+    (card.background === undefined &&
+      card.padding === undefined &&
+      card.minHeight === undefined &&
+      card.layerBackground === undefined &&
+      !card.valign)
+  )
     return node;
+  // background-color first, `background` shorthand second: when a block has
+  // both a wrapper fill and a paint layer, the fuller layer paint wins (CSS
+  // last-declaration order in the emitted style attribute).
   if (node.kind === "row" || node.kind === "stack") {
     const style: Record<string, string> = { ...(node.style ?? {}) };
     if (card.background !== undefined) style["background-color"] = card.background;
+    if (card.layerBackground !== undefined) style["background"] = card.layerBackground;
     if (card.padding !== undefined) style.padding = card.padding;
+    if (card.minHeight !== undefined) style["min-height"] = card.minHeight;
     if (card.valign) style["_valign"] = "middle";
     return { ...node, style };
   }
-  // A PADDED (or vertically-centered) wrapper around a bare leaf (e.g. band
-  // 11's `20px 0 30px` cell container wrapping a single heading): the leaf has
-  // no container-style slot, so a synthetic one-child stack carries the box. A
-  // background-ONLY card around a leaf still drops, as before — those (the
-  // carousel captions) are handled by their own render path, and the Grid tree
-  // must not invent one.
-  if (card.padding === undefined && !card.valign) return node;
+  // A PADDED (or vertically-centered, or min-height-sized) wrapper around a
+  // bare leaf (e.g. band 11's `20px 0 30px` cell container wrapping a single
+  // heading): the leaf has no container-style slot, so a synthetic one-child
+  // stack carries the box. A background-ONLY card around a leaf still drops,
+  // as before — those (the carousel captions) are handled by their own render
+  // path, and the Grid tree must not invent one.
+  if (card.padding === undefined && card.minHeight === undefined && !card.valign) return node;
   const style: Record<string, string> = {};
   if (card.padding !== undefined) style.padding = card.padding;
   if (card.background !== undefined) style["background-color"] = card.background;
+  if (card.layerBackground !== undefined) style["background"] = card.layerBackground;
+  if (card.minHeight !== undefined) style["min-height"] = card.minHeight;
   if (card.valign) style["_valign"] = "middle";
   return { kind: "stack", children: [node], style };
 }

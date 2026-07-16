@@ -462,6 +462,66 @@ describe("card background capture", () => {
     }
   });
 
+  it("captures a nested block-in-cell: min-height, background layer, and valign (the-tower band 1)", () => {
+    // A grid cell holding a FULL Blux block: the item pins its box with inline
+    // `min-height` (80vh), paints it via an abs-fill `block-background-layer`
+    // (a gradient — not a background-color the fill capture sees), and centers
+    // content with a valignmiddle container. The peel dropped all three, so
+    // the cell rendered at content height with no fill (-808px vs live).
+    const html =
+      '<div class="block-subcontent grid-2">' +
+      '<div class="blocks0" style="text-align: left; vertical-align: middle; min-height: 80vh;">' +
+      '<div class="block-background-layer abs-fill" style="background: linear-gradient(45deg, rgb(82, 102, 126) 0%, rgb(175, 173, 168) 100%); z-index: 0;"></div>' +
+      '<div class="block-holder" style="position: relative; z-index: 2;">' +
+      '<div class="blockcontainer blocks0container valignmiddle" style="min-height: 80vh; height: 1px;">' +
+      '<div class="block-content valignmiddleitem" style="width: 100%;">' +
+      '<div class="block-sub-item-container">' +
+      '<div class="block-grid-container ">' +
+      '<div class="block-subcontent ">' +
+      '<h1 class="block-title text11">the tower</h1>' +
+      '<h5 class="block-title text10">Stand above the rest</h5>' +
+      "</div></div></div></div></div></div></div></div>";
+    const result = container(html);
+    expect(result.kind).toBe("stack");
+    expect(styleOf(result)).toEqual({
+      "min-height": "80vh",
+      background: "linear-gradient(45deg, rgb(82, 102, 126) 0%, rgb(175, 173, 168) 100%)",
+      _valign: "middle",
+    });
+    if (result.kind === "stack")
+      expect(result.children.map((c) => c.kind)).toEqual(["heading", "heading"]);
+  });
+
+  it("ignores a BAND-level container's min-height (band chrome, not cell sizing)", () => {
+    // Above any grid-cell boundary, a container's `min-height: 100vh; height:
+    // 1px` is the band's own full-height chrome (the hero pattern) — band
+    // sizing is the band style's concern, so it must not ride onto a nested
+    // node. Mirrors the band-level padding exclusion above.
+    const html =
+      '<div class="block-content">' +
+      '<div class="blocks0container" style="min-height: 100vh; height: 1px;">' +
+      '<div class="block-grid-container cagrid">' +
+      '<div class="block-subcontent grid-1"><h5 class="block-title text5">A</h5></div>' +
+      '<div class="block-subcontent grid-1"><h5 class="block-title text5">B</h5></div>' +
+      "</div></div></div>";
+    expect(styleOf(container(html))).toBeUndefined();
+  });
+
+  it("a min-height wrapper around a bare leaf gains the synthetic stack (a sized box)", () => {
+    // Like padding/valign, a min-height is a real box the leaf must sit in —
+    // a leaf has no style slot, so the one-child stack carries it. Zero/auto
+    // min-heights carry no sizing and are ignored.
+    const html =
+      '<div class="block-subcontent">' +
+      '<div class="blocks0" style="min-height: 400px;">' +
+      '<div class="blocks0container" style="min-height: 0; padding: 0px;">' +
+      '<div class="block-content"><h4 class="block-title text11">Boxed</h4></div>' +
+      "</div></div></div>";
+    const result = container(html);
+    expect(result.kind).toBe("stack");
+    expect(styleOf(result)).toEqual({ "min-height": "400px" });
+  });
+
   it("groups a multi-child grid cell into its own stack (margin containment)", () => {
     // A bare block-subcontent with two blocks parses to a nested stack — the
     // original contains the blocks' margins per cell (a block-content clearfix
