@@ -21,6 +21,7 @@ export function emitThemeCss(theme: ThemeIR): string {
     if (t.fontFamily) lines.push(`  --text-${t.role}--font-family: ${t.fontFamily};`);
     if (t.transform) lines.push(`  --text-${t.role}--text-transform: ${t.transform};`);
     if (t.letterSpacing) lines.push(`  --text-${t.role}--letter-spacing: ${t.letterSpacing};`);
+    if (t.margin) lines.push(`  --text-${t.role}--margin: ${t.margin};`);
     if (t.mobileSize) lines.push(`  --text-${t.role}--mobile-font-size: ${t.mobileSize};`);
     if (t.mobileLineHeight)
       lines.push(`  --text-${t.role}--mobile-line-height: ${t.mobileLineHeight};`);
@@ -40,7 +41,11 @@ export function emitThemeCss(theme: ThemeIR): string {
  * role that omits them is inert for that property. font-family is set only when
  * the role declares one — a family-less role (a body default) keeps the natural
  * cascade (headings stay heading font, paragraphs stay body font) rather than
- * being forced onto either. Returns "" when the theme has no text styles. */
+ * being forced onto either. margin falls back to 0: Blux's vertical rhythm
+ * between stacked blocks is the text styles' own margins (e.g. "10px 0" on
+ * Grid Titles), which collapse in normal flow — a role without one stays
+ * flush, exactly like the original. Returns "" when the theme has no text
+ * styles. */
 export function emitRolesCss(theme: ThemeIR): string {
   if (!theme.textStyles.length) return "";
   const lines: string[] = [
@@ -57,7 +62,7 @@ export function emitRolesCss(theme: ThemeIR): string {
       `  line-height: var(--text-${r}--line-height);`,
       `  letter-spacing: var(--text-${r}--letter-spacing, normal);`,
       `  text-transform: var(--text-${r}--text-transform, none);`,
-      `  margin: 0;`,
+      `  margin: var(--text-${r}--margin, 0);`,
       `}`,
     );
   }

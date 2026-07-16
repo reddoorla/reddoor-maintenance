@@ -23,6 +23,7 @@ describe("emitThemeCss", () => {
         lineHeight: "26px",
         transform: "uppercase",
         letterSpacing: "1.5px",
+        margin: "10px 0",
       },
       {
         role: "text11",
@@ -76,6 +77,13 @@ describe("emitThemeCss", () => {
     expect(css).not.toContain("--text-text1--font-family:");
     expect(css).not.toContain("--text-text1--text-transform:");
     expect(css).not.toContain("--text-text1--letter-spacing:");
+    expect(css).not.toContain("--text-text1--margin:");
+  });
+
+  it("emits the margin var for a role that declares its block rhythm", () => {
+    expect(css).toContain("--text-text5--margin: 10px 0;");
+    // roles without a margin emit no var (they fall back to 0 in the utility)
+    expect(css).not.toContain("--text-text11--margin:");
   });
   it("falls back to sans-serif when a font is blank", () => {
     const c = emitThemeCss({
@@ -154,8 +162,12 @@ describe("emitRolesCss", () => {
     expect(css).toContain("text-transform: var(--text-text11--text-transform, none);");
   });
 
-  it("zeroes the wrapped element's margin so role type sits flush", () => {
-    expect(css).toContain("  margin: 0;");
+  it("applies the role's own margin, falling back to 0 — Blux's stack rhythm", () => {
+    // The text style's block margin (e.g. Grid Titles' 10px 0) IS the vertical
+    // rhythm between stacked blocks; a role without one sits flush.
+    expect(css).toContain("margin: var(--text-text5--margin, 0);");
+    expect(css).toContain("margin: var(--text-text11--margin, 0);");
+    expect(css).not.toContain("  margin: 0;");
   });
 
   it("is empty when the theme carries no text styles", () => {
