@@ -39,10 +39,10 @@ exports[`grid validate golden — the-pointe > converts the 16 bands with zero l
   },
   {
     "band": 5,
-    "converted": "row[2r60:stack[stack[h4,media:image],stack[h4],body]]",
+    "converted": "row[2r60:stack[stack[h4,media:image],stack[h4],stack[body]]]",
     "ok": true,
     "slice": "Grid",
-    "source": "row[2r60:stack[stack[h4,media:image],stack[h4],body]]",
+    "source": "row[2r60:stack[stack[h4,media:image],stack[h4],stack[body]]]",
   },
   {
     "band": 6,
@@ -67,24 +67,24 @@ exports[`grid validate golden — the-pointe > converts the 16 bands with zero l
   },
   {
     "band": 9,
-    "converted": "stack[stack[h4,media:image],stack[media:image],body]",
+    "converted": "row[2r60:stack[stack[h4,media:image],stack[media:image],stack[body]]]",
     "ok": true,
     "slice": "Grid",
-    "source": "stack[stack[h4,media:image],stack[media:image],body]",
+    "source": "row[2r60:stack[stack[h4,media:image],stack[media:image],stack[body]]]",
   },
   {
     "band": 10,
-    "converted": "stack[media:video,row[2:raw,2:stack[h4,row[anys20:stack[media:image],anys20:stack[media:image]]]]]",
+    "converted": "stack[stack[media:video],row[2:raw,2:stack[h4,row[anys20:stack[media:image],anys20:stack[media:image]]]]]",
     "ok": true,
     "slice": "Grid",
-    "source": "stack[media:video,row[2:raw,2:stack[h4,row[anys20:stack[media:image],anys20:stack[media:image]]]]]",
+    "source": "stack[stack[media:video],row[2:raw,2:stack[h4,row[anys20:stack[media:image],anys20:stack[media:image]]]]]",
   },
   {
     "band": 11,
-    "converted": "stack[stack[h4,media:image],stack[h4],stack[body,stack[raw]]]",
+    "converted": "row[2r60:stack[stack[h4,media:image],stack[h4],stack[body,stack[raw]]]]",
     "ok": true,
     "slice": "Grid",
-    "source": "stack[stack[h4,media:image],stack[h4],stack[body,stack[raw]]]",
+    "source": "row[2r60:stack[stack[h4,media:image],stack[h4],stack[body,stack[raw]]]]",
   },
   {
     "band": 12,

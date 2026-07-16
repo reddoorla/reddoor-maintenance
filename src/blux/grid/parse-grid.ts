@@ -59,7 +59,16 @@ const isStructural = (el: HTMLElement): boolean =>
  * BAND-level container's padding is the band's own content padding, already
  * handled via the band style/blockClass defaults, and capturing it here would
  * inset the content twice. */
-type CardStyle = { background?: string; padding?: string; nested?: boolean };
+type CardStyle = {
+  background?: string;
+  padding?: string;
+  /** A peeled `valignmiddle` wrapper: the original vertically centers this
+   * cell's content against its row siblings (band 6/12's side captions sit
+   * centered on their photos; band 3's stats card centers in its column).
+   * Rides the node style as the `_valign` presentation hint. */
+  valign?: boolean;
+  nested?: boolean;
+};
 /** A structural child plus any card styling peeled off its wrapper(s). */
 type StructuralChild = { el: HTMLElement; card?: CardStyle };
 
@@ -113,9 +122,11 @@ export function collectStructuralChildren(
     // Cell-level wrappers only — a band-level container's padding is the
     // band's own content padding (see CardStyle.nested).
     const padding = (nested ? inlinePadding(child) : undefined) ?? inherited.padding;
+    const valign = (nested && hasClass(child, "valignmiddle")) || inherited.valign === true;
     const card: CardStyle = {
       ...(background !== undefined ? { background } : {}),
       ...(padding !== undefined ? { padding } : {}),
+      ...(valign ? { valign } : {}),
       ...(nested ? { nested } : {}),
     };
     const group =
@@ -238,21 +249,26 @@ export function parseNode(el: HTMLElement): Node {
  * real card, so a plain band container's padding (already handled via the band's
  * blockClass defaults) is not double-captured onto a nested node. */
 function withCardStyle(node: Node, card?: CardStyle): Node {
-  if (!card || (card.background === undefined && card.padding === undefined)) return node;
+  if (!card || (card.background === undefined && card.padding === undefined && !card.valign))
+    return node;
   if (node.kind === "row" || node.kind === "stack") {
     const style: Record<string, string> = { ...(node.style ?? {}) };
     if (card.background !== undefined) style["background-color"] = card.background;
     if (card.padding !== undefined) style.padding = card.padding;
+    if (card.valign) style["_valign"] = "middle";
     return { ...node, style };
   }
-  // A PADDED wrapper around a bare leaf (e.g. band 11's `20px 0 30px` cell
-  // container wrapping a single heading): the leaf has no container-style slot,
-  // so a synthetic one-child stack carries the box. A background-ONLY card
-  // around a leaf still drops, as before — those (the carousel captions) are
-  // handled by their own render path, and the Grid tree must not invent one.
-  if (card.padding === undefined) return node;
-  const style: Record<string, string> = { padding: card.padding };
+  // A PADDED (or vertically-centered) wrapper around a bare leaf (e.g. band
+  // 11's `20px 0 30px` cell container wrapping a single heading): the leaf has
+  // no container-style slot, so a synthetic one-child stack carries the box. A
+  // background-ONLY card around a leaf still drops, as before — those (the
+  // carousel captions) are handled by their own render path, and the Grid tree
+  // must not invent one.
+  if (card.padding === undefined && !card.valign) return node;
+  const style: Record<string, string> = {};
+  if (card.padding !== undefined) style.padding = card.padding;
   if (card.background !== undefined) style["background-color"] = card.background;
+  if (card.valign) style["_valign"] = "middle";
   return { kind: "stack", children: [node], style };
 }
 
@@ -280,8 +296,13 @@ export function parseContainer(el: HTMLElement): Node {
     .filter((p) => !(p.node.kind === "raw" && p.node.html.trim() === ""));
   const isGrid = hasClass(el, "cagrid");
   const tokenCount = parsed.filter((p) => p.token).length;
+  // A LONE width-constrained cell (grid-2-r60 etc.) still needs its row: the
+  // token IS the content column's width (band 9/11's 60% column) — flattening
+  // it to a stack silently renders the content full-width. cols 1 / "any"
+  // carry no width constraint, so a lone one still flattens.
+  const hasWidthToken = parsed.some((p) => p.token && p.token.cols !== 1 && p.token.cols !== "any");
 
-  if ((isGrid || tokenCount >= 2) && parsed.length > 0) {
+  if ((isGrid || tokenCount >= 2 || hasWidthToken) && parsed.length > 0) {
     const cells: Cell[] = parsed.map((p) => ({ token: p.token ?? DEFAULT_TOKEN, node: p.node }));
     if (hasClass(el, "caslider")) {
       // A source slider row. `data-columns` = slides visible at a time; only a

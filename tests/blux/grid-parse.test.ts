@@ -389,10 +389,11 @@ describe("card background capture", () => {
     if (result.kind === "row") expect(result.cells).toHaveLength(2);
   });
 
-  it("carries the card's fill and padding, but not text-align/vertical-align", () => {
-    // A card's background (fill) and its content padding (inset) both ride along
-    // — the card sits inside a grid cell, so the padding is cell-level, not band
-    // chrome. text-align / vertical-align are band-level layout concerns, dropped.
+  it("carries the card's fill, padding and valign hint, but not inline text-align", () => {
+    // A card's background (fill), content padding (inset), and the wrapper's
+    // `valignmiddle` class (as the `_valign` presentation hint — the original
+    // vertically centers this cell against its row siblings) all ride along.
+    // Inline text-align / vertical-align CSS stays a band-level concern, dropped.
     const html =
       '<div class="block-subcontent">' +
       '<div class="blocks0" style="background-color: rgb(0, 0, 0); text-align: center; vertical-align: middle;">' +
@@ -404,6 +405,7 @@ describe("card background capture", () => {
     expect(styleOf(container(html))).toEqual({
       "background-color": "rgb(0, 0, 0)",
       padding: "40px",
+      _valign: "middle",
     });
   });
 
@@ -484,6 +486,31 @@ describe("card background capture", () => {
       expect(cell.children.map((c) => c.kind)).toEqual(["heading", "body"]);
   });
 
+  it("a LONE width-constrained cell keeps its row (the token IS the column width)", () => {
+    // Band 9/11's shape: one grid-2-r60 cell in a bare grid container — the 60%
+    // token is the content column's width; flattening to a stack would render
+    // the content full-width (a real regression caught on the live diff).
+    const html =
+      '<div class="block-content">' +
+      '<div class="block-grid-container">' +
+      '<div class="block-subcontent grid-2-r60"><h4 class="block-title text5">T</h4></div>' +
+      "</div></div>";
+    const result = container(html);
+    expect(result.kind).toBe("row");
+    if (result.kind !== "row") return;
+    expect(result.cells).toHaveLength(1);
+    expect(result.cells[0]?.token).toMatchObject({ cols: 2, ratio: 60 });
+  });
+
+  it("a lone cols-1 cell still flattens (no width constraint, no row noise)", () => {
+    const html =
+      '<div class="block-content">' +
+      '<div class="block-grid-container">' +
+      '<div class="block-subcontent grid-1"><h4 class="block-title text5">T</h4></div>' +
+      "</div></div>";
+    expect(container(html).kind).toBe("heading");
+  });
+
   it("a padded wrapper around TWO blocks pads the group once, not each child", () => {
     const html =
       '<div class="block-subcontent">' +
@@ -533,10 +560,12 @@ describe("card background capture", () => {
     expect(root.kind).toBe("row");
     if (root.kind !== "row") return;
     const [left, right] = root.cells;
-    // The white fill plus the card's 100px/4%/80px content inset both ride along.
+    // The white fill, the card's 100px/4%/80px content inset, and its
+    // valignmiddle centering hint all ride along.
     expect(styleOf(right!.node)).toEqual({
       "background-color": "rgb(255, 255, 255)",
       padding: "100px 4% 80px",
+      _valign: "middle",
     });
     // The building-image column and the band root itself stay transparent.
     expect(styleOf(left!.node)?.["background-color"]).toBeUndefined();
