@@ -126,8 +126,18 @@ function deployBadge(site: WebsiteRow): string {
 }
 
 function submBadge(c: SiteCard): string {
-  const n = c.newSubmissions ?? 0;
-  return n > 0 ? `<span class="chip">📥 ${n} new</span>` : "";
+  // Lead/signup split (2026-07-16). Legacy cards without the split fields fall back
+  // to labelling the whole count "new" — same rendering as before the split.
+  const leads = c.newLeads ?? c.newSubmissions ?? 0;
+  const signups = c.newSignups ?? 0;
+  if (leads === 0 && signups === 0) return "";
+  const label =
+    leads > 0 && signups > 0
+      ? `📥 ${leads} new · +${signups} newsletter`
+      : leads > 0
+        ? `📥 ${leads} new`
+        : `📥 +${signups} newsletter`;
+  return `<span class="chip">${label}</span>`;
 }
 
 const PILL_LABEL: Record<Tier, string> = {

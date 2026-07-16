@@ -29,7 +29,7 @@ function model(over: Partial<SubmissionsPageModel> = {}): SubmissionsPageModel {
       { slug: "site-a", name: "Site A" },
       { slug: "site-b", name: "Site B" },
     ],
-    filter: { site: "", type: "contact", status: "", q: "", from: "", to: "" },
+    filter: { site: "", type: "contact", status: "", q: "", from: "", to: "", reason: "" },
     page: 2,
     pageSize: 50,
     total: 120,
@@ -94,7 +94,7 @@ describe("renderSubmissionsPageHtml — spam reason facets", () => {
       rows,
       total: rows.length,
       page: 1,
-      filter: { site: "", type: "", status, q: "", from: "", to: "" },
+      filter: { site: "", type: "", status, q: "", from: "", to: "", reason: "" },
       // In these single-page tests the bucket IS the page; the full-bucket test
       // below passes facetReasons beyond the listed rows explicitly.
       facetReasons: rows.map((r) => r.spamReason).filter((r): r is string => r !== null),
@@ -149,6 +149,58 @@ describe("renderSubmissionsPageHtml — spam reason facets", () => {
     expect(html).not.toContain("<script>x</script>");
     expect(facetLine(html)).toContain("&lt;script&gt;");
   });
+
+  // ── clickable facet chips (?reason= filter, 2026-07-16) ─────────────────────
+
+  it("renders each facet as a link chip whose href sets reason= and preserves the active filter", () => {
+    const m = spamModel([spamRow("s1", "turnstile-required-absent")]);
+    m.filter = { ...m.filter, site: "site-a", q: "ada" };
+    const html = renderSubmissionsPageHtml(m);
+    const chip = /<a class="facet-chip"[^>]*>/.exec(html)?.[0] ?? "";
+    expect(chip).toContain("href=");
+    expect(chip).toContain("reason=turnstile-required-absent");
+    expect(chip).toContain("site=site-a");
+    expect(chip).toContain("q=ada");
+    // A reason change resets to page 1 — no page param on the chip href.
+    expect(chip).not.toContain("page=");
+  });
+
+  it("marks the active token and makes its href a toggle-off (drops reason)", () => {
+    const m = spamModel([spamRow("s1", "keywords:4"), spamRow("s2", "links")]);
+    m.filter = { ...m.filter, reason: "keywords" };
+    const html = renderSubmissionsPageHtml(m);
+    const active = /<a class="facet-chip active"[^>]*>[^<]*<\/a>/.exec(html)?.[0] ?? "";
+    expect(active).toContain("keywords ×1");
+    expect(active).not.toContain("reason=");
+    // The inactive chip still links WITH its reason.
+    expect(html).toMatch(/<a class="facet-chip" href="[^"]*reason=links[^"]*"/);
+  });
+
+  it("pager hrefs preserve the active reason", () => {
+    const m = spamModel([spamRow("s1", "keywords:4")]);
+    m.total = 120;
+    m.page = 2;
+    m.filter = { ...m.filter, reason: "keywords" };
+    const html = renderSubmissionsPageHtml(m);
+    expect(html).toMatch(/href="[^"]*reason=keywords[^"]*page=1/);
+  });
+
+  it("URL-encodes and escapes a hostile token in chip hrefs", () => {
+    const html = renderSubmissionsPageHtml(spamModel([spamRow("s1", 'x"><script>y</script>')]));
+    expect(html).not.toContain("<script>y</script>");
+  });
+});
+
+describe("renderSubmissionsPageHtml — list validity (ul > li only)", () => {
+  it("rows are <li> children of the list; the site-link wrapper lives INSIDE the li", () => {
+    const html = renderSubmissionsPageHtml(model());
+    expect(html).toMatch(/<ul class="subm-list"><li/);
+    expect(html).not.toContain('<ul class="subm-list"><div');
+    // Row content sits inside .subm-row-main, next to the site link.
+    expect(html).toMatch(
+      /<li class="subm-item"><div class="subm-row-wrap"><a class="subm-site"[^>]*>[^<]*<\/a><div class="subm-row-main">/,
+    );
+  });
 });
 
 describe("renderSubmissionsPageHtml — status filter", () => {
@@ -158,7 +210,9 @@ describe("renderSubmissionsPageHtml — status filter", () => {
   });
   it("marks spam_auto selected when it is the active filter", () => {
     const html = renderSubmissionsPageHtml(
-      model({ filter: { site: "", type: "", status: "spam_auto", q: "", from: "", to: "" } }),
+      model({
+        filter: { site: "", type: "", status: "spam_auto", q: "", from: "", to: "", reason: "" },
+      }),
     );
     expect(html).toContain('value="spam_auto" selected');
   });

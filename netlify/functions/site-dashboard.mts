@@ -3,10 +3,17 @@ import { openBase } from "../../src/reports/airtable/client.js";
 import { getWebsiteBySlug } from "../../src/reports/airtable/websites.js";
 import { listReportsForSite } from "../../src/reports/airtable/reports.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
-import { listSubmissionsForSite } from "../../src/db/submissions.js";
+import { listSubmissionsForSite, countNotifyBouncedBySite } from "../../src/db/submissions.js";
 import { listScreenOutsSince, screenOutsSince } from "../../src/db/screenouts.js";
 import { verifyBasicAuth, renderSiteDashboardHtml } from "../../src/dashboard/index.js";
-import { resolveSlug, handlerError } from "../../src/dashboard/handler-helpers.js";
+import {
+  resolveSlug,
+  handlerError,
+  resolveDashboardBaseUrl,
+} from "../../src/dashboard/handler-helpers.js";
+import { buildSiteAlarmContext } from "../../src/dashboard/fleet-cockpit.js";
+import type { SiteAlarmContext } from "../../src/dashboard/fleet-cockpit.js";
+import { NOTIFY_BOUNCE_WINDOW_DAYS } from "../../src/alerts/digest-collectors.js";
 
 // Register the customer-facing /s/:slug path on the function itself rather
 // than via a netlify.toml [[redirects]] rewrite. The rewrite approach (200
@@ -143,7 +150,37 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
       }
     }
 
-    return html(renderSiteDashboardHtml(site, reports, submissions, spamTotals, new Date()), 200);
+    // Cockpit alarm verdict for the header chip strip — same collectors + assignTier
+    // as buildCockpitModel (see buildSiteAlarmContext). Both reads are defensive:
+    // a Turso blip drops just the bounce chip; any collector throw drops the strip.
+    let notifyBounces: ReadonlyMap<string, number> = new Map();
+    if (db) {
+      try {
+        notifyBounces = await countNotifyBouncedBySite(
+          db,
+          screenOutsSince(new Date(), NOTIFY_BOUNCE_WINDOW_DAYS),
+        );
+      } catch {
+        // bounce chip simply absent
+      }
+    }
+    let alarm: SiteAlarmContext | null = null;
+    try {
+      alarm = buildSiteAlarmContext(
+        site,
+        reports,
+        resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL),
+        new Date(),
+        notifyBounces,
+      );
+    } catch (e) {
+      console.error(`[site-dashboard] alarm context failed: ${String(e)}`);
+    }
+
+    return html(
+      renderSiteDashboardHtml(site, reports, submissions, spamTotals, new Date(), alarm),
+      200,
+    );
   } catch (err) {
     return handlerError("site-dashboard", err);
   }

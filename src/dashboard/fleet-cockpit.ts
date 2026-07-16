@@ -11,6 +11,7 @@ import { isPendingApproval } from "../reports/airtable/reports.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
 import type { ReportType } from "../reports/types.js";
 import type { SubmissionRow, FormType } from "../reports/submission-row.js";
+import { isLeadFormType } from "../forms/types.js";
 import type { FleetEvent, FleetEventType } from "../db/fleet-events.js";
 import {
   collectVulnAlerts,
@@ -269,6 +270,10 @@ export type SiteCard = {
   acceptedReasons: string[];
   /** Count of NEW submissions for this site (optional; populated by buildCockpitModel). */
   newSubmissions?: number;
+  /** Split of newSubmissions: actionable leads vs newsletter/rsvp signups (2026-07-16).
+   *  Optional for back-compat with hand-built card fixtures. */
+  newLeads?: number;
+  newSignups?: number;
 };
 
 export type PendingEntry = {
@@ -307,6 +312,10 @@ export type CockpitSummary = {
   pending: number;
   /** Count of NEW submissions across the fleet (optional for back-compat). */
   newSubmissions?: number;
+  /** Split of newSubmissions: actionable leads vs newsletter/rsvp signups
+   *  (optional for back-compat, 2026-07-16). */
+  newLeads?: number;
+  newSignups?: number;
 };
 
 /** A render-ready row for the cockpit "Recently" lane. `url` is an external link
@@ -478,6 +487,85 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
 const SEVERITY_RANK: Record<AttentionItem["severity"], number> = { critical: 0, warning: 1 };
 const TIER_RANK: Record<Tier, number> = { attention: 0, watch: 1, healthy: 2, "pre-launch": 3 };
 
+/** The fleet attention-item collector run — the SINGLE source of truth for which
+ *  signals the cockpit surfaces. buildCockpitModel (over all visible sites) and
+ *  buildSiteAlarmContext (over one site) both call this, so the two can never
+ *  drift: a signal added here shows up in both the fleet cockpit and every
+ *  /s/<slug> page at once. Returns items UNSORTED — callers apply their own
+ *  ordering (cockpit groups by site; the site page severity-sorts). PURE. */
+function collectFleetAttentionItems(
+  sites: WebsiteRow[],
+  sitesById: Map<string, WebsiteRow>,
+  reports: ReportRow[],
+  baseUrl: string,
+  now: Date,
+  notifyBounces: ReadonlyMap<string, number>,
+): AttentionItem[] {
+  return [
+    ...collectVulnAlerts(sites, baseUrl),
+    ...collectLighthouseAlerts(sites, baseUrl),
+    ...collectDeliveryFailures(reports, sitesById, baseUrl),
+    ...collectPreflightBlocked(reports, sitesById, baseUrl),
+    ...collectRenovateAlerts(sites, baseUrl, now),
+    ...collectCiAlerts(sites, baseUrl, now),
+    ...collectAnalyticsFailures(sites, baseUrl, now),
+    ...collectTurnstileGuardrailAlerts(sites, baseUrl, now),
+    ...collectNotifyBounceAlerts(sites, notifyBounces, baseUrl),
+  ];
+}
+
+/** The cockpit's alarm verdict for ONE site, for the /s/<slug> page header. */
+export type SiteAlarmContext = {
+  tier: Tier;
+  /** This site's attention items, severity-sorted, status UNTAGGED (no diffAttention). */
+  items: AttentionItem[];
+  watchReasons: string[];
+  watchAcceptKeys: string[];
+  acceptedReasons: string[];
+};
+
+/**
+ * The cockpit's alarm verdict for ONE site, for the /s/<slug> page header. Runs
+ * the SAME collector list buildCockpitModel runs — both call the shared
+ * collectFleetAttentionItems (the single source of truth), so the two structurally
+ * cannot drift — and the same assignTier. A parity test (site-alarm-context.test.ts)
+ * additionally asserts this function's item keys match buildCockpitModel's for the
+ * same site. No diffAttention: the site page never writes digest state and shows no
+ * NEW/WORSE badges (the digest alone writes the snapshot; the cockpit reads it
+ * read-only).
+ *
+ * `reports` is expected to be site-scoped (listReportsForSite) — the delivery/
+ * preflight collectors resolve report.siteId against a one-entry sitesById, so an
+ * orphan report in the array would surface as an "(unlinked site)" preflight row.
+ * Acceptable: the real caller only ever passes this site's reports.
+ */
+export function buildSiteAlarmContext(
+  site: WebsiteRow,
+  reports: ReportRow[],
+  baseUrl: string,
+  now: Date,
+  notifyBounces: ReadonlyMap<string, number> = new Map(),
+): SiteAlarmContext {
+  const sites = [site];
+  const sitesById = new Map([[site.id, site]]);
+  const items = collectFleetAttentionItems(
+    sites,
+    sitesById,
+    reports,
+    baseUrl,
+    now,
+    notifyBounces,
+  ).sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
+  const {
+    tier,
+    watchReasons,
+    watchAcceptKeys,
+    watchSignals: _ws,
+    acceptedReasons,
+  } = assignTier(site, items, now);
+  return { tier, items, watchReasons, watchAcceptKeys, acceptedReasons };
+}
+
 /**
  * Assemble the render-ready cockpit model from already-fetched Airtable rows. PURE
  * (`now` injected). Filters to dashboard-visible sites (maintenance or launch period),
@@ -515,24 +603,28 @@ export function buildCockpitModel(
     .filter((w) => isUnrecognizedStatus(w.status))
     .map((w) => ({ name: w.name, slug: siteSlug(w.name), status: w.status as string }));
 
-  // Per-site NEW-submission counts, keyed by Websites record id. Used for the
+  // Per-site NEW-submission counts, keyed by Websites record id, split into
+  // actionable leads vs newsletter/rsvp signups (2026-07-16). Used for the
   // per-card badge below; the strip resolves entries against ALL sites.
-  const subCountBySite = new Map<string, number>();
+  const subCountBySite = new Map<string, { leads: number; signups: number }>();
   for (const sub of newSubmissions) {
-    subCountBySite.set(sub.siteId, (subCountBySite.get(sub.siteId) ?? 0) + 1);
+    let c = subCountBySite.get(sub.siteId);
+    if (!c) {
+      c = { leads: 0, signups: 0 };
+      subCountBySite.set(sub.siteId, c);
+    }
+    if (isLeadFormType(sub.formType)) c.leads++;
+    else c.signups++;
   }
 
-  const rawItems: AttentionItem[] = [
-    ...collectVulnAlerts(visible, baseUrl),
-    ...collectLighthouseAlerts(visible, baseUrl),
-    ...collectDeliveryFailures(reports, sitesById, baseUrl),
-    ...collectPreflightBlocked(reports, sitesById, baseUrl),
-    ...collectRenovateAlerts(visible, baseUrl, now),
-    ...collectCiAlerts(visible, baseUrl, now),
-    ...collectAnalyticsFailures(visible, baseUrl, now),
-    ...collectTurnstileGuardrailAlerts(visible, baseUrl, now),
-    ...collectNotifyBounceAlerts(visible, notifyBounces, baseUrl),
-  ];
+  const rawItems = collectFleetAttentionItems(
+    visible,
+    sitesById,
+    reports,
+    baseUrl,
+    now,
+    notifyBounces,
+  );
   // Read-only diff: tag NEW/WORSE exactly as the email does; discard `next`.
   const { tagged } = diffAttention(rawItems, priorSnapshot, now.toISOString().slice(0, 10));
 
@@ -560,6 +652,7 @@ export function buildCockpitModel(
       items,
       now,
     );
+    const c = subCountBySite.get(site.id) ?? { leads: 0, signups: 0 };
     return {
       site,
       tier,
@@ -568,7 +661,9 @@ export function buildCockpitModel(
       watchAcceptKeys,
       watchSignals,
       acceptedReasons,
-      newSubmissions: subCountBySite.get(site.id) ?? 0,
+      newSubmissions: c.leads + c.signups,
+      newLeads: c.leads,
+      newSignups: c.signups,
     };
   });
 
@@ -630,6 +725,9 @@ export function buildCockpitModel(
     autoFixStuck: tagged.filter((i) => i.autoFixExhausted).length,
     pending: pending.length,
     newSubmissions: submissions.length,
+    // Same population as newSubmissions (resolved entries — orphans excluded).
+    newLeads: submissions.filter((s) => isLeadFormType(s.formType)).length,
+    newSignups: submissions.filter((s) => !isLeadFormType(s.formType)).length,
   };
 
   const recent: RecentEntry[] = recentEvents.map((e) => {

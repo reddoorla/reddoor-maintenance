@@ -19,6 +19,7 @@ import {
   isVisibleInStrip,
 } from "./submission-view.js";
 import { SITE_STATUS_OPTIONS, FREQ_OPTIONS } from "./site-details.js";
+import type { SiteAlarmContext } from "./fleet-cockpit.js";
 
 const DASH = "—";
 
@@ -376,6 +377,37 @@ function setupSection(site: WebsiteRow): string {
   return `<div class="setup-line">Setup ${score}/${total} — ${detail}</div>`;
 }
 
+/** The site's cockpit alarm verdict, rendered as a chip strip under the header.
+ *  Mirrors fleet-browse-render's chips() presentation (attention items → red/critical
+ *  chips incl. the auto-fix-stuck border; watch reasons → chips with the accept-key
+ *  hint; accepted → muted ✓ chips). Renders "" when null or when there is nothing
+ *  to show (healthy/pre-launch with no accepted conditions stays calm). */
+function alarmSection(alarm: SiteAlarmContext | null): string {
+  if (!alarm) return "";
+  const chips: string[] = [];
+  for (const it of alarm.items) {
+    const cls = it.autoFixExhausted
+      ? "chip critical stuck"
+      : it.severity === "critical"
+        ? "chip critical"
+        : "chip";
+    chips.push(`<span class="${cls}">${escapeHtml(it.title)}</span>`);
+  }
+  alarm.watchReasons.forEach((reason, i) => {
+    const key = alarm.watchAcceptKeys[i];
+    const hint = key ? ` · accept: "${escapeHtml(key)}"` : "";
+    chips.push(
+      `<span class="chip" title="Add this exact text to the site's Accepted Watch Conditions to mute this watch">${escapeHtml(reason)}${hint}</span>`,
+    );
+  });
+  for (const reason of alarm.acceptedReasons)
+    chips.push(`<span class="chip accepted">✓ accepted: ${escapeHtml(reason)}</span>`);
+  if (chips.length === 0) return "";
+  const label =
+    alarm.tier === "attention" ? "Needs attention" : alarm.tier === "watch" ? "Watch" : "Status";
+  return `<div class="section alarm"><h2>${label}</h2><div class="chips">${chips.join("")}</div></div>`;
+}
+
 /** One read-only "Site details" row: a label and a value that degrades to "—". */
 function detailRow(label: string, value: string | null | undefined): string {
   const display =
@@ -570,6 +602,14 @@ button.override-submit:disabled { opacity: 0.6; cursor: default; }
 .detail dd textarea { min-height: 3.5rem; resize: vertical; }
 .detail-saved { font-size: 0.8rem; color: #2a8; }
 button.trigger-renovate { font: inherit; font-size: 0.8rem; padding: 0.15rem 0.6rem; margin-left: 0.5rem; border: 1px solid #888; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
+/* Alarm chip strip — mirrors fleet-render.ts chip styles (NOT the page's .pill classes). */
+.chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.chip { font-size: 0.8rem; padding: 0.1rem 0.5rem; border-radius: 6px; background: #f0f0f0; }
+@media (prefers-color-scheme: dark) { .chip { background: #222; } }
+.chip.critical { background: #fdecea; color: #b00; }
+.chip.stuck { border: 1px solid #b00; font-weight: 600; }
+.chip.accepted { background: transparent; border: 1px dashed #bbb; color: #888; }
+@media (prefers-color-scheme: dark) { .chip.accepted { border-color: #444; } .chip.critical { background: #2a0f0d; color: #ff8a80; } }
 `;
 
 /**
@@ -584,6 +624,7 @@ export function renderSiteDashboardHtml(
   submissions: SubmissionRow[] = [],
   spamTotals: ScreenOutTotals | null = null,
   now: Date = new Date(),
+  alarm: SiteAlarmContext | null = null,
 ): string {
   const name = escapeHtml(site.name);
   const urlSafe = safeUrl(site.url);
@@ -646,6 +687,7 @@ export function renderSiteDashboardHtml(
   <div class="meta"><a href="${escapeHtml(urlSafe)}">${escapeHtml(site.url)}</a></div>
   ${auditedLine}
   ${setupSection(site)}
+  ${alarmSection(alarm)}
   ${pendingSection(reports, site, now)}
 
   <div class="section">

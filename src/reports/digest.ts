@@ -25,7 +25,12 @@ import type {
   AttentionStatus,
   ReadyItem,
   DigestSections,
+  SubmissionsDigestSection,
 } from "../alerts/attention.js";
+// Type-only: erased at compile time, so the kysely/libsql devDependency never loads
+// in a consuming fleet site (the runtime read is the dynamic import in
+// fetchSubmissionsDigestCounts, same rule as fetchNotifyBounceCounts).
+import type { SiteSubmissionCounts } from "../db/submissions.js";
 
 // The attention/digest contract lives in `../alerts/attention.ts` (a dependency-free
 // types module) so the `alerts/*` collectors can depend on it without importing back
@@ -37,6 +42,7 @@ export type {
   AttentionStatus,
   ReadyItem,
   DigestSections,
+  SubmissionsDigestSection,
 } from "../alerts/attention.js";
 
 const GREY = "#757575";
@@ -122,6 +128,39 @@ function attentionSection(items: AttentionItem[]): string {
   return `${heading}<table role="presentation" style="border-collapse:collapse;margin:0">${groups}</table>`;
 }
 
+/** The "Submissions (24h)" telemetry block: fleet totals + a per-site glance line.
+ *  Context, not an alarm — absent/null section or all-zero totals render nothing
+ *  (no-noise), and the section never triggers a send on its own (see runDigest). */
+function submissionsSection(s: SubmissionsDigestSection | null | undefined): string {
+  if (!s) return "";
+  if (s.leads === 0 && s.signups === 0 && s.spamAuto === 0) return "";
+  const heading = `<h2 style="color:${RED};font-family:helvetica,sans-serif;font-size:20px;font-weight:700;margin:32px 0 8px">Submissions (24h)</h2>`;
+  // All three terms always render together — omitting a zero term next to a nonzero
+  // one reads as "not measured" rather than "none"; simplest honest form.
+  const totals = [
+    `${s.leads} new lead${s.leads === 1 ? "" : "s"}`,
+    `${s.signups} newsletter/RSVP signup${s.signups === 1 ? "" : "s"}`,
+    `${s.spamAuto} auto-filtered spam`,
+  ].join(" · ");
+  const totalLine = `<p style="color:${GREY};font-family:helvetica,sans-serif;font-size:16px;margin:0">${totals}</p>`;
+  if (s.bySite.length === 0) return `${heading}${totalLine}`;
+  const rows = s.bySite
+    .map((site) => {
+      const parts: string[] = [];
+      if (site.leads > 0) parts.push(`${site.leads} lead${site.leads === 1 ? "" : "s"}`);
+      if (site.signups > 0) parts.push(`${site.signups} signup${site.signups === 1 ? "" : "s"}`);
+      if (site.spamAuto > 0) parts.push(`${site.spamAuto} auto-filtered`);
+      return `
+      <tr>
+        <td style="color:${GREY};font-family:helvetica,sans-serif;font-size:16px;line-height:24px;padding-bottom:8px">
+          <strong style="color:#222">${esc(site.siteName)}</strong> — ${parts.join(" · ")}
+        </td>
+      </tr>`;
+    })
+    .join("");
+  return `${heading}${totalLine}<table role="presentation" style="border-collapse:collapse;margin:8px 0 0">${rows}</table>`;
+}
+
 const FROM_ADDRESS = "Reddoor Reports <reports@reddoorla.com>";
 /** Single-operator fleet — fallback when OPERATOR_EMAIL is unset. */
 const DIGEST_OPERATOR_FALLBACK = "info@reddoorla.com";
@@ -192,6 +231,66 @@ async function fetchNotifyBounceCounts(now: Date): Promise<ReadonlyMap<string, n
   }
 }
 
+/** The "Submissions (24h)" telemetry window — a precise 24h ISO-timestamp compare
+ *  (unlike screenOutsSince's date-only strings). */
+const SUBMISSIONS_DIGEST_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** Per-site submission counts for the digest telemetry section, read from libSQL.
+ *  Dynamic imports + fail-soft for the same reason as fetchNotifyBounceCounts:
+ *  kysely/libsql are devDependencies consuming fleet sites don't install, and a
+ *  Turso blip must drop just this section, never the digest. Returns null (not an
+ *  empty map) on failure so the renderer can omit the section rather than claim a
+ *  quiet fleet. */
+async function fetchSubmissionsDigestCounts(
+  now: Date,
+): Promise<ReadonlyMap<string, SiteSubmissionCounts> | null> {
+  try {
+    const [{ openDb, readDbConfig }, { countSubmissionsSinceBySite }] = await Promise.all([
+      import("../db/client.js"),
+      import("../db/submissions.js"),
+    ]);
+    const db = await openDb(readDbConfig());
+    return await countSubmissionsSinceBySite(
+      db,
+      new Date(now.getTime() - SUBMISSIONS_DIGEST_WINDOW_MS).toISOString(),
+    );
+  } catch (e) {
+    console.warn(`⚠ submissions telemetry unavailable (libSQL): ${(e as Error).message}`);
+    return null;
+  }
+}
+
+/** Assemble the "Submissions (24h)" section from the per-site counts. PURE (exported
+ *  for direct tests). Totals sum ALL map entries — an orphan site id still counts in
+ *  the fleet totals. bySite lists only ids that resolve in `sitesById` AND carry any
+ *  nonzero count, sorted by total volume desc then siteName A-Z. null counts (libSQL
+ *  unavailable) → null (section omitted). */
+export function buildSubmissionsDigestSection(
+  counts: ReadonlyMap<string, SiteSubmissionCounts> | null,
+  sitesById: ReadonlyMap<string, WebsiteRow>,
+): SubmissionsDigestSection | null {
+  if (counts === null) return null;
+  let leads = 0;
+  let signups = 0;
+  let spamAuto = 0;
+  const bySite: SubmissionsDigestSection["bySite"] = [];
+  for (const [siteId, c] of counts) {
+    leads += c.leads;
+    signups += c.signups;
+    spamAuto += c.spamAuto;
+    const site = sitesById.get(siteId);
+    if (site && c.leads + c.signups + c.spamAuto > 0) {
+      bySite.push({ siteName: site.name, ...c });
+    }
+  }
+  bySite.sort(
+    (a, b) =>
+      b.leads + b.signups + b.spamAuto - (a.leads + a.signups + a.spamAuto) ||
+      a.siteName.localeCompare(b.siteName),
+  );
+  return { leads, signups, spamAuto, bySite };
+}
+
 /** Run a single collector under a try/catch: a thrown collector logs and yields []
  *  so one broken signal never blanks the whole "Needs attention" section. */
 function runCollector(label: string, fn: () => AttentionItem[]): AttentionItem[] {
@@ -251,6 +350,10 @@ export type DigestRunOptions = {
    * When omitted, `openBase(readAirtableConfig())` is called from the environment.
    */
   base?: AirtableBase;
+  /** Per-site submission counts for the "Submissions (24h)" section. undefined =
+   *  fetch from libSQL; null = simulate unavailable (section omitted); a Map =
+   *  injected (tests). */
+  submissionCounts?: ReadonlyMap<string, SiteSubmissionCounts> | null;
 };
 
 export async function runDigest(
@@ -314,7 +417,17 @@ export async function runDigest(
       return { output: "Digest skipped (nothing ready, nothing needs attention).", code: 0 };
     }
 
-    const html = renderDigestHtml({ readyForYourYes, needsAttention });
+    // Submissions telemetry rides only on a digest that is ALREADY sending — the
+    // skip predicate above is deliberately unchanged (leads already fire their own
+    // ingest-time notification; this is context, not an alarm), and fetching AFTER
+    // the skip check keeps quiet days from touching libSQL at all.
+    const counts =
+      options.submissionCounts !== undefined
+        ? options.submissionCounts
+        : await fetchSubmissionsDigestCounts(today);
+    const submissions = buildSubmissionsDigestSection(counts, sites);
+
+    const html = renderDigestHtml({ readyForYourYes, needsAttention, submissions });
     const client = options.resend ?? defaultResendClient();
     const to = [process.env.OPERATOR_EMAIL?.trim() || DIGEST_OPERATOR_FALLBACK];
     const n = readyForYourYes.length;
@@ -389,6 +502,7 @@ export function renderDigestHtml(sections: DigestSections): string {
                 <h1 style="color:${RED};font-family:helvetica,sans-serif;font-size:24px;font-weight:700;margin:0 0 8px">Your fleet today</h1>
                 ${readySection(sections.readyForYourYes)}
                 ${attentionSection(sections.needsAttention)}
+                ${submissionsSection(sections.submissions)}
               </td>
             </tr>
           </table>

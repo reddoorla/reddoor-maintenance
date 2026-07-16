@@ -30,6 +30,18 @@ describe("parseSubmissionsQuery", () => {
       "erp-industrials",
     );
   });
+  it("reads ?reason= into filter.reason and rawFilter.reason", () => {
+    const r = parseSubmissionsQuery(new URLSearchParams("reason=turnstile-required-absent"));
+    expect(r.filter.reason).toBe("turnstile-required-absent");
+    expect(r.rawFilter.reason).toBe("turnstile-required-absent");
+  });
+  it("ignores a blank/whitespace reason and truncates >64 chars", () => {
+    expect(parseSubmissionsQuery(new URLSearchParams("reason=  ")).filter.reason).toBeUndefined();
+    expect(parseSubmissionsQuery(new URLSearchParams()).rawFilter.reason).toBe("");
+    const long = "x".repeat(100);
+    const r = parseSubmissionsQuery(new URLSearchParams(`reason=${long}`));
+    expect(r.filter.reason).toBe("x".repeat(64));
+  });
 });
 
 describe("buildSubmissionsPageModel", () => {
@@ -63,7 +75,7 @@ describe("buildSubmissionsPageModel", () => {
       total: 120,
       sites,
       filter: { siteId: "recA" },
-      rawFilter: { site: "", type: "", status: "", q: "", from: "", to: "" },
+      rawFilter: { site: "", type: "", status: "", q: "", from: "", to: "", reason: "" },
       page: 2,
     });
     expect(model.rows[0]?.siteName).toBe("Site A");
@@ -81,7 +93,7 @@ describe("buildSubmissionsPageModel", () => {
       total: 1,
       sites,
       filter: {},
-      rawFilter: { site: "", type: "", status: "", q: "", from: "", to: "" },
+      rawFilter: { site: "", type: "", status: "", q: "", from: "", to: "", reason: "" },
       page: 1,
     });
     expect(model.rows[0]?.siteName).toBe("recGHOST");

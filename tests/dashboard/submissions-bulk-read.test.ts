@@ -34,6 +34,7 @@ function model(markableNewCount: number, rawOverrides: Partial<RawFilter> = {}) 
     q: "",
     from: "",
     to: "",
+    reason: "",
     ...rawOverrides,
   };
   return buildSubmissionsPageModel({
@@ -68,6 +69,16 @@ describe("renderSubmissionsPageHtml — bulk mark-read form", () => {
     expect(html).not.toContain('<great>"');
   });
 
+  it("carries the active reason filter as a hidden field (bulk POST must flip the SHOWN bucket)", () => {
+    const html = renderSubmissionsPageHtml(model(3, { reason: "turnstile-required-absent" }));
+    expect(html).toContain('name="reason" value="turnstile-required-absent"');
+  });
+
+  it("omits the reason hidden field when no reason filter is active", () => {
+    const html = renderSubmissionsPageHtml(model(3));
+    expect(html).not.toContain('name="reason"');
+  });
+
   it("renders NO bulk form when the bucket has no still-'new' rows", () => {
     // the .bulk-read CSS rule is always in the stylesheet — assert on the markup
     const html = renderSubmissionsPageHtml(model(0));
@@ -81,7 +92,7 @@ describe("renderSubmissionsPageHtml — bulk mark-read form", () => {
       total: 1,
       sites,
       filter: {},
-      rawFilter: { site: "", type: "", status: "", q: "", from: "", to: "" },
+      rawFilter: { site: "", type: "", status: "", q: "", from: "", to: "", reason: "" },
       page: 1,
     });
     expect(m.markableNewCount).toBe(0);

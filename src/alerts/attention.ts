@@ -62,9 +62,20 @@ export type AttentionItem = {
   autoFixExhausted?: boolean;
 };
 
+/** The digest "Submissions (24h)" telemetry block. bySite lists only sites with
+ *  any nonzero count, resolved to names by the caller. */
+export type SubmissionsDigestSection = {
+  leads: number;
+  signups: number;
+  spamAuto: number;
+  bySite: Array<{ siteName: string; leads: number; signups: number; spamAuto: number }>;
+};
+
 /** Input shape for `renderDigestHtml`. Both arrays are required; callers pass `[]` for
- *  empty sections — the renderer handles the empty-state copy. */
+ *  empty sections — the renderer handles the empty-state copy. `submissions` is
+ *  optional context telemetry (null/absent → section omitted). */
 export type DigestSections = {
   readyForYourYes: ReadyItem[];
   needsAttention: AttentionItem[];
+  submissions?: SubmissionsDigestSection | null;
 };
