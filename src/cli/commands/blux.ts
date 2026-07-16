@@ -7,7 +7,7 @@ import { emitThemeCss, emitRolesCss, emitButtonsCss } from "../../blux/emit/them
 import { buildReviewManifest } from "../../blux/emit/review.js";
 import { validateCoverage } from "../../blux/validate.js";
 import { parseGridBands, extractMapConfig } from "../../blux/grid/index.js";
-import { convertExport } from "../../blux/emit/convert.js";
+import { convertExport, convertSite, sitePages } from "../../blux/emit/convert.js";
 import { validateLayout, formatLayoutReport } from "../../blux/emit/validate-layout.js";
 import { rewriteManifestUrls } from "../../blux/emit/rewrite-manifest.js";
 import type { Presentation } from "../../blux/emit/presentation.js";
@@ -280,15 +280,29 @@ export async function runBluxCommand(
 
   if (action === "convert") {
     if (!dir) return { output: "blux convert needs a Blux export directory.", code: 1 };
-    let html: string;
     let siteJson: unknown;
     try {
-      html = await readFile(join(dir, "index.html"), "utf-8");
       siteJson = JSON.parse(await readFile(join(dir, "site.json"), "utf-8"));
     } catch (err) {
       return { output: `could not read export in ${dir}: ${(err as Error).message}`, code: 1 };
     }
-    const { bands, mapConfig, plan, presentation, ir, specs } = convertExport({ html, siteJson });
+    // Every site page renders to its own index.html: the homepage at the
+    // export root, the rest at <path>/index.html. A page dir the export
+    // doesn't contain (an unexported draft) is skipped — convertSite records
+    // the missing-page-html diagnostic.
+    const htmlByUid = new Map<string, string>();
+    for (const p of sitePages(siteJson)) {
+      const file = p.path ? join(dir, p.path, "index.html") : join(dir, "index.html");
+      try {
+        htmlByUid.set(p.uid, await readFile(file, "utf-8"));
+      } catch {
+        /* missing page dir — diagnosed by convertSite */
+      }
+    }
+    if (!htmlByUid.size) {
+      return { output: `could not read any page html in ${dir}`, code: 1 };
+    }
+    const { pages, ir, plan, presentation } = convertSite({ siteJson, htmlByUid });
 
     const outDir = opts.out ?? join(dir, "blux-out");
     await mkdir(outDir, { recursive: true });
@@ -307,8 +321,13 @@ export async function runBluxCommand(
           (buttonsCss ? "\n" + buttonsCss : ""),
       );
     }
-    if (mapConfig) {
-      await writeFile(join(outDir, "map-config.json"), JSON.stringify(mapConfig, null, 2) + "\n");
+    // Map configs are per page now (informational — the presentation manifest
+    // co-locates each map on its band).
+    const mapConfigs = Object.fromEntries(
+      pages.filter((p) => p.mapConfig).map((p) => [p.uid, p.mapConfig]),
+    );
+    if (Object.keys(mapConfigs).length) {
+      await writeFile(join(outDir, "map-config.json"), JSON.stringify(mapConfigs, null, 2) + "\n");
     }
     // The favicon never rides the migration plan (plan assets get uploaded to
     // Prismic media — the wrong destination), so convert downloads it directly
@@ -335,18 +354,33 @@ export async function runBluxCommand(
           `url preserved in ${join(outDir, "favicon.json")}`;
       }
     }
-    const layout = validateLayout(specs, presentation);
-    await writeFile(join(outDir, "layout-report.json"), JSON.stringify(layout, null, 2) + "\n");
-    const sliceCount = (plan.documents[0]?.data.slices as unknown[] | undefined)?.length ?? 0;
+    const layoutByUid: Record<string, ReturnType<typeof validateLayout>> = {};
+    const reportLines: string[] = [];
+    for (const p of pages) {
+      const pagePresentation = presentation.pages[p.uid];
+      if (!pagePresentation) continue;
+      const layout = validateLayout(p.specs, pagePresentation);
+      layoutByUid[p.uid] = layout;
+      reportLines.push(`[${p.uid}] ${formatLayoutReport(layout)}`);
+    }
+    await writeFile(
+      join(outDir, "layout-report.json"),
+      JSON.stringify({ pages: layoutByUid }, null, 2) + "\n",
+    );
+    const totalBands = pages.reduce((n, p) => n + p.bands.length, 0);
+    const missing = ir.diagnostics.filter((d) => d.kind === "missing-page-html");
     return {
       output:
-        `Converted ${bands.length} bands → ${outDir} ` +
-        `(${Object.keys(presentation.bands).length} manifest bands, ${sliceCount} slices` +
-        (mapConfig ? ", map config extracted" : "") +
+        `Converted ${pages.length} pages / ${totalBands} bands → ${outDir} ` +
+        `(${plan.documents.length} page documents` +
+        (Object.keys(mapConfigs).length
+          ? `, map config on ${Object.keys(mapConfigs).join(", ")}`
+          : "") +
         ")" +
+        (missing.length ? `\nskipped (no html): ${missing.map((d) => d.where).join(", ")}` : "") +
         faviconLine +
         "\n" +
-        formatLayoutReport(layout),
+        reportLines.join("\n"),
       code: 0,
     };
   }

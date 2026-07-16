@@ -8,6 +8,8 @@ export type Diagnostic = {
     | "malformed-feed-field"
     | "empty-page"
     | "empty-slice"
+    | "duplicate-page-uid"
+    | "missing-page-html"
     | "non-image-in-image-field";
   where: string; // page uid / feed apiId / asset uuid
   message: string;
@@ -42,7 +44,17 @@ export type SectionIR = {
   children?: SectionIR[];
 };
 
-export type PageIR = { uid: string; title: string; description: string; sections: SectionIR[] };
+export type PageIR = {
+  uid: string;
+  title: string;
+  description: string;
+  /** The page's export-dir / route slug ("" for the homepage — the export
+   * renders it at the root index.html; every other page renders at
+   * `<path>/index.html`). Derived from the source `url` when present, else
+   * the title slug. */
+  path: string;
+  sections: SectionIR[];
+};
 
 export type FieldDef = {
   key: string;

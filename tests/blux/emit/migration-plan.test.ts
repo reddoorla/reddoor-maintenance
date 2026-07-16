@@ -35,7 +35,7 @@ describe("buildMigrationPlan", () => {
 
   it("skips empty pages with a diagnostic instead of emitting hollow documents", () => {
     const ir = assembleIR({ siteJson: minimalSite, htmls: [minimalHtml] });
-    ir.pages.push({ uid: "stub", title: "", description: "", sections: [] });
+    ir.pages.push({ uid: "stub", title: "", description: "", path: "stub", sections: [] });
     const p = buildMigrationPlan(ir);
     expect(p.documents.find((d) => d.uid === "stub")).toBeUndefined();
     expect(p.diagnostics).toContainEqual(

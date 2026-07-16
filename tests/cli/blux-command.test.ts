@@ -278,7 +278,8 @@ describe("blux convert", () => {
     const manifest = JSON.parse(
       await readFile(join(dir, "blux-out", "blux-presentation.json"), "utf-8"),
     );
-    expect(manifest.bands["0"]).toBeDefined();
+    // Multi-page manifest: bands are page-namespaced by uid ("home" = pages[0]).
+    expect(manifest.pages["home"].bands["0"]).toBeDefined();
     const plan = JSON.parse(await readFile(join(dir, "blux-out", "migration-plan.json"), "utf-8"));
     expect(plan.documents[0].data.slices[0].slice_type).toBe("title_band");
   });
@@ -297,9 +298,9 @@ describe("blux convert", () => {
     expect(res.code).toBe(0);
     expect(res.output).toContain("layout fidelity: FAITHFUL");
     const report = JSON.parse(await readFile(join(dir, "blux-out", "layout-report.json"), "utf-8"));
-    expect(report.bands).toBe(16);
-    expect(report.faithful).toBe(true);
-    expect(report.findings).toEqual([]);
+    expect(report.pages["home"].bands).toBe(16);
+    expect(report.pages["home"].faithful).toBe(true);
+    expect(report.pages["home"].findings).toEqual([]);
   });
 
   it("reports findings but still exits 0 — a generator never gates (Decision #6)", async () => {
@@ -315,8 +316,8 @@ describe("blux convert", () => {
     expect(res.code).toBe(0); // convert reports but never gates
     expect(res.output).toContain("layout fidelity:");
     const report = JSON.parse(await readFile(join(dir, "blux-out", "layout-report.json"), "utf-8"));
-    expect(report.faithful).toBe(false);
-    expect(report.findings.length).toBeGreaterThan(0);
+    expect(report.pages["home"].faithful).toBe(false);
+    expect(report.pages["home"].findings.length).toBeGreaterThan(0);
   });
 });
 
