@@ -138,8 +138,23 @@ function nodeText(node: Node): string {
 }
 
 /** The single media of a pure-media cell, or null if the cell isn't pure media. */
+/** See through synthetic style boxes — a one-child stack carrying a peeled
+ * wrapper's padding/fill — when pattern-matching. The box is presentation, not
+ * structure: a cell must not flip from SplitFeature/Gallery to Grid just
+ * because its container gained a captured inset. */
+function unboxed(node: Node): Node {
+  let n = node;
+  while (n.kind === "stack" && n.children.length === 1) {
+    const only = n.children[0];
+    if (!only) break;
+    n = only;
+  }
+  return n;
+}
+
 function pureCellMedia(cell: Cell): Media | null {
-  return cell.node.kind === "media" ? cell.node.media : null;
+  const n = unboxed(cell.node);
+  return n.kind === "media" ? n.media : null;
 }
 
 /** TitleBand/Hero presentation metadata: the heading's textN role + h-level and

@@ -390,10 +390,11 @@ describe("card background capture", () => {
   });
 
   it("carries the card's fill and padding, but not text-align/vertical-align", () => {
-    // A card's background (fill) and its content padding (inset) both ride along;
-    // text-align / vertical-align are band-level layout concerns, dropped.
+    // A card's background (fill) and its content padding (inset) both ride along
+    // — the card sits inside a grid cell, so the padding is cell-level, not band
+    // chrome. text-align / vertical-align are band-level layout concerns, dropped.
     const html =
-      '<div class="block-content">' +
+      '<div class="block-subcontent">' +
       '<div class="blocks0" style="background-color: rgb(0, 0, 0); text-align: center; vertical-align: middle;">' +
       '<div class="blocks0container valignmiddle" style="padding: 40px;">' +
       '<div class="block-grid-container cagrid">' +
@@ -411,7 +412,7 @@ describe("card background capture", () => {
     // its `.blocksNcontainer` content wrapper — a *different* peeled element. Both
     // must reach the card node (the nearest wrapper wins for each).
     const html =
-      '<div class="block-content">' +
+      '<div class="block-subcontent">' +
       '<div class="blocks0" style="background-color: rgb(255, 255, 255);">' +
       '<div class="blocks0container" style="padding: 100px 4% 80px;">' +
       '<div class="block-grid-container cagrid">' +
@@ -424,10 +425,11 @@ describe("card background capture", () => {
     });
   });
 
-  it("ignores a container's padding when no card background marks it", () => {
-    // A `.blocksNcontainer` padding with no card fill is a band-level inset, already
-    // handled by the band's blockClass defaults — it must not ride onto a nested
-    // node, or the inset would be applied twice.
+  it("ignores a BAND-level container's padding (the band's own content padding)", () => {
+    // A `.blocksNcontainer` padding ABOVE any grid-cell boundary is the band's
+    // content padding, already handled via the band style/blockClass defaults —
+    // it must not ride onto a nested node, or the inset would be applied twice.
+    // (Inside a cell, padding rides with or without a fill — see the cell tests.)
     const html =
       '<div class="block-content">' +
       '<div class="blocks0container" style="padding: 100px 4% 80px;">' +
@@ -436,6 +438,66 @@ describe("card background capture", () => {
       '<div class="block-subcontent grid-1"><h5 class="block-title text5">B</h5></div>' +
       "</div></div></div>";
     expect(styleOf(container(html))).toBeUndefined();
+  });
+
+  it("rides a cell-level container padding WITHOUT a fill (band 11's padded heading cell)", () => {
+    // Inside a grid cell, a container's inline padding is real content inset
+    // even with no background — live band 11's middle cell pads its lone
+    // heading by 20px/30px. A bare leaf gains a synthetic one-child stack to
+    // carry the box.
+    const html =
+      '<div class="block-subcontent">' +
+      '<div class="blocks0">' +
+      '<div class="blocks0container" style="padding: 20px 0px 30px;">' +
+      '<div class="block-content"><h4 class="block-title text11">A city</h4></div>' +
+      "</div></div></div>";
+    const result = container(html);
+    expect(result.kind).toBe("stack");
+    expect(styleOf(result)).toEqual({ padding: "20px 0px 30px" });
+    if (result.kind === "stack") {
+      expect(result.children).toHaveLength(1);
+      expect(result.children[0]?.kind).toBe("heading");
+    }
+  });
+
+  it("groups a multi-child grid cell into its own stack (margin containment)", () => {
+    // A bare block-subcontent with two blocks parses to a nested stack — the
+    // original contains the blocks' margins per cell (a block-content clearfix
+    // blocks the collapse), so the boundary must survive the flatten.
+    const html =
+      '<div class="block-content">' +
+      '<div class="block-grid-container">' +
+      '<div class="block-subcontent">' +
+      '<h4 class="block-title text5">Title</h4>' +
+      '<div class="block-body text1">Copy</div>' +
+      "</div>" +
+      '<div class="block-subcontent">' +
+      '<div class="block-body text1">Solo</div>' +
+      "</div></div></div>";
+    const result = container(html);
+    expect(result.kind).toBe("stack");
+    if (result.kind !== "stack") return;
+    // cell 1 (two blocks) is contained; cell 2 (one block) stays a bare leaf
+    expect(result.children.map((c) => c.kind)).toEqual(["stack", "body"]);
+    const cell = result.children[0];
+    if (cell?.kind === "stack")
+      expect(cell.children.map((c) => c.kind)).toEqual(["heading", "body"]);
+  });
+
+  it("a padded wrapper around TWO blocks pads the group once, not each child", () => {
+    const html =
+      '<div class="block-subcontent">' +
+      '<div class="blocks0container" style="padding: 20px 0px;">' +
+      '<h4 class="block-title text5">A</h4>' +
+      '<div class="block-body text1">B</div>' +
+      "</div></div>";
+    const result = container(html);
+    expect(result.kind).toBe("stack");
+    expect(styleOf(result)).toEqual({ padding: "20px 0px" });
+    if (result.kind !== "stack") return;
+    expect(result.children.map((c) => c.kind)).toEqual(["heading", "body"]);
+    // neither child carries the padding
+    for (const c of result.children) expect(styleOf(c)).toBeUndefined();
   });
 
   it("ignores a transparent background (not a real deviation)", () => {
