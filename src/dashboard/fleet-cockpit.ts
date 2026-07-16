@@ -16,6 +16,7 @@ import {
   collectCiAlerts,
   collectAnalyticsFailures,
   collectTurnstileGuardrailAlerts,
+  collectNotifyBounceAlerts,
 } from "../alerts/digest-collectors.js";
 import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
 import { relativeTimeFromNow } from "./relative-time.js";
@@ -434,6 +435,10 @@ export function buildCockpitModel(
   spamTotals: { honeypot: number; tooFast: number; markedSpam: number } | null = null,
   recentEvents: FleetEvent[] = [],
   autoFilteredCount = 0,
+  // Per-site bounced-lead-notification counts (countNotifyBouncedBySite, last
+  // NOTIFY_BOUNCE_WINDOW_DAYS). Optional like the other libSQL inputs: a Turso
+  // blip drops the signal, never the cockpit (2026-07-16).
+  notifyBounces: ReadonlyMap<string, number> = new Map(),
 ): CockpitModel {
   const visible = websites.filter(isDashboardVisible);
   const sitesById = new Map<string, WebsiteRow>(visible.map((w) => [w.id, w]));
@@ -454,6 +459,7 @@ export function buildCockpitModel(
     ...collectCiAlerts(visible, baseUrl, now),
     ...collectAnalyticsFailures(visible, baseUrl, now),
     ...collectTurnstileGuardrailAlerts(visible, baseUrl, now),
+    ...collectNotifyBounceAlerts(visible, notifyBounces, baseUrl),
   ];
   // Read-only diff: tag NEW/WORSE exactly as the email does; discard `next`.
   const { tagged } = diffAttention(rawItems, priorSnapshot, now.toISOString().slice(0, 10));

@@ -162,6 +162,37 @@ describe("collectAttention", () => {
     expect(keys).toContain("delivery:rec_report_bounced");
   });
 
+  it("emits a notify-bounce item from injected per-site counts, keyed like the cockpit", async () => {
+    // The digest path takes the same pre-fetched counts shape the cockpit threads
+    // (countNotifyBouncedBySite → Map<siteId, n>); the key must be the cockpit's
+    // `notify-bounce:<siteId>` so the shared snapshot diffs NEW/WORSE across both.
+    const base = makeFakeBase({ Reports: [], Websites: [vulnSite()] });
+    const items = await collectAttention({
+      base,
+      baseUrl: BASE_URL,
+      notifyBounces: new Map([["rec_site_acme", 3]]),
+    });
+    const nb = items.find((i) => i.kind === "notify-bounce")!;
+    expect(nb).toMatchObject({
+      key: "notify-bounce:rec_site_acme",
+      siteName: "Acme Co",
+      severity: "critical",
+      metric: 3,
+    });
+  });
+
+  it("emits no notify-bounce item when counts are empty or below the 2-bounce floor", async () => {
+    const base = makeFakeBase({ Reports: [], Websites: [vulnSite()] });
+    const none = await collectAttention({ base, baseUrl: BASE_URL, notifyBounces: new Map() });
+    expect(none.some((i) => i.kind === "notify-bounce")).toBe(false);
+    const single = await collectAttention({
+      base,
+      baseUrl: BASE_URL,
+      notifyBounces: new Map([["rec_site_acme", 1]]),
+    });
+    expect(single.some((i) => i.kind === "notify-bounce")).toBe(false);
+  });
+
   it("digest and cockpit produce the SAME renovate/ci keys for one site (key-space pinned)", async () => {
     // The crux of the fix: the digest path (collectAttention) and the cockpit path
     // (buildCockpitModel) must emit IDENTICAL diff keys for the same site, so the
