@@ -217,42 +217,148 @@ export async function countAutoSpamSince(db: Db, sinceDate: string): Promise<num
   return Number(res.n);
 }
 
-/** A body shorter than this never triggers the duplicate-spray signal — short/boilerplate
- *  lines (a newsletter "subscribe", "hi") legitimately repeat across real people. */
+/** A normalized body shorter than this never triggers the exact-duplicate signal —
+ *  short/boilerplate lines (a newsletter "subscribe", "hi") legitimately repeat
+ *  across real people. */
 export const MIN_DUP_BODY_LEN = 40;
 
-/** Fleet-wide count of submissions whose message body equals `message` (trimmed +
- *  lowercased) and were submitted on/after `sinceDate` (ISO). Powers the velocity /
- *  duplicate-spray spam signal — the same pitch blasted across sites (or re-run) shows
- *  up as identical bodies. Bodies shorter than `MIN_DUP_BODY_LEN` return 0 so a short
- *  line never collides two real leads. BOTH sides are folded in SQL — `lower(trim())`
- *  on the column AND on the bound parameter — because SQLite/libSQL `lower()` is
- *  ASCII-only while JS `toLowerCase()` is full Unicode; folding one side in JS and the
- *  other in SQL silently missed every byte-identical non-ASCII copy (a sentence-cased
- *  Cyrillic spray could repeat forever unmatched). Same-side folding guarantees
- *  byte-identical copies always match; ASCII case variation still normalizes, and
- *  Unicode case VARIANTS (not byte-identical) are near-dupe territory, out of scope
- *  for an exact-match signal. SQLite's bare `trim()` strips SPACES only (JS `.trim()`
- *  also strips tabs/newlines — textarea bodies often carry a trailing newline), so
- *  both sides trim an explicit whitespace char set instead. */
-const SQL_TRIM_WS = " \t\n\r";
+/** Both token sets must be at least this large before the Jaccard tier can fire —
+ *  two short genuine messages ("what are your hours?" variants) share most of their
+ *  few tokens and would otherwise collide. */
+export const MIN_SIMILAR_TOKENS = 25;
 
-export async function countRecentDuplicateMessages(
+/** Jaccard similarity (token sets) at or above this marks a near-duplicate. 0.9 is
+ *  deliberately strict: a template spray with one substituted greeting/target still
+ *  clears it, while two independently-written enquiries about the same business
+ *  never do. */
+export const SIMILARITY_THRESHOLD = 0.9;
+
+/** Fold a message body down to its template skeleton. Full-Unicode lowercase first
+ *  (JS `toLowerCase()` — SQLite's `lower()` is ASCII-only, which is why this whole
+ *  comparison lives in JS, folding BOTH sides identically so byte-identical Cyrillic
+ *  copies keep matching), then strip everything a spray substitutes per target —
+ *  URLs, emails, bare domains, digit runs — and collapse whitespace. Over-stripping
+ *  is safe: it happens symmetrically on both sides. */
+function normalizeBody(body: string): string {
+  return body
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/gu, " ") // full URLs
+    .replace(/www\.\S+/gu, " ") // scheme-less www. links
+    .replace(/\S+@\S+/gu, " ") // email addresses
+    .replace(/\b[a-z0-9-]+(\.[a-z0-9-]+)+\b/gu, " ") // bare domain tokens (word.tld)
+    .replace(/\d+/gu, " ") // digit runs (phone numbers, prices, years)
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+/** Letter-only token set of a normalized body (punctuation/symbols are separators). */
+function tokenSet(normalized: string): Set<string> {
+  return new Set(normalized.split(/[^\p{L}]+/u).filter((t) => t.length > 0));
+}
+
+function jaccard(a: Set<string>, b: Set<string>): number {
+  let intersection = 0;
+  for (const t of a) if (b.has(t)) intersection++;
+  const union = a.size + b.size - intersection;
+  return union === 0 ? 0 : intersection / union;
+}
+
+/** Fleet-wide duplicate/near-duplicate lookup for the spray spam signal — the same
+ *  pitch blasted across sites shows up as identical OR near-identical bodies (the
+ *  live dog-harness spray differed ONLY in greeting; SEO sprays substitute the
+ *  target domain per site — exact match alone missed both). Scans rows submitted
+ *  on/after `sinceDate` and compares in JS (see normalizeBody for why not SQL):
+ *  - `exact`: normalized equality, only when the normalized incoming body is at
+ *    least MIN_DUP_BODY_LEN chars.
+ *  - `similar`: token-set Jaccard >= SIMILARITY_THRESHOLD, only when BOTH sets have
+ *    at least MIN_SIMILAR_TOKENS tokens. A row matched as exact never re-appears here.
+ *  Returned statuses let the caller retro-bucket still-'new' prior copies. The 2000-row
+ *  LIMIT is a safety bound only — current volume is ~130/month, so a 30-day window is
+ *  always a full scan. */
+export async function findRecentDuplicateSubmissions(
   db: Db,
   message: string,
   sinceDate: string,
-): Promise<number> {
-  if (message.trim().length < MIN_DUP_BODY_LEN) return 0;
-  const res = await db
+): Promise<{
+  exact: Array<{ id: string; status: string }>;
+  similar: Array<{ id: string; status: string }>;
+}> {
+  const incoming = normalizeBody(message);
+  const incomingTokens = tokenSet(incoming);
+  const exactEligible = incoming.length >= MIN_DUP_BODY_LEN;
+  const similarEligible = incomingTokens.size >= MIN_SIMILAR_TOKENS;
+  // Too short for either tier — skip the scan entirely (nothing could match).
+  if (!exactEligible && !similarEligible) return { exact: [], similar: [] };
+
+  const rows = await db
     .selectFrom("submissions")
-    .select((eb) => eb.fn.countAll<number>().as("n"))
+    .select(["id", "status", "message"])
+    .where("message", "is not", null)
     .where("submitted_at", ">=", sinceDate)
-    .where(
-      (eb) =>
-        sql<SqlBool>`lower(trim(${eb.ref("message")}, ${SQL_TRIM_WS})) = lower(trim(${message}, ${SQL_TRIM_WS}))`,
-    )
-    .executeTakeFirstOrThrow();
-  return Number(res.n);
+    .orderBy("submitted_at", "desc")
+    .limit(2000)
+    .execute();
+
+  const exact: Array<{ id: string; status: string }> = [];
+  const similar: Array<{ id: string; status: string }> = [];
+  for (const row of rows) {
+    const stored = normalizeBody(row.message ?? "");
+    if (exactEligible && stored === incoming) {
+      exact.push({ id: row.id, status: row.status });
+      continue; // an exact match must not also appear in similar
+    }
+    if (!similarEligible) continue;
+    const storedTokens = tokenSet(stored);
+    if (storedTokens.size < MIN_SIMILAR_TOKENS) continue;
+    if (jaccard(incomingTokens, storedTokens) >= SIMILARITY_THRESHOLD) {
+      similar.push({ id: row.id, status: row.status });
+    }
+  }
+  return { exact, similar };
+}
+
+/** Recent non-newsletter submissions from `email` (case/whitespace-folded), on/after
+ *  `sinceDate` (ISO). Powers the cross-site repeat-sender signal: the fleet's sites
+ *  are UNRELATED businesses, so the same address writing to 2+ of them inside a month
+ *  is a solicitation tell — the caller compares siteIds (same-site repeats are genuine
+ *  follow-ups). Newsletter rows are excluded: one person subscribing on two sites is
+ *  legitimate. Both sides fold in SQL (same-side folding, see the normalizeBody note). */
+export async function listRecentSubmissionsForEmail(
+  db: Db,
+  email: string,
+  sinceDate: string,
+): Promise<Array<{ id: string; siteId: string; status: string }>> {
+  if (email.trim() === "") return [];
+  const rows = await db
+    .selectFrom("submissions")
+    .select(["id", "site_id", "status"])
+    .where("form_type", "!=", "newsletter")
+    .where("submitted_at", ">=", sinceDate)
+    .where((eb) => sql<SqlBool>`lower(trim(${eb.ref("email")})) = lower(trim(${email}))`)
+    .execute();
+  return rows.map((r) => ({ id: r.id, siteId: r.site_id, status: r.status }));
+}
+
+/** Retroactively re-bucket prior spray copies once a later copy identifies the spray
+ *  (the FIRST copy is always delivered by design — only a repeat reveals it). Appends
+ *  `retroReason` to any existing spam_reason so the original classifier trail survives.
+ *  The `status = 'new'` guard is load-bearing: rows the operator already read/replied/
+ *  archived/marked are NEVER touched — this only cleans the unread queue. */
+export async function markSubmissionsSpamRetro(
+  db: Db,
+  ids: string[],
+  retroReason: string,
+): Promise<void> {
+  if (ids.length === 0) return;
+  await db
+    .updateTable("submissions")
+    .set({
+      status: "spam_auto",
+      spam_reason: sql<string>`CASE WHEN spam_reason IS NULL OR spam_reason = '' THEN ${retroReason} ELSE spam_reason || ',' || ${retroReason} END`,
+    })
+    .where("id", "in", ids)
+    .where("status", "=", "new")
+    .execute();
 }
 
 /** Insert a SubmissionRow verbatim, preserving its id, display number, and status.
