@@ -334,6 +334,51 @@ export function collectTurnstileGuardrailAlerts(
   return items;
 }
 
+/** Bounced lead notifications inside the window before a site alarms. One bounce can
+ *  be a transient greylist/full-mailbox blip; a repeat says the point-of-contact
+ *  address itself is bad (the Espada mode: apm@ bounced 4 of 8 with nothing alarming). */
+export const NOTIFY_BOUNCE_THRESHOLD = 2;
+
+/** Window (days) the bounce count covers. Two weeks: long enough that a low-volume
+ *  site's second bounce still lands in the same window as its first, short enough
+ *  that a long-fixed address doesn't alarm forever (bounced rows never self-clear —
+ *  the alarm ages out as bounced submissions leave the window). */
+export const NOTIFY_BOUNCE_WINDOW_DAYS = 14;
+
+/**
+ * One CRITICAL attention item per site with >= {@link NOTIFY_BOUNCE_THRESHOLD} bounced
+ * lead notifications in the last {@link NOTIFY_BOUNCE_WINDOW_DAYS} days — leads are
+ * being captured but silently never reach the client, which is worse than no form at
+ * all (notifyStatus "sent" only means Resend accepted the email; the resend-webhook
+ * flips it to "bounced" when Resend later reports the failure, 2026-07-16). PURE:
+ * takes the pre-fetched per-site counts (`countNotifyBouncedBySite`, keyed by the
+ * Websites record id). Keyed `notify-bounce:<siteId>` so the digest and the cockpit
+ * share one diff key; `metric` is the bounce count (a rising count diffs WORSE).
+ * A site absent from the map (or below threshold) is skipped, as is a count for a
+ * site id not in `sites` (orphan → never render a broken link).
+ */
+export function collectNotifyBounceAlerts(
+  sites: WebsiteRow[],
+  bouncedBySite: ReadonlyMap<string, number>,
+  baseUrl: string,
+): AttentionItem[] {
+  const items: AttentionItem[] = [];
+  for (const s of sites) {
+    const n = bouncedBySite.get(s.id) ?? 0;
+    if (n < NOTIFY_BOUNCE_THRESHOLD) continue;
+    items.push({
+      key: `notify-bounce:${s.id}`,
+      kind: "notify-bounce",
+      siteName: s.name,
+      title: `${n} lead notifications bounced (${NOTIFY_BOUNCE_WINDOW_DAYS}d) — check the point-of-contact address`,
+      url: dashboardUrl(baseUrl, s.name),
+      severity: "critical",
+      metric: n,
+    });
+  }
+  return items;
+}
+
 export function collectAnalyticsFailures(
   sites: WebsiteRow[],
   baseUrl: string,

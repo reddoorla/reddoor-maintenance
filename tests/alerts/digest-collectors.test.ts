@@ -2,6 +2,7 @@
 import { describe, it, expect } from "vitest";
 import {
   collectTurnstileGuardrailAlerts,
+  collectNotifyBounceAlerts,
   collectVulnAlerts,
   collectDeliveryFailures,
   collectLighthouseAlerts,
@@ -663,5 +664,61 @@ describe("collectTurnstileGuardrailAlerts", () => {
       functionHealthCheckedAt: "not-a-date",
     });
     expect(collectTurnstileGuardrailAlerts([junkStamp], BASE, NOW)).toHaveLength(1);
+  });
+});
+
+describe("collectNotifyBounceAlerts", () => {
+  it("alarms (critical) a site at the 2-bounce threshold; metric carries the count", () => {
+    const items = collectNotifyBounceAlerts(
+      [site({ id: "recA", name: "Acme Co" })],
+      new Map([["recA", 2]]),
+      BASE,
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      key: "notify-bounce:recA",
+      kind: "notify-bounce",
+      siteName: "Acme Co",
+      severity: "critical",
+      metric: 2,
+      url: `${BASE}/s/acme-co`,
+    });
+    expect(items[0]!.title).toContain("point-of-contact");
+  });
+
+  it("stays quiet on a single bounce (transient greylist/full-mailbox blip)", () => {
+    const items = collectNotifyBounceAlerts([site({ id: "recA" })], new Map([["recA", 1]]), BASE);
+    expect(items).toEqual([]);
+  });
+
+  it("emits one item PER bouncing site; clean sites are skipped", () => {
+    const sites = [
+      site({ id: "recA", name: "Alpha" }),
+      site({ id: "recB", name: "Beta" }),
+      site({ id: "recC", name: "Clean" }),
+    ];
+    const items = collectNotifyBounceAlerts(
+      sites,
+      new Map([
+        ["recA", 4],
+        ["recB", 2],
+      ]),
+      BASE,
+    );
+    expect(items.map((i) => i.key).sort()).toEqual(["notify-bounce:recA", "notify-bounce:recB"]);
+    expect(items.find((i) => i.key === "notify-bounce:recA")!.metric).toBe(4);
+  });
+
+  it("ignores a count for a site id not in the fleet rows (orphan → no broken link)", () => {
+    const items = collectNotifyBounceAlerts(
+      [site({ id: "recA" })],
+      new Map([["recGONE", 5]]),
+      BASE,
+    );
+    expect(items).toEqual([]);
+  });
+
+  it("emits nothing on an empty counts map (libSQL blip / nothing bounced)", () => {
+    expect(collectNotifyBounceAlerts([site({ id: "recA" })], new Map(), BASE)).toEqual([]);
   });
 });

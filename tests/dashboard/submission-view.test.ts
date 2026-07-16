@@ -142,8 +142,30 @@ describe("renderSubmissionRow — visible spam reasons (requireTurnstile canary)
   });
 });
 
+describe("renderSubmissionRow — bounced notification marker", () => {
+  it("shows a visible bounce chip on the summary line when the notification bounced", () => {
+    const html = renderSubmissionRow(row({ notifyStatus: "bounced", resendMessageId: "msg_x" }));
+    // Visible text, not only the Notify detail row — the row otherwise looks healthy
+    // while the lead silently never reached the client (the Espada failure mode).
+    expect(html).toContain('<span class="subm-bounce"');
+    expect(html).toContain("notify bounced");
+  });
+  it("shows 'bounced' in the Notify detail row too", () => {
+    const html = renderSubmissionRow(row({ notifyStatus: "bounced" }));
+    expect(html).toContain('<span class="k">Notify</span> bounced');
+  });
+  it("omits the chip for every non-bounced notify status", () => {
+    for (const s of ["sent", "failed", "skipped"] as const) {
+      expect(renderSubmissionRow(row({ notifyStatus: s }))).not.toContain("subm-bounce");
+    }
+  });
+});
+
 describe("SUBMISSION_STYLES", () => {
   it("styles the spam_auto pill so a new status is not unstyled", () => {
     expect(SUBMISSION_STYLES).toContain(".pill.subm-spam_auto");
+  });
+  it("styles the bounce chip so the marker is not unstyled", () => {
+    expect(SUBMISSION_STYLES).toContain(".subm-bounce");
   });
 });

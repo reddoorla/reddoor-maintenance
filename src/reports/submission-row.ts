@@ -6,7 +6,11 @@ export type { FormType };
 export const SUBMISSION_STATUSES = ["new", "read", "archived", "spam", "spam_auto"] as const;
 export type SubmissionStatus = (typeof SUBMISSION_STATUSES)[number];
 
-export const NOTIFY_STATUSES = ["sent", "failed", "skipped"] as const;
+// "bounced" (2026-07-16): Resend ACCEPTED the notification ("sent") but later
+// reported a bounce/complaint via webhook — the lead never reached the client
+// (the Espada failure mode: 4 of 8 notifications bounced with nothing alarming).
+// The resend-webhook maps the event back onto the submission by resend_message_id.
+export const NOTIFY_STATUSES = ["sent", "failed", "skipped", "bounced"] as const;
 export type NotifyStatus = (typeof NOTIFY_STATUSES)[number];
 
 export function toFormType(raw: string | undefined): FormType {

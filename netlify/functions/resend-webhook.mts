@@ -7,6 +7,8 @@ import {
   classifyUnmatchedEvent,
 } from "../../src/reports/webhook-events.js";
 import { findReportByMessageId, setDeliveryStatus } from "../../src/reports/airtable/reports.js";
+import { openDb, readDbConfig } from "../../src/db/client.js";
+import { markNotifyBouncedByMessageId } from "../../src/db/submissions.js";
 
 // Modest per-IP cap. The legitimate caller is svix (Resend) at low volume; this
 // only blunts a flood of forged/unsigned POSTs before signature verification.
@@ -95,6 +97,31 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   if (typeof messageId !== "string") {
     console.warn(`[resend-webhook] event missing data.email_id: type=${event.type}`);
     return new Response("event missing data.email_id", { status: 200 });
+  }
+
+  // A bounce/complaint may belong to a form-notification email, not a report:
+  // ingest stamps the lead's `resend_message_id` (stampNotified), and its
+  // notifyStatus "sent" only means Resend ACCEPTED the email — the Espada failure
+  // mode was 4 of 8 lead notifications bouncing with nothing alarming (2026-07-16).
+  // Check submissions FIRST: the id spaces are disjoint (a report id is never a
+  // submission id), a match skips the pointless Airtable lookup + orphan retries,
+  // and a miss falls through to the report path untouched. Both bounce AND
+  // complaint mark the lead 'bounced' — either way it didn't reach the client.
+  // Fail-open: a Turso blip must not stop a REPORT bounce from being recorded.
+  if (newStatus === "bounced" || newStatus === "complained") {
+    try {
+      const db = await openDb(readDbConfig());
+      if (await markNotifyBouncedByMessageId(db, messageId)) {
+        console.log(
+          `[resend-webhook] submission notify bounced (messageId=${messageId} type=${event.type})`,
+        );
+        return new Response("OK (submission notify bounced)", { status: 200 });
+      }
+    } catch (e) {
+      console.error(
+        `[resend-webhook] submissions bounce lookup failed for messageId=${messageId}: ${(e as Error).message}`,
+      );
+    }
   }
 
   const base = new Airtable({ apiKey: airtablePat }).base(baseId);

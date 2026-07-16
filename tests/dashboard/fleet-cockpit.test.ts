@@ -406,6 +406,33 @@ describe("buildCockpitModel", () => {
     expect(m.summary).toMatchObject({ attention: 1, healthy: 1, criticalHighVulns: 3 });
   });
 
+  it("surfaces bounced lead notifications as a CRITICAL item (notify-bounce wiring)", () => {
+    const m = buildCockpitModel(
+      [site({ id: "a", name: "Espada" }), site({ id: "b", name: "Fine" })],
+      [],
+      {},
+      BASE,
+      NOW,
+      [],
+      null,
+      [],
+      0,
+      new Map([["a", 4]]),
+    );
+    const espada = m.cards.find((c) => c.site.name === "Espada")!;
+    expect(espada.tier).toBe("attention");
+    expect(espada.items.map((i) => i.key)).toContain("notify-bounce:a");
+    const item = espada.items.find((i) => i.kind === "notify-bounce")!;
+    expect(item.severity).toBe("critical");
+    expect(item.metric).toBe(4);
+    expect(m.cards.find((c) => c.site.name === "Fine")!.tier).toBe("healthy");
+  });
+
+  it("emits no notify-bounce item when the counts map is omitted (libSQL blip default)", () => {
+    const m = buildCockpitModel([site({ id: "a", name: "Espada" })], [], {}, BASE, NOW);
+    expect(m.cards[0]!.items.some((i) => i.kind === "notify-bounce")).toBe(false);
+  });
+
   it("mutes a pre-live 'launch period' site to pre-launch, never broken nor in the feed", () => {
     const m = buildCockpitModel(
       [
