@@ -31,6 +31,25 @@ export function isVisibleInStrip(s: SubmissionRow): boolean {
   return s.status !== "spam_auto";
 }
 
+/** Split a comma-joined spam_reason string into its reason tokens. */
+function spamReasonTokens(reason: string | null | undefined): string[] {
+  return (reason ?? "")
+    .split(",")
+    .map((t) => t.trim())
+    .filter((t) => t !== "");
+}
+
+/** The inline chip shows at most this many reason tokens; a long classifier trail
+ *  must not blow up the summary line. The full list stays in the badge tooltip and
+ *  the expanded Spam row. */
+const REASON_CHIP_MAX_TOKENS = 3;
+
+function reasonChipText(tokens: string[]): string {
+  const shown = tokens.slice(0, REASON_CHIP_MAX_TOKENS).join(" · ");
+  const more = tokens.length - REASON_CHIP_MAX_TOKENS;
+  return more > 0 ? `${shown} +${more} more` : shown;
+}
+
 export function renderSubmissionRow(s: SubmissionRow): string {
   const when = s.submittedAt ? escapeHtml(relativeTimeFromNow(s.submittedAt)) : "—";
   const type = escapeHtml(s.formType);
@@ -41,9 +60,17 @@ export function renderSubmissionRow(s: SubmissionRow): string {
   const url = `/api/submissions/${encodeURIComponent(s.id)}/status`;
   const btn = (label: string, action: string) =>
     `<button class="subm-status" data-id="${id}" data-status="${action}" data-url="${url}">${label}</button>`;
+  // The reasons must be VISIBLE text, not only the badge tooltip — tooltips never
+  // render on iPad/phone, and the requireTurnstile canary review hinges on telling
+  // "turnstile-required-absent" apart from content-classifier reasons (2026-07-15).
+  const reasonTokens = spamReasonTokens(s.spamReason);
+  const reasonChip =
+    reasonTokens.length > 0
+      ? ` <span class="subm-reasons">${escapeHtml(reasonChipText(reasonTokens))}</span>`
+      : "";
   const provenance =
     s.status === "spam_auto" && s.spamScore !== null && s.spamScore !== undefined
-      ? ` <span class="subm-provenance" title="${escapeHtml(s.spamReason ?? "")}">auto-spam · ${escapeHtml(String(s.spamScore))}</span>`
+      ? ` <span class="subm-provenance" title="${escapeHtml(s.spamReason ?? "")}">auto-spam · ${escapeHtml(String(s.spamScore))}</span>${reasonChip}`
       : "";
   const recover = s.status === "spam_auto" ? btn("Not spam → new", "new") : "";
 
@@ -58,12 +85,22 @@ export function renderSubmissionRow(s: SubmissionRow): string {
   const messageBlock = s.message
     ? `<div class="subm-kv"><span class="k">Message</span></div><div class="subm-msg">${escapeHtml(s.message)}</div>`
     : "";
+  // Full spam provenance in the detail block for ANY scored row (not just
+  // spam_auto): a scored-but-delivered row is exactly what a near-threshold
+  // classifier review needs to see.
+  const hasScore = s.spamScore !== null && s.spamScore !== undefined;
+  const spamDetail = hasScore
+    ? reasonTokens.length > 0
+      ? `score ${s.spamScore} — ${reasonTokens.join(", ")}`
+      : `score ${s.spamScore}`
+    : reasonTokens.join(", ");
   const details = [
     kv("Phone", s.phone),
     messageBlock,
     sourceLink,
     kv("UTM", s.utm),
     extraFieldsList(s.extraFields),
+    kv("Spam", spamDetail),
     kv("Notify", s.notifyStatus),
     kv("Resend ID", s.resendMessageId),
     kv("Submission #", s.submissionId),
@@ -99,6 +136,7 @@ button.subm-status:disabled { opacity: 0.6; cursor: default; }
 .pill.subm-spam { background: #fdecea; color: #b00; }
 .pill.subm-spam_auto { background: #fff4e5; color: #a65a00; }
 .subm-provenance { font-size: 0.72rem; border-radius: 0.25rem; padding: 0 0.35rem; white-space: nowrap; background: #fff4e5; color: #a65a00; }
+.subm-reasons { font-size: 0.72rem; color: #999; }
 .subm-viewall { font-size: 0.8rem; font-weight: normal; margin-left: 0.4rem; white-space: nowrap; }`;
 
 /** Client-side JS for the submission status triage buttons. Insert bare (no <script> wrapper). */

@@ -90,6 +90,58 @@ describe("renderSubmissionRow — auto-spam provenance + recovery", () => {
   });
 });
 
+describe("renderSubmissionRow — visible spam reasons (requireTurnstile canary)", () => {
+  it("shows the reasons as visible chip text next to the badge, not only in the tooltip", () => {
+    const html = renderSubmissionRow(
+      row({
+        status: "spam_auto",
+        spamScore: 130,
+        spamReason: "turnstile-required-absent,links:2",
+      }),
+    );
+    // A text node, not an attribute value — tooltips never render on iPad/phone.
+    expect(html).toContain('<span class="subm-reasons">turnstile-required-absent · links:2</span>');
+    // The existing tooltip stays.
+    expect(html).toContain('title="turnstile-required-absent,links:2"');
+  });
+  it("truncates a long reason list in the chip but keeps the full list in the detail row", () => {
+    const html = renderSubmissionRow(
+      row({ status: "spam_auto", spamScore: 200, spamReason: "a,b,c,d,e" }),
+    );
+    expect(html).toContain('<span class="subm-reasons">a · b · c +2 more</span>');
+    expect(html).toContain('<span class="k">Spam</span> score 200 — a, b, c, d, e');
+  });
+  it("adds a Spam row (score + full reasons) to the expanded detail block", () => {
+    const html = renderSubmissionRow(
+      row({
+        status: "spam_auto",
+        spamScore: 130,
+        spamReason: "turnstile-required-absent,duplicate-body",
+      }),
+    );
+    expect(html).toContain(
+      '<span class="k">Spam</span> score 130 — turnstile-required-absent, duplicate-body',
+    );
+  });
+  it("shows the Spam detail row on a scored-but-delivered row (no auto-spam badge)", () => {
+    const html = renderSubmissionRow(row({ status: "new", spamScore: 20, spamReason: "links:1" }));
+    expect(html).toContain('<span class="k">Spam</span> score 20 — links:1');
+    expect(html).not.toContain("subm-provenance");
+  });
+  it("omits the Spam detail row and chip on an unscored row", () => {
+    const html = renderSubmissionRow(row({ status: "new" }));
+    expect(html).not.toContain('<span class="k">Spam</span>');
+    expect(html).not.toContain("subm-reasons");
+  });
+  it("escapes hostile spamReason content in the chip and detail row", () => {
+    const html = renderSubmissionRow(
+      row({ status: "spam_auto", spamScore: 100, spamReason: "<img src=x onerror=alert(1)>" }),
+    );
+    expect(html).not.toContain("<img src=x");
+    expect(html).toContain("&lt;img");
+  });
+});
+
 describe("SUBMISSION_STYLES", () => {
   it("styles the spam_auto pill so a new status is not unstyled", () => {
     expect(SUBMISSION_STYLES).toContain(".pill.subm-spam_auto");

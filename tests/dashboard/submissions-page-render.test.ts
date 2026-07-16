@@ -75,6 +75,65 @@ describe("renderSubmissionsPageHtml", () => {
   });
 });
 
+describe("renderSubmissionsPageHtml — spam reason facets", () => {
+  const spamRow = (id: string, spamReason: string | null): SubmissionView =>
+    ({
+      ...model().rows[0],
+      id,
+      status: "spam_auto",
+      spamScore: 100,
+      spamReason,
+    }) as SubmissionView;
+  const spamModel = (
+    rows: SubmissionView[],
+    status: "spam_auto" | "spam" | "" = "spam_auto",
+  ): SubmissionsPageModel =>
+    model({
+      rows,
+      total: rows.length,
+      page: 1,
+      filter: { site: "", type: "", status, q: "", from: "", to: "" },
+    });
+  const facetLine = (html: string): string =>
+    /<div class="spam-facets muted">(.*?)<\/div>/.exec(html)?.[1] ?? "";
+
+  it("summarizes distinct reason tokens with counts, stripping trailing :N", () => {
+    const html = renderSubmissionsPageHtml(
+      spamModel([
+        spamRow("s1", "keywords:4,links:2"),
+        spamRow("s2", "keywords:2"),
+        spamRow("s3", "turnstile-required-absent"),
+      ]),
+    );
+    const line = facetLine(html);
+    expect(line).toContain("keywords ×2"); // keywords:4 and keywords:2 group as one facet
+    expect(line).toContain("links ×1");
+    expect(line).toContain("turnstile-required-absent ×1");
+    // Most frequent facet first for at-a-glance triage.
+    expect(line.indexOf("keywords ×2")).toBeLessThan(line.indexOf("links ×1"));
+  });
+  it("renders the facet line for the manually-marked spam bucket too", () => {
+    const html = renderSubmissionsPageHtml(
+      spamModel([{ ...spamRow("s1", "duplicate-body"), status: "spam" }], "spam"),
+    );
+    expect(facetLine(html)).toContain("duplicate-body ×1");
+  });
+  it("omits the facet line when the active filter is not a spam bucket", () => {
+    // (the .spam-facets CSS rule is always in the stylesheet — assert on the div)
+    const html = renderSubmissionsPageHtml(spamModel([spamRow("s1", "keywords:4")], ""));
+    expect(html).not.toContain('<div class="spam-facets');
+  });
+  it("omits the facet line when no listed row carries reasons", () => {
+    const html = renderSubmissionsPageHtml(spamModel([spamRow("s1", null)]));
+    expect(html).not.toContain('<div class="spam-facets');
+  });
+  it("escapes hostile reason tokens in the facet line", () => {
+    const html = renderSubmissionsPageHtml(spamModel([spamRow("s1", "<script>x</script>")]));
+    expect(html).not.toContain("<script>x</script>");
+    expect(facetLine(html)).toContain("&lt;script&gt;");
+  });
+});
+
 describe("renderSubmissionsPageHtml — status filter", () => {
   it("offers spam_auto as a selectable status so auto-spam is reviewable", () => {
     const html = renderSubmissionsPageHtml(model());
