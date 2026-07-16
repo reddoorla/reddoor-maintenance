@@ -118,7 +118,7 @@ export type ConvertedPage = {
  * uid. Band indices are page-local (`page-block-N` restarts at 0 on every
  * page), so a flat bands map would collide across pages — the render side's
  * `loadPresentation(uid)` selects the page slice. */
-export type SitePresentation = { pages: Record<string, Presentation> };
+export type MultiPagePresentation = { pages: Record<string, Presentation> };
 
 /** The whole-site faithful-grid convert: every page of the export (each page
  * dir's rendered index.html) through the same parse → classify → presentation
@@ -137,7 +137,7 @@ export function convertSite({
   pages: ConvertedPage[];
   ir: SiteIR;
   plan: MigrationPlan;
-  presentation: SitePresentation;
+  presentation: MultiPagePresentation;
 } {
   const ir = assembleIR({ siteJson, htmls: [...htmlByUid.values()] });
   const assetsById = new Map(ir.assets.map((a) => [a.id, a] as const));
@@ -145,7 +145,7 @@ export function convertSite({
   const defaults = blockClassDefaults(siteJson);
 
   const pages: ConvertedPage[] = [];
-  const presentation: SitePresentation = { pages: {} };
+  const presentation: MultiPagePresentation = { pages: {} };
   ir.pages.forEach((page, pageIndex) => {
     const html = htmlByUid.get(page.uid);
     if (html === undefined) {

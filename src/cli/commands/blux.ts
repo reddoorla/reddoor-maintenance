@@ -10,7 +10,7 @@ import { parseGridBands, extractMapConfig } from "../../blux/grid/index.js";
 import { convertExport, convertSite, sitePages } from "../../blux/emit/convert.js";
 import { validateLayout, formatLayoutReport } from "../../blux/emit/validate-layout.js";
 import { rewriteManifestUrls } from "../../blux/emit/rewrite-manifest.js";
-import type { Presentation } from "../../blux/emit/presentation.js";
+import type { SitePresentation } from "../../blux/emit/presentation.js";
 import type { MigrationPlan } from "../../blux/emit/plan.js";
 
 export type BluxCommandOptions = {
@@ -162,13 +162,20 @@ export async function runBluxCommand(
     // when no manifest sits beside the plan (e.g. an archetype-only emit).
     let manifestNote = "";
     const manifestPath = join(dirname(planPath), "blux-presentation.json");
+    let manifestRaw: string | null = null;
     try {
-      const manifest = JSON.parse(await readFile(manifestPath, "utf-8")) as Presentation;
+      manifestRaw = await readFile(manifestPath, "utf-8");
+    } catch {
+      /* no manifest beside the plan (e.g. archetype-only emit) — nothing to
+         rewrite; not an error. A rewrite failure on a manifest that DOES
+         exist must surface, not be swallowed (it silently strands the render
+         on Blux CDN urls). */
+    }
+    if (manifestRaw !== null) {
+      const manifest = JSON.parse(manifestRaw) as SitePresentation;
       const rewritten = rewriteManifestUrls(manifest, r.assetUrlByCdn);
       await writeFile(manifestPath, JSON.stringify(rewritten, null, 2) + "\n");
       manifestNote = "\nmanifest media rewritten to Prismic urls";
-    } catch {
-      /* no manifest beside the plan (e.g. archetype emit) — skip silently */
     }
     return {
       output:

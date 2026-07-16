@@ -132,6 +132,21 @@ export type BandPresentation = {
 
 export type Presentation = { bands: Record<string, BandPresentation> };
 
+/** A whole-site manifest: per-page band manifests keyed by page uid. Band
+ * indices are page-local (page-block-N restarts at 0 on every page), so a flat
+ * bands map would collide across pages. `blux convert` writes this shape;
+ * single-page consumers select a page with `selectPagePresentation`. The
+ * render mirror is reddoor-starter's `SitePresentation`. */
+export type SitePresentation = Presentation | { pages: Record<string, Presentation> };
+
+/** One page's slice of a site manifest (the flat form passes through). The
+ * `&& m.pages` guard tolerates a hand-edited `{ pages: undefined }`; the flat
+ * branch is a `Presentation` by construction (cast bridges the union gap). */
+export function selectPagePresentation(m: SitePresentation, uid = "home"): Presentation {
+  if ("pages" in m && m.pages) return m.pages[uid] ?? { bands: {} };
+  return m as Presentation;
+}
+
 export type PresentationDeps = {
   resolveMedia: (media: Media) => RenderMedia | null;
   styleFor: (index: number) => Record<string, string> | undefined;
