@@ -58,6 +58,7 @@ export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     deployCheckedAt: null,
     functionHealth: null,
     cmsReachable: null,
+    turnstileWidget: null,
     functionHealthCheckedAt: null,
     crossbrowserOk: null,
     mobileOk: null,

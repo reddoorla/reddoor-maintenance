@@ -16,7 +16,12 @@ describe("autoTickChecklist — Google Indexed", () => {
       makeWebsiteRow(),
       "Maintenance",
       NOW,
-      signals({ search: { value: { foundOnPage1: true, position: 3 }, softFailed: false } }),
+      signals({
+        search: {
+          value: { foundOnPage1: true, position: 3, propertyFound: true },
+          softFailed: false,
+        },
+      }),
     );
     const g = ev.get(GOOGLE)!;
     expect(g.result).toBe("pass");
@@ -30,7 +35,12 @@ describe("autoTickChecklist — Google Indexed", () => {
       makeWebsiteRow(),
       "Maintenance",
       NOW,
-      signals({ search: { value: { foundOnPage1: false, position: 18 }, softFailed: false } }),
+      signals({
+        search: {
+          value: { foundOnPage1: false, position: 18, propertyFound: true },
+          softFailed: false,
+        },
+      }),
     );
     expect(ev.get(GOOGLE)!.result).toBe("fail");
   });
@@ -55,7 +65,12 @@ describe("autoTickChecklist — Google Indexed", () => {
       makeWebsiteRow(),
       "Testing",
       NOW,
-      signals({ search: { value: { foundOnPage1: true, position: 1 }, softFailed: false } }),
+      signals({
+        search: {
+          value: { foundOnPage1: true, position: 1, propertyFound: true },
+          softFailed: false,
+        },
+      }),
     );
     expect(ev.get(GOOGLE)!.result).toBe("pass");
   });
@@ -65,7 +80,12 @@ describe("autoTickChecklist — Google Indexed", () => {
       makeWebsiteRow(),
       "Launch",
       NOW,
-      signals({ search: { value: { foundOnPage1: true, position: 1 }, softFailed: false } }),
+      signals({
+        search: {
+          value: { foundOnPage1: true, position: 1, propertyFound: true },
+          softFailed: false,
+        },
+      }),
     );
     expect(ev.size).toBe(0);
   });

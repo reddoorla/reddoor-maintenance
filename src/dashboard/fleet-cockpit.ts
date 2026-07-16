@@ -15,6 +15,7 @@ import {
   collectRenovateAlerts,
   collectCiAlerts,
   collectAnalyticsFailures,
+  collectTurnstileGuardrailAlerts,
 } from "../alerts/digest-collectors.js";
 import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
 import { relativeTimeFromNow } from "./relative-time.js";
@@ -168,6 +169,24 @@ export function assignTier(
       signal: "no-domain",
       acceptKeys: ["no custom domain", "no-domain", "netlify", "netlify.app", "on netlify"],
       reason: "on *.netlify.app (no custom domain)",
+    });
+  }
+  // Require-Turnstile guardrail, watch half: the flag hard-buckets token-less
+  // submissions, so a gated site whose widget state ISN'T positively confirmed
+  // deserves a nag. A fresh confirmed "fail" never reaches here — that is a CRITICAL
+  // AttentionItem (collectTurnstileGuardrailAlerts) caught by the items short-circuit
+  // ABOVE the accept loop, so an accept key can mute this "can't verify" watch but
+  // can never silence the confirmed-missing alarm. `!== "pass"` covers both null
+  // (older package /health without a forms block, or the sweep never ran) and a
+  // stale "fail" the collector downgraded.
+  if (site.requireTurnstile && site.turnstileWidget !== "pass") {
+    candidates.push({
+      signal: "turnstile-unverified",
+      acceptKeys: ["turnstile-unverified", "turnstile unverified", "turnstile"],
+      reason:
+        site.turnstileWidget === "fail"
+          ? "Require Turnstile on; widget missing per a stale health sweep"
+          : "Require Turnstile on; widget not verifiable from /health",
     });
   }
 
@@ -434,6 +453,7 @@ export function buildCockpitModel(
     ...collectRenovateAlerts(visible, baseUrl, now),
     ...collectCiAlerts(visible, baseUrl, now),
     ...collectAnalyticsFailures(visible, baseUrl, now),
+    ...collectTurnstileGuardrailAlerts(visible, baseUrl, now),
   ];
   // Read-only diff: tag NEW/WORSE exactly as the email does; discard `next`.
   const { tagged } = diffAttention(rawItems, priorSnapshot, now.toISOString().slice(0, 10));

@@ -35,6 +35,7 @@ describe("functionHealthResultFromAudit", () => {
     expect(functionHealthResultFromAudit(result())).toEqual({
       functionHealth: "pass",
       cmsReachable: "pass",
+      turnstileWidget: null,
       checkedAt: "2026-07-06T00:00:00.000Z",
     });
   });
@@ -72,6 +73,45 @@ describe("functionHealthResultFromAudit", () => {
     });
     expect(functionHealthResultFromAudit(nullPrismic).cmsReachable).toBeNull();
   });
+  it("maps forms.turnstile boolean → turnstileWidget pass/fail; null/malformed forms → null", () => {
+    const on = result({
+      details: {
+        ok: true,
+        prismic: "ok",
+        forms: { ingestUrl: true, ingestToken: true, turnstile: true },
+        checkedAt: "2026-07-06T00:00:00.000Z",
+      },
+    });
+    expect(functionHealthResultFromAudit(on).turnstileWidget).toBe("pass");
+
+    const off = result({
+      details: {
+        ok: true,
+        prismic: "ok",
+        forms: { ingestUrl: true, ingestToken: true, turnstile: false },
+        checkedAt: "2026-07-06T00:00:00.000Z",
+      },
+    });
+    expect(functionHealthResultFromAudit(off).turnstileWidget).toBe("fail");
+
+    // null forms (older site package / synthetic erroring body) → unknown, never a fail
+    const noForms = result({
+      details: { ok: false, prismic: null, forms: null, checkedAt: "2026-07-06T00:00:00.000Z" },
+    });
+    expect(functionHealthResultFromAudit(noForms).turnstileWidget).toBeNull();
+
+    // malformed forms payload (non-boolean turnstile) degrades to null, never throws
+    const junk = result({
+      details: {
+        ok: true,
+        prismic: "ok",
+        forms: { turnstile: "yes" },
+        checkedAt: "2026-07-06T00:00:00.000Z",
+      },
+    });
+    expect(functionHealthResultFromAudit(junk).turnstileWidget).toBeNull();
+  });
+
   it("throws for a non-function-health audit", () => {
     expect(() =>
       functionHealthResultFromAudit({ audit: "domain", site: "x", status: "pass", summary: "" }),

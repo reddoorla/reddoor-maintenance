@@ -6,7 +6,7 @@ import type {
   SubmissionStatus,
 } from "../reports/submission-row.js";
 import { normalizeSubmission, type NormalizedSubmission } from "./payload.js";
-import type { TurnstileOutcome } from "./turnstile.js";
+import type { TurnstileOutcome, TurnstileVerification } from "./turnstile.js";
 import { SPAM_THRESHOLD, type SpamVerdict } from "./spam-classifier.js";
 
 /** How far back the duplicate-spray AND repeat-sender lookups scan. Sprays arrive in
@@ -114,8 +114,16 @@ export async function ingestSubmission(
   deps: IngestDeps,
   slug: string,
   rawPayload: unknown,
-  turnstile: TurnstileOutcome = "unverifiable",
+  turnstileInput: TurnstileOutcome | TurnstileVerification = "unverifiable",
 ): Promise<IngestResult> {
+  // Accept either the full verification (the production handler) or a bare outcome
+  // string (older callers and virtually every test) — a string simply has no solved-
+  // hostname to check. Normalized once so the body has a single shape to reason about.
+  const verification: TurnstileVerification =
+    typeof turnstileInput === "string"
+      ? { outcome: turnstileInput, hostname: null }
+      : turnstileInput;
+  const turnstile = verification.outcome;
   const normalized = normalizeSubmission(rawPayload);
   if (!normalized.ok) {
     return { status: "rejected", reason: "invalid-payload", errors: normalized.errors };
@@ -162,6 +170,21 @@ export async function ingestSubmission(
     status = "spam_auto";
     const reason = turnstile === "fail" ? "turnstile-required-failed" : "turnstile-required-absent";
     if (!reasons.includes(reason)) reasons.push(reason);
+  } else if (
+    site.requireTurnstile &&
+    turnstile === "pass" &&
+    verification.hostname !== null &&
+    !turnstileHostnameAcceptable(verification.hostname, site.url)
+  ) {
+    // Defense-in-depth vs token farming: the token PASSED, but Cloudflare says it was
+    // solved on a host unrelated to this site. Cloudflare domain-binds sitekeys, so
+    // this only trips on a loose widget allowlist — still, a passing token from a
+    // foreign host accompanying a gated site's submission is not a real visitor. A
+    // null hostname (older responses) or an unparseable site.url skips the check
+    // entirely (fail-open); subdomains of the site's host (www., previews) match.
+    status = "spam_auto";
+    if (!reasons.includes("turnstile-required-hostname"))
+      reasons.push("turnstile-required-hostname");
   }
 
   // Cross-site repeat-sender signal: the fleet's sites are UNRELATED businesses
@@ -301,6 +324,31 @@ export async function ingestSubmission(
     }
   }
   return { status: "accepted", submissionId: row.id, notifyStatus: notify.status };
+}
+
+/** True when `a` and `b` are the same host or one is a subdomain of the other
+ *  (case-insensitive): `www.reddoorla.com` vs `reddoorla.com` matches both ways.
+ *  Exported for tests. PURE. */
+export function hostsMatch(a: string, b: string): boolean {
+  const ha = a.trim().toLowerCase();
+  const hb = b.trim().toLowerCase();
+  if (ha.length === 0 || hb.length === 0) return false;
+  return ha === hb || ha.endsWith(`.${hb}`) || hb.endsWith(`.${ha}`);
+}
+
+/** Whether a passing token's solved-hostname is acceptable for the site at `siteUrl`.
+ *  An unparseable/hostless `siteUrl` returns TRUE — the check self-disables rather
+ *  than punishing a possibly-real visitor for an operator data problem (fail-open,
+ *  same philosophy as verifyTurnstile). PURE. */
+export function turnstileHostnameAcceptable(tokenHostname: string, siteUrl: string): boolean {
+  let siteHost: string;
+  try {
+    siteHost = new URL(siteUrl).hostname;
+  } catch {
+    return true;
+  }
+  if (!siteHost) return true;
+  return hostsMatch(tokenHostname, siteHost);
 }
 
 /** True when an untrusted ingest payload carries the synthetic-probe marker

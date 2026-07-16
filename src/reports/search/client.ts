@@ -34,6 +34,13 @@ export type SearchPresence = {
   foundOnPage1: boolean;
   /** Rounded average position, or null when not found / no data. */
   position: number | null;
+  /** True when a Search Console property was actually resolved for the site (even if the
+   *  query then found no data). False ONLY when every subject resolved ZERO matching
+   *  properties — a missing/unverified property or lost SA access. Callers must
+   *  distinguish these: "property exists, query missed" is fixable with a better query;
+   *  "no property at all" is not, and prescribing a query change would silence the real
+   *  problem forever (an explicit query that returns nothing is by design never flagged). */
+  propertyFound: boolean;
 };
 
 type SiteEntry = { siteUrl: string };
@@ -203,15 +210,20 @@ export async function fetchSearchPresence(
           return {
             foundOnPage1: pos <= PAGE_1_MAX_POSITION,
             position: Math.max(1, Math.round(pos)),
+            propertyFound: true,
           };
         }
       }
-      return { foundOnPage1: false, position: null };
+      // A property WAS resolved (or operator-pinned); the query just found no rows.
+      return { foundOnPage1: false, position: null, propertyFound: true };
     });
   } catch (e) {
     // Every subject resolved zero matching properties — same legitimate "no property"
-    // outcome as before failover existed, NOT an analytics soft-failure.
-    if (e instanceof NoPropertyForSubjectError) return { foundOnPage1: false, position: null };
+    // outcome as before failover existed, NOT an analytics soft-failure. Marked
+    // propertyFound:false so the draft layer can flag the ACTUAL problem (missing
+    // property / lost SA access) instead of blaming the query.
+    if (e instanceof NoPropertyForSubjectError)
+      return { foundOnPage1: false, position: null, propertyFound: false };
     throw e;
   }
 }

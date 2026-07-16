@@ -30,9 +30,21 @@ export function functionHealthResultFromAudit(result: AuditResult): FunctionHeal
   const d = result.details as FunctionHealthDetails | undefined;
   const cmsReachable: "pass" | "fail" | null =
     d?.prismic === "ok" ? "pass" : d?.prismic === "error" ? "fail" : null;
+  // `forms` is untyped on the details payload (unknown) — validate defensively. A boolean
+  // `turnstile` inside an object → concrete verdict; anything else (null forms from an older
+  // site package or a "deployed but erroring" body, a malformed shape) → null: the widget
+  // state is simply unknown this run, never a fail. Powers the Require-Turnstile guardrail.
+  const formsRaw = d?.forms;
+  const turnstileFlag =
+    formsRaw && typeof formsRaw === "object"
+      ? (formsRaw as Record<string, unknown>)["turnstile"]
+      : undefined;
+  const turnstileWidget: "pass" | "fail" | null =
+    typeof turnstileFlag === "boolean" ? (turnstileFlag ? "pass" : "fail") : null;
   return {
     functionHealth: d?.ok === true ? "pass" : "fail",
     cmsReachable,
+    turnstileWidget,
     checkedAt: typeof d?.checkedAt === "string" ? d.checkedAt : new Date().toISOString(),
   };
 }

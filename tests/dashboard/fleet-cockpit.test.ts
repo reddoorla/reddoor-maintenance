@@ -53,6 +53,71 @@ function item(over: Partial<AttentionItem> = {}): AttentionItem {
   };
 }
 
+describe("assignTier — Require-Turnstile guardrail (watch half)", () => {
+  it("raises a watch when the flag is on and the widget is not positively confirmed", () => {
+    // null verdict (older package /health, or the sweep never ran)
+    const unknown = assignTier(site({ requireTurnstile: true, turnstileWidget: null }), [], NOW);
+    expect(unknown.tier).toBe("watch");
+    expect(unknown.watchReasons).toEqual([
+      "Require Turnstile on; widget not verifiable from /health",
+    ]);
+    expect(unknown.watchAcceptKeys).toEqual(["turnstile-unverified"]);
+    expect(unknown.watchSignals).toEqual(["turnstile-unverified"]);
+
+    // a stale "fail" the collector downgraded (no attention item arrives) — distinct copy
+    const staleFail = assignTier(
+      site({ requireTurnstile: true, turnstileWidget: "fail" }),
+      [],
+      NOW,
+    );
+    expect(staleFail.tier).toBe("watch");
+    expect(staleFail.watchReasons).toEqual([
+      "Require Turnstile on; widget missing per a stale health sweep",
+    ]);
+  });
+
+  it("stays quiet when the flag is off (any widget state) or the widget is confirmed", () => {
+    expect(
+      assignTier(site({ requireTurnstile: false, turnstileWidget: "fail" }), [], NOW).tier,
+    ).toBe("healthy");
+    expect(assignTier(site({ requireTurnstile: false, turnstileWidget: null }), [], NOW).tier).toBe(
+      "healthy",
+    );
+    expect(
+      assignTier(site({ requireTurnstile: true, turnstileWidget: "pass" }), [], NOW).tier,
+    ).toBe("healthy");
+  });
+
+  it("the watch is acceptable via its key, but an accept key can NEVER mute the alarm-tier item", () => {
+    const accepted = assignTier(
+      site({
+        requireTurnstile: true,
+        turnstileWidget: null,
+        acceptedWatchConditions: ["turnstile-unverified"],
+      }),
+      [],
+      NOW,
+    );
+    expect(accepted.tier).toBe("healthy");
+    expect(accepted.acceptedReasons).toEqual([
+      "Require Turnstile on; widget not verifiable from /health",
+    ]);
+
+    // The confirmed-missing case arrives as an AttentionItem (collectTurnstileGuardrailAlerts);
+    // the items short-circuit sits ABOVE the accept loop, so the same accept key changes nothing.
+    const alarmed = assignTier(
+      site({
+        requireTurnstile: true,
+        turnstileWidget: "fail",
+        acceptedWatchConditions: ["turnstile-unverified", "turnstile"],
+      }),
+      [item({ key: "turnstile:recSITE", kind: "turnstile" })],
+      NOW,
+    );
+    expect(alarmed.tier).toBe("attention");
+  });
+});
+
 describe("assignTier", () => {
   it("is 'attention' when the site has any attention item", () => {
     const r = assignTier(site(), [item()], NOW);

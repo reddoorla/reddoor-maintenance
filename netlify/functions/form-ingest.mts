@@ -143,6 +143,8 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     // timeout / expired token → "unverifiable" (contributes 0 to the score); a
     // configured-secret-but-missing-token → "absent" (only a requireTurnstile site
     // acts on it — see ingest.ts). Neither ever blocks a lead on a non-opted site.
+    // The verification also carries the solved-hostname from a passing token, which
+    // ingest compares to a gated site's own host (turnstile-required-hostname).
     const turnstileSecret = process.env.TURNSTILE_SECRET_KEY;
     if (!turnstileSecret && !warnedTurnstileUnset) {
       console.warn(

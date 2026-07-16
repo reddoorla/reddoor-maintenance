@@ -243,7 +243,11 @@ describe("draftReportForSite", () => {
     // no soft-fail) rather than throwing on an unmocked `undefined.position`. The search-specific
     // and fetchSearch describe blocks below keep their own explicit mocks.
     beforeEach(() => {
-      vi.mocked(fetchSearchPresence).mockResolvedValue({ foundOnPage1: false, position: null });
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: false,
+        position: null,
+        propertyFound: true,
+      });
     });
 
     it("writes GA users into the row when configured and the site has a property ID", async () => {
@@ -324,7 +328,11 @@ describe("draftReportForSite", () => {
     it("renders the rank and writes the search fields when found on page 1", async () => {
       // Search reuses the GA service-account creds, so the branch runs only when configured.
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
-      vi.mocked(fetchSearchPresence).mockResolvedValue({ foundOnPage1: true, position: 3 });
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: true,
+        position: 3,
+        propertyFound: true,
+      });
       const base = makeFakeBase({ Reports: [] });
 
       const result = await draftReportForSite(
@@ -355,7 +363,11 @@ describe("draftReportForSite", () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
       // No explicit searchQuery, but GA-enrolled → search runs with the site name as the
       // default query. position:null means the name matched nothing in Search Console.
-      vi.mocked(fetchSearchPresence).mockResolvedValue({ foundOnPage1: false, position: null });
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: false,
+        position: null,
+        propertyFound: true,
+      });
       const base = makeFakeBase({ Reports: [] });
       const result = await draftReportForSite(
         base,
@@ -367,7 +379,11 @@ describe("draftReportForSite", () => {
 
     it("leaves searchDefaultMissed false when an explicit query finds nothing", async () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
-      vi.mocked(fetchSearchPresence).mockResolvedValue({ foundOnPage1: false, position: null });
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: false,
+        position: null,
+        propertyFound: true,
+      });
       const base = makeFakeBase({ Reports: [] });
       const result = await draftReportForSite(
         base,
@@ -384,7 +400,11 @@ describe("draftReportForSite", () => {
 
     it("passes an explicit searchQuery verbatim and does not flag a default miss", async () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
-      vi.mocked(fetchSearchPresence).mockResolvedValue({ foundOnPage1: true, position: 3 });
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: true,
+        position: 3,
+        propertyFound: true,
+      });
       const res = await fetchSearch(
         siteFixture({ searchQuery: "erp funds", ga4PropertyId: null }),
         period.start,
@@ -396,7 +416,11 @@ describe("draftReportForSite", () => {
 
     it("defaults the query to the site name when searchQuery is empty but GA is enrolled", async () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
-      vi.mocked(fetchSearchPresence).mockResolvedValue({ foundOnPage1: true, position: 3 });
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: true,
+        position: 3,
+        propertyFound: true,
+      });
       await fetchSearch(
         siteFixture({ searchQuery: null, ga4PropertyId: "471880366" }),
         period.start,
@@ -407,7 +431,11 @@ describe("draftReportForSite", () => {
 
     it("treats a whitespace-only searchQuery as empty and falls back to the site name", async () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
-      vi.mocked(fetchSearchPresence).mockResolvedValue({ foundOnPage1: true, position: 3 });
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: true,
+        position: 3,
+        propertyFound: true,
+      });
       await fetchSearch(
         siteFixture({ searchQuery: "   ", ga4PropertyId: "471880366" }),
         period.start,
@@ -431,7 +459,11 @@ describe("draftReportForSite", () => {
 
     it("flags defaultQueryMissed when the site-name default returns position:null", async () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
-      vi.mocked(fetchSearchPresence).mockResolvedValue({ foundOnPage1: false, position: null });
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: false,
+        position: null,
+        propertyFound: true,
+      });
       const res = await fetchSearch(
         siteFixture({ searchQuery: null, ga4PropertyId: "471880366" }),
         period.start,
@@ -442,7 +474,11 @@ describe("draftReportForSite", () => {
 
     it("does NOT flag defaultQueryMissed when the site-name default finds a position", async () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
-      vi.mocked(fetchSearchPresence).mockResolvedValue({ foundOnPage1: true, position: 3 });
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: true,
+        position: 3,
+        propertyFound: true,
+      });
       const res = await fetchSearch(
         siteFixture({ searchQuery: null, ga4PropertyId: "471880366" }),
         period.start,
@@ -453,12 +489,65 @@ describe("draftReportForSite", () => {
 
     it("does NOT flag defaultQueryMissed when an EXPLICIT query returns position:null", async () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
-      vi.mocked(fetchSearchPresence).mockResolvedValue({ foundOnPage1: false, position: null });
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: false,
+        position: null,
+        propertyFound: true,
+      });
       const res = await fetchSearch(
         siteFixture({ searchQuery: "erp funds", ga4PropertyId: null }),
         period.start,
         period.end,
       );
+      expect(res.defaultQueryMissed).toBe(false);
+      expect(res.propertyMissing).toBe(false);
+    });
+
+    it("flags propertyMissing (NOT defaultQueryMissed) when NO property resolved — name-default query", async () => {
+      // Pre-split, this case raised defaultQueryMissed whose "set an explicit Search
+      // query" remedy can't fix a missing property — and following it silenced the
+      // signal permanently (see the next test's pre-fix behavior).
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: false,
+        position: null,
+        propertyFound: false,
+      });
+      const res = await fetchSearch(
+        siteFixture({ searchQuery: null, ga4PropertyId: "471880366" }),
+        period.start,
+        period.end,
+      );
+      expect(res.propertyMissing).toBe(true);
+      expect(res.defaultQueryMissed).toBe(false);
+    });
+
+    it("flags propertyMissing even for an EXPLICIT query (the case the old flag permanently silenced)", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: false,
+        position: null,
+        propertyFound: false,
+      });
+      const res = await fetchSearch(
+        siteFixture({ searchQuery: "acme co los angeles", ga4PropertyId: null }),
+        period.start,
+        period.end,
+      );
+      expect(res.propertyMissing).toBe(true);
+      expect(res.defaultQueryMissed).toBe(false);
+    });
+
+    it("propertyMissing stays false on the soft-fail (API error) path", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockRejectedValue(new Error("api down"));
+      const res = await fetchSearch(
+        siteFixture({ searchQuery: null, ga4PropertyId: "471880366" }),
+        period.start,
+        period.end,
+      );
+      expect(res.softFailed).toBe(true);
+      expect(res.propertyMissing).toBe(false);
       expect(res.defaultQueryMissed).toBe(false);
     });
   });
@@ -466,7 +555,11 @@ describe("draftReportForSite", () => {
   describe("checklist auto-tick", () => {
     it("auto-ticks Google Indexed + snapshots evidence when Search Console shows page 1", async () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
-      vi.mocked(fetchSearchPresence).mockResolvedValue({ foundOnPage1: true, position: 2 });
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: true,
+        position: 2,
+        propertyFound: true,
+      });
       const base = makeFakeBase({ Reports: [] });
       await draftReportForSite(base, siteFixture({ searchQuery: "acme co" }), "Maintenance");
       const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
@@ -477,7 +570,11 @@ describe("draftReportForSite", () => {
 
     it("does NOT auto-tick Google Indexed when not on page 1", async () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
-      vi.mocked(fetchSearchPresence).mockResolvedValue({ foundOnPage1: false, position: 22 });
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: false,
+        position: 22,
+        propertyFound: true,
+      });
       const base = makeFakeBase({ Reports: [] });
       await draftReportForSite(base, siteFixture({ searchQuery: "acme co" }), "Maintenance");
       const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;

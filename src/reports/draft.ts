@@ -52,8 +52,16 @@ export type DraftResult = {
   /** True when search enrichment fell back to the site name (no explicit `Search query`)
    *  AND that default matched nothing in Search Console — the signal that this site needs
    *  a hand-tuned brand query. Distinct from a soft-failure/outage: the fetch succeeded, it
-   *  just found no data for the name. */
+   *  just found no data for the name. Requires a property to have RESOLVED — a site with no
+   *  Search Console property at all raises `searchPropertyMissing` instead (a query change
+   *  can't fix that, and prescribing one would silence the real problem). */
   searchDefaultMissed: boolean;
+  /** True when NO Search Console property matched the site for any subject — a
+   *  missing/unverified property or lost service-account access. Fires for BOTH explicit
+   *  and name-default queries (unlike `searchDefaultMissed`), because no query can succeed
+   *  without a property. Distinct from a soft-failure: the API worked, the property list
+   *  just contained nothing for this site. */
+  searchPropertyMissing: boolean;
   /** Whether the draft was placed in the approve queue. False when a higher-or-equal-tier
    *  report is already queued for the site (single-queue rule); null on the previewOnly path. */
   queued: boolean | null;
@@ -128,7 +136,7 @@ export async function draftReportForSite(
   const searchResult =
     base !== null
       ? await fetchSearch(siteRow, periodStart, periodEnd)
-      : { ...NO_ENRICHMENT, defaultQueryMissed: false };
+      : { ...NO_ENRICHMENT, defaultQueryMissed: false, propertyMissing: false };
   const gaUsers = gaResult.value;
   const search = searchResult.value;
   const softFailures: SoftFailure[] = [
@@ -162,6 +170,7 @@ export async function draftReportForSite(
       html,
       softFailures,
       searchDefaultMissed: searchResult.defaultQueryMissed,
+      searchPropertyMissing: searchResult.propertyMissing,
       queued: null,
       supersededIds: [],
     };
@@ -206,6 +215,7 @@ export async function draftReportForSite(
       html,
       softFailures,
       searchDefaultMissed: searchResult.defaultQueryMissed,
+      searchPropertyMissing: searchResult.propertyMissing,
       queued: outcome.queued,
       supersededIds: outcome.supersededIds,
     };
@@ -254,6 +264,7 @@ export async function draftReportForSite(
     html,
     softFailures,
     searchDefaultMissed: searchResult.defaultQueryMissed,
+    searchPropertyMissing: searchResult.propertyMissing,
     queued: outcome.queued,
     supersededIds: outcome.supersededIds,
   };
@@ -305,9 +316,12 @@ export async function fetchGaUsers(
   }
 }
 
-/** A search enrichment, plus whether it fell back to the site-name default and that
- *  default found nothing (see `fetchSearch` / `DraftResult.searchDefaultMissed`). */
-type SearchEnrichment = Enrichment<SearchPresence> & { defaultQueryMissed: boolean };
+/** A search enrichment, plus the two distinct miss flags (see `fetchSearch` /
+ *  `DraftResult.searchDefaultMissed` / `DraftResult.searchPropertyMissing`). */
+type SearchEnrichment = Enrichment<SearchPresence> & {
+  defaultQueryMissed: boolean;
+  propertyMissing: boolean;
+};
 
 /**
  * Fetch the site's Google search presence for the period, soft-failing to null. Runs whenever
@@ -317,10 +331,17 @@ type SearchEnrichment = Enrichment<SearchPresence> & { defaultQueryMissed: boole
  * when no explicit `searchQuery` is set (whitespace-only counts as unset) — so brand presence is
  * tracked automatically, and the operator only hand-tunes the handful of sites the name misses.
  *
- * `defaultQueryMissed` is true ONLY when the site-name default was used AND Search Console
- * returned no data for it (`position === null`) — the signal to set an explicit `Search query`.
- * It is false for an explicit query (even one that finds nothing — that's a valid measurement),
- * a default that does find a position, the not-enrolled skip, and the errored soft-fail path.
+ * `propertyMissing` is true when NO Search Console property matched the site for any subject
+ * (missing/unverified property or lost SA access) — flagged for BOTH explicit and name-default
+ * queries, because no query can fix a missing property. Pre-split, this case was folded into
+ * `defaultQueryMissed`, whose "set an explicit Search query" remedy would permanently SILENCE
+ * it (an explicit query that finds nothing is by design never flagged).
+ *
+ * `defaultQueryMissed` is true ONLY when a property resolved, the site-name default was used,
+ * AND Search Console returned no data for it (`position === null`) — the signal to set an
+ * explicit `Search query`. It is false for an explicit query (even one that finds nothing —
+ * that's a valid measurement), a default that does find a position, the not-enrolled skip,
+ * and the errored soft-fail path.
  *
  * When the Search Console API errors it logs a one-line warning and returns `softFailed: true`.
  * Never throws, so a search problem can never block a draft.
@@ -332,7 +353,7 @@ export async function fetchSearch(
 ): Promise<SearchEnrichment> {
   const cfg = readGaConfig();
   if (!cfg || !(siteRow.ga4PropertyId || siteRow.searchQuery))
-    return { ...NO_ENRICHMENT, defaultQueryMissed: false };
+    return { ...NO_ENRICHMENT, defaultQueryMissed: false, propertyMissing: false };
   const explicit = siteRow.searchQuery?.trim();
   const query = explicit || siteRow.name;
   const usedDefault = !explicit;
@@ -348,16 +369,22 @@ export async function fetchSearch(
       periodStart,
       periodEnd,
     );
-    const defaultQueryMissed = usedDefault && value.position === null;
+    const propertyMissing = !value.propertyFound;
+    if (propertyMissing) {
+      console.warn(
+        `⚑ Search: no Search Console property matched ${siteRow.url} for ${siteRow.name} — verify the domain property exists and the service account has access. (A "Search query" change cannot fix this.)`,
+      );
+    }
+    const defaultQueryMissed = value.propertyFound && usedDefault && value.position === null;
     if (defaultQueryMissed) {
       console.warn(
         `⚑ Search: site-name default "${query}" found no Search Console data for ${siteRow.name} — set an explicit "Search query" in Airtable to track brand presence.`,
       );
     }
-    return { value, softFailed: false, defaultQueryMissed };
+    return { value, softFailed: false, defaultQueryMissed, propertyMissing };
   } catch (e) {
     console.warn(`⚠ Search presence skipped for ${siteRow.name}: ${(e as Error).message}`);
-    return { value: null, softFailed: true, defaultQueryMissed: false };
+    return { value: null, softFailed: true, defaultQueryMissed: false, propertyMissing: false };
   }
 }
 

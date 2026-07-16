@@ -1,6 +1,7 @@
 // tests/alerts/digest-collectors.test.ts
 import { describe, it, expect } from "vitest";
 import {
+  collectTurnstileGuardrailAlerts,
   collectVulnAlerts,
   collectDeliveryFailures,
   collectLighthouseAlerts,
@@ -590,5 +591,77 @@ describe("collectPreflightBlocked", () => {
       url: "https://d",
     });
     expect(items[0]!.title).toContain("site-not-found");
+  });
+});
+
+describe("collectTurnstileGuardrailAlerts", () => {
+  const NOW = new Date("2026-07-16T00:00:00.000Z");
+  const fresh = "2026-07-15T08:00:00.000Z"; // < 3 days old
+  const stale = "2026-07-01T08:00:00.000Z"; // > 3 days old
+
+  it("alarms (critical) ONLY for requireTurnstile + fresh widget fail", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "recGATED",
+        name: "Gated",
+        requireTurnstile: true,
+        turnstileWidget: "fail",
+        functionHealthCheckedAt: fresh,
+      }),
+      // flag off — a failing widget alone is not an alarm (nothing buckets)
+      makeWebsiteRow({
+        id: "recOFF",
+        name: "Off",
+        requireTurnstile: false,
+        turnstileWidget: "fail",
+        functionHealthCheckedAt: fresh,
+      }),
+      // gated but widget confirmed present
+      makeWebsiteRow({
+        id: "recOK",
+        name: "Ok",
+        requireTurnstile: true,
+        turnstileWidget: "pass",
+        functionHealthCheckedAt: fresh,
+      }),
+      // gated, widget state unknown → assignTier's watch, not an alarm
+      makeWebsiteRow({
+        id: "recNULL",
+        name: "Unknown",
+        requireTurnstile: true,
+        turnstileWidget: null,
+        functionHealthCheckedAt: fresh,
+      }),
+    ];
+    const items = collectTurnstileGuardrailAlerts(sites, BASE, NOW);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      key: "turnstile:recGATED",
+      kind: "turnstile",
+      siteName: "Gated",
+      severity: "critical",
+      metric: 1,
+    });
+  });
+
+  it("downgrades a STALE fail to no item (assignTier raises the watch instead); unparseable stamp keeps the item", () => {
+    const staleFail = makeWebsiteRow({
+      id: "recSTALE",
+      name: "Stale",
+      requireTurnstile: true,
+      turnstileWidget: "fail",
+      functionHealthCheckedAt: stale,
+    });
+    expect(collectTurnstileGuardrailAlerts([staleFail], BASE, NOW)).toHaveLength(0);
+
+    // an unparseable checked-at must NOT silently drop a real failure
+    const junkStamp = makeWebsiteRow({
+      id: "recJUNK",
+      name: "Junk",
+      requireTurnstile: true,
+      turnstileWidget: "fail",
+      functionHealthCheckedAt: "not-a-date",
+    });
+    expect(collectTurnstileGuardrailAlerts([junkStamp], BASE, NOW)).toHaveLength(1);
   });
 });
