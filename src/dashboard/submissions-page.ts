@@ -32,6 +32,11 @@ export type SubmissionsPageModel = {
    *  facet line must tally what the "<total> submissions" header describes, or a
    *  multi-page canary bucket reads a wrong composition. Empty on non-spam views. */
   facetReasons: string[];
+  /** Count of still-'new' rows in the WHOLE filtered bucket — exactly what the bulk
+   *  "Mark all N filtered as read" action would flip (2026-07-16). 0 hides the button:
+   *  either nothing is unread, or the view is an explicit non-'new' status where a
+   *  bulk read is meaningless (and spam rows must never be bulk-"read" anyway). */
+  markableNewCount: number;
 };
 
 function asFormType(v: string): FormType | undefined {
@@ -74,6 +79,8 @@ export function buildSubmissionsPageModel(input: {
   page: number;
   /** Full-bucket spam_reason strings (see SubmissionsPageModel.facetReasons). */
   facetReasons?: string[];
+  /** Still-'new' rows in the whole bucket (see SubmissionsPageModel.markableNewCount). */
+  markableNewCount?: number;
 }): SubmissionsPageModel {
   const byId = new Map(input.sites.map((s) => [s.id, s] as const));
   const rows: SubmissionView[] = input.rows.map((r) => {
@@ -95,5 +102,6 @@ export function buildSubmissionsPageModel(input: {
     pageSize: PAGE_SIZE,
     total: input.total,
     facetReasons: input.facetReasons ?? [],
+    markableNewCount: input.markableNewCount ?? 0,
   };
 }

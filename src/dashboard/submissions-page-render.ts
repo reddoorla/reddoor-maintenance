@@ -29,6 +29,8 @@ h1 { margin: 0 0 0.25rem; font-size: 1.75rem; }
 .subm-row-wrap { display: flex; align-items: flex-start; gap: 0.5rem; }
 .subm-row-wrap .subm-item { flex: 1; min-width: 0; }
 .spam-facets { font-size: 0.9rem; margin: 0 0 1rem; }
+.bulk-read { margin: 0 0 1rem; }
+.bulk-read button { font: inherit; font-size: 0.9rem; padding: 0.25rem 0.75rem; border: 1px solid #888; border-radius: 4px; background: transparent; color: inherit; cursor: pointer; }
 `;
 
 function opt(value: string, label: string, active: string): string {
@@ -114,6 +116,26 @@ function spamReasonFacets(reasonStrings: string[]): string {
   return `<div class="spam-facets muted">${line}</div>`;
 }
 
+/** Bulk "mark all filtered as read" form (2026-07-16). Renders only when the current
+ *  bucket has still-'new' rows to flip (m.markableNewCount). POSTs the ACTIVE raw
+ *  filter back to /submissions as hidden fields, so the handler re-derives the same
+ *  SubmissionFilter server-side via parseSubmissionsQuery — the count shown is
+ *  advisory; the write re-counts at POST time and only ever touches status='new'
+ *  rows. Confirm step matches the cockpit's refresh-fleet idiom: a client-side
+ *  confirm() gate on the state-changing submit. */
+function bulkMarkReadForm(m: SubmissionsPageModel): string {
+  if (m.markableNewCount <= 0) return "";
+  const f = m.filter;
+  const hidden = (name: string, value: string) =>
+    value === "" ? "" : `<input type="hidden" name="${name}" value="${escapeHtml(value)}" />`;
+  const n = m.markableNewCount;
+  return `<form class="bulk-read" method="post" action="/submissions" onsubmit="return confirm('Mark all ${n} filtered new submission${n === 1 ? "" : "s"} as read? Spam and operator-touched rows are never affected.')">
+    <input type="hidden" name="action" value="mark-read" />
+    ${hidden("site", f.site)}${hidden("type", f.type)}${hidden("status", f.status)}${hidden("q", f.q)}${hidden("from", f.from)}${hidden("to", f.to)}
+    <button type="submit">Mark all ${n} filtered as read</button>
+  </form>`;
+}
+
 function rowWithSite(r: SubmissionsPageModel["rows"][number]): string {
   const siteLink = r.slug
     ? `<a class="subm-site" href="/s/${escapeHtml(r.slug)}">${escapeHtml(r.siteName)}</a>`
@@ -139,6 +161,7 @@ export function renderSubmissionsPageHtml(m: SubmissionsPageModel): string {
           // header with an impossible "Page 5 of 3" pager.
           `<div class="empty">No submissions on page ${m.page} (only ${maxPage} page${maxPage === 1 ? "" : "s"}). <a href="${escapeHtml(pageHref(m, maxPage))}">Go to last page →</a></div>`
         : `<div class="meta">${m.total} submission${m.total === 1 ? "" : "s"}</div>
+       ${bulkMarkReadForm(m)}
        ${facets}
        <ul class="subm-list">${m.rows.map(rowWithSite).join("")}</ul>
        ${pager(m)}`;
