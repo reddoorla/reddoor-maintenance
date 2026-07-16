@@ -462,6 +462,44 @@ describe("card background capture", () => {
     }
   });
 
+  it("drops a hidden feed-template prototype instead of rendering its {{…}} tokens", () => {
+    // A JS-hydrated feed grid: the only static child is the display:none
+    // `…-template` cagriditem Blux clones per record. It carries Handlebars
+    // tokens, never real content — the parser drops it (the visible tiles are
+    // materialized from the feed records, not this element).
+    const html =
+      '<div class="block-content"><div class="block-grid-container cagrid" data-columns="3">' +
+      '<div id="page-block-1-template" class="block-subcontent cagriditem grid-3-s10" style="display: none;">' +
+      '<div class="blocks5"><div class="block-content">' +
+      '<div class="block-media-holder">{{media}}</div>' +
+      '<h6 class="block-title text5">{{title}}</h6>' +
+      "</div></div></div></div></div>";
+    const result = container(html);
+    // Nothing renders — no {{media}}/{{title}} leaks into a raw node.
+    expect(JSON.stringify(result)).not.toContain("{{");
+    // A grid whose ONLY child was the template collapses to an empty raw.
+    expect(result).toEqual({ kind: "raw", html: "" });
+  });
+
+  it("keeps the real tiles when a feed grid has both static tiles and a hidden template", () => {
+    // Home-band shape: pre-rendered tiles PLUS the hidden clone template. The
+    // real tiles survive; the template drops.
+    const html =
+      '<div class="block-content"><div class="block-grid-container cagrid" data-columns="2">' +
+      '<div class="block-subcontent cagriditem grid-2"><h5 class="block-title text5">Real</h5></div>' +
+      '<div id="x-template" class="block-subcontent cagriditem grid-2" style="display:none">' +
+      '<h5 class="block-title text5">{{title}}</h5></div>' +
+      "</div></div>";
+    const result = container(html);
+    expect(JSON.stringify(result)).not.toContain("{{");
+    // Only the real tile remains — a lone grid-2 (width-constrained) cell
+    // keeps its row (the token IS the column width), holding the real heading.
+    expect(result.kind).toBe("row");
+    if (result.kind !== "row") return;
+    expect(result.cells).toHaveLength(1);
+    expect(result.cells[0]?.node).toMatchObject({ kind: "heading", html: "Real" });
+  });
+
   it("captures a nested block-in-cell: min-height, background layer, and valign (the-tower band 1)", () => {
     // A grid cell holding a FULL Blux block: the item pins its box with inline
     // `min-height` (80vh), paints it via an abs-fill `block-background-layer`
