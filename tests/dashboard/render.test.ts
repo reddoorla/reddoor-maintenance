@@ -453,6 +453,63 @@ describe("renderSiteDashboardHtml — spam screen panel", () => {
   });
 });
 
+describe("renderSiteDashboardHtml — spam screen honest Delivered + Auto-filtered", () => {
+  const sub = (
+    id: string,
+    status: SubmissionRow["status"],
+    submittedAt: string,
+  ): SubmissionRow => ({
+    id,
+    submissionId: null,
+    siteId: "recSITE",
+    formType: "contact",
+    name: "a",
+    email: "a@x.com",
+    phone: null,
+    message: null,
+    extraFields: null,
+    sourceUrl: null,
+    utm: null,
+    submittedAt,
+    status,
+    notifyStatus: status === "spam_auto" ? "skipped" : "sent",
+    resendMessageId: null,
+  });
+  const now = new Date("2026-07-15T12:00:00Z");
+
+  it("excludes spam_auto and spam rows from Delivered and counts spam_auto as Auto-filtered", () => {
+    const subs = [
+      sub("d1", "new", "2026-07-10T00:00:00Z"),
+      sub("d2", "read", "2026-07-01T00:00:00Z"),
+      sub("a1", "spam_auto", "2026-07-12T00:00:00Z"),
+      sub("a2", "spam_auto", "2026-05-01T00:00:00Z"), // outside the 30d window
+      sub("m1", "spam", "2026-07-11T00:00:00Z"),
+    ];
+    const html = renderSiteDashboardHtml(
+      siteRow({ id: "recSITE" }),
+      [],
+      subs,
+      { honeypot: 0, tooFast: 0, markedSpam: 0 },
+      now,
+    );
+    expect(html).toContain('<span class="k">Delivered</span> 2');
+    expect(html).toContain('<span class="k">Auto-filtered</span> 1');
+  });
+
+  it("shows the panel when the window holds only auto-filtered spam (the canary case)", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow({ id: "recSITE" }),
+      [],
+      [sub("a1", "spam_auto", "2026-07-12T00:00:00Z")],
+      null,
+      now,
+    );
+    expect(html).toContain("Spam screen (30d)");
+    expect(html).toContain('<span class="k">Auto-filtered</span> 1');
+    expect(html).toContain('<span class="k">Delivered</span> 0');
+  });
+});
+
 describe("renderSiteDashboardHtml — home link", () => {
   it("renders a top-left Home link to the cockpit (/), above the site heading", () => {
     const html = renderSiteDashboardHtml(siteRow(), []);

@@ -324,26 +324,40 @@ function submissionsSection(submissions: SubmissionRow[], site: WebsiteRow): str
 const SPAM_WINDOW_DAYS = 30;
 
 /** The per-site spam panel: caught (honeypot/too-fast) + marked-spam from the screen-out
- *  buckets, and delivered counted from the submissions loaded for this page within the
- *  window. Omitted when there's nothing to show. `delivered` undercounts only if the site
- *  exceeds the 200-row submissions fetch within the window (rare at fleet scale). */
+ *  buckets, plus auto-filtered and delivered counted from the submissions loaded for this
+ *  page within the window. Omitted when there's nothing to show. The in-window counts
+ *  undercount only if the site exceeds the 200-row submissions fetch within the window
+ *  (rare at fleet scale). */
 function spamScreenSection(
   totals: ScreenOutTotals | null,
   submissions: SubmissionRow[],
   now: Date,
 ): string {
   const sinceMs = now.getTime() - SPAM_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-  const delivered = submissions.filter(
+  const inWindow = submissions.filter(
     (s) => s.submittedAt !== null && Date.parse(s.submittedAt) >= sinceMs,
-  ).length;
+  );
+  // "Delivered" excludes spam_auto/spam rows: their notification was skipped, and on
+  // the requireTurnstile canary site they are the very rows under watch — counting
+  // them inflated the one metric the canary is judged on (2026-07-15).
+  const delivered = inWindow.filter((s) => s.status !== "spam_auto" && s.status !== "spam").length;
+  const autoFiltered = inWindow.filter((s) => s.status === "spam_auto").length;
   const t = totals ?? { honeypot: 0, tooFast: 0, markedSpam: 0 };
-  if (delivered === 0 && t.honeypot === 0 && t.tooFast === 0 && t.markedSpam === 0) return "";
+  if (
+    delivered === 0 &&
+    autoFiltered === 0 &&
+    t.honeypot === 0 &&
+    t.tooFast === 0 &&
+    t.markedSpam === 0
+  )
+    return "";
   const row = (label: string, n: number) =>
     `<div class="spam-kv"><span class="k">${label}</span> ${escapeHtml(String(n))}</div>`;
   return `<div class="section spam-screen">
     <h2>Spam screen (30d)</h2>
     ${row("Caught — honeypot", t.honeypot)}
     ${row("Caught — too-fast", t.tooFast)}
+    ${row("Auto-filtered", autoFiltered)}
     ${row("Delivered", delivered)}
     ${row("Marked spam", t.markedSpam)}
   </div>`;
