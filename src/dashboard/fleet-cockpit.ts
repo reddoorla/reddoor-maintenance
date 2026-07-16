@@ -487,6 +487,33 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
 const SEVERITY_RANK: Record<AttentionItem["severity"], number> = { critical: 0, warning: 1 };
 const TIER_RANK: Record<Tier, number> = { attention: 0, watch: 1, healthy: 2, "pre-launch": 3 };
 
+/** The fleet attention-item collector run — the SINGLE source of truth for which
+ *  signals the cockpit surfaces. buildCockpitModel (over all visible sites) and
+ *  buildSiteAlarmContext (over one site) both call this, so the two can never
+ *  drift: a signal added here shows up in both the fleet cockpit and every
+ *  /s/<slug> page at once. Returns items UNSORTED — callers apply their own
+ *  ordering (cockpit groups by site; the site page severity-sorts). PURE. */
+function collectFleetAttentionItems(
+  sites: WebsiteRow[],
+  sitesById: Map<string, WebsiteRow>,
+  reports: ReportRow[],
+  baseUrl: string,
+  now: Date,
+  notifyBounces: ReadonlyMap<string, number>,
+): AttentionItem[] {
+  return [
+    ...collectVulnAlerts(sites, baseUrl),
+    ...collectLighthouseAlerts(sites, baseUrl),
+    ...collectDeliveryFailures(reports, sitesById, baseUrl),
+    ...collectPreflightBlocked(reports, sitesById, baseUrl),
+    ...collectRenovateAlerts(sites, baseUrl, now),
+    ...collectCiAlerts(sites, baseUrl, now),
+    ...collectAnalyticsFailures(sites, baseUrl, now),
+    ...collectTurnstileGuardrailAlerts(sites, baseUrl, now),
+    ...collectNotifyBounceAlerts(sites, notifyBounces, baseUrl),
+  ];
+}
+
 /** The cockpit's alarm verdict for ONE site, for the /s/<slug> page header. */
 export type SiteAlarmContext = {
   tier: Tier;
@@ -499,13 +526,13 @@ export type SiteAlarmContext = {
 
 /**
  * The cockpit's alarm verdict for ONE site, for the /s/<slug> page header. Runs
- * the SAME collector list buildCockpitModel runs (over a one-site array) and the
- * same assignTier — reuse, not a fork; a new collector added to buildCockpitModel
- * must be added here too. A parity test (site-alarm-context.test.ts) asserts this
- * function's item keys match buildCockpitModel's for the same site, so a collector
- * added to one list but not the other fails CI for an input that triggers it. No
- * diffAttention: the site page never writes digest state and shows no NEW/WORSE
- * badges (the digest alone writes the snapshot; the cockpit reads it read-only).
+ * the SAME collector list buildCockpitModel runs — both call the shared
+ * collectFleetAttentionItems (the single source of truth), so the two structurally
+ * cannot drift — and the same assignTier. A parity test (site-alarm-context.test.ts)
+ * additionally asserts this function's item keys match buildCockpitModel's for the
+ * same site. No diffAttention: the site page never writes digest state and shows no
+ * NEW/WORSE badges (the digest alone writes the snapshot; the cockpit reads it
+ * read-only).
  *
  * `reports` is expected to be site-scoped (listReportsForSite) — the delivery/
  * preflight collectors resolve report.siteId against a one-entry sitesById, so an
@@ -521,17 +548,14 @@ export function buildSiteAlarmContext(
 ): SiteAlarmContext {
   const sites = [site];
   const sitesById = new Map([[site.id, site]]);
-  const items = [
-    ...collectVulnAlerts(sites, baseUrl),
-    ...collectLighthouseAlerts(sites, baseUrl),
-    ...collectDeliveryFailures(reports, sitesById, baseUrl),
-    ...collectPreflightBlocked(reports, sitesById, baseUrl),
-    ...collectRenovateAlerts(sites, baseUrl, now),
-    ...collectCiAlerts(sites, baseUrl, now),
-    ...collectAnalyticsFailures(sites, baseUrl, now),
-    ...collectTurnstileGuardrailAlerts(sites, baseUrl, now),
-    ...collectNotifyBounceAlerts(sites, notifyBounces, baseUrl),
-  ].sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
+  const items = collectFleetAttentionItems(
+    sites,
+    sitesById,
+    reports,
+    baseUrl,
+    now,
+    notifyBounces,
+  ).sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
   const {
     tier,
     watchReasons,
@@ -593,17 +617,14 @@ export function buildCockpitModel(
     else c.signups++;
   }
 
-  const rawItems: AttentionItem[] = [
-    ...collectVulnAlerts(visible, baseUrl),
-    ...collectLighthouseAlerts(visible, baseUrl),
-    ...collectDeliveryFailures(reports, sitesById, baseUrl),
-    ...collectPreflightBlocked(reports, sitesById, baseUrl),
-    ...collectRenovateAlerts(visible, baseUrl, now),
-    ...collectCiAlerts(visible, baseUrl, now),
-    ...collectAnalyticsFailures(visible, baseUrl, now),
-    ...collectTurnstileGuardrailAlerts(visible, baseUrl, now),
-    ...collectNotifyBounceAlerts(visible, notifyBounces, baseUrl),
-  ];
+  const rawItems = collectFleetAttentionItems(
+    visible,
+    sitesById,
+    reports,
+    baseUrl,
+    now,
+    notifyBounces,
+  );
   // Read-only diff: tag NEW/WORSE exactly as the email does; discard `next`.
   const { tagged } = diffAttention(rawItems, priorSnapshot, now.toISOString().slice(0, 10));
 

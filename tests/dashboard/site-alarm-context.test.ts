@@ -62,9 +62,10 @@ describe("buildSiteAlarmContext", () => {
   });
 
   // The reuse guarantee: buildSiteAlarmContext must surface the SAME items the
-  // cockpit does for a given site. If a future edit adds a collector to
-  // buildCockpitModel's rawItems but not to buildSiteAlarmContext (or vice versa),
-  // this parity check fails for an input that triggers that collector.
+  // cockpit does for a given site. Drift is structurally prevented — both call the
+  // shared collectFleetAttentionItems — so this is a behavioral cross-check that the
+  // two entry points agree (and that assignTier over a one-site array matches the
+  // per-card verdict) for inputs that trigger the vuln and notify-bounce collectors.
   it("emits the same item keys as buildCockpitModel for the same site (reuse parity)", () => {
     const clean = site({ id: "a", name: "Good" });
     expect(
