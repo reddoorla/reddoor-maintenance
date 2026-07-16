@@ -62,11 +62,29 @@ const isStructural = (el: HTMLElement): boolean =>
 type CardStyle = {
   background?: string;
   padding?: string;
+  /** A nested block-in-cell's inline `min-height` (e.g. the-tower band 1's
+   * 80vh gradient panel): the cell's block pins its own box height, which the
+   * plain peel would drop — the cell then renders at content height. Captured
+   * only inside a cell (like padding): a band-level container's min-height is
+   * the band's full-height chrome, handled at the band level. */
+  minHeight?: string;
+  /** A `block-background-layer` sibling's paint — the abs-fill div a nested
+   * block uses for gradient (or plain) fills that `inlineBg` never sees
+   * (they're not a wrapper `background-color`). Emitted as the `background`
+   * shorthand so gradients survive. Image layers (camediaload) stay out of
+   * scope — those are band-background territory. */
+  layerBackground?: string;
   /** A peeled `valignmiddle` wrapper: the original vertically centers this
    * cell's content against its row siblings (band 6/12's side captions sit
-   * centered on their photos; band 3's stats card centers in its column).
+   * centered on their photos; band 3's stats card centers in its column) —
+   * and, paired with `minHeight`, centers content within the block's own box.
    * Rides the node style as the `_valign` presentation hint. */
   valign?: boolean;
+  /** The cell belongs to a `cagridFlexHeight` grid: the original stretches
+   * each cell's direct block to the full row height (`.cagriditem>div
+   * {height:100%}`), so a painted block fills its whole column — not just its
+   * content box. Rides painted container nodes as the `_fill: column` hint. */
+  fill?: boolean;
   nested?: boolean;
 };
 /** A structural child plus any card styling peeled off its wrapper(s). */
@@ -96,6 +114,30 @@ function inlinePadding(el: HTMLElement): string | undefined {
   return c;
 }
 
+/** Inline `min-height` off an element's style attribute, ignoring zero/auto
+ * (no sizing worth carrying). Blux repeats the value on the item AND its
+ * inner `height: 1px` container — same value, either capture works. */
+function inlineMinHeight(el: HTMLElement): string | undefined {
+  const c = cssProp(el.getAttribute("style") ?? "", "min-height")?.trim();
+  if (!c) return undefined;
+  if (/^(0(px|%|em|rem|vh|vw)?|auto)$/i.test(c)) return undefined;
+  return c;
+}
+
+/** The paint of a `block-background-layer` child, if `el` has one: the
+ * abs-fill div that fills a nested block-in-cell (gradient or plain color —
+ * carried in the `background` shorthand, which `inlineBg`'s background-color
+ * read never sees). `none`/`transparent` carry no paint. */
+function layerBackground(el: HTMLElement): string | undefined {
+  for (const child of el.childNodes) {
+    if (!isElement(child) || !hasClass(child, "block-background-layer")) continue;
+    const s = child.getAttribute("style") ?? "";
+    const bg = (cssProp(s, "background") ?? cssProp(s, "background-color"))?.trim();
+    if (bg && !/^(none|transparent)$/i.test(bg)) return bg;
+  }
+  return undefined;
+}
+
 /** The child elements that carry structure, peeling pure wrapper divs. A peeled
  * card wrapper's inline background-color and (cell-level) content padding ride
  * along to the structural node it wraps (the nearest wrapper wins for each) so
@@ -115,29 +157,75 @@ export function collectStructuralChildren(
   inherited: CardStyle = {},
 ): StructuralChild[] {
   const out: StructuralChild[] = [];
+  // A nested block's background-layer sibling paints the whole block: fold it
+  // onto the card its content siblings inherit. Band-level layers stay out —
+  // a band's background is SectionBand territory.
+  const layerBg = inherited.nested === true ? layerBackground(el) : undefined;
+  const base: CardStyle =
+    layerBg !== undefined ? { ...inherited, layerBackground: layerBg } : inherited;
   for (const child of el.childNodes) {
     if (!isElement(child)) continue;
-    const nested = inherited.nested === true || isCellBoundary(child);
-    const background = inlineBg(child) ?? inherited.background;
-    // Cell-level wrappers only — a band-level container's padding is the
-    // band's own content padding (see CardStyle.nested).
-    const padding = (nested ? inlinePadding(child) : undefined) ?? inherited.padding;
-    const valign = (nested && hasClass(child, "valignmiddle")) || inherited.valign === true;
+    // The layer itself is pure paint (abs-fill, never content) — consumed above.
+    if (hasClass(child, "block-background-layer")) continue;
+    const nested = base.nested === true || isCellBoundary(child);
+    const background = inlineBg(child) ?? base.background;
+    // Cell-level wrappers only — a band-level container's padding (and
+    // min-height: the full-height band chrome) is the band's own concern
+    // (see CardStyle.nested).
+    const padding = (nested ? inlinePadding(child) : undefined) ?? base.padding;
+    const minHeight = (nested ? inlineMinHeight(child) : undefined) ?? base.minHeight;
+    const valign = (nested && hasClass(child, "valignmiddle")) || base.valign === true;
     const card: CardStyle = {
       ...(background !== undefined ? { background } : {}),
       ...(padding !== undefined ? { padding } : {}),
+      ...(minHeight !== undefined ? { minHeight } : {}),
+      ...(base.layerBackground !== undefined ? { layerBackground: base.layerBackground } : {}),
       ...(valign ? { valign } : {}),
+      ...(base.fill === true ? { fill: true } : {}),
       ...(nested ? { nested } : {}),
     };
+    // A boxed wrapper (padding, min-height, or a paint layer) around ≥2
+    // structural children is PROMOTED so the box applies exactly once —
+    // threading it onto each child would inset/size/paint every one of them.
     const group =
       !isStructural(child) &&
       ((hasClass(child, "block-subcontent") && parseGridToken(child.classNames) === null) ||
-        (nested && inlinePadding(child) !== undefined)) &&
+        (nested &&
+          (inlinePadding(child) !== undefined ||
+            inlineMinHeight(child) !== undefined ||
+            layerBackground(child) !== undefined))) &&
       collectStructuralChildren(child).length >= 2;
-    if (isStructural(child) || group) {
+    if (isStructural(child)) {
+      // A structural child's card carries ONLY what the peeled wrappers above
+      // it accumulated — never the child's own inline style: leaves self-carry
+      // it (textLeafStyle, readImgSizing) and boxing it here would apply it
+      // twice (band-3 stat labels' 8px inset, once threaded contexts reach
+      // inside token-bearing holders).
+      const inheritedCard: CardStyle = {
+        ...(base.background !== undefined ? { background: base.background } : {}),
+        ...(base.padding !== undefined ? { padding: base.padding } : {}),
+        ...(base.minHeight !== undefined ? { minHeight: base.minHeight } : {}),
+        ...(base.layerBackground !== undefined ? { layerBackground: base.layerBackground } : {}),
+        ...(base.valign === true ? { valign: true } : {}),
+        ...(base.fill === true ? { fill: true } : {}),
+        ...(nested ? { nested } : {}),
+      };
       out.push({
         el: child,
-        ...(background !== undefined || padding !== undefined || nested ? { card } : {}),
+        ...(Object.keys(inheritedCard).length > 0 ? { card: inheritedCard } : {}),
+      });
+    } else if (group) {
+      // The promoted wrapper IS the box — its own values ride the group card.
+      // Its own paint layer sits one level down where the pre-scan (which only
+      // reads el's direct children) won't see it again — fold it on here. A
+      // promoted cell boundary keeps its inner walk's capture instead (its
+      // own pre-scan runs nested).
+      const ownLayer = !isCellBoundary(child) ? layerBackground(child) : undefined;
+      const groupCard: CardStyle =
+        ownLayer !== undefined ? { ...card, layerBackground: ownLayer } : card;
+      out.push({
+        el: child,
+        ...(Object.keys(groupCard).length > 0 ? { card: groupCard } : {}),
       });
     } else {
       out.push(...collectStructuralChildren(child, card));
@@ -171,7 +259,7 @@ function isDisabledWithin(caption: HTMLElement, holder: HTMLElement): boolean {
 
 /** Parse one element into a grid Node. Leaves dispatch by role; everything else
  * becomes a row / stack / single / raw via parseContainer. */
-export function parseNode(el: HTMLElement): Node {
+export function parseNode(el: HTMLElement, nested = false): Node {
   if (hasClass(el, "block-title") && /^H[1-6]$/.test(el.tagName ?? "")) {
     const role = textRoleFromClass(el.classNames);
     const style = textLeafStyle(el);
@@ -239,7 +327,7 @@ export function parseNode(el: HTMLElement): Node {
     // href + label — verbatim so the render layer keeps the clickable link.
     return { kind: "raw", html: el.outerHTML };
   }
-  return parseContainer(el);
+  return parseContainer(el, nested);
 }
 
 /** Attach a peeled card wrapper's styling to a container node's `style`
@@ -248,38 +336,91 @@ export function parseNode(el: HTMLElement): Node {
  * `.blocksNcontainer` applies. Padding rides only when a background marks this a
  * real card, so a plain band container's padding (already handled via the band's
  * blockClass defaults) is not double-captured onto a nested node. */
+/** Does a container node's style carry visible paint or sizing — the cues that
+ * make a `cagridFlexHeight` column-fill hint worth emitting? */
+const nodePainted = (style: Record<string, string>): boolean =>
+  "background" in style || "background-color" in style || "min-height" in style;
+
 function withCardStyle(node: Node, card?: CardStyle): Node {
-  if (!card || (card.background === undefined && card.padding === undefined && !card.valign))
+  if (
+    !card ||
+    (card.background === undefined &&
+      card.padding === undefined &&
+      card.minHeight === undefined &&
+      card.layerBackground === undefined &&
+      !card.valign &&
+      !card.fill)
+  )
     return node;
+  // background-color first, `background` shorthand second: when a block has
+  // both a wrapper fill and a paint layer, the fuller layer paint wins (CSS
+  // last-declaration order in the emitted style attribute).
   if (node.kind === "row" || node.kind === "stack") {
     const style: Record<string, string> = { ...(node.style ?? {}) };
     if (card.background !== undefined) style["background-color"] = card.background;
+    if (card.layerBackground !== undefined) style["background"] = card.layerBackground;
     if (card.padding !== undefined) style.padding = card.padding;
+    if (card.minHeight !== undefined) style["min-height"] = card.minHeight;
     if (card.valign) style["_valign"] = "middle";
+    // The FlexHeight column fill only matters when there's paint/sizing to
+    // extend — an unpainted stack stretching is visually identity.
+    if (card.fill && nodePainted(style)) style["_fill"] = "column";
+    if (Object.keys(style).length === 0) return node;
     return { ...node, style };
   }
-  // A PADDED (or vertically-centered) wrapper around a bare leaf (e.g. band
-  // 11's `20px 0 30px` cell container wrapping a single heading): the leaf has
-  // no container-style slot, so a synthetic one-child stack carries the box. A
-  // background-ONLY card around a leaf still drops, as before — those (the
-  // carousel captions) are handled by their own render path, and the Grid tree
-  // must not invent one.
-  if (card.padding === undefined && !card.valign) return node;
+  // A MEDIA leaf under a min-height wrapper keeps its leaf shape: the frame
+  // height folds into media.minHeight (slider slides repeat the same value on
+  // holder and wrapper) instead of boxing the slide in a synthetic stack —
+  // which would demote Carousel classification (carouselSlides matches bare
+  // media) and turn working sliders into static galleries.
+  if (node.kind === "media" && card.padding === undefined && !card.valign) {
+    if (card.minHeight !== undefined && node.media.minHeight === undefined)
+      return { ...node, media: { ...node.media, minHeight: card.minHeight } };
+    return node;
+  }
+  // A boxed wrapper around a bare non-media leaf (padding, min-height, valign,
+  // or a paint layer — e.g. band 11's `20px 0 30px` cell container wrapping a
+  // single heading, or a flush gradient card holding one): the leaf has no
+  // container-style slot, so a synthetic one-child stack carries the box. A
+  // wrapper background-color ALONE still drops, as before — those (the
+  // carousel captions) are handled by their own render path, and the Grid
+  // tree must not invent a box for them.
+  if (
+    card.padding === undefined &&
+    card.minHeight === undefined &&
+    card.layerBackground === undefined &&
+    !card.valign
+  )
+    return node;
   const style: Record<string, string> = {};
   if (card.padding !== undefined) style.padding = card.padding;
   if (card.background !== undefined) style["background-color"] = card.background;
+  if (card.layerBackground !== undefined) style["background"] = card.layerBackground;
+  if (card.minHeight !== undefined) style["min-height"] = card.minHeight;
   if (card.valign) style["_valign"] = "middle";
+  if (card.fill && nodePainted(style)) style["_fill"] = "column";
   return { kind: "stack", children: [node], style };
 }
 
 /** Parse a wrapper/cell/band-body element: a row when it is a grid or holds
  * ≥2 token-bearing children, else a stack / single / raw. */
-export function parseContainer(el: HTMLElement): Node {
+export function parseContainer(el: HTMLElement, nested = false): Node {
   // A container that IS a cell/grid element starts its walk inside the cell
   // context, so its own inner wrappers' padding is captured (CardStyle.nested).
+  // A PROMOTED wrapper (a boxed group inside a cell) threads `nested` in from
+  // its call site — restarting outside the cell context would silently drop
+  // the padding/valign its inner wrappers still carry. A cagridFlexHeight grid
+  // additionally stretches each cell's direct block to the full row height —
+  // its cells' cards carry `fill` so painted blocks emit the `_fill: column`
+  // hint (the fill never threads past the cell: the cell's own parseContainer
+  // restarts the walk without it).
   const kids = collectStructuralChildren(
     el,
-    isCellBoundary(el) || hasClass(el, "cagrid") ? { nested: true } : {},
+    isCellBoundary(el) || hasClass(el, "cagrid")
+      ? { nested: true, ...(hasClass(el, "cagridFlexHeight") ? { fill: true } : {}) }
+      : nested
+        ? { nested: true }
+        : {},
   );
   // Parse each structural child up front, then drop any that collapse to an
   // EMPTY raw — an empty `.caslider`/wrapper (no static slides, JS-hydrated)
@@ -291,7 +432,7 @@ export function parseContainer(el: HTMLElement): Node {
   const parsed = kids
     .map((k) => ({
       token: parseGridToken(k.el.classNames),
-      node: withCardStyle(parseNode(k.el), k.card),
+      node: withCardStyle(parseNode(k.el, k.card?.nested === true), k.card),
     }))
     .filter((p) => !(p.node.kind === "raw" && p.node.html.trim() === ""));
   const isGrid = hasClass(el, "cagrid");
