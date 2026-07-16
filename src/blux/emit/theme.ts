@@ -84,6 +84,12 @@ export function emitButtonsCss(theme: ThemeIR): string {
     ".ib {",
     "  display: inline-block;",
     "}",
+    "/* Text links (`ib middle links`) are underlined by the Blux platform CSS;",
+    "   an inline-block box does not inherit an ancestor's text-decoration, so",
+    "   the affordance must be declared on the anchor itself. */",
+    ".links {",
+    "  text-decoration: underline;",
+    "}",
   ];
   const rule = (selector: string, css: Record<string, string>) => {
     lines.push(`${selector} {`);

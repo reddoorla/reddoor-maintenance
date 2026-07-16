@@ -280,6 +280,7 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
           ],
           "kind": "stack",
           "style": {
+            "_valign": "middle",
             "padding": "80px 4% 0px",
           },
         },
@@ -299,16 +300,24 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
       "tree": {
         "children": [
           {
-            "kind": "media",
-            "media": {
-              "alt": "c023afe4-996f-4013-83ab-2634ea55355d",
-              "aspect": 56.25,
-              "kind": "video",
-              "playback": {
-                "controls": true,
-                "playsinline": true,
+            "children": [
+              {
+                "kind": "media",
+                "media": {
+                  "alt": "c023afe4-996f-4013-83ab-2634ea55355d",
+                  "aspect": 56.25,
+                  "kind": "video",
+                  "playback": {
+                    "controls": true,
+                    "playsinline": true,
+                  },
+                  "url": "asset://c023afe4-996f-4013-83ab-2634ea55355d",
+                },
               },
-              "url": "asset://c023afe4-996f-4013-83ab-2634ea55355d",
+            ],
+            "kind": "stack",
+            "style": {
+              "_valign": "middle",
             },
           },
           {
@@ -416,70 +425,88 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
         "_max-content-width": "1280px",
       },
       "tree": {
-        "children": [
+        "cells": [
           {
-            "children": [
-              {
-                "html": "local amenities",
-                "kind": "heading",
-                "level": 4,
-                "role": "text5",
-              },
-              {
-                "kind": "media",
-                "media": {
-                  "alt": "ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
-                  "aspect": 18.978,
-                  "fit": "contain",
-                  "kind": "image",
-                  "url": "asset://ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
-                  "width": 50,
+            "node": {
+              "children": [
+                {
+                  "children": [
+                    {
+                      "html": "local amenities",
+                      "kind": "heading",
+                      "level": 4,
+                      "role": "text5",
+                    },
+                    {
+                      "kind": "media",
+                      "media": {
+                        "alt": "ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
+                        "aspect": 18.978,
+                        "fit": "contain",
+                        "kind": "image",
+                        "url": "asset://ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
+                        "width": 50,
+                      },
+                    },
+                  ],
+                  "kind": "stack",
+                  "style": {
+                    "_valign": "middle",
+                  },
                 },
-              },
-            ],
-            "kind": "stack",
-          },
-          {
-            "children": [
-              {
-                "html": "a city full of possibilities",
-                "kind": "heading",
-                "level": 4,
-                "role": "text11",
-              },
-            ],
-            "kind": "stack",
-            "style": {
-              "padding": "20px 0px 30px 0%",
+                {
+                  "children": [
+                    {
+                      "html": "a city full of possibilities",
+                      "kind": "heading",
+                      "level": 4,
+                      "role": "text11",
+                    },
+                  ],
+                  "kind": "stack",
+                  "style": {
+                    "_valign": "middle",
+                    "padding": "20px 0px 30px 0%",
+                  },
+                },
+                {
+                  "children": [
+                    {
+                      "html": "Burbank offers a wide range of opportunities from its network of world-renowned studios, accessible airport, and recreational activities.",
+                      "kind": "body",
+                      "role": "text1",
+                      "style": {
+                        "margin-right": "20%",
+                      },
+                    },
+                    {
+                      "children": [
+                        {
+                          "html": "<a class="ib middle buttons2" href="https://dv4tl7yyk1zlp.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/1b5b96c1-16fb-4d8b-8cb0-f71938af22c0.pdf">Burbank Incentives</a>",
+                          "kind": "raw",
+                        },
+                      ],
+                      "kind": "stack",
+                      "style": {
+                        "padding": "40px 0px 0px",
+                      },
+                    },
+                  ],
+                  "kind": "stack",
+                  "style": {
+                    "_valign": "middle",
+                  },
+                },
+              ],
+              "kind": "stack",
+            },
+            "token": {
+              "cols": 2,
+              "ratio": 60,
             },
           },
-          {
-            "children": [
-              {
-                "html": "Burbank offers a wide range of opportunities from its network of world-renowned studios, accessible airport, and recreational activities.",
-                "kind": "body",
-                "role": "text1",
-                "style": {
-                  "margin-right": "20%",
-                },
-              },
-              {
-                "children": [
-                  {
-                    "html": "<a class="ib middle buttons2" href="https://dv4tl7yyk1zlp.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/1b5b96c1-16fb-4d8b-8cb0-f71938af22c0.pdf">Burbank Incentives</a>",
-                    "kind": "raw",
-                  },
-                ],
-                "kind": "stack",
-                "style": {
-                  "padding": "40px 0px 0px",
-                },
-              },
-            ],
-            "kind": "stack",
-          },
         ],
-        "kind": "stack",
+        "kind": "row",
       },
     },
     "12": {
@@ -569,6 +596,7 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                     ],
                     "kind": "stack",
                     "style": {
+                      "_valign": "middle",
                       "padding": "8% 0px 30px 4%",
                     },
                   },
@@ -1313,6 +1341,7 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                   ],
                   "kind": "stack",
                   "style": {
+                    "_valign": "middle",
                     "padding": "0px 4% 20px",
                   },
                 },
@@ -1501,6 +1530,7 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
               ],
               "kind": "row",
               "style": {
+                "_valign": "middle",
                 "background-color": "rgb(255, 255, 255)",
                 "padding": "100px 4% 80px",
               },
@@ -1561,6 +1591,9 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                     },
                   ],
                   "kind": "stack",
+                  "style": {
+                    "_valign": "middle",
+                  },
                 },
                 {
                   "children": [
@@ -1573,15 +1606,24 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
                   ],
                   "kind": "stack",
                   "style": {
+                    "_valign": "middle",
                     "padding": "20px 0px 30px",
                   },
                 },
                 {
-                  "html": "A campus built for the modern worker, The Pointe offers amenities that enrich the every day.",
-                  "kind": "body",
-                  "role": "text1",
+                  "children": [
+                    {
+                      "html": "A campus built for the modern worker, The Pointe offers amenities that enrich the every day.",
+                      "kind": "body",
+                      "role": "text1",
+                      "style": {
+                        "margin-right": "20%",
+                      },
+                    },
+                  ],
+                  "kind": "stack",
                   "style": {
-                    "margin-right": "20%",
+                    "_valign": "middle",
                   },
                 },
               ],
@@ -1836,62 +1878,85 @@ exports[`grid convert golden — the-pointe > builds a stable presentation manif
         "_max-content-width": "1280px",
       },
       "tree": {
-        "children": [
+        "cells": [
           {
-            "children": [
-              {
-                "html": "a property within",
-                "kind": "heading",
-                "level": 4,
-                "role": "text5",
-                "style": {
-                  "color": "rgb(0, 0, 0)",
+            "node": {
+              "children": [
+                {
+                  "children": [
+                    {
+                      "html": "a property within",
+                      "kind": "heading",
+                      "level": 4,
+                      "role": "text5",
+                      "style": {
+                        "color": "rgb(0, 0, 0)",
+                      },
+                    },
+                    {
+                      "kind": "media",
+                      "media": {
+                        "alt": "bf56be7d-863c-4f44-8247-6d92ea7762a9",
+                        "aspect": 17.5,
+                        "fit": "contain",
+                        "kind": "image",
+                        "url": "asset://bf56be7d-863c-4f44-8247-6d92ea7762a9",
+                        "width": 40,
+                      },
+                    },
+                  ],
+                  "kind": "stack",
+                  "style": {
+                    "_valign": "middle",
+                  },
                 },
-              },
-              {
-                "kind": "media",
-                "media": {
-                  "alt": "bf56be7d-863c-4f44-8247-6d92ea7762a9",
-                  "aspect": 17.5,
-                  "fit": "contain",
-                  "kind": "image",
-                  "url": "asset://bf56be7d-863c-4f44-8247-6d92ea7762a9",
-                  "width": 40,
+                {
+                  "children": [
+                    {
+                      "kind": "media",
+                      "media": {
+                        "alt": "b640649d-05cf-40c1-9edc-f3fc9d427c76",
+                        "aspect": 6.124,
+                        "fit": "contain",
+                        "kind": "image",
+                        "url": "asset://b640649d-05cf-40c1-9edc-f3fc9d427c76",
+                        "width": 996,
+                      },
+                    },
+                  ],
+                  "kind": "stack",
+                  "style": {
+                    "_valign": "middle",
+                    "padding": "40px 4% 30px 0%",
+                  },
                 },
-              },
-            ],
-            "kind": "stack",
-          },
-          {
-            "children": [
-              {
-                "kind": "media",
-                "media": {
-                  "alt": "b640649d-05cf-40c1-9edc-f3fc9d427c76",
-                  "aspect": 6.124,
-                  "fit": "contain",
-                  "kind": "image",
-                  "url": "asset://b640649d-05cf-40c1-9edc-f3fc9d427c76",
-                  "width": 996,
+                {
+                  "children": [
+                    {
+                      "html": "A collection of 13 buildings offering premier office space among the biggest names in entertainment. Explore 3,100,000 SF of endless possibilities.",
+                      "kind": "body",
+                      "role": "text1",
+                      "style": {
+                        "color": "rgb(0, 0, 0)",
+                        "margin-right": "20%",
+                      },
+                    },
+                  ],
+                  "kind": "stack",
+                  "style": {
+                    "_valign": "middle",
+                  },
                 },
-              },
-            ],
-            "kind": "stack",
-            "style": {
-              "padding": "40px 4% 30px 0%",
+              ],
+              "kind": "stack",
             },
-          },
-          {
-            "html": "A collection of 13 buildings offering premier office space among the biggest names in entertainment. Explore 3,100,000 SF of endless possibilities.",
-            "kind": "body",
-            "role": "text1",
-            "style": {
-              "color": "rgb(0, 0, 0)",
-              "margin-right": "20%",
+            "token": {
+              "cols": 2,
+              "ratio": 60,
             },
           },
         ],
-        "kind": "stack",
+        "kind": "row",
       },
     },
   },
