@@ -144,3 +144,34 @@ describe("listSubmissionsFiltered / countSubmissionsFiltered", () => {
     expect(rows.map((r) => r.email)).toEqual(["ada@x.com"]);
   });
 });
+
+import { listSpamReasonsFiltered } from "../../src/db/submissions.js";
+
+describe("listSpamReasonsFiltered", () => {
+  it("returns spam_reason strings for the WHOLE filter match (facets must outrun the page)", async () => {
+    const db = await openDb({ url: ":memory:" });
+    const mk = (n: number, status: "spam_auto" | "new", reason: string | null) =>
+      createSubmission(db, {
+        siteId: "recA",
+        formType: "contact",
+        name: `R${n}`,
+        email: `r${n}@x.com`,
+        message: "body",
+        submittedAt: new Date(`2026-07-0${(n % 9) + 1}T00:00:00.000Z`),
+        status,
+        ...(reason !== null ? { spamReason: reason, spamScore: 60 } : {}),
+      });
+    await mk(1, "spam_auto", "keywords:4");
+    await mk(2, "spam_auto", "turnstile-required-absent");
+    await mk(3, "spam_auto", "turnstile-required-absent");
+    await mk(4, "spam_auto", null); // no reason → excluded
+    await mk(5, "new", "keywords:2"); // scored-but-delivered → excluded by the status filter
+
+    const reasons = await listSpamReasonsFiltered(db, { status: "spam_auto" });
+    expect(reasons.sort()).toEqual([
+      "keywords:4",
+      "turnstile-required-absent",
+      "turnstile-required-absent",
+    ]);
+  });
+});

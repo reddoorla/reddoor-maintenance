@@ -28,6 +28,10 @@ export type SubmissionsPageModel = {
   page: number;
   pageSize: number;
   total: number;
+  /** spam_reason strings for the WHOLE filtered bucket (not just this page) — the
+   *  facet line must tally what the "<total> submissions" header describes, or a
+   *  multi-page canary bucket reads a wrong composition. Empty on non-spam views. */
+  facetReasons: string[];
 };
 
 function asFormType(v: string): FormType | undefined {
@@ -68,6 +72,8 @@ export function buildSubmissionsPageModel(input: {
   filter: SubmissionFilter;
   rawFilter: RawFilter;
   page: number;
+  /** Full-bucket spam_reason strings (see SubmissionsPageModel.facetReasons). */
+  facetReasons?: string[];
 }): SubmissionsPageModel {
   const byId = new Map(input.sites.map((s) => [s.id, s] as const));
   const rows: SubmissionView[] = input.rows.map((r) => {
@@ -88,5 +94,6 @@ export function buildSubmissionsPageModel(input: {
     page: input.page,
     pageSize: PAGE_SIZE,
     total: input.total,
+    facetReasons: input.facetReasons ?? [],
   };
 }

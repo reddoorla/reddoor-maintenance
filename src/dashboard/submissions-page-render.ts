@@ -89,16 +89,18 @@ function pager(m: SubmissionsPageModel): string {
   return `<div class="pager">${prev}<span class="muted">Page ${m.page} of ${pages}</span>${next}</div>`;
 }
 
-/** Facet the spam reason tokens across the listed rows so the operator reads the
+/** Facet the spam reason tokens across the WHOLE filtered bucket (m.facetReasons —
+ *  every matching row's spam_reason, not just this page) so the operator reads the
  *  bucket's composition at a glance — the requireTurnstile canary protocol needs
  *  "turnstile-required-absent" (expected bot tell) separable from content-classifier
- *  reasons without expanding every row (2026-07-15). Tokens may carry a per-token
- *  count ("keywords:4"); strip the trailing :N so those group as one facet. Returns
- *  "" when no row carries reasons. */
-function spamReasonFacets(rows: SubmissionsPageModel["rows"]): string {
+ *  reasons without expanding every row (2026-07-15). Page-scoped tallies under the
+ *  full-bucket total silently misread once the bucket passed one page. Tokens may
+ *  carry a per-token count ("keywords:4"); strip the trailing :N so those group as
+ *  one facet. Returns "" when no row carries reasons. */
+function spamReasonFacets(reasonStrings: string[]): string {
   const counts = new Map<string, number>();
-  for (const r of rows) {
-    for (const raw of (r.spamReason ?? "").split(",")) {
+  for (const reasonString of reasonStrings) {
+    for (const raw of reasonString.split(",")) {
       const token = raw.trim().replace(/:\d+$/, "");
       if (token === "") continue;
       counts.set(token, (counts.get(token) ?? 0) + 1);
@@ -125,7 +127,9 @@ export function renderSubmissionsPageHtml(m: SubmissionsPageModel): string {
   // Facet line only when the operator is actually reviewing a spam bucket — on
   // mixed-status views the tally would mix delivered and screened rows.
   const facets =
-    m.filter.status === "spam_auto" || m.filter.status === "spam" ? spamReasonFacets(m.rows) : "";
+    m.filter.status === "spam_auto" || m.filter.status === "spam"
+      ? spamReasonFacets(m.facetReasons)
+      : "";
   const body =
     m.total === 0
       ? `<div class="empty">No submissions match these filters.</div>`

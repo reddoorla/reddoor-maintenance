@@ -33,6 +33,7 @@ function model(over: Partial<SubmissionsPageModel> = {}): SubmissionsPageModel {
     page: 2,
     pageSize: 50,
     total: 120,
+    facetReasons: [],
     ...over,
   };
 }
@@ -93,6 +94,9 @@ describe("renderSubmissionsPageHtml — spam reason facets", () => {
       total: rows.length,
       page: 1,
       filter: { site: "", type: "", status, q: "", from: "", to: "" },
+      // In these single-page tests the bucket IS the page; the full-bucket test
+      // below passes facetReasons beyond the listed rows explicitly.
+      facetReasons: rows.map((r) => r.spamReason).filter((r): r is string => r !== null),
     });
   const facetLine = (html: string): string =>
     /<div class="spam-facets muted">(.*?)<\/div>/.exec(html)?.[1] ?? "";
@@ -123,9 +127,21 @@ describe("renderSubmissionsPageHtml — spam reason facets", () => {
     const html = renderSubmissionsPageHtml(spamModel([spamRow("s1", "keywords:4")], ""));
     expect(html).not.toContain('<div class="spam-facets');
   });
-  it("omits the facet line when no listed row carries reasons", () => {
+  it("omits the facet line when no bucket row carries reasons", () => {
     const html = renderSubmissionsPageHtml(spamModel([spamRow("s1", null)]));
     expect(html).not.toContain('<div class="spam-facets');
+  });
+  it("facets the WHOLE filtered bucket, not just the listed page", () => {
+    // 1 row on this page, but the bucket holds 3 reason strings (2 on other pages).
+    // The tally must match the bucket — the runbook directs the operator to judge
+    // the canary from this line, and a page-scoped count misread multi-page buckets.
+    const m = spamModel([spamRow("s1", "keywords:4")]);
+    m.total = 3;
+    m.facetReasons = ["keywords:4", "turnstile-required-absent", "turnstile-required-absent"];
+    const html = renderSubmissionsPageHtml(m);
+    const line = facetLine(html);
+    expect(line).toContain("turnstile-required-absent ×2");
+    expect(line).toContain("keywords ×1");
   });
   it("escapes hostile reason tokens in the facet line", () => {
     const html = renderSubmissionsPageHtml(spamModel([spamRow("s1", "<script>x</script>")]));
