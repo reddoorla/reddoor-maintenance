@@ -59,11 +59,83 @@ function family(pathname: string): string {
   return pathname.split("/").filter(Boolean)[0] ?? "";
 }
 
+/** Extensions that mark a path as a downloadable asset/document, NOT a navigable page. Probing
+ *  one in a browser can never yield a `<title>`/meta description, and a download makes
+ *  `page.goto` throw — so a single homepage-linked PDF used to poison the reachability AND
+ *  titles-meta verdicts with certain fails (2026-07-16: MSOT's capabilities PDF). Blocklist (not
+ *  an html/htm allowlist) so dotted page slugs like `/blog/v2.0-release` are kept. */
+const ASSET_EXTENSIONS = new Set([
+  "pdf",
+  "doc",
+  "docx",
+  "xls",
+  "xlsx",
+  "ppt",
+  "pptx",
+  "csv",
+  "txt",
+  "rtf",
+  "jpg",
+  "jpeg",
+  "png",
+  "gif",
+  "webp",
+  "avif",
+  "svg",
+  "ico",
+  "bmp",
+  "tif",
+  "tiff",
+  "css",
+  "js",
+  "mjs",
+  "map",
+  "json",
+  "xml",
+  "webmanifest",
+  "rss",
+  "atom",
+  "zip",
+  "gz",
+  "tar",
+  "rar",
+  "7z",
+  "dmg",
+  "exe",
+  "mp3",
+  "mp4",
+  "webm",
+  "mov",
+  "avi",
+  "wav",
+  "ogg",
+  "m4a",
+  "m4v",
+  "woff",
+  "woff2",
+  "ttf",
+  "otf",
+  "eot",
+]);
+
+/** True when a pathname looks like a navigable PAGE (extensionless, .html/.htm, or a dotted slug
+ *  whose "extension" isn't a known asset type). PURE; exported for tests. */
+export function isPageRoutePath(pathname: string): boolean {
+  const last = pathname.split("/").filter(Boolean).pop() ?? "";
+  const dot = last.lastIndexOf(".");
+  if (dot <= 0) return true; // no extension (or a dotfile-style segment) → page
+  const ext = last.slice(dot + 1).toLowerCase();
+  if (ext === "html" || ext === "htm") return true;
+  return !ASSET_EXTENSIONS.has(ext);
+}
+
 /**
  * Sample a representative set of PATHNAMES from a list of URLs/paths. Always includes "/". Buckets
  * the rest by path family and takes them round-robin (one per family per pass), so every family
  * is represented before any family gets a second page — guaranteeing CMS templates aren't skipped.
- * Caps the total. PURE.
+ * Caps the total. Asset/file URLs are dropped (only real pages are probed), and trailing slashes
+ * are normalized away so `/a` and `/a/` — the same page — can't be sampled twice (2026-07-16:
+ * revogen.com linked both forms, which guaranteed a bogus "duplicate title" titles-meta fail). PURE.
  */
 export function sampleRoutePaths(urlsOrPaths: string[], cap: number = DEFAULT_CAP): string[] {
   const seen = new Set<string>(["/"]);
@@ -77,9 +149,11 @@ export function sampleRoutePaths(urlsOrPaths: string[], cap: number = DEFAULT_CA
     } catch {
       continue;
     }
-    if (pathname === "/") continue; // root already guaranteed
+    pathname = pathname.replace(/\/+$/, ""); // `/a/` ≡ `/a` — same page, never two routes
+    if (pathname === "") continue; // root ("/", "//", …) already guaranteed
     if (seen.has(pathname)) continue;
     seen.add(pathname);
+    if (!isPageRoutePath(pathname)) continue;
     const fam = family(pathname);
     const arr = buckets.get(fam) ?? [];
     arr.push(pathname);
