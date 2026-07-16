@@ -58,6 +58,39 @@ describe("sampleRoutePaths — representative, CMS-aware", () => {
   it("accepts absolute URLs and reduces them to pathnames", () => {
     expect(sampleRoutePaths(["https://a.com/work/x"], 15)).toEqual(["/", "/work/x"]);
   });
+
+  // 2026-07-16 false-alarm cluster: a homepage-linked PDF was sampled as a "route" — a browser
+  // probe of a download can never have a title/meta and page.goto throws, so one asset URL
+  // guaranteed reachability + titles-meta fails (MSOT's capabilities PDF, live).
+  it("drops asset/file URLs — only real pages are probed", () => {
+    const urls = [
+      "/pdfs/MSOT_Capabilities.pdf",
+      "/img/logo.svg",
+      "/photos/team.jpg",
+      "/feed.xml",
+      "/site.webmanifest",
+      "/about",
+    ];
+    expect(sampleRoutePaths(urls, 15)).toEqual(["/", "/about"]);
+  });
+
+  it("keeps .html pages and dotted page slugs (blocklist, not allowlist)", () => {
+    expect(sampleRoutePaths(["/legacy/index.html", "/blog/v2.0-release"], 15).sort()).toEqual([
+      "/",
+      "/blog/v2.0-release",
+      "/legacy/index.html",
+    ]);
+  });
+
+  // 2026-07-16: revogen.com's homepage linked both /surgical-grafts and /surgical-grafts/ — the
+  // SAME page sampled twice, guaranteeing a bogus "duplicate title" titles-meta fail.
+  it("normalizes trailing slashes so /a and /a/ sample once", () => {
+    expect(sampleRoutePaths(["/surgical-grafts", "/surgical-grafts/"], 15)).toEqual([
+      "/",
+      "/surgical-grafts",
+    ]);
+    expect(sampleRoutePaths(["https://a.com/b/"], 15)).toEqual(["/", "/b"]);
+  });
 });
 
 describe("familyCountsOf", () => {

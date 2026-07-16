@@ -2,7 +2,7 @@ import type { Site } from "../../types.js";
 import type { SpawnFn } from "./spawn.js";
 import type { DomainDeps } from "../domain.js";
 import type { DiscoverDeps } from "../route-discovery.js";
-import type { BrowserRunner } from "../browser.js";
+import type { BrowserRunner, VerifyDeps } from "../browser.js";
 import type { FormRunner } from "../form-e2e.js";
 import type { NetlifyDeployDeps } from "../netlify-deploy.js";
 import type { FunctionHealthDeps } from "../function-health.js";
@@ -19,6 +19,10 @@ export type AuditContext = {
   discoverDeps?: DiscoverDeps;
   /** Playwright runner injection for the browser audit (tests). Defaults to real Playwright. */
   browserRunner?: BrowserRunner;
+  /** Plain-fetch re-verification injection for the browser audit (tests). Defaults to real fetch.
+   *  Re-checks any route the browser probe called unreachable / title-less before a fail verdict
+   *  can persist (WAF challenges hit headless browsers, not plain fetches). */
+  verifyDeps?: VerifyDeps;
   /** Playwright runner injection for the form-e2e audit (tests). Defaults to real Playwright. */
   formRunner?: FormRunner;
   /** Netlify API injection for the netlify-deploy audit (tests). Defaults to a real API call. */
