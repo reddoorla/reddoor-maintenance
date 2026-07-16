@@ -522,6 +522,98 @@ describe("card background capture", () => {
     expect(styleOf(result)).toEqual({ "min-height": "400px" });
   });
 
+  it("a min-height wrapper around a MEDIA leaf folds into media.minHeight — never a box", () => {
+    // Slider slides are pure-media cells behind min-height wrappers; boxing
+    // them in a synthetic stack demotes Carousel classification (slides must
+    // stay bare media), turning working sliders into static galleries. The
+    // wrapper's height folds into media.minHeight instead (a no-op when the
+    // holder already carries the same value, as real slides do).
+    const boxed = container(
+      '<div class="block-subcontent">' +
+        '<div class="blocks0" style="min-height: 500px;">' +
+        '<div class="ib camediaload" data-media="s1"></div>' +
+        "</div></div>",
+    );
+    expect(boxed).toEqual({
+      kind: "media",
+      media: { kind: "image", assetId: "s1", minHeight: "500px" },
+    });
+    // The holder's own min-height wins over the wrapper's when both exist.
+    const own = container(
+      '<div class="block-subcontent">' +
+        '<div class="blocks0" style="min-height: 500px;">' +
+        '<div class="ib camediaload" data-media="s2" style="min-height: 80vh;"></div>' +
+        "</div></div>",
+    );
+    expect(own).toEqual({
+      kind: "media",
+      media: { kind: "image", assetId: "s2", minHeight: "80vh" },
+    });
+  });
+
+  it("a gradient-layer-only card around a bare text leaf keeps the fill (synthetic stack)", () => {
+    // A flush, content-height gradient card holding one heading: no padding,
+    // no min-height, no valignmiddle — the layer paint is the only capture,
+    // and it has no other render path, so the box must carry it.
+    const html =
+      '<div class="block-subcontent">' +
+      '<div class="blocks0">' +
+      '<div class="block-background-layer abs-fill" style="background: linear-gradient(rgb(0, 0, 0), rgb(9, 9, 9));"></div>' +
+      '<div class="block-holder"><div class="blocks0container" style="padding: 0px;">' +
+      '<div class="block-content"><h4 class="block-title text11">Filled</h4></div>' +
+      "</div></div></div></div>";
+    const result = container(html);
+    expect(result.kind).toBe("stack");
+    expect(styleOf(result)).toEqual({
+      background: "linear-gradient(rgb(0, 0, 0), rgb(9, 9, 9))",
+    });
+  });
+
+  it("a boxed wrapper (min-height/layer) over TWO blocks promotes the group — box applied once", () => {
+    // The padding promotion's parallel: threading an 80vh gradient box onto
+    // each of two sibling leaves would double the box (160vh, painted twice).
+    const html =
+      '<div class="block-subcontent">' +
+      '<div class="blocks0" style="min-height: 80vh;">' +
+      '<h4 class="block-title text5">A</h4>' +
+      '<div class="block-body text1">B</div>' +
+      "</div></div>";
+    const result = container(html);
+    expect(result.kind).toBe("stack");
+    expect(styleOf(result)).toEqual({ "min-height": "80vh" });
+    if (result.kind === "stack")
+      expect(result.children.map((c) => c.kind)).toEqual(["heading", "body"]);
+  });
+
+  it("a cagridFlexHeight grid marks painted cells `_fill: column`; plain grids don't", () => {
+    // The original stretches each FlexHeight cell's direct block to the full
+    // row height (`.cagriditem>div{height:100%}`) — a painted block fills its
+    // whole column, not just its content box. Unpainted cells stay unmarked
+    // (stretching an unpainted box is visually identity).
+    const grid = (extra: string) =>
+      `<div class="block-grid-container ${extra} cagrid">` +
+      '<div class="block-subcontent grid-2">' +
+      '<div class="blocks0">' +
+      '<div class="block-background-layer abs-fill" style="background: linear-gradient(rgb(1, 1, 1), rgb(2, 2, 2));"></div>' +
+      '<div class="block-holder"><div class="blocks0container" style="padding: 40px;">' +
+      '<div class="block-content"><h4 class="block-title text5">A</h4><div class="block-body text1">B</div></div>' +
+      "</div></div></div></div>" +
+      '<div class="block-subcontent grid-2"><h5 class="block-title text5">plain</h5></div>' +
+      "</div>";
+    const flex = container(grid("cagridFlexHeight"));
+    expect(flex.kind).toBe("row");
+    if (flex.kind !== "row") return;
+    const painted = styleOf(flex.cells[0]!.node);
+    expect(painted?.["_fill"]).toBe("column");
+    expect(painted?.["background"]).toContain("linear-gradient");
+    // The unpainted text cell carries no fill hint.
+    expect(styleOf(flex.cells[1]!.node)?.["_fill"]).toBeUndefined();
+    // A plain (non-FlexHeight) grid: same shapes, no fill hints anywhere.
+    const plain = container(grid(""));
+    if (plain.kind !== "row") return;
+    expect(styleOf(plain.cells[0]!.node)?.["_fill"]).toBeUndefined();
+  });
+
   it("groups a multi-child grid cell into its own stack (margin containment)", () => {
     // A bare block-subcontent with two blocks parses to a nested stack — the
     // original contains the blocks' margins per cell (a block-content clearfix
@@ -621,11 +713,15 @@ describe("card background capture", () => {
     if (root.kind !== "row") return;
     const [left, right] = root.cells;
     // The white fill, the card's 100px/4%/80px content inset, and its
-    // valignmiddle centering hint all ride along.
+    // valignmiddle centering hint all ride along. The band's grid is
+    // cagridFlexHeight, so the painted card also carries the column-fill
+    // hint — live stretches the white card to the full row height (the old
+    // 44px live-vs-ours residual on this card was exactly this stretch).
     expect(styleOf(right!.node)).toEqual({
       "background-color": "rgb(255, 255, 255)",
       padding: "100px 4% 80px",
       _valign: "middle",
+      _fill: "column",
     });
     // The building-image column and the band root itself stay transparent.
     expect(styleOf(left!.node)?.["background-color"]).toBeUndefined();
