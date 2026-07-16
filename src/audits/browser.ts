@@ -13,10 +13,15 @@ import {
  *  opened — no extra navigation). */
 export type RouteResult = {
   url: string;
-  /** Per desktop engine (chromium/firefox/webkit): loaded with no JS error + a visible main landmark. */
-  desktop: Array<{ engine: string; ok: boolean }>;
-  /** Per mobile device: loaded with no JS error and no horizontal overflow. */
-  mobile: Array<{ device: string; ok: boolean }>;
+  /** Per desktop engine (chromium/firefox/webkit): loaded with no JS error + a visible main
+   *  landmark. `status` = the HTTP status of THAT engine's navigation (null = the nav threw:
+   *  timeout/crash); optional because it wasn't always captured — undefined is never excusable.
+   *  NOTE: `ok` may be an EXCUSAL, not proof of a render — excuseChallengedEngineChecks flips a
+   *  WAF-challenged entry to ok:true on a reachable route (see details.excusedEngineChecks). */
+  desktop: Array<{ engine: string; ok: boolean; status?: number | null }>;
+  /** Per mobile device: loaded with no JS error and no horizontal overflow. Same `status`
+   *  semantics as desktop, and the same excusal caveat on `ok`. */
+  mobile: Array<{ device: string; ok: boolean; status?: number | null }>;
   /** Same-origin links discovered on the page (absolute URLs), for the Links check. */
   links: string[];
   /** HTTP status of the chromium navigation (2xx/3xx = reachable). null = the nav failed/threw. */
@@ -63,6 +68,13 @@ export type BrowserSummary = {
   /** The per-route findings behind a titleMetaOk=false ("url: missing meta description",
    *  'duplicate title "X": urlA + urlB', …). Empty when titleMetaOk is true. */
   titleMetaProblems: string[];
+  /** Confirmed-failing desktop checks as "url [engine]" (+" → status" when a definite non-2xx/3xx
+   *  nav status was captured), or "url: no desktop observations". Empty when desktopOk. */
+  desktopFailures: string[];
+  /** Same for mobile devices. */
+  mobileFailures: string[];
+  /** The broken links behind brokenLinks, as "url → status|no response" (mirrors unreachableUrls). */
+  brokenLinkUrls: string[];
   brokenLinks: number;
   routesChecked: number;
   note: string;
@@ -124,10 +136,35 @@ export type Reverification = {
  *  URL stays bad across these waits (total ~60s). Definitive answers (404/410) skip the retries. */
 const REVERIFY_RETRY_DELAYS_MS = [15_000, 45_000];
 
+type SleepFn = (ms: number) => Promise<void>;
+const defaultSleep: SleepFn = (ms) => new Promise((r) => setTimeout(r, ms));
+
 /** A status worth a cooldown retry: WAF-challenge/rate-limit shapes (403/408/429), server errors,
  *  and null (timeout / network error) can all be transient. 404/410 are definitive. */
 function isRetryableStatus(status: number | null): boolean {
   return status === null || status === 403 || status === 408 || status === 429 || status >= 500;
+}
+
+/** One plain fetch per unique url, then cooldown retries (REVERIFY_RETRY_DELAYS_MS) for any
+ *  whose answer is still transient-shaped (isRetryableStatus). Definitive answers (2xx/3xx,
+ *  404/410, other 4xx) return immediately. Shared by reverifyRoutes + reverifyLinks — the ONE
+ *  copy of the WAF-cooldown discipline. */
+async function fetchStatusesWithCooldown(
+  urls: string[],
+  verify: VerifyDeps,
+  sleep: SleepFn,
+): Promise<Map<string, PageFetch>> {
+  const byUrl = new Map<string, PageFetch>();
+  for (const url of new Set(urls)) byUrl.set(url, await verify.fetchPage(url));
+  for (const delayMs of REVERIFY_RETRY_DELAYS_MS) {
+    const pending = [...byUrl.entries()]
+      .filter(([, f]) => !isOkStatus(f.status) && isRetryableStatus(f.status))
+      .map(([u]) => u);
+    if (pending.length === 0) break;
+    await sleep(delayMs);
+    for (const url of pending) byUrl.set(url, await verify.fetchPage(url));
+  }
+  return byUrl;
 }
 
 /**
@@ -147,7 +184,7 @@ function isRetryableStatus(status: number | null): boolean {
 export async function reverifyRoutes(
   routes: RouteResult[],
   verify: VerifyDeps,
-  sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+  sleep: (ms: number) => Promise<void> = defaultSleep,
 ): Promise<{ routes: RouteResult[]; reverified: Reverification[] }> {
   const statusIdx: number[] = [];
   const titleMetaIdx: number[] = [];
@@ -156,27 +193,23 @@ export async function reverifyRoutes(
     else if (!(r.title ?? "").trim() || !(r.metaDescription ?? "").trim()) titleMetaIdx.push(i);
   });
 
+  // Reachability re-checks get the shared cooldown discipline (the IP may still be WAF-flagged
+  // from the probe burst itself); route urls are unique by construction (discoverRoutes dedupes).
+  const statusFetches = await fetchStatusesWithCooldown(
+    statusIdx.map((i) => routes[i]!.url),
+    verify,
+    sleep,
+  );
+  // Title/meta recovery stays a single un-retried fetch — the route already answered ok, so
+  // there's nothing transient to wait out.
   const fetchedByIdx = new Map<number, PageFetch>();
-  for (const i of [...statusIdx, ...titleMetaIdx]) {
-    fetchedByIdx.set(i, await verify.fetchPage(routes[i]!.url));
-  }
-  // Cooldown retries for reachability re-checks that came back with a transient-looking status
-  // (the IP may still be WAF-flagged from the probe burst itself).
-  for (const delayMs of REVERIFY_RETRY_DELAYS_MS) {
-    const pending = statusIdx.filter((i) => {
-      const f = fetchedByIdx.get(i)!;
-      return !isOkStatus(f.status) && isRetryableStatus(f.status);
-    });
-    if (pending.length === 0) break;
-    await sleep(delayMs);
-    for (const i of pending) fetchedByIdx.set(i, await verify.fetchPage(routes[i]!.url));
-  }
+  for (const i of titleMetaIdx) fetchedByIdx.set(i, await verify.fetchPage(routes[i]!.url));
 
   const out = [...routes];
   const reverified: Reverification[] = [];
   for (const i of statusIdx) {
     const r = routes[i]!;
-    const fetched = fetchedByIdx.get(i)!;
+    const fetched = statusFetches.get(r.url)!;
     reverified.push({ url: r.url, browserStatus: r.status, fetchedStatus: fetched.status });
     // The plain fetch is the reachability truth. When it's ok, the challenge-page title/meta
     // the browser captured are discarded for the served HTML's; when the fail is CONFIRMED,
@@ -208,12 +241,123 @@ export async function reverifyRoutes(
   return { routes: out, reverified };
 }
 
+/** After reverifyRoutes has settled each route's TRUE reachability (plain-fetch verified), void
+ *  the desktop/mobile observations that failed only because the engine was served a WAF
+ *  challenge / transient rejection. Behind a challenge interstitial the engine never saw the
+ *  real page, so its JS-error/landmark/overflow signals measured the WAF page — worthless for
+ *  the crossbrowser/mobile verdicts (server status is owned by reachableOk). The headline
+ *  2026-07-16 case: chromium+firefox+webkit+both mobiles all 403-challenged mid-burst — #428
+ *  cleared reachableOk via plain fetch while desktopOk/mobileOk still false-alarmed on the very
+ *  same challenge. What still stands: fails on a LOADED page (2xx/3xx entry status = genuine
+ *  rendering breakage); null/undefined entry status (a hung/crashed nav can be a genuine
+ *  engine-specific problem, and undefined means the status was never captured); definitive
+ *  404/410; and every entry on a route whose unreachability was CONFIRMED. The route-level
+ *  `status` here is already the plain-fetch-verified truth (chromium's own 2xx or reverifyRoutes'
+ *  cooled-down fetch), so no additional fetches are needed — this function is PURE and reuses
+ *  reverifyRoutes' output rather than forking its retry logic. Never mutates its input.
+ *  KNOWN BLIND SPOT: unlike reverifyLinks (which re-fetches and only clears a 403 that turns
+ *  2xx), this applies NO persistence test — a challenge-shaped engine status is excused every
+ *  run. So a genuinely engine-specific 403 (e.g. an edge rule that blocks only one UA while the
+ *  route stays reachable to plain fetch + other engines) is silently excused nightly, visible
+ *  only as an excusedEngineChecks note. Accepted because it's undecidable with today's signals:
+ *  a headless re-probe of that engine would just be re-challenged by the same WAF. */
+export function excuseChallengedEngineChecks(routes: RouteResult[]): {
+  routes: RouteResult[];
+  excused: string[];
+} {
+  const excused: string[] = [];
+  // Excusable: failed, with a captured numeric status that is challenge-shaped. The
+  // isRetryableStatus gate deliberately excludes 404/410 (an engine that got a definitive dead
+  // answer on an otherwise-reachable route stays a named failure) and the typeof-number gate
+  // deliberately excludes null (nav timeout) and undefined (status never captured), so genuine
+  // detection is never weakened.
+  const excusable = (e: { ok: boolean; status?: number | null }): boolean =>
+    !e.ok && typeof e.status === "number" && !isOkStatus(e.status) && isRetryableStatus(e.status);
+  const out = routes.map((route) => {
+    // Confirmed-dead route: everything fails honestly, consistent with reachableOk.
+    if (!isOkStatus(route.status)) return route;
+    const desktop = route.desktop.map((d) => {
+      if (!excusable(d)) return d;
+      excused.push(
+        `${route.url} [${d.engine}]: browser saw ${d.status}, route re-verified reachable (${route.status})`,
+      );
+      return { ...d, ok: true };
+    });
+    const mobile = route.mobile.map((m) => {
+      if (!excusable(m)) return m;
+      excused.push(
+        `${route.url} [${m.device}]: browser saw ${m.status}, route re-verified reachable (${route.status})`,
+      );
+      return { ...m, ok: true };
+    });
+    return { ...route, desktop, mobile };
+  });
+  return { routes: out, excused };
+}
+
+/** One re-check of a link the first pass called broken with a transient-shaped status. */
+export type LinkReverification = {
+  url: string;
+  firstStatus: number | null;
+  fetchedStatus: number | null;
+};
+
+/**
+ * Re-check any link whose first result was challenge-shaped (403/408/429/5xx/null) with a plain
+ * GET plus the shared cooldown schedule BEFORE it can count broken — the probe burst itself
+ * rate-flags the runner's IP for ~60s, so checkLinks' plain fetches 403 right after it.
+ * Definitive answers (404/410, other 4xx incl. 401) NEVER re-verify: one observation stands.
+ * Every link checked here is SAME-ORIGIN by construction (probe() filters on the deployed
+ * origin), so any 403 is from our own fleet host — where a challenge of our own probe burst is
+ * the overwhelmingly likely cause and a plain re-fetch after cooldown is the truth. A 403 that
+ * SURVIVES the cooldown counts broken: on our own host that means real visitors can hit it
+ * (password-protected/preview leakage is a genuine content problem). If external third-party
+ * link checking is ever added, a confirmed 403 from a foreign host must downgrade to a warn —
+ * many sites legitimately 403 non-browser clients — while 404/410 stay broken.
+ * Incidental fix: fetchPage is a GET, so hosts that reject HEAD with 403 (checkLinks probes
+ * HEAD-first) get an honest second look too. Reusing VerifyDeps.fetchPage means the ok-path
+ * reads the body to parse title/meta we discard — accepted (small N, one injected dep).
+ * Returns the ORIGINAL array shape (same length/order — the linksOk "zero links checked = not
+ * proven" fail-safe depends on it) + every re-check performed, cleared or confirmed.
+ */
+export async function reverifyLinks(
+  links: LinkResult[],
+  verify: VerifyDeps,
+  sleep: (ms: number) => Promise<void> = defaultSleep,
+): Promise<{ links: LinkResult[]; reverified: LinkReverification[] }> {
+  const suspects = links.filter((l) => isBroken(l.status) && isRetryableStatus(l.status));
+  if (suspects.length === 0) return { links, reverified: [] };
+  const fetched = await fetchStatusesWithCooldown(
+    suspects.map((l) => l.url),
+    verify,
+    sleep,
+  );
+  const suspectUrls = new Set(suspects.map((l) => l.url));
+  const reverified: LinkReverification[] = [];
+  const out = links.map((l) => {
+    if (!suspectUrls.has(l.url)) return l;
+    const finalStatus = fetched.get(l.url)!.status;
+    reverified.push({ url: l.url, firstStatus: l.status, fetchedStatus: finalStatus });
+    return { url: l.url, status: finalStatus };
+  });
+  return { links: out, reverified };
+}
+
+/** " → status" suffix for a failing desktop/mobile entry, only when a definite non-2xx/3xx nav
+ *  status was captured (2xx/3xx = the page loaded, the failure was rendering; undefined = the
+ *  status was never captured — neither adds signal to the offender string). */
+const fmtEntryStatus = (s?: number | null): string =>
+  typeof s === "number" && !isOkStatus(s) ? ` → ${s}` : "";
+
 /**
  * Reduce raw per-route observations to the three checklist verdicts. PURE.
- * - desktopOk: EVERY route loaded cleanly in EVERY desktop engine.
+ * - desktopOk: EVERY route loaded cleanly in EVERY desktop engine (a WAF-challenged entry
+ *   excused by excuseChallengedEngineChecks counts as clean — see its caveat below).
  * - mobileOk: EVERY route loaded cleanly (no overflow / error) on EVERY mobile device.
  * - linksOk: NO internal link is broken.
  * Empty observations (a probe that produced nothing) → not ok (fail-safe: prove, don't assume).
+ * Every fail names its offenders (desktopFailures/mobileFailures/brokenLinkUrls, mirroring
+ * unreachableUrls) so a red box is actionable, never a bare "fail".
  */
 export function summarizeBrowser(
   routes: RouteResult[],
@@ -229,7 +373,26 @@ export function summarizeBrowser(
     routes.length > 0 && routes.every((r) => r.desktop.length > 0 && r.desktop.every((d) => d.ok));
   const mobileOk =
     routes.length > 0 && routes.every((r) => r.mobile.length > 0 && r.mobile.every((m) => m.ok));
-  const brokenLinks = links.filter((l) => isBroken(l.status)).length;
+  // The named offenders behind desktopOk/mobileOk=false, one string per failing engine/device
+  // check (or per observation-less route — the fail-safe above already failed it).
+  const desktopFailures = routes.flatMap((r) =>
+    r.desktop.length === 0
+      ? [`${r.url}: no desktop observations`]
+      : r.desktop
+          .filter((d) => !d.ok)
+          .map((d) => `${r.url} [${d.engine}]${fmtEntryStatus(d.status)}`),
+  );
+  const mobileFailures = routes.flatMap((r) =>
+    r.mobile.length === 0
+      ? [`${r.url}: no mobile observations`]
+      : r.mobile
+          .filter((m) => !m.ok)
+          .map((m) => `${r.url} [${m.device}]${fmtEntryStatus(m.status)}`),
+  );
+  const brokenLinkUrls = links
+    .filter((l) => isBroken(l.status))
+    .map((l) => `${l.url} → ${l.status ?? "no response"}`);
+  const brokenLinks = brokenLinkUrls.length;
   // linksOk requires links to have ACTUALLY been checked — zero links checked is "not proven",
   // never a pass (e.g. a JS-rendered page whose hrefs weren't in the DOM, or a chromium evaluate
   // that threw → []). Otherwise the box would assert "all links resolve" having checked nothing.
@@ -279,7 +442,10 @@ export function summarizeBrowser(
     `desktop ${engines.join("/") || "—"}; mobile ${devices.join("/") || "—"}; ` +
     `${links.length} links, ${brokenLinks} broken` +
     (unreachableUrls.length > 0 ? `; unreachable: ${firstOf(unreachableUrls, 3)}` : "") +
-    (titleMetaProblems.length > 0 ? `; title/meta: ${firstOf(titleMetaProblems, 3)}` : "");
+    (titleMetaProblems.length > 0 ? `; title/meta: ${firstOf(titleMetaProblems, 3)}` : "") +
+    (desktopFailures.length > 0 ? `; desktop failing: ${firstOf(desktopFailures, 3)}` : "") +
+    (mobileFailures.length > 0 ? `; mobile failing: ${firstOf(mobileFailures, 3)}` : "") +
+    (brokenLinkUrls.length > 0 ? `; broken: ${firstOf(brokenLinkUrls, 3)}` : "");
 
   return {
     desktopOk,
@@ -289,6 +455,9 @@ export function summarizeBrowser(
     titleMetaOk,
     unreachableUrls,
     titleMetaProblems,
+    desktopFailures,
+    mobileFailures,
+    brokenLinkUrls,
     brokenLinks,
     routesChecked: routes.length,
     note,
@@ -317,9 +486,18 @@ export async function browserAudit(ctx: AuditContext): Promise<AuditResult> {
     const probed = await runner.probe(discovered.routes);
     // Plain-fetch re-verification BEFORE any verdict: a browser-side 4xx/timeout (WAF challenge,
     // engine flake) must not persist a fail the site doesn't deserve — see reverifyRoutes.
-    const { routes: routeResults, reverified } = await reverifyRoutes(probed, verifyDeps);
+    const { routes: reverifiedRoutes, reverified } = await reverifyRoutes(probed, verifyDeps);
+    // Engine/device checks poisoned by the same challenge are voided AGAINST the verified
+    // reachability — reuses reverifyRoutes' output, no second copy of the retry logic.
+    const { routes: routeResults, excused } = excuseChallengedEngineChecks(reverifiedRoutes);
     const internalLinks = [...new Set(routeResults.flatMap((r) => r.links))];
-    const linkResults = await runner.checkLinks(internalLinks);
+    const rawLinks = await runner.checkLinks(internalLinks);
+    // A link the burst-flagged IP saw as 403 gets a plain-fetch cooldown re-check before it can
+    // count broken (the probe burst itself rate-flags the runner for ~60s — see reverifyLinks).
+    const { links: linkResults, reverified: linkReverified } = await reverifyLinks(
+      rawLinks,
+      verifyDeps,
+    );
     const summary = summarizeBrowser(
       routeResults,
       linkResults,
@@ -332,10 +510,21 @@ export async function browserAudit(ctx: AuditContext): Promise<AuditResult> {
       (v) =>
         `${v.url}: browser saw ${v.browserStatus ?? "no response"}, plain fetch ${v.fetchedStatus}`,
     );
+    const clearedLinks = linkReverified.filter((v) => isOkStatus(v.fetchedStatus));
+    const linkReverifiedUrls = clearedLinks.map(
+      (v) =>
+        `${v.url}: first check saw ${v.firstStatus ?? "no response"}, plain re-fetch ${v.fetchedStatus}`,
+    );
     const note =
       summary.note +
       (cleared.length > 0
         ? `; ${cleared.length} route(s) re-verified reachable by plain fetch after a browser-side challenge/flake`
+        : "") +
+      (excused.length > 0
+        ? `; ${excused.length} engine/device check(s) excused (challenge on a re-verified-reachable route)`
+        : "") +
+      (clearedLinks.length > 0
+        ? `; ${clearedLinks.length} link(s) re-verified ok by plain fetch after cooldown`
         : "");
     const status: AuditResult["status"] =
       summary.desktopOk && summary.mobileOk && summary.linksOk ? "pass" : "warn";
@@ -344,7 +533,14 @@ export async function browserAudit(ctx: AuditContext): Promise<AuditResult> {
       site: label,
       status,
       summary: note,
-      details: { ...summary, note, reverifiedUrls, checkedAt: now.toISOString() },
+      details: {
+        ...summary,
+        note,
+        reverifiedUrls,
+        excusedEngineChecks: excused,
+        linkReverifiedUrls,
+        checkedAt: now.toISOString(),
+      },
     };
   } finally {
     await runner.close?.();
@@ -441,11 +637,13 @@ export async function defaultBrowserRunner(): Promise<BrowserRunner> {
             const errors: string[] = [];
             page.on("pageerror", (e) => errors.push(String(e)));
             let ok = false;
+            let navStatus: number | null = null;
             try {
               const resp = await page.goto(url, {
                 waitUntil: "domcontentloaded",
                 timeout: PAGE_TIMEOUT_MS,
               });
+              navStatus = resp ? resp.status() : null;
               const hasMain = await page
                 .locator("main, [role=main]")
                 .first()
@@ -485,7 +683,7 @@ export async function defaultBrowserRunner(): Promise<BrowserRunner> {
             } finally {
               await ctx.close().catch(() => {});
             }
-            desktop.push({ engine, ok });
+            desktop.push({ engine, ok, status: navStatus });
           }
 
           const mobile: RouteResult["mobile"] = [];
@@ -497,11 +695,13 @@ export async function defaultBrowserRunner(): Promise<BrowserRunner> {
             const errors: string[] = [];
             page.on("pageerror", (e) => errors.push(String(e)));
             let ok = false;
+            let navStatus: number | null = null;
             try {
               const resp = await page.goto(url, {
                 waitUntil: "domcontentloaded",
                 timeout: PAGE_TIMEOUT_MS,
               });
+              navStatus = resp ? resp.status() : null;
               const overflow = (await page
                 .evaluate("document.documentElement.scrollWidth > window.innerWidth + 2")
                 .catch(() => true)) as boolean;
@@ -511,7 +711,7 @@ export async function defaultBrowserRunner(): Promise<BrowserRunner> {
             } finally {
               await ctx.close().catch(() => {});
             }
-            mobile.push({ device, ok });
+            mobile.push({ device, ok, status: navStatus });
           }
 
           results.push({
