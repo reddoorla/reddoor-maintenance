@@ -12,7 +12,8 @@ export type Status =
   | "maintenance"
   | "hosting"
   | "probably not our problem"
-  | "deprecated";
+  | "deprecated"
+  | "legacy";
 
 /**
  * Per-site notification routing. When present on a `maintenance` site, the form
@@ -276,6 +277,36 @@ export const PRE_LAUNCH_STATUSES: ReadonlySet<Status> = new Set<Status>([
 
 export function isPreLaunch(status: Status | null): boolean {
   return status !== null && PRE_LAUNCH_STATUSES.has(status);
+}
+
+/** Every Status value the code recognizes. Typed ReadonlySet<string> so a
+ *  blind-cast typo'd cell can be probed without a cast. */
+export const KNOWN_STATUSES: ReadonlySet<string> = new Set<Status>([
+  "in development",
+  "launch period",
+  "maintenance",
+  "hosting",
+  "probably not our problem",
+  "deprecated",
+  "legacy",
+]);
+
+/** Terminal, out-of-fleet lifecycle states: kept in Airtable for the record,
+ *  excluded from every fleet op (sweeps, reports, audits, cockpit tiers) exactly
+ *  as before, but surfaced on the cockpit as an archived lane so a row can never
+ *  silently vanish. */
+export const ARCHIVED_STATUSES: ReadonlySet<Status> = new Set<Status>(["legacy", "deprecated"]);
+
+export function isArchivedStatus(status: Status | null): boolean {
+  return status !== null && ARCHIVED_STATUSES.has(status);
+}
+
+/** True when the Status cell holds a value outside the code's union (typo /
+ *  renamed option / stray whitespace). mapRow deliberately does NOT null these —
+ *  due.ts/preflight.ts treat a null status as eligible-by-default, so nulling a
+ *  typo would ACTIVATE the row. The cockpit surfaces these as watch rows instead. */
+export function isUnrecognizedStatus(status: Status | null): boolean {
+  return status !== null && !KNOWN_STATUSES.has(status);
 }
 
 const FREQUENCIES: readonly Frequency[] = ["None", "Monthly", "Quarterly", "Yearly"];

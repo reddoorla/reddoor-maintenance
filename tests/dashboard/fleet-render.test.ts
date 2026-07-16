@@ -728,7 +728,8 @@ describe("renderCockpitHtml — cockpit cards", () => {
           id: "p",
           name: "Launching",
           status: "launch period",
-          securityVulnsCritical: 2, // would be a red attention pill on a live site
+          pScore: 60, // sub-floor Lighthouse — expected pre-launch noise, stays muted
+          deployStatus: "error", // errored deploy — also expected pre-launch
         }),
       ]),
     );
@@ -739,6 +740,22 @@ describe("renderCockpitHtml — cockpit cards", () => {
     expect(html).toContain("✓ All clear");
     expect(html).toContain("1 pre-launch");
     expect(html).not.toMatch(/site[s]? broken/);
+  });
+
+  it("a launch-period site with critical vulns pierces the mute (red pill, not pre-launch)", () => {
+    const html = renderCockpitHtml(
+      model([
+        siteRow({
+          id: "p",
+          name: "Launching",
+          status: "launch period",
+          securityVulnsCritical: 2, // previously fully muted — now a genuine alarm
+        }),
+      ]),
+    );
+    expect(html).toMatch(/class="pill attention"/);
+    expect(html).not.toMatch(/class="pill pre-launch"/);
+    expect(html).not.toContain("✓ All clear");
   });
 
   it("renders a NEW badge for a freshly-flagged item and WORSE for a risen metric", () => {
@@ -1009,6 +1026,44 @@ describe("deploy badge", () => {
     );
     expect(html).not.toContain('href="javascript:alert(1)"');
     expect(html).not.toContain('href="#"');
+  });
+});
+
+describe("renderCockpitHtml — archived lane + status honesty", () => {
+  it("renders an archived count term and a collapsed Archived lane for a legacy row", () => {
+    const html = renderCockpitHtml(
+      model([
+        siteRow({ id: "a", name: "Acme" }),
+        siteRow({ id: "l", name: "Old & Legacy", status: "legacy" }),
+      ]),
+    );
+    expect(html).toContain("1 archived");
+    expect(html).toContain("🗄 Archived (1)");
+    expect(html).toContain("Old &amp; Legacy"); // escaped site name
+    expect(html).toContain('<span class="muted">legacy</span>');
+    expect(html).toContain('href="/s/old-legacy"');
+    // The archived row is a roster entry, never a fleet card.
+    expect(html).toContain("Fleet (1)");
+  });
+
+  it("renders neither the archived term nor the lane when nothing is archived", () => {
+    const html = renderCockpitHtml(model([siteRow({ id: "a", name: "Acme" })]));
+    expect(html).not.toContain("1 archived");
+    expect(html).not.toContain("🗄 Archived");
+    expect(html).not.toContain('class="archived"');
+  });
+
+  it("renders an amber verdict + feed reason for a typo'd Status cell", () => {
+    const html = renderCockpitHtml(
+      model([
+        siteRow({ id: "a", name: "Acme" }),
+        siteRow({ id: "t", name: "Typo Site", status: "maintenence " as WebsiteRow["status"] }),
+      ]),
+    );
+    expect(html).toContain('class="verdict watch"');
+    expect(html).toContain("1 site to watch");
+    expect(html).toContain("is not a recognized value");
+    expect(html).toContain('href="/s/typo-site"');
   });
 });
 

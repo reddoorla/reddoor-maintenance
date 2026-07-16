@@ -1,4 +1,4 @@
-import { openBase, readAirtableConfig } from "../../reports/airtable/client.js";
+import { openBase, readAirtableConfig, type AirtableBase } from "../../reports/airtable/client.js";
 import { listWebsites, updateAutoFixAttempts } from "../../reports/airtable/websites.js";
 import { makeGitHub } from "../../github/gh.js";
 import {
@@ -9,6 +9,7 @@ import {
   computeAutoFixAttemptUpdates,
   applyAutoFixAttemptUpdates,
   formatAutoFixAttemptsSummary,
+  type RenovateDispatchResult,
 } from "../../github/renovate-dispatch.js";
 
 /**
@@ -25,6 +26,8 @@ import {
  */
 export async function runRenovateDispatchCommand(opts: {
   fleet?: boolean | undefined;
+  /** Inject a pre-opened Airtable base (tests). Defaults to env config. */
+  base?: AirtableBase;
 }): Promise<{ output: string; code: number }> {
   if (!opts.fleet) {
     return { output: "renovate-dispatch currently supports only --fleet", code: 2 };
@@ -37,41 +40,43 @@ export async function runRenovateDispatchCommand(opts: {
     };
   }
 
-  const base = openBase(readAirtableConfig());
+  const base = opts.base ?? openBase(readAirtableConfig());
   const websites = await listWebsites(base);
   const targets = selectRenovateTargets(websites);
 
+  const lines: string[] = [];
+  let result: RenovateDispatchResult = { dispatched: [], skipped: [], failed: [] };
   if (targets.length === 0) {
-    return {
-      output:
-        `${formatRenovateDispatchSummary({ dispatched: [], skipped: [], failed: [] })}\n` +
-        "No active repo-backed sites with critical/high vulnerabilities — nothing to dispatch.",
-      code: 0,
-    };
+    lines.push(
+      "No active repo-backed sites with critical/high vulnerabilities — nothing to dispatch.",
+    );
+  } else {
+    const gh = makeGitHub({ token });
+    result = await dispatchRenovateAcross(targets, {
+      hasHealthyOpenRenovatePr: async (repo) =>
+        hasHealthyRenovatePr(await gh.openPullRequests(repo)),
+      defaultBranch: (repo) => gh.defaultBranch(repo),
+      dispatch: (repo, workflow, ref) => gh.dispatchWorkflow(repo, workflow, ref),
+    });
+
+    const failedRepos = new Set(result.failed.map((f) => f.repo));
+    const skippedRepos = new Set(result.skipped);
+    for (const t of targets) {
+      const status = failedRepos.has(t.repo)
+        ? "FAILED                       "
+        : skippedRepos.has(t.repo)
+          ? "skipped (open Renovate PR)   "
+          : "dispatched                   ";
+      lines.push(`${status} ${t.repo} (critical=${t.critical} high=${t.high}) — ${t.siteName}`);
+    }
+    for (const f of result.failed) lines.push(`  ↳ ${f.repo}: ${f.error}`);
   }
 
-  const gh = makeGitHub({ token });
-  const result = await dispatchRenovateAcross(targets, {
-    hasHealthyOpenRenovatePr: async (repo) => hasHealthyRenovatePr(await gh.openPullRequests(repo)),
-    defaultBranch: (repo) => gh.defaultBranch(repo),
-    dispatch: (repo, workflow, ref) => gh.dispatchWorkflow(repo, workflow, ref),
-  });
-
-  const failedRepos = new Set(result.failed.map((f) => f.repo));
-  const skippedRepos = new Set(result.skipped);
-  const lines = targets.map((t) => {
-    const status = failedRepos.has(t.repo)
-      ? "FAILED                       "
-      : skippedRepos.has(t.repo)
-        ? "skipped (open Renovate PR)   "
-        : "dispatched                   ";
-    return `${status} ${t.repo} (critical=${t.critical} high=${t.high}) — ${t.siteName}`;
-  });
-  for (const f of result.failed) lines.push(`  ↳ ${f.repo}: ${f.error}`);
-
-  // Update the auto-fix attempt counters from this run, best-effort: a write that
-  // fails (e.g. the Airtable field not yet created) is tallied, never thrown — the
-  // sweep must still exit 0. Uses the full `websites` list so 0-vuln sites reset.
+  // Counter bookkeeping runs on EVERY fleet run — the reset-on-clean branch was
+  // previously unreachable behind the zero-targets early return, so a fully-clean
+  // fleet never cleared stale counters (Alamo stuck at 7, 2026-07). Best-effort:
+  // a failed write is tallied, never thrown. Uses the full `websites` list so
+  // 0-vuln sites reset.
   const attemptUpdates = computeAutoFixAttemptUpdates(websites, result);
   const attemptTally = await applyAutoFixAttemptUpdates(attemptUpdates, (id, attempts) =>
     updateAutoFixAttempts(base, id, attempts),

@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { mapRow } from "../../src/reports/airtable/websites.js";
+import {
+  mapRow,
+  isArchivedStatus,
+  isUnrecognizedStatus,
+  type Status,
+} from "../../src/reports/airtable/websites.js";
 
 describe("mapRow frequency coercion", () => {
   afterEach(() => {
@@ -51,5 +56,27 @@ describe("mapRow frequency coercion", () => {
     expect(row.maintenanceFreq).toBe("None");
     expect(row.testingFreq).toBe("None");
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe("mapRow status", () => {
+  it("reads a 'legacy' Status cell as the recognized union member", () => {
+    expect(mapRow({ id: "r1", fields: { Status: "legacy" } }).status).toBe("legacy");
+  });
+
+  it("isArchivedStatus recognizes legacy + deprecated only", () => {
+    expect(isArchivedStatus("legacy")).toBe(true);
+    expect(isArchivedStatus("deprecated")).toBe(true);
+    expect(isArchivedStatus("maintenance")).toBe(false);
+    expect(isArchivedStatus(null)).toBe(false);
+  });
+
+  it("isUnrecognizedStatus flags only values outside the union (typos), never null", () => {
+    expect(isUnrecognizedStatus("legacy")).toBe(false);
+    // A typo'd cell flows through mapRow's blind cast; the helper is how the
+    // cockpit detects it WITHOUT nulling it (null status is schedulable-by-default
+    // in due.ts/preflight.ts, so nulling a typo would activate the row).
+    expect(isUnrecognizedStatus("maintenence " as Status)).toBe(true);
+    expect(isUnrecognizedStatus(null)).toBe(false);
   });
 });
