@@ -579,25 +579,75 @@ describe("ingestSubmission — velocity / duplicate-body signal", () => {
     );
   });
 
-  it("does not run the lookup (or re-flag) when the row is ALREADY spam_auto from Turnstile", async () => {
-    // Short-circuit: an absent-token gated site already bucketed this row; the
-    // velocity lookup is wasted work and would append a redundant reason.
+  it("runs the lookup for RETRO even when the row is already spam_auto — but never re-flags", async () => {
+    // Reversal of the original short-circuit: once the classifier/turnstile catch
+    // whole spray families, an already-bucketed copy skipping the scan meant the
+    // retro cleanup NEVER fired for exactly the sprays it was built for. The scan
+    // now always runs; the incoming row's status/reason are untouched, and prior
+    // still-'new' copies get retro-bucketed.
     const site = makeWebsiteRow({ id: "recSITE", requireTurnstile: true });
     const row = makeSubmissionRow({ id: "recSUB", status: "spam_auto" });
-    const findRecentDuplicates = vi
-      .fn()
-      .mockResolvedValue({ exact: [{ id: "recP1", status: "new" }], similar: [] });
+    const findRecentDuplicates = vi.fn().mockResolvedValue({
+      exact: [{ id: "recP1", status: "new", siteId: "recOTHER", email: "spray@x.com" }],
+      similar: [],
+    });
+    const retroBucket = vi.fn().mockResolvedValue(undefined);
     const d = deps({
       getWebsiteBySlug: vi.fn().mockResolvedValue(site),
       createSubmission: vi.fn().mockResolvedValue(row),
       classifySpam: () => ({ score: 0, reasons: [] }),
       findRecentDuplicates,
+      retroBucket,
     });
     const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "absent");
     expect(r.status).toBe("accepted");
-    expect(findRecentDuplicates).not.toHaveBeenCalled();
+    expect(findRecentDuplicates).toHaveBeenCalledTimes(1);
+    // reason stays the turnstile one — no duplicate-body appended to the incoming row
     expect(d.createSubmission).toHaveBeenCalledWith(
       expect.objectContaining({ status: "spam_auto", spamReason: "turnstile-required-absent" }),
+    );
+    // …but the prior still-'new' spray copy IS retro-cleaned
+    expect(retroBucket).toHaveBeenCalledWith(["recP1"], "retro:duplicate-body");
+  });
+
+  it("exempts a genuine same-sender resubmission on the same site (no bucket, no retro)", async () => {
+    // A real visitor double-submitting / resending after silence produces an exact
+    // match from the SAME email on the SAME site — that is not spray evidence.
+    // Without this exemption the resend was silently bucketed AND the delivered
+    // original was retro-flipped: an active lead vanished with no signal.
+    const findRecentDuplicates = vi.fn().mockResolvedValue({
+      exact: [{ id: "recORIG", status: "new", siteId: "recSITE", email: "A@B.co " }],
+      similar: [],
+    });
+    const retroBucket = vi.fn().mockResolvedValue(undefined);
+    const d = deps({
+      classifySpam: () => ({ score: 0, reasons: [] }),
+      findRecentDuplicates,
+      retroBucket,
+    });
+    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
+    expect(r.status).toBe("accepted");
+    if (r.status === "accepted") expect(r.notifyStatus).toBe("sent");
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "new", spamReason: null }),
+    );
+    expect(retroBucket).not.toHaveBeenCalled();
+
+    // The same body from a DIFFERENT sender on the same site is still spray evidence.
+    const findRecentDuplicates2 = vi.fn().mockResolvedValue({
+      exact: [{ id: "recORIG", status: "new", siteId: "recSITE", email: "other@x.com" }],
+      similar: [],
+    });
+    const d2 = deps({
+      createSubmission: vi
+        .fn()
+        .mockResolvedValue(makeSubmissionRow({ id: "recSUB", status: "spam_auto" })),
+      classifySpam: () => ({ score: 0, reasons: [] }),
+      findRecentDuplicates: findRecentDuplicates2,
+    });
+    await ingestSubmission(d2, "acme", { email: "a@b.co", message: body }, "unverifiable");
+    expect(d2.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "spam_auto", spamReason: "duplicate-body" }),
     );
   });
 
@@ -721,23 +771,32 @@ describe("ingestSubmission — cross-site repeat-sender signal", () => {
     );
   });
 
-  it("does not run the lookup when the row is ALREADY spam_auto from Turnstile", async () => {
+  it("runs the lookup for RETRO even when already spam_auto from Turnstile — status/reason untouched", async () => {
+    // Reversal of the original skip: the scan must run so a bot-bucketed copy still
+    // retro-cleans the same sender's prior cross-site rows sitting in 'new'.
     const site = makeWebsiteRow({ id: "recSITE", requireTurnstile: true });
     const row = makeSubmissionRow({ id: "recSUB", status: "spam_auto" });
     const listRecentSubmissionsForEmail = vi
       .fn()
       .mockResolvedValue([{ id: "recP1", siteId: "recOTHER", status: "new" }]);
+    const retroBucket = vi.fn().mockResolvedValue(undefined);
     const d = deps({
       getWebsiteBySlug: vi.fn().mockResolvedValue(site),
       createSubmission: vi.fn().mockResolvedValue(row),
       classifySpam: () => ({ score: 0, reasons: [] }),
       listRecentSubmissionsForEmail,
+      retroBucket,
     });
     await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "absent");
-    expect(listRecentSubmissionsForEmail).not.toHaveBeenCalled();
+    expect(listRecentSubmissionsForEmail).toHaveBeenCalledTimes(1);
+    expect(retroBucket).toHaveBeenCalledWith(["recP1"], "retro:repeat-sender");
+    // the incoming row keeps its turnstile reason — repeat-sender is NOT appended
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "spam_auto", spamReason: "turnstile-required-absent" }),
+    );
   });
 
-  it("fires BEFORE the duplicate check — a repeat-sender hit skips the body lookup", async () => {
+  it("a repeat-sender hit no longer suppresses the body lookup — both scans run (both retro paths live)", async () => {
     const row = makeSubmissionRow({ id: "recSUB", status: "spam_auto" });
     const findRecentDuplicates = vi.fn().mockResolvedValue({ exact: [], similar: [] });
     const d = deps({
@@ -749,10 +808,13 @@ describe("ingestSubmission — cross-site repeat-sender signal", () => {
       findRecentDuplicates,
     });
     await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
-    expect(findRecentDuplicates).not.toHaveBeenCalled();
+    // repeat-sender escalates first and owns the reason…
     expect(d.createSubmission).toHaveBeenCalledWith(
       expect.objectContaining({ spamReason: "repeat-sender" }),
     );
+    // …but the body scan still runs so identical-body copies from OTHER senders
+    // can be retro-cleaned too.
+    expect(findRecentDuplicates).toHaveBeenCalledTimes(1);
   });
 
   it("swallows a lookup failure — the lead is still accepted as new", async () => {

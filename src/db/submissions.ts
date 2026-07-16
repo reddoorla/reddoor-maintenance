@@ -275,13 +275,19 @@ function jaccard(a: Set<string>, b: Set<string>): number {
  *  Returned statuses let the caller retro-bucket still-'new' prior copies. The 2000-row
  *  LIMIT is a safety bound only — current volume is ~130/month, so a 30-day window is
  *  always a full scan. */
+/** One matched prior row from the duplicate scan. Carries siteId + email so the
+ *  ingest caller can exempt a GENUINE same-sender resubmission on the same site
+ *  (a real visitor double-submitting / resending after silence) — only cross-site
+ *  or different-sender copies are spray evidence. */
+export type DuplicateMatch = { id: string; status: string; siteId: string; email: string };
+
 export async function findRecentDuplicateSubmissions(
   db: Db,
   message: string,
   sinceDate: string,
 ): Promise<{
-  exact: Array<{ id: string; status: string }>;
-  similar: Array<{ id: string; status: string }>;
+  exact: DuplicateMatch[];
+  similar: DuplicateMatch[];
 }> {
   const incoming = normalizeBody(message);
   const incomingTokens = tokenSet(incoming);
@@ -292,26 +298,32 @@ export async function findRecentDuplicateSubmissions(
 
   const rows = await db
     .selectFrom("submissions")
-    .select(["id", "status", "message"])
+    .select(["id", "status", "message", "site_id", "email"])
     .where("message", "is not", null)
     .where("submitted_at", ">=", sinceDate)
     .orderBy("submitted_at", "desc")
     .limit(2000)
     .execute();
 
-  const exact: Array<{ id: string; status: string }> = [];
-  const similar: Array<{ id: string; status: string }> = [];
+  const exact: DuplicateMatch[] = [];
+  const similar: DuplicateMatch[] = [];
   for (const row of rows) {
     const stored = normalizeBody(row.message ?? "");
+    const match: DuplicateMatch = {
+      id: row.id,
+      status: row.status,
+      siteId: row.site_id,
+      email: row.email,
+    };
     if (exactEligible && stored === incoming) {
-      exact.push({ id: row.id, status: row.status });
+      exact.push(match);
       continue; // an exact match must not also appear in similar
     }
     if (!similarEligible) continue;
     const storedTokens = tokenSet(stored);
     if (storedTokens.size < MIN_SIMILAR_TOKENS) continue;
     if (jaccard(incomingTokens, storedTokens) >= SIMILARITY_THRESHOLD) {
-      similar.push({ id: row.id, status: row.status });
+      similar.push(match);
     }
   }
   return { exact, similar };
@@ -359,6 +371,24 @@ export async function markSubmissionsSpamRetro(
     .where("id", "in", ids)
     .where("status", "=", "new")
     .execute();
+}
+
+/** spam_reason strings for EVERY row matching `filter` (not just one page). Powers the
+ *  /submissions per-reason facet line, which must tally the WHOLE filtered bucket — the
+ *  rollout runbook directs the operator to judge the canary from it, and a page-scoped
+ *  tally under the full-bucket total silently misread once the bucket passed one page.
+ *  Capped (default 2000) as a safety bound far above any real bucket. */
+export async function listSpamReasonsFiltered(
+  db: Db,
+  filter: SubmissionFilter,
+  cap = 2000,
+): Promise<string[]> {
+  const base = db.selectFrom("submissions").select(["spam_reason"]);
+  const rows = await applySubmissionFilter(base, filter)
+    .where("spam_reason", "is not", null)
+    .limit(cap)
+    .execute();
+  return rows.map((r) => r.spam_reason).filter((r): r is string => r !== null && r !== "");
 }
 
 /** Insert a SubmissionRow verbatim, preserving its id, display number, and status.

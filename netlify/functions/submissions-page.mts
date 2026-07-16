@@ -2,7 +2,11 @@ import type { Context, Config } from "@netlify/functions";
 import { openBase } from "../../src/reports/airtable/client.js";
 import { listWebsites, siteSlug } from "../../src/reports/airtable/websites.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
-import { listSubmissionsFiltered, countSubmissionsFiltered } from "../../src/db/submissions.js";
+import {
+  listSubmissionsFiltered,
+  countSubmissionsFiltered,
+  listSpamReasonsFiltered,
+} from "../../src/db/submissions.js";
 import {
   verifyBasicAuth,
   renderSubmissionsPageHtml,
@@ -77,9 +81,14 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       filter.siteId = match.id;
     }
 
-    const [rows, total] = await Promise.all([
+    // Facet reasons cover the WHOLE filtered bucket (the renderer's facet line sits
+    // under the full-bucket total, so a page-scoped tally misreads a multi-page
+    // bucket). Only fetched on the spam views where the facet line renders.
+    const wantFacets = filter.status === "spam_auto" || filter.status === "spam";
+    const [rows, total, facetReasons] = await Promise.all([
       listSubmissionsFiltered(db, filter, { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }),
       countSubmissionsFiltered(db, filter),
+      wantFacets ? listSpamReasonsFiltered(db, filter) : Promise.resolve([]),
     ]);
 
     const model = buildSubmissionsPageModel({
@@ -89,6 +98,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       filter,
       rawFilter,
       page,
+      facetReasons,
     });
     return html(renderSubmissionsPageHtml(model), 200);
   } catch (err) {

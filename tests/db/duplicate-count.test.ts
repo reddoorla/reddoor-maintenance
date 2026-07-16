@@ -83,7 +83,14 @@ describe("findRecentDuplicateSubmissions — exact tier", () => {
       submittedAt: new Date("2026-06-28T00:00:00.000Z"),
     });
     const r = await findRecentDuplicateSubmissions(db, PITCH, "2026-06-20");
-    expect(r.exact).toContainEqual({ id: spam.id, status: "spam_auto" });
+    expect(r.exact).toContainEqual(
+      expect.objectContaining({
+        id: spam.id,
+        status: "spam_auto",
+        siteId: "recC",
+        email: "c@x.com",
+      }),
+    );
     expect(r.exact.filter((m) => m.status === "new")).toHaveLength(2);
   });
 
@@ -175,7 +182,7 @@ describe("findRecentDuplicateSubmissions — similar tier", () => {
     });
     const r = await findRecentDuplicateSubmissions(db, SPRAY_VARIANT, "2026-06-20");
     expect(r.exact).toHaveLength(0);
-    expect(r.similar).toContainEqual({ id: prior.id, status: "new" });
+    expect(r.similar).toContainEqual(expect.objectContaining({ id: prior.id, status: "new" }));
   });
 
   it("matches a domain-substituted spray (normalization strips the swapped domain → exact)", async () => {
@@ -198,7 +205,7 @@ describe("findRecentDuplicateSubmissions — similar tier", () => {
     });
     const r = await findRecentDuplicateSubmissions(db, seoB, "2026-06-20");
     const combined = [...r.exact, ...r.similar];
-    expect(combined).toContainEqual({ id: prior.id, status: "new" });
+    expect(combined).toContainEqual(expect.objectContaining({ id: prior.id, status: "new" }));
   });
 
   it("never puts an exact match in similar too", async () => {
@@ -213,7 +220,7 @@ describe("findRecentDuplicateSubmissions — similar tier", () => {
       submittedAt: new Date("2026-06-28T00:00:00.000Z"),
     });
     const r = await findRecentDuplicateSubmissions(db, SPRAY, "2026-06-20");
-    expect(r.exact).toContainEqual({ id: prior.id, status: "new" });
+    expect(r.exact).toContainEqual(expect.objectContaining({ id: prior.id, status: "new" }));
     expect(r.similar).toHaveLength(0);
   });
 
