@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { renderCockpitHtml } from "../../src/dashboard/fleet-render.js";
+import { renderFleetBrowsePanel } from "../../src/dashboard/fleet-browse-render.js";
 import { buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
-import type { CockpitModel } from "../../src/dashboard/fleet-cockpit.js";
+import type { CockpitModel, SiteCard, SubmissionEntry } from "../../src/dashboard/fleet-cockpit.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 function model(over: Partial<CockpitModel> = {}): CockpitModel {
@@ -114,6 +115,97 @@ describe("renderCockpitHtml — submissions", () => {
       }),
     );
     expect(html).toContain('href="/submissions"');
+  });
+});
+
+describe("renderCockpitHtml — inbox lane lead/signup split", () => {
+  const entry = (id: string, formType: SubmissionEntry["formType"]): SubmissionEntry => ({
+    submissionId: id,
+    siteName: "Acme Co",
+    slug: "acme-co",
+    formType,
+    name: "Jane",
+    email: "jane@x.com",
+    submittedAt: "2026-06-14T12:00:00Z",
+  });
+
+  it("renders an all-lead queue without a newsletter term (unchanged rendering)", () => {
+    const html = renderCockpitHtml(
+      model({ submissions: [entry("s1", "contact"), entry("s2", "inquiry")] }),
+    );
+    expect(html).toContain("📥 Submissions (2 new)");
+    expect(html).not.toContain("newsletter/rsvp");
+  });
+
+  it("renders a mixed queue as leads + a separate signup term", () => {
+    const html = renderCockpitHtml(
+      model({
+        submissions: [
+          entry("s1", "contact"),
+          entry("s2", "contact"),
+          entry("s3", "newsletter"),
+          entry("s4", "rsvp"),
+          entry("s5", "newsletter"),
+        ],
+      }),
+    );
+    expect(html).toContain("📥 Submissions (2 new · +3 newsletter/rsvp)");
+  });
+
+  it("renders a signup-only backlog honestly as 0 new", () => {
+    const subs = Array.from({ length: 73 }, (_, i) => entry(`s${i}`, "newsletter"));
+    const html = renderCockpitHtml(model({ submissions: subs }));
+    expect(html).toContain("📥 Submissions (0 new · +73 newsletter/rsvp)");
+  });
+});
+
+describe("renderFleetBrowsePanel — per-card submissions chip split", () => {
+  function cardModel(cardOver: Partial<SiteCard>): CockpitModel {
+    const card: SiteCard = {
+      site: makeWebsiteRow({ id: "recSITE", name: "Acme Co", status: "maintenance" }),
+      tier: "healthy",
+      items: [],
+      watchReasons: [],
+      watchSignals: [],
+      acceptedReasons: [],
+      ...cardOver,
+    };
+    return model({ cards: [card] });
+  }
+
+  it("renders leads + newsletter when both are present", () => {
+    const html = renderFleetBrowsePanel(
+      cardModel({ newSubmissions: 3, newLeads: 1, newSignups: 2 }),
+    );
+    expect(html).toContain("📥 1 new · +2 newsletter");
+  });
+
+  it("renders only the lead count when there are no signups", () => {
+    const html = renderFleetBrowsePanel(
+      cardModel({ newSubmissions: 2, newLeads: 2, newSignups: 0 }),
+    );
+    expect(html).toContain("📥 2 new");
+    expect(html).not.toContain("newsletter");
+  });
+
+  it("renders a signups-only chip without a fake lead count", () => {
+    const html = renderFleetBrowsePanel(
+      cardModel({ newSubmissions: 2, newLeads: 0, newSignups: 2 }),
+    );
+    expect(html).toContain("📥 +2 newsletter");
+    expect(html).not.toContain("0 new");
+  });
+
+  it("legacy card with only newSubmissions still renders the old label (fallback)", () => {
+    const html = renderFleetBrowsePanel(cardModel({ newSubmissions: 3 }));
+    expect(html).toContain("📥 3 new");
+  });
+
+  it("renders no chip when all counts are zero", () => {
+    const html = renderFleetBrowsePanel(
+      cardModel({ newSubmissions: 0, newLeads: 0, newSignups: 0 }),
+    );
+    expect(html).not.toContain("📥");
   });
 });
 

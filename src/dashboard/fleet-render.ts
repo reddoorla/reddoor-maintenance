@@ -6,6 +6,7 @@ import type {
   RecentEntry,
 } from "./fleet-cockpit.js";
 import { fleetLastAuditedAt, buildNeedsYouFeed } from "./fleet-cockpit.js";
+import { isLeadFormType } from "../forms/types.js";
 import type { FleetEventType } from "../db/fleet-events.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 import { escapeHtml } from "../util/html.js";
@@ -294,8 +295,14 @@ function renderInboxLane(model: CockpitModel): string {
   const autoFilteredLine = hasAutoFiltered
     ? `<div class="spam-rollup muted">🚫 ${autoFiltered} auto-filtered this week — <a href="/submissions?status=spam_auto">review</a></div>`
     : "";
+  // Actionable leads vs newsletter/rsvp signups (2026-07-16): a signup backlog must
+  // not read as N leads waiting. The signup term only appears when nonzero.
+  const leads = subs.filter((s) => isLeadFormType(s.formType)).length;
+  const signups = subs.length - leads;
+  const summaryCount =
+    signups === 0 ? `${leads} new` : `${leads} new · +${signups} newsletter/rsvp`;
   return `<details class="inbox">
-    <summary>📥 Submissions (${subs.length} new)${spamInSummary}</summary>
+    <summary>📥 Submissions (${summaryCount})${spamInSummary}</summary>
     ${rows}${subs.length > 0 ? more : ""}
     ${spamLine}
     ${autoFilteredLine}

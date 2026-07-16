@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { runDigest, listPendingApproval } from "../../src/reports/digest.js";
+import {
+  runDigest,
+  listPendingApproval,
+  buildSubmissionsDigestSection,
+} from "../../src/reports/digest.js";
+import type { SiteSubmissionCounts } from "../../src/db/submissions.js";
+import { makeWebsiteRow } from "../_helpers/website-row.js";
 import type { ResendClient, ResendSendInput } from "../../src/reports/send/resend.js";
 import { makeFakeBase, type FakeRecord } from "./_helpers/fake-airtable-base.js";
 
@@ -705,5 +711,109 @@ describe("runDigest", () => {
     expect(captured).toHaveLength(0); // no email
     const row = base.__records.get("Digest State")!.at(-1)!;
     expect(JSON.parse(String(row.fields["Snapshot"]))).toEqual({}); // resolved key cleared
+  });
+
+  // ── Submissions (24h) telemetry ──────────────────────────────────────────────
+
+  it("renders injected submissionCounts as the Submissions (24h) section, names resolved", async () => {
+    const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
+    const { client, captured } = captureClient();
+    const counts = new Map<string, SiteSubmissionCounts>([
+      ["rec_site_acme", { leads: 2, signups: 1, spamAuto: 3 }],
+    ]);
+    const result = await runDigest({
+      base,
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+      submissionCounts: counts,
+    });
+    expect(result.code).toBe(0);
+    const html = captured[0]!.html;
+    expect(html).toContain("Submissions (24h)");
+    expect(html).toContain("2 new leads · 1 newsletter/RSVP signup · 3 auto-filtered spam");
+    expect(html).toContain("2 leads · 1 signup · 3 auto-filtered");
+  });
+
+  it("submissionCounts: null (libSQL unavailable) still sends the digest WITHOUT the section", async () => {
+    const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
+    const { client, captured } = captureClient();
+    const result = await runDigest({
+      base,
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+      submissionCounts: null,
+    });
+    expect(result.code).toBe(0);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]!.html).not.toContain("Submissions (24h)");
+  });
+
+  it("telemetry alone NEVER flips a skip into a send (no-noise rule unchanged)", async () => {
+    // Nothing pending, nothing needing attention — nonzero injected counts must not
+    // trigger a send (leads already fire their own ingest-time notification).
+    const base = makeFakeBase({ Reports: [], Websites: [cleanSiteRow()] });
+    const { client, captured } = captureClient();
+    const result = await runDigest({
+      base,
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+      submissionCounts: new Map([["rec_site_acme", { leads: 5, signups: 5, spamAuto: 5 }]]),
+    });
+    expect(result.code).toBe(0);
+    expect(result.output).toContain("skipped");
+    expect(captured).toHaveLength(0);
+  });
+});
+
+// ── buildSubmissionsDigestSection (pure assembler) ────────────────────────────
+
+describe("buildSubmissionsDigestSection", () => {
+  const sitesById = new Map([
+    ["recA", makeWebsiteRow({ id: "recA", name: "Alpha" })],
+    ["recB", makeWebsiteRow({ id: "recB", name: "Beta" })],
+  ]);
+
+  it("returns null when counts are null (libSQL unavailable)", () => {
+    expect(buildSubmissionsDigestSection(null, sitesById)).toBeNull();
+  });
+
+  it("counts an orphan site id in the fleet totals but omits it from bySite", () => {
+    const counts = new Map<string, SiteSubmissionCounts>([
+      ["recA", { leads: 1, signups: 0, spamAuto: 0 }],
+      ["recGHOST", { leads: 2, signups: 1, spamAuto: 1 }],
+    ]);
+    const s = buildSubmissionsDigestSection(counts, sitesById);
+    expect(s).toEqual({
+      leads: 3,
+      signups: 1,
+      spamAuto: 1,
+      bySite: [{ siteName: "Alpha", leads: 1, signups: 0, spamAuto: 0 }],
+    });
+  });
+
+  it("drops all-zero sites from bySite and sorts by volume desc then name A-Z", () => {
+    const counts = new Map<string, SiteSubmissionCounts>([
+      ["recA", { leads: 1, signups: 0, spamAuto: 0 }],
+      ["recB", { leads: 0, signups: 0, spamAuto: 0 }],
+    ]);
+    const s = buildSubmissionsDigestSection(counts, sitesById)!;
+    expect(s.bySite.map((x) => x.siteName)).toEqual(["Alpha"]);
+
+    const tie = new Map<string, SiteSubmissionCounts>([
+      ["recB", { leads: 1, signups: 0, spamAuto: 0 }],
+      ["recA", { leads: 1, signups: 0, spamAuto: 0 }],
+    ]);
+    expect(buildSubmissionsDigestSection(tie, sitesById)!.bySite.map((x) => x.siteName)).toEqual([
+      "Alpha",
+      "Beta",
+    ]);
+
+    const volume = new Map<string, SiteSubmissionCounts>([
+      ["recA", { leads: 1, signups: 0, spamAuto: 0 }],
+      ["recB", { leads: 1, signups: 2, spamAuto: 3 }],
+    ]);
+    expect(buildSubmissionsDigestSection(volume, sitesById)!.bySite.map((x) => x.siteName)).toEqual(
+      ["Beta", "Alpha"],
+    );
   });
 });

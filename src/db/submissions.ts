@@ -10,6 +10,7 @@ import {
   toNotifyStatus,
 } from "../reports/submission-row.js";
 import type { FormType, SubmissionStatus } from "../reports/submission-row.js";
+import { SIGNUP_FORM_TYPES } from "../forms/types.js";
 
 export type SubmissionFilter = {
   siteId?: string;
@@ -21,6 +22,9 @@ export type SubmissionFilter = {
   from?: string;
   /** submitted_at <= to (ISO string) */
   to?: string;
+  /** exact spam_reason token (comma-boundary match; a stored ":N" count suffix on
+   *  the token still matches) */
+  reason?: string;
 };
 
 /** Map a raw DB row to the canonical SubmissionRow, narrowing the enum columns
@@ -181,6 +185,24 @@ function applySubmissionFilter<O>(
       ]),
     );
   }
+  if (f.reason !== undefined && f.reason.trim() !== "") {
+    // spam_reason is a comma-joined token list (ingest.ts joins ","; retro appends
+    // ",<reason>"). Comma-boundary match so "links" never matches "backlinks" and
+    // "turnstile-required-absent" never matches "-failed"; the second branch accepts
+    // a per-token count suffix ("keywords:4" matches reason=keywords). LIKE
+    // metacharacters escaped exactly like the search branch. lower() both sides is
+    // safe: tokens are ASCII classifier codes.
+    const token = f.reason
+      .trim()
+      .toLowerCase()
+      .replace(/[\\%_]/g, "\\$&");
+    q = q.where((eb) =>
+      eb.or([
+        sql<SqlBool>`',' || lower(${eb.ref("spam_reason")}) || ',' like ${`%,${token},%`} escape '\\'`,
+        sql<SqlBool>`',' || lower(${eb.ref("spam_reason")}) || ',' like ${`%,${token}:%`} escape '\\'`,
+      ]),
+    );
+  }
   return q;
 }
 
@@ -215,6 +237,44 @@ export async function countAutoSpamSince(db: Db, sinceDate: string): Promise<num
     .where("submitted_at", ">=", sinceDate)
     .executeTakeFirstOrThrow();
   return Number(res.n);
+}
+
+export type SiteSubmissionCounts = { leads: number; signups: number; spamAuto: number };
+
+/** Per-site submission counts on/after `sinceIso` (full ISO timestamp) for the
+ *  digest telemetry line. Grouped one-query: leads/signups = rows NOT auto- or
+ *  operator-bucketed as spam (status NOT IN ('spam_auto','spam')) split by
+ *  isLeadFormType; spamAuto = status='spam_auto'. Keyed by Websites record id. */
+export async function countSubmissionsSinceBySite(
+  db: Db,
+  sinceIso: string,
+): Promise<Map<string, SiteSubmissionCounts>> {
+  const signupList = sql.join(SIGNUP_FORM_TYPES.map((t) => sql`${t}`));
+  const rows = await db
+    .selectFrom("submissions")
+    .select([
+      "site_id",
+      sql<number>`sum(case when status not in ('spam_auto','spam') and form_type not in (${signupList}) then 1 else 0 end)`.as(
+        "leads_n",
+      ),
+      sql<number>`sum(case when status not in ('spam_auto','spam') and form_type in (${signupList}) then 1 else 0 end)`.as(
+        "signups_n",
+      ),
+      sql<number>`sum(case when status = 'spam_auto' then 1 else 0 end)`.as("spam_auto_n"),
+    ])
+    .where("submitted_at", ">=", sinceIso)
+    .groupBy("site_id")
+    .execute();
+  return new Map(
+    rows.map((r) => [
+      r.site_id,
+      {
+        leads: Number(r.leads_n) || 0,
+        signups: Number(r.signups_n) || 0,
+        spamAuto: Number(r.spam_auto_n) || 0,
+      },
+    ]),
+  );
 }
 
 /** A normalized body shorter than this never triggers the exact-duplicate signal —

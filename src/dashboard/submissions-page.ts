@@ -13,6 +13,8 @@ export type RawFilter = {
   q: string;
   from: string;
   to: string;
+  /** exact spam_reason token from a facet chip click (empty = no reason filter) */
+  reason: string;
 };
 export type ParsedQuery = {
   filter: SubmissionFilter;
@@ -55,6 +57,8 @@ export function parseSubmissionsQuery(params: URLSearchParams): ParsedQuery {
   const q = params.get("q")?.trim() ?? "";
   const from = params.get("from")?.trim() ?? "";
   const to = params.get("to")?.trim() ?? "";
+  // Reason tokens are short classifier codes; the cap just bounds hostile input.
+  const reason = (params.get("reason")?.trim() ?? "").slice(0, 64);
   const pageRaw = Number.parseInt(params.get("page") ?? "1", 10);
   const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? pageRaw : 1;
 
@@ -66,8 +70,9 @@ export function parseSubmissionsQuery(params: URLSearchParams): ParsedQuery {
   if (q) filter.search = q;
   if (from) filter.from = from;
   if (to) filter.to = `${to}T23:59:59.999Z`; // widen to end-of-day, inclusive
+  if (reason) filter.reason = reason;
 
-  return { filter, rawFilter: { site, type, status, q, from, to }, siteSlug: site, page };
+  return { filter, rawFilter: { site, type, status, q, from, to, reason }, siteSlug: site, page };
 }
 
 export function buildSubmissionsPageModel(input: {

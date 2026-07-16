@@ -50,7 +50,10 @@ function reasonChipText(tokens: string[]): string {
   return more > 0 ? `${shown} +${more} more` : shown;
 }
 
-export function renderSubmissionRow(s: SubmissionRow): string {
+/** A submission row's content WITHOUT the <li> wrapper — for callers that need
+ *  to compose their own <li> (the /submissions page wraps rows with a site link;
+ *  ul may only contain li, so the wrapper must own the li). */
+export function renderSubmissionRowInner(s: SubmissionRow): string {
   const when = s.submittedAt ? escapeHtml(relativeTimeFromNow(s.submittedAt)) : "—";
   const type = escapeHtml(s.formType);
   const who = escapeHtml(s.name || "(no name)");
@@ -114,13 +117,15 @@ export function renderSubmissionRow(s: SubmissionRow): string {
     kv("Submission #", s.submissionId),
   ].join("");
 
-  return `<li class="subm-item">
-    <details>
+  return `<details>
       <summary class="subm-head"><strong>${type}</strong> · ${who} <span class="muted">${email}</span> <span class="pill subm-${status}">${status}</span>${provenance}${bounceChip} <span class="muted">${when}</span></summary>
       <div class="subm-detail">${details}</div>
     </details>
-    <div class="subm-actions">${recover}${btn("Read", "read")}${btn("Archive", "archived")}${btn("Spam", "spam")}</div>
-  </li>`;
+    <div class="subm-actions">${recover}${btn("Read", "read")}${btn("Archive", "archived")}${btn("Spam", "spam")}</div>`;
+}
+
+export function renderSubmissionRow(s: SubmissionRow): string {
+  return `<li class="subm-item">${renderSubmissionRowInner(s)}</li>`;
 }
 
 /** CSS rules for the submission list UI. Append to the page's <style> block. */
@@ -133,9 +138,10 @@ export const SUBMISSION_STYLES = `.subm-list { list-style: none; padding: 0; mar
 .subm-kv { font-size: 0.9rem; margin: 0.15rem 0; }
 .subm-kv .k { color: #888; margin-right: 0.4rem; }
 summary.subm-head { cursor: pointer; }
-.subm-actions { display: flex; gap: 0.4rem; }
+.subm-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 button.subm-status { font: inherit; padding: 0.25rem 0.7rem; border: 1px solid #888; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
 button.subm-status:disabled { opacity: 0.6; cursor: default; }
+@media (pointer: coarse) { button.subm-status { padding: 0.55rem 0.9rem; } } /* >=40px tap target on touch devices */
 .spam-screen .spam-kv { font-size: 0.95rem; margin: 0.2rem 0; }
 .spam-screen .spam-kv .k { color: #888; display: inline-block; min-width: 11rem; }
 .pill.subm-new { background: #e8f0fe; color: #1a56db; }

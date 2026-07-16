@@ -41,4 +41,32 @@ describe("buildCockpitModel — submissions", () => {
     const model = buildCockpitModel([hidden], [], {}, baseUrl, now, subs);
     expect(model.submissions?.length).toBe(1);
   });
+
+  it("splits new submissions into leads vs newsletter/rsvp signups (card + summary)", () => {
+    const site = makeWebsiteRow({ id: "recSITE", name: "Acme Co", status: "maintenance" });
+    const subs = [
+      makeSubmissionRow({ id: "s1", siteId: "recSITE", formType: "contact" }),
+      makeSubmissionRow({ id: "s2", siteId: "recSITE", formType: "contact" }),
+      makeSubmissionRow({ id: "s3", siteId: "recSITE", formType: "newsletter" }),
+      makeSubmissionRow({ id: "s4", siteId: "recSITE", formType: "rsvp" }),
+    ];
+    const model = buildCockpitModel([site], [], {}, baseUrl, now, subs);
+    expect(model.cards[0]?.newSubmissions).toBe(4);
+    expect(model.cards[0]?.newLeads).toBe(2);
+    expect(model.cards[0]?.newSignups).toBe(2);
+    expect(model.summary.newSubmissions).toBe(4);
+    expect(model.summary.newLeads).toBe(2);
+    expect(model.summary.newSignups).toBe(2);
+  });
+
+  it("counts inquiry/reserve as leads (lead-ness by exclusion)", () => {
+    const site = makeWebsiteRow({ id: "recSITE", name: "Acme Co", status: "maintenance" });
+    const subs = [
+      makeSubmissionRow({ id: "s1", siteId: "recSITE", formType: "inquiry" }),
+      makeSubmissionRow({ id: "s2", siteId: "recSITE", formType: "reserve" }),
+    ];
+    const model = buildCockpitModel([site], [], {}, baseUrl, now, subs);
+    expect(model.cards[0]?.newLeads).toBe(2);
+    expect(model.cards[0]?.newSignups).toBe(0);
+  });
 });

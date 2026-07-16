@@ -1,7 +1,7 @@
 import { FAVICON_LINK } from "./favicon.js";
 import { escapeHtml } from "../util/html.js";
 import {
-  renderSubmissionRow,
+  renderSubmissionRowInner,
   SUBMISSION_STATUS_SCRIPT,
   SUBMISSION_STYLES,
 } from "./submission-view.js";
@@ -27,8 +27,11 @@ h1 { margin: 0 0 0.25rem; font-size: 1.75rem; }
 .pager { display: flex; gap: 1rem; align-items: center; margin-top: 1.25rem; }
 .subm-site { font-size: 0.8rem; font-weight: 700; display: inline-block; margin-right: 0.5rem; }
 .subm-row-wrap { display: flex; align-items: flex-start; gap: 0.5rem; }
-.subm-row-wrap .subm-item { flex: 1; min-width: 0; }
+.subm-row-wrap .subm-row-main { flex: 1; min-width: 0; }
 .spam-facets { font-size: 0.9rem; margin: 0 0 1rem; }
+.spam-facets a.facet-chip { text-decoration: none; color: inherit; border: 1px solid #ccc; border-radius: 999px; padding: 0.05rem 0.55rem; margin: 0 0.3rem 0.3rem 0; display: inline-block; }
+.spam-facets a.facet-chip.active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+@media (prefers-color-scheme: dark) { .spam-facets a.facet-chip { border-color: #444; } .spam-facets a.facet-chip.active { background: #e8e8e8; color: #111; } }
 .bulk-read { margin: 0 0 1rem; }
 .bulk-read button { font: inherit; font-size: 0.9rem; padding: 0.25rem 0.75rem; border: 1px solid #888; border-radius: 4px; background: transparent; color: inherit; cursor: pointer; }
 `;
@@ -73,8 +76,25 @@ function pageHref(m: SubmissionsPageModel, page: number): string {
   if (f.q) p.set("q", f.q);
   if (f.from) p.set("from", f.from);
   if (f.to) p.set("to", f.to);
+  if (f.reason) p.set("reason", f.reason);
   p.set("page", String(page));
   return `/submissions?${p.toString()}`;
+}
+
+/** Href for a facet-chip click: the active filter with `reason` swapped to
+ *  `reasonToken` (null = clear) and NO page param — a reason change resets to page 1. */
+function facetHref(m: SubmissionsPageModel, reasonToken: string | null): string {
+  const p = new URLSearchParams();
+  const f = m.filter;
+  if (f.site) p.set("site", f.site);
+  if (f.type) p.set("type", f.type);
+  if (f.status) p.set("status", f.status);
+  if (f.q) p.set("q", f.q);
+  if (f.from) p.set("from", f.from);
+  if (f.to) p.set("to", f.to);
+  if (reasonToken) p.set("reason", reasonToken);
+  const qs = p.toString();
+  return qs === "" ? "/submissions" : `/submissions?${qs}`;
 }
 
 function pager(m: SubmissionsPageModel): string {
@@ -98,10 +118,12 @@ function pager(m: SubmissionsPageModel): string {
  *  reasons without expanding every row (2026-07-15). Page-scoped tallies under the
  *  full-bucket total silently misread once the bucket passed one page. Tokens may
  *  carry a per-token count ("keywords:4"); strip the trailing :N so those group as
- *  one facet. Returns "" when no row carries reasons. */
-function spamReasonFacets(reasonStrings: string[]): string {
+ *  one facet. Each facet is a CLICKABLE chip that filters the view to rows carrying
+ *  that token via ?reason= (2026-07-16) — clicking the active chip clears it.
+ *  Returns "" when no row carries reasons. */
+function spamReasonFacets(m: SubmissionsPageModel): string {
   const counts = new Map<string, number>();
-  for (const reasonString of reasonStrings) {
+  for (const reasonString of m.facetReasons) {
     for (const raw of reasonString.split(",")) {
       const token = raw.trim().replace(/:\d+$/, "");
       if (token === "") continue;
@@ -111,8 +133,11 @@ function spamReasonFacets(reasonStrings: string[]): string {
   if (counts.size === 0) return "";
   const line = [...counts.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .map(([token, n]) => `${escapeHtml(token)} ×${n}`)
-    .join(" · ");
+    .map(([token, n]) => {
+      const active = token === m.filter.reason;
+      return `<a class="facet-chip${active ? " active" : ""}" href="${escapeHtml(facetHref(m, active ? null : token))}" title="Filter to rows carrying this reason${active ? " (click to clear)" : ""}">${escapeHtml(token)} ×${n}</a>`;
+    })
+    .join(" ");
   return `<div class="spam-facets muted">${line}</div>`;
 }
 
@@ -131,7 +156,7 @@ function bulkMarkReadForm(m: SubmissionsPageModel): string {
   const n = m.markableNewCount;
   return `<form class="bulk-read" method="post" action="/submissions" onsubmit="return confirm('Mark all ${n} filtered new submission${n === 1 ? "" : "s"} as read? Spam and operator-touched rows are never affected.')">
     <input type="hidden" name="action" value="mark-read" />
-    ${hidden("site", f.site)}${hidden("type", f.type)}${hidden("status", f.status)}${hidden("q", f.q)}${hidden("from", f.from)}${hidden("to", f.to)}
+    ${hidden("site", f.site)}${hidden("type", f.type)}${hidden("status", f.status)}${hidden("q", f.q)}${hidden("from", f.from)}${hidden("to", f.to)}${hidden("reason", f.reason)}
     <button type="submit">Mark all ${n} filtered as read</button>
   </form>`;
 }
@@ -140,7 +165,9 @@ function rowWithSite(r: SubmissionsPageModel["rows"][number]): string {
   const siteLink = r.slug
     ? `<a class="subm-site" href="/s/${escapeHtml(r.slug)}">${escapeHtml(r.siteName)}</a>`
     : `<span class="subm-site muted">${escapeHtml(r.siteName)}</span>`;
-  return `<div class="subm-row-wrap">${siteLink}${renderSubmissionRow(r)}</div>`;
+  // The <li> is owned HERE (not by renderSubmissionRow): <ul> may only contain <li>,
+  // so the site-link wrapper must live INSIDE the list item, not around it.
+  return `<li class="subm-item"><div class="subm-row-wrap">${siteLink}<div class="subm-row-main">${renderSubmissionRowInner(r)}</div></div></li>`;
 }
 
 /** Render the full submissions fleet page as a standalone HTML document. */
@@ -149,9 +176,7 @@ export function renderSubmissionsPageHtml(m: SubmissionsPageModel): string {
   // Facet line only when the operator is actually reviewing a spam bucket — on
   // mixed-status views the tally would mix delivered and screened rows.
   const facets =
-    m.filter.status === "spam_auto" || m.filter.status === "spam"
-      ? spamReasonFacets(m.facetReasons)
-      : "";
+    m.filter.status === "spam_auto" || m.filter.status === "spam" ? spamReasonFacets(m) : "";
   const body =
     m.total === 0
       ? `<div class="empty">No submissions match these filters.</div>`

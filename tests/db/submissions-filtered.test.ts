@@ -147,6 +147,80 @@ describe("listSubmissionsFiltered / countSubmissionsFiltered", () => {
 
 import { listSpamReasonsFiltered } from "../../src/db/submissions.js";
 
+describe("reason filter (comma-boundary spam_reason token match)", () => {
+  let rdb: Db;
+  beforeEach(async () => {
+    rdb = await openDb({ url: ":memory:" });
+    const mk = (n: number, reason: string | null, status: "spam_auto" | "new" = "spam_auto") =>
+      createSubmission(rdb, {
+        siteId: "recA",
+        formType: "contact",
+        name: `R${n}`,
+        email: `r${n}@x.com`,
+        message: "body",
+        submittedAt: new Date(`2026-07-0${n}T00:00:00.000Z`),
+        status,
+        ...(reason !== null ? { spamReason: reason, spamScore: 60 } : {}),
+      });
+    await mk(1, "links:3,keywords:2");
+    await mk(2, "turnstile-required-absent");
+    await mk(3, "turnstile-required-failed");
+    await mk(4, "backlinks");
+    await mk(5, null); // NULL spam_reason → excluded by any reason filter
+  });
+
+  it("matches a token carrying a stored :N count suffix", async () => {
+    const rows = await listSubmissionsFiltered(rdb, { reason: "links" }, { limit: 50, offset: 0 });
+    expect(rows.map((r) => r.email)).toEqual(["r1@x.com"]);
+    const kw = await listSubmissionsFiltered(rdb, { reason: "keywords" }, { limit: 50, offset: 0 });
+    expect(kw.map((r) => r.email)).toEqual(["r1@x.com"]);
+  });
+
+  it("comma-boundary: turnstile-required-absent never matches -failed (and vice versa)", async () => {
+    const absent = await listSubmissionsFiltered(
+      rdb,
+      { reason: "turnstile-required-absent" },
+      { limit: 50, offset: 0 },
+    );
+    expect(absent.map((r) => r.email)).toEqual(["r2@x.com"]);
+    const failed = await listSubmissionsFiltered(
+      rdb,
+      { reason: "turnstile-required-failed" },
+      { limit: 50, offset: 0 },
+    );
+    expect(failed.map((r) => r.email)).toEqual(["r3@x.com"]);
+  });
+
+  it("no substring bleed: 'backlinks' matches only its own row, 'links' never matches it", async () => {
+    const rows = await listSubmissionsFiltered(
+      rdb,
+      { reason: "backlinks" },
+      { limit: 50, offset: 0 },
+    );
+    expect(rows.map((r) => r.email)).toEqual(["r4@x.com"]);
+  });
+
+  it("escapes LIKE metacharacters: a bare '%' matches nothing", async () => {
+    expect(await countSubmissionsFiltered(rdb, { reason: "%" })).toBe(0);
+  });
+
+  it("combines with the status filter, and count agrees with list", async () => {
+    // r1 is spam_auto; flip it to 'spam' so the status filter does real work.
+    await rdb
+      .updateTable("submissions")
+      .set({ status: "spam" })
+      .where("email", "=", "r1@x.com")
+      .execute();
+    const rows = await listSubmissionsFiltered(
+      rdb,
+      { reason: "links", status: "spam_auto" },
+      { limit: 50, offset: 0 },
+    );
+    expect(rows).toEqual([]);
+    expect(await countSubmissionsFiltered(rdb, { reason: "links", status: "spam" })).toBe(1);
+  });
+});
+
 describe("listSpamReasonsFiltered", () => {
   it("returns spam_reason strings for the WHOLE filter match (facets must outrun the page)", async () => {
     const db = await openDb({ url: ":memory:" });

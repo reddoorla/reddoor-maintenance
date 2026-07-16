@@ -261,6 +261,63 @@ describe("renderDigestHtml", () => {
     expect(html).toMatch(/WORSE/);
   });
 
+  // ── Submissions (24h) telemetry section ─────────────────────────────────────
+
+  it("renders the Submissions (24h) totals + a per-site line", () => {
+    const html = renderDigestHtml(
+      sections({
+        submissions: {
+          leads: 3,
+          signups: 2,
+          spamAuto: 4,
+          bySite: [
+            { siteName: "Espada", leads: 2, signups: 0, spamAuto: 3 },
+            { siteName: "Sonder", leads: 1, signups: 2, spamAuto: 1 },
+          ],
+        },
+      }),
+    );
+    expect(html).toContain("Submissions (24h)");
+    expect(html).toContain("3 new leads · 2 newsletter/RSVP signups · 4 auto-filtered spam");
+    // Per-site lines carry only their nonzero parts.
+    expect(html).toContain("Espada");
+    expect(html).toContain("2 leads · 3 auto-filtered");
+    expect(html).toContain("Sonder");
+    expect(html).toContain("1 lead · 2 signups · 1 auto-filtered");
+  });
+
+  it("uses singular forms for 1 lead / 1 signup in the totals", () => {
+    const html = renderDigestHtml(
+      sections({ submissions: { leads: 1, signups: 1, spamAuto: 0, bySite: [] } }),
+    );
+    expect(html).toContain("1 new lead · 1 newsletter/RSVP signup · 0 auto-filtered spam");
+  });
+
+  it("escapes hostile site names in the per-site telemetry lines", () => {
+    const html = renderDigestHtml(
+      sections({
+        submissions: {
+          leads: 1,
+          signups: 0,
+          spamAuto: 0,
+          bySite: [{ siteName: "<script>x</script>", leads: 1, signups: 0, spamAuto: 0 }],
+        },
+      }),
+    );
+    expect(html).not.toContain("<script>x</script>");
+    expect(html).toContain("&lt;script&gt;");
+  });
+
+  it("omits the section when submissions is absent, null, or all-zero (no-noise)", () => {
+    expect(renderDigestHtml(sections())).not.toContain("Submissions (24h)");
+    expect(renderDigestHtml(sections({ submissions: null }))).not.toContain("Submissions (24h)");
+    expect(
+      renderDigestHtml(
+        sections({ submissions: { leads: 0, signups: 0, spamAuto: 0, bySite: [] } }),
+      ),
+    ).not.toContain("Submissions (24h)");
+  });
+
   it("still emits no href for a non-https attention url after grouping (XSS guard holds)", () => {
     const html = renderDigestHtml(
       sections({
