@@ -403,18 +403,21 @@ describe("ingestSubmission — spam decision", () => {
 
 describe("ingestSubmission — velocity / duplicate-body signal", () => {
   const body = "I represent an SEO agency and can get you to page one within 24 hours guaranteed.";
+  const noDupes = { exact: [], similar: [] };
 
   it("marks spam_auto + 'duplicate-body' when an identical body was already seen", async () => {
     const row = makeSubmissionRow({ id: "recSUB", status: "spam_auto" });
-    const countRecentDuplicates = vi.fn().mockResolvedValue(1);
+    const findRecentDuplicates = vi
+      .fn()
+      .mockResolvedValue({ exact: [{ id: "recPRIOR", status: "spam_auto" }], similar: [] });
     const d = deps({
       createSubmission: vi.fn().mockResolvedValue(row),
       classifySpam: () => ({ score: 0, reasons: [] }),
-      countRecentDuplicates,
+      findRecentDuplicates,
     });
     const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
     expect(r.status).toBe("accepted");
-    expect(countRecentDuplicates).toHaveBeenCalledWith(body, expect.any(Date));
+    expect(findRecentDuplicates).toHaveBeenCalledWith(body, expect.any(Date));
     expect(d.createSubmission).toHaveBeenCalledWith(
       expect.objectContaining({ status: "spam_auto", spamReason: "duplicate-body" }),
     );
@@ -422,23 +425,129 @@ describe("ingestSubmission — velocity / duplicate-body signal", () => {
     expect(d.stampNotified).toHaveBeenCalledWith("recSUB", "skipped", null);
   });
 
-  it("passes a 30-day lookback window derived from now()", async () => {
-    const countRecentDuplicates = vi.fn().mockResolvedValue(0);
+  it("marks spam_auto + 'similar-body' on a near-duplicate with no exact match", async () => {
+    const row = makeSubmissionRow({ id: "recSUB", status: "spam_auto" });
+    const findRecentDuplicates = vi
+      .fn()
+      .mockResolvedValue({ exact: [], similar: [{ id: "recPRIOR", status: "spam_auto" }] });
     const d = deps({
+      createSubmission: vi.fn().mockResolvedValue(row),
       classifySpam: () => ({ score: 0, reasons: [] }),
-      countRecentDuplicates,
+      findRecentDuplicates,
+    });
+    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
+    expect(r.status).toBe("accepted");
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "spam_auto", spamReason: "similar-body" }),
+    );
+    expect(d.notify).not.toHaveBeenCalled();
+  });
+
+  it("prefers 'duplicate-body' when BOTH exact and similar matches exist", async () => {
+    const row = makeSubmissionRow({ id: "recSUB", status: "spam_auto" });
+    const d = deps({
+      createSubmission: vi.fn().mockResolvedValue(row),
+      classifySpam: () => ({ score: 0, reasons: [] }),
+      findRecentDuplicates: vi.fn().mockResolvedValue({
+        exact: [{ id: "recP1", status: "spam_auto" }],
+        similar: [{ id: "recP2", status: "spam_auto" }],
+      }),
     });
     await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
-    const since = countRecentDuplicates.mock.calls[0]![1] as Date;
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ spamReason: "duplicate-body" }),
+    );
+  });
+
+  it("retro-buckets prior still-'new' copies (exact + similar) with 'retro:duplicate-body'", async () => {
+    const row = makeSubmissionRow({ id: "recSUB", status: "spam_auto" });
+    const retroBucket = vi.fn().mockResolvedValue(undefined);
+    const d = deps({
+      createSubmission: vi.fn().mockResolvedValue(row),
+      classifySpam: () => ({ score: 0, reasons: [] }),
+      findRecentDuplicates: vi.fn().mockResolvedValue({
+        exact: [
+          { id: "recP1", status: "new" },
+          { id: "recP2", status: "spam_auto" },
+        ],
+        similar: [
+          { id: "recP3", status: "new" },
+          { id: "recP4", status: "read" },
+        ],
+      }),
+      retroBucket,
+    });
+    await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
+    // Only the still-'new' prior rows — never ones the operator already handled.
+    expect(retroBucket).toHaveBeenCalledExactlyOnceWith(["recP1", "recP3"], "retro:duplicate-body");
+  });
+
+  it("does not call retroBucket when no prior copy is still 'new'", async () => {
+    const row = makeSubmissionRow({ id: "recSUB", status: "spam_auto" });
+    const retroBucket = vi.fn().mockResolvedValue(undefined);
+    const d = deps({
+      createSubmission: vi.fn().mockResolvedValue(row),
+      classifySpam: () => ({ score: 0, reasons: [] }),
+      findRecentDuplicates: vi
+        .fn()
+        .mockResolvedValue({ exact: [{ id: "recP1", status: "spam_auto" }], similar: [] }),
+      retroBucket,
+    });
+    await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
+    expect(retroBucket).not.toHaveBeenCalled();
+  });
+
+  it("still buckets the incoming row when the retroBucket dep is absent", async () => {
+    const row = makeSubmissionRow({ id: "recSUB", status: "spam_auto" });
+    const d = deps({
+      createSubmission: vi.fn().mockResolvedValue(row),
+      classifySpam: () => ({ score: 0, reasons: [] }),
+      findRecentDuplicates: vi
+        .fn()
+        .mockResolvedValue({ exact: [{ id: "recP1", status: "new" }], similar: [] }),
+    });
+    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
+    expect(r.status).toBe("accepted");
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "spam_auto", spamReason: "duplicate-body" }),
+    );
+  });
+
+  it("swallows a retroBucket failure — the incoming row is still bucketed", async () => {
+    const row = makeSubmissionRow({ id: "recSUB", status: "spam_auto" });
+    const retroBucket = vi.fn().mockRejectedValue(new Error("db down"));
+    const d = deps({
+      createSubmission: vi.fn().mockResolvedValue(row),
+      classifySpam: () => ({ score: 0, reasons: [] }),
+      findRecentDuplicates: vi
+        .fn()
+        .mockResolvedValue({ exact: [{ id: "recP1", status: "new" }], similar: [] }),
+      retroBucket,
+    });
+    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
+    expect(r.status).toBe("accepted");
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "spam_auto", spamReason: "duplicate-body" }),
+    );
+  });
+
+  it("passes a 30-day lookback window derived from now()", async () => {
+    const findRecentDuplicates = vi.fn().mockResolvedValue(noDupes);
+    const d = deps({
+      classifySpam: () => ({ score: 0, reasons: [] }),
+      findRecentDuplicates,
+    });
+    await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
+    const since = findRecentDuplicates.mock.calls[0]![1] as Date;
     // now() is 2026-06-14T12:00:00Z → 30 days earlier.
     expect(since.toISOString()).toBe("2026-05-15T12:00:00.000Z");
   });
 
   it("stays clean (new) when no duplicate exists", async () => {
-    const countRecentDuplicates = vi.fn().mockResolvedValue(0);
+    const findRecentDuplicates = vi.fn().mockResolvedValue(noDupes);
     const d = deps({
       classifySpam: () => ({ score: 0, reasons: [] }),
-      countRecentDuplicates,
+      findRecentDuplicates,
     });
     const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
     expect(r.status).toBe("accepted");
@@ -450,10 +559,12 @@ describe("ingestSubmission — velocity / duplicate-body signal", () => {
   });
 
   it("never runs the lookup for a newsletter form (legit repeat 'subscribe' bodies)", async () => {
-    const countRecentDuplicates = vi.fn().mockResolvedValue(5);
+    const findRecentDuplicates = vi
+      .fn()
+      .mockResolvedValue({ exact: [{ id: "recP1", status: "new" }], similar: [] });
     const d = deps({
       classifySpam: () => ({ score: 0, reasons: [] }),
-      countRecentDuplicates,
+      findRecentDuplicates,
     });
     const r = await ingestSubmission(
       d,
@@ -462,7 +573,7 @@ describe("ingestSubmission — velocity / duplicate-body signal", () => {
       "unverifiable",
     );
     expect(r.status).toBe("accepted");
-    expect(countRecentDuplicates).not.toHaveBeenCalled();
+    expect(findRecentDuplicates).not.toHaveBeenCalled();
     expect(d.createSubmission).toHaveBeenCalledWith(
       expect.objectContaining({ status: "new", spamReason: null }),
     );
@@ -473,26 +584,28 @@ describe("ingestSubmission — velocity / duplicate-body signal", () => {
     // velocity lookup is wasted work and would append a redundant reason.
     const site = makeWebsiteRow({ id: "recSITE", requireTurnstile: true });
     const row = makeSubmissionRow({ id: "recSUB", status: "spam_auto" });
-    const countRecentDuplicates = vi.fn().mockResolvedValue(3);
+    const findRecentDuplicates = vi
+      .fn()
+      .mockResolvedValue({ exact: [{ id: "recP1", status: "new" }], similar: [] });
     const d = deps({
       getWebsiteBySlug: vi.fn().mockResolvedValue(site),
       createSubmission: vi.fn().mockResolvedValue(row),
       classifySpam: () => ({ score: 0, reasons: [] }),
-      countRecentDuplicates,
+      findRecentDuplicates,
     });
     const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "absent");
     expect(r.status).toBe("accepted");
-    expect(countRecentDuplicates).not.toHaveBeenCalled();
+    expect(findRecentDuplicates).not.toHaveBeenCalled();
     expect(d.createSubmission).toHaveBeenCalledWith(
       expect.objectContaining({ status: "spam_auto", spamReason: "turnstile-required-absent" }),
     );
   });
 
-  it("swallows a countRecentDuplicates failure — the lead is still accepted as new", async () => {
-    const countRecentDuplicates = vi.fn().mockRejectedValue(new Error("db down"));
+  it("swallows a findRecentDuplicates failure — the lead is still accepted as new", async () => {
+    const findRecentDuplicates = vi.fn().mockRejectedValue(new Error("db down"));
     const d = deps({
       classifySpam: () => ({ score: 0, reasons: [] }),
-      countRecentDuplicates,
+      findRecentDuplicates,
     });
     const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
     expect(r.status).toBe("accepted");
@@ -503,7 +616,160 @@ describe("ingestSubmission — velocity / duplicate-body signal", () => {
     expect(d.notify).toHaveBeenCalledTimes(1);
   });
 
-  it("is a no-op when the countRecentDuplicates dep is absent (fail-open clean)", async () => {
+  it("is a no-op when the findRecentDuplicates dep is absent (fail-open clean)", async () => {
+    const d = deps({ classifySpam: () => ({ score: 0, reasons: [] }) });
+    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
+    expect(r.status).toBe("accepted");
+    if (r.status === "accepted") expect(r.notifyStatus).toBe("sent");
+    expect(d.createSubmission).toHaveBeenCalledWith(expect.objectContaining({ status: "new" }));
+  });
+});
+
+describe("ingestSubmission — cross-site repeat-sender signal", () => {
+  const body = "Hello, I would love to discuss a partnership opportunity with your business.";
+
+  it("marks spam_auto + 'repeat-sender' when the email already contacted a DIFFERENT site", async () => {
+    const row = makeSubmissionRow({ id: "recSUB", status: "spam_auto" });
+    const listRecentSubmissionsForEmail = vi
+      .fn()
+      .mockResolvedValue([{ id: "recP1", siteId: "recOTHER", status: "read" }]);
+    const d = deps({
+      createSubmission: vi.fn().mockResolvedValue(row),
+      classifySpam: () => ({ score: 0, reasons: [] }),
+      listRecentSubmissionsForEmail,
+    });
+    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
+    expect(r.status).toBe("accepted");
+    expect(listRecentSubmissionsForEmail).toHaveBeenCalledWith("a@b.co", expect.any(Date));
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "spam_auto", spamReason: "repeat-sender" }),
+    );
+    expect(d.notify).not.toHaveBeenCalled();
+    expect(d.stampNotified).toHaveBeenCalledWith("recSUB", "skipped", null);
+  });
+
+  it("does NOT trigger on same-site repeats (genuine follow-ups)", async () => {
+    const retroBucket = vi.fn().mockResolvedValue(undefined);
+    const d = deps({
+      classifySpam: () => ({ score: 0, reasons: [] }),
+      listRecentSubmissionsForEmail: vi.fn().mockResolvedValue([
+        { id: "recP1", siteId: "recSITE", status: "new" },
+        { id: "recP2", siteId: "recSITE", status: "read" },
+      ]),
+      retroBucket,
+    });
+    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
+    expect(r.status).toBe("accepted");
+    if (r.status === "accepted") expect(r.notifyStatus).toBe("sent");
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "new", spamReason: null }),
+    );
+    expect(retroBucket).not.toHaveBeenCalled();
+  });
+
+  it("retro-buckets prior still-'new' rows on OTHER sites with 'retro:repeat-sender'", async () => {
+    const row = makeSubmissionRow({ id: "recSUB", status: "spam_auto" });
+    const retroBucket = vi.fn().mockResolvedValue(undefined);
+    const d = deps({
+      createSubmission: vi.fn().mockResolvedValue(row),
+      classifySpam: () => ({ score: 0, reasons: [] }),
+      listRecentSubmissionsForEmail: vi.fn().mockResolvedValue([
+        { id: "recP1", siteId: "recOTHER", status: "new" },
+        { id: "recP2", siteId: "recOTHER", status: "read" }, // operator handled — untouched
+        { id: "recP3", siteId: "recSITE", status: "new" }, // same site — untouched
+      ]),
+      retroBucket,
+    });
+    await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
+    expect(retroBucket).toHaveBeenCalledExactlyOnceWith(["recP1"], "retro:repeat-sender");
+  });
+
+  it("still buckets the incoming row when the retroBucket dep is absent", async () => {
+    const row = makeSubmissionRow({ id: "recSUB", status: "spam_auto" });
+    const d = deps({
+      createSubmission: vi.fn().mockResolvedValue(row),
+      classifySpam: () => ({ score: 0, reasons: [] }),
+      listRecentSubmissionsForEmail: vi
+        .fn()
+        .mockResolvedValue([{ id: "recP1", siteId: "recOTHER", status: "new" }]),
+    });
+    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
+    expect(r.status).toBe("accepted");
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "spam_auto", spamReason: "repeat-sender" }),
+    );
+  });
+
+  it("never runs the lookup for a newsletter form (subscribing on two sites is legitimate)", async () => {
+    const listRecentSubmissionsForEmail = vi
+      .fn()
+      .mockResolvedValue([{ id: "recP1", siteId: "recOTHER", status: "new" }]);
+    const d = deps({
+      classifySpam: () => ({ score: 0, reasons: [] }),
+      listRecentSubmissionsForEmail,
+    });
+    const r = await ingestSubmission(
+      d,
+      "acme",
+      { formType: "newsletter", email: "a@b.co" },
+      "unverifiable",
+    );
+    expect(r.status).toBe("accepted");
+    expect(listRecentSubmissionsForEmail).not.toHaveBeenCalled();
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "new", spamReason: null }),
+    );
+  });
+
+  it("does not run the lookup when the row is ALREADY spam_auto from Turnstile", async () => {
+    const site = makeWebsiteRow({ id: "recSITE", requireTurnstile: true });
+    const row = makeSubmissionRow({ id: "recSUB", status: "spam_auto" });
+    const listRecentSubmissionsForEmail = vi
+      .fn()
+      .mockResolvedValue([{ id: "recP1", siteId: "recOTHER", status: "new" }]);
+    const d = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(site),
+      createSubmission: vi.fn().mockResolvedValue(row),
+      classifySpam: () => ({ score: 0, reasons: [] }),
+      listRecentSubmissionsForEmail,
+    });
+    await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "absent");
+    expect(listRecentSubmissionsForEmail).not.toHaveBeenCalled();
+  });
+
+  it("fires BEFORE the duplicate check — a repeat-sender hit skips the body lookup", async () => {
+    const row = makeSubmissionRow({ id: "recSUB", status: "spam_auto" });
+    const findRecentDuplicates = vi.fn().mockResolvedValue({ exact: [], similar: [] });
+    const d = deps({
+      createSubmission: vi.fn().mockResolvedValue(row),
+      classifySpam: () => ({ score: 0, reasons: [] }),
+      listRecentSubmissionsForEmail: vi
+        .fn()
+        .mockResolvedValue([{ id: "recP1", siteId: "recOTHER", status: "read" }]),
+      findRecentDuplicates,
+    });
+    await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
+    expect(findRecentDuplicates).not.toHaveBeenCalled();
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ spamReason: "repeat-sender" }),
+    );
+  });
+
+  it("swallows a lookup failure — the lead is still accepted as new", async () => {
+    const d = deps({
+      classifySpam: () => ({ score: 0, reasons: [] }),
+      listRecentSubmissionsForEmail: vi.fn().mockRejectedValue(new Error("db down")),
+    });
+    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
+    expect(r.status).toBe("accepted");
+    if (r.status === "accepted") expect(r.notifyStatus).toBe("sent");
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "new", spamReason: null }),
+    );
+    expect(d.notify).toHaveBeenCalledTimes(1);
+  });
+
+  it("is a no-op when the listRecentSubmissionsForEmail dep is absent (fail-open clean)", async () => {
     const d = deps({ classifySpam: () => ({ score: 0, reasons: [] }) });
     const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: body }, "unverifiable");
     expect(r.status).toBe("accepted");

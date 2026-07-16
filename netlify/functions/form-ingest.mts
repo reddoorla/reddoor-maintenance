@@ -5,7 +5,9 @@ import { openDb, readDbConfig } from "../../src/db/client.js";
 import {
   createSubmission,
   stampNotified,
-  countRecentDuplicateMessages,
+  findRecentDuplicateSubmissions,
+  listRecentSubmissionsForEmail,
+  markSubmissionsSpamRetro,
 } from "../../src/db/submissions.js";
 import { recordScreenOut } from "../../src/db/screenouts.js";
 import { ingestSubmission, parseScreenOut, ingestScreenOut } from "../../src/forms/ingest.js";
@@ -186,9 +188,14 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
             extraFields: n.extraFields,
             turnstile: outcome,
           }),
-        // Tier C — velocity/duplicate-spray signal: fleet-wide identical-body lookup.
-        countRecentDuplicates: (message, since) =>
-          countRecentDuplicateMessages(db, message, since.toISOString()),
+        // Tier C — structural anti-spray signals: fleet-wide duplicate/near-duplicate
+        // body lookup, cross-site repeat-sender lookup, and the retroactive re-bucket
+        // that cleans prior still-'new' copies once a later copy identifies a spray.
+        findRecentDuplicates: (message, since) =>
+          findRecentDuplicateSubmissions(db, message, since.toISOString()),
+        listRecentSubmissionsForEmail: (email, since) =>
+          listRecentSubmissionsForEmail(db, email, since.toISOString()),
+        retroBucket: (ids, reason) => markSubmissionsSpamRetro(db, ids, reason),
       },
       slug,
       payload,

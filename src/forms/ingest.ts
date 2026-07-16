@@ -9,8 +9,9 @@ import { normalizeSubmission, type NormalizedSubmission } from "./payload.js";
 import type { TurnstileOutcome } from "./turnstile.js";
 import { SPAM_THRESHOLD, type SpamVerdict } from "./spam-classifier.js";
 
-/** How far back the velocity/duplicate-spray lookup scans. Sprays arrive in bursts but
- *  bots also re-run for weeks; 30 days catches repeats without an unbounded table scan. */
+/** How far back the duplicate-spray AND repeat-sender lookups scan. Sprays arrive in
+ *  bursts but bots also re-run for weeks; 30 days catches repeats without an unbounded
+ *  table scan. */
 const DUPLICATE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type IngestDeps = {
@@ -26,11 +27,30 @@ export type IngestDeps = {
    *  status/score/reason; absent → every submission scores 0 (fail-open, clean).
    *  Injected so the classifier stays a pure, transport-agnostic leaf. */
   classifySpam?: (n: NormalizedSubmission, turnstile: TurnstileOutcome) => SpamVerdict;
-  /** Optional: count recent fleet-wide submissions whose (normalized) message body
-   *  equals `message`, since `since`. Drives the velocity/duplicate-spray signal —
-   *  the same pitch blasted to many sites shows up as duplicates. Absent → the check
-   *  is skipped (fail-open clean). */
-  countRecentDuplicates?: (message: string, since: Date) => Promise<number>;
+  /** Optional: fleet-wide duplicate/near-duplicate body lookup since `since`. Drives
+   *  the duplicate-spray signal — the same pitch blasted to many sites shows up as
+   *  identical (`exact`) or template-substituted (`similar`, token-set Jaccard) bodies.
+   *  Statuses let the retro re-bucket pick still-'new' prior copies. Absent → the
+   *  check is skipped (fail-open clean). */
+  findRecentDuplicates?: (
+    message: string,
+    since: Date,
+  ) => Promise<{
+    exact: Array<{ id: string; status: string }>;
+    similar: Array<{ id: string; status: string }>;
+  }>;
+  /** Optional: recent non-newsletter submissions from the same email since `since`.
+   *  Drives the cross-site repeat-sender signal — the fleet's sites are unrelated
+   *  businesses, so one address contacting 2+ of them within the window is a
+   *  solicitation tell. Absent → the check is skipped (fail-open clean). */
+  listRecentSubmissionsForEmail?: (
+    email: string,
+    since: Date,
+  ) => Promise<Array<{ id: string; siteId: string; status: string }>>;
+  /** Optional: retroactively re-bucket prior still-'new' rows once a later copy
+   *  identifies a spray (the first copy is delivered by design). Implementations
+   *  must only touch status='new' rows. Best-effort — failures are swallowed. */
+  retroBucket?: (ids: string[], reason: string) => Promise<void>;
   /** Optional: POST a newsletter submission to the site's configured webhook
    *  (best-effort). Omitted in tests/handlers that don't need it. */
   forwardNewsletter?: (
@@ -144,26 +164,75 @@ export async function ingestSubmission(
     if (!reasons.includes(reason)) reasons.push(reason);
   }
 
-  // Velocity/spray signal: the same pitch blasted across the fleet (or repeated) is a
-  // bot tell a lone content scan can't see. If an identical message body was already
-  // seen recently, this is a duplicate → auto-spam (recoverable). Guarded: only for
-  // non-newsletter forms with a real body, only when not already spam, and the db helper
-  // ignores short/empty bodies. Best-effort — a lookup failure never blocks a lead.
+  // Cross-site repeat-sender signal: the fleet's sites are UNRELATED businesses
+  // (art gallery, realtor, home builder…), so the same email writing to 2+ different
+  // sites within the window is a solicitation tell no single-message scan can see.
+  // Same-site repeats alone must NOT trigger — those are genuine follow-ups. The
+  // operator explicitly accepts overblocking here (spam_auto is recoverable). Prior
+  // still-'new' rows on OTHER sites are retro-bucketed too: the first copy of a
+  // spray is delivered by design, so the copy that identifies it also cleans the
+  // queue. Best-effort — a lookup failure never blocks a lead.
+  if (status !== "spam_auto" && n.formType !== "newsletter" && deps.listRecentSubmissionsForEmail) {
+    try {
+      const since = new Date(deps.now().getTime() - DUPLICATE_WINDOW_MS);
+      const prior = await deps.listRecentSubmissionsForEmail(n.email, since);
+      const otherSites = prior.filter((p) => p.siteId !== site.id);
+      if (otherSites.length > 0) {
+        status = "spam_auto";
+        if (!reasons.includes("repeat-sender")) reasons.push("repeat-sender");
+        const retroIds = otherSites.filter((p) => p.status === "new").map((p) => p.id);
+        if (deps.retroBucket && retroIds.length > 0) {
+          try {
+            await deps.retroBucket(retroIds, "retro:repeat-sender");
+          } catch (err) {
+            console.error(`[ingest] retroBucket (repeat-sender) threw: ${String(err)}`);
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`[ingest] listRecentSubmissionsForEmail threw: ${String(err)}`);
+    }
+  }
+
+  // Duplicate/spray signal: the same pitch blasted across the fleet (or repeated) is
+  // a bot tell a lone content scan can't see. An identical body ('exact') OR a
+  // template-substituted near-copy ('similar' — the live dog-harness spray differed
+  // only in greeting; SEO sprays swap the target domain per site) → auto-spam
+  // (recoverable). Prior still-'new' copies are retro-bucketed for the same reason
+  // as above. Guarded: only for non-newsletter forms with a real body, only when not
+  // already spam, and the db helper ignores short bodies / small token sets.
+  // Best-effort — a lookup failure never blocks a lead.
   if (
     status !== "spam_auto" &&
     n.formType !== "newsletter" &&
     n.message !== undefined &&
-    deps.countRecentDuplicates
+    deps.findRecentDuplicates
   ) {
     try {
       const since = new Date(deps.now().getTime() - DUPLICATE_WINDOW_MS);
-      const dupes = await deps.countRecentDuplicates(n.message, since);
-      if (dupes >= 1) {
+      const dupes = await deps.findRecentDuplicates(n.message, since);
+      const reason =
+        dupes.exact.length > 0
+          ? "duplicate-body"
+          : dupes.similar.length > 0
+            ? "similar-body"
+            : null;
+      if (reason !== null) {
         status = "spam_auto";
-        if (!reasons.includes("duplicate-body")) reasons.push("duplicate-body");
+        if (!reasons.includes(reason)) reasons.push(reason);
+        const retroIds = [...dupes.exact, ...dupes.similar]
+          .filter((m) => m.status === "new")
+          .map((m) => m.id);
+        if (deps.retroBucket && retroIds.length > 0) {
+          try {
+            await deps.retroBucket(retroIds, "retro:duplicate-body");
+          } catch (err) {
+            console.error(`[ingest] retroBucket (duplicate-body) threw: ${String(err)}`);
+          }
+        }
       }
     } catch (err) {
-      console.error(`[ingest] countRecentDuplicates threw: ${String(err)}`);
+      console.error(`[ingest] findRecentDuplicates threw: ${String(err)}`);
     }
   }
   const spamReason = reasons.length > 0 ? reasons.join(",") : null;
