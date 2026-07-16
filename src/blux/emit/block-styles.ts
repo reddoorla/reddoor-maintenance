@@ -9,10 +9,14 @@ import { cleanCssValue } from "../normalize.js";
  * `parseBluxSite` in parse.ts, which reads `j.content.pages`, and `BluxPage`,
  * whose blocks field is `items`) — not `pages[0].blocks` as a naive reading
  * of the export's top level might suggest. */
-export function blockStylesByIndex(siteJson: unknown): Map<number, Record<string, string>> {
+export function blockStylesByIndex(
+  siteJson: unknown,
+  pageIndex = 0,
+): Map<number, Record<string, string>> {
   const out = new Map<number, Record<string, string>>();
-  const blocks = (siteJson as { content?: { pages?: { items?: unknown[] }[] } })?.content
-    ?.pages?.[0]?.items;
+  const blocks = (siteJson as { content?: { pages?: { items?: unknown[] }[] } })?.content?.pages?.[
+    pageIndex
+  ]?.items;
   if (!Array.isArray(blocks)) return out;
   blocks.forEach((b, i) => {
     const styles = (b as { styles?: Record<string, unknown> })?.styles ?? {};

@@ -82,13 +82,24 @@ export function collectPlanAssets(
  * `buildCustomType`, unchanged from archetype. */
 export function buildGridPlan(specs: SliceSpec[], ir: SiteIR): MigrationPlan {
   const page = ir.pages[0];
-  const uid = page?.uid ?? "home";
-  const title = page?.title ?? uid;
-  const doc: PlanDocument = {
+  return buildGridSitePlan(
+    [{ uid: page?.uid ?? "home", title: page?.title ?? page?.uid ?? "home", specs }],
+    ir,
+  );
+}
+
+/** The multi-page grid plan: one page document per converted page (uid-keyed,
+ * mirroring the archetype plan's per-page loop), the asset union across all
+ * pages' specs, and the collections' custom types. */
+export function buildGridSitePlan(
+  pages: { uid: string; title: string; specs: SliceSpec[] }[],
+  ir: SiteIR,
+): MigrationPlan {
+  const documents: PlanDocument[] = pages.map((p) => ({
     type: "page",
-    uid,
-    data: { title: richText(`<h1>${title}</h1>`), slices: specs.map(sliceSpecToPlanSlice) },
-  };
+    uid: p.uid,
+    data: { title: richText(`<h1>${p.title}</h1>`), slices: p.specs.map(sliceSpecToPlanSlice) },
+  }));
   // Upload-url resolution MUST stay identical to the later manifest resolver:
   // CDN-base url first, else the IR asset's sourceUrl. `mediaUrl` is the
   // single shared implementation (see its doc comment above).
@@ -100,7 +111,11 @@ export function buildGridPlan(specs: SliceSpec[], ir: SiteIR): MigrationPlan {
     return url ? { id: m.assetId, url, alt: asset?.alt ?? "" } : null;
   };
   const diagnostics: Diagnostic[] = [...(ir.diagnostics ?? [])];
-  const assets = collectPlanAssets(specs, resolve, diagnostics);
+  const assets = collectPlanAssets(
+    pages.flatMap((p) => p.specs),
+    resolve,
+    diagnostics,
+  );
   const customTypes = ir.collections.map(buildCustomType);
-  return { customTypes, documents: [doc], assets, stylesManifest: [], diagnostics };
+  return { customTypes, documents, assets, stylesManifest: [], diagnostics };
 }

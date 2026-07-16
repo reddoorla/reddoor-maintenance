@@ -20,6 +20,20 @@ const isElement = (n: HTMLNode): n is HTMLElement =>
 
 const hasClass = (el: HTMLElement, c: string) => el.classNames.split(/\s+/).includes(c);
 
+/** A hidden feed-template prototype: the `display:none` `cagriditem` (id
+ * `…-template`) that Blux clones client-side, once per feed record, to render a
+ * feed grid at runtime. Its content is Handlebars tokens (`{{media}}`,
+ * `{{title}}`) — never real content — so it must be dropped from the static
+ * parse; keeping it renders the literal `{{…}}` text and an empty tile. The
+ * visible feed tiles are materialized separately (from the feed records), not
+ * from this element. */
+const isFeedTemplate = (el: HTMLElement): boolean => {
+  const id = el.getAttribute("id") ?? "";
+  const style = el.getAttribute("style") ?? "";
+  const hidden = /display\s*:\s*none/i.test(style);
+  return hidden && (/-template$/.test(id) || /\{\{[a-z_]+\}\}/i.test(el.innerHTML));
+};
+
 /** A foreground media holder: a `block-media-holder`, a bare
  * `camediaload[data-media]`, or a `<video>`. */
 const isMediaHolder = (el: HTMLElement): boolean =>
@@ -167,6 +181,9 @@ export function collectStructuralChildren(
     if (!isElement(child)) continue;
     // The layer itself is pure paint (abs-fill, never content) — consumed above.
     if (hasClass(child, "block-background-layer")) continue;
+    // A hidden feed-template prototype ({{…}} tokens, cloned by JS per record)
+    // is not real content — drop it so the band doesn't render literal braces.
+    if (isFeedTemplate(child)) continue;
     const nested = base.nested === true || isCellBoundary(child);
     const background = inlineBg(child) ?? base.background;
     // Cell-level wrappers only — a band-level container's padding (and
@@ -457,8 +474,19 @@ export function parseContainer(el: HTMLElement, nested = false): Node {
   }
   const [only] = parsed;
   if (parsed.length === 1 && only) return only.node;
-  if (parsed.length === 0) return { kind: "raw", html: el.innerHTML };
+  if (parsed.length === 0) return { kind: "raw", html: rawInnerHtml(el) };
   return { kind: "stack", children: parsed.map((p) => p.node) };
+}
+
+/** The raw-fallback innerHTML, blanked when it is a JS-hydrated feed grid's
+ * leftover `{{…}}` template (a container with no structural content of its
+ * own). Real content is already extracted as nodes before this fallback is
+ * reached, so Handlebars tokens here are never real content — dumping them
+ * would render literal `{{media}}` text. A genuinely-unrecognized container
+ * (no tokens) still surfaces verbatim as before. */
+function rawInnerHtml(el: HTMLElement): string {
+  const html = el.innerHTML;
+  return /\{\{[a-z_]+\}\}/i.test(html) ? "" : html;
 }
 
 const BAND_ID_RE = /^page-block-(\d+)$/;

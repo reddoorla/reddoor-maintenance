@@ -178,12 +178,32 @@ function slugify(s: string): string {
 
 export function normalizePages(raw: BluxRaw): { pages: PageIR[]; diagnostics: Diagnostic[] } {
   const diagnostics: Diagnostic[] = [];
-  const pages = raw.pages.map((p) => {
-    const uid = slugify(String(p.title ?? ""));
+  const seen = new Set<string>();
+  const pages = raw.pages.map((p, i) => {
+    // The routing slug: the source `url` when set, else the title slug. The
+    // FIRST page is the homepage (Blux is positional) — its uid is pinned to
+    // "home", the render's root-route contract (getByUID("page", "home")),
+    // and its path is "" (the export renders it at the root index.html).
+    const urlSlug = String(p.url ?? "").trim();
+    const path = i === 0 ? "" : urlSlug ? slugify(urlSlug) : slugify(String(p.title ?? ""));
+    let uid = i === 0 ? "home" : path;
+    if (seen.has(uid)) {
+      // Two pages slugging identically (e.g. a title-duplicate draft with no
+      // url of its own) would silently overwrite each other's documents.
+      const base = uid;
+      for (let n = 2; seen.has(uid); n++) uid = `${base}-${n}`;
+      diagnostics.push({
+        kind: "duplicate-page-uid",
+        where: base,
+        message: `page ${i} ("${String(p.title ?? "")}") slugs to "${base}" already used — renamed to "${uid}"`,
+      });
+    }
+    seen.add(uid);
     return {
       uid,
       title: String(p.title ?? ""),
       description: String(p.description ?? ""),
+      path,
       sections: (p.items ?? []).map((b) => sectionFromBlock(b, uid, diagnostics)),
     };
   });

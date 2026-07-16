@@ -30,7 +30,14 @@ export function visibleText(text: unknown, style: BluxTextStyle | undefined): st
   if (typeof style === "object" && style !== null && hasDisable(style.class)) return undefined;
   return s.trim();
 }
-export type BluxPage = { title?: string; description?: string; items?: BluxBlock[] };
+export type BluxPage = {
+  title?: string;
+  description?: string;
+  /** The page's routing slug. Often empty/absent — the slug then derives from
+   * the title. The FIRST page is the homepage regardless (Blux is positional). */
+  url?: string;
+  items?: BluxBlock[];
+};
 export type BluxFeed = {
   name?: string;
   source?: string;

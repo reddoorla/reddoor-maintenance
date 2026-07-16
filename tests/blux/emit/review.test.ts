@@ -23,7 +23,7 @@ describe("buildReviewManifest", () => {
   });
   it("omits empty pages — they emit no document, so there is nothing to review", () => {
     const withStub = assembleIR({ siteJson: minimalSite, htmls: [minimalHtml] });
-    withStub.pages.push({ uid: "stub", title: "", description: "", sections: [] });
+    withStub.pages.push({ uid: "stub", title: "", description: "", path: "stub", sections: [] });
     const m = buildReviewManifest(withStub, { convertedBase: "x", bluxBase: "y" });
     expect(m.pairs.find((p) => p.uid === "stub")).toBeUndefined();
   });

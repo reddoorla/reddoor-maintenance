@@ -1,4 +1,10 @@
-import type { BandPresentation, Presentation, RenderMedia, RenderNode } from "./presentation.js";
+import type {
+  BandPresentation,
+  Presentation,
+  RenderMedia,
+  RenderNode,
+  SitePresentation,
+} from "./presentation.js";
 
 const swap = (m: RenderMedia, map: Map<string, string>): RenderMedia => {
   const url = map.get(m.url);
@@ -41,13 +47,26 @@ function walkBand(bp: BandPresentation, map: Map<string, string>): BandPresentat
   return out; // style / map untouched (no media urls)
 }
 
-/** Deep copy of the manifest with every RenderMedia.url present in `urlMap`
- * replaced by its mapped value. Unknown urls left intact. Pure. */
-export function rewriteManifestUrls(
-  manifest: Presentation,
-  urlMap: Map<string, string>,
-): Presentation {
+function rewritePage(p: Presentation, map: Map<string, string>): Presentation {
   const bands: Record<string, BandPresentation> = {};
-  for (const [k, bp] of Object.entries(manifest.bands)) bands[k] = walkBand(bp, urlMap);
+  for (const [k, bp] of Object.entries(p.bands)) bands[k] = walkBand(bp, map);
   return { bands };
+}
+
+/** Deep copy of the manifest with every RenderMedia.url present in `urlMap`
+ * replaced by its mapped value. Unknown urls left intact. Handles BOTH shapes:
+ * the flat single-page `{ bands }` and the multi-page `{ pages: { <uid>:
+ * { bands } } }` that `blux convert` now writes — the migrate step must rewrite
+ * every site's urls regardless of shape. Pure. */
+export function rewriteManifestUrls(
+  manifest: SitePresentation,
+  urlMap: Map<string, string>,
+): SitePresentation {
+  if ("pages" in manifest && manifest.pages) {
+    const pages: Record<string, Presentation> = {};
+    for (const [uid, p] of Object.entries(manifest.pages)) pages[uid] = rewritePage(p, urlMap);
+    return { pages };
+  }
+  // The flat branch is a Presentation by construction (cast bridges the union).
+  return rewritePage(manifest as Presentation, urlMap);
 }

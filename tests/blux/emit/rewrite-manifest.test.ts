@@ -2,6 +2,10 @@ import { describe, it, expect } from "vitest";
 import { rewriteManifestUrls } from "../../../src/blux/emit/rewrite-manifest.js";
 import type { Presentation } from "../../../src/blux/emit/presentation.js";
 
+// The rewrite returns the union SitePresentation; a flat input yields a flat
+// result — narrow it for the flat-shape assertions.
+const flat = (p: ReturnType<typeof rewriteManifestUrls>): Presentation => p as Presentation;
+
 const manifest: Presentation = {
   bands: {
     "0": { background: { kind: "image", url: "https://cdn/f/a.png", alt: "A" } },
@@ -53,7 +57,7 @@ describe("rewriteManifestUrls", () => {
       ["https://cdn/f/b.png", "https://images.prismic.io/repo/b"],
       ["https://cdn/f/c.png", "https://images.prismic.io/repo/c"],
     ]);
-    const out = rewriteManifestUrls(manifest, map);
+    const out = flat(rewriteManifestUrls(manifest, map));
     expect(out.bands["0"]!.background!.url).toBe("https://images.prismic.io/repo/a");
     expect(out.bands["1"]!.gallery!.map((m) => m.url)).toEqual([
       "https://images.prismic.io/repo/a",
@@ -78,5 +82,31 @@ describe("rewriteManifestUrls", () => {
     expect(carousel.columns).toBe(1);
     expect(manifest.bands["0"]!.background!.url).toBe("https://cdn/f/a.png"); // input not mutated
     expect(manifest.bands["4"]!.carousel!.slides[0]!.media.url).toBe("https://cdn/f/a.png");
+  });
+
+  it("rewrites a MULTI-PAGE manifest per page (the shape `blux convert` writes)", () => {
+    // convert emits { pages: { <uid>: { bands } } }; migrate MUST rewrite every
+    // page's urls, not silently no-op (the flat-only rewrite threw on
+    // manifest.bands === undefined and the catch swallowed it).
+    const multi = {
+      pages: {
+        home: {
+          bands: { "0": { background: { kind: "image" as const, url: "https://cdn/f/a.png" } } },
+        },
+        about: {
+          bands: { "0": { media: { kind: "image" as const, url: "https://cdn/f/b.png" } } },
+        },
+      },
+    };
+    const map = new Map([
+      ["https://cdn/f/a.png", "https://images.prismic.io/repo/a"],
+      ["https://cdn/f/b.png", "https://images.prismic.io/repo/b"],
+    ]);
+    const out = rewriteManifestUrls(multi, map);
+    if (!("pages" in out)) throw new Error("expected a multi-page result");
+    expect(out.pages["home"]!.bands["0"]!.background!.url).toBe("https://images.prismic.io/repo/a");
+    expect(out.pages["about"]!.bands["0"]!.media!.url).toBe("https://images.prismic.io/repo/b");
+    // input not mutated
+    expect(multi.pages["home"].bands["0"].background.url).toBe("https://cdn/f/a.png");
   });
 });
