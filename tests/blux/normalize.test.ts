@@ -136,6 +136,30 @@ describe("normalizeTheme", () => {
     // it matches the render's fallback)
     expect(t0.margin).toBeUndefined();
   });
+  it("parses button skins in declaration order, dropping empties + font-ident", () => {
+    const b0 = theme.buttonStyles.find((b) => b.role === "buttons0")!;
+    expect(b0.label).toBe("Blue Buttons");
+    // Empty-string values (background-color, border-bottom) and the internal
+    // font-ident marker drop; the rest keep the export's declaration order —
+    // border shorthand BEFORE the side zero-overrides (a bottom-only rule).
+    expect(Object.keys(b0.css)).toEqual([
+      "padding",
+      "font-size",
+      "border",
+      "font-family",
+      "font-weight",
+      "color",
+      "border-top",
+      "border-right",
+      "border-left",
+    ]);
+    expect(b0.css["font-weight"]).toBe("300"); // numeric value coerced
+    expect(b0.hover).toEqual({ "background-color": "transparent" });
+    expect(b0.active).toBeUndefined(); // empty-valued variant drops entirely
+    // the { removed: true } tombstone yields no phantom role
+    expect(theme.buttonStyles).toHaveLength(1);
+  });
+
   it("names roles from the .textN key and skips deleted-style tombstones", () => {
     // fixture index 4 is a { removed: true } tombstone — no phantom text4 role
     expect(theme.textStyles.map((t) => t.role)).toEqual(["text0", "text1", "text5", "text11"]);
