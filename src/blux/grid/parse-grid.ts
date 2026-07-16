@@ -195,17 +195,37 @@ export function collectStructuralChildren(
             inlineMinHeight(child) !== undefined ||
             layerBackground(child) !== undefined))) &&
       collectStructuralChildren(child).length >= 2;
-    if (isStructural(child) || group) {
-      // A promoted wrapper's own paint layer sits one level down where the
-      // pre-scan (which only reads el's direct children) won't see it again —
-      // fold it onto the group's card here. A promoted cell boundary keeps
-      // its inner walk's capture instead (its own pre-scan runs nested).
-      const ownLayer = group && !isCellBoundary(child) ? layerBackground(child) : undefined;
+    if (isStructural(child)) {
+      // A structural child's card carries ONLY what the peeled wrappers above
+      // it accumulated — never the child's own inline style: leaves self-carry
+      // it (textLeafStyle, readImgSizing) and boxing it here would apply it
+      // twice (band-3 stat labels' 8px inset, once threaded contexts reach
+      // inside token-bearing holders).
+      const inheritedCard: CardStyle = {
+        ...(base.background !== undefined ? { background: base.background } : {}),
+        ...(base.padding !== undefined ? { padding: base.padding } : {}),
+        ...(base.minHeight !== undefined ? { minHeight: base.minHeight } : {}),
+        ...(base.layerBackground !== undefined ? { layerBackground: base.layerBackground } : {}),
+        ...(base.valign === true ? { valign: true } : {}),
+        ...(base.fill === true ? { fill: true } : {}),
+        ...(nested ? { nested } : {}),
+      };
+      out.push({
+        el: child,
+        ...(Object.keys(inheritedCard).length > 0 ? { card: inheritedCard } : {}),
+      });
+    } else if (group) {
+      // The promoted wrapper IS the box — its own values ride the group card.
+      // Its own paint layer sits one level down where the pre-scan (which only
+      // reads el's direct children) won't see it again — fold it on here. A
+      // promoted cell boundary keeps its inner walk's capture instead (its
+      // own pre-scan runs nested).
+      const ownLayer = !isCellBoundary(child) ? layerBackground(child) : undefined;
       const groupCard: CardStyle =
         ownLayer !== undefined ? { ...card, layerBackground: ownLayer } : card;
       out.push({
         el: child,
-        ...(background !== undefined || padding !== undefined || nested ? { card: groupCard } : {}),
+        ...(Object.keys(groupCard).length > 0 ? { card: groupCard } : {}),
       });
     } else {
       out.push(...collectStructuralChildren(child, card));
@@ -239,7 +259,7 @@ function isDisabledWithin(caption: HTMLElement, holder: HTMLElement): boolean {
 
 /** Parse one element into a grid Node. Leaves dispatch by role; everything else
  * becomes a row / stack / single / raw via parseContainer. */
-export function parseNode(el: HTMLElement): Node {
+export function parseNode(el: HTMLElement, nested = false): Node {
   if (hasClass(el, "block-title") && /^H[1-6]$/.test(el.tagName ?? "")) {
     const role = textRoleFromClass(el.classNames);
     const style = textLeafStyle(el);
@@ -307,7 +327,7 @@ export function parseNode(el: HTMLElement): Node {
     // href + label — verbatim so the render layer keeps the clickable link.
     return { kind: "raw", html: el.outerHTML };
   }
-  return parseContainer(el);
+  return parseContainer(el, nested);
 }
 
 /** Attach a peeled card wrapper's styling to a container node's `style`
@@ -384,18 +404,23 @@ function withCardStyle(node: Node, card?: CardStyle): Node {
 
 /** Parse a wrapper/cell/band-body element: a row when it is a grid or holds
  * ≥2 token-bearing children, else a stack / single / raw. */
-export function parseContainer(el: HTMLElement): Node {
+export function parseContainer(el: HTMLElement, nested = false): Node {
   // A container that IS a cell/grid element starts its walk inside the cell
   // context, so its own inner wrappers' padding is captured (CardStyle.nested).
-  // A cagridFlexHeight grid additionally stretches each cell's direct block to
-  // the full row height — its cells' cards carry `fill` so painted blocks emit
-  // the `_fill: column` hint (the fill never threads past the cell: the cell's
-  // own parseContainer restarts the walk without it).
+  // A PROMOTED wrapper (a boxed group inside a cell) threads `nested` in from
+  // its call site — restarting outside the cell context would silently drop
+  // the padding/valign its inner wrappers still carry. A cagridFlexHeight grid
+  // additionally stretches each cell's direct block to the full row height —
+  // its cells' cards carry `fill` so painted blocks emit the `_fill: column`
+  // hint (the fill never threads past the cell: the cell's own parseContainer
+  // restarts the walk without it).
   const kids = collectStructuralChildren(
     el,
     isCellBoundary(el) || hasClass(el, "cagrid")
       ? { nested: true, ...(hasClass(el, "cagridFlexHeight") ? { fill: true } : {}) }
-      : {},
+      : nested
+        ? { nested: true }
+        : {},
   );
   // Parse each structural child up front, then drop any that collapse to an
   // EMPTY raw — an empty `.caslider`/wrapper (no static slides, JS-hydrated)
@@ -407,7 +432,7 @@ export function parseContainer(el: HTMLElement): Node {
   const parsed = kids
     .map((k) => ({
       token: parseGridToken(k.el.classNames),
-      node: withCardStyle(parseNode(k.el), k.card),
+      node: withCardStyle(parseNode(k.el, k.card?.nested === true), k.card),
     }))
     .filter((p) => !(p.node.kind === "raw" && p.node.html.trim() === ""));
   const isGrid = hasClass(el, "cagrid");
