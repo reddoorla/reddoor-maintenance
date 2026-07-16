@@ -15,10 +15,12 @@ export type RouteResult = {
   url: string;
   /** Per desktop engine (chromium/firefox/webkit): loaded with no JS error + a visible main
    *  landmark. `status` = the HTTP status of THAT engine's navigation (null = the nav threw:
-   *  timeout/crash); optional because it wasn't always captured — undefined is never excusable. */
+   *  timeout/crash); optional because it wasn't always captured — undefined is never excusable.
+   *  NOTE: `ok` may be an EXCUSAL, not proof of a render — excuseChallengedEngineChecks flips a
+   *  WAF-challenged entry to ok:true on a reachable route (see details.excusedEngineChecks). */
   desktop: Array<{ engine: string; ok: boolean; status?: number | null }>;
   /** Per mobile device: loaded with no JS error and no horizontal overflow. Same `status`
-   *  semantics as desktop. */
+   *  semantics as desktop, and the same excusal caveat on `ok`. */
   mobile: Array<{ device: string; ok: boolean; status?: number | null }>;
   /** Same-origin links discovered on the page (absolute URLs), for the Links check. */
   links: string[];
@@ -252,7 +254,13 @@ export async function reverifyRoutes(
  *  404/410; and every entry on a route whose unreachability was CONFIRMED. The route-level
  *  `status` here is already the plain-fetch-verified truth (chromium's own 2xx or reverifyRoutes'
  *  cooled-down fetch), so no additional fetches are needed — this function is PURE and reuses
- *  reverifyRoutes' output rather than forking its retry logic. Never mutates its input. */
+ *  reverifyRoutes' output rather than forking its retry logic. Never mutates its input.
+ *  KNOWN BLIND SPOT: unlike reverifyLinks (which re-fetches and only clears a 403 that turns
+ *  2xx), this applies NO persistence test — a challenge-shaped engine status is excused every
+ *  run. So a genuinely engine-specific 403 (e.g. an edge rule that blocks only one UA while the
+ *  route stays reachable to plain fetch + other engines) is silently excused nightly, visible
+ *  only as an excusedEngineChecks note. Accepted because it's undecidable with today's signals:
+ *  a headless re-probe of that engine would just be re-challenged by the same WAF. */
 export function excuseChallengedEngineChecks(routes: RouteResult[]): {
   routes: RouteResult[];
   excused: string[];
@@ -343,7 +351,8 @@ const fmtEntryStatus = (s?: number | null): string =>
 
 /**
  * Reduce raw per-route observations to the three checklist verdicts. PURE.
- * - desktopOk: EVERY route loaded cleanly in EVERY desktop engine.
+ * - desktopOk: EVERY route loaded cleanly in EVERY desktop engine (a WAF-challenged entry
+ *   excused by excuseChallengedEngineChecks counts as clean — see its caveat below).
  * - mobileOk: EVERY route loaded cleanly (no overflow / error) on EVERY mobile device.
  * - linksOk: NO internal link is broken.
  * Empty observations (a probe that produced nothing) → not ok (fail-safe: prove, don't assume).
