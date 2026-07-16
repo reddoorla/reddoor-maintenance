@@ -137,8 +137,15 @@ export type WebsiteRow = {
    *  "ok"`. Single-select `pass`/`fail`; null = never ran. No per-site Prismic token or identity
    *  column is ever built — this rides `/health`. */
   cmsReachable: "pass" | "fail" | null;
-  /** When the `function-health` audit last ran — the freshness gate for BOTH `functionHealth` and
-   *  `cmsReachable`. Null = never ran. */
+  /** From the same `/health` body's `forms.turnstile` boolean: does the deployed site report
+   *  the Turnstile widget configured (`PUBLIC_TURNSTILE_SITE_KEY` set)? Single-select
+   *  `pass`/`fail`; null = never ran / older site package whose `/health` has no `forms`
+   *  block. Freshness gated by `functionHealthCheckedAt`. Powers the cockpit Require-Turnstile
+   *  guardrail: a site with `requireTurnstile` ON but no widget silently buckets 100% of its
+   *  real leads (and form-e2e can't see it — testMode bypasses the gate). */
+  turnstileWidget: "pass" | "fail" | null;
+  /** When the `function-health` audit last ran — the freshness gate for `functionHealth`,
+   *  `cmsReachable`, and `turnstileWidget`. Null = never ran. */
   functionHealthCheckedAt: string | null;
   /** Deployed-URL browser probe (the `browser` audit): cross-engine render OK, mobile render OK,
    *  internal-links OK + broken count, and when it last ran (one timestamp gates all three). */
@@ -377,6 +384,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     deployCheckedAt: (f["Deploy checked at"] as string | undefined) ?? null,
     functionHealth: toVerdict(f["Function health"]),
     cmsReachable: toVerdict(f["CMS Reachable"]),
+    turnstileWidget: toVerdict(f["Turnstile widget"]),
     functionHealthCheckedAt: (f["Function health checked at"] as string | undefined) ?? null,
     crossbrowserOk:
       typeof f["Crossbrowser OK"] === "boolean" ? (f["Crossbrowser OK"] as boolean) : null,
@@ -505,7 +513,11 @@ export type FunctionHealthResult = {
    *  the synthetic "deployed but erroring" body) → `null`: the CMS probe never actually ran, so it
    *  must NOT red CMS reachability for a site that simply hasn't wired Prismic yet. */
   cmsReachable: "pass" | "fail" | null;
-  /** When the audit ran (freshness stamp for both verdicts). */
+  /** From the same body's `forms.turnstile` boolean: `true` → `"pass"`, `false` → `"fail"`.
+   *  A missing/null `forms` block (older site package, or the synthetic "deployed but
+   *  erroring" body) → `null` — the widget state is simply unknown, not a failure. */
+  turnstileWidget: "pass" | "fail" | null;
+  /** When the audit ran (freshness stamp for all three verdicts). */
   checkedAt: string;
 };
 
@@ -685,6 +697,9 @@ function functionHealthFields(r: FunctionHealthResult): FieldSet {
   const fields: Record<string, string | null> = {
     "Function health": r.functionHealth,
     "CMS Reachable": r.cmsReachable,
+    // Same null-clears semantics as "CMS Reachable": a body without a forms block means the
+    // widget state is unknown THIS run — clearing beats a stale verdict next to a fresh stamp.
+    "Turnstile widget": r.turnstileWidget,
     "Function health checked at": r.checkedAt,
   };
   return fields as FieldSet;

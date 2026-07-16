@@ -43,6 +43,7 @@ function draftResult(
   reportId: string,
   softFailures: Array<"ga" | "search"> = [],
   searchDefaultMissed = false,
+  searchPropertyMissing = false,
 ) {
   return {
     reportRow: { reportId } as never,
@@ -50,6 +51,7 @@ function draftResult(
     html: "",
     softFailures,
     searchDefaultMissed,
+    searchPropertyMissing,
     queued: true,
     supersededIds: [],
   };
@@ -107,5 +109,18 @@ describe("report --due summary", () => {
     const { output } = await runReportCommand(undefined, { due: true });
 
     expect(output).not.toContain("⚑");
+  });
+
+  it("surfaces a DISTINCT no-property line (not the query-remedy line) for a searchPropertyMissing site", async () => {
+    draftMock
+      .mockResolvedValueOnce(draftResult("A — Maintenance — 2026-06-09", [], false, true))
+      .mockResolvedValueOnce(draftResult("B — Maintenance — 2026-06-09", [], false, false));
+
+    const { output, code } = await runReportCommand(undefined, { due: true });
+
+    expect(code).toBe(0);
+    expect(output).toMatch(/⚑ 1 site matched NO Search Console property/);
+    // The wrong remedy must NOT appear — a query change can't fix a missing property.
+    expect(output).not.toMatch(/no Search Console data for their name/);
   });
 });

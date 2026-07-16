@@ -209,6 +209,7 @@ export async function draftDueReports(
   const lines: string[] = [];
   let softFailedSites = 0;
   let searchDefaultMisses = 0;
+  let searchPropertiesMissing = 0;
   let gaConfiguredSites = 0;
   let skipped = 0;
   for (const item of due) {
@@ -271,6 +272,7 @@ export async function draftDueReports(
         if (isAnalyticsConfigured(item.site)) gaConfiguredSites++;
         if (result.softFailures.length > 0) softFailedSites++;
         if (result.searchDefaultMissed) searchDefaultMisses++;
+        if (result.searchPropertyMissing) searchPropertiesMissing++;
       } catch (e) {
         lines.push(`✗ failed: ${item.site.name} ${item.reportType} — ${(e as Error).message}`);
       }
@@ -319,6 +321,7 @@ export async function draftDueReports(
       if (isAnalyticsConfigured(item.site)) gaConfiguredSites++;
       if (result.softFailures.length > 0) softFailedSites++;
       if (result.searchDefaultMissed) searchDefaultMisses++;
+      if (result.searchPropertyMissing) searchPropertiesMissing++;
     } catch (e) {
       lines.push(`✗ failed: ${item.site.name} ${item.reportType} — ${(e as Error).message}`);
     }
@@ -334,6 +337,11 @@ export async function draftDueReports(
   if (searchDefaultMisses > 0) {
     lines.push(
       `⚑ ${searchDefaultMisses} site${searchDefaultMisses === 1 ? "" : "s"} returned no Search Console data for their name — set an explicit "Search query" in Airtable to track brand presence.`,
+    );
+  }
+  if (searchPropertiesMissing > 0) {
+    lines.push(
+      `⚑ ${searchPropertiesMissing} site${searchPropertiesMissing === 1 ? "" : "s"} matched NO Search Console property — verify the domain property exists and the service account has access (a "Search query" change cannot fix this).`,
     );
   }
   return {

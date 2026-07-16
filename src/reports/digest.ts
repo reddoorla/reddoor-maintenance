@@ -13,6 +13,7 @@ import {
   collectRenovateAlerts,
   collectCiAlerts,
   collectAnalyticsFailures,
+  collectTurnstileGuardrailAlerts,
 } from "../alerts/digest-collectors.js";
 import { diffAttention, readDigestState, writeDigestState } from "../alerts/digest-state.js";
 import { escapeHtml as esc } from "../util/html.js";
@@ -202,6 +203,9 @@ export async function collectAttention(deps: CollectAttentionDeps): Promise<Atte
     ...runCollector("renovate", () => collectRenovateAlerts(websites, deps.baseUrl, now)),
     ...runCollector("ci", () => collectCiAlerts(websites, deps.baseUrl, now)),
     ...runCollector("analytics", () => collectAnalyticsFailures(websites, deps.baseUrl, now)),
+    ...runCollector("turnstile", () =>
+      collectTurnstileGuardrailAlerts(websites, deps.baseUrl, now),
+    ),
   ];
 }
 

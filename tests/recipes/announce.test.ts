@@ -35,6 +35,7 @@ beforeEach(() => {
     value: null,
     softFailed: false,
     defaultQueryMissed: false,
+    propertyMissing: false,
   });
 });
 
@@ -299,9 +300,10 @@ describe("recipes/announce", () => {
       softFailed: false,
     });
     vi.mocked(fetchSearch).mockResolvedValue({
-      value: { foundOnPage1: true, position: 3 },
+      value: { foundOnPage1: true, position: 3, propertyFound: true },
       softFailed: false,
       defaultQueryMissed: false,
+      propertyMissing: false,
     });
     const base = makeFakeBase({
       Websites: [

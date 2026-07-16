@@ -17,8 +17,20 @@
  *   benign `success:false` code (expired 300s token / `timeout-or-duplicate`,
  *   `internal-error`, secret misconfig). Crucially, an EXPIRED/duplicate token means a
  *   REAL browser rendered the widget — so it stays fail-open even under requireTurnstile.
+ *
+ * The full result also carries the siteverify `hostname` — WHERE a passing token was
+ * solved. Cloudflare domain-binds sitekeys, but a loose widget allowlist would let a
+ * token legitimately solved on one host ride a submission claiming another; ingest
+ * compares it to the gated site's own host (defense-in-depth, `requireTurnstile` only).
+ * `hostname` is null on every non-pass outcome and when the response omits it.
  */
 export type TurnstileOutcome = "pass" | "fail" | "unverifiable" | "absent";
+
+export type TurnstileVerification = {
+  outcome: TurnstileOutcome;
+  /** siteverify's `hostname` (where the widget was solved) on a `"pass"`; else null. */
+  hostname: string | null;
+};
 
 const SITEVERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
@@ -30,16 +42,16 @@ export async function verifyTurnstile(opts: {
   fetch?: typeof fetch;
   /** Abort budget so a slow/hung edge can't stall the ingest response. */
   timeoutMs?: number;
-}): Promise<TurnstileOutcome> {
+}): Promise<TurnstileVerification> {
   const secret = opts.secret;
   const token = opts.token;
   // No secret configured (ships dark): unverifiable — Turnstile isn't operational
   // centrally, so we can't distinguish absent from anything, and never reach the network.
-  if (!secret || secret.trim().length === 0) return "unverifiable";
+  if (!secret || secret.trim().length === 0) return { outcome: "unverifiable", hostname: null };
   // Secret IS set but no token was forwarded: ABSENT. On a requireTurnstile site this is
   // the direct-POST-bot tell (a real browser rendering the widget always sends a token);
   // on other sites ingest leaves it neutral. Distinct from "unverifiable" on purpose.
-  if (!token || token.trim().length === 0) return "absent";
+  if (!token || token.trim().length === 0) return { outcome: "absent", hostname: null };
 
   const doFetch = opts.fetch ?? fetch;
   const controller = new AbortController();
@@ -61,20 +73,29 @@ export async function verifyTurnstile(opts: {
     try {
       parsed = await res.json();
     } catch {
-      return "unverifiable";
+      return { outcome: "unverifiable", hostname: null };
     }
     const obj = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
-    if (!obj || typeof obj.success !== "boolean") return "unverifiable";
-    if (obj.success) return "pass";
+    if (!obj || typeof obj.success !== "boolean")
+      return { outcome: "unverifiable", hostname: null };
+    if (obj.success) {
+      return {
+        outcome: "pass",
+        hostname: typeof obj["hostname"] === "string" && obj["hostname"] ? obj["hostname"] : null,
+      };
+    }
     // success:false is only a definite negative for a bad/forged token. Benign
     // codes (`timeout-or-duplicate` = expired 300s token or double-submit —
     // real humans), Cloudflare-side `internal-error`, secret/config errors,
     // and unknown/absent codes all fail open.
     const codes = Array.isArray(obj["error-codes"]) ? obj["error-codes"] : [];
-    return codes.includes("invalid-input-response") ? "fail" : "unverifiable";
+    return {
+      outcome: codes.includes("invalid-input-response") ? "fail" : "unverifiable",
+      hostname: null,
+    };
   } catch {
     // Network error or aborted (timeout) — fail open, distinct from a "fail".
-    return "unverifiable";
+    return { outcome: "unverifiable", hostname: null };
   } finally {
     clearTimeout(timer);
   }

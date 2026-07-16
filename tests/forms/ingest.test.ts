@@ -777,3 +777,121 @@ describe("ingestSubmission — cross-site repeat-sender signal", () => {
     expect(d.createSubmission).toHaveBeenCalledWith(expect.objectContaining({ status: "new" }));
   });
 });
+
+import { hostsMatch, turnstileHostnameAcceptable } from "../../src/forms/ingest.js";
+
+describe("hostsMatch / turnstileHostnameAcceptable", () => {
+  it("matches equal hosts, subdomains both ways, case-insensitively", () => {
+    expect(hostsMatch("reddoorla.com", "reddoorla.com")).toBe(true);
+    expect(hostsMatch("www.reddoorla.com", "reddoorla.com")).toBe(true);
+    expect(hostsMatch("reddoorla.com", "www.reddoorla.com")).toBe(true);
+    expect(hostsMatch("WWW.RedDoorLA.com", "reddoorla.COM")).toBe(true);
+    expect(hostsMatch("attacker.example", "reddoorla.com")).toBe(false);
+    // suffix WITHOUT a dot boundary must not match (evilreddoorla.com is not a subdomain)
+    expect(hostsMatch("evilreddoorla.com", "reddoorla.com")).toBe(false);
+    expect(hostsMatch("", "reddoorla.com")).toBe(false);
+  });
+
+  it("turnstileHostnameAcceptable fails open on an unparseable/hostless site url", () => {
+    expect(turnstileHostnameAcceptable("anything.example", "not a url")).toBe(true);
+    expect(turnstileHostnameAcceptable("anything.example", "")).toBe(true);
+    expect(turnstileHostnameAcceptable("www.acme.example", "https://acme.example/contact")).toBe(
+      true,
+    );
+    expect(turnstileHostnameAcceptable("other.example", "https://acme.example")).toBe(false);
+  });
+});
+
+describe("ingestSubmission — turnstile solved-hostname gate", () => {
+  const gated = () =>
+    makeWebsiteRow({ id: "recSITE", url: "https://acme.example", requireTurnstile: true });
+
+  it("forces spam_auto with 'turnstile-required-hostname' when a passing token was solved on a foreign host", async () => {
+    const row = makeSubmissionRow({ id: "recSUB", status: "spam_auto" });
+    const d = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(gated()),
+      createSubmission: vi.fn().mockResolvedValue(row),
+      classifySpam: () => ({ score: 0, reasons: [] }),
+    });
+    const r = await ingestSubmission(
+      d,
+      "acme",
+      { email: "a@b.co", message: "hello there" },
+      { outcome: "pass", hostname: "token-farm.example" },
+    );
+    expect(r.status).toBe("accepted");
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "spam_auto", spamReason: "turnstile-required-hostname" }),
+    );
+    expect(d.notify).not.toHaveBeenCalled();
+  });
+
+  it("a matching or subdomain hostname on a gated site stays clean", async () => {
+    for (const hostname of ["acme.example", "www.acme.example"]) {
+      const d = deps({
+        getWebsiteBySlug: vi.fn().mockResolvedValue(gated()),
+        classifySpam: () => ({ score: 0, reasons: [] }),
+      });
+      const r = await ingestSubmission(
+        d,
+        "acme",
+        { email: "a@b.co", message: "hello there" },
+        { outcome: "pass", hostname },
+      );
+      expect(r.status).toBe("accepted");
+      expect(d.createSubmission).toHaveBeenCalledWith(expect.objectContaining({ status: "new" }));
+    }
+  });
+
+  it("never escalates on: null hostname, a NON-gated site, or an unparseable site url (fail-open)", async () => {
+    // null hostname (older data / non-pass outcomes)
+    const d1 = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(gated()),
+      classifySpam: () => ({ score: 0, reasons: [] }),
+    });
+    await ingestSubmission(d1, "acme", { email: "a@b.co" }, { outcome: "pass", hostname: null });
+    expect(d1.createSubmission).toHaveBeenCalledWith(expect.objectContaining({ status: "new" }));
+
+    // foreign hostname but requireTurnstile OFF
+    const d2 = deps({
+      getWebsiteBySlug: vi
+        .fn()
+        .mockResolvedValue(makeWebsiteRow({ id: "recSITE", url: "https://acme.example" })),
+      classifySpam: () => ({ score: 0, reasons: [] }),
+    });
+    await ingestSubmission(
+      d2,
+      "acme",
+      { email: "a@b.co" },
+      { outcome: "pass", hostname: "elsewhere.example" },
+    );
+    expect(d2.createSubmission).toHaveBeenCalledWith(expect.objectContaining({ status: "new" }));
+
+    // gated but unparseable site url
+    const d3 = deps({
+      getWebsiteBySlug: vi
+        .fn()
+        .mockResolvedValue(
+          makeWebsiteRow({ id: "recSITE", url: "not a url", requireTurnstile: true }),
+        ),
+      classifySpam: () => ({ score: 0, reasons: [] }),
+    });
+    await ingestSubmission(
+      d3,
+      "acme",
+      { email: "a@b.co" },
+      { outcome: "pass", hostname: "elsewhere.example" },
+    );
+    expect(d3.createSubmission).toHaveBeenCalledWith(expect.objectContaining({ status: "new" }));
+  });
+
+  it("a bare-string 4th argument still works (back-compat) and never trips the hostname gate", async () => {
+    const d = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(gated()),
+      classifySpam: () => ({ score: 0, reasons: [] }),
+    });
+    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: "hi" }, "pass");
+    expect(r.status).toBe("accepted");
+    expect(d.createSubmission).toHaveBeenCalledWith(expect.objectContaining({ status: "new" }));
+  });
+});
