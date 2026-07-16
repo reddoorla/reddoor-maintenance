@@ -419,6 +419,47 @@ export async function backfillSubmission(db: Db, row: SubmissionRow): Promise<vo
     .execute();
 }
 
+/** Re-score write for the `submissions rescore` CLI (2026-07-16): flip ONE still-'new'
+ *  row to spam_auto with the CURRENT classifier's verdict. Unlike markSubmissionsSpamRetro
+ *  (which appends to the old trail), this REPLACES spam_score/spam_reason — the point of a
+ *  re-score is that today's verdict supersedes the stale ingest-time one; the caller bakes
+ *  its provenance marker (retro-rescore) into `reason`. The status='new' guard is
+ *  load-bearing: rows the operator already read/replied/archived/marked are NEVER
+ *  re-bucketed. Returns true when the row was written (false = no longer 'new'). */
+export async function rescoreSubmissionSpam(
+  db: Db,
+  id: string,
+  score: number,
+  reason: string,
+): Promise<boolean> {
+  const res = await db
+    .updateTable("submissions")
+    .set({ status: "spam_auto", spam_score: score, spam_reason: reason })
+    .where("id", "=", id)
+    .where("status", "=", "new")
+    .executeTakeFirst();
+  return Number(res.numUpdatedRows) > 0;
+}
+
+/** Bulk triage for the /submissions page (2026-07-16): flip EVERY still-'new' row
+ *  matching `filter` to 'read', server-side, so a 100-row backlog is one click instead
+ *  of 100. Reuses applySubmissionFilter (via an id-subquery — kysely's update builder
+ *  can't take the select-only helper directly) so the POST flips exactly the bucket the
+ *  GET rendered. The outer status='new' guard is load-bearing: spam/archived/read rows
+ *  are never touched even when the filter matches them (bulk-"reading" a spam_auto row
+ *  would resurrect it into the per-site strip). Returns the number of rows flipped. */
+export async function markFilteredAsRead(db: Db, filter: SubmissionFilter): Promise<number> {
+  const res = await db
+    .updateTable("submissions")
+    .set({ status: "read" })
+    .where("status", "=", "new")
+    .where("id", "in", (eb) =>
+      applySubmissionFilter(eb.selectFrom("submissions").select("id"), filter),
+    )
+    .executeTakeFirst();
+  return Number(res.numUpdatedRows);
+}
+
 /** Flip a submission's notify_status to 'bounced' by its Resend message id — the
  *  resend-webhook's mapping from a bounce/complaint event back onto the lead whose
  *  notification it was (2026-07-16, the Espada failure mode: 'sent' only means Resend

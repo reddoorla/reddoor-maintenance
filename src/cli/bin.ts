@@ -530,6 +530,27 @@ cli
 
 cli
   .command(
+    "submissions <action>",
+    "Operate on stored form submissions. rescore: re-run the CURRENT spam classifier over the status='new' backlog (dry-run by default; only 'new' rows are ever touched).",
+  )
+  .option("--dry-run", "Print the would-be re-buckets without writing (the default).")
+  .option(
+    "--apply",
+    "Write the re-buckets: status → spam_auto, spam_score/spam_reason replaced with the new verdict + 'retro-rescore' marker.",
+  )
+  .action(
+    async (
+      action: string,
+      opts: { dryRun?: boolean; apply?: boolean; cwd?: string; verbose?: boolean },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/submissions.js")).runSubmissionsCommand(action, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
     "renovate-dispatch",
     "Trigger Renovate on fleet sites the security sweep flagged with critical/high vulns.",
   )

@@ -34,6 +34,7 @@ function model(over: Partial<SubmissionsPageModel> = {}): SubmissionsPageModel {
     pageSize: 50,
     total: 120,
     facetReasons: [],
+    markableNewCount: 0,
     ...over,
   };
 }
