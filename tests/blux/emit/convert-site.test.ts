@@ -111,6 +111,31 @@ describe("convertSite feed materialization", () => {
     styles: {},
   };
 
+  it("does NOT clobber a band that parsed real content (positional join misalign guard)", () => {
+    // site.json marks band 1 a feed source, but the rendered band 1 already
+    // has real content (a real image grid) — the positional join misaligned
+    // (a non-contiguous page). Materializing would destroy the real content,
+    // so it's left as parsed with a diagnostic.
+    const html =
+      '<div id="page-content">' +
+      '<section id="page-block-0" class="blocks0"><div class="block-content">' +
+      '<h2 class="block-title text5">Welcome</h2></div></section>' +
+      '<section id="page-block-1" class="blocks0"><div class="block-content">' +
+      '<div class="ib img imgfit camediaload" data-media="real1" data-ext="jpg" data-base="https://cdn/s/"></div>' +
+      "</div></section></div>";
+    const { presentation, ir } = convertSite({
+      siteJson: feedSite,
+      htmlByUid: new Map([["home", html]]),
+    });
+    // The real image survives; no feed tiles injected.
+    const band1 = presentation.pages["home"]!.bands["1"];
+    expect(JSON.stringify(band1)).toContain("real1");
+    expect(JSON.stringify(band1)).not.toContain("Alpha");
+    expect(ir.diagnostics).toContainEqual(
+      expect.objectContaining({ kind: "empty-feed-grid", where: "1" }),
+    );
+  });
+
   it("rebuilds a feed band's tiles from the records, keeping its heading", () => {
     const html =
       '<div id="page-content">' +

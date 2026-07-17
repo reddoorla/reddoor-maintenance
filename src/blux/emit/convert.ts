@@ -12,6 +12,7 @@ import { parseBluxSite } from "../parse.js";
 import { normalizePages } from "../normalize.js";
 import {
   buildFeedResolvers,
+  feedAssetBase,
   isFeedBand,
   materializeFeedGrid,
   resolveFeedTiles,
@@ -126,6 +127,30 @@ function feedColumns(item: { columns?: unknown }): number {
   return Number.isFinite(n) && n > 0 ? n : 3;
 }
 
+/** Did this band lose its content to the feed-template drop? — its parsed root
+ * is empty (just heading(s)/subtitle/empty-raw, no media and no populated
+ * row). Only such a band is a safe materialization target: a band that already
+ * parsed real content is NOT a JS-hydrated feed grid, so the positional
+ * site.json join landed on the wrong band and must not clobber it. */
+function isEmptyish(root: Node): boolean {
+  switch (root.kind) {
+    case "heading":
+    case "subtitle":
+      return true;
+    case "raw":
+      return root.html.trim() === "";
+    case "media":
+    case "widget":
+      return false;
+    case "row":
+      return root.cells.length === 0;
+    case "stack":
+      return root.children.every(isEmptyish);
+    default:
+      return false;
+  }
+}
+
 /** Replace each feed band's root (parsed to just its heading, the tile
  * template having been dropped) with the heading over a materialized tile row
  * rebuilt from the feed records. Feed bands whose source resolves to no tiles
@@ -143,6 +168,18 @@ function materializeFeedBands(
   for (const band of bands) {
     const item = pageItems[band.index];
     if (!isFeedBand(item)) continue;
+    // Guard the positional join: only a band that lost its content to the
+    // template drop is a real feed grid. A band that already parsed real
+    // content means items[band.index] misaligned (a non-contiguous page) —
+    // materializing would CLOBBER it, so skip with a diagnostic instead.
+    if (!isEmptyish(band.root)) {
+      diagnostics.push({
+        kind: "empty-feed-grid",
+        where: String(band.index),
+        message: `band ${band.index} has parsed content but site.json item is a feed source — positional join misaligned, left as parsed`,
+      });
+      continue;
+    }
     const tiles = resolveFeedTiles(item, resolvers);
     if (!tiles) {
       diagnostics.push({
@@ -216,8 +253,11 @@ export function convertSite({
   // Feed-grid materialization: gallery/portfolio tiles render client-side from
   // feed records (the static export ships only the dropped {{…}} template), so
   // we rebuild them deterministically from the feed data (see feed-grid.ts).
+  // The asset base is scraped from the export's own data-base so feed images
+  // use the RIGHT CDN host (Blux spreads assets across two).
   const raw = parseBluxSite(siteJson);
-  const feedResolvers = buildFeedResolvers(raw.feeds, raw.media, ir.meta.bluxSiteId);
+  const assetBase = feedAssetBase([...htmlByUid.values()], ir.meta.bluxSiteId);
+  const feedResolvers = buildFeedResolvers(raw.feeds, raw.media, assetBase);
   const pageItemsByIndex = (siteJson as { content?: { pages?: { items?: unknown[] }[] } })?.content
     ?.pages;
 

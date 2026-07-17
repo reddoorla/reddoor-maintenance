@@ -3,6 +3,8 @@ import {
   tagFilter,
   resolveFeedTiles,
   materializeFeedGrid,
+  buildFeedResolvers,
+  feedAssetBase,
   type FeedResolvers,
 } from "../../src/blux/grid/feed-grid.js";
 import type { Media } from "../../src/blux/grid/types.js";
@@ -94,6 +96,28 @@ describe("resolveFeedTiles", () => {
   it("returns null for an unknown source or no sources", () => {
     expect(resolveFeedTiles({ sources: ["ghost"] }, resolvers())).toBeNull();
     expect(resolveFeedTiles({ sources: [] }, resolvers())).toBeNull();
+  });
+});
+
+describe("feedAssetBase + buildFeedResolvers (review hardening)", () => {
+  it("scrapes the export's real CDN host from data-base, normalizing http→https", () => {
+    const html =
+      '<div class="camediaload" data-base="http://second-host.cloudfront.net/site-9/"></div>';
+    expect(feedAssetBase([html], "site-9")).toBe("https://second-host.cloudfront.net/site-9/");
+  });
+
+  it("falls back to the first known host + siteId when no data-base is present", () => {
+    expect(feedAssetBase(["<div></div>"], "site-9")).toContain("/site-9/");
+  });
+
+  it("mediaFor derives the ext from the filename when the mime is unmapped, dropping non-images", () => {
+    const r = buildFeedResolvers({}, {}, "https://cdn/s/");
+    // unmapped mime → filename ext
+    expect(r.mediaFor("u", "custom", "photo.HEIC ")).toBeNull(); // heic isn't an image ext we serve
+    expect(r.mediaFor("u", "application/octet-stream", "shot.jpeg")).toMatchObject({ ext: "jpg" });
+    expect(r.mediaFor("u", "image/avif", undefined)).toMatchObject({ ext: "avif" });
+    // no mime, no image filename → dropped
+    expect(r.mediaFor("u", undefined, "notes.txt")).toBeNull();
   });
 });
 

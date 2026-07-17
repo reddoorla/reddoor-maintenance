@@ -26,10 +26,11 @@ export type FeedResolvers = {
   feeds: Map<string, FeedRecord[]>;
   /** The media library: uuid → its `{ name, type, tags }` entry. */
   media: Map<string, FeedRecord>;
-  /** Build a Media (with a resolved url base) for an asset uuid of a given
-   * mime type — the render resolver turns Media→url the same way it does for
-   * parsed media, so feed images flow through one url path. */
-  mediaFor: (uuid: string, type: string | undefined) => Media | null;
+  /** Build a Media (with a resolved url base) for an asset uuid, given its mime
+   * type and/or filename (either can supply the extension) — the render
+   * resolver turns Media→url the same way it does for parsed media, so feed
+   * images flow through one url path. */
+  mediaFor: (uuid: string, type: string | undefined, name?: string) => Media | null;
 };
 
 /** Parse a Blux tag filter expression into a predicate over a tag set. The
@@ -105,7 +106,7 @@ export function resolveFeedTiles(
       if (!type.startsWith("image/")) continue;
       const tags = (entry["tags"] as string[] | undefined) ?? [];
       if (!match(tags)) continue;
-      const media = resolvers.mediaFor(uuid, type);
+      const media = resolvers.mediaFor(uuid, type, entry["name"] as string | undefined);
       if (media) tiles.push({ media });
     }
     return tiles.length ? tiles : null;
@@ -185,23 +186,28 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-/** A file extension for a media mime type (image/jpeg → jpg). null for a mime
- * we don't map (the tile then can't build a url and is dropped). */
-function extForMime(mime: string | undefined): string | null {
-  switch (mime) {
-    case "image/jpeg":
-      return "jpg";
-    case "image/png":
-      return "png";
-    case "image/svg+xml":
-      return "svg";
-    case "image/gif":
-      return "gif";
-    case "image/webp":
-      return "webp";
-    default:
-      return null;
-  }
+/** A file extension for a media asset: the mime map first (image/jpeg → jpg),
+ * else the extension off the entry's own filename (`name`) — Blux names carry
+ * the real extension, so an unmapped/absent mime (image/jpg, avif, heic, a
+ * bare `custom`) still resolves instead of silently dropping the tile. null
+ * only when neither yields an image extension. */
+function extFor(mime: string | undefined, name: string | undefined): string | null {
+  const byMime: Record<string, string> = {
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/png": "png",
+    "image/svg+xml": "svg",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "image/avif": "avif",
+    "image/bmp": "bmp",
+    "image/tiff": "tiff",
+  };
+  if (mime && byMime[mime]) return byMime[mime];
+  const m = /\.([a-z0-9]{2,5})$/i.exec(name ?? "");
+  const ext = m?.[1]?.toLowerCase();
+  const IMG = new Set(["jpg", "jpeg", "png", "svg", "gif", "webp", "avif", "bmp", "tif", "tiff"]);
+  return ext && IMG.has(ext) ? (ext === "jpeg" ? "jpg" : ext) : null;
 }
 
 /** Is this a feed-driven band? — its site.json item declares `sources`. */
@@ -216,27 +222,38 @@ export function isFeedBand(
   );
 }
 
+/** The CDN base (`https://<host>/<siteId>/`) an export actually serves assets
+ * from — scraped from a rendered `data-base` so the RIGHT host is used (Blux
+ * spreads assets across two CDN hosts; a hardcoded host would 404 the other).
+ * Falls back to the first known host + siteId when no data-base is present. */
+export function feedAssetBase(htmls: string[], siteId: string): string {
+  for (const html of htmls) {
+    const m = /data-base="(https?:\/\/[^"]+?\/)"/i.exec(html);
+    if (m?.[1]) return m[1].replace(/^http:/, "https:");
+  }
+  return `https://${CDN_HOSTS[0]}/${siteId}/`;
+}
+
 /** Build the feed resolvers from a parsed site: feed records (site.json.feeds
  * carries them inline), the media library, and a Media builder that
- * reconstructs the CDN url (`https://<host>/<siteId>/<uuid>.<ext>` — the
- * untransformed base the export's own `data-base` uses, which resolves
- * full-res). Pure. */
+ * reconstructs the CDN url (`<base><uuid>.<ext>` — the untransformed base the
+ * export's own `data-base` uses, which resolves full-res). `base` comes from
+ * `feedAssetBase` (the export's real host); `ext` from mime-or-filename. Pure. */
 export function buildFeedResolvers(
   feeds: Record<string, { items?: FeedRecord[] } | undefined>,
   mediaLibrary: Record<string, FeedRecord>,
-  siteId: string,
+  base: string,
 ): FeedResolvers {
   const feedMap = new Map<string, FeedRecord[]>();
   for (const [id, f] of Object.entries(feeds)) {
     if (Array.isArray(f?.items)) feedMap.set(id, f.items);
   }
   const mediaMap = new Map<string, FeedRecord>(Object.entries(mediaLibrary));
-  const base = `https://${CDN_HOSTS[0]}/${siteId}/`;
   return {
     feeds: feedMap,
     media: mediaMap,
-    mediaFor: (uuid, type) => {
-      const ext = extForMime(type);
+    mediaFor: (uuid, type, name) => {
+      const ext = extFor(type, name);
       if (!ext) return null;
       return { kind: "image", assetId: uuid, base, ext };
     },
