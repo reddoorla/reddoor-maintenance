@@ -47,7 +47,12 @@ function parseNavItems(items: unknown): NavItem[] {
  * stores only the network *flags* (`networks: { facebook: true, … }`) — the
  * profile urls are injected at render time from account config that isn't in
  * the export, so we recover them from the scraped live footer by matching the
- * link's host against these. */
+ * link's host against these.
+ *
+ * Keep this in lockstep with the render's Footer `NETWORK` map (reddoor-starter
+ * src/lib/components/Footer.svelte): a network we resolve an href for but the
+ * Footer can't draw is silently dropped, so only list networks the Footer
+ * renders. */
 const SOCIAL_DOMAINS: Record<string, string[]> = {
   facebook: ["facebook.com", "fb.com"],
   twitter: ["twitter.com", "x.com"],
@@ -56,9 +61,7 @@ const SOCIAL_DOMAINS: Record<string, string[]> = {
   linkedin: ["linkedin.com"],
   "linkedin-company": ["linkedin.com"],
   youtube: ["youtube.com", "youtu.be"],
-  vimeo: ["vimeo.com"],
-  tiktok: ["tiktok.com"],
-  yelp: ["yelp.com"],
+  reddit: ["reddit.com"],
 };
 
 /** True when `host` is `domain` or a subdomain of it — not merely a suffix
@@ -75,10 +78,23 @@ function hostOf(url: string): string {
   }
 }
 
+/** The `<footer>…</footer>` region of a page (last occurrence), or the whole
+ * html when there's no footer element. Social links live in the footer, so we
+ * scan there — a body link to, say, a facebook post must not outrank the real
+ * footer profile link. */
+function footerRegion(html: string): string {
+  const lower = html.toLowerCase();
+  const start = lower.lastIndexOf("<footer");
+  if (start === -1) return html;
+  const end = lower.indexOf("</footer>", start);
+  return end === -1 ? html.slice(start) : html.slice(start, end + "</footer>".length);
+}
+
 /** A network→href resolver built from scraped page HTML. Blux renders the same
  * footer on every page, so any page's html carries the social links; we scan
- * for absolute http(s) hrefs and match each to a network by host. Returns a
- * function so `buildSiteConfig` stays free of the html-scan mechanics. */
+ * the footer region for absolute http(s) hrefs and match each to a network by
+ * host. Returns a function so `buildSiteConfig` stays free of the html-scan
+ * mechanics. */
 export function socialHrefResolverFromHtml(
   htmls: string[],
 ): (network: string) => string | undefined {
@@ -86,8 +102,9 @@ export function socialHrefResolverFromHtml(
   const re = /href\s*=\s*["']([^"']+)["']/gi;
   for (const html of htmls) {
     if (typeof html !== "string") continue;
+    const region = footerRegion(html);
     let m: RegExpExecArray | null;
-    while ((m = re.exec(html))) {
+    while ((m = re.exec(region))) {
       const url = m[1];
       if (url && /^https?:\/\//i.test(url)) hrefs.push(url);
     }
@@ -129,14 +146,30 @@ function parseSocials(
   return out;
 }
 
-/** The footer's rights/copyright line: the first footer item that carries a
- * `title` (Blux puts the "© … All Rights Reserved" text there). */
-function parseFooterText(raw: unknown): string | undefined {
-  const items = Array.isArray(raw) ? raw : [];
-  for (const it of items as { title?: unknown }[]) {
-    if (typeof it?.title === "string" && it.title.trim()) return it.title.trim();
+/** Every non-empty `title` under a footer subtree, in document order. The
+ * copyright often sits nested inside a column item, not at the top level. */
+function collectTitles(node: unknown, acc: string[]): string[] {
+  if (Array.isArray(node)) {
+    for (const n of node) collectTitles(n, acc);
+    return acc;
   }
-  return undefined;
+  if (node && typeof node === "object") {
+    const rec = node as Record<string, unknown>;
+    if (typeof rec.title === "string" && rec.title.trim()) acc.push(rec.title.trim());
+    for (const k of Object.keys(rec)) if (k !== "title") collectTitles(rec[k], acc);
+  }
+  return acc;
+}
+
+/** The footer's rights/copyright line. Blux footers interleave link-column
+ * headings ("About Us", "Quick Links") with the copyright — and the copyright
+ * is often nested inside a column — so "first titled item" grabs a heading on
+ * many sites. Match the copyright by its shape (©, "copyright", or "rights
+ * reserved") across the whole footer subtree instead. Returns undefined when
+ * none matches (the render shows its generic notice, not a wrong heading). */
+const COPYRIGHT_RE = /©|\(c\)|\bcopyright\b|rights reserved/i;
+function parseFooterText(raw: unknown): string | undefined {
+  return collectTitles(raw, []).find((t) => COPYRIGHT_RE.test(t));
 }
 
 /** Build the render-side site config from the export's navigation + footer.

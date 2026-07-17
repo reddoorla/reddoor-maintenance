@@ -62,6 +62,34 @@ describe("buildSiteConfig", () => {
     expect(cfg.footer.text).toBe("© Composition Hospitality 2017, All Rights Reserved");
   });
 
+  it("finds the copyright even when a link-column heading precedes it (nested)", () => {
+    // Real footers lead with column headings ("About Us") and bury the © line
+    // in a column — first-titled would grab the heading.
+    const withColumns = {
+      footer: [
+        {
+          items: [
+            { title: "About Us", items: [{ title: "Our Story" }] },
+            { title: "Quick Links" },
+            {
+              items: [{ title: "Copyright © 2022 Acme Inc. All Rights Reserved." }],
+            },
+          ],
+        },
+      ],
+    };
+    const cfg = buildSiteConfig(withColumns, () => null);
+    expect(cfg.footer.text).toBe("Copyright © 2022 Acme Inc. All Rights Reserved.");
+  });
+
+  it("emits no footer text when nothing matches a copyright shape", () => {
+    const noCopyright = {
+      footer: [{ items: [{ title: "About Us" }, { title: "Contact" }] }],
+    };
+    const cfg = buildSiteConfig(noCopyright, () => null);
+    expect(cfg.footer.text).toBeUndefined();
+  });
+
   it("degrades to empty config on a site with no navigation/footer", () => {
     const cfg = buildSiteConfig({}, () => null);
     expect(cfg).toEqual({ nav: { items: [] }, footer: { socials: [] } });
@@ -132,5 +160,23 @@ describe("socialHrefResolverFromHtml", () => {
   it("matches twitter's x.com host", () => {
     const resolve = socialHrefResolverFromHtml([`<a href="https://x.com/Composition2014">x</a>`]);
     expect(resolve("twitter")).toBe("https://x.com/Composition2014");
+  });
+
+  it("scopes to the footer so a body link can't outrank the real profile", () => {
+    const page =
+      `<body>` +
+      // a "share this on facebook" body link — must NOT win
+      `<article><a href="https://www.facebook.com/sharer?u=post">share</a></article>` +
+      `<footer><a href="https://www.facebook.com/AcmeOfficial">us</a></footer>` +
+      `</body>`;
+    const resolve = socialHrefResolverFromHtml([page]);
+    expect(resolve("facebook")).toBe("https://www.facebook.com/AcmeOfficial");
+  });
+
+  it("falls back to the whole page when there is no footer element", () => {
+    const resolve = socialHrefResolverFromHtml([
+      `<div><a href="https://www.instagram.com/acme">ig</a></div>`,
+    ]);
+    expect(resolve("instagram")).toBe("https://www.instagram.com/acme");
   });
 });
