@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildSiteConfig } from "../../../src/blux/emit/site-config.js";
+import {
+  buildSiteConfig,
+  socialHrefResolverFromHtml,
+} from "../../../src/blux/emit/site-config.js";
 
 const site = {
   navigation: [
@@ -70,5 +73,69 @@ describe("buildSiteConfig", () => {
   it("omits the logo when its asset is unresolved", () => {
     const cfg = buildSiteConfig(site, () => null);
     expect(cfg.nav.logo).toBeUndefined();
+  });
+
+  it("recovers hrefless socials from the scraped footer via resolveSocialHref", () => {
+    // instagram has no export url; the scraped footer supplies it. facebook's
+    // export url still wins over the scrape.
+    const resolve = socialHrefResolverFromHtml([
+      `<a href="https://www.instagram.com/compositionhospitality">ig</a>` +
+        `<a href="https://www.facebook.com/pages/Composition/999">fb</a>`,
+    ]);
+    const cfg = buildSiteConfig(site, () => null, resolve);
+    expect(cfg.footer.socials).toEqual([
+      { network: "facebook", href: "https://fb.com/x" }, // export url unchanged
+      { network: "instagram", href: "https://www.instagram.com/compositionhospitality" },
+    ]);
+  });
+});
+
+describe("socialHrefResolverFromHtml", () => {
+  const html =
+    `<footer>` +
+    `<a href="#site-icon-facebook"></a>` +
+    `<a href="http://www.facebook.com/pages/Composition-Hospitality/1505590556391395">f</a>` +
+    `<a href="http://www.twitter.com/Composition2014">t</a>` +
+    `<a href="http://www.instagram.com/compositionhospitality">i</a>` +
+    `<a href="http://www.pinterest.com/composition2014">p</a>` +
+    `<a href="http://www.linkedin.com/company/composition-hospitality">l</a>` +
+    `<a href="/about">about</a>` +
+    `</footer>`;
+
+  it("matches each network to its live profile url by host", () => {
+    const resolve = socialHrefResolverFromHtml([html]);
+    expect(resolve("facebook")).toBe(
+      "http://www.facebook.com/pages/Composition-Hospitality/1505590556391395",
+    );
+    expect(resolve("twitter")).toBe("http://www.twitter.com/Composition2014");
+    expect(resolve("instagram")).toBe("http://www.instagram.com/compositionhospitality");
+    expect(resolve("pinterest")).toBe("http://www.pinterest.com/composition2014");
+    // linkedin-company shares the linkedin.com domain map.
+    expect(resolve("linkedin-company")).toBe(
+      "http://www.linkedin.com/company/composition-hospitality",
+    );
+  });
+
+  it("ignores in-page anchors and relative links, and unknown networks", () => {
+    const resolve = socialHrefResolverFromHtml([html]);
+    // No absolute youtube link present.
+    expect(resolve("youtube")).toBeUndefined();
+    // Not in the domain map at all.
+    expect(resolve("myspace")).toBeUndefined();
+  });
+
+  it("does not match look-alike hosts (suffix spoofing)", () => {
+    const resolve = socialHrefResolverFromHtml([
+      `<a href="https://notfacebook.com/x">nope</a>` +
+        `<a href="https://facebook.com.evil.example/x">nope</a>`,
+    ]);
+    expect(resolve("facebook")).toBeUndefined();
+  });
+
+  it("matches twitter's x.com host", () => {
+    const resolve = socialHrefResolverFromHtml([
+      `<a href="https://x.com/Composition2014">x</a>`,
+    ]);
+    expect(resolve("twitter")).toBe("https://x.com/Composition2014");
   });
 });

@@ -9,7 +9,7 @@ import { validateCoverage } from "../../blux/validate.js";
 import { parseGridBands, extractMapConfig } from "../../blux/grid/index.js";
 import { feedAssetBase } from "../../blux/grid/feed-grid.js";
 import { convertExport, convertSite, sitePages } from "../../blux/emit/convert.js";
-import { buildSiteConfig } from "../../blux/emit/site-config.js";
+import { buildSiteConfig, socialHrefResolverFromHtml } from "../../blux/emit/site-config.js";
 import { validateLayout, formatLayoutReport } from "../../blux/emit/validate-layout.js";
 import { rewriteManifestUrls } from "../../blux/emit/rewrite-manifest.js";
 import type { SitePresentation } from "../../blux/emit/presentation.js";
@@ -359,7 +359,11 @@ export async function runBluxCommand(
         const ext = extByMime[String(mediaDict[uuid]?.type ?? "")];
         return ext ? `${base}${uuid}.${ext}` : null;
       };
-      const siteConfig = buildSiteConfig(siteJson, resolveLogo);
+      // Footer social profile urls aren't in the export (Blux injects them at
+      // render time), but they ride the scraped live footer — recover them by
+      // host from the same page html the grid was built from.
+      const resolveSocialHref = socialHrefResolverFromHtml([...htmlByUid.values()]);
+      const siteConfig = buildSiteConfig(siteJson, resolveLogo, resolveSocialHref);
       await writeFile(join(outDir, "site-config.json"), JSON.stringify(siteConfig, null, 2) + "\n");
     }
     // The favicon never rides the migration plan (plan assets get uploaded to

@@ -43,10 +43,74 @@ function parseNavItems(items: unknown): NavItem[] {
   return out;
 }
 
+/** The domain(s) that identify each Blux social network. Blux's social widget
+ * stores only the network *flags* (`networks: { facebook: true, … }`) — the
+ * profile urls are injected at render time from account config that isn't in
+ * the export, so we recover them from the scraped live footer by matching the
+ * link's host against these. */
+const SOCIAL_DOMAINS: Record<string, string[]> = {
+  facebook: ["facebook.com", "fb.com"],
+  twitter: ["twitter.com", "x.com"],
+  instagram: ["instagram.com"],
+  pinterest: ["pinterest.com"],
+  linkedin: ["linkedin.com"],
+  "linkedin-company": ["linkedin.com"],
+  youtube: ["youtube.com", "youtu.be"],
+  vimeo: ["vimeo.com"],
+  tiktok: ["tiktok.com"],
+  yelp: ["yelp.com"],
+};
+
+/** True when `host` is `domain` or a subdomain of it — not merely a suffix
+ * match (so `notfacebook.com` never matches `facebook.com`). */
+function hostMatches(host: string, domain: string): boolean {
+  return host === domain || host.endsWith("." + domain);
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+/** A network→href resolver built from scraped page HTML. Blux renders the same
+ * footer on every page, so any page's html carries the social links; we scan
+ * for absolute http(s) hrefs and match each to a network by host. Returns a
+ * function so `buildSiteConfig` stays free of the html-scan mechanics. */
+export function socialHrefResolverFromHtml(
+  htmls: string[],
+): (network: string) => string | undefined {
+  const hrefs: string[] = [];
+  const re = /href\s*=\s*["']([^"']+)["']/gi;
+  for (const html of htmls) {
+    if (typeof html !== "string") continue;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(html))) {
+      const url = m[1];
+      if (/^https?:\/\//i.test(url)) hrefs.push(url);
+    }
+  }
+  return (network) => {
+    const domains = SOCIAL_DOMAINS[network];
+    if (!domains) return undefined;
+    return hrefs.find((u) => {
+      const host = hostOf(u);
+      return host && domains.some((d) => hostMatches(host, d));
+    });
+  };
+}
+
 /** The known social networks and the http(s) url found for one in a raw footer
  * social item (Blux stores `networks: { facebook: true, … }` — the flags — and
- * sometimes per-network urls elsewhere; we carry the network id and any url). */
-function parseSocials(raw: unknown): FooterSocial[] {
+ * sometimes per-network urls elsewhere; we carry the network id and any url).
+ * When the export omits a url, `resolveSocialHref` recovers it from the scraped
+ * live footer (see `socialHrefResolverFromHtml`). */
+function parseSocials(
+  raw: unknown,
+  resolveSocialHref?: (network: string) => string | undefined,
+): FooterSocial[] {
   const out: FooterSocial[] = [];
   const items = Array.isArray(raw) ? raw : [];
   for (const it of items as { media?: { type?: unknown; networks?: unknown; urls?: unknown } }[]) {
@@ -57,7 +121,8 @@ function parseSocials(raw: unknown): FooterSocial[] {
     const urls = (media.urls ?? {}) as Record<string, unknown>;
     for (const [network, on] of Object.entries(networks as Record<string, unknown>)) {
       if (on !== true) continue;
-      const url = typeof urls[network] === "string" ? (urls[network] as string) : undefined;
+      const fromExport = typeof urls[network] === "string" ? (urls[network] as string) : undefined;
+      const url = fromExport ?? resolveSocialHref?.(network);
       out.push({ network, ...(url ? { href: url } : {}) });
     }
   }
@@ -76,10 +141,12 @@ function parseFooterText(raw: unknown): string | undefined {
 
 /** Build the render-side site config from the export's navigation + footer.
  * `resolveLogo` turns the nav logo's asset uuid into a url (null when
- * unresolved). Pure. */
+ * unresolved). `resolveSocialHref` recovers a footer social's profile url from
+ * the scraped live footer when the export omits it. Pure. */
 export function buildSiteConfig(
   siteJson: unknown,
   resolveLogo: (uuid: string) => string | null,
+  resolveSocialHref?: (network: string) => string | undefined,
 ): SiteConfig {
   const j = siteJson as { navigation?: unknown; footer?: unknown };
   const navRoot = (Array.isArray(j.navigation) ? j.navigation[0] : j.navigation) as
@@ -98,7 +165,7 @@ export function buildSiteConfig(
   const maxWidth =
     typeof logoMedia?.["max-width"] === "string" ? logoMedia["max-width"] : undefined;
 
-  const socials = parseSocials(footRoot?.items);
+  const socials = parseSocials(footRoot?.items, resolveSocialHref);
   const text = parseFooterText(footRoot?.items);
 
   return {
