@@ -2,7 +2,15 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    # `changeset-release/main` is the Changesets "Version Packages" bot branch.
+    # Its PR opens via RENOVATE_TOKEN (see release.yml) so a pull_request event
+    # DOES fire — but GitHub gates pull_request runs from that automation behind
+    # manual approval, leaving every release PR's required `build` check stuck in
+    # "action_required" and unmergeable without an admin approving each re-push.
+    # A push event is not subject to that approval gate and produces the same
+    # `build` check on the same SHA, so listing the branch here lets the release
+    # PR go green on its own.
+    branches: [main, changeset-release/main]
   pull_request:
 
 jobs:
