@@ -196,6 +196,52 @@ describe("classifyBand — media", () => {
     });
   });
 
+  it("a full-page hero slider (stack[media, title, location body]) → Carousel", () => {
+    // Composition's home hero: caslider slides are media + title heading + a
+    // location body. The title is the caption (the location body is dropped
+    // until the caption model carries a second line). An exact 2-child match
+    // rejected it and rendered all 18 slides stacked full-width.
+    const b: Band = {
+      index: 0,
+      root: {
+        kind: "row",
+        slider: { columns: 1 },
+        cells: [
+          { token: { cols: 1, raw: "grid-1" }, node: stack(media("image"), heading(1), body()) },
+          { token: { cols: 1, raw: "grid-1" }, node: stack(media("image"), heading(4), body()) },
+        ],
+      },
+    };
+    const spec = classifyBand(b);
+    expect(spec.slice).toBe("Carousel");
+    if (spec.slice !== "Carousel") return;
+    expect(spec.slides).toHaveLength(2);
+    expect(spec.slides[0]?.caption?.level).toBe(1); // the hero title heading
+  });
+
+  it("a slider slide with a non-text tail (nested media) → Grid, not a captioned slide", () => {
+    // A slide richer than media + text (a second media, a nested row) is not a
+    // simple captioned slide — the band stays a faithful Grid.
+    const b: Band = {
+      index: 1,
+      root: {
+        kind: "row",
+        slider: { columns: 1 },
+        cells: [
+          {
+            token: { cols: 1, raw: "grid-1" },
+            node: stack(media("image"), heading(2), media("image")),
+          },
+          {
+            token: { cols: 1, raw: "grid-1" },
+            node: stack(media("image"), heading(2), media("image")),
+          },
+        ],
+      },
+    };
+    expect(classifyBand(b).slice).toBe("Grid");
+  });
+
   it("a slider row with an unrecognizable slide falls back to Grid", () => {
     const b: Band = {
       index: 79,
