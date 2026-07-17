@@ -273,7 +273,7 @@ function plainToHtml(s: string): string {
  * the real extension, so an unmapped/absent mime (image/jpg, avif, heic, a
  * bare `custom`) still resolves instead of silently dropping the tile. null
  * only when neither yields an image extension. */
-function extFor(mime: string | undefined, name: string | undefined): string | null {
+export function extFor(mime: string | undefined, name: string | undefined): string | null {
   const byMime: Record<string, string> = {
     "image/jpeg": "jpg",
     "image/jpg": "jpg",
