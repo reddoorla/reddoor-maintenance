@@ -10,6 +10,7 @@ export type Diagnostic = {
     | "empty-slice"
     | "duplicate-page-uid"
     | "missing-page-html"
+    | "empty-feed-grid"
     | "non-image-in-image-field";
   where: string; // page uid / feed apiId / asset uuid
   message: string;

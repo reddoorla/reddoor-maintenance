@@ -74,6 +74,72 @@ describe("sitePages", () => {
   });
 });
 
+describe("convertSite feed materialization", () => {
+  // A page whose band 1 is a feed grid (only the {{…}} template renders in the
+  // static html); convertSite rebuilds its tiles from the feed records.
+  const feedSite = {
+    name: "Feed",
+    id: "site-f",
+    domain: "www.feed.test",
+    content: {
+      pages: [
+        {
+          title: "Home",
+          items: [
+            { title: "Welcome" }, // band 0 — plain
+            {
+              title: "Projects",
+              sources: ["projects"],
+              sourceConfig: { sort: "title", _body: { class: "disable" } },
+              columns: "2",
+              type: "grid",
+            },
+          ],
+        },
+      ],
+    },
+    feeds: {
+      projects: {
+        name: "Projects",
+        items: [
+          { title: "Beta", body: "<p>b</p>" },
+          { title: "Alpha", body: "<p>a</p>" },
+        ],
+      },
+    },
+    media: {},
+    styles: {},
+  };
+
+  it("rebuilds a feed band's tiles from the records, keeping its heading", () => {
+    const html =
+      '<div id="page-content">' +
+      '<section id="page-block-0" class="blocks0"><div class="block-content">' +
+      '<h2 class="block-title text5">Welcome</h2></div></section>' +
+      '<section id="page-block-1" class="blocks0"><div class="block-content">' +
+      '<h2 class="block-title text5">Projects</h2>' +
+      '<div class="block-grid-container cagrid" data-columns="2">' +
+      '<div id="page-block-1-template" class="block-subcontent cagriditem" style="display:none">' +
+      '<h6 class="block-title text6">{{title}}</h6></div>' +
+      "</div></div></section></div>";
+    const { presentation } = convertSite({
+      siteJson: feedSite,
+      htmlByUid: new Map([["home", html]]),
+    });
+    const band1 = presentation.pages["home"]!.bands["1"];
+    // Band 1's tree: heading "Projects" over a row of 2 tile cells (sorted).
+    const tree = band1?.tree as {
+      kind: string;
+      children: { kind: string; html?: string; cells?: { node: { html: string } }[] }[];
+    };
+    expect(tree.kind).toBe("stack");
+    expect(tree.children[0]).toMatchObject({ kind: "heading", html: "Projects" });
+    const row = tree.children[1]!;
+    expect(row.kind).toBe("row");
+    expect(row.cells!.map((c) => c.node.html)).toEqual(["Alpha", "Beta"]); // sorted, body disabled
+  });
+});
+
 describe("convertSite", () => {
   it("converts every page with html into a page-namespaced manifest + one document each", () => {
     const htmlByUid = new Map([
