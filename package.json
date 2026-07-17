@@ -1,6 +1,6 @@
 {
   "name": "@reddoorla/maintenance",
-  "version": "0.73.0",
+  "version": "0.74.0",
   "description": "Canonical maintenance configs, audits, and recipes for the reddoor stack.",
   "type": "module",
   "license": "MIT",
