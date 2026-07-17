@@ -217,6 +217,33 @@ describe("classifyBand — media", () => {
     if (spec.slice !== "Carousel") return;
     expect(spec.slides).toHaveLength(2);
     expect(spec.slides[0]?.caption?.level).toBe(1); // the hero title heading
+    // The location body rides as the subcaption (the second caption line).
+    expect(spec.slides[0]?.subcaption?.html).toBe("<p>b</p>");
+  });
+
+  it("skips an EMPTY hero body — no phantom subcaption", () => {
+    const emptyBody: Node = { kind: "body", html: "<p></p>" };
+    const b: Band = {
+      index: 0,
+      root: {
+        kind: "row",
+        slider: { columns: 1 },
+        cells: [
+          {
+            token: { cols: 1, raw: "grid-1" },
+            node: stack(media("image"), heading(1), emptyBody),
+          },
+          {
+            token: { cols: 1, raw: "grid-1" },
+            node: stack(media("image"), heading(1), emptyBody),
+          },
+        ],
+      },
+    };
+    const spec = classifyBand(b);
+    if (spec.slice !== "Carousel") throw new Error("expected Carousel");
+    expect(spec.slides[0]?.caption?.level).toBe(1);
+    expect(spec.slides[0]?.subcaption).toBeUndefined();
   });
 
   it("a slider slide with a non-text tail (nested media) → Grid, not a captioned slide", () => {

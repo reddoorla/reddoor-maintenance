@@ -122,6 +122,7 @@ export type BandPresentation = {
     slides: {
       media: RenderMedia;
       caption?: { level?: number; role?: string };
+      subcaption?: { role?: string };
     }[];
     columns?: number;
   };
@@ -327,17 +328,23 @@ export function buildPresentation(specs: SliceSpec[], deps: PresentationDeps): P
         // splicing it out would shift later slides onto the wrong page-doc
         // caption (the render zips items↔slides by index). Either way the
         // count shrink trips validateLayout's media-dropped finding.
-        const slides: { media: RenderMedia; caption?: { level?: number; role?: string } }[] = [];
+        type CarouselManifestSlide = {
+          media: RenderMedia;
+          caption?: { level?: number; role?: string };
+          subcaption?: { role?: string };
+        };
+        const slides: CarouselManifestSlide[] = [];
         for (const s of spec.slides) {
           const media = deps.resolveMedia(s.media);
           if (!media) break;
-          const slide: { media: RenderMedia; caption?: { level?: number; role?: string } } = {
-            media,
-          };
+          const slide: CarouselManifestSlide = { media };
           if (s.caption) {
             const caption: { level?: number; role?: string } = { level: s.caption.level };
             if (s.caption.role !== undefined) caption.role = s.caption.role;
             slide.caption = caption;
+          }
+          if (s.subcaption) {
+            slide.subcaption = s.subcaption.role !== undefined ? { role: s.subcaption.role } : {};
           }
           slides.push(slide);
         }

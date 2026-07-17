@@ -61,13 +61,15 @@ export function sliceSpecToPlanSlice(spec: SliceSpec): PlanSlice {
       // One item per slide, in slide order (the render zips by index); an
       // uncaptioned slide contributes {} so the alignment holds. Captions are
       // heading nodes, so blockPlainText (entities decoded, <br> kept as a
-      // newline) — same as the Hero/TitleBand heading path.
+      // newline) — same as the Hero/TitleBand heading path. A hero slide's
+      // secondary line (location) rides as `subcaption`.
       return {
         slice_type: "carousel",
         variation: "default",
-        items: spec.slides.map((s) =>
-          s.caption ? { caption: blockPlainText(s.caption.html) } : {},
-        ),
+        items: spec.slides.map((s) => ({
+          ...(s.caption ? { caption: blockPlainText(s.caption.html) } : {}),
+          ...(s.subcaption ? { subcaption: blockPlainText(s.subcaption.html) } : {}),
+        })),
         primary: { band: spec.index },
       };
     case "MediaFull":

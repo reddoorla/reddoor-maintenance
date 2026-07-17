@@ -51,10 +51,13 @@ export type SplitFeatureSpec = SpecBase & {
 export type GallerySpec = SpecBase & { slice: "Gallery"; media: Media[] };
 
 /** One slider slide: its media plus the caption text-block nested inside the
- * holder (band-8 archetype: a single h5.block-title per slide). */
+ * holder (band-8 archetype: a single h5.block-title per slide). A full-page
+ * hero slide adds a `subcaption` — the secondary body line (the project
+ * location) shown under the title. */
 export type CarouselSlide = {
   media: Media;
   caption?: { html: string; level: number; role?: string };
+  subcaption?: { html: string; role?: string };
 };
 
 /** A source slider (.caslider): media slides shown `columns` at a time.
