@@ -189,15 +189,22 @@ function cellRatio(cell: Cell): number {
 const isTextNode = (n: Node): boolean =>
   n.kind === "heading" || n.kind === "body" || n.kind === "subtitle";
 
+/** A text node with no rendered text — an empty hero body block (`<p></p>`) or
+ * a whitespace-only heading/subtitle. Not a real caption line. */
+const isBlankText = (n: Node): boolean => {
+  if (n.kind === "heading" || n.kind === "body") return blockPlainText(n.html) === "";
+  if (n.kind === "subtitle") return n.text.trim() === "";
+  return false;
+};
+
 /** The carousel slides of a slider row, or null when any cell isn't a media
  * slide. A slide is a bare `media` cell, or a stack whose FIRST child is media
  * followed only by text nodes — the band-8 gallery slide `stack[media,
  * heading]` and the full-page hero slide `stack[media, heading, body]` (title +
- * location). The heading is the caption. A slide with a non-text tail (a nested
- * row/media) is richer than a captioned slide, so the band stays a faithful
- * Grid. ≥2 qualifying slides required. NOTE: only the heading rides the caption
- * today; a hero slide's secondary body (the location line) is dropped until the
- * single-text caption model carries a second line. */
+ * location). The heading is the caption; the first non-blank body/subtitle
+ * after it is the `subcaption` (the hero's location line). A slide with a
+ * non-text tail (a nested row/media) is richer than a captioned slide, so the
+ * band stays a faithful Grid. ≥2 qualifying slides required. */
 function carouselSlides(cells: Cell[]): CarouselSlide[] | null {
   const out: CarouselSlide[] = [];
   for (const c of cells) {
@@ -210,9 +217,21 @@ function carouselSlides(cells: Cell[]): CarouselSlide[] | null {
       const [m, ...rest] = n.children;
       const h = rest.find((r) => r.kind === "heading");
       if (m?.kind === "media" && h?.kind === "heading" && rest.every(isTextNode)) {
+        // The secondary line: the first body/subtitle after the title that
+        // carries real text (the hero's location; skip empty body blocks).
+        const sub = rest.find(
+          (r) => r !== h && (r.kind === "body" || r.kind === "subtitle") && !isBlankText(r),
+        );
+        const subcaption =
+          sub?.kind === "body"
+            ? { html: sub.html, ...(sub.role ? { role: sub.role } : {}) }
+            : sub?.kind === "subtitle"
+              ? { html: sub.text, ...(sub.role ? { role: sub.role } : {}) }
+              : undefined;
         out.push({
           media: m.media,
           caption: { html: h.html, level: h.level, ...(h.role ? { role: h.role } : {}) },
+          ...(subcaption ? { subcaption } : {}),
         });
         continue;
       }
