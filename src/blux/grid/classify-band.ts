@@ -186,9 +186,18 @@ function cellRatio(cell: Cell): number {
   return Math.round(100 / t.cols);
 }
 
+const isTextNode = (n: Node): boolean =>
+  n.kind === "heading" || n.kind === "body" || n.kind === "subtitle";
+
 /** The carousel slides of a slider row, or null when any cell isn't a media
- * slide. A slide is a bare `media` cell or a `stack[media, heading]` captioned
- * slide (the band-8 archetype); ≥2 qualifying slides required. */
+ * slide. A slide is a bare `media` cell, or a stack whose FIRST child is media
+ * followed only by text nodes — the band-8 gallery slide `stack[media,
+ * heading]` and the full-page hero slide `stack[media, heading, body]` (title +
+ * location). The heading is the caption. A slide with a non-text tail (a nested
+ * row/media) is richer than a captioned slide, so the band stays a faithful
+ * Grid. ≥2 qualifying slides required. NOTE: only the heading rides the caption
+ * today; a hero slide's secondary body (the location line) is dropped until the
+ * single-text caption model carries a second line. */
 function carouselSlides(cells: Cell[]): CarouselSlide[] | null {
   const out: CarouselSlide[] = [];
   for (const c of cells) {
@@ -197,9 +206,10 @@ function carouselSlides(cells: Cell[]): CarouselSlide[] | null {
       out.push({ media: n.media });
       continue;
     }
-    if (n.kind === "stack" && n.children.length === 2) {
-      const [m, h] = n.children;
-      if (m?.kind === "media" && h?.kind === "heading") {
+    if (n.kind === "stack" && n.children.length >= 2) {
+      const [m, ...rest] = n.children;
+      const h = rest.find((r) => r.kind === "heading");
+      if (m?.kind === "media" && h?.kind === "heading" && rest.every(isTextNode)) {
         out.push({
           media: m.media,
           caption: { html: h.html, level: h.level, ...(h.role ? { role: h.role } : {}) },
