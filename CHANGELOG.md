@@ -1,5 +1,482 @@
 # @reddoorla/maintenance
 
+## 0.73.0
+
+### Minor Changes
+
+- c758fff: blux theme: emit the export's button skins. Converted trees carry the raw
+  anchors verbatim (`class="ib middle buttonsN"`), so without the declared
+  `styles.buttons` skins a button renders as a bare link. `ThemeIR.buttonStyles`
+  captures each skin (values in declaration order — the skins rely on a `border`
+  shorthand followed by side zero-overrides netting a bottom-only rule) and
+  `emitButtonsCss` appends `.buttonsN` rules (+ :hover/:active variants) and the
+  `.ib` inline-block base to theme.css.
+- ea45e71: blux convert: capture a peeled card wrapper's content padding alongside its
+  background. A Blux card's `.blocksN` fill carries the background-color while its
+  `.blocksNcontainer` carries the content inset (e.g. `padding: 100px 4% 80px`);
+  the layout-wrapper peel dropped the latter, so restored cards rendered with the
+  fill hugging their text. The padding now rides onto the card's `style` too —
+  gated on a background being present, so a plain band container's inset (handled
+  via blockClass defaults) is never double-captured. Fixes the-pointe band 3's
+  stats card and its band-14 listing cards.
+- a3f167b: blux convert: preserve grid-cell containment and cell-level padding through the
+  peel. Three shapes the flatten used to drop: a multi-child `block-subcontent`
+  now parses to its own stack (the original contains each cell's block margins
+  via a block-content clearfix); a cell-level container's inline padding rides
+  onto the node it wraps even without a background (band-level container padding
+  stays excluded — that is the band's own content padding); and a padded wrapper
+  around a bare leaf or a multi-block group carries the box as a one-stack
+  wrapper applied once, never duplicated per child. Classification is unaffected:
+  pattern-matching sees through the synthetic style boxes (a SplitFeature media
+  cell that gained an inset stays SplitFeature).
+- 7864bfe: feat(blux): capture a peeled card wrapper's background-color onto grid rows
+
+  `blux convert` was dropping the inline `background-color` on Blux "card"
+  wrappers (`.blocks0` divs with no grid token of their own), because the grid
+  parser peels those pure-layout wrappers to reach the structural content —
+  losing any background they carried. `collectStructuralChildren` now threads a
+  peeled wrapper's inline `background-color` down to the structural node it wraps
+  (the nearest wrapper wins, transparent ignored), and `withCardBackground`
+  lands it on the resulting `row`/`stack` node as a `style` deviation (same shape
+  as a text leaf's `style`; distinct from `Band.background`, a Media image). The
+  render manifest's `RenderNode` row/stack now carry `style?`. On the-pointe this
+  restores band 3's white stats card and band 14's white listing cards.
+
+- 8152804: feat(blux): emit export class-default padding + text-style deviations
+
+  `blux convert` now captures the Blux export's own layout defaults instead of
+  dropping them. `blockClassDefaults(siteJson)` reads each `.blocksNcontainer`
+  entry from `styles.blocks` and `buildPresentation` fills a band's
+  `_contentPadding` / `_contentPaddingMobile` / `_max-content-width` from that
+  class default whenever the block's own styles omit the key (the mobile override
+  only ever pairs with a filled default). Text-leaf `style` deviations captured by
+  the parser — inline color/padding and decoded `margin-N{r,l,t,b}` utilities —
+  now pass through to the render manifest's heading/body/subtitle nodes.
+
+- 1166187: blux: capture the export favicon. Every Blux export declares its favicon as a
+  bare media uuid in `settings.favicon` whose CDN url appears only in the
+  rendered `<link rel="icon">` tags (the uuid is routinely absent from the media
+  dict). assembleIR now resolves it from the scraped urls onto
+  `SiteIR.meta.favicon` — kept off the plan-bound assets list so it never rides
+  the migration into Prismic media — and `blux convert` downloads it beside the
+  plan as `favicon.png` (via the same injectable fetch seam as `--probe`). A
+  fetch failure never fails the command: the `{assetId, url}` pair is preserved
+  as `favicon.json` so the download can be re-run by hand.
+- 1899030: blux convert: materialize feed-grid tiles. Gallery/portfolio grids render
+  their tiles CLIENT-SIDE from feed records — the static export ships only the
+  `display:none` `{{…}}` template (dropped last round), so those bands
+  converted empty. `convertSite` now rebuilds the visible tiles
+  DETERMINISTICALLY from the feed data: a band whose site.json item declares
+  `sources` + `sourceConfig` is materialized into a Grid tile row —
+  `__media` sources resolve to the tag-matched library images (`&&`/`||` filter
+  DSL), a feed id resolves to its records (filtered, sorted, template-expanded).
+  Image urls reconstruct from the site's CDN base (`https://<host>/<siteId>/
+<uuid>.<ext>`, the untransformed full-res base the export's own `data-base`
+  uses). The tiles are a normal Grid node tree, so they classify and render with
+  no new render surface. Proven on composition-hospitality: gallery 0→132
+  images, portfolio 0→524 project titles, every url resolves. Tile-ratio
+  cropping (the sourceConfig `ratio`) and big-list column layout are follow-ups.
+- 809ea23: blux convert: three fidelity captures from the final live-diff pass. A LONE
+  width-constrained grid cell (grid-2-r60) keeps its row — the token is the
+  content column's width, and flattening it rendered the column full-width. A
+  peeled `valignmiddle` wrapper rides the node style as the `_valign: middle`
+  presentation hint (the original vertically centers that cell against its row
+  siblings). And the emitted anchor base gains `.links { text-decoration:
+underline }` — an inline-block box does not inherit an ancestor's
+  text-decoration, so the link affordance must be declared on the anchor itself.
+- c84f1a1: blux convert: mark the map widget's toggle-panel row in the presentation
+  manifest. The Blux clickMap widget switches the area below the map between N
+  sibling content panels (one per toggle — on the-pointe, the address grid plus
+  three hidden logo strips); structurally that is a row directly following the
+  widget:map inside a stack with exactly one cell per toggle. The row now emits
+  `panels: true` so the render can show only the active toggle's panel instead of
+  stacking all of them.
+- 257888e: blux convert: whole-site multi-page conversion. Every page of the export (the
+  homepage's root index.html plus each page dir's index.html) now runs through
+  the faithful-grid pipeline — previously only the home page did, and inner
+  pages existed solely as the archetype path's low-confidence block guesses.
+  `convertSite` assembles ONE IR from all page htmls (the asset urlMap then
+  resolves media that only appear on inner pages), emits one uid-keyed page
+  document per page, and writes a page-namespaced presentation manifest
+  (`{ pages: { <uid>: { bands } } }` — band indices are page-local, so a flat
+  map would collide). normalizePages pins the first page's uid to "home" (the
+  render's root-route contract), derives paths/uids from the source `url` when
+  set, and renames colliding uids with a diagnostic. Pages missing from the
+  export get a `missing-page-html` diagnostic and are skipped. The layout
+  report and map-config outputs are keyed per page. Proven on the
+  compositionHospitality export: 8/8 pages FAITHFUL, 36 bands.
+- 9012b89: blux convert: capture the nested block-in-cell mechanism the peel used to drop.
+  A grid cell holding a full Blux block pins its own box with inline `min-height`
+  (e.g. an 80vh panel), paints it via an abs-fill `block-background-layer`
+  (gradients the wrapper background-color capture never sees), and centers its
+  content with a valignmiddle container. All three now ride the card onto the
+  node style: `min-height`, the `background` shorthand, and the existing
+  `_valign` hint. Captured only inside a cell (like padding) — a band-level
+  container's min-height is the band's own full-height chrome, and band-level
+  background layers stay SectionBand territory. Found on the-tower band 1
+  (-808px vs live before capture); the same mechanism sizes its band 5 split.
+- 99c2aae: blux theme: carry each text style's own block margin into the role utilities.
+  Blux's vertical rhythm between stacked blocks is the text styles' margins
+  (e.g. Grid Titles' `10px 0`), which collapse in normal flow; the emitted
+  `.txt-role-textN` rules previously hardcoded `margin: 0`, flattening that
+  rhythm. The margin now rides the IR (`TextStyleIR.margin`), a
+  `--text-textN--margin` theme var, and `margin: var(--text-textN--margin, 0)`
+  in the role utility — roles without one stay flush exactly as before.
+- 1709b8d: feat(cockpit): generic accept-key matcher for watch conditions + chip discoverability
+
+  Any amber Watch condition can now be accepted (muted) by the operator, not just
+  the three that had hardcoded accept branches. `assignTier` collects each active
+  watch condition as a structured candidate carrying a set of **stable accept
+  keys** (with human aliases — e.g. the Netlify/no-custom-domain watch accepts
+  `no custom domain`, `netlify`, `netlify.app`, `on netlify`) decoupled from the
+  volatile reason text, then a single generic matcher routes each to muted or
+  watching. Adding a future watch condition makes it acceptable with no new
+  branch.
+
+  The cockpit card now surfaces the exact accept token beside each watch chip
+  (`… · accept: "no custom domain"`, with a tooltip), so the operator can see
+  precisely what to enter — closing the discoverability gap where the mute token
+  never matched the displayed text.
+
+  `acceptedWatchConditions` parsing now tolerates both the Multiple-Select array
+  shape and a delimited long-text string, so the Airtable field can migrate to
+  free text with no code change.
+
+  Invariants preserved: acceptance is watch-only (the accept loop runs strictly
+  below the attention short-circuits, so it can never mute a red condition), keyed
+  on the stable signal token (accepting `performance` tolerates 82→78 but a drop
+  below the floor still alarms via its AttentionItem), and accepted conditions
+  still render as muted `✓ accepted:` chips.
+
+- 5cab822: feat(reports): default Search Console query to site name + flag name-default misses
+
+  Search-presence enrichment no longer requires a hand-entered `Search query`
+  per site. When the Airtable `Search query` cell is empty (or whitespace),
+  `fetchSearch` falls back to the site's name as the brand query, so every
+  GA-enrolled site (one with a GA4 property ID or an explicit query) gets brand
+  search tracking automatically. An explicit `Search query` still wins when set.
+
+  Sites where the site-name default returns no Search Console data are flagged —
+  a per-site `⚑` log line plus a one-line batch summary
+  (`⚑ N site(s) returned no Search Console data for their name …`) — so the
+  operator knows the handful whose legal name differs from their brand phrasing
+  and needs a hand-tuned query. The flag is deliberately separate from the
+  GA/Search soft-fail (outage) signal: a clean "no data for the name" is a
+  tuning hint, not an analytics failure, so it never trips the analytics-health
+  alarm. A site that is found but ranks below page 1 is a valid measurement, not
+  a miss, and is not flagged.
+
+### Patch Changes
+
+- 7d065b9: Backlog triage tooling for the pre-tuning submissions pile-up. New `submissions rescore` CLI re-runs the CURRENT spam classifier (turnstile "unverifiable") over every status='new' row — dry-run table by default, `--apply` re-buckets rows scoring >= SPAM_THRESHOLD to spam_auto with the new score/reasons plus a `retro-rescore` marker. The /submissions page gains a bulk "Mark all N filtered as read" action: a confirm-gated POST back to the page handler that flips every still-'new' row matching the current filter to 'read' server-side (`markFilteredAsRead`); spam and operator-touched rows are never affected by either path.
+- 6a5807e: feat: Require-Turnstile guardrail + solved-hostname check + honest no-property search flag
+
+  Closes out the remaining confirmed findings from the 2026-07-15 adversarial review.
+  - **Require-Turnstile guardrail.** The nightly function-health sweep already reads the
+    site's `/health` `forms.turnstile` boolean but dropped it before Airtable; it now
+    persists as the `Turnstile widget` field (pass/fail, freshness via `Function health
+checked at`). A site with `Require Turnstile` ON whose fresh sweep says the widget is
+    MISSING raises a **critical attention item** (cockpit + digest) — that combination
+    silently buckets 100% of the site's real leads, and the form-e2e probe cannot see it
+    (testMode bypasses the gate). The item rides the attention short-circuit ABOVE the
+    accepted-watch mute loop, so no accept key can silence it. A gated site whose widget
+    state merely can't be verified (null verdict / stale sweep) gets an acceptable amber
+    watch (`turnstile-unverified`). Rollout preconditions live in
+    `docs/runbooks/require-turnstile-rollout.md`.
+  - **Solved-hostname check (defense-in-depth).** `verifyTurnstile` now returns
+    `{ outcome, hostname }` — siteverify's record of where a passing token was solved.
+    On a `Require Turnstile` site, a passing token solved on a host unrelated to the
+    site's own URL escalates to `spam_auto` (`turnstile-required-hostname`). Subdomains
+    match both ways (www./previews), a null hostname or unparseable site URL skips the
+    check entirely (fail-open), and non-gated sites are untouched. Bare-outcome strings
+    remain accepted by `ingestSubmission` for compatibility.
+  - **Search flag split (#408 follow-up).** `defaultQueryMissed` conflated "the site-name
+    default found no data" with "NO Search Console property matched at all" — and its
+    remedy ("set an explicit Search query") permanently silenced the latter, since an
+    explicit query that finds nothing is by design never flagged. `fetchSearchPresence`
+    now reports `propertyFound`, and drafting raises a distinct `searchPropertyMissing`
+    flag (fires for explicit AND default queries) with the correct remedy: verify the
+    domain property exists and the service account has access. The `--due` batch summary
+    prints the two cases as separate lines.
+
+- 9327af2: blux convert: feed-tile fidelity fixes from a full adversarial review of the
+  materialization. Five real gaps vs the live site (one review finding — a
+  "code-point" title sort — was refuted by the export's own sort JS, which uses
+  localeCompare, so that stayed):
+  - Tag filter now matches singular/plural (a trailing "s"): a `projects` filter
+    also selects `project`-tagged media, recovering 7 real gallery tiles an
+    exact match dropped (interior 100 → 107, matching live exactly).
+  - `__media` grids now apply the configured sort (the gallery/portfolio grids
+    are `fdate` — newest-first — not media-upload order).
+  - `__media` tiles now carry their overlay captions: the library entry's `name`
+    is the tile title and `description` the body (both real display text, not a
+    filename as previously assumed) — escaped as plain text.
+  - Feed-record title/body are placed as HTML VERBATIM (Blux stores them as HTML
+    with entities pre-encoded): a `<br>` renders as a break, and `&amp;` is no
+    longer double-escaped to a visible `&amp;`.
+
+  Proven on composition: gallery 132 → 139 images with captions, zero double-
+  escapes, zero template-token leaks, all reconstructed urls resolve.
+
+- 0b67348: blux convert: classify a full-page hero slider as a Carousel. A `.caslider`
+  whose slides are `stack[media, title, location]` (image + a heading + a
+  secondary body line) was rejected by the exact `stack[media, heading]` slide
+  match and fell through to the faithful Grid — rendering all N slides stacked
+  full-width (composition's home hero was 18 slides tall, ~18000px vs live's one
+  80vh frame). `carouselSlides` now accepts a slide whose first child is media
+  followed by text nodes, taking the title heading as the caption. The
+  secondary body line (the hero's location) is dropped until the single-text
+  caption model carries a second line — a flagged follow-up. Proven on
+  composition: home band 0 now a Carousel(18) at 80vh (~800px), not a
+  18000px grid; the-pointe/tower gallery carousels are unchanged.
+- 9929699: blux convert: a hero carousel slide now carries its secondary caption line.
+  A full-page hero slide is `stack[media, title, body]` — the title was the
+  caption but the body (the project location / design credits) was dropped.
+  carouselSlides now captures the first non-blank body/subtitle after the title
+  as a `subcaption`; the emit threads it to the page-doc item and the manifest
+  metadata. Proven on composition: the home hero now shows "Headquarters" over
+  "Ontario, California", etc. Empty hero bodies produce no phantom subcaption.
+- 7d94803: blux convert: feed-grid tile cropping + overlay captions. Gallery/portfolio
+  tiles rendered at their natural (tall, varied) height with the caption in a
+  row below; the original crops each tile to `sourceConfig.mediaRatio` (4:3) and
+  overlays the caption ON the image (`layout: behind`, `overlay: true`), so a
+  tile is only as tall as its image. A tile image now carries `cropRatio` (the
+  render frames it in a fixed-aspect object-cover box) and, for an overlay grid,
+  the tile stack carries `_overlay`/`_overlayColor`/`_overlayValign` hints so the
+  render reveals a colored caption panel on hover. Proven on composition:
+  gallery band 1 15698px → 12036px (live 11087), band 2 3702px (live 3644) — the
+  tiles are now uniform 4:3 cards like the original.
+- 797a5f1: fix(audits): stop the browser sweep crying wolf — verified reachability + honest titles-meta
+
+  The 2026-07-16 sweeps failed "Titles & Meta OK" on 10 of 11 live sites and "Uptime Reachable" on
+  3, while every site answered 200 to a plain fetch. Root cause: hosts' bot protection (Netlify
+  WAF) serves 403 challenge interstitials to the headless-browser probe burst — status 403, title =
+  the bare domain, no meta — poisoning both verdicts, with two amplifiers in route discovery
+  (asset URLs like a homepage-linked PDF sampled as "routes", and `/a` + `/a/` sampled as two
+  routes → guaranteed duplicate-title fail). Fixes:
+  - Route discovery samples only real page routes: asset/file extensions filtered, trailing
+    slashes normalized.
+  - Every browser-side unreachable/title-less observation is re-verified with a plain fetch (with
+    cooldown retries for WAF-shaped statuses) BEFORE a fail verdict can persist; only a confirmed
+    non-2xx/timeout keeps the fail.
+  - Fail verdicts are now actionable: confirmed-failing URLs (`unreachableUrls`) and per-URL
+    title/meta findings (`titleMetaProblems`, incl. which routes share a duplicate title) ride in
+    the audit note + details. Verdict semantics and Airtable fields are unchanged.
+
+- fb4b3c6: fix(forms): stop the classifier silently bucketing genuine leads + three hardening fixes
+
+  An adversarial review pass over #410/#412 confirmed two HIGH false-positive classes and
+  three smaller defects. All verified by executing the classifier and replaying live data.
+  - **Gibberish rule reworked.** The ≥5-consecutive-consonant rule (y as consonant) fires
+    on ordinary English — every `psych*` word ≥10 letters (p-s-y-c-h is itself a 5-run),
+    "worthwhile", "nightclubs": 3,138 dictionary words — so gibberish(+35) + one pasted
+    link(+25) silently bucketed whole genuine-lead verticals (a psychology practice's
+    inquiry scored exactly 60). Now: run ≥7 with y as a VOWEL, **or** ≥3 interior
+    lower→upper case flips. Measured: zero dictionary words or common brand names flagged;
+    all four live mash samples still caught; live recall unchanged (8/20 marked spam).
+  - **Keywords split into seller-voice vs buyer-compatible tiers.** Phrases a genuine
+    prospect writes in first person ("our google ranking tanked", "seo problem",
+    "free consultation", "virtual assistant") stacked to 75 on exactly the SEO-help
+    inquiry a web agency wants most. Buyer-compatible phrases alone now score a weak +10
+    (capped +20 — even with the lead's own site link the sum stays under 60); a
+    seller-voice phrase ("would you be interested", "position your brand") promotes them
+    back to full weight, so real pitches still bucket at 75.
+  - **Duplicate-body velocity was silently inert for non-ASCII bodies**: libSQL `lower()`
+    is ASCII-only while JS `toLowerCase()` is Unicode, so a sentence-cased Cyrillic spray
+    could never match its own byte-identical copy. Both sides now fold in SQL (with an
+    explicit whitespace trim set — SQLite's bare `trim()` strips spaces only).
+  - **`Accepted Watch Conditions` array elements are validated as strings** — a
+    collaborator/attachment-shaped field passes `Array.isArray` with object elements and
+    crashed the whole fleet cockpit build on one misconfigured row.
+  - **`requireTurnstile` doc comment corrected** — it still described pre-#412 semantics
+    (claimed absent tokens stay neutral) and now documents the rollout precondition: only
+    enable on a site whose deployed package forwards `_meta.turnstileToken` from every
+    form, since a non-forwarding site would silently bucket 100% of its real leads.
+
+- ae03d9b: Three cockpit-honesty fixes. (1) Pre-launch mute pierce: a "launch period"
+  site still mutes expected pre-launch noise (early Lighthouse, errored deploy,
+  Renovate/analytics warnings), but a genuine alarm — any critical-severity item
+  or default-branch CI red — now re-tiers the site to attention through the
+  normal machinery (needs-you broken band, red verdict), matching what the daily
+  digest already surfaced; muted noise is also filtered off the card's chips.
+  (2) Legacy-status visibility: "legacy" joins the Status union; archived
+  (legacy/deprecated) rows render as a neutral collapsed cockpit lane + an
+  "N archived" verdict term, and a Status cell outside the union (typo/renamed
+  option) surfaces as an amber watch row instead of silently vanishing the site
+  — without nulling the cell, which would make it schedulable-by-default.
+  (3) Auto-fix counter reset: renovate-dispatch --fleet now runs counter
+  bookkeeping even when there is nothing to dispatch (the reset-on-clean branch
+  was unreachable on a fully-clean fleet — Alamo sat at 7 from a long-closed
+  episode), and the reset applies regardless of visibility/repo so archived
+  sites can't hold stale counters.
+- c00920c: feat(forms): bounced lead notifications become visible — webhook mapping + cockpit alarm
+
+  The Espada failure mode: apm@espada-pm.com bounced 4 of the last 8 lead
+  notifications and NOTHING alarmed, because notifyStatus "sent" only means
+  Resend accepted the email.
+  - **Webhook mapping.** The resend-webhook now checks a bounce/complaint
+    event's email id against submissions' `resend_message_id` FIRST (the id
+    spaces are disjoint from report emails): a match flips that submission's
+    `notify_status` to the new `'bounced'` terminal value and stops there —
+    the report-email path is untouched, idempotent on svix replays, and a
+    Turso blip fails open to the report path.
+  - **Cockpit + digest alarm.** New `collectNotifyBounceAlerts` collector
+    (kind `notify-bounce`, CRITICAL): one attention item per site with >= 2
+    bounced notifications in the last 14 days — "lead notifications bouncing
+    — check the point-of-contact address". Wired into both the cockpit
+    rawItems and the digest collector list with the shared
+    `notify-bounce:<siteId>` diff key.
+  - **Row marker.** A bounced submission shows a visible red "notify bounced"
+    chip on its summary line in the per-site strip and /submissions (plus
+    `bounced` in the Notify detail row) — not just a tooltip.
+
+- 8e7f6eb: fix(forms/dashboard): genuine-resubmit exemption, retro re-bucket for classifier-caught sprays, full-bucket facets
+
+  Second adversarial pass over the 2026-07-15/16 spam work confirmed three defects (and
+  refuted three more claims); all fixed here:
+  - **Genuine same-sender resubmission was silently bucketed AND retro-flipped the
+    delivered original.** A real visitor resending an identical message (double-click, or
+    no reply after days) exact-matched their own prior row → the resend went to
+    `spam_auto` with notify skipped and the original still-`new` row was retro-flipped —
+    an active lead vanished with no signal. The duplicate scan now exempts matches from
+    the SAME sender on the SAME site (live corpus showed 7 genuine leads one resend away
+    from this). Cross-site or different-sender copies still count as spray evidence.
+  - **Retro re-bucket never fired for classifier-caught sprays.** Both structural scans
+    were guarded by "not already spam", so once the tuned classifier began catching whole
+    spray families (all live families now score ≥ 60), the retro cleanup #420 shipped
+    could never run — 18 known spray copies sit permanently in the unread queue. The
+    scans now always run; escalation/reason still only applies when not already spam,
+    and prior still-`new` copies get retro-cleaned regardless of which layer caught the
+    incoming copy.
+  - **The /submissions facet line tallied only the current page** (≤50 rows) while
+    sitting under the full-bucket total — and the rollout runbook directs the operator to
+    judge the requireTurnstile canary from it. A new `listSpamReasonsFiltered` helper
+    feeds the facet line every matching row's reasons (fetched only on spam views).
+
+  Also fixed outside this repo: the Airtable `Require Turnstile` checkbox description
+  still claimed absent tokens stay neutral (pre-#412 semantics — the opposite of the
+  shipped hard gate); rewritten to point at the rollout runbook.
+
+- c19cb80: Structural anti-spray spam signals: cross-site repeat-sender detection, near-duplicate body detection, and retroactive re-bucketing.
+
+  Live analysis showed the biggest residual spam classes evade per-message content scoring: template sprays with per-site substitution (the dog-harness spray differed only in greeting; SEO sprays swap the target domain), the same sender blasting multiple fleet sites, and the first copy of every spray being delivered by design. Three new ingest signals close those gaps:
+  - `findRecentDuplicateSubmissions` replaces the exact-only `countRecentDuplicateMessages`: bodies are normalized in JS (full-Unicode lowercase; URLs/emails/domains/digit-runs stripped) and matched both exactly (>= 40 normalized chars) and by token-set Jaccard >= 0.9 (both sides >= 25 tokens, so short genuine messages never collide). Exact hits keep the `duplicate-body` reason; near-dupes get `similar-body`.
+  - `listRecentSubmissionsForEmail` powers the cross-site repeat-sender signal: the fleet's sites are unrelated businesses, so one email contacting 2+ different sites within 30 days is a solicitation tell → `spam_auto` with reason `repeat-sender`. Same-site repeats (genuine follow-ups) never trigger.
+  - `markSubmissionsSpamRetro` re-buckets prior still-`new` copies once a later copy identifies the spray (`retro:repeat-sender` / `retro:duplicate-body` appended to any existing reason). The `status = 'new'` guard is load-bearing: rows the operator already read/replied/marked are never touched.
+
+  All three are best-effort and fail-open (a lookup failure never blocks a lead), and everything lands in the recoverable `spam_auto` bucket — never a hard reject.
+
+- e972d5f: feat(forms): aggressive SEO/solicitation filtering tuned from the live miss corpus
+
+  Operator policy (2026-07-15): the fleet's sites are niche and specific — they rank top
+  for their own names — and clients who want SEO/marketing help ask the agency directly,
+  so SEO-topic content arriving through a public contact form is near-always solicitation.
+  Overblock is accepted; `spam_auto` stays recoverable.
+
+  Tuned from a replay of every live submission the previous classifier missed:
+  - **Seller-keyword weight 25 → 30 (cap 3 hits / 90)** — two solicitor phrases now bucket
+    outright. Genuine leads write zero of them; a lead who grazes ONE ("we want to rank
+    higher") is still delivered at 30.
+  - **SEO-topic phrases move (back) to seller tier at full weight** ("google ranking",
+    "rank higher", "drive traffic", "seo problem", "backlinks", "virtual assistant") and
+    the list is expanded with the observed dodges: "page one" / "1st page" (was "first
+    page of google" — real pitches write "You're not on page one" and "1st page of
+    Google"), "top of search results", "seo process", "people already searching",
+    "leads and sales", "businesses like yours", "tried emailing you" (the classic opener),
+    "article for your website", "wikipedia page" / "wiki links", "get yours today" /
+    "free shipping" (product blasts), and the MAVIS virtual-assistant flood's template
+    invariants ("virtual intelligent system", "mavis", "overtake and handle",
+    "custom built ai") — that flood rotates names/domains and rewords every copy, so the
+    exact-duplicate velocity signal can't see it.
+  - **Hyphens fold to spaces before matching** — "link-building" and "custom-built AI"
+    were live keyword dodges.
+  - **Lorem-ipsum detector** (+60, the one signal allowed to bucket alone): form-tester
+    bots submit truncated Latin filler ("Velit ullam reprehen") that is too short for the
+    velocity signal and invisible to the gibberish detector; two distinct stems are
+    required so a lone romance-language cognate ("voluptuous") can never fire.
+  - Buyer tier shrinks to the genuinely ambiguous pair ("within 24 hours",
+    "free consultation") — weak +10 capped +20 alone, promoted to full weight beside any
+    seller phrase.
+
+  Measured on the live corpus (old vs new): marked-spam recall **8/20 → 19/20** (the one
+  remaining miss is a keyword-less "share a document" phish), and 16 additional unmarked
+  spam rows in the delivered pile now bucket — every one hand-verified as solicitation
+  (MAVIS flood ×10, search-ranking pitches, guest-article fishing, product blasts).
+  **Zero genuine leads flip**: the charity invite, artist introduction, job seeker, poet,
+  price-list ask, and portal complaint all still deliver.
+
+- f7bda79: Make the requireTurnstile canary reviewable from the dashboard. Spam reasons are
+  now visible text, not just a hover tooltip (which never fires on iPad/phone): the
+  auto-spam badge gains an inline reason chip (truncated past 3 tokens) and every
+  scored row gets a "Spam" row (score + full reasons) in the expanded detail block.
+  /submissions filtered to spam_auto or spam shows a per-reason facet summary above
+  the list (tokens normalized by stripping trailing :N counts) so
+  "turnstile-required-absent" bot tells separate from content-classifier hits at a
+  glance. The per-site "Spam screen (30d)" panel stops counting spam_auto/spam rows
+  as Delivered — those notifications were skipped — and adds an "Auto-filtered" row
+  for the spam_auto count in the window.
+- 5009135: fix(forms): catch cold-outreach/gibberish/bare-domain spam + lower threshold to 60
+
+  Live data showed the classifier was auto-bucketing nothing (`spam_auto` = 0 across
+  127 recent submissions) while ~1-in-4 delivered messages were spam. This tunes it:
+  - **Threshold 100 → 60.** The dominant bypass — Latin-script cold outreach (SEO /
+    virtual-assistant pitches) — only sums 25–55 from content signals, so nothing crossed 100. Every individual signal stays low enough that none buckets alone (each needs
+    corroboration), and `spam_auto` is recoverable, so a false positive is a nuisance the
+    operator can undo, not a lost lead.
+  - **Cold-outreach / SEO keyword phrases** added to `SPAM_KEYWORDS` (multi-word, so they
+    stay high-precision): "guest post", "link building", "first page of google", "position
+    your brand", "within 24 hours", "virtual assistant", "seo problem", etc.
+  - **Gibberish-token signal** for random keyboard-mash form-filler bots — detected by a run
+    of ≥5 consecutive consonants in a long token (real English words never exceed 4), Latin
+    a-z only so native-script names are untouched. Body +35 (strong tell); name +35 only
+    under a stricter single-token rule, so a consonant-heavy real surname can't bucket alone.
+  - **Bare-domain signal** (+20) for a pasted `brand.com` with no scheme/www — the exact
+    dodge past the URL regex — excluding email domains, only when no real URL is present.
+  - **URL contribution capped** at two links (max +50) so a genuine lead pasting their site
+    plus portfolio stays under the threshold on links alone.
+
+  Measured on the live sample at threshold 60: 8/20 hand-marked spam now auto-bucket (was
+  0/20) plus additional unmarked inbox spam, with **zero false positives on genuine leads**.
+  The residual miss — grammatically clean single-signal outreach — needs a velocity /
+  duplicate-submission signal, which is the tracked next lever (it requires an ingest-time DB
+  lookup).
+
+- 0d543e8: fix(forms): hard-block missing-token submissions on gated sites + duplicate-body velocity signal
+
+  Two ingest-time spam defenses aimed at the current direct-POST outreach flood, which
+  the content classifier can't reliably catch (grammatically clean, single-signal pitches).
+  Both bucket to the recoverable `spam_auto` status, never to a hard reject.
+  - **Absent Turnstile token → auto-spam on `Require Turnstile` sites.** `verifyTurnstile`
+    now distinguishes a _configured-secret-but-no-token-forwarded_ case as a new `"absent"`
+    outcome. A real browser that renders the widget always sends a token, so a completely
+    missing one is the direct-POST-bot signature. On a site that has opted into
+    `Require Turnstile`, both a forged token (`"fail"`) and an absent one now escalate
+    (reasons `turnstile-required-failed` / `turnstile-required-absent`). A _present-but-
+    expired/duplicate_ token stays `"unverifiable"` and fail-open — a real browser did
+    render the widget — and sites that haven't opted in are entirely unaffected.
+  - **Duplicate-body velocity signal.** The same pitch blasted across the fleet (or re-run)
+    shows up as identical message bodies. Ingest now does a fleet-wide lookup
+    (`countRecentDuplicateMessages`, case/whitespace-normalized, 30-day window) and buckets a
+    repeat as `spam_auto` + `duplicate-body`. Guarded: skipped for newsletter forms, for
+    bodies shorter than 40 chars (short lines legitimately repeat across real people), and
+    when the row is already spam. Best-effort — a lookup failure never blocks a lead.
+
+  Reddoor is the `Require Turnstile` canary; the absent-token block only takes effect on
+  opted-in sites, so this ships safe for the rest of the fleet.
+
+- fdc9843: Submissions & digest visibility. (a) The nightly digest gains a "Submissions"
+  telemetry section (new genuine leads vs auto-filtered spam over the window, with
+  a per-site breakdown when nonzero); it rides only when the digest already sends,
+  so the no-noise skip rule is unchanged. (b) The cockpit "📥 N new" counts split
+  actionable leads (contact/inquiry/reserve) from newsletter/rsvp signups so a
+  newsletter backlog can't drown real leads. (c) `/submissions` spam-reason facet
+  tokens (including the turnstile reasons) become clickable filter chips backed by
+  a `reason` query param. (d) The per-site page `/s/<slug>` now shows that site's
+  active alarm/watch context at the top, reusing the cockpit's own collectors +
+  `assignTier` (no forked logic). (e) Markup/accessibility fixes on `/submissions`
+  rows (valid list nesting; larger coarse-pointer tap targets).
+- 7c75ca9: Extend the WAF-challenge honesty discipline (#428) to the crossbrowser/mobile verdicts (challenge-poisoned engine/device checks are voided against verified reachability) and the link checker (challenge-shaped link statuses get a plain-fetch cooldown re-check before counting broken); all three verdicts now name their offenders in details and the evidence note.
+
 ## 0.72.0
 
 ### Minor Changes
