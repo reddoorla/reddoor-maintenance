@@ -39,6 +39,17 @@ describe("tagFilter", () => {
     expect(f(["chair"])).toBe(false);
   });
 
+  it("matches singular/plural (Blux stems a trailing s): projects ↔ project", () => {
+    // Live resolves `projects&&interior` to 107 tiles — 7 are tagged the
+    // SINGULAR `project`; an exact match dropped them.
+    const f = tagFilter("projects&&interior");
+    expect(f(["project", "interior"])).toBe(true); // singular tag, plural filter
+    expect(f(["projects", "interior"])).toBe(true); // plural
+    // Conservative: only ONE trailing s, so no unrelated over-match.
+    expect(f(["projector", "interior"])).toBe(false);
+    expect(f(["project"])).toBe(false); // still needs interior
+  });
+
   it("empty/absent expression matches everything", () => {
     expect(tagFilter(undefined)(["x"])).toBe(true);
     expect(tagFilter("")([])).toBe(true);
@@ -58,7 +69,45 @@ describe("resolveFeedTiles", () => {
       resolvers({ media }),
     );
     expect(tiles?.map((t) => t.media?.assetId)).toEqual(["a", "b"]);
-    expect(tiles?.every((t) => t.title === undefined)).toBe(true);
+  });
+
+  it("__media: sorts fdate desc and carries the name/description overlay captions", () => {
+    // Blux binds the library entry's `name` → tile title and `description` →
+    // body overlay (plain text, so ESCAPED); the grid sorts by date desc.
+    const media = new Map<string, Record<string, unknown>>([
+      ["old", { type: "image/jpeg", tags: ["p"], name: "Older", date: "2020-01-01" }],
+      [
+        "new",
+        {
+          type: "image/jpeg",
+          tags: ["p"],
+          name: "Newer & Bright",
+          date: "2025-06-01",
+          description: "DESIGN: A\nB",
+        },
+      ],
+    ]);
+    const tiles = resolveFeedTiles(
+      { sources: ["__media"], sourceConfig: { filters: { tag: "p" }, sort: "fdate" } },
+      resolvers({ media }),
+    );
+    // newest first, and the plain-text name is escaped, description → <p> with <br>
+    expect(tiles?.map((t) => t.media?.assetId)).toEqual(["new", "old"]);
+    expect(tiles?.[0]?.title).toBe("Newer &amp; Bright");
+    expect(tiles?.[0]?.body).toBe("<p>DESIGN: A<br>B</p>");
+    // a disabled _title/_body suppresses the caption
+    const noCaption = resolveFeedTiles(
+      {
+        sources: ["__media"],
+        sourceConfig: {
+          filters: { tag: "p" },
+          _title: { class: "disable" },
+          _body: { class: "disable" },
+        },
+      },
+      resolvers({ media }),
+    );
+    expect(noCaption?.every((t) => t.title === undefined && t.body === undefined)).toBe(true);
   });
 
   it("feed: filtered + sorted records → tiles; disabled records and disabled fields dropped", () => {
@@ -83,6 +132,29 @@ describe("resolveFeedTiles", () => {
     // sorted by title, tag-filtered, disabled record removed, body suppressed
     expect(tiles?.map((t) => t.title)).toEqual(["Alpha", "Beta"]);
     expect(tiles?.every((t) => t.body === undefined)).toBe(true);
+  });
+
+  it("feed: title sort uses localeCompare — matching Blux's own client sort", () => {
+    // Blux sorts non-numeric sort-values with `.localeCompare` (verified in the
+    // export's sort JS), so we do too — the same V8/ICU collation the browser
+    // uses. (A review flagged 'code-point' here; the export's source refutes it.)
+    const feeds = new Map([["F", [{ title: "Beta" }, { title: "alpha" }, { title: "Delta" }]]]);
+    const tiles = resolveFeedTiles(
+      { sources: ["F"], sourceConfig: { sort: "title" } },
+      resolvers({ feeds }),
+    );
+    expect(tiles?.map((t) => t.title)).toEqual(["alpha", "Beta", "Delta"]);
+  });
+
+  it("feed: title/body HTML is verbatim — <br> markup kept, entities NOT re-escaped", () => {
+    const feeds = new Map([
+      ["F", [{ title: "Sheraton Anchorage<br>", body: "<p>x</p>" }, { title: "Surf &amp; Sand" }]],
+    ]);
+    const tiles = resolveFeedTiles({ sources: ["F"] }, resolvers({ feeds }));
+    // the <br> survives (renders a break, not literal text)
+    expect(tiles?.[0]?.title).toBe("Sheraton Anchorage<br>");
+    // &amp; stays single-encoded (renders "&", not "&amp;")
+    expect(tiles?.[1]?.title).toBe("Surf &amp; Sand");
   });
 
   it("feed: a record's own media rides onto its tile", () => {
@@ -142,14 +214,18 @@ describe("materializeFeedGrid", () => {
     expect(row.cells[1]?.node.kind).toBe("stack");
   });
 
-  it("escapes plain-text feed titles into the heading html", () => {
+  it("places tile title/body html VERBATIM (escaping happened at resolve time)", () => {
+    // materializeFeedGrid trusts render-ready html — a feed record's <br> and
+    // a resolved __media entity survive; resolveFeedTiles owns the escaping.
     const node = materializeFeedGrid({
-      tiles: [{ title: "Smith & Co <Ltd>" }],
+      tiles: [{ title: "Anchorage<br>", body: "<p>ok</p>" }],
       columns: 2,
     });
     if (node?.kind !== "row") throw new Error("expected row");
     const tile = node.cells[0]?.node;
-    expect(tile).toMatchObject({ kind: "heading", html: "Smith &amp; Co &lt;Ltd&gt;" });
+    if (tile?.kind !== "stack") throw new Error("expected stack");
+    expect(tile.children[0]).toMatchObject({ kind: "heading", html: "Anchorage<br>" });
+    expect(tile.children[1]).toMatchObject({ kind: "body", html: "<p>ok</p>" });
   });
 
   it("returns the heading alone with no tiles, null with neither", () => {

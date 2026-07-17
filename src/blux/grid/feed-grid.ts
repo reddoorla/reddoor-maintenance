@@ -16,7 +16,11 @@ import { CDN_HOSTS } from "../assets.js";
  * loose bags; we read only the fields the tile needs. */
 export type FeedRecord = Record<string, unknown>;
 
-/** A resolved tile: an image (already a Media) and/or display text. */
+/** A resolved tile: an image (already a Media) and/or display text. `title`
+ * and `body` are RENDER-READY HTML — feed records store them as HTML (entities
+ * pre-encoded, `<br>` markup), and `__media` plain text (name/description) is
+ * escaped at resolve time — so the render places them verbatim, never
+ * re-escaping (which would double-encode `&amp;` or show a literal `<br>`). */
 export type FeedTile = { media?: Media; title?: string; body?: string };
 
 /** Everything the materializer needs from the export, injected so the module
@@ -33,10 +37,21 @@ export type FeedResolvers = {
   mediaFor: (uuid: string, type: string | undefined, name?: string) => Media | null;
 };
 
+/** A term matches a tag when they're equal OR differ only by a trailing `s`
+ * (singular/plural) — Blux's server-side feed resolver stems this way, so a
+ * `projects` filter also selects `project`-tagged media (7 real gallery tiles
+ * that an exact match drops). Conservative: only a single trailing `s`, so it
+ * never over-selects unrelated tags. */
+const termMatchesTag = (term: string, tag: string): boolean =>
+  term === tag ||
+  (term.endsWith("s") && term.slice(0, -1) === tag) ||
+  (tag.endsWith("s") && tag.slice(0, -1) === term);
+
 /** Parse a Blux tag filter expression into a predicate over a tag set. The
  * DSL: `&&` joins AND terms, `||` joins OR groups; a record matches when ANY
- * OR group has ALL its terms present. Leading/empty terms (`&&metal&&sofa`)
- * are ignored. Case-insensitive. An empty/absent expression matches all. */
+ * OR group has ALL its terms present (singular/plural-insensitive, see
+ * `termMatchesTag`). Leading/empty terms (`&&metal&&sofa`) are ignored.
+ * Case-insensitive. An empty/absent expression matches all. */
 export function tagFilter(expr: string | undefined): (tags: string[]) => boolean {
   const groups = (expr ?? "")
     .split("||")
@@ -49,14 +64,17 @@ export function tagFilter(expr: string | undefined): (tags: string[]) => boolean
     .filter((g) => g.length > 0);
   if (!groups.length) return () => true;
   return (tags) => {
-    const set = new Set(tags.map((t) => t.toLowerCase()));
-    return groups.some((g) => g.every((t) => set.has(t)));
+    const set = tags.map((t) => t.toLowerCase());
+    return groups.some((g) => g.every((term) => set.some((tag) => termMatchesTag(term, tag))));
   };
 }
 
-/** Records sorted by a Blux `sort` key. `title` → alphabetical by title;
+/** Records sorted by a Blux `sort` key. `title` → by title with
+ * `localeCompare` (matching Blux's own client sort, which uses
+ * `((a.sort||"")+"").localeCompare(b.sort)` for non-numeric sort values);
  * `fdate`/`date` → by the record's date descending (newest first, Blux's
- * default feed order); anything else → source order preserved. Stable. */
+ * default), the undated last; anything else → source order preserved.
+ * Stable. */
 function sortRecords(records: FeedRecord[], sort: string | undefined): FeedRecord[] {
   if (sort === "title") {
     return [...records].sort((a, b) =>
@@ -97,18 +115,32 @@ export function resolveFeedTiles(
   const titleOff = styleDisabled(cfg["_title"]);
 
   if (source === "__media") {
-    // Media-library grid: every image whose tags match, as an image tile. The
-    // library entries carry no display text (name is a filename), so overlay
-    // titles are omitted — the tiles are the images.
-    const tiles: FeedTile[] = [];
+    // Media-library grid: every tag-matched image, sorted by the config (the
+    // gallery/portfolio grids are `fdate` — newest first). Library entries DO
+    // carry display text: `name` is a caption (a real title, not a filename)
+    // and `description` the body — Blux binds both into the tile overlay
+    // (unless _title/_body is disabled). These are PLAIN text, so escape them.
+    const matched: FeedRecord[] = [];
     for (const [uuid, entry] of resolvers.media) {
       const type = String(entry["type"] ?? "");
       if (!type.startsWith("image/")) continue;
-      const tags = (entry["tags"] as string[] | undefined) ?? [];
-      if (!match(tags)) continue;
-      const media = resolvers.mediaFor(uuid, type, entry["name"] as string | undefined);
-      if (media) tiles.push({ media });
+      if (!match((entry["tags"] as string[] | undefined) ?? [])) continue;
+      matched.push({ ...entry, __uuid: uuid });
     }
+    const tiles = sortRecords(matched, sort)
+      .map((entry): FeedTile => {
+        const media = resolvers.mediaFor(
+          String(entry["__uuid"]),
+          entry["type"] as string | undefined,
+          entry["name"] as string | undefined,
+        );
+        const tile: FeedTile = {};
+        if (media) tile.media = media;
+        if (!titleOff && entry["name"]) tile.title = escapeHtml(String(entry["name"]));
+        if (!bodyOff && entry["description"]) tile.body = plainToHtml(String(entry["description"]));
+        return tile;
+      })
+      .filter((t) => t.media || t.title || t.body);
     return tiles.length ? tiles : null;
   }
 
@@ -126,6 +158,8 @@ export function resolveFeedTiles(
       const media = resolvers.mediaFor(m.media, m.type);
       if (media) tile.media = media;
     }
+    // Feed record title/body are stored as HTML (entities encoded, `<br>`
+    // markup) — keep them VERBATIM, never re-escape.
     if (!titleOff && r["title"]) tile.title = String(r["title"]);
     if (!bodyOff && r["body"]) tile.body = String(r["body"]);
     return tile;
@@ -159,13 +193,10 @@ export function materializeFeedGrid(opts: {
   const cells: Cell[] = tiles.map((t) => {
     const parts: Node[] = [];
     if (t.media) parts.push({ kind: "media", media: t.media });
-    if (t.title)
-      parts.push({ kind: "heading", level: 6, html: escapeHtml(t.title), role: "text6" });
-    if (t.body)
-      parts.push({
-        kind: "body",
-        html: /<[a-z]/i.test(t.body) ? t.body : `<p>${escapeHtml(t.body)}</p>`,
-      });
+    // title/body are already render-ready HTML (feed records store HTML;
+    // __media plain text was escaped at resolve time) — place them verbatim.
+    if (t.title) parts.push({ kind: "heading", level: 6, html: t.title, role: "text6" });
+    if (t.body) parts.push({ kind: "body", html: t.body });
     const node: Node = parts.length === 1 ? parts[0]! : { kind: "stack", children: parts };
     return {
       token: {
@@ -180,10 +211,19 @@ export function materializeFeedGrid(opts: {
   return headingNode ? { kind: "stack", children: [headingNode, row] } : row;
 }
 
-/** Minimal HTML-escape for plain-text feed values placed into html-bearing
- * nodes (heading/body carry html). Feed titles are plain text. */
+/** HTML-escape a PLAIN-text value (a `__media` name/description) for placement
+ * into an html-bearing node. Feed-record title/body are already HTML and skip
+ * this. */
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** A plain-text body (`__media` description) as body html: escaped, with the
+ * source's hard newlines becoming `<br>` (Blux descriptions are multi-line —
+ * "DESIGN: …\nPROCUREMENT: …"), wrapped in a `<p>`. */
+function plainToHtml(s: string): string {
+  const inner = escapeHtml(s.trim()).replace(/\r?\n/g, "<br>");
+  return `<p>${inner}</p>`;
 }
 
 /** A file extension for a media asset: the mime map first (image/jpeg → jpg),
