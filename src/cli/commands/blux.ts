@@ -7,7 +7,9 @@ import { emitThemeCss, emitRolesCss, emitButtonsCss } from "../../blux/emit/them
 import { buildReviewManifest } from "../../blux/emit/review.js";
 import { validateCoverage } from "../../blux/validate.js";
 import { parseGridBands, extractMapConfig } from "../../blux/grid/index.js";
+import { feedAssetBase } from "../../blux/grid/feed-grid.js";
 import { convertExport, convertSite, sitePages } from "../../blux/emit/convert.js";
+import { buildSiteConfig } from "../../blux/emit/site-config.js";
 import { validateLayout, formatLayoutReport } from "../../blux/emit/validate-layout.js";
 import { rewriteManifestUrls } from "../../blux/emit/rewrite-manifest.js";
 import type { SitePresentation } from "../../blux/emit/presentation.js";
@@ -335,6 +337,30 @@ export async function runBluxCommand(
     );
     if (Object.keys(mapConfigs).length) {
       await writeFile(join(outDir, "map-config.json"), JSON.stringify(mapConfigs, null, 2) + "\n");
+    }
+    // Site chrome (nav dropdowns + footer socials/copyright) → site-config.json,
+    // consumed by the render's Nav/Footer. The nav logo is chrome, not on any
+    // page grid, so it isn't in the scraped urlMap — resolve it the scraped url
+    // first, else reconstruct the CDN url (base + uuid + ext, like feed media).
+    {
+      const sourceUrlById = new Map(ir.assets.map((a) => [a.id, a.sourceUrl] as const));
+      const base = feedAssetBase([...htmlByUid.values()], ir.meta.bluxSiteId);
+      const mediaDict = (siteJson as { media?: Record<string, { type?: string }> }).media ?? {};
+      const extByMime: Record<string, string> = {
+        "image/png": "png",
+        "image/jpeg": "jpg",
+        "image/svg+xml": "svg",
+        "image/gif": "gif",
+        "image/webp": "webp",
+      };
+      const resolveLogo = (uuid: string): string | null => {
+        const scraped = sourceUrlById.get(uuid);
+        if (scraped) return scraped;
+        const ext = extByMime[String(mediaDict[uuid]?.type ?? "")];
+        return ext ? `${base}${uuid}.${ext}` : null;
+      };
+      const siteConfig = buildSiteConfig(siteJson, resolveLogo);
+      await writeFile(join(outDir, "site-config.json"), JSON.stringify(siteConfig, null, 2) + "\n");
     }
     // The favicon never rides the migration plan (plan assets get uploaded to
     // Prismic media — the wrong destination), so convert downloads it directly
