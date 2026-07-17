@@ -7,6 +7,8 @@ import { emitThemeCss, emitRolesCss, emitButtonsCss } from "../../blux/emit/them
 import { buildReviewManifest } from "../../blux/emit/review.js";
 import { validateCoverage } from "../../blux/validate.js";
 import { parseGridBands, extractMapConfig } from "../../blux/grid/index.js";
+import { feedAssetBase, extFor } from "../../blux/grid/feed-grid.js";
+import { materializeProducts, type ProductRecord } from "../../blux/products.js";
 import { convertExport, convertSite, sitePages } from "../../blux/emit/convert.js";
 import { validateLayout, formatLayoutReport } from "../../blux/emit/validate-layout.js";
 import { rewriteManifestUrls } from "../../blux/emit/rewrite-manifest.js";
@@ -335,6 +337,28 @@ export async function runBluxCommand(
     );
     if (Object.keys(mapConfigs).length) {
       await writeFile(join(outDir, "map-config.json"), JSON.stringify(mapConfigs, null, 2) + "\n");
+    }
+    // Product catalog → products.json. A Blux "products" feed drives a detail
+    // page per record (/products/<slug>) from a template the static export
+    // drops; rebuild the catalog deterministically with cleaned categories +
+    // resolved images. Image urls reconstruct like feed media (base + uuid +
+    // ext) — the scraped url map only covers page assets, not feed records.
+    {
+      const feeds =
+        (siteJson as { feeds?: Record<string, { publish?: unknown; items?: unknown }> }).feeds ??
+        {};
+      const productFeed = Object.values(feeds).find((f) => f?.publish === "products");
+      if (productFeed && Array.isArray(productFeed.items)) {
+        const base = feedAssetBase([...htmlByUid.values()], ir.meta.bluxSiteId);
+        const mediaMeta =
+          (siteJson as { media?: Record<string, { type?: string; name?: string }> }).media ?? {};
+        const resolveImage = (uuid: string): string | null => {
+          const ext = extFor(mediaMeta[uuid]?.type, mediaMeta[uuid]?.name);
+          return ext ? `${base}${uuid}.${ext}` : null;
+        };
+        const products = materializeProducts(productFeed.items as ProductRecord[], resolveImage);
+        await writeFile(join(outDir, "products.json"), JSON.stringify(products, null, 2) + "\n");
+      }
     }
     // The favicon never rides the migration plan (plan assets get uploaded to
     // Prismic media — the wrong destination), so convert downloads it directly
