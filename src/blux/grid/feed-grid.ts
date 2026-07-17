@@ -89,6 +89,17 @@ function sortRecords(records: FeedRecord[], sort: string | undefined): FeedRecor
   return records;
 }
 
+/** A validated "W:H" crop ratio (e.g. "4:3") from a sourceConfig value, or
+ * undefined when absent/malformed. Both terms must be positive numbers. */
+export function cropRatioOf(v: unknown): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const m = /^\s*(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)\s*$/.exec(v);
+  if (!m) return undefined;
+  const w = Number(m[1]);
+  const h = Number(m[2]);
+  return w > 0 && h > 0 ? `${w}:${h}` : undefined;
+}
+
 const isDisabled = (r: FeedRecord): boolean => r["disabled"] === true || r["disable"] === true;
 const styleDisabled = (cfg: unknown): boolean =>
   !!cfg && typeof cfg === "object" && (cfg as { class?: string })["class"] === "disable";
@@ -113,6 +124,11 @@ export function resolveFeedTiles(
   const sort = cfg["sort"] as string | undefined;
   const bodyOff = styleDisabled(cfg["_body"]);
   const titleOff = styleDisabled(cfg["_title"]);
+  // The grid's tile crop ratio ("4:3"): the render frames each tile image in a
+  // fixed-aspect cover box (uniform gallery tiles, like the original).
+  const ratio = cropRatioOf(cfg["mediaRatio"] ?? cfg["ratio"]);
+  const framed = (m: Media | null): Media | null =>
+    m && ratio ? { ...m, cropRatio: ratio, fit: "cover" } : m;
 
   if (source === "__media") {
     // Media-library grid: every tag-matched image, sorted by the config (the
@@ -129,10 +145,12 @@ export function resolveFeedTiles(
     }
     const tiles = sortRecords(matched, sort)
       .map((entry): FeedTile => {
-        const media = resolvers.mediaFor(
-          String(entry["__uuid"]),
-          entry["type"] as string | undefined,
-          entry["name"] as string | undefined,
+        const media = framed(
+          resolvers.mediaFor(
+            String(entry["__uuid"]),
+            entry["type"] as string | undefined,
+            entry["name"] as string | undefined,
+          ),
         );
         const tile: FeedTile = {};
         if (media) tile.media = media;
@@ -155,7 +173,7 @@ export function resolveFeedTiles(
     const tile: FeedTile = {};
     const m = r["media"] as { media?: string; type?: string } | undefined;
     if (m?.media) {
-      const media = resolvers.mediaFor(m.media, m.type);
+      const media = framed(resolvers.mediaFor(m.media, m.type));
       if (media) tile.media = media;
     }
     // Feed record title/body are stored as HTML (entities encoded, `<br>`
@@ -167,18 +185,27 @@ export function resolveFeedTiles(
   return tiles.length ? tiles : null;
 }
 
+/** An overlay tile treatment (Blux `layout: "behind"`, `overlay: true`): the
+ * caption sits OVER the cropped image (a colored panel revealed on hover), so a
+ * tile is only as tall as its image — not image + a caption row below. Threaded
+ * onto the tile stack as `_overlay` presentation hints the render consumes. */
+export type TileOverlay = { ratio: string; color?: string; valign?: string };
+
 /** A materialized feed grid: the band's heading (if any) over a row of tile
  * cells. Each tile is a stack of its image + title + body (whichever it has);
- * a lone image/heading stays bare. `columns` sets each cell's grid token so the
- * render lays them out in a grid (the source `columns`/`data-columns`; default
- * 3). Returns the heading alone when there are no tiles, null when neither. */
+ * a lone image/heading stays bare. With `overlay`, the tile becomes an
+ * overlay card (caption over the cropped image). `columns` sets each cell's
+ * grid token so the render lays them out in a grid (the source `columns`/
+ * `data-columns`; default 3). Returns the heading alone when there are no
+ * tiles, null when neither. */
 export function materializeFeedGrid(opts: {
   heading?: { html: string; level: number; role?: string };
   tiles: FeedTile[] | null;
   columns: number;
   spacing?: number;
+  overlay?: TileOverlay;
 }): Node | null {
-  const { heading, tiles, columns, spacing } = opts;
+  const { heading, tiles, columns, spacing, overlay } = opts;
   const headingNode: Node | null = heading
     ? {
         kind: "heading",
@@ -197,7 +224,22 @@ export function materializeFeedGrid(opts: {
     // __media plain text was escaped at resolve time) — place them verbatim.
     if (t.title) parts.push({ kind: "heading", level: 6, html: t.title, role: "text6" });
     if (t.body) parts.push({ kind: "body", html: t.body });
-    const node: Node = parts.length === 1 ? parts[0]! : { kind: "stack", children: parts };
+    let node: Node;
+    if (overlay && t.media) {
+      // Overlay card: the stack carries the crop ratio + panel style; the
+      // render cover-fills the media and overlays the caption on it.
+      node = {
+        kind: "stack",
+        children: parts,
+        style: {
+          _overlay: overlay.ratio,
+          ...(overlay.color ? { _overlayColor: overlay.color } : {}),
+          ...(overlay.valign ? { _overlayValign: overlay.valign } : {}),
+        },
+      };
+    } else {
+      node = parts.length === 1 ? parts[0]! : { kind: "stack", children: parts };
+    }
     return {
       token: {
         cols,

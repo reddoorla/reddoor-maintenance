@@ -157,6 +157,29 @@ describe("resolveFeedTiles", () => {
     expect(tiles?.[1]?.title).toBe("Surf &amp; Sand");
   });
 
+  it("stamps the sourceConfig crop ratio (mediaRatio/ratio) + cover onto every tile image", () => {
+    const media = new Map<string, Record<string, unknown>>([
+      ["a", { type: "image/jpeg", tags: ["p"] }],
+    ]);
+    const tiles = resolveFeedTiles(
+      { sources: ["__media"], sourceConfig: { filters: { tag: "p" }, mediaRatio: "4:3" } },
+      resolvers({ media }),
+    );
+    expect(tiles?.[0]?.media).toMatchObject({ cropRatio: "4:3", fit: "cover" });
+    // feed-record tiles get it too; a malformed ratio is ignored
+    const feeds = new Map([["F", [{ title: "T", media: { media: "m1", type: "image/png" } }]]]);
+    const framed = resolveFeedTiles(
+      { sources: ["F"], sourceConfig: { ratio: "16:9" } },
+      resolvers({ feeds }),
+    );
+    expect(framed?.[0]?.media?.cropRatio).toBe("16:9");
+    const noRatio = resolveFeedTiles(
+      { sources: ["F"], sourceConfig: { ratio: "bad" } },
+      resolvers({ feeds }),
+    );
+    expect(noRatio?.[0]?.media?.cropRatio).toBeUndefined();
+  });
+
   it("feed: a record's own media rides onto its tile", () => {
     const feeds = new Map([
       ["F", [{ title: "Chair", media: { media: "m1", type: "image/jpeg" } }]],
@@ -226,6 +249,25 @@ describe("materializeFeedGrid", () => {
     if (tile?.kind !== "stack") throw new Error("expected stack");
     expect(tile.children[0]).toMatchObject({ kind: "heading", html: "Anchorage<br>" });
     expect(tile.children[1]).toMatchObject({ kind: "body", html: "<p>ok</p>" });
+  });
+
+  it("builds overlay-card tiles when given an overlay (caption over the image)", () => {
+    const node = materializeFeedGrid({
+      tiles: [{ media: img("a"), title: "Suite", body: "<p>NYC</p>" }],
+      columns: 3,
+      overlay: { ratio: "4:3", color: "rgba(1,2,3,0.85)", valign: "top" },
+    });
+    if (node?.kind !== "row") throw new Error("expected row");
+    const tile = node.cells[0]?.node;
+    // The tile is a stack carrying the overlay hints, media first then caption.
+    expect(tile?.kind).toBe("stack");
+    if (tile?.kind !== "stack") return;
+    expect(tile.style).toMatchObject({
+      _overlay: "4:3",
+      _overlayColor: "rgba(1,2,3,0.85)",
+      _overlayValign: "top",
+    });
+    expect(tile.children.map((c) => c.kind)).toEqual(["media", "heading", "body"]);
   });
 
   it("returns the heading alone with no tiles, null with neither", () => {

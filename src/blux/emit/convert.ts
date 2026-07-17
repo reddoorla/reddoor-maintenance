@@ -12,11 +12,13 @@ import { parseBluxSite } from "../parse.js";
 import { normalizePages } from "../normalize.js";
 import {
   buildFeedResolvers,
+  cropRatioOf,
   feedAssetBase,
   isFeedBand,
   materializeFeedGrid,
   resolveFeedTiles,
   type FeedResolvers,
+  type TileOverlay,
 } from "../grid/feed-grid.js";
 import type { Node } from "../grid/types.js";
 import type { Diagnostic, SiteIR } from "../ir.js";
@@ -90,6 +92,7 @@ export function convertExport({
         ...(m.fit ? { fit: m.fit } : {}),
         ...(m.position ? { position: m.position } : {}),
         ...(m.minHeight ? { minHeight: m.minHeight } : {}),
+        ...(m.cropRatio ? { cropRatio: m.cropRatio } : {}),
         ...(m.playback ? { playback: m.playback } : {}),
       };
       return rm;
@@ -125,6 +128,21 @@ function leadingHeadings(root: Node): Node[] {
 function feedColumns(item: { columns?: unknown }): number {
   const n = Number(item.columns);
   return Number.isFinite(n) && n > 0 ? n : 3;
+}
+
+/** The overlay-tile treatment of a feed band, or null. A grid with
+ * `sourceConfig.overlay` + a crop `ratio`/`mediaRatio` (gallery/portfolio)
+ * shows its caption OVER the cropped image — the render frames each tile at
+ * the ratio and reveals the caption panel on hover, so a tile is only as tall
+ * as its image. */
+function tileOverlay(item: unknown): TileOverlay | null {
+  const cfg = (item as { sourceConfig?: Record<string, unknown> })?.sourceConfig;
+  if (!cfg || cfg["overlay"] !== true) return null;
+  const ratio = cropRatioOf(cfg["mediaRatio"] ?? cfg["ratio"]);
+  if (!ratio) return null;
+  const color = typeof cfg["overlayColor"] === "string" ? cfg["overlayColor"] : undefined;
+  const valign = typeof cfg["contentvalign"] === "string" ? cfg["contentvalign"] : undefined;
+  return { ratio, ...(color ? { color } : {}), ...(valign ? { valign } : {}) };
 }
 
 /** Did this band lose its content to the feed-template drop? — its parsed root
@@ -194,6 +212,7 @@ function materializeFeedBands(
       tiles,
       columns: feedColumns(item as { columns?: unknown }),
       ...(Number.isFinite(spacing) && spacing > 0 ? { spacing } : {}),
+      ...(tileOverlay(item) ? { overlay: tileOverlay(item)! } : {}),
     });
     if (!row) continue;
     const headings = leadingHeadings(band.root);
@@ -297,6 +316,7 @@ export function convertSite({
           ...(m.fit ? { fit: m.fit } : {}),
           ...(m.position ? { position: m.position } : {}),
           ...(m.minHeight ? { minHeight: m.minHeight } : {}),
+          ...(m.cropRatio ? { cropRatio: m.cropRatio } : {}),
           ...(m.playback ? { playback: m.playback } : {}),
         };
         return rm;
