@@ -17,6 +17,15 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          # Authenticate git with the RENOVATE PAT (not the default GITHUB_TOKEN)
+          # so the "Version Packages" branch PUSH the changesets action makes is
+          # attributed to the PAT user. A GITHUB_TOKEN push is recursion-guarded
+          # (no push event fires) and makes the PR's pull_request runs trigger as
+          # github-actions[bot] → gated in "action_required". With the PAT, the
+          # push fires ci.yml (see its push trigger on this branch) and the check
+          # goes green without an admin approving each release cycle. Publishing
+          # still uses npm OIDC (id-token: write), independent of this token.
+          token: ${{ secrets.RENOVATE_TOKEN }}
 
       - uses: pnpm/action-setup@v6
         with:
