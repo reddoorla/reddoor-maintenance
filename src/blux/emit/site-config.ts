@@ -89,7 +89,7 @@ export function socialHrefResolverFromHtml(
     let m: RegExpExecArray | null;
     while ((m = re.exec(html))) {
       const url = m[1];
-      if (/^https?:\/\//i.test(url)) hrefs.push(url);
+      if (url && /^https?:\/\//i.test(url)) hrefs.push(url);
     }
   }
   return (network) => {
