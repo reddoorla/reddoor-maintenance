@@ -43,6 +43,11 @@ export type Media = {
   /** The holder's inline min-height (e.g. "80vh" on slider slides), so a
    * cover-frame render reserves the original's height. */
   minHeight?: string;
+  /** A feed grid's tile crop ratio (`sourceConfig.mediaRatio`, e.g. "4:3"):
+   * the render frames the image in a fixed-aspect box with object-cover, so
+   * gallery/portfolio tiles are uniformly cropped like the original instead of
+   * flowing at their natural (tall) height. Width form "W:H". */
+  cropRatio?: string;
   playback?: VideoPlayback;
 };
 // Forward-declared for plan 2's widget router. The parser does not emit
