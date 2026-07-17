@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  buildSiteConfig,
-  socialHrefResolverFromHtml,
-} from "../../../src/blux/emit/site-config.js";
+import { buildSiteConfig, socialHrefResolverFromHtml } from "../../../src/blux/emit/site-config.js";
 
 const site = {
   navigation: [
@@ -133,9 +130,7 @@ describe("socialHrefResolverFromHtml", () => {
   });
 
   it("matches twitter's x.com host", () => {
-    const resolve = socialHrefResolverFromHtml([
-      `<a href="https://x.com/Composition2014">x</a>`,
-    ]);
+    const resolve = socialHrefResolverFromHtml([`<a href="https://x.com/Composition2014">x</a>`]);
     expect(resolve("twitter")).toBe("https://x.com/Composition2014");
   });
 });
