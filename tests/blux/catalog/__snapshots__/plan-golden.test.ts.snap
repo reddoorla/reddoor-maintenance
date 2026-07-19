@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`catalog plan — the-pointe Section band (golden) > emits a populated blux_section document from a real band 1`] = `
+exports[`catalog plan — the-pointe (golden) > emits a populated, breadth-routed plan from the real page 1`] = `
 {
   "assets": [
     {
@@ -20,8 +20,33 @@ exports[`catalog plan — the-pointe Section band (golden) > emits a populated b
     },
     {
       "alt": "",
+      "id": "0c78a3e9-984b-4697-a025-2fb1055da37e",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/0c78a3e9-984b-4697-a025-2fb1055da37e.png",
+    },
+    {
+      "alt": "",
       "id": "8fc9d04c-543a-4ca9-8cf6-18cda24eb711",
       "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/8fc9d04c-543a-4ca9-8cf6-18cda24eb711.png",
+    },
+    {
+      "alt": "",
+      "id": "ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/ec0c6ec6-45b9-4ac8-84e5-0438c84629b9.png",
+    },
+    {
+      "alt": "",
+      "id": "7c52c8df-a506-4a7a-9a1d-91aa11e5d7c6",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/7c52c8df-a506-4a7a-9a1d-91aa11e5d7c6.png",
+    },
+    {
+      "alt": "",
+      "id": "2c05f47c-cfee-4383-8955-5dea66b4df15",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/2c05f47c-cfee-4383-8955-5dea66b4df15.png",
+    },
+    {
+      "alt": "",
+      "id": "6fefaae2-82b2-4861-9efe-b491cc3d2af1",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/6fefaae2-82b2-4861-9efe-b491cc3d2af1.jpg",
     },
     {
       "alt": "",
@@ -30,13 +55,158 @@ exports[`catalog plan — the-pointe Section band (golden) > emits a populated b
     },
     {
       "alt": "",
+      "id": "aefbd53c-205a-402a-ba88-6294a555b0aa",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/aefbd53c-205a-402a-ba88-6294a555b0aa.jpg",
+    },
+    {
+      "alt": "",
+      "id": "cb6f38b7-4ca7-4590-aeb9-11287fc942e4",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/cb6f38b7-4ca7-4590-aeb9-11287fc942e4.jpg",
+    },
+    {
+      "alt": "",
+      "id": "88737f87-d643-4435-9eb7-839516e95b38",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/88737f87-d643-4435-9eb7-839516e95b38.jpg",
+    },
+    {
+      "alt": "",
       "id": "673cb1d4-af95-4e81-a5dd-5018d4af5e86",
       "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/673cb1d4-af95-4e81-a5dd-5018d4af5e86.png",
     },
     {
       "alt": "",
+      "id": "bf56be7d-863c-4f44-8247-6d92ea7762a9",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/26c9ecb9-bc35-4562-8155-fadfee8df2b2/bf56be7d-863c-4f44-8247-6d92ea7762a9.png",
+    },
+    {
+      "alt": "",
+      "id": "c023afe4-996f-4013-83ab-2634ea55355d",
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/c023afe4-996f-4013-83ab-2634ea55355d.mp4",
+    },
+    {
+      "alt": "",
+      "id": "cfc17af2-ff1f-40a4-a5bf-4123cd5f355c",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/26c9ecb9-bc35-4562-8155-fadfee8df2b2/cfc17af2-ff1f-40a4-a5bf-4123cd5f355c.png",
+    },
+    {
+      "alt": "",
       "id": "6dd54dfc-b4d1-4ef2-8165-a1f2421668bf",
       "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/6dd54dfc-b4d1-4ef2-8165-a1f2421668bf.png",
+    },
+    {
+      "alt": "",
+      "id": "126045fb-2364-4d99-9d6f-5502674ecdc9",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/126045fb-2364-4d99-9d6f-5502674ecdc9.jpg",
+    },
+    {
+      "alt": "",
+      "id": "da8e7a33-0929-4618-9044-4b2ac23041c0",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/da8e7a33-0929-4618-9044-4b2ac23041c0.jpg",
+    },
+    {
+      "alt": "",
+      "id": "122c1f54-872a-40af-8437-a6a226ad968a",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/122c1f54-872a-40af-8437-a6a226ad968a.jpg",
+    },
+    {
+      "alt": "",
+      "id": "052e9b6f-6abe-4478-8a20-380f73d119ff",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/052e9b6f-6abe-4478-8a20-380f73d119ff.png",
+    },
+    {
+      "alt": "",
+      "id": "f0e78916-7572-4cb2-a931-47b994991ef8",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/f0e78916-7572-4cb2-a931-47b994991ef8.png",
+    },
+    {
+      "alt": "",
+      "id": "b4dd73b4-a59a-426b-8908-a4407632d190",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/b4dd73b4-a59a-426b-8908-a4407632d190.png",
+    },
+    {
+      "alt": "",
+      "id": "050cf5e5-2d8b-4712-950e-ad6c353c3e5e",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/050cf5e5-2d8b-4712-950e-ad6c353c3e5e.png",
+    },
+    {
+      "alt": "",
+      "id": "4ea50f1e-25e9-4d60-a67c-2f1aa9410c55",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/4ea50f1e-25e9-4d60-a67c-2f1aa9410c55.png",
+    },
+    {
+      "alt": "",
+      "id": "0cfa7062-d911-483c-94be-20e8e4e0f4bb",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/0cfa7062-d911-483c-94be-20e8e4e0f4bb.png",
+    },
+    {
+      "alt": "",
+      "id": "63b7996d-fe0a-4f00-abcc-c3fb521638f5",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/63b7996d-fe0a-4f00-abcc-c3fb521638f5.png",
+    },
+    {
+      "alt": "",
+      "id": "3b966d54-aa06-4d81-ac7a-00a18a31da6f",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/3b966d54-aa06-4d81-ac7a-00a18a31da6f.png",
+    },
+    {
+      "alt": "",
+      "id": "6e1b82f7-5bf9-48b1-b956-8d614a319176",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/6e1b82f7-5bf9-48b1-b956-8d614a319176.png",
+    },
+    {
+      "alt": "",
+      "id": "1d601436-8017-4dd1-a548-29b66dd10eab",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/1d601436-8017-4dd1-a548-29b66dd10eab.png",
+    },
+    {
+      "alt": "",
+      "id": "fa1b07a4-1c8b-497c-9241-5c013a6e278c",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/fa1b07a4-1c8b-497c-9241-5c013a6e278c.png",
+    },
+    {
+      "alt": "",
+      "id": "2116f17d-7cf0-4880-997d-bd3b5d9a08f1",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/2116f17d-7cf0-4880-997d-bd3b5d9a08f1.png",
+    },
+    {
+      "alt": "",
+      "id": "fd4d69f3-bb9e-4754-bebc-c2897a1bc1c8",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/fd4d69f3-bb9e-4754-bebc-c2897a1bc1c8.png",
+    },
+    {
+      "alt": "",
+      "id": "ae55dfb4-2234-4188-899f-3fe9ee92682b",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/ae55dfb4-2234-4188-899f-3fe9ee92682b.png",
+    },
+    {
+      "alt": "",
+      "id": "ccdd3fcb-7361-4683-a5ff-5558b65746c0",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/ccdd3fcb-7361-4683-a5ff-5558b65746c0.png",
+    },
+    {
+      "alt": "",
+      "id": "80180ff4-c26c-4c3f-8cc5-3ae8df7d64cb",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/80180ff4-c26c-4c3f-8cc5-3ae8df7d64cb.png",
+    },
+    {
+      "alt": "",
+      "id": "ea5a8ac9-4bd3-4934-a38c-cf0a9cce6517",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/ea5a8ac9-4bd3-4934-a38c-cf0a9cce6517.png",
+    },
+    {
+      "alt": "",
+      "id": "998c3e5a-f177-4d0e-9e0e-d95f1b803976",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/998c3e5a-f177-4d0e-9e0e-d95f1b803976.png",
+    },
+    {
+      "alt": "",
+      "id": "865149e9-5e82-440f-93e0-6c5279d23e26",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/865149e9-5e82-440f-93e0-6c5279d23e26.png",
+    },
+    {
+      "alt": "",
+      "id": "c9dffc4f-f371-4007-ba80-71233c827d79",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/c9dffc4f-f371-4007-ba80-71233c827d79.png",
     },
   ],
   "customTypes": [],
@@ -66,28 +236,25 @@ exports[`catalog plan — the-pointe Section band (golden) > emits a populated b
                 },
               ],
             },
-            "slice_type": "blux_section",
+            "slice_type": "blux_grid",
             "variation": "default",
           },
           {
             "items": [],
             "primary": {
-              "background_image": {
-                "__asset_id": "a732d1e4-59be-42ba-b87f-5acea9b3c4b9",
+              "body": {
+                "__richtext_html": "Nestled among the biggest names in entertainment, The Pointe  is a modern and elegant haven for the finest tenants in Burbank.",
               },
-              "cells": [
-                {
-                  "body": {
-                    "__richtext_html": "Nestled among the biggest names in entertainment, The Pointe  is a modern and elegant haven for the finest tenants in Burbank.",
-                  },
-                  "kind": "text",
-                },
-                {
-                  "kind": "text",
-                },
-              ],
+              "layout_ratio": 40,
+              "media": {
+                "__asset_id": "0c78a3e9-984b-4697-a025-2fb1055da37e",
+              },
+              "media_side": "right",
+              "title": {
+                "__richtext_html": "The Pointe",
+              },
             },
-            "slice_type": "blux_section",
+            "slice_type": "blux_media_text",
             "variation": "default",
           },
           {
@@ -112,16 +279,9 @@ design</p>",
           {
             "items": [],
             "primary": {
-              "cells": [
-                {
-                  "kind": "text",
-                },
-                {
-                  "kind": "text",
-                },
-              ],
+              "payload": "{"tag":"div","style":{"display":"grid"},"children":[{"tag":"div","children":[{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/511a1d2e-2ad5-4d93-857e-463f15bc5b82.png","alt":""}},{"tag":"div","children":[{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/43983b42-cd6d-42ba-b76d-9bce1931e581.png","alt":""}}]}]},{"tag":"div","style":{"display":"grid"},"children":[{"tag":"div","style":{"display":"grid"},"children":[{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/449cb545-61ab-4faa-a1a2-5b802ae27982.png","alt":""}},{"tag":"h5","html":"480,000 SF of<br>Class A office space<br>"}]},{"tag":"div","style":{"display":"grid"},"children":[{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/56ceaf76-a802-47e2-9bfa-d48fff84642d.png","alt":""}},{"tag":"h5","html":"Premier 14-Story<br>Office Tower"}]},{"tag":"div","style":{"display":"grid"},"children":[{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/39999486-c94a-47f9-9054-699d21955ec5.png","alt":""}},{"tag":"h5","html":"9.35 Acres in the<br>Media District"}]},{"tag":"div","style":{"display":"grid"},"children":[{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/1083733e-b211-4e23-8a62-2c6db839a02c.png","alt":""}},{"tag":"h5","html":"LEED Gold Certified<br>Energy Star Certified"}]}]}]}",
             },
-            "slice_type": "blux_section",
+            "slice_type": "blux_block",
             "variation": "default",
           },
           {
@@ -130,16 +290,30 @@ design</p>",
               "background_image": {
                 "__asset_id": "8fc9d04c-543a-4ca9-8cf6-18cda24eb711",
               },
+              "cells": [],
+            },
+            "slice_type": "blux_grid",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
               "cells": [
                 {
                   "body": {
-                    "__richtext_html": "<div class="block-holder" style="position: relative; z-index: 2;"><div class="blockcontainer blocks0container valignmiddle" style="min-height: 800px; height: 1px;"><div class="block-content valignmiddleitem" style="width: 100%;"></div></div></div>",
+                    "__richtext_html": "A campus built for the modern worker, The Pointe offers amenities that enrich the every day.",
                   },
                   "kind": "text",
+                  "media": {
+                    "__asset_id": "ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
+                  },
+                  "title": {
+                    "__richtext_html": "on-site luxuries",
+                  },
                 },
               ],
             },
-            "slice_type": "blux_section",
+            "slice_type": "blux_grid",
             "variation": "default",
           },
           {
@@ -147,29 +321,59 @@ design</p>",
             "primary": {
               "cells": [
                 {
-                  "kind": "text",
+                  "kind": "subgrid",
+                  "subgrid": [
+                    {
+                      "kind": "media",
+                      "media": {
+                        "__asset_id": "7c52c8df-a506-4a7a-9a1d-91aa11e5d7c6",
+                      },
+                    },
+                    {
+                      "body": {
+                        "__richtext_html": "Renew and recover with exclusive access to a state-of-the-art <a href="https://www.tbpfit.com/" class="links">FIT Health Club</a> with full-service locker rooms in a spa-like atmosphere. <br>",
+                      },
+                      "kind": "text",
+                    },
+                  ],
+                },
+                {
+                  "kind": "subgrid",
+                  "subgrid": [
+                    {
+                      "body": {
+                        "__richtext_html": "Enjoy exclusive access to on-site production and filming studios.",
+                      },
+                      "kind": "text",
+                    },
+                    {
+                      "kind": "media",
+                      "media": {
+                        "__asset_id": "2c05f47c-cfee-4383-8955-5dea66b4df15",
+                      },
+                    },
+                  ],
+                },
+                {
+                  "kind": "subgrid",
+                  "subgrid": [
+                    {
+                      "kind": "media",
+                      "media": {
+                        "__asset_id": "6fefaae2-82b2-4861-9efe-b491cc3d2af1",
+                      },
+                    },
+                    {
+                      "body": {
+                        "__richtext_html": "Head to the MRKT for a quick bite on-the-go, or dine in for a filling meal.",
+                      },
+                      "kind": "text",
+                    },
+                  ],
                 },
               ],
             },
-            "slice_type": "blux_section",
-            "variation": "default",
-          },
-          {
-            "items": [],
-            "primary": {
-              "cells": [
-                {
-                  "kind": "text",
-                },
-                {
-                  "kind": "text",
-                },
-                {
-                  "kind": "text",
-                },
-              ],
-            },
-            "slice_type": "blux_section",
+            "slice_type": "blux_grid",
             "variation": "default",
           },
           {
@@ -199,26 +403,36 @@ lush haven</p>",
             "primary": {
               "cells": [
                 {
-                  "kind": "text",
+                  "kind": "media",
+                  "media": {
+                    "__asset_id": "aefbd53c-205a-402a-ba88-6294a555b0aa",
+                  },
                   "title": {
                     "__richtext_html": "a place to sit and breathe",
                   },
                 },
                 {
-                  "kind": "text",
+                  "kind": "media",
+                  "media": {
+                    "__asset_id": "cb6f38b7-4ca7-4590-aeb9-11287fc942e4",
+                  },
                   "title": {
                     "__richtext_html": "a calm escape right outside your door",
                   },
                 },
                 {
-                  "kind": "text",
+                  "kind": "media",
+                  "media": {
+                    "__asset_id": "88737f87-d643-4435-9eb7-839516e95b38",
+                  },
                   "title": {
                     "__richtext_html": "a building with a view",
                   },
                 },
               ],
+              "columns_visible": 1,
             },
-            "slice_type": "blux_section",
+            "slice_type": "blux_carousel",
             "variation": "default",
           },
           {
@@ -229,11 +443,20 @@ lush haven</p>",
               },
               "cells": [
                 {
+                  "body": {
+                    "__richtext_html": "A collection of 13 buildings offering premier office space among the biggest names in entertainment. Explore 3,100,000 SF of endless possibilities.",
+                  },
                   "kind": "text",
+                  "media": {
+                    "__asset_id": "bf56be7d-863c-4f44-8247-6d92ea7762a9",
+                  },
+                  "title": {
+                    "__richtext_html": "a property within",
+                  },
                 },
               ],
             },
-            "slice_type": "blux_section",
+            "slice_type": "blux_grid",
             "variation": "default",
           },
           {
@@ -241,23 +464,31 @@ lush haven</p>",
             "primary": {
               "cells": [
                 {
-                  "kind": "text",
+                  "kind": "media",
+                  "media": {
+                    "__asset_id": "c023afe4-996f-4013-83ab-2634ea55355d",
+                  },
                 },
                 {
-                  "body": {
-                    "__richtext_html": "<div id="page-block-10-item-1-item-0" class="blocks0"><div class="blockcontainer blocks0container" style="padding: 0px;"><div class="block-content"></div></div></div>",
-                  },
-                  "kind": "text",
-                },
-                {
-                  "kind": "text",
-                  "title": {
-                    "__richtext_html": "presented by",
-                  },
+                  "kind": "subgrid",
+                  "subgrid": [
+                    {
+                      "kind": "text",
+                    },
+                    {
+                      "kind": "text",
+                      "media": {
+                        "__asset_id": "cfc17af2-ff1f-40a4-a5bf-4123cd5f355c",
+                      },
+                      "title": {
+                        "__richtext_html": "presented by",
+                      },
+                    },
+                  ],
                 },
               ],
             },
-            "slice_type": "blux_section",
+            "slice_type": "blux_grid",
             "variation": "default",
           },
           {
@@ -268,11 +499,20 @@ lush haven</p>",
               },
               "cells": [
                 {
+                  "body": {
+                    "__richtext_html": "Burbank offers a wide range of opportunities from its network of world-renowned studios, accessible airport, and recreational activities.",
+                  },
                   "kind": "text",
+                  "media": {
+                    "__asset_id": "ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
+                  },
+                  "title": {
+                    "__richtext_html": "local amenities",
+                  },
                 },
               ],
             },
-            "slice_type": "blux_section",
+            "slice_type": "blux_grid",
             "variation": "default",
           },
           {
@@ -280,17 +520,59 @@ lush haven</p>",
             "primary": {
               "cells": [
                 {
-                  "kind": "text",
+                  "kind": "subgrid",
+                  "subgrid": [
+                    {
+                      "body": {
+                        "__richtext_html": "Be part of the community among the biggest names in entertainment. <br>",
+                      },
+                      "kind": "text",
+                    },
+                    {
+                      "kind": "media",
+                      "media": {
+                        "__asset_id": "126045fb-2364-4d99-9d6f-5502674ecdc9",
+                      },
+                    },
+                  ],
                 },
                 {
-                  "kind": "text",
+                  "kind": "subgrid",
+                  "subgrid": [
+                    {
+                      "kind": "media",
+                      "media": {
+                        "__asset_id": "da8e7a33-0929-4618-9044-4b2ac23041c0",
+                      },
+                    },
+                    {
+                      "body": {
+                        "__richtext_html": "Fly, surf, ski, all within an hour away. Plus every business partner is around the corner.<br>",
+                      },
+                      "kind": "text",
+                    },
+                  ],
                 },
                 {
-                  "kind": "text",
+                  "kind": "subgrid",
+                  "subgrid": [
+                    {
+                      "body": {
+                        "__richtext_html": "Day or night, Burbank delights with vibrant energy and one-of-a-kind character.",
+                      },
+                      "kind": "text",
+                    },
+                    {
+                      "kind": "media",
+                      "media": {
+                        "__asset_id": "122c1f54-872a-40af-8437-a6a226ad968a",
+                      },
+                    },
+                  ],
                 },
               ],
             },
-            "slice_type": "blux_section",
+            "slice_type": "blux_grid",
             "variation": "default",
           },
           {
@@ -317,35 +599,216 @@ within reach</p>",
             "primary": {
               "cells": [
                 {
-                  "body": {
-                    "__richtext_html": "<div id="custom-element0" data-exec="custom_bdb7da85_5af5_4c58_8aeb_f7841279c1fe"><div id="burbank_map" style="height:600px">map loading...</div>
-<div style="margin-top:40px;font-size:0">
-    <span class="map_icon"><span class="map_icon_text">The Burbank Portfolio</span><span class="map_icon_plusm"></span></span>
-    <span class="map_icon"><span class="map_icon_text">Studio And Offices</span><span class="map_icon_plusm"></span></span>
-    <span class="map_icon"><span class="map_icon_text">Retail And Dining</span><span class="map_icon_plusm"></span></span>
-    <span class="map_icon"><span class="map_icon_text">Hotel And Services</span><span class="map_icon_plusm"></span></span>
-</div>
-
-
-    </div>",
-                  },
-                  "kind": "text",
-                },
-                {
-                  "kind": "text",
-                },
-                {
-                  "kind": "text",
-                },
-                {
-                  "kind": "text",
-                },
-                {
-                  "kind": "text",
+                  "kind": "subgrid",
+                  "subgrid": [
+                    {
+                      "kind": "subgrid",
+                      "subgrid": [
+                        {
+                          "body": {
+                            "__richtext_html": "2900 West Alameda Ave<br>Burbank, CA 91505",
+                          },
+                          "kind": "text",
+                          "title": {
+                            "__richtext_html": "The Pointe",
+                          },
+                        },
+                        {
+                          "body": {
+                            "__richtext_html": "3900 West Alameda Ave<br>Burbank, CA 91505",
+                          },
+                          "kind": "text",
+                          "title": {
+                            "__richtext_html": "The Tower",
+                          },
+                        },
+                        {
+                          "body": {
+                            "__richtext_html": "3400 West Olive Ave<br>Burbank, CA 91505",
+                          },
+                          "kind": "text",
+                          "title": {
+                            "__richtext_html": "The Pinnacle I",
+                          },
+                        },
+                        {
+                          "body": {
+                            "__richtext_html": "3300 West Olive Ave<br>Burbank, CA 91505",
+                          },
+                          "kind": "text",
+                          "title": {
+                            "__richtext_html": "The Pinnacle II",
+                          },
+                        },
+                        {
+                          "body": {
+                            "__richtext_html": "3800 Alameda Ave<br>Burbank, CA 91505",
+                          },
+                          "kind": "text",
+                          "title": {
+                            "__richtext_html": "3800 Alameda",
+                          },
+                        },
+                        {
+                          "body": {
+                            "__richtext_html": "3100 Thornton Ave<br>2255 &amp; 2233 Ontario Ave<br>3333 &amp; 3355 Empire Ave<br>Burbank, CA 91504",
+                          },
+                          "kind": "text",
+                          "title": {
+                            "__richtext_html": "Media Studios",
+                          },
+                        },
+                        {
+                          "body": {
+                            "__richtext_html": "3500 West Olive Ave<br>Burbank, CA 91505",
+                          },
+                          "kind": "text",
+                          "title": {
+                            "__richtext_html": "Central Park",
+                          },
+                        },
+                      ],
+                    },
+                    {
+                      "kind": "subgrid",
+                      "subgrid": [
+                        {
+                          "kind": "media",
+                          "media": {
+                            "__asset_id": "052e9b6f-6abe-4478-8a20-380f73d119ff",
+                          },
+                        },
+                        {
+                          "kind": "media",
+                          "media": {
+                            "__asset_id": "f0e78916-7572-4cb2-a931-47b994991ef8",
+                          },
+                        },
+                        {
+                          "kind": "media",
+                          "media": {
+                            "__asset_id": "b4dd73b4-a59a-426b-8908-a4407632d190",
+                          },
+                        },
+                        {
+                          "kind": "media",
+                          "media": {
+                            "__asset_id": "050cf5e5-2d8b-4712-950e-ad6c353c3e5e",
+                          },
+                        },
+                        {
+                          "kind": "media",
+                          "media": {
+                            "__asset_id": "4ea50f1e-25e9-4d60-a67c-2f1aa9410c55",
+                          },
+                        },
+                        {
+                          "kind": "media",
+                          "media": {
+                            "__asset_id": "0cfa7062-d911-483c-94be-20e8e4e0f4bb",
+                          },
+                        },
+                        {
+                          "kind": "media",
+                          "media": {
+                            "__asset_id": "63b7996d-fe0a-4f00-abcc-c3fb521638f5",
+                          },
+                        },
+                      ],
+                    },
+                    {
+                      "kind": "subgrid",
+                      "subgrid": [
+                        {
+                          "kind": "media",
+                          "media": {
+                            "__asset_id": "3b966d54-aa06-4d81-ac7a-00a18a31da6f",
+                          },
+                        },
+                        {
+                          "kind": "media",
+                          "media": {
+                            "__asset_id": "6e1b82f7-5bf9-48b1-b956-8d614a319176",
+                          },
+                        },
+                        {
+                          "kind": "media",
+                          "media": {
+                            "__asset_id": "1d601436-8017-4dd1-a548-29b66dd10eab",
+                          },
+                        },
+                        {
+                          "kind": "media",
+                          "media": {
+                            "__asset_id": "fa1b07a4-1c8b-497c-9241-5c013a6e278c",
+                          },
+                        },
+                        {
+                          "kind": "media",
+                          "media": {
+                            "__asset_id": "2116f17d-7cf0-4880-997d-bd3b5d9a08f1",
+                          },
+                        },
+                        {
+                          "kind": "media",
+                          "media": {
+                            "__asset_id": "fd4d69f3-bb9e-4754-bebc-c2897a1bc1c8",
+                          },
+                        },
+                        {
+                          "kind": "media",
+                          "media": {
+                            "__asset_id": "ae55dfb4-2234-4188-899f-3fe9ee92682b",
+                          },
+                        },
+                        {
+                          "kind": "media",
+                          "media": {
+                            "__asset_id": "ccdd3fcb-7361-4683-a5ff-5558b65746c0",
+                          },
+                        },
+                      ],
+                    },
+                    {
+                      "kind": "subgrid",
+                      "subgrid": [
+                        {
+                          "kind": "media",
+                          "media": {
+                            "__asset_id": "80180ff4-c26c-4c3f-8cc5-3ae8df7d64cb",
+                          },
+                        },
+                        {
+                          "kind": "media",
+                          "media": {
+                            "__asset_id": "ea5a8ac9-4bd3-4934-a38c-cf0a9cce6517",
+                          },
+                        },
+                        {
+                          "kind": "media",
+                          "media": {
+                            "__asset_id": "998c3e5a-f177-4d0e-9e0e-d95f1b803976",
+                          },
+                        },
+                        {
+                          "kind": "media",
+                          "media": {
+                            "__asset_id": "865149e9-5e82-440f-93e0-6c5279d23e26",
+                          },
+                        },
+                        {
+                          "kind": "media",
+                          "media": {
+                            "__asset_id": "c9dffc4f-f371-4007-ba80-71233c827d79",
+                          },
+                        },
+                      ],
+                    },
+                  ],
                 },
               ],
             },
-            "slice_type": "blux_section",
+            "slice_type": "blux_grid",
             "variation": "default",
           },
           {

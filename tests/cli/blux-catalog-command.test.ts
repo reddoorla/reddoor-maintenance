@@ -6,8 +6,8 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { runBluxCommand } from "../../src/cli/commands/blux.js";
 import { minimalSite } from "../blux/fixtures/minimal-site.js";
 
-// A single-band page: the catalog skeleton routes every band → blux_section, so
-// one band is enough to prove the plan-only (no sidecar) write path.
+// A single heading-only band: the breadth router classifies it TitleBand →
+// BluxSection, so one band proves the plan-only (no sidecar) write path.
 const oneBandHtml =
   `<div id="page-content"><section class="blocks0" id="page-block-0">` +
   `<div class="block-content"><h1 class="block-title text5">Hi</h1></div></section></div>`;

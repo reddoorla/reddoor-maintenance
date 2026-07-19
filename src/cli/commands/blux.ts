@@ -10,7 +10,7 @@ import { parseGridBands, extractMapConfig } from "../../blux/grid/index.js";
 import { feedAssetBase, extFor } from "../../blux/grid/feed-grid.js";
 import { materializeProducts, type ProductRecord } from "../../blux/products.js";
 import { convertExport, convertSite, sitePages } from "../../blux/emit/convert.js";
-import { bandToCatalogSection, buildCatalogPlan } from "../../blux/catalog/index.js";
+import { bandToCatalog, buildCatalogPlan } from "../../blux/catalog/index.js";
 import type { CatalogSpec } from "../../blux/catalog/index.js";
 import { buildSiteConfig, socialHrefResolverFromHtml } from "../../blux/emit/site-config.js";
 import { validateLayout, formatLayoutReport } from "../../blux/emit/validate-layout.js";
@@ -456,9 +456,9 @@ export async function runBluxCommand(
       return { output: `could not read export in ${dir}: ${(err as Error).message}`, code: 1 };
     }
     // Read every site page's index.html (homepage at the export root, the rest
-    // at <path>/index.html) exactly like convert, then classify EVERY band to a
-    // Section (skeleton: breadth routing is Plan 4) and emit a plan-only,
-    // sidecar-free migration plan (full field data in the page document).
+    // at <path>/index.html) exactly like convert, then route every band through
+    // the breadth classifier (classifyBand → rich CatalogSpec) and emit a
+    // plan-only, sidecar-free migration plan (full field data in the page doc).
     const pages: { uid: string; title: string; specs: CatalogSpec[] }[] = [];
     for (const p of sitePages(siteJson)) {
       const file = p.path ? join(dir, p.path, "index.html") : join(dir, "index.html");
@@ -468,7 +468,7 @@ export async function runBluxCommand(
       } catch {
         continue; // missing page dir (unexported draft) — skip
       }
-      const specs: CatalogSpec[] = parseGridBands(html).map(bandToCatalogSection);
+      const specs: CatalogSpec[] = parseGridBands(html).map(bandToCatalog);
       pages.push({ uid: p.uid, title: p.title, specs });
     }
     if (!pages.length) {
