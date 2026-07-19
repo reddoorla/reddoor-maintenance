@@ -30,6 +30,11 @@ export type RouteResult = {
   title: string | null;
   /** The chromium `meta[name="description"]` content, or null when absent/not captured. */
   metaDescription: string | null;
+  /** Unsubstituted SvelteKit template placeholders (e.g. "%sveltekit.body%") the SERVED HTML
+   *  carried — a broken app.html (a placeholder token trapped in a comment, a malformed template)
+   *  ships these literally. Empty = clean. Optional: a runner that didn't capture it is treated as
+   *  clean (undefined ≠ failure), but a token that IS seen is unambiguous corruption. */
+  leakedTemplateTokens?: string[];
 };
 
 export type LinkResult = { url: string; status: number | null };
@@ -68,6 +73,13 @@ export type BrowserSummary = {
   /** The per-route findings behind a titleMetaOk=false ("url: missing meta description",
    *  'duplicate title "X": urlA + urlB', …). Empty when titleMetaOk is true. */
   titleMetaProblems: string[];
+  /** No sampled route served an unsubstituted SvelteKit placeholder. False = a broken app.html
+   *  shipped a literal "%sveltekit.*%" to the browser (blank/corrupt render — the failure that
+   *  can slip past desktop/mobile when the page still renders a `<main>` but leaks the token). */
+  templateOk: boolean;
+  /** The per-route findings behind templateOk=false ("url: unsubstituted %sveltekit.body%").
+   *  Empty when templateOk is true. */
+  templateProblems: string[];
   /** Confirmed-failing desktop checks as "url [engine]" (+" → status" when a definite non-2xx/3xx
    *  nav status was captured), or "url: no desktop observations". Empty when desktopOk. */
   desktopFailures: string[];
@@ -428,6 +440,16 @@ export function summarizeBrowser(
   }
   const titleMetaOk = routes.length > 0 && titleMetaProblems.length === 0;
 
+  // templateOk: no route served an unsubstituted SvelteKit placeholder. A literal "%sveltekit.*%"
+  // in shipped HTML is always corruption (a token trapped in an app.html comment, a malformed
+  // template) and never a transient WAF challenge, so — unlike desktop/mobile — it needs no excusal
+  // path: a single hit is a definite warn. This catches the failure mode where the page still
+  // renders a `<main>` (desktop/mobile pass) but leaks the token as visible text.
+  const templateProblems = routes.flatMap((r) =>
+    (r.leakedTemplateTokens ?? []).map((t) => `${r.url}: unsubstituted ${t}`),
+  );
+  const templateOk = templateProblems.length === 0;
+
   const engines = [...new Set(desktopChecks.map((d) => d.engine))];
   const devices = [...new Set(mobileChecks.map((m) => m.device))];
   const families = Object.entries(familyCounts)
@@ -443,6 +465,7 @@ export function summarizeBrowser(
     `${links.length} links, ${brokenLinks} broken` +
     (unreachableUrls.length > 0 ? `; unreachable: ${firstOf(unreachableUrls, 3)}` : "") +
     (titleMetaProblems.length > 0 ? `; title/meta: ${firstOf(titleMetaProblems, 3)}` : "") +
+    (templateProblems.length > 0 ? `; template: ${firstOf(templateProblems, 3)}` : "") +
     (desktopFailures.length > 0 ? `; desktop failing: ${firstOf(desktopFailures, 3)}` : "") +
     (mobileFailures.length > 0 ? `; mobile failing: ${firstOf(mobileFailures, 3)}` : "") +
     (brokenLinkUrls.length > 0 ? `; broken: ${firstOf(brokenLinkUrls, 3)}` : "");
@@ -453,8 +476,10 @@ export function summarizeBrowser(
     linksOk,
     reachableOk,
     titleMetaOk,
+    templateOk,
     unreachableUrls,
     titleMetaProblems,
+    templateProblems,
     desktopFailures,
     mobileFailures,
     brokenLinkUrls,
@@ -527,7 +552,9 @@ export async function browserAudit(ctx: AuditContext): Promise<AuditResult> {
         ? `; ${clearedLinks.length} link(s) re-verified ok by plain fetch after cooldown`
         : "");
     const status: AuditResult["status"] =
-      summary.desktopOk && summary.mobileOk && summary.linksOk ? "pass" : "warn";
+      summary.desktopOk && summary.mobileOk && summary.linksOk && summary.templateOk
+        ? "pass"
+        : "warn";
     return {
       audit: "browser",
       site: label,
@@ -629,6 +656,7 @@ export async function defaultBrowserRunner(): Promise<BrowserRunner> {
           let status: number | null = null;
           let title: string | null = null;
           let metaDescription: string | null = null;
+          let leakedTemplateTokens: string[] = [];
           for (let i = 0; i < desktopEngines.length; i++) {
             const engine = desktopEngines[i]!.engine;
             const browser = browsers[i]!;
@@ -677,6 +705,17 @@ export async function defaultBrowserRunner(): Promise<BrowserRunner> {
                     /* skip */
                   }
                 }
+                // Detect a broken app.html that shipped an unsubstituted SvelteKit placeholder
+                // (e.g. a "%sveltekit.body%" named in a comment BEFORE the real one, so the naive
+                // first-match template substitution fills the comment and leaves the real token
+                // literal). A "%sveltekit.*%" never appears in a correctly-built page — one in the
+                // shipped HTML is corruption the rendered checks can miss (the page may still show a
+                // <main>). Read the RAW response body, not the parsed DOM, so a placeholder the
+                // browser swallowed into a comment is still caught.
+                const html = resp ? await resp.text().catch(() => "") : "";
+                leakedTemplateTokens = [
+                  ...new Set(html.match(/%sveltekit\.[a-zA-Z0-9_.]+%/g) ?? []),
+                ];
               }
             } catch {
               ok = false;
@@ -702,10 +741,18 @@ export async function defaultBrowserRunner(): Promise<BrowserRunner> {
                 timeout: PAGE_TIMEOUT_MS,
               });
               navStatus = resp ? resp.status() : null;
+              // Require a visible main landmark on mobile too (mirrors desktop) — otherwise a
+              // fully-blank render passes mobile on status + no-overflow alone (exactly how a
+              // broken app.html slipped past the mobile check while desktop caught it).
+              const hasMain = await page
+                .locator("main, [role=main]")
+                .first()
+                .isVisible()
+                .catch(() => false);
               const overflow = (await page
                 .evaluate("document.documentElement.scrollWidth > window.innerWidth + 2")
                 .catch(() => true)) as boolean;
-              ok = !!resp && resp.ok() && errors.length === 0 && !overflow;
+              ok = !!resp && resp.ok() && errors.length === 0 && !overflow && hasMain;
             } catch {
               ok = false;
             } finally {
@@ -722,6 +769,7 @@ export async function defaultBrowserRunner(): Promise<BrowserRunner> {
             status,
             title,
             metaDescription,
+            leakedTemplateTokens,
           });
         }
       } finally {

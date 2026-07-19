@@ -28,6 +28,8 @@ function route(
     metaDescription?: string | null;
     /** When provided, stamped onto EVERY desktop/mobile entry (per-engine nav status). */
     entryStatus?: number | null;
+    /** Unsubstituted SvelteKit placeholders the served HTML leaked (empty/omitted = clean). */
+    leakedTemplateTokens?: string[];
   } = {},
 ): RouteResult {
   const entry = over.entryStatus !== undefined ? { status: over.entryStatus } : {};
@@ -46,6 +48,9 @@ function route(
     status: over.status !== undefined ? over.status : 200,
     title: over.title !== undefined ? over.title : `Title for ${url}`,
     metaDescription: over.metaDescription !== undefined ? over.metaDescription : `Meta for ${url}`,
+    ...(over.leakedTemplateTokens !== undefined
+      ? { leakedTemplateTokens: over.leakedTemplateTokens }
+      : {}),
   };
 }
 
@@ -118,6 +123,35 @@ describe("summarizeBrowser", () => {
     expect(s.note).toMatch(/1 routes/);
     expect(s.note).toMatch(/work ×3/);
     expect(s.note).toMatch(/chromium\/firefox\/webkit/);
+  });
+});
+
+describe("summarizeBrowser → templateOk (unsubstituted SvelteKit tokens)", () => {
+  it("templateOk true when no route leaked a placeholder (incl. the field being absent)", () => {
+    const s = summarizeBrowser([route("https://a.com/", true, true, ["https://a.com/x"])], [], {
+      "/": 1,
+    });
+    expect(s.templateOk).toBe(true);
+    expect(s.templateProblems).toEqual([]);
+  });
+
+  it("templateOk false + names the leaked token per url when a route served an unsubstituted placeholder", () => {
+    const s = summarizeBrowser(
+      [route("https://a.com/", true, true, [], { leakedTemplateTokens: ["%sveltekit.body%"] })],
+      [{ url: "x", status: 200 }],
+      { "/": 1 },
+    );
+    expect(s.templateOk).toBe(false);
+    expect(s.templateProblems).toContain("https://a.com/: unsubstituted %sveltekit.body%");
+  });
+
+  it("surfaces the leaked token in the note", () => {
+    const s = summarizeBrowser(
+      [route("https://a.com/", true, true, [], { leakedTemplateTokens: ["%sveltekit.head%"] })],
+      [{ url: "x", status: 200 }],
+      { "/": 1 },
+    );
+    expect(s.note).toContain("%sveltekit.head%");
   });
 });
 
@@ -770,6 +804,25 @@ describe("browserAudit", () => {
     });
     expect(r.status).toBe("warn");
     expect(r.details).toMatchObject({ mobileOk: false });
+  });
+
+  it("warns on a leaked SvelteKit token even when desktop/mobile/links all pass", async () => {
+    const r = await browserAudit({
+      site,
+      now: NOW,
+      discoverDeps,
+      browserRunner: fakeRunner(
+        [
+          route("https://a.com/", true, true, ["https://a.com/x"], {
+            leakedTemplateTokens: ["%sveltekit.body%"],
+          }),
+        ],
+        [{ url: "https://a.com/x", status: 200 }],
+      ),
+    });
+    expect(r.status).toBe("warn");
+    expect(r.details).toMatchObject({ desktopOk: true, mobileOk: true, linksOk: true });
+    expect(r.details).toMatchObject({ templateOk: false });
   });
 
   // End-to-end shape of the 2026-07-16 fix: a browser-side challenge/flake is re-verified by a
