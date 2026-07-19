@@ -24,26 +24,81 @@ function cellToItem(cell: CatalogCell): Record<string, unknown> {
     ...(cell.body ? { body: richText(cell.body) } : {}),
     ...(cell.media ? { media: assetRef(cell.media.assetId) } : {}),
     ...(cell.mediaRatio ? { media_ratio: cell.mediaRatio } : {}),
+    ...(cell.embedHtml ? { embed_html: cell.embedHtml } : {}),
     ...(cell.subgrid ? { subgrid: cell.subgrid.map(cellToItem) } : {}),
   };
 }
 
-/** Map one catalog spec to its populated page-doc slice. Skeleton: BluxSection. */
-export function catalogSpecToPlanSlice(spec: CatalogSpec): PlanSlice {
-  return {
-    slice_type: "blux_section",
-    variation: "default",
-    items: [],
-    primary: {
-      ...(spec.background ? { background_image: assetRef(spec.background.assetId) } : {}),
-      ...(spec.backgroundColor ? { background_color: spec.backgroundColor } : {}),
-      ...(spec.heading ? { heading: richText(spec.heading) } : {}),
-      cells: spec.cells.map(cellToItem),
-    },
-  };
+/** `{slice_type, variation:"default", items:[], primary}` — every Plan-2 catalog
+ * slice shares this envelope; only the primary differs. */
+function sliceOf(type: string, primary: Record<string, unknown>): PlanSlice {
+  return { slice_type: type, variation: "default", items: [], primary };
 }
 
-/** Every Media a catalog spec references (background + cell media + subgrid media). */
+/** The optional section heading as a rich-text marker (container specs only). */
+function heading(spec: CatalogSpec): Record<string, unknown> {
+  return "heading" in spec && spec.heading ? { heading: richText(spec.heading) } : {};
+}
+
+/** Map one catalog spec to its populated page-doc slice (Plan-2 field names). */
+export function catalogSpecToPlanSlice(spec: CatalogSpec): PlanSlice {
+  const bg = spec.background
+    ? { background_image: assetRef(spec.background.assetId) }
+    : {};
+  const bgc = spec.backgroundColor
+    ? { background_color: spec.backgroundColor }
+    : {};
+  switch (spec.slice) {
+    case "BluxSection":
+      return sliceOf("blux_section", {
+        ...bg,
+        ...bgc,
+        ...heading(spec),
+        cells: spec.cells.map(cellToItem),
+      });
+    case "BluxGrid":
+      return sliceOf("blux_grid", {
+        ...bg,
+        ...bgc,
+        ...heading(spec),
+        ...(spec.columns ? { columns: spec.columns } : {}),
+        cells: spec.cells.map(cellToItem),
+      });
+    case "BluxGallery":
+      return sliceOf("blux_gallery", {
+        ...bg,
+        ...bgc,
+        ...heading(spec),
+        cells: spec.cells.map(cellToItem),
+      });
+    case "BluxCarousel":
+      return sliceOf("blux_carousel", {
+        ...bg,
+        ...bgc,
+        ...heading(spec),
+        ...(spec.columnsVisible ? { columns_visible: spec.columnsVisible } : {}),
+        cells: spec.cells.map(cellToItem),
+      });
+    case "BluxMedia":
+      return sliceOf("blux_media", {
+        media: assetRef(spec.media.assetId),
+        ...(spec.caption ? { caption: richText(spec.caption) } : {}),
+      });
+    case "BluxMediaText":
+      return sliceOf("blux_media_text", {
+        media: assetRef(spec.media.assetId),
+        media_side: spec.mediaSide,
+        ...(spec.layoutRatio ? { layout_ratio: spec.layoutRatio } : {}),
+        ...(spec.title ? { title: richText(spec.title) } : {}),
+        ...(spec.body ? { body: richText(spec.body) } : {}),
+      });
+    case "BluxBlock":
+      return sliceOf("blux_block", { payload: JSON.stringify(spec.payload) });
+  }
+}
+
+/** Every Media a catalog spec references (background + leaf media + cell media,
+ * recursing through subgrids). */
 function specMedia(spec: CatalogSpec): Media[] {
   const out: Media[] = [];
   if (spec.background) out.push(spec.background);
@@ -53,7 +108,23 @@ function specMedia(spec: CatalogSpec): Media[] {
       if (c.subgrid) walk(c.subgrid);
     }
   };
-  walk(spec.cells);
+  switch (spec.slice) {
+    case "BluxMedia":
+    case "BluxMediaText":
+      out.push(spec.media);
+      break;
+    case "BluxSection":
+    case "BluxGrid":
+    case "BluxGallery":
+    case "BluxCarousel":
+      walk(spec.cells);
+      break;
+    case "BluxBlock":
+      // No Media objects to collect: blockPayload already inlined each media as
+      // a pre-resolved CDN url inside `payload` (uploading those via the IR
+      // asset index is Plan 4d's fidelity concern).
+      break;
+  }
   return out;
 }
 

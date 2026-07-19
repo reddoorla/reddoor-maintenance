@@ -45,7 +45,7 @@ describe("buildCatalogPlan", () => {
     });
     expect(plan.documents).toHaveLength(1);
     expect(plan.documents[0]).toMatchObject({ type: "page", uid: "home" });
-    const slices = (plan.documents[0].data as { slices: unknown[] }).slices;
+    const slices = (plan.documents[0]!.data as { slices: unknown[] }).slices;
     expect(slices).toHaveLength(1);
     expect(plan.assets.find((a) => a.id === "u1")?.url).toBe("https://cdn/u1.jpg");
   });
