@@ -4,15 +4,15 @@ import type { Media } from "../grid/types.js";
  * marker; the parser already produces HTML for heading/body nodes. */
 export type CatalogRichText = string;
 
-/** One catalog cell — the structural unit the Plan-2 `BluxCell` renders. Only
- * the skeleton subset is modelled: text, media, and one nested subgrid level.
- * `kind` mirrors the Prismic Select ("text" | "media" | "subgrid" here). */
+/** One catalog cell — the structural unit the Plan-2 `BluxCell` renders.
+ * `kind` mirrors the Prismic Select ("text" | "media" | "embed" | "subgrid"). */
 export type CatalogCell = {
-  kind: "text" | "media" | "subgrid";
+  kind: "text" | "media" | "embed" | "subgrid";
   title?: CatalogRichText;
   body?: CatalogRichText;
   media?: Media;
   mediaRatio?: string;
+  embedHtml?: string;
   subgrid?: CatalogCell[];
 };
 
@@ -27,8 +27,68 @@ export type BluxSectionSpec = {
   cells: CatalogCell[];
 };
 
-/** The catalog classify target. One member for the skeleton; Plan 4 adds the
- * rest (Grid/Gallery/Carousel/Media/MediaText/Embed/Table/Collection + BluxBlock). */
-export type CatalogSpec = BluxSectionSpec;
+type CatalogBase = {
+  index: number;
+  background?: Media;
+  backgroundColor?: string;
+};
+
+export type BluxGridSpec = CatalogBase & {
+  slice: "BluxGrid";
+  heading?: CatalogRichText;
+  columns?: number;
+  cells: CatalogCell[];
+};
+export type BluxGallerySpec = CatalogBase & {
+  slice: "BluxGallery";
+  heading?: CatalogRichText;
+  cells: CatalogCell[]; // all kind:"media"
+};
+export type BluxCarouselSpec = CatalogBase & {
+  slice: "BluxCarousel";
+  heading?: CatalogRichText;
+  columnsVisible?: number;
+  cells: CatalogCell[];
+};
+export type BluxMediaSpec = CatalogBase & {
+  slice: "BluxMedia";
+  media: Media;
+  caption?: CatalogRichText;
+};
+export type BluxMediaTextSpec = CatalogBase & {
+  slice: "BluxMediaText";
+  mediaSide: "left" | "right";
+  layoutRatio?: number;
+  media: Media;
+  title?: CatalogRichText;
+  body?: CatalogRichText;
+};
+/** Content-preserving fallback: the serialized node tree (Prismic can't nest
+ * deeper than cell→subgrid). `payload` is a `{tag,children,html,image,style}`
+ * tree the Plan-2 BluxBlock slice renders recursively. */
+export type BluxBlockSpec = CatalogBase & {
+  slice: "BluxBlock";
+  payload: BlockNode;
+};
+
+/** The serialized-tree shape BluxBlock renders (mirror of starter
+ * src/lib/slices/BluxBlock/node.ts BluxNode). */
+export type BlockNode = {
+  tag?: string;
+  html?: string;
+  image?: { url: string; alt?: string };
+  style?: Record<string, string>;
+  children?: BlockNode[];
+};
+
+/** The catalog classify target: every breadth slice + the BluxBlock fallback. */
+export type CatalogSpec =
+  | BluxSectionSpec
+  | BluxGridSpec
+  | BluxGallerySpec
+  | BluxCarouselSpec
+  | BluxMediaSpec
+  | BluxMediaTextSpec
+  | BluxBlockSpec;
 
 export type CatalogKind = CatalogSpec["slice"];
