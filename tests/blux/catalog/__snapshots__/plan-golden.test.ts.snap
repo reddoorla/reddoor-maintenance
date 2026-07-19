@@ -1,0 +1,373 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`catalog plan — the-pointe Section band (golden) > emits a populated blux_section document from a real band 1`] = `
+{
+  "assets": [
+    {
+      "alt": "",
+      "id": "a37733d6-09cc-4c0c-be9f-e220770f2397",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/a37733d6-09cc-4c0c-be9f-e220770f2397.jpg",
+    },
+    {
+      "alt": "",
+      "id": "b035b800-7ed3-479e-bb02-54a3eccfb27a",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/b035b800-7ed3-479e-bb02-54a3eccfb27a.png",
+    },
+    {
+      "alt": "",
+      "id": "a732d1e4-59be-42ba-b87f-5acea9b3c4b9",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/a732d1e4-59be-42ba-b87f-5acea9b3c4b9.png",
+    },
+    {
+      "alt": "",
+      "id": "8fc9d04c-543a-4ca9-8cf6-18cda24eb711",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/8fc9d04c-543a-4ca9-8cf6-18cda24eb711.png",
+    },
+    {
+      "alt": "",
+      "id": "3852eddf-55e3-4f7d-b106-f58a5af214f6",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/3852eddf-55e3-4f7d-b106-f58a5af214f6.png",
+    },
+    {
+      "alt": "",
+      "id": "673cb1d4-af95-4e81-a5dd-5018d4af5e86",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/673cb1d4-af95-4e81-a5dd-5018d4af5e86.png",
+    },
+    {
+      "alt": "",
+      "id": "6dd54dfc-b4d1-4ef2-8165-a1f2421668bf",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/6dd54dfc-b4d1-4ef2-8165-a1f2421668bf.png",
+    },
+  ],
+  "customTypes": [],
+  "diagnostics": [],
+  "documents": [
+    {
+      "data": {
+        "slices": [
+          {
+            "items": [],
+            "primary": {
+              "background_image": {
+                "__asset_id": "a37733d6-09cc-4c0c-be9f-e220770f2397",
+              },
+              "cells": [
+                {
+                  "kind": "media",
+                  "media": {
+                    "__asset_id": "b035b800-7ed3-479e-bb02-54a3eccfb27a",
+                  },
+                },
+                {
+                  "body": {
+                    "__richtext_html": "<p>BURBANK</p>",
+                  },
+                  "kind": "text",
+                },
+              ],
+            },
+            "slice_type": "blux_section",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "background_image": {
+                "__asset_id": "a732d1e4-59be-42ba-b87f-5acea9b3c4b9",
+              },
+              "cells": [
+                {
+                  "body": {
+                    "__richtext_html": "Nestled among the biggest names in entertainment, The Pointe  is a modern and elegant haven for the finest tenants in Burbank.",
+                  },
+                  "kind": "text",
+                },
+                {
+                  "kind": "text",
+                },
+              ],
+            },
+            "slice_type": "blux_section",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "cells": [
+                {
+                  "body": {
+                    "__richtext_html": "<p>distinguished
+design</p>",
+                  },
+                  "kind": "text",
+                },
+              ],
+              "heading": {
+                "__richtext_html": "the space",
+              },
+            },
+            "slice_type": "blux_section",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "cells": [
+                {
+                  "kind": "text",
+                },
+                {
+                  "kind": "text",
+                },
+              ],
+            },
+            "slice_type": "blux_section",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "background_image": {
+                "__asset_id": "8fc9d04c-543a-4ca9-8cf6-18cda24eb711",
+              },
+              "cells": [
+                {
+                  "body": {
+                    "__richtext_html": "<div class="block-holder" style="position: relative; z-index: 2;"><div class="blockcontainer blocks0container valignmiddle" style="min-height: 800px; height: 1px;"><div class="block-content valignmiddleitem" style="width: 100%;"></div></div></div>",
+                  },
+                  "kind": "text",
+                },
+              ],
+            },
+            "slice_type": "blux_section",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "cells": [
+                {
+                  "kind": "text",
+                },
+              ],
+            },
+            "slice_type": "blux_section",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "cells": [
+                {
+                  "kind": "text",
+                },
+                {
+                  "kind": "text",
+                },
+                {
+                  "kind": "text",
+                },
+              ],
+            },
+            "slice_type": "blux_section",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "background_image": {
+                "__asset_id": "3852eddf-55e3-4f7d-b106-f58a5af214f6",
+              },
+              "cells": [
+                {
+                  "body": {
+                    "__richtext_html": "<p>an impeccably
+lush haven</p>",
+                  },
+                  "kind": "text",
+                },
+              ],
+              "heading": {
+                "__richtext_html": "the outdoors",
+              },
+            },
+            "slice_type": "blux_section",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "cells": [
+                {
+                  "kind": "text",
+                  "title": {
+                    "__richtext_html": "a place to sit and breathe",
+                  },
+                },
+                {
+                  "kind": "text",
+                  "title": {
+                    "__richtext_html": "a calm escape right outside your door",
+                  },
+                },
+                {
+                  "kind": "text",
+                  "title": {
+                    "__richtext_html": "a building with a view",
+                  },
+                },
+              ],
+            },
+            "slice_type": "blux_section",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "background_image": {
+                "__asset_id": "673cb1d4-af95-4e81-a5dd-5018d4af5e86",
+              },
+              "cells": [
+                {
+                  "kind": "text",
+                },
+              ],
+            },
+            "slice_type": "blux_section",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "cells": [
+                {
+                  "kind": "text",
+                },
+                {
+                  "body": {
+                    "__richtext_html": "<div id="page-block-10-item-1-item-0" class="blocks0"><div class="blockcontainer blocks0container" style="padding: 0px;"><div class="block-content"></div></div></div>",
+                  },
+                  "kind": "text",
+                },
+                {
+                  "kind": "text",
+                  "title": {
+                    "__richtext_html": "presented by",
+                  },
+                },
+              ],
+            },
+            "slice_type": "blux_section",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "background_image": {
+                "__asset_id": "6dd54dfc-b4d1-4ef2-8165-a1f2421668bf",
+              },
+              "cells": [
+                {
+                  "kind": "text",
+                },
+              ],
+            },
+            "slice_type": "blux_section",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "cells": [
+                {
+                  "kind": "text",
+                },
+                {
+                  "kind": "text",
+                },
+                {
+                  "kind": "text",
+                },
+              ],
+            },
+            "slice_type": "blux_section",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "cells": [
+                {
+                  "body": {
+                    "__richtext_html": "<p>everything
+within reach</p>",
+                  },
+                  "kind": "text",
+                },
+              ],
+              "heading": {
+                "__richtext_html": "the location",
+              },
+            },
+            "slice_type": "blux_section",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "cells": [
+                {
+                  "body": {
+                    "__richtext_html": "<div id="custom-element0" data-exec="custom_bdb7da85_5af5_4c58_8aeb_f7841279c1fe"><div id="burbank_map" style="height:600px">map loading...</div>
+<div style="margin-top:40px;font-size:0">
+    <span class="map_icon"><span class="map_icon_text">The Burbank Portfolio</span><span class="map_icon_plusm"></span></span>
+    <span class="map_icon"><span class="map_icon_text">Studio And Offices</span><span class="map_icon_plusm"></span></span>
+    <span class="map_icon"><span class="map_icon_text">Retail And Dining</span><span class="map_icon_plusm"></span></span>
+    <span class="map_icon"><span class="map_icon_text">Hotel And Services</span><span class="map_icon_plusm"></span></span>
+</div>
+
+
+    </div>",
+                  },
+                  "kind": "text",
+                },
+                {
+                  "kind": "text",
+                },
+                {
+                  "kind": "text",
+                },
+                {
+                  "kind": "text",
+                },
+                {
+                  "kind": "text",
+                },
+              ],
+            },
+            "slice_type": "blux_section",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "cells": [],
+              "heading": {
+                "__richtext_html": "Come Be A Part Of It.",
+              },
+            },
+            "slice_type": "blux_section",
+            "variation": "default",
+          },
+        ],
+        "title": {
+          "__richtext_html": "<h1>The Pointe</h1>",
+        },
+      },
+      "type": "page",
+      "uid": "home",
+    },
+  ],
+  "stylesManifest": [],
+}
+`;
