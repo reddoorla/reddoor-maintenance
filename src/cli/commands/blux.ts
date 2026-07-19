@@ -10,6 +10,8 @@ import { parseGridBands, extractMapConfig } from "../../blux/grid/index.js";
 import { feedAssetBase, extFor } from "../../blux/grid/feed-grid.js";
 import { materializeProducts, type ProductRecord } from "../../blux/products.js";
 import { convertExport, convertSite, sitePages } from "../../blux/emit/convert.js";
+import { bandToCatalogSection, buildCatalogPlan } from "../../blux/catalog/index.js";
+import type { CatalogSpec } from "../../blux/catalog/index.js";
 import { buildSiteConfig, socialHrefResolverFromHtml } from "../../blux/emit/site-config.js";
 import { validateLayout, formatLayoutReport } from "../../blux/emit/validate-layout.js";
 import { rewriteManifestUrls } from "../../blux/emit/rewrite-manifest.js";
@@ -445,8 +447,50 @@ export async function runBluxCommand(
     };
   }
 
+  if (action === "catalog") {
+    if (!dir) return { output: "blux catalog needs a Blux export directory.", code: 1 };
+    let siteJson: unknown;
+    try {
+      siteJson = JSON.parse(await readFile(join(dir, "site.json"), "utf-8"));
+    } catch (err) {
+      return { output: `could not read export in ${dir}: ${(err as Error).message}`, code: 1 };
+    }
+    // Read every site page's index.html (homepage at the export root, the rest
+    // at <path>/index.html) exactly like convert, then classify EVERY band to a
+    // Section (skeleton: breadth routing is Plan 4) and emit a plan-only,
+    // sidecar-free migration plan (full field data in the page document).
+    const pages: { uid: string; title: string; specs: CatalogSpec[] }[] = [];
+    for (const p of sitePages(siteJson)) {
+      const file = p.path ? join(dir, p.path, "index.html") : join(dir, "index.html");
+      let html: string;
+      try {
+        html = await readFile(file, "utf-8");
+      } catch {
+        continue; // missing page dir (unexported draft) — skip
+      }
+      const specs: CatalogSpec[] = parseGridBands(html).map(bandToCatalogSection);
+      pages.push({ uid: p.uid, title: p.title, specs });
+    }
+    if (!pages.length) {
+      return { output: `could not read any page html in ${dir}`, code: 1 };
+    }
+    // Skeleton: no IR asset scrape — nested {__asset_id} markers still emit; they
+    // resolve at migrate time once the asset index is wired in (Plan 4).
+    const plan = buildCatalogPlan(pages, { assets: [], diagnostics: [] });
+    const outDir = opts.out ?? join(dir, "blux-out");
+    await mkdir(outDir, { recursive: true });
+    await writeFile(join(outDir, "migration-plan.json"), JSON.stringify(plan, null, 2));
+    const totalBands = pages.reduce((n, p) => n + p.specs.length, 0);
+    return {
+      output:
+        `Cataloged ${pages.length} pages / ${totalBands} bands → ` +
+        `${join(outDir, "migration-plan.json")} (${plan.documents.length} page documents)`,
+      code: 0,
+    };
+  }
+
   return {
-    output: `unknown blux action '${action}'. Use: emit, migrate, validate, grid, convert.`,
+    output: `unknown blux action '${action}'. Use: emit, migrate, validate, grid, convert, catalog.`,
     code: 1,
   };
 }
