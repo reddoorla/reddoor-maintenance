@@ -17,6 +17,7 @@ import { validateLayout, formatLayoutReport } from "../../blux/emit/validate-lay
 import { rewriteManifestUrls } from "../../blux/emit/rewrite-manifest.js";
 import type { SitePresentation } from "../../blux/emit/presentation.js";
 import type { MigrationPlan } from "../../blux/emit/plan.js";
+import type { Diagnostic } from "../../blux/ir.js";
 
 export type BluxCommandOptions = {
   /** Output directory for emit (default: <exportDir>/blux-out). */
@@ -473,6 +474,9 @@ export async function runBluxCommand(
       ).feeds ?? {};
     const pageItemsByIndex = (siteJson as { content?: { pages?: { items?: unknown[] }[] } })
       ?.content?.pages;
+    // Classify-time diagnostics (positional-join misalignments, unknown/
+    // skipped feed sources) ride the plan alongside emit-time ones.
+    const classifyDiagnostics: Diagnostic[] = [];
     const pages: { uid: string; title: string; specs: CatalogSpec[] }[] = [];
     for (const [pageIndex, p] of sitePages(siteJson).entries()) {
       const file = p.path ? join(dir, p.path, "index.html") : join(dir, "index.html");
@@ -487,8 +491,8 @@ export async function runBluxCommand(
       // widget (config inlined at emit); pages without one classify as before.
       const mapConfig = extractMapConfig(html);
       const catalogOpts = mapConfig
-        ? { isMapMount: makeIsMapMount(mapConfig), mapConfig }
-        : {};
+        ? { isMapMount: makeIsMapMount(mapConfig), mapConfig, diagnostics: classifyDiagnostics }
+        : { diagnostics: classifyDiagnostics };
       const pageItems = pageItemsByIndex?.[pageIndex]?.items;
       const specs: CatalogSpec[] = parseGridBands(html).map((b) =>
         bandOrCollection(b, pageItems?.[b.index], feeds, catalogOpts),
@@ -501,7 +505,7 @@ export async function runBluxCommand(
     // Skeleton: no IR asset scrape — nested {__asset_id} markers still emit; they
     // resolve at migrate time once the asset index is wired in (Plan 4). Feeds
     // ride the plan: entity documents + extension custom types + record media.
-    const plan = buildCatalogPlan(pages, { assets: [], diagnostics: [] }, feeds);
+    const plan = buildCatalogPlan(pages, { assets: [], diagnostics: classifyDiagnostics }, feeds);
     const outDir = opts.out ?? join(dir, "blux-out");
     await mkdir(outDir, { recursive: true });
     await writeFile(join(outDir, "migration-plan.json"), JSON.stringify(plan, null, 2));

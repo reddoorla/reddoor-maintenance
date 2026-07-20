@@ -24,6 +24,12 @@ describe("feedEntityType (frozen spec §8 mapping)", () => {
     expect(feedEntityType("  products ")).toBe("product");
     expect(feedEntityType("Gallery Wall")).toBe("collection_item");
   });
+  it("suffix-matches prefixed Equipment Grid names (fitHealthClub ×4)", () => {
+    expect(feedEntityType("The Pointe Equipment Grid")).toBe("product");
+    expect(feedEntityType("Alamo Heights equipment grid")).toBe("product");
+    // the suffix must END the name — a mere substring does not match
+    expect(feedEntityType("Equipment Grid Extras")).toBe("collection_item");
+  });
   it("flags DO-NOT-USE feeds as skipped", () => {
     expect(isSkippedFeed("DO NOT USE THIS")).toBe(true);
     expect(isSkippedFeed("do not use — old")).toBe(true);

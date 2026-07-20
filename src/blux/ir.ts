@@ -13,7 +13,10 @@ export type Diagnostic = {
     | "empty-feed-grid"
     | "non-image-in-image-field"
     | "dropped-widget"
-    | "skipped-feed";
+    | "skipped-feed"
+    | "ambiguous-date"
+    | "uid-collision"
+    | "feed-band-misalign";
   where: string; // page uid / feed apiId / asset uuid
   message: string;
 };

@@ -1,5 +1,6 @@
 import type { Band, Media, Node } from "../grid/types.js";
 import type { MapConfig } from "../grid/extract-map.js";
+import type { Diagnostic } from "../ir.js";
 import {
   classifyBand,
   collectMedia,
@@ -13,7 +14,7 @@ import {
   cellDepthExceedsTwo,
 } from "./cells.js";
 import { cropRatioOf, isFeedBand } from "../grid/feed-grid.js";
-import { feedEntityType } from "./feeds.js";
+import { feedEntityType, isSkippedFeed } from "./feeds.js";
 import type {
   BluxBlockSpec,
   BluxCollectionSpec,
@@ -31,6 +32,9 @@ type CatalogBaseFields = { index: number; background?: Media };
 export type BandToCatalogOptions = {
   isMapMount?: (node: Node) => boolean;
   mapConfig?: MapConfig;
+  /** Classify-time diagnostics sink (positional-join misalignments, unknown/
+   * skipped feed sources). Absent → those findings go unrecorded, never throw. */
+  diagnostics?: Diagnostic[];
 };
 
 const baseOf = (band: Band): CatalogBaseFields => ({
@@ -147,17 +151,51 @@ export function bandOrCollection(
   if (!isFeedBand(item)) return bandToCatalog(band, opts);
   const feedIds = item.sources.map(String);
   if (feedIds[0] === "__media") return bandToCatalog(band, opts);
+  // Positional-join guard (mirrors convert.ts materializeFeedBands): only a
+  // band that lost its content to the feed-template drop is a real feed grid.
+  // A CONTENT-BEARING band whose positional item carries sources means the
+  // site.json join landed on the wrong band — routing it to a BluxCollection
+  // would clobber its parsed content, so it falls through to bandToCatalog.
+  if (!isEmptyish(band.root)) {
+    opts.diagnostics?.push({
+      kind: "feed-band-misalign",
+      where: String(band.index),
+      message: `band ${band.index} has parsed content but its site.json item carries feed sources — positional join misaligned, classified as content`,
+    });
+    return bandToCatalog(band, opts);
+  }
+  const feed = feeds[feedIds[0]!];
+  const feedName = String(feed?.name ?? "");
+  // A source that resolves to no feed (or a DO-NOT-USE feed the entity emit
+  // skips) still classifies as a collection, but never silently: the slice
+  // would query zero documents at render time.
+  if (!feed) {
+    opts.diagnostics?.push({
+      kind: "skipped-feed",
+      where: String(band.index),
+      message: `band ${band.index} sources unknown feed "${feedIds[0]}" — the collection will resolve no documents`,
+    });
+  } else if (isSkippedFeed(feedName)) {
+    opts.diagnostics?.push({
+      kind: "skipped-feed",
+      where: String(band.index),
+      message: `band ${band.index} sources feed "${feedName}" (marked DO NOT USE — not migrated) — the collection will resolve no documents`,
+    });
+  }
   const cfg = item.sourceConfig ?? {};
   const filterTag = (cfg["filters"] as { tag?: unknown } | undefined)?.tag;
   const sort = cfg["sort"];
-  const limit = Number(cfg["count"]);
+  // Real Blux sourceConfig carries `limit` as a STRING ('9','12','20','0');
+  // '0'/0 means unlimited (omitted below, like NaN). `count` never occurs in
+  // the fleet.
+  const limit = Number(cfg["limit"]);
   const mediaRatio = cropRatioOf(cfg["mediaRatio"] ?? cfg["ratio"]);
   const { heading } = splitHeadingAndCells(band.root);
   const spec: BluxCollectionSpec = {
     slice: "BluxCollection",
     ...baseOf(band),
     ...(heading ? { heading } : {}),
-    entityType: feedEntityType(String(feeds[feedIds[0]!]?.name ?? "")),
+    entityType: feedEntityType(feedName),
     feedIds,
     ...(typeof filterTag === "string" && filterTag ? { filterTag } : {}),
     ...(typeof sort === "string" && sort ? { sort } : {}),
@@ -171,6 +209,29 @@ export function bandOrCollection(
 }
 
 // -- helpers --
+/** Did this band lose its content to the feed-template drop? — its parsed
+ * root is empty (just heading(s)/subtitle/empty-raw, no media and no populated
+ * row). Local reimplementation of convert.ts's isEmptyish (not exported
+ * there) — keep the two in sync. */
+function isEmptyish(root: Node): boolean {
+  switch (root.kind) {
+    case "heading":
+    case "subtitle":
+      return true;
+    case "raw":
+      return root.html.trim() === "";
+    case "media":
+    case "widget":
+      return false;
+    case "row":
+      return root.cells.length === 0;
+    case "stack":
+      return root.children.every(isEmptyish);
+    default:
+      return false;
+  }
+}
+
 /** Depth-first search for the mount node's raw html in the UNREWRITTEN band
  * tree (the predicate only ever matches `raw` nodes — see makeIsMapMount). */
 function findMountHtml(

@@ -22,7 +22,14 @@ const normalize = (name: string): string =>
   name.trim().toLowerCase().replace(/\s+/g, " ");
 
 export function feedEntityType(feedName: string): string {
-  return NAME_TO_TYPE[normalize(feedName)] ?? "collection_item";
+  const name = normalize(feedName);
+  const exact = NAME_TO_TYPE[name];
+  if (exact) return exact;
+  // Real fleet feeds prefix "Equipment Grid" with the club name ("The Pointe
+  // Equipment Grid" ×4 in fitHealthClub) — suffix-match after the exact
+  // lookup misses so those still route to product.
+  if (/\bequipment grid$/.test(name)) return "product";
+  return "collection_item";
 }
 
 export function isSkippedFeed(feedName: string): boolean {
