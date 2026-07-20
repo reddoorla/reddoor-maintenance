@@ -1,6 +1,7 @@
 import type { Band, Media, Node } from "../grid/types.js";
 import {
   classifyBand,
+  collectMedia,
   type CarouselSlide,
   type SliceSpec,
 } from "../grid/index.js";
@@ -123,7 +124,14 @@ function gridOrBlock(
 }
 
 function blockSpec(root: Node, base: CatalogBaseFields): BluxBlockSpec {
-  return { slice: "BluxBlock", ...base, payload: blockPayload(root) };
+  return {
+    slice: "BluxBlock",
+    ...base,
+    payload: blockPayload(root),
+    // Surfaced so emit uploads the payload's assets; the payload's inlined
+    // urls remain CDN until the 4d migrate-time rewrite.
+    media: collectMedia(root),
+  };
 }
 
 /** The top row's column count: the grid token's cols, or the row's cell count

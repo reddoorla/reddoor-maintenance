@@ -69,6 +69,11 @@ export type BluxMediaTextSpec = CatalogBase & {
 export type BluxBlockSpec = CatalogBase & {
   slice: "BluxBlock";
   payload: BlockNode;
+  /** Every Media under the source subtree. The payload inlines them as CDN
+   * urls, but emit still needs the Media list so the assets upload (payload
+   * urls stay CDN until the 4d migrate-time rewrite — runMigration's
+   * assetUrlByCdn is the map for it). */
+  media: Media[];
 };
 
 /** The serialized-tree shape BluxBlock renders (mirror of starter

@@ -1,9 +1,9 @@
 import type { Media } from "../grid/types.js";
 import type { Diagnostic } from "../ir.js";
-// Only `mediaUrl` is reused from the grid emit; `collectPlanAssets`/`collectMedia`
-// there only understand SliceSpec shapes, so the skeleton resolves its own
-// CatalogSpec media below (see grid-plan.ts `buildGridSitePlan` for the pattern).
-import { mediaUrl } from "../emit/grid-plan.js";
+// Only `mediaUrl`/`mediaCdnUrl` are reused from the grid emit; `collectPlanAssets`/
+// `collectMedia` there only understand SliceSpec shapes, so the skeleton resolves
+// its own CatalogSpec media below (see grid-plan.ts `buildGridSitePlan` for the pattern).
+import { mediaCdnUrl, mediaUrl } from "../emit/grid-plan.js";
 import {
   type MigrationPlan,
   type PlanAsset,
@@ -14,17 +14,31 @@ import {
 } from "../emit/plan.js";
 import type { CatalogCell, CatalogSpec } from "./spec.js";
 
+/** An inline `<video>` tag for a video Media. Videos cannot ride Prismic
+ * Image fields (PrismicImage would render a broken <img>) — they play from
+ * the export's CDN url instead (self-hosted upload pends the 4d asset
+ * strategy). Url logic mirrors `mediaCdnUrl`; bare assetId as last resort. */
+function videoTag(m: Media): string {
+  return `<video controls playsinline src="${mediaCdnUrl(m) ?? m.assetId}"></video>`;
+}
+
 /** One catalog cell → its nested-group item object. Rich text and media become
  * `{__richtext_html}` / `{__asset_id}` markers (resolveDocData resolves them,
- * including at this depth). Absent fields are omitted so the item stays lean. */
+ * including at this depth). Absent fields are omitted so the item stays lean.
+ * Video media becomes `embed_html` (joined with any captured raw html), never
+ * an Image-field marker. */
 function cellToItem(cell: CatalogCell): Record<string, unknown> {
+  const video = cell.media?.kind === "video" ? videoTag(cell.media) : undefined;
+  const embeds = [video, cell.embedHtml].filter((s): s is string => Boolean(s));
   return {
     kind: cell.kind,
     ...(cell.title ? { title: richText(cell.title) } : {}),
     ...(cell.body ? { body: richText(cell.body) } : {}),
-    ...(cell.media ? { media: assetRef(cell.media.assetId) } : {}),
+    ...(cell.media && cell.media.kind !== "video"
+      ? { media: assetRef(cell.media.assetId) }
+      : {}),
     ...(cell.mediaRatio ? { media_ratio: cell.mediaRatio } : {}),
-    ...(cell.embedHtml ? { embed_html: cell.embedHtml } : {}),
+    ...(embeds.length ? { embed_html: embeds.join("\n") } : {}),
     ...(cell.subgrid ? { subgrid: cell.subgrid.map(cellToItem) } : {}),
   };
 }
@@ -81,19 +95,46 @@ export function catalogSpecToPlanSlice(spec: CatalogSpec): PlanSlice {
       });
     case "BluxMedia":
       return sliceOf("blux_media", {
-        media: assetRef(spec.media.assetId),
+        ...bg,
+        ...bgc,
+        // Video plays from its CDN url via `video_embed` — an Image-field
+        // marker would render a broken <img> in the starter (PrismicImage).
+        ...(spec.media.kind === "video"
+          ? { video_embed: videoTag(spec.media) }
+          : { media: assetRef(spec.media.assetId) }),
         ...(spec.caption ? { caption: richText(spec.caption) } : {}),
       });
     case "BluxMediaText":
       return sliceOf("blux_media_text", {
+        ...bg,
+        ...bgc,
         media: assetRef(spec.media.assetId),
         media_side: spec.mediaSide,
         ...(spec.layoutRatio ? { layout_ratio: spec.layoutRatio } : {}),
         ...(spec.title ? { title: richText(spec.title) } : {}),
         ...(spec.body ? { body: richText(spec.body) } : {}),
       });
-    case "BluxBlock":
-      return sliceOf("blux_block", { payload: JSON.stringify(spec.payload) });
+    case "BluxBlock": {
+      // Besides the primary background fields (which the starter model gains
+      // in a parallel change), wrap the payload root in a background div so
+      // the fallback renders the band background even on today's model.
+      const payload = spec.background
+        ? {
+            tag: "div",
+            style: {
+              backgroundImage: `url(${
+                mediaCdnUrl(spec.background) ?? spec.background.assetId
+              })`,
+            },
+            children: [spec.payload],
+          }
+        : spec.payload;
+      return sliceOf("blux_block", {
+        ...bg,
+        ...bgc,
+        payload: JSON.stringify(payload),
+      });
+    }
   }
 }
 
@@ -120,12 +161,16 @@ function specMedia(spec: CatalogSpec): Media[] {
       walk(spec.cells);
       break;
     case "BluxBlock":
-      // No Media objects to collect: blockPayload already inlined each media as
-      // a pre-resolved CDN url inside `payload` (uploading those via the IR
-      // asset index is Plan 4d's fidelity concern).
+      // The payload inlines each media as a CDN url; the same Media surface
+      // on `spec.media` so the assets still upload. Payload urls remain CDN
+      // until the 4d migrate-time rewrite (runMigration's assetUrlByCdn is
+      // the map for it).
+      out.push(...spec.media);
       break;
   }
-  return out;
+  // Video assets stay OUT of the image uploads — video plays from the CDN url
+  // inside the emitted <video> tag, pending the 4d asset strategy.
+  return out.filter((m) => m.kind !== "video");
 }
 
 export type CatalogAssetIndex = {

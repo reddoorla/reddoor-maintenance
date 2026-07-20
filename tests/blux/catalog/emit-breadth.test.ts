@@ -19,6 +19,12 @@ const img = (id: string): Media => ({
   base: "https://cdn/",
   ext: "jpg",
 });
+const vid = (id: string): Media => ({
+  kind: "video",
+  assetId: id,
+  base: "https://cdn/",
+  ext: "mp4",
+});
 
 describe("catalogSpecToPlanSlice — breadth", () => {
   it("BluxMediaText → blux_media_text with media/side/ratio + rich-text markers", () => {
@@ -134,6 +140,7 @@ describe("catalogSpecToPlanSlice — breadth", () => {
     const spec: BluxBlockSpec = {
       slice: "BluxBlock",
       index: 5,
+      media: [],
       payload: {
         tag: "div",
         children: [
@@ -164,6 +171,73 @@ describe("catalogSpecToPlanSlice — breadth", () => {
       kind: "embed",
       embed_html: "<iframe src='x'></iframe>",
     });
+  });
+
+  it("a video cell → embed_html <video>, never an Image-field marker (review #8)", () => {
+    const spec: BluxGridSpec = {
+      slice: "BluxGrid",
+      index: 7,
+      cells: [{ kind: "media", media: vid("v9") }],
+    };
+    const slice = catalogSpecToPlanSlice(spec);
+    const cells = slice.primary.cells as Record<string, unknown>[];
+    expect(cells[0]?.media).toBeUndefined();
+    expect(cells[0]?.embed_html).toContain("<video");
+    expect(cells[0]?.embed_html).toContain("https://cdn/v9.mp4");
+  });
+
+  it("a BluxMedia video spec → video_embed populated, no media asset marker (review #8)", () => {
+    const spec: BluxMediaSpec = { slice: "BluxMedia", index: 8, media: vid("v1") };
+    const slice = catalogSpecToPlanSlice(spec);
+    expect(slice.primary.media).toBeUndefined();
+    expect(slice.primary.video_embed).toContain("<video");
+    expect(slice.primary.video_embed).toContain("https://cdn/v1.mp4");
+  });
+
+  it("emits the band background for BluxMediaText (review #9)", () => {
+    const spec: BluxMediaTextSpec = {
+      slice: "BluxMediaText",
+      index: 9,
+      mediaSide: "left",
+      media: img("m1"),
+      background: img("bg1"),
+      backgroundColor: "#111",
+    };
+    const p = catalogSpecToPlanSlice(spec).primary;
+    expect(p.background_image).toEqual({ __asset_id: "bg1" });
+    expect(p.background_color).toBe("#111");
+  });
+
+  it("emits the band background for BluxMedia (review #9)", () => {
+    const spec: BluxMediaSpec = {
+      slice: "BluxMedia",
+      index: 10,
+      media: img("m1"),
+      background: img("bg1"),
+      backgroundColor: "#222",
+    };
+    const p = catalogSpecToPlanSlice(spec).primary;
+    expect(p.background_image).toEqual({ __asset_id: "bg1" });
+    expect(p.background_color).toBe("#222");
+  });
+
+  it("BluxBlock background → primary fields AND a payload wrapper div (review #9)", () => {
+    const spec: BluxBlockSpec = {
+      slice: "BluxBlock",
+      index: 11,
+      background: img("bg2"),
+      media: [],
+      payload: { tag: "div", html: "x" },
+    };
+    const slice = catalogSpecToPlanSlice(spec);
+    expect(slice.primary.background_image).toEqual({ __asset_id: "bg2" });
+    const payload = JSON.parse(slice.primary.payload as string) as {
+      tag: string;
+      style: Record<string, string>;
+      children: unknown[];
+    };
+    expect(payload.style.backgroundImage).toBe("url(https://cdn/bg2.jpg)");
+    expect(payload.children[0]).toEqual({ tag: "div", html: "x" });
   });
 });
 
@@ -197,5 +271,39 @@ describe("buildCatalogPlan — breadth media collection", () => {
     );
     const ids = plan.assets.map((a) => a.id);
     expect(ids).toEqual(expect.arrayContaining(["a1", "a2", "a3", "a4", "a5"]));
+  });
+
+  it("collects a BluxBlock spec's media so the payload's assets upload (review #10)", () => {
+    const specs = [
+      {
+        slice: "BluxBlock",
+        index: 0,
+        media: [img("b1"), img("b2")],
+        payload: { tag: "div", children: [] },
+      } satisfies BluxBlockSpec,
+    ];
+    const plan = buildCatalogPlan(
+      [{ uid: "home", title: "Home", specs }],
+      { assets: [], diagnostics: [] },
+    );
+    expect(plan.assets.map((a) => a.id)).toEqual(
+      expect.arrayContaining(["b1", "b2"]),
+    );
+  });
+
+  it("keeps video assets out of the image uploads (review #8)", () => {
+    const specs = [
+      { slice: "BluxMedia", index: 0, media: vid("v1") } satisfies BluxMediaSpec,
+      {
+        slice: "BluxGrid",
+        index: 1,
+        cells: [{ kind: "media", media: vid("v2") }],
+      } satisfies BluxGridSpec,
+    ];
+    const plan = buildCatalogPlan(
+      [{ uid: "home", title: "Home", specs }],
+      { assets: [], diagnostics: [] },
+    );
+    expect(plan.assets.find((a) => a.id === "v1" || a.id === "v2")).toBeUndefined();
   });
 });
