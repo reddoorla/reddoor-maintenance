@@ -13,6 +13,7 @@ import {
   richText,
 } from "../emit/plan.js";
 import { videoTag } from "./cells.js";
+import { buildEntityEmit } from "./entities.js";
 import { hasVisibleContent, sanitizeHtml } from "./sanitize.js";
 import type { BlockNode, BluxSectionSpec, CatalogCell, CatalogSpec } from "./spec.js";
 
@@ -197,10 +198,23 @@ export function catalogSpecToPlanSlice(
         ...(spec.body ? { body: richText(spec.body) } : {}),
       });
     case "BluxCollection":
-      // Placeholder: the full query-spec primary (collection_type, feed_ids,
-      // filter_tag, …) lands with the emit task; classify ships the union
-      // member first so each commit typechecks.
-      return sliceOf("blux_collection", {});
+      // Query-spec slice (spec §6 row 5): no cells — the starter fetches the
+      // mapped entity documents at load time and filters via the tagFilter
+      // DSL. scroll_load_more is a Select ("off"|"on") in the model, so a
+      // truthy flag emits the literal "on"; absent optionals are omitted.
+      return sliceOf("blux_collection", {
+        ...bg,
+        ...bgc,
+        ...heading(spec),
+        collection_type: spec.entityType,
+        feed_ids: spec.feedIds.join(","),
+        ...(spec.filterTag ? { filter_tag: spec.filterTag } : {}),
+        ...(spec.sort ? { sort: spec.sort } : {}),
+        ...(spec.limit ? { limit: spec.limit } : {}),
+        ...(spec.mediaRatio ? { media_ratio: spec.mediaRatio } : {}),
+        layout: spec.layout,
+        ...(spec.scrollLoadMore ? { scroll_load_more: "on" } : {}),
+      });
     case "BluxBlock": {
       // The starter's blux_block model has ONLY `payload` — no background
       // fields (the Migration API may reject unknown primary fields), so the
@@ -287,12 +301,19 @@ export type CatalogAssetIndex = {
 
 /** Build the migration plan for catalog-converted pages: one text+slices page
  * document each, plus the asset union (uploaded so nested `{__asset_id}` markers
- * resolve at migrate time). No custom types / sidecar in the skeleton. */
+ * resolve at migrate time). When `feeds` is passed, the entity emit rides the
+ * same plan: its documents/custom types/diagnostics merge in and its record
+ * media join the asset walk (resolved like all other media). */
 export function buildCatalogPlan(
   pages: { uid: string; title: string; specs: CatalogSpec[] }[],
   ir: CatalogAssetIndex,
+  feeds?: Record<
+    string,
+    { name?: string; items?: unknown[]; fields?: unknown } | undefined
+  >,
 ): MigrationPlan {
   const diagnostics: Diagnostic[] = [...(ir.diagnostics ?? [])];
+  const entity = feeds ? buildEntityEmit(feeds) : null;
   const documents: PlanDocument[] = pages.map((p) => ({
     type: "page",
     uid: p.uid,
@@ -301,6 +322,10 @@ export function buildCatalogPlan(
       slices: p.specs.map((s) => catalogSpecToPlanSlice(s, diagnostics)),
     },
   }));
+  if (entity) {
+    documents.push(...entity.documents);
+    diagnostics.push(...entity.diagnostics);
+  }
   const assetById = new Map(ir.assets.map((a) => [a.id, a] as const));
   const sourceUrlById = new Map(ir.assets.map((a) => [a.id, a.sourceUrl] as const));
   const resolve = (m: Media): PlanAsset | null => {
@@ -310,21 +335,30 @@ export function buildCatalogPlan(
   };
   // collectPlanAssets only understands SliceSpec shapes, so gather media here and
   // resolve directly (skeleton) — keep insertion order, dedupe by assetId.
+  // Entity record media walk the same path so their assets upload too.
   const seen = new Set<string>();
   const assets: PlanAsset[] = [];
-  for (const spec of pages.flatMap((p) => p.specs)) {
-    for (const m of specMedia(spec)) {
-      if (seen.has(m.assetId)) continue;
-      seen.add(m.assetId);
-      const a = resolve(m);
-      if (a) assets.push(a);
-      else
-        diagnostics.push({
-          kind: "unresolved-asset",
-          where: m.assetId,
-          message: `media ${m.assetId} has no CDN base nor IR source url — not uploaded`,
-        });
-    }
+  const allMedia = [
+    ...pages.flatMap((p) => p.specs).flatMap(specMedia),
+    ...(entity?.media ?? []),
+  ];
+  for (const m of allMedia) {
+    if (seen.has(m.assetId)) continue;
+    seen.add(m.assetId);
+    const a = resolve(m);
+    if (a) assets.push(a);
+    else
+      diagnostics.push({
+        kind: "unresolved-asset",
+        where: m.assetId,
+        message: `media ${m.assetId} has no CDN base nor IR source url — not uploaded`,
+      });
   }
-  return { customTypes: [], documents, assets, stylesManifest: [], diagnostics };
+  return {
+    customTypes: entity ? entity.customTypes : [],
+    documents,
+    assets,
+    stylesManifest: [],
+    diagnostics,
+  };
 }

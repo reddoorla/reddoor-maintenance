@@ -10,7 +10,7 @@ import { parseGridBands, extractMapConfig, makeIsMapMount } from "../../blux/gri
 import { feedAssetBase, extFor } from "../../blux/grid/feed-grid.js";
 import { materializeProducts, type ProductRecord } from "../../blux/products.js";
 import { convertExport, convertSite, sitePages } from "../../blux/emit/convert.js";
-import { bandToCatalog, buildCatalogPlan } from "../../blux/catalog/index.js";
+import { bandOrCollection, buildCatalogPlan } from "../../blux/catalog/index.js";
 import type { CatalogSpec } from "../../blux/catalog/index.js";
 import { buildSiteConfig, socialHrefResolverFromHtml } from "../../blux/emit/site-config.js";
 import { validateLayout, formatLayoutReport } from "../../blux/emit/validate-layout.js";
@@ -459,8 +459,22 @@ export async function runBluxCommand(
     // at <path>/index.html) exactly like convert, then route every band through
     // the breadth classifier (classifyBand → rich CatalogSpec) and emit a
     // plan-only, sidecar-free migration plan (full field data in the page doc).
+    // Feed bands intercept FIRST (spec §7 rule 1): the positional convert-path
+    // join `content.pages[p].items[band.index]` names the band's site.json
+    // item; one with `sources[]` becomes a blux_collection query-spec slice.
+    const feeds =
+      (
+        siteJson as {
+          feeds?: Record<
+            string,
+            { name?: string; items?: unknown[]; fields?: unknown } | undefined
+          >;
+        }
+      ).feeds ?? {};
+    const pageItemsByIndex = (siteJson as { content?: { pages?: { items?: unknown[] }[] } })
+      ?.content?.pages;
     const pages: { uid: string; title: string; specs: CatalogSpec[] }[] = [];
-    for (const p of sitePages(siteJson)) {
+    for (const [pageIndex, p] of sitePages(siteJson).entries()) {
       const file = p.path ? join(dir, p.path, "index.html") : join(dir, "index.html");
       let html: string;
       try {
@@ -475,8 +489,9 @@ export async function runBluxCommand(
       const catalogOpts = mapConfig
         ? { isMapMount: makeIsMapMount(mapConfig), mapConfig }
         : {};
+      const pageItems = pageItemsByIndex?.[pageIndex]?.items;
       const specs: CatalogSpec[] = parseGridBands(html).map((b) =>
-        bandToCatalog(b, catalogOpts),
+        bandOrCollection(b, pageItems?.[b.index], feeds, catalogOpts),
       );
       pages.push({ uid: p.uid, title: p.title, specs });
     }
@@ -484,8 +499,9 @@ export async function runBluxCommand(
       return { output: `could not read any page html in ${dir}`, code: 1 };
     }
     // Skeleton: no IR asset scrape — nested {__asset_id} markers still emit; they
-    // resolve at migrate time once the asset index is wired in (Plan 4).
-    const plan = buildCatalogPlan(pages, { assets: [], diagnostics: [] });
+    // resolve at migrate time once the asset index is wired in (Plan 4). Feeds
+    // ride the plan: entity documents + extension custom types + record media.
+    const plan = buildCatalogPlan(pages, { assets: [], diagnostics: [] }, feeds);
     const outDir = opts.out ?? join(dir, "blux-out");
     await mkdir(outDir, { recursive: true });
     await writeFile(join(outDir, "migration-plan.json"), JSON.stringify(plan, null, 2));

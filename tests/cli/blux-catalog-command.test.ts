@@ -6,17 +6,33 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { runBluxCommand } from "../../src/cli/commands/blux.js";
 import { minimalSite } from "../blux/fixtures/minimal-site.js";
 
-// A single heading-only band: the breadth router classifies it TitleBand →
-// BluxSection, so one band proves the plan-only (no sidecar) write path.
-const oneBandHtml =
+// Band 0 is heading-only: the breadth router classifies it TitleBand →
+// BluxSection, proving the plan-only (no sidecar) write path. Band 4 is a
+// FEED band (empty after the template drop) whose site.json item — the
+// positional join items[4] — declares `sources`, so it must emit a
+// blux_collection query-spec slice.
+const twoBandHtml =
   `<div id="page-content"><section class="blocks0" id="page-block-0">` +
-  `<div class="block-content"><h1 class="block-title text5">Hi</h1></div></section></div>`;
+  `<div class="block-content"><h1 class="block-title text5">Hi</h1></div></section>` +
+  `<section class="blocks0" id="page-block-4">` +
+  `<div class="block-content"><h2 class="block-title text5">Team</h2></div></section></div>`;
 
-/** Write a minimal Blux export dir (real-shape site.json + a one-band index.html). */
+/** Write a minimal Blux export dir: the shared minimal site plus a feed band
+ * item at index 4 sourcing the fixture's Team feed (cloned — the shared
+ * fixture stays pristine for the other suites). */
 async function makeExportDir(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "blux-catalog-"));
-  await writeFile(join(dir, "site.json"), JSON.stringify(minimalSite));
-  await writeFile(join(dir, "index.html"), oneBandHtml);
+  // Widen the fixture's literal item-shape union so the feed item can land.
+  const site = structuredClone(minimalSite) as unknown as {
+    content: { pages: { items: unknown[] }[] };
+  };
+  site.content.pages[0]!.items[4] = {
+    sources: ["feed-1"],
+    sourceConfig: { sort: "title" },
+    styles: {},
+  };
+  await writeFile(join(dir, "site.json"), JSON.stringify(site));
+  await writeFile(join(dir, "index.html"), twoBandHtml);
   return dir;
 }
 
@@ -45,6 +61,31 @@ describe("blux catalog", () => {
 
   it("writes NO blux-presentation.json sidecar (plan-only)", () => {
     expect(existsSync(join(out, "blux-presentation.json"))).toBe(false);
+  });
+
+  it("emits the feed band as a blux_collection query-spec slice", async () => {
+    const plan = JSON.parse(await readFile(join(out, "migration-plan.json"), "utf-8"));
+    const slices = plan.documents[0].data.slices as {
+      slice_type: string;
+      primary: Record<string, unknown>;
+    }[];
+    const collection = slices.find((s) => s.slice_type === "blux_collection");
+    expect(collection).toBeDefined();
+    expect(collection!.primary).toMatchObject({
+      collection_type: "person", // Team → person (frozen §8 mapping)
+      feed_ids: "feed-1",
+      sort: "title",
+      layout: "grid",
+    });
+  });
+
+  it("entity documents + extension custom types ride the plan", async () => {
+    const plan = JSON.parse(await readFile(join(out, "migration-plan.json"), "utf-8"));
+    const people = plan.documents.filter((d: { type: string }) => d.type === "person");
+    expect(people.length).toBeGreaterThanOrEqual(1);
+    expect(people.map((d: { uid: string }) => d.uid)).toContain("jane-doe");
+    const ct = plan.customTypes.find((c: { id: string }) => c.id === "person");
+    expect(ct).toBeDefined();
   });
 });
 
