@@ -12,7 +12,8 @@ export type Diagnostic = {
     | "missing-page-html"
     | "empty-feed-grid"
     | "non-image-in-image-field"
-    | "dropped-widget";
+    | "dropped-widget"
+    | "skipped-feed";
   where: string; // page uid / feed apiId / asset uuid
   message: string;
 };
