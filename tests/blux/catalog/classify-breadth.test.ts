@@ -2,9 +2,16 @@ import { describe, it, expect } from "vitest";
 import type { Band, Cell, Node, Media } from "../../../src/blux/grid/types.js";
 // Direct module import, mirroring the skeleton's classify.test.ts pattern.
 import { bandToCatalog } from "../../../src/blux/catalog/classify.js";
+import { catalogSpecToPlanSlice } from "../../../src/blux/catalog/emit.js";
 import type { CatalogCell } from "../../../src/blux/catalog/spec.js";
 
 const img = (id: string): Media => ({ kind: "image", assetId: id });
+const vid = (id: string): Media => ({
+  kind: "video",
+  assetId: id,
+  base: "https://cdn/",
+  ext: "mp4",
+});
 // Parser-faithful: `heading.html` carries NO <hN> wrapper (parse-grid emits
 // the inner html only) — the catalog layer wraps it.
 const heading = (html: string, level = 3): Node => ({ kind: "heading", level, html });
@@ -64,6 +71,76 @@ describe("bandToCatalog (breadth)", () => {
     expect(spec.slice).toBe("BluxGrid");
     if (spec.slice !== "BluxGrid") return;
     expect(cellMediaIds(spec.cells).sort()).toEqual(["m1", "m2"]);
+  });
+
+  it("keeps EVERY text-side media via a depth-0 subgrid split (gap 3a — band 1 shape)", () => {
+    // Band 1 of the-pointe: the text half holds TWO images besides its text.
+    // The refused-BluxMediaText grid path must not truncate to the first —
+    // the cell splits into a subgrid of one text item + one item per media.
+    const band: Band = {
+      index: 1,
+      root: row([
+        media(img("m1")),
+        stack([
+          heading("Villa"),
+          body("<p>desc</p>"),
+          media(img("m2")),
+          media(img("m3")),
+        ]),
+      ]),
+    };
+    const spec = bandToCatalog(band);
+    expect(spec.slice).toBe("BluxGrid");
+    if (spec.slice !== "BluxGrid") return;
+    expect(cellMediaIds(spec.cells).sort()).toEqual(["m1", "m2", "m3"]);
+    const split = spec.cells.find((c) => c.kind === "subgrid");
+    expect(JSON.stringify(split)).toContain("Villa");
+  });
+
+  it("routes a [video | text] split band away from BluxMediaText — the video rides an embed (gap 4a)", () => {
+    // A video cannot ride BluxMediaText's Image field (the {__asset_id}
+    // marker would dangle: videos are excluded from image uploads). The band
+    // must go through the grid path, where the video becomes an embed cell.
+    const band: Band = {
+      index: 13,
+      root: row([
+        media(vid("v1")),
+        stack([heading("Tour"), body("<p>watch the film</p>")]),
+      ]),
+    };
+    const spec = bandToCatalog(band);
+    expect(spec.slice).not.toBe("BluxMediaText");
+    const slice = catalogSpecToPlanSlice(spec);
+    expect(slice.slice_type).not.toBe("blux_media_text");
+    expect(JSON.stringify(slice)).toContain("<video");
+    expect(JSON.stringify(slice)).toContain("https://cdn/v1.mp4");
+  });
+
+  it("folds a later heading into the body without swallowing the following bare text (gap 1, through emit)", () => {
+    const band: Band = {
+      index: 12,
+      root: row([
+        stack([
+          heading("The Pointe", 3),
+          heading("a monument of excellence", 4),
+          body("Nestled among the hills"),
+        ]),
+      ]),
+    };
+    const slice = catalogSpecToPlanSlice(bandToCatalog(band));
+    // Dig out every rich-text marker html, wherever the routing put it.
+    const htmls: string[] = [];
+    const walk = (v: unknown): void => {
+      if (Array.isArray(v)) v.forEach(walk);
+      else if (v && typeof v === "object") {
+        const r = v as Record<string, unknown>;
+        if (typeof r.__richtext_html === "string") htmls.push(r.__richtext_html);
+        Object.values(r).forEach(walk);
+      }
+    };
+    walk(slice.primary);
+    const folded = htmls.find((h) => h.includes("</h4>"));
+    expect(folded).toContain("</h4>\n<p>Nestled among the hills</p>");
   });
 
   it("routes a pure-media row to BluxGallery with one media cell per image", () => {
@@ -192,6 +269,35 @@ describe("bandToCatalog (breadth)", () => {
     const flat = JSON.stringify(spec.payload);
     expect(flat).toContain("d1");
     expect(flat).toContain("d2");
+  });
+
+  it("routes a stack-buried nested row at subgrid depth to BluxBlock (gap 3b — band 10 shape)", () => {
+    // Band 10 of the-pointe: a subgrid ITEM is a stack[h4, row[2 media]] —
+    // the nested row hides inside a multi-child stack, so the old direct-row
+    // check missed it and one media was silently dropped while the guard
+    // said legal. The honest guard routes the content-preserving fallback.
+    const band: Band = {
+      index: 10,
+      root: row([
+        media(img("v0")),
+        row([
+          stack([
+            heading("Amenities", 4),
+            row([media(img("a1")), media(img("a2"))]),
+          ]),
+        ]),
+      ]),
+    };
+    const spec = bandToCatalog(band);
+    expect(spec.slice).toBe("BluxBlock");
+    if (spec.slice !== "BluxBlock") return;
+    const flat = JSON.stringify(spec.payload);
+    expect(flat).toContain("a1");
+    expect(flat).toContain("a2");
+    expect(flat).toContain("Amenities");
+    expect(spec.media.map((m) => m.assetId)).toEqual(
+      expect.arrayContaining(["v0", "a1", "a2"]),
+    );
   });
 
   it("routes a multi-child stack root whose child rows nest rows to BluxBlock (review #2)", () => {

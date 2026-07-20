@@ -41,12 +41,16 @@ export function sliceSpecToCatalog(spec: SliceSpec, band: Band): CatalogSpec {
       };
     case "SplitFeature": {
       const text = cellFromNode(spec.text);
-      // Promote to the thin two-field slice ONLY when the text half really is
-      // just title+body. A media/subgrid/raw-bearing text half cannot ride
-      // BluxMediaText (band 1's text half holds 2 images) — refuse the lossy
-      // promotion, mirroring classifyBand's own philosophy, and enrich the
-      // WHOLE band through the grid path so nothing is dropped.
-      if (!text.media && !text.subgrid && !text.embedHtml)
+      // Promote to the thin two-field slice ONLY when the media is an image
+      // and the text half really is just title+body. A video cannot ride the
+      // slice's Image field (the `{__asset_id}` marker would dangle — videos
+      // are excluded from image uploads — silent total loss), and a media/
+      // subgrid/raw-bearing text half cannot ride BluxMediaText (band 1's
+      // text half holds 2 images) — refuse the lossy promotion, mirroring
+      // classifyBand's own philosophy, and enrich the WHOLE band through the
+      // grid path (where a video becomes an embed_html <video> cell) so
+      // nothing is dropped.
+      if (spec.media.kind !== "video" && !text.media && !text.subgrid && !text.embedHtml)
         return {
           slice: "BluxMediaText",
           ...base,
