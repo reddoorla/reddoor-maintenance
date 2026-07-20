@@ -72,6 +72,22 @@ export type BluxMediaTextSpec = CatalogBase & {
   title?: CatalogRichText;
   body?: CatalogRichText;
 };
+/** A feed-backed band → the `blux_collection` query-spec slice (spec §6 row 5,
+ * §7 rule 1). The slice carries NO cells — the starter resolves the mapped
+ * entity documents at load time and renders them through the tagFilter DSL. */
+export type BluxCollectionSpec = CatalogBase & {
+  slice: "BluxCollection";
+  heading?: CatalogRichText;
+  entityType: string; // mapped Prismic type the renderer queries
+  feedIds: string[]; // original Blux feed ids (traceability)
+  filterTag?: string; // tagFilter DSL expression
+  sort?: string;
+  limit?: number;
+  mediaRatio?: string;
+  layout: "grid" | "carousel";
+  scrollLoadMore?: boolean;
+};
+
 /** Content-preserving fallback: the serialized node tree (Prismic can't nest
  * deeper than cell→subgrid). `payload` is a `{tag,children,html,image,style}`
  * tree the Plan-2 BluxBlock slice renders recursively. */
@@ -103,6 +119,7 @@ export type CatalogSpec =
   | BluxCarouselSpec
   | BluxMediaSpec
   | BluxMediaTextSpec
+  | BluxCollectionSpec
   | BluxBlockSpec;
 
 export type CatalogKind = CatalogSpec["slice"];

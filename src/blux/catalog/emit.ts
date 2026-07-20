@@ -196,6 +196,11 @@ export function catalogSpecToPlanSlice(
         ...(spec.title ? { title: richText(clampHeadingHtml(spec.title, 3, 4)) } : {}),
         ...(spec.body ? { body: richText(spec.body) } : {}),
       });
+    case "BluxCollection":
+      // Placeholder: the full query-spec primary (collection_type, feed_ids,
+      // filter_tag, …) lands with the emit task; classify ships the union
+      // member first so each commit typechecks.
+      return sliceOf("blux_collection", {});
     case "BluxBlock": {
       // The starter's blux_block model has ONLY `payload` — no background
       // fields (the Migration API may reject unknown primary fields), so the

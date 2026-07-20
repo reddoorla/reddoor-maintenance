@@ -12,8 +12,11 @@ import {
   blockPayload,
   cellDepthExceedsTwo,
 } from "./cells.js";
+import { cropRatioOf, isFeedBand } from "../grid/feed-grid.js";
+import { feedEntityType } from "./feeds.js";
 import type {
   BluxBlockSpec,
+  BluxCollectionSpec,
   BluxGridSpec,
   CatalogCell,
   CatalogSpec,
@@ -127,6 +130,44 @@ export function bandToCatalog(
   opts: BandToCatalogOptions = {},
 ): CatalogSpec {
   return sliceSpecToCatalog(classifyBand(band, opts), band, opts);
+}
+
+/** Feed-band interception (spec §7 rule 1): a band whose site.json item
+ * declares `sources[]` becomes a BluxCollection query spec BEFORE the grid
+ * router runs — EXCEPT `__media` (media-library galleries already materialize
+ * via the grid path) and non-feed items, which fall through to `bandToCatalog`
+ * unchanged. `item` is the positional convert-path join:
+ * `siteJson.content.pages[p].items[band.index]`. */
+export function bandOrCollection(
+  band: Band,
+  item: unknown,
+  feeds: Record<string, { name?: unknown } | undefined>,
+  opts: BandToCatalogOptions = {},
+): CatalogSpec {
+  if (!isFeedBand(item)) return bandToCatalog(band, opts);
+  const feedIds = item.sources.map(String);
+  if (feedIds[0] === "__media") return bandToCatalog(band, opts);
+  const cfg = item.sourceConfig ?? {};
+  const filterTag = (cfg["filters"] as { tag?: unknown } | undefined)?.tag;
+  const sort = cfg["sort"];
+  const limit = Number(cfg["count"]);
+  const mediaRatio = cropRatioOf(cfg["mediaRatio"] ?? cfg["ratio"]);
+  const { heading } = splitHeadingAndCells(band.root);
+  const spec: BluxCollectionSpec = {
+    slice: "BluxCollection",
+    ...baseOf(band),
+    ...(heading ? { heading } : {}),
+    entityType: feedEntityType(String(feeds[feedIds[0]!]?.name ?? "")),
+    feedIds,
+    ...(typeof filterTag === "string" && filterTag ? { filterTag } : {}),
+    ...(typeof sort === "string" && sort ? { sort } : {}),
+    ...(Number.isFinite(limit) && limit > 0 ? { limit } : {}),
+    ...(mediaRatio ? { mediaRatio } : {}),
+    layout:
+      (item as { type?: unknown }).type === "slides" ? "carousel" : "grid",
+    ...(cfg["scrollLoadMore"] === true ? { scrollLoadMore: true } : {}),
+  };
+  return spec;
 }
 
 // -- helpers --

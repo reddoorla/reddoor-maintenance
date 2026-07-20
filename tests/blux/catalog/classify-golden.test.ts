@@ -15,6 +15,8 @@ import type { CatalogCell, CatalogSpec } from "../../../src/blux/catalog/index.j
 function specMediaCount(spec: CatalogSpec): number {
   if (spec.slice === "BluxBlock") return spec.media.length;
   if (spec.slice === "BluxMedia" || spec.slice === "BluxMediaText") return 1;
+  // a collection carries no inline media — its content is query-resolved
+  if (spec.slice === "BluxCollection") return 0;
   const walk = (cs: CatalogCell[]): number =>
     cs.reduce(
       (n, c) => n + (c.media ? 1 : 0) + (c.subgrid ? walk(c.subgrid) : 0),
