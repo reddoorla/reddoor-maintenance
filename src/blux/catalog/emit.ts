@@ -13,7 +13,8 @@ import {
   richText,
 } from "../emit/plan.js";
 import { videoTag } from "./cells.js";
-import type { CatalogCell, CatalogSpec } from "./spec.js";
+import { hasVisibleContent, sanitizeHtml } from "./sanitize.js";
+import type { BlockNode, CatalogCell, CatalogSpec } from "./spec.js";
 
 /** Clamp a heading level into the `[min, max]` window a target field's model
  * allows. Classify wraps headings at their TRUE source level (section-heading
@@ -43,7 +44,9 @@ function clampHeadingHtml(html: string, min: number, max: number): string {
  * an Image-field marker. */
 function cellToItem(cell: CatalogCell): Record<string, unknown> {
   const video = cell.media?.kind === "video" ? videoTag(cell.media) : undefined;
-  const embeds = [video, cell.embedHtml].filter((s): s is string => Boolean(s));
+  // Sanitize captured raw html at the boundary — the spec keeps it pristine.
+  const embedHtml = cell.embedHtml ? sanitizeHtml(cell.embedHtml) : undefined;
+  const embeds = [video, embedHtml].filter((s): s is string => Boolean(s && s.trim()));
   return {
     kind: cell.kind,
     ...(cell.title ? { title: richText(clampHeadingHtml(cell.title, 3, 4)) } : {}),
@@ -53,8 +56,19 @@ function cellToItem(cell: CatalogCell): Record<string, unknown> {
       : {}),
     ...(cell.mediaRatio ? { media_ratio: cell.mediaRatio } : {}),
     ...(embeds.length ? { embed_html: embeds.join("\n") } : {}),
-    ...(cell.subgrid ? { subgrid: cell.subgrid.map(cellToItem) } : {}),
+    ...(cell.subgrid ? { subgrid: emitCells(cell.subgrid) } : {}),
   };
+}
+
+/** Emit a cell list, dropping EMBED cells whose html sanitizes to nothing
+ * visible (a behavior-script mount is not content — an empty shell would
+ * migrate as a blank cell). By construction (cells.ts buildCell) an "embed"
+ * cell carries ONLY embedHtml, so nothing else is lost by the drop; Task-3
+ * diagnostics record each one. */
+function emitCells(cells: CatalogCell[]): Record<string, unknown>[] {
+  return cells
+    .filter((c) => !(c.kind === "embed" && c.embedHtml && !hasVisibleContent(c.embedHtml)))
+    .map(cellToItem);
 }
 
 /** `{slice_type, variation:"default", items:[], primary}` — every Plan-2 catalog
@@ -85,7 +99,7 @@ export function catalogSpecToPlanSlice(spec: CatalogSpec): PlanSlice {
         ...bg,
         ...bgc,
         ...heading(spec),
-        cells: spec.cells.map(cellToItem),
+        cells: emitCells(spec.cells),
       });
     case "BluxGrid":
       return sliceOf("blux_grid", {
@@ -93,14 +107,14 @@ export function catalogSpecToPlanSlice(spec: CatalogSpec): PlanSlice {
         ...bgc,
         ...heading(spec),
         ...(spec.columns ? { columns: spec.columns } : {}),
-        cells: spec.cells.map(cellToItem),
+        cells: emitCells(spec.cells),
       });
     case "BluxGallery":
       return sliceOf("blux_gallery", {
         ...bg,
         ...bgc,
         ...heading(spec),
-        cells: spec.cells.map(cellToItem),
+        cells: emitCells(spec.cells),
       });
     case "BluxCarousel":
       return sliceOf("blux_carousel", {
@@ -108,7 +122,7 @@ export function catalogSpecToPlanSlice(spec: CatalogSpec): PlanSlice {
         ...bgc,
         ...heading(spec),
         ...(spec.columnsVisible ? { columns_visible: spec.columnsVisible } : {}),
-        cells: spec.cells.map(cellToItem),
+        cells: emitCells(spec.cells),
       });
     case "BluxMedia":
       return sliceOf("blux_media", {
@@ -149,12 +163,25 @@ export function catalogSpecToPlanSlice(spec: CatalogSpec): PlanSlice {
           ? { "background-color": spec.backgroundColor }
           : {}),
       };
+      // Sanitize at the boundary: the spec payload stays the pristine source
+      // tree; only the serialized copy the document ships loses its scripts.
+      const clean = sanitizePayload(spec.payload);
       const payload = Object.keys(wrapStyle).length
-        ? { tag: "div", style: wrapStyle, children: [spec.payload] }
-        : spec.payload;
+        ? { tag: "div", style: wrapStyle, children: [clean] }
+        : clean;
       return sliceOf("blux_block", { payload: JSON.stringify(payload) });
     }
   }
+}
+
+/** Deep-copy a BluxBlock payload tree with every `html` field sanitized
+ * (mirrors the embed_html/widget_html boundaries — see sanitize.ts). */
+function sanitizePayload(node: BlockNode): BlockNode {
+  return {
+    ...node,
+    ...(node.html !== undefined ? { html: sanitizeHtml(node.html) } : {}),
+    ...(node.children ? { children: node.children.map(sanitizePayload) } : {}),
+  };
 }
 
 /** Every Media a catalog spec references (background + leaf media + cell media,
