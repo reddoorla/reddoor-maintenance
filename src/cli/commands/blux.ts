@@ -7,7 +7,7 @@ import { emitThemeCss, emitRolesCss, emitButtonsCss } from "../../blux/emit/them
 import { buildReviewManifest } from "../../blux/emit/review.js";
 import { validateCoverage } from "../../blux/validate.js";
 import { parseGridBands, extractMapConfig, makeIsMapMount } from "../../blux/grid/index.js";
-import { feedAssetBase, extFor } from "../../blux/grid/feed-grid.js";
+import { feedAssetBase, extFor, isFeedBand } from "../../blux/grid/feed-grid.js";
 import { materializeProducts, type ProductRecord } from "../../blux/products.js";
 import { convertExport, convertSite, sitePages } from "../../blux/emit/convert.js";
 import { bandOrCollection, buildCatalogPlan } from "../../blux/catalog/index.js";
@@ -491,12 +491,34 @@ export async function runBluxCommand(
       // widget (config inlined at emit); pages without one classify as before.
       const mapConfig = extractMapConfig(html);
       const catalogOpts = mapConfig
-        ? { isMapMount: makeIsMapMount(mapConfig), mapConfig, diagnostics: classifyDiagnostics }
-        : { diagnostics: classifyDiagnostics };
+        ? {
+            isMapMount: makeIsMapMount(mapConfig),
+            mapConfig,
+            diagnostics: classifyDiagnostics,
+            pageUid: p.uid,
+          }
+        : { diagnostics: classifyDiagnostics, pageUid: p.uid };
       const pageItems = pageItemsByIndex?.[pageIndex]?.items;
-      const specs: CatalogSpec[] = parseGridBands(html).map((b) =>
+      const bands = parseGridBands(html);
+      const specs: CatalogSpec[] = bands.map((b) =>
         bandOrCollection(b, pageItems?.[b.index], feeds, catalogOpts),
       );
+      // The positional join runs band→item; a feed-bearing item whose index
+      // has NO band (williamsonHomes homepage: items[1] sources Projects but
+      // parseGridBands yields 0,2-8) is never consumed by the loop above —
+      // diagnose it, never silent. Diagnostic-only: with no band there is no
+      // legitimate place to emit the collection.
+      const bandIdx = new Set(bands.map((b) => b.index));
+      for (const [i, it] of (pageItems ?? []).entries()) {
+        if (!isFeedBand(it) || bandIdx.has(i)) continue;
+        const firstSource = String(it.sources[0]);
+        const feedName = String(feeds[firstSource]?.name ?? firstSource);
+        classifyDiagnostics.push({
+          kind: "feed-band-misalign",
+          where: `${p.uid}:${i}`,
+          message: `feed item at index ${i} ("${feedName}") has no matching band — collection not emitted`,
+        });
+      }
       pages.push({ uid: p.uid, title: p.title, specs });
     }
     if (!pages.length) {
