@@ -11,7 +11,8 @@ export type Diagnostic = {
     | "duplicate-page-uid"
     | "missing-page-html"
     | "empty-feed-grid"
-    | "non-image-in-image-field";
+    | "non-image-in-image-field"
+    | "dropped-widget";
   where: string; // page uid / feed apiId / asset uuid
   message: string;
 };

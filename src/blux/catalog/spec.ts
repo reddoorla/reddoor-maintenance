@@ -1,3 +1,4 @@
+import type { MapConfig } from "../grid/extract-map.js";
 import type { Media } from "../grid/types.js";
 
 /** A rich-text run kept as raw HTML — emit turns it into a `{__richtext_html}`
@@ -17,7 +18,12 @@ export type CatalogCell = {
 };
 
 /** A container band → the Plan-2 `blux_section` slice. `index` is the slice-zone
- * position (kept for parity with SliceSpec + future manifest-free ordering). */
+ * position (kept for parity with SliceSpec + future manifest-free ordering).
+ * Decision-B widget routing (plan 4b): a band whose sole content is a custom
+ * mount (the map) becomes a section carrying the ORIGINAL mount html on
+ * `widgetHtml` (pristine — sanitize is emit's concern) with `widgetKind`
+ * naming it; for maps the extracted `MapConfig` rides along so emit can inline
+ * it into the document. */
 export type BluxSectionSpec = {
   slice: "BluxSection";
   index: number;
@@ -25,6 +31,9 @@ export type BluxSectionSpec = {
   backgroundColor?: string;
   heading?: CatalogRichText;
   cells: CatalogCell[];
+  widgetKind?: string;
+  widgetHtml?: string;
+  mapConfig?: MapConfig;
 };
 
 type CatalogBase = {

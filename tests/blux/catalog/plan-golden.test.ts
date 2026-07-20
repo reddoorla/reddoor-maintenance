@@ -22,7 +22,7 @@ describe("catalog plan — the-pointe (golden)", () => {
     );
     const bands = parseGridBands(html);
     expect(bands.length).toBeGreaterThan(0);
-    const specs = bands.map(bandToCatalog);
+    const specs = bands.map((b) => bandToCatalog(b));
     const plan = buildCatalogPlan([{ uid: "home", title: "The Pointe", specs }], {
       assets: [],
       diagnostics: [],

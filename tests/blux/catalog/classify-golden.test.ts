@@ -34,7 +34,7 @@ describe("catalog breadth classify — the-pointe (golden)", () => {
       (n, b) => n + collectMedia(b.root).length,
       0,
     );
-    const specs = bands.map(bandToCatalog);
+    const specs = bands.map((b) => bandToCatalog(b));
     const captured = specs.reduce((n, s) => n + specMediaCount(s), 0);
     // Skeleton captured 7/52; breadth must capture the vast majority.
     expect(captured).toBeGreaterThanOrEqual(Math.floor(sourceMedia * 0.9));

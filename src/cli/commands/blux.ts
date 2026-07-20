@@ -6,7 +6,7 @@ import { buildMigrationPlan } from "../../blux/emit/migration-plan.js";
 import { emitThemeCss, emitRolesCss, emitButtonsCss } from "../../blux/emit/theme.js";
 import { buildReviewManifest } from "../../blux/emit/review.js";
 import { validateCoverage } from "../../blux/validate.js";
-import { parseGridBands, extractMapConfig } from "../../blux/grid/index.js";
+import { parseGridBands, extractMapConfig, makeIsMapMount } from "../../blux/grid/index.js";
 import { feedAssetBase, extFor } from "../../blux/grid/feed-grid.js";
 import { materializeProducts, type ProductRecord } from "../../blux/products.js";
 import { convertExport, convertSite, sitePages } from "../../blux/emit/convert.js";
@@ -468,7 +468,16 @@ export async function runBluxCommand(
       } catch {
         continue; // missing page dir (unexported draft) — skip
       }
-      const specs: CatalogSpec[] = parseGridBands(html).map(bandToCatalog);
+      // Decision B (plan 4b): when the page html carries the Blux map script,
+      // inject the mount predicate so the map band routes to a BluxSection
+      // widget (config inlined at emit); pages without one classify as before.
+      const mapConfig = extractMapConfig(html);
+      const catalogOpts = mapConfig
+        ? { isMapMount: makeIsMapMount(mapConfig), mapConfig }
+        : {};
+      const specs: CatalogSpec[] = parseGridBands(html).map((b) =>
+        bandToCatalog(b, catalogOpts),
+      );
       pages.push({ uid: p.uid, title: p.title, specs });
     }
     if (!pages.length) {

@@ -1,4 +1,5 @@
 import type { Band, Media, Node } from "../grid/types.js";
+import type { MapConfig } from "../grid/extract-map.js";
 import {
   classifyBand,
   collectMedia,
@@ -20,6 +21,15 @@ import type {
 
 type CatalogBaseFields = { index: number; background?: Media };
 
+/** Options threaded from the caller (the CLI catalog action extracts them per
+ * page): `isMapMount` is the classifier's mount predicate (grid
+ * `ClassifyOptions`), `mapConfig` the page's extracted map config carried onto
+ * the resulting BluxSectionSpec for emit. */
+export type BandToCatalogOptions = {
+  isMapMount?: (node: Node) => boolean;
+  mapConfig?: MapConfig;
+};
+
 const baseOf = (band: Band): CatalogBaseFields => ({
   index: band.index,
   ...(band.background ? { background: band.background } : {}),
@@ -27,7 +37,11 @@ const baseOf = (band: Band): CatalogBaseFields => ({
 
 /** Map a thin routed SliceSpec + its Band to a rich CatalogSpec. Reuses the
  * battle-tested routing; builds full cells by walking the node subtree. */
-export function sliceSpecToCatalog(spec: SliceSpec, band: Band): CatalogSpec {
+export function sliceSpecToCatalog(
+  spec: SliceSpec,
+  band: Band,
+  opts: BandToCatalogOptions = {},
+): CatalogSpec {
   const base = baseOf(band);
   switch (spec.slice) {
     case "Hero":
@@ -79,10 +93,25 @@ export function sliceSpecToCatalog(spec: SliceSpec, band: Band): CatalogSpec {
         ...(spec.columns !== undefined ? { columnsVisible: spec.columns } : {}),
         cells: spec.slides.map(slideCell),
       };
-    case "LocationMap":
-      // 4a: no isMapMount injected, so this only fires if a caller injects it;
-      // preserve content via the fallback.
-      return blockSpec(band.root, base);
+    case "LocationMap": {
+      // Decision B (4b): the map band becomes a BluxSection carrying the
+      // ORIGINAL mount raw html as a widget. classifyBand rewrote a COPY of
+      // the tree (widget nodes carry no html) — band.root still holds the raw
+      // mount node, so re-find it with the same predicate. Emit sanitizes and
+      // inlines the MapConfig; classify keeps the html pristine.
+      const mountHtml = opts.isMapMount
+        ? findMountHtml(band.root, opts.isMapMount)
+        : undefined;
+      if (!mountHtml) return blockSpec(band.root, base); // predicate-less caller: 4a fallback
+      return {
+        slice: "BluxSection",
+        ...base,
+        cells: [],
+        widgetKind: "map",
+        widgetHtml: mountHtml,
+        ...(opts.mapConfig ? { mapConfig: opts.mapConfig } : {}),
+      };
+    }
     case "Grid":
     default:
       // Rich grid when it fits the depth-2 model; else the opaque fallback.
@@ -90,12 +119,36 @@ export function sliceSpecToCatalog(spec: SliceSpec, band: Band): CatalogSpec {
   }
 }
 
-/** The band router: reuse classifyBand for routing, enrich to catalog. */
-export function bandToCatalog(band: Band): CatalogSpec {
-  return sliceSpecToCatalog(classifyBand(band), band);
+/** The band router: reuse classifyBand for routing, enrich to catalog.
+ * `opts.isMapMount` flows into the grid classifier (LocationMap promotion)
+ * AND into the LocationMap enrichment above (mount html recovery). */
+export function bandToCatalog(
+  band: Band,
+  opts: BandToCatalogOptions = {},
+): CatalogSpec {
+  return sliceSpecToCatalog(classifyBand(band, opts), band, opts);
 }
 
 // -- helpers --
+/** Depth-first search for the mount node's raw html in the UNREWRITTEN band
+ * tree (the predicate only ever matches `raw` nodes — see makeIsMapMount). */
+function findMountHtml(
+  node: Node,
+  isMount: (n: Node) => boolean,
+): string | undefined {
+  if (node.kind === "raw" && isMount(node)) return node.html;
+  const children =
+    node.kind === "row"
+      ? node.cells.map((c) => c.node)
+      : node.kind === "stack"
+        ? node.children
+        : [];
+  for (const c of children) {
+    const found = findMountHtml(c, isMount);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
 /** One carousel slide → a media cell. The caption html is wrapper-less in the
  * parser, so it is wrapped at the slide's own heading level; the subcaption
  * (the hero slide's location line) rides the cell body. */

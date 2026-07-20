@@ -14,7 +14,7 @@ import {
 } from "../emit/plan.js";
 import { videoTag } from "./cells.js";
 import { hasVisibleContent, sanitizeHtml } from "./sanitize.js";
-import type { BlockNode, CatalogCell, CatalogSpec } from "./spec.js";
+import type { BlockNode, BluxSectionSpec, CatalogCell, CatalogSpec } from "./spec.js";
 
 /** Clamp a heading level into the `[min, max]` window a target field's model
  * allows. Classify wraps headings at their TRUE source level (section-heading
@@ -37,12 +37,31 @@ function clampHeadingHtml(html: string, min: number, max: number): string {
   return `<h${level}>${m[2]}</h${level}>`;
 }
 
+/** Emit-time context: the band index (for diagnostics `where`) and the
+ * optional diagnostics sink threaded down from `buildCatalogPlan`. */
+type EmitCtx = { index: number; diagnostics?: Diagnostic[] };
+
+const MOUNT_RE = /data-exec="(custom_[a-f0-9_]+)"/;
+
+/** Record a dropped behavior-script widget — never silent. A custom mount
+ * names its widget uuid; other script-only embeds report generically. */
+function reportDrop(ctx: EmitCtx, html: string): void {
+  const uuid = MOUNT_RE.exec(html)?.[1];
+  ctx.diagnostics?.push({
+    kind: "dropped-widget",
+    where: `band ${ctx.index}`,
+    message: uuid
+      ? `custom widget ${uuid} is a behavior script (no visible content) — not migrated`
+      : "embed html has no visible content after sanitize — not migrated",
+  });
+}
+
 /** One catalog cell → its nested-group item object. Rich text and media become
  * `{__richtext_html}` / `{__asset_id}` markers (resolveDocData resolves them,
  * including at this depth). Absent fields are omitted so the item stays lean.
  * Video media becomes `embed_html` (joined with any captured raw html), never
  * an Image-field marker. */
-function cellToItem(cell: CatalogCell): Record<string, unknown> {
+function cellToItem(cell: CatalogCell, ctx: EmitCtx): Record<string, unknown> {
   const video = cell.media?.kind === "video" ? videoTag(cell.media) : undefined;
   // Sanitize captured raw html at the boundary — the spec keeps it pristine.
   const embedHtml = cell.embedHtml ? sanitizeHtml(cell.embedHtml) : undefined;
@@ -56,19 +75,25 @@ function cellToItem(cell: CatalogCell): Record<string, unknown> {
       : {}),
     ...(cell.mediaRatio ? { media_ratio: cell.mediaRatio } : {}),
     ...(embeds.length ? { embed_html: embeds.join("\n") } : {}),
-    ...(cell.subgrid ? { subgrid: emitCells(cell.subgrid) } : {}),
+    ...(cell.subgrid ? { subgrid: emitCells(cell.subgrid, ctx) } : {}),
   };
 }
 
 /** Emit a cell list, dropping EMBED cells whose html sanitizes to nothing
  * visible (a behavior-script mount is not content — an empty shell would
  * migrate as a blank cell). By construction (cells.ts buildCell) an "embed"
- * cell carries ONLY embedHtml, so nothing else is lost by the drop; Task-3
- * diagnostics record each one. */
-function emitCells(cells: CatalogCell[]): Record<string, unknown>[] {
-  return cells
-    .filter((c) => !(c.kind === "embed" && c.embedHtml && !hasVisibleContent(c.embedHtml)))
-    .map(cellToItem);
+ * cell carries ONLY embedHtml, so nothing else is lost by the drop; every
+ * drop is recorded on the diagnostics sink. */
+function emitCells(cells: CatalogCell[], ctx: EmitCtx): Record<string, unknown>[] {
+  const kept: Record<string, unknown>[] = [];
+  for (const c of cells) {
+    if (c.kind === "embed" && c.embedHtml && !hasVisibleContent(c.embedHtml)) {
+      reportDrop(ctx, c.embedHtml);
+      continue;
+    }
+    kept.push(cellToItem(c, ctx));
+  }
+  return kept;
 }
 
 /** `{slice_type, variation:"default", items:[], primary}` — every Plan-2 catalog
@@ -85,8 +110,33 @@ function heading(spec: CatalogSpec): Record<string, unknown> {
     : {};
 }
 
-/** Map one catalog spec to its populated page-doc slice (Plan-2 field names). */
-export function catalogSpecToPlanSlice(spec: CatalogSpec): PlanSlice {
+/** Decision-B widget emission (plan 4b). Contract with the starter design
+ * layer: Plan-2 BluxSection renders `widget_html` via {@html} inside a
+ * `.blux-widget` div; when a MapConfig was extracted the sanitized mount is
+ * wrapped in `.blux-map[data-map-config]` — the design layer parses that JSON
+ * and hydrates an interactive Google map on the mount, while the sanitized
+ * legend markup renders statically regardless. Config JSON escapes `'` as
+ * &#39; so the single-quoted attribute survives any styles content. */
+function widgetFields(spec: BluxSectionSpec): Record<string, unknown> {
+  if (!spec.widgetHtml) return {};
+  const clean = sanitizeHtml(spec.widgetHtml);
+  const html = spec.mapConfig
+    ? `<div class="blux-map" data-map-config='${JSON.stringify(spec.mapConfig).replace(/'/g, "&#39;")}'>${clean}</div>`
+    : clean;
+  return {
+    ...(spec.widgetKind ? { widget_kind: spec.widgetKind } : {}),
+    widget_html: html,
+  };
+}
+
+/** Map one catalog spec to its populated page-doc slice (Plan-2 field names).
+ * `diagnostics` (optional) records every content drop — dropped behavior-script
+ * widgets are reported, never silent. */
+export function catalogSpecToPlanSlice(
+  spec: CatalogSpec,
+  diagnostics?: Diagnostic[],
+): PlanSlice {
+  const ctx: EmitCtx = { index: spec.index, ...(diagnostics ? { diagnostics } : {}) };
   const bg = spec.background
     ? { background_image: assetRef(spec.background.assetId) }
     : {};
@@ -99,7 +149,8 @@ export function catalogSpecToPlanSlice(spec: CatalogSpec): PlanSlice {
         ...bg,
         ...bgc,
         ...heading(spec),
-        cells: emitCells(spec.cells),
+        ...widgetFields(spec),
+        cells: emitCells(spec.cells, ctx),
       });
     case "BluxGrid":
       return sliceOf("blux_grid", {
@@ -107,14 +158,14 @@ export function catalogSpecToPlanSlice(spec: CatalogSpec): PlanSlice {
         ...bgc,
         ...heading(spec),
         ...(spec.columns ? { columns: spec.columns } : {}),
-        cells: emitCells(spec.cells),
+        cells: emitCells(spec.cells, ctx),
       });
     case "BluxGallery":
       return sliceOf("blux_gallery", {
         ...bg,
         ...bgc,
         ...heading(spec),
-        cells: emitCells(spec.cells),
+        cells: emitCells(spec.cells, ctx),
       });
     case "BluxCarousel":
       return sliceOf("blux_carousel", {
@@ -122,7 +173,7 @@ export function catalogSpecToPlanSlice(spec: CatalogSpec): PlanSlice {
         ...bgc,
         ...heading(spec),
         ...(spec.columnsVisible ? { columns_visible: spec.columnsVisible } : {}),
-        cells: emitCells(spec.cells),
+        cells: emitCells(spec.cells, ctx),
       });
     case "BluxMedia":
       return sliceOf("blux_media", {
@@ -165,7 +216,7 @@ export function catalogSpecToPlanSlice(spec: CatalogSpec): PlanSlice {
       };
       // Sanitize at the boundary: the spec payload stays the pristine source
       // tree; only the serialized copy the document ships loses its scripts.
-      const clean = sanitizePayload(spec.payload);
+      const clean = sanitizePayload(spec.payload, ctx);
       const payload = Object.keys(wrapStyle).length
         ? { tag: "div", style: wrapStyle, children: [clean] }
         : clean;
@@ -175,12 +226,17 @@ export function catalogSpecToPlanSlice(spec: CatalogSpec): PlanSlice {
 }
 
 /** Deep-copy a BluxBlock payload tree with every `html` field sanitized
- * (mirrors the embed_html/widget_html boundaries — see sanitize.ts). */
-function sanitizePayload(node: BlockNode): BlockNode {
+ * (mirrors the embed_html/widget_html boundaries — see sanitize.ts). A leaf
+ * that is a custom mount with no visible content is a behavior script — it is
+ * kept (sanitized, harmless) but the drop of its behavior is recorded. */
+function sanitizePayload(node: BlockNode, ctx: EmitCtx): BlockNode {
+  if (node.html !== undefined && MOUNT_RE.test(node.html) && !hasVisibleContent(node.html)) {
+    reportDrop(ctx, node.html);
+  }
   return {
     ...node,
     ...(node.html !== undefined ? { html: sanitizeHtml(node.html) } : {}),
-    ...(node.children ? { children: node.children.map(sanitizePayload) } : {}),
+    ...(node.children ? { children: node.children.map((c) => sanitizePayload(c, ctx)) } : {}),
   };
 }
 
@@ -231,10 +287,14 @@ export function buildCatalogPlan(
   pages: { uid: string; title: string; specs: CatalogSpec[] }[],
   ir: CatalogAssetIndex,
 ): MigrationPlan {
+  const diagnostics: Diagnostic[] = [...(ir.diagnostics ?? [])];
   const documents: PlanDocument[] = pages.map((p) => ({
     type: "page",
     uid: p.uid,
-    data: { title: richText(`<h1>${p.title}</h1>`), slices: p.specs.map(catalogSpecToPlanSlice) },
+    data: {
+      title: richText(`<h1>${p.title}</h1>`),
+      slices: p.specs.map((s) => catalogSpecToPlanSlice(s, diagnostics)),
+    },
   }));
   const assetById = new Map(ir.assets.map((a) => [a.id, a] as const));
   const sourceUrlById = new Map(ir.assets.map((a) => [a.id, a.sourceUrl] as const));
@@ -243,7 +303,6 @@ export function buildCatalogPlan(
     const url = mediaUrl(m, sourceUrlById);
     return url ? { id: m.assetId, url, alt: asset?.alt ?? "" } : null;
   };
-  const diagnostics: Diagnostic[] = [...(ir.diagnostics ?? [])];
   // collectPlanAssets only understands SliceSpec shapes, so gather media here and
   // resolve directly (skeleton) — keep insertion order, dedupe by assetId.
   const seen = new Set<string>();
