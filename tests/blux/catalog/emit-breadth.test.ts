@@ -221,23 +221,122 @@ describe("catalogSpecToPlanSlice — breadth", () => {
     expect(p.background_color).toBe("#222");
   });
 
-  it("BluxBlock background → primary fields AND a payload wrapper div (review #9)", () => {
+  it("BluxBlock background rides ONLY the payload wrapper, in kebab-case (gap 5)", () => {
+    // The starter's blux_block model has no background fields (unknown primary
+    // fields risk Migration API rejection), and its styleString emits style
+    // keys verbatim — camelCase parses to zero CSS declarations.
     const spec: BluxBlockSpec = {
       slice: "BluxBlock",
       index: 11,
       background: img("bg2"),
+      backgroundColor: "#333",
       media: [],
       payload: { tag: "div", html: "x" },
     };
     const slice = catalogSpecToPlanSlice(spec);
-    expect(slice.primary.background_image).toEqual({ __asset_id: "bg2" });
+    expect(Object.keys(slice.primary)).toEqual(["payload"]);
+    expect(slice.primary.payload as string).toContain('"background-image"');
     const payload = JSON.parse(slice.primary.payload as string) as {
       tag: string;
       style: Record<string, string>;
       children: unknown[];
     };
-    expect(payload.style.backgroundImage).toBe("url(https://cdn/bg2.jpg)");
+    expect(payload.style["background-image"]).toBe("url(https://cdn/bg2.jpg)");
+    expect(payload.style["background-color"]).toBe("#333");
     expect(payload.children[0]).toEqual({ tag: "div", html: "x" });
+  });
+
+  it("a background-less BluxBlock emits the payload unwrapped, primary payload-only (gap 5)", () => {
+    const spec: BluxBlockSpec = {
+      slice: "BluxBlock",
+      index: 12,
+      media: [],
+      payload: { tag: "div", html: "y" },
+    };
+    const slice = catalogSpecToPlanSlice(spec);
+    expect(Object.keys(slice.primary)).toEqual(["payload"]);
+    expect(JSON.parse(slice.primary.payload as string)).toEqual({
+      tag: "div",
+      html: "y",
+    });
+  });
+});
+
+describe("catalogSpecToPlanSlice — heading levels clamp to the target field's model (gap 2)", () => {
+  it("clamps a cell title to h3–h4: an h1 emits <h3>", () => {
+    const spec: BluxGridSpec = {
+      slice: "BluxGrid",
+      index: 0,
+      cells: [{ kind: "text", title: "<h1>Big</h1>", body: "<p>x</p>" }],
+    };
+    const cells = catalogSpecToPlanSlice(spec).primary.cells as Record<
+      string,
+      unknown
+    >[];
+    expect(cells[0]?.title).toEqual({ __richtext_html: "<h3>Big</h3>" });
+  });
+  it("clamps a carousel caption to h3–h4: an h5 emits <h4>", () => {
+    const spec: BluxCarouselSpec = {
+      slice: "BluxCarousel",
+      index: 1,
+      cells: [{ kind: "media", media: img("c1"), title: "<h5>Tower</h5>" }],
+    };
+    const cells = catalogSpecToPlanSlice(spec).primary.cells as Record<
+      string,
+      unknown
+    >[];
+    expect(cells[0]?.title).toEqual({ __richtext_html: "<h4>Tower</h4>" });
+  });
+  it("clamps a section/grid heading to h2–h3", () => {
+    const h1: BluxGridSpec = { slice: "BluxGrid", index: 2, heading: "<h1>Top</h1>", cells: [] };
+    const h4: BluxGridSpec = { slice: "BluxGrid", index: 3, heading: "<h4>Low</h4>", cells: [] };
+    expect(catalogSpecToPlanSlice(h1).primary.heading).toEqual({
+      __richtext_html: "<h2>Top</h2>",
+    });
+    expect(catalogSpecToPlanSlice(h4).primary.heading).toEqual({
+      __richtext_html: "<h3>Low</h3>",
+    });
+  });
+  it("keeps in-window levels and non-heading titles untouched", () => {
+    const spec: BluxGridSpec = {
+      slice: "BluxGrid",
+      index: 4,
+      heading: "<h2>Fine</h2>",
+      cells: [{ kind: "media", media: img("p1"), title: "<p>plain caption</p>" }],
+    };
+    const slice = catalogSpecToPlanSlice(spec);
+    expect(slice.primary.heading).toEqual({ __richtext_html: "<h2>Fine</h2>" });
+    const cells = slice.primary.cells as Record<string, unknown>[];
+    expect(cells[0]?.title).toEqual({ __richtext_html: "<p>plain caption</p>" });
+  });
+});
+
+describe("videoTag honors Media.playback (gap 6)", () => {
+  it("emits autoplay/loop as muted playsinline (browser autoplay policy), no controls", () => {
+    const spec: BluxMediaSpec = {
+      slice: "BluxMedia",
+      index: 0,
+      media: { ...vid("v1"), playback: { autoplay: true, loop: true } },
+    };
+    const embed = catalogSpecToPlanSlice(spec).primary.video_embed as string;
+    expect(embed).toContain("<video autoplay loop muted playsinline");
+    expect(embed).not.toContain("controls");
+  });
+  it("defaults to a user-initiated inline video when playback is absent", () => {
+    const spec: BluxMediaSpec = { slice: "BluxMedia", index: 1, media: vid("v2") };
+    const embed = catalogSpecToPlanSlice(spec).primary.video_embed as string;
+    expect(embed).toContain("<video controls playsinline");
+    expect(embed).not.toContain("autoplay");
+  });
+  it("mirrors explicit controls/playsinline attributes as-is", () => {
+    const spec: BluxMediaSpec = {
+      slice: "BluxMedia",
+      index: 2,
+      media: { ...vid("v3"), playback: { controls: true, playsinline: true } },
+    };
+    const embed = catalogSpecToPlanSlice(spec).primary.video_embed as string;
+    expect(embed).toContain("<video controls playsinline");
+    expect(embed).not.toContain("muted");
   });
 });
 

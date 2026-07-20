@@ -12,14 +12,28 @@ import {
   assetRef,
   richText,
 } from "../emit/plan.js";
+import { videoTag } from "./cells.js";
 import type { CatalogCell, CatalogSpec } from "./spec.js";
 
-/** An inline `<video>` tag for a video Media. Videos cannot ride Prismic
- * Image fields (PrismicImage would render a broken <img>) — they play from
- * the export's CDN url instead (self-hosted upload pends the 4d asset
- * strategy). Url logic mirrors `mediaCdnUrl`; bare assetId as last resort. */
-function videoTag(m: Media): string {
-  return `<video controls playsinline src="${mediaCdnUrl(m) ?? m.assetId}"></video>`;
+/** Clamp a heading level into the `[min, max]` window a target field's model
+ * allows. Classify wraps headings at their TRUE source level (section-heading
+ * promotion and BluxBlock fidelity need it) — the emit boundary is where the
+ * destination field is known, so clamping lives here. */
+function clampHeading(level: number, min: number, max: number): number {
+  return Math.min(Math.max(level, min), max);
+}
+
+/** Re-tag a wrapped `<hN>…</hN>` rich-text string into the destination
+ * field's heading window: cell titles + carousel captions model heading3/
+ * heading4 (h3–h4); section/grid heading fields model heading2/heading3
+ * (h2–h3). Body fields are NEVER clamped — folded headings keep their true
+ * level (bodies are paragraph-modeled; see cells.ts textOf). Non-heading
+ * html (e.g. a `<p>` caption) passes through untouched. */
+function clampHeadingHtml(html: string, min: number, max: number): string {
+  const m = /^<h([1-6])>([\s\S]*)<\/h\1>$/.exec(html.trim());
+  if (!m) return html;
+  const level = clampHeading(Number(m[1]), min, max);
+  return `<h${level}>${m[2]}</h${level}>`;
 }
 
 /** One catalog cell → its nested-group item object. Rich text and media become
@@ -32,7 +46,7 @@ function cellToItem(cell: CatalogCell): Record<string, unknown> {
   const embeds = [video, cell.embedHtml].filter((s): s is string => Boolean(s));
   return {
     kind: cell.kind,
-    ...(cell.title ? { title: richText(cell.title) } : {}),
+    ...(cell.title ? { title: richText(clampHeadingHtml(cell.title, 3, 4)) } : {}),
     ...(cell.body ? { body: richText(cell.body) } : {}),
     ...(cell.media && cell.media.kind !== "video"
       ? { media: assetRef(cell.media.assetId) }
@@ -49,9 +63,12 @@ function sliceOf(type: string, primary: Record<string, unknown>): PlanSlice {
   return { slice_type: type, variation: "default", items: [], primary };
 }
 
-/** The optional section heading as a rich-text marker (container specs only). */
+/** The optional section heading as a rich-text marker (container specs only),
+ * clamped to the heading field's h2–h3 model window. */
 function heading(spec: CatalogSpec): Record<string, unknown> {
-  return "heading" in spec && spec.heading ? { heading: richText(spec.heading) } : {};
+  return "heading" in spec && spec.heading
+    ? { heading: richText(clampHeadingHtml(spec.heading, 2, 3)) }
+    : {};
 }
 
 /** Map one catalog spec to its populated page-doc slice (Plan-2 field names). */
@@ -111,29 +128,31 @@ export function catalogSpecToPlanSlice(spec: CatalogSpec): PlanSlice {
         media: assetRef(spec.media.assetId),
         media_side: spec.mediaSide,
         ...(spec.layoutRatio ? { layout_ratio: spec.layoutRatio } : {}),
-        ...(spec.title ? { title: richText(spec.title) } : {}),
+        ...(spec.title ? { title: richText(clampHeadingHtml(spec.title, 3, 4)) } : {}),
         ...(spec.body ? { body: richText(spec.body) } : {}),
       });
     case "BluxBlock": {
-      // Besides the primary background fields (which the starter model gains
-      // in a parallel change), wrap the payload root in a background div so
-      // the fallback renders the band background even on today's model.
-      const payload = spec.background
-        ? {
-            tag: "div",
-            style: {
-              backgroundImage: `url(${
+      // The starter's blux_block model has ONLY `payload` — no background
+      // fields (the Migration API may reject unknown primary fields), so the
+      // band background rides a payload wrapper div instead. Style keys are
+      // kebab-case: the starter's styleString emits keys VERBATIM into the
+      // style attribute, so camelCase would parse to zero CSS declarations.
+      const wrapStyle: Record<string, string> = {
+        ...(spec.background
+          ? {
+              "background-image": `url(${
                 mediaCdnUrl(spec.background) ?? spec.background.assetId
               })`,
-            },
-            children: [spec.payload],
-          }
+            }
+          : {}),
+        ...(spec.backgroundColor
+          ? { "background-color": spec.backgroundColor }
+          : {}),
+      };
+      const payload = Object.keys(wrapStyle).length
+        ? { tag: "div", style: wrapStyle, children: [spec.payload] }
         : spec.payload;
-      return sliceOf("blux_block", {
-        ...bg,
-        ...bgc,
-        payload: JSON.stringify(payload),
-      });
+      return sliceOf("blux_block", { payload: JSON.stringify(payload) });
     }
   }
 }
