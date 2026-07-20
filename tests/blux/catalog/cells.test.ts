@@ -9,6 +9,12 @@ import {
 } from "../../../src/blux/catalog/cells.js";
 
 const img = (id: string): Media => ({ kind: "image", assetId: id });
+const vid = (id: string): Media => ({
+  kind: "video",
+  assetId: id,
+  base: "https://cdn/",
+  ext: "mp4",
+});
 // Parser-faithful: `heading.html` carries NO <hN> wrapper (parse-grid emits the
 // inner html only) — the catalog layer is responsible for wrapping.
 const heading = (html: string, level = 3): Node => ({ kind: "heading", level, html });
@@ -86,6 +92,52 @@ describe("cellFromNode — raw html capture (review #4)", () => {
   });
 });
 
+describe("cellFromNode — bare body parts are <p>-wrapped (gap 1)", () => {
+  it("wraps untagged body html in <p> so a folded heading cannot swallow it", () => {
+    const c = cellFromNode(
+      stack([
+        heading("The Pointe"),
+        heading("a monument of excellence", 4),
+        body("Nestled among the hills"),
+      ]),
+    );
+    expect(c.title).toBe("<h3>The Pointe</h3>");
+    expect(c.body).toBe(
+      "<h4>a monument of excellence</h4>\n<p>Nestled among the hills</p>",
+    );
+  });
+  it("leaves already-tagged body html untouched", () => {
+    const c = cellFromNode(stack([heading("T"), body("<p>tagged</p>")]));
+    expect(c.body).toBe("<p>tagged</p>");
+  });
+});
+
+describe("cellFromNode — depth-0 multi-media subtrees split into a subgrid (gap 3a)", () => {
+  it("emits one text item + one media item per media in document order", () => {
+    const c = cellFromNode(
+      stack([
+        heading("Villa"),
+        body("<p>desc</p>"),
+        media(img("x1")),
+        media(img("x2")),
+      ]),
+    );
+    expect(c.kind).toBe("subgrid");
+    const sub = c.subgrid ?? [];
+    expect(sub).toHaveLength(3);
+    expect(sub[0]?.kind).toBe("text");
+    expect(sub[0]?.title).toContain("Villa");
+    expect(sub[0]?.body).toContain("desc");
+    expect(sub[1]).toMatchObject({ kind: "media", media: { assetId: "x1" } });
+    expect(sub[2]).toMatchObject({ kind: "media", media: { assetId: "x2" } });
+  });
+  it("omits the text item when the subtree carries no text or raw html", () => {
+    const c = cellFromNode(stack([media(img("y1")), media(img("y2"))]));
+    expect(c.kind).toBe("subgrid");
+    expect(c.subgrid?.map((s) => s.media?.assetId)).toEqual(["y1", "y2"]);
+  });
+});
+
 describe("nodeToCells", () => {
   it("expands a row into one cell per grid cell, losing no media", () => {
     const cells = nodeToCells(
@@ -106,6 +158,29 @@ describe("cellDepthExceedsTwo", () => {
   });
   it("allows cell→subgrid (depth 2)", () => {
     expect(cellDepthExceedsTwo(row([row([media(img("a"))])]))).toBe(false);
+  });
+  it("flags a subgrid item whose subtree nests a row inside a stack (gap 3b — band 10 shape)", () => {
+    // The row is NOT directly the unboxed item node — it hides inside a
+    // multi-child stack. The old guard only looked at the item node itself.
+    expect(
+      cellDepthExceedsTwo(
+        row([
+          row([
+            stack([
+              heading("Amenities", 4),
+              row([media(img("a1")), media(img("a2"))]),
+            ]),
+          ]),
+        ]),
+      ),
+    ).toBe(true);
+  });
+  it("flags a subgrid item whose subtree carries more than one media (gap 3b)", () => {
+    expect(
+      cellDepthExceedsTwo(
+        row([row([stack([media(img("a")), media(img("b"))])])]),
+      ),
+    ).toBe(true);
   });
 });
 
@@ -139,5 +214,11 @@ describe("blockPayload", () => {
     const flat = JSON.stringify(p);
     expect(flat).toContain("u9");
     expect(flat).toContain("H");
+  });
+  it("renders a video media as an inline <video>, never an image url (gap 4b)", () => {
+    const p = blockPayload(media(vid("v1")));
+    expect(p.html).toContain("<video");
+    expect(p.html).toContain("https://cdn/v1.mp4");
+    expect(p.image).toBeUndefined();
   });
 });
