@@ -1,15 +1,33 @@
 import { describe, it, expect } from "vitest";
-import type { Band, Node, Media } from "../../../src/blux/grid/types.js";
+import type { Band, Cell, Node, Media } from "../../../src/blux/grid/types.js";
 // Direct module import, mirroring the skeleton's classify.test.ts pattern.
 import { bandToCatalog } from "../../../src/blux/catalog/classify.js";
+import type { CatalogCell } from "../../../src/blux/catalog/spec.js";
 
 const img = (id: string): Media => ({ kind: "image", assetId: id });
-const heading = (html: string): Node => ({ kind: "heading", level: 3, html });
+// Parser-faithful: `heading.html` carries NO <hN> wrapper (parse-grid emits
+// the inner html only) — the catalog layer wraps it.
+const heading = (html: string, level = 3): Node => ({ kind: "heading", level, html });
 const body = (html: string): Node => ({ kind: "body", html });
 const media = (m: Media): Node => ({ kind: "media", media: m });
-const cell = (node: Node) => ({ token: { cols: 1, raw: "grid-1" }, node });
-const row = (nodes: Node[]): Node => ({ kind: "row", cells: nodes.map(cell) });
+const cell = (node: Node, cols: number | "any" = 1): Cell => ({
+  token: { cols, raw: typeof cols === "number" ? `grid-${cols}` : "grid" },
+  node,
+});
+const row = (nodes: Node[]): Node => ({ kind: "row", cells: nodes.map((n) => cell(n)) });
 const stack = (children: Node[]): Node => ({ kind: "stack", children });
+
+const cellMediaIds = (cells: CatalogCell[]): string[] => {
+  const ids: string[] = [];
+  const walk = (cs: CatalogCell[]): void => {
+    for (const c of cs) {
+      if (c.media) ids.push(c.media.assetId);
+      if (c.subgrid) walk(c.subgrid);
+    }
+  };
+  walk(cells);
+  return ids;
+};
 
 describe("bandToCatalog (breadth)", () => {
   it("routes a 2-cell media+text row to BluxMediaText carrying media + title + body", () => {
@@ -17,7 +35,7 @@ describe("bandToCatalog (breadth)", () => {
       index: 1,
       root: row([
         media(img("m1")),
-        stack([heading("<h3>Villa</h3>"), body("<p>desc</p>")]),
+        stack([heading("Villa"), body("<p>desc</p>")]),
       ]),
     };
     const spec = bandToCatalog(band);
@@ -25,9 +43,27 @@ describe("bandToCatalog (breadth)", () => {
     if (spec.slice !== "BluxMediaText") return;
     expect(spec.media.assetId).toBe("m1");
     expect(spec.mediaSide).toBe("left");
-    expect(spec.title).toContain("Villa");
+    expect(spec.title).toBe("<h3>Villa</h3>");
     expect(spec.body).toContain("desc");
     expect(spec.index).toBe(1);
+  });
+
+  it("refuses BluxMediaText when the text half carries media of its own (review #5)", () => {
+    // Band 1 of the-pointe: the text half is a stack that ALSO holds images.
+    // The thin BluxMediaText spec can't carry them — the whole band must go
+    // through the grid path so nothing is lost.
+    const band: Band = {
+      index: 1,
+      root: row([
+        media(img("m1")),
+        stack([heading("Villa"), body("<p>desc</p>"), media(img("m2"))]),
+      ]),
+    };
+    const spec = bandToCatalog(band);
+    expect(spec.slice).not.toBe("BluxMediaText");
+    expect(spec.slice).toBe("BluxGrid");
+    if (spec.slice !== "BluxGrid") return;
+    expect(cellMediaIds(spec.cells).sort()).toEqual(["m1", "m2"]);
   });
 
   it("routes a pure-media row to BluxGallery with one media cell per image", () => {
@@ -52,11 +88,11 @@ describe("bandToCatalog (breadth)", () => {
   });
 
   it("routes a heading-only band to BluxSection without duplicating the heading as a cell", () => {
-    const band: Band = { index: 4, root: heading("<h2>About Us</h2>") };
+    const band: Band = { index: 4, root: heading("About Us", 2) };
     const spec = bandToCatalog(band);
     expect(spec.slice).toBe("BluxSection");
     if (spec.slice !== "BluxSection") return;
-    expect(spec.heading).toContain("About Us");
+    expect(spec.heading).toBe("<h2>About Us</h2>");
     expect(spec.cells).toHaveLength(0);
   });
 
@@ -64,10 +100,10 @@ describe("bandToCatalog (breadth)", () => {
     const band: Band = {
       index: 6,
       root: stack([
-        heading("<h2>Features</h2>"),
+        heading("Features", 2),
         row([
-          stack([heading("<h4>a</h4>"), body("<p>x</p>")]),
-          stack([heading("<h4>b</h4>"), body("<p>y</p>")]),
+          stack([heading("a", 4), body("<p>x</p>")]),
+          stack([heading("b", 4), body("<p>y</p>")]),
           media(img("f1")),
         ]),
       ]),
@@ -78,6 +114,68 @@ describe("bandToCatalog (breadth)", () => {
     expect(spec.heading).toContain("Features");
     expect(spec.cells.length).toBeGreaterThan(0);
     expect(JSON.stringify(spec.cells)).toContain("f1");
+  });
+
+  it("populates BluxGrid.columns from the top row's grid token (review #7)", () => {
+    const band: Band = {
+      index: 6,
+      root: {
+        kind: "row",
+        cells: [
+          cell(stack([heading("a", 4), body("<p>x</p>")]), 3),
+          cell(stack([heading("b", 4), body("<p>y</p>")]), 3),
+          cell(media(img("f1")), 3),
+        ],
+      },
+    };
+    const spec = bandToCatalog(band);
+    expect(spec.slice).toBe("BluxGrid");
+    if (spec.slice !== "BluxGrid") return;
+    expect(spec.columns).toBe(3);
+  });
+
+  it("falls back to the cell count for columns when the token cols is \"any\"", () => {
+    const band: Band = {
+      index: 6,
+      root: {
+        kind: "row",
+        cells: [
+          cell(stack([heading("a", 4), body("<p>x</p>")]), "any"),
+          cell(stack([heading("b", 4), body("<p>y</p>")]), "any"),
+        ],
+      },
+    };
+    const spec = bandToCatalog(band);
+    expect(spec.slice).toBe("BluxGrid");
+    if (spec.slice !== "BluxGrid") return;
+    expect(spec.columns).toBe(2);
+  });
+
+  it("carries a carousel slide's caption AND subcaption (review #6)", () => {
+    const slide = (id: string, title?: string, sub?: string): Node =>
+      stack([
+        media(img(id)),
+        ...(title ? [heading(title, 5)] : []),
+        ...(sub ? [body(sub)] : []),
+      ]);
+    const band: Band = {
+      index: 9,
+      root: {
+        kind: "row",
+        slider: { columns: 1 },
+        cells: [
+          cell(slide("s1", "Tower", "<p>Los Angeles</p>")),
+          cell(slide("s2", "Pointe")),
+        ],
+      },
+    };
+    const spec = bandToCatalog(band);
+    expect(spec.slice).toBe("BluxCarousel");
+    if (spec.slice !== "BluxCarousel") return;
+    expect(spec.cells[0]?.title).toBe("<h5>Tower</h5>");
+    expect(spec.cells[0]?.body).toContain("Los Angeles");
+    expect(spec.cells[1]?.title).toBe("<h5>Pointe</h5>");
+    expect(spec.cells[1]?.body).toBeUndefined();
   });
 
   it("routes a band nesting rows past cell→subgrid depth to BluxBlock, preserving buried media", () => {
@@ -94,5 +192,26 @@ describe("bandToCatalog (breadth)", () => {
     const flat = JSON.stringify(spec.payload);
     expect(flat).toContain("d1");
     expect(flat).toContain("d2");
+  });
+
+  it("routes a multi-child stack root whose child rows nest rows to BluxBlock (review #2)", () => {
+    // nodeToCells maps the stack's children straight to cells, so a child row
+    // is already a subgrid — a row nested in ITS cells cannot be stored. The
+    // guard must agree with the emission and route the fallback.
+    const band: Band = {
+      index: 7,
+      root: stack([
+        heading("Deep", 2),
+        row([row([media(img("n1")), media(img("n2"))]), body("<p>x</p>")]),
+        body("<p>tail</p>"),
+      ]),
+    };
+    const spec = bandToCatalog(band);
+    expect(spec.slice).toBe("BluxBlock");
+    if (spec.slice !== "BluxBlock") return;
+    const flat = JSON.stringify(spec.payload);
+    expect(flat).toContain("n1");
+    expect(flat).toContain("n2");
+    expect(flat).toContain("tail");
   });
 });
