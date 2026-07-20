@@ -2,7 +2,9 @@ import { describe, it, expect, vi } from "vitest";
 import {
   summarizeBrowser,
   browserAudit,
+  canonicalizeBaseUrl,
   defaultDiscoverDeps,
+  defaultVerifyDeps,
   reverifyRoutes,
   reverifyLinks,
   excuseChallengedEngineChecks,
@@ -959,6 +961,157 @@ describe("defaultDiscoverDeps fetchText (bounded fetch)", () => {
       expect(out).toBeNull();
       // The fetch was bounded — an AbortSignal (from AbortSignal.timeout) was supplied.
       expect(stub.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("canonicalizeBaseUrl", () => {
+  const pageOk: PageFetch = { status: 200, title: "T", metaDescription: "D" };
+  const withRedirect = (status: number | null, location: string | null): VerifyDeps => ({
+    fetchPage: async () => pageOk,
+    fetchRedirect: async () => ({ status, location }),
+  });
+
+  it("is a no-op when the deps carry no fetchRedirect (older fakes)", async () => {
+    const verify: VerifyDeps = { fetchPage: async () => pageOk };
+    expect(await canonicalizeBaseUrl("https://a.com/", verify)).toEqual({ url: "https://a.com/" });
+  });
+
+  it("follows a 301 to the same-site www host ONCE (the Vineyard apex→www class)", async () => {
+    const out = await canonicalizeBaseUrl(
+      "https://a.com/",
+      withRedirect(301, "https://www.a.com/"),
+    );
+    expect(out).toEqual({ url: "https://www.a.com/", redirectedFrom: "https://a.com/" });
+  });
+
+  it("follows 302/307/308 same-site redirects too", async () => {
+    for (const status of [302, 307, 308]) {
+      const out = await canonicalizeBaseUrl(
+        "https://a.com/",
+        withRedirect(status, "https://www.a.com/"),
+      );
+      expect(out.url).toBe("https://www.a.com/");
+    }
+  });
+
+  it("resolves a relative Location against the configured base", async () => {
+    const out = await canonicalizeBaseUrl("https://a.com/old", withRedirect(301, "/"));
+    expect(out).toEqual({ url: "https://a.com/", redirectedFrom: "https://a.com/old" });
+  });
+
+  it("stays on the configured URL for a 200 (no redirect)", async () => {
+    expect(await canonicalizeBaseUrl("https://a.com/", withRedirect(200, null))).toEqual({
+      url: "https://a.com/",
+    });
+  });
+
+  it("surfaces but does NOT follow an off-site redirect (no green verdicts for a squatter)", async () => {
+    const out = await canonicalizeBaseUrl(
+      "https://a.com/",
+      withRedirect(301, "https://parked.example/"),
+    );
+    expect(out).toEqual({ url: "https://a.com/", offsiteLocation: "https://parked.example/" });
+  });
+
+  it("treats apex↔www both directions as same-site", async () => {
+    const out = await canonicalizeBaseUrl(
+      "https://www.a.com/",
+      withRedirect(301, "https://a.com/"),
+    );
+    expect(out).toEqual({ url: "https://a.com/", redirectedFrom: "https://www.a.com/" });
+  });
+
+  it("fail-open: network error (null status), redirect without Location, non-http target, and an unparseable base all stand unchanged", async () => {
+    expect((await canonicalizeBaseUrl("https://a.com/", withRedirect(null, null))).url).toBe(
+      "https://a.com/",
+    );
+    expect((await canonicalizeBaseUrl("https://a.com/", withRedirect(301, null))).url).toBe(
+      "https://a.com/",
+    );
+    expect(
+      (await canonicalizeBaseUrl("https://a.com/", withRedirect(301, "mailto:x@a.com"))).url,
+    ).toBe("https://a.com/");
+    expect((await canonicalizeBaseUrl("not a url", withRedirect(301, "https://a.com/"))).url).toBe(
+      "not a url",
+    );
+  });
+
+  // End-to-end: the audit discovers routes on the CANONICAL host and surfaces the hop in
+  // note + details, so an apex-configured site is probed without per-route redirect hops.
+  it("browserAudit probes the canonical host when the base 301s to www", async () => {
+    const fetched: string[] = [];
+    const discoverDeps: DiscoverDeps = {
+      fetchText: async (url) => {
+        fetched.push(url);
+        return url === "https://www.a.com/sitemap.xml"
+          ? `<urlset><url><loc>https://www.a.com/</loc></url></urlset>`
+          : null;
+      },
+    };
+    const verifyDeps: VerifyDeps = {
+      fetchPage: async () => pageOk,
+      fetchRedirect: async () => ({ status: 301, location: "https://www.a.com/" }),
+    };
+    const r = await browserAudit({
+      site: { path: "/tmp/a", name: "a", deployedUrl: "https://a.com/" },
+      now: NOW,
+      discoverDeps,
+      verifyDeps,
+      browserRunner: {
+        probe: async () => [route("https://www.a.com/", true, true, ["https://www.a.com/x"])],
+        checkLinks: async () => [{ url: "https://www.a.com/x", status: 200 }],
+      },
+    });
+    expect(fetched[0]).toBe("https://www.a.com/sitemap.xml");
+    expect(r.summary).toContain("probed https://www.a.com/");
+    expect(r.details).toMatchObject({
+      canonicalBaseUrl: "https://www.a.com/",
+      canonicalizedFrom: "https://a.com/",
+    });
+  });
+
+  it("browserAudit surfaces an off-site base redirect without following it", async () => {
+    const fetched: string[] = [];
+    const discoverDeps: DiscoverDeps = {
+      fetchText: async (url) => {
+        fetched.push(url);
+        return null; // root-only discovery on the configured host
+      },
+    };
+    const verifyDeps: VerifyDeps = {
+      fetchPage: async () => pageOk,
+      fetchRedirect: async () => ({ status: 301, location: "https://parked.example/" }),
+    };
+    const r = await browserAudit({
+      site: { path: "/tmp/a", name: "a", deployedUrl: "https://a.com/" },
+      now: NOW,
+      discoverDeps,
+      verifyDeps,
+      browserRunner: {
+        probe: async () => [route("https://a.com/", true, true, ["https://a.com/x"])],
+        checkLinks: async () => [{ url: "https://a.com/x", status: 200 }],
+      },
+    });
+    expect(fetched[0]).toBe("https://a.com/sitemap.xml");
+    expect(r.summary).toContain("OFF-SITE");
+    expect(r.details).toMatchObject({ offsiteRedirect: "https://parked.example/" });
+  });
+
+  it("defaultVerifyDeps.fetchRedirect uses redirect:manual, is bounded, and degrades to nulls", async () => {
+    const stub = vi.fn(
+      (_url: string, init?: { redirect?: string; signal?: AbortSignal }): Promise<Response> => {
+        expect(init?.redirect).toBe("manual");
+        expect(init?.signal).toBeInstanceOf(AbortSignal);
+        return Promise.reject(new Error("simulated timeout abort"));
+      },
+    );
+    vi.stubGlobal("fetch", stub);
+    try {
+      const out = await defaultVerifyDeps().fetchRedirect!("https://hung.example/");
+      expect(out).toEqual({ status: null, location: null });
     } finally {
       vi.unstubAllGlobals();
     }

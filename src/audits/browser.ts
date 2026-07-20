@@ -53,10 +53,81 @@ export type PageFetch = {
   metaDescription: string | null;
 };
 
+/** What a no-follow GET of the base URL observed: the raw status (null = network error/timeout)
+ *  and the raw Location header (null when absent). See canonicalizeBaseUrl. */
+export type RedirectFetch = { status: number | null; location: string | null };
+
 /** Injected plain-fetch re-verification IO (see reverifyRoutes). Tests pass a fake. */
 export type VerifyDeps = {
   fetchPage: (url: string) => Promise<PageFetch>;
+  /** Optional single `redirect:"manual"` GET, for canonicalizeBaseUrl's base-URL preflight.
+   *  Optional so existing fakes stay valid; absent → canonicalization is a no-op. */
+  fetchRedirect?: (url: string) => Promise<RedirectFetch>;
 };
+
+/** True when two hostnames belong to the same site: equal, or one is a subdomain of the other
+ *  (apex ↔ www), case-insensitive. Mirrors forms/ingest's hostsMatch — kept local so the audit
+ *  layer doesn't grow an import on the forms surface. */
+function sameSiteHost(a: string, b: string): boolean {
+  const ha = a.toLowerCase();
+  const hb = b.toLowerCase();
+  return ha === hb || ha.endsWith(`.${hb}`) || hb.endsWith(`.${ha}`);
+}
+
+/** canonicalizeBaseUrl's answer. At most one of redirectedFrom / offsiteLocation is set. */
+export type CanonicalBase = {
+  url: string;
+  /** Set when the configured URL 30x'd to its canonical same-site host and we followed it. */
+  redirectedFrom?: string;
+  /** Set when the configured URL redirects OFF-SITE. Deliberately NOT followed — auto-probing a
+   *  foreign host could bless a parked/squatted target with our green verdicts; the operator
+   *  should update the site's url instead. */
+  offsiteLocation?: string;
+};
+
+/**
+ * Resolve the audit's effective base URL by following the configured URL's own redirect ONCE.
+ * WHY (2026-07-17, Vineyard): an apex-configured Airtable url (vineyardconstruction.com) that
+ * 301s to www adds a redirect hop to EVERY probed route; under the audit's own probe burst that
+ * hop tipped two heavy gallery pages over the nav timeout → "no response" false alarms on a
+ * perfectly healthy site. Probing the canonical host removes the hop at the source, so the class
+ * can't recur when a future site is onboarded apex-first. Conservative by design:
+ * - ONE hop only — no loop-chasing; the canonical host answering directly is the normal case,
+ *   and if IT also redirects, the per-route probes/reverify still follow redirects as before.
+ * - Same-site hosts only (apex ↔ www / subdomain); an off-site redirect is surfaced, not followed.
+ * - Any error / non-redirect status / missing or unparseable Location / non-http(s) target →
+ *   the configured URL stands unchanged (fail-open, like every other audit fetch).
+ */
+export async function canonicalizeBaseUrl(
+  baseUrl: string,
+  verify: VerifyDeps,
+): Promise<CanonicalBase> {
+  if (!verify.fetchRedirect) return { url: baseUrl };
+  let origin: URL;
+  try {
+    origin = new URL(baseUrl);
+  } catch {
+    return { url: baseUrl };
+  }
+  const seen = await verify.fetchRedirect(baseUrl);
+  const isRedirect =
+    seen.status !== null &&
+    [301, 302, 307, 308].includes(seen.status) &&
+    (seen.location ?? "") !== "";
+  if (!isRedirect) return { url: baseUrl };
+  let target: URL;
+  try {
+    // Location may be relative (spec-legal) — resolve against the configured base.
+    target = new URL(seen.location!, baseUrl);
+  } catch {
+    return { url: baseUrl };
+  }
+  if (target.protocol !== "http:" && target.protocol !== "https:") return { url: baseUrl };
+  if (!sameSiteHost(origin.hostname, target.hostname)) {
+    return { url: baseUrl, offsiteLocation: target.href };
+  }
+  return { url: target.href, redirectedFrom: baseUrl };
+}
 
 export type BrowserSummary = {
   desktopOk: boolean;
@@ -507,7 +578,11 @@ export async function browserAudit(ctx: AuditContext): Promise<AuditResult> {
   const verifyDeps = ctx.verifyDeps ?? defaultVerifyDeps();
   const runner = ctx.browserRunner ?? (await defaultBrowserRunner());
   try {
-    const discovered: DiscoveredRoutes = await discoverRoutes(site.deployedUrl, discoverDeps);
+    // Probe the CANONICAL host: follow the configured URL's own redirect once (apex → www) so
+    // every route doesn't pay a redirect hop that can tip a heavy page over the nav timeout
+    // under the probe burst (the 2026-07-17 Vineyard false-alarm class) — see canonicalizeBaseUrl.
+    const canonical = await canonicalizeBaseUrl(site.deployedUrl, verifyDeps);
+    const discovered: DiscoveredRoutes = await discoverRoutes(canonical.url, discoverDeps);
     const probed = await runner.probe(discovered.routes);
     // Plain-fetch re-verification BEFORE any verdict: a browser-side 4xx/timeout (WAF challenge,
     // engine flake) must not persist a fail the site doesn't deserve — see reverifyRoutes.
@@ -550,6 +625,12 @@ export async function browserAudit(ctx: AuditContext): Promise<AuditResult> {
         : "") +
       (clearedLinks.length > 0
         ? `; ${clearedLinks.length} link(s) re-verified ok by plain fetch after cooldown`
+        : "") +
+      (canonical.redirectedFrom
+        ? `; base url redirects to its canonical host — probed ${canonical.url}`
+        : "") +
+      (canonical.offsiteLocation
+        ? `; base url redirects OFF-SITE to ${canonical.offsiteLocation} — not followed; update the site's url`
         : "");
     const status: AuditResult["status"] =
       summary.desktopOk && summary.mobileOk && summary.linksOk && summary.templateOk
@@ -566,6 +647,12 @@ export async function browserAudit(ctx: AuditContext): Promise<AuditResult> {
         reverifiedUrls,
         excusedEngineChecks: excused,
         linkReverifiedUrls,
+        // Canonicalization evidence (spread-conditional — exactOptionalPropertyTypes idiom):
+        // which base was actually probed, and any off-site redirect the operator must act on.
+        ...(canonical.redirectedFrom
+          ? { canonicalBaseUrl: canonical.url, canonicalizedFrom: canonical.redirectedFrom }
+          : {}),
+        ...(canonical.offsiteLocation ? { offsiteRedirect: canonical.offsiteLocation } : {}),
         checkedAt: now.toISOString(),
       },
     };
@@ -617,6 +704,19 @@ export function defaultVerifyDeps(): VerifyDeps {
         return { status: res.status, ...extractTitleMeta(await res.text()) };
       } catch {
         return { status: null, title: null, metaDescription: null };
+      }
+    },
+    // Base-URL preflight for canonicalizeBaseUrl: one no-follow GET so the redirect target is
+    // observable (redirect:"follow" would hide it). Errors degrade to null = "no redirect seen".
+    fetchRedirect: async (url) => {
+      try {
+        const res = await fetch(url, {
+          redirect: "manual",
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
+        return { status: res.status, location: res.headers.get("location") };
+      } catch {
+        return { status: null, location: null };
       }
     },
   };
