@@ -117,8 +117,13 @@ function heading(spec: CatalogSpec): Record<string, unknown> {
  * wrapped in `.blux-map[data-map-config]` — the design layer parses that JSON
  * and hydrates an interactive Google map on the mount, while the sanitized
  * legend markup renders statically regardless. Config JSON escapes `'` as
- * &#39; so the single-quoted attribute survives any styles content. */
-function widgetFields(spec: BluxSectionSpec): Record<string, unknown> {
+ * &#39; so the single-quoted attribute survives any styles content. The
+ * parameter is structural (the widget triple) so container specs beyond
+ * BluxSection — blux_collection is a container too (decision B) — share the
+ * exact same emission. */
+function widgetFields(
+  spec: Pick<BluxSectionSpec, "widgetKind" | "widgetHtml" | "mapConfig">,
+): Record<string, unknown> {
   if (!spec.widgetHtml) return {};
   const clean = sanitizeHtml(spec.widgetHtml);
   const html = spec.mapConfig
@@ -206,6 +211,7 @@ export function catalogSpecToPlanSlice(
         ...bg,
         ...bgc,
         ...heading(spec),
+        ...widgetFields(spec),
         collection_type: spec.entityType,
         feed_ids: spec.feedIds.join(","),
         ...(spec.filterTag ? { filter_tag: spec.filterTag } : {}),

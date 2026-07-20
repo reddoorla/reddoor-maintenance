@@ -74,7 +74,10 @@ export type BluxMediaTextSpec = CatalogBase & {
 };
 /** A feed-backed band → the `blux_collection` query-spec slice (spec §6 row 5,
  * §7 rule 1). The slice carries NO cells — the starter resolves the mapped
- * entity documents at load time and renders them through the tagFilter DSL. */
+ * entity documents at load time and renders them through the tagFilter DSL.
+ * Collection is a CONTAINER (decision B): a widget mount can ride it exactly
+ * like BluxSection (`widgetKind`/`widgetHtml`/`mapConfig`, emitted through the
+ * same widgetFields path). */
 export type BluxCollectionSpec = CatalogBase & {
   slice: "BluxCollection";
   heading?: CatalogRichText;
@@ -86,6 +89,9 @@ export type BluxCollectionSpec = CatalogBase & {
   mediaRatio?: string;
   layout: "grid" | "carousel";
   scrollLoadMore?: boolean;
+  widgetKind?: string;
+  widgetHtml?: string;
+  mapConfig?: MapConfig;
 };
 
 /** Content-preserving fallback: the serialized node tree (Prismic can't nest

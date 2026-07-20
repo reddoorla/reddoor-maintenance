@@ -53,6 +53,26 @@ describe("catalogSpecToPlanSlice — BluxCollection", () => {
       layout: "carousel",
     });
   });
+
+  it("carries decision-B widget fields (Collection is a container)", () => {
+    const slice = catalogSpecToPlanSlice({
+      slice: "BluxCollection",
+      index: 1,
+      entityType: "product",
+      feedIds: ["f1"],
+      layout: "grid",
+      widgetKind: "map",
+      widgetHtml: '<div id="m"><script>evil()</script>Legend</div>',
+      mapConfig: { center: { lat: 1, lng: 2 } } as never,
+    });
+    expect(slice.primary.widget_kind).toBe("map");
+    const html = slice.primary.widget_html as string;
+    // sanitized + wrapped in the .blux-map mount exactly like BluxSection
+    expect(html).toContain('class="blux-map"');
+    expect(html).toContain("data-map-config=");
+    expect(html).toContain("Legend");
+    expect(html).not.toContain("<script>");
+  });
 });
 
 describe("buildCatalogPlan — feeds ride the plan", () => {
