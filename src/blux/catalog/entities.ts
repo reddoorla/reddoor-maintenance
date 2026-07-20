@@ -12,7 +12,6 @@ import {
   type PlanDocument,
 } from "../emit/plan.js";
 import { demoteHeadingsHtml } from "../emit/coerce-html.js";
-import { productSlug, type ProductRecord } from "../products.js";
 import { feedEntityType, isSkippedFeed } from "./feeds.js";
 
 export type EntityEmit = {
@@ -60,9 +59,14 @@ const BASE_MAIN: Record<string, unknown> = {
   link: { type: "Link", config: { label: "link", allowTargetBlank: true } },
 };
 
-/** Record keys the base mapping consumes explicitly. `disabled` is NOT here:
- * it is an extension field (it lands verbatim in data and in the extension
- * type) that ALSO drives the enabled-beats-disabled uid dedup. */
+/** Record keys the base mapping consumes explicitly, PLUS the base field names
+ * a record key must never shadow (`uid`/`gallery`/`link` — an extension
+ * assignment would clobber the mapped base field in `data`). `disabled` is NOT
+ * here: it is an extension field (it lands verbatim in data and in the
+ * extension type) that ALSO drives the enabled-beats-disabled uid dedup.
+ * `url` is deliberately absent: the raw url rides as an extension field (the
+ * Phase-7 detail-page slug) even though the base mapping also reads it for the
+ * uid and the external-only link field. */
 const BASE_KEYS = new Set([
   "title",
   "body",
@@ -70,21 +74,28 @@ const BASE_KEYS = new Set([
   "items",
   "tags",
   "date",
-  "url",
   "link_url",
+  "uid",
+  "gallery",
+  "link",
 ]);
 
 /** Underscore-prefixed keys are per-element style config (collections.ts
  * convention) — never content. */
 const isStyleKey = (key: string) => key.startsWith("_");
 
-type ExtKind = "text" | "boolean" | "number" | "group";
+type ExtKind = "text" | "richtext" | "boolean" | "number" | "group";
 
 const EXT_FIELD_CONFIG: Record<
   ExtKind,
   (label: string) => Record<string, unknown>
 > = {
   text: (label) => ({ type: "Text", config: { label } }),
+  // deriveFields convention: mirrors the base body field's model config.
+  richtext: (label) => ({
+    type: "StructuredText",
+    config: { label, multi: "paragraph,strong,em,hyperlink,list-item" },
+  }),
   boolean: (label) => ({ type: "Boolean", config: { label } }),
   number: (label) => ({ type: "Number", config: { label } }),
   group: (label) => ({
@@ -96,7 +107,9 @@ const EXT_FIELD_CONFIG: Record<
   }),
 };
 
-const kindOf = (value: unknown): ExtKind => {
+const kindOf = (key: string, value: unknown): ExtKind => {
+  // deriveFields convention: `description` (like `body`) is richtext.
+  if (key === "description" && typeof value === "string") return "richtext";
   if (typeof value === "boolean") return "boolean";
   if (typeof value === "number") return "number";
   if (Array.isArray(value)) return "group";
@@ -126,12 +139,114 @@ function extEntries(record: Record<string, unknown>): [string, unknown][] {
   );
 }
 
+/** A valid Prismic UID fragment: alphanumerics/dash/underscore only. */
+const BARE_SLUG_RE = /^[a-z0-9_-]+$/i;
+
+/** The record's uid. Its `url` — but ONLY when it is a bare slug after the
+ * productSlug-style `/products/` prefix strip + slash trim: real fleet urls
+ * are often absolute (`https://mailchi.mp/...`, strategyAdvantage ×46) or
+ * route paths (`/news/<slug>` tosa ×49, `/projects/<slug>` williamsonHomes
+ * ×5), which would make INVALID Prismic UIDs. Anything non-bare falls back to
+ * the slugified title. */
+function recordUid(record: Record<string, unknown>): string {
+  const url = typeof record.url === "string" ? record.url.trim() : "";
+  const fromUrl = url.replace(/^\/+products\/+/i, "").replace(/^\/+|\/+$/g, "");
+  if (fromUrl && BARE_SLUG_RE.test(fromUrl)) return fromUrl;
+  return String(record.title ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+type DateOrientation = "year-month-day" | "year-day-month";
+
+const DATE_RE = /^(\d{4})-(\d{1,2})-(\d{1,2})$/;
+
+export type NormalizedDate = {
+  date?: string;
+  issue?: "ambiguous" | "unparseable";
+};
+
+/** Normalize a raw feed date into a valid Prismic `YYYY-MM-DD`. Composition's
+ * Products dates are unpadded `YYYY-n-n` with MIXED orientation (207 records
+ * year-DAY-month, 191 year-month-day, 135 ambiguous) — verbatim passthrough
+ * would land invalid values in a Date field. Already-valid ISO passes; an
+ * unambiguous `YYYY-n-n` self-resolves (whichever side > 12 is the day); a
+ * both-≤12 value resolves by `feedVote` (the feed's majority orientation), or
+ * defaults to year-month-day with an `ambiguous` issue when the feed offers no
+ * evidence. Anything else (or an out-of-range resolution) is `unparseable` —
+ * the caller omits the date. */
+export function normalizeDate(
+  raw: unknown,
+  feedVote: DateOrientation | null,
+): NormalizedDate {
+  if (typeof raw !== "string") return { issue: "unparseable" };
+  const trimmed = raw.trim();
+  const m = DATE_RE.exec(trimmed);
+  if (!m) return { issue: "unparseable" };
+  const year = m[1]!;
+  const mid = Number(m[2]!);
+  const last = Number(m[3]!);
+  const build = (month: number, day: number): string | undefined =>
+    month >= 1 && month <= 12 && day >= 1 && day <= 31
+      ? `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+      : undefined;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed) && build(mid, last) === trimmed)
+    return { date: trimmed }; // already-valid ISO
+  if (mid > 12 && last > 12) return { issue: "unparseable" };
+  if (mid > 12 || last > 12) {
+    // Exactly one side can be the day — the orientation is self-evident.
+    const date = mid > 12 ? build(last, mid) : build(mid, last);
+    return date ? { date } : { issue: "unparseable" };
+  }
+  // Both ≤ 12: orientation-ambiguous — the feed's majority decides;
+  // tie/no-evidence reads year-month-day and flags it.
+  const date =
+    feedVote === "year-day-month" ? build(last, mid) : build(mid, last);
+  if (date === undefined) return { issue: "unparseable" };
+  return feedVote ? { date } : { date, issue: "ambiguous" };
+}
+
+/** The feed's majority date orientation, voted by its unambiguous records
+ * (exactly one side > 12). Null when tied or the feed offers no evidence. */
+function feedDateOrientation(items: unknown[]): DateOrientation | null {
+  let ymd = 0;
+  let ydm = 0;
+  for (const it of items) {
+    const raw =
+      it && typeof it === "object" ? (it as { date?: unknown }).date : undefined;
+    if (typeof raw !== "string") continue;
+    const m = DATE_RE.exec(raw.trim());
+    if (!m) continue;
+    const mid = Number(m[2]!);
+    const last = Number(m[3]!);
+    if (mid > 12 && last >= 1 && last <= 12) ydm++;
+    else if (last > 12 && mid >= 1 && mid <= 12) ymd++;
+  }
+  if (ydm > ymd) return "year-day-month";
+  if (ymd > ydm) return "year-month-day";
+  return null;
+}
+
+const titleOf = (record: Record<string, unknown>): string =>
+  typeof record.title === "string" && record.title.trim()
+    ? record.title.trim()
+    : "(untitled)";
+
+type RecordCtx = {
+  feedId: string;
+  dateVote: DateOrientation | null;
+  diagnostics: Diagnostic[];
+};
+
 /** Base-field mapping for one record → the document data + the media it
- * references. Extension keys ride verbatim. */
+ * references. Extension keys ride verbatim (except `description` → richtext
+ * and arrays → their Group{value} model shape). */
 function recordToDoc(
   record: Record<string, unknown>,
   type: string,
   uid: string,
+  ctx: RecordCtx,
 ): { doc: PlanDocument; media: Media[] } {
   const data: Record<string, unknown> = {};
   const media: Media[] = [];
@@ -172,7 +287,22 @@ function recordToDoc(
       .join(",");
   else if (typeof record.tags === "string" && record.tags) data.tags = record.tags;
 
-  if (record.date != null && record.date !== "") data.date = record.date;
+  if (record.date != null && record.date !== "") {
+    const norm = normalizeDate(record.date, ctx.dateVote);
+    if (norm.date !== undefined) data.date = norm.date;
+    if (norm.issue === "ambiguous")
+      ctx.diagnostics.push({
+        kind: "ambiguous-date",
+        where: ctx.feedId,
+        message: `record "${titleOf(record)}" date "${String(record.date)}" is orientation-ambiguous with no feed evidence — read as year-month-day "${norm.date}"`,
+      });
+    else if (norm.issue === "unparseable")
+      ctx.diagnostics.push({
+        kind: "malformed-feed-field",
+        where: ctx.feedId,
+        message: `record "${titleOf(record)}" date "${String(record.date)}" does not normalize to YYYY-MM-DD — omitted`,
+      });
+  }
 
   const linkUrl =
     typeof record.url === "string" && record.url.trim()
@@ -180,17 +310,31 @@ function recordToDoc(
       : typeof record.link_url === "string" && record.link_url.trim()
         ? record.link_url.trim()
         : undefined;
-  if (linkUrl) data.link = { link_type: "Web", url: linkUrl };
+  // Spec §8: the link field is EXTERNAL-only — bare slugs ('steel-chair') and
+  // route paths ('/news/x') are detail-page slugs, not links. The raw `url`
+  // still rides as an extension field below (Phase 7 detail pages).
+  if (linkUrl && /^https?:\/\//.test(linkUrl))
+    data.link = { link_type: "Web", url: linkUrl };
 
-  for (const [key, value] of extEntries(record)) data[key] = value;
+  for (const [key, value] of extEntries(record)) {
+    if (key === "description" && typeof value === "string")
+      // deriveFields convention: description (like body) is richtext; the
+      // extension model is StructuredText, so raw HTML must not ride as Text.
+      data[key] = richText(demoteHeadingsHtml(value));
+    else if (Array.isArray(value))
+      // Match the Group{value:Text} extension model the array kind derives.
+      data[key] = value.map((x) => ({ value: String(x) }));
+    else data[key] = value;
+  }
 
   return { doc: { type, uid, data }, media };
 }
 
 /** Feed records → typed entity documents + per-type extension custom types +
  * the media they reference + skip diagnostics. Uid dedup is per entity type:
- * an enabled record beats a disabled one, else first-seen wins (productSlug
- * semantics — the record `url` slug first, else the title slug). */
+ * an enabled record beats a disabled one, else first-seen wins (recordUid
+ * semantics — the record's bare-slug `url` first, else the title slug); every
+ * dropped loser is named by a uid-collision diagnostic. */
 export function buildEntityEmit(
   feeds: Record<
     string,
@@ -202,7 +346,7 @@ export function buildEntityEmit(
   const typeOrder: string[] = [];
   const docsByType = new Map<
     string,
-    Map<string, { doc: PlanDocument; disabled: boolean }>
+    Map<string, { doc: PlanDocument; disabled: boolean; title: string }>
   >();
   const extByType = new Map<string, Map<string, ExtKind>>();
 
@@ -226,22 +370,39 @@ export function buildEntityEmit(
     const byUid = docsByType.get(type)!;
     const extKinds = extByType.get(type)!;
 
-    (Array.isArray(feed.items) ? feed.items : []).forEach((item, i) => {
+    const items = Array.isArray(feed.items) ? feed.items : [];
+    // The feed's majority date orientation, voted once by its unambiguous
+    // records, resolves the both-≤12 dates (see normalizeDate).
+    const dateVote = feedDateOrientation(items);
+    items.forEach((item, i) => {
       if (!item || typeof item !== "object") return;
       const record = item as Record<string, unknown>;
-      const uid = productSlug(record as ProductRecord) || `item-${i}`;
-      const { doc, media: recMedia } = recordToDoc(record, type, uid);
+      const uid = recordUid(record) || `item-${i}`;
+      const { doc, media: recMedia } = recordToDoc(record, type, uid, {
+        feedId,
+        dateVote,
+        diagnostics,
+      });
       media.push(...recMedia);
       // Extension fields type from the observed value shapes (deriveFields
       // convention: a later, more specific observation upgrades "text").
       for (const [key, value] of extEntries(record)) {
         if (!extKinds.has(key) || extKinds.get(key) === "text")
-          extKinds.set(key, kindOf(value));
+          extKinds.set(key, kindOf(key, value));
       }
       const disabled = record.disabled === true;
       const existing = byUid.get(uid);
+      const dropped = !existing || (existing.disabled && !disabled)
+        ? existing // the incoming record wins — the stored one is dropped
+        : { title: titleOf(record) }; // the stored record wins — this one is dropped
+      if (dropped)
+        diagnostics.push({
+          kind: "uid-collision",
+          where: feedId,
+          message: `record "${dropped.title}" collides on uid "${uid}" — dropped (enabled beats disabled, else first-seen wins)`,
+        });
       if (!existing || (existing.disabled && !disabled))
-        byUid.set(uid, { doc, disabled });
+        byUid.set(uid, { doc, disabled, title: titleOf(record) });
     });
   }
 
