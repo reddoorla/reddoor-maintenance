@@ -139,8 +139,30 @@ function extEntries(record: Record<string, unknown>): [string, unknown][] {
   );
 }
 
+/** Legacy-parity spelling normalization (round-2 item 4 — grid feed-grid.ts
+ * isDisabled honors BOTH `disabled` and `disable`): fold `disable` into the
+ * one normalized `disabled` key, so either spelling === true drives the
+ * enabled-beats-disabled uid dedup AND emits `data.disabled = true` (the
+ * starter filters on `doc.data.disabled !== true`); a separate `disable`
+ * extension field never emits. */
+function normalizeRecord(record: Record<string, unknown>): Record<string, unknown> {
+  if (record.disable === undefined) return record;
+  const { disable, ...rest } = record;
+  return {
+    ...rest,
+    disabled:
+      record.disabled === true || disable === true
+        ? true
+        : (record.disabled ?? disable),
+  };
+}
+
 /** A valid Prismic UID fragment: alphanumerics/dash/underscore only. */
 const BARE_SLUG_RE = /^[a-z0-9_-]+$/i;
+
+/** External http(s) url — the ONLY shape the base link field accepts (spec
+ * §8). Case-insensitive: real-world data capitalizes schemes ("HTTPS://…"). */
+const EXTERNAL_RE = /^https?:\/\//i;
 
 /** The record's uid. Its `url` — but ONLY when it is a bare slug after the
  * productSlug-style `/products/` prefix strip + slash trim: real fleet urls
@@ -151,7 +173,9 @@ const BARE_SLUG_RE = /^[a-z0-9_-]+$/i;
 function recordUid(record: Record<string, unknown>): string {
   const url = typeof record.url === "string" ? record.url.trim() : "";
   const fromUrl = url.replace(/^\/+products\/+/i, "").replace(/^\/+|\/+$/g, "");
-  if (fromUrl && BARE_SLUG_RE.test(fromUrl)) return fromUrl;
+  // BARE_SLUG_RE is case-insensitive, so an uppercase slug passes — lowercase
+  // it (round-2 item 9): a mixed-case uid is INVALID in Prismic.
+  if (fromUrl && BARE_SLUG_RE.test(fromUrl)) return fromUrl.toLowerCase();
   return String(record.title ?? "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
@@ -161,6 +185,12 @@ function recordUid(record: Record<string, unknown>): string {
 type DateOrientation = "year-month-day" | "year-day-month";
 
 const DATE_RE = /^(\d{4})-(\d{1,2})-(\d{1,2})$/;
+
+/** Drop a trailing time suffix (`T10:30:00Z`, ` 10:30`) so a datetime-shaped
+ * string keeps its date instead of being dropped as unparseable (round-2
+ * item 8 — zero fleet occurrences today, cheap resilience). */
+const stripTime = (s: string): string =>
+  s.replace(/(?:T|\s+)\d{1,2}:\d{2}\S*$/, "").trim();
 
 export type NormalizedDate = {
   date?: string;
@@ -181,16 +211,27 @@ export function normalizeDate(
   feedVote: DateOrientation | null,
 ): NormalizedDate {
   if (typeof raw !== "string") return { issue: "unparseable" };
-  const trimmed = raw.trim();
+  const trimmed = stripTime(raw.trim());
   const m = DATE_RE.exec(trimmed);
   if (!m) return { issue: "unparseable" };
   const year = m[1]!;
   const mid = Number(m[2]!);
   const last = Number(m[3]!);
-  const build = (month: number, day: number): string | undefined =>
-    month >= 1 && month <= 12 && day >= 1 && day <= 31
-      ? `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
-      : undefined;
+  // Range check PLUS calendar validity (round-2 item 8): "2017-02-30" is
+  // range-valid but no real date — a UTC round-trip catches month-length and
+  // leap-year violations, so impossible dates go unparseable instead of
+  // landing verbatim in a Prismic Date field.
+  const build = (month: number, day: number): string | undefined => {
+    if (month < 1 || month > 12 || day < 1 || day > 31) return undefined;
+    const d = new Date(Date.UTC(Number(year), month - 1, day));
+    if (
+      d.getUTCFullYear() !== Number(year) ||
+      d.getUTCMonth() !== month - 1 ||
+      d.getUTCDate() !== day
+    )
+      return undefined;
+    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  };
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed) && build(mid, last) === trimmed)
     return { date: trimmed }; // already-valid ISO
   if (mid > 12 && last > 12) return { issue: "unparseable" };
@@ -216,12 +257,15 @@ function feedDateOrientation(items: unknown[]): DateOrientation | null {
     const raw =
       it && typeof it === "object" ? (it as { date?: unknown }).date : undefined;
     if (typeof raw !== "string") continue;
-    const m = DATE_RE.exec(raw.trim());
+    const m = DATE_RE.exec(stripTime(raw.trim()));
     if (!m) continue;
     const mid = Number(m[2]!);
     const last = Number(m[3]!);
-    if (mid > 12 && last >= 1 && last <= 12) ydm++;
-    else if (last > 12 && mid >= 1 && mid <= 12) ymd++;
+    // The would-be day must be a POSSIBLE day (≤ 31) for the record to cast a
+    // vote (round-2 item 8): garbage like "2017-45-3" is not ydm evidence and
+    // must never silently resolve another record's ambiguous date.
+    if (mid > 12 && mid <= 31 && last >= 1 && last <= 12) ydm++;
+    else if (last > 12 && last <= 31 && mid >= 1 && mid <= 12) ymd++;
   }
   if (ydm > ymd) return "year-day-month";
   if (ymd > ydm) return "year-month-day";
@@ -237,6 +281,11 @@ type RecordCtx = {
   feedId: string;
   dateVote: DateOrientation | null;
   diagnostics: Diagnostic[];
+  /** The entity type's extension kinds, RESOLVED across all records of every
+   * feed of the type before any document emits (round-2 item 7) — value
+   * emission must know the final kind so a scalar under a group-kind key
+   * wraps as a row instead of landing raw in a Group-modeled field. */
+  extKinds: ReadonlyMap<string, ExtKind>;
 };
 
 /** Base-field mapping for one record → the document data + the media it
@@ -304,20 +353,33 @@ function recordToDoc(
       });
   }
 
-  const linkUrl =
-    typeof record.url === "string" && record.url.trim()
-      ? record.url.trim()
-      : typeof record.link_url === "string" && record.link_url.trim()
-        ? record.link_url.trim()
-        : undefined;
   // Spec §8: the link field is EXTERNAL-only — bare slugs ('steel-chair') and
   // route paths ('/news/x') are detail-page slugs, not links. The raw `url`
-  // still rides as an extension field below (Phase 7 detail pages).
-  if (linkUrl && /^https?:\/\//.test(linkUrl))
-    data.link = { link_type: "Web", url: linkUrl };
+  // still rides as an extension field below (Phase 7 detail pages). Round-2
+  // item 6: pick the FIRST candidate that IS external (scheme match
+  // case-insensitive) — a bare-slug `url` must not eat an external `link_url`.
+  const urlVal = typeof record.url === "string" ? record.url.trim() : "";
+  const linkUrlVal = typeof record.link_url === "string" ? record.link_url.trim() : "";
+  const external = [urlVal, linkUrlVal].find((v) => v && EXTERNAL_RE.test(v));
+  if (external) data.link = { link_type: "Web", url: external };
+  // A non-external link_url is dropped either way (link_url is a BASE_KEYS
+  // key — it never rides as an extension field) — never silently.
+  if (linkUrlVal && !EXTERNAL_RE.test(linkUrlVal))
+    ctx.diagnostics.push({
+      kind: "malformed-feed-field",
+      where: ctx.feedId,
+      message: `record "${titleOf(record)}" link_url "${linkUrlVal}" is not an external http(s) url — dropped (the base link field is external-only)`,
+    });
 
   for (const [key, value] of extEntries(record)) {
-    if (key === "description" && typeof value === "string")
+    if (ctx.extKinds.get(key) === "group")
+      // The key models Group{value:Text} (an array was observed SOMEWHERE in
+      // the type's records — round-2 item 7): scalars wrap as a single row so
+      // every record's data matches the model, whatever this record holds.
+      data[key] = (Array.isArray(value) ? value : [value]).map((x) => ({
+        value: String(x),
+      }));
+    else if (key === "description" && typeof value === "string")
       // deriveFields convention: description (like body) is richtext; the
       // extension model is StructuredText, so raw HTML must not ride as Text.
       data[key] = richText(demoteHeadingsHtml(value));
@@ -350,6 +412,12 @@ export function buildEntityEmit(
   >();
   const extByType = new Map<string, Map<string, ExtKind>>();
 
+  // Pass 1 — resolve every extension key's kind across ALL records of every
+  // feed of the type BEFORE any document emits (round-2 item 7): emission must
+  // know the final kind, or a string-then-array key would land a raw string
+  // in a Group-modeled field (and boolean/number-then-array the reverse).
+  // DO-NOT-USE feeds skip here, once.
+  const kept: { feedId: string; type: string; items: unknown[] }[] = [];
   for (const [feedId, feed] of Object.entries(feeds)) {
     if (!feed) continue;
     const name = String(feed.name ?? "");
@@ -367,29 +435,41 @@ export function buildEntityEmit(
       docsByType.set(type, new Map());
       extByType.set(type, new Map());
     }
+    const extKinds = extByType.get(type)!;
+    const items = Array.isArray(feed.items) ? feed.items : [];
+    kept.push({ feedId, type, items });
+    for (const item of items) {
+      if (!item || typeof item !== "object") continue;
+      const record = normalizeRecord(item as Record<string, unknown>);
+      // Extension fields type from the observed value shapes (deriveFields
+      // convention: a later, more specific observation upgrades "text");
+      // group — an array observed in ANY record — beats every scalar kind.
+      for (const [key, value] of extEntries(record)) {
+        const next = kindOf(key, value);
+        const prev = extKinds.get(key);
+        if (!prev || prev === "text" || next === "group") extKinds.set(key, next);
+      }
+    }
+  }
+
+  // Pass 2 — emit documents with the resolved kinds.
+  for (const { feedId, type, items } of kept) {
     const byUid = docsByType.get(type)!;
     const extKinds = extByType.get(type)!;
-
-    const items = Array.isArray(feed.items) ? feed.items : [];
     // The feed's majority date orientation, voted once by its unambiguous
     // records, resolves the both-≤12 dates (see normalizeDate).
     const dateVote = feedDateOrientation(items);
     items.forEach((item, i) => {
       if (!item || typeof item !== "object") return;
-      const record = item as Record<string, unknown>;
+      const record = normalizeRecord(item as Record<string, unknown>);
       const uid = recordUid(record) || `item-${i}`;
       const { doc, media: recMedia } = recordToDoc(record, type, uid, {
         feedId,
         dateVote,
         diagnostics,
+        extKinds,
       });
       media.push(...recMedia);
-      // Extension fields type from the observed value shapes (deriveFields
-      // convention: a later, more specific observation upgrades "text").
-      for (const [key, value] of extEntries(record)) {
-        if (!extKinds.has(key) || extKinds.get(key) === "text")
-          extKinds.set(key, kindOf(key, value));
-      }
       const disabled = record.disabled === true;
       const existing = byUid.get(uid);
       const dropped = !existing || (existing.disabled && !disabled)

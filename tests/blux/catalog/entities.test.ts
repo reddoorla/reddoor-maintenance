@@ -288,6 +288,14 @@ describe("buildEntityEmit — extension-field integrity", () => {
   it("array extensions emit Group-shaped items matching the model", () => {
     expect(doc.data.sizes).toEqual([{ value: "S" }, { value: "M" }, { value: "3" }]);
     expect(main.sizes!.type).toBe("Group");
+    // Round-2: the Group config must carry the value:Text row key the emitted
+    // items reference — type === "Group" alone would pass with an empty model.
+    const sizesConfig = (
+      main.sizes as unknown as {
+        config: { fields: Record<string, { type: string }> };
+      }
+    ).config;
+    expect(sizesConfig.fields.value!.type).toBe("Text");
   });
 
   it("uid/gallery/link record keys cannot shadow base fields", () => {
@@ -297,5 +305,186 @@ describe("buildEntityEmit — extension-field integrity", () => {
     expect(doc.data.link).toBeUndefined();
     for (const key of ["uid", "gallery", "link"] as const)
       expect(main[key]!.type).not.toBe("Text");
+  });
+});
+
+// Round-2 item 4 — legacy `disable` spelling parity (grid feed-grid.ts
+// isDisabled honors both spellings; the catalog path checked only `disabled`).
+describe("buildEntityEmit — `disable` spelling normalizes to `disabled`", () => {
+  it("either spelling counts as disabled for the enabled-beats-disabled dedup", () => {
+    const emit = buildEntityEmit({
+      f1: {
+        name: "Products",
+        items: [
+          { title: "Ghost Chair", disable: true, note: "old" },
+          { title: "Ghost Chair", disabled: false, note: "new" },
+        ],
+      },
+    });
+    const docs = emit.documents.filter((d) => d.uid === "ghost-chair");
+    expect(docs).toHaveLength(1);
+    expect(docs[0]!.data.note).toBe("new"); // the enabled record won
+    expect(emit.diagnostics.filter((d) => d.kind === "uid-collision")).toHaveLength(1);
+  });
+
+  it("emits the normalized `disabled` key — never a separate `disable` field", () => {
+    const emit = buildEntityEmit({
+      f1: { name: "Products", items: [{ title: "Solo", disable: true }] },
+    });
+    expect(emit.documents[0]!.data.disabled).toBe(true);
+    expect(emit.documents[0]!.data).not.toHaveProperty("disable");
+    const main = (
+      emit.customTypes[0]!.json as { json: { Main: Record<string, { type: string }> } }
+    ).json.Main;
+    expect(main.disabled!.type).toBe("Boolean");
+    expect(main).not.toHaveProperty("disable");
+  });
+});
+
+// Round-2 item 6 — link precedence + case-insensitive scheme gate.
+describe("buildEntityEmit — external-link precedence", () => {
+  it("picks the FIRST external candidate among [url, link_url] — a bare-slug url does not eat an external link_url", () => {
+    const emit = buildEntityEmit({
+      f1: {
+        name: "News",
+        items: [
+          { title: "A", url: "bare-slug", link_url: "https://example.com/a" },
+          { title: "B", url: "HTTPS://Example.com/B" },
+          { title: "C", url: "https://first.example/c", link_url: "https://second.example/c" },
+        ],
+      },
+    });
+    expect(emit.documents[0]!.data.link).toEqual({
+      link_type: "Web",
+      url: "https://example.com/a",
+    });
+    // scheme match is case-insensitive
+    expect(emit.documents[1]!.data.link).toEqual({
+      link_type: "Web",
+      url: "HTTPS://Example.com/B",
+    });
+    // url stays first in precedence when both are external
+    expect(emit.documents[2]!.data.link).toEqual({
+      link_type: "Web",
+      url: "https://first.example/c",
+    });
+  });
+
+  it("a non-external link_url is diagnosed malformed-feed-field — never silently lost", () => {
+    const emit = buildEntityEmit({
+      f1: { name: "News", items: [{ title: "D", link_url: "/contact" }] },
+    });
+    expect(emit.documents[0]!.data.link).toBeUndefined();
+    const diags = emit.diagnostics.filter((d) => d.kind === "malformed-feed-field");
+    expect(diags).toHaveLength(1);
+    expect(diags[0]!.message).toContain("/contact");
+    expect(diags[0]!.message).toContain("link_url");
+  });
+});
+
+// Round-2 item 7 — mixed-type extension keys must resolve their kind across
+// ALL records first: any array anywhere makes the key Group, and scalar
+// values under a group-kind key wrap as rows so data always matches model.
+describe("buildEntityEmit — mixed-type extension keys resolve group-first", () => {
+  const emit = buildEntityEmit({
+    f1: {
+      name: "Products",
+      items: [
+        { title: "A", sizes: "one size" }, // string BEFORE the array
+        { title: "B", sizes: ["S", "M"] },
+        { title: "C", flag: true }, // boolean BEFORE the array
+        { title: "D", flag: [1, 2] },
+        { title: "E", rev: ["x"] }, // array BEFORE the string
+        { title: "F", rev: "y" },
+      ],
+    },
+  });
+  const main = (
+    emit.customTypes[0]!.json as {
+      json: {
+        Main: Record<string, { type: string; config: { fields: Record<string, { type: string }> } }>;
+      };
+    }
+  ).json.Main;
+  const byUid = new Map(emit.documents.map((d) => [d.uid, d]));
+
+  it("any array present makes the key Group regardless of observation order", () => {
+    for (const key of ["sizes", "flag", "rev"] as const) {
+      expect(main[key]!.type).toBe("Group");
+      expect(main[key]!.config.fields.value!.type).toBe("Text");
+    }
+  });
+
+  it("scalar values under a group-kind key wrap as [{ value: String(x) }]", () => {
+    expect(byUid.get("a")!.data.sizes).toEqual([{ value: "one size" }]);
+    expect(byUid.get("b")!.data.sizes).toEqual([{ value: "S" }, { value: "M" }]);
+    expect(byUid.get("c")!.data.flag).toEqual([{ value: "true" }]);
+    expect(byUid.get("f")!.data.rev).toEqual([{ value: "y" }]);
+  });
+
+  it("resolves across FEEDS of the same entity type, not just within one feed", () => {
+    const cross = buildEntityEmit({
+      f1: { name: "Products", items: [{ title: "Str Only", specs: "text spec" }] },
+      f2: { name: "The Pointe Equipment Grid", items: [{ title: "Arr", specs: ["a"] }] },
+    });
+    const doc = cross.documents.find((d) => d.uid === "str-only")!;
+    expect(doc.data.specs).toEqual([{ value: "text spec" }]);
+    const crossMain = (
+      cross.customTypes.find((c) => c.id === "product")!.json as {
+        json: { Main: Record<string, { type: string }> };
+      }
+    ).json.Main;
+    expect(crossMain.specs!.type).toBe("Group");
+  });
+});
+
+// Round-2 item 8 — date hardening.
+describe("normalizeDate — round-2 hardening", () => {
+  it("calendar-checks the ISO passthrough: impossible dates go unparseable, leap years pass", () => {
+    expect(normalizeDate("2017-02-30", null)).toEqual({ issue: "unparseable" });
+    expect(normalizeDate("2020-02-29", null)).toEqual({ date: "2020-02-29" });
+    expect(normalizeDate("2019-02-29", null)).toEqual({ issue: "unparseable" });
+    // self-resolved builds are calendar-checked too (April has no 31st)
+    expect(normalizeDate("2017-4-31", null)).toEqual({ issue: "unparseable" });
+  });
+
+  it("strips a time suffix so datetime-shaped strings keep their date", () => {
+    expect(normalizeDate("2017-05-03T10:30:00Z", null)).toEqual({ date: "2017-05-03" });
+    expect(normalizeDate("2017-05-03 10:30", null)).toEqual({ date: "2017-05-03" });
+  });
+});
+
+describe("buildEntityEmit — garbage dates cast no orientation vote", () => {
+  it("a would-be day > 31 ('2017-45-3') cannot silently resolve another record's ambiguous date", () => {
+    const emit = buildEntityEmit({
+      f1: {
+        name: "Products",
+        items: [
+          { title: "G", date: "2017-45-3" }, // garbage — not ydm evidence
+          { title: "H", date: "2019-3-4" }, // must STAY ambiguous
+        ],
+      },
+    });
+    const h = emit.documents.find((d) => d.uid === "h")!;
+    expect(h.data.date).toBe("2019-03-04"); // ymd default, not vote-resolved
+    const ambiguous = emit.diagnostics.filter((d) => d.kind === "ambiguous-date");
+    expect(ambiguous).toHaveLength(1);
+    expect(ambiguous[0]!.message).toContain("2019-3-4");
+    // the garbage date itself is still diagnosed + omitted
+    const malformed = emit.diagnostics.filter((d) => d.kind === "malformed-feed-field");
+    expect(malformed.some((d) => d.message.includes("2017-45-3"))).toBe(true);
+    expect(emit.documents.find((d) => d.uid === "g")!.data).not.toHaveProperty("date");
+  });
+});
+
+// Round-2 item 9 — url-derived uids must be valid Prismic uids (lowercase).
+describe("buildEntityEmit — url-derived uids lowercase", () => {
+  it("an uppercase bare-slug url yields a lowercased uid, verbatim otherwise", () => {
+    const emit = buildEntityEmit({
+      f1: { name: "News", items: [{ title: "Loud Post", url: "LOUD-Slug" }] },
+    });
+    expect(emit.documents[0]!.uid).toBe("loud-slug");
+    // the raw url extension field keeps its original casing
+    expect(emit.documents[0]!.data.url).toBe("LOUD-Slug");
   });
 });
