@@ -164,4 +164,218 @@ describe("bandOrCollection", () => {
     expect(diagnostics[0]).toMatchObject({ kind: "skipped-feed" });
     expect(diagnostics[0]!.message).toContain("DO NOT USE");
   });
+
+  // Round-2 item 1 — the REAL fitHealthClub band-3 shape (the-pointe/the-tower/
+  // media-studios/pinnacle): the band root is a non-empty raw custom-element
+  // feed-template mount, the positional item IS aligned. The mount is the Blux
+  // placeholder the collection replaces — it must not defeat the emptyish guard.
+  it("(i) a pure feed-template mount root does NOT defeat the collection guard (fitHealthClub band 3)", () => {
+    const mountBand: Band = {
+      index: 3,
+      root: {
+        kind: "raw",
+        html: '<div id="custom-element1" data-exec="custom_a4661bc9_c155_45b9_8339_714febff3fdb"></div>',
+      },
+    };
+    const diagnostics: import("../../../src/blux/ir.js").Diagnostic[] = [];
+    const spec = bandOrCollection(
+      mountBand,
+      {
+        // real items[3].sourceConfig (the-pointe)
+        sources: ["7051d365-bb42-4329-9e7a-3959e9c9a233"],
+        sourceConfig: {
+          layout: "behind",
+          _body: { class: "disable" },
+          _title: { class: "text3" },
+          class: "blocks3",
+          overlay: true,
+          overlayColor: "rgba(63,83,111,0.7)",
+          contentvalign: "middle",
+        },
+      },
+      { "7051d365-bb42-4329-9e7a-3959e9c9a233": { name: "The Pointe Equipment Grid" } },
+      { diagnostics },
+    );
+    expect(spec).toMatchObject({
+      slice: "BluxCollection",
+      index: 3,
+      entityType: "product", // equipment-grid suffix rule
+      feedIds: ["7051d365-bb42-4329-9e7a-3959e9c9a233"],
+    });
+    expect(diagnostics).toEqual([]);
+  });
+
+  it("(i2) a mount PLUS real content still misaligns", () => {
+    const mixedBand: Band = {
+      index: 3,
+      root: {
+        kind: "stack",
+        children: [
+          {
+            kind: "raw",
+            html: '<div id="custom-element1" data-exec="custom_a4661bc9_c155_45b9_8339_714febff3fdb"></div>',
+          },
+          { kind: "media", media: { kind: "image", assetId: "u1" } },
+        ],
+      },
+    };
+    const diagnostics: import("../../../src/blux/ir.js").Diagnostic[] = [];
+    const spec = bandOrCollection(
+      mixedBand,
+      { sources: ["feed1"], sourceConfig: {} },
+      feeds,
+      { diagnostics },
+    );
+    expect(spec.slice).not.toBe("BluxCollection");
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toMatchObject({ kind: "feed-band-misalign" });
+  });
+
+  it("(i3) a mount whose div carries visible text is content, not a placeholder — still misaligns", () => {
+    const visibleMountBand: Band = {
+      index: 3,
+      root: {
+        kind: "raw",
+        html: '<div id="custom-element1" data-exec="custom_a4661bc9_c155_45b9_8339_714febff3fdb"><p>Hand-written copy</p></div>',
+      },
+    };
+    const diagnostics: import("../../../src/blux/ir.js").Diagnostic[] = [];
+    const spec = bandOrCollection(
+      visibleMountBand,
+      { sources: ["feed1"], sourceConfig: {} },
+      feeds,
+      { diagnostics },
+    );
+    expect(spec.slice).not.toBe("BluxCollection");
+    expect(diagnostics[0]).toMatchObject({ kind: "feed-band-misalign" });
+  });
+
+  // Round-2 item 2 — Collection is a container (decision B): a MAP mount on a
+  // feed band lifts onto the collection spec through the same widget triple
+  // BluxSection uses, instead of being treated as content or dropped.
+  it("(j) a MAP mount on a feed band lifts onto the collection spec", () => {
+    const mapHtml = '<div id="club_map" style="height:600px"></div>';
+    const mapConfig = {
+      mountId: "club_map",
+      mid: "m1",
+      layers: [{ name: "l0", lid: "1", initiallyVisible: true, preserveViewport: false }],
+      toggles: [],
+      styles: {},
+    } as unknown as import("../../../src/blux/grid/extract-map.js").MapConfig;
+    const mapBand: Band = {
+      index: 5,
+      root: {
+        kind: "stack",
+        children: [heading("Find Us"), { kind: "raw", html: mapHtml }],
+      },
+    };
+    const diagnostics: import("../../../src/blux/ir.js").Diagnostic[] = [];
+    const spec = bandOrCollection(
+      mapBand,
+      { sources: ["feed1"], sourceConfig: {} },
+      feeds,
+      {
+        isMapMount: (n) => n.kind === "raw" && n.html.includes('id="club_map"'),
+        mapConfig,
+        diagnostics,
+      },
+    );
+    expect(spec).toMatchObject({
+      slice: "BluxCollection",
+      widgetKind: "map",
+      widgetHtml: mapHtml,
+      mapConfig,
+    });
+    expect(diagnostics).toEqual([]);
+  });
+
+  // Round-2 item 5 — every source validates, not just [0].
+  it("(k) an unknown source in position ≥1 is diagnosed and dropped from feedIds", () => {
+    const diagnostics: import("../../../src/blux/ir.js").Diagnostic[] = [];
+    const spec = bandOrCollection(
+      band,
+      { sources: ["feed1", "ghost"], sourceConfig: {} },
+      feeds,
+      { diagnostics },
+    );
+    expect(spec).toMatchObject({
+      slice: "BluxCollection",
+      entityType: "product",
+      feedIds: ["feed1"], // the valid source survives; "ghost" is dropped
+    });
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toMatchObject({ kind: "skipped-feed" });
+    expect(diagnostics[0]!.message).toContain("ghost");
+  });
+
+  it("(k2) a DO-NOT-USE source in position ≥1 is diagnosed and dropped too", () => {
+    const diagnostics: import("../../../src/blux/ir.js").Diagnostic[] = [];
+    const spec = bandOrCollection(
+      band,
+      { sources: ["feed1", "dead"], sourceConfig: {} },
+      { ...feeds, dead: { name: "DO NOT USE — legacy" } },
+      { diagnostics },
+    );
+    expect(spec).toMatchObject({ slice: "BluxCollection", feedIds: ["feed1"] });
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toMatchObject({ kind: "skipped-feed" });
+    expect(diagnostics[0]!.message).toContain("DO NOT USE");
+  });
+
+  it("(k3) NO valid source keeps the existing skip behavior (collection kept, each source diagnosed)", () => {
+    const diagnostics: import("../../../src/blux/ir.js").Diagnostic[] = [];
+    const spec = bandOrCollection(
+      band,
+      { sources: ["ghost-a", "ghost-b"], sourceConfig: {} },
+      feeds,
+      { diagnostics },
+    );
+    expect(spec).toMatchObject({
+      slice: "BluxCollection",
+      entityType: "collection_item",
+      feedIds: ["ghost-a", "ghost-b"],
+    });
+    expect(diagnostics).toHaveLength(2);
+    expect(diagnostics.every((d) => d.kind === "skipped-feed")).toBe(true);
+  });
+
+  it("(k4) __media with extra sources falls through to the grid path but the extras are diagnosed", () => {
+    const diagnostics: import("../../../src/blux/ir.js").Diagnostic[] = [];
+    const spec = bandOrCollection(
+      band,
+      { sources: ["__media", "feed1"], sourceConfig: {} },
+      feeds,
+      { diagnostics },
+    );
+    expect(spec.slice).not.toBe("BluxCollection");
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toMatchObject({ kind: "skipped-feed" });
+    expect(diagnostics[0]!.message).toContain("feed1");
+  });
+
+  // Round-2 item 10a — diagnostics are addressable: the page uid rides `where`.
+  it("(l) misalign + skipped-feed diagnostics carry the page uid when provided", () => {
+    const contentBand: Band = {
+      index: 2,
+      root: {
+        kind: "stack",
+        children: [heading("Real Section"), { kind: "body", html: "<p>Real parsed content.</p>" }],
+      },
+    };
+    const diagnostics: import("../../../src/blux/ir.js").Diagnostic[] = [];
+    bandOrCollection(contentBand, { sources: ["feed1"], sourceConfig: {} }, feeds, {
+      diagnostics,
+      pageUid: "the-pointe",
+    });
+    expect(diagnostics[0]).toMatchObject({
+      kind: "feed-band-misalign",
+      where: "the-pointe:2",
+    });
+    const diagnostics2: import("../../../src/blux/ir.js").Diagnostic[] = [];
+    bandOrCollection(band, { sources: ["ghost"], sourceConfig: {} }, feeds, {
+      diagnostics: diagnostics2,
+      pageUid: "home",
+    });
+    expect(diagnostics2[0]).toMatchObject({ kind: "skipped-feed", where: "home:3" });
+  });
 });

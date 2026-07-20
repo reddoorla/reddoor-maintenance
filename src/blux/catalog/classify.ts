@@ -15,6 +15,7 @@ import {
 } from "./cells.js";
 import { cropRatioOf, isFeedBand } from "../grid/feed-grid.js";
 import { feedEntityType, isSkippedFeed } from "./feeds.js";
+import { hasVisibleContent } from "./sanitize.js";
 import type {
   BluxBlockSpec,
   BluxCollectionSpec,
@@ -35,6 +36,10 @@ export type BandToCatalogOptions = {
   /** Classify-time diagnostics sink (positional-join misalignments, unknown/
    * skipped feed sources). Absent → those findings go unrecorded, never throw. */
   diagnostics?: Diagnostic[];
+  /** The page being classified — rides diagnostic `where` as `<uid>:<band>`
+   * so same-index findings on different pages stay distinguishable (round-2
+   * item 10a: fitHealthClub's 4 band-3 diagnostics were identical). */
+  pageUid?: string;
 };
 
 const baseOf = (band: Band): CatalogBaseFields => ({
@@ -149,39 +154,72 @@ export function bandOrCollection(
   opts: BandToCatalogOptions = {},
 ): CatalogSpec {
   if (!isFeedBand(item)) return bandToCatalog(band, opts);
+  // Diagnostic addressing (round-2 10a): `<pageUid>:<band>` when the caller
+  // names the page, else the bare band index (option-less unit callers).
+  const where =
+    opts.pageUid !== undefined ? `${opts.pageUid}:${band.index}` : String(band.index);
   const feedIds = item.sources.map(String);
-  if (feedIds[0] === "__media") return bandToCatalog(band, opts);
+  if (feedIds[0] === "__media") {
+    // Media-library galleries materialize via the grid path — but that path
+    // renders sources[0] only, so any EXTRA source riding the same item would
+    // be silently unconsumed (round-2 item 5): diagnose each.
+    for (const id of feedIds.slice(1))
+      opts.diagnostics?.push({
+        kind: "skipped-feed",
+        where,
+        message: `band ${band.index} sources "${id}" alongside __media — the media-library grid renders sources[0] only, the extra source is not consumed`,
+      });
+    return bandToCatalog(band, opts);
+  }
   // Positional-join guard (mirrors convert.ts materializeFeedBands): only a
   // band that lost its content to the feed-template drop is a real feed grid.
   // A CONTENT-BEARING band whose positional item carries sources means the
   // site.json join landed on the wrong band — routing it to a BluxCollection
   // would clobber its parsed content, so it falls through to bandToCatalog.
-  if (!isEmptyish(band.root)) {
+  // Emptyishness IGNORES pure feed-template mounts (round-2 item 1: the real
+  // fitHealthClub band-3 root is `<div data-exec="custom_…">` — the Blux feed
+  // placeholder the collection replaces, not content) and the page's map
+  // mount (a widget the collection lifts below, not content either).
+  if (!isEmptyish(band.root, (n) => isFeedTemplateMount(n) || (opts.isMapMount?.(n) ?? false))) {
     opts.diagnostics?.push({
       kind: "feed-band-misalign",
-      where: String(band.index),
+      where,
       message: `band ${band.index} has parsed content but its site.json item carries feed sources — positional join misaligned, classified as content`,
     });
     return bandToCatalog(band, opts);
   }
-  const feed = feeds[feedIds[0]!];
-  const feedName = String(feed?.name ?? "");
-  // A source that resolves to no feed (or a DO-NOT-USE feed the entity emit
-  // skips) still classifies as a collection, but never silently: the slice
-  // would query zero documents at render time.
-  if (!feed) {
-    opts.diagnostics?.push({
-      kind: "skipped-feed",
-      where: String(band.index),
-      message: `band ${band.index} sources unknown feed "${feedIds[0]}" — the collection will resolve no documents`,
-    });
-  } else if (isSkippedFeed(feedName)) {
-    opts.diagnostics?.push({
-      kind: "skipped-feed",
-      where: String(band.index),
-      message: `band ${band.index} sources feed "${feedName}" (marked DO NOT USE — not migrated) — the collection will resolve no documents`,
-    });
+  // Validate EVERY source, not just [0] (round-2 item 5). An unknown source
+  // (or a DO-NOT-USE feed the entity emit skips) is diagnosed — never silent:
+  // the slice would resolve no documents from it at render time — and dropped
+  // from the spec's feedIds. When NO source survives, the whole band keeps
+  // the existing skip behavior: still a collection (feedIds verbatim), with
+  // the diagnostics naming why it will query zero documents.
+  const validIds: string[] = [];
+  for (const id of feedIds) {
+    const feed = feeds[id];
+    const name = String(feed?.name ?? "");
+    if (!feed) {
+      opts.diagnostics?.push({
+        kind: "skipped-feed",
+        where,
+        message: `band ${band.index} sources unknown feed "${id}" — the collection will resolve no documents from it`,
+      });
+    } else if (isSkippedFeed(name)) {
+      opts.diagnostics?.push({
+        kind: "skipped-feed",
+        where,
+        message: `band ${band.index} sources feed "${name}" (marked DO NOT USE — not migrated) — the collection will resolve no documents from it`,
+      });
+    } else {
+      validIds.push(id);
+    }
   }
+  const keptIds = validIds.length ? validIds : feedIds;
+  const feedName = String(feeds[keptIds[0]!]?.name ?? "");
+  // Collection is a container (decision B, round-2 item 2): a MAP mount riding
+  // the feed band lifts onto the spec through the same widget triple
+  // BluxSection uses — never treated as content, never dropped.
+  const mapHtml = opts.isMapMount ? findMountHtml(band.root, opts.isMapMount) : undefined;
   const cfg = item.sourceConfig ?? {};
   const filterTag = (cfg["filters"] as { tag?: unknown } | undefined)?.tag;
   const sort = cfg["sort"];
@@ -196,7 +234,7 @@ export function bandOrCollection(
     ...baseOf(band),
     ...(heading ? { heading } : {}),
     entityType: feedEntityType(feedName),
-    feedIds,
+    feedIds: keptIds,
     ...(typeof filterTag === "string" && filterTag ? { filterTag } : {}),
     ...(typeof sort === "string" && sort ? { sort } : {}),
     ...(Number.isFinite(limit) && limit > 0 ? { limit } : {}),
@@ -204,16 +242,39 @@ export function bandOrCollection(
     layout:
       (item as { type?: unknown }).type === "slides" ? "carousel" : "grid",
     ...(cfg["scrollLoadMore"] === true ? { scrollLoadMore: true } : {}),
+    ...(mapHtml
+      ? {
+          widgetKind: "map",
+          widgetHtml: mapHtml,
+          ...(opts.mapConfig ? { mapConfig: opts.mapConfig } : {}),
+        }
+      : {}),
   };
   return spec;
 }
 
 // -- helpers --
+/** A raw custom-element feed-template mount: a div whose only substance is a
+ * `data-exec` attr — no visible text, no media (fitHealthClub band 3:
+ * `<div id="custom-element1" data-exec="custom_…"></div>`). It is the Blux
+ * placeholder the collection replaces, so the emptyish guard must not read it
+ * as content. A mount whose markup DOES carry visible content is real content. */
+function isFeedTemplateMount(node: Node): boolean {
+  return (
+    node.kind === "raw" &&
+    /\bdata-exec="custom_[a-f0-9_]+"/.test(node.html) &&
+    !hasVisibleContent(node.html)
+  );
+}
+
 /** Did this band lose its content to the feed-template drop? — its parsed
  * root is empty (just heading(s)/subtitle/empty-raw, no media and no populated
  * row). Local reimplementation of convert.ts's isEmptyish (not exported
- * there) — keep the two in sync. */
-function isEmptyish(root: Node): boolean {
+ * there) — keep the two in sync. `ignore` (feed-band guard only) names nodes
+ * that must not count as content: pure feed-template mounts and the page's
+ * map mount (see bandOrCollection). */
+function isEmptyish(root: Node, ignore?: (n: Node) => boolean): boolean {
+  if (ignore?.(root)) return true;
   switch (root.kind) {
     case "heading":
     case "subtitle":
@@ -223,10 +284,12 @@ function isEmptyish(root: Node): boolean {
     case "media":
     case "widget":
       return false;
-    case "row":
-      return root.cells.length === 0;
+    case "row": {
+      const cells = ignore ? root.cells.filter((c) => !ignore(c.node)) : root.cells;
+      return cells.length === 0;
+    }
     case "stack":
-      return root.children.every(isEmptyish);
+      return root.children.every((c) => isEmptyish(c, ignore));
     default:
       return false;
   }
