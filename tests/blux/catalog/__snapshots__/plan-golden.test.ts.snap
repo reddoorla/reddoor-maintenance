@@ -25,6 +25,11 @@ exports[`catalog plan — the-pointe (golden) > emits a populated, breadth-route
     },
     {
       "alt": "",
+      "id": "e15eb8af-95eb-4aac-b03e-ca1990de534e",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/e15eb8af-95eb-4aac-b03e-ca1990de534e.png",
+    },
+    {
+      "alt": "",
       "id": "0c78a3e9-984b-4697-a025-2fb1055da37e",
       "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/0c78a3e9-984b-4697-a025-2fb1055da37e.png",
     },
@@ -110,8 +115,18 @@ exports[`catalog plan — the-pointe (golden) > emits a populated, breadth-route
     },
     {
       "alt": "",
+      "id": "b640649d-05cf-40c1-9edc-f3fc9d427c76",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/26c9ecb9-bc35-4562-8155-fadfee8df2b2/b640649d-05cf-40c1-9edc-f3fc9d427c76.png",
+    },
+    {
+      "alt": "",
       "id": "cfc17af2-ff1f-40a4-a5bf-4123cd5f355c",
       "url": "https://d3syaxnfm3oj0e.cloudfront.net/26c9ecb9-bc35-4562-8155-fadfee8df2b2/cfc17af2-ff1f-40a4-a5bf-4123cd5f355c.png",
+    },
+    {
+      "alt": "",
+      "id": "966adedb-0315-4afd-b070-8c89f8792267",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/26c9ecb9-bc35-4562-8155-fadfee8df2b2/966adedb-0315-4afd-b070-8c89f8792267.png",
     },
     {
       "alt": "",
@@ -272,17 +287,31 @@ exports[`catalog plan — the-pointe (golden) > emits a populated, breadth-route
               },
               "cells": [
                 {
-                  "body": {
-                    "__richtext_html": "<h4>a monument <br>of excellence</h4>
-Nestled among the biggest names in entertainment, The Pointe  is a modern and elegant haven for the finest tenants in Burbank.",
-                  },
-                  "kind": "text",
-                  "media": {
-                    "__asset_id": "ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
-                  },
-                  "title": {
-                    "__richtext_html": "<h1>The Pointe</h1>",
-                  },
+                  "kind": "subgrid",
+                  "subgrid": [
+                    {
+                      "body": {
+                        "__richtext_html": "<h4>a monument <br>of excellence</h4>
+<p>Nestled among the biggest names in entertainment, The Pointe  is a modern and elegant haven for the finest tenants in Burbank.</p>",
+                      },
+                      "kind": "text",
+                      "title": {
+                        "__richtext_html": "<h3>The Pointe</h3>",
+                      },
+                    },
+                    {
+                      "kind": "media",
+                      "media": {
+                        "__asset_id": "ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
+                      },
+                    },
+                    {
+                      "kind": "media",
+                      "media": {
+                        "__asset_id": "e15eb8af-95eb-4aac-b03e-ca1990de534e",
+                      },
+                    },
+                  ],
                 },
                 {
                   "kind": "media",
@@ -341,7 +370,7 @@ design</p>",
                 {
                   "body": {
                     "__richtext_html": "<h4>premium <br>amenities</h4>
-A campus built for the modern worker, The Pointe offers amenities that enrich the every day.",
+<p>A campus built for the modern worker, The Pointe offers amenities that enrich the every day.</p>",
                   },
                   "kind": "text",
                   "media": {
@@ -372,7 +401,7 @@ A campus built for the modern worker, The Pointe offers amenities that enrich th
                     },
                     {
                       "body": {
-                        "__richtext_html": "Renew and recover with exclusive access to a state-of-the-art <a href="https://www.tbpfit.com/" class="links">FIT Health Club</a> with full-service locker rooms in a spa-like atmosphere. <br>",
+                        "__richtext_html": "<p>Renew and recover with exclusive access to a state-of-the-art <a href="https://www.tbpfit.com/" class="links">FIT Health Club</a> with full-service locker rooms in a spa-like atmosphere. <br></p>",
                       },
                       "kind": "text",
                     },
@@ -383,7 +412,7 @@ A campus built for the modern worker, The Pointe offers amenities that enrich th
                   "subgrid": [
                     {
                       "body": {
-                        "__richtext_html": "Enjoy exclusive access to on-site production and filming studios.",
+                        "__richtext_html": "<p>Enjoy exclusive access to on-site production and filming studios.</p>",
                       },
                       "kind": "text",
                     },
@@ -406,7 +435,7 @@ A campus built for the modern worker, The Pointe offers amenities that enrich th
                     },
                     {
                       "body": {
-                        "__richtext_html": "Head to the MRKT for a quick bite on-the-go, or dine in for a filling meal.",
+                        "__richtext_html": "<p>Head to the MRKT for a quick bite on-the-go, or dine in for a filling meal.</p>",
                       },
                       "kind": "text",
                     },
@@ -450,7 +479,7 @@ lush haven</p>",
                     "__asset_id": "aefbd53c-205a-402a-ba88-6294a555b0aa",
                   },
                   "title": {
-                    "__richtext_html": "<h5>a place to sit and breathe</h5>",
+                    "__richtext_html": "<h4>a place to sit and breathe</h4>",
                   },
                 },
                 {
@@ -459,7 +488,7 @@ lush haven</p>",
                     "__asset_id": "cb6f38b7-4ca7-4590-aeb9-11287fc942e4",
                   },
                   "title": {
-                    "__richtext_html": "<h5>a calm escape right outside your door</h5>",
+                    "__richtext_html": "<h4>a calm escape right outside your door</h4>",
                   },
                 },
                 {
@@ -468,7 +497,7 @@ lush haven</p>",
                     "__asset_id": "88737f87-d643-4435-9eb7-839516e95b38",
                   },
                   "title": {
-                    "__richtext_html": "<h5>a building with a view</h5>",
+                    "__richtext_html": "<h4>a building with a view</h4>",
                   },
                 },
               ],
@@ -485,44 +514,27 @@ lush haven</p>",
               },
               "cells": [
                 {
-                  "body": {
-                    "__richtext_html": "A collection of 13 buildings offering premier office space among the biggest names in entertainment. Explore 3,100,000 SF of endless possibilities.",
-                  },
-                  "kind": "text",
-                  "media": {
-                    "__asset_id": "bf56be7d-863c-4f44-8247-6d92ea7762a9",
-                  },
-                  "title": {
-                    "__richtext_html": "<h4>a property within</h4>",
-                  },
-                },
-              ],
-              "columns": 2,
-            },
-            "slice_type": "blux_grid",
-            "variation": "default",
-          },
-          {
-            "items": [],
-            "primary": {
-              "cells": [
-                {
-                  "embed_html": "<video controls playsinline src="https://dv4tl7yyk1zlp.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/c023afe4-996f-4013-83ab-2634ea55355d.mp4"></video>",
-                  "kind": "media",
-                },
-                {
                   "kind": "subgrid",
                   "subgrid": [
                     {
+                      "body": {
+                        "__richtext_html": "<p>A collection of 13 buildings offering premier office space among the biggest names in entertainment. Explore 3,100,000 SF of endless possibilities.</p>",
+                      },
                       "kind": "text",
+                      "title": {
+                        "__richtext_html": "<h4>a property within</h4>",
+                      },
                     },
                     {
-                      "kind": "text",
+                      "kind": "media",
                       "media": {
-                        "__asset_id": "cfc17af2-ff1f-40a4-a5bf-4123cd5f355c",
+                        "__asset_id": "bf56be7d-863c-4f44-8247-6d92ea7762a9",
                       },
-                      "title": {
-                        "__richtext_html": "<h4>presented by</h4>",
+                    },
+                    {
+                      "kind": "media",
+                      "media": {
+                        "__asset_id": "b640649d-05cf-40c1-9edc-f3fc9d427c76",
                       },
                     },
                   ],
@@ -536,6 +548,14 @@ lush haven</p>",
           {
             "items": [],
             "primary": {
+              "payload": "{"tag":"div","children":[{"tag":"div","children":[{"tag":"figure","html":"<video controls playsinline src=\\"https://dv4tl7yyk1zlp.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/c023afe4-996f-4013-83ab-2634ea55355d.mp4\\"></video>"}]},{"tag":"div","style":{"display":"grid"},"children":[{"html":"<div id=\\"page-block-10-item-1-item-0\\" class=\\"blocks0\\"><div class=\\"blockcontainer blocks0container\\" style=\\"padding: 0px;\\"><div class=\\"block-content\\"></div></div></div>"},{"tag":"div","children":[{"tag":"h4","html":"presented by"},{"tag":"div","style":{"display":"grid"},"children":[{"tag":"div","children":[{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/26c9ecb9-bc35-4562-8155-fadfee8df2b2/cfc17af2-ff1f-40a4-a5bf-4123cd5f355c.png","alt":""}}]},{"tag":"div","children":[{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/26c9ecb9-bc35-4562-8155-fadfee8df2b2/966adedb-0315-4afd-b070-8c89f8792267.png","alt":""}}]}]}]}]}]}",
+            },
+            "slice_type": "blux_block",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
               "background_image": {
                 "__asset_id": "6dd54dfc-b4d1-4ef2-8165-a1f2421668bf",
               },
@@ -543,7 +563,7 @@ lush haven</p>",
                 {
                   "body": {
                     "__richtext_html": "<h4>a city full of possibilities</h4>
-Burbank offers a wide range of opportunities from its network of world-renowned studios, accessible airport, and recreational activities.",
+<p>Burbank offers a wide range of opportunities from its network of world-renowned studios, accessible airport, and recreational activities.</p>",
                   },
                   "embed_html": "<a class="ib middle buttons2" href="https://dv4tl7yyk1zlp.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/1b5b96c1-16fb-4d8b-8cb0-f71938af22c0.pdf">Burbank Incentives</a>",
                   "kind": "text",
@@ -569,7 +589,7 @@ Burbank offers a wide range of opportunities from its network of world-renowned 
                   "subgrid": [
                     {
                       "body": {
-                        "__richtext_html": "Be part of the community among the biggest names in entertainment. <br>",
+                        "__richtext_html": "<p>Be part of the community among the biggest names in entertainment. <br></p>",
                       },
                       "kind": "text",
                     },
@@ -592,7 +612,7 @@ Burbank offers a wide range of opportunities from its network of world-renowned 
                     },
                     {
                       "body": {
-                        "__richtext_html": "Fly, surf, ski, all within an hour away. Plus every business partner is around the corner.<br>",
+                        "__richtext_html": "<p>Fly, surf, ski, all within an hour away. Plus every business partner is around the corner.<br></p>",
                       },
                       "kind": "text",
                     },
@@ -603,7 +623,7 @@ Burbank offers a wide range of opportunities from its network of world-renowned 
                   "subgrid": [
                     {
                       "body": {
-                        "__richtext_html": "Day or night, Burbank delights with vibrant energy and one-of-a-kind character.",
+                        "__richtext_html": "<p>Day or night, Burbank delights with vibrant energy and one-of-a-kind character.</p>",
                       },
                       "kind": "text",
                     },

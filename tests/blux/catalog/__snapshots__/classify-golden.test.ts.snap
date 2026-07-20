@@ -2,10 +2,10 @@
 
 exports[`catalog breadth classify — the-pointe (golden) > routes every band and captures the vast majority of source media 1`] = `
 {
-  "captured": 43,
+  "captured": 46,
   "lines": [
     "0 BluxGrid media=1",
-    "1 BluxGrid media=2",
+    "1 BluxGrid media=3",
     "2 BluxSection media=0",
     "3 BluxBlock media=6",
     "4 BluxGrid media=0",
@@ -13,8 +13,8 @@ exports[`catalog breadth classify — the-pointe (golden) > routes every band an
     "6 BluxGrid media=3",
     "7 BluxSection media=0",
     "8 BluxCarousel media=3",
-    "9 BluxGrid media=1",
-    "10 BluxGrid media=2",
+    "9 BluxGrid media=2",
+    "10 BluxBlock media=3",
     "11 BluxGrid media=1",
     "12 BluxGrid media=3",
     "13 BluxSection media=0",

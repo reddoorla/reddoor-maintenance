@@ -6,12 +6,14 @@ import { bandToCatalog } from "../../../src/blux/catalog/index.js";
 import type { CatalogCell, CatalogSpec } from "../../../src/blux/catalog/index.js";
 
 /** Media captured by a catalog spec: leaf media, cell media (recursive through
- * subgrid), or — for the BluxBlock fallback — image entries in the serialized
- * payload. The golden pins the capture RATE: the skeleton managed 7/52; the
- * breadth classifier must not silently regress below 90%. */
+ * subgrid), or — for the BluxBlock fallback — the spec's own media list (every
+ * Media under the source subtree; the payload inlines images as `"image"`
+ * entries and videos as `<video>` html, so scraping the payload would
+ * undercount video-bearing bands). The golden pins the capture RATE: the
+ * skeleton managed 7/52; the breadth classifier must not silently regress
+ * below 90%. */
 function specMediaCount(spec: CatalogSpec): number {
-  if (spec.slice === "BluxBlock")
-    return JSON.stringify(spec.payload).split('"image"').length - 1;
+  if (spec.slice === "BluxBlock") return spec.media.length;
   if (spec.slice === "BluxMedia" || spec.slice === "BluxMediaText") return 1;
   const walk = (cs: CatalogCell[]): number =>
     cs.reduce(
