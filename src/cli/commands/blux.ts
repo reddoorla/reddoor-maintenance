@@ -12,6 +12,7 @@ import { materializeProducts, type ProductRecord } from "../../blux/products.js"
 import { convertExport, convertSite, sitePages } from "../../blux/emit/convert.js";
 import { bandOrCollection, buildCatalogPlan } from "../../blux/catalog/index.js";
 import type { CatalogSpec } from "../../blux/catalog/index.js";
+import { resolveFixture } from "../../blux/catalog/resolve-fixture.js";
 import { rewriteDocUrls } from "../../blux/catalog/rewrite-doc-urls.js";
 import { buildChrome } from "../../blux/catalog/chrome.js";
 import { buildSiteConfig, socialHrefResolverFromHtml } from "../../blux/emit/site-config.js";
@@ -631,6 +632,17 @@ export async function runBluxCommand(
     const outDir = opts.out ?? join(dir, "blux-out");
     await mkdir(outDir, { recursive: true });
     await writeFile(join(outDir, "migration-plan.json"), JSON.stringify(plan, null, 2));
+    // Task 5: an OFFLINE render fixture for the starter's fidelity-gate route
+    // (Task 8). resolveFixture resolves the plan's markers into the Prismic-
+    // HYDRATED shapes the production SliceZone consumes (richtext → node arrays,
+    // asset → {url,alt,dimensions}) — the live migrate path resolves the same
+    // markers into Migration API shapes instead. It runs on the plan BEFORE any
+    // migrate url-rewrite, so image urls are still the Blux CDN (correct for the
+    // offline gate, which allowlists CDN 404s).
+    await writeFile(
+      join(outDir, "render-fixture.json"),
+      JSON.stringify(resolveFixture(plan), null, 2),
+    );
     // Site chrome (Task 4): nav via the frozen buildSiteConfig extraction,
     // footer with FULL columns (the-pointe's leasing contacts with tel/mailto
     // links — site-config's socials+text reduction is too thin). Chrome media

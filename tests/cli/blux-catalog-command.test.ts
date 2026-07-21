@@ -154,6 +154,31 @@ describe("blux catalog", () => {
     const ct = plan.customTypes.find((c: { id: string }) => c.id === "person");
     expect(ct).toBeDefined();
   });
+
+  // Task 5 (plan 4d): the OFFLINE render fixture for the starter fidelity-gate
+  // route — plan markers resolved into the Prismic-HYDRATED shapes the
+  // production SliceZone consumes (richtext → node arrays, asset → url image
+  // fields), with entity docs grouped by type for context.collections.
+  it("writes render-fixture.json: page docs with array slices, entities grouped, zero markers", async () => {
+    const fxPath = join(out, "render-fixture.json");
+    expect(existsSync(fxPath)).toBe(true);
+    const raw = await readFile(fxPath, "utf-8");
+    const fx = JSON.parse(raw) as {
+      documents: { type: string; uid: string; data: { slices?: unknown } }[];
+      collections: Record<string, { uid: string }[]>;
+      missingAssets: string[];
+    };
+    // Only the page doc lands in documents; the Team feed's person entities are
+    // grouped under collections for SliceZone context.collections.
+    expect(fx.documents).toHaveLength(1);
+    expect(fx.documents[0]).toMatchObject({ type: "page", uid: "home" });
+    expect(Array.isArray(fx.documents[0]!.data.slices)).toBe(true);
+    expect(fx.collections.person!.map((d) => d.uid)).toContain("jane-doe");
+    // Offline-resolution proof: NO unresolved plan markers survive into the
+    // fixture the render consumes.
+    expect(raw).not.toContain("__richtext_html");
+    expect(raw).not.toContain("__asset_id");
+  });
 });
 
 // Round-2 items 3 + 10b: classify/join diagnostics must land in the WRITTEN
@@ -242,6 +267,15 @@ describe("blux catalog — IR asset index (sourceUrl fallback)", () => {
     const asset = plan.assets.find((a) => a.id === "aaaa-bbbb");
     expect(asset?.url).toBe("https://d3syaxnfm3oj0e.cloudfront.net/site-1/aaaa-bbbb.png");
     expect(plan.diagnostics.filter((d) => d.kind === "unresolved-asset")).toHaveLength(0);
+
+    // Task 5: the render fixture resolves that same media marker into a
+    // hydrated image field carrying the scraped CDN url (offline, no Prismic
+    // round-trip) — so an image field with a url is present, markers are gone.
+    const raw = await readFile(join(out, "render-fixture.json"), "utf-8");
+    expect(raw).toContain("https://d3syaxnfm3oj0e.cloudfront.net/site-1/aaaa-bbbb.png");
+    expect(raw).toContain('"dimensions"');
+    expect(raw).not.toContain("__asset_id");
+    expect(raw).not.toContain("__richtext_html");
   });
 });
 
