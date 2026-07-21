@@ -193,6 +193,18 @@ export function bandOrCollection(
   // the diagnostics naming why it will query zero documents.
   const validIds: string[] = [];
   for (const id of feedIds) {
+    if (id === "__media") {
+      // Round-3 5b: the media-library sentinel is only meaningful as
+      // sources[0] (where the grid path renders it — see above). In a later
+      // position it is a KNOWN sentinel, not an unknown feed — named as such
+      // and dropped from the collection's feed ids.
+      opts.diagnostics?.push({
+        kind: "skipped-feed",
+        where,
+        message: `band ${band.index} sources the __media media-library sentinel alongside feed sources — it only renders as sources[0]; dropped from the collection`,
+      });
+      continue;
+    }
     const feed = feeds[id];
     const name = String(feed?.name ?? "");
     if (!feed) {
@@ -211,7 +223,9 @@ export function bandOrCollection(
       validIds.push(id);
     }
   }
-  const keptIds = validIds.length ? validIds : feedIds;
+  // Round-3 5a: duplicate sources (["feed-1","feed-1"]) must not duplicate
+  // feed_ids — dedupe, keeping first-seen order.
+  const keptIds = [...new Set(validIds.length ? validIds : feedIds)];
   const feedName = String(feeds[keptIds[0]!]?.name ?? "");
   // Collection is a container (decision B, round-2 item 2): a MAP mount riding
   // the feed band lifts onto the spec through the same widget triple
@@ -276,7 +290,11 @@ function isEmptyish(root: Node, ignore?: (n: Node) => boolean): boolean {
     case "widget":
       return false;
     case "row": {
-      const cells = ignore ? root.cells.filter((c) => !ignore(c.node)) : root.cells;
+      // Round-3 5c: `ignore` applies through wrapper stacks too — a mount the
+      // parser boxed in a stack inside a row cell is still just the mount.
+      const cells = ignore
+        ? root.cells.filter((c) => !isIgnoredSubtree(c.node, ignore))
+        : root.cells;
       return cells.length === 0;
     }
     case "stack":
@@ -362,6 +380,19 @@ function containsWidgetNode(node: Node): boolean {
         ? node.children
         : [];
   return children.some(containsWidgetNode);
+}
+
+/** Whether `ignore` swallows a whole subtree: the node itself, or a NON-EMPTY
+ * stack of nothing but ignored subtrees (round-3 5c: the parser sometimes
+ * boxes a mount in a wrapper stack inside a row cell). An empty stack still
+ * counts as a cell, exactly as before. */
+function isIgnoredSubtree(node: Node, ignore: (n: Node) => boolean): boolean {
+  if (ignore(node)) return true;
+  return (
+    node.kind === "stack" &&
+    node.children.length > 0 &&
+    node.children.every((c) => isIgnoredSubtree(c, ignore))
+  );
 }
 /** One carousel slide → a media cell. The caption html is wrapper-less in the
  * parser, so it is wrapped at the slide's own heading level; the subcaption

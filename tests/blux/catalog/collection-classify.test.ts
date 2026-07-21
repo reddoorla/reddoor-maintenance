@@ -378,4 +378,152 @@ describe("bandOrCollection", () => {
     });
     expect(diagnostics2[0]).toMatchObject({ kind: "skipped-feed", where: "home:3" });
   });
+
+  // Round-3 item 5a — duplicate sources must not duplicate feed ids
+  // (feed_ids would emit "feed-1,feed-1").
+  it("(m) duplicate sources dedupe: feedIds lists each feed once", () => {
+    const diagnostics: import("../../../src/blux/ir.js").Diagnostic[] = [];
+    const spec = bandOrCollection(
+      band,
+      { sources: ["feed1", "feed1"], sourceConfig: {} },
+      feeds,
+      { diagnostics },
+    );
+    expect(spec).toMatchObject({ slice: "BluxCollection", feedIds: ["feed1"] });
+    expect(diagnostics).toEqual([]);
+  });
+
+  // Round-3 item 5b — __media past position 0 is a KNOWN sentinel, not an
+  // unknown feed: the diagnostic names it as such; it still leaves feedIds.
+  it("(n) __media in a later source position is diagnosed as the sentinel it is, and dropped", () => {
+    const diagnostics: import("../../../src/blux/ir.js").Diagnostic[] = [];
+    const spec = bandOrCollection(
+      band,
+      { sources: ["feed1", "__media"], sourceConfig: {} },
+      feeds,
+      { diagnostics },
+    );
+    expect(spec).toMatchObject({ slice: "BluxCollection", feedIds: ["feed1"] });
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toMatchObject({ kind: "skipped-feed" });
+    expect(diagnostics[0]!.message).toContain("__media");
+    expect(diagnostics[0]!.message).toContain("media-library");
+    expect(diagnostics[0]!.message).not.toContain("unknown feed");
+  });
+
+  // Round-3 item 5c — the emptyish guard's `ignore` applies through wrapper
+  // stacks inside row cells too (probe-verified nesting).
+  it("(o) a mount wrapped in a stack inside a row cell is still ignored by the emptyish guard", () => {
+    const mount: Node = {
+      kind: "raw",
+      html: '<div id="custom-element1" data-exec="custom_ab12"></div>',
+    };
+    const rowBand: Band = {
+      index: 3,
+      root: {
+        kind: "row",
+        cells: [
+          { token: { cols: 1, raw: "grid-1" }, node: { kind: "stack", children: [mount] } },
+        ],
+      },
+    };
+    const diagnostics: import("../../../src/blux/ir.js").Diagnostic[] = [];
+    const spec = bandOrCollection(
+      rowBand,
+      { sources: ["feed1"], sourceConfig: {} },
+      feeds,
+      { diagnostics },
+    );
+    expect(spec.slice).toBe("BluxCollection");
+    expect(diagnostics).toEqual([]);
+  });
+
+  // Round-3 item 5d — probe-verified mount-guard shapes, locked as repo tests.
+  it("(p) a whitespace-only mount is still a placeholder → collection", () => {
+    const wsBand: Band = {
+      index: 3,
+      root: {
+        kind: "raw",
+        html: '<div id="custom-element1" data-exec="custom_ab12">  \n </div>',
+      },
+    };
+    const spec = bandOrCollection(wsBand, { sources: ["feed1"], sourceConfig: {} }, feeds, {});
+    expect(spec.slice).toBe("BluxCollection");
+  });
+
+  it("(q) multiple mounts in one band are all placeholders → collection", () => {
+    const twoMounts: Band = {
+      index: 3,
+      root: {
+        kind: "stack",
+        children: [
+          { kind: "raw", html: '<div id="custom-element1" data-exec="custom_ab12"></div>' },
+          { kind: "raw", html: '<div id="custom-element2" data-exec="custom_cd34"></div>' },
+        ],
+      },
+    };
+    const spec = bandOrCollection(twoMounts, { sources: ["feed1"], sourceConfig: {} }, feeds, {});
+    expect(spec.slice).toBe("BluxCollection");
+  });
+
+  it("(r) a mount as a DIRECT row-cell node → collection", () => {
+    const rowBand: Band = {
+      index: 3,
+      root: {
+        kind: "row",
+        cells: [
+          {
+            token: { cols: 1, raw: "grid-1" },
+            node: {
+              kind: "raw",
+              html: '<div id="custom-element1" data-exec="custom_ab12"></div>',
+            },
+          },
+        ],
+      },
+    };
+    const spec = bandOrCollection(rowBand, { sources: ["feed1"], sourceConfig: {} }, feeds, {});
+    expect(spec.slice).toBe("BluxCollection");
+  });
+
+  it("(s) a mount containing an <img> is content → misalign", () => {
+    const imgBand: Band = {
+      index: 3,
+      root: {
+        kind: "raw",
+        html: '<div id="custom-element1" data-exec="custom_ab12"><img src="tile.jpg"></div>',
+      },
+    };
+    const diagnostics: import("../../../src/blux/ir.js").Diagnostic[] = [];
+    const spec = bandOrCollection(
+      imgBand,
+      { sources: ["feed1"], sourceConfig: {} },
+      feeds,
+      { diagnostics },
+    );
+    expect(spec.slice).not.toBe("BluxCollection");
+    expect(diagnostics[0]).toMatchObject({ kind: "feed-band-misalign" });
+  });
+
+  it("(t) a mount riding next to visible body text → misalign", () => {
+    const mixed: Band = {
+      index: 3,
+      root: {
+        kind: "stack",
+        children: [
+          { kind: "raw", html: '<div id="custom-element1" data-exec="custom_ab12"></div>' },
+          { kind: "body", html: "<p>Hand-written copy</p>" },
+        ],
+      },
+    };
+    const diagnostics: import("../../../src/blux/ir.js").Diagnostic[] = [];
+    const spec = bandOrCollection(
+      mixed,
+      { sources: ["feed1"], sourceConfig: {} },
+      feeds,
+      { diagnostics },
+    );
+    expect(spec.slice).not.toBe("BluxCollection");
+    expect(diagnostics[0]).toMatchObject({ kind: "feed-band-misalign" });
+  });
 });
