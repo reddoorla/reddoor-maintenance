@@ -17,29 +17,31 @@ export type CatalogCell = {
   subgrid?: CatalogCell[];
 };
 
-/** A container band → the Plan-2 `blux_section` slice. `index` is the slice-zone
- * position (kept for parity with SliceSpec + future manifest-free ordering).
- * Decision-B widget routing (plan 4b): a band whose sole content is a custom
- * mount (the map) becomes a section carrying the ORIGINAL mount html on
- * `widgetHtml` (pristine — sanitize is emit's concern) with `widgetKind`
- * naming it; for maps the extracted `MapConfig` rides along so emit can inline
- * it into the document. */
-export type BluxSectionSpec = {
-  slice: "BluxSection";
+/** Fields shared by every catalog spec. `index` is the slice-zone position
+ * (kept for parity with SliceSpec + future manifest-free ordering).
+ * Decision-B widget routing (plan 4b, round 3): ANY spec can carry a custom
+ * mount (the map) as a widget — the ORIGINAL mount html rides `widgetHtml`
+ * (pristine — sanitize is emit's concern) with `widgetKind` naming it; for
+ * maps the extracted `MapConfig` rides along so emit can inline it into the
+ * document. The triple lives HERE (round 3) because every real fleet map band
+ * holds the mount PLUS panel rows, so it routes Grid/Block — not just the
+ * Section/Collection containers. */
+export type CatalogBase = {
   index: number;
   background?: Media;
   backgroundColor?: string;
-  heading?: CatalogRichText;
-  cells: CatalogCell[];
   widgetKind?: string;
   widgetHtml?: string;
   mapConfig?: MapConfig;
 };
 
-type CatalogBase = {
-  index: number;
-  background?: Media;
-  backgroundColor?: string;
+/** A container band → the Plan-2 `blux_section` slice. A band whose sole
+ * content is a custom mount becomes a section carrying the widget triple
+ * (see CatalogBase) with no cells. */
+export type BluxSectionSpec = CatalogBase & {
+  slice: "BluxSection";
+  heading?: CatalogRichText;
+  cells: CatalogCell[];
 };
 
 export type BluxGridSpec = CatalogBase & {
@@ -76,8 +78,8 @@ export type BluxMediaTextSpec = CatalogBase & {
  * §7 rule 1). The slice carries NO cells — the starter resolves the mapped
  * entity documents at load time and renders them through the tagFilter DSL.
  * Collection is a CONTAINER (decision B): a widget mount can ride it exactly
- * like BluxSection (`widgetKind`/`widgetHtml`/`mapConfig`, emitted through the
- * same widgetFields path). */
+ * like BluxSection (the CatalogBase widget triple, emitted through the same
+ * widgetFields path). */
 export type BluxCollectionSpec = CatalogBase & {
   slice: "BluxCollection";
   heading?: CatalogRichText;
@@ -89,9 +91,6 @@ export type BluxCollectionSpec = CatalogBase & {
   mediaRatio?: string;
   layout: "grid" | "carousel";
   scrollLoadMore?: boolean;
-  widgetKind?: string;
-  widgetHtml?: string;
-  mapConfig?: MapConfig;
 };
 
 /** Content-preserving fallback: the serialized node tree (Prismic can't nest

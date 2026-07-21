@@ -15,7 +15,7 @@ import {
 import { videoTag } from "./cells.js";
 import { buildEntityEmit } from "./entities.js";
 import { hasVisibleContent, sanitizeHtml } from "./sanitize.js";
-import type { BlockNode, BluxSectionSpec, CatalogCell, CatalogSpec } from "./spec.js";
+import type { BlockNode, CatalogBase, CatalogCell, CatalogSpec } from "./spec.js";
 
 /** Clamp a heading level into the `[min, max]` window a target field's model
  * allows. Classify wraps headings at their TRUE source level (section-heading
@@ -38,19 +38,22 @@ function clampHeadingHtml(html: string, min: number, max: number): string {
   return `<h${level}>${m[2]}</h${level}>`;
 }
 
-/** Emit-time context: the band index (for diagnostics `where`) and the
- * optional diagnostics sink threaded down from `buildCatalogPlan`. */
-type EmitCtx = { index: number; diagnostics?: Diagnostic[] };
+/** Emit-time context: the band index + owning page uid (for diagnostics
+ * `where`) and the optional diagnostics sink threaded down from
+ * `buildCatalogPlan`. */
+type EmitCtx = { index: number; pageUid?: string; diagnostics?: Diagnostic[] };
 
 const MOUNT_RE = /data-exec="(custom_[a-f0-9_]+)"/;
 
 /** Record a dropped behavior-script widget — never silent. A custom mount
- * names its widget uuid; other script-only embeds report generically. */
+ * names its widget uuid; other script-only embeds report generically. `where`
+ * is page-qualified (round-3 4: `<pageUid>:<band>`) whenever the caller knows
+ * the page — a bare band index is ambiguous across a multi-page site. */
 function reportDrop(ctx: EmitCtx, html: string): void {
   const uuid = MOUNT_RE.exec(html)?.[1];
   ctx.diagnostics?.push({
     kind: "dropped-widget",
-    where: `band ${ctx.index}`,
+    where: ctx.pageUid !== undefined ? `${ctx.pageUid}:${ctx.index}` : `band ${ctx.index}`,
     message: uuid
       ? `custom widget ${uuid} is a behavior script (no visible content) — not migrated`
       : "embed html has no visible content after sanitize — not migrated",
@@ -118,11 +121,11 @@ function heading(spec: CatalogSpec): Record<string, unknown> {
  * and hydrates an interactive Google map on the mount, while the sanitized
  * legend markup renders statically regardless. Config JSON escapes `'` as
  * &#39; so the single-quoted attribute survives any styles content. The
- * parameter is structural (the widget triple) so container specs beyond
- * BluxSection — blux_collection is a container too (decision B) — share the
- * exact same emission. */
+ * parameter is structural (the CatalogBase widget triple) so every spec that
+ * can carry a widget — Section, Collection, and (round 3) Grid + Block —
+ * shares the exact same emission and Section-identical field names. */
 function widgetFields(
-  spec: Pick<BluxSectionSpec, "widgetKind" | "widgetHtml" | "mapConfig">,
+  spec: Pick<CatalogBase, "widgetKind" | "widgetHtml" | "mapConfig">,
 ): Record<string, unknown> {
   if (!spec.widgetHtml) return {};
   const clean = sanitizeHtml(spec.widgetHtml);
@@ -137,12 +140,18 @@ function widgetFields(
 
 /** Map one catalog spec to its populated page-doc slice (Plan-2 field names).
  * `diagnostics` (optional) records every content drop — dropped behavior-script
- * widgets are reported, never silent. */
+ * widgets are reported, never silent. `pageUid` (optional) page-qualifies the
+ * drops' `where` — `buildCatalogPlan` always passes it. */
 export function catalogSpecToPlanSlice(
   spec: CatalogSpec,
   diagnostics?: Diagnostic[],
+  pageUid?: string,
 ): PlanSlice {
-  const ctx: EmitCtx = { index: spec.index, ...(diagnostics ? { diagnostics } : {}) };
+  const ctx: EmitCtx = {
+    index: spec.index,
+    ...(pageUid !== undefined ? { pageUid } : {}),
+    ...(diagnostics ? { diagnostics } : {}),
+  };
   const bg = spec.background
     ? { background_image: assetRef(spec.background.assetId) }
     : {};
@@ -163,6 +172,7 @@ export function catalogSpecToPlanSlice(
         ...bg,
         ...bgc,
         ...heading(spec),
+        ...widgetFields(spec),
         ...(spec.columns ? { columns: spec.columns } : {}),
         cells: emitCells(spec.cells, ctx),
       });
@@ -222,9 +232,9 @@ export function catalogSpecToPlanSlice(
         ...(spec.scrollLoadMore ? { scroll_load_more: "on" } : {}),
       });
     case "BluxBlock": {
-      // The starter's blux_block model has ONLY `payload` — no background
-      // fields (the Migration API may reject unknown primary fields), so the
-      // band background rides a payload wrapper div instead. Style keys are
+      // The starter's blux_block model has NO background fields (the
+      // Migration API may reject unknown primary fields), so the band
+      // background rides a payload wrapper div instead. Style keys are
       // kebab-case: the starter's styleString emits keys VERBATIM into the
       // style attribute, so camelCase would parse to zero CSS declarations.
       const wrapStyle: Record<string, string> = {
@@ -245,7 +255,13 @@ export function catalogSpecToPlanSlice(
       const payload = Object.keys(wrapStyle).length
         ? { tag: "div", style: wrapStyle, children: [clean] }
         : clean;
-      return sliceOf("blux_block", { payload: JSON.stringify(payload) });
+      // Round 3: a Block-fallback band can carry a lifted map mount too — the
+      // widget triple emits with Section-identical field names (the starter
+      // render util is shared across the catalog slices).
+      return sliceOf("blux_block", {
+        ...widgetFields(spec),
+        payload: JSON.stringify(payload),
+      });
     }
   }
 }
@@ -325,7 +341,7 @@ export function buildCatalogPlan(
     uid: p.uid,
     data: {
       title: richText(`<h1>${p.title}</h1>`),
-      slices: p.specs.map((s) => catalogSpecToPlanSlice(s, diagnostics)),
+      slices: p.specs.map((s) => catalogSpecToPlanSlice(s, diagnostics, p.uid)),
     },
   }));
   if (entity) {

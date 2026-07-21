@@ -107,27 +107,27 @@ export function sliceSpecToCatalog(
       };
     case "LocationMap": {
       // Decision B (4b): the map band becomes a BluxSection carrying the
-      // ORIGINAL mount raw html as a widget. classifyBand rewrote a COPY of
-      // the tree (widget nodes carry no html) — band.root still holds the raw
-      // mount node, so re-find it with the same predicate. Emit sanitizes and
-      // inlines the MapConfig; classify keeps the html pristine.
-      const mountHtml = opts.isMapMount
-        ? findMountHtml(band.root, opts.isMapMount)
-        : undefined;
-      if (!mountHtml) return blockSpec(band.root, base); // predicate-less caller: 4a fallback
-      return {
-        slice: "BluxSection",
-        ...base,
-        cells: [],
-        widgetKind: "map",
-        widgetHtml: mountHtml,
-        ...(opts.mapConfig ? { mapConfig: opts.mapConfig } : {}),
-      };
+      // ORIGINAL mount raw html as a widget (see liftMapWidget). Emit
+      // sanitizes and inlines the MapConfig; classify keeps the html pristine.
+      const widget = liftMapWidget(band, opts);
+      if (!widget) return blockSpec(band.root, base); // predicate-less caller: 4a fallback
+      return { slice: "BluxSection", ...base, cells: [], ...widget };
     }
     case "Grid":
-    default:
+    default: {
       // Rich grid when it fits the depth-2 model; else the opaque fallback.
-      return gridOrBlock(spec.root, base);
+      // Round 3: every REAL fleet map band holds the mount PLUS panel rows,
+      // so it routes HERE (never LocationMap) — and classifyBand's rewrite
+      // left an html-less widget node in spec.root, which the Block path
+      // serialized as an empty div: map, legend chips, and MapConfig silently
+      // vanished from the plan. Lift the ORIGINAL mount from band.root onto
+      // the container spec (the CatalogBase widget triple — both BluxGrid and
+      // the BluxBlock fallback carry it); when the band holds a mount the
+      // lift cannot recover, say so — never silent.
+      const widget = liftMapWidget(band, opts);
+      if (!widget) reportUnrecoveredMount(spec.root, band, opts);
+      return { ...gridOrBlock(spec.root, base), ...(widget ?? {}) };
+    }
   }
 }
 
@@ -154,10 +154,7 @@ export function bandOrCollection(
   opts: BandToCatalogOptions = {},
 ): CatalogSpec {
   if (!isFeedBand(item)) return bandToCatalog(band, opts);
-  // Diagnostic addressing (round-2 10a): `<pageUid>:<band>` when the caller
-  // names the page, else the bare band index (option-less unit callers).
-  const where =
-    opts.pageUid !== undefined ? `${opts.pageUid}:${band.index}` : String(band.index);
+  const where = whereOf(band, opts);
   const feedIds = item.sources.map(String);
   if (feedIds[0] === "__media") {
     // Media-library galleries materialize via the grid path — but that path
@@ -219,7 +216,7 @@ export function bandOrCollection(
   // Collection is a container (decision B, round-2 item 2): a MAP mount riding
   // the feed band lifts onto the spec through the same widget triple
   // BluxSection uses — never treated as content, never dropped.
-  const mapHtml = opts.isMapMount ? findMountHtml(band.root, opts.isMapMount) : undefined;
+  const widget = liftMapWidget(band, opts);
   const cfg = item.sourceConfig ?? {};
   const filterTag = (cfg["filters"] as { tag?: unknown } | undefined)?.tag;
   const sort = cfg["sort"];
@@ -242,13 +239,7 @@ export function bandOrCollection(
     layout:
       (item as { type?: unknown }).type === "slides" ? "carousel" : "grid",
     ...(cfg["scrollLoadMore"] === true ? { scrollLoadMore: true } : {}),
-    ...(mapHtml
-      ? {
-          widgetKind: "map",
-          widgetHtml: mapHtml,
-          ...(opts.mapConfig ? { mapConfig: opts.mapConfig } : {}),
-        }
-      : {}),
+    ...(widget ?? {}),
   };
   return spec;
 }
@@ -313,6 +304,64 @@ function findMountHtml(
     if (found !== undefined) return found;
   }
   return undefined;
+}
+
+/** Diagnostic addressing (round-2 10a): `<pageUid>:<band>` when the caller
+ * names the page, else the bare band index (option-less unit callers). */
+function whereOf(band: Band, opts: BandToCatalogOptions): string {
+  return opts.pageUid !== undefined
+    ? `${opts.pageUid}:${band.index}`
+    : String(band.index);
+}
+
+/** Decision-B mount recovery, shared by every container route (LocationMap →
+ * Section, feed band → Collection, and — round 3 — Grid/Block): classifyBand
+ * rewrote its COPY of the tree (the mount is an html-less widget node), but
+ * `band.root` still holds the ORIGINAL raw mount — re-find it with the same
+ * predicate. Returns the CatalogBase widget triple to spread onto the spec,
+ * or undefined when no mount html is recoverable. */
+function liftMapWidget(
+  band: Band,
+  opts: BandToCatalogOptions,
+): { widgetKind: "map"; widgetHtml: string; mapConfig?: MapConfig } | undefined {
+  const mountHtml = opts.isMapMount
+    ? findMountHtml(band.root, opts.isMapMount)
+    : undefined;
+  if (mountHtml === undefined) return undefined;
+  return {
+    widgetKind: "map",
+    widgetHtml: mountHtml,
+    ...(opts.mapConfig ? { mapConfig: opts.mapConfig } : {}),
+  };
+}
+
+/** Round-3 never-silent guard: classifyBand marked a mount (an html-less
+ * `widget` node in its rewritten tree) but the lift recovered nothing — no
+ * predicate, or one that no longer matches band.root. Without this the mount
+ * would vanish with ZERO diagnostics (blockPayload serializes the widget node
+ * as an empty div). */
+function reportUnrecoveredMount(
+  rewrittenRoot: Node,
+  band: Band,
+  opts: BandToCatalogOptions,
+): void {
+  if (!containsWidgetNode(rewrittenRoot)) return;
+  opts.diagnostics?.push({
+    kind: "dropped-widget",
+    where: whereOf(band, opts),
+    message: `band ${band.index} holds a widget mount but no mount html was recovered (no predicate, or one that no longer matches band.root) — the widget is dropped`,
+  });
+}
+
+function containsWidgetNode(node: Node): boolean {
+  if (node.kind === "widget") return true;
+  const children =
+    node.kind === "row"
+      ? node.cells.map((c) => c.node)
+      : node.kind === "stack"
+        ? node.children
+        : [];
+  return children.some(containsWidgetNode);
 }
 /** One carousel slide → a media cell. The caption html is wrapper-less in the
  * parser, so it is wrapped at the slide's own heading level; the subcaption
