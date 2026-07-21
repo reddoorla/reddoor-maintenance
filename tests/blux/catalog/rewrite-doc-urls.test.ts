@@ -25,6 +25,8 @@ describe("rewriteDocUrls", () => {
     expect(JSON.stringify(r.documents)).toContain(PRISMIC);
     expect(JSON.stringify(r.documents)).not.toContain(CDN);
     expect(r.rewritten).toBe(1);
+    // Purity on the rewriting path: the input documents keep the CDN url.
+    expect(JSON.stringify(docs)).toContain(CDN);
   });
 
   it("rewrites widget_html / embed_html / background-image strings", () => {
@@ -72,6 +74,40 @@ describe("rewriteDocUrls", () => {
       { type: "page", uid: "home", data: { s: `<img src="${other}">` } },
     ];
     const r = rewriteDocUrls(docs, map);
+    expect(r.unmatched).toEqual([other]);
+  });
+
+  it("bounds an unmatched url at the escaping backslash in doubly-serialized JSON", () => {
+    const other = "https://d3syaxnfm3oj0e.cloudfront.net/img/UNKNOWN.jpg";
+    // Outer stringify escapes the inner quotes, so the url is immediately
+    // followed by `\"` — the reported url must carry no trailing backslash/quote.
+    const docs = [
+      {
+        type: "page",
+        uid: "home",
+        data: { s: JSON.stringify({ payload: JSON.stringify({ image: { url: other } }) }) },
+      },
+    ];
+    const r = rewriteDocUrls(docs, map);
+    expect(r.unmatched).toEqual([other]);
+  });
+
+  it("counts every occurrence of the same mapped url within one string", () => {
+    const docs = [
+      { type: "page", uid: "home", data: { s: `<img src="${CDN}"><img src="${CDN}">` } },
+    ];
+    const r = rewriteDocUrls(docs, map);
+    expect(r.rewritten).toBe(2);
+    expect(JSON.stringify(r.documents)).not.toContain(CDN);
+  });
+
+  it("swaps the mapped url and reports the unmapped one from the same string", () => {
+    const other = "https://d3syaxnfm3oj0e.cloudfront.net/img/UNKNOWN.jpg";
+    const docs = [
+      { type: "page", uid: "home", data: { s: `<img src="${CDN}"><img src="${other}">` } },
+    ];
+    const r = rewriteDocUrls(docs, map);
+    expect(r.rewritten).toBe(1);
     expect(r.unmatched).toEqual([other]);
   });
 });
