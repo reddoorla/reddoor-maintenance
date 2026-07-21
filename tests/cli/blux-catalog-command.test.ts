@@ -130,11 +130,20 @@ describe("blux catalog", () => {
     });
   });
 
-  it("writes theme.css with the @theme --color- variables", async () => {
+  it("writes theme.css with ALL three segments: @theme vars + roles + buttons", async () => {
     const cssPath = join(out, "theme.css");
     expect(existsSync(cssPath)).toBe(true);
     const css = await readFile(cssPath, "utf-8");
+    // @theme block (emitThemeCss).
     expect(css).toContain("--color-");
+    // Roles utility layer (emitRolesCss) — the fixture declares text styles.
+    expect(css).toContain(".txt-role-text0");
+    // Button-skin layer (emitButtonsCss) — the fixture declares buttons0.
+    expect(css).toContain(".buttons0");
+    // A dropped segment or a changed "\n" separator between them fails here:
+    // roles must sit AFTER the @theme block, buttons AFTER roles.
+    expect(css.indexOf(".txt-role-text0")).toBeGreaterThan(css.indexOf("--color-"));
+    expect(css.indexOf(".buttons0")).toBeGreaterThan(css.indexOf(".txt-role-text0"));
   });
 
   it("entity documents + extension custom types ride the plan", async () => {
@@ -233,6 +242,85 @@ describe("blux catalog — IR asset index (sourceUrl fallback)", () => {
     const asset = plan.assets.find((a) => a.id === "aaaa-bbbb");
     expect(asset?.url).toBe("https://d3syaxnfm3oj0e.cloudfront.net/site-1/aaaa-bbbb.png");
     expect(plan.diagnostics.filter((d) => d.kind === "unresolved-asset")).toHaveLength(0);
+  });
+});
+
+// Task 4 (plan 4d) — quality review I2: the chrome logo resolver's THREE-tier
+// order is load-bearing (plan-asset url → IR sourceUrl → CDN reconstruction).
+// A media the page grid ALSO uses keeps its parser-captured data-base via the
+// plan; a chrome-only media falls to its scraped sourceUrl. The three bases are
+// chosen to DIFFER so each tier is provable, not coincidental. (tier 3 —
+// reconstruction from feedAssetBase — is already pinned by the fixture-footer
+// test above, where the chrome media appears nowhere in the html.)
+describe("blux catalog — chrome logo resolver tier order", () => {
+  type Cfg = { footer: { columns: { items: { image?: { url: string } }[] }[] } };
+  let plan: { assets: { id: string; url: string }[] };
+  let cfg: Cfg;
+
+  beforeAll(async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-catalog-chrome-tier-"));
+    const site = structuredClone(minimalSite) as unknown as {
+      media: Record<string, { name: string; type: string; siteID: string }>;
+      footer: unknown[];
+    };
+    site.media["tier1-logo"] = { name: "t1.png", type: "image/png", siteID: "site-1" };
+    site.media["tier2-logo"] = { name: "t2.png", type: "image/png", siteID: "site-1" };
+    // tier1-logo rides a GRID band carrying its own data-base → the plan lists
+    // it at that base (planbase). tier2-logo is chrome-only (no band) but is
+    // scraped as a bare <img> at a DIFFERENT base (otherbase) → IR sourceUrl.
+    const html =
+      `<div id="page-content"><section class="blocks0" id="page-block-0">` +
+      `<div class="block-content"><h2 class="block-title text5">Photo</h2>` +
+      `<div class="ib img imgfit camediaload" data-media="tier1-logo" data-ext="png" ` +
+      `data-base="https://d3syaxnfm3oj0e.cloudfront.net/planbase/"></div>` +
+      `</div></section></div>` +
+      // Scrape targets: tier1-logo at site-1 (so its sourceUrl DIFFERS from the
+      // plan's planbase — proving the plan tier wins), tier2-logo at otherbase,
+      // plus the fixture's own media so the index resolves cleanly.
+      `<img src="https://d3syaxnfm3oj0e.cloudfront.net/site-1/tier1-logo.png">` +
+      `<img src="https://d3syaxnfm3oj0e.cloudfront.net/otherbase/tier2-logo.png">` +
+      `<img src="https://d3syaxnfm3oj0e.cloudfront.net/site-1/w:96/from:jpg/img-1.jpg">` +
+      `<img src="https://d3syaxnfm3oj0e.cloudfront.net/site-1/img-2.jpg">`;
+    site.footer = [
+      {
+        items: [
+          {
+            text: "Footer Item",
+            link: "",
+            items: [
+              { text: "Sub-Footer Item", link: "", media: { media: "tier1-logo" } },
+              { text: "Sub-Footer Item", link: "", media: { media: "tier2-logo" } },
+            ],
+          },
+        ],
+      },
+    ];
+    await writeFile(join(dir, "site.json"), JSON.stringify(site));
+    await writeFile(join(dir, "index.html"), html);
+    const out = join(dir, "out");
+    const result = await runBluxCommand("catalog", dir, { out });
+    expect(result.code).toBe(0);
+    plan = JSON.parse(await readFile(join(out, "migration-plan.json"), "utf-8"));
+    cfg = JSON.parse(await readFile(join(out, "site-config.json"), "utf-8"));
+  });
+
+  const footerImg = (n: number): string | undefined =>
+    cfg.footer.columns[0]?.items[n]?.image?.url;
+
+  it("tier 1: a grid-shared chrome media carries the exact plan-asset url (not its sourceUrl)", () => {
+    const planAsset = plan.assets.find((a) => a.id === "tier1-logo");
+    expect(planAsset).toBeDefined();
+    expect(planAsset!.url).toContain("/planbase/"); // from the grid's data-base
+    const url = footerImg(0);
+    expect(url).toBe(planAsset!.url); // site-config carries the plan url verbatim
+    expect(url).not.toContain("/site-1/"); // NOT the tier-2 sourceUrl
+  });
+
+  it("tier 2: a chrome-only media (absent from plan.assets) falls to its IR sourceUrl", () => {
+    expect(plan.assets.find((a) => a.id === "tier2-logo")).toBeUndefined();
+    const url = footerImg(1);
+    expect(url).toContain("/otherbase/"); // the scraped IR sourceUrl
+    expect(url).not.toContain("/planbase/"); // NOT tier-3 reconstruction (feedAssetBase=planbase)
   });
 });
 

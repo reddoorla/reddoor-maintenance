@@ -634,18 +634,29 @@ export async function runBluxCommand(
     // Site chrome (Task 4): nav via the frozen buildSiteConfig extraction,
     // footer with FULL columns (the-pointe's leasing contacts with tel/mailto
     // links — site-config's socials+text reduction is too thin). Chrome media
-    // (nav/footer logos) resolve the plan's own asset url first (byte-identical
-    // strings with the upload list — a media the page grid also uses keeps its
-    // parser-captured base, e.g. a shared parent-site siteID), else the IR's
-    // scraped sourceUrl, else reconstruct the CDN url (base + uuid + ext) —
-    // static exports download chrome images locally, so the html scrape
-    // routinely misses them (the convert action's resolveLogo fallback).
+    // (nav/footer logos) resolve the plan's own asset url first — a media the
+    // page grid also uses keeps its parser-captured base (e.g. a shared
+    // parent-site siteID), so tier-1-first avoids a wrong-siteID tier-3
+    // reconstruction. Then the IR's scraped sourceUrl, else reconstruct the
+    // CDN url (base + uuid + ext) — static exports download chrome images
+    // locally, so the html scrape routinely misses them (the convert action's
+    // resolveLogo fallback).
+    //
+    // NOTE: chrome logos stay on the Blux CDN — migrate-catalog rewrites only
+    // plan.documents, never site-config.json. Durable chrome-asset upload +
+    // site-config.json rewrite is a deferred follow-up (needed before the Blux
+    // CDN sunsets). A cross-siteID chrome asset with no sourceUrl and NOT in
+    // the plan reconstructs a wrong (likely 404) url that asImage emits rather
+    // than drops — the one path that emits a dead link. (the-pointe's CBRE
+    // logo is the real cross-siteID case; it resolves via plan/sourceUrl today,
+    // so it's fine — but a future export whose chrome asset misses both tiers
+    // would surface the bad url.)
     const assetById = new Map(ir.assets.map((a) => [a.id, a] as const));
     const planUrlById = new Map(plan.assets.map((a) => [a.id, a.url] as const));
     const chromeBase = feedAssetBase(htmls, ir.meta.bluxSiteId);
     const chrome = buildChrome(siteJson, (uuid) => {
       const fromPlan = planUrlById.get(uuid);
-      if (fromPlan) return fromPlan;
+      if (fromPlan !== undefined) return fromPlan;
       const a = assetById.get(uuid);
       if (!a) return null;
       if (a.sourceUrl) return a.sourceUrl;

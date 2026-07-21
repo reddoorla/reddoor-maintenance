@@ -31,8 +31,9 @@ type RawItem = {
 };
 
 /** Display text of a raw item's `title`. Blux pads layout spacers with
- * `&nbsp;` entities (`" &nbsp;"` rows between contact blocks), so decode
- * before trimming — a spacer nets "" and is dropped by the caller. */
+ * `&nbsp;` entities (`" &nbsp;"` rows between contact blocks) and escapes
+ * ampersands as `&amp;`, so decode both before trimming — a spacer nets "" and
+ * is dropped by the caller. */
 function displayTitle(title: unknown): string {
   if (typeof title !== "string") return "";
   return title
