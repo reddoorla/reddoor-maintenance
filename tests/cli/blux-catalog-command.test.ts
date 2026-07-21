@@ -25,12 +25,39 @@ async function makeExportDir(): Promise<string> {
   // Widen the fixture's literal item-shape union so the feed item can land.
   const site = structuredClone(minimalSite) as unknown as {
     content: { pages: { items: unknown[] }[] };
+    media: Record<string, unknown>;
+    footer: unknown[];
   };
   site.content.pages[0]!.items[4] = {
     sources: ["feed-1"],
     sourceConfig: { sort: "title" },
     styles: {},
   };
+  // Task 4 chrome: a footer logo media that appears NOWHERE in the page html
+  // (real exports download chrome images locally, so the scrape misses them) —
+  // site-config.json must carry the reconstructed CDN url (base + uuid + ext),
+  // the same fallback the convert action's resolveLogo uses.
+  site.media["logo-1"] = { name: "logo.png", type: "image/png", siteID: "site-1" };
+  site.footer = [
+    {
+      items: [
+        {
+          text: "Footer Item",
+          link: "",
+          items: [
+            {
+              text: "Sub-Footer Item",
+              link: "",
+              title: "Logo",
+              hideTitle: true,
+              media: { media: "logo-1", "max-width": "150px" },
+            },
+            { text: "Sub-Footer Item", link: "", title: "© Minimal" },
+          ],
+        },
+      ],
+    },
+  ];
   await writeFile(join(dir, "site.json"), JSON.stringify(site));
   await writeFile(join(dir, "index.html"), twoBandHtml);
   return dir;
@@ -77,6 +104,37 @@ describe("blux catalog", () => {
       sort: "title",
       layout: "grid",
     });
+  });
+
+  // Task 4 (plan 4d): site chrome + theme ride beside the plan.
+  it("writes site-config.json with nav + full footer columns beside the plan", async () => {
+    const cfgPath = join(out, "site-config.json");
+    expect(existsSync(cfgPath)).toBe(true);
+    const cfg = JSON.parse(await readFile(cfgPath, "utf-8"));
+    expect(cfg.nav).toMatchObject({ items: [{ label: "Home" }] });
+    expect(cfg.footer).toEqual({
+      columns: [
+        {
+          items: [
+            // Unscraped chrome media resolve via the reconstructed CDN url.
+            {
+              image: {
+                url: "https://d3syaxnfm3oj0e.cloudfront.net/site-1/logo-1.png",
+                maxWidth: "150px",
+              },
+            },
+            { text: "© Minimal" },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("writes theme.css with the @theme --color- variables", async () => {
+    const cssPath = join(out, "theme.css");
+    expect(existsSync(cssPath)).toBe(true);
+    const css = await readFile(cssPath, "utf-8");
+    expect(css).toContain("--color-");
   });
 
   it("entity documents + extension custom types ride the plan", async () => {
