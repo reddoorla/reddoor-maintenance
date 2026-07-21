@@ -72,4 +72,30 @@ describe("resolveFixture", () => {
     // entity richtext resolves too.
     expect((fx.collections.product![0]!.data.title as { type: string }[])[0]!.type).toBe("heading1");
   });
+
+  it("resolves markers sitting DIRECTLY as array elements (array-first walk)", () => {
+    const withArrayMarkers = {
+      ...plan,
+      documents: [
+        {
+          type: "page",
+          uid: "gallery",
+          data: {
+            slices: [
+              {
+                slice_type: "blux_gallery",
+                variation: "default",
+                primary: { items: [{ __asset_id: "asset-1" }, { __asset_id: "nope" }] },
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const fx = resolveFixture(withArrayMarkers as never);
+    const items = (fx.documents[0]!.data.slices as any[])[0]!.primary.items;
+    expect(items[0]).toMatchObject({ url: "https://cdn/img.jpg" });
+    expect(items[1]).toBeNull();
+    expect(fx.missingAssets).toEqual(["nope"]);
+  });
 });

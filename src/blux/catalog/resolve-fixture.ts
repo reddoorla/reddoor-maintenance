@@ -17,11 +17,18 @@ export type RenderFixture = {
  * shapes the production SliceZone consumes when rendering, so the gate can run
  * documents through it with no Prismic round-trip.
  *
- * Dimensions are placeholders — the gate measures text coverage + layout, not
- * intrinsic image size. Missing assets resolve to `null` (isFilled-safe) and
- * are reported. Entity (non-`page`) documents are grouped by type for the
- * SliceZone `context.collections`. Keep the marker names (`__richtext_html`,
- * `__asset_id`) in sync with resolve-doc.ts. */
+ * Dimensions are a fixed placeholder — `PlanAsset` carries no intrinsic size
+ * and the offline gate forbids the network fetch that would find it, so layout
+ * fidelity for image slices that key off the INTRINSIC ratio (unconstrained
+ * `height:auto`, `aspect-ratio` bound to natural dims) is approximate;
+ * container-pinned images (`object-fit:cover`, `aspect-[x/y]`) are unaffected.
+ * If ratio-sensitive fidelity ever regresses, capture real dims into
+ * `PlanAsset` at scrape/IR time. Missing assets resolve to `null`
+ * (isFilled-safe) and are reported. Entity (non-`page`) documents are grouped
+ * by type for the SliceZone `context.collections`. Keep the marker NAMES
+ * (`__richtext_html`, `__asset_id`) in sync with resolve-doc.ts — the `typeof`
+ * guards below are intentionally stricter than resolve-doc's `"key" in v` (they
+ * won't misfire on a non-string field of the same name); keep them on a sync. */
 export function resolveFixture(plan: MigrationPlan): RenderFixture {
   const assetById = new Map(plan.assets.map((a) => [a.id, a] as const));
   const missing = new Set<string>();
@@ -42,6 +49,8 @@ export function resolveFixture(plan: MigrationPlan): RenderFixture {
     }
     return v;
   };
+  // `data` is invariantly a field map (PlanDocument.data), never a bare marker,
+  // so walk() returns an object here — the cast is sound.
   const resolved: FixtureDoc[] = plan.documents.map((d) => ({
     ...d,
     data: walk(d.data) as Record<string, unknown>,
