@@ -2,7 +2,7 @@ import { mkdtemp, writeFile, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, it, expect, beforeAll, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
 import { runBluxCommand } from "../../src/cli/commands/blux.js";
 import { minimalSite } from "../blux/fixtures/minimal-site.js";
 
@@ -196,6 +196,15 @@ describe("blux catalog errors", () => {
 describe("blux migrate-catalog gate", () => {
   const saved: Record<string, string | undefined> = {};
 
+  // beforeEach (not per-test) so EVERY test in the suite runs credless —
+  // including any future .only run — and can never reach a live migration.
+  beforeEach(() => {
+    for (const k of ["PRISMIC_REPOSITORY_NAME", "PRISMIC_WRITE_TOKEN"]) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+  });
+
   afterEach(() => {
     for (const k of ["PRISMIC_REPOSITORY_NAME", "PRISMIC_WRITE_TOKEN"]) {
       if (saved[k] === undefined) delete process.env[k];
@@ -204,10 +213,6 @@ describe("blux migrate-catalog gate", () => {
   });
 
   it("reads the plan and reports missing creds without throwing", async () => {
-    for (const k of ["PRISMIC_REPOSITORY_NAME", "PRISMIC_WRITE_TOKEN"]) {
-      saved[k] = process.env[k];
-      delete process.env[k];
-    }
     // Reuse the catalog fixture to produce a REAL migration-plan.json.
     const exportDir = await makeExportDir();
     const out = join(exportDir, "out");

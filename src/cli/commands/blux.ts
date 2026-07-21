@@ -210,17 +210,25 @@ export async function runBluxCommand(
         code: 1,
       };
     }
+    // Progress streams to stderr as it happens (a throttled two-phase run over
+    // many assets/docs takes minutes and silence reads as a hang) and is
+    // collected ONLY for the failure path, where it IS the diagnostic — a
+    // success over hundreds of docs must not replay the whole log. Warnings
+    // ride warn(): into the success output AND (via log) onto stderr the
+    // moment they happen.
     const lines: string[] = [];
-    // Collect progress for the result AND stream it to stderr — same rationale
-    // as migrate: a throttled two-phase run over many assets/docs takes minutes
-    // and silence reads as a hang.
     const log = (line: string): void => {
       lines.push(line);
       process.stderr.write(`${line}\n`);
     };
+    const warnings: string[] = [];
+    const warn = (line: string): void => {
+      warnings.push(line);
+      log(line);
+    };
     const { pushCustomTypes, runMigration } = await import("../../blux/emit/run-migration.js");
     try {
-      if (plan.customTypes.length) await pushCustomTypes(plan.customTypes);
+      const pushed = plan.customTypes.length ? await pushCustomTypes(plan.customTypes) : [];
       // Phase 1: assets only — populates the media library and returns the
       // complete cdn→Prismic url map. runMigration uploads assets first but
       // only returns the map at the end, so a single call can never rewrite
@@ -230,7 +238,7 @@ export async function runBluxCommand(
       // (BluxBlock payloads, widget_html, embed_html, background wrappers).
       const r = rewriteDocUrls(plan.documents, assetsPass.assetUrlByCdn);
       if (r.unmatched.length) {
-        lines.push(
+        warn(
           `WARNING: ${r.unmatched.length} CDN url(s) survived the rewrite: ${r.unmatched
             .slice(0, 5)
             .join(", ")}`,
@@ -239,14 +247,22 @@ export async function runBluxCommand(
       // Phase 2: documents — every asset re-lists into the by-filename reuse
       // branch (uploaded in phase 1), so nothing re-uploads.
       const docsPass = await runMigration({ ...plan, documents: r.documents }, log);
+      if (docsPass.missingAssets.length) {
+        warn(`WARNING missing assets: ${docsPass.missingAssets.join(", ")}`);
+      }
       return {
         output: [
-          ...lines,
+          `custom types pushed: ${pushed.join(", ") || "none"}`,
+          ...warnings,
           `migrate-catalog: assets ${assetsPass.assetsUploaded} uploaded/${assetsPass.assetsReused} reused; ` +
             `urls rewritten ${r.rewritten} (${r.unmatched.length} unmatched); ` +
-            `docs ${docsPass.docsCreated} created/${docsPass.docsUpdated} updated`,
+            `docs ${docsPass.docsCreated} created/${docsPass.docsUpdated} updated ` +
+            `(publish the migration release in the dashboard)`,
         ].join("\n"),
-        code: r.unmatched.length ? 1 : 0,
+        // Neither warning blocks phase 2 — the docs land in an UNPUBLISHED
+        // migration release, so a non-zero exit reaches the operator before
+        // anything goes live.
+        code: r.unmatched.length || docsPass.missingAssets.length ? 1 : 0,
       };
     } catch (err) {
       return {
