@@ -12,6 +12,7 @@ import { materializeProducts, type ProductRecord } from "../../blux/products.js"
 import { convertExport, convertSite, sitePages } from "../../blux/emit/convert.js";
 import { bandOrCollection, buildCatalogPlan } from "../../blux/catalog/index.js";
 import type { CatalogSpec } from "../../blux/catalog/index.js";
+import { rewriteDocUrls } from "../../blux/catalog/rewrite-doc-urls.js";
 import { buildSiteConfig, socialHrefResolverFromHtml } from "../../blux/emit/site-config.js";
 import { validateLayout, formatLayoutReport } from "../../blux/emit/validate-layout.js";
 import { rewriteManifestUrls } from "../../blux/emit/rewrite-manifest.js";
@@ -40,6 +41,9 @@ export type BluxCommandOptions = {
  *  schemas + theme CSS + review manifest, all deterministic and offline.
  *  migrate: a previously emitted plan → live Prismic (creds-gated; the runner
  *  is imported lazily so emit runs never touch @prismicio).
+ *  migrate-catalog: a catalog plan → live Prismic in TWO phases — assets
+ *  first (returns the cdn→Prismic url map), rewriteDocUrls over the plan
+ *  documents, then the rewritten documents (assets hit the reuse branch).
  *  validate: offline layout-fidelity gate (parse+classify index.html, diff the
  *  emitted manifest vs the source answer key) — exits non-zero on drift.
  *  --against <file|url> additionally runs content coverage of a rendered page.
@@ -193,6 +197,63 @@ export async function runBluxCommand(
         manifestNote,
       code: 0,
     };
+  }
+
+  if (action === "migrate-catalog") {
+    if (!dir) return { output: "blux migrate-catalog needs the catalog --out dir.", code: 1 };
+    let plan: MigrationPlan;
+    try {
+      plan = JSON.parse(await readFile(join(dir, "migration-plan.json"), "utf-8")) as MigrationPlan;
+    } catch (err) {
+      return {
+        output: `could not read migration-plan.json in ${dir}: ${(err as Error).message}`,
+        code: 1,
+      };
+    }
+    const lines: string[] = [];
+    // Collect progress for the result AND stream it to stderr — same rationale
+    // as migrate: a throttled two-phase run over many assets/docs takes minutes
+    // and silence reads as a hang.
+    const log = (line: string): void => {
+      lines.push(line);
+      process.stderr.write(`${line}\n`);
+    };
+    const { pushCustomTypes, runMigration } = await import("../../blux/emit/run-migration.js");
+    try {
+      if (plan.customTypes.length) await pushCustomTypes(plan.customTypes);
+      // Phase 1: assets only — populates the media library and returns the
+      // complete cdn→Prismic url map. runMigration uploads assets first but
+      // only returns the map at the end, so a single call can never rewrite
+      // documents before posting them; hence the two-phase shape.
+      const assetsPass = await runMigration({ ...plan, documents: [] }, log);
+      // Rewrite the serialized-string surfaces resolveDocData never touches
+      // (BluxBlock payloads, widget_html, embed_html, background wrappers).
+      const r = rewriteDocUrls(plan.documents, assetsPass.assetUrlByCdn);
+      if (r.unmatched.length) {
+        lines.push(
+          `WARNING: ${r.unmatched.length} CDN url(s) survived the rewrite: ${r.unmatched
+            .slice(0, 5)
+            .join(", ")}`,
+        );
+      }
+      // Phase 2: documents — every asset re-lists into the by-filename reuse
+      // branch (uploaded in phase 1), so nothing re-uploads.
+      const docsPass = await runMigration({ ...plan, documents: r.documents }, log);
+      return {
+        output: [
+          ...lines,
+          `migrate-catalog: assets ${assetsPass.assetsUploaded} uploaded/${assetsPass.assetsReused} reused; ` +
+            `urls rewritten ${r.rewritten} (${r.unmatched.length} unmatched); ` +
+            `docs ${docsPass.docsCreated} created/${docsPass.docsUpdated} updated`,
+        ].join("\n"),
+        code: r.unmatched.length ? 1 : 0,
+      };
+    } catch (err) {
+      return {
+        output: [...lines, `migrate-catalog failed: ${(err as Error).message}`].join("\n"),
+        code: 1,
+      };
+    }
   }
 
   if (action === "validate") {
@@ -563,7 +624,7 @@ export async function runBluxCommand(
   }
 
   return {
-    output: `unknown blux action '${action}'. Use: emit, migrate, validate, grid, convert, catalog.`,
+    output: `unknown blux action '${action}'. Use: emit, migrate, migrate-catalog, validate, grid, convert, catalog.`,
     code: 1,
   };
 }

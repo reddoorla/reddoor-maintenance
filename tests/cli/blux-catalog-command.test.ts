@@ -2,7 +2,7 @@ import { mkdtemp, writeFile, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { runBluxCommand } from "../../src/cli/commands/blux.js";
 import { minimalSite } from "../blux/fixtures/minimal-site.js";
 
@@ -184,5 +184,46 @@ describe("blux catalog errors", () => {
     const result = await runBluxCommand("catalog", dir, {});
     expect(result.code).toBe(1);
     expect(result.output).toContain("site.json");
+  });
+});
+
+// Task 3 (plan 4d): the two-phase migrate-catalog action. Credless, the
+// runner's readCreds throws BEFORE any network call (pushCustomTypes and
+// runMigration both read creds as their first statement), so this suite
+// proves the action wiring — plan read, runner reached, error surfaced —
+// entirely offline. Env vars are deleted per-test (saved/restored) so a
+// dev machine with real creds can never trigger a live migration here.
+describe("blux migrate-catalog gate", () => {
+  const saved: Record<string, string | undefined> = {};
+
+  afterEach(() => {
+    for (const k of ["PRISMIC_REPOSITORY_NAME", "PRISMIC_WRITE_TOKEN"]) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  it("reads the plan and reports missing creds without throwing", async () => {
+    for (const k of ["PRISMIC_REPOSITORY_NAME", "PRISMIC_WRITE_TOKEN"]) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+    // Reuse the catalog fixture to produce a REAL migration-plan.json.
+    const exportDir = await makeExportDir();
+    const out = join(exportDir, "out");
+    const cataloged = await runBluxCommand("catalog", exportDir, { out });
+    expect(cataloged.code).toBe(0);
+    const r = await runBluxCommand("migrate-catalog", out, {});
+    expect(r.code).not.toBe(0);
+    // The creds read is the throw site — proves runMigration's network
+    // surface was never reached.
+    expect(r.output.toLowerCase()).toMatch(/cred|prismic_repository_name|token/);
+  });
+
+  it("fails cleanly when the dir has no migration-plan.json", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-migrate-catalog-empty-"));
+    const r = await runBluxCommand("migrate-catalog", dir, {});
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("could not read migration-plan.json");
   });
 });
