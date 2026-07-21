@@ -139,6 +139,45 @@ describe("blux catalog — join diagnostics ride the written plan", () => {
   });
 });
 
+// Task 1 (plan 4d): the catalog action assembles the REAL IR (not the walking
+// skeleton's empty asset index), so a media the grid parser captures WITHOUT a
+// CDN data-base resolves through the IR asset index — AssetRef.sourceUrl, the
+// canonical CDN url collectAssetUrls scrapes out of the page html (site.json's
+// media dict carries name/type only, never a url; non-CDN hosts are rejected
+// by normalizeCdnUrl, so the fixture url must be CDN-shaped).
+describe("blux catalog — IR asset index (sourceUrl fallback)", () => {
+  it("resolves no-base media through the IR asset index (sourceUrl fallback)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-catalog-ir-"));
+    const site = structuredClone(minimalSite) as unknown as {
+      media: Record<string, { name: string; type: string; siteID: string }>;
+    };
+    site.media["aaaa-bbbb"] = { name: "loose.png", type: "image/png", siteID: "site-1" };
+    const html =
+      `<div id="page-content"><section class="blocks0" id="page-block-0">` +
+      `<div class="block-content"><h2 class="block-title text5">Photo</h2>` +
+      `<div class="ib img imgfit camediaload" data-media="aaaa-bbbb" data-ext="png"></div>` +
+      `</div></section></div>` +
+      // Scrape targets for EVERY media-dict entry (and the feed record's
+      // img-2), mimicking a real rendered page — so the whole index resolves
+      // and the plan carries zero unresolved-asset diagnostics.
+      `<img src="https://d3syaxnfm3oj0e.cloudfront.net/site-1/w:96/from:jpg/img-1.jpg">` +
+      `<img src="https://d3syaxnfm3oj0e.cloudfront.net/site-1/img-2.jpg">` +
+      `<img src="https://d3syaxnfm3oj0e.cloudfront.net/site-1/aaaa-bbbb.png">`;
+    await writeFile(join(dir, "site.json"), JSON.stringify(site));
+    await writeFile(join(dir, "index.html"), html);
+    const out = join(dir, "out");
+    const result = await runBluxCommand("catalog", dir, { out });
+    expect(result.code).toBe(0);
+    const plan = JSON.parse(await readFile(join(out, "migration-plan.json"), "utf-8")) as {
+      assets: { id: string; url: string }[];
+      diagnostics: { kind: string; where: string }[];
+    };
+    const asset = plan.assets.find((a) => a.id === "aaaa-bbbb");
+    expect(asset?.url).toBe("https://d3syaxnfm3oj0e.cloudfront.net/site-1/aaaa-bbbb.png");
+    expect(plan.diagnostics.filter((d) => d.kind === "unresolved-asset")).toHaveLength(0);
+  });
+});
+
 describe("blux catalog errors", () => {
   it("fails cleanly when the export dir has no site.json", async () => {
     const dir = await mkdtemp(join(tmpdir(), "blux-catalog-empty-"));

@@ -478,6 +478,10 @@ export async function runBluxCommand(
     // skipped feed sources) ride the plan alongside emit-time ones.
     const classifyDiagnostics: Diagnostic[] = [];
     const pages: { uid: string; title: string; specs: CatalogSpec[] }[] = [];
+    // Every successfully-read page html feeds the IR assembly below: the asset
+    // index is scraped from the rendered pages (site.json's media dict has no
+    // urls), so a media without a CDN data-base can still resolve.
+    const htmls: string[] = [];
     for (const [pageIndex, p] of sitePages(siteJson).entries()) {
       const file = p.path ? join(dir, p.path, "index.html") : join(dir, "index.html");
       let html: string;
@@ -486,6 +490,7 @@ export async function runBluxCommand(
       } catch {
         continue; // missing page dir (unexported draft) — skip
       }
+      htmls.push(html);
       // Decision B (plan 4b): when the page html carries the Blux map script,
       // inject the mount predicate so the map band routes to a BluxSection
       // widget (config inlined at emit); pages without one classify as before.
@@ -524,10 +529,27 @@ export async function runBluxCommand(
     if (!pages.length) {
       return { output: `could not read any page html in ${dir}`, code: 1 };
     }
-    // Skeleton: no IR asset scrape — nested {__asset_id} markers still emit; they
-    // resolve at migrate time once the asset index is wired in (Plan 4). Feeds
-    // ride the plan: entity documents + extension custom types + record media.
-    const plan = buildCatalogPlan(pages, { assets: [], diagnostics: classifyDiagnostics }, feeds);
+    // The real IR asset index (Plan 4d Task 1): assembleIR scrapes the CDN
+    // urls out of the page htmls, so a media without a CDN data-base falls
+    // back to its AssetRef.sourceUrl instead of an unresolved-asset
+    // diagnostic. IR diagnostics (unresolved assets, page normalization)
+    // merge with the classify-time set — both ride the written plan. The
+    // `url` field is unused by buildCatalogPlan (it derives urls via
+    // mediaUrl) but the CatalogAssetIndex type requires it.
+    const ir = assembleIR({ siteJson, htmls });
+    const plan = buildCatalogPlan(
+      pages,
+      {
+        assets: ir.assets.map((a) => ({
+          id: a.id,
+          url: a.sourceUrl ?? "",
+          alt: a.alt,
+          sourceUrl: a.sourceUrl,
+        })),
+        diagnostics: [...classifyDiagnostics, ...ir.diagnostics],
+      },
+      feeds,
+    );
     const outDir = opts.out ?? join(dir, "blux-out");
     await mkdir(outDir, { recursive: true });
     await writeFile(join(outDir, "migration-plan.json"), JSON.stringify(plan, null, 2));
