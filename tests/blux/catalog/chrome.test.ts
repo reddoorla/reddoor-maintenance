@@ -103,7 +103,8 @@ describe("buildChrome", () => {
     const c = buildChrome(siteJson, resolve);
     expect(c.footer.columns).toHaveLength(2);
     expect(c.footer.columns[0]!.items).toEqual([
-      { image: { url: "https://cdn/logo.png", maxWidth: "150px" } },
+      // The image's accessible name comes from the raw row's title.
+      { image: { url: "https://cdn/logo.png", maxWidth: "150px", alt: "Logo" } },
     ]);
     expect(c.footer.columns[1]!.items).toEqual([
       { text: "Leasing Team" },
@@ -111,10 +112,45 @@ describe("buildChrome", () => {
       { text: "213.613.3330", href: "tel:213.593.1360" },
       { text: "Todd.Doney@cbre.com", href: "mailto:Todd.Doney@cbre.com" },
       {
-        image: { url: "https://cdn/tbp.png", maxWidth: "300px" },
+        image: { url: "https://cdn/tbp.png", maxWidth: "300px", alt: "TBP Logo" },
         href: "https://www.theburbankportfolio.com/",
       },
     ]);
+  });
+
+  it("footer image alt: a titled logo row emits its title as image.alt; a nameless one omits alt", () => {
+    const c = buildChrome(
+      {
+        footer: [
+          {
+            items: [
+              {
+                items: [
+                  // Titled logo → alt is the decoded title (A &amp; B → A & B).
+                  {
+                    text: "Sub-Footer Item",
+                    link: "",
+                    title: "Smith &amp; Co",
+                    media: { media: "uuid-logo" },
+                  },
+                  // Bare image (no title, no text) → no accessible name; alt is
+                  // omitted so the starter falls back to alt="".
+                  { link: "", media: { media: "uuid-tbp" } },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      resolve,
+    );
+    expect(c.footer.columns[0]!.items).toEqual([
+      { image: { url: "https://cdn/logo.png", alt: "Smith & Co" } },
+      { image: { url: "https://cdn/tbp.png" } },
+    ]);
+    // The bare row's image object carries no alt key at all.
+    const bare = c.footer.columns[0]!.items[1] as { image: { alt?: string } };
+    expect(bare.image.alt).toBeUndefined();
   });
 
   it("tolerates missing navigation/footer arrays", () => {

@@ -12,10 +12,12 @@ import { buildSiteConfig, type SiteConfig } from "../emit/site-config.js";
 
 /** One rendered footer row: a text line (optionally linked — tel:/mailto:/
  * http(s) hrefs survive verbatim) or an image (a footer logo, optionally
- * linked). */
+ * linked). `image.alt` is the row's accessible name (its human title) when the
+ * export carries one — omitted for a nameless image, where the render falls
+ * back to alt="". */
 export type ChromeFooterItem =
   | { text: string; href?: string }
-  | { image: { url: string; maxWidth?: string }; href?: string };
+  | { image: { url: string; maxWidth?: string; alt?: string }; href?: string };
 
 export type ChromeConfig = {
   nav: SiteConfig["nav"];
@@ -24,6 +26,7 @@ export type ChromeConfig = {
 
 type RawItem = {
   title?: unknown;
+  text?: unknown;
   link?: unknown;
   hideTitle?: unknown;
   media?: { media?: unknown; "max-width"?: unknown };
@@ -83,6 +86,11 @@ export function buildChrome(
     hidden.map((r) => (typeof r.title === "string" ? r.title.trim() : "")).filter(Boolean),
   );
   const items = sc.nav.items.filter((i) => !hiddenLabels.has(i.label));
+  // NOTE: nav.logo carries no alt — its type is the frozen SiteConfig["nav"]
+  // logo shape ({ url, maxWidth? }), which has no name channel. Giving the nav
+  // logo an accessible name would need the frozen buildSiteConfig/site-config
+  // path to widen, so it's out of scope here (the footer logos, which this
+  // module owns end-to-end, do get alt below).
   let logo = sc.nav.logo;
   if (!logo) {
     for (const r of hidden) {
@@ -104,7 +112,13 @@ export function buildChrome(
       const href = asHref(it?.link);
       if (typeof it?.media?.media === "string") {
         const image = asImage(it.media, resolveLogo);
-        return image ? [{ image, ...(href ? { href } : {}) }] : [];
+        if (!image) return [];
+        // Accessible name for the logo: the row's human title (else its text),
+        // decoded — a linked footer logo with no name is an unlabelled link.
+        // `??` keeps title authoritative; a "&nbsp;" spacer title decodes to ""
+        // and is dropped, so a spacer image stays alt-less rather than mislabelled.
+        const alt = displayTitle(it.title ?? it.text);
+        return [{ image: { ...image, ...(alt ? { alt } : {}) }, ...(href ? { href } : {}) }];
       }
       if (it?.hideTitle === true) return [];
       const text = displayTitle(it?.title);

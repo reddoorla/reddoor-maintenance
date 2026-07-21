@@ -116,11 +116,13 @@ describe("blux catalog", () => {
       columns: [
         {
           items: [
-            // Unscraped chrome media resolve via the reconstructed CDN url.
+            // Unscraped chrome media resolve via the reconstructed CDN url;
+            // the row's title becomes the image's accessible name (alt).
             {
               image: {
                 url: "https://d3syaxnfm3oj0e.cloudfront.net/site-1/logo-1.png",
                 maxWidth: "150px",
+                alt: "Logo",
               },
             },
             { text: "© Minimal" },
