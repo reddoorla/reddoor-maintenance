@@ -3,7 +3,7 @@ vi.mock("../../src/blux/emit/run-migration.js", () => ({
   pushCustomTypes: vi.fn(),
   runMigration: vi.fn(),
 }));
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pushCustomTypes, runMigration } from "../../src/blux/emit/run-migration.js";
@@ -119,5 +119,50 @@ describe("blux migrate-catalog orchestration (mocked runner)", () => {
     // The failure path DOES replay the progress log — it is the diagnostic.
     expect(r.output).toContain("asset 1/2 aaaa-bbbb.png");
     expect(r.output).toContain("migrate-catalog failed: upload asset boom: 500");
+  });
+
+  it("rewrites chrome CDN urls in site-config.json with the same asset map", async () => {
+    // Chrome (nav/footer logos) rides site-config.json beside the plan, not in
+    // plan.documents — the migrate must swap its CDN urls to Prismic too, or the
+    // logos die when the Blux CDN sunsets.
+    vi.mocked(runMigration)
+      .mockResolvedValueOnce(migrationResult())
+      .mockResolvedValueOnce(migrationResult({ assetsUploaded: 0, assetsReused: 1 }));
+    const dir = await writePlan(CDN);
+    await writeFile(
+      join(dir, "site-config.json"),
+      JSON.stringify({ nav: { logo: { url: CDN } }, footer: { columns: [] } }),
+    );
+    const r = await runBluxCommand("migrate-catalog", dir, {});
+    expect(r.code).toBe(0);
+    const cfg = JSON.parse(await readFile(join(dir, "site-config.json"), "utf-8"));
+    expect(cfg.nav.logo.url).toBe(PRISMIC);
+    expect(JSON.stringify(cfg)).not.toContain("cloudfront.net");
+    expect(r.output).toContain("chrome urls rewritten 1 (0 unmatched)");
+  });
+
+  it("an unmatched chrome CDN url exits 1 with a WARNING", async () => {
+    vi.mocked(runMigration)
+      .mockResolvedValueOnce(migrationResult()) // map lacks STRAY
+      .mockResolvedValueOnce(migrationResult({ assetsUploaded: 0, assetsReused: 1 }));
+    const dir = await writePlan(CDN);
+    await writeFile(
+      join(dir, "site-config.json"),
+      JSON.stringify({ nav: { logo: { url: STRAY } }, footer: { columns: [] } }),
+    );
+    const r = await runBluxCommand("migrate-catalog", dir, {});
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("chrome CDN url(s) survived");
+    expect(r.output).toContain(STRAY);
+  });
+
+  it("tolerates a plan with no site-config.json (chrome rewrite skipped)", async () => {
+    vi.mocked(runMigration)
+      .mockResolvedValueOnce(migrationResult())
+      .mockResolvedValueOnce(migrationResult({ assetsUploaded: 0, assetsReused: 1 }));
+    const dir = await writePlan(CDN); // writes NO site-config.json
+    const r = await runBluxCommand("migrate-catalog", dir, {});
+    expect(r.code).toBe(0);
+    expect(r.output).toContain("chrome urls rewritten 0 (0 unmatched)");
   });
 });

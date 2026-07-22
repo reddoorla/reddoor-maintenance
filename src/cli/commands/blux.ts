@@ -13,7 +13,7 @@ import { convertExport, convertSite, sitePages } from "../../blux/emit/convert.j
 import { bandOrCollection, buildCatalogPlan } from "../../blux/catalog/index.js";
 import type { CatalogSpec } from "../../blux/catalog/index.js";
 import { resolveFixture } from "../../blux/catalog/resolve-fixture.js";
-import { rewriteDocUrls } from "../../blux/catalog/rewrite-doc-urls.js";
+import { rewriteDocUrls, rewriteValueUrls } from "../../blux/catalog/rewrite-doc-urls.js";
 import { buildChrome } from "../../blux/catalog/chrome.js";
 import { buildSiteConfig, socialHrefResolverFromHtml } from "../../blux/emit/site-config.js";
 import { validateLayout, formatLayoutReport } from "../../blux/emit/validate-layout.js";
@@ -246,6 +246,28 @@ export async function runBluxCommand(
             .join(", ")}`,
         );
       }
+      // Chrome (nav + footer logos) rides site-config.json beside the plan, not
+      // in plan.documents — rewrite it with the SAME asset map so it too leaves
+      // the CDN. Absent on older/non-catalog plans (ENOENT) — then nothing to do.
+      let chromeRewritten = 0;
+      const chromeUnmatched: string[] = [];
+      const siteConfigPath = join(dir, "site-config.json");
+      try {
+        const parsed: unknown = JSON.parse(await readFile(siteConfigPath, "utf-8"));
+        const sc = rewriteValueUrls(parsed, assetsPass.assetUrlByCdn);
+        await writeFile(siteConfigPath, JSON.stringify(sc.value, null, 2) + "\n");
+        chromeRewritten = sc.rewritten;
+        chromeUnmatched.push(...sc.unmatched);
+        if (sc.unmatched.length) {
+          warn(
+            `WARNING: ${sc.unmatched.length} chrome CDN url(s) survived the rewrite: ${sc.unmatched
+              .slice(0, 5)
+              .join(", ")}`,
+          );
+        }
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      }
       // Phase 2: documents — every asset re-lists into the by-filename reuse
       // branch (uploaded in phase 1), so nothing re-uploads.
       const docsPass = await runMigration({ ...plan, documents: r.documents }, log);
@@ -258,13 +280,14 @@ export async function runBluxCommand(
           ...warnings,
           `migrate-catalog: assets ${assetsPass.assetsUploaded} uploaded/${assetsPass.assetsReused} reused; ` +
             `urls rewritten ${r.rewritten} (${r.unmatched.length} unmatched); ` +
+            `chrome urls rewritten ${chromeRewritten} (${chromeUnmatched.length} unmatched); ` +
             `docs ${docsPass.docsCreated} created/${docsPass.docsUpdated} updated ` +
             `(publish the migration release in the dashboard)`,
         ].join("\n"),
-        // Neither warning blocks phase 2 — the docs land in an UNPUBLISHED
-        // migration release, so a non-zero exit reaches the operator before
-        // anything goes live.
-        code: r.unmatched.length || docsPass.missingAssets.length ? 1 : 0,
+        // No warning blocks phase 2 — the docs land in an UNPUBLISHED migration
+        // release, so a non-zero exit reaches the operator before anything goes
+        // live.
+        code: r.unmatched.length || chromeUnmatched.length || docsPass.missingAssets.length ? 1 : 0,
       };
     } catch (err) {
       return {
@@ -631,6 +654,54 @@ export async function runBluxCommand(
     );
     const outDir = opts.out ?? join(dir, "blux-out");
     await mkdir(outDir, { recursive: true });
+    // Site chrome (Task 4): nav via the frozen buildSiteConfig extraction,
+    // footer with FULL columns (the-pointe's leasing contacts with tel/mailto
+    // links — site-config's socials+text reduction is too thin). Chrome media
+    // (nav/footer logos) resolve the plan's own asset url first — a media the
+    // page grid also uses keeps its parser-captured base (e.g. a shared
+    // parent-site siteID), so tier-1-first avoids a wrong-siteID tier-3
+    // reconstruction. Then the IR's scraped sourceUrl, else reconstruct the
+    // CDN url (base + uuid + ext) — static exports download chrome images
+    // locally, so the html scrape routinely misses them (the convert action's
+    // resolveLogo fallback).
+    //
+    // The Blux CDN is being retired, so a chrome-ONLY logo (one the page grid
+    // never uses, hence absent from plan.assets) is registered here as its own
+    // plan asset: it uploads in migrate-catalog's asset phase, and that action's
+    // site-config.json rewrite swaps its CDN url to the Prismic one. A logo the
+    // grid also uses is already a plan asset (the tier-1 branch), so we never
+    // double-register it. Chrome is built BEFORE the plan is written so these
+    // assets ride the emitted migration-plan.json.
+    //
+    // We register ONLY a scraped (tier-2) cloudfront sourceUrl — a real url that
+    // exists in the export html, so the migrate can fetch+upload it and the
+    // rewrite (cloudfront-keyed) can swap it. A tier-3 RECONSTRUCTION
+    // (`${chromeBase}${uuid}.${ext}`) is a GUESS — cross-siteID ones routinely
+    // 404, and frozen runMigration throws on a 404 fetch, so uploading one would
+    // let a single non-essential logo abort the whole migrate. We leave those on
+    // the CDN (exactly as before); their surviving cloudfront url is then flagged
+    // by migrate-catalog's site-config rewrite as an unmatched url (WARNING +
+    // non-zero exit) for manual follow-up — never silent.
+    const assetById = new Map(ir.assets.map((a) => [a.id, a] as const));
+    const planUrlById = new Map(plan.assets.map((a) => [a.id, a.url] as const));
+    const chromeBase = feedAssetBase(htmls, ir.meta.bluxSiteId);
+    const chromeOnlyAssets = new Map<string, { id: string; url: string; alt: string }>();
+    const chrome = buildChrome(siteJson, (uuid) => {
+      const fromPlan = planUrlById.get(uuid);
+      if (fromPlan !== undefined) return fromPlan;
+      const a = assetById.get(uuid);
+      if (!a) return null;
+      const ext = extFor(a.mime, a.name);
+      const url = a.sourceUrl ? a.sourceUrl : ext ? `${chromeBase}${uuid}.${ext}` : null;
+      // Upload+rewrite only a scraped cloudfront url (see note above); tier-3
+      // reconstructions and any non-CDN url are left untouched.
+      if (a.sourceUrl && a.sourceUrl.includes("cloudfront.net") && !chromeOnlyAssets.has(uuid))
+        chromeOnlyAssets.set(uuid, { id: uuid, url: a.sourceUrl, alt: a.alt ?? "" });
+      return url;
+    });
+    // The scraped-cloudfront chrome logos join the plan so migrate-catalog
+    // uploads them and its site-config.json rewrite can swap their urls.
+    plan.assets.push(...chromeOnlyAssets.values());
     await writeFile(join(outDir, "migration-plan.json"), JSON.stringify(plan, null, 2));
     // Task 5: an OFFLINE render fixture for the starter's fidelity-gate route
     // (Task 8). resolveFixture resolves the plan's markers into the Prismic-
@@ -643,38 +714,6 @@ export async function runBluxCommand(
       join(outDir, "render-fixture.json"),
       JSON.stringify(resolveFixture(plan), null, 2),
     );
-    // Site chrome (Task 4): nav via the frozen buildSiteConfig extraction,
-    // footer with FULL columns (the-pointe's leasing contacts with tel/mailto
-    // links — site-config's socials+text reduction is too thin). Chrome media
-    // (nav/footer logos) resolve the plan's own asset url first — a media the
-    // page grid also uses keeps its parser-captured base (e.g. a shared
-    // parent-site siteID), so tier-1-first avoids a wrong-siteID tier-3
-    // reconstruction. Then the IR's scraped sourceUrl, else reconstruct the
-    // CDN url (base + uuid + ext) — static exports download chrome images
-    // locally, so the html scrape routinely misses them (the convert action's
-    // resolveLogo fallback).
-    //
-    // NOTE: chrome logos stay on the Blux CDN — migrate-catalog rewrites only
-    // plan.documents, never site-config.json. Durable chrome-asset upload +
-    // site-config.json rewrite is a deferred follow-up (needed before the Blux
-    // CDN sunsets). A cross-siteID chrome asset with no sourceUrl and NOT in
-    // the plan reconstructs a wrong (likely 404) url that asImage emits rather
-    // than drops — the one path that emits a dead link. (the-pointe's CBRE
-    // logo is the real cross-siteID case; it resolves via plan/sourceUrl today,
-    // so it's fine — but a future export whose chrome asset misses both tiers
-    // would surface the bad url.)
-    const assetById = new Map(ir.assets.map((a) => [a.id, a] as const));
-    const planUrlById = new Map(plan.assets.map((a) => [a.id, a.url] as const));
-    const chromeBase = feedAssetBase(htmls, ir.meta.bluxSiteId);
-    const chrome = buildChrome(siteJson, (uuid) => {
-      const fromPlan = planUrlById.get(uuid);
-      if (fromPlan !== undefined) return fromPlan;
-      const a = assetById.get(uuid);
-      if (!a) return null;
-      if (a.sourceUrl) return a.sourceUrl;
-      const ext = extFor(a.mime, a.name);
-      return ext ? `${chromeBase}${uuid}.${ext}` : null;
-    });
     await writeFile(join(outDir, "site-config.json"), JSON.stringify(chrome, null, 2) + "\n");
     // theme.css: the exact concatenation the proven emit action writes.
     const rolesCss = emitRolesCss(ir.theme);

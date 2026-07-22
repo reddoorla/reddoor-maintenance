@@ -74,9 +74,7 @@ function cellToItem(cell: CatalogCell, ctx: EmitCtx): Record<string, unknown> {
     kind: cell.kind,
     ...(cell.title ? { title: richText(clampHeadingHtml(cell.title, 3, 4)) } : {}),
     ...(cell.body ? { body: richText(cell.body) } : {}),
-    ...(cell.media && cell.media.kind !== "video"
-      ? { media: assetRef(cell.media.assetId) }
-      : {}),
+    ...(cell.media && cell.media.kind !== "video" ? { media: assetRef(cell.media.assetId) } : {}),
     ...(cell.mediaRatio ? { media_ratio: cell.mediaRatio } : {}),
     ...(embeds.length ? { embed_html: embeds.join("\n") } : {}),
     ...(cell.subgrid ? { subgrid: emitCells(cell.subgrid, ctx) } : {}),
@@ -152,12 +150,8 @@ export function catalogSpecToPlanSlice(
     ...(pageUid !== undefined ? { pageUid } : {}),
     ...(diagnostics ? { diagnostics } : {}),
   };
-  const bg = spec.background
-    ? { background_image: assetRef(spec.background.assetId) }
-    : {};
-  const bgc = spec.backgroundColor
-    ? { background_color: spec.backgroundColor }
-    : {};
+  const bg = spec.background ? { background_image: assetRef(spec.background.assetId) } : {};
+  const bgc = spec.backgroundColor ? { background_color: spec.backgroundColor } : {};
   switch (spec.slice) {
     case "BluxSection":
       return sliceOf("blux_section", {
@@ -240,14 +234,10 @@ export function catalogSpecToPlanSlice(
       const wrapStyle: Record<string, string> = {
         ...(spec.background
           ? {
-              "background-image": `url(${
-                mediaCdnUrl(spec.background) ?? spec.background.assetId
-              })`,
+              "background-image": `url(${mediaCdnUrl(spec.background) ?? spec.background.assetId})`,
             }
           : {}),
-        ...(spec.backgroundColor
-          ? { "background-color": spec.backgroundColor }
-          : {}),
+        ...(spec.backgroundColor ? { "background-color": spec.backgroundColor } : {}),
       };
       // Sanitize at the boundary: the spec payload stays the pristine source
       // tree; only the serialized copy the document ships loses its scripts.
@@ -311,9 +301,12 @@ function specMedia(spec: CatalogSpec): Media[] {
       out.push(...spec.media);
       break;
   }
-  // Video assets stay OUT of the image uploads — video plays from the CDN url
-  // inside the emitted <video> tag, pending the 4d asset strategy.
-  return out.filter((m) => m.kind !== "video");
+  // Videos migrate too: the Blux CDN is being retired, so every referenced
+  // asset must land in Prismic. A video uploads by its CDN url exactly like an
+  // image; the emitted <video src> (that same CDN url, in video_embed /
+  // embed_html) is then swapped to the Prismic url by the migrate-time
+  // rewriteDocUrls, which keys on the identical mediaCdnUrl string.
+  return out;
 }
 
 export type CatalogAssetIndex = {
@@ -329,10 +322,7 @@ export type CatalogAssetIndex = {
 export function buildCatalogPlan(
   pages: { uid: string; title: string; specs: CatalogSpec[] }[],
   ir: CatalogAssetIndex,
-  feeds?: Record<
-    string,
-    { name?: string; items?: unknown[]; fields?: unknown } | undefined
-  >,
+  feeds?: Record<string, { name?: string; items?: unknown[]; fields?: unknown } | undefined>,
 ): MigrationPlan {
   const diagnostics: Diagnostic[] = [...(ir.diagnostics ?? [])];
   const entity = feeds ? buildEntityEmit(feeds) : null;
@@ -360,10 +350,7 @@ export function buildCatalogPlan(
   // Entity record media walk the same path so their assets upload too.
   const seen = new Set<string>();
   const assets: PlanAsset[] = [];
-  const allMedia = [
-    ...pages.flatMap((p) => p.specs).flatMap(specMedia),
-    ...(entity?.media ?? []),
-  ];
+  const allMedia = [...pages.flatMap((p) => p.specs).flatMap(specMedia), ...(entity?.media ?? [])];
   for (const m of allMedia) {
     if (seen.has(m.assetId)) continue;
     seen.add(m.assetId);

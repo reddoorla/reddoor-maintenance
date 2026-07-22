@@ -8,6 +8,15 @@ export type RewriteResult = {
   unmatched: string[];
 };
 
+/** Generic rewrite over any JSON value (a deep copy is returned). */
+export type ValueRewriteResult<T> = {
+  value: T;
+  /** Total url occurrences swapped. */
+  rewritten: number;
+  /** CDN-looking urls that survived the swap — surface these, never silent. */
+  unmatched: string[];
+};
+
 // The exclusion class ends the match at whitespace, `"`, `'`, `\`, or `)`, so
 // urls embedded in serialized JSON (followed by `"` or, when doubly
 // serialized, `\"`) and in `background-image:url(...)` are captured exactly —
@@ -15,14 +24,15 @@ export type RewriteResult = {
 const CDN_URL_RE = /https?:\/\/[a-z0-9.-]*cloudfront\.net\/[^\s"'\\)]+/g;
 
 /** Swap every occurrence of a plan-asset CDN url for its uploaded Prismic url
- * inside EVERY string value of the documents (serialized BluxBlock payloads,
- * widget_html, embed_html, background wrappers — the surfaces resolveDocData
- * does not touch). Pure: returns a deep copy; marker objects pass through
- * untouched because they hold no CDN urls. */
-export function rewriteDocUrls(
-  documents: PlanDocument[],
+ * inside EVERY string value of an arbitrary JSON value. Pure: returns a deep
+ * copy. Shared by the document rewrite (serialized BluxBlock payloads,
+ * widget_html, embed_html, background wrappers) and the site-config / chrome
+ * rewrite (nav + footer logo urls). Non-string, non-CDN values pass through
+ * untouched. */
+export function rewriteValueUrls<T>(
+  value: T,
   urlByCdn: Map<string, string>,
-): RewriteResult {
+): ValueRewriteResult<T> {
   let rewritten = 0;
   const unmatched = new Set<string>();
   // Longest key first: a mapped url that is a prefix of another mapped url can
@@ -50,9 +60,16 @@ export function rewriteDocUrls(
       return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)]));
     return v;
   };
-  return {
-    documents: documents.map((d) => walk(d) as PlanDocument),
-    rewritten,
-    unmatched: [...unmatched],
-  };
+  return { value: walk(value) as T, rewritten, unmatched: [...unmatched] };
+}
+
+/** Rewrite plan documents — the surfaces resolveDocData does not touch. Thin
+ * wrapper over {@link rewriteValueUrls}; marker objects pass through untouched
+ * because they hold no CDN urls. */
+export function rewriteDocUrls(
+  documents: PlanDocument[],
+  urlByCdn: Map<string, string>,
+): RewriteResult {
+  const r = rewriteValueUrls(documents, urlByCdn);
+  return { documents: r.value, rewritten: r.rewritten, unmatched: r.unmatched };
 }
