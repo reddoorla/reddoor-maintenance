@@ -22,8 +22,7 @@ import { validateCoverage } from "../../../src/blux/validate.js";
  * allowlisted below; any OTHER miss is a real content gap and fails the gate.
  */
 const EXPORT_HTML =
-  process.env.POINTE_EXPORT_HTML ??
-  `${process.env.HOME}/Desktop/thePointe/index.html`;
+  process.env.POINTE_EXPORT_HTML ?? `${process.env.HOME}/Desktop/thePointe/index.html`;
 const RENDERED_HTML =
   process.env.POINTE_RENDERED_HTML ??
   "/private/tmp/claude-501/-Users-tuckerlemos-Documents-GitHub-reddoor-starter/4e4b6729-02ba-49d5-a7f4-952ed54e3e23/scratchpad/starter-4c/build/dev/blux-pointe.html";
@@ -42,11 +41,8 @@ describe("the-pointe catalog fidelity: text coverage vs the export", () => {
         readFileSync(EXPORT_HTML, "utf-8"),
         readFileSync(RENDERED_HTML, "utf-8"),
       );
-      const realMisses = report.missing.filter(
-        (m) => !ALLOWED_MISSING.some((re) => re.test(m)),
-      );
-      if (realMisses.length)
-        console.log("UNEXPECTED MISSING RUNS:", realMisses.slice(0, 20));
+      const realMisses = report.missing.filter((m) => !ALLOWED_MISSING.some((re) => re.test(m)));
+      if (realMisses.length) console.log("UNEXPECTED MISSING RUNS:", realMisses.slice(0, 20));
       expect(realMisses).toEqual([]);
       expect(report.coveragePct).toBeGreaterThanOrEqual(95);
     },

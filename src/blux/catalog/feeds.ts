@@ -18,8 +18,7 @@ const NAME_TO_TYPE: Record<string, string> = {
   projects: "project",
 };
 
-const normalize = (name: string): string =>
-  name.trim().toLowerCase().replace(/\s+/g, " ");
+const normalize = (name: string): string => name.trim().toLowerCase().replace(/\s+/g, " ");
 
 export function feedEntityType(feedName: string): string {
   const name = normalize(feedName);

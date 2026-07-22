@@ -27,9 +27,7 @@ const stack = (children: Node[]): Node => ({ kind: "stack", children });
 
 describe("cellFromNode", () => {
   it("captures media + heading + body co-located in a sub-stack (skeleton dropped these)", () => {
-    const c = cellFromNode(
-      stack([heading("The Pointe"), media(img("u1")), body("<p>x</p>")]),
-    );
+    const c = cellFromNode(stack([heading("The Pointe"), media(img("u1")), body("<p>x</p>")]));
     expect(c.media?.assetId).toBe("u1");
     expect(c.title).toContain("The Pointe");
     expect(c.body).toContain("x");
@@ -48,12 +46,7 @@ describe("cellFromNode", () => {
 describe("cellFromNode — every heading survives (review #1)", () => {
   it("keeps the first heading as title and folds later headings into the body in document order", () => {
     const c = cellFromNode(
-      stack([
-        heading("Alpha"),
-        body("<p>one</p>"),
-        heading("Beta", 4),
-        body("<p>two</p>"),
-      ]),
+      stack([heading("Alpha"), body("<p>one</p>"), heading("Beta", 4), body("<p>two</p>")]),
     );
     expect(c.title).toBe("<h3>Alpha</h3>");
     const b = c.body ?? "";
@@ -75,9 +68,7 @@ describe("cellFromNode — headings emit wrapped html (review #3)", () => {
 
 describe("cellFromNode — raw html capture (review #4)", () => {
   it("captures non-empty raw html into embedHtml alongside text (kind stays text)", () => {
-    const c = cellFromNode(
-      stack([body("<p>x</p>"), raw('<a class="button">Visit Website</a>')]),
-    );
+    const c = cellFromNode(stack([body("<p>x</p>"), raw('<a class="button">Visit Website</a>')]));
     expect(c.kind).toBe("text");
     expect(c.embedHtml).toContain("Visit Website");
   });
@@ -102,9 +93,7 @@ describe("cellFromNode — bare body parts are <p>-wrapped (gap 1)", () => {
       ]),
     );
     expect(c.title).toBe("<h3>The Pointe</h3>");
-    expect(c.body).toBe(
-      "<h4>a monument of excellence</h4>\n<p>Nestled among the hills</p>",
-    );
+    expect(c.body).toBe("<h4>a monument of excellence</h4>\n<p>Nestled among the hills</p>");
   });
   it("leaves already-tagged body html untouched", () => {
     const c = cellFromNode(stack([heading("T"), body("<p>tagged</p>")]));
@@ -115,12 +104,7 @@ describe("cellFromNode — bare body parts are <p>-wrapped (gap 1)", () => {
 describe("cellFromNode — depth-0 multi-media subtrees split into a subgrid (gap 3a)", () => {
   it("emits one text item + one media item per media in document order", () => {
     const c = cellFromNode(
-      stack([
-        heading("Villa"),
-        body("<p>desc</p>"),
-        media(img("x1")),
-        media(img("x2")),
-      ]),
+      stack([heading("Villa"), body("<p>desc</p>"), media(img("x1")), media(img("x2"))]),
     );
     expect(c.kind).toBe("subgrid");
     const sub = c.subgrid ?? [];
@@ -140,9 +124,7 @@ describe("cellFromNode — depth-0 multi-media subtrees split into a subgrid (ga
 
 describe("nodeToCells", () => {
   it("expands a row into one cell per grid cell, losing no media", () => {
-    const cells = nodeToCells(
-      row([media(img("a")), stack([heading("t"), media(img("b"))])]),
-    );
+    const cells = nodeToCells(row([media(img("a")), stack([heading("t"), media(img("b"))])]));
     expect(cells).toHaveLength(2);
     const ids = cells.flatMap((c) => (c.media ? [c.media.assetId] : []));
     expect(ids).toContain("a");
@@ -152,9 +134,7 @@ describe("nodeToCells", () => {
 
 describe("cellDepthExceedsTwo", () => {
   it("flags a row nested inside a subgrid cell (three row levels — past cell→subgrid)", () => {
-    expect(
-      cellDepthExceedsTwo(row([stack([row([row([media(img("a"))])])])])),
-    ).toBe(true);
+    expect(cellDepthExceedsTwo(row([stack([row([row([media(img("a"))])])])]))).toBe(true);
   });
   it("allows cell→subgrid (depth 2)", () => {
     expect(cellDepthExceedsTwo(row([row([media(img("a"))])]))).toBe(false);
@@ -164,23 +144,12 @@ describe("cellDepthExceedsTwo", () => {
     // multi-child stack. The old guard only looked at the item node itself.
     expect(
       cellDepthExceedsTwo(
-        row([
-          row([
-            stack([
-              heading("Amenities", 4),
-              row([media(img("a1")), media(img("a2"))]),
-            ]),
-          ]),
-        ]),
+        row([row([stack([heading("Amenities", 4), row([media(img("a1")), media(img("a2"))])])])]),
       ),
     ).toBe(true);
   });
   it("flags a subgrid item whose subtree carries more than one media (gap 3b)", () => {
-    expect(
-      cellDepthExceedsTwo(
-        row([row([stack([media(img("a")), media(img("b"))])])]),
-      ),
-    ).toBe(true);
+    expect(cellDepthExceedsTwo(row([row([stack([media(img("a")), media(img("b"))])])]))).toBe(true);
   });
 });
 

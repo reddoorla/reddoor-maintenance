@@ -5,12 +5,7 @@
 // base Main + the observed extension fields).
 import type { Media } from "../grid/types.js";
 import type { Diagnostic } from "../ir.js";
-import {
-  assetRef,
-  richText,
-  type PlanCustomType,
-  type PlanDocument,
-} from "../emit/plan.js";
+import { assetRef, richText, type PlanCustomType, type PlanDocument } from "../emit/plan.js";
 import { demoteHeadingsHtml } from "../emit/coerce-html.js";
 import { feedEntityType, isSkippedFeed } from "./feeds.js";
 
@@ -86,10 +81,7 @@ const isStyleKey = (key: string) => key.startsWith("_");
 
 type ExtKind = "text" | "richtext" | "boolean" | "number" | "group";
 
-const EXT_FIELD_CONFIG: Record<
-  ExtKind,
-  (label: string) => Record<string, unknown>
-> = {
+const EXT_FIELD_CONFIG: Record<ExtKind, (label: string) => Record<string, unknown>> = {
   text: (label) => ({ type: "Text", config: { label } }),
   // deriveFields convention: mirrors the base body field's model config.
   richtext: (label) => ({
@@ -134,8 +126,7 @@ const mediaUuidOf = (v: unknown): string | undefined => {
 /** Extension entries of a record: every non-style, non-base key. */
 function extEntries(record: Record<string, unknown>): [string, unknown][] {
   return Object.entries(record).filter(
-    ([key, value]) =>
-      !isStyleKey(key) && !BASE_KEYS.has(key) && value !== undefined,
+    ([key, value]) => !isStyleKey(key) && !BASE_KEYS.has(key) && value !== undefined,
   );
 }
 
@@ -150,10 +141,7 @@ function normalizeRecord(record: Record<string, unknown>): Record<string, unknow
   const { disable, ...rest } = record;
   return {
     ...rest,
-    disabled:
-      record.disabled === true || disable === true
-        ? true
-        : (record.disabled ?? disable),
+    disabled: record.disabled === true || disable === true ? true : (record.disabled ?? disable),
   };
 }
 
@@ -189,8 +177,7 @@ const DATE_RE = /^(\d{4})-(\d{1,2})-(\d{1,2})$/;
 /** Drop a trailing time suffix (`T10:30:00Z`, ` 10:30`) so a datetime-shaped
  * string keeps its date instead of being dropped as unparseable (round-2
  * item 8 — zero fleet occurrences today, cheap resilience). */
-const stripTime = (s: string): string =>
-  s.replace(/(?:T|\s+)\d{1,2}:\d{2}\S*$/, "").trim();
+const stripTime = (s: string): string => s.replace(/(?:T|\s+)\d{1,2}:\d{2}\S*$/, "").trim();
 
 export type NormalizedDate = {
   date?: string;
@@ -206,10 +193,7 @@ export type NormalizedDate = {
  * defaults to year-month-day with an `ambiguous` issue when the feed offers no
  * evidence. Anything else (or an out-of-range resolution) is `unparseable` —
  * the caller omits the date. */
-export function normalizeDate(
-  raw: unknown,
-  feedVote: DateOrientation | null,
-): NormalizedDate {
+export function normalizeDate(raw: unknown, feedVote: DateOrientation | null): NormalizedDate {
   if (typeof raw !== "string") return { issue: "unparseable" };
   const trimmed = stripTime(raw.trim());
   const m = DATE_RE.exec(trimmed);
@@ -232,8 +216,7 @@ export function normalizeDate(
       return undefined;
     return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   };
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed) && build(mid, last) === trimmed)
-    return { date: trimmed }; // already-valid ISO
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed) && build(mid, last) === trimmed) return { date: trimmed }; // already-valid ISO
   if (mid > 12 && last > 12) return { issue: "unparseable" };
   if (mid > 12 || last > 12) {
     // Exactly one side can be the day — the orientation is self-evident.
@@ -242,8 +225,7 @@ export function normalizeDate(
   }
   // Both ≤ 12: orientation-ambiguous — the feed's majority decides;
   // tie/no-evidence reads year-month-day and flags it.
-  const date =
-    feedVote === "year-day-month" ? build(last, mid) : build(mid, last);
+  const date = feedVote === "year-day-month" ? build(last, mid) : build(mid, last);
   if (date === undefined) return { issue: "unparseable" };
   return feedVote ? { date } : { date, issue: "ambiguous" };
 }
@@ -254,8 +236,7 @@ function feedDateOrientation(items: unknown[]): DateOrientation | null {
   let ymd = 0;
   let ydm = 0;
   for (const it of items) {
-    const raw =
-      it && typeof it === "object" ? (it as { date?: unknown }).date : undefined;
+    const raw = it && typeof it === "object" ? (it as { date?: unknown }).date : undefined;
     if (typeof raw !== "string") continue;
     const m = DATE_RE.exec(stripTime(raw.trim()));
     if (!m) continue;
@@ -273,9 +254,7 @@ function feedDateOrientation(items: unknown[]): DateOrientation | null {
 }
 
 const titleOf = (record: Record<string, unknown>): string =>
-  typeof record.title === "string" && record.title.trim()
-    ? record.title.trim()
-    : "(untitled)";
+  typeof record.title === "string" && record.title.trim() ? record.title.trim() : "(untitled)";
 
 type RecordCtx = {
   feedId: string;
@@ -331,9 +310,7 @@ function recordToDoc(
   }
 
   if (Array.isArray(record.tags))
-    data.tags = record.tags
-      .filter((t): t is string => typeof t === "string")
-      .join(",");
+    data.tags = record.tags.filter((t): t is string => typeof t === "string").join(",");
   else if (typeof record.tags === "string" && record.tags) data.tags = record.tags;
 
   if (record.date != null && record.date !== "") {
@@ -398,10 +375,7 @@ function recordToDoc(
  * semantics — the record's bare-slug `url` first, else the title slug); every
  * dropped loser is named by a uid-collision diagnostic. */
 export function buildEntityEmit(
-  feeds: Record<
-    string,
-    { name?: string; items?: unknown[]; fields?: unknown } | undefined
-  >,
+  feeds: Record<string, { name?: string; items?: unknown[]; fields?: unknown } | undefined>,
 ): EntityEmit {
   const diagnostics: Diagnostic[] = [];
   const media: Media[] = [];
@@ -472,9 +446,10 @@ export function buildEntityEmit(
       media.push(...recMedia);
       const disabled = record.disabled === true;
       const existing = byUid.get(uid);
-      const dropped = !existing || (existing.disabled && !disabled)
-        ? existing // the incoming record wins — the stored one is dropped
-        : { title: titleOf(record) }; // the stored record wins — this one is dropped
+      const dropped =
+        !existing || (existing.disabled && !disabled)
+          ? existing // the incoming record wins — the stored one is dropped
+          : { title: titleOf(record) }; // the stored record wins — this one is dropped
       if (dropped)
         diagnostics.push({
           kind: "uid-collision",
@@ -491,8 +466,7 @@ export function buildEntityEmit(
   for (const type of typeOrder) {
     for (const { doc } of docsByType.get(type)!.values()) documents.push(doc);
     const Main: Record<string, unknown> = { ...BASE_MAIN };
-    for (const [key, kind] of extByType.get(type)!)
-      Main[key] = EXT_FIELD_CONFIG[kind](key);
+    for (const [key, kind] of extByType.get(type)!) Main[key] = EXT_FIELD_CONFIG[kind](key);
     const label = typeLabel(type);
     customTypes.push({
       id: type,

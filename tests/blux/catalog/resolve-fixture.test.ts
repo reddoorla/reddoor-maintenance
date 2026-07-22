@@ -1,6 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { resolveFixture } from "../../../src/blux/catalog/resolve-fixture.js";
 
+// Structural view of a resolved slice for the deep assertions below (the
+// fixture data is untyped JSON; this narrows just the fields the tests read).
+type ResolvedSlice = {
+  primary: {
+    cells?: { title?: unknown; media?: unknown }[];
+    items?: unknown[];
+  };
+};
+
 const plan = {
   customTypes: [],
   documents: [
@@ -34,7 +43,7 @@ describe("resolveFixture", () => {
     const doc = fx.documents[0]!;
     expect(Array.isArray(doc.data.title)).toBe(true);
     expect((doc.data.title as { type: string }[])[0]!.type).toBe("heading1");
-    const cell = (doc.data.slices as any[])[0].primary.cells[0];
+    const cell = (doc.data.slices as ResolvedSlice[])[0]!.primary.cells![0]!;
     // The richtext marker inside a cell resolves too (deep walk).
     expect((cell.title as { type: string }[])[0]!.type).toBe("heading3");
     expect(cell.media).toMatchObject({
@@ -47,7 +56,7 @@ describe("resolveFixture", () => {
   it("unknown asset ids resolve to null media (isFilled-safe), reported", () => {
     const broken = { ...plan, assets: [] };
     const fx = resolveFixture(broken as never);
-    const cell = (fx.documents[0]!.data.slices as any[])[0].primary.cells[0];
+    const cell = (fx.documents[0]!.data.slices as ResolvedSlice[])[0]!.primary.cells![0]!;
     expect(cell.media).toBeNull();
     expect(fx.missingAssets).toEqual(["asset-1"]);
   });
@@ -70,7 +79,9 @@ describe("resolveFixture", () => {
     expect(fx.collections.product).toHaveLength(1);
     expect(fx.collections.product![0]!.uid).toBe("steel-chair");
     // entity richtext resolves too.
-    expect((fx.collections.product![0]!.data.title as { type: string }[])[0]!.type).toBe("heading1");
+    expect((fx.collections.product![0]!.data.title as { type: string }[])[0]!.type).toBe(
+      "heading1",
+    );
   });
 
   it("resolves markers sitting DIRECTLY as array elements (array-first walk)", () => {
@@ -93,7 +104,7 @@ describe("resolveFixture", () => {
       ],
     };
     const fx = resolveFixture(withArrayMarkers as never);
-    const items = (fx.documents[0]!.data.slices as any[])[0]!.primary.items;
+    const items = (fx.documents[0]!.data.slices as ResolvedSlice[])[0]!.primary.items!;
     expect(items[0]).toMatchObject({ url: "https://cdn/img.jpg" });
     expect(items[1]).toBeNull();
     expect(fx.missingAssets).toEqual(["nope"]);

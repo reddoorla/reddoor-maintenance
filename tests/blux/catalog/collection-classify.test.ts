@@ -1,9 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Band, Node } from "../../../src/blux/grid/types.js";
-import {
-  bandOrCollection,
-  bandToCatalog,
-} from "../../../src/blux/catalog/classify.js";
+import { bandOrCollection, bandToCatalog } from "../../../src/blux/catalog/classify.js";
 
 // Parser-faithful heading node: html carries NO <hN> wrapper.
 const heading = (html: string, level = 2): Node => ({ kind: "heading", level, html });
@@ -34,7 +31,7 @@ describe("bandOrCollection", () => {
     expect(spec).not.toHaveProperty("mediaRatio");
   });
 
-  it("(b) item.type === \"slides\" routes to the carousel layout", () => {
+  it('(b) item.type === "slides" routes to the carousel layout', () => {
     const spec = bandOrCollection(
       band,
       { type: "slides", sources: ["feed1"], sourceConfig: {} },
@@ -81,9 +78,7 @@ describe("bandOrCollection", () => {
   });
 
   it("(d) a non-feed item falls through to bandToCatalog unchanged", () => {
-    expect(bandOrCollection(band, undefined, feeds, {})).toEqual(
-      bandToCatalog(band, {}),
-    );
+    expect(bandOrCollection(band, undefined, feeds, {})).toEqual(bandToCatalog(band, {}));
     expect(bandOrCollection(band, { title: "plain block" }, feeds, {})).toEqual(
       bandToCatalog(band, {}),
     );
@@ -124,24 +119,18 @@ describe("bandOrCollection", () => {
 
   it("(f2) an emptyish band (heading only) with a feed item IS a collection — no misalign diagnostic", () => {
     const diagnostics: import("../../../src/blux/ir.js").Diagnostic[] = [];
-    const spec = bandOrCollection(
-      band,
-      { sources: ["feed1"], sourceConfig: {} },
-      feeds,
-      { diagnostics },
-    );
+    const spec = bandOrCollection(band, { sources: ["feed1"], sourceConfig: {} }, feeds, {
+      diagnostics,
+    });
     expect(spec.slice).toBe("BluxCollection");
     expect(diagnostics).toHaveLength(0);
   });
 
   it("(g) an unknown feed source still classifies but is diagnosed, never silent", () => {
     const diagnostics: import("../../../src/blux/ir.js").Diagnostic[] = [];
-    const spec = bandOrCollection(
-      band,
-      { sources: ["ghost-feed"], sourceConfig: {} },
-      feeds,
-      { diagnostics },
-    );
+    const spec = bandOrCollection(band, { sources: ["ghost-feed"], sourceConfig: {} }, feeds, {
+      diagnostics,
+    });
     expect(spec).toMatchObject({
       slice: "BluxCollection",
       entityType: "collection_item",
@@ -220,12 +209,9 @@ describe("bandOrCollection", () => {
       },
     };
     const diagnostics: import("../../../src/blux/ir.js").Diagnostic[] = [];
-    const spec = bandOrCollection(
-      mixedBand,
-      { sources: ["feed1"], sourceConfig: {} },
-      feeds,
-      { diagnostics },
-    );
+    const spec = bandOrCollection(mixedBand, { sources: ["feed1"], sourceConfig: {} }, feeds, {
+      diagnostics,
+    });
     expect(spec.slice).not.toBe("BluxCollection");
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0]).toMatchObject({ kind: "feed-band-misalign" });
@@ -270,16 +256,11 @@ describe("bandOrCollection", () => {
       },
     };
     const diagnostics: import("../../../src/blux/ir.js").Diagnostic[] = [];
-    const spec = bandOrCollection(
-      mapBand,
-      { sources: ["feed1"], sourceConfig: {} },
-      feeds,
-      {
-        isMapMount: (n) => n.kind === "raw" && n.html.includes('id="club_map"'),
-        mapConfig,
-        diagnostics,
-      },
-    );
+    const spec = bandOrCollection(mapBand, { sources: ["feed1"], sourceConfig: {} }, feeds, {
+      isMapMount: (n) => n.kind === "raw" && n.html.includes('id="club_map"'),
+      mapConfig,
+      diagnostics,
+    });
     expect(spec).toMatchObject({
       slice: "BluxCollection",
       widgetKind: "map",
@@ -292,12 +273,9 @@ describe("bandOrCollection", () => {
   // Round-2 item 5 — every source validates, not just [0].
   it("(k) an unknown source in position ≥1 is diagnosed and dropped from feedIds", () => {
     const diagnostics: import("../../../src/blux/ir.js").Diagnostic[] = [];
-    const spec = bandOrCollection(
-      band,
-      { sources: ["feed1", "ghost"], sourceConfig: {} },
-      feeds,
-      { diagnostics },
-    );
+    const spec = bandOrCollection(band, { sources: ["feed1", "ghost"], sourceConfig: {} }, feeds, {
+      diagnostics,
+    });
     expect(spec).toMatchObject({
       slice: "BluxCollection",
       entityType: "product",
@@ -383,12 +361,9 @@ describe("bandOrCollection", () => {
   // (feed_ids would emit "feed-1,feed-1").
   it("(m) duplicate sources dedupe: feedIds lists each feed once", () => {
     const diagnostics: import("../../../src/blux/ir.js").Diagnostic[] = [];
-    const spec = bandOrCollection(
-      band,
-      { sources: ["feed1", "feed1"], sourceConfig: {} },
-      feeds,
-      { diagnostics },
-    );
+    const spec = bandOrCollection(band, { sources: ["feed1", "feed1"], sourceConfig: {} }, feeds, {
+      diagnostics,
+    });
     expect(spec).toMatchObject({ slice: "BluxCollection", feedIds: ["feed1"] });
     expect(diagnostics).toEqual([]);
   });
@@ -422,18 +397,13 @@ describe("bandOrCollection", () => {
       index: 3,
       root: {
         kind: "row",
-        cells: [
-          { token: { cols: 1, raw: "grid-1" }, node: { kind: "stack", children: [mount] } },
-        ],
+        cells: [{ token: { cols: 1, raw: "grid-1" }, node: { kind: "stack", children: [mount] } }],
       },
     };
     const diagnostics: import("../../../src/blux/ir.js").Diagnostic[] = [];
-    const spec = bandOrCollection(
-      rowBand,
-      { sources: ["feed1"], sourceConfig: {} },
-      feeds,
-      { diagnostics },
-    );
+    const spec = bandOrCollection(rowBand, { sources: ["feed1"], sourceConfig: {} }, feeds, {
+      diagnostics,
+    });
     expect(spec.slice).toBe("BluxCollection");
     expect(diagnostics).toEqual([]);
   });
@@ -495,12 +465,9 @@ describe("bandOrCollection", () => {
       },
     };
     const diagnostics: import("../../../src/blux/ir.js").Diagnostic[] = [];
-    const spec = bandOrCollection(
-      imgBand,
-      { sources: ["feed1"], sourceConfig: {} },
-      feeds,
-      { diagnostics },
-    );
+    const spec = bandOrCollection(imgBand, { sources: ["feed1"], sourceConfig: {} }, feeds, {
+      diagnostics,
+    });
     expect(spec.slice).not.toBe("BluxCollection");
     expect(diagnostics[0]).toMatchObject({ kind: "feed-band-misalign" });
   });
@@ -517,12 +484,9 @@ describe("bandOrCollection", () => {
       },
     };
     const diagnostics: import("../../../src/blux/ir.js").Diagnostic[] = [];
-    const spec = bandOrCollection(
-      mixed,
-      { sources: ["feed1"], sourceConfig: {} },
-      feeds,
-      { diagnostics },
-    );
+    const spec = bandOrCollection(mixed, { sources: ["feed1"], sourceConfig: {} }, feeds, {
+      diagnostics,
+    });
     expect(spec.slice).not.toBe("BluxCollection");
     expect(diagnostics[0]).toMatchObject({ kind: "feed-band-misalign" });
   });

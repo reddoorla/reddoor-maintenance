@@ -70,9 +70,7 @@ describe("rewriteDocUrls", () => {
 
   it("reports surviving cloudfront urls as unmatched (never silent)", () => {
     const other = "https://d3syaxnfm3oj0e.cloudfront.net/img/UNKNOWN.jpg";
-    const docs = [
-      { type: "page", uid: "home", data: { s: `<img src="${other}">` } },
-    ];
+    const docs = [{ type: "page", uid: "home", data: { s: `<img src="${other}">` } }];
     const r = rewriteDocUrls(docs, map);
     expect(r.unmatched).toEqual([other]);
   });

@@ -1,8 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  buildEntityEmit,
-  normalizeDate,
-} from "../../../src/blux/catalog/entities.js";
+import { buildEntityEmit, normalizeDate } from "../../../src/blux/catalog/entities.js";
 
 // Composition-shaped fixture: a Products feed with extension keys
 // (category/sub_category/dimensions/disabled), a base-only Reps feed, and a
@@ -97,9 +94,7 @@ describe("buildEntityEmit", () => {
     expect(ids).toContain("person");
     const product = emit.customTypes.find((c) => c.id === "product")!;
     expect(product.repeatable).toBe(true);
-    const main = (
-      product.json as { json: { Main: Record<string, { type: string }> } }
-    ).json.Main;
+    const main = (product.json as { json: { Main: Record<string, { type: string }> } }).json.Main;
     // frozen Plan-2 base fields
     for (const key of ["uid", "title", "body", "media", "gallery", "tags", "date", "link"])
       expect(main).toHaveProperty(key);
@@ -112,9 +107,7 @@ describe("buildEntityEmit", () => {
     expect(main.disabled!.type).toBe("Boolean");
     // person carries NO product extensions
     const person = emit.customTypes.find((c) => c.id === "person")!;
-    const personMain = (
-      person.json as { json: { Main: Record<string, unknown> } }
-    ).json.Main;
+    const personMain = (person.json as { json: { Main: Record<string, unknown> } }).json.Main;
     expect(personMain).not.toHaveProperty("category");
   });
 
@@ -163,12 +156,7 @@ describe("buildEntityEmit — record uids (url-first slugging, real fleet urls)"
   const uids = emit.documents.map((d) => d.uid);
 
   it("uses the url as uid ONLY when it is a bare slug", () => {
-    expect(uids).toEqual([
-      "big-announcement",
-      "hello-world",
-      "plain-slug",
-      "steel-chair",
-    ]);
+    expect(uids).toEqual(["big-announcement", "hello-world", "plain-slug", "steel-chair"]);
   });
 
   it("keeps the raw url riding as an extension field for Phase 7", () => {
@@ -274,9 +262,8 @@ describe("buildEntityEmit — extension-field integrity", () => {
     },
   });
   const doc = emit.documents[0]!;
-  const main = (
-    emit.customTypes[0]!.json as { json: { Main: Record<string, { type: string }> } }
-  ).json.Main;
+  const main = (emit.customTypes[0]!.json as { json: { Main: Record<string, { type: string }> } })
+    .json.Main;
 
   it("description emits as demoted richtext and models StructuredText", () => {
     expect(doc.data.description).toEqual({
@@ -303,8 +290,7 @@ describe("buildEntityEmit — extension-field integrity", () => {
     expect(doc.data.uid).toBeUndefined();
     expect(doc.data.gallery).toBeUndefined();
     expect(doc.data.link).toBeUndefined();
-    for (const key of ["uid", "gallery", "link"] as const)
-      expect(main[key]!.type).not.toBe("Text");
+    for (const key of ["uid", "gallery", "link"] as const) expect(main[key]!.type).not.toBe("Text");
   });
 });
 
@@ -333,9 +319,8 @@ describe("buildEntityEmit — `disable` spelling normalizes to `disabled`", () =
     });
     expect(emit.documents[0]!.data.disabled).toBe(true);
     expect(emit.documents[0]!.data).not.toHaveProperty("disable");
-    const main = (
-      emit.customTypes[0]!.json as { json: { Main: Record<string, { type: string }> } }
-    ).json.Main;
+    const main = (emit.customTypes[0]!.json as { json: { Main: Record<string, { type: string }> } })
+      .json.Main;
     expect(main.disabled!.type).toBe("Boolean");
     expect(main).not.toHaveProperty("disable");
   });
@@ -402,7 +387,10 @@ describe("buildEntityEmit — mixed-type extension keys resolve group-first", ()
   const main = (
     emit.customTypes[0]!.json as {
       json: {
-        Main: Record<string, { type: string; config: { fields: Record<string, { type: string }> } }>;
+        Main: Record<
+          string,
+          { type: string; config: { fields: Record<string, { type: string }> } }
+        >;
       };
     }
   ).json.Main;
