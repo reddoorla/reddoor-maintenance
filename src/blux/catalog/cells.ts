@@ -138,14 +138,10 @@ function buildCell(node: Node, depth: number, state: CellBuildState): CatalogCel
         : [];
     return {
       kind: "subgrid",
-      subgrid: [
-        ...textItem,
-        ...allMedia.map((m): CatalogCell => ({ kind: "media", media: m })),
-      ],
+      subgrid: [...textItem, ...allMedia.map((m): CatalogCell => ({ kind: "media", media: m }))],
     };
   }
-  if (depth > 0 && (allMedia.length > 1 || containsRow(u)))
-    state.flattened = true;
+  if (depth > 0 && (allMedia.length > 1 || containsRow(u))) state.flattened = true;
   const media = allMedia[0];
   const { title, body } = textOf(u);
   const embedHtml = rawHtmlOf(u);
@@ -232,9 +228,7 @@ function mediaBlock(m: Media): BlockNode {
   // A video renders as an inline <video> — an image url here would make the
   // starter's BluxBlock render a broken <img> pointing at an mp4.
   if (m.kind === "video") return { tag: "figure", html: videoTag(m) };
-  const url = m.base
-    ? `${m.base}${m.assetId}${m.ext ? `.${m.ext}` : ""}`
-    : m.assetId;
+  const url = m.base ? `${m.base}${m.assetId}${m.ext ? `.${m.ext}` : ""}` : m.assetId;
   // `Media` (grid/types.ts) carries no alt — asset alt lives in the IR asset
   // index and is resolved at emit/migrate time, not here.
   return { tag: "figure", image: { url, alt: "" } };

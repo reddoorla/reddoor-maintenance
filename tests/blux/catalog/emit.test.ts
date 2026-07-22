@@ -33,7 +33,11 @@ describe("catalogSpecToPlanSlice", () => {
       title: { __richtext_html: "<h3>Pool</h3>" },
       body: { __richtext_html: "<p>Heated</p>" },
     });
-    expect(cells[1]).toMatchObject({ kind: "media", media: { __asset_id: "u1" }, media_ratio: "4:3" });
+    expect(cells[1]).toMatchObject({
+      kind: "media",
+      media: { __asset_id: "u1" },
+      media_ratio: "4:3",
+    });
   });
 });
 
@@ -46,7 +50,8 @@ describe("emit-boundary sanitizing", () => {
         {
           kind: "text",
           title: "<h3>Visit</h3>",
-          embedHtml: '<a onclick="hack()" href="https://x.com">Visit Website</a><script>track()</script>',
+          embedHtml:
+            '<a onclick="hack()" href="https://x.com">Visit Website</a><script>track()</script>',
         },
       ],
     };
@@ -92,7 +97,9 @@ describe("emit-boundary sanitizing", () => {
 describe("buildCatalogPlan", () => {
   it("wraps specs in one page document and collects the referenced assets", () => {
     const plan = buildCatalogPlan([{ uid: "home", title: "Home", specs: [spec] }], {
-      assets: [{ id: "u1", url: "https://cdn/u1.jpg", alt: "pool", sourceUrl: "https://cdn/u1.jpg" }],
+      assets: [
+        { id: "u1", url: "https://cdn/u1.jpg", alt: "pool", sourceUrl: "https://cdn/u1.jpg" },
+      ],
       diagnostics: [],
     });
     expect(plan.documents).toHaveLength(1);

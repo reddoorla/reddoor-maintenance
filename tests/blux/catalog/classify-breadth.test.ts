@@ -40,10 +40,7 @@ describe("bandToCatalog (breadth)", () => {
   it("routes a 2-cell media+text row to BluxMediaText carrying media + title + body", () => {
     const band: Band = {
       index: 1,
-      root: row([
-        media(img("m1")),
-        stack([heading("Villa"), body("<p>desc</p>")]),
-      ]),
+      root: row([media(img("m1")), stack([heading("Villa"), body("<p>desc</p>")])]),
     };
     const spec = bandToCatalog(band);
     expect(spec.slice).toBe("BluxMediaText");
@@ -81,12 +78,7 @@ describe("bandToCatalog (breadth)", () => {
       index: 1,
       root: row([
         media(img("m1")),
-        stack([
-          heading("Villa"),
-          body("<p>desc</p>"),
-          media(img("m2")),
-          media(img("m3")),
-        ]),
+        stack([heading("Villa"), body("<p>desc</p>"), media(img("m2")), media(img("m3"))]),
       ]),
     };
     const spec = bandToCatalog(band);
@@ -103,10 +95,7 @@ describe("bandToCatalog (breadth)", () => {
     // must go through the grid path, where the video becomes an embed cell.
     const band: Band = {
       index: 13,
-      root: row([
-        media(vid("v1")),
-        stack([heading("Tour"), body("<p>watch the film</p>")]),
-      ]),
+      root: row([media(vid("v1")), stack([heading("Tour"), body("<p>watch the film</p>")])]),
     };
     const spec = bandToCatalog(band);
     expect(spec.slice).not.toBe("BluxMediaText");
@@ -211,7 +200,7 @@ describe("bandToCatalog (breadth)", () => {
     expect(spec.columns).toBe(3);
   });
 
-  it("falls back to the cell count for columns when the token cols is \"any\"", () => {
+  it('falls back to the cell count for columns when the token cols is "any"', () => {
     const band: Band = {
       index: 6,
       root: {
@@ -230,20 +219,13 @@ describe("bandToCatalog (breadth)", () => {
 
   it("carries a carousel slide's caption AND subcaption (review #6)", () => {
     const slide = (id: string, title?: string, sub?: string): Node =>
-      stack([
-        media(img(id)),
-        ...(title ? [heading(title, 5)] : []),
-        ...(sub ? [body(sub)] : []),
-      ]);
+      stack([media(img(id)), ...(title ? [heading(title, 5)] : []), ...(sub ? [body(sub)] : [])]);
     const band: Band = {
       index: 9,
       root: {
         kind: "row",
         slider: { columns: 1 },
-        cells: [
-          cell(slide("s1", "Tower", "<p>Los Angeles</p>")),
-          cell(slide("s2", "Pointe")),
-        ],
+        cells: [cell(slide("s1", "Tower", "<p>Los Angeles</p>")), cell(slide("s2", "Pointe"))],
       },
     };
     const spec = bandToCatalog(band);
@@ -280,12 +262,7 @@ describe("bandToCatalog (breadth)", () => {
       index: 10,
       root: row([
         media(img("v0")),
-        row([
-          stack([
-            heading("Amenities", 4),
-            row([media(img("a1")), media(img("a2"))]),
-          ]),
-        ]),
+        row([stack([heading("Amenities", 4), row([media(img("a1")), media(img("a2"))])])]),
       ]),
     };
     const spec = bandToCatalog(band);
@@ -295,9 +272,7 @@ describe("bandToCatalog (breadth)", () => {
     expect(flat).toContain("a1");
     expect(flat).toContain("a2");
     expect(flat).toContain("Amenities");
-    expect(spec.media.map((m) => m.assetId)).toEqual(
-      expect.arrayContaining(["v0", "a1", "a2"]),
-    );
+    expect(spec.media.map((m) => m.assetId)).toEqual(expect.arrayContaining(["v0", "a1", "a2"]));
   });
 
   it("routes a multi-child stack root whose child rows nest rows to BluxBlock (review #2)", () => {

@@ -21,9 +21,11 @@ describe("sanitizeHtml", () => {
 
   it("strips multiple script blocks case-insensitively and tolerates an unclosed one at EOF", () => {
     expect(
-      sanitizeHtml('<p>a</p><SCRIPT>var x=1;</SCRIPT><p>b</p><script type="text/javascript">y()</script>'),
+      sanitizeHtml(
+        '<p>a</p><SCRIPT>var x=1;</SCRIPT><p>b</p><script type="text/javascript">y()</script>',
+      ),
     ).toBe("<p>a</p><p>b</p>");
-    expect(sanitizeHtml('<p>a</p><script>trailing, never closed')).toBe("<p>a</p>");
+    expect(sanitizeHtml("<p>a</p><script>trailing, never closed")).toBe("<p>a</p>");
   });
 
   it("strips inline on* handler attributes in any quoting style", () => {
@@ -40,7 +42,7 @@ describe("sanitizeHtml", () => {
   });
 
   it("passes everything else through verbatim", () => {
-    const html = '<div class="blux-map" data-x=\'1\'><span>hi</span>&amp;</div>';
+    const html = "<div class=\"blux-map\" data-x='1'><span>hi</span>&amp;</div>";
     expect(sanitizeHtml(html)).toBe(html);
   });
 });

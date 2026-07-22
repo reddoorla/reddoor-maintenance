@@ -1,8 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  feedEntityType,
-  isSkippedFeed,
-} from "../../../src/blux/catalog/feeds.js";
+import { feedEntityType, isSkippedFeed } from "../../../src/blux/catalog/feeds.js";
 
 describe("feedEntityType (frozen spec §8 mapping)", () => {
   it("maps the named feeds", () => {

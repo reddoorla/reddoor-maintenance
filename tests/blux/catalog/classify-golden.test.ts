@@ -18,24 +18,15 @@ function specMediaCount(spec: CatalogSpec): number {
   // a collection carries no inline media — its content is query-resolved
   if (spec.slice === "BluxCollection") return 0;
   const walk = (cs: CatalogCell[]): number =>
-    cs.reduce(
-      (n, c) => n + (c.media ? 1 : 0) + (c.subgrid ? walk(c.subgrid) : 0),
-      0,
-    );
+    cs.reduce((n, c) => n + (c.media ? 1 : 0) + (c.subgrid ? walk(c.subgrid) : 0), 0);
   return walk(spec.cells);
 }
 
 describe("catalog breadth classify — the-pointe (golden)", () => {
   it("routes every band and captures the vast majority of source media", () => {
-    const html = readFileSync(
-      join(__dirname, "../fixtures/the-pointe-page-content.html"),
-      "utf-8",
-    );
+    const html = readFileSync(join(__dirname, "../fixtures/the-pointe-page-content.html"), "utf-8");
     const bands = parseGridBands(html);
-    const sourceMedia = bands.reduce(
-      (n, b) => n + collectMedia(b.root).length,
-      0,
-    );
+    const sourceMedia = bands.reduce((n, b) => n + collectMedia(b.root).length, 0);
     const specs = bands.map((b) => bandToCatalog(b));
     const captured = specs.reduce((n, s) => n + specMediaCount(s), 0);
     // Skeleton captured 7/52; breadth must capture the vast majority.

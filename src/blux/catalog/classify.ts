@@ -1,18 +1,8 @@
 import type { Band, Media, Node } from "../grid/types.js";
 import type { MapConfig } from "../grid/extract-map.js";
 import type { Diagnostic } from "../ir.js";
-import {
-  classifyBand,
-  collectMedia,
-  type CarouselSlide,
-  type SliceSpec,
-} from "../grid/index.js";
-import {
-  cellFromNode,
-  nodeToCells,
-  blockPayload,
-  cellDepthExceedsTwo,
-} from "./cells.js";
+import { classifyBand, collectMedia, type CarouselSlide, type SliceSpec } from "../grid/index.js";
+import { cellFromNode, nodeToCells, blockPayload, cellDepthExceedsTwo } from "./cells.js";
 import { cropRatioOf, isFeedBand } from "../grid/feed-grid.js";
 import { feedEntityType, isSkippedFeed } from "./feeds.js";
 import { hasVisibleContent } from "./sanitize.js";
@@ -94,9 +84,7 @@ export function sliceSpecToCatalog(
       return {
         slice: "BluxGallery",
         ...base,
-        cells: spec.media.map(
-          (m) => ({ kind: "media", media: m }) as CatalogCell,
-        ),
+        cells: spec.media.map((m) => ({ kind: "media", media: m }) as CatalogCell),
       };
     case "Carousel":
       return {
@@ -134,10 +122,7 @@ export function sliceSpecToCatalog(
 /** The band router: reuse classifyBand for routing, enrich to catalog.
  * `opts.isMapMount` flows into the grid classifier (LocationMap promotion)
  * AND into the LocationMap enrichment above (mount html recovery). */
-export function bandToCatalog(
-  band: Band,
-  opts: BandToCatalogOptions = {},
-): CatalogSpec {
+export function bandToCatalog(band: Band, opts: BandToCatalogOptions = {}): CatalogSpec {
   return sliceSpecToCatalog(classifyBand(band, opts), band, opts);
 }
 
@@ -250,8 +235,7 @@ export function bandOrCollection(
     ...(typeof sort === "string" && sort ? { sort } : {}),
     ...(Number.isFinite(limit) && limit > 0 ? { limit } : {}),
     ...(mediaRatio ? { mediaRatio } : {}),
-    layout:
-      (item as { type?: unknown }).type === "slides" ? "carousel" : "grid",
+    layout: (item as { type?: unknown }).type === "slides" ? "carousel" : "grid",
     ...(cfg["scrollLoadMore"] === true ? { scrollLoadMore: true } : {}),
     ...(widget ?? {}),
   };
@@ -306,10 +290,7 @@ function isEmptyish(root: Node, ignore?: (n: Node) => boolean): boolean {
 
 /** Depth-first search for the mount node's raw html in the UNREWRITTEN band
  * tree (the predicate only ever matches `raw` nodes — see makeIsMapMount). */
-function findMountHtml(
-  node: Node,
-  isMount: (n: Node) => boolean,
-): string | undefined {
+function findMountHtml(node: Node, isMount: (n: Node) => boolean): string | undefined {
   if (node.kind === "raw" && isMount(node)) return node.html;
   const children =
     node.kind === "row"
@@ -327,9 +308,7 @@ function findMountHtml(
 /** Diagnostic addressing (round-2 10a): `<pageUid>:<band>` when the caller
  * names the page, else the bare band index (option-less unit callers). */
 function whereOf(band: Band, opts: BandToCatalogOptions): string {
-  return opts.pageUid !== undefined
-    ? `${opts.pageUid}:${band.index}`
-    : String(band.index);
+  return opts.pageUid !== undefined ? `${opts.pageUid}:${band.index}` : String(band.index);
 }
 
 /** Decision-B mount recovery, shared by every container route (LocationMap →
@@ -342,9 +321,7 @@ function liftMapWidget(
   band: Band,
   opts: BandToCatalogOptions,
 ): { widgetKind: "map"; widgetHtml: string; mapConfig?: MapConfig } | undefined {
-  const mountHtml = opts.isMapMount
-    ? findMountHtml(band.root, opts.isMapMount)
-    : undefined;
+  const mountHtml = opts.isMapMount ? findMountHtml(band.root, opts.isMapMount) : undefined;
   if (mountHtml === undefined) return undefined;
   return {
     widgetKind: "map",
@@ -358,11 +335,7 @@ function liftMapWidget(
  * predicate, or one that no longer matches band.root. Without this the mount
  * would vanish with ZERO diagnostics (blockPayload serializes the widget node
  * as an empty div). */
-function reportUnrecoveredMount(
-  rewrittenRoot: Node,
-  band: Band,
-  opts: BandToCatalogOptions,
-): void {
+function reportUnrecoveredMount(rewrittenRoot: Node, band: Band, opts: BandToCatalogOptions): void {
   if (!containsWidgetNode(rewrittenRoot)) return;
   opts.diagnostics?.push({
     kind: "dropped-widget",
@@ -401,9 +374,7 @@ function slideCell(s: CarouselSlide): CatalogCell {
   return {
     kind: "media",
     media: s.media,
-    ...(s.caption
-      ? { title: `<h${s.caption.level}>${s.caption.html}</h${s.caption.level}>` }
-      : {}),
+    ...(s.caption ? { title: `<h${s.caption.level}>${s.caption.html}</h${s.caption.level}>` } : {}),
     ...(s.subcaption ? { body: s.subcaption.html } : {}),
   };
 }
@@ -411,10 +382,7 @@ function slideCell(s: CarouselSlide): CatalogCell {
 /** Rich grid when the tree fits the cell→subgrid model; else the
  * content-preserving BluxBlock fallback (guard and builder agree by
  * construction — see cellDepthExceedsTwo). */
-function gridOrBlock(
-  root: Node,
-  base: CatalogBaseFields,
-): BluxGridSpec | BluxBlockSpec {
+function gridOrBlock(root: Node, base: CatalogBaseFields): BluxGridSpec | BluxBlockSpec {
   if (cellDepthExceedsTwo(root)) return blockSpec(root, base);
   const columns = gridColumns(root);
   return {
@@ -465,9 +433,7 @@ function splitHeadingAndCells(root: Node): {
   const cells = nodeToCells(root).filter(
     (c) => c.title || c.body || c.media || c.subgrid || c.embedHtml,
   );
-  const hIdx = cells.findIndex(
-    (c) => c.title && !c.body && !c.media && !c.subgrid && !c.embedHtml,
-  );
+  const hIdx = cells.findIndex((c) => c.title && !c.body && !c.media && !c.subgrid && !c.embedHtml);
   const h = hIdx >= 0 ? cells[hIdx] : undefined;
   if (h)
     return {

@@ -54,9 +54,7 @@ describe("dropped-widget diagnostics", () => {
       index: 2,
       payload: {
         tag: "div",
-        children: [
-          { html: '<div data-exec="custom_0f3a_77"><script>boot()</script></div>' },
-        ],
+        children: [{ html: '<div data-exec="custom_0f3a_77"><script>boot()</script></div>' }],
       },
       media: [],
     };
@@ -115,9 +113,7 @@ describe("round-3: unrecovered Grid-path mounts + page-qualified where", () => {
       { kind: "widget", widget: { type: "map" } },
       {
         kind: "row",
-        cells: [
-          { token: { cols: 1, raw: "grid-1" }, node: { kind: "body", html: "<p>P</p>" } },
-        ],
+        cells: [{ token: { cols: 1, raw: "grid-1" }, node: { kind: "body", html: "<p>P</p>" } }],
       },
     ],
   };

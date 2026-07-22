@@ -1,9 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { BluxCollectionSpec } from "../../../src/blux/catalog/index.js";
-import {
-  buildCatalogPlan,
-  catalogSpecToPlanSlice,
-} from "../../../src/blux/catalog/index.js";
+import { buildCatalogPlan, catalogSpecToPlanSlice } from "../../../src/blux/catalog/index.js";
 
 describe("catalogSpecToPlanSlice — BluxCollection", () => {
   it("emits the full snake_case query-spec primary", () => {
@@ -117,9 +114,7 @@ describe("buildCatalogPlan — feeds ride the plan", () => {
     expect(plan.documents[1]).toMatchObject({ uid: "jane-doe" });
     expect(plan.customTypes.map((c) => c.id)).toEqual(["person"]);
     // the record's media joined the asset walk and resolved via the IR index
-    expect(plan.assets).toEqual([
-      { id: "img-2", url: "https://cdn/img-2.jpg", alt: "" },
-    ]);
+    expect(plan.assets).toEqual([{ id: "img-2", url: "https://cdn/img-2.jpg", alt: "" }]);
     expect(plan.diagnostics.some((d) => d.kind === "skipped-feed")).toBe(true);
   });
 
