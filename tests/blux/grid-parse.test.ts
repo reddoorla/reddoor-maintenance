@@ -29,6 +29,30 @@ describe("parseNode", () => {
     });
   });
 
+  // block-subbody is a secondary body text role Blux emits alongside block-body
+  // (e.g. williamsonHomes' about-page lead paragraph). It carries real content,
+  // so it must parse as a body leaf too — otherwise its text is silently dropped.
+  it("parses a subbody leaf as body (block-subbody)", () => {
+    expect(node("<div class='block-subbody text3'><p>Lead paragraph.</p></div>")).toEqual({
+      kind: "body",
+      role: "text3",
+      html: "<p>Lead paragraph.</p>",
+    });
+  });
+
+  it("stacks a block-subbody sibling under a container (not dropped)", () => {
+    const html =
+      "<div class='block-content'><h2 class='block-title text5'>Title</h2>" +
+      "<div class='block-subbody text3'>Sub body copy</div></div>";
+    expect(container(html)).toEqual({
+      kind: "stack",
+      children: [
+        { kind: "heading", role: "text5", level: 2, html: "Title" },
+        { kind: "body", role: "text3", html: "Sub body copy" },
+      ],
+    });
+  });
+
   it("peels wrapper divs down to a single leaf", () => {
     const html =
       "<div class='block-content valignmiddleitem'><div class='block-subtitle text13'>Eyebrow</div></div>";
