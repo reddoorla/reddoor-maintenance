@@ -14,6 +14,7 @@ import {
 } from "../emit/plan.js";
 import { videoTag } from "./cells.js";
 import { buildEntityEmit } from "./entities.js";
+import { collectCdnUrls } from "./rewrite-doc-urls.js";
 import { hasVisibleContent, sanitizeHtml } from "./sanitize.js";
 import type { BlockNode, CatalogBase, CatalogCell, CatalogSpec } from "./spec.js";
 
@@ -362,6 +363,28 @@ export function buildCatalogPlan(
         where: m.assetId,
         message: `media ${m.assetId} has no CDN base nor IR source url — not uploaded`,
       });
+  }
+  // CDN-sunset backstop: a Blux-CDN url can also ride a document as a RAW STRING
+  // that no media marker captured — an embed_html <a href> to a PDF/file, a
+  // payload background, a widget. Register each distinct unregistered CDN url as
+  // its own asset so migrate-catalog uploads it and the document rewrite swaps it
+  // off the retiring CDN. Deduped by url: a doc's image url is byte-identical to
+  // its plan.asset url (mediaUrl === mediaCdnUrl when a base is present), so
+  // marker-collected images never double-register — only genuine raw-string
+  // file assets are added. Id is the Blux filename stem (its uuid).
+  const registeredUrls = new Set(assets.map((a) => a.url));
+  for (const url of collectCdnUrls(documents)) {
+    if (registeredUrls.has(url)) continue;
+    const file = (url.split("/").pop() ?? url).split("?")[0]!;
+    // Only adopt a url that ends in a clean short file extension — a genuine Blux
+    // asset is `.../{uuid}.{ext}`. The CDN regex can over-capture a BARE url
+    // adjacent to trailing punctuation or markup (`…u.pdf.`, `…u.pdf</p>`); that
+    // string is not fetchable, so registering it would 404 and (frozen
+    // runMigration throws) abort the whole migrate. Leave those for the rewrite to
+    // report as unmatched (WARNING + non-zero exit) — the graceful path.
+    if (!/\.[a-z0-9]{2,4}$/i.test(file)) continue;
+    registeredUrls.add(url);
+    assets.push({ id: file.replace(/\.[^.]+$/, ""), url, alt: "" });
   }
   return {
     customTypes: entity ? entity.customTypes : [],

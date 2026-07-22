@@ -401,4 +401,74 @@ describe("buildCatalogPlan — breadth media collection", () => {
     // migrate-time rewrite finds and swaps it
     expect(plan.assets.find((a) => a.id === "v1")?.url).toBe("https://cdn/v1.mp4");
   });
+
+  // CDN-sunset backstop: a Blux-CDN url can ride a document as a RAW STRING that
+  // no media marker captured — an embed_html <a href> to a PDF/file. specMedia
+  // only walks markers, so buildCatalogPlan scans the built documents and
+  // registers each unregistered CDN url as its own asset, off the retiring CDN.
+  it("backstop-registers a Blux-CDN file asset baked as a raw embed_html href (PDF button)", () => {
+    const PDF = "https://dv4tl7yyk1zlp.cloudfront.net/site-1/1b5b96c1-16fb-4d8b.pdf";
+    const specs = [
+      {
+        slice: "BluxGrid",
+        index: 0,
+        cells: [{ kind: "embed", embedHtml: `<a href="${PDF}">Burbank Incentives</a>` }],
+      } satisfies BluxGridSpec,
+    ];
+    const plan = buildCatalogPlan([{ uid: "home", title: "Home", specs }], {
+      assets: [],
+      diagnostics: [],
+    });
+    const pdf = plan.assets.find((a) => a.url === PDF);
+    expect(pdf).toBeDefined();
+    expect(pdf!.id).toBe("1b5b96c1-16fb-4d8b"); // id = the Blux filename stem
+  });
+
+  it("does NOT double-register an image already collected — payload url equals the plan.asset url", () => {
+    // A BluxBlock background rides BOTH plan.assets (specMedia) AND the payload's
+    // `background-image:url(...)` as a raw string. mediaCdnUrl (payload) equals
+    // mediaUrl (plan.asset) when a base is present, so the backstop dedups it.
+    const bg: Media = {
+      kind: "image",
+      assetId: "bg1",
+      base: "https://d3syaxnfm3oj0e.cloudfront.net/site-1/",
+      ext: "jpg",
+    };
+    const specs = [
+      {
+        slice: "BluxBlock",
+        index: 0,
+        background: bg,
+        media: [bg],
+        payload: { tag: "div", children: [] },
+      } satisfies BluxBlockSpec,
+    ];
+    const plan = buildCatalogPlan([{ uid: "home", title: "Home", specs }], {
+      assets: [],
+      diagnostics: [],
+    });
+    const url = "https://d3syaxnfm3oj0e.cloudfront.net/site-1/bg1.jpg";
+    expect(JSON.stringify(plan.documents)).toContain(url); // the raw url IS in the doc
+    expect(plan.assets.filter((a) => a.url === url)).toHaveLength(1); // registered exactly once
+  });
+
+  it("does NOT adopt an over-captured CDN string with no clean file extension (avoids a 404 abort)", () => {
+    // A BARE url ending a sentence captures the trailing '.'; that string is not a
+    // fetchable asset, so it must NOT become a plan.asset (registering it would
+    // 404 and abort the whole migrate). It is left for the rewrite to flag.
+    const bare = "https://dv4tl7yyk1zlp.cloudfront.net/site-1/deadbeef01.pdf";
+    const specs = [
+      {
+        slice: "BluxGrid",
+        index: 0,
+        cells: [{ kind: "embed", embedHtml: `<p>Full details at ${bare}. Enjoy.</p>` }],
+      } satisfies BluxGridSpec,
+    ];
+    const plan = buildCatalogPlan([{ uid: "home", title: "Home", specs }], {
+      assets: [],
+      diagnostics: [],
+    });
+    // the captured url carries the trailing '.', which has no clean extension → dropped
+    expect(plan.assets.some((a) => a.url.includes("deadbeef01"))).toBe(false);
+  });
 });

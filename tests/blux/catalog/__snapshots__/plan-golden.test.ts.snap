@@ -253,6 +253,11 @@ exports[`catalog plan — the-pointe (golden) > emits a populated, breadth-route
       "id": "c9dffc4f-f371-4007-ba80-71233c827d79",
       "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/c9dffc4f-f371-4007-ba80-71233c827d79.png",
     },
+    {
+      "alt": "",
+      "id": "1b5b96c1-16fb-4d8b-8cb0-f71938af22c0",
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/1b5b96c1-16fb-4d8b-8cb0-f71938af22c0.pdf",
+    },
   ],
   "customTypes": [],
   "diagnostics": [],

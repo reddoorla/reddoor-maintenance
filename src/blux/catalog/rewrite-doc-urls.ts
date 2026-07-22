@@ -63,6 +63,28 @@ export function rewriteValueUrls<T>(
   return { value: walk(value) as T, rewritten, unmatched: [...unmatched] };
 }
 
+/** Collect every distinct Blux-CDN url appearing as a raw string in any value
+ * of a JSON structure (documents, site-config, …). Uses the SAME host-anchored
+ * match as the rewrite, so what this finds is exactly what {@link
+ * rewriteValueUrls} must evict — the emit backstop registers each as an asset so
+ * a url baked into an embed_html `<a href>` (a PDF button), a payload
+ * background, or a widget migrates off the CDN too. First-seen order. */
+export function collectCdnUrls(value: unknown): string[] {
+  const found = new Set<string>();
+  const walk = (v: unknown): void => {
+    if (typeof v === "string") {
+      if (!v.includes("cloudfront.net")) return;
+      for (const m of v.matchAll(CDN_URL_RE)) found.add(m[0]);
+    } else if (Array.isArray(v)) {
+      v.forEach(walk);
+    } else if (v && typeof v === "object") {
+      Object.values(v).forEach(walk);
+    }
+  };
+  walk(value);
+  return [...found];
+}
+
 /** Rewrite plan documents — the surfaces resolveDocData does not touch. Thin
  * wrapper over {@link rewriteValueUrls}; marker objects pass through untouched
  * because they hold no CDN urls. */
