@@ -44,6 +44,7 @@ const isMediaHolder = (el: HTMLElement): boolean =>
 const isLeafElement = (el: HTMLElement): boolean =>
   hasClass(el, "block-title") ||
   hasClass(el, "block-body") ||
+  hasClass(el, "block-subbody") ||
   hasClass(el, "block-subtitle") ||
   isMediaHolder(el);
 
@@ -288,7 +289,10 @@ export function parseNode(el: HTMLElement, nested = false): Node {
       html: el.innerHTML,
     };
   }
-  if (hasClass(el, "block-body")) {
+  // block-subbody is a secondary body Blux emits alongside block-body (same
+  // text role, e.g. a lead paragraph under a heading); treat it as a body leaf
+  // so its content is captured rather than dropped as an unrecognized raw.
+  if (hasClass(el, "block-body") || hasClass(el, "block-subbody")) {
     const role = textRoleFromClass(el.classNames);
     const style = textLeafStyle(el);
     return {
@@ -323,7 +327,7 @@ export function parseNode(el: HTMLElement, nested = false): Node {
       // extra work). This does NOT change the peel boundary: the holder is still
       // a structural leaf; only its own internal text is recovered here.
       const captions = el
-        .querySelectorAll(".block-title, .block-body, .block-subtitle")
+        .querySelectorAll(".block-title, .block-body, .block-subbody, .block-subtitle")
         .filter((c) => !isDisabledWithin(c, el))
         .map((c) => parseNode(c))
         .filter(nodeHasText);
