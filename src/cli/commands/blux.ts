@@ -673,34 +673,57 @@ export async function runBluxCommand(
     // double-register it. Chrome is built BEFORE the plan is written so these
     // assets ride the emitted migration-plan.json.
     //
-    // We register ONLY a scraped (tier-2) cloudfront sourceUrl — a real url that
-    // exists in the export html, so the migrate can fetch+upload it and the
-    // rewrite (cloudfront-keyed) can swap it. A tier-3 RECONSTRUCTION
-    // (`${chromeBase}${uuid}.${ext}`) is a GUESS — cross-siteID ones routinely
-    // 404, and frozen runMigration throws on a 404 fetch, so uploading one would
-    // let a single non-essential logo abort the whole migrate. We leave those on
-    // the CDN (exactly as before); their surviving cloudfront url is then flagged
-    // by migrate-catalog's site-config rewrite as an unmatched url (WARNING +
-    // non-zero exit) for manual follow-up — never silent.
+    // We register a scraped (tier-2) cloudfront sourceUrl — a real url from the
+    // export html — AND a tier-3 RECONSTRUCTION (`${chromeBase}${uuid}.${ext}`)
+    // WHEN chromeBase is CORROBORATED by a real IMAGE served from it. the-pointe's
+    // own nav/footer logos are exactly this case: referenced by id, unscraped,
+    // served from the site's base alongside 45 feed images. Two things make a
+    // corroborated reconstruction about as reliable as one of those feed images:
+    // (1) the base is proven to resolve (an image already loads from it), and
+    // (2) the ext is the logo's LITERAL filename ext — the byte Blux serves, the
+    // same way a feed image uses its literal data-ext (NOT a mime-normalized
+    // guess, which would turn a `.jpeg` object into a 404-ing `.jpg`). The
+    // residual risk is only a referenced-but-deleted own asset — a loud, accepted
+    // 404 (runMigration throws), the same failure any feed image would hit if
+    // deleted. Corroboration requires an IMAGE (not just any plan.asset): a
+    // backstop file asset (a PDF, often on a different host) is not evidence a
+    // logo resolves, and `siteID` is provenance not serving base — so a served
+    // image is the only sound signal. An UNcorroborated reconstruction is a pure
+    // guess: left on the CDN, flagged by migrate-catalog's site-config rewrite as
+    // an unmatched url (WARNING + non-zero exit) for manual follow-up — never
+    // silent, never a mid-migrate abort.
     const assetById = new Map(ir.assets.map((a) => [a.id, a] as const));
     const planUrlById = new Map(plan.assets.map((a) => [a.id, a.url] as const));
     const chromeBase = feedAssetBase(htmls, ir.meta.bluxSiteId);
+    const isImageUrl = (u: string) => /\.(png|jpe?g|gif|webp|svg|avif|ico)$/i.test(u);
+    const chromeBaseCorroborated = plan.assets.some(
+      (a) => a.url.startsWith(chromeBase) && isImageUrl(a.url),
+    );
     const chromeOnlyAssets = new Map<string, { id: string; url: string; alt: string }>();
     const chrome = buildChrome(siteJson, (uuid) => {
       const fromPlan = planUrlById.get(uuid);
       if (fromPlan !== undefined) return fromPlan;
       const a = assetById.get(uuid);
       if (!a) return null;
-      const ext = extFor(a.mime, a.name);
-      const url = a.sourceUrl ? a.sourceUrl : ext ? `${chromeBase}${uuid}.${ext}` : null;
-      // Upload+rewrite only a scraped cloudfront url (see note above); tier-3
-      // reconstructions and any non-CDN url are left untouched.
-      if (a.sourceUrl && a.sourceUrl.includes("cloudfront.net") && !chromeOnlyAssets.has(uuid))
-        chromeOnlyAssets.set(uuid, { id: uuid, url: a.sourceUrl, alt: a.alt ?? "" });
+      if (a.sourceUrl) {
+        // tier-2: a real scraped url. Evict only a Blux CDN one — an external
+        // (non-cloudfront) logo url needs no migration.
+        if (a.sourceUrl.includes("cloudfront.net") && !chromeOnlyAssets.has(uuid))
+          chromeOnlyAssets.set(uuid, { id: uuid, url: a.sourceUrl, alt: a.alt ?? "" });
+        return a.sourceUrl;
+      }
+      // tier-3: reconstruct against the site's own base with the LITERAL filename
+      // ext (feed-image-equivalent — see note above), mime-derived only as a
+      // fallback. Register it only when that base is corroborated by an image.
+      const ext = a.name.match(/\.([a-z0-9]{2,4})$/i)?.[1]?.toLowerCase() ?? extFor(a.mime, a.name);
+      if (!ext) return null;
+      const url = `${chromeBase}${uuid}.${ext}`;
+      if (chromeBaseCorroborated && !chromeOnlyAssets.has(uuid))
+        chromeOnlyAssets.set(uuid, { id: uuid, url, alt: a.alt ?? "" });
       return url;
     });
-    // The scraped-cloudfront chrome logos join the plan so migrate-catalog
-    // uploads them and its site-config.json rewrite can swap their urls.
+    // These chrome logos join the plan so migrate-catalog uploads them and its
+    // site-config.json rewrite can swap their urls off the retiring CDN.
     plan.assets.push(...chromeOnlyAssets.values());
     await writeFile(join(outDir, "migration-plan.json"), JSON.stringify(plan, null, 2));
     // Task 5: an OFFLINE render fixture for the starter's fidelity-gate route

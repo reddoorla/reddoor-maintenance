@@ -132,14 +132,16 @@ describe("blux catalog", () => {
     });
   });
 
-  // CDN-sunset fix guard: chrome logos upload, but ONLY scraped (tier-2)
-  // cloudfront urls. logo-1 appears NOWHERE in the html, so it has no IR
-  // sourceUrl and resolves via a tier-3 RECONSTRUCTION — a guess that may 404.
-  // Frozen runMigration throws on a 404 fetch, so uploading it would let one
-  // non-essential logo abort the whole migrate; it must stay OUT of plan.assets
-  // (still rendered in site-config, and flagged unmatched at migrate time).
-  it("keeps a tier-3 reconstructed chrome logo OUT of plan.assets (no migrate-aborting 404)", async () => {
+  // CDN-sunset guard: a tier-3 RECONSTRUCTION (`${chromeBase}${uuid}.${ext}`) is
+  // registered only when chromeBase is CORROBORATED by a real plan.asset served
+  // from it — proof the base resolves, so uploading is as safe as any feed image.
+  // This fixture's two bands carry NO images, so plan.assets is empty and
+  // chromeBase is UNcorroborated: logo-1 stays OUT of plan.assets (frozen
+  // runMigration throws on a 404, so an unvalidated guess must never ride the
+  // migrate) — still rendered in site-config, flagged unmatched at migrate time.
+  it("keeps an UNcorroborated tier-3 chrome logo OUT of plan.assets (no migrate-aborting 404)", async () => {
     const plan = JSON.parse(await readFile(join(out, "migration-plan.json"), "utf-8"));
+    expect(plan.assets).toHaveLength(0); // no images → chromeBase uncorroborated
     expect(plan.assets.find((a: { id: string }) => a.id === "logo-1")).toBeUndefined();
     // Still present in site-config as the reconstructed CDN url — migrate-catalog's
     // site-config rewrite surfaces it as an unmatched CDN url for manual follow-up.
@@ -378,6 +380,141 @@ describe("blux catalog — chrome logo resolver tier order", () => {
     const url = footerImg(1);
     expect(url).toBe(asset!.url); // site-config renders the url it uploads under
     expect(url).not.toContain("/planbase/"); // NOT tier-3 reconstruction (feedAssetBase=planbase)
+  });
+});
+
+// CDN sunset: the-pointe's OWN nav/footer logos are referenced by id with no
+// scraped url, so they resolve via a tier-3 reconstruction against chromeBase.
+// When a real grid image is ALSO served from chromeBase, the base is proven to
+// resolve, so the reconstruction is as reliable as that image and must join
+// plan.assets to migrate off the CDN (rather than strand). (siteID is provenance,
+// not serving location — the-pointe's own logos carry a foreign/absent siteID
+// yet serve from the site's base — so base corroboration, not siteID, is the
+// signal.)
+describe("blux catalog — corroborated tier-3 chrome logo joins plan.assets (CDN sunset)", () => {
+  let plan: { assets: { id: string; url: string }[] };
+  let cfg: { footer: { columns: { items: { image?: { url: string } }[] }[] } };
+
+  beforeAll(async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-catalog-chrome-corrob-"));
+    const site = structuredClone(minimalSite) as unknown as {
+      media: Record<string, { name: string; type: string; siteID: string }>;
+      footer: unknown[];
+    };
+    // grid-img rides a grid band carrying a data-base → a real plan.asset served
+    // from `basex`; chrome-logo appears NOWHERE in the html (tier-3), so it
+    // reconstructs against chromeBase (= basex, the dominant grid base).
+    site.media["grid-img"] = { name: "g.png", type: "image/png", siteID: "site-1" };
+    site.media["chrome-logo"] = { name: "c.png", type: "image/png", siteID: "other-site" };
+    // A logo whose filename ext is `.jpeg`: extFor would mime-normalize it to
+    // `jpg` (a 404-ing guess), but Blux serves the LITERAL `.jpeg` object, so the
+    // reconstruction must preserve `.jpeg`.
+    site.media["chrome-jpeg"] = { name: "brand.jpeg", type: "image/jpeg", siteID: "site-1" };
+    const html =
+      `<div id="page-content"><section class="blocks0" id="page-block-0">` +
+      `<div class="block-content"><h2 class="block-title text5">Photo</h2>` +
+      `<div class="ib img imgfit camediaload" data-media="grid-img" data-ext="png" ` +
+      `data-base="https://d3syaxnfm3oj0e.cloudfront.net/basex/"></div>` +
+      `</div></section></div>`;
+    site.footer = [
+      {
+        items: [
+          {
+            text: "Footer Item",
+            link: "",
+            items: [
+              { text: "Sub", link: "", title: "Logo", media: { media: "chrome-logo" } },
+              { text: "Sub", link: "", title: "Brand", media: { media: "chrome-jpeg" } },
+            ],
+          },
+        ],
+      },
+    ];
+    await writeFile(join(dir, "site.json"), JSON.stringify(site));
+    await writeFile(join(dir, "index.html"), html);
+    const out = join(dir, "out");
+    const result = await runBluxCommand("catalog", dir, { out });
+    expect(result.code).toBe(0);
+    plan = JSON.parse(await readFile(join(out, "migration-plan.json"), "utf-8"));
+    cfg = JSON.parse(await readFile(join(out, "site-config.json"), "utf-8"));
+  });
+
+  it("the grid image corroborates chromeBase (a real plan.asset served from basex)", () => {
+    expect(plan.assets.find((a) => a.id === "grid-img")?.url).toContain("/basex/");
+  });
+
+  it("registers the tier-3 chrome logo IN plan.assets at its reconstructed url", () => {
+    const asset = plan.assets.find((a) => a.id === "chrome-logo");
+    expect(asset).toBeDefined();
+    expect(asset!.url).toBe("https://d3syaxnfm3oj0e.cloudfront.net/basex/chrome-logo.png");
+    // site-config renders the SAME url it uploads under, so the migrate-time
+    // site-config rewrite swaps it to Prismic.
+    expect(cfg.footer.columns[0]?.items[0]?.image?.url).toBe(asset!.url);
+  });
+
+  it("reconstructs with the logo's LITERAL filename ext (.jpeg preserved, not mime-normalized to .jpg)", () => {
+    const asset = plan.assets.find((a) => a.id === "chrome-jpeg");
+    expect(asset).toBeDefined();
+    // .jpeg (the served object), NOT the .jpg extFor(mime) would guess → would 404
+    expect(asset!.url).toBe("https://d3syaxnfm3oj0e.cloudfront.net/basex/chrome-jpeg.jpeg");
+    expect(cfg.footer.columns[0]?.items[1]?.image?.url).toBe(asset!.url);
+  });
+});
+
+// Corroboration must come from a real IMAGE served from chromeBase — NOT from a
+// backstop file asset (a PDF, often on another host) that merely makes
+// plan.assets non-empty. Otherwise a lone embed PDF would flip an imageless site
+// into registering a GUESSED logo reconstruction that may 404 and abort the whole
+// migrate — the #449 failure this guard exists to prevent. Pins both the
+// non-empty-≠-corroborated and the image-required halves of the guard.
+describe("blux catalog — a non-image asset does NOT corroborate chromeBase (guessed logo stays OUT)", () => {
+  let plan: { assets: { id: string; url: string }[] };
+  let cfg: { footer: { columns: { items: { image?: { url: string } }[] }[] } };
+
+  beforeAll(async () => {
+    const dir = await mkdtemp(join(tmpdir(), "blux-catalog-chrome-uncorrob-"));
+    const site = structuredClone(minimalSite) as unknown as {
+      media: Record<string, { name: string; type: string; siteID: string }>;
+      footer: unknown[];
+    };
+    // NO grid images → chromeBase falls back to the bluxSiteId base. A PDF button
+    // (embed_html <a href>) is the ONLY plan.asset — the backstop registers it, so
+    // plan.assets is NON-empty, but it is not an image, so it must not corroborate.
+    site.media["chrome-logo"] = { name: "c.png", type: "image/png", siteID: "site-1" };
+    const html =
+      `<div id="page-content"><section class="blocks0" id="page-block-0">` +
+      `<div class="block-content"><h2 class="block-title text5">Docs</h2>` +
+      `<a class="buttons2" href="https://d3syaxnfm3oj0e.cloudfront.net/site-1/handout01.pdf">Download</a>` +
+      `</div></section></div>`;
+    site.footer = [
+      {
+        items: [
+          {
+            text: "Footer Item",
+            link: "",
+            items: [{ text: "Sub", link: "", title: "Logo", media: { media: "chrome-logo" } }],
+          },
+        ],
+      },
+    ];
+    await writeFile(join(dir, "site.json"), JSON.stringify(site));
+    await writeFile(join(dir, "index.html"), html);
+    const out = join(dir, "out");
+    const result = await runBluxCommand("catalog", dir, { out });
+    expect(result.code).toBe(0);
+    plan = JSON.parse(await readFile(join(out, "migration-plan.json"), "utf-8"));
+    cfg = JSON.parse(await readFile(join(out, "site-config.json"), "utf-8"));
+  });
+
+  it("the backstop registers the PDF, so plan.assets is NON-empty", () => {
+    expect(plan.assets.find((a) => a.id === "handout01")).toBeDefined();
+    expect(plan.assets.length).toBeGreaterThan(0);
+  });
+
+  it("keeps the tier-3 chrome logo OUT (a PDF is not evidence the logo resolves)", () => {
+    expect(plan.assets.find((a) => a.id === "chrome-logo")).toBeUndefined();
+    // still rendered in site-config (reconstructed url), flagged unmatched at migrate.
+    expect(JSON.stringify(cfg)).toContain("chrome-logo.png");
   });
 });
 
