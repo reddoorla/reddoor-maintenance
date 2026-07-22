@@ -7,10 +7,7 @@ import type {
   BluxMediaSpec,
   BluxMediaTextSpec,
 } from "../../../src/blux/catalog/index.js";
-import {
-  buildCatalogPlan,
-  catalogSpecToPlanSlice,
-} from "../../../src/blux/catalog/index.js";
+import { buildCatalogPlan, catalogSpecToPlanSlice } from "../../../src/blux/catalog/index.js";
 import type { Media } from "../../../src/blux/grid/types.js";
 
 const img = (id: string): Media => ({
@@ -269,10 +266,7 @@ describe("catalogSpecToPlanSlice — heading levels clamp to the target field's 
       index: 0,
       cells: [{ kind: "text", title: "<h1>Big</h1>", body: "<p>x</p>" }],
     };
-    const cells = catalogSpecToPlanSlice(spec).primary.cells as Record<
-      string,
-      unknown
-    >[];
+    const cells = catalogSpecToPlanSlice(spec).primary.cells as Record<string, unknown>[];
     expect(cells[0]?.title).toEqual({ __richtext_html: "<h3>Big</h3>" });
   });
   it("clamps a carousel caption to h3–h4: an h5 emits <h4>", () => {
@@ -281,10 +275,7 @@ describe("catalogSpecToPlanSlice — heading levels clamp to the target field's 
       index: 1,
       cells: [{ kind: "media", media: img("c1"), title: "<h5>Tower</h5>" }],
     };
-    const cells = catalogSpecToPlanSlice(spec).primary.cells as Record<
-      string,
-      unknown
-    >[];
+    const cells = catalogSpecToPlanSlice(spec).primary.cells as Record<string, unknown>[];
     expect(cells[0]?.title).toEqual({ __richtext_html: "<h4>Tower</h4>" });
   });
   it("clamps a section/grid heading to h2–h3", () => {
@@ -364,10 +355,10 @@ describe("buildCatalogPlan — breadth media collection", () => {
         ],
       } satisfies BluxGridSpec,
     ];
-    const plan = buildCatalogPlan(
-      [{ uid: "home", title: "Home", specs }],
-      { assets: [], diagnostics: [] },
-    );
+    const plan = buildCatalogPlan([{ uid: "home", title: "Home", specs }], {
+      assets: [],
+      diagnostics: [],
+    });
     const ids = plan.assets.map((a) => a.id);
     expect(ids).toEqual(expect.arrayContaining(["a1", "a2", "a3", "a4", "a5"]));
   });
@@ -381,16 +372,18 @@ describe("buildCatalogPlan — breadth media collection", () => {
         payload: { tag: "div", children: [] },
       } satisfies BluxBlockSpec,
     ];
-    const plan = buildCatalogPlan(
-      [{ uid: "home", title: "Home", specs }],
-      { assets: [], diagnostics: [] },
-    );
-    expect(plan.assets.map((a) => a.id)).toEqual(
-      expect.arrayContaining(["b1", "b2"]),
-    );
+    const plan = buildCatalogPlan([{ uid: "home", title: "Home", specs }], {
+      assets: [],
+      diagnostics: [],
+    });
+    expect(plan.assets.map((a) => a.id)).toEqual(expect.arrayContaining(["b1", "b2"]));
   });
 
-  it("keeps video assets out of the image uploads (review #8)", () => {
+  it("includes video assets so they migrate off the Blux CDN (CDN sunset)", () => {
+    // The Blux CDN is being shut down — every referenced asset, videos included,
+    // must land in Prismic. Videos upload like images; the emitted <video src>
+    // (a CDN url in video_embed/embed_html) is then swapped to the Prismic url
+    // by the migrate-time rewriteDocUrls, keyed on the same mediaCdnUrl string.
     const specs = [
       { slice: "BluxMedia", index: 0, media: vid("v1") } satisfies BluxMediaSpec,
       {
@@ -399,10 +392,13 @@ describe("buildCatalogPlan — breadth media collection", () => {
         cells: [{ kind: "media", media: vid("v2") }],
       } satisfies BluxGridSpec,
     ];
-    const plan = buildCatalogPlan(
-      [{ uid: "home", title: "Home", specs }],
-      { assets: [], diagnostics: [] },
-    );
-    expect(plan.assets.find((a) => a.id === "v1" || a.id === "v2")).toBeUndefined();
+    const plan = buildCatalogPlan([{ uid: "home", title: "Home", specs }], {
+      assets: [],
+      diagnostics: [],
+    });
+    expect(plan.assets.map((a) => a.id)).toEqual(expect.arrayContaining(["v1", "v2"]));
+    // the upload url is the same CDN string the <video src> carries, so the
+    // migrate-time rewrite finds and swaps it
+    expect(plan.assets.find((a) => a.id === "v1")?.url).toBe("https://cdn/v1.mp4");
   });
 });

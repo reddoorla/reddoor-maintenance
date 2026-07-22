@@ -132,6 +132,21 @@ describe("blux catalog", () => {
     });
   });
 
+  // CDN-sunset fix guard: chrome logos upload, but ONLY scraped (tier-2)
+  // cloudfront urls. logo-1 appears NOWHERE in the html, so it has no IR
+  // sourceUrl and resolves via a tier-3 RECONSTRUCTION — a guess that may 404.
+  // Frozen runMigration throws on a 404 fetch, so uploading it would let one
+  // non-essential logo abort the whole migrate; it must stay OUT of plan.assets
+  // (still rendered in site-config, and flagged unmatched at migrate time).
+  it("keeps a tier-3 reconstructed chrome logo OUT of plan.assets (no migrate-aborting 404)", async () => {
+    const plan = JSON.parse(await readFile(join(out, "migration-plan.json"), "utf-8"));
+    expect(plan.assets.find((a: { id: string }) => a.id === "logo-1")).toBeUndefined();
+    // Still present in site-config as the reconstructed CDN url — migrate-catalog's
+    // site-config rewrite surfaces it as an unmatched CDN url for manual follow-up.
+    const cfg = JSON.parse(await readFile(join(out, "site-config.json"), "utf-8"));
+    expect(JSON.stringify(cfg)).toContain("logo-1.png");
+  });
+
   it("writes theme.css with ALL three segments: @theme vars + roles + buttons", async () => {
     const cssPath = join(out, "theme.css");
     expect(existsSync(cssPath)).toBe(true);
@@ -340,8 +355,7 @@ describe("blux catalog — chrome logo resolver tier order", () => {
     cfg = JSON.parse(await readFile(join(out, "site-config.json"), "utf-8"));
   });
 
-  const footerImg = (n: number): string | undefined =>
-    cfg.footer.columns[0]?.items[n]?.image?.url;
+  const footerImg = (n: number): string | undefined => cfg.footer.columns[0]?.items[n]?.image?.url;
 
   it("tier 1: a grid-shared chrome media carries the exact plan-asset url (not its sourceUrl)", () => {
     const planAsset = plan.assets.find((a) => a.id === "tier1-logo");
@@ -352,10 +366,17 @@ describe("blux catalog — chrome logo resolver tier order", () => {
     expect(url).not.toContain("/site-1/"); // NOT the tier-2 sourceUrl
   });
 
-  it("tier 2: a chrome-only media (absent from plan.assets) falls to its IR sourceUrl", () => {
-    expect(plan.assets.find((a) => a.id === "tier2-logo")).toBeUndefined();
+  it("tier 2: a chrome-only media JOINS plan.assets at its IR sourceUrl (CDN sunset)", () => {
+    // The Blux CDN is retiring, so a chrome-only logo is registered as its own
+    // plan asset — it uploads in migrate-catalog's asset phase — carrying the
+    // SAME url site-config renders, so the migrate-time site-config rewrite can
+    // swap it to Prismic. (Its tier-2 resolution — IR sourceUrl over tier-3
+    // reconstruction — is unchanged; only its plan-asset membership is new.)
+    const asset = plan.assets.find((a) => a.id === "tier2-logo");
+    expect(asset).toBeDefined();
+    expect(asset!.url).toContain("/otherbase/"); // the scraped IR sourceUrl
     const url = footerImg(1);
-    expect(url).toContain("/otherbase/"); // the scraped IR sourceUrl
+    expect(url).toBe(asset!.url); // site-config renders the url it uploads under
     expect(url).not.toContain("/planbase/"); // NOT tier-3 reconstruction (feedAssetBase=planbase)
   });
 });
