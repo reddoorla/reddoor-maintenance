@@ -108,4 +108,60 @@ describe("buildCatalogPlan", () => {
     expect(slices).toHaveLength(1);
     expect(plan.assets.find((a) => a.id === "u1")?.url).toBe("https://cdn/u1.jpg");
   });
+
+  it("emits band-visual primary fields and per-cell visual fields", () => {
+    const gridSpec = {
+      slice: "BluxGrid",
+      index: 0,
+      columns: 2,
+      minHeight: "100vh",
+      contentPadding: "100px 4%",
+      contentPaddingMobile: "40px 4%",
+      maxContentWidth: "1280px",
+      verticalAlign: "middle",
+      textAlign: "center",
+      headingRole: "text2",
+      cells: [
+        {
+          kind: "text",
+          title: "<h3>A</h3>",
+          titleRole: "text5",
+          width: "70%",
+          backgroundColor: "#fff",
+          contentPadding: "100px 4% 80px",
+          valign: true,
+        },
+        {
+          kind: "media",
+          media: { kind: "image", assetId: "u1" },
+          width: "30%",
+          cover: true,
+          mediaRatio: "4:3",
+        },
+      ],
+    } as unknown as import("../../../src/blux/catalog/spec.js").CatalogSpec;
+    const slice = catalogSpecToPlanSlice(gridSpec);
+    expect(slice.primary).toMatchObject({
+      min_height: "100vh",
+      content_padding: "100px 4%",
+      content_padding_mobile: "40px 4%",
+      max_content_width: "1280px",
+      vertical_align: "middle",
+      text_align: "center",
+      heading_role: "text2",
+    });
+    const cells = slice.primary.cells as Record<string, unknown>[];
+    expect(cells[0]).toMatchObject({
+      width: "70%",
+      background_color: "#fff",
+      content_padding: "100px 4% 80px",
+      valign: "on",
+      title_role: "text5",
+    });
+    expect(cells[1]).toMatchObject({
+      width: "30%",
+      cover: "on",
+      media_ratio: "4:3",
+    });
+  });
 });

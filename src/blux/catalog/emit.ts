@@ -77,6 +77,16 @@ function cellToItem(cell: CatalogCell, ctx: EmitCtx): Record<string, unknown> {
     ...(cell.body ? { body: richText(cell.body) } : {}),
     ...(cell.media && cell.media.kind !== "video" ? { media: assetRef(cell.media.assetId) } : {}),
     ...(cell.mediaRatio ? { media_ratio: cell.mediaRatio } : {}),
+    // Per-cell visual fields (Blux catalog visual layer). `cover`/`valign` are
+    // Text flags emitting the literal "on" (mirrors scroll_load_more).
+    ...(cell.width ? { width: cell.width } : {}),
+    ...(cell.spacing !== undefined ? { spacing: cell.spacing } : {}),
+    ...(cell.cover ? { cover: "on" } : {}),
+    ...(cell.valign ? { valign: "on" } : {}),
+    ...(cell.backgroundColor ? { background_color: cell.backgroundColor } : {}),
+    ...(cell.contentPadding ? { content_padding: cell.contentPadding } : {}),
+    ...(cell.titleRole ? { title_role: cell.titleRole } : {}),
+    ...(cell.bodyRole ? { body_role: cell.bodyRole } : {}),
     ...(embeds.length ? { embed_html: embeds.join("\n") } : {}),
     ...(cell.subgrid ? { subgrid: emitCells(cell.subgrid, ctx) } : {}),
   };
@@ -137,6 +147,24 @@ function widgetFields(
   };
 }
 
+/** Band-level visual fields (Blux catalog visual layer) → Plan-2 primary field
+ * names, for the cell-bearing container slices. `background_color` is emitted
+ * separately (bgc); this covers the geometry/typography band fields. Absent
+ * fields are omitted so a band with no captured styles stays lean. */
+function bandVisual(spec: CatalogBase): Record<string, unknown> {
+  return {
+    ...(spec.minHeight ? { min_height: spec.minHeight } : {}),
+    ...(spec.contentPadding ? { content_padding: spec.contentPadding } : {}),
+    ...(spec.contentPaddingMobile ? { content_padding_mobile: spec.contentPaddingMobile } : {}),
+    ...(spec.maxContentWidth ? { max_content_width: spec.maxContentWidth } : {}),
+    ...(spec.verticalAlign ? { vertical_align: spec.verticalAlign } : {}),
+    ...(spec.textAlign ? { text_align: spec.textAlign } : {}),
+    ...(spec.columnWidth ? { column_width: spec.columnWidth } : {}),
+    ...(spec.columnSide ? { column_side: spec.columnSide } : {}),
+    ...(spec.headingRole ? { heading_role: spec.headingRole } : {}),
+  };
+}
+
 /** Map one catalog spec to its populated page-doc slice (Plan-2 field names).
  * `diagnostics` (optional) records every content drop — dropped behavior-script
  * widgets are reported, never silent. `pageUid` (optional) page-qualifies the
@@ -158,6 +186,7 @@ export function catalogSpecToPlanSlice(
       return sliceOf("blux_section", {
         ...bg,
         ...bgc,
+        ...bandVisual(spec),
         ...heading(spec),
         ...widgetFields(spec),
         cells: emitCells(spec.cells, ctx),
@@ -166,6 +195,7 @@ export function catalogSpecToPlanSlice(
       return sliceOf("blux_grid", {
         ...bg,
         ...bgc,
+        ...bandVisual(spec),
         ...heading(spec),
         ...widgetFields(spec),
         ...(spec.columns ? { columns: spec.columns } : {}),
@@ -175,6 +205,7 @@ export function catalogSpecToPlanSlice(
       return sliceOf("blux_gallery", {
         ...bg,
         ...bgc,
+        ...bandVisual(spec),
         ...heading(spec),
         cells: emitCells(spec.cells, ctx),
       });
@@ -182,6 +213,7 @@ export function catalogSpecToPlanSlice(
       return sliceOf("blux_carousel", {
         ...bg,
         ...bgc,
+        ...bandVisual(spec),
         ...heading(spec),
         ...(spec.columnsVisible ? { columns_visible: spec.columnsVisible } : {}),
         cells: emitCells(spec.cells, ctx),
