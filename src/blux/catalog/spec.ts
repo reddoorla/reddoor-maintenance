@@ -14,6 +14,15 @@ export type CatalogCell = {
   media?: Media;
   mediaRatio?: string;
   embedHtml?: string;
+  // --- visual-fidelity fields (Blux catalog visual layer) ---
+  width?: string;
+  spacing?: number;
+  cover?: boolean;
+  valign?: boolean;
+  backgroundColor?: string;
+  contentPadding?: string;
+  titleRole?: string;
+  bodyRole?: string;
   subgrid?: CatalogCell[];
 };
 
@@ -30,6 +39,16 @@ export type CatalogBase = {
   index: number;
   background?: Media;
   backgroundColor?: string;
+  // --- band-level visual-fidelity fields (Blux catalog visual layer) ---
+  minHeight?: string;
+  contentPadding?: string;
+  contentPaddingMobile?: string;
+  maxContentWidth?: string;
+  verticalAlign?: string;
+  textAlign?: string;
+  columnWidth?: string;
+  columnSide?: string;
+  headingRole?: string;
   widgetKind?: string;
   widgetHtml?: string;
   mapConfig?: MapConfig;
