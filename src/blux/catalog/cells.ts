@@ -1,4 +1,4 @@
-import type { Media, Node } from "../grid/types.js";
+import type { Media, Node, GridToken } from "../grid/types.js";
 import { collectMedia, blockPlainText } from "../grid/index.js";
 // `collectText`/`isEmptyRaw` are not re-exported via the grid barrel
 // (index.ts) — import them from their module directly.
@@ -55,6 +55,22 @@ function wrapBare(html: string): string {
   return html.trim().startsWith("<") ? html : `<p>${html.trim()}</p>`;
 }
 
+/** Per-cell visual fields recovered from the grid token + the (unboxed) node's
+ * card style. `token.ratio` is the cell's width share; card keys land on
+ * `node.style` via parse-grid's withCardStyle. */
+function visualFieldsOf(u: Node, token?: GridToken): Partial<CatalogCell> {
+  const style = "style" in u && u.style ? u.style : {};
+  const media = collectMedia(u)[0];
+  const out: Partial<CatalogCell> = {};
+  if (typeof token?.ratio === "number") out.width = `${token.ratio}%`;
+  if (typeof token?.spacing === "number") out.spacing = token.spacing;
+  if (style["background-color"]) out.backgroundColor = style["background-color"];
+  if (style["padding"]) out.contentPadding = style["padding"];
+  if (style["_valign"] === "middle") out.valign = true;
+  if (style["_fill"] === "column" || media?.fit === "cover") out.cover = true;
+  return out;
+}
+
 /** Title + body html under a node (recursive, document order). The FIRST
  * non-blank heading becomes the title; every LATER heading is folded into the
  * body parts in document order relative to bodies/subtitles, so no heading is
@@ -64,17 +80,29 @@ function wrapBare(html: string): string {
  * Folded headings keep their TRUE level (body fields render every block kind;
  * clamping to a field's heading window is emit's concern); bare body html is
  * `<p>`-wrapped so a folded heading never swallows it (see `wrapBare`). */
-function textOf(n: Node): { title?: string; body?: string } {
+function textOf(n: Node): {
+  title?: string;
+  body?: string;
+  titleRole?: string;
+  bodyRole?: string;
+} {
   let title: string | undefined;
+  let titleRole: string | undefined;
   const bodyParts: string[] = [];
+  let bodyRole: string | undefined;
   for (const t of collectText(n)) {
     if (t.kind === "heading") {
       if (blockPlainText(t.html) === "") continue; // whitespace-only heading
       const wrapped = `<h${t.level}>${t.html}</h${t.level}>`;
-      if (title === undefined) title = wrapped;
-      else bodyParts.push(wrapped);
+      if (title === undefined) {
+        title = wrapped;
+        titleRole = t.role;
+      } else bodyParts.push(wrapped);
     } else if (t.kind === "body") {
-      if (t.html) bodyParts.push(wrapBare(t.html));
+      if (t.html) {
+        bodyParts.push(wrapBare(t.html));
+        bodyRole ??= t.role;
+      }
     } else if (t.kind === "subtitle") {
       bodyParts.push(`<p>${t.text}</p>`);
     }
@@ -82,6 +110,8 @@ function textOf(n: Node): { title?: string; body?: string } {
   return {
     ...(title ? { title } : {}),
     ...(bodyParts.length ? { body: bodyParts.join("\n") } : {}),
+    ...(titleRole ? { titleRole } : {}),
+    ...(bodyRole ? { bodyRole } : {}),
   };
 }
 
@@ -111,12 +141,17 @@ function containsRow(node: Node): boolean {
  * nested row or a second media cannot be stored, so its content is flattened
  * into the cell (first media + all text + raws) and the loss is recorded on
  * `state` — builder and guard can never disagree on legality. */
-function buildCell(node: Node, depth: number, state: CellBuildState): CatalogCell {
+function buildCell(
+  node: Node,
+  depth: number,
+  state: CellBuildState,
+  token?: GridToken,
+): CatalogCell {
   const u = unbox(node);
   if (u.kind === "row" && depth === 0) {
     return {
       kind: "subgrid",
-      subgrid: u.cells.map((c) => buildCell(c.node, depth + 1, state)),
+      subgrid: u.cells.map((c) => buildCell(c.node, depth + 1, state, c.token)),
     };
   }
   const allMedia = collectMedia(u);
@@ -143,7 +178,8 @@ function buildCell(node: Node, depth: number, state: CellBuildState): CatalogCel
   }
   if (depth > 0 && (allMedia.length > 1 || containsRow(u))) state.flattened = true;
   const media = allMedia[0];
-  const { title, body } = textOf(u);
+  const vis = visualFieldsOf(u, token);
+  const { title, body, titleRole, bodyRole } = textOf(u);
   const embedHtml = rawHtmlOf(u);
   if (u.kind === "media" || (media && !title && !body)) {
     return {
@@ -152,6 +188,9 @@ function buildCell(node: Node, depth: number, state: CellBuildState): CatalogCel
       ...(title ? { title } : {}),
       ...(body ? { body } : {}),
       ...(embedHtml ? { embedHtml } : {}),
+      ...(titleRole ? { titleRole } : {}),
+      ...(bodyRole ? { bodyRole } : {}),
+      ...vis,
     };
   }
   return {
@@ -160,6 +199,9 @@ function buildCell(node: Node, depth: number, state: CellBuildState): CatalogCel
     ...(body ? { body } : {}),
     ...(media ? { media } : {}),
     ...(embedHtml ? { embedHtml } : {}),
+    ...(titleRole ? { titleRole } : {}),
+    ...(bodyRole ? { bodyRole } : {}),
+    ...vis,
   };
 }
 
@@ -170,7 +212,7 @@ export function cellFromNode(node: Node): CatalogCell {
 
 function buildCells(node: Node, state: CellBuildState): CatalogCell[] {
   const u = unbox(node);
-  if (u.kind === "row") return u.cells.map((c) => buildCell(c.node, 0, state));
+  if (u.kind === "row") return u.cells.map((c) => buildCell(c.node, 0, state, c.token));
   if (u.kind === "stack") return u.children.map((c) => buildCell(c, 0, state));
   return [buildCell(u, 0, state)];
 }

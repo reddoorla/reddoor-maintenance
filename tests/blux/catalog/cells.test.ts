@@ -191,3 +191,37 @@ describe("blockPayload", () => {
     expect(p.image).toBeUndefined();
   });
 });
+
+it("threads token width/spacing, card style, and text roles onto cells", () => {
+  const row: Node = {
+    kind: "row",
+    cells: [
+      {
+        token: { cols: 2, ratio: 70, raw: "grid-2-r70" },
+        node: {
+          kind: "stack",
+          style: { "background-color": "#fff", padding: "100px 4% 80px", _valign: "middle" },
+          children: [
+            { kind: "heading", level: 3, html: "Card", role: "text5" },
+            { kind: "body", html: "<p>Body</p>", role: "text1" },
+          ],
+        },
+      },
+      {
+        token: { cols: 2, ratio: 30, raw: "grid-2-r30" },
+        node: { kind: "media", media: { kind: "image", assetId: "u1", fit: "cover" } },
+      },
+    ],
+  } as unknown as Node;
+
+  const cells = nodeToCells(row);
+  expect(cells[0]).toMatchObject({
+    width: "70%",
+    backgroundColor: "#fff",
+    contentPadding: "100px 4% 80px",
+    valign: true,
+    titleRole: "text5",
+    bodyRole: "text1",
+  });
+  expect(cells[1]).toMatchObject({ width: "30%", kind: "media", cover: true });
+});
