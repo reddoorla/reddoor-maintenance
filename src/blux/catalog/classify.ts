@@ -417,7 +417,7 @@ function slideCell(s: CarouselSlide): CatalogCell {
     kind: "media",
     media: s.media,
     ...(s.caption ? { title: `<h${s.caption.level}>${s.caption.html}</h${s.caption.level}>` } : {}),
-    ...(s.subcaption ? { body: s.subcaption.html } : {}),
+    ...(s.subcaption ? { bodyHtml: s.subcaption.html } : {}),
   };
 }
 
@@ -474,9 +474,11 @@ function splitHeadingAndCells(root: Node): {
   cells: CatalogCell[];
 } {
   const cells = nodeToCells(root).filter(
-    (c) => c.title || c.body || c.media || c.subgrid || c.embedHtml,
+    (c) => c.title || c.bodyHtml || c.media || c.subgrid || c.embedHtml,
   );
-  const hIdx = cells.findIndex((c) => c.title && !c.body && !c.media && !c.subgrid && !c.embedHtml);
+  const hIdx = cells.findIndex(
+    (c) => c.title && !c.bodyHtml && !c.media && !c.subgrid && !c.embedHtml,
+  );
   const h = hIdx >= 0 ? cells[hIdx] : undefined;
   if (h)
     return {
@@ -486,9 +488,14 @@ function splitHeadingAndCells(root: Node): {
     };
   return { cells };
 }
+// The two-field BluxMediaText slice keeps a RichText `body` (spec.ts), so its
+// text half maps the cell's baked `bodyHtml` back onto that `body` field. Any
+// txt-role-* wrappers in bodyHtml are intentionally flattened away here — a
+// RichText field cannot carry them, so MediaText body role-fidelity is out of
+// scope (this fix restores per-block roles for CELL bodies, not MediaText).
 function pick(c: CatalogCell): { title?: string; body?: string } {
   return {
     ...(c.title ? { title: c.title } : {}),
-    ...(c.body ? { body: c.body } : {}),
+    ...(c.bodyHtml ? { body: c.bodyHtml } : {}),
   };
 }

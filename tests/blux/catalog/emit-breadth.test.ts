@@ -93,12 +93,12 @@ describe("catalogSpecToPlanSlice — breadth", () => {
       heading: "<h2>Plans</h2>",
       columns: 3,
       cells: [
-        { kind: "text", title: "<h3>A</h3>", body: "<p>a</p>" },
+        { kind: "text", title: "<h3>A</h3>", bodyHtml: "<p>a</p>" },
         {
           kind: "subgrid",
           subgrid: [
             { kind: "media", media: img("s1") },
-            { kind: "text", body: "<p>deep</p>" },
+            { kind: "text", bodyHtml: "<p>deep</p>" },
           ],
         },
       ],
@@ -117,7 +117,7 @@ describe("catalogSpecToPlanSlice — breadth", () => {
     expect(cells[1]?.kind).toBe("subgrid");
     expect(sub).toHaveLength(2);
     expect(sub[0]).toMatchObject({ kind: "media", media: { __asset_id: "s1" } });
-    expect(sub[1]).toMatchObject({ kind: "text", body: { __richtext_html: "<p>deep</p>" } });
+    expect(sub[1]).toMatchObject({ kind: "text", body_html: "<p>deep</p>" });
   });
 
   it("BluxMedia → blux_media with media asset + caption marker", () => {
@@ -264,7 +264,7 @@ describe("catalogSpecToPlanSlice — heading levels clamp to the target field's 
     const spec: BluxGridSpec = {
       slice: "BluxGrid",
       index: 0,
-      cells: [{ kind: "text", title: "<h1>Big</h1>", body: "<p>x</p>" }],
+      cells: [{ kind: "text", title: "<h1>Big</h1>", bodyHtml: "<p>x</p>" }],
     };
     const cells = catalogSpecToPlanSlice(spec).primary.cells as Record<string, unknown>[];
     expect(cells[0]?.title).toEqual({ __richtext_html: "<h3>Big</h3>" });

@@ -74,7 +74,17 @@ function cellToItem(cell: CatalogCell, ctx: EmitCtx): Record<string, unknown> {
   return {
     kind: cell.kind,
     ...(cell.title ? { title: richText(clampHeadingHtml(cell.title, 3, 4)) } : {}),
-    ...(cell.body ? { body: richText(cell.body) } : {}),
+    // body_html is a PLAIN Text string (no richText marker) rendered via {@html}
+    // on the starter side. It is deliberately NOT run through sanitizeHtml: the
+    // current sanitizer strips the `class` attribute, which would remove the
+    // txt-role-* wrappers this fix depends on. That makes it the ONE unsanitized
+    // {@html} sink in the catalog emit — unlike title (sanitized structurally by
+    // htmlAsRichText) and embed_html / the BluxBlock payload (both sanitizeHtml'd
+    // at their boundaries). Its input is first-party parser structured-text html
+    // (heading/body/subtitle) from Blux migration content; raw/embed html still
+    // routes through the sanitized embedHtml path. A role-preserving sanitize
+    // (allow-list class="txt-role-*") is a tracked follow-up before broader rollout.
+    ...(cell.bodyHtml ? { body_html: cell.bodyHtml } : {}),
     ...(cell.media && cell.media.kind !== "video" ? { media: assetRef(cell.media.assetId) } : {}),
     ...(cell.mediaRatio ? { media_ratio: cell.mediaRatio } : {}),
     // Per-cell visual fields (Blux catalog visual layer). `cover`/`valign` are
@@ -86,7 +96,6 @@ function cellToItem(cell: CatalogCell, ctx: EmitCtx): Record<string, unknown> {
     ...(cell.backgroundColor ? { background_color: cell.backgroundColor } : {}),
     ...(cell.contentPadding ? { content_padding: cell.contentPadding } : {}),
     ...(cell.titleRole ? { title_role: cell.titleRole } : {}),
-    ...(cell.bodyRole ? { body_role: cell.bodyRole } : {}),
     ...(embeds.length ? { embed_html: embeds.join("\n") } : {}),
     ...(cell.subgrid ? { subgrid: emitCells(cell.subgrid, ctx) } : {}),
   };

@@ -30,7 +30,7 @@ describe("cellFromNode", () => {
     const c = cellFromNode(stack([heading("The Pointe"), media(img("u1")), body("<p>x</p>")]));
     expect(c.media?.assetId).toBe("u1");
     expect(c.title).toContain("The Pointe");
-    expect(c.body).toContain("x");
+    expect(c.bodyHtml).toContain("x");
   });
   it("turns a nested row into a subgrid (one level)", () => {
     const c = cellFromNode(row([media(img("a")), media(img("b"))]));
@@ -49,7 +49,7 @@ describe("cellFromNode — every heading survives (review #1)", () => {
       stack([heading("Alpha"), body("<p>one</p>"), heading("Beta", 4), body("<p>two</p>")]),
     );
     expect(c.title).toBe("<h3>Alpha</h3>");
-    const b = c.body ?? "";
+    const b = c.bodyHtml ?? "";
     const iOne = b.indexOf("<p>one</p>");
     const iBeta = b.indexOf("<h4>Beta</h4>");
     const iTwo = b.indexOf("<p>two</p>");
@@ -93,11 +93,33 @@ describe("cellFromNode — bare body parts are <p>-wrapped (gap 1)", () => {
       ]),
     );
     expect(c.title).toBe("<h3>The Pointe</h3>");
-    expect(c.body).toBe("<h4>a monument of excellence</h4>\n<p>Nestled among the hills</p>");
+    expect(c.bodyHtml).toBe("<h4>a monument of excellence</h4>\n<p>Nestled among the hills</p>");
   });
   it("leaves already-tagged body html untouched", () => {
     const c = cellFromNode(stack([heading("T"), body("<p>tagged</p>")]));
-    expect(c.body).toBe("<p>tagged</p>");
+    expect(c.bodyHtml).toBe("<p>tagged</p>");
+  });
+});
+
+describe("cellFromNode — each folded body block keeps its own role (approach B)", () => {
+  it("wraps later headings, bodies, and subtitles in their own txt-role div, in order", () => {
+    const c = cellFromNode(
+      stack([
+        { kind: "heading", level: 3, html: "The Pointe", role: "text0" },
+        { kind: "heading", level: 4, html: "distinguished design", role: "text2" },
+        { kind: "body", html: "<p>Nestled among the hills</p>", role: "text1" },
+      ] as unknown as Node[]),
+    );
+    expect(c.title).toBe("<h3>The Pointe</h3>");
+    expect(c.titleRole).toBe("text0");
+    expect(c.bodyHtml).toBe(
+      '<div class="txt-role-text2"><h4>distinguished design</h4></div>\n' +
+        '<div class="txt-role-text1"><p>Nestled among the hills</p></div>',
+    );
+  });
+  it("leaves a roleless body block unwrapped", () => {
+    const c = cellFromNode(stack([{ kind: "body", html: "<p>plain</p>" } as unknown as Node]));
+    expect(c.bodyHtml).toBe("<p>plain</p>");
   });
 });
 
@@ -111,7 +133,7 @@ describe("cellFromNode — depth-0 multi-media subtrees split into a subgrid (ga
     expect(sub).toHaveLength(3);
     expect(sub[0]?.kind).toBe("text");
     expect(sub[0]?.title).toContain("Villa");
-    expect(sub[0]?.body).toContain("desc");
+    expect(sub[0]?.bodyHtml).toContain("desc");
     expect(sub[1]).toMatchObject({ kind: "media", media: { assetId: "x1" } });
     expect(sub[2]).toMatchObject({ kind: "media", media: { assetId: "x2" } });
   });
@@ -239,7 +261,7 @@ it("threads token width/spacing, card style, and text roles onto cells", () => {
     contentPadding: "100px 4% 80px",
     valign: true,
     titleRole: "text5",
-    bodyRole: "text1",
+    bodyHtml: '<div class="txt-role-text1"><p>Body</p></div>',
   });
   expect(cells[1]).toMatchObject({ width: "30%", kind: "media", cover: true });
 });

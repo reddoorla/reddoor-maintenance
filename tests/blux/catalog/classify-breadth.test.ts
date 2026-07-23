@@ -117,13 +117,16 @@ describe("bandToCatalog (breadth)", () => {
       ]),
     };
     const slice = catalogSpecToPlanSlice(bandToCatalog(band));
-    // Dig out every rich-text marker html, wherever the routing put it.
+    // Dig out every emitted html, wherever the routing put it: rich-text
+    // markers AND the baked `body_html` plain strings (approach B — folded
+    // cell bodies ride a plain Text string, not a `__richtext_html` marker).
     const htmls: string[] = [];
     const walk = (v: unknown): void => {
       if (Array.isArray(v)) v.forEach(walk);
       else if (v && typeof v === "object") {
         const r = v as Record<string, unknown>;
         if (typeof r.__richtext_html === "string") htmls.push(r.__richtext_html);
+        if (typeof r.body_html === "string") htmls.push(r.body_html);
         Object.values(r).forEach(walk);
       }
     };
@@ -232,9 +235,9 @@ describe("bandToCatalog (breadth)", () => {
     expect(spec.slice).toBe("BluxCarousel");
     if (spec.slice !== "BluxCarousel") return;
     expect(spec.cells[0]?.title).toBe("<h5>Tower</h5>");
-    expect(spec.cells[0]?.body).toContain("Los Angeles");
+    expect(spec.cells[0]?.bodyHtml).toContain("Los Angeles");
     expect(spec.cells[1]?.title).toBe("<h5>Pointe</h5>");
-    expect(spec.cells[1]?.body).toBeUndefined();
+    expect(spec.cells[1]?.bodyHtml).toBeUndefined();
   });
 
   it("routes a band nesting rows past cell→subgrid depth to BluxBlock, preserving buried media", () => {

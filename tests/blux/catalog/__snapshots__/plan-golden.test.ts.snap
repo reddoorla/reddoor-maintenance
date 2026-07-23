@@ -279,9 +279,7 @@ exports[`catalog plan — the-pointe (golden) > emits a populated, breadth-route
                   },
                 },
                 {
-                  "body": {
-                    "__richtext_html": "<p>BURBANK</p>",
-                  },
+                  "body_html": "<div class="txt-role-text13"><p>BURBANK</p></div>",
                   "content_padding": "10px 0px 0px",
                   "kind": "text",
                 },
@@ -301,11 +299,8 @@ exports[`catalog plan — the-pointe (golden) > emits a populated, breadth-route
                   "kind": "subgrid",
                   "subgrid": [
                     {
-                      "body": {
-                        "__richtext_html": "<h4>a monument <br>of excellence</h4>
-<p>Nestled among the biggest names in entertainment, The Pointe  is a modern and elegant haven for the finest tenants in Burbank.</p>",
-                      },
-                      "body_role": "text1",
+                      "body_html": "<div class="txt-role-text11"><h4>a monument <br>of excellence</h4></div>
+<div class="txt-role-text1"><p>Nestled among the biggest names in entertainment, The Pointe  is a modern and elegant haven for the finest tenants in Burbank.</p></div>",
                       "kind": "text",
                       "title": {
                         "__richtext_html": "<h3>The Pointe</h3>",
@@ -344,10 +339,8 @@ exports[`catalog plan — the-pointe (golden) > emits a populated, breadth-route
             "primary": {
               "cells": [
                 {
-                  "body": {
-                    "__richtext_html": "<p>distinguished
-design</p>",
-                  },
+                  "body_html": "<div class="txt-role-text12"><p>distinguished
+design</p></div>",
                   "kind": "text",
                 },
               ],
@@ -383,11 +376,8 @@ design</p>",
             "primary": {
               "cells": [
                 {
-                  "body": {
-                    "__richtext_html": "<h4>premium <br>amenities</h4>
-<p>A campus built for the modern worker, The Pointe offers amenities that enrich the every day.</p>",
-                  },
-                  "body_role": "text1",
+                  "body_html": "<div class="txt-role-text11"><h4>premium <br>amenities</h4></div>
+<div class="txt-role-text1"><p>A campus built for the modern worker, The Pointe offers amenities that enrich the every day.</p></div>",
                   "kind": "text",
                   "media": {
                     "__asset_id": "ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
@@ -420,10 +410,7 @@ design</p>",
                       "width": "70%",
                     },
                     {
-                      "body": {
-                        "__richtext_html": "<p>Renew and recover with exclusive access to a state-of-the-art <a href="https://www.tbpfit.com/" class="links">FIT Health Club</a> with full-service locker rooms in a spa-like atmosphere. <br></p>",
-                      },
-                      "body_role": "text14",
+                      "body_html": "<div class="txt-role-text14"><p>Renew and recover with exclusive access to a state-of-the-art <a href="https://www.tbpfit.com/" class="links">FIT Health Club</a> with full-service locker rooms in a spa-like atmosphere. <br></p></div>",
                       "kind": "text",
                       "width": "30%",
                     },
@@ -433,10 +420,7 @@ design</p>",
                   "kind": "subgrid",
                   "subgrid": [
                     {
-                      "body": {
-                        "__richtext_html": "<p>Enjoy exclusive access to on-site production and filming studios.</p>",
-                      },
-                      "body_role": "text14",
+                      "body_html": "<div class="txt-role-text14"><p>Enjoy exclusive access to on-site production and filming studios.</p></div>",
                       "kind": "text",
                       "width": "30%",
                     },
@@ -461,10 +445,7 @@ design</p>",
                       "width": "70%",
                     },
                     {
-                      "body": {
-                        "__richtext_html": "<p>Head to the MRKT for a quick bite on-the-go, or dine in for a filling meal.</p>",
-                      },
-                      "body_role": "text14",
+                      "body_html": "<div class="txt-role-text14"><p>Head to the MRKT for a quick bite on-the-go, or dine in for a filling meal.</p></div>",
                       "kind": "text",
                       "width": "30%",
                     },
@@ -484,10 +465,8 @@ design</p>",
               },
               "cells": [
                 {
-                  "body": {
-                    "__richtext_html": "<p>an impeccably
-lush haven</p>",
-                  },
+                  "body_html": "<div class="txt-role-text12"><p>an impeccably
+lush haven</p></div>",
                   "kind": "text",
                 },
               ],
@@ -547,10 +526,7 @@ lush haven</p>",
                   "kind": "subgrid",
                   "subgrid": [
                     {
-                      "body": {
-                        "__richtext_html": "<p>A collection of 13 buildings offering premier office space among the biggest names in entertainment. Explore 3,100,000 SF of endless possibilities.</p>",
-                      },
-                      "body_role": "text1",
+                      "body_html": "<div class="txt-role-text1"><p>A collection of 13 buildings offering premier office space among the biggest names in entertainment. Explore 3,100,000 SF of endless possibilities.</p></div>",
                       "kind": "text",
                       "title": {
                         "__richtext_html": "<h4>a property within</h4>",
@@ -593,11 +569,8 @@ lush haven</p>",
               },
               "cells": [
                 {
-                  "body": {
-                    "__richtext_html": "<h4>a city full of possibilities</h4>
-<p>Burbank offers a wide range of opportunities from its network of world-renowned studios, accessible airport, and recreational activities.</p>",
-                  },
-                  "body_role": "text1",
+                  "body_html": "<div class="txt-role-text11"><h4>a city full of possibilities</h4></div>
+<div class="txt-role-text1"><p>Burbank offers a wide range of opportunities from its network of world-renowned studios, accessible airport, and recreational activities.</p></div>",
                   "embed_html": "<a class="ib middle buttons2" href="https://dv4tl7yyk1zlp.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/1b5b96c1-16fb-4d8b-8cb0-f71938af22c0.pdf">Burbank Incentives</a>",
                   "kind": "text",
                   "media": {
@@ -623,10 +596,7 @@ lush haven</p>",
                   "kind": "subgrid",
                   "subgrid": [
                     {
-                      "body": {
-                        "__richtext_html": "<p>Be part of the community among the biggest names in entertainment. <br></p>",
-                      },
-                      "body_role": "text14",
+                      "body_html": "<div class="txt-role-text14"><p>Be part of the community among the biggest names in entertainment. <br></p></div>",
                       "kind": "text",
                       "width": "30%",
                     },
@@ -652,10 +622,7 @@ lush haven</p>",
                       "width": "70%",
                     },
                     {
-                      "body": {
-                        "__richtext_html": "<p>Fly, surf, ski, all within an hour away. Plus every business partner is around the corner.<br></p>",
-                      },
-                      "body_role": "text14",
+                      "body_html": "<div class="txt-role-text14"><p>Fly, surf, ski, all within an hour away. Plus every business partner is around the corner.<br></p></div>",
                       "kind": "text",
                       "width": "30%",
                     },
@@ -665,10 +632,7 @@ lush haven</p>",
                   "kind": "subgrid",
                   "subgrid": [
                     {
-                      "body": {
-                        "__richtext_html": "<p>Day or night, Burbank delights with vibrant energy and one-of-a-kind character.</p>",
-                      },
-                      "body_role": "text14",
+                      "body_html": "<div class="txt-role-text14"><p>Day or night, Burbank delights with vibrant energy and one-of-a-kind character.</p></div>",
                       "kind": "text",
                       "width": "30%",
                     },
@@ -693,10 +657,8 @@ lush haven</p>",
             "primary": {
               "cells": [
                 {
-                  "body": {
-                    "__richtext_html": "<p>everything
-within reach</p>",
-                  },
+                  "body_html": "<div class="txt-role-text12"><p>everything
+within reach</p></div>",
                   "kind": "text",
                 },
               ],

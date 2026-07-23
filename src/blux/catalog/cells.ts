@@ -71,6 +71,14 @@ function visualFieldsOf(u: Node, token?: GridToken): Partial<CatalogCell> {
   return out;
 }
 
+/** Wrap a body-block html string in its Blux type-role div (`txt-role-textN`)
+ * so the starter theme's `.txt-role-textN :is(hN,p)` rule sizes it; a roleless
+ * block passes through untouched. The string sibling of `roleWrap` (which wraps
+ * a BlockNode for the BluxBlock fallback path). */
+function roleWrapHtml(role: string | undefined, inner: string): string {
+  return role ? `<div class="txt-role-${role}">${inner}</div>` : inner;
+}
+
 /** Title + body html under a node (recursive, document order). The FIRST
  * non-blank heading becomes the title; every LATER heading is folded into the
  * body parts in document order relative to bodies/subtitles, so no heading is
@@ -79,17 +87,18 @@ function visualFieldsOf(u: Node, token?: GridToken): Partial<CatalogCell> {
  * nodes, violating heading-only StructuredText fields and losing levels.
  * Folded headings keep their TRUE level (body fields render every block kind;
  * clamping to a field's heading window is emit's concern); bare body html is
- * `<p>`-wrapped so a folded heading never swallows it (see `wrapBare`). */
+ * `<p>`-wrapped so a folded heading never swallows it (see `wrapBare`). Each
+ * folded block is baked into its own `txt-role-textN` div (approach B) so a
+ * multi-role cell body keeps every block's display size — a RichText field
+ * cannot carry the class, so the roled html is emitted as a plain string. */
 function textOf(n: Node): {
   title?: string;
-  body?: string;
   titleRole?: string;
-  bodyRole?: string;
+  bodyHtml?: string;
 } {
   let title: string | undefined;
   let titleRole: string | undefined;
   const bodyParts: string[] = [];
-  let bodyRole: string | undefined;
   for (const t of collectText(n)) {
     if (t.kind === "heading") {
       if (blockPlainText(t.html) === "") continue; // whitespace-only heading
@@ -97,21 +106,17 @@ function textOf(n: Node): {
       if (title === undefined) {
         title = wrapped;
         titleRole = t.role;
-      } else bodyParts.push(wrapped);
+      } else bodyParts.push(roleWrapHtml(t.role, wrapped));
     } else if (t.kind === "body") {
-      if (t.html) {
-        bodyParts.push(wrapBare(t.html));
-        bodyRole ??= t.role;
-      }
+      if (t.html) bodyParts.push(roleWrapHtml(t.role, wrapBare(t.html)));
     } else if (t.kind === "subtitle") {
-      bodyParts.push(`<p>${t.text}</p>`);
+      bodyParts.push(roleWrapHtml(t.role, `<p>${t.text}</p>`));
     }
   }
   return {
     ...(title ? { title } : {}),
-    ...(bodyParts.length ? { body: bodyParts.join("\n") } : {}),
     ...(titleRole ? { titleRole } : {}),
-    ...(bodyRole ? { bodyRole } : {}),
+    ...(bodyParts.length ? { bodyHtml: bodyParts.join("\n") } : {}),
   };
 }
 
@@ -159,18 +164,17 @@ function buildCell(
     // Depth-0 subgrid split: every media survives as its own item; the
     // subtree's whole text/raw content rides one leading text item — carrying
     // its type roles so the split text sizes like any other cell title/body.
-    const { title, body, titleRole, bodyRole } = textOf(u);
+    const { title, titleRole, bodyHtml } = textOf(u);
     const embedHtml = rawHtmlOf(u);
     const textItem: CatalogCell[] =
-      title || body || embedHtml
+      title || bodyHtml || embedHtml
         ? [
             {
               kind: "text",
               ...(title ? { title } : {}),
-              ...(body ? { body } : {}),
+              ...(bodyHtml ? { bodyHtml } : {}),
               ...(embedHtml ? { embedHtml } : {}),
               ...(titleRole ? { titleRole } : {}),
-              ...(bodyRole ? { bodyRole } : {}),
             },
           ]
         : [];
@@ -182,28 +186,26 @@ function buildCell(
   if (depth > 0 && (allMedia.length > 1 || containsRow(u))) state.flattened = true;
   const media = allMedia[0];
   const vis = visualFieldsOf(u, token);
-  const { title, body, titleRole, bodyRole } = textOf(u);
+  const { title, titleRole, bodyHtml } = textOf(u);
   const embedHtml = rawHtmlOf(u);
-  if (u.kind === "media" || (media && !title && !body)) {
+  if (u.kind === "media" || (media && !title && !bodyHtml)) {
     return {
       kind: "media",
       ...(media ? { media } : {}),
       ...(title ? { title } : {}),
-      ...(body ? { body } : {}),
+      ...(bodyHtml ? { bodyHtml } : {}),
       ...(embedHtml ? { embedHtml } : {}),
       ...(titleRole ? { titleRole } : {}),
-      ...(bodyRole ? { bodyRole } : {}),
       ...vis,
     };
   }
   return {
-    kind: title || body ? "text" : embedHtml ? "embed" : "text",
+    kind: title || bodyHtml ? "text" : embedHtml ? "embed" : "text",
     ...(title ? { title } : {}),
-    ...(body ? { body } : {}),
+    ...(bodyHtml ? { bodyHtml } : {}),
     ...(media ? { media } : {}),
     ...(embedHtml ? { embedHtml } : {}),
     ...(titleRole ? { titleRole } : {}),
-    ...(bodyRole ? { bodyRole } : {}),
     ...vis,
   };
 }

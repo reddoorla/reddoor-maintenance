@@ -10,7 +10,7 @@ export type CatalogRichText = string;
 export type CatalogCell = {
   kind: "text" | "media" | "embed" | "subgrid";
   title?: CatalogRichText;
-  body?: CatalogRichText;
+  bodyHtml?: string;
   media?: Media;
   mediaRatio?: string;
   embedHtml?: string;
@@ -22,7 +22,6 @@ export type CatalogCell = {
   backgroundColor?: string;
   contentPadding?: string;
   titleRole?: string;
-  bodyRole?: string;
   subgrid?: CatalogCell[];
 };
 

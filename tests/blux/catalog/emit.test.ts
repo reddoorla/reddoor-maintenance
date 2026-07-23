@@ -8,7 +8,7 @@ const spec: BluxSectionSpec = {
   backgroundColor: "#f4f4f4",
   heading: "<h2>Amenities</h2>",
   cells: [
-    { kind: "text", title: "<h3>Pool</h3>", body: "<p>Heated</p>" },
+    { kind: "text", title: "<h3>Pool</h3>", bodyHtml: "<p>Heated</p>" },
     // Real `Media` requires a `kind` discriminant → `kind: "image"` added here.
     {
       kind: "media",
@@ -31,7 +31,7 @@ describe("catalogSpecToPlanSlice", () => {
     expect(cells[0]).toMatchObject({
       kind: "text",
       title: { __richtext_html: "<h3>Pool</h3>" },
-      body: { __richtext_html: "<p>Heated</p>" },
+      body_html: "<p>Heated</p>",
     });
     expect(cells[1]).toMatchObject({
       kind: "media",
@@ -85,7 +85,7 @@ describe("emit-boundary sanitizing", () => {
       index: 3,
       cells: [
         { kind: "embed", embedHtml: '<div data-exec="custom_abc"><script>boot()</script></div>' },
-        { kind: "text", body: "<p>kept</p>" },
+        { kind: "text", bodyHtml: "<p>kept</p>" },
       ],
     };
     const cells = catalogSpecToPlanSlice(s).primary.cells as Record<string, unknown>[];
