@@ -1,6 +1,7 @@
 import type { Band, Media, Node } from "../grid/types.js";
 import type { MapConfig } from "../grid/extract-map.js";
 import type { Diagnostic } from "../ir.js";
+import type { BlockDefaults } from "../emit/block-styles.js";
 import { classifyBand, collectMedia, type CarouselSlide, type SliceSpec } from "../grid/index.js";
 import { cellFromNode, nodeToCells, blockPayload, cellDepthExceedsTwo } from "./cells.js";
 import { cropRatioOf, isFeedBand } from "../grid/feed-grid.js";
@@ -14,7 +15,20 @@ import type {
   CatalogSpec,
 } from "./spec.js";
 
-type CatalogBaseFields = { index: number; background?: Media };
+type CatalogBaseFields = {
+  index: number;
+  background?: Media;
+  backgroundColor?: string;
+  minHeight?: string;
+  contentPadding?: string;
+  contentPaddingMobile?: string;
+  maxContentWidth?: string;
+  verticalAlign?: string;
+  textAlign?: string;
+  columnWidth?: string;
+  columnSide?: string;
+  headingRole?: string;
+};
 
 /** Options threaded from the caller (the CLI catalog action extracts them per
  * page): `isMapMount` is the classifier's mount predicate (grid
@@ -30,12 +44,40 @@ export type BandToCatalogOptions = {
    * so same-index findings on different pages stay distinguishable (round-2
    * item 10a: fitHealthClub's 4 band-3 diagnostics were identical). */
   pageUid?: string;
+  /** Per-band inline block styles keyed by band index (background-color,
+   * min-height, text-align, vertical-align, …) — the CLI supplies
+   * `blockStylesByIndex(siteJson, pageIndex)`. `baseOf` reads `.get(band.index)`. */
+  styles?: Map<number, Record<string, string>>;
+  /** Block-class `.blocksNcontainer` defaults (padding/mobilePadding/maxWidth)
+   * keyed by the wrapper class — the CLI supplies `blockClassDefaults(siteJson)`.
+   * `baseOf` reads `.get(band.blockClass)`, mirroring presentation.ts. */
+  defaults?: Map<string, BlockDefaults>;
 };
 
-const baseOf = (band: Band): CatalogBaseFields => ({
-  index: band.index,
-  ...(band.background ? { background: band.background } : {}),
-});
+/** Band-visual fields recovered from the CLI-threaded per-band inline styles
+ * (`opts.styles.get(index)`) + the wrapper class defaults
+ * (`opts.defaults.get(band.blockClass)`), mirroring presentation.ts's
+ * styleFor/defaultsFor resolution. An inline `padding` overrides the class
+ * default; every field is omitted when its source is absent (graceful
+ * degradation — a site without block styles emits an unstyled band). */
+const baseOf = (band: Band, opts?: BandToCatalogOptions): CatalogBaseFields => {
+  const st = opts?.styles?.get(band.index) ?? {};
+  const def = (band.blockClass ? opts?.defaults?.get(band.blockClass) : undefined) ?? {};
+  const padding = st["padding"] ?? def.padding;
+  return {
+    index: band.index,
+    ...(band.background ? { background: band.background } : {}),
+    ...(st["background-color"] ? { backgroundColor: st["background-color"] } : {}),
+    ...(st["min-height"] ? { minHeight: st["min-height"] } : {}),
+    ...(st["text-align"] ? { textAlign: st["text-align"] } : {}),
+    ...(st["vertical-align"] === "middle" ? { verticalAlign: "middle" } : {}),
+    ...(padding ? { contentPadding: padding } : {}),
+    ...(def.mobilePadding ? { contentPaddingMobile: def.mobilePadding } : {}),
+    ...(def.maxWidth ? { maxContentWidth: def.maxWidth } : {}),
+    ...(st["_column-width"] ? { columnWidth: st["_column-width"] } : {}),
+    ...(st["_column-side"] ? { columnSide: st["_column-side"] } : {}),
+  };
+};
 
 /** Map a thin routed SliceSpec + its Band to a rich CatalogSpec. Reuses the
  * battle-tested routing; builds full cells by walking the node subtree. */
@@ -44,7 +86,7 @@ export function sliceSpecToCatalog(
   band: Band,
   opts: BandToCatalogOptions = {},
 ): CatalogSpec {
-  const base = baseOf(band);
+  const base = baseOf(band, opts);
   switch (spec.slice) {
     case "Hero":
     case "TitleBand":
@@ -227,7 +269,7 @@ export function bandOrCollection(
   const { heading } = splitHeadingAndCells(band.root);
   const spec: BluxCollectionSpec = {
     slice: "BluxCollection",
-    ...baseOf(band),
+    ...baseOf(band, opts),
     ...(heading ? { heading } : {}),
     entityType: feedEntityType(feedName),
     feedIds: keptIds,
@@ -428,6 +470,7 @@ function gridColumns(root: Node): number | undefined {
  * section heading AND a cell title. */
 function splitHeadingAndCells(root: Node): {
   heading?: string;
+  headingRole?: string;
   cells: CatalogCell[];
 } {
   const cells = nodeToCells(root).filter(
@@ -438,6 +481,7 @@ function splitHeadingAndCells(root: Node): {
   if (h)
     return {
       ...(h.title ? { heading: h.title } : {}),
+      ...(h.titleRole ? { headingRole: h.titleRole } : {}),
       cells: cells.filter((_, i) => i !== hIdx),
     };
   return { cells };

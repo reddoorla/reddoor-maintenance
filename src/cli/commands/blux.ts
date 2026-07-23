@@ -5,6 +5,7 @@ import { assembleIR } from "../../blux/assemble.js";
 import { buildMigrationPlan } from "../../blux/emit/migration-plan.js";
 import { emitThemeCss, emitRolesCss, emitButtonsCss } from "../../blux/emit/theme.js";
 import { buildReviewManifest } from "../../blux/emit/review.js";
+import { blockStylesByIndex, blockClassDefaults } from "../../blux/emit/block-styles.js";
 import { validateCoverage } from "../../blux/validate.js";
 import { parseGridBands, extractMapConfig, makeIsMapMount } from "../../blux/grid/index.js";
 import { feedAssetBase, extFor, isFeedBand } from "../../blux/grid/feed-grid.js";
@@ -584,6 +585,9 @@ export async function runBluxCommand(
     // index is scraped from the rendered pages (site.json's media dict has no
     // urls), so a media without a CDN data-base can still resolve.
     const htmls: string[] = [];
+    // Band-visual capture (Task 9): the `.blocksNcontainer` class defaults are
+    // site-wide (compute once); per-band inline styles are per page.
+    const blockDefaults = blockClassDefaults(siteJson);
     for (const [pageIndex, p] of sitePages(siteJson).entries()) {
       const file = p.path ? join(dir, p.path, "index.html") : join(dir, "index.html");
       let html: string;
@@ -597,14 +601,22 @@ export async function runBluxCommand(
       // inject the mount predicate so the map band routes to a BluxSection
       // widget (config inlined at emit); pages without one classify as before.
       const mapConfig = extractMapConfig(html);
+      const blockStyles = blockStylesByIndex(siteJson, pageIndex);
       const catalogOpts = mapConfig
         ? {
             isMapMount: makeIsMapMount(mapConfig),
             mapConfig,
             diagnostics: classifyDiagnostics,
             pageUid: p.uid,
+            styles: blockStyles,
+            defaults: blockDefaults,
           }
-        : { diagnostics: classifyDiagnostics, pageUid: p.uid };
+        : {
+            diagnostics: classifyDiagnostics,
+            pageUid: p.uid,
+            styles: blockStyles,
+            defaults: blockDefaults,
+          };
       const pageItems = pageItemsByIndex?.[pageIndex]?.items;
       const bands = parseGridBands(html);
       const specs: CatalogSpec[] = bands.map((b) =>
