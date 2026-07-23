@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { emitThemeCss, emitRolesCss, emitButtonsCss } from "../../../src/blux/emit/theme.js";
+import {
+  emitThemeCss,
+  emitRootVarsCss,
+  emitRolesCss,
+  emitButtonsCss,
+} from "../../../src/blux/emit/theme.js";
 import type { ThemeIR } from "../../../src/blux/ir.js";
 
 describe("emitThemeCss", () => {
@@ -241,5 +246,38 @@ describe("emitRolesCss", () => {
         buttonStyles: [],
       }),
     ).toBe("");
+  });
+});
+
+describe("emitRootVarsCss", () => {
+  const theme: ThemeIR = {
+    fontLoad: [],
+    colors: [{ role: "text", value: "#053a6c" }],
+    fonts: { heading: "Scope One", body: "Montserrat" },
+    textStyles: [
+      {
+        role: "text2",
+        label: "Page Title",
+        fontFamily: "",
+        size: "70px",
+        lineHeight: "100px",
+        weight: "300",
+      },
+    ],
+    buttonStyles: [],
+  };
+
+  it("mirrors the @theme text tokens into a real :root block (runtime-resolvable)", () => {
+    const css = emitRootVarsCss(theme);
+    expect(css).toMatch(/^:root \{/);
+    expect(css).toContain("--text-text2: 70px;");
+    expect(css).toContain("--color-text: #053a6c;");
+  });
+
+  it("emitThemeCss still emits the tokens inside @theme, not :root (unchanged)", () => {
+    const css = emitThemeCss(theme);
+    expect(css).toContain("@theme {");
+    expect(css).toContain("--text-text2: 70px;");
+    expect(css).not.toContain(":root");
   });
 });

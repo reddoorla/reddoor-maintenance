@@ -3,7 +3,12 @@ import { join, dirname } from "node:path";
 import { glob } from "tinyglobby";
 import { assembleIR } from "../../blux/assemble.js";
 import { buildMigrationPlan } from "../../blux/emit/migration-plan.js";
-import { emitThemeCss, emitRolesCss, emitButtonsCss } from "../../blux/emit/theme.js";
+import {
+  emitThemeCss,
+  emitRootVarsCss,
+  emitRolesCss,
+  emitButtonsCss,
+} from "../../blux/emit/theme.js";
 import { buildReviewManifest } from "../../blux/emit/review.js";
 import { blockStylesByIndex, blockClassDefaults } from "../../blux/emit/block-styles.js";
 import { validateCoverage } from "../../blux/validate.js";
@@ -122,6 +127,8 @@ export async function runBluxCommand(
     await writeFile(
       join(out, "theme.css"),
       emitThemeCss(ir.theme) +
+        "\n" +
+        emitRootVarsCss(ir.theme) +
         (rolesCss ? "\n" + rolesCss : "") +
         (buttonsCss ? "\n" + buttonsCss : ""),
     );
@@ -756,6 +763,8 @@ export async function runBluxCommand(
     await writeFile(
       join(outDir, "theme.css"),
       emitThemeCss(ir.theme) +
+        "\n" +
+        emitRootVarsCss(ir.theme) +
         (rolesCss ? "\n" + rolesCss : "") +
         (buttonsCss ? "\n" + buttonsCss : ""),
     );
