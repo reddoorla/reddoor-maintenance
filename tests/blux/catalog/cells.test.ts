@@ -190,6 +190,24 @@ describe("blockPayload", () => {
     expect(p.html).toContain("https://cdn/v1.mp4");
     expect(p.image).toBeUndefined();
   });
+  it("wraps roled text leaves in their txt-role div; roleless text passes through", () => {
+    const node = {
+      kind: "stack",
+      children: [
+        { kind: "heading", level: 2, html: "Big", role: "text5" },
+        { kind: "body", html: "<p>x</p>", role: "text1" },
+        { kind: "heading", level: 3, html: "Plain" },
+      ],
+    } as unknown as Node;
+    const kids = blockPayload(node).children ?? [];
+    expect(kids[0]).toMatchObject({
+      tag: "div",
+      className: "txt-role-text5",
+      children: [{ tag: "h2", html: "Big" }],
+    });
+    expect(kids[1]).toMatchObject({ tag: "div", className: "txt-role-text1" });
+    expect(kids[2]).toMatchObject({ tag: "h3", html: "Plain" }); // no role → no wrapper
+  });
 });
 
 it("threads token width/spacing, card style, and text roles onto cells", () => {

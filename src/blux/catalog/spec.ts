@@ -132,6 +132,7 @@ export type BlockNode = {
   html?: string;
   image?: { url: string; alt?: string };
   style?: Record<string, string>;
+  className?: string;
   children?: BlockNode[];
 };
 

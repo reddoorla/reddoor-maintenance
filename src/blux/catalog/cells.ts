@@ -157,8 +157,9 @@ function buildCell(
   const allMedia = collectMedia(u);
   if (depth === 0 && allMedia.length > 1) {
     // Depth-0 subgrid split: every media survives as its own item; the
-    // subtree's whole text/raw content rides one leading text item.
-    const { title, body } = textOf(u);
+    // subtree's whole text/raw content rides one leading text item — carrying
+    // its type roles so the split text sizes like any other cell title/body.
+    const { title, body, titleRole, bodyRole } = textOf(u);
     const embedHtml = rawHtmlOf(u);
     const textItem: CatalogCell[] =
       title || body || embedHtml
@@ -168,6 +169,8 @@ function buildCell(
               ...(title ? { title } : {}),
               ...(body ? { body } : {}),
               ...(embedHtml ? { embedHtml } : {}),
+              ...(titleRole ? { titleRole } : {}),
+              ...(bodyRole ? { bodyRole } : {}),
             },
           ]
         : [];
@@ -237,6 +240,13 @@ export function cellDepthExceedsTwo(node: Node): boolean {
   return state.flattened;
 }
 
+/** Wrap a block text leaf in its Blux type-role div (`txt-role-textN`) when it
+ * carries a role, so the starter theme's `.txt-role-textN :is(hN,p)` rule sizes
+ * it exactly as grid/section text; a roleless leaf passes through untouched. */
+function roleWrap(role: string | undefined, node: BlockNode): BlockNode {
+  return role ? { tag: "div", className: `txt-role-${role}`, children: [node] } : node;
+}
+
 /** Serialize a node tree to a BluxBlock payload — the content-preserving
  * fallback for bands too deep/irregular for the cell model. Never drops media
  * or text (the whole point). */
@@ -251,12 +261,17 @@ export function blockPayload(node: Node): BlockNode {
       };
     case "stack":
       return { tag: "div", children: u.children.map(blockPayload) };
+    // Text leaves keep their Blux type role (text1…textN): the starter theme
+    // sizes text ONLY through `.txt-role-textN :is(h1..h6,p)`, so a bare heading
+    // in a Block-fallback band would render unstyled. Wrap in the role div (the
+    // same mechanism BluxCell uses for cell titles) so block-band headings size
+    // identically to grid/section headings.
     case "heading":
-      return { tag: `h${u.level}`, html: u.html };
+      return roleWrap(u.role, { tag: `h${u.level}`, html: u.html });
     case "body":
-      return { tag: "div", html: u.html };
+      return roleWrap(u.role, { tag: "div", html: u.html });
     case "subtitle":
-      return { tag: "p", html: u.text };
+      return roleWrap(u.role, { tag: "p", html: u.text });
     case "media":
       return mediaBlock(u.media);
     case "raw":
