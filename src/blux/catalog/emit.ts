@@ -16,6 +16,7 @@ import { videoTag } from "./cells.js";
 import { buildEntityEmit } from "./entities.js";
 import { collectCdnUrls } from "./rewrite-doc-urls.js";
 import { hasVisibleContent, sanitizeHtml } from "./sanitize.js";
+import { CATALOG_PAGE_TYPE } from "./spec.js";
 import type { BlockNode, CatalogBase, CatalogCell, CatalogSpec } from "./spec.js";
 
 /** Clamp a heading level into the `[min, max]` window a target field's model
@@ -367,7 +368,7 @@ export function buildCatalogPlan(
   const diagnostics: Diagnostic[] = [...(ir.diagnostics ?? [])];
   const entity = feeds ? buildEntityEmit(feeds) : null;
   const documents: PlanDocument[] = pages.map((p) => ({
-    type: "page",
+    type: CATALOG_PAGE_TYPE,
     uid: p.uid,
     data: {
       title: richText(`<h1>${p.title}</h1>`),

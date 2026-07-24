@@ -9,7 +9,7 @@ describe("rewriteDocUrls", () => {
   it("rewrites CDN urls inside serialized payload strings", () => {
     const docs = [
       {
-        type: "page",
+        type: "catalog_page",
         uid: "home",
         data: {
           slices: [
@@ -32,7 +32,7 @@ describe("rewriteDocUrls", () => {
   it("rewrites widget_html / embed_html / background-image strings", () => {
     const docs = [
       {
-        type: "page",
+        type: "catalog_page",
         uid: "home",
         data: {
           slices: [
@@ -56,7 +56,7 @@ describe("rewriteDocUrls", () => {
   it("does not touch markers, non-string values, or unrelated strings; input not mutated", () => {
     const docs = [
       {
-        type: "page",
+        type: "catalog_page",
         uid: "home",
         data: { title: { __richtext_html: "<h1>x</h1>" }, media: { __asset_id: "abc-123" }, n: 4 },
       },
@@ -70,7 +70,7 @@ describe("rewriteDocUrls", () => {
 
   it("reports surviving cloudfront urls as unmatched (never silent)", () => {
     const other = "https://d3syaxnfm3oj0e.cloudfront.net/img/UNKNOWN.jpg";
-    const docs = [{ type: "page", uid: "home", data: { s: `<img src="${other}">` } }];
+    const docs = [{ type: "catalog_page", uid: "home", data: { s: `<img src="${other}">` } }];
     const r = rewriteDocUrls(docs, map);
     expect(r.unmatched).toEqual([other]);
   });
@@ -81,7 +81,7 @@ describe("rewriteDocUrls", () => {
     // followed by `\"` — the reported url must carry no trailing backslash/quote.
     const docs = [
       {
-        type: "page",
+        type: "catalog_page",
         uid: "home",
         data: { s: JSON.stringify({ payload: JSON.stringify({ image: { url: other } }) }) },
       },
@@ -92,7 +92,7 @@ describe("rewriteDocUrls", () => {
 
   it("counts every occurrence of the same mapped url within one string", () => {
     const docs = [
-      { type: "page", uid: "home", data: { s: `<img src="${CDN}"><img src="${CDN}">` } },
+      { type: "catalog_page", uid: "home", data: { s: `<img src="${CDN}"><img src="${CDN}">` } },
     ];
     const r = rewriteDocUrls(docs, map);
     expect(r.rewritten).toBe(2);
@@ -102,7 +102,7 @@ describe("rewriteDocUrls", () => {
   it("swaps the mapped url and reports the unmapped one from the same string", () => {
     const other = "https://d3syaxnfm3oj0e.cloudfront.net/img/UNKNOWN.jpg";
     const docs = [
-      { type: "page", uid: "home", data: { s: `<img src="${CDN}"><img src="${other}">` } },
+      { type: "catalog_page", uid: "home", data: { s: `<img src="${CDN}"><img src="${other}">` } },
     ];
     const r = rewriteDocUrls(docs, map);
     expect(r.rewritten).toBe(1);
@@ -121,7 +121,7 @@ describe("collectCdnUrls", () => {
   it("finds a CDN url inside an embed_html <a href> (the PDF-button case)", () => {
     const docs = [
       {
-        type: "page",
+        type: "catalog_page",
         uid: "home",
         data: {
           slices: [

@@ -14,7 +14,7 @@ const plan = {
   customTypes: [],
   documents: [
     {
-      type: "page",
+      type: "catalog_page",
       uid: "home",
       data: {
         title: { __richtext_html: "<h1>The Pointe</h1>" },
@@ -89,7 +89,7 @@ describe("resolveFixture", () => {
       ...plan,
       documents: [
         {
-          type: "page",
+          type: "catalog_page",
           uid: "gallery",
           data: {
             slices: [
