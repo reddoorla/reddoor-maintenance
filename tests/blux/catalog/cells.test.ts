@@ -6,6 +6,7 @@ import {
   nodeToCells,
   blockPayload,
   cellDepthExceedsTwo,
+  imgTag,
 } from "../../../src/blux/catalog/cells.js";
 
 const img = (id: string): Media => ({ kind: "image", assetId: id });
@@ -264,4 +265,31 @@ it("threads token width/spacing, card style, and text roles onto cells", () => {
     bodyHtml: '<div class="txt-role-text1"><p>Body</p></div>',
   });
   expect(cells[1]).toMatchObject({ width: "30%", kind: "media", cover: true });
+});
+
+describe("imgTag", () => {
+  const photo: Media = { kind: "image", assetId: "u1", base: "https://cdn/", ext: "jpg" };
+  const url = (m: Media) => (m.base ? `${m.base}${m.assetId}.${m.ext}` : null);
+
+  it("builds an <img> with the resolved url and alt", () => {
+    expect(imgTag(photo, url, () => "Pool deck")).toBe(
+      '<img src="https://cdn/u1.jpg" alt="Pool deck">',
+    );
+  });
+
+  it("keeps the raw url (so the migrate url-rewrite still matches) and escapes the alt", () => {
+    expect(imgTag(photo, url, () => 'A "quoted" & <tagged> alt')).toBe(
+      '<img src="https://cdn/u1.jpg" alt="A &quot;quoted&quot; &amp; &lt;tagged&gt; alt">',
+    );
+  });
+
+  it("falls back to the bare assetId when the url cannot resolve", () => {
+    expect(
+      imgTag(
+        img("u2"),
+        () => null,
+        () => "",
+      ),
+    ).toBe('<img src="u2" alt="">');
+  });
 });
