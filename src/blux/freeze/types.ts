@@ -24,6 +24,9 @@ export interface FrozenManifest {
   title: string;
   metaTitle?: string;
   metaImageUrl?: string;
+  /** External stylesheet hrefs from the export <head> (e.g. Google Fonts) that
+   *  the render must re-inject — font metrics are load-bearing for layout. */
+  fontLinks: string[];
   slots: Slot[];
 }
 

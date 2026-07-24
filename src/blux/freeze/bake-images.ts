@@ -1,18 +1,37 @@
-import { parse } from "node-html-parser";
+import { parse, HTMLElement } from "node-html-parser";
 import { slotKey, tokenFor, type Slot } from "./types.js";
 import { sectionIndexOf, sectionKeyOf } from "./section.js";
+import { CDN_HOSTS } from "../assets.js";
+
+const isCdnUrl = (v: string): boolean => CDN_HOSTS.some((h) => v.includes(h));
 
 // Blux media elements carry the image as data-attributes, not a live src: the
 // runtime reads `data-base` (CDN folder) + `data-size` (width) + `data-media`
-// (filename) and sets a background-image on a lazy `.load-media-element` span
-// (loading/unloading per viewport). We assemble the url deterministically
-// instead — `{data-base}w:{data-size}/{data-media}` (verified 200) — and bake it
-// as an inline background-image token so no runtime is needed. An element with
-// `data-bgmedia` is a full-bleed layer; that filename wins over `data-media`.
+// (filename) and paints a background on a lazy `.load-media-element` span
+// (loading/unloading per viewport). We assemble the url deterministically —
+// `{data-base}w:{data-size}/{data-media}` (verified 200) — and bake it as an
+// inline background-image token so no runtime is needed. `data-bgmedia` is a
+// full-bleed layer whose filename wins over `data-media`. A second pass catches
+// any other CDN url still living in src/href/poster (e.g. a <video>), so the
+// frozen template leaks no CDN host at all.
+
+// Runtime-only url hints the (removed) Blux JS used; not rendered — drop them so
+// they don't leak a CDN host.
+function stripUrlHintAttrs(root: HTMLElement): void {
+  for (const el of root.querySelectorAll("*")) {
+    for (const name of Object.keys(el.attributes)) {
+      if (name === "data-og-src" || name.startsWith("data-swaps")) {
+        el.removeAttribute(name);
+      }
+    }
+  }
+}
 
 /**
- * Assemble + inline every media element's background-image as a `⟦i:KEY⟧` token
- * and collect the originals as image slots (document order, keyed per section).
+ * Tokenize every media url in the document as a `⟦i:KEY⟧` image slot. Pass 1:
+ * data-attribute backgrounds → inline `background-image:url(token)`. Pass 2: any
+ * remaining CDN url in `src`/`href`/`poster` → bare `token`. Keys are
+ * `s{section}.i{n}` in document order.
  */
 export function bakeImages(html: string): { html: string; slots: Slot[] } {
   const root = parse(html);
@@ -20,6 +39,14 @@ export function bakeImages(html: string): { html: string; slots: Slot[] } {
   const counters = new Map<string, number>();
   const slots: Slot[] = [];
 
+  const nextKey = (el: HTMLElement): string => {
+    const section = sectionKeyOf(el, sectionIndex);
+    const n = counters.get(section) ?? 0;
+    counters.set(section, n + 1);
+    return slotKey(section, "image", n);
+  };
+
+  // Pass 1: data-* backgrounds.
   for (const el of root.querySelectorAll("[data-media],[data-bgmedia]")) {
     const base = el.getAttribute("data-base");
     if (!base) continue;
@@ -30,16 +57,25 @@ export function bakeImages(html: string): { html: string; slots: Slot[] } {
     const sizeSeg = size ? `w:${size}/` : bg ? "w:1600/" : "";
     const url = `${base}${sizeSeg}${media}`;
 
-    const section = sectionKeyOf(el, sectionIndex);
-    const n = counters.get(section) ?? 0;
-    counters.set(section, n + 1);
-    const key = slotKey(section, "image", n);
-    slots.push({ key, kind: "image", url, section });
-
+    const key = nextKey(el);
+    slots.push({ key, kind: "image", url, section: sectionKeyOf(el, sectionIndex) });
     const decl = `background-image:url(${tokenFor("image", key)})`;
     const style = el.getAttribute("style");
     el.setAttribute("style", style ? `${style};${decl}` : decl);
+    el.removeAttribute("data-base");
   }
 
+  // Pass 2: any remaining CDN url in src/href/poster (video, source, links…).
+  for (const el of root.querySelectorAll("[src],[href],[poster]")) {
+    for (const attr of ["src", "href", "poster"] as const) {
+      const v = el.getAttribute(attr);
+      if (!v || !isCdnUrl(v)) continue;
+      const key = nextKey(el);
+      slots.push({ key, kind: "image", url: v, section: sectionKeyOf(el, sectionIndex) });
+      el.setAttribute(attr, tokenFor("image", key));
+    }
+  }
+
+  stripUrlHintAttrs(root);
   return { html: root.toString(), slots };
 }
