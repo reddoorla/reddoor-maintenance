@@ -30,7 +30,8 @@ const MANIFEST: FrozenManifest = {
   metaImageUrl: CF_SOCIAL,
   fontLinks: ["https://fonts.googleapis.com/css2?family=Foo"],
   slots: [
-    { key: "s1.t0", kind: "text", text: "Hello & welcome", section: "s1" },
+    // Freeze stores a text node's RAW source — entities already encoded.
+    { key: "s1.t0", kind: "text", text: "Hello &amp; welcome", section: "s1" },
     { key: "s1.i0", kind: "image", url: CF_HERO, section: "s1" },
   ],
 };

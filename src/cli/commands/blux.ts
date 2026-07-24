@@ -830,10 +830,12 @@ export async function runBluxCommand(
     // Image-field representation catalog docs use (resolveDocData turns
     // `{__asset_id}` into `{id}`, the depth-1-safe Migration API shape; the
     // slots group is a top-level repeatable group, so this resolves cleanly).
-    // Text slots become single-paragraph Rich Text markers. Assets dedupe by url
-    // so an image reused across slots uploads once.
-    const escapeText = (s: string): string =>
-      s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    // Text slots become single-paragraph Rich Text markers. The freeze stores a
+    // text node's RAW source (entities already encoded, e.g. "&amp;"/"&nbsp;",
+    // never a bare "<"), so it is a valid HTML fragment — pass it straight into
+    // the <p> for htmlAsRichText. Re-escaping would double-encode ("&amp;" →
+    // "&amp;amp;" → literal "&amp;" on the page). Assets dedupe by url so an
+    // image reused across slots uploads once.
     const assetIdByUrl = new Map<string, string>();
     const assets: PlanAsset[] = [];
     const assetFor = (url: string): string => {
@@ -848,7 +850,7 @@ export async function runBluxCommand(
     const slotRows = manifest.slots.map((s) =>
       s.kind === "image" && s.url
         ? { key: s.key, kind: s.kind, image: assetRef(assetFor(s.url)) }
-        : { key: s.key, kind: s.kind, text: richText(`<p>${escapeText(s.text ?? "")}</p>`) },
+        : { key: s.key, kind: s.kind, text: richText(`<p>${s.text ?? ""}</p>`) },
     );
     const data: Record<string, unknown> = {
       title: manifest.title,
