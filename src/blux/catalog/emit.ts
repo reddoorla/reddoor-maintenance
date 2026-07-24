@@ -13,7 +13,7 @@ import {
   richText,
 } from "../emit/plan.js";
 import { catalogPageCustomType } from "./catalog-page-type.js";
-import { videoTag } from "./cells.js";
+import { videoTag, imgTag } from "./cells.js";
 import { buildEntityEmit } from "./entities.js";
 import { collectCdnUrls } from "./rewrite-doc-urls.js";
 import { hasVisibleContent, sanitizeHtml } from "./sanitize.js";
@@ -44,7 +44,20 @@ function clampHeadingHtml(html: string, min: number, max: number): string {
 /** Emit-time context: the band index + owning page uid (for diagnostics
  * `where`) and the optional diagnostics sink threaded down from
  * `buildCatalogPlan`. */
-type EmitCtx = { index: number; pageUid?: string; diagnostics?: Diagnostic[] };
+type EmitCtx = {
+  index: number;
+  pageUid?: string;
+  diagnostics?: Diagnostic[];
+  /** True while emitting a subgrid's cells (depth 2). At this depth an image
+   *  media cannot ride an Image field — the Migration API can't resolve a
+   *  doubly-nested Image ref — so it emits `image_embed` (a url-based <img>). */
+  inSubgrid?: boolean;
+  /** Resolve a media's plan-asset CDN url (mediaCdnUrl, else IR sourceUrl) so
+   *  the emitted `image_embed` src matches what `rewriteValueUrls` swaps. */
+  resolveUrl?: (m: Media) => string | null;
+  /** Resolve a media's IR alt (else ""). */
+  resolveAlt?: (id: string) => string;
+};
 
 const MOUNT_RE = /data-exec="(custom_[a-f0-9_]+)"/;
 
@@ -85,7 +98,19 @@ function cellToItem(cell: CatalogCell, ctx: EmitCtx): Record<string, unknown> {
     // first-party parser structured-text html (heading/body/subtitle); raw/embed
     // html still routes through the sanitized embedHtml path.
     ...(cell.bodyHtml ? { body_html: sanitizeHtml(cell.bodyHtml) } : {}),
-    ...(cell.media && cell.media.kind !== "video" ? { media: assetRef(cell.media.assetId) } : {}),
+    // A subgrid (depth-2) image can't ride an Image field — the Migration API
+    // can't resolve a doubly-nested Image ref — so it emits `image_embed` (a
+    // url-based <img>, src rewritten to Prismic at migrate). Top-level images
+    // stay Image fields (they resolve fine + keep PrismicImage's srcset).
+    ...(cell.media && cell.media.kind !== "video"
+      ? ctx.inSubgrid
+        ? {
+            image_embed: sanitizeHtml(
+              imgTag(cell.media, ctx.resolveUrl ?? mediaCdnUrl, ctx.resolveAlt ?? (() => "")),
+            ),
+          }
+        : { media: assetRef(cell.media.assetId) }
+      : {}),
     ...(cell.mediaRatio ? { media_ratio: cell.mediaRatio } : {}),
     // Per-cell visual fields (Blux catalog visual layer). `cover`/`valign` are
     // Text flags emitting the literal "on" (mirrors scroll_load_more).
@@ -97,7 +122,7 @@ function cellToItem(cell: CatalogCell, ctx: EmitCtx): Record<string, unknown> {
     ...(cell.contentPadding ? { content_padding: cell.contentPadding } : {}),
     ...(cell.titleRole ? { title_role: cell.titleRole } : {}),
     ...(embeds.length ? { embed_html: embeds.join("\n") } : {}),
-    ...(cell.subgrid ? { subgrid: emitCells(cell.subgrid, ctx) } : {}),
+    ...(cell.subgrid ? { subgrid: emitCells(cell.subgrid, { ...ctx, inSubgrid: true }) } : {}),
   };
 }
 
@@ -196,11 +221,13 @@ export function catalogSpecToPlanSlice(
   spec: CatalogSpec,
   diagnostics?: Diagnostic[],
   pageUid?: string,
+  media?: { resolveUrl: (m: Media) => string | null; resolveAlt: (id: string) => string },
 ): PlanSlice {
   const ctx: EmitCtx = {
     index: spec.index,
     ...(pageUid !== undefined ? { pageUid } : {}),
     ...(diagnostics ? { diagnostics } : {}),
+    ...(media ? { resolveUrl: media.resolveUrl, resolveAlt: media.resolveAlt } : {}),
   };
   const bg = spec.background ? { background_image: assetRef(spec.background.assetId) } : {};
   const bgc = spec.backgroundColor ? { background_color: spec.backgroundColor } : {};
@@ -391,6 +418,14 @@ export function buildCatalogPlan(
 ): MigrationPlan {
   const diagnostics: Diagnostic[] = [...(ir.diagnostics ?? [])];
   const entity = feeds ? buildEntityEmit(feeds) : null;
+  // Media resolvers for subgrid `image_embed` emission: the src must equal the
+  // plan-asset url so the migrate's `rewriteValueUrls` swaps it to Prismic.
+  const assetById = new Map(ir.assets.map((a) => [a.id, a] as const));
+  const sourceUrlById = new Map(ir.assets.map((a) => [a.id, a.sourceUrl] as const));
+  const mediaResolvers = {
+    resolveUrl: (m: Media) => mediaUrl(m, sourceUrlById),
+    resolveAlt: (id: string) => assetById.get(id)?.alt ?? "",
+  };
   const documents: PlanDocument[] = pages.map((p) => ({
     type: CATALOG_PAGE_TYPE,
     uid: p.uid,
@@ -406,15 +441,13 @@ export function buildCatalogPlan(
       meta_title: p.title,
       ...(p.description ? { meta_description: p.description } : {}),
       ...(p.socialImageId ? { meta_image: assetRef(p.socialImageId) } : {}),
-      slices: p.specs.map((s) => catalogSpecToPlanSlice(s, diagnostics, p.uid)),
+      slices: p.specs.map((s) => catalogSpecToPlanSlice(s, diagnostics, p.uid, mediaResolvers)),
     },
   }));
   if (entity) {
     documents.push(...entity.documents);
     diagnostics.push(...entity.diagnostics);
   }
-  const assetById = new Map(ir.assets.map((a) => [a.id, a] as const));
-  const sourceUrlById = new Map(ir.assets.map((a) => [a.id, a.sourceUrl] as const));
   const resolve = (m: Media): PlanAsset | null => {
     const asset = assetById.get(m.assetId);
     const url = mediaUrl(m, sourceUrlById);
