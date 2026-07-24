@@ -156,10 +156,24 @@ function widgetFields(
   };
 }
 
-/** Band-level visual fields (Blux catalog visual layer) → Plan-2 primary field
- * names, for the cell-bearing container slices. `background_color` is emitted
- * separately (bgc); this covers the geometry/typography band fields. Absent
- * fields are omitted so a band with no captured styles stays lean. */
+/** Band-visual fields EVERY band slice model defines (blux_grid/section AND
+ * blux_gallery/carousel): the box geometry a slider/masonry band honors too.
+ * Absent fields are omitted so a band with no captured styles stays lean. */
+function bandVisualCore(spec: CatalogBase): Record<string, unknown> {
+  return {
+    ...(spec.minHeight ? { min_height: spec.minHeight } : {}),
+    ...(spec.maxContentWidth ? { max_content_width: spec.maxContentWidth } : {}),
+    ...(spec.verticalAlign ? { vertical_align: spec.verticalAlign } : {}),
+  };
+}
+
+/** The FULL band-visual set → Plan-2 primary field names, for the flow-layout
+ * container slices (blux_grid, blux_section). Adds the content-flow fields only
+ * those two models define and render: inner padding, text alignment, the
+ * single-column split, and the heading role. The gallery/carousel models omit
+ * these (a slider/masonry owns its own spacing), so those slices use
+ * `bandVisualCore` — emitting a full field into them fails Migration API
+ * validation ("field not defined in the custom type"). */
 function bandVisual(spec: CatalogBase): Record<string, unknown> {
   return {
     ...(spec.minHeight ? { min_height: spec.minHeight } : {}),
@@ -214,7 +228,7 @@ export function catalogSpecToPlanSlice(
       return sliceOf("blux_gallery", {
         ...bg,
         ...bgc,
-        ...bandVisual(spec),
+        ...bandVisualCore(spec),
         ...heading(spec),
         cells: emitCells(spec.cells, ctx),
       });
@@ -222,7 +236,7 @@ export function catalogSpecToPlanSlice(
       return sliceOf("blux_carousel", {
         ...bg,
         ...bgc,
-        ...bandVisual(spec),
+        ...bandVisualCore(spec),
         ...heading(spec),
         ...(spec.columnsVisible ? { columns_visible: spec.columnsVisible } : {}),
         cells: emitCells(spec.cells, ctx),

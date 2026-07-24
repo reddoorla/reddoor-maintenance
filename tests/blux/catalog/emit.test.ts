@@ -269,4 +269,40 @@ describe("buildCatalogPlan", () => {
       media_ratio: "4:3",
     });
   });
+
+  // The blux_gallery/blux_carousel models define ONLY the core band-visual
+  // fields (min_height/max_content_width/vertical_align); the flow fields
+  // (content_padding*/text_align/heading_role) belong to blux_grid/blux_section.
+  // Emitting a flow field into a gallery/carousel slice fails Migration API
+  // validation ("field not defined in the custom type"), so those band types
+  // must emit only the core set even when the source band carries the extras.
+  for (const slice of ["BluxGallery", "BluxCarousel"] as const) {
+    it(`scopes ${slice} to the core band-visual fields (drops the grid/section-only flow fields)`, () => {
+      const spec = {
+        slice,
+        index: 0,
+        minHeight: "80vh",
+        maxContentWidth: "1280px",
+        verticalAlign: "middle",
+        // These are NOT in the gallery/carousel models — must be dropped:
+        contentPadding: "120px 4%",
+        contentPaddingMobile: "80px 4%",
+        textAlign: "center",
+        headingRole: "text2",
+        cells: [],
+      } as unknown as import("../../../src/blux/catalog/spec.js").CatalogSpec;
+      const primary = catalogSpecToPlanSlice(spec).primary;
+      // Core fields survive …
+      expect(primary).toMatchObject({
+        min_height: "80vh",
+        max_content_width: "1280px",
+        vertical_align: "middle",
+      });
+      // … flow fields are absent (would otherwise be rejected by the API).
+      expect(primary).not.toHaveProperty("content_padding");
+      expect(primary).not.toHaveProperty("content_padding_mobile");
+      expect(primary).not.toHaveProperty("text_align");
+      expect(primary).not.toHaveProperty("heading_role");
+    });
+  }
 });
