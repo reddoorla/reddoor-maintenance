@@ -75,16 +75,14 @@ function cellToItem(cell: CatalogCell, ctx: EmitCtx): Record<string, unknown> {
     kind: cell.kind,
     ...(cell.title ? { title: richText(clampHeadingHtml(cell.title, 3, 4)) } : {}),
     // body_html is a PLAIN Text string (no richText marker) rendered via {@html}
-    // on the starter side. It is deliberately NOT run through sanitizeHtml: the
-    // current sanitizer strips the `class` attribute, which would remove the
-    // txt-role-* wrappers this fix depends on. That makes it the ONE unsanitized
-    // {@html} sink in the catalog emit — unlike title (sanitized structurally by
-    // htmlAsRichText) and embed_html / the BluxBlock payload (both sanitizeHtml'd
-    // at their boundaries). Its input is first-party parser structured-text html
-    // (heading/body/subtitle) from Blux migration content; raw/embed html still
-    // routes through the sanitized embedHtml path. A role-preserving sanitize
-    // (allow-list class="txt-role-*") is a tracked follow-up before broader rollout.
-    ...(cell.bodyHtml ? { body_html: cell.bodyHtml } : {}),
+    // on the starter side, so it IS sanitized here — the same boundary treatment
+    // as embed_html and the BluxBlock payload. sanitizeHtml is a scalpel: it
+    // strips <script>/on*=/javascript: only and passes ALL other markup through
+    // verbatim, including the txt-role-* class the roled render depends on — so
+    // sanitizing closes the {@html} XSS surface at zero fidelity cost. Input is
+    // first-party parser structured-text html (heading/body/subtitle); raw/embed
+    // html still routes through the sanitized embedHtml path.
+    ...(cell.bodyHtml ? { body_html: sanitizeHtml(cell.bodyHtml) } : {}),
     ...(cell.media && cell.media.kind !== "video" ? { media: assetRef(cell.media.assetId) } : {}),
     ...(cell.mediaRatio ? { media_ratio: cell.mediaRatio } : {}),
     // Per-cell visual fields (Blux catalog visual layer). `cover`/`valign` are
