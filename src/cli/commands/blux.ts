@@ -1,5 +1,5 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { join, dirname } from "node:path";
+import { join, dirname, basename } from "node:path";
 import { glob } from "tinyglobby";
 import { assembleIR } from "../../blux/assemble.js";
 import { buildMigrationPlan } from "../../blux/emit/migration-plan.js";
@@ -34,6 +34,8 @@ export type BluxCommandOptions = {
   probe?: boolean;
   /** validate: the converted site's rendered HTML — a file path or http(s) URL. */
   against?: string;
+  /** freeze: site slug for the emitted template/manifest (default: slugified dir name). */
+  site?: string;
   /** Test seam for --probe; defaults to global fetch. */
   fetchImpl?: typeof fetch;
   cwd?: string;
@@ -779,8 +781,27 @@ export async function runBluxCommand(
     };
   }
 
+  if (action === "freeze") {
+    if (!dir) return { output: "blux freeze needs a Blux export directory.", code: 1 };
+    const { freezeSite, emitFrozen } = await import("../../blux/freeze/index.js");
+    const site = (opts.site ?? basename(dir))
+      .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+      .toLowerCase();
+    const outDir = opts.out ?? join(dir, "frozen-out");
+    const result = await freezeSite({ indexHtmlPath: join(dir, "index.html"), site });
+    const paths = await emitFrozen(outDir, result);
+    const imgs = result.manifest.slots.filter((s) => s.kind === "image").length;
+    const txts = result.manifest.slots.filter((s) => s.kind === "text").length;
+    return {
+      output:
+        `froze ${site}: ${imgs} image slots, ${txts} text slots, ` +
+        `${result.manifest.fontLinks.length} font links → ${paths.template}, ${paths.manifest}`,
+      code: 0,
+    };
+  }
+
   return {
-    output: `unknown blux action '${action}'. Use: emit, migrate, migrate-catalog, validate, grid, convert, catalog.`,
+    output: `unknown blux action '${action}'. Use: emit, migrate, migrate-catalog, migrate-frozen, validate, grid, convert, catalog, freeze.`,
     code: 1,
   };
 }
