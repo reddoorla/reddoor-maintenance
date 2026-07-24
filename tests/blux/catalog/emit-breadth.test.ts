@@ -86,7 +86,7 @@ describe("catalogSpecToPlanSlice — breadth", () => {
     });
   });
 
-  it("BluxGrid → blux_grid with columns + cells incl. a subgrid whose items carry markers", () => {
+  it("BluxGrid → blux_grid with columns + cells incl. a subgrid whose image item emits image_embed", () => {
     const spec: BluxGridSpec = {
       slice: "BluxGrid",
       index: 3,
@@ -116,7 +116,14 @@ describe("catalogSpecToPlanSlice — breadth", () => {
     const sub = (cells[1] as { subgrid: Record<string, unknown>[] }).subgrid;
     expect(cells[1]?.kind).toBe("subgrid");
     expect(sub).toHaveLength(2);
-    expect(sub[0]).toMatchObject({ kind: "media", media: { __asset_id: "s1" } });
+    // A subgrid (depth-2) image emits image_embed, not an Image-field marker —
+    // the Migration API can't resolve a doubly-nested Image ref. With no
+    // resolver passed, the src falls back to mediaCdnUrl (base + id + ext).
+    expect(sub[0]).toMatchObject({
+      kind: "media",
+      image_embed: '<img src="https://cdn/s1.jpg" alt="">',
+    });
+    expect(sub[0]).not.toHaveProperty("media");
     expect(sub[1]).toMatchObject({ kind: "text", body_html: "<p>deep</p>" });
   });
 
