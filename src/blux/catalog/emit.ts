@@ -12,6 +12,7 @@ import {
   assetRef,
   richText,
 } from "../emit/plan.js";
+import { catalogPageCustomType } from "./catalog-page-type.js";
 import { videoTag } from "./cells.js";
 import { buildEntityEmit } from "./entities.js";
 import { collectCdnUrls } from "./rewrite-doc-urls.js";
@@ -361,7 +362,16 @@ export type CatalogAssetIndex = {
  * same plan: its documents/custom types/diagnostics merge in and its record
  * media join the asset walk (resolved like all other media). */
 export function buildCatalogPlan(
-  pages: { uid: string; title: string; specs: CatalogSpec[] }[],
+  pages: {
+    uid: string;
+    title: string;
+    specs: CatalogSpec[];
+    /** Per-page SEO from the Blux export (`content.pages[i]`): the meta
+     * description and the social/og image asset uuid. Both optional — a page
+     * with no description or social image emits neither meta field. */
+    description?: string;
+    socialImageId?: string;
+  }[],
   ir: CatalogAssetIndex,
   feeds?: Record<string, { name?: string; items?: unknown[]; fields?: unknown } | undefined>,
 ): MigrationPlan {
@@ -372,6 +382,16 @@ export function buildCatalogPlan(
     uid: p.uid,
     data: {
       title: richText(`<h1>${p.title}</h1>`),
+      // SEO & Metadata tab (catalog_page's second tab — see catalog-page-type.ts).
+      // Field types match the starter render's reads (blux-catalog/page-doc.ts
+      // pageMeta): meta_title/meta_description are Text → PLAIN strings (never a
+      // richtext marker); meta_image is an Image field → an `{__asset_id}` marker
+      // like cell media. meta_title defaults to the page title (a sensible SEO
+      // default, always present); the other two omit when the Blux page has no
+      // value (the-pointe's description is "" → meta_description omitted).
+      meta_title: p.title,
+      ...(p.description ? { meta_description: p.description } : {}),
+      ...(p.socialImageId ? { meta_image: assetRef(p.socialImageId) } : {}),
       slices: p.specs.map((s) => catalogSpecToPlanSlice(s, diagnostics, p.uid)),
     },
   }));
@@ -391,7 +411,18 @@ export function buildCatalogPlan(
   // Entity record media walk the same path so their assets upload too.
   const seen = new Set<string>();
   const assets: PlanAsset[] = [];
-  const allMedia = [...pages.flatMap((p) => p.specs).flatMap(specMedia), ...(entity?.media ?? [])];
+  // The per-page social/og image (meta_image marker above) is an Image with no
+  // CDN base — it uploads + its marker resolves like any other media: `resolve`
+  // falls back to the IR sourceUrl (the og image is scraped into the IR asset
+  // index like page media). Deduped by assetId against spec media by `seen`.
+  const socialMedia: Media[] = pages
+    .filter((p) => p.socialImageId)
+    .map((p) => ({ kind: "image", assetId: p.socialImageId! }));
+  const allMedia = [
+    ...pages.flatMap((p) => p.specs).flatMap(specMedia),
+    ...socialMedia,
+    ...(entity?.media ?? []),
+  ];
   for (const m of allMedia) {
     if (seen.has(m.assetId)) continue;
     seen.add(m.assetId);
@@ -427,7 +458,10 @@ export function buildCatalogPlan(
     assets.push({ id: file.replace(/\.[^.]+$/, ""), url, alt: "" });
   }
   return {
-    customTypes: entity ? entity.customTypes : [],
+    // The catalog_page type ALWAYS ships (the migration owns the type its
+    // documents use); entity extension types (product/person/…) append. No
+    // id collision — entity types are `format:"custom"`, never "catalog_page".
+    customTypes: [catalogPageCustomType(), ...(entity ? entity.customTypes : [])],
     documents,
     assets,
     stylesManifest: [],

@@ -259,11 +259,113 @@ exports[`catalog plan — the-pointe (golden) > emits a populated, breadth-route
       "url": "https://dv4tl7yyk1zlp.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/1b5b96c1-16fb-4d8b-8cb0-f71938af22c0.pdf",
     },
   ],
-  "customTypes": [],
+  "customTypes": [
+    {
+      "id": "catalog_page",
+      "json": {
+        "format": "page",
+        "id": "catalog_page",
+        "json": {
+          "Main": {
+            "slices": {
+              "config": {
+                "choices": {
+                  "blux_block": {
+                    "type": "SharedSlice",
+                  },
+                  "blux_carousel": {
+                    "type": "SharedSlice",
+                  },
+                  "blux_collection": {
+                    "type": "SharedSlice",
+                  },
+                  "blux_embed": {
+                    "type": "SharedSlice",
+                  },
+                  "blux_gallery": {
+                    "type": "SharedSlice",
+                  },
+                  "blux_grid": {
+                    "type": "SharedSlice",
+                  },
+                  "blux_media": {
+                    "type": "SharedSlice",
+                  },
+                  "blux_media_text": {
+                    "type": "SharedSlice",
+                  },
+                  "blux_section": {
+                    "type": "SharedSlice",
+                  },
+                  "blux_table": {
+                    "type": "SharedSlice",
+                  },
+                  "blux_text": {
+                    "type": "SharedSlice",
+                  },
+                },
+              },
+              "fieldset": "Slice Zone",
+              "type": "Slices",
+            },
+            "title": {
+              "config": {
+                "allowTargetBlank": true,
+                "label": "Title",
+                "placeholder": "",
+                "single": "heading1",
+              },
+              "type": "StructuredText",
+            },
+            "uid": {
+              "config": {
+                "label": "UID",
+                "placeholder": "",
+              },
+              "type": "UID",
+            },
+          },
+          "SEO & Metadata": {
+            "meta_description": {
+              "config": {
+                "label": "Meta Description",
+                "placeholder": "A brief summary of the page",
+              },
+              "type": "Text",
+            },
+            "meta_image": {
+              "config": {
+                "constraint": {
+                  "height": 1260,
+                  "width": 2400,
+                },
+                "label": "Meta Image",
+                "thumbnails": [],
+              },
+              "type": "Image",
+            },
+            "meta_title": {
+              "config": {
+                "label": "Meta Title",
+                "placeholder": "A title of the page used for social media and search engines",
+              },
+              "type": "Text",
+            },
+          },
+        },
+        "label": "Catalog Page (Blux migration)",
+        "repeatable": true,
+        "status": true,
+      },
+      "label": "Catalog Page (Blux migration)",
+      "repeatable": true,
+    },
+  ],
   "diagnostics": [],
   "documents": [
     {
       "data": {
+        "meta_title": "The Pointe",
         "slices": [
           {
             "items": [],
