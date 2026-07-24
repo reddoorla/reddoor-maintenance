@@ -99,7 +99,15 @@ async function listAssetsByFilename(
   }
 }
 
-/** uid → document id on the target repo, for the PUT-update path. Reads the
+/** Composite key for the update-lookup map. Prismic scopes uid-uniqueness PER
+ *  TYPE, so a repo can hold the same uid under two types — e.g. a cloned
+ *  starter's `page:home` and the migration's `catalog_page:home`. Keying the
+ *  lookup by uid alone let one clobber the other (last-writer-wins), so an
+ *  "already exists" update could PUT a doc's data onto the WRONG-typed id. The
+ *  key carries the type to keep the two apart. */
+const docRefKey = (type: string, uid: string): string => `${type}::${uid}`;
+
+/** type+uid → document id on the target repo, for the PUT-update path. Reads the
  *  MASTER ref, so it only sees PUBLISHED documents — docs sitting in an
  *  unpublished migration release are invisible here (the miss error explains
  *  that). Follows next_page so >100-doc repos resolve fully. */
@@ -121,10 +129,10 @@ async function lookupDocIds(repo: string): Promise<Map<string, string>> {
   while (url) {
     const res = await expectOk(await fetchWithRetry(url), "Document API search");
     const page = (await res.json()) as {
-      results: { id: string; uid: string | null }[];
+      results: { id: string; uid: string | null; type: string }[];
       next_page: string | null;
     };
-    for (const d of page.results) if (d.uid) map.set(d.uid, d.id);
+    for (const d of page.results) if (d.uid) map.set(docRefKey(d.type, d.uid), d.id);
     url = page.next_page;
   }
   return map;
@@ -218,7 +226,7 @@ export async function runMigration(
         throw new Error(`create ${doc.uid}: ${res.status} ${text}`);
       }
       docIds ??= await lookupDocIds(repo);
-      const id = docIds.get(doc.uid);
+      const id = docIds.get(docRefKey(doc.type, doc.uid));
       if (!id) {
         throw new Error(
           `update ${doc.uid}: the uid exists but is not visible on the master ref — ` +
