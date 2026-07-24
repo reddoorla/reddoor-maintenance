@@ -1,3 +1,7 @@
+/// <reference lib="dom" />
+// The evaluate() callbacks below run in the browser page context, so they use
+// DOM globals (document/window). The CLI's base tsconfig is Node-only (lib
+// ES2022); this directive adds DOM types for this file's type-checking.
 import { chromium } from "@playwright/test";
 
 // The Blux export's index.html renders its final layout only after its runtime

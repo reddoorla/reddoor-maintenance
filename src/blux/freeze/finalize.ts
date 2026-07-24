@@ -12,8 +12,8 @@ export interface Finalized {
   /** All page `<style>` blocks + the reveal-force override. */
   styleCss: string;
   title: string;
-  metaTitle?: string;
-  metaImageUrl?: string;
+  metaTitle?: string | undefined;
+  metaImageUrl?: string | undefined;
   /** External stylesheet hrefs (Google Fonts) to re-inject at render. */
   fontLinks: string[];
 }

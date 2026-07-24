@@ -46,15 +46,18 @@ export function bakeImages(html: string): { html: string; slots: Slot[] } {
     return slotKey(section, "image", n);
   };
 
-  // Pass 1: data-* backgrounds.
-  for (const el of root.querySelectorAll("[data-media],[data-bgmedia]")) {
+  // Pass 1: data-* backgrounds. The filename is ALWAYS `data-media`;
+  // `data-bgmedia` is a boolean flag ("1") marking a full-bleed layer — it is
+  // NOT a filename. When an element is unsized we default full-bleed layers to a
+  // wide variant and inline images to the raw file.
+  for (const el of root.querySelectorAll("[data-media]")) {
     const base = el.getAttribute("data-base");
     if (!base) continue;
-    const bg = el.getAttribute("data-bgmedia");
-    const media = bg ?? el.getAttribute("data-media");
+    const media = el.getAttribute("data-media");
     if (!media) continue;
+    const isBg = el.getAttribute("data-bgmedia") != null;
     const size = el.getAttribute("data-size");
-    const sizeSeg = size ? `w:${size}/` : bg ? "w:1600/" : "";
+    const sizeSeg = size ? `w:${size}/` : isBg ? "w:1600/" : "";
     const url = `${base}${sizeSeg}${media}`;
 
     const key = nextKey(el);
