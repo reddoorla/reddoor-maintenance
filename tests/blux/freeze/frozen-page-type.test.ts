@@ -52,7 +52,7 @@ describe("frozenPageCustomType", () => {
     const slots = (frozenPageCustomType().json as Model).json.Main.slots;
     expect(slots.type).toBe("Group");
     const fields = slots.config.fields;
-    expect(Object.keys(fields)).toEqual(["key", "kind", "text", "image"]);
+    expect(Object.keys(fields)).toEqual(["key", "kind", "text", "image", "media_url"]);
     // key → Text, kind → Select(text|image), text → Rich Text, image → Image.
     expect(fields.key.type).toBe("Text");
     expect(fields.kind.type).toBe("Select");

@@ -66,6 +66,13 @@ export function frozenPageCustomType(): PlanCustomType {
                   type: "Image",
                   config: { label: "Image", constraint: {}, thumbnails: [] },
                 },
+                // Non-image media (video/pdf/etc.) — an Image field rejects a
+                // non-image asset, so those slots carry the Prismic-hosted url
+                // here instead; the render reads image.url ?? media_url.
+                media_url: {
+                  type: "Text",
+                  config: { label: "Media URL", placeholder: "" },
+                },
               },
             },
           },

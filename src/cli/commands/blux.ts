@@ -847,11 +847,20 @@ export async function runBluxCommand(
       }
       return id;
     };
-    const slotRows = manifest.slots.map((s) =>
-      s.kind === "image" && s.url
-        ? { key: s.key, kind: s.kind, image: assetRef(assetFor(s.url)) }
-        : { key: s.key, kind: s.kind, text: richText(`<p>${s.text ?? ""}</p>`) },
-    );
+    // An Image field only accepts image assets; non-image media (video/pdf) must
+    // ride a Text `media_url` instead. Register + upload every media asset the
+    // same way, but flag the non-image ones to patch after phase 1 (once their
+    // Prismic url is known).
+    const isImageUrl = (u: string): boolean =>
+      /\.(jpe?g|png|gif|webp|svg|avif)(\?|$)/i.test(u);
+    const mediaSlots = new Map<string, string>(); // non-image slot key -> cdn url
+    const slotRows: Record<string, unknown>[] = manifest.slots.map((s) => {
+      if (s.kind === "image" && s.url) {
+        if (!isImageUrl(s.url)) mediaSlots.set(s.key, s.url);
+        return { key: s.key, kind: s.kind, image: assetRef(assetFor(s.url)) };
+      }
+      return { key: s.key, kind: s.kind, text: richText(`<p>${s.text ?? ""}</p>`) };
+    });
     const data: Record<string, unknown> = {
       title: manifest.title,
       meta_title: manifest.metaTitle ?? "",
@@ -892,6 +901,16 @@ export async function runBluxCommand(
             `Prismic asset (first: ${unresolved[0]!.url}).`,
           code: 1,
         };
+      }
+      // Non-image media (video/pdf) can't sit in an Image field — now that
+      // phase 1 has resolved their Prismic urls, swap those slots off the image
+      // assetRef and onto a `media_url` text field before posting the doc.
+      for (const row of slotRows) {
+        const cdn = mediaSlots.get(row.key as string);
+        if (cdn) {
+          delete row.image;
+          row.media_url = assetsPass.assetUrlByCdn.get(cdn) ?? "";
+        }
       }
       // Phase 2: the doc. Assets re-list into the reuse branch (uploaded in phase
       // 1), and resolveDocData rewrites each `assetRef` marker to `{id}` — the
