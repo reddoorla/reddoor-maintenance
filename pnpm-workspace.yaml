@@ -28,7 +28,10 @@ overrides:
   vite: "8.1.0"
   esbuild@<0.28.1: ">=0.28.1 <0.29"
   cookie@<0.7.0: ">=0.7.0 <1"
-  js-yaml@>=4.0.0: ">=4.2.0 <5"
+  # 2026-07-24: re-pinned 4.2.0 → 4.3.0. The original merge-key DoS fix in 4.2.0
+  # was incomplete — chained merge keys still force quadratic CPU
+  # (GHSA-52cp-r559-cp3m, high, CVSS 7.5). 4.3.0 is the complete fix.
+  js-yaml@>=4.0.0: ">=4.3.0 <5"
   # Dev/CI-only transitive CVEs, cleared 2026-07-14. All on the audit/build
   # toolchain (lighthouse/@lhci pulls ws@7 + js-yaml@3; libsql + puppeteer-core
   # pull ws@8), none on the published package's runtime surface:
@@ -49,10 +52,20 @@ overrides:
   # ./configs/eslint export) → minimatch@10 → brace-expansion@5.0.6. Reachable
   # only by expanding attacker-controlled glob patterns, which the config
   # surface never does — but 5.0.7 is a clean patch, so just take it.
-  # Scoped to the advisory range so the 1.x/2.x instances (lhci→glob→minimatch@3,
-  # mjml→js-beautify→minimatch@9) stay on their own lines; the DoS fix exists
-  # only in 5.0.7, there is no 3.x/4.x backport to pin them to.
+  # Pinned per major line, each capped to its own major. GitHub widened the same
+  # GHSA hours later (2026-07-24) with backported fixes for the older lines, so
+  # the 1.x (lhci→glob→minimatch@3) and 2.x (mjml→js-beautify→minimatch@9)
+  # instances now have patches of their own — 1.1.16 and 2.1.2. There is still
+  # no 3.x/4.x backport, hence that range jumps straight to 5.0.7.
+  brace-expansion@<1.1.16: ">=1.1.16 <2"
+  brace-expansion@>=2.0.0 <2.1.2: ">=2.1.2 <3"
   brace-expansion@>=3.0.0 <5.0.7: ">=5.0.7 <6"
+  # postcss <=8.5.17: `sourceMappingURL` auto-loading path-traverses out of the
+  # CSS file's directory and folds the traversed-to .map's `sourcesContent` into
+  # result.map — arbitrary .map disclosure (GHSA-r28c-9q8g-f849, high, CVSS 7.5).
+  # Cleared 2026-07-24. Runtime scope, but we only ever run postcss over our own
+  # repo-committed CSS via the build toolchain, never untrusted input.
+  postcss@<=8.5.17: ">=8.5.18 <9"
 
 # Carried over from the old package.json "pnpm.auditConfig" (pnpm 11 reads it here now).
 auditConfig:
