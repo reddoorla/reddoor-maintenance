@@ -1,24 +1,9 @@
 import { parse, HTMLElement, NodeType } from "node-html-parser";
 import { slotKey, tokenFor, type Slot } from "./types.js";
+import { sectionIndexOf, sectionKeyOf } from "./section.js";
 
 // Elements whose text is not editable page copy.
 const SKIP = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "HEAD", "TITLE", "SVG"]);
-
-/** Nearest-ancestor <section> key (`s{index}`), or `h` for chrome (nav/footer)
- *  that lives above/outside any <section>. */
-function sectionKeyOf(
-  el: HTMLElement,
-  sectionIndex: Map<HTMLElement, number>,
-): string {
-  let a: HTMLElement | null | undefined = el;
-  while (a) {
-    if (a.tagName === "SECTION" && sectionIndex.has(a)) {
-      return `s${sectionIndex.get(a)}`;
-    }
-    a = a.parentNode as HTMLElement | null | undefined;
-  }
-  return "h";
-}
 
 /**
  * Replace every non-whitespace text node with a `⟦t:KEY⟧` token and collect the
@@ -29,9 +14,7 @@ function sectionKeyOf(
  */
 export function tokenizeText(html: string): { html: string; slots: Slot[] } {
   const root = parse(html);
-  const sections = root.querySelectorAll("section");
-  const sectionIndex = new Map<HTMLElement, number>();
-  sections.forEach((s, i) => sectionIndex.set(s, i));
+  const sectionIndex = sectionIndexOf(root);
 
   const counters = new Map<string, number>();
   const slots: Slot[] = [];
