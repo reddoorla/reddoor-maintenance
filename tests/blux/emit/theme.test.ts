@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   emitThemeCss,
+  emitThemeCssFile,
   emitRootVarsCss,
   emitRolesCss,
   emitButtonsCss,
@@ -279,5 +280,47 @@ describe("emitRootVarsCss", () => {
     expect(css).toContain("@theme {");
     expect(css).toContain("--text-text2: 70px;");
     expect(css).not.toContain(":root");
+  });
+});
+
+describe("emitThemeCssFile", () => {
+  const theme: ThemeIR = {
+    fontLoad: [],
+    colors: [{ role: "text", value: "#053a6c" }],
+    fonts: { heading: "Scope One", body: "Montserrat" },
+    textStyles: [
+      {
+        role: "text2",
+        label: "Page Title",
+        fontFamily: "",
+        size: "70px",
+        lineHeight: "100px",
+        weight: "300",
+      },
+    ],
+    buttonStyles: [],
+  };
+
+  it("assembles @theme, then the runtime :root mirror, then the role utilities — in order", () => {
+    const css = emitThemeCssFile(theme);
+    const iTheme = css.indexOf("@theme {");
+    const iRoot = css.indexOf(":root {");
+    const iRole = css.indexOf(".txt-role-text2");
+    expect(iTheme).toBeGreaterThanOrEqual(0);
+    expect(iRoot).toBeGreaterThan(iTheme); // :root after @theme
+    expect(iRole).toBeGreaterThan(iRoot); // roles after :root
+    expect(css).toContain("--text-text2: 70px;"); // the mirror carries resolvable tokens
+  });
+
+  it("equals the canonical @theme + :root + roles + buttons concatenation (single source of truth)", () => {
+    const rolesCss = emitRolesCss(theme);
+    const buttonsCss = emitButtonsCss(theme);
+    const expected =
+      emitThemeCss(theme) +
+      "\n" +
+      emitRootVarsCss(theme) +
+      (rolesCss ? "\n" + rolesCss : "") +
+      (buttonsCss ? "\n" + buttonsCss : "");
+    expect(emitThemeCssFile(theme)).toBe(expected);
   });
 });

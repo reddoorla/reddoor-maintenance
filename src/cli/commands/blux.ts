@@ -3,12 +3,7 @@ import { join, dirname } from "node:path";
 import { glob } from "tinyglobby";
 import { assembleIR } from "../../blux/assemble.js";
 import { buildMigrationPlan } from "../../blux/emit/migration-plan.js";
-import {
-  emitThemeCss,
-  emitRootVarsCss,
-  emitRolesCss,
-  emitButtonsCss,
-} from "../../blux/emit/theme.js";
+import { emitThemeCssFile } from "../../blux/emit/theme.js";
 import { buildReviewManifest } from "../../blux/emit/review.js";
 import { blockStylesByIndex, blockClassDefaults } from "../../blux/emit/block-styles.js";
 import { validateCoverage } from "../../blux/validate.js";
@@ -122,16 +117,7 @@ export async function runBluxCommand(
     await mkdir(join(out, "customtypes"), { recursive: true });
     await writeFile(join(out, "ir.json"), JSON.stringify(ir, null, 2));
     await writeFile(join(out, "migration-plan.json"), JSON.stringify(plan, null, 2));
-    const rolesCss = emitRolesCss(ir.theme);
-    const buttonsCss = emitButtonsCss(ir.theme);
-    await writeFile(
-      join(out, "theme.css"),
-      emitThemeCss(ir.theme) +
-        "\n" +
-        emitRootVarsCss(ir.theme) +
-        (rolesCss ? "\n" + rolesCss : "") +
-        (buttonsCss ? "\n" + buttonsCss : ""),
-    );
+    await writeFile(join(out, "theme.css"), emitThemeCssFile(ir.theme));
     await writeFile(join(out, "review-manifest.json"), JSON.stringify(manifest, null, 2));
     await writeFile(
       join(out, "styles-manifest.json"),
@@ -434,16 +420,9 @@ export async function runBluxCommand(
       join(outDir, "blux-presentation.json"),
       JSON.stringify(presentation, null, 2) + "\n",
     );
-    {
-      const buttonsCss = emitButtonsCss(ir.theme);
-      await writeFile(
-        join(outDir, "theme.css"),
-        emitThemeCss(ir.theme) +
-          "\n" +
-          emitRolesCss(ir.theme) +
-          (buttonsCss ? "\n" + buttonsCss : ""),
-      );
-    }
+    // theme.css via the single-source-of-truth assembler — this convert output
+    // now carries the runtime :root mirror too (was missing it before).
+    await writeFile(join(outDir, "theme.css"), emitThemeCssFile(ir.theme));
     // Map configs are per page now (informational — the presentation manifest
     // co-locates each map on its band).
     const mapConfigs = Object.fromEntries(
@@ -757,17 +736,9 @@ export async function runBluxCommand(
       JSON.stringify(resolveFixture(plan), null, 2),
     );
     await writeFile(join(outDir, "site-config.json"), JSON.stringify(chrome, null, 2) + "\n");
-    // theme.css: the exact concatenation the proven emit action writes.
-    const rolesCss = emitRolesCss(ir.theme);
-    const buttonsCss = emitButtonsCss(ir.theme);
-    await writeFile(
-      join(outDir, "theme.css"),
-      emitThemeCss(ir.theme) +
-        "\n" +
-        emitRootVarsCss(ir.theme) +
-        (rolesCss ? "\n" + rolesCss : "") +
-        (buttonsCss ? "\n" + buttonsCss : ""),
-    );
+    // theme.css: the single-source-of-truth theme file (build @theme + runtime
+    // :root mirror + roles + buttons) — identical across emit/catalog/convert.
+    await writeFile(join(outDir, "theme.css"), emitThemeCssFile(ir.theme));
     const totalBands = pages.reduce((n, p) => n + p.specs.length, 0);
     return {
       output:

@@ -123,3 +123,21 @@ export function emitButtonsCss(theme: ThemeIR): string {
   }
   return lines.join("\n") + "\n";
 }
+
+/** The complete theme.css a CLI action writes: the build-time `@theme` block,
+ * its runtime `:root` mirror (so a raw-injected theme.css resolves
+ * `var(--text-*)` — the /dev/blux-pointe gate does exactly that), then the role
+ * utilities and button skins. The single source of truth for theme.css
+ * assembly — every action (emit/catalog/convert) writes exactly this, so no
+ * writer can drift or omit the `:root` mirror. */
+export function emitThemeCssFile(theme: ThemeIR): string {
+  const rolesCss = emitRolesCss(theme);
+  const buttonsCss = emitButtonsCss(theme);
+  return (
+    emitThemeCss(theme) +
+    "\n" +
+    emitRootVarsCss(theme) +
+    (rolesCss ? "\n" + rolesCss : "") +
+    (buttonsCss ? "\n" + buttonsCss : "")
+  );
+}

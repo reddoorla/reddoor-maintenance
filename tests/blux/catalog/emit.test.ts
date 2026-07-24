@@ -62,6 +62,29 @@ describe("emit-boundary sanitizing", () => {
     expect(embed).not.toContain("<script");
   });
 
+  it("sanitizes body_html but preserves the txt-role-* class the roled render needs", () => {
+    const s: BluxSectionSpec = {
+      slice: "BluxSection",
+      index: 0,
+      cells: [
+        {
+          kind: "text",
+          bodyHtml:
+            '<div class="txt-role-text2" onclick="steal()"><h3>The Pointe</h3></div><script>alert(1)</script>',
+        },
+      ],
+    };
+    const cells = catalogSpecToPlanSlice(s).primary.cells as Record<string, unknown>[];
+    const body = cells[0]?.body_html as string;
+    // Active content is stripped …
+    expect(body).not.toContain("onclick");
+    expect(body).not.toContain("<script");
+    // … but the role wrapper + heading survive — the scalpel keeps the class the
+    // starter theme sizes on (this is why body_html CAN be sanitized).
+    expect(body).toContain('class="txt-role-text2"');
+    expect(body).toContain("The Pointe");
+  });
+
   it("sanitizes every html leaf of a BluxBlock payload at the boundary", () => {
     const json = JSON.stringify(
       catalogSpecToPlanSlice({
