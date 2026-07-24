@@ -3,18 +3,30 @@ import { join, dirname } from "node:path";
 import { glob } from "tinyglobby";
 import { assembleIR } from "../../blux/assemble.js";
 import { buildMigrationPlan } from "../../blux/emit/migration-plan.js";
-import { emitThemeCss, emitRolesCss, emitButtonsCss } from "../../blux/emit/theme.js";
+import {
+  emitThemeCss,
+  emitRootVarsCss,
+  emitRolesCss,
+  emitButtonsCss,
+} from "../../blux/emit/theme.js";
 import { buildReviewManifest } from "../../blux/emit/review.js";
+import { blockStylesByIndex, blockClassDefaults } from "../../blux/emit/block-styles.js";
 import { validateCoverage } from "../../blux/validate.js";
-import { parseGridBands, extractMapConfig } from "../../blux/grid/index.js";
-import { feedAssetBase, extFor } from "../../blux/grid/feed-grid.js";
+import { parseGridBands, extractMapConfig, makeIsMapMount } from "../../blux/grid/index.js";
+import { feedAssetBase, extFor, isFeedBand } from "../../blux/grid/feed-grid.js";
 import { materializeProducts, type ProductRecord } from "../../blux/products.js";
 import { convertExport, convertSite, sitePages } from "../../blux/emit/convert.js";
+import { bandOrCollection, buildCatalogPlan } from "../../blux/catalog/index.js";
+import type { CatalogSpec } from "../../blux/catalog/index.js";
+import { resolveFixture } from "../../blux/catalog/resolve-fixture.js";
+import { rewriteDocUrls, rewriteValueUrls } from "../../blux/catalog/rewrite-doc-urls.js";
+import { buildChrome } from "../../blux/catalog/chrome.js";
 import { buildSiteConfig, socialHrefResolverFromHtml } from "../../blux/emit/site-config.js";
 import { validateLayout, formatLayoutReport } from "../../blux/emit/validate-layout.js";
 import { rewriteManifestUrls } from "../../blux/emit/rewrite-manifest.js";
 import type { SitePresentation } from "../../blux/emit/presentation.js";
 import type { MigrationPlan } from "../../blux/emit/plan.js";
+import type { Diagnostic } from "../../blux/ir.js";
 
 export type BluxCommandOptions = {
   /** Output directory for emit (default: <exportDir>/blux-out). */
@@ -37,6 +49,9 @@ export type BluxCommandOptions = {
  *  schemas + theme CSS + review manifest, all deterministic and offline.
  *  migrate: a previously emitted plan → live Prismic (creds-gated; the runner
  *  is imported lazily so emit runs never touch @prismicio).
+ *  migrate-catalog: a catalog plan → live Prismic in TWO phases — assets
+ *  first (returns the cdn→Prismic url map), rewriteDocUrls over the plan
+ *  documents, then the rewritten documents (assets hit the reuse branch).
  *  validate: offline layout-fidelity gate (parse+classify index.html, diff the
  *  emitted manifest vs the source answer key) — exits non-zero on drift.
  *  --against <file|url> additionally runs content coverage of a rendered page.
@@ -112,6 +127,8 @@ export async function runBluxCommand(
     await writeFile(
       join(out, "theme.css"),
       emitThemeCss(ir.theme) +
+        "\n" +
+        emitRootVarsCss(ir.theme) +
         (rolesCss ? "\n" + rolesCss : "") +
         (buttonsCss ? "\n" + buttonsCss : ""),
     );
@@ -190,6 +207,102 @@ export async function runBluxCommand(
         manifestNote,
       code: 0,
     };
+  }
+
+  if (action === "migrate-catalog") {
+    if (!dir) return { output: "blux migrate-catalog needs the catalog --out dir.", code: 1 };
+    let plan: MigrationPlan;
+    try {
+      plan = JSON.parse(await readFile(join(dir, "migration-plan.json"), "utf-8")) as MigrationPlan;
+    } catch (err) {
+      return {
+        output: `could not read migration-plan.json in ${dir}: ${(err as Error).message}`,
+        code: 1,
+      };
+    }
+    // Progress streams to stderr as it happens (a throttled two-phase run over
+    // many assets/docs takes minutes and silence reads as a hang) and is
+    // collected ONLY for the failure path, where it IS the diagnostic — a
+    // success over hundreds of docs must not replay the whole log. Warnings
+    // ride warn(): into the success output AND (via log) onto stderr the
+    // moment they happen.
+    const lines: string[] = [];
+    const log = (line: string): void => {
+      lines.push(line);
+      process.stderr.write(`${line}\n`);
+    };
+    const warnings: string[] = [];
+    const warn = (line: string): void => {
+      warnings.push(line);
+      log(line);
+    };
+    const { pushCustomTypes, runMigration } = await import("../../blux/emit/run-migration.js");
+    try {
+      const pushed = plan.customTypes.length ? await pushCustomTypes(plan.customTypes) : [];
+      // Phase 1: assets only — populates the media library and returns the
+      // complete cdn→Prismic url map. runMigration uploads assets first but
+      // only returns the map at the end, so a single call can never rewrite
+      // documents before posting them; hence the two-phase shape.
+      const assetsPass = await runMigration({ ...plan, documents: [] }, log);
+      // Rewrite the serialized-string surfaces resolveDocData never touches
+      // (BluxBlock payloads, widget_html, embed_html, background wrappers).
+      const r = rewriteDocUrls(plan.documents, assetsPass.assetUrlByCdn);
+      if (r.unmatched.length) {
+        warn(
+          `WARNING: ${r.unmatched.length} CDN url(s) survived the rewrite: ${r.unmatched
+            .slice(0, 5)
+            .join(", ")}`,
+        );
+      }
+      // Chrome (nav + footer logos) rides site-config.json beside the plan, not
+      // in plan.documents — rewrite it with the SAME asset map so it too leaves
+      // the CDN. Absent on older/non-catalog plans (ENOENT) — then nothing to do.
+      let chromeRewritten = 0;
+      const chromeUnmatched: string[] = [];
+      const siteConfigPath = join(dir, "site-config.json");
+      try {
+        const parsed: unknown = JSON.parse(await readFile(siteConfigPath, "utf-8"));
+        const sc = rewriteValueUrls(parsed, assetsPass.assetUrlByCdn);
+        await writeFile(siteConfigPath, JSON.stringify(sc.value, null, 2) + "\n");
+        chromeRewritten = sc.rewritten;
+        chromeUnmatched.push(...sc.unmatched);
+        if (sc.unmatched.length) {
+          warn(
+            `WARNING: ${sc.unmatched.length} chrome CDN url(s) survived the rewrite: ${sc.unmatched
+              .slice(0, 5)
+              .join(", ")}`,
+          );
+        }
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      }
+      // Phase 2: documents — every asset re-lists into the by-filename reuse
+      // branch (uploaded in phase 1), so nothing re-uploads.
+      const docsPass = await runMigration({ ...plan, documents: r.documents }, log);
+      if (docsPass.missingAssets.length) {
+        warn(`WARNING missing assets: ${docsPass.missingAssets.join(", ")}`);
+      }
+      return {
+        output: [
+          `custom types pushed: ${pushed.join(", ") || "none"}`,
+          ...warnings,
+          `migrate-catalog: assets ${assetsPass.assetsUploaded} uploaded/${assetsPass.assetsReused} reused; ` +
+            `urls rewritten ${r.rewritten} (${r.unmatched.length} unmatched); ` +
+            `chrome urls rewritten ${chromeRewritten} (${chromeUnmatched.length} unmatched); ` +
+            `docs ${docsPass.docsCreated} created/${docsPass.docsUpdated} updated ` +
+            `(publish the migration release in the dashboard)`,
+        ].join("\n"),
+        // No warning blocks phase 2 — the docs land in an UNPUBLISHED migration
+        // release, so a non-zero exit reaches the operator before anything goes
+        // live.
+        code: r.unmatched.length || chromeUnmatched.length || docsPass.missingAssets.length ? 1 : 0,
+      };
+    } catch (err) {
+      return {
+        output: [...lines, `migrate-catalog failed: ${(err as Error).message}`].join("\n"),
+        code: 1,
+      };
+    }
   }
 
   if (action === "validate") {
@@ -445,8 +558,227 @@ export async function runBluxCommand(
     };
   }
 
+  if (action === "catalog") {
+    if (!dir) return { output: "blux catalog needs a Blux export directory.", code: 1 };
+    let siteJson: unknown;
+    try {
+      siteJson = JSON.parse(await readFile(join(dir, "site.json"), "utf-8"));
+    } catch (err) {
+      return { output: `could not read export in ${dir}: ${(err as Error).message}`, code: 1 };
+    }
+    // Read every site page's index.html (homepage at the export root, the rest
+    // at <path>/index.html) exactly like convert, then route every band through
+    // the breadth classifier (classifyBand → rich CatalogSpec) and emit a
+    // plan-only, sidecar-free migration plan (full field data in the page doc).
+    // Feed bands intercept FIRST (spec §7 rule 1): the positional convert-path
+    // join `content.pages[p].items[band.index]` names the band's site.json
+    // item; one with `sources[]` becomes a blux_collection query-spec slice.
+    const feeds =
+      (
+        siteJson as {
+          feeds?: Record<
+            string,
+            { name?: string; items?: unknown[]; fields?: unknown } | undefined
+          >;
+        }
+      ).feeds ?? {};
+    const pageItemsByIndex = (siteJson as { content?: { pages?: { items?: unknown[] }[] } })
+      ?.content?.pages;
+    // Classify-time diagnostics (positional-join misalignments, unknown/
+    // skipped feed sources) ride the plan alongside emit-time ones.
+    const classifyDiagnostics: Diagnostic[] = [];
+    const pages: { uid: string; title: string; specs: CatalogSpec[] }[] = [];
+    // Every successfully-read page html feeds the IR assembly below: the asset
+    // index is scraped from the rendered pages (site.json's media dict has no
+    // urls), so a media without a CDN data-base can still resolve.
+    const htmls: string[] = [];
+    // Band-visual capture (Task 9): the `.blocksNcontainer` class defaults are
+    // site-wide (compute once); per-band inline styles are per page.
+    const blockDefaults = blockClassDefaults(siteJson);
+    for (const [pageIndex, p] of sitePages(siteJson).entries()) {
+      const file = p.path ? join(dir, p.path, "index.html") : join(dir, "index.html");
+      let html: string;
+      try {
+        html = await readFile(file, "utf-8");
+      } catch {
+        continue; // missing page dir (unexported draft) — skip
+      }
+      htmls.push(html);
+      // Decision B (plan 4b): when the page html carries the Blux map script,
+      // inject the mount predicate so the map band routes to a BluxSection
+      // widget (config inlined at emit); pages without one classify as before.
+      const mapConfig = extractMapConfig(html);
+      const blockStyles = blockStylesByIndex(siteJson, pageIndex);
+      const catalogOpts = mapConfig
+        ? {
+            isMapMount: makeIsMapMount(mapConfig),
+            mapConfig,
+            diagnostics: classifyDiagnostics,
+            pageUid: p.uid,
+            styles: blockStyles,
+            defaults: blockDefaults,
+          }
+        : {
+            diagnostics: classifyDiagnostics,
+            pageUid: p.uid,
+            styles: blockStyles,
+            defaults: blockDefaults,
+          };
+      const pageItems = pageItemsByIndex?.[pageIndex]?.items;
+      const bands = parseGridBands(html);
+      const specs: CatalogSpec[] = bands.map((b) =>
+        bandOrCollection(b, pageItems?.[b.index], feeds, catalogOpts),
+      );
+      // The positional join runs band→item; a feed-bearing item whose index
+      // has NO band (williamsonHomes homepage: items[1] sources Projects but
+      // parseGridBands yields 0,2-8) is never consumed by the loop above —
+      // diagnose it, never silent. Diagnostic-only: with no band there is no
+      // legitimate place to emit the collection.
+      const bandIdx = new Set(bands.map((b) => b.index));
+      for (const [i, it] of (pageItems ?? []).entries()) {
+        if (!isFeedBand(it) || bandIdx.has(i)) continue;
+        const firstSource = String(it.sources[0]);
+        const feedName = String(feeds[firstSource]?.name ?? firstSource);
+        classifyDiagnostics.push({
+          kind: "feed-band-misalign",
+          where: `${p.uid}:${i}`,
+          message: `feed item at index ${i} ("${feedName}") has no matching band — collection not emitted`,
+        });
+      }
+      pages.push({ uid: p.uid, title: p.title, specs });
+    }
+    if (!pages.length) {
+      return { output: `could not read any page html in ${dir}`, code: 1 };
+    }
+    // The real IR asset index (Plan 4d Task 1): assembleIR scrapes the CDN
+    // urls out of the page htmls, so a media without a CDN data-base falls
+    // back to its AssetRef.sourceUrl instead of an unresolved-asset
+    // diagnostic. IR diagnostics (unresolved assets, page normalization)
+    // merge with the classify-time set — both ride the written plan. The
+    // `url` field is unused by buildCatalogPlan (it derives urls via
+    // mediaUrl) but the CatalogAssetIndex type requires it.
+    const ir = assembleIR({ siteJson, htmls });
+    const plan = buildCatalogPlan(
+      pages,
+      {
+        assets: ir.assets.map((a) => ({
+          id: a.id,
+          url: a.sourceUrl ?? "",
+          alt: a.alt,
+          sourceUrl: a.sourceUrl,
+        })),
+        diagnostics: [...classifyDiagnostics, ...ir.diagnostics],
+      },
+      feeds,
+    );
+    const outDir = opts.out ?? join(dir, "blux-out");
+    await mkdir(outDir, { recursive: true });
+    // Site chrome (Task 4): nav via the frozen buildSiteConfig extraction,
+    // footer with FULL columns (the-pointe's leasing contacts with tel/mailto
+    // links — site-config's socials+text reduction is too thin). Chrome media
+    // (nav/footer logos) resolve the plan's own asset url first — a media the
+    // page grid also uses keeps its parser-captured base (e.g. a shared
+    // parent-site siteID), so tier-1-first avoids a wrong-siteID tier-3
+    // reconstruction. Then the IR's scraped sourceUrl, else reconstruct the
+    // CDN url (base + uuid + ext) — static exports download chrome images
+    // locally, so the html scrape routinely misses them (the convert action's
+    // resolveLogo fallback).
+    //
+    // The Blux CDN is being retired, so a chrome-ONLY logo (one the page grid
+    // never uses, hence absent from plan.assets) is registered here as its own
+    // plan asset: it uploads in migrate-catalog's asset phase, and that action's
+    // site-config.json rewrite swaps its CDN url to the Prismic one. A logo the
+    // grid also uses is already a plan asset (the tier-1 branch), so we never
+    // double-register it. Chrome is built BEFORE the plan is written so these
+    // assets ride the emitted migration-plan.json.
+    //
+    // We register a scraped (tier-2) cloudfront sourceUrl — a real url from the
+    // export html — AND a tier-3 RECONSTRUCTION (`${chromeBase}${uuid}.${ext}`)
+    // WHEN chromeBase is CORROBORATED by a real IMAGE served from it. the-pointe's
+    // own nav/footer logos are exactly this case: referenced by id, unscraped,
+    // served from the site's base alongside 45 feed images. Two things make a
+    // corroborated reconstruction about as reliable as one of those feed images:
+    // (1) the base is proven to resolve (an image already loads from it), and
+    // (2) the ext is the logo's LITERAL filename ext — the byte Blux serves, the
+    // same way a feed image uses its literal data-ext (NOT a mime-normalized
+    // guess, which would turn a `.jpeg` object into a 404-ing `.jpg`). The
+    // residual risk is only a referenced-but-deleted own asset — a loud, accepted
+    // 404 (runMigration throws), the same failure any feed image would hit if
+    // deleted. Corroboration requires an IMAGE (not just any plan.asset): a
+    // backstop file asset (a PDF, often on a different host) is not evidence a
+    // logo resolves, and `siteID` is provenance not serving base — so a served
+    // image is the only sound signal. An UNcorroborated reconstruction is a pure
+    // guess: left on the CDN, flagged by migrate-catalog's site-config rewrite as
+    // an unmatched url (WARNING + non-zero exit) for manual follow-up — never
+    // silent, never a mid-migrate abort.
+    const assetById = new Map(ir.assets.map((a) => [a.id, a] as const));
+    const planUrlById = new Map(plan.assets.map((a) => [a.id, a.url] as const));
+    const chromeBase = feedAssetBase(htmls, ir.meta.bluxSiteId);
+    const isImageUrl = (u: string) => /\.(png|jpe?g|gif|webp|svg|avif|ico)$/i.test(u);
+    const chromeBaseCorroborated = plan.assets.some(
+      (a) => a.url.startsWith(chromeBase) && isImageUrl(a.url),
+    );
+    const chromeOnlyAssets = new Map<string, { id: string; url: string; alt: string }>();
+    const chrome = buildChrome(siteJson, (uuid) => {
+      const fromPlan = planUrlById.get(uuid);
+      if (fromPlan !== undefined) return fromPlan;
+      const a = assetById.get(uuid);
+      if (!a) return null;
+      if (a.sourceUrl) {
+        // tier-2: a real scraped url. Evict only a Blux CDN one — an external
+        // (non-cloudfront) logo url needs no migration.
+        if (a.sourceUrl.includes("cloudfront.net") && !chromeOnlyAssets.has(uuid))
+          chromeOnlyAssets.set(uuid, { id: uuid, url: a.sourceUrl, alt: a.alt ?? "" });
+        return a.sourceUrl;
+      }
+      // tier-3: reconstruct against the site's own base with the LITERAL filename
+      // ext (feed-image-equivalent — see note above), mime-derived only as a
+      // fallback. Register it only when that base is corroborated by an image.
+      const ext = a.name.match(/\.([a-z0-9]{2,4})$/i)?.[1]?.toLowerCase() ?? extFor(a.mime, a.name);
+      if (!ext) return null;
+      const url = `${chromeBase}${uuid}.${ext}`;
+      if (chromeBaseCorroborated && !chromeOnlyAssets.has(uuid))
+        chromeOnlyAssets.set(uuid, { id: uuid, url, alt: a.alt ?? "" });
+      return url;
+    });
+    // These chrome logos join the plan so migrate-catalog uploads them and its
+    // site-config.json rewrite can swap their urls off the retiring CDN.
+    plan.assets.push(...chromeOnlyAssets.values());
+    await writeFile(join(outDir, "migration-plan.json"), JSON.stringify(plan, null, 2));
+    // Task 5: an OFFLINE render fixture for the starter's fidelity-gate route
+    // (Task 8). resolveFixture resolves the plan's markers into the Prismic-
+    // HYDRATED shapes the production SliceZone consumes (richtext → node arrays,
+    // asset → {url,alt,dimensions}) — the live migrate path resolves the same
+    // markers into Migration API shapes instead. It runs on the plan BEFORE any
+    // migrate url-rewrite, so image urls are still the Blux CDN (correct for the
+    // offline gate, which allowlists CDN 404s).
+    await writeFile(
+      join(outDir, "render-fixture.json"),
+      JSON.stringify(resolveFixture(plan), null, 2),
+    );
+    await writeFile(join(outDir, "site-config.json"), JSON.stringify(chrome, null, 2) + "\n");
+    // theme.css: the exact concatenation the proven emit action writes.
+    const rolesCss = emitRolesCss(ir.theme);
+    const buttonsCss = emitButtonsCss(ir.theme);
+    await writeFile(
+      join(outDir, "theme.css"),
+      emitThemeCss(ir.theme) +
+        "\n" +
+        emitRootVarsCss(ir.theme) +
+        (rolesCss ? "\n" + rolesCss : "") +
+        (buttonsCss ? "\n" + buttonsCss : ""),
+    );
+    const totalBands = pages.reduce((n, p) => n + p.specs.length, 0);
+    return {
+      output:
+        `Cataloged ${pages.length} pages / ${totalBands} bands → ` +
+        `${join(outDir, "migration-plan.json")} (${plan.documents.length} page documents)`,
+      code: 0,
+    };
+  }
+
   return {
-    output: `unknown blux action '${action}'. Use: emit, migrate, validate, grid, convert.`,
+    output: `unknown blux action '${action}'. Use: emit, migrate, migrate-catalog, validate, grid, convert, catalog.`,
     code: 1,
   };
 }

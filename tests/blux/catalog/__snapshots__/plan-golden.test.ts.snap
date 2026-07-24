@@ -1,0 +1,704 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`catalog plan — the-pointe (golden) > emits a populated, breadth-routed plan from the real page 1`] = `
+{
+  "assets": [
+    {
+      "alt": "",
+      "id": "a37733d6-09cc-4c0c-be9f-e220770f2397",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/a37733d6-09cc-4c0c-be9f-e220770f2397.jpg",
+    },
+    {
+      "alt": "",
+      "id": "b035b800-7ed3-479e-bb02-54a3eccfb27a",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/b035b800-7ed3-479e-bb02-54a3eccfb27a.png",
+    },
+    {
+      "alt": "",
+      "id": "a732d1e4-59be-42ba-b87f-5acea9b3c4b9",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/a732d1e4-59be-42ba-b87f-5acea9b3c4b9.png",
+    },
+    {
+      "alt": "",
+      "id": "ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/ec0c6ec6-45b9-4ac8-84e5-0438c84629b9.png",
+    },
+    {
+      "alt": "",
+      "id": "e15eb8af-95eb-4aac-b03e-ca1990de534e",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/e15eb8af-95eb-4aac-b03e-ca1990de534e.png",
+    },
+    {
+      "alt": "",
+      "id": "0c78a3e9-984b-4697-a025-2fb1055da37e",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/0c78a3e9-984b-4697-a025-2fb1055da37e.png",
+    },
+    {
+      "alt": "",
+      "id": "511a1d2e-2ad5-4d93-857e-463f15bc5b82",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/511a1d2e-2ad5-4d93-857e-463f15bc5b82.png",
+    },
+    {
+      "alt": "",
+      "id": "43983b42-cd6d-42ba-b76d-9bce1931e581",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/43983b42-cd6d-42ba-b76d-9bce1931e581.png",
+    },
+    {
+      "alt": "",
+      "id": "449cb545-61ab-4faa-a1a2-5b802ae27982",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/449cb545-61ab-4faa-a1a2-5b802ae27982.png",
+    },
+    {
+      "alt": "",
+      "id": "56ceaf76-a802-47e2-9bfa-d48fff84642d",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/56ceaf76-a802-47e2-9bfa-d48fff84642d.png",
+    },
+    {
+      "alt": "",
+      "id": "39999486-c94a-47f9-9054-699d21955ec5",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/39999486-c94a-47f9-9054-699d21955ec5.png",
+    },
+    {
+      "alt": "",
+      "id": "1083733e-b211-4e23-8a62-2c6db839a02c",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/1083733e-b211-4e23-8a62-2c6db839a02c.png",
+    },
+    {
+      "alt": "",
+      "id": "8fc9d04c-543a-4ca9-8cf6-18cda24eb711",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/8fc9d04c-543a-4ca9-8cf6-18cda24eb711.png",
+    },
+    {
+      "alt": "",
+      "id": "7c52c8df-a506-4a7a-9a1d-91aa11e5d7c6",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/7c52c8df-a506-4a7a-9a1d-91aa11e5d7c6.png",
+    },
+    {
+      "alt": "",
+      "id": "2c05f47c-cfee-4383-8955-5dea66b4df15",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/2c05f47c-cfee-4383-8955-5dea66b4df15.png",
+    },
+    {
+      "alt": "",
+      "id": "6fefaae2-82b2-4861-9efe-b491cc3d2af1",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/6fefaae2-82b2-4861-9efe-b491cc3d2af1.jpg",
+    },
+    {
+      "alt": "",
+      "id": "3852eddf-55e3-4f7d-b106-f58a5af214f6",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/3852eddf-55e3-4f7d-b106-f58a5af214f6.png",
+    },
+    {
+      "alt": "",
+      "id": "aefbd53c-205a-402a-ba88-6294a555b0aa",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/aefbd53c-205a-402a-ba88-6294a555b0aa.jpg",
+    },
+    {
+      "alt": "",
+      "id": "cb6f38b7-4ca7-4590-aeb9-11287fc942e4",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/cb6f38b7-4ca7-4590-aeb9-11287fc942e4.jpg",
+    },
+    {
+      "alt": "",
+      "id": "88737f87-d643-4435-9eb7-839516e95b38",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/88737f87-d643-4435-9eb7-839516e95b38.jpg",
+    },
+    {
+      "alt": "",
+      "id": "673cb1d4-af95-4e81-a5dd-5018d4af5e86",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/673cb1d4-af95-4e81-a5dd-5018d4af5e86.png",
+    },
+    {
+      "alt": "",
+      "id": "bf56be7d-863c-4f44-8247-6d92ea7762a9",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/26c9ecb9-bc35-4562-8155-fadfee8df2b2/bf56be7d-863c-4f44-8247-6d92ea7762a9.png",
+    },
+    {
+      "alt": "",
+      "id": "b640649d-05cf-40c1-9edc-f3fc9d427c76",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/26c9ecb9-bc35-4562-8155-fadfee8df2b2/b640649d-05cf-40c1-9edc-f3fc9d427c76.png",
+    },
+    {
+      "alt": "",
+      "id": "c023afe4-996f-4013-83ab-2634ea55355d",
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/c023afe4-996f-4013-83ab-2634ea55355d.mp4",
+    },
+    {
+      "alt": "",
+      "id": "cfc17af2-ff1f-40a4-a5bf-4123cd5f355c",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/26c9ecb9-bc35-4562-8155-fadfee8df2b2/cfc17af2-ff1f-40a4-a5bf-4123cd5f355c.png",
+    },
+    {
+      "alt": "",
+      "id": "966adedb-0315-4afd-b070-8c89f8792267",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/26c9ecb9-bc35-4562-8155-fadfee8df2b2/966adedb-0315-4afd-b070-8c89f8792267.png",
+    },
+    {
+      "alt": "",
+      "id": "6dd54dfc-b4d1-4ef2-8165-a1f2421668bf",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/6dd54dfc-b4d1-4ef2-8165-a1f2421668bf.png",
+    },
+    {
+      "alt": "",
+      "id": "126045fb-2364-4d99-9d6f-5502674ecdc9",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/126045fb-2364-4d99-9d6f-5502674ecdc9.jpg",
+    },
+    {
+      "alt": "",
+      "id": "da8e7a33-0929-4618-9044-4b2ac23041c0",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/da8e7a33-0929-4618-9044-4b2ac23041c0.jpg",
+    },
+    {
+      "alt": "",
+      "id": "122c1f54-872a-40af-8437-a6a226ad968a",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/122c1f54-872a-40af-8437-a6a226ad968a.jpg",
+    },
+    {
+      "alt": "",
+      "id": "052e9b6f-6abe-4478-8a20-380f73d119ff",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/052e9b6f-6abe-4478-8a20-380f73d119ff.png",
+    },
+    {
+      "alt": "",
+      "id": "f0e78916-7572-4cb2-a931-47b994991ef8",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/f0e78916-7572-4cb2-a931-47b994991ef8.png",
+    },
+    {
+      "alt": "",
+      "id": "b4dd73b4-a59a-426b-8908-a4407632d190",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/b4dd73b4-a59a-426b-8908-a4407632d190.png",
+    },
+    {
+      "alt": "",
+      "id": "050cf5e5-2d8b-4712-950e-ad6c353c3e5e",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/050cf5e5-2d8b-4712-950e-ad6c353c3e5e.png",
+    },
+    {
+      "alt": "",
+      "id": "4ea50f1e-25e9-4d60-a67c-2f1aa9410c55",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/4ea50f1e-25e9-4d60-a67c-2f1aa9410c55.png",
+    },
+    {
+      "alt": "",
+      "id": "0cfa7062-d911-483c-94be-20e8e4e0f4bb",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/0cfa7062-d911-483c-94be-20e8e4e0f4bb.png",
+    },
+    {
+      "alt": "",
+      "id": "63b7996d-fe0a-4f00-abcc-c3fb521638f5",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/63b7996d-fe0a-4f00-abcc-c3fb521638f5.png",
+    },
+    {
+      "alt": "",
+      "id": "3b966d54-aa06-4d81-ac7a-00a18a31da6f",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/3b966d54-aa06-4d81-ac7a-00a18a31da6f.png",
+    },
+    {
+      "alt": "",
+      "id": "6e1b82f7-5bf9-48b1-b956-8d614a319176",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/6e1b82f7-5bf9-48b1-b956-8d614a319176.png",
+    },
+    {
+      "alt": "",
+      "id": "1d601436-8017-4dd1-a548-29b66dd10eab",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/1d601436-8017-4dd1-a548-29b66dd10eab.png",
+    },
+    {
+      "alt": "",
+      "id": "fa1b07a4-1c8b-497c-9241-5c013a6e278c",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/fa1b07a4-1c8b-497c-9241-5c013a6e278c.png",
+    },
+    {
+      "alt": "",
+      "id": "2116f17d-7cf0-4880-997d-bd3b5d9a08f1",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/2116f17d-7cf0-4880-997d-bd3b5d9a08f1.png",
+    },
+    {
+      "alt": "",
+      "id": "fd4d69f3-bb9e-4754-bebc-c2897a1bc1c8",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/fd4d69f3-bb9e-4754-bebc-c2897a1bc1c8.png",
+    },
+    {
+      "alt": "",
+      "id": "ae55dfb4-2234-4188-899f-3fe9ee92682b",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/ae55dfb4-2234-4188-899f-3fe9ee92682b.png",
+    },
+    {
+      "alt": "",
+      "id": "ccdd3fcb-7361-4683-a5ff-5558b65746c0",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/ccdd3fcb-7361-4683-a5ff-5558b65746c0.png",
+    },
+    {
+      "alt": "",
+      "id": "80180ff4-c26c-4c3f-8cc5-3ae8df7d64cb",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/80180ff4-c26c-4c3f-8cc5-3ae8df7d64cb.png",
+    },
+    {
+      "alt": "",
+      "id": "ea5a8ac9-4bd3-4934-a38c-cf0a9cce6517",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/ea5a8ac9-4bd3-4934-a38c-cf0a9cce6517.png",
+    },
+    {
+      "alt": "",
+      "id": "998c3e5a-f177-4d0e-9e0e-d95f1b803976",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/998c3e5a-f177-4d0e-9e0e-d95f1b803976.png",
+    },
+    {
+      "alt": "",
+      "id": "865149e9-5e82-440f-93e0-6c5279d23e26",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/865149e9-5e82-440f-93e0-6c5279d23e26.png",
+    },
+    {
+      "alt": "",
+      "id": "c9dffc4f-f371-4007-ba80-71233c827d79",
+      "url": "https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/c9dffc4f-f371-4007-ba80-71233c827d79.png",
+    },
+    {
+      "alt": "",
+      "id": "1b5b96c1-16fb-4d8b-8cb0-f71938af22c0",
+      "url": "https://dv4tl7yyk1zlp.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/1b5b96c1-16fb-4d8b-8cb0-f71938af22c0.pdf",
+    },
+  ],
+  "customTypes": [],
+  "diagnostics": [],
+  "documents": [
+    {
+      "data": {
+        "slices": [
+          {
+            "items": [],
+            "primary": {
+              "background_image": {
+                "__asset_id": "a37733d6-09cc-4c0c-be9f-e220770f2397",
+              },
+              "cells": [
+                {
+                  "kind": "media",
+                  "media": {
+                    "__asset_id": "b035b800-7ed3-479e-bb02-54a3eccfb27a",
+                  },
+                },
+                {
+                  "body_html": "<div class="txt-role-text13"><p>BURBANK</p></div>",
+                  "content_padding": "10px 0px 0px",
+                  "kind": "text",
+                },
+              ],
+            },
+            "slice_type": "blux_grid",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "background_image": {
+                "__asset_id": "a732d1e4-59be-42ba-b87f-5acea9b3c4b9",
+              },
+              "cells": [
+                {
+                  "kind": "subgrid",
+                  "subgrid": [
+                    {
+                      "body_html": "<div class="txt-role-text11"><h4>a monument <br>of excellence</h4></div>
+<div class="txt-role-text1"><p>Nestled among the biggest names in entertainment, The Pointe  is a modern and elegant haven for the finest tenants in Burbank.</p></div>",
+                      "kind": "text",
+                      "title": {
+                        "__richtext_html": "<h3>The Pointe</h3>",
+                      },
+                      "title_role": "text5",
+                    },
+                    {
+                      "kind": "media",
+                      "media": {
+                        "__asset_id": "ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
+                      },
+                    },
+                    {
+                      "kind": "media",
+                      "media": {
+                        "__asset_id": "e15eb8af-95eb-4aac-b03e-ca1990de534e",
+                      },
+                    },
+                  ],
+                },
+                {
+                  "kind": "media",
+                  "media": {
+                    "__asset_id": "0c78a3e9-984b-4697-a025-2fb1055da37e",
+                  },
+                  "width": "40%",
+                },
+              ],
+              "columns": 2,
+            },
+            "slice_type": "blux_grid",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "cells": [
+                {
+                  "body_html": "<div class="txt-role-text12"><p>distinguished
+design</p></div>",
+                  "kind": "text",
+                },
+              ],
+              "heading": {
+                "__richtext_html": "<h2>the space</h2>",
+              },
+              "heading_role": "text5",
+            },
+            "slice_type": "blux_section",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "payload": "{"tag":"div","style":{"display":"grid"},"children":[{"tag":"div","children":[{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/511a1d2e-2ad5-4d93-857e-463f15bc5b82.png","alt":""}},{"tag":"div","children":[{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/43983b42-cd6d-42ba-b76d-9bce1931e581.png","alt":""}}]}]},{"tag":"div","style":{"display":"grid"},"children":[{"tag":"div","style":{"display":"grid"},"children":[{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/449cb545-61ab-4faa-a1a2-5b802ae27982.png","alt":""}},{"tag":"div","className":"txt-role-text5","children":[{"tag":"h5","html":"480,000 SF of<br>Class A office space<br>"}]}]},{"tag":"div","style":{"display":"grid"},"children":[{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/56ceaf76-a802-47e2-9bfa-d48fff84642d.png","alt":""}},{"tag":"div","className":"txt-role-text5","children":[{"tag":"h5","html":"Premier 14-Story<br>Office Tower"}]}]},{"tag":"div","style":{"display":"grid"},"children":[{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/39999486-c94a-47f9-9054-699d21955ec5.png","alt":""}},{"tag":"div","className":"txt-role-text5","children":[{"tag":"h5","html":"9.35 Acres in the<br>Media District"}]}]},{"tag":"div","style":{"display":"grid"},"children":[{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/1083733e-b211-4e23-8a62-2c6db839a02c.png","alt":""}},{"tag":"div","className":"txt-role-text5","children":[{"tag":"h5","html":"LEED Gold Certified<br>Energy Star Certified"}]}]}]}]}",
+            },
+            "slice_type": "blux_block",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "background_image": {
+                "__asset_id": "8fc9d04c-543a-4ca9-8cf6-18cda24eb711",
+              },
+              "cells": [],
+            },
+            "slice_type": "blux_grid",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "cells": [
+                {
+                  "body_html": "<div class="txt-role-text11"><h4>premium <br>amenities</h4></div>
+<div class="txt-role-text1"><p>A campus built for the modern worker, The Pointe offers amenities that enrich the every day.</p></div>",
+                  "kind": "text",
+                  "media": {
+                    "__asset_id": "ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
+                  },
+                  "title": {
+                    "__richtext_html": "<h4>on-site luxuries</h4>",
+                  },
+                  "title_role": "text5",
+                  "width": "60%",
+                },
+              ],
+              "columns": 2,
+            },
+            "slice_type": "blux_grid",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "cells": [
+                {
+                  "kind": "subgrid",
+                  "subgrid": [
+                    {
+                      "cover": "on",
+                      "kind": "media",
+                      "media": {
+                        "__asset_id": "7c52c8df-a506-4a7a-9a1d-91aa11e5d7c6",
+                      },
+                      "width": "70%",
+                    },
+                    {
+                      "body_html": "<div class="txt-role-text14"><p>Renew and recover with exclusive access to a state-of-the-art <a href="https://www.tbpfit.com/" class="links">FIT Health Club</a> with full-service locker rooms in a spa-like atmosphere. <br></p></div>",
+                      "kind": "text",
+                      "width": "30%",
+                    },
+                  ],
+                },
+                {
+                  "kind": "subgrid",
+                  "subgrid": [
+                    {
+                      "body_html": "<div class="txt-role-text14"><p>Enjoy exclusive access to on-site production and filming studios.</p></div>",
+                      "kind": "text",
+                      "width": "30%",
+                    },
+                    {
+                      "cover": "on",
+                      "kind": "media",
+                      "media": {
+                        "__asset_id": "2c05f47c-cfee-4383-8955-5dea66b4df15",
+                      },
+                      "width": "70%",
+                    },
+                  ],
+                },
+                {
+                  "kind": "subgrid",
+                  "subgrid": [
+                    {
+                      "kind": "media",
+                      "media": {
+                        "__asset_id": "6fefaae2-82b2-4861-9efe-b491cc3d2af1",
+                      },
+                      "width": "70%",
+                    },
+                    {
+                      "body_html": "<div class="txt-role-text14"><p>Head to the MRKT for a quick bite on-the-go, or dine in for a filling meal.</p></div>",
+                      "kind": "text",
+                      "width": "30%",
+                    },
+                  ],
+                },
+              ],
+              "columns": 1,
+            },
+            "slice_type": "blux_grid",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "background_image": {
+                "__asset_id": "3852eddf-55e3-4f7d-b106-f58a5af214f6",
+              },
+              "cells": [
+                {
+                  "body_html": "<div class="txt-role-text12"><p>an impeccably
+lush haven</p></div>",
+                  "kind": "text",
+                },
+              ],
+              "heading": {
+                "__richtext_html": "<h2>the outdoors</h2>",
+              },
+              "heading_role": "text5",
+            },
+            "slice_type": "blux_section",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "cells": [
+                {
+                  "kind": "media",
+                  "media": {
+                    "__asset_id": "aefbd53c-205a-402a-ba88-6294a555b0aa",
+                  },
+                  "title": {
+                    "__richtext_html": "<h4>a place to sit and breathe</h4>",
+                  },
+                },
+                {
+                  "kind": "media",
+                  "media": {
+                    "__asset_id": "cb6f38b7-4ca7-4590-aeb9-11287fc942e4",
+                  },
+                  "title": {
+                    "__richtext_html": "<h4>a calm escape right outside your door</h4>",
+                  },
+                },
+                {
+                  "kind": "media",
+                  "media": {
+                    "__asset_id": "88737f87-d643-4435-9eb7-839516e95b38",
+                  },
+                  "title": {
+                    "__richtext_html": "<h4>a building with a view</h4>",
+                  },
+                },
+              ],
+              "columns_visible": 1,
+            },
+            "slice_type": "blux_carousel",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "background_image": {
+                "__asset_id": "673cb1d4-af95-4e81-a5dd-5018d4af5e86",
+              },
+              "cells": [
+                {
+                  "kind": "subgrid",
+                  "subgrid": [
+                    {
+                      "body_html": "<div class="txt-role-text1"><p>A collection of 13 buildings offering premier office space among the biggest names in entertainment. Explore 3,100,000 SF of endless possibilities.</p></div>",
+                      "kind": "text",
+                      "title": {
+                        "__richtext_html": "<h4>a property within</h4>",
+                      },
+                      "title_role": "text5",
+                    },
+                    {
+                      "kind": "media",
+                      "media": {
+                        "__asset_id": "bf56be7d-863c-4f44-8247-6d92ea7762a9",
+                      },
+                    },
+                    {
+                      "kind": "media",
+                      "media": {
+                        "__asset_id": "b640649d-05cf-40c1-9edc-f3fc9d427c76",
+                      },
+                    },
+                  ],
+                },
+              ],
+              "columns": 2,
+            },
+            "slice_type": "blux_grid",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "payload": "{"tag":"div","children":[{"tag":"div","children":[{"tag":"figure","html":"<video controls playsinline src=\\"https://dv4tl7yyk1zlp.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/c023afe4-996f-4013-83ab-2634ea55355d.mp4\\"></video>"}]},{"tag":"div","style":{"display":"grid"},"children":[{"html":"<div id=\\"page-block-10-item-1-item-0\\" class=\\"blocks0\\"><div class=\\"blockcontainer blocks0container\\" style=\\"padding: 0px;\\"><div class=\\"block-content\\"></div></div></div>"},{"tag":"div","children":[{"tag":"div","className":"txt-role-text5","children":[{"tag":"h4","html":"presented by"}]},{"tag":"div","style":{"display":"grid"},"children":[{"tag":"div","children":[{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/26c9ecb9-bc35-4562-8155-fadfee8df2b2/cfc17af2-ff1f-40a4-a5bf-4123cd5f355c.png","alt":""}}]},{"tag":"div","children":[{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/26c9ecb9-bc35-4562-8155-fadfee8df2b2/966adedb-0315-4afd-b070-8c89f8792267.png","alt":""}}]}]}]}]}]}",
+            },
+            "slice_type": "blux_block",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "background_image": {
+                "__asset_id": "6dd54dfc-b4d1-4ef2-8165-a1f2421668bf",
+              },
+              "cells": [
+                {
+                  "body_html": "<div class="txt-role-text11"><h4>a city full of possibilities</h4></div>
+<div class="txt-role-text1"><p>Burbank offers a wide range of opportunities from its network of world-renowned studios, accessible airport, and recreational activities.</p></div>",
+                  "embed_html": "<a class="ib middle buttons2" href="https://dv4tl7yyk1zlp.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/1b5b96c1-16fb-4d8b-8cb0-f71938af22c0.pdf">Burbank Incentives</a>",
+                  "kind": "text",
+                  "media": {
+                    "__asset_id": "ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
+                  },
+                  "title": {
+                    "__richtext_html": "<h4>local amenities</h4>",
+                  },
+                  "title_role": "text5",
+                  "width": "60%",
+                },
+              ],
+              "columns": 2,
+            },
+            "slice_type": "blux_grid",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "cells": [
+                {
+                  "kind": "subgrid",
+                  "subgrid": [
+                    {
+                      "body_html": "<div class="txt-role-text14"><p>Be part of the community among the biggest names in entertainment. <br></p></div>",
+                      "kind": "text",
+                      "width": "30%",
+                    },
+                    {
+                      "cover": "on",
+                      "kind": "media",
+                      "media": {
+                        "__asset_id": "126045fb-2364-4d99-9d6f-5502674ecdc9",
+                      },
+                      "width": "70%",
+                    },
+                  ],
+                },
+                {
+                  "kind": "subgrid",
+                  "subgrid": [
+                    {
+                      "cover": "on",
+                      "kind": "media",
+                      "media": {
+                        "__asset_id": "da8e7a33-0929-4618-9044-4b2ac23041c0",
+                      },
+                      "width": "70%",
+                    },
+                    {
+                      "body_html": "<div class="txt-role-text14"><p>Fly, surf, ski, all within an hour away. Plus every business partner is around the corner.<br></p></div>",
+                      "kind": "text",
+                      "width": "30%",
+                    },
+                  ],
+                },
+                {
+                  "kind": "subgrid",
+                  "subgrid": [
+                    {
+                      "body_html": "<div class="txt-role-text14"><p>Day or night, Burbank delights with vibrant energy and one-of-a-kind character.</p></div>",
+                      "kind": "text",
+                      "width": "30%",
+                    },
+                    {
+                      "cover": "on",
+                      "kind": "media",
+                      "media": {
+                        "__asset_id": "122c1f54-872a-40af-8437-a6a226ad968a",
+                      },
+                      "width": "70%",
+                    },
+                  ],
+                },
+              ],
+              "columns": 1,
+            },
+            "slice_type": "blux_grid",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "cells": [
+                {
+                  "body_html": "<div class="txt-role-text12"><p>everything
+within reach</p></div>",
+                  "kind": "text",
+                },
+              ],
+              "heading": {
+                "__richtext_html": "<h2>the location</h2>",
+              },
+              "heading_role": "text5",
+            },
+            "slice_type": "blux_section",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "payload": "{"tag":"div","children":[{"html":"<div id=\\"custom-element0\\" data-exec=\\"custom_bdb7da85_5af5_4c58_8aeb_f7841279c1fe\\"><div id=\\"burbank_map\\" style=\\"height:600px\\">map loading...</div>\\n<div style=\\"margin-top:40px;font-size:0\\">\\n    <span class=\\"map_icon\\"><span class=\\"map_icon_text\\">The Burbank Portfolio</span><span class=\\"map_icon_plusm\\"></span></span>\\n    <span class=\\"map_icon\\"><span class=\\"map_icon_text\\">Studio And Offices</span><span class=\\"map_icon_plusm\\"></span></span>\\n    <span class=\\"map_icon\\"><span class=\\"map_icon_text\\">Retail And Dining</span><span class=\\"map_icon_plusm\\"></span></span>\\n    <span class=\\"map_icon\\"><span class=\\"map_icon_text\\">Hotel And Services</span><span class=\\"map_icon_plusm\\"></span></span>\\n</div>\\n\\n\\n    </div>"},{"tag":"div","style":{"display":"grid"},"children":[{"tag":"div","style":{"display":"grid"},"children":[{"tag":"div","children":[{"tag":"div","className":"txt-role-text5","children":[{"tag":"h4","html":"The Pointe"}]},{"tag":"div","className":"txt-role-text8","children":[{"tag":"div","html":"2900 West Alameda Ave<br>Burbank, CA 91505"}]},{"html":"<a class=\\"ib middle links\\" href=\\"http://www.thepointeburbank.com/\\" target=\\"_blank\\">Visit Website</a>"}]},{"tag":"div","children":[{"tag":"div","className":"txt-role-text5","children":[{"tag":"h4","html":"The Tower"}]},{"tag":"div","className":"txt-role-text8","children":[{"tag":"div","html":"3900 West Alameda Ave<br>Burbank, CA 91505"}]},{"html":"<a class=\\"ib middle links\\" href=\\"http://www.thetowerburbank.com/\\" target=\\"_blank\\">Visit Website</a>"}]},{"tag":"div","children":[{"tag":"div","className":"txt-role-text5","children":[{"tag":"h4","html":"The Pinnacle I"}]},{"tag":"div","className":"txt-role-text8","children":[{"tag":"div","html":"3400 West Olive Ave<br>Burbank, CA 91505"}]},{"html":"<a class=\\"ib middle links\\" href=\\"https://www.thepinnacleburbank.com/\\" target=\\"_blank\\">Visit Website</a>"}]},{"tag":"div","children":[{"tag":"div","className":"txt-role-text5","children":[{"tag":"h4","html":"The Pinnacle II"}]},{"tag":"div","className":"txt-role-text8","children":[{"tag":"div","html":"3300 West Olive Ave<br>Burbank, CA 91505"}]},{"html":"<a class=\\"ib middle links\\" href=\\"https://www.thepinnacleburbank.com/\\" target=\\"_blank\\">Visit Website</a>"}]},{"tag":"div","children":[{"tag":"div","className":"txt-role-text5","children":[{"tag":"h4","html":"3800 Alameda"}]},{"tag":"div","className":"txt-role-text8","children":[{"tag":"div","html":"3800 Alameda Ave<br>Burbank, CA 91505"}]},{"html":"<a class=\\"ib middle links\\" href=\\"https://www.theburbankportfolio.com/3800-alameda\\" target=\\"_blank\\">Visit Website</a>"}]},{"tag":"div","children":[{"tag":"div","className":"txt-role-text5","children":[{"tag":"h4","html":"Media Studios"}]},{"tag":"div","className":"txt-role-text8","children":[{"tag":"div","html":"3100 Thornton Ave<br>2255 &amp; 2233 Ontario Ave<br>3333 &amp; 3355 Empire Ave<br>Burbank, CA 91504"}]},{"html":"<a class=\\"ib middle links\\" href=\\"https://www.mediastudiosburbank.com/\\" target=\\"_blank\\">Visit Website</a>"}]},{"tag":"div","children":[{"tag":"div","className":"txt-role-text5","children":[{"tag":"h4","html":"Central Park"}]},{"tag":"div","className":"txt-role-text8","children":[{"tag":"div","html":"3500 West Olive Ave<br>Burbank, CA 91505"}]},{"html":"<a class=\\"ib middle links\\" href=\\"https://www.theburbankportfolio.com/central-park\\" target=\\"_blank\\">Visit Website</a>"}]}]},{"tag":"div","style":{"display":"grid"},"children":[{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/052e9b6f-6abe-4478-8a20-380f73d119ff.png","alt":""}},{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/f0e78916-7572-4cb2-a931-47b994991ef8.png","alt":""}},{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/b4dd73b4-a59a-426b-8908-a4407632d190.png","alt":""}},{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/050cf5e5-2d8b-4712-950e-ad6c353c3e5e.png","alt":""}},{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/4ea50f1e-25e9-4d60-a67c-2f1aa9410c55.png","alt":""}},{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/0cfa7062-d911-483c-94be-20e8e4e0f4bb.png","alt":""}},{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/63b7996d-fe0a-4f00-abcc-c3fb521638f5.png","alt":""}}]},{"tag":"div","style":{"display":"grid"},"children":[{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/3b966d54-aa06-4d81-ac7a-00a18a31da6f.png","alt":""}},{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/6e1b82f7-5bf9-48b1-b956-8d614a319176.png","alt":""}},{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/1d601436-8017-4dd1-a548-29b66dd10eab.png","alt":""}},{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/fa1b07a4-1c8b-497c-9241-5c013a6e278c.png","alt":""}},{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/2116f17d-7cf0-4880-997d-bd3b5d9a08f1.png","alt":""}},{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/fd4d69f3-bb9e-4754-bebc-c2897a1bc1c8.png","alt":""}},{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/ae55dfb4-2234-4188-899f-3fe9ee92682b.png","alt":""}},{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/ccdd3fcb-7361-4683-a5ff-5558b65746c0.png","alt":""}}]},{"tag":"div","style":{"display":"grid"},"children":[{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/80180ff4-c26c-4c3f-8cc5-3ae8df7d64cb.png","alt":""}},{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/ea5a8ac9-4bd3-4934-a38c-cf0a9cce6517.png","alt":""}},{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/998c3e5a-f177-4d0e-9e0e-d95f1b803976.png","alt":""}},{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/865149e9-5e82-440f-93e0-6c5279d23e26.png","alt":""}},{"tag":"figure","image":{"url":"https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/c9dffc4f-f371-4007-ba80-71233c827d79.png","alt":""}}]}]}]}",
+            },
+            "slice_type": "blux_block",
+            "variation": "default",
+          },
+          {
+            "items": [],
+            "primary": {
+              "cells": [],
+              "heading": {
+                "__richtext_html": "<h2>Come Be A Part Of It.</h2>",
+              },
+              "heading_role": "text11",
+            },
+            "slice_type": "blux_section",
+            "variation": "default",
+          },
+        ],
+        "title": {
+          "__richtext_html": "<h1>The Pointe</h1>",
+        },
+      },
+      "type": "page",
+      "uid": "home",
+    },
+  ],
+  "stylesManifest": [],
+}
+`;

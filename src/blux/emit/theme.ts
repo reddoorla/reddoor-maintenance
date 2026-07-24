@@ -1,15 +1,10 @@
 import type { ThemeIR } from "../ir.js";
 
-/** ThemeIR → a Tailwind v4 `@theme` block of CSS custom properties. Deterministic.
- *  A leading comment lists the exact web-font weights the export loads, so the
- *  design pass can install them without measuring the rendered site. */
-export function emitThemeCss(theme: ThemeIR): string {
+/** The shared custom-property lines (colors, fonts, text tokens) that both the
+ * build-time `@theme{}` block and the runtime `:root{}` mirror emit. Extracted
+ * so the two blocks can never drift. */
+function themeVarLines(theme: ThemeIR): string[] {
   const lines: string[] = [];
-  if (theme.fontLoad.length) {
-    const spec = theme.fontLoad.map((f) => `${f.family} ${f.weights.join(",")}`).join("; ");
-    lines.push(`/* Fonts to load — ${spec} */`);
-  }
-  lines.push("@theme {");
   for (const c of theme.colors) lines.push(`  --color-${c.role}: ${c.value};`);
   lines.push(`  --font-heading: ${theme.fonts.heading || "sans-serif"};`);
   lines.push(`  --font-body: ${theme.fonts.body || "sans-serif"};`);
@@ -26,8 +21,32 @@ export function emitThemeCss(theme: ThemeIR): string {
     if (t.mobileLineHeight)
       lines.push(`  --text-${t.role}--mobile-line-height: ${t.mobileLineHeight};`);
   }
+  return lines;
+}
+
+/** ThemeIR → a Tailwind v4 `@theme` block of CSS custom properties. Deterministic.
+ *  A leading comment lists the exact web-font weights the export loads, so the
+ *  design pass can install them without measuring the rendered site. */
+export function emitThemeCss(theme: ThemeIR): string {
+  const lines: string[] = [];
+  if (theme.fontLoad.length) {
+    const spec = theme.fontLoad.map((f) => `${f.family} ${f.weights.join(",")}`).join("; ");
+    lines.push(`/* Fonts to load — ${spec} */`);
+  }
+  lines.push("@theme {");
+  lines.push(...themeVarLines(theme));
   lines.push("}");
   return lines.join("\n") + "\n";
+}
+
+/** A runtime-resolvable mirror of the @theme token block. Tailwind's `@theme`
+ * is BUILD-TIME — injected raw at runtime (the /dev/blux-pointe gate), the
+ * browser ignores it and the `.txt-role-*` rules' `var(--text-*)` never
+ * resolve. The same tokens inside a real `:root{}` resolve without Tailwind;
+ * identical values to what @theme compiles to :root, so it is harmless when the
+ * file is also Tailwind-built. */
+export function emitRootVarsCss(theme: ThemeIR): string {
+  return [":root {", ...themeVarLines(theme), "}"].join("\n") + "\n";
 }
 
 /** ThemeIR → the `.txt-role-textN` utility layer: one rule per text style that
