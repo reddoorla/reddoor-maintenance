@@ -1,5 +1,6 @@
 import { htmlAsRichText } from "@prismicio/migrate";
 import type { MigrationPlan } from "../emit/plan.js";
+import { CATALOG_PAGE_TYPE } from "./spec.js";
 
 export type FixtureDoc = { type: string; uid: string; data: Record<string, unknown> };
 export type RenderFixture = {
@@ -55,10 +56,10 @@ export function resolveFixture(plan: MigrationPlan): RenderFixture {
     ...d,
     data: walk(d.data) as Record<string, unknown>,
   }));
-  const documents = resolved.filter((d) => d.type === "page");
+  const documents = resolved.filter((d) => d.type === CATALOG_PAGE_TYPE);
   const collections: Record<string, FixtureDoc[]> = {};
   for (const d of resolved) {
-    if (d.type === "page") continue;
+    if (d.type === CATALOG_PAGE_TYPE) continue;
     (collections[d.type] ??= []).push(d);
   }
   return { documents, collections, missingAssets: [...missing] };

@@ -36,7 +36,11 @@ async function writePlan(url: string): Promise<string> {
   const plan = {
     customTypes: [{ id: "person", label: "Person", repeatable: true, json: {} }],
     documents: [
-      { type: "page", uid: "home", data: { slices: [], widget_html: `<img src="${url}">` } },
+      {
+        type: "catalog_page",
+        uid: "home",
+        data: { slices: [], widget_html: `<img src="${url}">` },
+      },
     ],
     assets: [{ id: "aaaa-bbbb", url: CDN, alt: "" }],
   };

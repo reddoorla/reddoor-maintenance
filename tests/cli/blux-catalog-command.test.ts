@@ -82,7 +82,7 @@ describe("blux catalog", () => {
     const planPath = join(out, "migration-plan.json");
     expect(existsSync(planPath)).toBe(true);
     const plan = JSON.parse(await readFile(planPath, "utf-8"));
-    expect(plan.documents[0]).toMatchObject({ type: "page", uid: "home" });
+    expect(plan.documents[0]).toMatchObject({ type: "catalog_page", uid: "home" });
     expect(plan.documents[0].data.slices[0].slice_type).toBe("blux_section");
   });
 
@@ -190,7 +190,7 @@ describe("blux catalog", () => {
     // Only the page doc lands in documents; the Team feed's person entities are
     // grouped under collections for SliceZone context.collections.
     expect(fx.documents).toHaveLength(1);
-    expect(fx.documents[0]).toMatchObject({ type: "page", uid: "home" });
+    expect(fx.documents[0]).toMatchObject({ type: "catalog_page", uid: "home" });
     expect(Array.isArray(fx.documents[0]!.data.slices)).toBe(true);
     expect(fx.collections.person!.map((d) => d.uid)).toContain("jane-doe");
     // Offline-resolution proof: NO unresolved plan markers survive into the

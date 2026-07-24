@@ -1,6 +1,12 @@
 import type { MapConfig } from "../grid/extract-map.js";
 import type { Media } from "../grid/types.js";
 
+/** The Prismic document type the catalog pipeline emits for a migrated page.
+ * The whole downstream stack (migrated repos + starter render routing via
+ * getPageDoc's ["page","catalog_page"]) keys on this; it is the migration-owned
+ * page type, kept distinct from the template's own `page` type. */
+export const CATALOG_PAGE_TYPE = "catalog_page";
+
 /** A rich-text run kept as raw HTML — emit turns it into a `{__richtext_html}`
  * marker; the parser already produces HTML for heading/body nodes. */
 export type CatalogRichText = string;

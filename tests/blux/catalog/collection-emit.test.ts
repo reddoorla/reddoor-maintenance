@@ -110,7 +110,7 @@ describe("buildCatalogPlan — feeds ride the plan", () => {
   it("merges entity documents, custom types, diagnostics, and media", () => {
     const plan = buildCatalogPlan(pages, ir, feeds);
     // page doc + one person doc
-    expect(plan.documents.map((d) => d.type)).toEqual(["page", "person"]);
+    expect(plan.documents.map((d) => d.type)).toEqual(["catalog_page", "person"]);
     expect(plan.documents[1]).toMatchObject({ uid: "jane-doe" });
     expect(plan.customTypes.map((c) => c.id)).toEqual(["person"]);
     // the record's media joined the asset walk and resolved via the IR index
@@ -120,7 +120,7 @@ describe("buildCatalogPlan — feeds ride the plan", () => {
 
   it("without feeds the plan stays entity-free (back-compat)", () => {
     const plan = buildCatalogPlan(pages, ir);
-    expect(plan.documents.map((d) => d.type)).toEqual(["page"]);
+    expect(plan.documents.map((d) => d.type)).toEqual(["catalog_page"]);
     expect(plan.customTypes).toEqual([]);
   });
 });
