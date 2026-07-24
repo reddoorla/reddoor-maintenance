@@ -1,4 +1,5 @@
 export * from "./spec.js";
+export * from "./catalog-page-type.js";
 export * from "./sanitize.js";
 export * from "./cells.js";
 export * from "./classify.js";

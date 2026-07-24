@@ -132,6 +132,88 @@ describe("buildCatalogPlan", () => {
     expect(plan.assets.find((a) => a.id === "u1")?.url).toBe("https://cdn/u1.jpg");
   });
 
+  it("ships the catalog_page custom type on every plan (SEO tab + blux slice zone)", () => {
+    const plan = buildCatalogPlan([{ uid: "home", title: "Home", specs: [spec] }], {
+      assets: [{ id: "u1", url: "https://cdn/u1.jpg", alt: "", sourceUrl: "https://cdn/u1.jpg" }],
+      diagnostics: [],
+    });
+    const cp = plan.customTypes.find((c) => c.id === "catalog_page");
+    expect(cp).toBeDefined();
+    const model = cp!.json as {
+      format: string;
+      json: {
+        Main: { slices: { config: { choices: Record<string, unknown> } } };
+        "SEO & Metadata": Record<string, { type: string }>;
+      };
+    };
+    expect(model.format).toBe("page");
+    // SEO tab carries the 3 meta fields.
+    const seo = model.json["SEO & Metadata"];
+    expect(Object.keys(seo)).toEqual(["meta_title", "meta_description", "meta_image"]);
+    expect(seo.meta_title!.type).toBe("Text");
+    expect(seo.meta_description!.type).toBe("Text");
+    expect(seo.meta_image!.type).toBe("Image");
+    // Slice zone carries the blux_* choices.
+    const choices = Object.keys(model.json.Main.slices.config.choices);
+    expect(choices).toContain("blux_section");
+    expect(choices).toContain("blux_collection");
+    expect(choices.every((c) => c.startsWith("blux_"))).toBe(true);
+  });
+
+  it("emits per-page SEO onto the doc data + uploads the social image", () => {
+    const plan = buildCatalogPlan(
+      [
+        {
+          uid: "home",
+          title: "The Pointe",
+          specs: [spec],
+          description: "Luxury apartments in Burbank",
+          socialImageId: "og1",
+        },
+      ],
+      {
+        assets: [
+          { id: "u1", url: "https://cdn/u1.jpg", alt: "", sourceUrl: "https://cdn/u1.jpg" },
+          {
+            id: "og1",
+            url: "https://cdn/og1.jpg",
+            alt: "social",
+            sourceUrl: "https://cdn/og1.jpg",
+          },
+        ],
+        diagnostics: [],
+      },
+    );
+    const data = plan.documents[0]!.data as Record<string, unknown>;
+    // meta_title/meta_description are PLAIN strings (Text field); meta_image is
+    // an {__asset_id} marker (Image field).
+    expect(data.meta_title).toBe("The Pointe");
+    expect(data.meta_description).toBe("Luxury apartments in Burbank");
+    expect(data.meta_image).toEqual({ __asset_id: "og1" });
+    // The social image joins the plan assets (uploads + marker resolves).
+    expect(plan.assets.find((a) => a.id === "og1")?.url).toBe("https://cdn/og1.jpg");
+  });
+
+  it("defaults meta_title to the title but omits meta_description/meta_image with no SEO", () => {
+    const plan = buildCatalogPlan([{ uid: "home", title: "Home", specs: [spec] }], {
+      assets: [{ id: "u1", url: "https://cdn/u1.jpg", alt: "", sourceUrl: "https://cdn/u1.jpg" }],
+      diagnostics: [],
+    });
+    const data = plan.documents[0]!.data as Record<string, unknown>;
+    expect(data.meta_title).toBe("Home"); // title → meta_title, always present
+    expect(data).not.toHaveProperty("meta_description");
+    expect(data).not.toHaveProperty("meta_image");
+  });
+
+  it("omits meta_description when the page description is empty", () => {
+    const plan = buildCatalogPlan(
+      [{ uid: "home", title: "The Pointe", specs: [spec], description: "" }],
+      { assets: [], diagnostics: [] },
+    );
+    const data = plan.documents[0]!.data as Record<string, unknown>;
+    expect(data).not.toHaveProperty("meta_description");
+  });
+
   it("emits band-visual primary fields and per-cell visual fields", () => {
     const gridSpec = {
       slice: "BluxGrid",

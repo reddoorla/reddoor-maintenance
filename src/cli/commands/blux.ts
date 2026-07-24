@@ -561,12 +561,27 @@ export async function runBluxCommand(
           >;
         }
       ).feeds ?? {};
-    const pageItemsByIndex = (siteJson as { content?: { pages?: { items?: unknown[] }[] } })
-      ?.content?.pages;
+    // Per-page content also carries the SEO fields (title lives on sitePages;
+    // `description` + the social/og image `media` ride here) — same positional
+    // `content.pages[pageIndex]` join the items use, so they thread through
+    // without touching the parse/normalize layer.
+    const pageContentByIndex = (
+      siteJson as {
+        content?: {
+          pages?: { items?: unknown[]; description?: unknown; media?: { media?: unknown } }[];
+        };
+      }
+    )?.content?.pages;
     // Classify-time diagnostics (positional-join misalignments, unknown/
     // skipped feed sources) ride the plan alongside emit-time ones.
     const classifyDiagnostics: Diagnostic[] = [];
-    const pages: { uid: string; title: string; specs: CatalogSpec[] }[] = [];
+    const pages: {
+      uid: string;
+      title: string;
+      specs: CatalogSpec[];
+      description?: string;
+      socialImageId?: string;
+    }[] = [];
     // Every successfully-read page html feeds the IR assembly below: the asset
     // index is scraped from the rendered pages (site.json's media dict has no
     // urls), so a media without a CDN data-base can still resolve.
@@ -603,7 +618,8 @@ export async function runBluxCommand(
             styles: blockStyles,
             defaults: blockDefaults,
           };
-      const pageItems = pageItemsByIndex?.[pageIndex]?.items;
+      const pageContent = pageContentByIndex?.[pageIndex];
+      const pageItems = pageContent?.items;
       const bands = parseGridBands(html);
       const specs: CatalogSpec[] = bands.map((b) =>
         bandOrCollection(b, pageItems?.[b.index], feeds, catalogOpts),
@@ -624,7 +640,22 @@ export async function runBluxCommand(
           message: `feed item at index ${i} ("${feedName}") has no matching band — collection not emitted`,
         });
       }
-      pages.push({ uid: p.uid, title: p.title, specs });
+      // Per-page SEO (Blux `content.pages[i]`): meta description + the social/
+      // og image asset uuid (a nested `media.media` string, like feed record
+      // media). Both optional — buildCatalogPlan omits the meta field when absent
+      // ("" description → no meta_description).
+      const description =
+        typeof pageContent?.description === "string" ? pageContent.description : undefined;
+      const socialMedia = pageContent?.media?.media;
+      const socialImageId =
+        typeof socialMedia === "string" && socialMedia ? socialMedia : undefined;
+      pages.push({
+        uid: p.uid,
+        title: p.title,
+        specs,
+        ...(description ? { description } : {}),
+        ...(socialImageId ? { socialImageId } : {}),
+      });
     }
     if (!pages.length) {
       return { output: `could not read any page html in ${dir}`, code: 1 };
