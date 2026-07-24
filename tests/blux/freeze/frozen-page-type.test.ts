@@ -5,7 +5,10 @@ import {
 } from "../../../src/blux/freeze/frozen-page-type.js";
 
 type Field = { type: string; config?: Record<string, unknown> };
-type Group = { type: string; config: { label: string; fields: Record<string, Field> } };
+type Group = {
+  type: string;
+  config: { label: string; fields: { key: Field; kind: Field; text: Field; image: Field } };
+};
 type Model = {
   id: string;
   label: string;
