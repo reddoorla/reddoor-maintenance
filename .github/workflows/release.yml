@@ -38,7 +38,21 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       # npm OIDC trusted publishing requires npm CLI 11.5+; Node 22 ships ~10.x.
-      - run: npm install -g npm@latest
+      #
+      # PINNED to the 11.x line — do NOT restore `npm@latest`. npm 12 changed
+      # `npm info <pkg> --json` to return an ARRAY of packuments instead of a
+      # single object, so the top-level `versions` field disappears. That field
+      # is exactly what @changesets/cli (getUnpublishedPackages) reads to decide
+      # what is already on the registry: with it missing, `publishedVersions`
+      # falls back to `[]`, every version looks unpublished, and changesets
+      # re-publishes an already-published version on every push to main. npm
+      # correctly rejects that with E403, and changesets then crashes in
+      # isAlreadyPublishedError (`json.error.summary` is undefined) instead of
+      # taking its graceful "already published → skip" path — turning every
+      # release run red. Latent since npm 12.0.1 (2026-07-10); first fired
+      # 2026-07-20 on the first main push after 0.75.1 published.
+      # Revisit once @changesets/cli handles npm 12's output shape.
+      - run: npm install -g npm@^11.5.0
 
       - run: pnpm install --frozen-lockfile
 

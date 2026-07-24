@@ -42,6 +42,17 @@ overrides:
   ws@>=8.0.0 <8.21.0: ">=8.21.0 <9"
   js-yaml@<3.15.0: ">=3.15.0 <4"
   protobufjs@<7.6.3: ">=7.6.3 <8"
+  # brace-expansion 3.x–5.0.6: exponential-time expansion of consecutive
+  # non-expanding {} groups → DoS (GHSA-3jxr-9vmj-r5cp, high). Cleared
+  # 2026-07-24. Unlike the pins above this one IS on the published runtime
+  # surface: eslint (a real `dependencies` entry, behind the public
+  # ./configs/eslint export) → minimatch@10 → brace-expansion@5.0.6. Reachable
+  # only by expanding attacker-controlled glob patterns, which the config
+  # surface never does — but 5.0.7 is a clean patch, so just take it.
+  # Scoped to the advisory range so the 1.x/2.x instances (lhci→glob→minimatch@3,
+  # mjml→js-beautify→minimatch@9) stay on their own lines; the DoS fix exists
+  # only in 5.0.7, there is no 3.x/4.x backport to pin them to.
+  brace-expansion@>=3.0.0 <5.0.7: ">=5.0.7 <6"
 
 # Carried over from the old package.json "pnpm.auditConfig" (pnpm 11 reads it here now).
 auditConfig:
