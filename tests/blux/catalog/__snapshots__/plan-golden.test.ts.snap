@@ -410,16 +410,12 @@ exports[`catalog plan — the-pointe (golden) > emits a populated, breadth-route
                       "title_role": "text5",
                     },
                     {
+                      "image_embed": "<img src="https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/ec0c6ec6-45b9-4ac8-84e5-0438c84629b9.png" alt="">",
                       "kind": "media",
-                      "media": {
-                        "__asset_id": "ec0c6ec6-45b9-4ac8-84e5-0438c84629b9",
-                      },
                     },
                     {
+                      "image_embed": "<img src="https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/e15eb8af-95eb-4aac-b03e-ca1990de534e.png" alt="">",
                       "kind": "media",
-                      "media": {
-                        "__asset_id": "e15eb8af-95eb-4aac-b03e-ca1990de534e",
-                      },
                     },
                   ],
                 },
@@ -505,10 +501,8 @@ design</p></div>",
                   "subgrid": [
                     {
                       "cover": "on",
+                      "image_embed": "<img src="https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/7c52c8df-a506-4a7a-9a1d-91aa11e5d7c6.png" alt="">",
                       "kind": "media",
-                      "media": {
-                        "__asset_id": "7c52c8df-a506-4a7a-9a1d-91aa11e5d7c6",
-                      },
                       "width": "70%",
                     },
                     {
@@ -528,10 +522,8 @@ design</p></div>",
                     },
                     {
                       "cover": "on",
+                      "image_embed": "<img src="https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/2c05f47c-cfee-4383-8955-5dea66b4df15.png" alt="">",
                       "kind": "media",
-                      "media": {
-                        "__asset_id": "2c05f47c-cfee-4383-8955-5dea66b4df15",
-                      },
                       "width": "70%",
                     },
                   ],
@@ -540,10 +532,8 @@ design</p></div>",
                   "kind": "subgrid",
                   "subgrid": [
                     {
+                      "image_embed": "<img src="https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/6fefaae2-82b2-4861-9efe-b491cc3d2af1.jpg" alt="">",
                       "kind": "media",
-                      "media": {
-                        "__asset_id": "6fefaae2-82b2-4861-9efe-b491cc3d2af1",
-                      },
                       "width": "70%",
                     },
                     {
@@ -636,16 +626,12 @@ lush haven</p></div>",
                       "title_role": "text5",
                     },
                     {
+                      "image_embed": "<img src="https://d3syaxnfm3oj0e.cloudfront.net/26c9ecb9-bc35-4562-8155-fadfee8df2b2/bf56be7d-863c-4f44-8247-6d92ea7762a9.png" alt="">",
                       "kind": "media",
-                      "media": {
-                        "__asset_id": "bf56be7d-863c-4f44-8247-6d92ea7762a9",
-                      },
                     },
                     {
+                      "image_embed": "<img src="https://d3syaxnfm3oj0e.cloudfront.net/26c9ecb9-bc35-4562-8155-fadfee8df2b2/b640649d-05cf-40c1-9edc-f3fc9d427c76.png" alt="">",
                       "kind": "media",
-                      "media": {
-                        "__asset_id": "b640649d-05cf-40c1-9edc-f3fc9d427c76",
-                      },
                     },
                   ],
                 },
@@ -704,10 +690,8 @@ lush haven</p></div>",
                     },
                     {
                       "cover": "on",
+                      "image_embed": "<img src="https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/126045fb-2364-4d99-9d6f-5502674ecdc9.jpg" alt="">",
                       "kind": "media",
-                      "media": {
-                        "__asset_id": "126045fb-2364-4d99-9d6f-5502674ecdc9",
-                      },
                       "width": "70%",
                     },
                   ],
@@ -717,10 +701,8 @@ lush haven</p></div>",
                   "subgrid": [
                     {
                       "cover": "on",
+                      "image_embed": "<img src="https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/da8e7a33-0929-4618-9044-4b2ac23041c0.jpg" alt="">",
                       "kind": "media",
-                      "media": {
-                        "__asset_id": "da8e7a33-0929-4618-9044-4b2ac23041c0",
-                      },
                       "width": "70%",
                     },
                     {
@@ -740,10 +722,8 @@ lush haven</p></div>",
                     },
                     {
                       "cover": "on",
+                      "image_embed": "<img src="https://d3syaxnfm3oj0e.cloudfront.net/ea3c0e4e-aa87-4d1b-adaa-cb250234ec3c/122c1f54-872a-40af-8437-a6a226ad968a.jpg" alt="">",
                       "kind": "media",
-                      "media": {
-                        "__asset_id": "122c1f54-872a-40af-8437-a6a226ad968a",
-                      },
                       "width": "70%",
                     },
                   ],

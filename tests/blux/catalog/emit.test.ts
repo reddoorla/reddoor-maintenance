@@ -306,3 +306,48 @@ describe("buildCatalogPlan", () => {
     });
   }
 });
+
+describe("subgrid image media → image_embed", () => {
+  const gridWithSubgrid = {
+    slice: "BluxGrid",
+    index: 0,
+    columns: 2,
+    cells: [
+      {
+        kind: "subgrid",
+        subgrid: [
+          {
+            kind: "media",
+            media: { kind: "image", assetId: "u1" },
+            cover: true,
+            mediaRatio: "4:3",
+          },
+          { kind: "text", title: "<h3>Caption</h3>" },
+        ],
+      },
+      { kind: "media", media: { kind: "image", assetId: "u2" } },
+    ],
+  } as unknown as import("../../../src/blux/catalog/spec.js").CatalogSpec;
+
+  const ir = {
+    assets: [
+      { id: "u1", url: "https://cdn/u1.jpg", alt: "Pool", sourceUrl: "https://cdn/u1.jpg" },
+      { id: "u2", url: "https://cdn/u2.jpg", alt: "", sourceUrl: "https://cdn/u2.jpg" },
+    ],
+    diagnostics: [],
+  };
+
+  it("emits a subgrid image as image_embed (<img>) and NOT a media marker; top-level stays a media marker", () => {
+    const plan = buildCatalogPlan([{ uid: "home", title: "Home", specs: [gridWithSubgrid] }], ir);
+    const primary = (plan.documents[0]!.data as { slices: { primary: Record<string, unknown> }[] })
+      .slices[0]!.primary;
+    const cells = primary.cells as Record<string, unknown>[];
+    const subgrid = cells[0]!.subgrid as Record<string, unknown>[];
+    expect(subgrid[0]!.image_embed).toBe('<img src="https://cdn/u1.jpg" alt="Pool">');
+    expect(subgrid[0]).not.toHaveProperty("media");
+    expect(subgrid[0]!.cover).toBe("on");
+    expect(subgrid[0]!.media_ratio).toBe("4:3");
+    expect(cells[1]!.media).toEqual({ __asset_id: "u2" });
+    expect(cells[1]).not.toHaveProperty("image_embed");
+  });
+});

@@ -313,3 +313,25 @@ export function videoTag(m: Media): string {
   const src = `src="${mediaCdnUrl(m) ?? m.assetId}"`;
   return `<video ${[...attrs, src].join(" ")}></video>`;
 }
+
+/** An inline `<img>` for an image Media — the doubly-nested (subgrid) delivery.
+ * The Prismic Migration API can't resolve Image-field asset refs inside a
+ * doubly-nested group, so a subgrid image rides a Text field as a url-based
+ * `<img>` (exactly as video rides `<video>`). `resolveUrl` returns the
+ * plan-asset CDN url (kept RAW so the migrate's `rewriteValueUrls` swaps it to
+ * the uploaded Prismic url — escaping a query-string `&` would break that
+ * match); `resolveAlt` returns the IR asset alt (escaped for the attribute),
+ * else "". */
+export function imgTag(
+  m: Media,
+  resolveUrl: (m: Media) => string | null,
+  resolveAlt: (id: string) => string,
+): string {
+  const src = resolveUrl(m) ?? m.assetId;
+  const alt = resolveAlt(m.assetId)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+  return `<img src="${src}" alt="${alt}">`;
+}
