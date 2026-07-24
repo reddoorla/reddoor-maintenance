@@ -7,6 +7,7 @@ import { finalize } from "./finalize.js";
 import type { FrozenResult } from "./types.js";
 
 export type { Slot, FrozenManifest, FrozenResult } from "./types.js";
+export { frozenPageCustomType, FROZEN_PAGE_TYPE } from "./frozen-page-type.js";
 
 export interface FreezeOptions {
   /** Path to the export's index.html. */
