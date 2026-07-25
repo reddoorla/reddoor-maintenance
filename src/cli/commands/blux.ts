@@ -1,5 +1,5 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { join, dirname } from "node:path";
+import { join, dirname, basename } from "node:path";
 import { glob } from "tinyglobby";
 import { assembleIR } from "../../blux/assemble.js";
 import { buildMigrationPlan } from "../../blux/emit/migration-plan.js";
@@ -20,7 +20,10 @@ import { buildSiteConfig, socialHrefResolverFromHtml } from "../../blux/emit/sit
 import { validateLayout, formatLayoutReport } from "../../blux/emit/validate-layout.js";
 import { rewriteManifestUrls } from "../../blux/emit/rewrite-manifest.js";
 import type { SitePresentation } from "../../blux/emit/presentation.js";
-import type { MigrationPlan } from "../../blux/emit/plan.js";
+import { richText, assetRef } from "../../blux/emit/plan.js";
+import type { MigrationPlan, PlanAsset, PlanDocument } from "../../blux/emit/plan.js";
+import { frozenPageCustomType, FROZEN_PAGE_TYPE } from "../../blux/freeze/frozen-page-type.js";
+import type { FrozenManifest } from "../../blux/freeze/types.js";
 import type { Diagnostic } from "../../blux/ir.js";
 
 export type BluxCommandOptions = {
@@ -34,6 +37,8 @@ export type BluxCommandOptions = {
   probe?: boolean;
   /** validate: the converted site's rendered HTML — a file path or http(s) URL. */
   against?: string;
+  /** freeze: site slug for the emitted template/manifest (default: slugified dir name). */
+  site?: string;
   /** Test seam for --probe; defaults to global fetch. */
   fetchImpl?: typeof fetch;
   cwd?: string;
@@ -779,8 +784,166 @@ export async function runBluxCommand(
     };
   }
 
+  if (action === "freeze") {
+    if (!dir) return { output: "blux freeze needs a Blux export directory.", code: 1 };
+    const { freezeSite, emitFrozen } = await import("../../blux/freeze/index.js");
+    const site = (opts.site ?? basename(dir)).replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
+    const outDir = opts.out ?? join(dir, "frozen-out");
+    const result = await freezeSite({ indexHtmlPath: join(dir, "index.html"), site });
+    const paths = await emitFrozen(outDir, result);
+    const imgs = result.manifest.slots.filter((s) => s.kind === "image").length;
+    const txts = result.manifest.slots.filter((s) => s.kind === "text").length;
+    return {
+      output:
+        `froze ${site}: ${imgs} image slots, ${txts} text slots, ` +
+        `${result.manifest.fontLinks.length} font links → ${paths.template}, ${paths.manifest}`,
+      code: 0,
+    };
+  }
+
+  if (action === "migrate-frozen") {
+    if (!dir) return { output: "blux migrate-frozen needs the frozen --out dir.", code: 1 };
+    // The freeze artifact `<site>.slots.json` lives in the --out dir (opts.out ??
+    // dir; see the `freeze` action). --site pins it; otherwise the sole
+    // *.slots.json in the dir (freeze emits exactly one per site).
+    const outDir = opts.out ?? dir;
+    let manifestPath: string;
+    if (opts.site) {
+      const site = opts.site.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
+      manifestPath = join(outDir, `${site}.slots.json`);
+    } else {
+      const found = (await glob(["*.slots.json"], { cwd: outDir, absolute: true })).sort();
+      if (!found.length)
+        return { output: `no *.slots.json in ${outDir} — run 'blux freeze' first.`, code: 1 };
+      manifestPath = found[0]!;
+    }
+    let manifest: FrozenManifest;
+    try {
+      manifest = JSON.parse(await readFile(manifestPath, "utf-8")) as FrozenManifest;
+    } catch (err) {
+      return { output: `could not read ${manifestPath}: ${(err as Error).message}`, code: 1 };
+    }
+
+    // Build the migration plan from the manifest. Image slots (+ the optional
+    // meta image) become plan ASSETS keyed by a stable synthetic id; the
+    // frozen_page doc references each via an `assetRef` marker — the SAME
+    // Image-field representation catalog docs use (resolveDocData turns
+    // `{__asset_id}` into `{id}`, the depth-1-safe Migration API shape; the
+    // slots group is a top-level repeatable group, so this resolves cleanly).
+    // Text slots become single-paragraph Rich Text markers. The freeze stores a
+    // text node's RAW source (entities already encoded, e.g. "&amp;"/"&nbsp;",
+    // never a bare "<"), so it is a valid HTML fragment — pass it straight into
+    // the <p> for htmlAsRichText. Re-escaping would double-encode ("&amp;" →
+    // "&amp;amp;" → literal "&amp;" on the page). Assets dedupe by url so an
+    // image reused across slots uploads once.
+    const assetIdByUrl = new Map<string, string>();
+    const assets: PlanAsset[] = [];
+    const assetFor = (url: string): string => {
+      let id = assetIdByUrl.get(url);
+      if (!id) {
+        id = `frozen-asset-${assets.length}`;
+        assetIdByUrl.set(url, id);
+        assets.push({ id, url, alt: "" });
+      }
+      return id;
+    };
+    // An Image field only accepts image assets; non-image media (video/pdf) must
+    // ride a Text `media_url` instead. Register + upload every media asset the
+    // same way, but flag the non-image ones to patch after phase 1 (once their
+    // Prismic url is known).
+    const isImageUrl = (u: string): boolean => /\.(jpe?g|png|gif|webp|svg|avif)(\?|$)/i.test(u);
+    const mediaSlots = new Map<string, string>(); // non-image slot key -> cdn url
+    const slotRows: Record<string, unknown>[] = manifest.slots.map((s) => {
+      if (s.kind === "image" && s.url) {
+        if (!isImageUrl(s.url)) mediaSlots.set(s.key, s.url);
+        return { key: s.key, kind: s.kind, image: assetRef(assetFor(s.url)) };
+      }
+      return { key: s.key, kind: s.kind, text: richText(`<p>${s.text ?? ""}</p>`) };
+    });
+    const data: Record<string, unknown> = {
+      title: manifest.title,
+      meta_title: manifest.metaTitle ?? "",
+      meta_description: "",
+      slots: slotRows,
+    };
+    if (manifest.metaImageUrl) data.meta_image = assetRef(assetFor(manifest.metaImageUrl));
+    const doc: PlanDocument = { type: FROZEN_PAGE_TYPE, uid: manifest.uid, data };
+    const plan: MigrationPlan = {
+      customTypes: [frozenPageCustomType()],
+      documents: [doc],
+      assets,
+      stylesManifest: [],
+      diagnostics: [],
+    };
+    const imageSlots = manifest.slots.filter((s) => s.kind === "image" && s.url).length;
+
+    // Progress streams to stderr (a throttled two-phase run reads as a hang
+    // otherwise); collected only for the failure path where it IS the diagnostic.
+    const lines: string[] = [];
+    const log = (line: string): void => {
+      lines.push(line);
+      process.stderr.write(`${line}\n`);
+    };
+    const { pushCustomTypes, runMigration } = await import("../../blux/emit/run-migration.js");
+    try {
+      const pushed = await pushCustomTypes(plan.customTypes);
+      // Phase 1: assets only — populates the media library and returns the
+      // cdn→Prismic url map (mirrors migrate-catalog's two-phase shape).
+      const assetsPass = await runMigration({ ...plan, documents: [] }, log);
+      // Every image slot's CDN url must resolve to a Prismic asset — surface any
+      // that didn't rather than silently shipping a doc with a dead reference.
+      const unresolved = assets.filter((a) => !assetsPass.assetUrlByCdn.has(a.url));
+      if (unresolved.length) {
+        return {
+          output:
+            `frozen migrate aborted: ${unresolved.length} image url(s) did not resolve to a ` +
+            `Prismic asset (first: ${unresolved[0]!.url}).`,
+          code: 1,
+        };
+      }
+      // Non-image media (video/pdf) can't sit in an Image field — now that
+      // phase 1 has resolved their Prismic urls, swap those slots off the image
+      // assetRef and onto a `media_url` text field before posting the doc.
+      for (const row of slotRows) {
+        const cdn = mediaSlots.get(row.key as string);
+        if (cdn) {
+          delete row.image;
+          row.media_url = assetsPass.assetUrlByCdn.get(cdn) ?? "";
+        }
+      }
+      // Phase 2: the doc. Assets re-list into the reuse branch (uploaded in phase
+      // 1), and resolveDocData rewrites each `assetRef` marker to `{id}` — the
+      // uploaded Prismic asset, never the CDN url. Lands in an UNPUBLISHED
+      // migration release (the runner never publishes).
+      const docsPass = await runMigration(plan, log);
+      if (docsPass.missingAssets.length) {
+        return {
+          output:
+            `frozen migrate aborted: ${docsPass.missingAssets.length} asset ref(s) went ` +
+            `unresolved in the doc (first: ${docsPass.missingAssets[0]}).`,
+          code: 1,
+        };
+      }
+      const docWord = docsPass.docsUpdated ? "updated" : "created";
+      return {
+        output:
+          `frozen_page pushed: ${pushed.join(", ") || "none"}; ` +
+          `assets ${assetsPass.assetsUploaded} uploaded/${assetsPass.assetsReused} reused; ` +
+          `${imageSlots} image slot(s) rewritten to Prismic; ` +
+          `doc ${manifest.uid} ${docWord} → ${process.env.PRISMIC_REPOSITORY_NAME} ` +
+          `(publish the migration release in the dashboard)`,
+        code: 0,
+      };
+    } catch (err) {
+      return {
+        output: `frozen migrate failed: ${(err as Error).message}\n${lines.join("\n")}`,
+        code: 1,
+      };
+    }
+  }
+
   return {
-    output: `unknown blux action '${action}'. Use: emit, migrate, migrate-catalog, validate, grid, convert, catalog.`,
+    output: `unknown blux action '${action}'. Use: emit, migrate, migrate-catalog, migrate-frozen, validate, grid, convert, catalog, freeze.`,
     code: 1,
   };
 }
