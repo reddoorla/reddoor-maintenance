@@ -1,6 +1,8 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { settleExport } from "./settle.js";
+import { mapPlaceholder } from "./map-placeholder.js";
+import { pinSliders } from "./slider-pin.js";
 import { bakeImages } from "./bake-images.js";
 import { tokenizeText } from "./tokenize-text.js";
 import { finalize } from "./finalize.js";
@@ -25,7 +27,13 @@ export interface FreezeOptions {
  */
 export async function freezeSite(opts: FreezeOptions): Promise<FrozenResult> {
   const settled = await settleExport(opts.indexHtmlPath);
-  const baked = bakeImages(settled);
+  // v2 transforms run on the settled DOM before image/text tokenizing: swap the
+  // dead Google-Map DOM for a placeholder (using the raw export for the KML mid)
+  // and pin each hero slider to slide 1.
+  const exportHtml = await readFile(opts.indexHtmlPath, "utf-8");
+  const mapped = mapPlaceholder(settled, exportHtml);
+  const pinned = pinSliders(mapped);
+  const baked = bakeImages(pinned);
   const tokenized = tokenizeText(baked.html);
   const fin = finalize(tokenized.html);
 
