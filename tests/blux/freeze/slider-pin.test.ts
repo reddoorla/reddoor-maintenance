@@ -27,4 +27,13 @@ describe("pinSliders", () => {
   it("is a no-op for a slider with no slides", () => {
     expect(pinSliders(`<div class="caslider"></div>`)).toContain('class="caslider"');
   });
+
+  it("leaves a multi-column slider untouched (data-columns >= 2)", () => {
+    const html = `<div class="caslider" data-columns="3"><div>a</div><div>b</div><div>c</div><div>d</div></div>`;
+    const out = pinSliders(html);
+    // No slide is hidden — the settled columns render faithfully.
+    expect(out).not.toContain("display:none");
+    const slides = slidesOf(out);
+    expect(slides).toHaveLength(4);
+  });
 });
