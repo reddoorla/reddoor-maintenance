@@ -851,8 +851,7 @@ export async function runBluxCommand(
     // ride a Text `media_url` instead. Register + upload every media asset the
     // same way, but flag the non-image ones to patch after phase 1 (once their
     // Prismic url is known).
-    const isImageUrl = (u: string): boolean =>
-      /\.(jpe?g|png|gif|webp|svg|avif)(\?|$)/i.test(u);
+    const isImageUrl = (u: string): boolean => /\.(jpe?g|png|gif|webp|svg|avif)(\?|$)/i.test(u);
     const mediaSlots = new Map<string, string>(); // non-image slot key -> cdn url
     const slotRows: Record<string, unknown>[] = manifest.slots.map((s) => {
       if (s.kind === "image" && s.url) {

@@ -9,10 +9,7 @@ export function sectionIndexOf(root: HTMLElement): Map<HTMLElement, number> {
 
 /** Nearest-ancestor <section> key (`s{index}`), or `h` for chrome (nav/footer)
  *  that lives above/outside any <section>. */
-export function sectionKeyOf(
-  el: HTMLElement,
-  sectionIndex: Map<HTMLElement, number>,
-): string {
+export function sectionKeyOf(el: HTMLElement, sectionIndex: Map<HTMLElement, number>): string {
   let a: HTMLElement | null | undefined = el;
   while (a) {
     if (a.tagName === "SECTION" && sectionIndex.has(a)) {

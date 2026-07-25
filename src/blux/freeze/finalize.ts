@@ -28,8 +28,7 @@ export function finalize(html: string): Finalized {
   const root = parse(html);
   const title = root.querySelector("title")?.text?.trim() ?? "";
   const metaOf = (prop: string): string | undefined =>
-    root.querySelector(`meta[property="${prop}"]`)?.getAttribute("content") ??
-    undefined;
+    root.querySelector(`meta[property="${prop}"]`)?.getAttribute("content") ?? undefined;
   const metaTitle = metaOf("og:title") ?? (title || undefined);
   const metaImageUrl = metaOf("og:image");
 
@@ -47,9 +46,7 @@ export function finalize(html: string): Finalized {
   // Remove the Blux runtime's lazy media spans: they carry raw cloudfront urls
   // for whichever images were on-screen at snapshot (the rest unloaded), and the
   // deterministic baked token on the parent media div is what renders instead.
-  for (const holder of root.querySelectorAll(
-    ".load-media-holder, .load-media-element",
-  )) {
+  for (const holder of root.querySelectorAll(".load-media-holder, .load-media-element")) {
     holder.remove();
   }
 
