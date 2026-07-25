@@ -26,6 +26,11 @@ describe.skipIf(!run)("freeze golden — the-pointe", () => {
     expect(res.templateHtml).not.toContain("cloudfront"); // all image urls tokenized
     expect(res.manifest.fontLinks.join(" ")).toContain("fonts.googleapis.com");
 
+    // v2: the dead Google-Map DOM is replaced by a clean placeholder.
+    expect(res.templateHtml).toContain("blux-frozen-map");
+    expect(res.templateHtml).not.toContain("gm-style");
+    expect(res.templateHtml).not.toContain("maps.googleapis.com");
+
     // Substitute tokens back, inject fonts + style, render, measure.
     const byKey = new Map(res.manifest.slots.map((s) => [s.key, s]));
     const html = res.templateHtml

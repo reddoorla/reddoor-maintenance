@@ -14,15 +14,10 @@ export function pinSliders(html: string): string {
   const root = parse(html);
 
   for (const slider of root.querySelectorAll(".caslider")) {
-    const slides = slider.childNodes.filter(
-      (n): n is HTMLElement => n instanceof HTMLElement,
-    );
+    const slides = slider.childNodes.filter((n): n is HTMLElement => n instanceof HTMLElement);
     slides.forEach((slide, i) => {
       const style = slide.getAttribute("style") ?? "";
-      const pin =
-        i === 0
-          ? "display:block;transform:translateX(0%);opacity:1"
-          : "display:none";
+      const pin = i === 0 ? "display:block;transform:translateX(0%);opacity:1" : "display:none";
       slide.setAttribute("style", style ? `${style};${pin}` : pin);
     });
   }
