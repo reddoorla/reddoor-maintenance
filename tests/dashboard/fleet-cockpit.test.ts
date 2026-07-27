@@ -189,9 +189,7 @@ describe("assignTier", () => {
     );
   });
 
-  it("a CRITICAL item pierces the pre-launch mute (attention, not muted)", () => {
-    // item() defaults to a critical vuln.
-    expect(assignTier(site({ status: "launch period" }), [item()], NOW).tier).toBe("attention");
+  it("a CRITICAL non-vuln item pierces the pre-launch mute (attention, not muted)", () => {
     expect(
       assignTier(
         site({ status: "launch period" }),
@@ -205,6 +203,16 @@ describe("assignTier", () => {
         [item({ kind: "notify-bounce", severity: "critical", key: "notify-bounce:recSITE" })],
         NOW,
       ).tier,
+    ).toBe("attention");
+  });
+
+  it("a vuln pierces the pre-launch mute ONLY once its Renovate auto-fix is exhausted", () => {
+    // item() defaults to a critical vuln — pre-exhaustion, Renovate is still on it,
+    // so even a day-zero critical CVE stays muted (the operator only hears about a
+    // vuln after auto-fix tried and failed).
+    expect(assignTier(site({ status: "launch period" }), [item()], NOW).tier).toBe("pre-launch");
+    expect(
+      assignTier(site({ status: "launch period" }), [item({ autoFixExhausted: true })], NOW).tier,
     ).toBe("attention");
   });
 
@@ -555,14 +563,17 @@ describe("buildCockpitModel", () => {
     expect(feed.some((r) => r.siteName === "Launching")).toBe(false);
   });
 
-  it("critical vulns PIERCE the pre-launch mute: attention tier + feed row", () => {
+  it("a pre-exhaustion critical vuln does NOT pierce the pre-launch mute (Renovate is on it)", () => {
+    // The operator only hears about a vuln once auto-fix is exhausted — a day-zero
+    // critical CVE alone must not re-alarm a pre-launch site while the fleet is
+    // still self-patching it. (The exhausted case pierces — next test.)
     const m = buildCockpitModel(
       [
         site({
           id: "p",
           name: "Launching",
           status: "launch period",
-          securityVulnsCritical: 2, // a genuine alarm, pre-launch or not
+          securityVulnsCritical: 2, // critical, but auto-fix has not been exhausted
         }),
       ],
       [],
@@ -571,14 +582,11 @@ describe("buildCockpitModel", () => {
       NOW,
     );
     const card = m.cards.find((c) => c.site.name === "Launching")!;
-    expect(card.tier).toBe("attention");
-    expect(m.summary.attention).toBe(1);
-    expect(m.summary.preLaunch).toBe(0);
-    // The pierced site flows through the EXISTING feed machinery: a non-exhausted
-    // vuln is self-patching → amber watch (same as a live site), never hidden.
+    expect(card.tier).toBe("pre-launch");
+    expect(m.summary.attention).toBe(0);
+    expect(m.summary.preLaunch).toBe(1);
     const feed = buildNeedsYouFeed(m);
-    const row = feed.find((r) => r.siteName === "Launching")!;
-    expect(row.group).toBe("watch");
+    expect(feed.some((r) => r.siteName === "Launching")).toBe(false);
   });
 
   it("an EXHAUSTED vuln on a launch-period site reaches the broken band, critical-first", () => {

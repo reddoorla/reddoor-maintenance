@@ -98,11 +98,15 @@ type WatchCandidate = { signal: string; acceptKeys: [string, ...string[]]; reaso
  *  two days and the cockpit hid it; the daily digest (which runs these same
  *  collectors over ALL sites with no pre-launch mute) was the only alarm surface.
  *  The cockpit now surfaces the genuine subset of what the digest already shows —
- *  not a third behavior. Pierces: any CRITICAL-severity item (critical/exhausted
- *  vuln, turnstile guardrail, notify-bounce, spam complaint, approved-report
- *  preflight) plus default-branch CI red (`kind === "ci"` — warning severity, but
- *  a broken repo is never expected pre-launch noise). PURE. */
+ *  not a third behavior. Pierces: any CRITICAL-severity item (turnstile guardrail,
+ *  notify-bounce, spam complaint, approved-report preflight) plus default-branch
+ *  CI red (`kind === "ci"` — warning severity, but a broken repo is never expected
+ *  pre-launch noise). A vuln pierces ONLY once Renovate's auto-fix is exhausted —
+ *  before that the fleet is still self-patching it and the operator has asked not
+ *  to hear about it (a day-zero critical CVE alone must not re-alarm a pre-launch
+ *  site while auto-fix is running). PURE. */
 export function piercesPreLaunchMute(item: AttentionItem): boolean {
+  if (item.kind === "vuln") return item.autoFixExhausted === true;
   return item.severity === "critical" || item.kind === "ci";
 }
 

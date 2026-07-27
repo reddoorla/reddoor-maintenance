@@ -402,13 +402,23 @@ export async function runDigest(
     });
     const prior = await readDigestState(base);
     const { tagged, next } = diffAttention(collected, prior, digestDateKey(today));
-    const needsAttention = tagged;
+    // The operator only HEARS about a vuln once Renovate's auto-fix is exhausted
+    // (tried and failed a couple of nightly cycles) — before that the fleet is
+    // still self-patching and the cockpit's amber Watch band is the only surface.
+    // Filter the EMAIL list only: `next` (written below) must keep every vuln key
+    // so the cockpit's diff against this same snapshot stays consistent, and so
+    // the exhausted-flip diffs as WORSE instead of arriving pre-badged-away.
+    const needsAttention = tagged.filter(
+      (it) => it.kind !== "vuln" || it.autoFixExhausted === true,
+    );
 
     // No-noise default: skip entirely when there's nothing to report.
     if (readyForYourYes.length === 0 && needsAttention.length === 0) {
-      // On a skip, `collected` is [] so `next` is {} — still persist it so a key that
-      // resolved on a quiet day clears and a later recurrence diffs as NEW (spec §10).
-      // Wrapped: a write failure can't fail the skip.
+      // Persist `next` even on a skip: a key that resolved on a quiet day clears so a
+      // later recurrence diffs as NEW (spec §10), and — since the skip can now fire
+      // with muted pre-exhaustion vulns collected — their keys keep snapshotting so
+      // the eventual exhausted-flip diffs as WORSE. Wrapped: a write failure can't
+      // fail the skip.
       try {
         await writeDigestState(base, next);
       } catch (e) {

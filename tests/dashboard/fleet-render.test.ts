@@ -742,14 +742,17 @@ describe("renderCockpitHtml — cockpit cards", () => {
     expect(html).not.toMatch(/site[s]? broken/);
   });
 
-  it("a launch-period site with critical vulns pierces the mute (red pill, not pre-launch)", () => {
+  it("a launch-period site with an EXHAUSTED vuln pierces the mute (red pill, not pre-launch)", () => {
+    // A pre-exhaustion vuln stays muted while Renovate self-patches it — only the
+    // exhausted vuln is the genuine alarm that pierces the pre-launch mute.
     const html = renderCockpitHtml(
       model([
         siteRow({
           id: "p",
           name: "Launching",
           status: "launch period",
-          securityVulnsCritical: 2, // previously fully muted — now a genuine alarm
+          securityVulnsCritical: 2,
+          securityAutoFixAttempts: 3, // auto-fix exhausted → genuine alarm
         }),
       ]),
     );
