@@ -4,7 +4,7 @@
 // ES2022); this directive adds DOM types for this file's type-checking.
 import { createServer, type Server } from "node:http";
 import { readFile } from "node:fs/promises";
-import { dirname, extname, join, normalize } from "node:path";
+import { dirname, extname, join, normalize, sep } from "node:path";
 import { chromium, type Page } from "@playwright/test";
 
 // The Blux export's index.html renders its final layout only after its runtime
@@ -75,8 +75,11 @@ async function serveExport(dir: string): Promise<{ url: string; server: Server }
       try {
         const path = decodeURIComponent((req.url ?? "/").split(/[?#]/)[0]!);
         const rel = path === "/" ? "index.html" : path.slice(1);
+        // Separator-anchored: a bare prefix test would also pass sibling
+        // dirs that merely share the prefix (/exports/site-secret vs
+        // /exports/site).
         const file = normalize(join(root, rel));
-        if (!file.startsWith(root)) throw new Error("traversal");
+        if (!file.startsWith(root + sep)) throw new Error("traversal");
         const body = await readFile(file);
         res.writeHead(200, {
           "content-type": MIME[extname(file)] ?? "application/octet-stream",
@@ -130,20 +133,43 @@ async function auditAnchors(page: Page): Promise<Record<string, string>> {
 
   const targets: Record<string, string> = {};
   for (const n of ns) {
-    await page.evaluate((nn) => {
-      const w = window as unknown as BluxWindow;
-      w.__rdAnchorCalls = [];
-      w.alreadyScrolling = false;
-      history.replaceState(null, "", "/");
-      document.querySelector<HTMLElement>(`a[href="/#${nn}"]`)?.click();
-    }, n);
-    // checkScrollHash defers its core scroll 100ms past the hashchange (and
-    // re-navigates at +50ms); 400ms covers the whole handler chain.
-    await page.waitForTimeout(400);
-    const first = await page.evaluate(
-      () => (window as unknown as BluxWindow).__rdAnchorCalls?.[0] ?? null,
+    // Audit EVERY link sharing this index, not just the first: custom scripts
+    // intercept by link semantics (the-pointe keys on "Contact Us" text), so
+    // two /#N links can legitimately scroll to different targets. The bake is
+    // per-index, so disagreement can't be represented — surface it loudly and
+    // bake the first link's (document-order) behavior.
+    const count = await page.evaluate(
+      (nn) => document.querySelectorAll(`a[href="/#${nn}"]`).length,
+      n,
     );
-    if (first) targets[n] = first;
+    const seen: string[] = [];
+    for (let i = 0; i < count; i++) {
+      await page.evaluate(
+        ({ nn, idx }) => {
+          const w = window as unknown as BluxWindow;
+          w.__rdAnchorCalls = [];
+          w.alreadyScrolling = false;
+          history.replaceState(null, "", "/");
+          document.querySelectorAll<HTMLElement>(`a[href="/#${nn}"]`)[idx]?.click();
+        },
+        { nn: n, idx: i },
+      );
+      // checkScrollHash defers its core scroll 100ms past the hashchange (and
+      // re-navigates at +50ms); 400ms covers the whole handler chain.
+      await page.waitForTimeout(400);
+      const first = await page.evaluate(
+        () => (window as unknown as BluxWindow).__rdAnchorCalls?.[0] ?? null,
+      );
+      if (first) seen.push(first);
+    }
+    const distinct = [...new Set(seen)];
+    if (distinct.length > 1) {
+      console.warn(
+        `[freeze] anchor /#${n}: links disagree on target (${distinct.join(", ")}) — ` +
+          `baking "${seen[0]}" for all; verify that page's nav fidelity by hand`,
+      );
+    }
+    if (seen[0]) targets[n] = seen[0];
   }
   return targets;
 }

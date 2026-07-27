@@ -54,6 +54,13 @@ describe("emitFavicon", () => {
     expect(readFileSync(path!, "utf-8")).toBe("local-bytes");
   });
 
+  it("rejects a local href that escapes the export dir (public-artifact containment)", async () => {
+    const exportDir = mkdtempSync(join(tmpdir(), "exp-"));
+    const outDir = mkdtempSync(join(tmpdir(), "fav-"));
+    const html = `<link rel="icon" href="/../../../etc/hosts">`;
+    await expect(emitFavicon(html, exportDir, outDir)).rejects.toThrow("escapes the export dir");
+  });
+
   it("returns null (writes nothing) when the export links no icon", async () => {
     const outDir = mkdtempSync(join(tmpdir(), "fav-"));
     expect(await emitFavicon("<html></html>", "/nowhere", outDir)).toBeNull();

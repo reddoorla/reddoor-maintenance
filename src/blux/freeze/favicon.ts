@@ -1,5 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 
 // The export <head> links the site icon (rel="icon" / "apple-touch-icon")
 // from the Blux CDN, whose PNG variants are synthesized on the fly — so the
@@ -45,7 +45,15 @@ export async function emitFavicon(
     if (!res.ok) throw new Error(`favicon fetch ${res.status} for ${url}`);
     bytes = Buffer.from(await res.arrayBuffer());
   } else {
-    bytes = await readFile(join(exportDir, href.replace(/^\//, "")));
+    // Containment: the emitted favicon.png is destined for a PUBLIC static/
+    // dir, so a local href must never resolve outside the export (a hostile
+    // export's `href="/../../…"` would otherwise publish an arbitrary file).
+    const file = resolve(exportDir, href.replace(/^\//, ""));
+    const rel = relative(resolve(exportDir), file);
+    if (rel.startsWith("..") || isAbsolute(rel)) {
+      throw new Error(`favicon href escapes the export dir: ${href}`);
+    }
+    bytes = await readFile(file);
   }
 
   const path = join(outDir, "favicon.png");
