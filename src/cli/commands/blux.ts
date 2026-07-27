@@ -787,16 +787,29 @@ export async function runBluxCommand(
   if (action === "freeze") {
     if (!dir) return { output: "blux freeze needs a Blux export directory.", code: 1 };
     const { freezeSite, emitFrozen } = await import("../../blux/freeze/index.js");
+    const { emitFavicon } = await import("../../blux/freeze/favicon.js");
     const site = (opts.site ?? basename(dir)).replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
     const outDir = opts.out ?? join(dir, "frozen-out");
     const result = await freezeSite({ indexHtmlPath: join(dir, "index.html"), site });
     const paths = await emitFrozen(outDir, result);
+    // Fail-soft: a freeze without a favicon is still a good freeze (the icon
+    // can be re-fetched while the CDN lives; see favicon.ts).
+    let favicon: string;
+    try {
+      const exportHtml = await readFile(join(dir, "index.html"), "utf-8");
+      const fav = await emitFavicon(exportHtml, dir, outDir);
+      favicon = fav ? `, favicon.png` : "";
+    } catch (err) {
+      favicon = ` (favicon FAILED: ${(err as Error).message})`;
+    }
     const imgs = result.manifest.slots.filter((s) => s.kind === "image").length;
     const txts = result.manifest.slots.filter((s) => s.kind === "text").length;
+    const map = result.mapConfig ? `, map (${result.mapConfig.layers.length} layers)` : "";
     return {
       output:
         `froze ${site}: ${imgs} image slots, ${txts} text slots, ` +
-        `${result.manifest.fontLinks.length} font links → ${paths.template}, ${paths.manifest}`,
+        `${result.manifest.fontLinks.length} font links${map} → ` +
+        `${paths.template}, ${paths.manifest}${favicon}`,
       code: 0,
     };
   }

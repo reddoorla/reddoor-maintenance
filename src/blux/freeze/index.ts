@@ -3,9 +3,11 @@ import { join } from "node:path";
 import { settleExport } from "./settle.js";
 import { mapPlaceholder } from "./map-placeholder.js";
 import { pinSliders } from "./slider-pin.js";
+import { resolveAnchors } from "./resolve-anchors.js";
 import { bakeImages } from "./bake-images.js";
 import { tokenizeText } from "./tokenize-text.js";
 import { finalize } from "./finalize.js";
+import { extractMapConfig } from "../grid/extract-map.js";
 import type { FrozenResult } from "./types.js";
 
 export type { Slot, FrozenManifest, FrozenResult } from "./types.js";
@@ -26,16 +28,25 @@ export interface FreezeOptions {
  * so image tokens live in style attributes and never collide with text tokens.
  */
 export async function freezeSite(opts: FreezeOptions): Promise<FrozenResult> {
-  const settled = await settleExport(opts.indexHtmlPath);
-  // v2 transforms run on the settled DOM before image/text tokenizing: swap the
-  // dead Google-Map DOM for a placeholder (using the raw export for the KML mid)
-  // and pin each hero slider to slide 1.
+  const { html: settled, anchorTargets } = await settleExport(opts.indexHtmlPath);
+  // Settled-DOM repairs run before image/text tokenizing: swap the dead
+  // Google-Map DOM for a placeholder (using the raw export for the KML mid),
+  // pin each hero slider to slide 1, and bake nav hashlink targets (settle's
+  // click audit measured them against the export's own runtime).
   const exportHtml = await readFile(opts.indexHtmlPath, "utf-8");
   const mapped = mapPlaceholder(settled, exportHtml);
   const pinned = pinSliders(mapped);
-  const baked = bakeImages(pinned);
+  const anchored = resolveAnchors(pinned, anchorTargets);
+  const baked = bakeImages(anchored);
   const tokenized = tokenizeText(baked.html);
   const fin = finalize(tokenized.html);
+
+  // The full map widget config (layers/toggles/styles) lives in the export's
+  // initMap script — carried alongside the template so the render can hydrate
+  // the real map. Only meaningful when its mount survived into the template.
+  const rawMap = extractMapConfig(exportHtml);
+  const mapConfig =
+    rawMap && fin.templateHtml.includes(`id="${rawMap.mountId}"`) ? rawMap : undefined;
 
   return {
     manifest: {
@@ -49,22 +60,42 @@ export async function freezeSite(opts: FreezeOptions): Promise<FrozenResult> {
     },
     templateHtml: fin.templateHtml,
     styleCss: fin.styleCss,
+    mapConfig,
   };
 }
 
-/** Write the three freeze artifacts under `outDir`. Returns their paths. */
+/**
+ * Write the freeze artifacts under `outDir`. Returns their paths.
+ *
+ * `frozen/` is site-repo-ready: uid-keyed `<uid>.html` / `<uid>.style.css` /
+ * `<uid>.fonts.json` (+ `<uid>.map.json` when the export has a map widget),
+ * copied verbatim into the site repo's `src/lib/blux-frozen/frozen/` — exactly
+ * the names the starter's artifact globs load. The slots manifest stays
+ * site-keyed at the out-dir root, where `blux migrate-frozen` finds it.
+ */
 export async function emitFrozen(
   outDir: string,
   result: FrozenResult,
-): Promise<{ template: string; style: string; manifest: string }> {
-  const site = result.manifest.site;
+): Promise<{
+  template: string;
+  style: string;
+  fonts: string;
+  manifest: string;
+  map?: string;
+}> {
+  const { site, uid } = result.manifest;
   const frozenDir = join(outDir, "frozen");
   await mkdir(frozenDir, { recursive: true });
-  const template = join(frozenDir, `${site}.html`);
-  const style = join(frozenDir, `${site}.style.css`);
+  const template = join(frozenDir, `${uid}.html`);
+  const style = join(frozenDir, `${uid}.style.css`);
+  const fonts = join(frozenDir, `${uid}.fonts.json`);
   const manifest = join(outDir, `${site}.slots.json`);
   await writeFile(template, result.templateHtml, "utf-8");
   await writeFile(style, result.styleCss, "utf-8");
+  await writeFile(fonts, JSON.stringify(result.manifest.fontLinks, null, 2), "utf-8");
   await writeFile(manifest, JSON.stringify(result.manifest, null, 2), "utf-8");
-  return { template, style, manifest };
+  if (!result.mapConfig) return { template, style, fonts, manifest };
+  const map = join(frozenDir, `${uid}.map.json`);
+  await writeFile(map, JSON.stringify(result.mapConfig, null, 2), "utf-8");
+  return { template, style, fonts, manifest, map };
 }
