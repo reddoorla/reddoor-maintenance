@@ -53,6 +53,42 @@ describe("diffAttention", () => {
     expect(next["vuln:rec1"]).toEqual({ metric: 2, firstFlaggedAt: "2026-06-01" });
   });
 
+  it("the auto-fix-exhausted flip is WORSE even with the metric unchanged, firstFlaggedAt preserved", () => {
+    // Yesterday the vuln was still self-patching (no exhausted flag in the snapshot);
+    // today Renovate has given up. Same count — but the escalation must badge, because
+    // the digest's FIRST mention of a vuln is gated on exactly this flip.
+    const prior: DigestSnapshot = { "vuln:rec1": { metric: 2, firstFlaggedAt: "2026-06-01" } };
+    const { tagged, next } = diffAttention(
+      [item({ key: "vuln:rec1", metric: 2, autoFixExhausted: true })],
+      prior,
+      TODAY,
+    );
+    expect(tagged[0]!.status).toBe("worse");
+    expect(next["vuln:rec1"]).toEqual({ metric: 2, firstFlaggedAt: "2026-06-01", exhausted: true });
+  });
+
+  it("an already-exhausted item stays STANDING (no re-escalation day after day)", () => {
+    const prior: DigestSnapshot = {
+      "vuln:rec1": { metric: 2, firstFlaggedAt: "2026-06-01", exhausted: true },
+    };
+    const { tagged, next } = diffAttention(
+      [item({ key: "vuln:rec1", metric: 2, autoFixExhausted: true })],
+      prior,
+      TODAY,
+    );
+    expect(tagged[0]!.status).toBe("standing");
+    expect(next["vuln:rec1"]).toEqual({ metric: 2, firstFlaggedAt: "2026-06-01", exhausted: true });
+  });
+
+  it("exhausted → not-exhausted (counter reset) is STANDING and the flag drops from next", () => {
+    const prior: DigestSnapshot = {
+      "vuln:rec1": { metric: 2, firstFlaggedAt: "2026-06-01", exhausted: true },
+    };
+    const { tagged, next } = diffAttention([item({ key: "vuln:rec1", metric: 2 })], prior, TODAY);
+    expect(tagged[0]!.status).toBe("standing");
+    expect(next["vuln:rec1"]).toEqual({ metric: 2, firstFlaggedAt: "2026-06-01" });
+  });
+
   it("next holds EXACTLY the current items' keys — a resolved prior key drops out", () => {
     const prior: DigestSnapshot = {
       "vuln:rec1": { metric: 2, firstFlaggedAt: "2026-06-01" },

@@ -135,7 +135,10 @@ function unreadyReport(over: Partial<FakeRecord["fields"]> = {}): FakeRecord {
   };
 }
 
-/** A site carrying a critical vuln — collectVulnAlerts flags it. */
+/** A site carrying a critical vuln whose Renovate auto-fix is EXHAUSTED — the digest
+ *  emails it. (Pre-exhaustion vulns are muted from the email while the fleet is still
+ *  self-patching — see the dedicated mute tests — so the stock attention fixture must
+ *  be the exhausted, notify-worthy kind.) */
 function vulnSiteRow(over: Partial<FakeRecord["fields"]> = {}): FakeRecord {
   return {
     id: "rec_site_acme",
@@ -143,6 +146,7 @@ function vulnSiteRow(over: Partial<FakeRecord["fields"]> = {}): FakeRecord {
       Name: "Acme Co",
       url: "https://acme.example.com",
       "Security Vulns Critical": 1,
+      "Security Auto-Fix Attempts": 3,
       ...over,
     },
   };
@@ -622,8 +626,10 @@ describe("runDigest", () => {
   });
 
   it("second run with prior state seeded shows STANDING (no NEW/WORSE badge)", async () => {
+    // `exhausted: true` seeded: the fixture vuln is exhausted, so a prior WITHOUT the
+    // flag would diff the flip as WORSE — this test wants the steady state.
     const prior = JSON.stringify({
-      "vuln:rec_site_acme": { metric: 1, firstFlaggedAt: "2026-06-10" },
+      "vuln:rec_site_acme": { metric: 1, firstFlaggedAt: "2026-06-10", exhausted: true },
       "delivery:rec_report_bounced": { metric: 1, firstFlaggedAt: "2026-06-10" },
     });
     const base = makeFakeBase({
@@ -674,8 +680,9 @@ describe("runDigest", () => {
 
   it("shows WORSE badge when prior metric is lower than current critical+high count", async () => {
     // prior metric 1; site now has critical=2 + high=1 → total 3 → WORSE
+    // (exhausted seeded true so this exercises the metric-rise path in isolation)
     const prior = JSON.stringify({
-      "vuln:rec_site_acme": { metric: 1, firstFlaggedAt: "2026-06-10" },
+      "vuln:rec_site_acme": { metric: 1, firstFlaggedAt: "2026-06-10", exhausted: true },
     });
     const base = makeFakeBase({
       Reports: [],
@@ -687,6 +694,60 @@ describe("runDigest", () => {
     expect(captured).toHaveLength(1);
     const html = captured[0]!.html;
     expect(html).toContain("Acme Co");
+    expect(html).toMatch(/\bWORSE\b/);
+  });
+
+  // ── vuln mute until Renovate auto-fix is exhausted ───────────────────────────
+
+  it("mutes a pre-exhaustion vuln: no email (no-noise skip), but its key still snapshots", async () => {
+    // Renovate has only been dispatched once — the fleet is still self-patching, so
+    // the operator hears nothing. The snapshot must STILL carry the vuln key (sans
+    // exhausted flag) so the cockpit's diff agrees and the later flip badges WORSE.
+    const base = makeFakeBase({
+      Reports: [],
+      Websites: [vulnSiteRow({ "Security Auto-Fix Attempts": 1 })],
+    });
+    const { client, captured } = captureClient();
+    const result = await runDigest({
+      base,
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
+    expect(result.output).toMatch(/skipped/i);
+    expect(captured).toHaveLength(0); // no email at all
+    const row = base.__records.get("Digest State")!.at(-1)!;
+    const snap = JSON.parse(String(row.fields["Snapshot"]));
+    expect(snap["vuln:rec_site_acme"]).toMatchObject({ metric: 1 });
+    expect(snap["vuln:rec_site_acme"].exhausted).toBeUndefined();
+  });
+
+  it("a pre-exhaustion vuln does not ride along in an otherwise-sending digest", async () => {
+    const base = makeFakeBase({
+      Reports: [bouncedReport()],
+      Websites: [vulnSiteRow({ "Security Auto-Fix Attempts": 0 })],
+    });
+    const { client, captured } = captureClient();
+    await runDigest({ base, resend: client, baseUrl: "https://reddoor-maintenance.netlify.app" });
+    expect(captured).toHaveLength(1); // delivery failure still sends
+    expect(captured[0]!.html).not.toMatch(/critical\/high vuln/);
+  });
+
+  it("the exhausted flip alone (count unchanged) surfaces the vuln badged WORSE", async () => {
+    // Yesterday: muted, key snapshotted without the flag. Today: attempts hit the
+    // threshold → first time the operator hears about it, escalated, not unbadged.
+    const prior = JSON.stringify({
+      "vuln:rec_site_acme": { metric: 1, firstFlaggedAt: "2026-06-10" },
+    });
+    const base = makeFakeBase({
+      Reports: [],
+      Websites: [vulnSiteRow()], // attempts 3 = exhausted, metric still 1
+      "Digest State": [{ id: "rec_state", fields: { Snapshot: prior } }],
+    });
+    const { client, captured } = captureClient();
+    await runDigest({ base, resend: client, baseUrl: "https://reddoor-maintenance.netlify.app" });
+    expect(captured).toHaveLength(1);
+    const html = captured[0]!.html;
+    expect(html).toContain("auto-fix failed");
     expect(html).toMatch(/\bWORSE\b/);
   });
 

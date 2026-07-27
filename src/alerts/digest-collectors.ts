@@ -46,6 +46,13 @@ const AUTO_FIX_EXHAUSTED_CYCLES = 3;
  * any critical exists, else `warning`. Null counts (never audited) read as 0 → skipped.
  * Once `securityAutoFixAttempts` reaches AUTO_FIX_EXHAUSTED_CYCLES the item is flagged
  * `autoFixExhausted` (forced-critical, escalated title) — Renovate tried and couldn't fix it.
+ *
+ * Emission is UNCONDITIONAL — every surface applies its own policy on top:
+ *   - digest email: includes a vuln only when `autoFixExhausted` (the operator hears
+ *     about a vuln only after Renovate tried and failed; before that the fleet is
+ *     still self-patching) — runDigest filters
+ *   - cockpit: non-exhausted vuln → amber Watch; exhausted → hard break (assignTier),
+ *     and only an exhausted vuln pierces the pre-launch mute (piercesPreLaunchMute)
  */
 export function collectVulnAlerts(sites: WebsiteRow[], baseUrl: string): AttentionItem[] {
   const items: AttentionItem[] = [];
