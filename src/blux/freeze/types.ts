@@ -4,6 +4,8 @@
 // carries a placeholder token per slot; the render substitutes current Prismic
 // values back in. See docs/superpowers/specs/2026-07-24-blux-frozen-page-design.md.
 
+import type { MapConfig } from "../grid/extract-map.js";
+
 export type SlotKind = "text" | "image";
 
 export interface Slot {
@@ -30,13 +32,17 @@ export interface FrozenManifest {
   slots: Slot[];
 }
 
-/** The emitted freeze artifact: the manifest plus the two repo files' bodies. */
+/** The emitted freeze artifact: the manifest plus the repo files' bodies. */
 export interface FrozenResult {
   manifest: FrozenManifest;
   /** Tokenized `<body>` innerHTML — the repo template. */
   templateHtml: string;
   /** The extracted `<style>` block text — the repo style file. */
   styleCss: string;
+  /** Present when the export carries a Blux map widget whose mount survives
+   *  in the template — emitted as `frozen/<uid>.map.json`, hydrated by the
+   *  starter's frozen-map layer. */
+  mapConfig?: MapConfig | undefined;
 }
 
 /** The placeholder a slot's value is substituted for at render time.

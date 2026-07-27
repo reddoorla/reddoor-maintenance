@@ -31,6 +31,21 @@ describe.skipIf(!run)("freeze golden — the-pointe", () => {
     expect(res.templateHtml).not.toContain("gm-style");
     expect(res.templateHtml).not.toContain("maps.googleapis.com");
 
+    // v3: nav hashlinks are baked to the targets MEASURED from the export's
+    // own runtime (settle's click audit): /#1//#5//#8 to their bands, and
+    // Contact /#11 to footer0 — the-pointe's embedded custom script sends any
+    // "Contact Us" link there (custom_57e1b14f…), which no static mapping
+    // could recover.
+    expect(res.templateHtml).not.toContain('href="/#');
+    expect(res.templateHtml).toContain('href="#page-block-1"');
+    expect(res.templateHtml).toContain('href="#footer0"');
+
+    // v3: the full map widget config rides along for render hydration.
+    expect(res.mapConfig?.mountId).toBe("burbank_map");
+    expect(res.mapConfig?.layers).toHaveLength(8);
+    expect(res.mapConfig?.toggles).toHaveLength(4);
+    expect(res.mapConfig?.styles.length).toBeGreaterThan(20);
+
     // Substitute tokens back, inject fonts + style, render, measure.
     const byKey = new Map(res.manifest.slots.map((s) => [s.key, s]));
     const html = res.templateHtml
