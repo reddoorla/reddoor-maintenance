@@ -1,12 +1,14 @@
 /** Detail-page extractors — parse a rendered Webflow detail page (team
  *  member, service, ask-the-doctor question) into its Wf* IR record. */
 import { parse, type HTMLElement } from "node-html-parser";
+import { clean } from "./text.js";
 import type { WfImage, WfQuestion, WfService, WfTeamMember } from "./types.js";
 
 const CONTENT_CDN = "/64b1c843b071dc32170ea053/"; // CMS images; chrome lives on the other site id
 
-const text = (el: HTMLElement | null | undefined) =>
-  el?.structuredText.replace(/\s+/g, " ").trim() ?? undefined;
+// A matched-but-EMPTY element (e.g. <h4></h4>) yields undefined, so optional
+// fields are omitted rather than stored as "" (see clean's JSDoc).
+const text = (el: HTMLElement | null | undefined) => clean(el?.structuredText);
 
 /** First content-CDN <img> within `scope`. Callers pass the structural
  *  container that provably holds the SEMANTIC image for their page type —

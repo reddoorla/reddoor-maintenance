@@ -14,6 +14,16 @@ describe("extractTeamMember", () => {
     // the headshot, NOT the decorative beach background that precedes it
     expect(m.photo?.url).toContain("Dr-Quan-Headshot");
   });
+
+  it("omits role when the h4 matches but is empty", () => {
+    const html =
+      '<div class="hero-cols"><h1>Dr. Test</h1><h4> </h4></div>' +
+      '<div class="w-richtext"><p>Bio.</p></div>';
+    const m = extractTeamMember(html, "dr-test");
+    expect(m.name).toBe("Dr. Test");
+    expect("role" in m).toBe(false);
+    expect(m.bioHtml).toBe("<p>Bio.</p>");
+  });
 });
 
 describe("extractService", () => {
