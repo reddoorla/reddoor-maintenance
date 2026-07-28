@@ -1,27 +1,8 @@
 /** crawlSite composes the index + detail extractors into a full IR; collectAssets
  *  derives the dedupe'd content-image manifest the migration step downloads. */
-import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
 import { collectAssets, crawlSite } from "../../src/webflow/crawl.js";
-
-const fx = (name: string) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf-8");
-
-const FIXTURE_BY_PATH: Record<string, string> = {
-  "/": fx("home.html"),
-  "/our-team": fx("our-team.html"),
-  "/services": fx("services-index.html"),
-  "/ask-the-doctor": fx("ask-the-doctor.html"),
-};
-
-// Serve every detail path with a representative fixture — selector shapes are
-// identical across items of a collection (Webflow template pages).
-const fakeFetch = async (path: string) =>
-  FIXTURE_BY_PATH[path] ??
-  (path.startsWith("/team-members/")
-    ? fx("team-dr-robert-quan.html")
-    : path.startsWith("/services/")
-      ? fx("service-dental-crowns.html")
-      : fx("question-tooth-broke-off.html"));
+import { fakeFetch } from "./_helpers/fixture-fetch.js";
 
 it("crawlSite builds an IR from index pages + detail fetches", async () => {
   const ir = await crawlSite(

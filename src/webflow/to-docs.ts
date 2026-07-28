@@ -19,7 +19,13 @@ export type WfDoc = {
   data: Record<string, unknown>;
 };
 
-const heading1 = (text: string): RtBlock[] => [{ type: "heading1", text, spans: [] }];
+/** A single Prismic `heading1` rich-text block — doc titles and slice headings
+ *  (page-doc assembly, src/webflow/sites/*) share this so the render layer
+ *  reads one shape. */
+export const heading1 = (text: string): RtBlock[] => [{ type: "heading1", text, spans: [] }];
+/** A single `paragraph` rich-text block — same sharing contract as heading1
+ *  (subtitle/lead leads in this file, body copy in the page-doc assemblies). */
+export const paragraph = (text: string): RtBlock[] => [{ type: "paragraph", text, spans: [] }];
 const uid = (slug: string) => slug.toLowerCase(); // Migration API rejects capitals (proven 2026-07-23)
 
 /** Build the asset placeholder for an optional WfImage. `fallbackAlt` is used
@@ -68,12 +74,7 @@ export function irToDocs(ir: WebflowIR): WfDoc[] {
       lang: "en-us",
       data: {
         title: heading1(s.title),
-        body: [
-          ...(s.subtitle
-            ? [{ type: "paragraph", text: s.subtitle, spans: [] } satisfies RtBlock]
-            : []),
-          ...htmlToRichText(s.bodyHtml),
-        ],
+        body: [...(s.subtitle ? paragraph(s.subtitle) : []), ...htmlToRichText(s.bodyHtml)],
         tags: s.category,
         ...(media ? { media } : {}),
         ...(s.youtubeUrl ? { link: { link_type: "Web", url: s.youtubeUrl } } : {}),
@@ -89,10 +90,7 @@ export function irToDocs(ir: WebflowIR): WfDoc[] {
       lang: "en-us",
       data: {
         title: heading1(q.title),
-        body: [
-          ...(q.lead ? [{ type: "paragraph", text: q.lead, spans: [] } satisfies RtBlock] : []),
-          ...htmlToRichText(q.bodyHtml),
-        ],
+        body: [...(q.lead ? paragraph(q.lead) : []), ...htmlToRichText(q.bodyHtml)],
         date: questionDate(q.order),
         ...(media ? { media } : {}),
       },
