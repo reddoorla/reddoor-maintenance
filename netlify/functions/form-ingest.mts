@@ -11,7 +11,7 @@ import {
 } from "../../src/db/submissions.js";
 import { recordScreenOut } from "../../src/db/screenouts.js";
 import { ingestSubmission, parseScreenOut, ingestScreenOut } from "../../src/forms/ingest.js";
-import { verifyTurnstile } from "../../src/forms/turnstile.js";
+import { verifyTurnstileWithSecrets } from "../../src/forms/turnstile.js";
 import { classifySpam } from "../../src/forms/spam-classifier.js";
 import { readMeta } from "../../src/forms/meta.js";
 import { forwardNewsletterToWebhook } from "../../src/forms/webhook.js";
@@ -61,6 +61,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
           RESEND_API_KEY: typeof process.env.RESEND_API_KEY === "string",
           FORMS_INGEST_TOKEN: typeof process.env.FORMS_INGEST_TOKEN === "string",
           TURNSTILE_SECRET_KEY: typeof process.env.TURNSTILE_SECRET_KEY === "string",
+          TURNSTILE_SECRET_KEY_2: typeof process.env.TURNSTILE_SECRET_KEY_2 === "string",
         },
       },
       { status: 200 },
@@ -145,16 +146,20 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     // acts on it — see ingest.ts). Neither ever blocks a lead on a non-opted site.
     // The verification also carries the solved-hostname from a passing token, which
     // ingest compares to a gated site's own host (turnstile-required-hostname).
-    const turnstileSecret = process.env.TURNSTILE_SECRET_KEY;
-    if (!turnstileSecret && !warnedTurnstileUnset) {
+    // Widgets cap at 10 hostnames, so the fleet spans several ("Forms 1",
+    // "Site Forms 2", ...) — one secret per widget, tried in order
+    // (busiest-widget-first; a wrong-widget attempt is retried safely, see
+    // verifyTurnstileWithSecrets).
+    const turnstileSecrets = [process.env.TURNSTILE_SECRET_KEY, process.env.TURNSTILE_SECRET_KEY_2];
+    if (!turnstileSecrets.some((s) => s?.trim()) && !warnedTurnstileUnset) {
       console.warn(
         "[form-ingest] TURNSTILE_SECRET_KEY unset; Turnstile verification disabled (fail-open)",
       );
       warnedTurnstileUnset = true;
     }
     const meta = readMeta(payload);
-    const turnstile = await verifyTurnstile({
-      secret: turnstileSecret,
+    const turnstile = await verifyTurnstileWithSecrets({
+      secrets: turnstileSecrets,
       token: meta.turnstileToken,
       remoteip: meta.clientIp ?? undefined,
     });

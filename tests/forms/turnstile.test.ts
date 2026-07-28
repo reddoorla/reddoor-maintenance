@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { verifyTurnstile } from "../../src/forms/turnstile.js";
+import { verifyTurnstile, verifyTurnstileWithSecrets } from "../../src/forms/turnstile.js";
 
 const SITEVERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
@@ -236,5 +236,118 @@ describe("verifyTurnstile", () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { message: "unexpected" }));
     const out = await verifyTurnstile({ secret: "sk", token: "tok", fetch: fetchMock });
     expect(out.outcome).toBe("unverifiable");
+  });
+
+  it("marks invalid-input-secret as wrongSecret (still 'unverifiable'), other config codes not", async () => {
+    const wrong = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(200, { success: false, "error-codes": ["invalid-input-secret"] }),
+      );
+    const out = await verifyTurnstile({ secret: "sk", token: "tok", fetch: wrong });
+    expect(out.outcome).toBe("unverifiable");
+    expect(out.wrongSecret).toBe(true);
+
+    const other = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { success: false, "error-codes": ["bad-request"] }));
+    const out2 = await verifyTurnstile({ secret: "sk", token: "tok", fetch: other });
+    expect(out2.outcome).toBe("unverifiable");
+    expect(out2.wrongSecret).toBeUndefined();
+  });
+});
+
+describe("verifyTurnstileWithSecrets", () => {
+  const wrongSecretBody = { success: false, "error-codes": ["invalid-input-secret"] };
+
+  it("passes on the first secret without trying the second", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { success: true, hostname: "reddoorla.com" }));
+    const out = await verifyTurnstileWithSecrets({
+      secrets: ["sk1", "sk2"],
+      token: "tok",
+      fetch: fetchMock,
+    });
+    expect(out).toEqual({ outcome: "pass", hostname: "reddoorla.com" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect((init.body as URLSearchParams).get("secret")).toBe("sk1");
+  });
+
+  it("retries the next secret on invalid-input-secret (wrong widget) and passes", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, wrongSecretBody))
+      .mockResolvedValueOnce(jsonResponse(200, { success: true, hostname: "1836dig.com" }));
+    const out = await verifyTurnstileWithSecrets({
+      secrets: ["sk1", "sk2"],
+      token: "tok",
+      fetch: fetchMock,
+    });
+    expect(out).toEqual({ outcome: "pass", hostname: "1836dig.com" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect((fetchMock.mock.calls[0]![1].body as URLSearchParams).get("secret")).toBe("sk1");
+    expect((fetchMock.mock.calls[1]![1].body as URLSearchParams).get("secret")).toBe("sk2");
+  });
+
+  it("collapses to 'unverifiable' (fail-open) when every secret is some other widget's", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, wrongSecretBody));
+    const out = await verifyTurnstileWithSecrets({
+      secrets: ["sk1", "sk2"],
+      token: "tok",
+      fetch: fetchMock,
+    });
+    expect(out.outcome).toBe("unverifiable");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does NOT retry on a definite 'fail' (forged token is forged under every widget)", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(200, { success: false, "error-codes": ["invalid-input-response"] }),
+      );
+    const out = await verifyTurnstileWithSecrets({
+      secrets: ["sk1", "sk2"],
+      token: "tok",
+      fetch: fetchMock,
+    });
+    expect(out.outcome).toBe("fail");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT retry on a network-error 'unverifiable' (no wrong-widget evidence)", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error("ECONNREFUSED"));
+    const out = await verifyTurnstileWithSecrets({
+      secrets: ["sk1", "sk2"],
+      token: "tok",
+      fetch: fetchMock,
+    });
+    expect(out.outcome).toBe("unverifiable");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips blank/undefined secrets; none left → 'unverifiable' without touching the network", async () => {
+    const fetchMock = vi.fn();
+    expect(
+      await verifyTurnstileWithSecrets({
+        secrets: [undefined, "   ", ""],
+        token: "tok",
+        fetch: fetchMock,
+      }),
+    ).toEqual({ outcome: "unverifiable", hostname: null });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 'absent' on a missing token with configured secrets, without retrying", async () => {
+    const fetchMock = vi.fn();
+    const out = await verifyTurnstileWithSecrets({
+      secrets: ["sk1", "sk2"],
+      token: null,
+      fetch: fetchMock,
+    });
+    expect(out.outcome).toBe("absent");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
