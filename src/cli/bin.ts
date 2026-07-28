@@ -604,6 +604,27 @@ cli
       ),
   );
 
+cli
+  .command(
+    "webflow <action> [target]",
+    "Webflow import pipeline. capture: live-crawl a base url → <out>/ir.json, progress on stderr. docs: convert a saved ir.json → docs.json + assets.json (offline). migrate: push a capture dir's docs.json + assets.json to Prismic via the shared runner (needs PRISMIC_REPOSITORY_NAME + PRISMIC_WRITE_TOKEN).",
+  )
+  .option(
+    "--out <dir>",
+    "Output directory for capture (default: webflow-out) / docs (default: dirname of the ir.json)",
+  )
+  .action(
+    async (
+      action: string,
+      target: string | undefined,
+      opts: { out?: string; cwd?: string; verbose?: boolean },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/webflow.js")).runWebflowCommand(action, target, opts),
+        opts,
+      ),
+  );
+
 cli.help();
 cli.version(version);
 
