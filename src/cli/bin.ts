@@ -607,7 +607,7 @@ cli
 cli
   .command(
     "webflow <action> [target]",
-    "Webflow import pipeline. capture: live-crawl a base url → <out>/ir.json, progress on stderr. docs: convert a saved ir.json → docs.json + assets.json (offline).",
+    "Webflow import pipeline. capture: live-crawl a base url → <out>/ir.json, progress on stderr. docs: convert a saved ir.json → docs.json + assets.json (offline). migrate: push a capture dir's docs.json + assets.json to Prismic via the shared runner (needs PRISMIC_REPOSITORY_NAME + PRISMIC_WRITE_TOKEN).",
   )
   .option(
     "--out <dir>",

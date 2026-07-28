@@ -52,3 +52,33 @@ it("webflow docs rejects valid JSON that is not a webflow IR", async () => {
   expect(res.code).toBe(1);
   expect(res.output).toContain("not a webflow IR");
 });
+
+// `webflow migrate` push path is live Prismic I/O (runMigration, excluded from
+// unit coverage) — only the pre-flight arg/read/shape guards are exercised here.
+it("webflow migrate needs a capture dir", async () => {
+  expect((await runWebflowCommand("migrate", undefined)).code).toBe(1);
+});
+
+it("webflow migrate fails cleanly when docs.json is missing", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "wf-"));
+  const res = await runWebflowCommand("migrate", dir);
+  expect(res.code).toBe(1);
+  expect(res.output).toContain("could not read docs.json");
+});
+
+it("webflow migrate fails cleanly when assets.json is missing", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "wf-"));
+  await writeFile(join(dir, "docs.json"), JSON.stringify([]));
+  const res = await runWebflowCommand("migrate", dir);
+  expect(res.code).toBe(1);
+  expect(res.output).toContain("could not read assets.json");
+});
+
+it("webflow migrate rejects a capture dir whose docs.json is the wrong shape", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "wf-"));
+  await writeFile(join(dir, "docs.json"), JSON.stringify({ not: "an array" }));
+  await writeFile(join(dir, "assets.json"), JSON.stringify([]));
+  const res = await runWebflowCommand("migrate", dir);
+  expect(res.code).toBe(1);
+  expect(res.output).toContain("not a webflow capture dir");
+});
