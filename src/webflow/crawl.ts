@@ -74,12 +74,19 @@ export async function crawlSite(
 
 export type AssetRef = { filename: string; url: string };
 
-/** Every content image in the IR, deduped by url. Filename = last url segment
- *  (query stripped), byte-for-byte the same derivation as
- *  src/blux/emit/run-migration.ts (`url.split("/").pop()` then `.split("?")[0]`)
- *  — it's the Prismic asset-library dedupe key runMigration matches against,
- *  so percent-encoded names (logo%3Dwhite.svg) must stay ENCODED, never
- *  decoded here. */
+/** Filename = last url path segment (query stripped), byte-for-byte the same
+ *  derivation as src/blux/emit/run-migration.ts (`url.split("/").pop()` then
+ *  `.split("?")[0]`) — it's the Prismic asset-library dedupe key runMigration
+ *  matches against, so percent-encoded names (logo%3Dwhite.svg) must stay
+ *  ENCODED, never decoded here. Exported so to-docs's asset placeholder
+ *  filename and this manifest's filename can never drift apart. */
+export function assetFilename(url: string): string {
+  const lastSegment = url.split("/").pop();
+  if (!lastSegment) throw new Error(`assetFilename: url has no path segment: ${url}`);
+  return lastSegment.split("?")[0] ?? lastSegment;
+}
+
+/** Every content image in the IR, deduped by url. */
 export function collectAssets(ir: WebflowIR): AssetRef[] {
   const urls = [
     ...ir.team.map((t) => t.photo?.url),
@@ -87,9 +94,5 @@ export function collectAssets(ir: WebflowIR): AssetRef[] {
     ...ir.questions.map((q) => q.image?.url),
     ...ir.reviews.map((r) => r.reviewerPhoto?.url),
   ].filter((u): u is string => !!u);
-  return [...new Set(urls)].map((url) => {
-    const lastSegment = url.split("/").pop();
-    if (!lastSegment) throw new Error(`collectAssets: url has no path segment: ${url}`);
-    return { url, filename: lastSegment.split("?")[0] ?? lastSegment };
-  });
+  return [...new Set(urls)].map((url) => ({ url, filename: assetFilename(url) }));
 }
