@@ -3,3 +3,4 @@ pnpm-lock.yaml
 tests/fixtures/
 docs/morning-reports/
 tests/blux/fixtures/*.html
+tests/webflow/fixtures/
