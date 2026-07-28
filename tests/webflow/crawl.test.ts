@@ -13,17 +13,17 @@ const FIXTURE_BY_PATH: Record<string, string> = {
   "/ask-the-doctor": fx("ask-the-doctor.html"),
 };
 
-it("crawlSite builds an IR from index pages + detail fetches", async () => {
-  // Serve every detail path with a representative fixture — selector shapes are
-  // identical across items of a collection (Webflow template pages).
-  const fakeFetch = async (path: string) =>
-    FIXTURE_BY_PATH[path] ??
-    (path.startsWith("/team-members/")
-      ? fx("team-dr-robert-quan.html")
-      : path.startsWith("/services/")
-        ? fx("service-dental-crowns.html")
-        : fx("question-tooth-broke-off.html"));
+// Serve every detail path with a representative fixture — selector shapes are
+// identical across items of a collection (Webflow template pages).
+const fakeFetch = async (path: string) =>
+  FIXTURE_BY_PATH[path] ??
+  (path.startsWith("/team-members/")
+    ? fx("team-dr-robert-quan.html")
+    : path.startsWith("/services/")
+      ? fx("service-dental-crowns.html")
+      : fx("question-tooth-broke-off.html"));
 
+it("crawlSite builds an IR from index pages + detail fetches", async () => {
   const ir = await crawlSite(
     "https://www.beachfrontdentistry.com",
     fakeFetch,
@@ -38,6 +38,22 @@ it("crawlSite builds an IR from index pages + detail fetches", async () => {
   expect(ir.questions[0]?.slug).toBe("regular-dental-cleanings-support-your-whole-body-health");
   expect(ir.services[0]?.slug).toBe("tooth-discoloration");
   expect(ir.capturedAt).toBe("2026-07-27T00:00:00Z");
+});
+
+it("crawlSite logs progress per detail-page fetch when a logger is injected", async () => {
+  const lines: string[] = [];
+  const ir = await crawlSite(
+    "https://www.beachfrontdentistry.com",
+    fakeFetch,
+    () => "2026-07-27T00:00:00Z",
+    (line) => lines.push(line),
+  );
+
+  expect(lines).toEqual([
+    ...ir.team.map((t, i) => `team ${i + 1}/${ir.team.length}: ${t.slug}`),
+    ...ir.services.map((s, i) => `service ${i + 1}/${ir.services.length}: ${s.slug}`),
+    ...ir.questions.map((q, i) => `question ${i + 1}/${ir.questions.length}: ${q.slug}`),
+  ]);
 });
 
 it("collectAssets dedupes content-CDN urls across the IR", () => {

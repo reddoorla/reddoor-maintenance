@@ -33,11 +33,17 @@ export function liveFetcher(baseUrl: string): FetchPage {
 
 /** Crawl a live (or fake-fetched) Webflow site into a WebflowIR: fetch the
  *  four index pages in parallel to learn ordering/grouping, then fetch every
- *  detail page (team member, service, question) in that order. */
+ *  detail page (team member, service, question) in that order. `log` fires
+ *  once per detail-page fetch (phase + running count + slug, e.g.
+ *  "team 3/11: stacey") — mirrors runMigration(plan, log) in
+ *  src/blux/emit/run-migration.ts: a ~80-fetch crawl with a per-fetch
+ *  courtesy delay takes about a minute, and silence reads as a hang. Default
+ *  no-op keeps existing offline/test call-sites unchanged. */
 export async function crawlSite(
   baseUrl: string,
   fetchPage: FetchPage,
   now: () => string = () => new Date().toISOString(),
+  log: (line: string) => void = () => {},
 ): Promise<WebflowIR> {
   const [home, teamIndex, servicesIndex, atd] = await Promise.all([
     fetchPage("/"),
@@ -47,19 +53,26 @@ export async function crawlSite(
   ]);
   const teamSlugs = extractTeamOrder(teamIndex);
   const serviceCategories = extractServiceCategories(servicesIndex);
+  const serviceSlugs = serviceCategories.flatMap((c) => c.slugs);
   const questionSlugs = extractQuestionOrder(atd);
 
   // Sequential, not Promise.all — liveFetcher's courtesy delay is per-call;
   // don't hammer the live site.
   const team: WfTeamMember[] = [];
-  for (const slug of teamSlugs)
+  for (const [i, slug] of teamSlugs.entries()) {
+    log(`team ${i + 1}/${teamSlugs.length}: ${slug}`);
     team.push(extractTeamMember(await fetchPage(`/team-members/${slug}`), slug));
+  }
   const services: WfService[] = [];
-  for (const slug of serviceCategories.flatMap((c) => c.slugs))
+  for (const [i, slug] of serviceSlugs.entries()) {
+    log(`service ${i + 1}/${serviceSlugs.length}: ${slug}`);
     services.push(extractService(await fetchPage(`/services/${slug}`), slug));
+  }
   const questions: WfQuestion[] = [];
-  for (const [i, slug] of questionSlugs.entries())
+  for (const [i, slug] of questionSlugs.entries()) {
+    log(`question ${i + 1}/${questionSlugs.length}: ${slug}`);
     questions.push(extractQuestion(await fetchPage(`/questions/${slug}`), slug, i));
+  }
 
   return {
     baseUrl,
