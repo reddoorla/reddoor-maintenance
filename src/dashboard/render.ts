@@ -724,7 +724,13 @@ export function renderSiteDashboardHtml(
             // assignment only (no innerHTML), so server strings stay inert.
             const data = await res.json().catch(() => null);
             b.textContent = data && data.reason === "send-blocked" ? "Blocked" : "Failed";
-            if (data && Array.isArray(data.blockers)) b.title = data.blockers.join("\n");
+            // Double-backslash, NOT single: this whole block lives inside the renderer's
+            // template literal, so a single-backslash escape is consumed HERE at build
+            // time and emits a real newline into the served HTML — an unterminated string
+            // literal that kills the parse of the entire script element, taking every
+            // handler on the page with it (exactly how approve/override/renovate went
+            // dead). Note this comment must also avoid backticks for the same reason.
+            if (data && Array.isArray(data.blockers)) b.title = data.blockers.join("\\n");
             b.disabled = false;
           }
         } catch {
