@@ -503,8 +503,23 @@ th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #eee; }
 @media (prefers-color-scheme: dark) { th, td { border-color: #2a2a2a; } }
 .muted { color: #999; }
 .empty { color: #999; padding: 1rem; border: 1px dashed #ccc; border-radius: 6px; text-align: center; }
-button.approve { font: inherit; padding: 0.35rem 0.85rem; border: 1px solid #2c7; border-radius: 6px; background: #2c7; color: #fff; cursor: pointer; }
+button.approve { font: inherit; padding: 0.35rem 0.85rem; border: 1px solid #2c7; border-radius: 6px; background: #2c7; color: #fff; cursor: pointer; position: relative; transition: background-color 0.12s ease, border-color 0.12s ease; }
+button.approve:hover:not(:disabled) { background: #25b36a; border-color: #25b36a; }
+button.approve:active:not(:disabled) { background: #1e9a5b; border-color: #1e9a5b; }
+button.approve:focus-visible { outline: 2px solid #2c7; outline-offset: 2px; }
 button.approve:disabled { opacity: 0.6; cursor: default; }
+/* In-flight: the label goes transparent rather than being removed, so the button keeps
+   its exact width and the row never reflows mid-request. The spinner is a pseudo-element,
+   NOT injected markup — this handler is deliberately textContent/title-only so server
+   strings can never become HTML, and a ::after keeps that property intact. */
+button.approve.is-loading { color: transparent; cursor: progress; }
+button.approve.is-loading::after { content: ""; position: absolute; top: 50%; left: 50%; width: 0.85em; height: 0.85em; margin: -0.45em 0 0 -0.45em; border: 2px solid #ffffff80; border-top-color: transparent; border-radius: 50%; animation: approve-spin 0.8s linear infinite; }
+@keyframes approve-spin { to { transform: rotate(360deg); } }
+/* Never remove the spin outright — a frozen ring reads as "hung". Slow it instead. */
+@media (prefers-reduced-motion: reduce) { button.approve.is-loading::after { animation-duration: 2.4s; } }
+/* Terminal success. Wins over :disabled's dimming (the button stays disabled after a
+   successful approve, and a 0.6-opacity "Approved" reads as not-quite-done). */
+button.approve.is-approved, button.approve.is-approved:disabled { background: #14663c; border-color: #14663c; color: #fff; opacity: 1; }
 .pending-info { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; font-size: 0.82rem; margin: 0.3rem 0 0.15rem; }
 .recipients-missing { color: #e57373; }
 .preflight { font-size: 0.78rem; padding: 0.1rem 0.45rem; border-radius: 999px; white-space: nowrap; }
@@ -574,12 +589,17 @@ button.approve:disabled { opacity: 0.6; cursor: default; }
 }
 .pill { font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 999px; font-weight: 700; }
 .override { margin: 0.4rem 0 0.15rem 0.25rem; }
-button.override-toggle { font: inherit; font-size: 0.78rem; padding: 0.15rem 0.6rem; border: 1px solid #b00; border-radius: 6px; background: transparent; color: #b00; cursor: pointer; }
-@media (prefers-color-scheme: dark) { button.override-toggle { border-color: #ff8a80; color: #ff8a80; } }
+button.override-toggle { font: inherit; font-size: 0.78rem; padding: 0.15rem 0.6rem; border: 1px solid #b00; border-radius: 6px; background: transparent; color: #b00; cursor: pointer; transition: background-color 0.12s ease; }
+button.override-toggle:hover { background: #bb00001a; }
+button.override-toggle:focus-visible { outline: 2px solid #b00; outline-offset: 2px; }
+@media (prefers-color-scheme: dark) { button.override-toggle { border-color: #ff8a80; color: #ff8a80; } button.override-toggle:hover { background: #ff8a801f; } button.override-toggle:focus-visible { outline-color: #ff8a80; } }
 .override-form { margin-top: 0.35rem; display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
 .override-reason { font: inherit; font-size: 0.85rem; padding: 0.25rem 0.45rem; border: 1px solid #ccc; border-radius: 4px; background: transparent; color: inherit; min-width: 220px; flex: 1 1 220px; }
 @media (prefers-color-scheme: dark) { .override-reason { border-color: #444; } }
-button.override-submit { font: inherit; font-size: 0.8rem; padding: 0.25rem 0.7rem; border: 1px solid #b00; border-radius: 6px; background: #b00; color: #fff; cursor: pointer; }
+button.override-submit { font: inherit; font-size: 0.8rem; padding: 0.25rem 0.7rem; border: 1px solid #b00; border-radius: 6px; background: #b00; color: #fff; cursor: pointer; transition: background-color 0.12s ease, border-color 0.12s ease; }
+button.override-submit:hover:not(:disabled) { background: #900; border-color: #900; }
+button.override-submit:active:not(:disabled) { background: #7a0000; border-color: #7a0000; }
+button.override-submit:focus-visible { outline: 2px solid #b00; outline-offset: 2px; }
 button.override-submit:disabled { opacity: 0.6; cursor: default; }
 .override-status { font-size: 0.78rem; color: #999; }
 .vuln-list { list-style: none; padding: 0; margin: 0; }
@@ -601,7 +621,10 @@ button.override-submit:disabled { opacity: 0.6; cursor: default; }
 .detail dd input, .detail dd select, .detail dd textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 0.25rem 0.4rem; border: 1px solid #ccc; border-radius: 4px; background: transparent; color: inherit; }
 .detail dd textarea { min-height: 3.5rem; resize: vertical; }
 .detail-saved { font-size: 0.8rem; color: #2a8; }
-button.trigger-renovate { font: inherit; font-size: 0.8rem; padding: 0.15rem 0.6rem; margin-left: 0.5rem; border: 1px solid #888; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
+button.trigger-renovate { font: inherit; font-size: 0.8rem; padding: 0.15rem 0.6rem; margin-left: 0.5rem; border: 1px solid #888; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; transition: background-color 0.12s ease, border-color 0.12s ease; }
+button.trigger-renovate:hover:not(:disabled) { background: #88888822; border-color: #666; }
+button.trigger-renovate:focus-visible { outline: 2px solid #888; outline-offset: 2px; }
+button.trigger-renovate:disabled { opacity: 0.6; cursor: default; }
 /* Alarm chip strip — mirrors fleet-render.ts chip styles (NOT the page's .pill classes). */
 .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .chip { font-size: 0.8rem; padding: 0.1rem 0.5rem; border-radius: 6px; background: #f0f0f0; }
@@ -714,10 +737,18 @@ export function renderSiteDashboardHtml(
     document.querySelectorAll("button.approve").forEach((b) => {
       b.addEventListener("click", async () => {
         b.disabled = true;
+        // is-loading swaps the label for a spinner; aria-busy is the same news for a
+        // screen reader, which cannot see it. Both are cleared in the finally below so
+        // no exit path can strand the button spinning forever.
+        b.classList.add("is-loading");
+        b.setAttribute("aria-busy", "true");
         try {
           const res = await fetch(b.dataset.approveUrl, { method: "POST" });
           if (res.ok) {
             b.textContent = "Approved";
+            // Terminal success: darker green, and it stays disabled (approving twice is
+            // a no-op server-side, but the button should not invite the second click).
+            b.classList.add("is-approved");
           } else {
             // A 409 carries { reason, blockers } — surface WHY instead of a bare
             // "Failed" next to a possibly-stale green chip. textContent/title
@@ -738,6 +769,9 @@ export function renderSiteDashboardHtml(
           // the button doesn't sit permanently disabled reading "Approve".
           b.textContent = "Failed";
           b.disabled = false;
+        } finally {
+          b.classList.remove("is-loading");
+          b.removeAttribute("aria-busy");
         }
       });
     });
