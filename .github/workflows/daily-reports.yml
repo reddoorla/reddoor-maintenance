@@ -47,6 +47,14 @@ jobs:
       # must not block sending reports already approved — but the outcome-gate
       # step at the bottom re-fails the run afterwards so the spec's "any step
       # failing opens the tracking issue" still holds (no silent draft breakage).
+      # GA + Search Console enrichment runs at DRAFT time (fetchGaUsers / fetchSearch),
+      # so the credentials have to be on THIS step — the send step re-reads the numbers
+      # off the Reports row and needs nothing. Without them readGaConfig() returns null
+      # and both fetches take their not-configured early return, which is how every
+      # CI-drafted report shipped with no ANALYTICS section and no "Google Indexed"
+      # evidence. GA_SA_KEY_JSON is the service-account key file's CONTENTS; it is
+      # written to a runner-local path here because the code takes a path, not a blob.
+      # `printf` (not `echo`) and no `set -x`: the key must never reach the log.
       - name: Draft due reports
         id: draft
         continue-on-error: true
@@ -54,7 +62,15 @@ jobs:
         env:
           AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
-        run: node dist/cli/bin.js report --due
+          GA_SUBJECT: ${{ secrets.GA_SUBJECT }}
+          GA_SA_KEY_JSON: ${{ secrets.GA_SA_KEY_JSON }}
+          GA_SA_KEY_PATH: ${{ runner.temp }}/ga-service-account.json
+        run: |
+          if [ -n "$GA_SA_KEY_JSON" ]; then
+            printf '%s' "$GA_SA_KEY_JSON" > "$GA_SA_KEY_PATH"
+            chmod 600 "$GA_SA_KEY_PATH"
+          fi
+          node dist/cli/bin.js report --due
 
       # 2. SEND — existing gate (Draft ready ∧ Approved to send ∧ Sent at BLANK).
       # At-least-once: a failed send leaves Sent at null → retried tomorrow; the

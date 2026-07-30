@@ -36,6 +36,7 @@ beforeEach(() => {
     softFailed: false,
     defaultQueryMissed: false,
     propertyMissing: false,
+    notConfigured: false,
   });
 });
 
@@ -304,6 +305,7 @@ describe("recipes/announce", () => {
       softFailed: false,
       defaultQueryMissed: false,
       propertyMissing: false,
+      notConfigured: false,
     });
     const base = makeFakeBase({
       Websites: [

@@ -136,7 +136,14 @@ export async function draftReportForSite(
   const searchResult =
     base !== null
       ? await fetchSearch(siteRow, periodStart, periodEnd)
-      : { ...NO_ENRICHMENT, defaultQueryMissed: false, propertyMissing: false };
+      : // No-IO render path: nothing was attempted, so this is not an environment gap
+        // (`notConfigured` would wrongly tell the operator to go wire a secret).
+        {
+          ...NO_ENRICHMENT,
+          defaultQueryMissed: false,
+          propertyMissing: false,
+          notConfigured: false,
+        };
   const gaUsers = gaResult.value;
   const search = searchResult.value;
   const softFailures: SoftFailure[] = [
@@ -317,10 +324,16 @@ export async function fetchGaUsers(
 }
 
 /** A search enrichment, plus the two distinct miss flags (see `fetchSearch` /
- *  `DraftResult.searchDefaultMissed` / `DraftResult.searchPropertyMissing`). */
+ *  `DraftResult.searchDefaultMissed` / `DraftResult.searchPropertyMissing`) and the
+ *  environment-gap flag `notConfigured`. */
 type SearchEnrichment = Enrichment<SearchPresence> & {
   defaultQueryMissed: boolean;
   propertyMissing: boolean;
+  /** True when the site IS analytics-enrolled but this environment has no GA/SC
+   *  credentials (`GA_SUBJECT` unset) — so the check could not run at all. Distinct
+   *  from the un-enrolled skip (nothing to measure) and from a soft-fail (the API
+   *  errored). See {@link fetchSearch}. */
+  notConfigured: boolean;
 };
 
 /**
@@ -343,6 +356,13 @@ type SearchEnrichment = Enrichment<SearchPresence> & {
  * that's a valid measurement), a default that does find a position, the not-enrolled skip,
  * and the errored soft-fail path.
  *
+ * `notConfigured` splits the old single skip in two. An un-enrolled site is a true skip —
+ * there is nothing to measure, and the checklist row stays manual. But an ENROLLED site in an
+ * environment with no credentials is an environment gap: the check was supposed to run and
+ * couldn't. Collapsing the two made a credential-less run (exactly what the daily-reports
+ * workflow was) indistinguishable from "this site opted out", so the Google Indexed row
+ * silently vanished from every drafted report instead of saying why.
+ *
  * When the Search Console API errors it logs a one-line warning and returns `softFailed: true`.
  * Never throws, so a search problem can never block a draft.
  */
@@ -352,8 +372,16 @@ export async function fetchSearch(
   periodEnd: Date,
 ): Promise<SearchEnrichment> {
   const cfg = readGaConfig();
-  if (!cfg || !(siteRow.ga4PropertyId || siteRow.searchQuery))
-    return { ...NO_ENRICHMENT, defaultQueryMissed: false, propertyMissing: false };
+  const enrolled = Boolean(siteRow.ga4PropertyId || siteRow.searchQuery);
+  if (!cfg || !enrolled) {
+    const notConfigured = enrolled && !cfg;
+    if (notConfigured) {
+      console.warn(
+        `⚑ Search: no GA/Search Console credentials in this environment (GA_SUBJECT unset) — the Google Indexed check could not run for ${siteRow.name}.`,
+      );
+    }
+    return { ...NO_ENRICHMENT, defaultQueryMissed: false, propertyMissing: false, notConfigured };
+  }
   const explicit = siteRow.searchQuery?.trim();
   const query = explicit || siteRow.name;
   const usedDefault = !explicit;
@@ -381,10 +409,16 @@ export async function fetchSearch(
         `⚑ Search: site-name default "${query}" found no Search Console data for ${siteRow.name} — set an explicit "Search query" in Airtable to track brand presence.`,
       );
     }
-    return { value, softFailed: false, defaultQueryMissed, propertyMissing };
+    return { value, softFailed: false, defaultQueryMissed, propertyMissing, notConfigured: false };
   } catch (e) {
     console.warn(`⚠ Search presence skipped for ${siteRow.name}: ${(e as Error).message}`);
-    return { value: null, softFailed: true, defaultQueryMissed: false, propertyMissing: false };
+    return {
+      value: null,
+      softFailed: true,
+      defaultQueryMissed: false,
+      propertyMissing: false,
+      notConfigured: false,
+    };
   }
 }
 

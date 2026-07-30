@@ -7,7 +7,7 @@ const NOW = new Date("2026-06-18T12:00:00.000Z");
 const GOOGLE = "Maint: Google Indexed";
 
 function signals(over: Partial<AutoTickSignals> = {}): AutoTickSignals {
-  return { search: { value: null, softFailed: false }, ...over };
+  return { search: { value: null, softFailed: false, notConfigured: false }, ...over };
 }
 
 describe("autoTickChecklist — Google Indexed", () => {
@@ -20,6 +20,7 @@ describe("autoTickChecklist — Google Indexed", () => {
         search: {
           value: { foundOnPage1: true, position: 3, propertyFound: true },
           softFailed: false,
+          notConfigured: false,
         },
       }),
     );
@@ -39,6 +40,7 @@ describe("autoTickChecklist — Google Indexed", () => {
         search: {
           value: { foundOnPage1: false, position: 18, propertyFound: true },
           softFailed: false,
+          notConfigured: false,
         },
       }),
     );
@@ -50,14 +52,31 @@ describe("autoTickChecklist — Google Indexed", () => {
       makeWebsiteRow(),
       "Maintenance",
       NOW,
-      signals({ search: { value: null, softFailed: true } }),
+      signals({ search: { value: null, softFailed: true, notConfigured: false } }),
     );
     expect(ev.get(GOOGLE)!.result).toBe("unknown");
   });
 
-  it("emits no Google evidence when search is not configured (value null, not soft-failed)", () => {
+  it("emits no Google evidence when the site is not analytics-enrolled (nothing to measure)", () => {
     const ev = autoTickChecklist(makeWebsiteRow(), "Maintenance", NOW, signals());
     expect(ev.has(GOOGLE)).toBe(false);
+  });
+
+  it("is unknown, and SAYS SO, when the site is enrolled but Search Console is unconfigured here", () => {
+    // The silent-skip hole: an enrolled site drafted in an environment with no GA/SC
+    // credentials used to emit NO record at all, so the dashboard rendered a bare amber
+    // "needs you" pill with no note and nothing to drill into. The environment gap is a
+    // real finding — it must name itself.
+    const ev = autoTickChecklist(
+      makeWebsiteRow(),
+      "Maintenance",
+      NOW,
+      signals({ search: { value: null, softFailed: false, notConfigured: true } }),
+    );
+    const g = ev.get(GOOGLE)!;
+    expect(g.result).toBe("unknown");
+    expect(g.checkedAt).toBe(NOW.toISOString());
+    expect(g.note).toMatch(/not configured/i);
   });
 
   it("emits Google evidence for a Testing report too (Testing gates on all 13)", () => {
@@ -69,6 +88,7 @@ describe("autoTickChecklist — Google Indexed", () => {
         search: {
           value: { foundOnPage1: true, position: 1, propertyFound: true },
           softFailed: false,
+          notConfigured: false,
         },
       }),
     );
@@ -84,6 +104,7 @@ describe("autoTickChecklist — Google Indexed", () => {
         search: {
           value: { foundOnPage1: true, position: 1, propertyFound: true },
           softFailed: false,
+          notConfigured: false,
         },
       }),
     );
