@@ -52,6 +52,7 @@ beforeEach(() => {
     softFailed: false,
     defaultQueryMissed: false,
     propertyMissing: false,
+    notConfigured: false,
   });
 });
 
@@ -105,6 +106,7 @@ describe("buildReportDataForSite", () => {
       softFailed: false,
       defaultQueryMissed: false,
       propertyMissing: false,
+      notConfigured: false,
     });
     const d = await buildReportDataForSite(site(), "Maintenance", NOW, { scores, header: HEADER });
     expect(d.gaUsersCurrent).toBeUndefined();

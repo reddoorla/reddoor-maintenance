@@ -455,6 +455,39 @@ describe("draftReportForSite", () => {
       expect(res.value).toBeNull();
       expect(res.softFailed).toBe(false);
       expect(res.defaultQueryMissed).toBe(false);
+      // Nothing to measure on an un-enrolled site — that is not an environment gap.
+      expect(res.notConfigured).toBe(false);
+    });
+
+    it("flags notConfigured when the site IS enrolled but no GA/SC credentials exist here", async () => {
+      // GA_SUBJECT unset → readGaConfig() null. Pre-fix this was indistinguishable from the
+      // un-enrolled skip above, so a CI run with no credentials silently dropped the check.
+      delete process.env.GA_SUBJECT;
+      const res = await fetchSearch(
+        siteFixture({ searchQuery: null, ga4PropertyId: "471880366" }),
+        period.start,
+        period.end,
+      );
+      expect(fetchSearchPresence).not.toHaveBeenCalled();
+      expect(res.value).toBeNull();
+      // Still not a soft-failure — the API never errored; the environment is just unwired.
+      expect(res.softFailed).toBe(false);
+      expect(res.notConfigured).toBe(true);
+    });
+
+    it("leaves notConfigured false when credentials are present", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: true,
+        position: 3,
+        propertyFound: true,
+      });
+      const res = await fetchSearch(
+        siteFixture({ searchQuery: "erp funds" }),
+        period.start,
+        period.end,
+      );
+      expect(res.notConfigured).toBe(false);
     });
 
     it("flags defaultQueryMissed when the site-name default returns position:null", async () => {

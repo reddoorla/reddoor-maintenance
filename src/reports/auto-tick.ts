@@ -31,7 +31,15 @@ export type EvidenceRecord = { result: EvidenceResult; checkedAt: string | null;
  * the remaining signals (security, domain, browser) off the Websites row passed as `site`.
  */
 export type AutoTickSignals = {
-  search: { value: SearchPresence | null; softFailed: boolean };
+  search: {
+    value: SearchPresence | null;
+    softFailed: boolean;
+    /** The site is analytics-enrolled but this environment has no GA/Search Console
+     *  credentials, so the check could not run. Kept distinct from the un-enrolled skip
+     *  (`value: null`, this false) so the evidence can name the environment gap instead
+     *  of disappearing. */
+    notConfigured: boolean;
+  };
 };
 
 /**
@@ -161,12 +169,27 @@ function securityEvidence(site: WebsiteRow, now: Date): EvidenceRecord | null {
   return { result: "fail", checkedAt: at, note: `${crit} critical / ${high} high vuln(s)` };
 }
 
-/** Search Console → Google Indexed evidence. `null` (not configured) emits nothing so the box
- *  stays manual; a soft-fail is `unknown`; page-1 is `pass` (with the position in the note). */
+/**
+ * Search Console → Google Indexed evidence. A soft-fail (the API errored) and an unwired
+ * environment (`notConfigured`) are both `unknown`, but they carry DIFFERENT notes — an
+ * operator staring at an amber pill has to be able to tell "Google was unreachable this run"
+ * from "this deployment has no Search Console credentials", because only the second one is
+ * fixed by wiring a secret. An un-enrolled site (`value: null`, not configured, not failed)
+ * emits nothing so the box stays manual.
+ *
+ * Page-1 is `pass` (with the position in the note); off page 1 is `fail`.
+ */
 function googleEvidence(now: Date, search: AutoTickSignals["search"]): EvidenceRecord | null {
   const at = now.toISOString();
   if (search.softFailed) {
     return { result: "unknown", checkedAt: at, note: "Search Console unavailable this run" };
+  }
+  if (search.notConfigured) {
+    return {
+      result: "unknown",
+      checkedAt: at,
+      note: "Search Console not configured in the environment that drafted this report",
+    };
   }
   if (search.value === null) return null;
   if (search.value.foundOnPage1) {

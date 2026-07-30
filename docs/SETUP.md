@@ -195,15 +195,40 @@ This runs the chain — **bootstrap (`self-updating`) → first audit → draft 
 
 ## Quick reference — where each secret lives
 
-| Secret                                | `~/.config/reddoor-maint/credentials.env` (CLI) | Netlify env (dashboard) | GitHub Actions secret (crons) | Actions variable |
-| ------------------------------------- | :---------------------------------------------: | :---------------------: | :---------------------------: | :--------------: |
-| `AIRTABLE_PAT`                        |                        ✓                        |            ✓            |               ✓               |                  |
-| `AIRTABLE_BASE_ID`                    |                        ✓                        |            ✓            |               ✓               |                  |
-| `RESEND_API_KEY`                      |                        ✓                        |                         |               ✓               |                  |
-| `RESEND_WEBHOOK_SECRET`               |                                                 |            ✓            |                               |                  |
-| `DASHBOARD_PASSWORD`                  |                                                 |            ✓            |                               |                  |
-| `DASHBOARD_BASE_URL`                  |                                                 |            ✓            |                               |        ✓         |
-| `RENOVATE_TOKEN`                      |                                                 |                         |            ✓ (org)            |                  |
-| `GH_TOKEN`                            |                ✓ (or `gh auth`)                 |                         |                               |                  |
-| `OPERATOR_EMAIL`                      |                                                 |                         |                               |        ✓         |
-| GA SA (`GA_SA_KEY_PATH`/`GA_SUBJECT`) |                        ✓                        |                         | (if cron does GA enrichment)  |                  |
+| Secret                  | `~/.config/reddoor-maint/credentials.env` (CLI) | Netlify env (dashboard) | GitHub Actions secret (crons) | Actions variable |
+| ----------------------- | :---------------------------------------------: | :---------------------: | :---------------------------: | :--------------: |
+| `AIRTABLE_PAT`          |                        ✓                        |            ✓            |               ✓               |                  |
+| `AIRTABLE_BASE_ID`      |                        ✓                        |            ✓            |               ✓               |                  |
+| `RESEND_API_KEY`        |                        ✓                        |                         |               ✓               |                  |
+| `RESEND_WEBHOOK_SECRET` |                                                 |            ✓            |                               |                  |
+| `DASHBOARD_PASSWORD`    |                                                 |            ✓            |                               |                  |
+| `DASHBOARD_BASE_URL`    |                                                 |            ✓            |                               |        ✓         |
+| `RENOVATE_TOKEN`        |                                                 |                         |            ✓ (org)            |                  |
+| `GH_TOKEN`              |                ✓ (or `gh auth`)                 |                         |                               |                  |
+| `OPERATOR_EMAIL`        |                                                 |                         |                               |        ✓         |
+| `GA_SUBJECT`            |                        ✓                        |                         |               ✓               |                  |
+| `GA_SA_KEY_JSON`        |         ✓ (as a file, `GA_SA_KEY_PATH`)         |                         |               ✓               |                  |
+
+### GA / Search Console in the daily cron
+
+`daily-reports.yml` drafts reports, and GA + Search Console enrichment happens **at draft
+time** — so both secrets must exist on the repo or the drafting step silently skips them.
+`readGaConfig()` returns `null` when `GA_SUBJECT` is unset, and `fetchGaUsers`/`fetchSearch`
+then take their not-configured early return: reports still draft, but with **no ANALYTICS
+section** and a `Maint: Google Indexed` row that reads "Search Console not configured in the
+environment that drafted this report".
+
+Locally the service-account key is a file (`GA_SA_KEY_PATH`). In Actions there is no file, so
+store the key's **contents** as `GA_SA_KEY_JSON`; the workflow writes it to `$RUNNER_TEMP` and
+points `GA_SA_KEY_PATH` at it.
+
+```bash
+gh secret set GA_SUBJECT --repo reddoorla/reddoor-maintenance --body 'you@yourdomain.com'
+gh secret set GA_SA_KEY_JSON --repo reddoorla/reddoor-maintenance \
+  < ~/.config/reddoor-maint/ga-service-account.json
+```
+
+The service account needs domain-wide delegation for the `webmasters.readonly` scope, and the
+impersonated subject must have access to the Search Console property (`sites.list` only returns
+properties that subject can see — a subject that lost access reports "no property", not an
+auth error).
