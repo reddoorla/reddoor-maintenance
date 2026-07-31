@@ -26,14 +26,30 @@ function escapeXml(s: string): string {
     .replace(/'/g, "&apos;");
 }
 
-/** The domain line as a transparent SVG overlay the size of the full canvas, so
- *  it can be composited at 0,0 and positioned by its own coordinates. */
+/**
+ * The domain line as a transparent SVG overlay the size of the full canvas, so
+ * it can be composited at 0,0 and positioned by its own coordinates.
+ *
+ * ⚠️ FONT AVAILABILITY IS ENVIRONMENT-DEPENDENT. sharp renders SVG through
+ * librsvg + fontconfig, so the family below resolves against INSTALLED fonts.
+ * On macOS it resolves to real Helvetica Neue, which reproduces the hand-made
+ * reference exactly (verified: ink box dx=0 dy=0 dw=0 dh=0). A stock
+ * ubuntu-latest runner has none of Helvetica Neue / Helvetica / Arial, so it
+ * falls through to `sans-serif` — typically DejaVu Sans, which is wider and
+ * would render a visibly different domain line.
+ *
+ * This matters because report drafting (which regenerates the header) runs on
+ * ubuntu-latest in `.github/workflows/daily-reports.yml`. Until a
+ * Helvetica-metric font is installed there, a CI-generated header's domain text
+ * will not match a locally-generated one. Tracked as an open item on the
+ * header-image PR.
+ */
 function domainSvg(domain: string): Buffer {
   return Buffer.from(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${CANVAS.width}" height="${CANVAS.height}">
        <text x="${DOMAIN.x}" y="${DOMAIN.baseline}"
-             font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-             font-size="${DOMAIN.size}" font-weight="300"
+             font-family="Helvetica Neue, Helvetica, Nimbus Sans, Arial, sans-serif"
+             font-size="${DOMAIN.size}" font-weight="${DOMAIN.weight}"
              fill="${DOMAIN.color}">${escapeXml(domain)}</text>
      </svg>`,
     "utf-8",

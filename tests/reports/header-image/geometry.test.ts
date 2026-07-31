@@ -17,8 +17,11 @@ describe("reports/header-image geometry", () => {
   });
 
   it("places the domain text on the shared 70-design-unit left margin", () => {
-    expect(DOMAIN.x).toBe(282);
-    expect(DOMAIN.baseline).toBe(3037);
+    expect(DOMAIN.x).toBe(280);
+    expect(DOMAIN.baseline).toBe(3020);
     expect(DOMAIN.color).toBe("#747474");
+    // Solved against Sonder's original ink box — the single exact solution.
+    expect(DOMAIN.size).toBe(80);
+    expect(DOMAIN.weight).toBe(400);
   });
 });

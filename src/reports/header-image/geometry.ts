@@ -21,13 +21,20 @@ export const CANVAS = { width: 2400, height: 3200 } as const;
  *  in the hand-made headers. Aspect 1.5983 (16:10 to within 0.1%). */
 export const SCREEN = { x: 302, y: 1913, w: 1349, h: 844 } as const;
 
-/** The per-site domain line, bottom left. `baseline` is the text baseline in
- *  canvas pixels; `size` is the em size. Both derived from the measured ink box
- *  (x=283, y=2963, cap-to-descender 74px). */
+/** The per-site domain line, bottom left.
+ *
+ *  Solved against the hand-made reference rather than guessed: rendering
+ *  "gallerysonder.com" with these values reproduces Sonder's original ink box
+ *  (x=283 y=2963 w=645 h=74) EXACTLY — dx=0 dy=0 dw=0 dh=0. A sweep over sizes
+ *  62-88 at weights 300/400 has a single exact solution at size 80 / weight 400.
+ *
+ *  `baseline` is the text baseline in canvas pixels; the ink box sits above it
+ *  by the cap height and below by the descender. */
 export const DOMAIN = {
-  x: 282,
-  baseline: 3037,
-  size: 62,
+  x: 280,
+  baseline: 3020,
+  size: 80,
+  weight: 400,
   color: "#747474",
 } as const;
 
