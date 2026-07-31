@@ -7,7 +7,22 @@ const DEVICE_SCALE_FACTOR = 2;
  *  live fleet sites; overridable per site because consent gates and long
  *  animations vary. */
 const DEFAULT_SETTLE_MS = 2500;
+/** Budget for the `load` milestone — the navigation we actually gate on.
+ *
+ *  Do NOT put `waitUntil: "networkidle"` back on the `goto`. Measured across all
+ *  14 live fleet sites (30s timeout): `load` succeeded on 14/14 in 346–1205ms,
+ *  while `networkidle` NEVER fired on 4 of them (ERP Industrials, Vineyard,
+ *  Revogen, 1836dig) — chat widgets, analytics polling and websockets hold the
+ *  connection open forever, so `goto` threw and those sites could never get a
+ *  header image at all. */
 const NAV_TIMEOUT_MS = 60_000;
+/** Best-effort extra wait for network idle, applied *after* `load` and with its
+ *  rejection swallowed. The 10 sites that do settle still get the benefit; the 4
+ *  that never will just proceed. 3s is sized from the measurement above: the
+ *  slowest site that does reach idle took 4078ms from `goto` start, and by the
+ *  time this runs the `load` milestone (~0.3–1.2s) has already passed, so 3s
+ *  covers the real remaining settle time without stalling the never-idle sites. */
+const IDLE_BUDGET_MS = 3_000;
 
 export type ShootOptions = {
   url: string;
@@ -60,7 +75,9 @@ export async function defaultShooter(): Promise<Shooter> {
           viewport: { width: opts.width, height: opts.height },
           deviceScaleFactor: opts.deviceScaleFactor,
         });
-        await page.goto(opts.url, { waitUntil: "networkidle", timeout: NAV_TIMEOUT_MS });
+        await page.goto(opts.url, { waitUntil: "load", timeout: NAV_TIMEOUT_MS });
+        // Best-effort only — a site that never idles must still be captured.
+        await page.waitForLoadState("networkidle", { timeout: IDLE_BUDGET_MS }).catch(() => {});
         await page.evaluate("document.fonts && document.fonts.ready");
         await page.waitForTimeout(opts.settleMs);
         const buf = await page.screenshot({ type: "png" });
