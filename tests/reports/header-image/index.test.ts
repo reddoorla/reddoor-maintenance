@@ -1,0 +1,56 @@
+import { describe, it, expect } from "vitest";
+import sharp from "sharp";
+import { generateHeaderImage } from "../../../src/reports/header-image/index.js";
+import type { Shooter } from "../../../src/reports/header-image/capture.js";
+
+async function shot(color = "#123456"): Promise<Uint8Array> {
+  const png = await sharp({
+    create: { width: 1600, height: 1000, channels: 3, background: color },
+  })
+    .png()
+    .toBuffer();
+  return new Uint8Array(png);
+}
+
+const shooter: Shooter = { shoot: async () => shot() };
+
+describe("reports/header-image generateHeaderImage", () => {
+  it("produces a 2400x3200 JPEG for a site", async () => {
+    const out = await generateHeaderImage({ url: "https://acme.com/", shooter });
+    const meta = await sharp(Buffer.from(out.bytes)).metadata();
+    expect(meta.format).toBe("jpeg");
+    expect(meta.width).toBe(2400);
+    expect(meta.height).toBe(3200);
+  });
+
+  it("derives the printed domain from the URL, without scheme, www or slash", async () => {
+    const out = await generateHeaderImage({ url: "https://www.acme.com/", shooter });
+    expect(out.domain).toBe("acme.com");
+  });
+
+  it("keeps a non-www host intact", async () => {
+    const out = await generateHeaderImage({ url: "https://1836dig.com/", shooter });
+    expect(out.domain).toBe("1836dig.com");
+  });
+
+  it("names the file after the site slug", async () => {
+    const out = await generateHeaderImage({ url: "https://acme.com/", slug: "acme", shooter });
+    expect(out.filename).toBe("acmeHeader.jpg");
+  });
+
+  it("rejects a blank capture rather than overwriting a good header", async () => {
+    const blank: Shooter = {
+      shoot: async () =>
+        new Uint8Array(
+          await sharp({
+            create: { width: 1600, height: 1000, channels: 3, background: "#ffffff" },
+          })
+            .png()
+            .toBuffer(),
+        ),
+    };
+    await expect(generateHeaderImage({ url: "https://acme.com/", shooter: blank })).rejects.toThrow(
+      /blank/i,
+    );
+  });
+});

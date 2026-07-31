@@ -15,6 +15,50 @@ import { readGaConfig } from "./ga/config.js";
 import { fetchPeriodUsers } from "./ga/client.js";
 import { fetchSearchPresence } from "./search/client.js";
 import type { SearchPresence } from "./search/client.js";
+import { generateHeaderImage } from "./header-image/index.js";
+import type { GeneratedHeaderImage } from "./header-image/index.js";
+
+export type RefreshHeaderDeps = {
+  generate?: (input: { url: string; slug?: string }) => Promise<GeneratedHeaderImage>;
+  upload?: (
+    recordId: string,
+    field: string,
+    bytes: Uint8Array,
+    filename: string,
+    contentType: string,
+  ) => Promise<void>;
+};
+
+/**
+ * Regenerate a site's Header image from its live homepage so the report ships a
+ * current screenshot rather than one frozen whenever the image was last made by
+ * hand. Sonder alone runs 16 reports a year, so a static header goes visibly
+ * stale.
+ *
+ * BEST-EFFORT BY DESIGN — returns false and never throws. A capture or upload
+ * failure must not fail the draft: the stored image is still perfectly usable,
+ * and the operator reviews the rendered preview before approving the send.
+ */
+export async function refreshHeaderImage(
+  site: WebsiteRow,
+  deps: RefreshHeaderDeps = {},
+): Promise<boolean> {
+  if (!site.url) return false;
+  const generate = deps.generate ?? generateHeaderImage;
+  const upload = deps.upload ?? uploadAttachment;
+  try {
+    const gen = await generate({ url: site.url, slug: siteSlug(site.name) });
+    await upload(site.id, "Header image", gen.bytes, gen.filename, gen.contentType);
+    return true;
+  } catch (err) {
+    console.warn(
+      `⚠ header-image refresh skipped for ${site.name}: ${
+        err instanceof Error ? err.message : String(err)
+      } — keeping the stored image`,
+    );
+    return false;
+  }
+}
 
 export type DraftOptions = {
   /** Where to write the local preview HTML when `previewOnly`. Defaults to `reports/<slug>/draft.html`. */
@@ -32,6 +76,10 @@ export type DraftOptions = {
   /** The mapped ReportRow being completed, returned as `reportRow` from the
    *  complete path so callers keep the same shape they get on the create path. */
   existingRow?: ReportRow;
+  /** Injected deps for the draft-time header refresh, or `false` to skip it
+   *  entirely. Tests set `false` (or a stub) so a unit suite never launches a
+   *  browser or resolves DNS. Production leaves it unset and gets the real thing. */
+  refreshHeader?: RefreshHeaderDeps | false;
 };
 
 /** An enrichment fetch that *errored* (not one that was legitimately skipped
@@ -150,6 +198,19 @@ export async function draftReportForSite(
     ...(gaResult.softFailed ? (["ga"] as const) : []),
     ...(searchResult.softFailed ? (["search"] as const) : []),
   ];
+
+  // Header-image refresh (real path only). Regenerated BEFORE the render so the
+  // preview the operator approves carries the same screenshot the client will
+  // receive — the send reads this attachment off the Websites row. Gated on
+  // `base !== null` exactly like the GA/Search enrichment above: the no-IO render
+  // path (base === null, used for pure rendering and tests) must not launch a
+  // browser or write to production Airtable. `refreshHeader: false` is the second
+  // gate, for suites that DO pass a fake base and would otherwise pay a real
+  // chromium launch per case. Production leaves it unset and gets the real
+  // refresh. Best-effort — see refreshHeaderImage.
+  if (base !== null && options.refreshHeader !== false) {
+    await refreshHeaderImage(siteRow, options.refreshHeader ?? {});
+  }
 
   const cidName = `${slug}-header`;
   const { html } = await renderReportHtml({

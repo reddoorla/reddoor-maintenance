@@ -62,7 +62,14 @@ export {
   type AirtableInventoryOptions,
 } from "./inventory/index.js";
 
-export { draftReportForSite, type DraftOptions, type DraftResult } from "./reports/draft.js";
+// RefreshHeaderDeps comes along because DraftOptions references it — without it a
+// consumer can hold a DraftOptions but cannot name the type of its refreshHeader.
+export {
+  draftReportForSite,
+  type DraftOptions,
+  type DraftResult,
+  type RefreshHeaderDeps,
+} from "./reports/draft.js";
 export { sendApprovedReports, type OrchestrateOptions } from "./reports/send/orchestrate.js";
 export { renderReportHtml, type RenderResult } from "./reports/render.js";
 export { findDueReports, type DueItem } from "./reports/due.js";
@@ -84,3 +91,16 @@ export {
 export { selfPackageVersion, selfCaretRange } from "./util/self-version.js";
 
 export { renderSiteDashboardHtml, renderCockpitHtml, verifyBasicAuth } from "./dashboard/index.js";
+
+// Exported so `pnpm test:dist` can prove the plate resolves from the PUBLISHED
+// layout. The plate is its own tsup onSuccess copy, so it can go missing
+// independently of the maintenance-email assets — and unit tests cannot catch
+// that, because vitest evaluates the source file where import.meta.url already
+// points at src/.
+export { loadPlate } from "./reports/header-image/assets/index.js";
+
+// header-image/index.ts is not a tsup entry, so it only exists in dist/ as a
+// hashed chunk with no stable import path. Re-exported here so consumers (and
+// the smoke-dist gate) can reach it from the package root.
+export { generateHeaderImage, domainFromUrl } from "./reports/header-image/index.js";
+export type { GenerateInput, GeneratedHeaderImage } from "./reports/header-image/index.js";
