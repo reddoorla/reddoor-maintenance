@@ -145,6 +145,34 @@ export async function smokeAudit(ctx: AuditContext): Promise<AuditResult> {
     }
   }
 
+  // `playwright.config.ts` resolves `tsconfig.json`, which extends the GENERATED
+  // `./.svelte-kit/tsconfig.json`. A fresh clone has no such file, and no fleet
+  // repo carries a `prepare` script to write one, so Playwright aborted while
+  // loading its own config — before a single test ran:
+  //
+  //   Error: Failed to load tsconfig file at <site>/tsconfig.json:
+  //   Failed to resolve "extends" path "./.svelte-kit/tsconfig.json"
+  //
+  // That silently failed 9 of 11 live sites (found 2026-07-31). It stayed hidden
+  // because fleet-smoke.yml gates on FLEET_WRITE_SUMMARY, which counts rows
+  // WRITTEN, not rows passing — a failing site is still written, so the workflow
+  // reported success.
+  //
+  // Fixing it here rather than per-repo: one change covers every site, and
+  // AUTONOMY.md makes multi-repo mutations a human-reviewed operation. `sync` is
+  // idempotent and fast, so run it unconditionally instead of probing for the
+  // file. Best-effort by design — a non-SvelteKit site or a missing binary must
+  // never downgrade a working suite; let the suite itself be the verdict.
+  try {
+    await spawn("pnpm", ["exec", "svelte-kit", "sync"], {
+      cwd: site.path,
+      timeoutMs: 60_000,
+    });
+  } catch {
+    // ENOENT (no pnpm) or a spawn failure — the `test:smoke` call below reports
+    // the real outcome, including its own ENOENT skip.
+  }
+
   const port = await findFreePort();
 
   let raw;

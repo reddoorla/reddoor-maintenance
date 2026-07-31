@@ -54,6 +54,47 @@ describe("audits/smoke", () => {
     expect(r.details).toEqual({ ok: "pass", checkedAt: NOW.toISOString() });
   });
 
+  it("runs `svelte-kit sync` before the suite so playwright can resolve tsconfig", async () => {
+    // playwright.config.ts resolves tsconfig.json, which extends the GENERATED
+    // ./.svelte-kit/tsconfig.json. On a fresh clone that file does not exist and
+    // no fleet repo has a `prepare` script, so Playwright died loading its config
+    // before running a single test — silently failing 9 of 11 live sites.
+    const site = await siteWithSmokeScript();
+    const calls: Array<{ cmd: string; args: readonly string[] }> = [];
+    const spawn: SpawnFn = async (c, a) => {
+      calls.push({ cmd: c, args: a });
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const r = await smokeAudit({ site, spawn, now: NOW });
+    const sync = calls.findIndex((c) => c.args.includes("svelte-kit"));
+    const suite = calls.findIndex((c) => c.args.includes("test:smoke"));
+    expect(sync, "svelte-kit sync was never spawned").toBeGreaterThanOrEqual(0);
+    expect(calls[sync]?.args).toEqual(["exec", "svelte-kit", "sync"]);
+    expect(sync).toBeLessThan(suite);
+    expect(r.status).toBe("pass");
+  });
+
+  it("tolerates a failing sync — a non-SvelteKit site still runs its suite", async () => {
+    const site = await siteWithSmokeScript();
+    const spawn: SpawnFn = async (_c, a) =>
+      a.includes("svelte-kit")
+        ? { code: 1, stdout: "", stderr: "command not found" }
+        : { code: 0, stdout: "", stderr: "" };
+    const r = await smokeAudit({ site, spawn, now: NOW });
+    expect(r.status).toBe("pass");
+    expect(r.details).toEqual({ ok: "pass", checkedAt: NOW.toISOString() });
+  });
+
+  it("does not let a sync ENOENT crash the audit", async () => {
+    const site = await siteWithSmokeScript();
+    const spawn: SpawnFn = async (_c, a) => {
+      if (a.includes("svelte-kit")) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const r = await smokeAudit({ site, spawn, now: NOW });
+    expect(r.status).toBe("pass");
+  });
+
   it("installs deps (frozen) on a fresh clone before running the suite", async () => {
     const site = await siteWithSmokeScript(false); // no node_modules
     const calls: Array<{ cmd: string; args: readonly string[]; cwd: string | undefined }> = [];
@@ -65,7 +106,10 @@ describe("audits/smoke", () => {
     expect(calls[0]?.cmd).toBe("pnpm");
     expect(calls[0]?.args).toEqual(["install", "--frozen-lockfile"]);
     expect(calls[0]?.cwd).toBe(site.path);
-    expect(calls[1]?.args).toEqual(["test:smoke"]);
+    // sync sits between install and the suite: it needs the deps installed, and
+    // the suite needs the tsconfig it generates.
+    expect(calls[1]?.args).toEqual(["exec", "svelte-kit", "sync"]);
+    expect(calls[2]?.args).toEqual(["test:smoke"]);
     expect(r.status).toBe("pass");
   });
 
@@ -91,7 +135,10 @@ describe("audits/smoke", () => {
       return { code: 0, stdout: "", stderr: "" };
     };
     const r = await smokeAudit({ site, spawn, now: NOW });
-    expect(calls).toEqual([["test:smoke"]]); // only the suite, no install
+    // sync + suite, no install. sync still runs on a warm checkout: node_modules
+    // can exist while .svelte-kit does not, and sync is idempotent.
+    expect(calls).toEqual([["exec", "svelte-kit", "sync"], ["test:smoke"]]);
+    expect(calls.some((a) => a[0] === "install")).toBe(false);
     expect(r.status).toBe("pass");
   });
 
