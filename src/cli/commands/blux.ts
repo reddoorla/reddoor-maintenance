@@ -39,6 +39,11 @@ export type BluxCommandOptions = {
   against?: string;
   /** freeze: site slug for the emitted template/manifest (default: slugified dir name). */
   site?: string;
+  /** freeze: path to the site's extra-slots declaration (see
+   *  blux/freeze/types.ts `ExtraSlotsFile`) — editable content the byte-faithful
+   *  template carries no token for, e.g. a video poster or a panel the render
+   *  rebuilds from a baked image. Optional; omitted means no extra slots. */
+  extraSlots?: string;
   /** Test seam for --probe; defaults to global fetch. */
   fetchImpl?: typeof fetch;
   cwd?: string;
@@ -790,7 +795,17 @@ export async function runBluxCommand(
     const { emitFavicon } = await import("../../blux/freeze/favicon.js");
     const site = (opts.site ?? basename(dir)).replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
     const outDir = opts.out ?? join(dir, "frozen-out");
-    const result = await freezeSite({ indexHtmlPath: join(dir, "index.html"), site });
+    // A malformed declaration must stop the freeze, not ship: these become live
+    // CMS fields. Both the read and the parse are deliberately un-caught.
+    let extraSlots: unknown;
+    if (opts.extraSlots) {
+      extraSlots = JSON.parse(await readFile(opts.extraSlots, "utf-8"));
+    }
+    const result = await freezeSite({
+      indexHtmlPath: join(dir, "index.html"),
+      site,
+      ...(extraSlots === undefined ? {} : { extraSlots }),
+    });
     const paths = await emitFrozen(outDir, result);
     // Fail-soft: a freeze without a favicon is still a good freeze (the icon
     // can be re-fetched while the CDN lives; see favicon.ts).

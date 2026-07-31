@@ -8,10 +8,13 @@ import { bakeImages } from "./bake-images.js";
 import { tokenizeText } from "./tokenize-text.js";
 import { finalize } from "./finalize.js";
 import { extractMapConfig } from "../grid/extract-map.js";
+import { validateExtraSlots } from "./extra-slots.js";
 import type { FrozenResult } from "./types.js";
 
-export type { Slot, FrozenManifest, FrozenResult } from "./types.js";
+export type { Slot, FrozenManifest, FrozenResult, ExtraSlotsFile } from "./types.js";
 export { frozenPageCustomType, FROZEN_PAGE_TYPE } from "./frozen-page-type.js";
+export { validateExtraSlots } from "./extra-slots.js";
+export { EXTRA_SLOT_PREFIX } from "./types.js";
 
 export interface FreezeOptions {
   /** Path to the export's index.html. */
@@ -20,6 +23,9 @@ export interface FreezeOptions {
   site: string;
   /** Prismic uid for the page doc (default "home"). */
   uid?: string;
+  /** A site's own extra-slots declaration (parsed `ExtraSlotsFile`), for
+   *  editable content the template carries no token for. See types.ts. */
+  extraSlots?: unknown;
 }
 
 /**
@@ -48,6 +54,11 @@ export async function freezeSite(opts: FreezeOptions): Promise<FrozenResult> {
   const mapConfig =
     rawMap && fin.templateHtml.includes(`id="${rawMap.mountId}"`) ? rawMap : undefined;
 
+  // Derived slots first, then the site's own. Validated against the derived
+  // keys so a declaration can never shadow real page content.
+  const derived = [...baked.slots, ...tokenized.slots];
+  const extra = validateExtraSlots(opts.extraSlots, derived);
+
   return {
     manifest: {
       site: opts.site,
@@ -56,7 +67,7 @@ export async function freezeSite(opts: FreezeOptions): Promise<FrozenResult> {
       metaTitle: fin.metaTitle,
       metaImageUrl: fin.metaImageUrl,
       fontLinks: fin.fontLinks,
-      slots: [...baked.slots, ...tokenized.slots],
+      slots: [...derived, ...extra],
     },
     templateHtml: fin.templateHtml,
     styleCss: fin.styleCss,

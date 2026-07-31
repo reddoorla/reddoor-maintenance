@@ -584,6 +584,14 @@ cli
     "--against <target>",
     "validate: rendered HTML of the converted site — a file path or http(s) URL",
   )
+  .option(
+    "--site <slug>",
+    "freeze/migrate-frozen: site slug naming <slug>.slots.json (default: slugified dir name)",
+  )
+  .option(
+    "--extra-slots <path>",
+    "freeze: JSON declaring slots the template has no token for (video poster, a panel rebuilt from a baked image). Keys must start with 'x.'",
+  )
   .action(
     async (
       action: string,
@@ -594,6 +602,8 @@ cli
         bluxBase?: string;
         probe?: boolean;
         against?: string;
+        site?: string;
+        extraSlots?: string;
         cwd?: string;
         verbose?: boolean;
       },
