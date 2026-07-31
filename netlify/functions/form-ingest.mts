@@ -5,6 +5,7 @@ import { openDb, readDbConfig } from "../../src/db/client.js";
 import {
   createSubmission,
   stampNotified,
+  stampFanout,
   findRecentDuplicateSubmissions,
   listRecentSubmissionsForEmail,
   markSubmissionsSpamRetro,
@@ -15,7 +16,7 @@ import { verifyTurnstileWithSecrets } from "../../src/forms/turnstile.js";
 import { classifySpam } from "../../src/forms/spam-classifier.js";
 import { readMeta } from "../../src/forms/meta.js";
 import { forwardNewsletterToWebhook } from "../../src/forms/webhook.js";
-import { addMailchimpMember } from "../../src/forms/mailchimp.js";
+import { addMailchimpMember, mailchimpTagsFor } from "../../src/forms/mailchimp.js";
 import { makeNotify } from "../../src/forms/notify.js";
 import { verifyFormsToken, bearerToken } from "../../src/forms/token.js";
 import { defaultResendClient, type ResendClient } from "../../src/reports/send/resend.js";
@@ -179,7 +180,15 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
             audienceId: site.mailchimpAudienceId ?? "",
             email: submission.email,
             name: submission.name,
+            // Tag the member as a website-form signup so the audience can be
+            // segmented by origin — an untagged member is indistinguishable from
+            // an import or a manual add once it's in the list.
+            tags: mailchimpTagsFor(submission.formType),
           }),
+        // Record what the fan-out actually did (see ingest.ts FANOUT) — without this
+        // a Mailchimp outage or an expired key is console.error-only, invisible to
+        // the dashboard and to anyone reading the row later.
+        stampFanout: (id, fanoutStatus) => stampFanout(db, id, fanoutStatus),
         // Tier B — pure heuristic classifier folded into the ingest decision.
         // ingestSubmission calls this with the SAME Turnstile outcome (the 4th
         // arg below) and derives status (+ requireTurnstile escalation, read off

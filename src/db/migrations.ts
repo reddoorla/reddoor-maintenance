@@ -72,4 +72,13 @@ export const MIGRATIONS: Migration[] = [
     id: "0004_add_spam_reason",
     sql: `ALTER TABLE submissions ADD COLUMN spam_reason TEXT;`,
   },
+  {
+    // Outcome of the newsletter fan-out (site webhook + Mailchimp). Before this the
+    // results were console.error-only, so a rotated Mailchimp key or an outage would
+    // silently stop signups reaching the audience with no trace anywhere the operator
+    // looks — the row still read `notify=sent`, healthy. Same non-idempotent
+    // ADD COLUMN caveat as 0003.
+    id: "0005_add_fanout_status",
+    sql: `ALTER TABLE submissions ADD COLUMN fanout_status TEXT;`,
+  },
 ];

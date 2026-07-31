@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { createHash } from "node:crypto";
-import { addMailchimpMember } from "../../src/forms/mailchimp.js";
+import { addMailchimpMember, mailchimpTagsFor } from "../../src/forms/mailchimp.js";
 
 const md5 = (s: string) => createHash("md5").update(s).digest("hex");
 
@@ -113,5 +113,134 @@ describe("addMailchimpMember", () => {
       fetch: fetchImpl as unknown as typeof fetch,
     });
     expect(res).toEqual({ ok: false, status: 0 });
+  });
+});
+
+// Tagging (2026-07-31): the audit asked to tell form signups apart from imported or
+// manually-added members — before this every member arrived untagged with
+// source "API - Generic", indistinguishable from any other API write. Mailchimp
+// silently IGNORES `tags` in the PUT body for an ALREADY-EXISTING member, which is
+// the common case for a repeat signup, so the dedicated tags endpoint is what
+// actually makes tagging reliable; the PUT body still carries them so a brand-new
+// member is tagged even if the second call never lands.
+describe("addMailchimpMember — source tags", () => {
+  const okRes = { ok: true, status: 200 };
+
+  it("sends the tags in the PUT body and then applies them via the tags endpoint", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(okRes);
+    const res = await addMailchimpMember({
+      apiKey: "k-us1",
+      audienceId: "aud1",
+      email: "a@b.co",
+      tags: ["Online Form", "form:newsletter"],
+      fetch: fetchImpl as unknown as typeof fetch,
+    });
+    expect(res).toEqual({ ok: true, status: 200, tagged: true });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+
+    const [putUrl, putInit] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(putInit.method).toBe("PUT");
+    expect(JSON.parse(putInit.body as string).tags).toEqual(["Online Form", "form:newsletter"]);
+
+    const [tagUrl, tagInit] = fetchImpl.mock.calls[1] as [string, RequestInit];
+    expect(tagUrl).toBe(`${putUrl}/tags`);
+    expect(tagInit.method).toBe("POST");
+    expect((tagInit.headers as Record<string, string>).authorization).toMatch(/^Basic /);
+    expect(JSON.parse(tagInit.body as string)).toEqual({
+      tags: [
+        { name: "Online Form", status: "active" },
+        { name: "form:newsletter", status: "active" },
+      ],
+    });
+  });
+
+  it("reports tagged:false when the tags call fails but keeps the member add ok", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(okRes)
+      .mockResolvedValueOnce({ ok: false, status: 403 });
+    const res = await addMailchimpMember({
+      apiKey: "k-us1",
+      audienceId: "aud1",
+      email: "a@b.co",
+      tags: ["Online Form"],
+      fetch: fetchImpl as unknown as typeof fetch,
+    });
+    expect(res).toEqual({ ok: true, status: 200, tagged: false });
+  });
+
+  it("reports tagged:false when the tags call throws (and never rethrows)", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(okRes)
+      .mockRejectedValueOnce(new Error("ECONNRESET"));
+    const res = await addMailchimpMember({
+      apiKey: "k-us1",
+      audienceId: "aud1",
+      email: "a@b.co",
+      tags: ["Online Form"],
+      fetch: fetchImpl as unknown as typeof fetch,
+    });
+    expect(res).toEqual({ ok: true, status: 200, tagged: false });
+  });
+
+  it("skips the tags call entirely when the member add failed", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 401 });
+    const res = await addMailchimpMember({
+      apiKey: "k-us1",
+      audienceId: "aud1",
+      email: "a@b.co",
+      tags: ["Online Form"],
+      fetch: fetchImpl as unknown as typeof fetch,
+    });
+    expect(res).toEqual({ ok: false, status: 401 });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("makes no tags call and reports no `tagged` field when no tags are asked for", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(okRes);
+    const res = await addMailchimpMember({
+      apiKey: "k-us1",
+      audienceId: "aud1",
+      email: "a@b.co",
+      fetch: fetchImpl as unknown as typeof fetch,
+    });
+    expect(res).toEqual({ ok: true, status: 200 });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(
+      JSON.parse((fetchImpl.mock.calls[0]![1] as RequestInit).body as string),
+    ).not.toHaveProperty("tags");
+  });
+
+  it("ignores blank tag names and treats an all-blank list as no tags", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(okRes);
+    await addMailchimpMember({
+      apiKey: "k-us1",
+      audienceId: "aud1",
+      email: "a@b.co",
+      tags: ["  ", "Online Form", ""],
+      fetch: fetchImpl as unknown as typeof fetch,
+    });
+    expect(JSON.parse((fetchImpl.mock.calls[0]![1] as RequestInit).body as string).tags).toEqual([
+      "Online Form",
+    ]);
+
+    const fetchImpl2 = vi.fn().mockResolvedValue(okRes);
+    const res2 = await addMailchimpMember({
+      apiKey: "k-us1",
+      audienceId: "aud1",
+      email: "a@b.co",
+      tags: ["", "   "],
+      fetch: fetchImpl2 as unknown as typeof fetch,
+    });
+    expect(res2).toEqual({ ok: true, status: 200 });
+    expect(fetchImpl2).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("mailchimpTagsFor", () => {
+  it("marks the member as a website form signup and names the form", () => {
+    expect(mailchimpTagsFor("newsletter")).toEqual(["Online Form", "form:newsletter"]);
+    expect(mailchimpTagsFor("rsvp")).toEqual(["Online Form", "form:rsvp"]);
   });
 });

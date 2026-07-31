@@ -957,3 +957,128 @@ describe("ingestSubmission — turnstile solved-hostname gate", () => {
     expect(d.createSubmission).toHaveBeenCalledWith(expect.objectContaining({ status: "new" }));
   });
 });
+
+// The fan-out results used to be console.error-only: a rotated Mailchimp key or an
+// outage stopped signups reaching the audience while the row still read
+// notify=sent, and nothing the operator can see recorded it. stampFanout is the
+// trace. Every case below pins BOTH that the lead is still accepted (best-effort
+// stays best-effort) and what was written.
+describe("ingestSubmission — newsletter fan-out provenance", () => {
+  const newsletterSite = (over: Record<string, unknown> = {}) =>
+    makeWebsiteRow({
+      id: "recSITE",
+      newsletterWebhook: "https://hooks.zapier.com/x",
+      mailchimpApiKey: "abc123-us21",
+      mailchimpAudienceId: "aud1",
+      ...over,
+    });
+
+  function fanoutDeps(over: Partial<IngestDeps> = {}, site = newsletterSite()) {
+    const stampFanout = vi.fn().mockResolvedValue(undefined);
+    const d = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(site),
+      createSubmission: vi
+        .fn()
+        .mockResolvedValue(makeSubmissionRow({ id: "recSUB", formType: "newsletter" })),
+      forwardNewsletter: vi.fn().mockResolvedValue({ ok: true, status: 200 }),
+      addToMailchimp: vi.fn().mockResolvedValue({ ok: true, status: 200 }),
+      stampFanout,
+      ...over,
+    });
+    return { d, stampFanout };
+  }
+
+  const send = (d: IngestDeps) =>
+    ingestSubmission(d, "acme", { formType: "newsletter", email: "a@b.co" });
+
+  it("records every destination that succeeded", async () => {
+    const { d, stampFanout } = fanoutDeps();
+    expect((await send(d)).status).toBe("accepted");
+    expect(stampFanout).toHaveBeenCalledWith("recSUB", "webhook:ok,mailchimp:ok");
+  });
+
+  it("records the HTTP status when Mailchimp rejects the member (the rotated-key case)", async () => {
+    const { d, stampFanout } = fanoutDeps({
+      addToMailchimp: vi.fn().mockResolvedValue({ ok: false, status: 401 }),
+    });
+    expect((await send(d)).status).toBe("accepted");
+    expect(stampFanout).toHaveBeenCalledWith("recSUB", "webhook:ok,mailchimp:401");
+  });
+
+  it("records a thrown destination as :threw", async () => {
+    const { d, stampFanout } = fanoutDeps({
+      forwardNewsletter: vi.fn().mockRejectedValue(new Error("network down")),
+      addToMailchimp: vi.fn().mockRejectedValue(new Error("mailchimp down")),
+    });
+    expect((await send(d)).status).toBe("accepted");
+    expect(stampFanout).toHaveBeenCalledWith("recSUB", "webhook:threw,mailchimp:threw");
+  });
+
+  it("records only the destinations that are configured", async () => {
+    const { d, stampFanout } = fanoutDeps({}, newsletterSite({ newsletterWebhook: null }));
+    expect((await send(d)).status).toBe("accepted");
+    expect(stampFanout).toHaveBeenCalledWith("recSUB", "mailchimp:ok");
+  });
+
+  it("records a member added but not tagged, so a silent tag failure is still visible", async () => {
+    const { d, stampFanout } = fanoutDeps({
+      addToMailchimp: vi.fn().mockResolvedValue({ ok: true, status: 200, tagged: false }),
+    });
+    expect((await send(d)).status).toBe("accepted");
+    expect(stampFanout).toHaveBeenCalledWith(
+      "recSUB",
+      "webhook:ok,mailchimp:ok,mailchimp-tags:failed",
+    );
+  });
+
+  it("stamps nothing when the site has no destination configured", async () => {
+    const { d, stampFanout } = fanoutDeps(
+      {},
+      newsletterSite({ newsletterWebhook: null, mailchimpApiKey: null, mailchimpAudienceId: null }),
+    );
+    expect((await send(d)).status).toBe("accepted");
+    expect(stampFanout).not.toHaveBeenCalled();
+  });
+
+  it("stamps nothing for a non-newsletter form", async () => {
+    const { d, stampFanout } = fanoutDeps();
+    const r = await ingestSubmission(d, "acme", { formType: "contact", email: "a@b.co" });
+    expect(r.status).toBe("accepted");
+    expect(stampFanout).not.toHaveBeenCalled();
+  });
+
+  it("stamps nothing for a spam signup (the fan-out never ran)", async () => {
+    const { d, stampFanout } = fanoutDeps({
+      createSubmission: vi
+        .fn()
+        .mockResolvedValue(
+          makeSubmissionRow({ id: "recSUB", formType: "newsletter", status: "spam_auto" }),
+        ),
+      classifySpam: () => ({ score: 130, reasons: ["links:3"] }),
+    });
+    expect((await send(d)).status).toBe("accepted");
+    expect(stampFanout).not.toHaveBeenCalled();
+  });
+
+  it("swallows a stampFanout failure — a provenance write must never cost the lead", async () => {
+    const { d } = fanoutDeps({
+      stampFanout: vi.fn().mockRejectedValue(new Error("turso down")),
+    });
+    expect((await send(d)).status).toBe("accepted");
+  });
+
+  it("still fans out when no stampFanout dep is injected (older callers)", async () => {
+    const addToMailchimp = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    const d = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(newsletterSite()),
+      createSubmission: vi
+        .fn()
+        .mockResolvedValue(makeSubmissionRow({ id: "recSUB", formType: "newsletter" })),
+      forwardNewsletter: vi.fn().mockResolvedValue({ ok: true, status: 200 }),
+      addToMailchimp,
+    });
+    expect(d.stampFanout).toBeUndefined();
+    expect((await send(d)).status).toBe("accepted");
+    expect(addToMailchimp).toHaveBeenCalledTimes(1);
+  });
+});

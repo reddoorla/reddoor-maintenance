@@ -60,11 +60,16 @@ export type IngestDeps = {
     site: WebsiteRow,
   ) => Promise<{ ok: boolean; status: number }>;
   /** Optional: add a newsletter submitter to the site's Mailchimp audience
-   *  (best-effort). Omitted where unused. */
+   *  (best-effort). Omitted where unused. `tagged:false` reports a member who was
+   *  upserted but could NOT be tagged — recorded separately, see FANOUT below. */
   addToMailchimp?: (
     site: WebsiteRow,
     submission: SubmissionRow,
-  ) => Promise<{ ok: boolean; status: number }>;
+  ) => Promise<{ ok: boolean; status: number; tagged?: boolean }>;
+  /** Optional: persist the newsletter fan-out outcome on the row (see FANOUT below).
+   *  Best-effort — failures are swallowed. Absent → the fan-out still runs, just
+   *  unrecorded (older callers and most tests). */
+  stampFanout?: (id: string, fanoutStatus: string) => Promise<void>;
 };
 
 export type IngestResult =
@@ -313,22 +318,52 @@ export async function ingestSubmission(
   // swallowed+logged — the lead is already persisted; never turn it into a 502.
   // Guarded on the row status so a spam signup is never forwarded to a site
   // webhook or added to a Mailchimp audience.
+  //
+  // FANOUT provenance (2026-07-31): the outcome is ALSO recorded on the row, one
+  // `<destination>:<outcome>` token per attempt, comma-joined in attempt order —
+  // `webhook:ok,mailchimp:401`. Outcome is `ok`, the HTTP status of a non-2xx
+  // (`0` for a network error / misconfiguration, see mailchimp.ts), or `threw`.
+  // `mailchimp-tags:failed` is appended when the member was upserted but the tag
+  // write did not land. Until this existed the results were console.error-only, so
+  // an expired Mailchimp key stopped signups reaching the audience while the row
+  // still read `notify=sent` — healthy-looking, with the failure visible nowhere the
+  // operator ever looks. Nothing attempted → nothing stamped (null stays "no
+  // destination configured", NOT "we tried and lost the answer"). The stamp is
+  // best-effort like everything else here: a provenance write must never cost a lead.
+  const fanout: string[] = [];
   if (n.formType === "newsletter" && !isSpam) {
     if (site.newsletterWebhook && deps.forwardNewsletter) {
       try {
         const fwd = await deps.forwardNewsletter(site.newsletterWebhook, row, site);
         if (!fwd.ok) console.error(`[ingest] newsletter webhook → ${fwd.status} for ${site.name}`);
+        fanout.push(fwd.ok ? "webhook:ok" : `webhook:${fwd.status}`);
       } catch (err) {
         console.error(`[ingest] newsletter webhook threw: ${String(err)}`);
+        fanout.push("webhook:threw");
       }
     }
     if (site.mailchimpApiKey && site.mailchimpAudienceId && deps.addToMailchimp) {
       try {
         const mc = await deps.addToMailchimp(site, row);
         if (!mc.ok) console.error(`[ingest] mailchimp add → ${mc.status} for ${site.name}`);
+        fanout.push(mc.ok ? "mailchimp:ok" : `mailchimp:${mc.status}`);
+        // Only meaningful alongside a successful add — a failed add was never tagged
+        // either, and one token per real problem keeps the row readable.
+        if (mc.ok && mc.tagged === false) {
+          console.error(`[ingest] mailchimp tags not applied for ${site.name}`);
+          fanout.push("mailchimp-tags:failed");
+        }
       } catch (err) {
         console.error(`[ingest] mailchimp add threw: ${String(err)}`);
+        fanout.push("mailchimp:threw");
       }
+    }
+  }
+  if (fanout.length > 0 && deps.stampFanout) {
+    try {
+      await deps.stampFanout(row.id, fanout.join(","));
+    } catch (err) {
+      console.error(`[ingest] stampFanout failed: ${String(err)}`);
     }
   }
   return { status: "accepted", submissionId: row.id, notifyStatus: notify.status };
