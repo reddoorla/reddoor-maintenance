@@ -84,3 +84,10 @@ export {
 export { selfPackageVersion, selfCaretRange } from "./util/self-version.js";
 
 export { renderSiteDashboardHtml, renderCockpitHtml, verifyBasicAuth } from "./dashboard/index.js";
+
+// Exported so `pnpm test:dist` can prove the plate resolves from the PUBLISHED
+// layout. The plate is its own tsup onSuccess copy, so it can go missing
+// independently of the maintenance-email assets — and unit tests cannot catch
+// that, because vitest evaluates the source file where import.meta.url already
+// points at src/.
+export { loadPlate } from "./reports/header-image/assets/index.js";

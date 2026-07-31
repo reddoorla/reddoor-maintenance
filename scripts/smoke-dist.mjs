@@ -232,6 +232,8 @@ const requiredExports = [
   "loadBundledImages",
   "CHECK_CID",
   "BLURRED_CID",
+  // header-image plate — its own dist copy, its own ENOENT exposure
+  "loadPlate",
   // version helpers — present so consumers can pin to our actual version
   "selfPackageVersion",
   "selfCaretRange",
@@ -278,6 +280,47 @@ await check("loadBundledImages returns two non-empty buffers without ENOENT", as
     throw new Error(`CID mismatch: ${checkPng.cid}, ${blurred.cid}`);
   }
 });
+
+// Same ENOENT class as loadBundledImages above, for the header-image plate. The
+// plate is a SEPARATE tsup onSuccess copy into its own dist dir, so it can go
+// missing independently — and unit tests can't see it, because vitest evaluates
+// the source file where import.meta.url already points at src/.
+await check("loadPlate returns the plate without ENOENT", async () => {
+  const bytes = await mod.loadPlate();
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) {
+    throw new Error("plate loaded but empty");
+  }
+  // PNG magic — proves we read the real asset, not a stray placeholder.
+  const png = [0x89, 0x50, 0x4e, 0x47];
+  if (!png.every((b, i) => bytes[i] === b)) {
+    throw new Error(`plate is not a PNG (first bytes: ${[...bytes.slice(0, 4)].join(",")})`);
+  }
+});
+
+// The check above is necessary but NOT sufficient: the walk-up loader prefers
+// the src/ layout, which exists in this checkout but never ships. So a plate
+// that tsup failed to copy still resolves here while breaking every consumer —
+// `package.json#files` is ["dist", "README.md"]. Assert the published layout
+// directly. (Verified by deleting the dist copy: the loader check still passed,
+// this one fails.)
+// Every bundled binary asset, asserted against the layout that actually ships.
+// The loader checks above cannot do this on their own — they all fall back to
+// src/, which exists here and never ships. Each entry is a separate explicit
+// copyFile in tsup's onSuccess, so any one can be dropped independently.
+const shippedAssets = [
+  "dist/reports/header-image/assets/plate.png",
+  "dist/reports/maintenance-email/assets/check.png",
+  "dist/reports/maintenance-email/assets/blurredTests.jpg",
+];
+for (const rel of shippedAssets) {
+  await check(`${rel} is present in the PUBLISHED dist/ layout`, () => {
+    if (!existsSync(resolve(repoRoot, rel))) {
+      throw new Error(
+        `${rel} missing — tsup onSuccess did not copy it, so the published package would throw on first use`,
+      );
+    }
+  });
+}
 
 // Netlify-handler import resolution. The .mts handlers import deep `../../src/*`
 // paths (Netlify bundles them from source at deploy, so they are NOT dist
