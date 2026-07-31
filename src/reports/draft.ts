@@ -76,6 +76,10 @@ export type DraftOptions = {
   /** The mapped ReportRow being completed, returned as `reportRow` from the
    *  complete path so callers keep the same shape they get on the create path. */
   existingRow?: ReportRow;
+  /** Injected deps for the draft-time header refresh, or `false` to skip it
+   *  entirely. Tests set `false` (or a stub) so a unit suite never launches a
+   *  browser or resolves DNS. Production leaves it unset and gets the real thing. */
+  refreshHeader?: RefreshHeaderDeps | false;
 };
 
 /** An enrichment fetch that *errored* (not one that was legitimately skipped
@@ -200,8 +204,13 @@ export async function draftReportForSite(
   // receive — the send reads this attachment off the Websites row. Gated on
   // `base !== null` exactly like the GA/Search enrichment above: the no-IO render
   // path (base === null, used for pure rendering and tests) must not launch a
-  // browser or write to production Airtable. Best-effort — see refreshHeaderImage.
-  if (base !== null) await refreshHeaderImage(siteRow);
+  // browser or write to production Airtable. `refreshHeader: false` is the second
+  // gate, for suites that DO pass a fake base and would otherwise pay a real
+  // chromium launch per case. Production leaves it unset and gets the real
+  // refresh. Best-effort — see refreshHeaderImage.
+  if (base !== null && options.refreshHeader !== false) {
+    await refreshHeaderImage(siteRow, options.refreshHeader ?? {});
+  }
 
   const cidName = `${slug}-header`;
   const { html } = await renderReportHtml({

@@ -48,19 +48,28 @@ function siteFixture(over: Partial<WebsiteRow> = {}): WebsiteRow {
   });
 }
 
+/** Every case below passes a fake base, which opens the draft-time header refresh —
+ *  a real chromium launch and DNS lookup per case (the refresh swallows its own
+ *  errors, so it would fail invisibly and just cost seconds). Opt out so this stays
+ *  a unit suite. Production leaves `refreshHeader` unset and gets the real refresh;
+ *  `draft-header-image.test.ts` covers refreshHeaderImage itself. */
+const NO_HEADER = { refreshHeader: false } as const;
+
 describe("draftReportForSite", () => {
   it("throws with a clear error pointing at audit lighthouse when any score is null", async () => {
     const base = makeFakeBase({ Reports: [] });
     const site = siteFixture({ pScore: null });
-    await expect(draftReportForSite(base, site, "Maintenance")).rejects.toThrow(
+    await expect(draftReportForSite(base, site, "Maintenance", NO_HEADER)).rejects.toThrow(
       /missing one or more Lighthouse scores/,
     );
-    await expect(draftReportForSite(base, site, "Maintenance")).rejects.toThrow(/audit lighthouse/);
+    await expect(draftReportForSite(base, site, "Maintenance", NO_HEADER)).rejects.toThrow(
+      /audit lighthouse/,
+    );
   });
 
   it("creates a Reports row with the snapshotted scores", async () => {
     const base = makeFakeBase({ Reports: [] });
-    await draftReportForSite(base, siteFixture(), "Maintenance");
+    await draftReportForSite(base, siteFixture(), "Maintenance", NO_HEADER);
 
     const creates = base.__calls.filter((c) => c.kind === "create");
     expect(creates).toHaveLength(1);
@@ -75,14 +84,14 @@ describe("draftReportForSite", () => {
 
   it("sets Delivery status=pending in createDraft (not in stampSent — H4 fix)", async () => {
     const base = makeFakeBase({ Reports: [] });
-    await draftReportForSite(base, siteFixture(), "Maintenance");
+    await draftReportForSite(base, siteFixture(), "Maintenance", NO_HEADER);
     const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
     expect(fields["Delivery status"]).toBe("pending");
   });
 
   it("flips Draft ready=true after creating the row", async () => {
     const base = makeFakeBase({ Reports: [] });
-    await draftReportForSite(base, siteFixture(), "Maintenance");
+    await draftReportForSite(base, siteFixture(), "Maintenance", NO_HEADER);
     const updates = base.__calls.filter((c) => c.kind === "update");
     // There's one Airtable update (Draft ready). The HTML upload goes via fetch
     // (content.airtable.com), not through the SDK, so it doesn't show here.
@@ -99,7 +108,7 @@ describe("draftReportForSite", () => {
       lastLighthouseAuditAt: "2026-03-15T09:30:00.000Z",
       testingDay: "2020-01-01",
     });
-    await draftReportForSite(base, site, "Maintenance");
+    await draftReportForSite(base, site, "Maintenance", NO_HEADER);
     const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
     expect(fields["Last tested date"]).toBe("2026-03-15");
   });
@@ -110,7 +119,7 @@ describe("draftReportForSite", () => {
       lastLighthouseAuditAt: "2026-03-15T09:30:00.000Z",
       testingFreq: "Quarterly",
     });
-    await draftReportForSite(base, site, "Testing");
+    await draftReportForSite(base, site, "Testing", NO_HEADER);
     const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
     expect(fields["Last tested date"]).toBeUndefined();
   });
@@ -118,14 +127,14 @@ describe("draftReportForSite", () => {
   it("leaves lastTestedDate unset when the site has never been audited", async () => {
     const base = makeFakeBase({ Reports: [] });
     const site = siteFixture({ lastLighthouseAuditAt: null });
-    await draftReportForSite(base, site, "Maintenance");
+    await draftReportForSite(base, site, "Maintenance", NO_HEADER);
     const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
     expect(fields["Last tested date"]).toBeUndefined();
   });
 
   it("formats Report ID as `{name} — {type} — {YYYY-MM-DD}`", async () => {
     const base = makeFakeBase({ Reports: [] });
-    await draftReportForSite(base, siteFixture(), "Maintenance");
+    await draftReportForSite(base, siteFixture(), "Maintenance", NO_HEADER);
     const reportId = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields["Report ID"];
     expect(reportId).toMatch(/^Acme Co — Maintenance — \d{4}-\d{2}-\d{2}$/);
   });
@@ -170,14 +179,14 @@ describe("draftReportForSite", () => {
         },
       ],
     });
-    await draftReportForSite(base, siteFixture(), "Maintenance");
+    await draftReportForSite(base, siteFixture(), "Maintenance", NO_HEADER);
     const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
     expect(fields["Period start"]).toBe("2026-04-27");
   });
 
   it("falls back to 30-days-ago for periodStart when no prior reports exist", async () => {
     const base = makeFakeBase({ Reports: [] });
-    await draftReportForSite(base, siteFixture(), "Maintenance");
+    await draftReportForSite(base, siteFixture(), "Maintenance", NO_HEADER);
     const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
     const periodStart = fields["Period start"] as string;
     const periodEnd = fields["Period end"] as string;
@@ -193,14 +202,17 @@ describe("draftReportForSite", () => {
     // stamp would never match the guard's search key and every later run would
     // draft a duplicate. So the caller passes the key down explicitly.
     const base = makeFakeBase({ Reports: [] });
-    await draftReportForSite(base, siteFixture(), "Maintenance", { period: "2026-05" });
+    await draftReportForSite(base, siteFixture(), "Maintenance", {
+      period: "2026-05",
+      ...NO_HEADER,
+    });
     const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
     expect(fields["Period"]).toBe("2026-05");
   });
 
   it("falls back to the periodEnd's YYYY-MM when no period is passed (manual one-off draft)", async () => {
     const base = makeFakeBase({ Reports: [] });
-    await draftReportForSite(base, siteFixture(), "Maintenance");
+    await draftReportForSite(base, siteFixture(), "Maintenance", NO_HEADER);
     const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
     // Period field must be derived from periodEnd's YYYY-MM (not just match the shape).
     // This pins the fallback's *source*, not merely its format.
@@ -211,6 +223,7 @@ describe("draftReportForSite", () => {
     it("re-attaches HTML + flips Draft ready on the EXISTING row, with NO second createDraft", async () => {
       const base = makeFakeBase({ Reports: [] });
       const result = await draftReportForSite(base, siteFixture(), "Maintenance", {
+        ...NO_HEADER,
         period: "2026-05",
         completeRowId: "rec_halfmade",
         existingRow: {
@@ -255,7 +268,12 @@ describe("draftReportForSite", () => {
       vi.mocked(fetchPeriodUsers).mockResolvedValue({ current: 666, previous: 540 });
       const base = makeFakeBase({ Reports: [] });
 
-      await draftReportForSite(base, siteFixture({ ga4PropertyId: "471880366" }), "Maintenance");
+      await draftReportForSite(
+        base,
+        siteFixture({ ga4PropertyId: "471880366" }),
+        "Maintenance",
+        NO_HEADER,
+      );
 
       const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
       expect(fields["GA users (period)"]).toBe(666);
@@ -273,6 +291,7 @@ describe("draftReportForSite", () => {
         base,
         siteFixture({ ga4PropertyId: "471880366" }),
         "Maintenance",
+        NO_HEADER,
       );
 
       expect(result.reportRow).not.toBeNull(); // draft still created
@@ -285,7 +304,12 @@ describe("draftReportForSite", () => {
       process.env.GA_SUBJECT = "tucker@reddoorla.com";
       const base = makeFakeBase({ Reports: [] });
 
-      await draftReportForSite(base, siteFixture({ ga4PropertyId: null }), "Maintenance");
+      await draftReportForSite(
+        base,
+        siteFixture({ ga4PropertyId: null }),
+        "Maintenance",
+        NO_HEADER,
+      );
 
       expect(fetchPeriodUsers).not.toHaveBeenCalled();
       const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
@@ -294,7 +318,12 @@ describe("draftReportForSite", () => {
 
     it("skips GA when GA_SUBJECT is unset even if the site has a property ID", async () => {
       const base = makeFakeBase({ Reports: [] });
-      await draftReportForSite(base, siteFixture({ ga4PropertyId: "471880366" }), "Maintenance");
+      await draftReportForSite(
+        base,
+        siteFixture({ ga4PropertyId: "471880366" }),
+        "Maintenance",
+        NO_HEADER,
+      );
       expect(fetchPeriodUsers).not.toHaveBeenCalled();
     });
 
@@ -306,6 +335,7 @@ describe("draftReportForSite", () => {
         base,
         siteFixture({ ga4PropertyId: "471880366" }),
         "Maintenance",
+        NO_HEADER,
       );
       expect(result.softFailures).toContain("ga");
     });
@@ -319,6 +349,7 @@ describe("draftReportForSite", () => {
         base,
         siteFixture({ ga4PropertyId: "471880366" }),
         "Maintenance",
+        NO_HEADER,
       );
       expect(result.softFailures).toEqual([]);
     });
@@ -339,6 +370,7 @@ describe("draftReportForSite", () => {
         base,
         siteFixture({ searchQuery: "erp funds", searchConsoleProperty: null }),
         "Maintenance",
+        NO_HEADER,
       );
 
       expect(result.html).toContain("Page 1 Google Result (#3)");
@@ -355,6 +387,7 @@ describe("draftReportForSite", () => {
         base,
         siteFixture({ searchQuery: "erp funds" }),
         "Maintenance",
+        NO_HEADER,
       );
       expect(result.softFailures).toContain("search");
     });
@@ -373,6 +406,7 @@ describe("draftReportForSite", () => {
         base,
         siteFixture({ searchQuery: null, ga4PropertyId: "471880366" }),
         "Maintenance",
+        NO_HEADER,
       );
       expect(result.searchDefaultMissed).toBe(true);
     });
@@ -389,6 +423,7 @@ describe("draftReportForSite", () => {
         base,
         siteFixture({ searchQuery: "erp funds" }),
         "Maintenance",
+        NO_HEADER,
       );
       expect(result.searchDefaultMissed).toBe(false);
     });
@@ -594,7 +629,12 @@ describe("draftReportForSite", () => {
         propertyFound: true,
       });
       const base = makeFakeBase({ Reports: [] });
-      await draftReportForSite(base, siteFixture({ searchQuery: "acme co" }), "Maintenance");
+      await draftReportForSite(
+        base,
+        siteFixture({ searchQuery: "acme co" }),
+        "Maintenance",
+        NO_HEADER,
+      );
       const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
       expect(fields["Maint: Google Indexed"]).toBe(true);
       const ev = JSON.parse(fields["Checklist auto-evidence"] as string);
@@ -609,7 +649,12 @@ describe("draftReportForSite", () => {
         propertyFound: true,
       });
       const base = makeFakeBase({ Reports: [] });
-      await draftReportForSite(base, siteFixture({ searchQuery: "acme co" }), "Maintenance");
+      await draftReportForSite(
+        base,
+        siteFixture({ searchQuery: "acme co" }),
+        "Maintenance",
+        NO_HEADER,
+      );
       const fields = base.__calls.find((c) => c.kind === "create")!.records[0]!.fields;
       expect(fields["Maint: Google Indexed"]).toBeUndefined();
     });
