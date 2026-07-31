@@ -9,9 +9,13 @@ import { siteLabel } from "../util/site.js";
  *  token's validity moot — it exists to get past the CLIENT widget only. */
 export const CF_TEST_SITEKEY = "1x00000000000000000000AA";
 
-/** The canonical starter contact route. Sites built from reddoor-starter serve the
- *  form here; route discovery for bespoke paths is a follow-up (see Open items). */
-const CONTACT_PATH = "/contact";
+/** Routes probed, in order, for a submittable contact form. `/contact` is the
+ *  canonical reddoor-starter route and stays first so the common case still costs a
+ *  single navigation. `/` catches one-page sites whose only form lives on the
+ *  homepage (1836dig) — before this, `/contact` 404'd there and the site was
+ *  silently recorded as "no contact form", so its only conversion path went
+ *  unmonitored while the cockpit looked clean. */
+export const CONTACT_PATHS: readonly string[] = ["/contact", "/"];
 
 /** Persisted form-e2e verdict. `ok` is the single-select value: "pass"/"fail" when a
  *  form was found + submitted; null when NO contact form exists (n/a — paired with a
@@ -145,6 +149,53 @@ const FILL_SETTLE_MS = 1200;
 const PAGE_TIMEOUT_MS = 30_000;
 const HEALTH_TIMEOUT_MS = 10_000;
 
+/** The slice of a Playwright page the route probe needs. Declared structurally so
+ *  the discovery loop is unit-testable without launching a browser; the real
+ *  `Page` satisfies it. */
+export type FormProbePage = {
+  goto: (
+    url: string,
+    opts?: { waitUntil?: string; timeout?: number },
+  ) => Promise<{ ok: () => boolean } | null>;
+  locator: (selector: string) => { count: () => Promise<number> };
+};
+
+/**
+ * Navigate `paths` in order and return the URL of the first that renders a contact
+ * form — a `<form>` carrying an email field. `null` means no candidate route has
+ * one, which the caller reports as n/a (never a failure).
+ *
+ * A form without an email input does not count: several sites put a search or
+ * newsletter `<form>` on the homepage, and submitting one as a "contact form"
+ * would report a false pass. Navigation errors are misses, not aborts, so one dead
+ * route cannot mask a form on the next.
+ */
+export async function findFormPath(
+  page: FormProbePage,
+  baseUrl: string,
+  paths: readonly string[] = CONTACT_PATHS,
+): Promise<string | null> {
+  for (const path of paths) {
+    const url = new URL(path, baseUrl).toString();
+    const resp = await page
+      .goto(url, { waitUntil: "domcontentloaded", timeout: PAGE_TIMEOUT_MS })
+      .catch(() => null);
+    if (!resp || !resp.ok()) continue;
+    const forms = await page
+      .locator("form")
+      .count()
+      .catch(() => 0);
+    if (forms === 0) continue;
+    const emails = await page
+      .locator('input[name="email"], input[type="email"]')
+      .count()
+      .catch(() => 0);
+    if (emails === 0) continue;
+    return url;
+  }
+  return null;
+}
+
 /**
  * GET `{baseUrl}/health` and report whether the site DECLARES that its contact
  * form forwards the `testMode` marker (`forms.testMode === true`, strict
@@ -189,21 +240,11 @@ export async function defaultFormRunner(): Promise<FormRunner> {
       try {
         const ctx = await browser.newContext();
         const page = await ctx.newPage();
-        const url = new URL(CONTACT_PATH, baseUrl).toString();
-        const resp = await page
-          .goto(url, { waitUntil: "domcontentloaded", timeout: PAGE_TIMEOUT_MS })
-          .catch(() => null);
-        // No page, non-2xx, or no <form> with the expected fields ⇒ no contact form (n/a).
-        const form = page.locator("form").first();
-        const hasForm =
-          !!resp &&
-          resp.ok() &&
-          (await form.count().catch(() => 0)) > 0 &&
-          (await page
-            .locator('input[name="email"], input[type="email"]')
-            .count()
-            .catch(() => 0)) > 0;
-        if (!hasForm) return { formPresent: false };
+        // Probe each candidate route; none carrying a form ⇒ no contact form (n/a).
+        // findFormPath leaves the page on the route it selected, so the fills below
+        // act on the form it found.
+        const found = await findFormPath(page as unknown as FormProbePage, baseUrl);
+        if (!found) return { formPresent: false };
 
         await page.fill('[name="name"]', "Reddoor Monitor").catch(() => {});
         await page.fill('[name="email"]', "monitor+e2e@reddoorla.com").catch(() => {});
