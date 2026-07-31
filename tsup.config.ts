@@ -72,5 +72,10 @@ export default defineConfig({
       "src/reports/maintenance-email/assets/blurredTests.jpg",
       `${dest}/blurredTests.jpg`,
     );
+    // Header-image plate — same explicit-copy contract as above; the runtime
+    // loader reads it from dist/reports/header-image/assets/.
+    const headerDest = "dist/reports/header-image/assets";
+    await mkdir(headerDest, { recursive: true });
+    await copyFile("src/reports/header-image/assets/plate.png", `${headerDest}/plate.png`);
   },
 });
