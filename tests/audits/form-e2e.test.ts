@@ -2,7 +2,10 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   formE2eAudit,
   declaresTestModeForwarding,
+  findFormPath,
+  CONTACT_PATHS,
   type FormRunner,
+  type FormProbePage,
 } from "../../src/audits/form-e2e.js";
 
 const NOW = new Date("2026-07-06T00:00:00.000Z");
@@ -111,6 +114,82 @@ describe("audits/form-e2e", () => {
       testMode: true,
       testSitekey: "1x00000000000000000000AA",
     });
+  });
+});
+
+describe("audits/form-e2e findFormPath", () => {
+  /** Fake page: `routes` maps a pathname to what that route renders. Absent ⇒ 404. */
+  function page(routes: Record<string, { forms: number; emails: number }>): {
+    probe: FormProbePage;
+    visited: string[];
+  } {
+    const visited: string[] = [];
+    let current: { forms: number; emails: number } | null = null;
+    const probe: FormProbePage = {
+      goto: async (url) => {
+        visited.push(new URL(url).pathname);
+        current = routes[new URL(url).pathname] ?? null;
+        return current ? { ok: () => true } : { ok: () => false };
+      },
+      locator: (selector) => ({
+        count: async () => {
+          if (!current) return 0;
+          return selector === "form" ? current.forms : current.emails;
+        },
+      }),
+    };
+    return { probe, visited };
+  }
+
+  const FORM = { forms: 1, emails: 1 };
+
+  it("prefers /contact and does not probe further once it finds a form", async () => {
+    const { probe, visited } = page({ "/contact": FORM, "/": FORM });
+    await expect(findFormPath(probe, "https://acme.example.com")).resolves.toBe(
+      "https://acme.example.com/contact",
+    );
+    expect(visited).toEqual(["/contact"]);
+  });
+
+  it("falls back to the homepage when /contact 404s (the one-page-site case)", async () => {
+    const { probe, visited } = page({ "/": FORM });
+    await expect(findFormPath(probe, "https://1836dig.com/")).resolves.toBe("https://1836dig.com/");
+    expect(visited).toEqual(["/contact", "/"]);
+  });
+
+  it("falls back when /contact renders but carries no form", async () => {
+    const { probe } = page({ "/contact": { forms: 0, emails: 0 }, "/": FORM });
+    await expect(findFormPath(probe, "https://acme.example.com")).resolves.toBe(
+      "https://acme.example.com/",
+    );
+  });
+
+  it("rejects a form with no email field — that is not a contact form", async () => {
+    const { probe } = page({ "/contact": { forms: 1, emails: 0 } });
+    await expect(findFormPath(probe, "https://acme.example.com")).resolves.toBeNull();
+  });
+
+  it("returns null when no candidate route has a form (n/a, not a failure)", async () => {
+    const { probe, visited } = page({});
+    await expect(findFormPath(probe, "https://acme.example.com")).resolves.toBeNull();
+    expect(visited).toEqual([...CONTACT_PATHS]);
+  });
+
+  it("treats a navigation throw as a miss and keeps probing", async () => {
+    const visited: string[] = [];
+    const probe: FormProbePage = {
+      goto: async (url) => {
+        const p = new URL(url).pathname;
+        visited.push(p);
+        if (p === "/contact") throw new Error("ERR_CONNECTION_REFUSED");
+        return { ok: () => true };
+      },
+      locator: () => ({ count: async () => 1 }),
+    };
+    await expect(findFormPath(probe, "https://acme.example.com")).resolves.toBe(
+      "https://acme.example.com/",
+    );
+    expect(visited).toEqual(["/contact", "/"]);
   });
 });
 
