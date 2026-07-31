@@ -22,6 +22,14 @@ describe.skipIf(!run)("freeze golden — the-pointe", () => {
     expect(images.length).toBeGreaterThanOrEqual(56);
     expect(texts.length).toBeGreaterThan(30);
     expect(sections.size).toBeGreaterThanOrEqual(14);
+
+    // No slot may hold only whitespace. the-pointe's footer has a list item
+    // whose content is `&nbsp;`, there to occupy one blank line — layout, not
+    // copy. Tokenizing it makes a Prismic Rich Text field that cannot store the
+    // value: it round-trips to "" and the row collapses. It stays literal in the
+    // template instead, which is what the second assertion checks.
+    expect(texts.filter((s) => (s.text ?? "").replace(/&nbsp;/gi, " ").trim() === "")).toEqual([]);
+    expect(res.templateHtml).toMatch(/<div class="footer0ullia">\s*&nbsp;\s*<\/div>/);
     expect(res.templateHtml).not.toContain("<script");
     expect(res.templateHtml).not.toContain("cloudfront"); // all image urls tokenized
     expect(res.manifest.fontLinks.join(" ")).toContain("fonts.googleapis.com");
