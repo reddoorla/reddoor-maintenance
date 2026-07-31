@@ -62,7 +62,14 @@ export {
   type AirtableInventoryOptions,
 } from "./inventory/index.js";
 
-export { draftReportForSite, type DraftOptions, type DraftResult } from "./reports/draft.js";
+// RefreshHeaderDeps comes along because DraftOptions references it — without it a
+// consumer can hold a DraftOptions but cannot name the type of its refreshHeader.
+export {
+  draftReportForSite,
+  type DraftOptions,
+  type DraftResult,
+  type RefreshHeaderDeps,
+} from "./reports/draft.js";
 export { sendApprovedReports, type OrchestrateOptions } from "./reports/send/orchestrate.js";
 export { renderReportHtml, type RenderResult } from "./reports/render.js";
 export { findDueReports, type DueItem } from "./reports/due.js";
