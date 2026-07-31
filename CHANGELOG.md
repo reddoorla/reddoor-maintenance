@@ -1,5 +1,211 @@
 # @reddoorla/maintenance
 
+## 0.76.0
+
+### Minor Changes
+
+- 2a05c91: form-e2e now finds the contact form on one-page sites.
+
+  The probe hard-coded `/contact`. On a site whose only form lives on the homepage
+  that route 404s, so the audit recorded `formPresent: false` — "checked, no contact
+  form" — and moved on. That verdict is n/a rather than a failure, so nothing went
+  red: the site's only conversion path was unmonitored while the cockpit looked
+  clean. 1836dig is exactly this shape.
+
+  The probe now walks `CONTACT_PATHS` (`/contact`, then `/`) and submits against the
+  first route that renders a `<form>` carrying an email field. `/contact` stays
+  first, so sites built from the starter still resolve in a single navigation.
+
+  A `<form>` with no email input no longer counts as a contact form — homepages
+  often carry a search or newsletter form, and submitting one would have reported a
+  false pass.
+
+  The route-discovery loop is exported as `findFormPath`, taking a structural
+  `FormProbePage` rather than a Playwright `Page`, so it is unit-tested without
+  launching a browser. Previously this logic sat inside `defaultFormRunner` and no
+  test could reach it.
+
+- 2d2251d: blux freeze: site-declared extra slots, plus two CLI options that were missing
+
+  `blux freeze --extra-slots <path>` accepts a JSON declaration of slots the
+  byte-faithful template carries no token for, and appends them to the emitted
+  slot manifest so `blux migrate-frozen` pushes them to Prismic like any other
+  slot. This covers editable content the render composes itself rather than
+  substituting into the export's markup — a `<video>` poster (the export ships no
+  `poster` attribute, so there is nothing to tokenize) or a data panel the export
+  baked as a flattened image and the render rebuilds as real text.
+
+  Declared keys must start with the reserved `x.` prefix and are validated
+  against the derived keys, so a site declaration can never shadow real page
+  content; a malformed declaration fails the freeze rather than shipping, since
+  these become live CMS fields. The tool stays generic — it knows only that extra
+  slots exist, never what any site puts in them.
+
+  Also registers two `blux` options that the command handler already read but the
+  CLI never declared, so passing either was an "Unknown option" error:
+  - `--site <slug>` (freeze / migrate-frozen)
+  - `--extra-slots <path>` (freeze)
+
+- e109903: blux freeze: whitespace-only leaves stay literal instead of becoming CMS fields
+
+  A page builder emits blank rows as content: a list item or table cell holding
+  `&nbsp;`, there only to occupy a line. The freeze tokenized those like any other
+  text leaf, which turned layout into a Prismic Rich Text field — and Rich Text
+  cannot store a whitespace-only value. It round-trips to `""`, the row collapses
+  to its padding, and the page silently loses a line of vertical rhythm.
+
+  This is a defect that only surfaces _after_ the migration, on the live site, in a
+  place nobody thought to re-measure. It cost the-pointe 24px of footer.
+
+  `tokenizeText` now decides "carries content" on the DECODED text rather than the
+  raw source. `rawText.trim()` could not see this: for a `&nbsp;` leaf it trims to
+  the literal string `"&nbsp;"`, which is not empty, so the leaf looked like copy.
+  Testing the decoded text catches every spelling — `&nbsp;`, `&#160;`, `&#xa0;`,
+  `&emsp;`, `&thinsp;` — because JS `String.trim()` strips the whole Unicode
+  whitespace class. A real character such as `&amp;` still decodes to content and
+  is tokenized exactly as before.
+
+  **Re-freezing an existing site shifts slot keys.** A skipped leaf does not
+  advance the section counter (matching how plain-whitespace leaves have always
+  been treated), so every key after a dropped one moves down by one within its
+  section. Verified against the-pointe by round-tripping its committed artifact:
+  94 tokenized leaves become 93, the single dropped value is `" &nbsp;"`, the
+  content sequence is otherwise identical, and 5 keys shift (`h.t12`–`h.t16`) in
+  one of its 15 sections. Since `blux freeze` and `blux migrate-frozen` regenerate
+  the template and the manifest together, this is self-consistent — but do not
+  commit a new template against an old published document.
+
+- 205b640: Generate report header images from a site's live homepage.
+
+  The per-site "Header image" was made by hand in Figma. 34 of 44 Websites rows had
+  none, which hard-fails `preflight` with `header-image-missing` — "the send will
+  throw" — and blocked 1836dig's launch report.
+
+  `reddoor-maint header-image <site>` screenshots the site's homepage and
+  composites it into the bundled plate, writing a local JPEG for review;
+  `--write-airtable` uploads it, and `--all` backfills every live site without one.
+
+  Report drafts now regenerate the header first, so the screenshot matches the
+  period being reported instead of whenever the image was last made by hand. Sonder
+  runs 16 reports a year, so a static header goes visibly stale. Regeneration is
+  best-effort: a capture failure keeps the stored image rather than failing the
+  draft, and the operator still reviews the rendered preview before approving.
+
+- db52934: webflow import module: capture, docs, migrate — scrape a live Webflow site into a
+  JSON IR and push it into Prismic via the shared migration runner (first consumer:
+  beachfrontdentistry.com). Pipeline: fixtures → html-to-richtext → detail/index
+  extractors (team, services, categories, questions, reviews) → crawler + asset
+  manifest → IR-to-entity-docs → beachfront page-doc assembly → CLI `webflow
+capture`/`docs`/`migrate` → the proven blux `runMigration` runner (no blux
+  changes). Live rehearsal: 75 entity docs + 5 page docs, 70 assets, 0 missing,
+  zero extractor throws across all 75 real pages. 64 new tests. Two editorial
+  notes carried forward for a human pass: a `[DRAFT]` first-visit paragraph and an
+  empty tour-photo carousel awaiting Phase-4 fill.
+
+### Patch Changes
+
+- 987208e: approve button gets real feedback: a darker green success state, an in-flight
+  spinner, and hover/focus states across the site dashboard's controls.
+  - **Approved** is now `#14663c` instead of staying the idle `#2c7`, and it overrides
+    the `:disabled` dimming — the button stays disabled after a successful approve, and
+    a 60%-opacity "Approved" read as not-quite-finished. (It also lifts white-on-green
+    contrast to ~7:1 for that state.)
+  - **Spinner** while the POST is in flight: a CSS `::after` ring, not injected markup —
+    the handler is deliberately `textContent`/`title`-only so server strings can never
+    become HTML, and a pseudo-element keeps that guarantee. The label goes transparent
+    rather than being removed, so the button holds its width and the pending row never
+    reflows mid-request. `aria-busy` carries the same news to screen readers, and both
+    are cleared in a `finally` so no exit path can strand it spinning.
+    `prefers-reduced-motion` slows the spin to 2.4s rather than freezing it — a stopped
+    ring reads as a hung request.
+  - **Hover, active and focus-visible** on all four of the page's controls (approve,
+    override toggle, override submit, trigger renovate), each `:not(:disabled)` so a
+    dead button never invites a click. Keyboard focus was previously invisible on all of
+    them.
+
+  Verified in a real browser across every state (idle/hover/loading/approved/disabled),
+  plus 17 new tests.
+
+- 4629e91: the per-site dashboard's Approve button (and every other control on the page)
+  was dead — one escape sequence killed the whole inline script.
+
+  `b.title = data.blockers.join("\n")` was written inside `renderSiteDashboardHtml`'s
+  template literal, so the `\n` was consumed at BUILD time and emitted a real newline
+  into the served HTML — an unterminated string literal. The browser then refused to
+  parse the entire `<script>` element, so NOTHING in it attached: Approve, "Send
+  anyway…" (both override controls), Trigger Renovate, and the site-details selects
+  were all inert. The page looked completely normal — the button rendered enabled, the
+  preflight chip was green, and clicking simply did nothing, with no error surfaced
+  anywhere in the product.
+
+  Fixed by double-escaping so the browser receives `\n` (the tooltip still joins
+  blockers on real newlines — asserted). The explanatory comment avoids backticks for
+  the same reason: it too lives inside the template literal.
+
+  Guarded by a new test that extracts every inline `<script>` from every dashboard page
+  (site dashboard in both health-clean and health-red states, fleet cockpit, submissions
+  page) and compiles each with `new Function` — parse-only, no DOM. A single syntax error
+  in one of these blocks is never a partial failure, so nothing smaller than
+  "the whole block parses" is a useful assertion.
+
+- 6e9cfd5: daily-reports cron can finally reach GA + Search Console, and an unwired
+  environment now says so instead of going quiet.
+
+  GA/Search enrichment runs at DRAFT time, but `daily-reports.yml`'s drafting step
+  only ever passed `AIRTABLE_PAT` + `AIRTABLE_BASE_ID` — no GA credentials existed
+  anywhere in `.github/workflows/`. So `readGaConfig()` returned `null` on every
+  scheduled run and both `fetchGaUsers`/`fetchSearch` took their not-configured
+  early return. Every CI-drafted report shipped with blank GA numbers (which drops
+  the whole ANALYTICS section from the client email, since `analyticsSection()`
+  renders `""` with no data), no search position (so the maintenance template fell
+  back to the bare "Google Indexed" label instead of "Page 1 Google Result (#N)"),
+  and **no `Maint: Google Indexed` evidence record at all** — which the dashboard
+  rendered as a bare amber "needs you" pill with an empty note and nothing to drill
+  into. Caught on Sonder's 2026-07 maintenance report; Search Console in fact had
+  the site at position #2.
+
+  The step now takes `GA_SUBJECT` + `GA_SA_KEY_JSON` (the key file's contents,
+  written to `$RUNNER_TEMP` because the code takes a path) — both need adding as
+  repo secrets; `docs/SETUP.md` has the `gh secret set` lines.
+
+  `fetchSearch` also splits the old single skip in two. An un-enrolled site stays a
+  true skip (nothing to measure, box stays manual), but an **enrolled** site with no
+  credentials is now `notConfigured` and produces an honest `unknown` evidence
+  record noting "Search Console not configured in the environment that drafted this
+  report". Gating is unchanged — Google Indexed is still advisory on Maintenance and
+  still gating on Testing (where an absent record already coerced to `unknown`), so
+  no report's approvability moves.
+
+- 0624181: smoke audit runs `svelte-kit sync` before the suite — unbreaking 9 of 11 live sites.
+
+  `playwright.config.ts` resolves `tsconfig.json`, which extends the **generated**
+  `./.svelte-kit/tsconfig.json`. A fresh clone has no such file, and no fleet repo
+  carries a `prepare` script to write one, so Playwright aborted while loading its
+  own config, before running a single test:
+
+  ```
+  Error: Failed to load tsconfig file at <site>/tsconfig.json:
+  Failed to resolve "extends" path "./.svelte-kit/tsconfig.json"
+  ```
+
+  Nine of eleven live sites were recording `Smoke OK: fail` for this reason —
+  CalTex, Data Dynamiq, ERP, Espada, LA Homelessness Initiative, MSOT, Revogen,
+  Sonder and Vineyard. Only Reddoor and LA Homelessness Youth passed.
+
+  It stayed invisible because `fleet-smoke.yml` gates on `FLEET_WRITE_SUMMARY`,
+  which counts rows **written**, not rows **passing**. A failing site is still
+  written, so the nightly reported success throughout.
+
+  The audit now runs `pnpm exec svelte-kit sync` between install and `test:smoke`.
+  Fixing it centrally covers every site at once, where a `prepare` script would
+  need a PR per repo. `sync` is idempotent and fast, so it runs unconditionally
+  rather than probing for the file — a warm checkout can have `node_modules`
+  without `.svelte-kit`. The step is best-effort: a non-SvelteKit site or a missing
+  binary can never downgrade a working suite, and the suite remains the verdict.
+
+  Verified A/B against a cold clone of data-dynamiq: `smoke fail` (tsconfig error)
+  before, `smoke pass` (suite green) after.
+
 ## 0.75.1
 
 ### Patch Changes
