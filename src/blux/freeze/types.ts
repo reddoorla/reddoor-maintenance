@@ -20,6 +20,35 @@ export interface Slot {
   section: string;
 }
 
+/**
+ * Slots a SITE declares, on top of the ones the freeze derives from the export.
+ *
+ * Every derived slot exists because the template carries a token for it. Some
+ * editable content has no token and never can: the render composes it itself,
+ * from markup the export never had. Two real cases on the-pointe — a `<video>`
+ * poster (the export ships none, so there is no attribute to tokenize) and a
+ * data panel the export baked as a flattened PNG (rebuilt as real text, so the
+ * text exists only in the render).
+ *
+ * Without this, that content can only live in committed files and a deploy is
+ * required to change a leasing number. Declaring it here puts it in Prismic
+ * alongside everything else, and — because `blux migrate-frozen` PUTs the whole
+ * document — keeps it there across re-migrations, which a row added by hand in
+ * the Prismic UI would not survive.
+ *
+ * Kept generic on purpose: the tool serves several frozen sites, so it knows
+ * only that extra slots exist, never what any one site puts in them.
+ */
+export interface ExtraSlotsFile {
+  /** Free-form note for whoever opens the file; ignored by the freeze. */
+  comment?: string;
+  slots: Slot[];
+}
+
+/** Prefix reserved for site-declared slots, so a synthetic key can never
+ *  collide with a derived `s{n}.t{n}` / `h.i{n}` one. */
+export const EXTRA_SLOT_PREFIX = "x.";
+
 export interface FrozenManifest {
   site: string;
   uid: string;
