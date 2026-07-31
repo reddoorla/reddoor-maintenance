@@ -41,6 +41,22 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
 
+      # generateHeaderImage screenshots each site's homepage at draft time, so
+      # this job needs a browser. Without it chromium.launch() throws and the
+      # refresh — which is best-effort and swallows its errors — would fail
+      # silently every night while the run stayed green.
+      - run: pnpm exec playwright install --with-deps chromium
+
+      # The header's domain line is drawn by sharp through librsvg + fontconfig,
+      # so compose.ts's font stack resolves against INSTALLED system fonts. A
+      # stock ubuntu runner has no Helvetica Neue / Helvetica / Arial and falls
+      # through to DejaVu Sans, which is wider — a CI-generated header would not
+      # match the hand-made reference or a locally-generated one. fonts-urw-base35
+      # provides Nimbus Sans, metrically equivalent to Helvetica and already third
+      # in that stack. Runs after `playwright install --with-deps`, which has
+      # already done the apt-get update.
+      - run: sudo apt-get install -y --no-install-recommends fonts-urw-base35
+
       # 1. DRAFT — scan all Websites, draft anything overdue. Idempotent: the
       # slice-1 Period guard skips a (site, reportType) already drafted this
       # cycle, so a cron re-fire is a no-op. continue-on-error: a draft failure

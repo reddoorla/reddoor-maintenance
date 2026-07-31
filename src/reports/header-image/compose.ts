@@ -39,10 +39,11 @@ function escapeXml(s: string): string {
  * would render a visibly different domain line.
  *
  * This matters because report drafting (which regenerates the header) runs on
- * ubuntu-latest in `.github/workflows/daily-reports.yml`. Until a
- * Helvetica-metric font is installed there, a CI-generated header's domain text
- * will not match a locally-generated one. Tracked as an open item on the
- * header-image PR.
+ * ubuntu-latest in `.github/workflows/daily-reports.yml`. That workflow now
+ * installs `fonts-urw-base35`, which provides Nimbus Sans — metrically
+ * equivalent to Helvetica and third in the stack below — so a CI-generated
+ * header's domain line matches a locally-generated one. Any OTHER environment
+ * that runs this code still needs a Helvetica-metric font installed.
  */
 function domainSvg(domain: string): Buffer {
   return Buffer.from(
