@@ -91,3 +91,9 @@ export { renderSiteDashboardHtml, renderCockpitHtml, verifyBasicAuth } from "./d
 // that, because vitest evaluates the source file where import.meta.url already
 // points at src/.
 export { loadPlate } from "./reports/header-image/assets/index.js";
+
+// header-image/index.ts is not a tsup entry, so it only exists in dist/ as a
+// hashed chunk with no stable import path. Re-exported here so consumers (and
+// the smoke-dist gate) can reach it from the package root.
+export { generateHeaderImage, domainFromUrl } from "./reports/header-image/index.js";
+export type { GenerateInput, GeneratedHeaderImage } from "./reports/header-image/index.js";
