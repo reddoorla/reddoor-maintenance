@@ -31,16 +31,29 @@ That is what makes a single bundled plate correct.
 | Thing                  | Value                                                   |
 | ---------------------- | ------------------------------------------------------- |
 | Canvas                 | 2400×3200 (Figma frame 600×800 exported at 4×)          |
-| Laptop screen rect     | `x=282 y=1856 w=1394 h=871` — aspect 1.6005, i.e. 16:10 |
+| Laptop screen rect     | `x=302 y=1913 w=1349 h=844` — aspect 1.5983, i.e. 16:10 |
 | Domain text ink        | starts `x=283 y=2963`, cap-to-descender height 74px     |
 | Domain text colour     | `#747474`                                               |
 | Paper background       | `#fcfcfc`                                               |
 | Figma source           | file `mQ3hy2d9JnOG9ljCzbZS8j`, frame `158:10`           |
 | Figma domain-text node | `158:14`, design box `x=70 y=739 w=461 h=24`            |
 
-The screen rect was confirmed two independent ways: a density-profile diff of two
-real headers gives aspect 1.6005, and its design-unit origin (`x=70.5, y=464.0`)
-matches both the headline's 70 left margin and Figma's Frame 5 `y=464`.
+**The screen rect is derived from the bezel, not from content.** An earlier
+content-based measurement (diffing two real headers for pixels that vary) gave
+`x=282 y=1856 w=1394 h=871` — and was **wrong**. It spanned the laptop's outer
+panel, so it covered the bezel on three sides while falling ~29px short at the
+bottom, leaving a visible strip of the plate's baked-in ERP screenshot below
+every site's content.
+
+The correct rect is the hole inside the bezel. The bezel is a perfectly flat
+black frame (luminance exactly 0.0), which is content-independent and therefore
+reliable: walking outward from the screen centre until an entire row or column
+reads flat black gives `x=302 y=1913 w=1349 h=844`. Two independent checks agree
+— the photo-to-flat-black transition at the bottom lands at y=2756, matching
+`y + h - 1`; and masking the rect with a solid colour leaves the bezel cleanly
+visible with no surviving screenshot on any edge.
+
+Do not re-measure from content. If you must re-derive, find the bezel.
 
 **Why the plate must be built rather than exported.** `download_assets` on the
 Figma frame returns the laptop as a **pre-flattened 4096×2836 PNG with a
@@ -194,7 +207,7 @@ describe("reports/header-image geometry", () => {
   });
 
   it("has a 16:10 screen rect, matching the MacBook mockup", () => {
-    expect(SCREEN).toEqual({ x: 282, y: 1856, w: 1394, h: 871 });
+    expect(SCREEN).toEqual({ x: 302, y: 1913, w: 1349, h: 844 });
     expect(SCREEN.w / SCREEN.h).toBeCloseTo(1.6, 2);
   });
 
@@ -221,18 +234,28 @@ Expected: FAIL — `Failed to resolve import ... geometry.js`
 ```typescript
 // src/reports/header-image/geometry.ts
 //
-// Measured off the real hand-made headers, not guessed. The screen rect was
-// confirmed two independent ways: a density-profile diff of two real headers
-// (Sonder vs Data Dynamiq) isolates exactly the pixels that vary per site and
-// yields aspect 1.6005; and its design-unit origin (x=70.5, y=464.0 at the 4x
-// export scale) matches both the headline's 70 left margin and Figma's Frame 5
-// y=464. Re-measure only if the Figma template itself changes.
+// Measured off the real plate, not guessed.
+//
+// SCREEN is the hole INSIDE the laptop bezel. It is derived from the bezel —
+// a perfectly flat black frame (luminance 0.0) — because that is
+// content-independent. Deriving it from content instead (diffing two headers for
+// pixels that vary) yields x=282 y=1856 w=1394 h=871, which is WRONG: that rect
+// spans the laptop's outer panel, covering the bezel on three sides while
+// falling ~29px short at the bottom, so the plate's baked-in screenshot shows
+// as a strip under every site's content.
+//
+// Cross-checked: the photo-to-flat-black transition at the bottom of the plate
+// lands at y=2756, exactly SCREEN.y + SCREEN.h - 1.
+//
+// Re-measure only if the Figma template changes — and if you do, find the bezel.
 
 /** The plate's pixel dimensions — Figma frame 600x800 exported at 4x. */
 export const CANVAS = { width: 2400, height: 3200 } as const;
 
-/** The MacBook Pro screen the site screenshot is pasted into. 16:10. */
-export const SCREEN = { x: 282, y: 1856, w: 1394, h: 871 } as const;
+/** The MacBook Pro screen the site screenshot is pasted into — the area inside
+ *  the bezel, so the bezel stays visible around the content exactly as it does
+ *  in the hand-made headers. Aspect 1.5983 (16:10 to within 0.1%). */
+export const SCREEN = { x: 302, y: 1913, w: 1349, h: 844 } as const;
 
 /** The per-site domain line, bottom left. `baseline` is the text baseline in
  *  canvas pixels; `size` is the em size. Both derived from the measured ink box
@@ -781,7 +804,7 @@ Expected: FAIL — cannot resolve `capture.js`.
 /** Viewport matching the plate's MacBook screen aspect (16:10), so the crop in
  *  compose.ts is a no-op for a well-behaved homepage. */
 const VIEWPORT = { width: 1600, height: 1000 } as const;
-/** 2x so the 1394px-wide screen rect is fed real pixels, not upscaled ones. */
+/** 2x so the 1349px-wide screen rect is fed real pixels, not upscaled ones. */
 const DEVICE_SCALE_FACTOR = 2;
 /** Entrance animations and webfonts settle before the shutter. Measured against
  *  live fleet sites; overridable per site because consent gates and long
@@ -1090,7 +1113,7 @@ if (!original || !url) {
   throw new Error("usage: verify-header-fidelity.mjs <original.jpg> <url>");
 }
 
-const SCREEN = { x: 282, y: 1856, w: 1394, h: 871 };
+const SCREEN = { x: 302, y: 1913, w: 1349, h: 844 };
 const DOMAIN_BAND = { x0: 250, x1: 1300, y0: 2920, y1: 3080 };
 
 const gen = await generateHeaderImage({ url });
@@ -1601,8 +1624,11 @@ gh pr create --repo reddoorla/reddoor-maintenance \
 
 ## Notes for the reviewer
 
-- **Do not re-derive the geometry.** `SCREEN` was measured off two real headers
-  and cross-checked against the Figma frame; it is 16:10 to within 0.03%.
+- **Do not re-derive the geometry from content.** `SCREEN` is the hole inside the
+  laptop bezel, found by walking out to the flat-black frame. A content-based
+  measurement was tried first and was wrong in a way that only showed up as a
+  strip of the plate's baked-in screenshot under the bottom edge — see the
+  Background section.
 - **`pnpm test:dist` is load-bearing.** The bundled-asset resolution bug it
   guards shipped once already (0.10.0–0.10.1) and unit tests cannot see it.
 - **Task 5 is the one genuine unknown.** Everything else is measured; the domain

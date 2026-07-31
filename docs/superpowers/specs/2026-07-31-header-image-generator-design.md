@@ -127,29 +127,37 @@ the designer composites the laptop elsewhere and drops in a raster. The plate mu
 therefore be _constructed_: take the mockup asset, blank its screen region, and
 lay it onto the background + logo + headline.
 
-### Open measurement: the screen rect
+### The screen rect — RESOLVED
 
-Diffing two real headers (Sonder vs Data Dynamiq) isolates the per-site content and
-confirms the rest of the template is byte-stable — only **17.5% of the canvas**
-differs, in exactly two bands:
+Diffing two real headers (Sonder vs Data Dynamiq) confirms the template is
+byte-stable: only **17.5% of the canvas** differs, in exactly two bands — the
+laptop and the domain text (`x=283 y=2962 w=646 h=75`). That is what makes a
+single bundled plate correct.
 
-- laptop band `x=137 y=1845 w=1675 h=1020`
-- domain text `x=283 y=2962 w=646 h=75`
+**The screen rect is `x=302 y=1913 w=1349 h=844`** (aspect 1.5983 — 16:10 to
+within 0.1%). It is the area **inside** the bezel, so the bezel stays visible
+around the content exactly as in the hand-made headers.
 
-The laptop band is the whole mockup, not the screen. Attempts to tighten it landed
-at aspect ratios of 1.40–1.64 rather than the expected 1.60, because the mockup
-PNG's own aspect (4096×2836 = 1.444) does not match its Figma frame (424×257 = 1.650),
-so the fit mode still has to be resolved. Compositing into the un-tightened band
-overwrites the laptop chassis.
+**Derive it from the bezel, never from content.** The obvious approach — diffing
+two headers for the pixels that vary — gives `x=282 y=1856 w=1394 h=871` and is
+wrong. That rect spans the laptop's outer panel: it covers the bezel on three
+sides while falling ~29px short at the bottom, so the plate's baked-in ERP
+screenshot survives as a visible strip under every site's content. Content-based
+detection cannot find the true edge because a screenshot's own dark or flat
+regions are indistinguishable from the frame.
 
-**This is the first implementation task**, and it has an objective acceptance test:
+The bezel is a perfectly flat black rectangle (luminance exactly 0.0), which is
+content-independent. Walking outward from the screen centre until an entire row
+or column reads flat black gives the rect above. Two independent checks agree:
+the photo-to-flat-black transition at the bottom lands at y=2756, exactly
+`y + h - 1`; and masking the rect with a solid colour leaves the bezel cleanly
+visible with no surviving screenshot on any edge.
+
+Acceptance test for the finished pipeline:
 
 > Regenerate Sonder's header from Sonder's own live homepage. Diff against the
 > existing `sonderHeader.jpg`. Every pixel outside the screen rect and the domain
 > text must be identical.
-
-Measure against the clean 4096×2836 mockup PNG (no JPEG artifacts, alpha channel
-present) rather than against compressed headers.
 
 ## Asset delivery
 
