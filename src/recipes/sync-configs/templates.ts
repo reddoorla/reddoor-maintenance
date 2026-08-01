@@ -87,7 +87,7 @@ on:
     branches: [main]
 jobs:
   ci:
-    uses: reddoorla/.github/.github/workflows/ci.yml@78c4da64b675f0f474961f12715f2a4c09d46eb5 # v1.0.0
+    uses: reddoorla/.github/.github/workflows/ci.yml@4a32c3d0caf2050d6f72274d3325f2306772860d # v1.3.0
 `,
 };
 
