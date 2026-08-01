@@ -165,7 +165,7 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
           head: maintBranch,
           base,
           title: "Enable self-updating (CI + Renovate)",
-          body: "Adds the unified CI gate, nightly Renovate, and auto-merge for patch/minor updates.",
+          body: "Adds the unified CI gate, scheduled Renovate, and Renovate-owned merges for patch/minor updates.",
         });
         actions.push(`opened PR ${pr.url}`);
         // (Branch restore happens in the `finally` below — on success AND on a
@@ -174,9 +174,31 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
     }
 
     // B. Repo settings — check-then-ensure, each independent (self-healing).
-    if (!(await github.autoMergeEnabled(repo))) {
-      await github.enableRepoAutoMerge(repo);
-      actions.push("enabled auto-merge");
+    //
+    // Platform auto-merge is DISABLED fleet-wide, and this block self-heals toward
+    // OFF (it used to drive repos ON — do not "fix" it back).
+    //
+    // Why: GitHub's platform auto-merge is a per-PR flag that anyone with write
+    // access can arm; the PR then merges itself later, unattended, once checks go
+    // green. The org Renovate preset forbids auto-merging majors and was working
+    // correctly — Renovate never armed them — but the preset has no authority over
+    // a flag someone else set. On 2026-07-26 a bulk `gh pr merge --auto` sweep
+    // armed it across 8 fleet repos, and the next morning two `actions/checkout`
+    // MAJOR bumps merged with zero reviews (reddoor-starter#77,
+    // reddoor-website#111) as soon as Renovate's own rebase cleared their
+    // conflicts. Realized damage, not a hypothetical.
+    //
+    // The fix is to keep merges INSIDE Renovate's own run, where its `packageRules`
+    // actually govern the decision. Renovate can only merge while it is running, so
+    // the workflow cron (see sync-configs templates) is the merge cadence.
+    //
+    // Leaving the self-heal pointed at OFF makes this a drift ALARM: if someone
+    // re-enables platform auto-merge, the next `self-updating` / `launch` run turns
+    // it back off and records the action. `enableRepoAutoMerge` is retained in
+    // `src/github/gh.ts` as the documented rollback path.
+    if (await github.autoMergeEnabled(repo)) {
+      await github.disableRepoAutoMerge(repo);
+      actions.push("disabled auto-merge (platform auto-merge is not permitted fleet-wide)");
     }
     const existingContexts = await github.branchProtectionContexts(repo, base);
     if (!existingContexts.includes(REQUIRED_CHECK)) {

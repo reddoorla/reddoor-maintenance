@@ -70,7 +70,15 @@ export type GitHub = {
     repo: string,
     pr: { head: string; base: string; title: string; body: string },
   ) => Promise<{ url: string }>;
+  /** Turn GitHub's platform auto-merge ON for a repo. Retained as the documented
+   *  ROLLBACK path — the fleet drives repos to auto-merge OFF (see
+   *  {@link disableRepoAutoMerge} and `recipes/self-updating`). */
   enableRepoAutoMerge: (repo: string) => Promise<void>;
+  /** Turn GitHub's platform auto-merge OFF for a repo. This is the fleet default:
+   *  platform auto-merge is a per-PR flag anyone with write access can arm, and it
+   *  merges unattended outside Renovate's `packageRules`. Renovate merges from
+   *  inside its own run instead. */
+  disableRepoAutoMerge: (repo: string) => Promise<void>;
   protectBranch: (repo: string, branch: string, requiredChecks: string[]) => Promise<void>;
   setRepoSecret: (repo: string, name: string, value: string) => Promise<void>;
   repoExists: (repo: string) => Promise<boolean>;
@@ -130,6 +138,9 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
     },
     async enableRepoAutoMerge(repo) {
       await gh(["api", "-X", "PATCH", `repos/${repo}`, "-F", "allow_auto_merge=true"]);
+    },
+    async disableRepoAutoMerge(repo) {
+      await gh(["api", "-X", "PATCH", `repos/${repo}`, "-F", "allow_auto_merge=false"]);
     },
     async protectBranch(repo, branch, requiredChecks) {
       assertUrlSegment("branch", branch);

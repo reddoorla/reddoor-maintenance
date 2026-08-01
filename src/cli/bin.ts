@@ -61,7 +61,7 @@ const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {
     "Write src/routes/health/+server.ts (function-health probe for the report gate).",
   "smoke-suite": "Add the smoke suite (test:smoke + playwright config + /health smoke routes).",
   "self-updating":
-    "Bootstrap CI + Renovate + auto-merge per repo (writes workflows, opens PR, sets RENOVATE_TOKEN).",
+    "Bootstrap CI + Renovate per repo (writes workflows, opens PR, sets RENOVATE_TOKEN, disables platform auto-merge).",
   init: "Run the full onboarding chain (convert-to-pnpm → onboard → sync-configs → svelte-codemods → a11y-fixtures-page → health-endpoint → smoke-suite → audit).",
 };
 
@@ -210,7 +210,7 @@ cli
 cli
   .command(
     "self-updating [site]",
-    "Bootstrap a repo to keep itself updated (CI + Renovate + auto-merge).",
+    "Bootstrap a repo to keep itself updated (CI + Renovate; platform auto-merge off).",
   )
   .option("--dry", "List what would be enabled without writing or opening PRs")
   .option("--fleet <inventory>", 'Inventory file (.json or .mjs/.js), or "airtable"')

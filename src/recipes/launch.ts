@@ -50,7 +50,7 @@ export type LaunchDeps = {
  * Lighthouse scores, so `sendOne`'s `report.lighthouse` guard passes.
  *
  * Step-chain (mirrors `init`), stopping on the first error or `failed` recipe:
- *   1. selfUpdating — CI + Renovate + auto-merge.
+ *   1. selfUpdating — CI + Renovate (and platform auto-merge turned OFF).
  *   2. runAudits + write the scores to the site's Websites row (reuses the
  *      `audit --write-airtable` writer); the Lighthouse scores feed the draft.
  *   3. createDraft — reportType "Launch", today's period, the audited scores.

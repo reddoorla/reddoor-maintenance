@@ -97,14 +97,20 @@ const renovateAction: ConfigTemplate = {
   contents: `name: renovate
 on:
   schedule:
-    - cron: "0 7 * * 1"
+    # Twice daily. GitHub's platform auto-merge is disabled fleet-wide, so Renovate
+    # performs its own merges from inside this run — which means this cron is the
+    # MERGE cadence, not just the PR-creation cadence.
+    - cron: "0 */12 * * *"
   workflow_dispatch:
 jobs:
   renovate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: renovatebot/github-action@v46.1.14
+      # Digest-pinned: this workflow holds RENOVATE_TOKEN (a fleet-write PAT), so a
+      # mutable tag ref here is a supply-chain hole — a retagged \`@v4\`/\`@v46\` would
+      # run attacker code with that token. Pin to the commit; Renovate bumps these.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: renovatebot/github-action@1a96852b0384df1837619d04c60b2d10d1f9ff08 # v46.1.21
         with:
           token: \${{ secrets.RENOVATE_TOKEN }}
         env:
