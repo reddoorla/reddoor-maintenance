@@ -9,10 +9,13 @@ import type { PullRequestSummary } from "./gh.js";
  * vulnerability counts to Airtable. This module turns that into action: for the
  * sites the sweep just flagged with *actionable* (critical or high) vulns, it
  * dispatches that repo's `renovate.yml` `workflow_dispatch` so Renovate runs off
- * its weekly schedule. Renovate's OSV vulnerability alerts bypass the schedule,
- * so the remediation PR opens immediately (then auto-merges per the shared
- * preset). Moderate/low vulns are left to the normal weekly cadence — not urgent
- * enough to dispatch + churn CI nightly.
+ * its twice-daily schedule. Renovate's OSV vulnerability alerts bypass the
+ * schedule, so the remediation PR opens immediately — and because GitHub's
+ * platform auto-merge is disabled fleet-wide, Renovate merges it from inside that
+ * same run (or a later scheduled one) per the shared preset, which is what keeps
+ * the preset's "majors are never auto-merged" rule authoritative. Moderate/low
+ * vulns are left to the normal schedule — not urgent enough to dispatch + churn
+ * CI nightly.
  */
 
 /** The per-repo workflow file the fleet uses for its self-hosted Renovate run. */

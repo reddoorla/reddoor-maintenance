@@ -117,7 +117,7 @@ For each repo:
 
 ```bash
 reddoor-maint init <path-to-site>          # convert-to-pnpm → onboard → sync-configs → svelte-codemods → a11y-fixtures → audit
-reddoor-maint self-updating <path-to-site> # adds CI + Renovate, branch protection (required check `ci / ci`), auto-merge, RENOVATE_TOKEN secret
+reddoor-maint self-updating <path-to-site> # adds CI + Renovate, branch protection (required check `ci / ci`), RENOVATE_TOKEN secret; DISABLES GitHub platform auto-merge
 ```
 
 Each recipe is branch-isolated + idempotent (re-running on a done site is a `noop`), and creates a `maint/*` branch to PR. Then add the site's row to the Airtable `Websites` table: `Name`, `url`, `Git repo`, `Report recipients (To)`, a `maintenence freq`, a `Header image`, and a `Dashboard Token` value (to make it appear on the cockpit). The site is now in the loop.

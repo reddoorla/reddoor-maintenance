@@ -159,6 +159,19 @@ describe("makeGitHub", () => {
     ]);
   });
 
+  it("disableRepoAutoMerge PATCHes allow_auto_merge=false", async () => {
+    const { spawn, calls } = fakeSpawn({});
+    await makeGitHub({ token: "T", spawn }).disableRepoAutoMerge("o/r");
+    expect(calls[0]!.args).toEqual([
+      "api",
+      "-X",
+      "PATCH",
+      "repos/o/r",
+      "-F",
+      "allow_auto_merge=false",
+    ]);
+  });
+
   it("protectBranch requires the named checks", async () => {
     const { spawn, calls } = fakeSpawn({});
     await makeGitHub({ token: "T", spawn }).protectBranch("o/r", "main", ["ci"]);

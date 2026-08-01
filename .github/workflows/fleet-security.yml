@@ -122,8 +122,9 @@ jobs:
 
       # Best-effort follow-up: kick Renovate for each active, repo-backed site just
       # flagged with critical/high vulns. Renovate's OSV vulnerability alerts bypass
-      # the weekly schedule, so the remediation PR opens now (then auto-merges per
-      # the shared preset). Runs only when the sweep above succeeded (default step
+      # the schedule, so the remediation PR opens now; GitHub platform auto-merge is
+      # disabled fleet-wide, so Renovate merges it from inside its own run per the
+      # shared preset. Runs only when the sweep above succeeded (default step
       # semantics) — though counts for any site the sweep failed/skipped to write are
       # last-known, not fresh; a stale-high false dispatch is a harmless Renovate
       # no-op, and a repo with an already-open Renovate PR is skipped. NEVER fails the

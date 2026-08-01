@@ -34,7 +34,10 @@ function fakeGitHub(over: GitHubOverrides = {}): { gh: GitHub; calls: string[] }
       return { url: "https://github.com/o/r/pull/1" };
     },
     enableRepoAutoMerge: async (repo) => {
-      calls.push(`automerge:${repo}`);
+      calls.push(`automerge-on:${repo}`);
+    },
+    disableRepoAutoMerge: async (repo) => {
+      calls.push(`automerge-off:${repo}`);
     },
     protectBranch: async (repo, b, checks) => {
       calls.push(`protect:${repo}:${b}:${checks.join(",")}`);
@@ -49,7 +52,10 @@ function fakeGitHub(over: GitHubOverrides = {}): { gh: GitHub; calls: string[] }
     fileContentsOnBranch: async () => null,
     branchProtectionContexts: async () => [],
     secretExists: async () => false,
-    autoMergeEnabled: async () => false,
+    // Default: platform auto-merge is ON — the state the fleet actually drifted
+    // into on 2026-07-26 — so the recipe's job is to turn it OFF. A repo already
+    // at the desired state overrides this to `false` and expects NO call.
+    autoMergeEnabled: async () => true,
     findOpenSelfUpdatingPR: async () => null,
     openPullRequests: async () => [],
     defaultBranchStatus: async () => ({ ciState: "none", lastCommitAt: null }),
@@ -96,7 +102,8 @@ describe("selfUpdating recipe", () => {
     expect(currentBranchOf(dir)).toBe(startBranch);
     expect(push).toHaveBeenCalledOnce();
     expect(calls).toContain("pr:o/r");
-    expect(calls).toContain("automerge:o/r");
+    expect(calls).toContain("automerge-off:o/r");
+    expect(calls).not.toContain("automerge-on:o/r");
     expect(calls).toContain("protect:o/r:main:ci / ci");
     expect(calls).toContain("secret:o/r:RENOVATE_TOKEN");
     expect(r.notes).toContain("https://github.com/o/r/pull/1");
@@ -152,7 +159,7 @@ describe("selfUpdating recipe", () => {
     gitInit(dir);
     const { gh, calls } = fakeGitHub({
       fileContentsOnBranch: upToDate,
-      autoMergeEnabled: async () => true,
+      autoMergeEnabled: async () => false,
       branchProtectionContexts: async () => ["ci / ci"],
       secretExists: async () => true,
     });
@@ -177,7 +184,7 @@ describe("selfUpdating recipe", () => {
         path === stalePath
           ? "# stale: old pinned reusable-workflow SHA\n"
           : (CONTENT_BY_PATH.get(path) ?? null),
-      autoMergeEnabled: async () => true,
+      autoMergeEnabled: async () => false,
       branchProtectionContexts: async () => ["ci / ci"],
       secretExists: async () => true,
     });
@@ -200,7 +207,7 @@ describe("selfUpdating recipe", () => {
         const c = CONTENT_BY_PATH.get(path);
         return c === undefined ? null : `${c}\n\n`;
       },
-      autoMergeEnabled: async () => true,
+      autoMergeEnabled: async () => false,
       branchProtectionContexts: async () => ["ci / ci"],
       secretExists: async () => true,
     });
@@ -221,7 +228,7 @@ describe("selfUpdating recipe", () => {
       // only 1 of 3 present (others null → missing → drift → bootstrap)
       fileContentsOnBranch: async (_repo, _branch, path) =>
         path === SELF_UPDATING_TEMPLATES[0]!.path ? CONTENT_BY_PATH.get(path)! : null,
-      autoMergeEnabled: async () => true,
+      autoMergeEnabled: async () => false,
       branchProtectionContexts: async () => ["ci / ci"],
       secretExists: async () => true,
     });
@@ -256,7 +263,7 @@ describe("selfUpdating recipe", () => {
     gitInit(dir);
     const { gh, calls } = fakeGitHub({
       fileContentsOnBranch: upToDate, // no bootstrap (all configs at canonical content)
-      autoMergeEnabled: async () => false, // → enableRepoAutoMerge succeeds (1 action)
+      autoMergeEnabled: async () => true, // → disableRepoAutoMerge succeeds (1 action)
       branchProtectionContexts: async () => ["ci / ci"],
       secretExists: async () => false, // → setRepoSecret runs, and throws
       setRepoSecret: async () => {
@@ -269,8 +276,34 @@ describe("selfUpdating recipe", () => {
     );
     expect(r.status).toBe("failed");
     expect(r.notes).toContain("boom");
-    expect(r.notes).toContain("completed: enabled auto-merge");
-    expect(calls).toContain("automerge:o/r");
+    expect(r.notes).toContain("completed: disabled auto-merge");
+    expect(calls).toContain("automerge-off:o/r");
+  });
+
+  it("DRIFT ALARM: a repo with platform auto-merge re-enabled gets it turned back off", async () => {
+    // Platform auto-merge is a per-PR flag anyone with write access can arm, and it
+    // merges unattended outside Renovate's packageRules — on 2026-07-26 a bulk
+    // `gh pr merge --auto` sweep armed it across 8 fleet repos and two
+    // actions/checkout MAJORS then merged with zero reviews (reddoor-starter#77,
+    // reddoor-website#111). This repo is otherwise fully wired, so the ONLY action
+    // is the drift correction — which is exactly what makes it an alarm.
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls } = fakeGitHub({
+      fileContentsOnBranch: upToDate,
+      autoMergeEnabled: async () => true,
+      branchProtectionContexts: async () => ["ci / ci"],
+      secretExists: async () => true,
+    });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: vi.fn(async () => {}), renovateToken: "RT" },
+    );
+    expect(r.status).toBe("applied");
+    expect(calls).toEqual(["automerge-off:o/r"]);
+    expect(r.notes).toContain(
+      "disabled auto-merge (platform auto-merge is not permitted fleet-wide)",
+    );
   });
 
   it("self-heals a half-configured repo: only the missing secret is set", async () => {
@@ -278,7 +311,7 @@ describe("selfUpdating recipe", () => {
     gitInit(dir);
     const { gh, calls } = fakeGitHub({
       fileContentsOnBranch: upToDate,
-      autoMergeEnabled: async () => true,
+      autoMergeEnabled: async () => false,
       branchProtectionContexts: async () => ["ci / ci"],
       secretExists: async () => false,
     });
@@ -298,7 +331,7 @@ describe("selfUpdating recipe", () => {
     gitInit(dir);
     const { gh, calls } = fakeGitHub({
       fileContentsOnBranch: upToDate,
-      autoMergeEnabled: async () => true,
+      autoMergeEnabled: async () => false,
       branchProtectionContexts: async () => ["other-check", "foo"],
       secretExists: async () => true,
     });
@@ -318,7 +351,7 @@ describe("selfUpdating recipe", () => {
     gitInit(dir);
     const { gh, calls } = fakeGitHub({
       fileContentsOnBranch: upToDate,
-      autoMergeEnabled: async () => true,
+      autoMergeEnabled: async () => false,
       branchProtectionContexts: async () => ["foo", "foo"],
       secretExists: async () => true,
     });
@@ -336,7 +369,7 @@ describe("selfUpdating recipe", () => {
     const { gh, calls } = fakeGitHub({
       filesOnBranch: async () => [],
       findOpenSelfUpdatingPR: async () => "https://github.com/o/r/pull/9",
-      autoMergeEnabled: async () => true,
+      autoMergeEnabled: async () => false,
       branchProtectionContexts: async () => ["ci / ci"],
       secretExists: async () => true,
     });
