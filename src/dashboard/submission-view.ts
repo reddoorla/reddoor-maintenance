@@ -39,6 +39,17 @@ function spamReasonTokens(reason: string | null | undefined): string[] {
     .filter((t) => t !== "");
 }
 
+/** The fan-out tokens that did NOT succeed (see ingest.ts for the grammar: one
+ *  `<destination>:<outcome>` token per attempt, `ok` being the only good outcome).
+ *  A failure here means the signup never reached that destination — the row itself
+ *  still looks perfectly healthy, which is exactly why it needs surfacing. PURE. */
+export function fanoutFailures(fanoutStatus: string | null | undefined): string[] {
+  return (fanoutStatus ?? "")
+    .split(",")
+    .map((t) => t.trim())
+    .filter((t) => t !== "" && !t.endsWith(":ok"));
+}
+
 /** The inline chip shows at most this many reason tokens; a long classifier trail
  *  must not blow up the summary line. The full list stays in the badge tooltip and
  *  the expanded Spam row. */
@@ -84,6 +95,16 @@ export function renderSubmissionRowInner(s: SubmissionRow): string {
     s.notifyStatus === "bounced"
       ? ` <span class="subm-bounce" title="The lead notification email bounced — the point-of-contact address may be dead">notify bounced</span>`
       : "";
+  // Fan-out marker (2026-07-31): a newsletter signup that never reached the site
+  // webhook or the Mailchimp audience is otherwise INDISTINGUISHABLE from one that
+  // did — same status pill, same notify=sent. Visible on the collapsed line for the
+  // same reason as the bounce chip; only the failing destinations are named, since
+  // the successes are what the expanded Fan-out row is for.
+  const fanoutBad = fanoutFailures(s.fanoutStatus);
+  const fanoutChip =
+    fanoutBad.length > 0
+      ? ` <span class="subm-fanout-fail" title="This signup did not reach every configured destination">fan-out: ${escapeHtml(fanoutBad.join(" · "))}</span>`
+      : "";
 
   // One detail row per present field; absent fields are omitted (no blank rows).
   const kv = (label: string, value: string | number | null) =>
@@ -113,12 +134,13 @@ export function renderSubmissionRowInner(s: SubmissionRow): string {
     extraFieldsList(s.extraFields),
     kv("Spam", spamDetail),
     kv("Notify", s.notifyStatus),
+    kv("Fan-out", s.fanoutStatus ?? null),
     kv("Resend ID", s.resendMessageId),
     kv("Submission #", s.submissionId),
   ].join("");
 
   return `<details>
-      <summary class="subm-head"><strong>${type}</strong> · ${who} <span class="muted">${email}</span> <span class="pill subm-${status}">${status}</span>${provenance}${bounceChip} <span class="muted">${when}</span></summary>
+      <summary class="subm-head"><strong>${type}</strong> · ${who} <span class="muted">${email}</span> <span class="pill subm-${status}">${status}</span>${provenance}${bounceChip}${fanoutChip} <span class="muted">${when}</span></summary>
       <div class="subm-detail">${details}</div>
     </details>
     <div class="subm-actions">${recover}${btn("Read", "read")}${btn("Archive", "archived")}${btn("Spam", "spam")}</div>`;
@@ -151,6 +173,7 @@ button.subm-status:disabled { opacity: 0.6; cursor: default; }
 .pill.subm-spam_auto { background: #fff4e5; color: #a65a00; }
 .subm-provenance { font-size: 0.72rem; border-radius: 0.25rem; padding: 0 0.35rem; white-space: nowrap; background: #fff4e5; color: #a65a00; }
 .subm-bounce { font-size: 0.72rem; border-radius: 0.25rem; padding: 0 0.35rem; white-space: nowrap; background: #fdecea; color: #b00; font-weight: 700; }
+.subm-fanout-fail { font-size: 0.72rem; border-radius: 0.25rem; padding: 0 0.35rem; white-space: nowrap; background: #fdecea; color: #b00; font-weight: 700; }
 .subm-reasons { font-size: 0.72rem; color: #999; }
 .subm-viewall { font-size: 0.8rem; font-weight: normal; margin-left: 0.4rem; white-space: nowrap; }`;
 

@@ -169,3 +169,54 @@ describe("SUBMISSION_STYLES", () => {
     expect(SUBMISSION_STYLES).toContain(".subm-bounce");
   });
 });
+
+// Fan-out provenance (2026-07-31). A newsletter signup that never reached the
+// Mailchimp audience used to look identical to one that did — same status pill,
+// same notify=sent. The failure has to be visible on the COLLAPSED line (same rule
+// as the bounce chip: an operator who has to expand every row to find it won't).
+describe("renderSubmissionRow — newsletter fan-out", () => {
+  const signup = (fanoutStatus: string | null) =>
+    row({ formType: "newsletter", message: null, fanoutStatus });
+
+  it("shows the fan-out detail row when something was attempted", () => {
+    const html = renderSubmissionRow(signup("webhook:ok,mailchimp:ok"));
+    expect(html).toContain("Fan-out");
+    expect(html).toContain("webhook:ok,mailchimp:ok");
+  });
+
+  it("adds no fan-out row when nothing was attempted", () => {
+    expect(renderSubmissionRow(signup(null))).not.toContain("Fan-out");
+    expect(renderSubmissionRow(row())).not.toContain("Fan-out");
+  });
+
+  it("flags a failed destination on the collapsed summary line", () => {
+    const html = renderSubmissionRow(signup("webhook:ok,mailchimp:401"));
+    const summary = html.slice(0, html.indexOf("</summary>"));
+    expect(summary).toContain("subm-fanout-fail");
+    expect(summary).toContain("mailchimp:401");
+    // The destination that worked is not noise on the summary line.
+    expect(summary).not.toContain("webhook:ok");
+  });
+
+  it("flags a thrown destination and an unapplied tag too", () => {
+    for (const bad of ["mailchimp:threw", "mailchimp:ok,mailchimp-tags:failed", "webhook:0"]) {
+      expect(renderSubmissionRow(signup(bad))).toContain("subm-fanout-fail");
+    }
+  });
+
+  it("stays quiet when every destination succeeded", () => {
+    expect(renderSubmissionRow(signup("webhook:ok,mailchimp:ok"))).not.toContain(
+      "subm-fanout-fail",
+    );
+  });
+
+  it("escapes a hostile stored value", () => {
+    const html = renderSubmissionRow(signup('mailchimp:<img src=x onerror=alert(1)>"'));
+    expect(html).not.toContain("<img src=x");
+    expect(html).toContain("&lt;img");
+  });
+
+  it("ships a style rule for the failure chip", () => {
+    expect(SUBMISSION_STYLES).toContain(".subm-fanout-fail");
+  });
+});

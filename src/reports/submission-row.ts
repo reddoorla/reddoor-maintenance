@@ -52,6 +52,11 @@ export type SubmissionRow = {
   spamScore?: number | null;
   /** Comma-joined classifier reason codes (e.g. "links:3,disposable-email"); null when unscored. */
   spamReason?: string | null;
+  /** Comma-joined newsletter fan-out outcome per destination — `webhook:ok`,
+   *  `mailchimp:401`, `mailchimp:threw`, `mailchimp-tags:failed`. Null means nothing
+   *  was attempted: a non-newsletter form, a spam row, a site with no destination
+   *  configured, or a row written before 0005. See ingest.ts for the token grammar. */
+  fanoutStatus?: string | null;
 };
 
 export type SubmissionInput = {

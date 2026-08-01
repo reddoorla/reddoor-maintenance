@@ -49,6 +49,7 @@ function rowFromDb(r: Selectable<SubmissionsTable>): SubmissionRow {
     resendMessageId: r.resend_message_id,
     spamScore: typeof r.spam_score === "number" ? r.spam_score : null,
     spamReason: r.spam_reason,
+    fanoutStatus: r.fanout_status,
   };
 }
 
@@ -90,6 +91,8 @@ export async function createSubmission(db: Db, input: SubmissionInput): Promise<
       resend_message_id: null,
       spam_score: input.spamScore ?? null,
       spam_reason: input.spamReason ?? null,
+      // Always null at insert: the fan-out runs after the row exists (stampFanout).
+      fanout_status: null,
     })
     .execute();
   const created = await getSubmissionById(db, id);
@@ -151,6 +154,20 @@ export async function stampNotified(
       ? { notify_status: status, resend_message_id: messageId }
       : { notify_status: status };
   await db.updateTable("submissions").set(patch).where("id", "=", id).execute();
+}
+
+/** Record the newsletter fan-out outcome on a row (comma-joined destination tokens,
+ *  see ingest.ts). REPLACES any previous value — the fan-out runs once per submission,
+ *  so the last write is the whole truth; unlike markSubmissionsSpamRetro there is no
+ *  earlier trail worth appending to. No status guard: this is provenance about what
+ *  the pipeline did, not a triage decision, so it stays accurate even for a row the
+ *  operator has already read or archived. */
+export async function stampFanout(db: Db, id: string, fanoutStatus: string): Promise<void> {
+  await db
+    .updateTable("submissions")
+    .set({ fanout_status: fanoutStatus })
+    .where("id", "=", id)
+    .execute();
 }
 
 // NOTE: listSubmissionsFiltered and countSubmissionsFiltered share identical filter
@@ -474,6 +491,7 @@ export async function backfillSubmission(db: Db, row: SubmissionRow): Promise<vo
       resend_message_id: row.resendMessageId,
       spam_score: row.spamScore ?? null,
       spam_reason: row.spamReason ?? null,
+      fanout_status: row.fanoutStatus ?? null,
     })
     .onConflict((oc) => oc.column("id").doNothing())
     .execute();

@@ -1,6 +1,24 @@
 import { createHash } from "node:crypto";
+import type { FormType } from "./types.js";
 
-export type MailchimpResult = { ok: boolean; status: number };
+export type MailchimpResult = {
+  ok: boolean;
+  status: number;
+  /** Whether the requested tags were applied. Present ONLY when tags were asked for
+   *  and the member add itself succeeded — absent means "no tags requested", which is
+   *  not the same as "tagging failed". */
+  tagged?: boolean;
+};
+
+/** Tags identifying a member the ingest pipeline added, so form signups are
+ *  distinguishable from imported/manually-added members inside Mailchimp (the
+ *  audience is otherwise a flat list — every API write shows the same
+ *  "API - Generic" source). "Online Form" is the human-facing segment name the
+ *  gallery asked for; the `form:` tag keeps the specific form machine-readable
+ *  for later segmentation. PURE. */
+export function mailchimpTagsFor(formType: FormType): string[] {
+  return ["Online Form", `form:${formType}`];
+}
 
 export type AddMailchimpMemberInput = {
   /** Mailchimp Marketing API key, format `key-dc` (e.g. "abc123-us21"). */
@@ -11,6 +29,8 @@ export type AddMailchimpMemberInput = {
   name?: string | null;
   /** Status for a NEW member. Default "subscribed" (immediate, no double opt-in). */
   status?: "subscribed" | "pending";
+  /** Tags to apply (see mailchimpTagsFor). Blank entries are dropped. */
+  tags?: string[];
   /** Injectable fetch for tests. */
   fetch?: typeof fetch;
 };
@@ -51,18 +71,43 @@ export async function addMailchimpMember(input: AddMailchimpMemberInput): Promis
   };
   const merge = splitName(input.name);
   if (Object.keys(merge).length > 0) body.merge_fields = merge;
+  const tags = (input.tags ?? []).map((t) => t.trim()).filter((t) => t.length > 0);
+  if (tags.length > 0) body.tags = tags;
   const auth = Buffer.from(`anystring:${input.apiKey}`).toString("base64");
+  const headers = { "content-type": "application/json", authorization: `Basic ${auth}` };
   try {
     const res = await doFetch(url, {
       method: "PUT",
-      headers: { "content-type": "application/json", authorization: `Basic ${auth}` },
+      headers,
       body: JSON.stringify(body),
     });
     if (!res.ok) {
       console.error(`[mailchimp] add member → ${res.status} (audience ${input.audienceId})`);
       return { ok: false, status: res.status };
     }
-    return { ok: true, status: res.status };
+    if (tags.length === 0) return { ok: true, status: res.status };
+    // The `tags` in the PUT body above only take effect when the member is CREATED —
+    // Mailchimp silently ignores them for an already-existing member, which is exactly
+    // the repeat-signup case. The dedicated endpoint is what makes tagging reliable, so
+    // both are sent: the body covers a brand-new member if this second call is lost,
+    // and this call covers everyone else. Additive and idempotent (re-applying an
+    // active tag is a no-op), and NEVER fatal — the member is already in the audience,
+    // so a tag failure is reported (tagged:false) rather than failing the add.
+    let tagged = false;
+    try {
+      const tagRes = await doFetch(`${url}/tags`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ tags: tags.map((name) => ({ name, status: "active" })) }),
+      });
+      tagged = tagRes.ok;
+      if (!tagRes.ok) {
+        console.error(`[mailchimp] tag member → ${tagRes.status} (audience ${input.audienceId})`);
+      }
+    } catch (err) {
+      console.error(`[mailchimp] tag member failed: ${String(err)}`);
+    }
+    return { ok: true, status: res.status, tagged };
   } catch (err) {
     console.error(`[mailchimp] add member failed: ${String(err)}`);
     return { ok: false, status: 0 };

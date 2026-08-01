@@ -11,6 +11,7 @@ describe("runMigrations", () => {
       "0002_fleet_events",
       "0003_add_spam_score",
       "0004_add_spam_reason",
+      "0005_add_fanout_status",
     ]);
     const tables = await client.execute(
       "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
@@ -33,6 +34,7 @@ describe("runMigrations", () => {
       "0002_fleet_events",
       "0003_add_spam_score",
       "0004_add_spam_reason",
+      "0005_add_fanout_status",
     ]);
   });
 
@@ -59,34 +61,37 @@ describe("runMigrations", () => {
       "0002_fleet_events",
       "0003_add_spam_score",
       "0004_add_spam_reason",
+      "0005_add_fanout_status",
     ]);
   });
 
   it("re-applies cleanly after a lost marker for a non-idempotent ADD COLUMN migration", async () => {
-    // SQLite `ADD COLUMN` has no `IF NOT EXISTS`, so re-running 0003/0004 after their
-    // markers vanish throws `duplicate column name`. runMigrations must recognize that
-    // as already-applied, re-record the marker, and NOT throw — otherwise openDb()
+    // SQLite `ADD COLUMN` has no `IF NOT EXISTS`, so re-running 0003/0004/0005 after
+    // their markers vanish throws `duplicate column name`. runMigrations must recognize
+    // that as already-applied, re-record the marker, and NOT throw — otherwise openDb()
     // boot-loops on every call once a marker is lost.
     const client = createClient({ url: ":memory:" });
     await runMigrations(client);
     await client.execute(
-      "DELETE FROM _migrations WHERE id IN ('0003_add_spam_score','0004_add_spam_reason')",
+      "DELETE FROM _migrations WHERE id IN ('0003_add_spam_score','0004_add_spam_reason','0005_add_fanout_status')",
     );
 
     const ran = await runMigrations(client); // must not throw despite duplicate column
-    expect(ran).toEqual(["0003_add_spam_score", "0004_add_spam_reason"]);
+    expect(ran).toEqual(["0003_add_spam_score", "0004_add_spam_reason", "0005_add_fanout_status"]);
 
-    // Columns are intact (single copy) and both markers are back.
+    // Columns are intact (single copy) and every marker is back.
     const cols = await client.execute("PRAGMA table_info(submissions)");
     const names = cols.rows.map((r) => String(r.name));
     expect(names.filter((n) => n === "spam_score")).toHaveLength(1);
     expect(names.filter((n) => n === "spam_reason")).toHaveLength(1);
+    expect(names.filter((n) => n === "fanout_status")).toHaveLength(1);
     const applied = await client.execute("SELECT id FROM _migrations");
     expect(applied.rows.map((r) => String(r.id))).toEqual([
       "0001_init",
       "0002_fleet_events",
       "0003_add_spam_score",
       "0004_add_spam_reason",
+      "0005_add_fanout_status",
     ]);
   });
 });
