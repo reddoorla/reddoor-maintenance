@@ -35,7 +35,6 @@ const REQUIRED_CHECK = "ci / ci";
 export type SelfUpdatingDeps = {
   github?: GitHub;
   pushBranch?: (cwd: string, branch: string) => Promise<void>;
-  renovateToken?: string;
 };
 
 function resultOf(
@@ -111,9 +110,7 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
   }
 
   const cfg = readGitHubConfig();
-  const renovateToken = deps.renovateToken ?? cfg?.renovateToken;
   if (!deps.github && !cfg) return resultOf(site, "failed", "GITHUB_TOKEN not set");
-  if (!renovateToken) return resultOf(site, "failed", "no RENOVATE_TOKEN available");
   const github = deps.github ?? makeGitHub({ token: cfg!.token });
 
   const base = await github.defaultBranch(repo).catch(() => "main");
@@ -271,10 +268,12 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
         }
       }
     }
-    if (!(await github.secretExists(repo, "RENOVATE_TOKEN"))) {
-      await github.setRepoSecret(repo, "RENOVATE_TOKEN", renovateToken);
-      actions.push("set RENOVATE_TOKEN secret");
-    }
+    // (No per-repo RENOVATE_TOKEN planting anymore: Renovate authenticates as
+    // the reddoor-renovate GitHub App, whose RENOVATE_APP_ID / _PRIVATE_KEY are
+    // org-level with all-repos visibility — a new repo needs NOTHING set. The
+    // old step was already redundant for new sites (the PAT was an org secret
+    // too); existing per-repo copies are inert and left to rot harmlessly.
+    // docs/runbooks/renovate-app-identity.md covers the migration + rollback.)
   } catch (err) {
     const done = actions.length ? ` (completed: ${actions.join("; ")})` : "";
     const message = err instanceof Error ? err.message : String(err);

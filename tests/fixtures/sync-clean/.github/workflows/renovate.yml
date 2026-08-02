@@ -6,16 +6,39 @@ on:
     # MERGE cadence, not just the PR-creation cadence.
     - cron: "0 */12 * * *"
   workflow_dispatch:
+permissions:
+  contents: read
 jobs:
   renovate:
     runs-on: ubuntu-latest
     steps:
-      # Digest-pinned: this workflow holds RENOVATE_TOKEN (a fleet-write PAT), so a
-      # mutable tag ref here is a supply-chain hole — a retagged `@v4`/`@v46` would
-      # run attacker code with that token. Pin to the commit; Renovate bumps these.
+      # Renovate authenticates as the reddoor-renovate GitHub App (installed
+      # org-wide, "All repositories" — future repos are auto-covered), NOT as an
+      # operator PAT. Why: the App is a distinct identity, so the audit trail
+      # finally distinguishes bot from human (the 2026-07-26 unreviewed-major
+      # forensics took hours precisely because it couldn't); the credential is
+      # permission-scoped and centrally revocable instead of a fleet-write PAT;
+      # and the installation gets its own API-quota pool instead of sharing the
+      # operator's. The minted token is scoped to THIS repository only
+      # (create-github-app-token's default when owner/repositories are omitted).
+      # RENOVATE_APP_ID / RENOVATE_APP_PRIVATE_KEY are org-level (all-repos
+      # visibility) — nothing to configure per repo.
+      # Digest-pinned: this workflow mints a repo-write token, so a mutable tag
+      # ref here is a supply-chain hole — a retagged `@v3`/`@v46` would run
+      # attacker code with that token. Pin to the commit; Renovate bumps these.
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          app-id: ${{ vars.RENOVATE_APP_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: renovatebot/github-action@1a96852b0384df1837619d04c60b2d10d1f9ff08 # v46.1.21
         with:
-          token: ${{ secrets.RENOVATE_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
         env:
           RENOVATE_REPOSITORIES: ${{ github.repository }}
+          # Commit/PR identity = the App's bot user, so gitAuthor matches the
+          # token identity (mismatched authors read as "operator pushed this").
+          # 312185038 = the bot's user id (gh api 'users/reddoor-renovate[bot]' --jq .id).
+          RENOVATE_USERNAME: "reddoor-renovate[bot]"
+          RENOVATE_GIT_AUTHOR: "reddoor-renovate[bot] <312185038+reddoor-renovate[bot]@users.noreply.github.com>"
