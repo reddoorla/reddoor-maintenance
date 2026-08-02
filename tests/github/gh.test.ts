@@ -379,4 +379,110 @@ describe("makeGitHub", () => {
       }
     });
   });
+
+  describe("ruleset wrappers", () => {
+    it("listRepoRulesets requests repo-sourced rulesets only and parses id/name rows", async () => {
+      const { spawn, calls } = fakeSpawn({
+        stdout: "20165584\tmain: reviewed changes only\n16762724\tMain Protection\n",
+      });
+      const out = await makeGitHub({ token: "T", spawn }).listRepoRulesets("o/r");
+      expect(calls[0]!.args[1]).toBe("repos/o/r/rulesets?per_page=100&includes_parents=false");
+      expect(out).toEqual([
+        { id: 20165584, name: "main: reviewed changes only" },
+        { id: 16762724, name: "Main Protection" },
+      ]);
+    });
+
+    it("listRepoRulesets never fabricates a row from a tab-less or non-numeric line", async () => {
+      const { spawn } = fakeSpawn({ stdout: "garbage-without-tab\nNaNid\talso bad\n7\tok\n" });
+      const out = await makeGitHub({ token: "T", spawn }).listRepoRulesets("o/r");
+      expect(out).toEqual([{ id: 7, name: "ok" }]);
+    });
+
+    it("updateRuleset PUTs (never PATCHes — PATCH 404s on this endpoint) the JSON body via --input", async () => {
+      const { spawn, calls } = fakeSpawn({ code: 0 });
+      const payload = {
+        name: "x",
+        target: "branch" as const,
+        enforcement: "active" as const,
+        bypass_actors: [],
+        conditions: { ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] } },
+        rules: [{ type: "deletion" }],
+      };
+      await makeGitHub({ token: "T", spawn }).updateRuleset("o/r", 42, payload);
+      const args = calls[0]!.args;
+      expect(args.slice(0, 4)).toEqual(["api", "-X", "PUT", "repos/o/r/rulesets/42"]);
+      const inputIdx = args.indexOf("--input");
+      expect(inputIdx).toBeGreaterThan(0);
+      // The temp file is gone by now (finally-cleanup) — asserting the flag pair
+      // is what pins the body-delivery mechanism.
+      expect(args[inputIdx + 1]).toMatch(/body\.json$/);
+    });
+
+    it("createRuleset POSTs to the rulesets collection via --input", async () => {
+      const { spawn, calls } = fakeSpawn({ code: 0 });
+      await makeGitHub({ token: "T", spawn }).createRuleset("o/r", {
+        name: "x",
+        target: "branch",
+        enforcement: "active",
+        bypass_actors: [],
+        conditions: { ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] } },
+        rules: [],
+      });
+      expect(calls[0]!.args.slice(0, 4)).toEqual(["api", "-X", "POST", "repos/o/r/rulesets"]);
+      expect(calls[0]!.args).toContain("--input");
+    });
+
+    it("checkContextObserved matches the exact check-run name and degrades failures to false", async () => {
+      const hit = fakeSpawn({ stdout: "ci / ci\nci / deploy-preview-comment\n" });
+      expect(
+        await makeGitHub({ token: "T", spawn: hit.spawn }).checkContextObserved(
+          "o/r",
+          "main",
+          "ci / ci",
+        ),
+      ).toBe(true);
+      expect(hit.calls[0]!.args[1]).toBe("repos/o/r/commits/main/check-runs?per_page=100");
+
+      const miss = fakeSpawn({ stdout: "build\n" });
+      expect(
+        await makeGitHub({ token: "T", spawn: miss.spawn }).checkContextObserved(
+          "o/r",
+          "main",
+          "ci / ci",
+        ),
+      ).toBe(false);
+
+      // 404/409 (empty repo, no commits on the ref) = "no evidence", the SAFE
+      // direction — never a throw that would abort the recipe.
+      const err = fakeSpawn({ code: 1, stderr: "HTTP 409: Git Repository is empty" });
+      expect(
+        await makeGitHub({ token: "T", spawn: err.spawn }).checkContextObserved(
+          "o/r",
+          "main",
+          "ci / ci",
+        ),
+      ).toBe(false);
+    });
+
+    it("repoVisibility reads .visibility", async () => {
+      const { spawn, calls } = fakeSpawn({ stdout: "private\n" });
+      expect(await makeGitHub({ token: "T", spawn }).repoVisibility("o/r")).toBe("private");
+      expect(calls[0]!.args).toEqual(["api", "repos/o/r", "--jq", ".visibility"]);
+    });
+
+    it("listOrgRepos paginates (the 30-per-page default is the false-'queue is empty' trap) and parses rows", async () => {
+      const { spawn, calls } = fakeSpawn({
+        stdout: "espada\tpublic\tfalse\nthe-tower\tprivate\tfalse\nreddoor-test\tprivate\ttrue\n",
+      });
+      const out = await makeGitHub({ token: "T", spawn }).listOrgRepos("reddoorla");
+      expect(calls[0]!.args).toContain("--paginate");
+      expect(calls[0]!.args).toContain("orgs/reddoorla/repos?per_page=100");
+      expect(out).toEqual([
+        { name: "espada", visibility: "public", archived: false },
+        { name: "the-tower", visibility: "private", archived: false },
+        { name: "reddoor-test", visibility: "private", archived: true },
+      ]);
+    });
+  });
 });

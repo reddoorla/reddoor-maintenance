@@ -145,6 +145,75 @@ jobs:
             echo "::warning::renovate-dispatch: $failed repo(s) failed to dispatch (check RENOVATE_TOKEN actions:write scope / renovate.yml present)."
           fi
 
+      # Org-wide protection coverage: every PUBLIC repo must carry a sound branch
+      # ruleset (active, EMPTY bypass list, PR-required — the layer that binds
+      # admins, which classic protection's enforce_admins:false never did). The
+      # self-updating recipe heals fleet sites, but it is cron-less and
+      # Airtable-scoped — exactly how six repos (one with NO protection at all)
+      # sat unprotected until the 2026-08-01 hand audit. This nightly sweep
+      # enumerates the org from the API and alarms on any gap.
+      #
+      # continue-on-error + a DEDICATED tracking issue, deliberately NOT a red
+      # job: a red here would fire the generic "Nightly fleet security audit
+      # failing" issue below and misdirect triage at the vuln sweep. The
+      # dedicated title is the signal; it auto-closes on the next clean pass.
+      - name: Protection coverage audit (org-wide)
+        id: protection
+        continue-on-error: true
+        env:
+          RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+        run: |
+          # pipefail is NOT in Actions' default `bash -e {0}` shell — without it,
+          # `| tee` would swallow the audit's exit 1 and this step could never
+          # report failure (the review caught this alarm shipping DEAD).
+          set -o pipefail
+          # A wiped/rotated-empty RENOVATE_TOKEN must be a FAILURE here, not the
+          # CLI's local-dev clean-skip: a skip verifies zero repos, and treating
+          # it as success would auto-close real gap issues below.
+          if [ -z "$RENOVATE_TOKEN" ]; then
+            echo "::error::protection-audit: RENOVATE_TOKEN is empty — cannot verify coverage."
+            exit 1
+          fi
+          node dist/cli/bin.js protection-audit --org reddoorla | tee /tmp/protection.out
+
+      - name: Open/update the protection-gap tracking issue
+        if: steps.protection.outcome == 'failure'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Fleet protection coverage gap"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          detail=$(grep -E "^GAP" /tmp/protection.out || echo "see run output")
+          body=$(printf 'The nightly protection-coverage sweep found public repo(s) without a sound branch ruleset (or could not verify one):\n\n```\n%s\n```\n\nHeal: run `reddoor-maint self-updating <site>` for fleet sites, or apply the canonical ruleset by hand for non-site repos (spec: docs/superpowers/specs/2026-08-02-ruleset-self-healing-design.md).\n\nRun: %s\n\n_Auto-filed; auto-closes on the next clean sweep._' "$detail" "$run_url")
+          existing=$(gh issue list --state open --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close the protection-gap issue on a clean sweep
+        if: steps.protection.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Belt and braces: close ONLY on positive evidence of a verified clean
+          # sweep — the gaps=0 machine line, which a skip/crash run never prints.
+          # Step outcome alone is not proof (any path that exits 0 without
+          # auditing would otherwise convert into a false "Recovered" close).
+          if ! grep -q "PROTECTION_AUDIT gaps=0 " /tmp/protection.out 2>/dev/null; then
+            echo "no verified clean sweep in the output — not closing anything"
+            exit 0
+          fi
+          title="Fleet protection coverage gap"
+          for n in $(gh issue list --state open --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+            gh issue close "$n" --comment "Recovered — the protection-coverage sweep verified every public repo clean." && echo "closed #$n"
+          done
+
       # A red nightly is otherwise only GitHub's best-effort email to the last pusher.
       # File/reopen a single deduped tracking issue so a failure is durably visible, and
       # auto-close it once the run goes green again. continue-on-error so the alert
