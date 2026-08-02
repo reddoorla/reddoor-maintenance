@@ -547,6 +547,22 @@ cli
 
 cli
   .command(
+    "protection-audit",
+    "Verify every public org repo carries a sound branch ruleset (empty bypass, PR-required).",
+  )
+  .option("--org <org>", "GitHub org to sweep (enumerated from the API, never a hand list).")
+  .action(async (opts: { org?: string; cwd?: string; verbose?: boolean }) =>
+    runOrExit(
+      async () =>
+        (await import("./commands/protection-audit.js")).runProtectionAuditCommand({
+          org: opts.org,
+        }),
+      opts,
+    ),
+  );
+
+cli
+  .command(
     "db <action>",
     "Migrate / backfill / reconcile the libSQL store (migrate | backfill | reconcile).",
   )
