@@ -1,5 +1,64 @@
 # @reddoorla/maintenance
 
+## 0.77.0
+
+### Minor Changes
+
+- 7a4ac6b: fix(fleet): disable platform auto-merge fleet-wide, let Renovate own the merge
+
+  **Behaviour change for consumers of the `self-updating` and `launch` recipes.**
+
+  GitHub's platform auto-merge is a per-PR flag that anyone with write access can
+  arm; the PR then merges itself later, unattended, once checks pass. On
+  2026-07-26 a bulk `gh pr merge --auto` sweep armed it across 8 fleet repos, and
+  two `actions/checkout` **major** PRs merged with zero reviews the next morning
+  (`reddoor-starter#77`, `reddoor-website#111`) once Renovate's own rebase cleared
+  their conflicts. The org Renovate preset forbids auto-merging majors and was
+  working correctly — Renovate never armed them — but the preset has no authority
+  over a flag someone else set.
+  - `self-updating` now **disables** GitHub platform auto-merge instead of
+    enabling it. The self-heal still runs on every `self-updating` / `launch` run,
+    so a repo where someone re-enables the flag gets it turned back off and the
+    correction is reported as an action — a drift alarm rather than a drift
+    source.
+  - New `disableRepoAutoMerge(repo)` on the `GitHub` wrapper. `enableRepoAutoMerge`
+    is retained and exported as the documented rollback path.
+  - The `renovate-action` config template now runs **twice daily**
+    (`0 */12 * * *`, was weekly `0 7 * * 1`). Renovate can only merge while it is
+    running, so with platform auto-merge off the cron is the merge cadence, not
+    just the PR-creation cadence. Sites will pick this up via `sync-configs`.
+  - The same template's actions are now **digest-pinned**
+    (`actions/checkout@3d3c42e…` # v7, `renovatebot/github-action@1a96852b…` #
+    v46.1.21). That workflow holds `RENOVATE_TOKEN`, a fleet-write PAT, so a
+    mutable tag ref there was a supply-chain regression.
+
+- b6c451b: Record and surface the newsletter fan-out, and tag Mailchimp members by source.
+
+  The site-webhook and Mailchimp results were `console.error`-only and persisted
+  nowhere, so an expired API key or a Mailchimp outage would silently stop signups
+  reaching the audience while the submission row still read `notify=sent` — healthy
+  to every view the operator has. Migration `0005_add_fanout_status` adds a
+  `fanout_status` column; ingest now stamps one `<destination>:<outcome>` token per
+  attempt (`webhook:ok,mailchimp:401`), and the dashboard shows a red `fan-out:` chip
+  on the collapsed submission line plus a `Fan-out` detail row. Null still means
+  nothing was attempted — a non-newsletter form, a spam row, or no destination
+  configured. The stamp is best-effort like the fan-out itself: a provenance write
+  never costs a lead.
+
+  Members added by the pipeline are now tagged `Online Form` and `form:<type>`, so
+  form signups are distinguishable from imports and manual adds inside Mailchimp
+  (every API write otherwise shows the same "API - Generic" source). Mailchimp
+  ignores `tags` in the member-upsert body for an **existing** member — the common
+  repeat-signup case — so the tags are also applied through the dedicated tags
+  endpoint; a tag failure is reported as `mailchimp-tags:failed` rather than failing
+  the add.
+
+### Patch Changes
+
+- a6f9f69: Fix the `sync-configs` CI template pinning the reusable workflow three minor versions behind the fleet.
+
+  The `ci-action` template pinned `reddoorla/.github/.github/workflows/ci.yml@78c4da64` (v1.0.0) while every fleet repo carries `@4a32c3d0` (v1.3.0). Running `sync-configs` would have silently regressed each repo's CI — including past the v1.3.0 fix that bumps `pnpm/action-setup` for the pnpm 11.12+ self-installer break.
+
 ## 0.76.0
 
 ### Minor Changes
