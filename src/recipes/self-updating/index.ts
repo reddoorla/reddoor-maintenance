@@ -17,6 +17,12 @@ import {
 import { siteLabel } from "../../util/site.js";
 import { readGitHubConfig } from "../../github/config.js";
 import { makeGitHub, type GitHub } from "../../github/gh.js";
+import {
+  FLEET_RULESET_NAME,
+  desiredRuleset,
+  healRuleset,
+  rulesetGaps,
+} from "../../github/rulesets.js";
 
 const SELF_UPDATING_CONFIGS = ["ci", "renovate-action", "renovate-config"] as const;
 
@@ -211,6 +217,50 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
       const contexts = [...new Set([...existingContexts, REQUIRED_CHECK])];
       await github.protectBranch(repo, base, contexts);
       actions.push(`required "${REQUIRED_CHECK}" check on ${base}`);
+    }
+    // Ruleset ensure — the layer that binds ADMINS. Classic protection above
+    // keeps `enforce_admins: false`, which is exactly the hole the 2026-07-26
+    // bulk `gh pr merge --auto` sweep walked through (two unreviewed MAJORS
+    // merged). The 2026-08-01 audit then found the six NEWEST repos with no
+    // ruleset at all — every hand-applied sweep regrows its gap at the next
+    // onboard, so the recipe owns the invariant now. Spec + invariants:
+    // docs/superpowers/specs/2026-08-02-ruleset-self-healing-design.md.
+    //
+    // Private repos are skipped BEFORE any attempt: rulesets there need a paid
+    // plan, so trying would either fail every run or spam a phantom action
+    // that flips this recipe to "applied" forever. Classic protection remains
+    // their floor.
+    if ((await github.repoVisibility(repo)) === "public") {
+      // Evidence gate: only require "ci / ci" once that check-run has actually
+      // been OBSERVED on the default branch. With an empty bypass list, a
+      // required context that never fires would make the repo permanently
+      // unmergeable by EVERYONE — e.g. a workflow_call-only ci.yml emits no
+      // check runs. Unobserved ⇒ refs rules only; the check upgrades on a
+      // later pass once real evidence exists.
+      const check = (await github.checkContextObserved(repo, base, REQUIRED_CHECK))
+        ? REQUIRED_CHECK
+        : null;
+      const existingRuleset = (await github.listRepoRulesets(repo)).find(
+        (r) => r.name === FLEET_RULESET_NAME,
+      );
+      if (!existingRuleset) {
+        await github.createRuleset(repo, desiredRuleset(check));
+        actions.push(
+          check === null
+            ? `created ruleset "${FLEET_RULESET_NAME}" (refs rules only — "${REQUIRED_CHECK}" not yet observed on ${base})`
+            : `created ruleset "${FLEET_RULESET_NAME}"`,
+        );
+      } else {
+        const full = await github.getRuleset(repo, existingRuleset.id);
+        const gaps = rulesetGaps(full, check);
+        if (gaps.length > 0) {
+          // PUT the healed payload (merge TOWARD the floor, never away — see
+          // healRuleset). Recording the specific gaps makes this the drift
+          // ALARM, same as the auto-merge-off action above.
+          await github.updateRuleset(repo, existingRuleset.id, healRuleset(full, check));
+          actions.push(`healed ruleset drift: ${gaps.join("; ")}`);
+        }
+      }
     }
     if (!(await github.secretExists(repo, "RENOVATE_TOKEN"))) {
       await github.setRepoSecret(repo, "RENOVATE_TOKEN", renovateToken);

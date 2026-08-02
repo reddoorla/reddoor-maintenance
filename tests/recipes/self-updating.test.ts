@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import { selfUpdating } from "../../src/recipes/self-updating/index.js";
 import type { GitHub } from "../../src/github/gh.js";
 import { templatesByName } from "../../src/recipes/sync-configs/templates.js";
+import { FLEET_RULESET_NAME, desiredRuleset } from "../../src/github/rulesets.js";
 
 function currentBranchOf(dir: string): string {
   return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
@@ -63,10 +64,34 @@ function fakeGitHub(over: GitHubOverrides = {}): { gh: GitHub; calls: string[] }
     dispatchWorkflow: async (repo, workflow, ref) => {
       calls.push(`dispatch:${repo}:${workflow}:${ref}`);
     },
+    // Ruleset defaults: a PUBLIC repo whose `ci / ci` has been observed but which
+    // has NO ruleset yet — the exact state of a fresh site after its first CI run —
+    // so the default expectation is one createRuleset call (stage 2).
+    repoVisibility: async () => "public",
+    checkContextObserved: async () => true,
+    listRepoRulesets: async () => [],
+    getRuleset: async () => {
+      throw new Error("getRuleset called with no ruleset listed");
+    },
+    createRuleset: async (repo, payload) => {
+      calls.push(`ruleset-create:${repo}:${payload.rules.map((r) => r.type).join(",")}`);
+    },
+    updateRuleset: async (repo, id, payload) => {
+      calls.push(`ruleset-update:${repo}:${id}:${payload.rules.map((r) => r.type).join(",")}`);
+    },
+    listOrgRepos: async () => [],
     ...over,
   };
   return { gh, calls };
 }
+
+// A repo whose fleet ruleset already satisfies the floor at stage 2 — spread into
+// tests that assert exact call lists / noop, so the ruleset ensure contributes no
+// call. Built from desiredRuleset so it stays canonical by construction.
+const WIRED_RULESET: GitHubOverrides = {
+  listRepoRulesets: async () => [{ id: 7, name: FLEET_RULESET_NAME }],
+  getRuleset: async () => ({ ...desiredRuleset("ci / ci"), id: 7 }),
+};
 
 // The canonical contents the recipe compares against — same source the recipe uses,
 // so `upToDate` is correct by construction regardless of the exact paths.
@@ -106,6 +131,10 @@ describe("selfUpdating recipe", () => {
     expect(calls).not.toContain("automerge-on:o/r");
     expect(calls).toContain("protect:o/r:main:ci / ci");
     expect(calls).toContain("secret:o/r:RENOVATE_TOKEN");
+    // Default fake: public repo, "ci / ci" observed, no ruleset → stage-2 create.
+    expect(calls).toContain(
+      "ruleset-create:o/r:deletion,non_fast_forward,pull_request,required_status_checks",
+    );
     expect(r.notes).toContain("https://github.com/o/r/pull/1");
     expect(r.commits).toHaveLength(1);
   });
@@ -162,6 +191,7 @@ describe("selfUpdating recipe", () => {
       autoMergeEnabled: async () => false,
       branchProtectionContexts: async () => ["ci / ci"],
       secretExists: async () => true,
+      ...WIRED_RULESET,
     });
     const push = vi.fn(async () => {});
     const r = await selfUpdating(
@@ -210,6 +240,7 @@ describe("selfUpdating recipe", () => {
       autoMergeEnabled: async () => false,
       branchProtectionContexts: async () => ["ci / ci"],
       secretExists: async () => true,
+      ...WIRED_RULESET,
     });
     const push = vi.fn(async () => {});
     const r = await selfUpdating(
@@ -269,6 +300,7 @@ describe("selfUpdating recipe", () => {
       setRepoSecret: async () => {
         throw new Error("boom");
       },
+      ...WIRED_RULESET,
     });
     const r = await selfUpdating(
       { path: dir, name: "r", gitRepo: "o/r" },
@@ -294,6 +326,7 @@ describe("selfUpdating recipe", () => {
       autoMergeEnabled: async () => true,
       branchProtectionContexts: async () => ["ci / ci"],
       secretExists: async () => true,
+      ...WIRED_RULESET,
     });
     const r = await selfUpdating(
       { path: dir, name: "r", gitRepo: "o/r" },
@@ -314,6 +347,7 @@ describe("selfUpdating recipe", () => {
       autoMergeEnabled: async () => false,
       branchProtectionContexts: async () => ["ci / ci"],
       secretExists: async () => false,
+      ...WIRED_RULESET,
     });
     const r = await selfUpdating(
       { path: dir, name: "r", gitRepo: "o/r" },
@@ -334,6 +368,7 @@ describe("selfUpdating recipe", () => {
       autoMergeEnabled: async () => false,
       branchProtectionContexts: async () => ["other-check", "foo"],
       secretExists: async () => true,
+      ...WIRED_RULESET,
     });
     const r = await selfUpdating(
       { path: dir, name: "r", gitRepo: "o/r" },
@@ -354,6 +389,7 @@ describe("selfUpdating recipe", () => {
       autoMergeEnabled: async () => false,
       branchProtectionContexts: async () => ["foo", "foo"],
       secretExists: async () => true,
+      ...WIRED_RULESET,
     });
     const r = await selfUpdating(
       { path: dir, name: "r", gitRepo: "o/r" },
@@ -382,6 +418,107 @@ describe("selfUpdating recipe", () => {
     expect(calls).not.toContain("pr:o/r");
     expect(r.notes).toContain("pull/9");
     expect(r.status).toBe("applied");
+  });
+
+  it("EVIDENCE GATE: creates the ruleset WITHOUT status checks when ci / ci has never been observed", async () => {
+    // A required context that never fires + an empty bypass list = a repo
+    // permanently unmergeable by everyone (the .github repo's ci.yml is
+    // workflow_call-only and emits no check runs — applying the full shape
+    // there would have bricked it). Unobserved ⇒ refs rules only.
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls } = fakeGitHub({
+      fileContentsOnBranch: upToDate,
+      autoMergeEnabled: async () => false,
+      branchProtectionContexts: async () => ["ci / ci"],
+      secretExists: async () => true,
+      checkContextObserved: async () => false,
+    });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: vi.fn(async () => {}), renovateToken: "RT" },
+    );
+    expect(r.status).toBe("applied");
+    expect(calls).toEqual(["ruleset-create:o/r:deletion,non_fast_forward,pull_request"]);
+    expect(r.notes).toContain("not yet observed");
+  });
+
+  it("skips the ruleset ensure entirely on a PRIVATE repo (plan-blocked) — stays noop", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls } = fakeGitHub({
+      fileContentsOnBranch: upToDate,
+      autoMergeEnabled: async () => false,
+      branchProtectionContexts: async () => ["ci / ci"],
+      secretExists: async () => true,
+      repoVisibility: async () => "private",
+      // If the recipe consults rulesets despite the gate, these blow up loudly.
+      listRepoRulesets: async () => {
+        throw new Error("listRepoRulesets must not be called on a private repo");
+      },
+      checkContextObserved: async () => {
+        throw new Error("checkContextObserved must not be called on a private repo");
+      },
+    });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: vi.fn(async () => {}), renovateToken: "RT" },
+    );
+    expect(r.status).toBe("noop");
+    expect(calls).toEqual([]);
+  });
+
+  it("RULESET DRIFT ALARM: a bypass actor gets healed away via PUT, with the gap named in the action", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    let putPayload: Parameters<GitHub["updateRuleset"]>[2] | null = null;
+    const { gh, calls } = fakeGitHub({
+      fileContentsOnBranch: upToDate,
+      autoMergeEnabled: async () => false,
+      branchProtectionContexts: async () => ["ci / ci"],
+      secretExists: async () => true,
+      listRepoRulesets: async () => [{ id: 9, name: FLEET_RULESET_NAME }],
+      getRuleset: async () => ({
+        ...desiredRuleset("ci / ci"),
+        id: 9,
+        bypass_actors: [{ actor_id: 5, actor_type: "RepositoryRole", bypass_mode: "always" }],
+      }),
+      updateRuleset: async (repo, id, payload) => {
+        calls.push(`ruleset-update:${repo}:${id}`);
+        putPayload = payload;
+      },
+    });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: vi.fn(async () => {}), renovateToken: "RT" },
+    );
+    expect(r.status).toBe("applied");
+    expect(calls).toEqual(["ruleset-update:o/r:9"]);
+    expect(r.notes).toContain("healed ruleset drift");
+    expect(r.notes).toContain("bypass actor");
+    expect(putPayload!.bypass_actors).toEqual([]);
+  });
+
+  it("a ruleset API failure surfaces as failed WITH the completed actions", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const { gh, calls } = fakeGitHub({
+      fileContentsOnBranch: upToDate,
+      autoMergeEnabled: async () => true, // completes first
+      branchProtectionContexts: async () => ["ci / ci"],
+      secretExists: async () => true,
+      createRuleset: async () => {
+        throw new Error("rate limited");
+      },
+    });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: vi.fn(async () => {}), renovateToken: "RT" },
+    );
+    expect(r.status).toBe("failed");
+    expect(r.notes).toContain("rate limited");
+    expect(r.notes).toContain("completed: disabled auto-merge");
+    expect(calls).toContain("automerge-off:o/r");
   });
 
   it("fails when there is no git repo", async () => {
