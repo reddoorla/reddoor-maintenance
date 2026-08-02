@@ -237,6 +237,15 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
       // unmergeable by EVERYONE — e.g. a workflow_call-only ci.yml emits no
       // check runs. Unobserved ⇒ refs rules only; the check upgrades on a
       // later pass once real evidence exists.
+      //
+      // Residual risk, accepted: this proves the check fires on default-branch
+      // PUSHES, not on pull_request events — a hand-edited push-only ci.yml
+      // would pass the gate and then block every PR. Out of contract here
+      // because the fleet ci.yml is one of SELF_UPDATING_CONFIGS: block A
+      // above heals its content back to the template (which triggers on both
+      // pull_request and push) in the same run, so the drift that would make
+      // this gate lie is itself being corrected. Un-brick path if it ever
+      // bites: edit the ruleset via API (ruleset ADMIN is not ref-gated).
       const check = (await github.checkContextObserved(repo, base, REQUIRED_CHECK))
         ? REQUIRED_CHECK
         : null;

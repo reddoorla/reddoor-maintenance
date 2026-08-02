@@ -44,9 +44,15 @@ only — `required_status_checks` on `ci / ci` with
 - **Never weaken.** Healing merges TOWARD the floor; it never strips. Existing
   extra rules (e.g. a hand-added `required_linear_history`), stronger
   `pull_request` parameters (e.g. `required_review_thread_resolution: true`),
-  and other repos' required status-check contexts are all preserved. The one
-  deliberate exception: a non-empty `bypass_actors` **is** drift and is healed
-  to empty — that is the alarm condition this exists for.
+  and other repos' required status-check contexts are all preserved. Two
+  deliberate exceptions, both pure weakenings: a non-empty `bypass_actors` is
+  drift and heals to empty, and so are **ref exclude patterns** — GitHub
+  applies exclude over include, so `exclude: ["refs/heads/main"]` neutralizes
+  the whole ruleset while every other floor check still passes (the
+  least-destructive-looking admin edit, functionally equivalent to disabling
+  it). The pure logic cannot resolve which patterns match the default branch,
+  so the floor is NO excludes; extra _includes_ are preserved (they only
+  strengthen). Both were review findings, not first-draft design.
 - **Union contexts, never replace** — same lesson as the classic
   `protectBranch` PUT (see the "MERGING it with the branch's existing required
   contexts" test): when adding `ci / ci` to an existing
@@ -82,6 +88,22 @@ check is reported per-repo as information. Exit 1 on any gap; the
 `fleet-security.yml` nightly runs it and files/auto-closes the
 "Fleet protection coverage gap" tracking issue via the existing
 fleet-lighthouse pattern.
+
+Three alarm-honesty rules in that wiring, all adversarial-review findings
+(the first would have shipped the whole alarm DEAD): the step must
+`set -o pipefail` (Actions' default `bash -e {0}` has no pipefail, so `| tee`
+otherwise swallows the exit 1 forever); an empty `RENOVATE_TOKEN` in CI is a
+step FAILURE, not the CLI's local-dev clean-skip (a skip verifies nothing);
+and the issue auto-CLOSE requires positive evidence — the
+`PROTECTION_AUDIT gaps=0` machine line — never step outcome alone, so no
+zero-exit path can convert into a false "Recovered".
+
+Accepted residual: the evidence gate observes the check on default-branch
+pushes, not pull_request events. A hand-edited push-only ci.yml would pass the
+gate and then block PRs — out of contract because ci.yml is itself one of
+SELF_UPDATING_CONFIGS (block A heals it back to the template, which triggers
+on both). Un-brick path: ruleset ADMIN operations are not ref-gated (verified
+live — an idempotent PUT succeeds under `current_user_can_bypass: never`).
 
 ## Explicitly out of scope
 

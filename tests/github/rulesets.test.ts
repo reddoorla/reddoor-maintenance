@@ -211,16 +211,29 @@ describe("healRuleset", () => {
     expect(pr.parameters?.["required_approving_review_count"]).toBe(0);
   });
 
-  it("preserves extra ref includes/excludes and only appends ~DEFAULT_BRANCH when uncovered", () => {
+  it("preserves extra ref INCLUDES (strengthening) but CLEARS excludes (pure weakening)", () => {
     const scoped = liveFleetRuleset({
       conditions: { ref_name: { include: ["refs/heads/release"], exclude: ["refs/heads/tmp/*"] } },
     });
     const healed = healRuleset(scoped, null);
     expect(healed.conditions.ref_name.include).toEqual(["refs/heads/release", "~DEFAULT_BRANCH"]);
-    expect(healed.conditions.ref_name.exclude).toEqual(["refs/heads/tmp/*"]);
+    expect(healed.conditions.ref_name.exclude).toEqual([]);
 
     const covered = healRuleset(liveFleetRuleset(), null);
     expect(covered.conditions.ref_name.include).toEqual(["~DEFAULT_BRANCH"]);
+  });
+
+  it("an exclude that could neutralize the default branch is a GAP — `exclude: [refs/heads/main]` under `include: [~ALL]` is equivalent to disabling the ruleset on main", () => {
+    // GitHub applies exclude OVER include, and the pure floor cannot resolve
+    // which patterns match the default branch — so ANY exclude is drift.
+    const poisoned = liveFleetRuleset({
+      conditions: { ref_name: { include: ["~ALL"], exclude: ["refs/heads/main"] } },
+    });
+    const gaps = rulesetGaps(poisoned, CHECK);
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]).toContain("exclude");
+    // And healing clears it.
+    expect(healRuleset(poisoned, CHECK).conditions.ref_name.exclude).toEqual([]);
   });
 
   it("healing the live shape round-trips it unchanged (idempotent payload)", () => {

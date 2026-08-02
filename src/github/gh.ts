@@ -452,11 +452,12 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
       return out
         .split("\n")
         .map((l) => l.trim())
-        .filter((l) => l.length > 0)
+        .filter((l) => l.includes("\t")) // a tab-less line has no id/name split — never fabricate a NaN row from it
         .map((l) => {
           const tab = l.indexOf("\t");
           return { id: Number(l.slice(0, tab)), name: l.slice(tab + 1) };
-        });
+        })
+        .filter((r) => Number.isSafeInteger(r.id));
     },
     async getRuleset(repo, id) {
       const out = await gh(["api", `repos/${repo}/rulesets/${Math.trunc(id)}`]);

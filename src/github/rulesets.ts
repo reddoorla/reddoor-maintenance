@@ -144,6 +144,19 @@ export function rulesetGaps(existing: ExistingRuleset, requiredCheck: string | n
   if (!coversDefaultBranch(existing.conditions?.ref_name?.include)) {
     gaps.push("ref conditions do not cover the default branch");
   }
+  // Exclude patterns can ONLY remove protection (GitHub applies exclude over
+  // include), and the pure floor cannot resolve which patterns match the
+  // default branch — `exclude: ["refs/heads/main"]` neutralizes the entire
+  // ruleset while every other check here still passes. It is also the
+  // least-destructive-LOOKING admin edit ("I'll just exclude main for a
+  // minute"), i.e. exactly the bypass drift this layer alarms on. The fleet
+  // floor is therefore NO excludes at all.
+  const exclude = existing.conditions?.ref_name?.exclude ?? [];
+  if (exclude.length > 0) {
+    gaps.push(
+      `${exclude.length} ref exclude pattern(s) present (excludes can only weaken; fleet floor is none)`,
+    );
+  }
   for (const type of ["deletion", "non_fast_forward", "pull_request"]) {
     if (!ruleOfType(existing.rules, type)) gaps.push(`missing ${type} rule`);
   }
@@ -170,13 +183,15 @@ export function rulesetGaps(existing: ExistingRuleset, requiredCheck: string | n
  * Preserved verbatim: extra rule types (a hand-added `required_linear_history`
  * survives), existing `pull_request` parameters (hand-hardening survives),
  * other required status-check contexts (union, never replace — the same
- * lesson the classic protectBranch PUT learned), and existing ref includes/
- * excludes beyond the default-branch guarantee.
+ * lesson the classic protectBranch PUT learned), and existing ref INCLUDES
+ * beyond the default-branch guarantee (extra includes only strengthen).
  *
- * Healed: enforcement → active, bypass_actors → [] (the deliberate exception
- * to never-weaken — a bypass actor IS the drift being alarmed on), missing
- * rules added, and — only when `requiredCheck` is non-null — the context
- * unioned in with strict policy forced on.
+ * Healed: enforcement → active, bypass_actors → [], and ref excludes → []
+ * (both deliberate exceptions to never-weaken, because both are pure
+ * weakenings — a bypass actor or an exclude matching the default branch IS
+ * the drift being alarmed on), missing rules added, and — only when
+ * `requiredCheck` is non-null — the context unioned in with strict policy
+ * forced on.
  */
 export function healRuleset(
   existing: ExistingRuleset,
@@ -222,7 +237,10 @@ export function healRuleset(
     conditions: {
       ref_name: {
         include: coversDefaultBranch(include) ? [...include] : [...include, "~DEFAULT_BRANCH"],
-        exclude: [...(existing.conditions?.ref_name?.exclude ?? [])],
+        // Excludes are cleared, never preserved: they can only remove
+        // protection, and the pure logic cannot tell a benign pattern from
+        // one that neutralizes the default branch (see rulesetGaps).
+        exclude: [],
       },
     },
     rules,

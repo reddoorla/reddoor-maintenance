@@ -162,7 +162,19 @@ jobs:
         continue-on-error: true
         env:
           RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
-        run: node dist/cli/bin.js protection-audit --org reddoorla | tee /tmp/protection.out
+        run: |
+          # pipefail is NOT in Actions' default `bash -e {0}` shell — without it,
+          # `| tee` would swallow the audit's exit 1 and this step could never
+          # report failure (the review caught this alarm shipping DEAD).
+          set -o pipefail
+          # A wiped/rotated-empty RENOVATE_TOKEN must be a FAILURE here, not the
+          # CLI's local-dev clean-skip: a skip verifies zero repos, and treating
+          # it as success would auto-close real gap issues below.
+          if [ -z "$RENOVATE_TOKEN" ]; then
+            echo "::error::protection-audit: RENOVATE_TOKEN is empty — cannot verify coverage."
+            exit 1
+          fi
+          node dist/cli/bin.js protection-audit --org reddoorla | tee /tmp/protection.out
 
       - name: Open/update the protection-gap tracking issue
         if: steps.protection.outcome == 'failure'
@@ -188,10 +200,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Belt and braces: close ONLY on positive evidence of a verified clean
+          # sweep — the gaps=0 machine line, which a skip/crash run never prints.
+          # Step outcome alone is not proof (any path that exits 0 without
+          # auditing would otherwise convert into a false "Recovered" close).
+          if ! grep -q "PROTECTION_AUDIT gaps=0 " /tmp/protection.out 2>/dev/null; then
+            echo "no verified clean sweep in the output — not closing anything"
+            exit 0
+          fi
           title="Fleet protection coverage gap"
           for n in $(gh issue list --state open --json number,title \
             --jq "map(select(.title==\"$title\")) | .[].number" || true); do
-            gh issue close "$n" --comment "Recovered — the protection-coverage sweep is clean again." && echo "closed #$n"
+            gh issue close "$n" --comment "Recovered — the protection-coverage sweep verified every public repo clean." && echo "closed #$n"
           done
 
       # A red nightly is otherwise only GitHub's best-effort email to the last pusher.
