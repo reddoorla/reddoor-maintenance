@@ -1,4 +1,8 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { defaultSpawn, type SpawnFn } from "../audits/util/spawn.js";
+import type { ExistingRuleset, RulesetPayload } from "./rulesets.js";
 
 /** Aggregate CI state of a PR's head commit, normalized from GitHub's rollup. */
 export type CiState = "passing" | "failing" | "pending" | "none";
@@ -106,6 +110,31 @@ export type GitHub = {
    *  on `ref`. Requires the token's `actions:write` scope; a 404 (no such
    *  workflow) or 403 (missing scope) surfaces as a thrown error. */
   dispatchWorkflow: (repo: string, workflow: string, ref: string) => Promise<void>;
+  /** REPO-sourced rulesets only (`includes_parents=false`): org-level rulesets
+   *  aren't ours to manage (and don't exist on the Free plan). */
+  listRepoRulesets: (repo: string) => Promise<Array<{ id: number; name: string }>>;
+  getRuleset: (repo: string, id: number) => Promise<ExistingRuleset>;
+  createRuleset: (repo: string, payload: RulesetPayload) => Promise<void>;
+  /** The update verb is PUT — `PATCH repos/{repo}/rulesets/{id}` returns 404
+   *  (verified live 2026-08-01), so a PATCH-based update would silently no-op
+   *  on every drifted repo while the recipe reported success. */
+  updateRuleset: (repo: string, id: number, payload: RulesetPayload) => Promise<void>;
+  /** True iff a check-run named `context` exists on `ref`'s HEAD commit. The
+   *  evidence gate for requiring a status check: with an empty bypass list, a
+   *  required context that never fires makes the repo permanently unmergeable
+   *  by everyone — so a context must be OBSERVED before it is required.
+   *  False-negatives (fresh repo, API hiccup) safely degrade to "don't require
+   *  yet"; false-positives are impossible (we name-match real runs). */
+  checkContextObserved: (repo: string, ref: string, context: string) => Promise<boolean>;
+  /** "public" | "private" (| "internal" on GHEC). Rulesets on private repos
+   *  need a paid plan, so callers gate on this rather than attempting. */
+  repoVisibility: (repo: string) => Promise<string>;
+  /** Every repo in the org (paginated) — the anti-hand-typed-list enumerator.
+   *  Sweeps driven by a hand-maintained or Airtable-scoped list have already
+   *  produced two false "all clear"s; enumerate from the API instead. */
+  listOrgRepos: (
+    org: string,
+  ) => Promise<Array<{ name: string; visibility: string; archived: boolean }>>;
 };
 
 export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
@@ -116,6 +145,20 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
     const r = await spawn("gh", args, { env, timeoutMs: 60_000 });
     if (r.code !== 0) throw new Error(`gh ${args[0]} failed (code ${r.code}): ${r.stderr.trim()}`);
     return r.stdout;
+  }
+
+  /** `gh api` with a JSON request body. Ruleset payloads have nested arrays/
+   *  objects that `-f`/`-F` field flags cannot express, and the spawn wrapper
+   *  has no stdin — so the body rides a private temp file via `--input`. */
+  async function ghJson(method: "POST" | "PUT", path: string, body: unknown): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), "gh-json-"));
+    const file = join(dir, "body.json");
+    try {
+      await writeFile(file, JSON.stringify(body), "utf-8");
+      return await gh(["api", "-X", method, path, "--input", file]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   }
 
   return {
@@ -396,6 +439,83 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
         "-f",
         `ref=${ref}`,
       ]);
+    },
+    async listRepoRulesets(repo) {
+      // includes_parents=false: only rulesets SOURCED on this repo are ours to
+      // heal; an org-level ruleset (paid plans) must never be PUT from here.
+      const out = await gh([
+        "api",
+        `repos/${repo}/rulesets?per_page=100&includes_parents=false`,
+        "--jq",
+        '.[] | "\\(.id)\\t\\(.name)"',
+      ]);
+      return out
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0)
+        .map((l) => {
+          const tab = l.indexOf("\t");
+          return { id: Number(l.slice(0, tab)), name: l.slice(tab + 1) };
+        });
+    },
+    async getRuleset(repo, id) {
+      const out = await gh(["api", `repos/${repo}/rulesets/${Math.trunc(id)}`]);
+      return JSON.parse(out) as ExistingRuleset;
+    },
+    async createRuleset(repo, payload) {
+      await ghJson("POST", `repos/${repo}/rulesets`, payload);
+    },
+    async updateRuleset(repo, id, payload) {
+      // PUT, not PATCH: PATCH on this endpoint 404s (verified live 2026-08-01),
+      // which a naive implementation would surface as "update failed" at best —
+      // or, with a lenient error path, as a silent no-op reported as healed.
+      await ghJson("PUT", `repos/${repo}/rulesets/${Math.trunc(id)}`, payload);
+    },
+    async checkContextObserved(repo, ref, context) {
+      assertUrlSegment("branch", ref);
+      // spawn-direct (not the throwing gh()): a 404/409 — empty repo, no commits
+      // on the ref yet — is an expected answer meaning "no evidence", not an
+      // error. Any failure degrades to false, i.e. "don't require the check
+      // yet", which is the safe direction (see checkContextObserved's contract).
+      const r = await spawn(
+        "gh",
+        [
+          "api",
+          `repos/${repo}/commits/${ref}/check-runs?per_page=100`,
+          "--jq",
+          ".check_runs[].name",
+        ],
+        { env, timeoutMs: 60_000 },
+      );
+      if (r.code !== 0) return false;
+      return r.stdout
+        .split("\n")
+        .map((l) => l.trim())
+        .includes(context);
+    },
+    async repoVisibility(repo) {
+      const out = await gh(["api", `repos/${repo}`, "--jq", ".visibility"]);
+      return out.trim();
+    },
+    async listOrgRepos(org) {
+      assertUrlSegment("path", org);
+      // --paginate: the org is >27 repos and the default page of 30 is exactly
+      // the trap that produced the 2026-07-31 false "queue is empty".
+      const out = await gh([
+        "api",
+        "--paginate",
+        `orgs/${org}/repos?per_page=100`,
+        "--jq",
+        '.[] | "\\(.name)\\t\\(.visibility)\\t\\(.archived)"',
+      ]);
+      return out
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0)
+        .map((l) => {
+          const [name = "", visibility = "", archived = ""] = l.split("\t");
+          return { name, visibility, archived: archived === "true" };
+        });
     },
   };
 }
