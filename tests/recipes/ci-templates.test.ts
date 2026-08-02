@@ -45,8 +45,12 @@ describe("CI/Renovate canonical templates", () => {
   });
   it("renovate.yml emits literal GitHub Actions expressions", () => {
     const contents = templatesByName(["renovate-action"])[0]!.contents;
-    expect(contents).toContain("${{ secrets.RENOVATE_TOKEN }}");
+    // App-token minting (the PAT is gone — reddoor-renovate App identity).
+    expect(contents).toContain("${{ vars.RENOVATE_APP_ID }}");
+    expect(contents).toContain("${{ secrets.RENOVATE_APP_PRIVATE_KEY }}");
+    expect(contents).toContain("${{ steps.app-token.outputs.token }}");
     expect(contents).toContain("${{ github.repository }}");
+    expect(contents).not.toContain("RENOVATE_TOKEN");
   });
 
   it("sync-clean fixtures stay byte-identical to the ci/renovate templates", () => {

@@ -119,7 +119,7 @@ describe("selfUpdating recipe", () => {
     });
     const r = await selfUpdating(
       { path: dir, name: "r", gitRepo: "o/r" },
-      { github: gh, pushBranch: push, renovateToken: "RT" },
+      { github: gh, pushBranch: push },
     );
     expect(r.status).toBe("applied");
     expect(ciOnPushedBranch).toBe(true);
@@ -130,7 +130,6 @@ describe("selfUpdating recipe", () => {
     expect(calls).toContain("automerge-off:o/r");
     expect(calls).not.toContain("automerge-on:o/r");
     expect(calls).toContain("protect:o/r:main:ci / ci");
-    expect(calls).toContain("secret:o/r:RENOVATE_TOKEN");
     // Default fake: public repo, "ci / ci" observed, no ruleset → stage-2 create.
     expect(calls).toContain(
       "ruleset-create:o/r:deletion,non_fast_forward,pull_request,required_status_checks",
@@ -150,7 +149,7 @@ describe("selfUpdating recipe", () => {
     const push = vi.fn(async () => {});
     const r = await selfUpdating(
       { path: dir, name: "r", gitRepo: "o/r" },
-      { github: gh, pushBranch: push, renovateToken: "RT" },
+      { github: gh, pushBranch: push },
     );
     expect(r.status).toBe("applied");
     expect(push).toHaveBeenCalledOnce();
@@ -174,7 +173,7 @@ describe("selfUpdating recipe", () => {
     });
     const r = await selfUpdating(
       { path: dir, name: "r", gitRepo: "o/r" },
-      { github: gh, pushBranch: push, renovateToken: "RT" },
+      { github: gh, pushBranch: push },
     );
     expect(r.status).toBe("failed");
     expect(push).toHaveBeenCalledOnce();
@@ -196,7 +195,7 @@ describe("selfUpdating recipe", () => {
     const push = vi.fn(async () => {});
     const r = await selfUpdating(
       { path: dir, name: "r", gitRepo: "o/r" },
-      { github: gh, pushBranch: push, renovateToken: "RT" },
+      { github: gh, pushBranch: push },
     );
     expect(r.status).toBe("noop");
     expect(push).not.toHaveBeenCalled();
@@ -221,7 +220,7 @@ describe("selfUpdating recipe", () => {
     const push = vi.fn(async () => {});
     const r = await selfUpdating(
       { path: dir, name: "r", gitRepo: "o/r" },
-      { github: gh, pushBranch: push, renovateToken: "RT" },
+      { github: gh, pushBranch: push },
     );
     expect(r.status).toBe("applied");
     expect(push).toHaveBeenCalledOnce();
@@ -245,7 +244,7 @@ describe("selfUpdating recipe", () => {
     const push = vi.fn(async () => {});
     const r = await selfUpdating(
       { path: dir, name: "r", gitRepo: "o/r" },
-      { github: gh, pushBranch: push, renovateToken: "RT" },
+      { github: gh, pushBranch: push },
     );
     expect(r.status).toBe("noop");
     expect(push).not.toHaveBeenCalled();
@@ -266,7 +265,7 @@ describe("selfUpdating recipe", () => {
     const push = vi.fn(async () => {});
     const r = await selfUpdating(
       { path: dir, name: "r", gitRepo: "o/r" },
-      { github: gh, pushBranch: push, renovateToken: "RT" },
+      { github: gh, pushBranch: push },
     );
     expect(r.status).toBe("applied");
     expect(push).toHaveBeenCalledOnce();
@@ -281,7 +280,7 @@ describe("selfUpdating recipe", () => {
     const push = vi.fn(async () => {});
     const r = await selfUpdating(
       { path: dir, name: "r", gitRepo: "o/r" },
-      { github: gh, pushBranch: push, renovateToken: "RT" },
+      { github: gh, pushBranch: push },
     );
     expect(r.status).toBe("failed");
     expect(r.notes).toContain("working tree not clean");
@@ -295,16 +294,16 @@ describe("selfUpdating recipe", () => {
     const { gh, calls } = fakeGitHub({
       fileContentsOnBranch: upToDate, // no bootstrap (all configs at canonical content)
       autoMergeEnabled: async () => true, // → disableRepoAutoMerge succeeds (1 action)
-      branchProtectionContexts: async () => ["ci / ci"],
-      secretExists: async () => false, // → setRepoSecret runs, and throws
-      setRepoSecret: async () => {
+      branchProtectionContexts: async () => [], // → protectBranch runs, and throws
+      protectBranch: async () => {
         throw new Error("boom");
       },
+      secretExists: async () => true,
       ...WIRED_RULESET,
     });
     const r = await selfUpdating(
       { path: dir, name: "r", gitRepo: "o/r" },
-      { github: gh, pushBranch: vi.fn(async () => {}), renovateToken: "RT" },
+      { github: gh, pushBranch: vi.fn(async () => {}) },
     );
     expect(r.status).toBe("failed");
     expect(r.notes).toContain("boom");
@@ -330,7 +329,7 @@ describe("selfUpdating recipe", () => {
     });
     const r = await selfUpdating(
       { path: dir, name: "r", gitRepo: "o/r" },
-      { github: gh, pushBranch: vi.fn(async () => {}), renovateToken: "RT" },
+      { github: gh, pushBranch: vi.fn(async () => {}) },
     );
     expect(r.status).toBe("applied");
     expect(calls).toEqual(["automerge-off:o/r"]);
@@ -339,22 +338,25 @@ describe("selfUpdating recipe", () => {
     );
   });
 
-  it("self-heals a half-configured repo: only the missing secret is set", async () => {
+  it("self-heals a half-configured repo: only the missing classic protection is set", async () => {
+    // (Formerly this scenario planted the per-repo RENOVATE_TOKEN secret; the App
+    // migration removed that step — org-level App creds cover every repo — so the
+    // representative 'one missing setting' is now classic branch protection.)
     const dir = mkdtempSync(join(tmpdir(), "su-"));
     gitInit(dir);
     const { gh, calls } = fakeGitHub({
       fileContentsOnBranch: upToDate,
       autoMergeEnabled: async () => false,
-      branchProtectionContexts: async () => ["ci / ci"],
-      secretExists: async () => false,
+      branchProtectionContexts: async () => [],
+      secretExists: async () => true,
       ...WIRED_RULESET,
     });
     const r = await selfUpdating(
       { path: dir, name: "r", gitRepo: "o/r" },
-      { github: gh, pushBranch: vi.fn(async () => {}), renovateToken: "RT" },
+      { github: gh, pushBranch: vi.fn(async () => {}) },
     );
     expect(r.status).toBe("applied");
-    expect(calls).toEqual(["secret:o/r:RENOVATE_TOKEN"]);
+    expect(calls).toEqual(["protect:o/r:main:ci / ci"]);
   });
 
   it("adds the ci check, MERGING it with the branch's existing required contexts", async () => {
@@ -372,7 +374,7 @@ describe("selfUpdating recipe", () => {
     });
     const r = await selfUpdating(
       { path: dir, name: "r", gitRepo: "o/r" },
-      { github: gh, pushBranch: vi.fn(async () => {}), renovateToken: "RT" },
+      { github: gh, pushBranch: vi.fn(async () => {}) },
     );
     expect(r.status).toBe("applied");
     expect(calls).toEqual(["protect:o/r:main:other-check,foo,ci / ci"]);
@@ -393,7 +395,7 @@ describe("selfUpdating recipe", () => {
     });
     const r = await selfUpdating(
       { path: dir, name: "r", gitRepo: "o/r" },
-      { github: gh, pushBranch: vi.fn(async () => {}), renovateToken: "RT" },
+      { github: gh, pushBranch: vi.fn(async () => {}) },
     );
     expect(r.status).toBe("applied");
     expect(calls).toEqual(["protect:o/r:main:foo,ci / ci"]);
@@ -412,7 +414,7 @@ describe("selfUpdating recipe", () => {
     const push = vi.fn(async () => {});
     const r = await selfUpdating(
       { path: dir, name: "r", gitRepo: "o/r" },
-      { github: gh, pushBranch: push, renovateToken: "RT" },
+      { github: gh, pushBranch: push },
     );
     expect(push).not.toHaveBeenCalled();
     expect(calls).not.toContain("pr:o/r");
@@ -436,7 +438,7 @@ describe("selfUpdating recipe", () => {
     });
     const r = await selfUpdating(
       { path: dir, name: "r", gitRepo: "o/r" },
-      { github: gh, pushBranch: vi.fn(async () => {}), renovateToken: "RT" },
+      { github: gh, pushBranch: vi.fn(async () => {}) },
     );
     expect(r.status).toBe("applied");
     expect(calls).toEqual(["ruleset-create:o/r:deletion,non_fast_forward,pull_request"]);
@@ -462,7 +464,7 @@ describe("selfUpdating recipe", () => {
     });
     const r = await selfUpdating(
       { path: dir, name: "r", gitRepo: "o/r" },
-      { github: gh, pushBranch: vi.fn(async () => {}), renovateToken: "RT" },
+      { github: gh, pushBranch: vi.fn(async () => {}) },
     );
     expect(r.status).toBe("noop");
     expect(calls).toEqual([]);
@@ -490,7 +492,7 @@ describe("selfUpdating recipe", () => {
     });
     const r = await selfUpdating(
       { path: dir, name: "r", gitRepo: "o/r" },
-      { github: gh, pushBranch: vi.fn(async () => {}), renovateToken: "RT" },
+      { github: gh, pushBranch: vi.fn(async () => {}) },
     );
     expect(r.status).toBe("applied");
     expect(calls).toEqual(["ruleset-update:o/r:9"]);
@@ -513,7 +515,7 @@ describe("selfUpdating recipe", () => {
     });
     const r = await selfUpdating(
       { path: dir, name: "r", gitRepo: "o/r" },
-      { github: gh, pushBranch: vi.fn(async () => {}), renovateToken: "RT" },
+      { github: gh, pushBranch: vi.fn(async () => {}) },
     );
     expect(r.status).toBe("failed");
     expect(r.notes).toContain("rate limited");
@@ -525,7 +527,7 @@ describe("selfUpdating recipe", () => {
     const dir = mkdtempSync(join(tmpdir(), "su-"));
     // no git init, no gitRepo → resolveRepo returns null
     const { gh } = fakeGitHub();
-    const r = await selfUpdating({ path: dir, name: "r" }, { github: gh, renovateToken: "RT" });
+    const r = await selfUpdating({ path: dir, name: "r" }, { github: gh });
     expect(r.status).toBe("failed");
     expect(r.notes).toContain("no Git repo");
   });
@@ -537,7 +539,7 @@ describe("selfUpdating recipe", () => {
     for (const gitRepo of ["../evil", "o", "o/r/x", "o /r", "https://github.com/o/r"]) {
       const r = await selfUpdating(
         { path: dir, name: "r", gitRepo },
-        { github: gh, pushBranch: vi.fn(async () => {}), renovateToken: "RT" },
+        { github: gh, pushBranch: vi.fn(async () => {}) },
       );
       expect(r.status).toBe("failed");
       expect(r.notes).toMatch(/malformed repo identity/);
