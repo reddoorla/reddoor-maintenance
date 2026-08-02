@@ -149,13 +149,13 @@ The full 7-step Svelte 4 → 5 migration: bump framework versions, migrate `svel
 
 Each audit is `(ctx) => Promise<AuditResult>` and is exported from the package entry. All audits return a closed-union status: `"pass" | "warn" | "fail" | "skip"`.
 
-| Name         | What it checks                                                                                                                                                                                                  |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `deps`       | Diffs site's `package.json` against `src/configs/baseline-versions.ts`. Surfaces deps that drift from the canonical version map.                                                                                |
-| `lighthouse` | Runs `@lhci/cli autorun` using the canonical `lighthouserc.json`. Hits `/dev/a11y-fixtures` by default; sites without that route can set `package.json#reddoor.lighthouseUrl` to override.                      |
-| `a11y`       | Spawns Playwright + `@axe-core/playwright` against a canonical set of a11y routes.                                                                                                                              |
-| `security`   | `pnpm audit --json --prod` with automatic fall-through to `npm audit` when pnpm can't run (missing lockfile, error envelope, etc.). Normalises advisory shapes from both tools into a single `AdvisoryEntry[]`. |
-| `lint`       | ESLint + Prettier using the canonical configs (re-exported via `@reddoorla/maintenance/configs/eslint` and `@reddoorla/maintenance/configs/prettier`).                                                          |
+| Name         | What it checks                                                                                                                                                                                                    |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deps`       | Diffs site's `package.json` against `src/configs/baseline-versions.ts`. Surfaces deps that drift from the canonical version map.                                                                                  |
+| `lighthouse` | Runs `@lhci/cli autorun` using the canonical `lighthouserc.json`. Hits `/dev/a11y-fixtures` by default; sites without that route can set `package.json#reddoor.lighthouseUrl` to override.                        |
+| `a11y`       | Spawns Playwright + `@axe-core/playwright` against the two canonical fixture routes. A site can add its own real routes with `package.json#reddoor.a11yRoutes` (see below) — opt-in, because this audit gates CI. |
+| `security`   | `pnpm audit --json --prod` with automatic fall-through to `npm audit` when pnpm can't run (missing lockfile, error envelope, etc.). Normalises advisory shapes from both tools into a single `AdvisoryEntry[]`.   |
+| `lint`       | ESLint + Prettier using the canonical configs (re-exported via `@reddoorla/maintenance/configs/eslint` and `@reddoorla/maintenance/configs/prettier`).                                                            |
 
 ```bash
 reddoor-maint audit                                # all five against cwd
@@ -163,6 +163,33 @@ reddoor-maint audit --only security,a11y           # a subset
 reddoor-maint audit --json                         # machine-readable output
 reddoor-maint audit --fleet inventory.json         # batch across an inventory
 ```
+
+#### Scanning real routes for accessibility
+
+By default the `a11y` audit scans only `/dev/a11y-fixtures` and `/dev/animate-in`
+— synthetic pages that exercise design-system components in isolation. That means
+no real page is ever checked, which is how a critical `image-alt` violation reached
+five production pages on one site with CI green throughout.
+
+A site opts in to having its own routes scanned as well:
+
+```jsonc
+// package.json
+{
+  "reddoor": {
+    "a11yRoutes": ["/", "/about", "/exhibitions/awakening", "/rsvp/euphorbia"],
+  },
+}
+```
+
+These are scanned **in addition to** the fixtures, and each violation is reported
+against the route path so it is attributable. Junk entries are dropped; an absent
+or unusable key leaves the audit behaving exactly as before.
+
+It is opt-in rather than automatic on purpose. The shared CI workflow runs this
+audit with `--fail-on-violations`, and most of the fleet carries pre-existing
+accessibility debt — switching every site over centrally would red every repo at
+once. Adopt it per site once that site's routes are clean, and it stays clean.
 
 ---
 

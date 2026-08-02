@@ -2,7 +2,8 @@ import { readFile, writeFile, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { AuditResult } from "../types.js";
 import { siteLabel } from "../util/site.js";
-import { a11yRoutes, smokeRoutes } from "../configs/playwright-a11y.js";
+import { a11yRoutes, smokeRoutes, type A11yRoute } from "../configs/playwright-a11y.js";
+import { readSiteConfig } from "./util/site-config.js";
 import { defaultSpawn } from "./util/spawn.js";
 import type { AuditContext } from "./util/inject.js";
 import { findFreePort } from "../util/free-port.js";
@@ -77,13 +78,13 @@ export default defineConfig({
 // writes the structured result to <cwd>/.reddoor-a11y/results.json before
 // asserting. That way, the audit can read real axe details even when the
 // expect(...).toEqual([]) assertion fails.
-function buildSpec(): string {
+function buildSpec(axePages: A11yRoute[]): string {
   return `import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
-const pages = ${JSON.stringify(a11yRoutes)};
+const pages = ${JSON.stringify(axePages)};
 const smokePages = ${JSON.stringify(smokeRoutes)};
 const OUTPUT = process.env.REDDOOR_A11Y_OUTPUT;
 
@@ -182,8 +183,23 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
   // can't be caught here; `.reddoor-a11y-spec-*/` is fleet-gitignored as the
   // backstop for that. (2026-06-10 MEDIUM-D; recurred from 06-05 M3.)
   try {
+    // Real routes the site has opted in to (package.json#reddoor.a11yRoutes),
+    // appended to the fixtures rather than replacing them: the fixtures exercise
+    // design-system components in isolation, which no real page covers. Absent
+    // key → the fixtures alone, exactly as before. This exists because scanning
+    // only fixtures let a critical `image-alt` violation ship to five production
+    // pages with CI green; it is opt-in because the audit runs with
+    // --fail-on-violations and most of the fleet has pre-existing debt.
+    // The route path doubles as its name — the spec tags each violation with
+    // `route: name`, so it has to identify the page.
+    const { a11yRoutes: siteRoutes } = await readSiteConfig(site.path);
+    const axePages: A11yRoute[] = [
+      ...a11yRoutes,
+      ...(siteRoutes ?? []).map((path) => ({ path, name: path })),
+    ];
+
     const specPath = join(specDir, "a11y.spec.ts");
-    await writeFile(specPath, buildSpec(), "utf-8");
+    await writeFile(specPath, buildSpec(axePages), "utf-8");
 
     const port = await findFreePort();
     const configPath = join(specDir, "playwright.config.ts");

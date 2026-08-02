@@ -54,3 +54,60 @@ describe("readSiteConfig", () => {
     expect(await readSiteConfig(dir)).toEqual({});
   });
 });
+
+// a11yRoutes (2026-08-01): the per-site opt-in that lets the a11y audit scan real
+// routes instead of only the two synthetic fixtures. Absent key MUST behave exactly
+// as before — 11 of the 12 fleet sites carry pre-existing a11y debt, so turning this
+// on centrally would red every one of them at once.
+describe("readSiteConfig — a11yRoutes", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "reddoor-site-config-a11y-"));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const write = (reddoor: unknown) =>
+    writeFile(join(dir, "package.json"), JSON.stringify({ name: "site", reddoor }));
+
+  it("reads a list of route paths", async () => {
+    await write({ a11yRoutes: ["/", "/about", "/rsvp/euphorbia"] });
+    expect(await readSiteConfig(dir)).toEqual({ a11yRoutes: ["/", "/about", "/rsvp/euphorbia"] });
+  });
+
+  it("omits the key entirely when it is absent", async () => {
+    await write({ lighthouseUrl: "https://example.com" });
+    expect(await readSiteConfig(dir)).toEqual({ lighthouseUrl: "https://example.com" });
+  });
+
+  it("ignores a non-array value", async () => {
+    await write({ a11yRoutes: "/about" });
+    expect(await readSiteConfig(dir)).toEqual({});
+  });
+
+  it("drops non-string and blank entries rather than passing them through", async () => {
+    await write({ a11yRoutes: ["/about", "", "   ", 42, null, "/contact"] });
+    expect(await readSiteConfig(dir)).toEqual({ a11yRoutes: ["/about", "/contact"] });
+  });
+
+  it("omits the key when every entry is junk (never an empty list)", async () => {
+    await write({ a11yRoutes: ["", 7] });
+    expect(await readSiteConfig(dir)).toEqual({});
+  });
+
+  it("trims surrounding whitespace", async () => {
+    await write({ a11yRoutes: ["  /about  "] });
+    expect(await readSiteConfig(dir)).toEqual({ a11yRoutes: ["/about"] });
+  });
+
+  it("coexists with lighthouseUrl", async () => {
+    await write({ lighthouseUrl: "https://example.com", a11yRoutes: ["/"] });
+    expect(await readSiteConfig(dir)).toEqual({
+      lighthouseUrl: "https://example.com",
+      a11yRoutes: ["/"],
+    });
+  });
+});

@@ -298,3 +298,83 @@ describe("audits/a11y", () => {
     });
   });
 });
+
+// Real-route scanning (2026-08-01). The audit only ever axe-scanned two synthetic
+// fixture pages, which is how a critical `image-alt` violation shipped to five
+// production pages on gallerysonder with CI green throughout. A site opts in via
+// `package.json#reddoor.a11yRoutes`; without the key nothing changes, because the
+// audit runs with --fail-on-violations in the shared CI workflow and most of the
+// fleet has pre-existing debt.
+describe("audits/a11y — per-site real routes", () => {
+  /** Capture the generated spec source instead of running Playwright. */
+  function captureSpec(): { spawn: SpawnFn; source: () => string } {
+    let src = "";
+    const spawn: SpawnFn = async (_cmd, args, opts) => {
+      const specPath = args[args.length - 1] as string;
+      src = await readFile(specPath, "utf-8");
+      const cwd = opts?.cwd ?? process.cwd();
+      await mkdir(join(cwd, ".reddoor-a11y"), { recursive: true });
+      await writeFile(
+        join(cwd, ".reddoor-a11y", "results.json"),
+        JSON.stringify({ totalViolations: 0, byImpact: {} }),
+        "utf-8",
+      );
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    return { spawn, source: () => src };
+  }
+
+  const writePkg = (dir: string, reddoor?: unknown) =>
+    writeFile(
+      join(dir, "package.json"),
+      JSON.stringify(reddoor ? { name: "site", reddoor } : { name: "site" }),
+    );
+
+  it("scans only the fixtures when the site has not opted in", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd);
+    const { spawn, source } = captureSpec();
+    const result = await a11yAudit({ site: { path: cwd }, spawn });
+    expect(result.status).toBe("pass");
+
+    const spec = source();
+    expect(spec).toContain("/dev/a11y-fixtures");
+    expect(spec).toContain("/dev/animate-in");
+    // No real route smuggled into the axe list.
+    expect(spec).not.toContain("/about");
+  });
+
+  it("adds the configured routes to the axe list, keeping the fixtures", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd, { a11yRoutes: ["/", "/about", "/rsvp/euphorbia"] });
+    const { spawn, source } = captureSpec();
+    await a11yAudit({ site: { path: cwd }, spawn });
+
+    const spec = source();
+    expect(spec).toContain("/dev/a11y-fixtures");
+    expect(spec).toContain("/dev/animate-in");
+    expect(spec).toContain("/rsvp/euphorbia");
+    expect(spec).toContain('"/about"');
+  });
+
+  it("names each configured route by its path so violations are attributable", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd, { a11yRoutes: ["/rsvp/euphorbia"] });
+    const { spawn, source } = captureSpec();
+    await a11yAudit({ site: { path: cwd }, spawn });
+
+    // The spec tags every violation with `route: name`, so the name has to
+    // identify the page — an audit that reports "violation on route 3" is useless.
+    expect(source()).toContain('{"path":"/rsvp/euphorbia","name":"/rsvp/euphorbia"}');
+  });
+
+  it("survives a malformed opt-in without changing behaviour", async () => {
+    const cwd = await tmpSite();
+    await writePkg(cwd, { a11yRoutes: "not-an-array" });
+    const { spawn, source } = captureSpec();
+    const result = await a11yAudit({ site: { path: cwd }, spawn });
+    expect(result.status).toBe("pass");
+    expect(source()).toContain("/dev/a11y-fixtures");
+    expect(source()).not.toContain("not-an-array");
+  });
+});
