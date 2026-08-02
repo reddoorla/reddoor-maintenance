@@ -4,7 +4,7 @@ on:
     # Twice daily. GitHub's platform auto-merge is disabled fleet-wide, so Renovate
     # performs its own merges from inside this run — which means this cron is the
     # MERGE cadence, not just the PR-creation cadence.
-    - cron: "0 */12 * * *"
+    - cron: 0 */12 * * *
   workflow_dispatch:
 permissions:
   contents: read
@@ -40,5 +40,5 @@ jobs:
           # Commit/PR identity = the App's bot user, so gitAuthor matches the
           # token identity (mismatched authors read as "operator pushed this").
           # 312185038 = the bot's user id (gh api 'users/reddoor-renovate[bot]' --jq .id).
-          RENOVATE_USERNAME: "reddoor-renovate[bot]"
-          RENOVATE_GIT_AUTHOR: "reddoor-renovate[bot] <312185038+reddoor-renovate[bot]@users.noreply.github.com>"
+          RENOVATE_USERNAME: reddoor-renovate[bot]
+          RENOVATE_GIT_AUTHOR: reddoor-renovate[bot] <312185038+reddoor-renovate[bot]@users.noreply.github.com>
