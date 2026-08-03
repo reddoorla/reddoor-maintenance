@@ -35,7 +35,7 @@ export type LaunchResult = {
 };
 
 export type LaunchDeps = {
-  /** Bootstrap step (CI + Renovate). Defaults to the real `selfUpdating`. */
+  /** Bootstrap step (Renovate + protection; ci.yml comes from the starter). Defaults to the real `selfUpdating`. */
   bootstrap?: (site: Site) => Promise<RecipeResult>;
   /** Audit step. Defaults to the real `runAudits`. */
   audit?: (site: Site) => Promise<AuditResult[]>;
@@ -50,7 +50,7 @@ export type LaunchDeps = {
  * Lighthouse scores, so `sendOne`'s `report.lighthouse` guard passes.
  *
  * Step-chain (mirrors `init`), stopping on the first error or `failed` recipe:
- *   1. selfUpdating — CI + Renovate (and platform auto-merge turned OFF).
+ *   1. selfUpdating — Renovate + protection (platform auto-merge OFF; ci.yml is the starter's).
  *   2. runAudits + write the scores to the site's Websites row (reuses the
  *      `audit --write-airtable` writer); the Lighthouse scores feed the draft.
  *   3. createDraft — reportType "Launch", today's period, the audited scores.
