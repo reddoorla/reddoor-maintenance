@@ -1389,7 +1389,7 @@ export async function backfillScreenouts(base: AirtableBase, db: Db): Promise<nu
         const siteId = (f["Site"] as string[] | undefined)?.[0] ?? "";
         const date = typeof f["Date"] === "string" ? (f["Date"] as string) : "";
         if (!siteId || !date) continue;
-        const key = `${siteId} ${date}`;
+        const key = `${siteId}�${date}`;
         const cur = agg.get(key) ?? { siteId, date, honeypot: 0, tooFast: 0, markedSpam: 0 };
         cur.honeypot += num(f["Honeypot"]);
         cur.tooFast += num(f["Too-fast"]);

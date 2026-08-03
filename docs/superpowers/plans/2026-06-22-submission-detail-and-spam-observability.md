@@ -813,8 +813,7 @@ export type ScreenOutDeps = {
 };
 
 export type ScreenOutResult =
-  | { status: "recorded"; slug: string }
-  | { status: "unknown-site"; slug: string };
+  { status: "recorded"; slug: string } | { status: "unknown-site"; slug: string };
 
 /** Extract the screen-out reason from a beacon body, or null if it isn't one. */
 export function parseScreenOut(payload: unknown): "honeypot" | "too-fast" | null {

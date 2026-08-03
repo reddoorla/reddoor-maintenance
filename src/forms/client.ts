@@ -27,8 +27,7 @@ export type SubmissionPayload = {
 };
 
 export type IngestClientResult =
-  | { ok: true; id: string }
-  | { ok: false; status: number; error: string };
+  { ok: true; id: string } | { ok: false; status: number; error: string };
 
 export type SubmitToIngestOptions = {
   /** Full ingest endpoint incl. the site slug, e.g. https://…/api/forms/reddoor */

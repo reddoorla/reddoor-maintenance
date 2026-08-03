@@ -15,9 +15,7 @@ import { siteLabel } from "../util/site.js";
  * without creating a branch; `apply` carries the recipe-specific plan data
  * forward to the apply phase. */
 export type RecipePlan<P> =
-  | { kind: "noop"; notes?: string }
-  | { kind: "failed"; notes: string }
-  | { kind: "apply"; plan: P };
+  { kind: "noop"; notes?: string } | { kind: "failed"; notes: string } | { kind: "apply"; plan: P };
 
 export type RecipeApplyCtx = {
   /** Stage all current changes and commit. Returns the SHA, or null if
