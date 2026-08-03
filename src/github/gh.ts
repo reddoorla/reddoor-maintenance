@@ -131,11 +131,28 @@ export type GitHub = {
   repoVisibility: (repo: string) => Promise<string>;
   /** Every repo in the org (paginated) — the anti-hand-typed-list enumerator.
    *  Sweeps driven by a hand-maintained or Airtable-scoped list have already
-   *  produced two false "all clear"s; enumerate from the API instead. */
-  listOrgRepos: (
-    org: string,
-  ) => Promise<Array<{ name: string; visibility: string; archived: boolean }>>;
+   *  produced two false "all clear"s; enumerate from the API instead.
+   *  secretScanning/pushProtection come from the same listing (no extra call);
+   *  "unavailable" means the token couldn't read security_and_analysis (needs
+   *  admin/security read) — callers must treat that as unverified, not fine. */
+  listOrgRepos: (org: string) => Promise<
+    Array<{
+      name: string;
+      visibility: string;
+      archived: boolean;
+      secretScanning: string;
+      pushProtection: string;
+    }>
+  >;
+  /** Liveness of one workflow file: registered? state? when did it last run?
+   *  A clean 404 is the answer `{present: false}` — any OTHER failure throws,
+   *  because "couldn't check" must never read as "healthy" downstream. */
+  workflowHealth: (repo: string, filename: string) => Promise<WorkflowHealth>;
 };
+
+export type WorkflowHealth =
+  | { present: false }
+  | { present: true; state: string; lastRunAt: string | null };
 
 export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
   const spawn = deps.spawn ?? defaultSpawn;
@@ -507,16 +524,43 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
         "--paginate",
         `orgs/${org}/repos?per_page=100`,
         "--jq",
-        '.[] | "\\(.name)\\t\\(.visibility)\\t\\(.archived)"',
+        '.[] | "\\(.name)\\t\\(.visibility)\\t\\(.archived)\\t\\(.security_and_analysis.secret_scanning.status // "unavailable")\\t\\(.security_and_analysis.secret_scanning_push_protection.status // "unavailable")"',
       ]);
       return out
         .split("\n")
         .map((l) => l.trim())
         .filter((l) => l.length > 0)
         .map((l) => {
-          const [name = "", visibility = "", archived = ""] = l.split("\t");
-          return { name, visibility, archived: archived === "true" };
+          const [name = "", visibility = "", archived = "", ss = "", pp = ""] = l.split("\t");
+          return {
+            name,
+            visibility,
+            archived: archived === "true",
+            secretScanning: ss || "unavailable",
+            pushProtection: pp || "unavailable",
+          };
         });
+    },
+    async workflowHealth(repo, filename) {
+      // spawn-direct for the workflow GET: 404 (file not registered as a
+      // workflow) is an expected ANSWER, not an error. Everything else throws —
+      // per the contract, an unreadable workflow must surface as unverified.
+      const wf = await spawn(
+        "gh",
+        ["api", `repos/${repo}/actions/workflows/${filename}`, "--jq", ".state"],
+        { env, timeoutMs: 60_000 },
+      );
+      if (wf.code !== 0) {
+        if (/HTTP 404/.test(wf.stderr)) return { present: false };
+        throw new Error(`workflowHealth(${repo}/${filename}) failed: ${wf.stderr.trim()}`);
+      }
+      const runs = await gh([
+        "api",
+        `repos/${repo}/actions/workflows/${filename}/runs?per_page=1`,
+        "--jq",
+        '.workflow_runs[0].created_at // ""',
+      ]);
+      return { present: true, state: wf.stdout.trim(), lastRunAt: runs.trim() || null };
     },
   };
 }

@@ -80,6 +80,7 @@ function fakeGitHub(over: GitHubOverrides = {}): { gh: GitHub; calls: string[] }
       calls.push(`ruleset-update:${repo}:${id}:${payload.rules.map((r) => r.type).join(",")}`);
     },
     listOrgRepos: async () => [],
+    workflowHealth: async () => ({ present: true, state: "active", lastRunAt: null }),
     ...over,
   };
   return { gh, calls };

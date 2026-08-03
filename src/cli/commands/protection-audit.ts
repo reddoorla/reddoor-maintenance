@@ -11,10 +11,11 @@ export function protectionAuditExitCode(gaps: number): number {
 }
 
 /** `protection-audit --org <org>`: verify every public repo in the org carries
- *  a sound branch ruleset (see collectProtectionCoverage for the verdict).
- *  Emits one line per repo + a machine-readable PROTECTION_AUDIT summary the
- *  nightly workflow gates its tracking issue on. A missing fleet token is a
- *  clean skip (local runs), matching github-signals. */
+ *  a sound branch ruleset, live secret scanning + push protection, and a
+ *  renovate workflow that actually runs (see collectProtectionCoverage for the
+ *  verdicts). Emits one line per repo + a machine-readable PROTECTION_AUDIT
+ *  summary the nightly workflow gates its tracking issue on. A missing fleet
+ *  token is a clean skip (local runs), matching github-signals. */
 export async function runProtectionAuditCommand(
   opts: { org?: string | undefined },
   // Injected in tests; defaults to the real gh-CLI-backed factory.
