@@ -27,7 +27,7 @@ describe("configs/playwright-a11y", () => {
     expect(playwrightA11yConfig.use?.baseURL).toBe("http://localhost:5173");
     expect(playwrightA11yConfig.webServer).toMatchObject({
       // `npm run ...` works on both pnpm and npm sites.
-      command: "npm run vite:dev",
+      command: "npm run vite:dev -- --port 5173 --strictPort",
       url: "http://localhost:5173/dev/a11y-fixtures",
     });
   });
@@ -58,13 +58,31 @@ describe("configs/playwright-a11y", () => {
       });
     });
 
-    it("keeps the fixed 5173 behavior byte-identical when unset", async () => {
+    it("falls back to the fixed 5173, still port-bound, when unset", async () => {
       const mod = await importWithSmokePort(undefined);
       expect(mod.default.use?.baseURL).toBe("http://localhost:5173");
       expect(mod.default.webServer).toMatchObject({
-        command: "npm run vite:dev",
+        command: "npm run vite:dev -- --port 5173 --strictPort",
         url: "http://localhost:5173/dev/a11y-fixtures",
       });
+    });
+
+    it("pins vite to whatever port the probe polls, allocated or not", async () => {
+      // The bug this closes was the two drifting apart: the probe pinned to a
+      // port while vite was free to pick another. Asserted as a relationship
+      // rather than two literals, so a future edit cannot reintroduce the gap
+      // by changing one side.
+      for (const port of ["41234", undefined]) {
+        const mod = await importWithSmokePort(port);
+        const server = mod.default.webServer as {
+          command: string;
+          url: string;
+        };
+        const probed = new URL(server.url).port;
+        expect(server.command).toContain(`--port ${probed}`);
+        expect(server.command).toContain("--strictPort");
+        expect(mod.default.use?.baseURL).toBe(`http://localhost:${probed}`);
+      }
     });
   });
 });

@@ -48,11 +48,27 @@ const playwrightA11yConfig: PlaywrightTestConfig = defineConfig({
   ],
   webServer: {
     // Portable across pnpm and npm sites — pnpm respects `npm run` too.
-    // `--strictPort` only when a port was explicitly allocated: fail loudly
-    // rather than let vite drift to a free port the baseURL doesn't point at.
-    command: smokePort
-      ? `npm run vite:dev -- --port ${smokePort} --strictPort`
-      : "npm run vite:dev",
+    //
+    // `--port ... --strictPort` in BOTH cases. It used to be applied only when
+    // REDDOOR_SMOKE_PORT allocated one, on the reasoning that we should "fail
+    // loudly rather than let vite drift to a free port the baseURL doesn't
+    // point at" — but that argument covers the unset case just as well. 5173 is
+    // equally a fixed port that `baseURL` and the readiness probe below are
+    // pinned to, and vite left to itself drifts off it whenever something else
+    // holds it.
+    //
+    // The symptom that exposed this: a non-vite process on 5173 sends vite to
+    // 5174 while the probe keeps polling 5173, so the run dies on
+    // "Timed out waiting 120000ms from config.webServer" — 120 seconds of
+    // nothing, naming neither the port nor the squatter. With --strictPort it
+    // is an immediate "Port 5173 is already in use".
+    //
+    // This does NOT overlap with `reuseExistingServer`: that check runs first,
+    // so a dev server already serving the probe URL is still reused and the
+    // command never executes. --strictPort only bites when 5173 is held by
+    // something that is not the server under test, which is exactly the case
+    // worth failing on.
+    command: `npm run vite:dev -- --port ${port} --strictPort`,
     url: `http://localhost:${port}/dev/a11y-fixtures`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
