@@ -73,8 +73,7 @@ export function buildChrome(
   const sc = buildSiteConfig(siteJson, resolveLogo);
   const j = siteJson as { navigation?: unknown; footer?: unknown };
   const navRoot = (Array.isArray(j.navigation) ? j.navigation[0] : j.navigation) as
-    | { items?: unknown }
-    | undefined;
+    { items?: unknown } | undefined;
   const rawNavItems = Array.isArray(navRoot?.items) ? (navRoot.items as RawItem[]) : [];
 
   // Hidden nav items (`hideTitle: true`) are visual, not links: buildSiteConfig
@@ -103,8 +102,7 @@ export function buildChrome(
   }
 
   const footRoot = (Array.isArray(j.footer) ? j.footer[0] : j.footer) as
-    | { items?: unknown }
-    | undefined;
+    { items?: unknown } | undefined;
   const rawCols = Array.isArray(footRoot?.items) ? (footRoot.items as RawItem[]) : [];
   const columns = rawCols.flatMap((col) => {
     const subs = Array.isArray(col?.items) ? (col.items as RawItem[]) : [];

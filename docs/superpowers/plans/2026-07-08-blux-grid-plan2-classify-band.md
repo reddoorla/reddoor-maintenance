@@ -22,24 +22,24 @@
 
 Measured signatures (from `gridSignature`) and their target slice under this plan:
 
-| Band | Signature (abbrev)                                                               | Slice                                      |
+| Band | Signature (abbrev) | Slice |
 | ---- | -------------------------------------------------------------------------------- | ------------------------------------------ | ------ |
-| 0    | `(bg) stack[media:image,subtitle]`                                               | `Grid` (no heading; fuzzy)                 |
-| 1    | `(bg) row[grid-2-r60:stack[h1,media,h4,body,media], grid-2-r40:media]`           | `SplitFeature` (mediaSide=right, ratio 40) |
-| 2    | `stack[h2,subtitle]`                                                             | `TitleBand`                                |
-| 3    | `row[grid-2:…, grid-2:row[4× stat]]` (deep)                                      | `Grid`                                     |
-| 4    | `(bg) raw` (tall bg-only block-holder)                                           | `Grid`                                     |
-| 5    | `row[grid-2-r60:stack[h4,media,h4,body]]` (1 cell)                               | `Grid`                                     |
-| 6    | `row[3× grid-1:row[media                                                         | body] zigzag]`                             | `Grid` |
-| 7    | `(bg) stack[h2,subtitle]`                                                        | `Hero` (bg + overlay heading)              |
-| 8    | `row[grid-1:media, grid-1:media, grid-1:media]`                                  | `Gallery` (3)                              |
-| 9    | `(bg) stack[h4,media,media,body]`                                                | `Grid`                                     |
-| 10   | `stack[media:video, row[grid-2:raw(map mount), grid-2:stack[h4,row[2× media]]]]` | `Grid` (nested video + map mount)          |
-| 11   | `(bg) stack[h4,media,h4,body]`                                                   | `Grid`                                     |
-| 12   | `row[3× grid-1:row[body                                                          | media] zigzag]`                            | `Grid` |
-| 13   | `stack[h2,subtitle]`                                                             | `TitleBand`                                |
-| 14   | `row[grid-1:row[7× grid-4 stat], grid-1:row[7× media], …]` (deep)                | `Grid`                                     |
-| 15   | `h2`                                                                             | `TitleBand`                                |
+| 0 | `(bg) stack[media:image,subtitle]` | `Grid` (no heading; fuzzy) |
+| 1 | `(bg) row[grid-2-r60:stack[h1,media,h4,body,media], grid-2-r40:media]` | `SplitFeature` (mediaSide=right, ratio 40) |
+| 2 | `stack[h2,subtitle]` | `TitleBand` |
+| 3 | `row[grid-2:…, grid-2:row[4× stat]]` (deep) | `Grid` |
+| 4 | `(bg) raw` (tall bg-only block-holder) | `Grid` |
+| 5 | `row[grid-2-r60:stack[h4,media,h4,body]]` (1 cell) | `Grid` |
+| 6 | `row[3× grid-1:row[media                                                         | body] zigzag]` | `Grid` |
+| 7 | `(bg) stack[h2,subtitle]` | `Hero` (bg + overlay heading) |
+| 8 | `row[grid-1:media, grid-1:media, grid-1:media]` | `Gallery` (3) |
+| 9 | `(bg) stack[h4,media,media,body]` | `Grid` |
+| 10 | `stack[media:video, row[grid-2:raw(map mount), grid-2:stack[h4,row[2× media]]]]` | `Grid` (nested video + map mount) |
+| 11 | `(bg) stack[h4,media,h4,body]` | `Grid` |
+| 12 | `row[3× grid-1:row[body                                                          | media] zigzag]` | `Grid` |
+| 13 | `stack[h2,subtitle]` | `TitleBand` |
+| 14 | `row[grid-1:row[7× grid-4 stat], grid-1:row[7× media], …]` (deep) | `Grid` |
+| 15 | `h2` | `TitleBand` |
 
 So on the-pointe: **3 TitleBand, 1 Hero, 1 Gallery, 1 SplitFeature, 10 Grid**. This is expected and correct — the fallback + plan-3 `Grid.svelte` carry layout fidelity; the pattern slices provide editability where the shape is unambiguous. `MediaFull`/`RichText`/`VideoFeature`/`LocationMap` fire on 0 the-pointe bands but are implemented (cheap, real on other sites) and tested with synthetic bands.
 

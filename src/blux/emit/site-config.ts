@@ -183,11 +183,9 @@ export function buildSiteConfig(
 ): SiteConfig {
   const j = siteJson as { navigation?: unknown; footer?: unknown };
   const navRoot = (Array.isArray(j.navigation) ? j.navigation[0] : j.navigation) as
-    | { items?: unknown; logo?: { media?: unknown } }
-    | undefined;
+    { items?: unknown; logo?: { media?: unknown } } | undefined;
   const footRoot = (Array.isArray(j.footer) ? j.footer[0] : j.footer) as
-    | { items?: unknown }
-    | undefined;
+    { items?: unknown } | undefined;
 
   const items = parseNavItems(navRoot?.items);
   // The logo is `logo: { media: { media: <uuid>, "max-width": … } }` — the

@@ -28,17 +28,17 @@ the merge-authority policy is unchanged.)
    - **Uncheck “Active” under Webhook** (no webhook).
    - **Repository permissions** (Renovate's documented set for app-based
      self-hosting, plus what THIS fleet needs):
-     | Permission | Access | Load-bearing for |
-     |---|---|---|
-     | Checks | Read and write | seeing `ci / ci` green before self-merge |
-     | Commit statuses | Read and write | same, for status-API checks |
-     | Contents | Read and write | pushing `renovate/*` branches + performing merges |
-     | Issues | Read and write | Dependency Dashboard + config-error issues |
-     | Pull requests | Read and write | opening/updating/merging PRs |
-     | Workflows | Read and write | the preset pins action digests in `.github/workflows/` |
-     | Administration | Read-only | reading branch protection (`strict` → rebase-before-merge) |
-     | Dependabot alerts | Read-only | `vulnerabilityAlerts` / `osvVulnerabilityAlerts` |
-     | Metadata | Read-only | mandatory |
+     | Permission        | Access         | Load-bearing for                                           |
+     | ----------------- | -------------- | ---------------------------------------------------------- |
+     | Checks            | Read and write | seeing `ci / ci` green before self-merge                   |
+     | Commit statuses   | Read and write | same, for status-API checks                                |
+     | Contents          | Read and write | pushing `renovate/*` branches + performing merges          |
+     | Issues            | Read and write | Dependency Dashboard + config-error issues                 |
+     | Pull requests     | Read and write | opening/updating/merging PRs                               |
+     | Workflows         | Read and write | the preset pins action digests in `.github/workflows/`     |
+     | Administration    | Read-only      | reading branch protection (`strict` → rebase-before-merge) |
+     | Dependabot alerts | Read-only      | `vulnerabilityAlerts` / `osvVulnerabilityAlerts`           |
+     | Metadata          | Read-only      | mandatory                                                  |
    - **Organization permissions**: Members → Read-only.
    - “Where can this GitHub App be installed?” → **Only on this account**.
 2. On the new App's page: note the **App ID**, then **Generate a private key**

@@ -949,11 +949,10 @@ describe("browserAudit", () => {
 
 describe("defaultDiscoverDeps fetchText (bounded fetch)", () => {
   it("passes an AbortSignal timeout and degrades to null on abort/error", async () => {
-    const stub = vi.fn(
-      (_url: string, _init?: { signal?: AbortSignal }): Promise<Response> =>
-        // Simulate the timeout firing (or any network error) — must be swallowed to null,
-        // never thrown past the audit.
-        Promise.reject(new Error("simulated timeout abort")),
+    const stub = vi.fn((_url: string, _init?: { signal?: AbortSignal }): Promise<Response> =>
+      // Simulate the timeout firing (or any network error) — must be swallowed to null,
+      // never thrown past the audit.
+      Promise.reject(new Error("simulated timeout abort")),
     );
     vi.stubGlobal("fetch", stub);
     try {

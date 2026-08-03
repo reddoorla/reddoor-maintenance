@@ -155,8 +155,7 @@ export type GitHub = {
 };
 
 export type WorkflowHealth =
-  | { present: false }
-  | { present: true; state: string; lastSuccessAt: string | null };
+  { present: false } | { present: true; state: string; lastSuccessAt: string | null };
 
 export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
   const spawn = deps.spawn ?? defaultSpawn;

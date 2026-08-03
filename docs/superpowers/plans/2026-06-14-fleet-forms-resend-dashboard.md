@@ -449,8 +449,7 @@ export type NormalizedSubmission = {
 };
 
 export type NormalizeResult =
-  | { ok: true; value: NormalizedSubmission }
-  | { ok: false; errors: string[] };
+  { ok: true; value: NormalizedSubmission } | { ok: false; errors: string[] };
 
 const KNOWN_KEYS = new Set([
   "formType",

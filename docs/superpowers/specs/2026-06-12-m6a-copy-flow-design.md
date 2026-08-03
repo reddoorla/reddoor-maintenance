@@ -59,9 +59,7 @@ export type ResolvedCopy = {
   footerOrg: string; // "Reddoor Creative, LLC"
   footerAddress: string[]; // ["29027 Dapper Dan", "Fair Oaks Ranch, TX 78015"]
 };
-export const DEFAULT_COPY: ResolvedCopy = {
-  /* every current literal, verbatim */
-};
+export const DEFAULT_COPY: ResolvedCopy = {/* every current literal, verbatim */};
 export function resolveCopy(site: WebsiteRow): ResolvedCopy;
 ```
 

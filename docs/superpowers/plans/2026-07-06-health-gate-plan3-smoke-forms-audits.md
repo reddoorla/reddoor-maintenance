@@ -589,8 +589,7 @@ export type FormE2eDetails = {
 
 /** Outcome of driving one site's contact form. `formPresent:false` ⇒ n/a. */
 export type FormSubmitOutcome =
-  | { formPresent: false }
-  | { formPresent: true; success: boolean; detail?: string };
+  { formPresent: false } | { formPresent: true; success: boolean; detail?: string };
 
 /** Injected browser IO. The real impl drives Playwright; tests pass a fake. */
 export type FormRunner = {

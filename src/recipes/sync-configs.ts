@@ -107,8 +107,7 @@ async function planTemplateDiffs(
 }
 
 type GitignorePlan =
-  | { kind: "noop" }
-  | { kind: "apply"; content: string; toUntrack: string[]; added: string[] };
+  { kind: "noop" } | { kind: "apply"; content: string; toUntrack: string[]; added: string[] };
 
 async function planGitignore(cwd: string): Promise<GitignorePlan> {
   const existing = await readMaybe(join(cwd, ".gitignore"));
