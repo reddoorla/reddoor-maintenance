@@ -78,25 +78,11 @@ export type AcceptedGap = {
   until: string; // ISO date; exclusive — the gap is live again ON this date
 };
 
-export const ACCEPTED_GAPS: AcceptedGap[] = [
-  // 2026-08-02 architecture review: planting Renovate on the central package
-  // repo (bot-merged dep bumps entering the PUBLISHED package) and on .github
-  // (home of the fleet preset + reusable CI) is a supply-chain policy call the
-  // operator has not made yet. Expiry deliberately matches the ~08-16 PAT
-  // retirement checkpoint.
-  {
-    repo: "reddoorla/reddoor-maintenance",
-    detailPrefix: "no renovate workflow",
-    reason: "operator decision pending: Renovate on the central package repo",
-    until: "2026-08-16",
-  },
-  {
-    repo: "reddoorla/.github",
-    detailPrefix: "no renovate workflow",
-    reason: "operator decision pending: Renovate on the fleet-preset repo",
-    until: "2026-08-16",
-  },
-];
+// Currently EMPTY — the only two entries (no-renovate on reddoor-maintenance
+// and .github, pending an operator supply-chain call) were retired 2026-08-02
+// when the operator approved planting Renovate on both. Add entries only for
+// a named pending decision, never as a mute.
+export const ACCEPTED_GAPS: AcceptedGap[] = [];
 
 /** Split gaps into live vs accepted-for-now. Acceptance is per-surface (detail
  *  prefix) and expires: an entry past `until` accepts nothing. */
@@ -179,6 +165,7 @@ export async function collectProtectionCoverage(
   org: string,
   deps: ProtectionCoverageDeps,
   now: Date = new Date(),
+  accepted: AcceptedGap[] = ACCEPTED_GAPS,
 ): Promise<ProtectionCoverageRow[]> {
   const rows: ProtectionCoverageRow[] = [];
   for (const r of await deps.listOrgRepos(org)) {
@@ -216,15 +203,15 @@ export async function collectProtectionCoverage(
       }
       gaps.push(...secretScanningGaps(r));
       gaps.push(...renovateGaps(await deps.workflowHealth(repo, RENOVATE_WORKFLOW_FILE), now));
-      const { live, accepted } = partitionAcceptedGaps(repo, gaps, now);
+      const { live, accepted: acked } = partitionAcceptedGaps(repo, gaps, now, accepted);
       if (live.length > 0) {
         // Accepted annotations still ride along for context, but only LIVE
         // gaps make the row a gap (and thus the sweep exit 1).
-        rows.push({ repo, status: "gap", detail: [...live, ...accepted].join(" | ") });
-      } else if (accepted.length > 0) {
+        rows.push({ repo, status: "gap", detail: [...live, ...acked].join(" | ") });
+      } else if (acked.length > 0) {
         // Judged, found wanting, deliberately acked — reported as skipped
         // (visible every night with the reason + expiry), never as covered.
-        rows.push({ repo, status: "skipped", detail: accepted.join(" | ") });
+        rows.push({ repo, status: "skipped", detail: acked.join(" | ") });
       } else {
         rows.push({ repo, status: "covered", detail: coveredDetail });
       }

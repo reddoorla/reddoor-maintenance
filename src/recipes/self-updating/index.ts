@@ -24,7 +24,14 @@ import {
   rulesetGaps,
 } from "../../github/rulesets.js";
 
-const SELF_UPDATING_CONFIGS = ["ci", "renovate-action", "renovate-config"] as const;
+// Deliberately NOT ci.yml: that file is per-site parameterized (netlify-site,
+// node-version, permissions), so an exact-match heal against a static template
+// would strip those values in a green auto-mergeable PR — the armed clobber
+// the 2026-08-02 architecture review found. The starter clone owns ci.yml's
+// shape; Renovate bumps its pinned reusable-workflow ref per repo (proven:
+// its github-actions manager already updates action pins on fleet sites, and
+// reddoorla/.github publishes the tags it tracks).
+const SELF_UPDATING_CONFIGS = ["renovate-action", "renovate-config"] as const;
 
 // Reusable-workflow jobs report their check as "<caller-job> / <reusable-job>".
 // The thin `ci` caller (job `ci`) calls reddoorla/.github's reusable workflow (job `ci`),
@@ -124,11 +131,11 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
   let maintBranch: string | null = null;
 
   try {
-    // A. CI/Renovate config on the default branch — compare CONTENT, not just
-    // existence, so a present-but-STALE config (an old pinned reusable-workflow SHA,
-    // a drifted Renovate schedule window) is corrected rather than left silently
+    // A. Renovate config on the default branch — compare CONTENT, not just
+    // existence, so a present-but-STALE config (a pre-App workflow, a drifted
+    // Renovate schedule window) is corrected rather than left silently
     // forever. The prior existence-only gate reported "already self-updating" for any
-    // repo that merely HAD the three files, however out of date — the very drift this
+    // repo that merely HAD the files, however out of date — the very drift this
     // recipe exists to repair (e.g. the Renovate schedule-window regression).
     const drifted: string[] = [];
     for (const t of templates) {
@@ -158,17 +165,14 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
           await mkdir(dirname(dest), { recursive: true });
           await writeFile(dest, t.contents, "utf-8");
         }
-        const sha = await gitCommit(
-          site.path,
-          "ci: enable self-updating (CI + Renovate auto-merge)",
-        );
+        const sha = await gitCommit(site.path, "ci: enable self-updating (Renovate auto-merge)");
         if (sha) commits.push(sha);
         await (deps.pushBranch ?? gitPush)(site.path, maintBranch);
         const pr = await github.openPullRequest(repo, {
           head: maintBranch,
           base,
-          title: "Enable self-updating (CI + Renovate)",
-          body: "Adds the unified CI gate, scheduled Renovate, and Renovate-owned merges for patch/minor updates.",
+          title: "Enable self-updating (Renovate)",
+          body: "Adds scheduled Renovate and Renovate-owned merges for patch/minor updates. (ci.yml is deliberately not managed here — its shape comes from the starter and its reusable-workflow pin from Renovate.)",
         });
         actions.push(`opened PR ${pr.url}`);
         // (Branch restore happens in the `finally` below — on success AND on a
@@ -237,12 +241,12 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
       //
       // Residual risk, accepted: this proves the check fires on default-branch
       // PUSHES, not on pull_request events — a hand-edited push-only ci.yml
-      // would pass the gate and then block every PR. Out of contract here
-      // because the fleet ci.yml is one of SELF_UPDATING_CONFIGS: block A
-      // above heals its content back to the template (which triggers on both
-      // pull_request and push) in the same run, so the drift that would make
-      // this gate lie is itself being corrected. Un-brick path if it ever
-      // bites: edit the ruleset via API (ruleset ADMIN is not ref-gated).
+      // would pass the gate and then block every PR. ci.yml is deliberately
+      // NOT healed by block A (per-site parameterized; see
+      // SELF_UPDATING_CONFIGS), so this recipe cannot correct that drift —
+      // the exposure is one bricked-PR repo, immediately visible on its next
+      // PR. Un-brick path: edit the ruleset via API (ruleset ADMIN is not
+      // ref-gated), then fix the ci.yml triggers by push.
       const check = (await github.checkContextObserved(repo, base, REQUIRED_CHECK))
         ? REQUIRED_CHECK
         : null;

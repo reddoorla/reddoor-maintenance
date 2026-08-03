@@ -5,11 +5,16 @@ import { dirname, join } from "node:path";
 import { ALL_TEMPLATES, templatesByName } from "../../src/recipes/sync-configs/templates.js";
 
 describe("CI/Renovate canonical templates", () => {
-  it("registers the three new files at the right paths", () => {
+  it("registers the renovate files at the right paths — and deliberately NO ci.yml template", () => {
     const byPath = Object.fromEntries(ALL_TEMPLATES.map((t) => [t.config, t.path]));
-    expect(byPath["ci"]).toBe(".github/workflows/ci.yml");
     expect(byPath["renovate-action"]).toBe(".github/workflows/renovate.yml");
     expect(byPath["renovate-config"]).toBe("renovate.json");
+    // ci.yml is per-site parameterized (netlify-site, node-version,
+    // permissions) — a canonical byte template for it is an armed clobber: any
+    // exact-match heal strips those values in a green auto-mergeable PR
+    // (2026-08-02 architecture review). If someone re-adds a ci template,
+    // this test is the tripwire that forces that conversation.
+    expect(ALL_TEMPLATES.some((t) => t.path === ".github/workflows/ci.yml")).toBe(false);
   });
   it("ships a .prettierignore so `prettier --check .` ignores the lockfile and generated dirs", () => {
     const byPath = Object.fromEntries(ALL_TEMPLATES.map((t) => [t.config, t.path]));
@@ -27,17 +32,6 @@ describe("CI/Renovate canonical templates", () => {
     expect(contents).toContain("COREPACK_INTEGRITY_KEYS");
     expect(contents).toContain('command = "pnpm build"');
   });
-  it("ci.yml is a thin caller of the org reusable workflow", () => {
-    const ci = templatesByName(["ci"])[0]!.contents;
-    expect(ci).toMatch(
-      /uses:\s+reddoorla\/\.github\/\.github\/workflows\/ci\.yml@[0-9a-f]{40} # v/,
-    );
-    expect(ci).toContain("on:");
-    expect(ci).toContain("pull_request");
-    expect(ci).not.toContain("reddoor-maint audit");
-    expect(ci).not.toContain("pnpm build");
-  });
-
   it("renovate.json is a thin shim extending the org preset", () => {
     const cfg = JSON.parse(templatesByName(["renovate-config"])[0]!.contents);
     expect(cfg.extends).toContain("github>reddoorla/.github:renovate-config");
@@ -53,17 +47,12 @@ describe("CI/Renovate canonical templates", () => {
     expect(contents).not.toContain("RENOVATE_TOKEN");
   });
 
-  it("sync-clean fixtures stay byte-identical to the ci/renovate templates", () => {
+  it("sync-clean fixtures stay byte-identical to the renovate templates", () => {
     const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-    const ciFixture = readFileSync(
-      join(root, "tests/fixtures/sync-clean/.github/workflows/ci.yml"),
-      "utf-8",
-    );
     const renovateFixture = readFileSync(
       join(root, "tests/fixtures/sync-clean/renovate.json"),
       "utf-8",
     );
-    expect(ciFixture).toBe(templatesByName(["ci"])[0]!.contents);
     expect(renovateFixture).toBe(templatesByName(["renovate-config"])[0]!.contents);
   });
 });

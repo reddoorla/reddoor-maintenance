@@ -100,10 +100,14 @@ zero-exit path can convert into a false "Recovered".
 
 Accepted residual: the evidence gate observes the check on default-branch
 pushes, not pull_request events. A hand-edited push-only ci.yml would pass the
-gate and then block PRs — out of contract because ci.yml is itself one of
-SELF_UPDATING_CONFIGS (block A heals it back to the template, which triggers
-on both). Un-brick path: ruleset ADMIN operations are not ref-gated (verified
-live — an idempotent PUT succeeds under `current_user_can_bypass: never`).
+gate and then block PRs. (2026-08-02 addendum: ci.yml was REMOVED from
+SELF_UPDATING_CONFIGS — it is per-site parameterized (netlify-site,
+node-version, permissions), so the exact-match heal was an armed fleet-wide
+clobber; the starter owns its shape and Renovate bumps its reusable-workflow
+pin. The recipe therefore no longer corrects this drift — the exposure is one
+bricked-PR repo, visible on its next PR.) Un-brick path: ruleset ADMIN
+operations are not ref-gated (verified live — an idempotent PUT succeeds under
+`current_user_can_bypass: never`), then fix the ci.yml triggers by push.
 
 ## Explicitly out of scope
 

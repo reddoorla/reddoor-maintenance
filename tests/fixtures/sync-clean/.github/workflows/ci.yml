@@ -1,8 +1,0 @@
-name: ci
-on:
-  pull_request:
-  push:
-    branches: [main]
-jobs:
-  ci:
-    uses: reddoorla/.github/.github/workflows/ci.yml@4a32c3d0caf2050d6f72274d3325f2306772860d # v1.3.0
