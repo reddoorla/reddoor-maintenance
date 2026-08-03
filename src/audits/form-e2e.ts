@@ -41,21 +41,27 @@ export type FormSubmitOutcome =
 /**
  * Work a REAL submission does that a `testMode` probe never reaches. The marker
  * short-circuits in `ingestSubmission` right after site resolution, BEFORE the
- * spam classifier, the repeat-sender/duplicate scans, the row insert, the Resend
- * notify and the stamp — so a probe's elapsed time is a LOWER BOUND on what a
- * visitor's submission costs, and a green probe says nothing about the rest.
+ * spam classifier, the repeat-sender/duplicate scans and the row insert — so a
+ * probe's elapsed time is a LOWER BOUND on what a visitor's submission costs,
+ * and a green probe says nothing about the rest.
  *
  * That gap is exactly how 1836dig read `Form E2E OK: pass` at 13:24 on
  * 2026-08-03 while real submissions at 18:23 were being reported to the visitor
- * as failures: the probe never paid the ~2s of sink work that pushed the real
- * call past the site's abort budget. Measured that day on the live fleet:
- * scans ~0.4s + insert ~0.3s + Resend ~0.8s + stamp ~0.3s.
+ * as failures: the probe never paid the sink work that pushed the real call
+ * past the site's abort budget.
+ *
+ * Sized from the live fleet on 2026-08-03: scans ~0.4s + insert ~0.3s. Notify
+ * (~0.8s) and the stamp (~0.3s) are NOT counted — `ingestSubmission` now hands
+ * that tail to `deps.defer` (the handler's `context.waitUntil`), so it lands
+ * after the response and costs the visitor nothing. Should the deferral ever be
+ * removed, this constant has to grow back with it, or the projection
+ * under-reports.
  *
  * Deliberately an ESTIMATE rather than a measurement: making testMode do the
  * real work would either persist bot-triggerable rows or send real email, which
  * is the whole reason the short-circuit sits where it does.
  */
-export const TESTMODE_SKIPPED_WORK_MS = 2_000;
+export const TESTMODE_SKIPPED_WORK_MS = 1_000;
 
 /** Fraction of the site's abort budget a projected real submission may consume
  *  before the probe warns. Half leaves a 2x margin for cold starts and provider

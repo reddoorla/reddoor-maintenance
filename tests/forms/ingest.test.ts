@@ -1082,3 +1082,109 @@ describe("ingestSubmission — newsletter fan-out provenance", () => {
     expect(addToMailchimp).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("ingestSubmission deferred tail", () => {
+  /** Collects the deferred work the way a platform's waitUntil would. */
+  function deferrer() {
+    const work: Promise<unknown>[] = [];
+    return {
+      defer: (p: Promise<unknown>) => void work.push(p),
+      settle: () => Promise.all(work),
+      count: () => work.length,
+    };
+  }
+
+  it("returns as soon as the lead is durable, without waiting for the tail", async () => {
+    // The tail STARTS synchronously (the notify call is issued before the first
+    // await) — what must not happen is the response WAITING on it. Pinned with a
+    // notify that never settles on its own: if the tail is ever awaited inline
+    // again, this test hangs instead of quietly passing.
+    const d = deferrer();
+    let release: ((v: { status: "sent"; messageId: string }) => void) | undefined;
+    const notify = vi.fn(
+      () => new Promise<{ status: "sent"; messageId: string }>((res) => (release = res)),
+    );
+    const dep = deps({ defer: d.defer, notify });
+
+    const r = await ingestSubmission(dep, "acme", { email: "a@b.co", message: "hi" });
+
+    // The row is written on the critical path — that is what makes the lead safe.
+    expect(dep.createSubmission).toHaveBeenCalledTimes(1);
+    expect(r).toEqual({ status: "accepted", submissionId: "recSUB", notifyStatus: "deferred" });
+    // …and the response is out while notify is still in flight.
+    expect(dep.stampNotified).not.toHaveBeenCalled();
+    expect(d.count()).toBe(1);
+
+    expect(release).toBeDefined();
+    release?.({ status: "sent", messageId: "msg_1" });
+    await d.settle();
+    expect(dep.stampNotified).toHaveBeenCalledWith("recSUB", "sent", "msg_1");
+  });
+
+  it("runs the tail inline when no defer is wired (unchanged default)", async () => {
+    const dep = deps();
+    const r = await ingestSubmission(dep, "acme", { email: "a@b.co" });
+    expect(r).toEqual({ status: "accepted", submissionId: "recSUB", notifyStatus: "sent" });
+    expect(dep.notify).toHaveBeenCalledTimes(1);
+    expect(dep.stampNotified).toHaveBeenCalledTimes(1);
+  });
+
+  it("never rejects the deferred promise when the tail throws", async () => {
+    // An unhandled rejection inside waitUntil is the platform's problem, not the
+    // lead's — the row is already durable by then.
+    const d = deferrer();
+    const dep = deps({
+      defer: d.defer,
+      notify: vi.fn().mockRejectedValue(new Error("resend down")),
+      stampNotified: vi.fn().mockRejectedValue(new Error("turso down")),
+    });
+    const r = await ingestSubmission(dep, "acme", { email: "a@b.co" });
+    expect(r.status).toBe("accepted");
+    expect(d.count()).toBe(1);
+    await expect(d.settle()).resolves.toBeDefined();
+    expect(dep.stampNotified).toHaveBeenCalledWith("recSUB", "failed", null);
+  });
+
+  it("defers the newsletter fan-out too", async () => {
+    const d = deferrer();
+    const forwardNewsletter = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    const stampFanout = vi.fn().mockResolvedValue(undefined);
+    const dep = deps({
+      defer: d.defer,
+      getWebsiteBySlug: vi
+        .fn()
+        .mockResolvedValue(
+          makeWebsiteRow({ id: "recSITE", newsletterWebhook: "https://hook.example.com/x" }),
+        ),
+      createSubmission: vi
+        .fn()
+        .mockResolvedValue(makeSubmissionRow({ id: "recSUB", formType: "newsletter" })),
+      forwardNewsletter,
+      stampFanout,
+    });
+    const r = await ingestSubmission(dep, "acme", { email: "a@b.co", formType: "newsletter" });
+    expect(r.status).toBe("accepted");
+    expect(forwardNewsletter).not.toHaveBeenCalled();
+
+    await d.settle();
+    expect(forwardNewsletter).toHaveBeenCalledTimes(1);
+    expect(stampFanout).toHaveBeenCalledWith("recSUB", "webhook:ok");
+  });
+
+  it("keeps a screened-out spam row off the tail entirely", async () => {
+    // spam_auto already skips notify; deferring must not resurrect it.
+    const d = deferrer();
+    const dep = deps({
+      defer: d.defer,
+      createSubmission: vi
+        .fn()
+        .mockResolvedValue(makeSubmissionRow({ id: "recSUB", status: "spam_auto" })),
+    });
+    const r = await ingestSubmission(dep, "acme", { email: "a@b.co" });
+    expect(r.status).toBe("accepted");
+    expect(d.count()).toBe(1);
+    await d.settle();
+    expect(dep.notify).not.toHaveBeenCalled();
+    expect(dep.stampNotified).toHaveBeenCalledWith("recSUB", "skipped", null);
+  });
+});

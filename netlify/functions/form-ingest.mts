@@ -204,6 +204,19 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
             extraFields: n.extraFields,
             turnstile: outcome,
           }),
+        // Post-response execution for the best-effort tail (notify → stamp →
+        // fan-out). The submitting site waits on this response under an abort
+        // budget; once the row is written the lead is captured, so any further
+        // second spent on Resend/Mailchimp/webhooks is a second in which a
+        // CAPTURED lead can still be reported to the visitor as a failed
+        // submission (1836dig, 2026-08-03). waitUntil keeps this invocation
+        // alive until the tail settles. Capability-guarded: a runtime without it
+        // (netlify dev on an older CLI, a future handler ported elsewhere) falls
+        // back to the inline tail rather than silently dropping the work — a
+        // slow notification is recoverable, a lost one is not.
+        ...(typeof ctx.waitUntil === "function"
+          ? { defer: (work: Promise<unknown>) => ctx.waitUntil(work) }
+          : {}),
         // Tier C — structural anti-spray signals: fleet-wide duplicate/near-duplicate
         // body lookup, cross-site repeat-sender lookup, and the retroactive re-bucket
         // that cleans prior still-'new' copies once a later copy identifies a spray.

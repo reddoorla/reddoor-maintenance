@@ -70,10 +70,23 @@ export type IngestDeps = {
    *  Best-effort — failures are swallowed. Absent → the fan-out still runs, just
    *  unrecorded (older callers and most tests). */
   stampFanout?: (id: string, fanoutStatus: string) => Promise<void>;
+  /** Optional: run the best-effort tail (notify → stamp → fan-out) AFTER the
+   *  response instead of before it. Production passes Netlify's
+   *  `context.waitUntil`, which keeps the invocation alive until the promise
+   *  settles. Absent → the tail runs inline, exactly as it always did; this is a
+   *  latency change, never a behavioural one.
+   *
+   *  Why it matters: the submitting site waits on this response under an abort
+   *  budget (forms/client.ts `INGEST_TIMEOUT_MS`). Once the row is written the
+   *  lead is captured, so every further second spent on email/webhook providers
+   *  is time in which a captured lead can still be reported to the visitor as a
+   *  failed submission — which is exactly what happened to 1836dig on
+   *  2026-08-03. */
+  defer?: (work: Promise<unknown>) => void;
 };
 
 export type IngestResult =
-  | { status: "accepted"; submissionId: string; notifyStatus: NotifyStatus }
+  | { status: "accepted"; submissionId: string; notifyStatus: NotifyStatus | "deferred" }
   | { status: "rejected"; reason: "invalid-payload"; errors: string[] }
   | { status: "unknown-site"; slug: string };
 
@@ -296,22 +309,41 @@ export async function ingestSubmission(
   // these statuses (defense in depth), but short-circuiting here means the
   // injected notify dep is never even invoked for a spam row.
   const isSpam = row.status === "spam_auto" || row.status === "spam";
-  let notify: { status: NotifyStatus; messageId: string | null };
-  if (isSpam) {
-    notify = { status: "skipped", messageId: null };
-  } else {
-    try {
-      notify = await deps.notify(site, row);
-    } catch (err) {
-      console.error(`[ingest] notify threw: ${String(err)}`);
-      notify = { status: "failed", messageId: null };
+
+  // ── best-effort tail ───────────────────────────────────────────────────────
+  // notify → stamp → newsletter fan-out. NOTHING below can cost the lead: the
+  // row is already durable, and every step here is swallowed+logged rather than
+  // allowed to turn an accepted lead into a 502. That is precisely why it does
+  // not belong on the visitor's critical path — the submitting site waits on
+  // this response under an abort budget (forms/client.ts INGEST_TIMEOUT_MS), so
+  // Resend latency used to be able to make a captured lead read as a failed
+  // submission in the visitor's browser (1836dig, 2026-08-03).
+  //
+  // `deps.defer` (Netlify's `context.waitUntil` in production) runs the tail
+  // AFTER the response goes out. Absent — every test, and any runtime without
+  // post-response execution — it runs inline exactly as before, so this is a
+  // latency change and never a behavioural one.
+  const runTail = async (): Promise<NotifyStatus> => {
+    let notify: { status: NotifyStatus; messageId: string | null };
+    if (isSpam) {
+      notify = { status: "skipped", messageId: null };
+    } else {
+      try {
+        notify = await deps.notify(site, row);
+      } catch (err) {
+        console.error(`[ingest] notify threw: ${String(err)}`);
+        notify = { status: "failed", messageId: null };
+      }
     }
-  }
-  try {
-    await deps.stampNotified(row.id, notify.status, notify.messageId);
-  } catch (err) {
-    console.error(`[ingest] stampNotified failed: ${String(err)}`);
-  }
+    try {
+      await deps.stampNotified(row.id, notify.status, notify.messageId);
+    } catch (err) {
+      console.error(`[ingest] stampNotified failed: ${String(err)}`);
+    }
+
+    await runFanout();
+    return notify.status;
+  };
 
   // Newsletter fan-out: each configured destination fires best-effort and is
   // swallowed+logged — the lead is already persisted; never turn it into a 502.
@@ -329,43 +361,66 @@ export async function ingestSubmission(
   // operator ever looks. Nothing attempted → nothing stamped (null stays "no
   // destination configured", NOT "we tried and lost the answer"). The stamp is
   // best-effort like everything else here: a provenance write must never cost a lead.
-  const fanout: string[] = [];
-  if (n.formType === "newsletter" && !isSpam) {
-    if (site.newsletterWebhook && deps.forwardNewsletter) {
-      try {
-        const fwd = await deps.forwardNewsletter(site.newsletterWebhook, row, site);
-        if (!fwd.ok) console.error(`[ingest] newsletter webhook → ${fwd.status} for ${site.name}`);
-        fanout.push(fwd.ok ? "webhook:ok" : `webhook:${fwd.status}`);
-      } catch (err) {
-        console.error(`[ingest] newsletter webhook threw: ${String(err)}`);
-        fanout.push("webhook:threw");
-      }
-    }
-    if (site.mailchimpApiKey && site.mailchimpAudienceId && deps.addToMailchimp) {
-      try {
-        const mc = await deps.addToMailchimp(site, row);
-        if (!mc.ok) console.error(`[ingest] mailchimp add → ${mc.status} for ${site.name}`);
-        fanout.push(mc.ok ? "mailchimp:ok" : `mailchimp:${mc.status}`);
-        // Only meaningful alongside a successful add — a failed add was never tagged
-        // either, and one token per real problem keeps the row readable.
-        if (mc.ok && mc.tagged === false) {
-          console.error(`[ingest] mailchimp tags not applied for ${site.name}`);
-          fanout.push("mailchimp-tags:failed");
+  // A const arrow, not a hoisted declaration: `site` is narrowed non-null above,
+  // and that narrowing only survives into a closure created after it. Declared
+  // below runTail (which calls it) but before either call site, so there is no TDZ.
+  const runFanout = async (): Promise<void> => {
+    const fanout: string[] = [];
+    if (n.formType === "newsletter" && !isSpam) {
+      if (site.newsletterWebhook && deps.forwardNewsletter) {
+        try {
+          const fwd = await deps.forwardNewsletter(site.newsletterWebhook, row, site);
+          if (!fwd.ok)
+            console.error(`[ingest] newsletter webhook → ${fwd.status} for ${site.name}`);
+          fanout.push(fwd.ok ? "webhook:ok" : `webhook:${fwd.status}`);
+        } catch (err) {
+          console.error(`[ingest] newsletter webhook threw: ${String(err)}`);
+          fanout.push("webhook:threw");
         }
-      } catch (err) {
-        console.error(`[ingest] mailchimp add threw: ${String(err)}`);
-        fanout.push("mailchimp:threw");
+      }
+      if (site.mailchimpApiKey && site.mailchimpAudienceId && deps.addToMailchimp) {
+        try {
+          const mc = await deps.addToMailchimp(site, row);
+          if (!mc.ok) console.error(`[ingest] mailchimp add → ${mc.status} for ${site.name}`);
+          fanout.push(mc.ok ? "mailchimp:ok" : `mailchimp:${mc.status}`);
+          // Only meaningful alongside a successful add — a failed add was never tagged
+          // either, and one token per real problem keeps the row readable.
+          if (mc.ok && mc.tagged === false) {
+            console.error(`[ingest] mailchimp tags not applied for ${site.name}`);
+            fanout.push("mailchimp-tags:failed");
+          }
+        } catch (err) {
+          console.error(`[ingest] mailchimp add threw: ${String(err)}`);
+          fanout.push("mailchimp:threw");
+        }
       }
     }
-  }
-  if (fanout.length > 0 && deps.stampFanout) {
-    try {
-      await deps.stampFanout(row.id, fanout.join(","));
-    } catch (err) {
-      console.error(`[ingest] stampFanout failed: ${String(err)}`);
+    if (fanout.length > 0 && deps.stampFanout) {
+      try {
+        await deps.stampFanout(row.id, fanout.join(","));
+      } catch (err) {
+        console.error(`[ingest] stampFanout failed: ${String(err)}`);
+      }
     }
+  };
+
+  if (deps.defer) {
+    // A rejection escaping here would land as an unhandled rejection in the
+    // platform's post-response context, where nothing is left to catch it — so
+    // the boundary is made unrejectable. Everything inside is already swallowed;
+    // this guards the shape, not a known throw.
+    deps.defer(
+      runTail().catch((err) => {
+        console.error(`[ingest] deferred tail threw: ${String(err)}`);
+      }),
+    );
+    // The lead is durable and the response can go out now. The real notify
+    // outcome lands on the ROW via stampNotified moments later — this field is
+    // only ever read by callers wanting the in-request outcome, which by
+    // definition does not exist once the tail is deferred.
+    return { status: "accepted", submissionId: row.id, notifyStatus: "deferred" };
   }
-  return { status: "accepted", submissionId: row.id, notifyStatus: notify.status };
+  return { status: "accepted", submissionId: row.id, notifyStatus: await runTail() };
 }
 
 /** True when `a` and `b` are the same host or one is a subdomain of the other
