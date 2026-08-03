@@ -508,31 +508,44 @@ describe("makeGitHub", () => {
       ]);
     });
 
-    it("workflowHealth: active + last run parsed; 404 = absent; other failures throw", async () => {
-      // Two sequential gh calls: workflow GET (.state), then runs?per_page=1.
+    it("workflowHealth: active + last SUCCESS parsed from the success-filtered probe; 404 = absent; other failures throw", async () => {
+      // Two sequential gh calls: workflow GET (.state), then the runs probe.
+      const seen: string[][] = [];
       let n = 0;
       const healthy = await makeGitHub({
         token: "T",
-        spawn: async () =>
-          n++ === 0
+        spawn: async (_cmd, args) => {
+          seen.push([...args]);
+          return n++ === 0
             ? { code: 0, stdout: "active\n", stderr: "" }
-            : { code: 0, stdout: "2026-08-02T13:00:00Z\n", stderr: "" },
+            : { code: 0, stdout: "2026-08-02T13:00:00Z\n", stderr: "" };
+        },
       }).workflowHealth("o/r", "renovate.yml");
       expect(healthy).toEqual({
         present: true,
         state: "active",
-        lastRunAt: "2026-08-02T13:00:00Z",
+        lastSuccessAt: "2026-08-02T13:00:00Z",
       });
+      // Pin BOTH probe paths + jq. The runs probe MUST be per-workflow (the
+      // all-workflows /actions/runs endpoint returns the same shape, and a
+      // live ci.yml would then mask a dead renovate.yml) and MUST filter to
+      // status=success (a revoked credential still creates fresh FAILING runs
+      // every tick — counting those as alive is the exact blindness here).
+      expect(seen[0]![1]).toBe("repos/o/r/actions/workflows/renovate.yml");
+      expect(seen[1]![1]).toBe(
+        "repos/o/r/actions/workflows/renovate.yml/runs?status=success&per_page=1",
+      );
+      expect(seen[1]![3]).toBe('.workflow_runs[0].created_at // ""');
 
       let m = 0;
-      const neverRan = await makeGitHub({
+      const neverSucceeded = await makeGitHub({
         token: "T",
         spawn: async () =>
           m++ === 0
             ? { code: 0, stdout: "active\n", stderr: "" }
             : { code: 0, stdout: "\n", stderr: "" },
       }).workflowHealth("o/r", "renovate.yml");
-      expect(neverRan).toEqual({ present: true, state: "active", lastRunAt: null });
+      expect(neverSucceeded).toEqual({ present: true, state: "active", lastSuccessAt: null });
 
       const absent = fakeSpawn({ code: 1, stderr: "gh: Not Found (HTTP 404)" });
       expect(

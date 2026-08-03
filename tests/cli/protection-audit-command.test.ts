@@ -56,12 +56,15 @@ describe("runProtectionAuditCommand", () => {
       listRepoRulesets: async (repo) =>
         repo === "reddoorla/espada" ? [{ id: 1, name: FLEET_RULESET_NAME }] : [],
       getRuleset: async () => ({ ...desiredRuleset("ci / ci"), id: 1 }),
-      workflowHealth: async () => ({ present: true, state: "active", lastRunAt: FRESH }),
+      workflowHealth: async () => ({ present: true, state: "active", lastSuccessAt: FRESH }),
     };
     const r = await runProtectionAuditCommand({ org: "reddoorla" }, deps);
     expect(r.code).toBe(1);
     expect(r.output).toContain("COVERED reddoorla/espada");
-    expect(r.output).toContain("GAP     reddoorla/naked — no repo rulesets at all");
+    // Anchored at column 0: fleet-security.yml extracts the tracking-issue
+    // body with `grep -E "^GAP"` — any prefix (indentation, timestamp, tag)
+    // would silently degrade the issue to its "see run output" fallback.
+    expect(r.output).toMatch(/^GAP {5}reddoorla\/naked — no repo rulesets at all$/m);
     expect(r.output).toContain("SKIPPED reddoorla/the-tower");
     // The machine line the nightly workflow's tracking issue gates on.
     expect(r.output).toContain("PROTECTION_AUDIT gaps=1 covered=1 skipped=1 total=3");
@@ -72,7 +75,7 @@ describe("runProtectionAuditCommand", () => {
       listOrgRepos: async () => [{ name: "espada", ...PUBLIC_CLEAN }],
       listRepoRulesets: async () => [{ id: 1, name: FLEET_RULESET_NAME }],
       getRuleset: async () => ({ ...desiredRuleset("ci / ci"), id: 1 }),
-      workflowHealth: async () => ({ present: true, state: "active", lastRunAt: FRESH }),
+      workflowHealth: async () => ({ present: true, state: "active", lastSuccessAt: FRESH }),
     };
     const r = await runProtectionAuditCommand({ org: "reddoorla" }, deps);
     expect(r.code).toBe(0);

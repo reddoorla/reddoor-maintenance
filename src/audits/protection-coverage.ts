@@ -54,9 +54,69 @@ export type ProtectionCoverageDeps = {
 
 export const RENOVATE_WORKFLOW_FILE = "renovate.yml";
 
-/** Cron is twice daily, so 3 days quiet = 6+ consecutive missed runs — dead
- *  scheduling or a dead credential, never jitter. */
+/** Cron is twice daily, so 3 days without a SUCCESSFUL run = 6+ consecutive
+ *  missed-or-failing runs — dead scheduling, dead credential, or broken
+ *  config, never jitter. (Success, not run-existence: a revoked App key still
+ *  creates a fresh failing run every tick.) */
 export const RENOVATE_STALE_AFTER_DAYS = 3;
+
+/**
+ * Operator-accepted gaps — the protection-audit analogue of the cockpit's
+ * accepted-Watch acks: a KNOWN condition pending a real decision must not
+ * comment the tracking issue every night, or the channel is tuned out by the
+ * time a genuinely new gap lands in it. Constraints that keep this honest:
+ * every entry is PR-reviewed, names ONE repo + ONE surface (never a blanket
+ * mute), states the pending decision, and EXPIRES — past `until` the gap
+ * returns on its own, so an acceptance can never quietly become permanent.
+ */
+export type AcceptedGap = {
+  repo: string; // owner/repo
+  /** Matched as a prefix of the gap detail line — surface-scoped, so an
+   *  accepted renovate gap never swallows a ruleset or secret-scanning gap. */
+  detailPrefix: string;
+  reason: string;
+  until: string; // ISO date; exclusive — the gap is live again ON this date
+};
+
+export const ACCEPTED_GAPS: AcceptedGap[] = [
+  // 2026-08-02 architecture review: planting Renovate on the central package
+  // repo (bot-merged dep bumps entering the PUBLISHED package) and on .github
+  // (home of the fleet preset + reusable CI) is a supply-chain policy call the
+  // operator has not made yet. Expiry deliberately matches the ~08-16 PAT
+  // retirement checkpoint.
+  {
+    repo: "reddoorla/reddoor-maintenance",
+    detailPrefix: "no renovate workflow",
+    reason: "operator decision pending: Renovate on the central package repo",
+    until: "2026-08-16",
+  },
+  {
+    repo: "reddoorla/.github",
+    detailPrefix: "no renovate workflow",
+    reason: "operator decision pending: Renovate on the fleet-preset repo",
+    until: "2026-08-16",
+  },
+];
+
+/** Split gaps into live vs accepted-for-now. Acceptance is per-surface (detail
+ *  prefix) and expires: an entry past `until` accepts nothing. */
+export function partitionAcceptedGaps(
+  repo: string,
+  gaps: string[],
+  now: Date,
+  accepted: AcceptedGap[] = ACCEPTED_GAPS,
+): { live: string[]; accepted: string[] } {
+  const live: string[] = [];
+  const acceptedOut: string[] = [];
+  for (const gap of gaps) {
+    const match = accepted.find(
+      (a) => a.repo === repo && gap.startsWith(a.detailPrefix) && now < new Date(a.until),
+    );
+    if (match) acceptedOut.push(`${gap} [accepted until ${match.until}: ${match.reason}]`);
+    else live.push(gap);
+  }
+  return { live, accepted: acceptedOut };
+}
 
 /** Public repos only — secret scanning is plan-gated off on private Free
  *  repos, and those are skipped before this is consulted. "unavailable" means
@@ -74,25 +134,28 @@ export function secretScanningGaps(repo: {
   return gaps;
 }
 
-/** Renovate liveness verdict. The cron IS the merge cadence (platform
- *  auto-merge is off fleet-wide), so a non-running workflow means the repo
- *  silently stops updating — the exact class the 2026-07-26 incident review
- *  called "zero-run blindness". */
+/** Renovate liveness verdict — judged on the last SUCCESSFUL run. The cron IS
+ *  the merge cadence (platform auto-merge is off fleet-wide), so a workflow
+ *  that isn't succeeding means the repo silently stops updating — the exact
+ *  class the 2026-07-26 incident review called "zero-run blindness". */
 export function renovateGaps(health: WorkflowHealth, now: Date): string[] {
   if (!health.present) return ["no renovate workflow (dependency updates never run here)"];
   if (health.state !== "active")
     return [
-      `renovate workflow is ${health.state} (GitHub disables quiet schedules; dispatch it once to re-arm)`,
+      // A disabled workflow REJECTS workflow_dispatch (HTTP 403) — it must be
+      // re-enabled first; "just dispatch it" is a dead-end runbook line here.
+      `renovate workflow is ${health.state} (re-enable it: \`gh workflow enable renovate.yml -R <repo>\`, then dispatch once)`,
     ];
-  if (health.lastRunAt === null)
+  if (health.lastSuccessAt === null)
     return [
-      "renovate workflow has never run (template-cloned schedules may not register; dispatch it once)",
+      "renovate workflow has never succeeded (dispatch it once; if this gap returns, the schedule never registered — push a commit touching the workflow file)",
     ];
-  const ranAt = Date.parse(health.lastRunAt);
-  if (Number.isNaN(ranAt)) return [`renovate last-run timestamp unreadable: ${health.lastRunAt}`];
-  const days = (now.getTime() - ranAt) / 86_400_000;
+  const succeededAt = Date.parse(health.lastSuccessAt);
+  if (Number.isNaN(succeededAt))
+    return [`renovate last-success timestamp unreadable: ${health.lastSuccessAt}`];
+  const days = (now.getTime() - succeededAt) / 86_400_000;
   if (days > RENOVATE_STALE_AFTER_DAYS)
-    return [`renovate last ran ${Math.floor(days)}d ago (cron is twice daily)`];
+    return [`renovate last succeeded ${Math.floor(days)}d ago (cron is twice daily)`];
   return [];
 }
 
@@ -153,11 +216,18 @@ export async function collectProtectionCoverage(
       }
       gaps.push(...secretScanningGaps(r));
       gaps.push(...renovateGaps(await deps.workflowHealth(repo, RENOVATE_WORKFLOW_FILE), now));
-      rows.push(
-        gaps.length > 0
-          ? { repo, status: "gap", detail: gaps.join(" | ") }
-          : { repo, status: "covered", detail: coveredDetail },
-      );
+      const { live, accepted } = partitionAcceptedGaps(repo, gaps, now);
+      if (live.length > 0) {
+        // Accepted annotations still ride along for context, but only LIVE
+        // gaps make the row a gap (and thus the sweep exit 1).
+        rows.push({ repo, status: "gap", detail: [...live, ...accepted].join(" | ") });
+      } else if (accepted.length > 0) {
+        // Judged, found wanting, deliberately acked — reported as skipped
+        // (visible every night with the reason + expiry), never as covered.
+        rows.push({ repo, status: "skipped", detail: accepted.join(" | ") });
+      } else {
+        rows.push({ repo, status: "covered", detail: coveredDetail });
+      }
     } catch (e) {
       rows.push({
         repo,

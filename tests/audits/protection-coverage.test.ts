@@ -1,9 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
   collectProtectionCoverage,
+  partitionAcceptedGaps,
   renovateGaps,
   secretScanningGaps,
+  ACCEPTED_GAPS,
   RENOVATE_WORKFLOW_FILE,
+  type AcceptedGap,
   type ProtectionCoverageDeps,
 } from "../../src/audits/protection-coverage.js";
 import { desiredRuleset, FLEET_RULESET_NAME } from "../../src/github/rulesets.js";
@@ -51,7 +54,7 @@ function makeDeps(
     },
     workflowHealth: async (repo, filename) => {
       healthCalls.push(`${repo}:${filename}`);
-      return healthByRepo[repo] ?? { present: true, state: "active", lastRunAt: FRESH_RUN };
+      return healthByRepo[repo] ?? { present: true, state: "active", lastSuccessAt: FRESH_RUN };
     },
   };
 }
@@ -146,10 +149,10 @@ describe("collectProtectionCoverage", () => {
         },
         {
           "reddoorla/a": { present: false },
-          "reddoorla/b": { present: true, state: "disabled_inactivity", lastRunAt: FRESH_RUN },
-          "reddoorla/c": { present: true, state: "active", lastRunAt: null },
+          "reddoorla/b": { present: true, state: "disabled_inactivity", lastSuccessAt: FRESH_RUN },
+          "reddoorla/c": { present: true, state: "active", lastSuccessAt: null },
           // 5 days quiet at a twice-daily cron = 10 missed runs, never jitter.
-          "reddoorla/d": { present: true, state: "active", lastRunAt: "2026-07-28T13:00:00Z" },
+          "reddoorla/d": { present: true, state: "active", lastSuccessAt: "2026-07-28T13:00:00Z" },
         },
       ),
       NOW,
@@ -157,14 +160,25 @@ describe("collectProtectionCoverage", () => {
     expect(rows.map((r) => r.status)).toEqual(["gap", "gap", "gap", "gap"]);
     expect(rows[0]!.detail).toContain("no renovate workflow");
     expect(rows[1]!.detail).toContain("disabled_inactivity");
-    expect(rows[2]!.detail).toContain("never run");
-    expect(rows[3]!.detail).toContain("last ran 5d ago");
+    expect(rows[2]!.detail).toContain("never succeeded");
+    expect(rows[3]!.detail).toContain("last succeeded 5d ago");
+    // The disabled-state heal advice must lead with re-ENABLING — a disabled
+    // workflow rejects dispatches (HTTP 403), so "dispatch it" alone dead-ends.
+    expect(rows[1]!.detail).toContain("re-enable");
   });
 
-  it("a run inside the 3-day window is NOT stale", () => {
+  it("a success inside the 3-day window is NOT stale", () => {
     expect(
-      renovateGaps({ present: true, state: "active", lastRunAt: "2026-07-31T06:00:00Z" }, NOW),
+      renovateGaps({ present: true, state: "active", lastSuccessAt: "2026-07-31T06:00:00Z" }, NOW),
     ).toEqual([]);
+  });
+
+  it("an unparseable last-success timestamp is a gap, never fresh", () => {
+    // Without the NaN guard, NaN > threshold is false and garbage reads as
+    // healthy — the exact couldn't-verify-is-fine hole this sweep must not have.
+    const gaps = renovateGaps({ present: true, state: "active", lastSuccessAt: "garbage" }, NOW);
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]).toContain("unreadable");
   });
 
   it("gap reasons from every surface combine into one row", async () => {
@@ -222,5 +236,72 @@ describe("collectProtectionCoverage", () => {
     const rows = await collectProtectionCoverage(ORG, deps, NOW);
     expect(rows[0]!.status).toBe("gap");
     expect(rows[0]!.detail).toContain("probe failed");
+  });
+
+  it("an accepted gap reports as SKIPPED with reason+expiry — never covered, never a nightly alarm", async () => {
+    // The real ACCEPTED_GAPS list covers reddoorla/reddoor-maintenance's
+    // missing renovate workflow until the operator's supply-chain call.
+    const deps = makeDeps(
+      [{ name: "reddoor-maintenance" }],
+      { "reddoorla/reddoor-maintenance": [sound(1)] },
+      { "reddoorla/reddoor-maintenance": { present: false } },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("skipped");
+    expect(rows[0]!.detail).toContain("no renovate workflow");
+    expect(rows[0]!.detail).toContain("accepted until 2026-08-16");
+    expect(rows[0]!.detail).toContain("operator decision pending");
+  });
+});
+
+describe("partitionAcceptedGaps", () => {
+  const RENOVATE_ACK: AcceptedGap = {
+    repo: "reddoorla/x",
+    detailPrefix: "no renovate workflow",
+    reason: "pending decision",
+    until: "2026-08-16",
+  };
+
+  it("acceptance is surface-scoped: other gaps on the same repo stay LIVE", () => {
+    const { live, accepted } = partitionAcceptedGaps(
+      "reddoorla/x",
+      ["no renovate workflow (dependency updates never run here)", "secret scanning disabled"],
+      NOW,
+      [RENOVATE_ACK],
+    );
+    expect(live).toEqual(["secret scanning disabled"]);
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0]).toContain("[accepted until 2026-08-16: pending decision]");
+  });
+
+  it("acceptance is repo-scoped: the same gap on another repo stays live", () => {
+    const { live, accepted } = partitionAcceptedGaps(
+      "reddoorla/y",
+      ["no renovate workflow (dependency updates never run here)"],
+      NOW,
+      [RENOVATE_ACK],
+    );
+    expect(live).toHaveLength(1);
+    expect(accepted).toEqual([]);
+  });
+
+  it("acceptance EXPIRES: past `until` the gap returns on its own", () => {
+    const { live, accepted } = partitionAcceptedGaps(
+      "reddoorla/x",
+      ["no renovate workflow (dependency updates never run here)"],
+      new Date("2026-08-16T00:00:00Z"), // expiry day — already live again
+      [RENOVATE_ACK],
+    );
+    expect(live).toHaveLength(1);
+    expect(accepted).toEqual([]);
+  });
+
+  it("every real ACCEPTED_GAPS entry is well-formed: parseable expiry, non-empty scope", () => {
+    for (const a of ACCEPTED_GAPS) {
+      expect(Number.isNaN(Date.parse(a.until)), `${a.repo} until`).toBe(false);
+      expect(a.repo).toMatch(/^reddoorla\//);
+      expect(a.detailPrefix.length).toBeGreaterThan(0);
+      expect(a.reason.length).toBeGreaterThan(0);
+    }
   });
 });

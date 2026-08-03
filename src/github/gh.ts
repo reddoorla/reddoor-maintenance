@@ -144,7 +144,11 @@ export type GitHub = {
       pushProtection: string;
     }>
   >;
-  /** Liveness of one workflow file: registered? state? when did it last run?
+  /** Liveness of one workflow file: registered? state? when did it last
+   *  SUCCEED? Success, not mere existence of a run: a dead credential or
+   *  broken config still CREATES a run on every cron tick that fails in
+   *  seconds, keeping created_at perpetually fresh — counting those as alive
+   *  is exactly the silent-stop blindness this probe exists to catch.
    *  A clean 404 is the answer `{present: false}` — any OTHER failure throws,
    *  because "couldn't check" must never read as "healthy" downstream. */
   workflowHealth: (repo: string, filename: string) => Promise<WorkflowHealth>;
@@ -152,7 +156,7 @@ export type GitHub = {
 
 export type WorkflowHealth =
   | { present: false }
-  | { present: true; state: string; lastRunAt: string | null };
+  | { present: true; state: string; lastSuccessAt: string | null };
 
 export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
   const spawn = deps.spawn ?? defaultSpawn;
@@ -554,13 +558,16 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
         if (/HTTP 404/.test(wf.stderr)) return { present: false };
         throw new Error(`workflowHealth(${repo}/${filename}) failed: ${wf.stderr.trim()}`);
       }
+      // status=success: filter to runs that actually CONCLUDED success. Without
+      // it, a schedule whose every run fails (revoked App key, broken config)
+      // reads as hours-fresh forever while zero updates flow.
       const runs = await gh([
         "api",
-        `repos/${repo}/actions/workflows/${filename}/runs?per_page=1`,
+        `repos/${repo}/actions/workflows/${filename}/runs?status=success&per_page=1`,
         "--jq",
         '.workflow_runs[0].created_at // ""',
       ]);
-      return { present: true, state: wf.stdout.trim(), lastRunAt: runs.trim() || null };
+      return { present: true, state: wf.stdout.trim(), lastSuccessAt: runs.trim() || null };
     },
   };
 }
