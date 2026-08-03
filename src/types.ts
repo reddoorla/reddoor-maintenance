@@ -49,7 +49,6 @@ export type ConfigName =
   | "playwright-a11y"
   | "svelte"
   | "gitignore"
-  | "ci"
   | "renovate-action"
   | "renovate-config"
   | "netlify";

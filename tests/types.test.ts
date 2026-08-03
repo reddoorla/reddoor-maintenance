@@ -81,11 +81,10 @@ describe("types", () => {
     const _ok4: ConfigName = "playwright-a11y";
     const _ok5: ConfigName = "svelte";
     const _ok6: ConfigName = "gitignore";
-    const _ok7: ConfigName = "ci";
-    const _ok8: ConfigName = "renovate-action";
-    const _ok9: ConfigName = "renovate-config";
-    const _ok10: ConfigName = "prettier-ignore";
-    const _ok11: ConfigName = "netlify";
+    const _ok7: ConfigName = "renovate-action";
+    const _ok8: ConfigName = "renovate-config";
+    const _ok9: ConfigName = "prettier-ignore";
+    const _ok10: ConfigName = "netlify";
   });
 
   it("ALL_CONFIG_NAMES matches the ConfigName union exactly (no registration drift)", () => {
@@ -100,7 +99,6 @@ describe("types", () => {
       "playwright-a11y",
       "svelte",
       "gitignore",
-      "ci",
       "renovate-action",
       "renovate-config",
       "netlify",

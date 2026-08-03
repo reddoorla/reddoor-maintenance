@@ -64,7 +64,6 @@ export const ALL_CONFIG_NAMES: ConfigName[] = [
   "playwright-a11y",
   "svelte",
   "gitignore",
-  "ci",
   "renovate-action",
   "renovate-config",
   "netlify",

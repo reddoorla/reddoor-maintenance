@@ -29,7 +29,7 @@ function formatResult(r: LaunchResult): string {
 }
 
 /**
- * `launch <site>` — single-site only. Bootstrap (CI + Renovate), first-audit
+ * `launch <site>` — single-site only. Bootstrap (Renovate + protection), first-audit
  * the site, and DRAFT its launch email into the M3 approve queue. Never sends;
  * the operator approves the draft and the next send run delivers the go-live
  * email (flipping Status → maintenance + stamping Launched at).

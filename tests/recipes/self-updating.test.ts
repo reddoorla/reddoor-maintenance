@@ -96,7 +96,7 @@ const WIRED_RULESET: GitHubOverrides = {
 
 // The canonical contents the recipe compares against — same source the recipe uses,
 // so `upToDate` is correct by construction regardless of the exact paths.
-const SELF_UPDATING_TEMPLATES = templatesByName(["ci", "renovate-action", "renovate-config"]);
+const SELF_UPDATING_TEMPLATES = templatesByName(["renovate-action", "renovate-config"]);
 const CONTENT_BY_PATH = new Map(SELF_UPDATING_TEMPLATES.map((t) => [t.path, t.contents]));
 /** Fake fileContentsOnBranch where every config file is already at canonical content (no drift). */
 const upToDate = async (_repo: string, _branch: string, path: string): Promise<string | null> =>
@@ -108,22 +108,29 @@ describe("selfUpdating recipe", () => {
     gitInit(dir);
     const startBranch = currentBranchOf(dir);
     const { gh, calls } = fakeGitHub();
-    // The push captures the maint branch's committed ci.yml BEFORE the recipe
+    // The push captures the maint branch's committed files BEFORE the recipe
     // restores the local checkout to the operator's branch (post-push). We assert
     // the bootstrap happened on the pushed branch, not the post-restore worktree.
-    let ciOnPushedBranch = false;
+    // ci.yml must NOT be among them: it is per-site parameterized (netlify-site
+    // et al) and healing it against a static template was the armed clobber
+    // the 2026-08-02 review found — its shape belongs to the starter clone.
+    let renovateOnPushedBranch = false;
+    let ciOnPushedBranch = true;
     const push = vi.fn(async (cwd: string, branch: string) => {
-      ciOnPushedBranch = execFileSync("git", ["ls-tree", "-r", "--name-only", branch], {
+      const tree = execFileSync("git", ["ls-tree", "-r", "--name-only", branch], {
         cwd,
         encoding: "utf-8",
-      }).includes(".github/workflows/ci.yml");
+      });
+      renovateOnPushedBranch = tree.includes(".github/workflows/renovate.yml");
+      ciOnPushedBranch = tree.includes(".github/workflows/ci.yml");
     });
     const r = await selfUpdating(
       { path: dir, name: "r", gitRepo: "o/r" },
       { github: gh, pushBranch: push },
     );
     expect(r.status).toBe("applied");
-    expect(ciOnPushedBranch).toBe(true);
+    expect(renovateOnPushedBranch).toBe(true);
+    expect(ciOnPushedBranch).toBe(false);
     // Local checkout restored to where the operator started (#2).
     expect(currentBranchOf(dir)).toBe(startBranch);
     expect(push).toHaveBeenCalledOnce();

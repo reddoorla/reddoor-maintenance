@@ -239,18 +239,22 @@ describe("collectProtectionCoverage", () => {
   });
 
   it("an accepted gap reports as SKIPPED with reason+expiry — never covered, never a nightly alarm", async () => {
-    // The real ACCEPTED_GAPS list covers reddoorla/reddoor-maintenance's
-    // missing renovate workflow until the operator's supply-chain call.
     const deps = makeDeps(
-      [{ name: "reddoor-maintenance" }],
-      { "reddoorla/reddoor-maintenance": [sound(1)] },
-      { "reddoorla/reddoor-maintenance": { present: false } },
+      [{ name: "x" }],
+      { "reddoorla/x": [sound(1)] },
+      { "reddoorla/x": { present: false } },
     );
-    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    const ack: AcceptedGap = {
+      repo: "reddoorla/x",
+      detailPrefix: "no renovate workflow",
+      reason: "pending decision",
+      until: "2026-08-16",
+    };
+    const rows = await collectProtectionCoverage(ORG, deps, NOW, [ack]);
     expect(rows[0]!.status).toBe("skipped");
     expect(rows[0]!.detail).toContain("no renovate workflow");
     expect(rows[0]!.detail).toContain("accepted until 2026-08-16");
-    expect(rows[0]!.detail).toContain("operator decision pending");
+    expect(rows[0]!.detail).toContain("pending decision");
   });
 });
 

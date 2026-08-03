@@ -74,22 +74,17 @@ export default createSvelteConfig({
 `,
 };
 
-// The `ci:` job name below + the reusable workflow's `ci` job name produce the
-// branch-protection check context "ci / ci" — kept in sync with REQUIRED_CHECK in
-// src/recipes/self-updating/index.ts. Renaming this job means updating that constant.
-const ci: ConfigTemplate = {
-  config: "ci",
-  path: ".github/workflows/ci.yml",
-  contents: `name: ci
-on:
-  pull_request:
-  push:
-    branches: [main]
-jobs:
-  ci:
-    uses: reddoorla/.github/.github/workflows/ci.yml@4a32c3d0caf2050d6f72274d3325f2306772860d # v1.3.0
-`,
-};
+// There is deliberately NO ci.yml template. Every live fleet ci.yml carries
+// per-site values a static template cannot own (`netlify-site:`, plus
+// `permissions:` and `node-version:` inputs) — an exact-match heal against a
+// canonical byte template would strip them fleet-wide in green auto-mergeable
+// PRs (the "armed clobber" the 2026-08-02 architecture review flagged; it was
+// this file's `ci` entry). Ownership is split instead: the STARTER clone
+// provides each site's ci.yml shape at bootstrap, and Renovate's
+// github-actions manager bumps the pinned reusable-workflow ref per repo when
+// reddoorla/.github tags a new version. The caller job name `ci` + the
+// reusable workflow's job `ci` produce the check context "ci / ci" —
+// REQUIRED_CHECK in src/recipes/self-updating/index.ts depends on that naming.
 
 const renovateAction: ConfigTemplate = {
   config: "renovate-action",
@@ -195,7 +190,6 @@ export const ALL_TEMPLATES: ConfigTemplate[] = [
   lighthouse,
   playwrightA11y,
   svelte,
-  ci,
   renovateAction,
   renovateConfig,
   netlify,
