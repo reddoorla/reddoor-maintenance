@@ -561,5 +561,65 @@ describe("makeGitHub", () => {
         makeGitHub({ token: "T", spawn: err.spawn }).workflowHealth("o/r", "renovate.yml"),
       ).rejects.toThrow(/workflowHealth/);
     });
+
+    it("dependencyDashboard: paginates, filters to the dashboard issue, and reports parsed sections", async () => {
+      // A mutation to the jq selector or a dropped --paginate makes every repo
+      // read {present:false}, which the audit deliberately treats as NOT a gap
+      // — i.e. the whole surface goes silently clean. Nothing above this line
+      // can see that, so the argv is pinned here.
+      const body = [
+        "## PR Edited (Blocked)",
+        " - [ ] <!-- rebase-branch=renovate/all-minor-patch -->x",
+        "## Frozen Updates",
+        "",
+      ].join("\n");
+      const { spawn, calls } = fakeSpawn({ stdout: `${body}\n` });
+      const dash = await makeGitHub({ token: "T", spawn }).dependencyDashboard("o/r");
+
+      expect(dash).toEqual({
+        present: true,
+        blockedBranches: ["renovate/all-minor-patch"],
+        unknownSections: ["Frozen Updates"],
+      });
+      // --paginate is load-bearing: /issues is newest-first and the dashboard
+      // is typically the OLDEST open issue, so page 1 can miss it entirely.
+      expect(calls[0]!.args).toContain("--paginate");
+      expect(calls[0]!.args[2]).toBe("repos/o/r/issues?state=open&per_page=100");
+      expect(calls[0]!.args[4]).toContain('select(.title == "Dependency Dashboard")');
+
+      const empty = fakeSpawn({ stdout: "\n" });
+      expect(
+        await makeGitHub({ token: "T", spawn: empty.spawn }).dependencyDashboard("o/r"),
+      ).toEqual({ present: false });
+    });
+
+    it("branchTip: classifies the tip author; a deleted branch is null, not an error", async () => {
+      const { spawn, calls } = fakeSpawn({
+        stdout: JSON.stringify({
+          type: "User",
+          login: "renovate-bot",
+          email: "renovate-bot@whitesourcesoftware.com",
+          name: "Renovate Bot",
+          date: "2026-07-27T04:00:00Z",
+        }),
+      });
+      // REGRESSION: `renovate-bot` — the retired identity whose orphaned
+      // branches froze nine repos — is GitHub type `User`, so a Bot-type-only
+      // rule would have missed the very incident this probe exists to catch.
+      expect(
+        await makeGitHub({ token: "T", spawn }).branchTip("o/r", "renovate/all-minor-patch"),
+      ).toEqual({ authorIsMachine: true, committedAt: "2026-07-27T04:00:00Z" });
+      // The ref segment keeps its literal `/` — GitHub resolves a percent-
+      // encoded one as a filename, not a ref.
+      expect(calls[0]!.args[1]).toBe("repos/o/r/commits/renovate/all-minor-patch");
+
+      const gone = fakeSpawn({ code: 1, stderr: "gh: No commit found (HTTP 404)" });
+      expect(await makeGitHub({ token: "T", spawn: gone.spawn }).branchTip("o/r", "x")).toBeNull();
+
+      const err = fakeSpawn({ code: 1, stderr: "HTTP 500" });
+      await expect(
+        makeGitHub({ token: "T", spawn: err.spawn }).branchTip("o/r", "x"),
+      ).rejects.toThrow();
+    });
   });
 });

@@ -57,6 +57,12 @@ describe("runProtectionAuditCommand", () => {
         repo === "reddoorla/espada" ? [{ id: 1, name: FLEET_RULESET_NAME }] : [],
       getRuleset: async () => ({ ...desiredRuleset("ci / ci"), id: 1 }),
       workflowHealth: async () => ({ present: true, state: "active", lastSuccessAt: FRESH }),
+      dependencyDashboard: async () => ({
+        present: true,
+        blockedBranches: [],
+        unknownSections: [],
+      }),
+      branchTip: async () => null,
     };
     const r = await runProtectionAuditCommand({ org: "reddoorla" }, deps);
     expect(r.code).toBe(1);
@@ -76,6 +82,12 @@ describe("runProtectionAuditCommand", () => {
       listRepoRulesets: async () => [{ id: 1, name: FLEET_RULESET_NAME }],
       getRuleset: async () => ({ ...desiredRuleset("ci / ci"), id: 1 }),
       workflowHealth: async () => ({ present: true, state: "active", lastSuccessAt: FRESH }),
+      dependencyDashboard: async () => ({
+        present: true,
+        blockedBranches: [],
+        unknownSections: [],
+      }),
+      branchTip: async () => null,
     };
     const r = await runProtectionAuditCommand({ org: "reddoorla" }, deps);
     expect(r.code).toBe(0);

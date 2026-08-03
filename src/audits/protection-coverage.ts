@@ -1,5 +1,5 @@
 import { rulesetGaps, type ExistingRuleset } from "../github/rulesets.js";
-import type { WorkflowHealth } from "../github/gh.js";
+import type { BranchTip, DependencyDashboard, WorkflowHealth } from "../github/gh.js";
 
 /**
  * Org-wide protection-coverage sweep (spec:
@@ -15,8 +15,8 @@ import type { WorkflowHealth } from "../github/gh.js";
  * so a differently-named but sound ruleset (reddoor-maintenance's "Main
  * Protection") counts.
  *
- * Since 2026-08-02 the same sweep also verifies two more posture surfaces per
- * public repo, because both regress silently and neither has any other
+ * Since 2026-08-02 the same sweep also verifies three more posture surfaces
+ * per public repo, because each regresses silently and none has any other
  * watcher:
  *  - secret scanning + push protection stay ENABLED (a repo transferred in,
  *    or an org-default flip, arrives with them off);
@@ -25,7 +25,11 @@ import type { WorkflowHealth } from "../github/gh.js";
  *    schedule triggers in template-cloned files may never register at all —
  *    either way a fully-quiet repo stops receiving updates with zero signal
  *    (the 2026-08-02 sweep found two never-run and two 5-days-stale repos on
- *    its first pass).
+ *    its first pass);
+ *  - renovate is not only alive but ALLOWED TO ACT — a workflow can run green
+ *    forever while Renovate has quietly stopped managing a branch, which froze
+ *    updates on nine repos for a week in August 2026 (see
+ *    renovateBlockedGaps). Liveness cannot see this; only the outcome can.
  */
 export type ProtectionCoverageRow = {
   repo: string; // owner/repo
@@ -50,6 +54,8 @@ export type ProtectionCoverageDeps = {
   listRepoRulesets: (repo: string) => Promise<Array<{ id: number; name: string }>>;
   getRuleset: (repo: string, id: number) => Promise<ExistingRuleset>;
   workflowHealth: (repo: string, filename: string) => Promise<WorkflowHealth>;
+  dependencyDashboard: (repo: string) => Promise<DependencyDashboard>;
+  branchTip: (repo: string, branch: string) => Promise<BranchTip | null>;
 };
 
 export const RENOVATE_WORKFLOW_FILE = "renovate.yml";
@@ -146,6 +152,116 @@ export function renovateGaps(health: WorkflowHealth, now: Date): string[] {
 }
 
 /**
+ * Renovate EFFECTIVENESS, which is a different question from liveness.
+ *
+ * `renovateGaps` above asks "did the workflow run and succeed?" — and on
+ * 2026-08-03 nine repos answered YES to that while shipping zero updates for a
+ * week. The `reddoor-renovate` App migration (2026-08-02) left each repo
+ * holding a `renovate/all-minor-patch` branch whose tip was authored by the
+ * OLD `renovate-bot` PAT identity. Renovate compares that author to its own,
+ * concludes a human edited the branch, files it under "PR Edited (Blocked) —
+ * Renovate will no longer make changes", and never touches it again. Every run
+ * kept succeeding; `@reddoorla/maintenance`, `@sveltejs/kit`, `vite`,
+ * `@playwright/test` and `node` were all frozen behind it; CI stayed green and
+ * nothing anywhere raised a hand.
+ *
+ * A liveness probe structurally cannot see this: the workflow is doing its job
+ * perfectly, it is simply forbidden to act. So this reads the outcome Renovate
+ * itself publishes — the one place it admits to having given up.
+ *
+ * Absent dashboard is NOT a gap: `dependencyDashboard` is a config a repo may
+ * legitimately disable, and the liveness probe already owns the dead-Renovate
+ * case.
+ *
+ * Nor is every blocked branch a gap — see resolveBlockedBranches, which is
+ * where the orphan/in-flight distinction is made. Both exclusions serve the
+ * same property: this surface reports only what it can stand behind, which is
+ * what decides whether an alarm channel still gets read a month from now.
+ */
+export function renovateBlockedGaps(blocked: BlockedBranchState[]): string[] {
+  const orphaned = blocked.filter((b) => b.orphaned);
+  if (orphaned.length === 0) return [];
+  return [
+    `renovate is BLOCKED on ${orphaned.length} branch(es) — ` +
+      `${orphaned.map((b) => b.branch).join(", ")} — it runs and succeeds but refuses to ` +
+      `update them, so every dependency grouped there is frozen. Usual cause: the branch ` +
+      `tip was authored by a retired bot identity, which reads to Renovate as a human ` +
+      `edit. Fix: confirm the tip author is a bot, then delete the branch and let ` +
+      `Renovate recreate it (\`gh api -X DELETE repos/<repo>/git/refs/heads/<branch>\`).`,
+  ];
+}
+
+/**
+ * A dashboard whose section vocabulary we do not share. Reported separately
+ * from blocked branches because it is a different claim: not "Renovate is
+ * stuck" but "this audit can no longer tell whether Renovate is stuck." The
+ * blocked heading was renamed once already (Edited/Blocked -> PR Edited
+ * (Blocked) in Renovate 43), and the fleet inherits its Renovate major from
+ * whatever renovatebot/github-action bakes in — so the next rename arrives via
+ * an ordinary dependency PR that Renovate merges in-run, with nobody reading
+ * dashboard wording. Without this, that rename would flip every repo to
+ * covered on the same night and the surface would go permanently blind.
+ */
+export function dashboardVocabularyGaps(dash: DependencyDashboard): string[] {
+  if (!dash.present || dash.unknownSections.length === 0) return [];
+  return [
+    `renovate dashboard has ${dash.unknownSections.length} section(s) this audit does ` +
+      `not recognise — ${dash.unknownSections.join(", ")}. Nothing is necessarily wrong ` +
+      `with the repo, but the blocked-branch check reads Renovate's own headings, so ` +
+      `drift there means it can no longer be trusted. Fix: reconcile ` +
+      `KNOWN_DASHBOARD_SECTIONS in src/github/gh.ts against Renovate's ` +
+      `dependency-dashboard.ts.`,
+  ];
+}
+
+/** How long a human-owned blocked branch may sit before it stops reading as
+ *  in-flight work. Sized to clear a weekend plus slack: the fleet's own
+ *  human-edited Renovate PRs merge in minutes, while the branches that froze
+ *  nine repos sat for a week. */
+export const BLOCKED_STALE_DAYS = 5;
+
+export type BlockedBranchState = { branch: string; orphaned: boolean };
+
+/**
+ * Decide which blocked branches are actually a posture problem.
+ *
+ * `PR Edited (Blocked)` is not by itself a fault — it is also Renovate's
+ * designed way of saying "a human owns this branch now", and pushing a commit
+ * onto an open Renovate PR is routine fleet practice (16 such PRs across 14
+ * repos on a single day). Alarming on those would fire the nightly issue for
+ * perfectly healthy in-flight work, and would attach a remediation that says
+ * to delete the branch — i.e. the human's commits.
+ *
+ * A branch counts as ORPHANED, and therefore a gap, when either:
+ *   - its tip was authored by a machine, so no human owns it and nothing will
+ *     ever clear it on its own; or
+ *   - it has sat untouched past BLOCKED_STALE_DAYS, whoever authored it —
+ *     because Renovate updates a branch it is managing, so tip age IS time
+ *     spent frozen.
+ *
+ * The authorship test is the fast path and the staleness test is the backstop:
+ * if machine-identity detection ever drifts, detection degrades to slower, not
+ * to blind. A branch that no longer exists is not a gap — that is a dashboard
+ * Renovate has not rewritten yet.
+ */
+export async function resolveBlockedBranches(
+  repo: string,
+  dash: DependencyDashboard,
+  deps: Pick<ProtectionCoverageDeps, "branchTip">,
+  now: Date,
+): Promise<BlockedBranchState[]> {
+  if (!dash.present) return [];
+  const states: BlockedBranchState[] = [];
+  for (const branch of dash.blockedBranches) {
+    const tip = await deps.branchTip(repo, branch);
+    if (!tip) continue;
+    const ageDays = (now.getTime() - new Date(tip.committedAt).getTime()) / 86_400_000;
+    states.push({ branch, orphaned: tip.authorIsMachine || ageDays > BLOCKED_STALE_DAYS });
+  }
+  return states;
+}
+
+/**
  * One row per org repo. Coverage = SOME repo-sourced ruleset with zero
  * stage-1 gaps (active, empty bypass, default branch covered, deletion +
  * non_fast_forward + pull_request) AND secret scanning enabled AND a live
@@ -203,6 +319,9 @@ export async function collectProtectionCoverage(
       }
       gaps.push(...secretScanningGaps(r));
       gaps.push(...renovateGaps(await deps.workflowHealth(repo, RENOVATE_WORKFLOW_FILE), now));
+      const dash = await deps.dependencyDashboard(repo);
+      gaps.push(...dashboardVocabularyGaps(dash));
+      gaps.push(...renovateBlockedGaps(await resolveBlockedBranches(repo, dash, deps, now)));
       const { live, accepted: acked } = partitionAcceptedGaps(repo, gaps, now, accepted);
       if (live.length > 0) {
         // Accepted annotations still ride along for context, but only LIVE
