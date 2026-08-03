@@ -420,6 +420,28 @@ cli
 
 cli
   .command(
+    "forms-notify-target [site]",
+    "Show who a form submission would email, and optionally flip the pre-launch guard (read-back confirmed).",
+  )
+  .option("--set <on|off>", "Flip the guard: on = route to operator, off = restore.")
+  .option("--restore <status>", "Status to restore with --set off. Required; never inferred.")
+  .action(
+    async (
+      site: string | undefined,
+      opts: { set?: string; restore?: string; cwd?: string; verbose?: boolean },
+    ) =>
+      runOrExit(
+        async () =>
+          (await import("./commands/forms-notify-target.js")).runFormsNotifyTargetCommand(
+            site,
+            opts,
+          ),
+        opts,
+      ),
+  );
+
+cli
+  .command(
     "selftest <kind> [site]",
     "Operator self-tests. kind=email: preview a report email for a site (or --all) to yourself.",
   )
