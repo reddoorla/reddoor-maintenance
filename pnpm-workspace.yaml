@@ -1,4 +1,3 @@
-# pnpm 11 reads settings from here (the package.json "pnpm" field is no longer read).
 allowBuilds:
   # sharp runs a native build script — must be explicitly allowed in pnpm 11.
   sharp: true
@@ -25,7 +24,7 @@ overrides:
   #   - cookie <0.7.0: out-of-bounds chars in name/path/domain (GHSA-pxg6-pf52-xh8x)
   #   - js-yaml 4.x <4.2.0: quadratic-complexity DoS in merge keys (GHSA-h67p-54hq-rp68);
   #     scoped to >=4.0.0 so the 3.x instance stays on its own 3.x backport line below.
-  vite: "8.1.0"
+  vite: "8.2.0"
   esbuild@<0.28.1: ">=0.28.1 <0.29"
   cookie@<0.7.0: ">=0.7.0 <1"
   # 2026-07-24: re-pinned 4.2.0 → 4.3.0. The original merge-key DoS fix in 4.2.0
