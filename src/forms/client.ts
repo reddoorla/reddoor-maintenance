@@ -43,11 +43,26 @@ export type SubmitToIngestOptions = {
 
 /** Default abort budget for the site→central ingest call. A central function hung
  *  mid-deploy otherwise leaves the visitor's submit awaiting until Netlify kills
- *  the SITE function at its 10s sync limit — a broken response instead of the
+ *  the SITE function at its sync limit — a broken response instead of the
  *  friendly error copy (espada's 2026-07-10 form-e2e warns caught exactly this).
- *  8s clears warm (~0.3s) and cold (~1-3s) central latency by a wide margin while
- *  leaving the action ~2s of the 10s envelope to respond cleanly. */
-export const INGEST_TIMEOUT_MS = 8000;
+ *
+ *  ABORTING TOO EARLY IS THE WORSE FAILURE, because central persists the lead
+ *  BEFORE its best-effort tail (notify → stamp → fan-out, see ingest.ts): once
+ *  the row exists the lead is captured, so a client-side abort reports failure
+ *  for a submission that is already saved AND emailed. Observed on 1836dig
+ *  2026-08-03: row `sub_f4f195ff` stored, operator email delivered, and the
+ *  visitor still got the failure copy — the visitor's only signal says the
+ *  opposite of the truth, and a retry duplicates the lead.
+ *
+ *  The old 8s was calibrated against a 10s Netlify sync limit; the envelope is
+ *  now 30s (`SYNCHRONOUS_FUNCTION_TIMEOUT`), so that headroom argument no
+ *  longer binds. It also did not clear a COLD central call: measured
+ *  2026-08-03, cold start ~1.9s + Airtable slug lookup ~2.4s + Turso
+ *  open/migrate + insert + Resend ~0.8s lands at ~5-7s, leaving 8s with no real
+ *  margin. 20s is ~3x that path and still leaves 10s of the envelope for the
+ *  action to render. A visitor waiting is recoverable; a visitor wrongly told
+ *  their message was lost is not. */
+export const INGEST_TIMEOUT_MS = 20_000;
 
 /**
  * Forward a submission to the dashboard ingest endpoint. Never throws — a network

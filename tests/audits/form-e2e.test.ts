@@ -4,9 +4,14 @@ import {
   declaresTestModeForwarding,
   findFormPath,
   CONTACT_PATHS,
+  BUDGET_WARN_RATIO,
+  TESTMODE_SKIPPED_WORK_MS,
+  isIngestBudgetThin,
+  projectRealSubmissionMs,
   type FormRunner,
   type FormProbePage,
 } from "../../src/audits/form-e2e.js";
+import { INGEST_TIMEOUT_MS } from "../../src/forms/client.js";
 
 const NOW = new Date("2026-07-06T00:00:00.000Z");
 const site = { path: "/tmp/acme", name: "acme", deployedUrl: "https://acme.example.com" };
@@ -240,5 +245,51 @@ describe("audits/form-e2e declaresTestModeForwarding", () => {
   it("false (fail-closed) on a non-object body", async () => {
     stubHealth({ ok: true, body: "ok" });
     expect(await declaresTestModeForwarding("https://acme.example.com")).toBe(false);
+  });
+});
+
+describe("audits/form-e2e ingest budget headroom", () => {
+  const timed = (elapsedMs: number): FormRunner => ({
+    submit: async () => ({ formPresent: true, success: true, elapsedMs }),
+  });
+
+  it("projects the sink work a testMode probe never reaches", () => {
+    // A testMode submission short-circuits in ingestSubmission before the
+    // classifier, the insert, the Resend call and the stamp, so the probe's own
+    // elapsed time is a LOWER BOUND on what a real submission costs.
+    expect(projectRealSubmissionMs(4_000)).toBe(4_000 + TESTMODE_SKIPPED_WORK_MS);
+  });
+
+  it("passes a submission that leaves real headroom", async () => {
+    const r = await formE2eAudit({ site, now: NOW, formRunner: timed(1_500) });
+    expect(r.status).toBe("pass");
+    expect(r.summary).not.toMatch(/BUDGET_THIN/);
+  });
+
+  it("warns when the projected real submission eats the abort budget", async () => {
+    const thin = INGEST_TIMEOUT_MS * BUDGET_WARN_RATIO - TESTMODE_SKIPPED_WORK_MS + 500;
+    const r = await formE2eAudit({ site, now: NOW, formRunner: timed(thin) });
+    expect(r.status).toBe("warn");
+    expect(r.summary).toMatch(/BUDGET_THIN/);
+    // …but the form DOES work, so the persisted cockpit verdict stays "pass".
+    // Flipping it to "fail" would report a working form as broken.
+    expect(r.details).toEqual({ ok: "pass", formPresent: true, checkedAt: NOW.toISOString() });
+  });
+
+  it("leaves the verdict alone when the runner reports no timing", async () => {
+    // Injected fakes and any runner predating the measurement omit elapsedMs;
+    // absent timing must never manufacture a warn.
+    const r = await formE2eAudit({ site, now: NOW, formRunner: runner() });
+    expect(r.status).toBe("pass");
+    expect(r.summary).not.toMatch(/BUDGET_THIN/);
+  });
+
+  it("would have caught the 1836dig regression the pass/fail verdict missed", () => {
+    // 2026-08-03: real submissions ran ~5-7s against an 8s budget and were
+    // reported to visitors as failures, while this audit recorded a clean pass
+    // (its testMode path skipped the slow work). A ~5s probe against that
+    // budget is thin; against the 20s budget that replaced it, it is not.
+    expect(isIngestBudgetThin(5_000, 8_000)).toBe(true);
+    expect(isIngestBudgetThin(5_000, 20_000)).toBe(false);
   });
 });

@@ -103,6 +103,19 @@ jobs:
             echo "::warning::fleet form-e2e: $skipped"
           fi
 
+          # Budget headroom: the probe SUCCEEDED but already eats the site-side
+          # abort budget, so real submissions — which pay the sink work testMode
+          # short-circuits past — risk being reported to the visitor as failures
+          # while central still captures the lead (1836dig, 2026-08-03). The
+          # verdict stays "pass" (the form works), so without this the signal
+          # exists only in the run log. -B1 picks up the site name, which
+          # formatTable prints on the line above the summary. Leading indicator:
+          # warn, never fail the run.
+          thin=$(grep -B1 "BUDGET_THIN" /tmp/form-e2e.out | grep -v '^--$' | paste -sd' ' - | tr -s ' ' || true)
+          if [ -n "$thin" ]; then
+            echo "::warning::fleet form-e2e ingest budget thin — $thin"
+          fi
+
           # Mass flake: more than 25% of attempted sites failed to write.
           if [ $((failed * 4)) -gt "$total" ]; then
             echo "::error::fleet form-e2e: $failed/$total site(s) failed to write (>25%) — investigate (not a single-site flake)."

@@ -1,6 +1,7 @@
 import type { AuditResult } from "../types.js";
 import type { AuditContext } from "./util/inject.js";
 import { siteLabel } from "../util/site.js";
+import { INGEST_TIMEOUT_MS } from "../forms/client.js";
 
 /** Cloudflare's PUBLIC test sitekey — always issues a passing client token with no
  *  real challenge, so the probe can satisfy a site's Turnstile widget without any
@@ -29,11 +30,71 @@ export type FormE2eDetails = {
 /** Outcome of driving one site's contact form. `formPresent:false` ⇒ n/a
  *  (persisted). `testModeUndeclared` ⇒ the site's /health does not declare
  *  `forms.testMode`, so the probe refused to submit — a plain skip, prior
- *  verdict preserved. */
+ *  verdict preserved. `elapsedMs` times the submit itself (click → success
+ *  banner) and feeds the budget-headroom check; absent means "not measured",
+ *  which never manufactures a verdict. */
 export type FormSubmitOutcome =
   | { formPresent: false }
-  | { formPresent: true; success: boolean; detail?: string }
+  | { formPresent: true; success: boolean; detail?: string; elapsedMs?: number }
   | { testModeUndeclared: true };
+
+/**
+ * Work a REAL submission does that a `testMode` probe never reaches. The marker
+ * short-circuits in `ingestSubmission` right after site resolution, BEFORE the
+ * spam classifier, the repeat-sender/duplicate scans and the row insert — so a
+ * probe's elapsed time is a LOWER BOUND on what a visitor's submission costs,
+ * and a green probe says nothing about the rest.
+ *
+ * That gap is exactly how 1836dig read `Form E2E OK: pass` at 13:24 on
+ * 2026-08-03 while real submissions at 18:23 were being reported to the visitor
+ * as failures: the probe never paid the sink work that pushed the real call
+ * past the site's abort budget.
+ *
+ * Sized from the live fleet on 2026-08-03: scans ~0.4s + insert ~0.3s. Notify
+ * (~0.8s) and the stamp (~0.3s) are NOT counted — `ingestSubmission` now hands
+ * that tail to `deps.defer` (the handler's `context.waitUntil`), so it lands
+ * after the response and costs the visitor nothing. Should the deferral ever be
+ * removed, this constant has to grow back with it, or the projection
+ * under-reports.
+ *
+ * Deliberately an ESTIMATE rather than a measurement: making testMode do the
+ * real work would either persist bot-triggerable rows or send real email, which
+ * is the whole reason the short-circuit sits where it does.
+ */
+export const TESTMODE_SKIPPED_WORK_MS = 1_000;
+
+/** Fraction of the site's abort budget a projected real submission may consume
+ *  before the probe warns. Half leaves a 2x margin for cold starts and provider
+ *  jitter — this is a leading indicator, so it must fire while submissions still
+ *  succeed, not once visitors are already seeing errors. */
+export const BUDGET_WARN_RATIO = 0.5;
+
+/** What a real submission would have cost, given a testMode probe's elapsed time. PURE. */
+export function projectRealSubmissionMs(probeElapsedMs: number): number {
+  return probeElapsedMs + TESTMODE_SKIPPED_WORK_MS;
+}
+
+/** Whether a probe of this duration leaves too little of the client abort budget
+ *  (`INGEST_TIMEOUT_MS`, the site-side budget in forms/client.ts) for the real
+ *  submission it stands in for. PURE — `budgetMs` is injectable for tests. */
+export function isIngestBudgetThin(
+  probeElapsedMs: number,
+  budgetMs: number = INGEST_TIMEOUT_MS,
+): boolean {
+  return projectRealSubmissionMs(probeElapsedMs) > budgetMs * BUDGET_WARN_RATIO;
+}
+
+/** Operator-facing budget line. `BUDGET_THIN` is a stable grep token — the
+ *  nightly fleet-form-e2e workflow raises it as a GitHub warning. */
+function budgetThinSummary(probeElapsedMs: number): string {
+  const s = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
+  return (
+    `BUDGET_THIN: probe ${s(probeElapsedMs)} + ~${s(TESTMODE_SKIPPED_WORK_MS)} of sink work ` +
+    `the probe skips ≈ ${s(projectRealSubmissionMs(probeElapsedMs))} projected against a ` +
+    `${s(INGEST_TIMEOUT_MS)} abort budget — a real submission may be reported to the ` +
+    `visitor as failed while central still captures the lead`
+  );
+}
 
 /** Injected browser IO. The real impl drives Playwright; tests pass a fake. */
 export type FormRunner = {
@@ -128,14 +189,33 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
       };
     }
     const ok: "pass" | "fail" = outcome.success ? "pass" : "fail";
+    const details = { ok, formPresent: true, checkedAt } satisfies FormE2eDetails;
+    if (!outcome.success) {
+      return {
+        audit: "form-e2e",
+        site: label,
+        status: "warn",
+        summary: `form-e2e: synthetic submission failed${outcome.detail ? ` — ${outcome.detail}` : ""}`,
+        details,
+      };
+    }
+    // The submission worked, but a probe that already eats the abort budget means
+    // real submissions — which pay the sink work this one skipped — are close to
+    // being reported as failures. Warn on the RUN while leaving the persisted
+    // verdict at "pass": the form does work, and flipping the cockpit to "fail"
+    // would report a working form as broken.
+    const thin =
+      typeof outcome.elapsedMs === "number" && isIngestBudgetThin(outcome.elapsedMs)
+        ? budgetThinSummary(outcome.elapsedMs)
+        : null;
     return {
       audit: "form-e2e",
       site: label,
-      status: outcome.success ? "pass" : "warn",
-      summary: outcome.success
-        ? "form-e2e: synthetic submission succeeded"
-        : `form-e2e: synthetic submission failed${outcome.detail ? ` — ${outcome.detail}` : ""}`,
-      details: { ok, formPresent: true, checkedAt } satisfies FormE2eDetails,
+      status: thin ? "warn" : "pass",
+      summary: thin
+        ? `form-e2e: synthetic submission succeeded — ${thin}`
+        : "form-e2e: synthetic submission succeeded",
+      details,
     };
   } finally {
     await runner.close?.();
@@ -295,6 +375,10 @@ export async function defaultFormRunner(): Promise<FormRunner> {
           .catch(() => null);
         // Both standard submit controls: reddoor-website uses `<input type="submit">`
         // (its first enrolled run timed out matching button-only and false-failed).
+        // Timed from the click so `elapsedMs` measures what a visitor waits for —
+        // the site action plus its central ingest call — and not the page load,
+        // the fills, or the deliberate FILL_SETTLE_MS pause.
+        const startedAt = Date.now();
         await page
           .locator('button[type="submit"], input[type="submit"]')
           .first()
@@ -305,7 +389,8 @@ export async function defaultFormRunner(): Promise<FormRunner> {
           .waitFor({ state: "visible", timeout: PAGE_TIMEOUT_MS })
           .then(() => true)
           .catch(() => false);
-        if (ok) return { formPresent: true, success: true };
+        const elapsedMs = Date.now() - startedAt;
+        if (ok) return { formPresent: true, success: true, elapsedMs };
         const actionResp = await postResponse;
         const alertText = await page
           .locator('[role="alert"]')
