@@ -1,5 +1,93 @@
 # @reddoorla/maintenance
 
+## 0.79.0
+
+### Minor Changes
+
+- 2c13217: Make the `form-e2e` probe report budget headroom, not just pass/fail.
+
+  The probe submits with the `testMode` marker, which short-circuits in
+  `ingestSubmission` right after site resolution — before the spam classifier,
+  the repeat-sender/duplicate scans, the row insert, the Resend notify and the
+  stamp. Its elapsed time is therefore a LOWER BOUND on what a real submission
+  costs, and a green verdict said nothing about the rest of the path.
+
+  That is how 1836dig recorded `Form E2E OK: pass` at 13:24 on 2026-08-03 while
+  real submissions at 18:23 were being reported to visitors as failures: the
+  probe never paid the ~2s of sink work that pushed the real call past the
+  site's abort budget. The one signal watching the fleet's conversion path
+  structurally could not see the failure.
+
+  The probe now times the submit itself (click → success banner), projects what
+  a real submission would have cost (`+ TESTMODE_SKIPPED_WORK_MS`, estimated
+  rather than measured — making testMode do the real work would persist
+  bot-triggerable rows or send real email), and warns when that projection
+  exceeds half of `INGEST_TIMEOUT_MS`.
+
+  A thin budget warns on the RUN while the persisted verdict stays `pass` — the
+  form does work, and flipping the cockpit to `fail` would report a working form
+  as broken. The nightly `fleet-form-e2e` workflow raises the `BUDGET_THIN` line
+  as a GitHub warning so the signal is not buried in the log.
+
+  A runner that reports no timing (injected fakes, anything predating this)
+  never manufactures a warn.
+
+- 2c13217: Take the best-effort tail off the visitor's critical path.
+
+  `ingestSubmission` awaited notify → stamp → newsletter fan-out before
+  returning, so the submitting site — which waits on that response under an abort
+  budget (`INGEST_TIMEOUT_MS`) — was made to wait on Resend, Mailchimp and site
+  webhooks. None of that work can cost the lead: the row is already durable and
+  every step is swallowed+logged. It was pure latency in front of the visitor's
+  only signal, which is how a captured 1836dig lead was reported as a failed
+  submission on 2026-08-03 while the operator email was already delivered.
+
+  `IngestDeps` gains an optional `defer`, and the `form-ingest` handler passes
+  Netlify's `context.waitUntil` — the tail now runs after the response. On the
+  measured path that removes ~1.1s (Resend ~0.8s + stamp ~0.3s) from what the
+  visitor waits for, and permanently decouples the visitor-facing outcome from
+  email/webhook provider latency.
+
+  Absent `defer` the tail runs inline exactly as before, so this is a latency
+  change and never a behavioural one — every existing caller and test is
+  unaffected. The handler is capability-guarded: a runtime without `waitUntil`
+  falls back to the inline tail rather than silently dropping the notification,
+  because a slow notification is recoverable and a lost one is not.
+
+  An accepted result now reports `notifyStatus: "deferred"` when the tail was
+  handed off — the in-request outcome does not exist in that case, and the real
+  one still lands on the row via `stampNotified`.
+
+  `TESTMODE_SKIPPED_WORK_MS` drops from 2s to 1s to match: the sink work the
+  `form-e2e` probe skips is now just the scans and the insert.
+
+### Patch Changes
+
+- 2c13217: Stop reporting an already-captured lead to the visitor as a failed submission.
+
+  `INGEST_TIMEOUT_MS` goes from 8s to 20s. The old budget was calibrated against a
+  10s Netlify synchronous-function limit; the envelope is now 30s
+  (`SYNCHRONOUS_FUNCTION_TIMEOUT`), so the headroom argument that produced 8s no
+  longer holds — and 8s did not actually clear a **cold** central call.
+
+  Central ingest persists the submission BEFORE its best-effort tail (notify →
+  stamp → fan-out), so once the row exists the lead is captured. A client-side
+  abort after that point tells the visitor their message failed while it is
+  already saved and emailed — the visitor's only signal says the opposite of the
+  truth, and a retry duplicates the lead.
+
+  Observed on 1836dig 2026-08-03: row `sub_f4f195ff` stored with
+  `notify_status: sent`, operator email delivered, and the browser still showed
+  the site's failure copy. Measured on the same day, a cold central call runs
+  ~5-7s (cold start ~1.9s + Airtable slug lookup ~2.4s + Turso open/migrate +
+  insert + Resend ~0.8s), leaving the 8s budget with no real margin. 20s is ~3x
+  that path and still leaves 10s of the envelope for the action to render.
+
+  The fleet's `form-e2e` probe could not have caught this: its `testMode`
+  submissions short-circuit in `ingestSubmission` before the classifier, the
+  insert, and the Resend call, so the probe never exercises the slow path that
+  real submissions pay.
+
 ## 0.78.0
 
 ### Minor Changes
