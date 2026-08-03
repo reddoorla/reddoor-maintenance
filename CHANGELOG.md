@@ -1,5 +1,58 @@
 # @reddoorla/maintenance
 
+## 0.80.0
+
+### Minor Changes
+
+- 6e536e6: New `forms-notify-target <site>` command: show who a form submission would email before sending one, and optionally flip the pre-launch guard with a read-back confirmation.
+
+  The guard is a single Airtable `Status` cell. Nothing reported its state while testing — not the site, not `/health`, nothing between "I intended to flip it" and "the client received a test lead" — so on 2026-08-03 a flip that never landed sent a real client a test submission, which email cannot undo.
+
+  Read-only by default. `--set on` routes notifications to the operator and then RE-READS the row to confirm; an unconfirmed flip prints `NOT CONFIRMED`, says not to test-submit, and exits non-zero, because a write call returning is not evidence the field changed. `--set off` requires an explicit `--restore <status>` and the command refuses to flip a site that is not `maintenance`, so it can never invent a status for a site that was `hosting` or `legacy`.
+
+  Every address it reports comes back out of `resolveRecipients` itself — for a routed site each branch is probed and the results unioned — so the answer cannot drift from the real send path.
+
+- 3640bec: protection-audit now checks that Renovate is allowed to act, not just that it ran. A fourth posture surface reads each repo's Dependency Dashboard and reports branches Renovate has filed under "PR Edited (Blocked)" — the state that froze dependency updates on nine fleet repos for a week in August 2026 while every workflow run stayed green.
+
+  A blocked branch is reported only when nothing will clear it on its own: pushing a commit onto an open Renovate PR puts it in the same section, and that is routine practice rather than a fault, so a branch counts as a gap only when its tip was authored by a machine or it has sat untouched past `BLOCKED_STALE_DAYS`. The surface also reports dashboard sections it does not recognise, so a future heading rename cannot turn the fleet green in silence — Renovate already renamed this one once, in 43.0.0.
+
+  Adds `GitHub.dependencyDashboard`, `GitHub.branchTip`, and the pure `parseBlockedBranches` / `parseUnknownSections` / `isMachineAuthor` helpers.
+
+### Patch Changes
+
+- 0bcf67d: Pin the a11y/smoke webServer to the port its readiness probe polls, always.
+
+  `configs/playwright-a11y` applied `--port ... --strictPort` only when
+  `REDDOOR_SMOKE_PORT` allocated one, on the reasoning that we should "fail loudly
+  rather than let vite drift to a free port the baseURL doesn't point at". That
+  argument covers the unset case too, and the unset case did not get it: 5173 is
+  equally a fixed port that `baseURL` and the probe URL are pinned to, while vite
+  was left free to drift off it.
+
+  So when anything else holds 5173, vite starts on 5174, the probe keeps polling
+  5173, and the suite dies on `Timed out waiting 120000ms from config.webServer` —
+  two minutes of silence naming neither the port nor the squatter. Observed on
+  the-pointe-burbank, where it read as an environment problem and got written off;
+  it was hiding a genuinely failing gate test for two rounds of work. With
+  `--strictPort` the same situation fails in a second with `Port 5173 is already
+in use`.
+
+  No overlap with `reuseExistingServer`: that check runs before the command, so a
+  dev server already serving the probe URL is still reused and vite is never
+  started. `--strictPort` bites only when the port is held by something that is
+  not the server under test — the case worth failing on.
+
+  `configs/lighthouse` had the same gap and it fails worse — silently rather than
+  loudly. Its `url` is pinned to 5173 while `startServerReadyPattern` matches
+  vite's "ready in" line whatever port it settled on, so a squatter on 5173 means
+  vite comes up on 5174, announces itself, and lighthouse collects from 5173:
+  auditing the squatter and reporting its scores as the site's. Same two flags
+  applied. (Both audits already did this for themselves — `src/audits/a11y.ts` and
+  `src/audits/lighthouse.ts` allocate a free port and pass `--strictPort`; it was
+  only the shared configs sites consume directly that were left behind.)
+
+  Sites inherit both on their next package bump; no per-site change needed.
+
 ## 0.79.0
 
 ### Minor Changes
