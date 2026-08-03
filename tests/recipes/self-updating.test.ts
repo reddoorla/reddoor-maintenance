@@ -81,7 +81,8 @@ function fakeGitHub(over: GitHubOverrides = {}): { gh: GitHub; calls: string[] }
     },
     listOrgRepos: async () => [],
     workflowHealth: async () => ({ present: true, state: "active", lastSuccessAt: null }),
-    dependencyDashboard: async () => ({ present: true, blockedBranches: [] }),
+    dependencyDashboard: async () => ({ present: true, blockedBranches: [], unknownSections: [] }),
+    branchTip: async () => null,
     ...over,
   };
   return { gh, calls };

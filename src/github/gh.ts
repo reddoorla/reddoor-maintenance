@@ -159,30 +159,88 @@ export type GitHub = {
    *  renovateBlockedGaps). Absent dashboard is the answer `{present:false}`,
    *  not an error: `dependencyDashboard` is a config a repo may disable. */
   dependencyDashboard: (repo: string) => Promise<DependencyDashboard>;
+  /** Tip commit of one branch, or `null` if the branch is gone — which is the
+   *  answer, not an error: a dashboard naming a deleted branch is simply one
+   *  Renovate has not rewritten yet. */
+  branchTip: (repo: string, branch: string) => Promise<BranchTip | null>;
 };
 
 export type WorkflowHealth =
   { present: false } | { present: true; state: string; lastSuccessAt: string | null };
 
-export type DependencyDashboard = { present: false } | { present: true; blockedBranches: string[] };
+export type DependencyDashboard =
+  { present: false } | { present: true; blockedBranches: string[]; unknownSections: string[] };
+
+/** Tip commit of a branch. `authorIsMachine` answers "does any human own this
+ *  branch?" — see renovateBlockedGaps for why that decides whether a blocked
+ *  branch is an orphan or a human's in-flight work. */
+export type BranchTip = { authorIsMachine: boolean; committedAt: string };
+
+/** The section headings Renovate is known to emit, normalised to lowercase.
+ *  Sourced from lib/workers/repository/dependency-dashboard.ts at both live
+ *  majors — the wording moved once already (see BLOCKED_SECTION_RE), so the
+ *  legacy spellings stay in the set. Anything OUTSIDE this set means our
+ *  vocabulary has drifted from Renovate's and the blocked check can no longer
+ *  be trusted; parseUnknownSections reports it rather than reading silence as
+ *  health. */
+const KNOWN_DASHBOARD_SECTIONS = new Set([
+  // 43+
+  "pending approval",
+  "group size not met",
+  "awaiting schedule",
+  "rate-limited",
+  "errored",
+  "pr creation approval required",
+  "pr edited (blocked)",
+  "pending status checks",
+  "pending branch automerge",
+  "other branches",
+  "open",
+  "pr closed (blocked)",
+  "repository problems",
+  "config migration needed",
+  "config migration needed (blocked)",
+  "deprecations / replacements",
+  "abandoned dependencies",
+  "vulnerabilities",
+  "detected dependencies",
+  // <=42, kept so an older self-hosted Renovate does not read as drift
+  "edited/blocked",
+  "ignored or blocked",
+]);
+
+/** Both spellings of the "I have stopped managing these branches" heading.
+ *  Renovate renamed it `Edited/Blocked` -> `PR Edited (Blocked)` in 43.0.0,
+ *  and the fleet takes its Renovate major from whatever renovatebot/github-action
+ *  bakes in — so an ordinary action bump moves it. Matching only the current
+ *  wording would make this surface silently blind on the next rename. */
+const BLOCKED_SECTION_RE = /^#{1,2}\s+(?:PR Edited \(Blocked\)|Edited\/Blocked)\s*$/i;
+
+/** `##` (or the `# ---` join separator) opens a new section; `###` does NOT.
+ *  Renovate emits `### <category>` subheadings INSIDE a section when
+ *  dependencyDashboardCategory is set, and treating those as boundaries would
+ *  truncate the blocked list to nothing. */
+const SECTION_HEADING_RE = /^#{1,2}\s+(.*?)\s*$/;
 
 /**
  * Pull the branches Renovate has given up on out of a Dependency Dashboard
- * body. They live under a `## PR Edited (Blocked)` heading — "The following
- * updates have been manually edited so Renovate will no longer make changes."
- * — each as a `<!-- rebase-branch=NAME -->` marker.
+ * body. They live under the blocked heading — "The following updates have been
+ * manually edited so Renovate will no longer make changes." — each as a
+ * `<!-- rebase-branch=NAME -->` marker.
  *
- * Section-scoped on purpose: `rebase-branch=` markers also appear under
- * "Open"/"Awaiting Schedule" (where they mean "tick to rebase", i.e. perfectly
- * healthy), so a whole-body grep would report every repo as blocked. Any
- * heading closes the section.
+ * Section-scoped on purpose: `rebase-branch=` markers also appear under "Open"
+ * (where they mean "tick to rebase", i.e. perfectly healthy — 11 fleet repos
+ * carry them today), so a whole-body grep would report those repos as blocked.
+ * `PR Closed (Blocked)` is deliberately NOT read: it is Renovate's ledger of
+ * operator instructions it has honoured (closing a Renovate PR is the
+ * documented ignore idiom) and it uses `recreate-branch=`, not `rebase-branch=`.
  */
 export function parseBlockedBranches(body: string): string[] {
   const found: string[] = [];
   let inBlocked = false;
   for (const line of body.split("\n")) {
-    if (/^#{1,6}\s/.test(line)) {
-      inBlocked = /^#{1,6}\s+PR Edited \(Blocked\)/i.test(line);
+    if (SECTION_HEADING_RE.test(line)) {
+      inBlocked = BLOCKED_SECTION_RE.test(line);
       continue;
     }
     if (!inBlocked) continue;
@@ -190,6 +248,25 @@ export function parseBlockedBranches(body: string): string[] {
     if (marker?.[1]) found.push(marker[1]);
   }
   return [...new Set(found)];
+}
+
+/**
+ * Section headings in a dashboard body that Renovate is not known to emit.
+ * `parseBlockedBranches` returning `[]` is ambiguous — it means both "nothing
+ * is blocked" and "I did not understand this dashboard" — and this is what
+ * separates them, so a heading rename cannot turn the whole fleet green in
+ * silence. Same doctrine as workflowHealth: "couldn't check" must never read
+ * as "healthy" downstream.
+ */
+export function parseUnknownSections(body: string): string[] {
+  const unknown: string[] = [];
+  for (const line of body.split("\n")) {
+    const heading = line.match(/^##\s+(.*?)\s*$/);
+    const title = heading?.[1];
+    if (!title) continue;
+    if (!KNOWN_DASHBOARD_SECTIONS.has(title.toLowerCase())) unknown.push(title);
+  }
+  return [...new Set(unknown)];
 }
 
 export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
@@ -608,15 +685,80 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
       // migration left several repos holding TWO (alamo-anatomy had #3 and
       // #39), and the stale one is not always the one carrying the blocked
       // section. `select(.pull_request | not)` because /issues returns PRs too.
+      //
+      // --paginate is load-bearing, not defensive: /issues returns issues AND
+      // PRs newest-first, the dashboard is created at onboarding and so is
+      // typically the OLDEST open issue in the repo, and the title filter runs
+      // client-side in jq AFTER the page cut. Without it, a repo with 100 open
+      // items newer than its dashboard reads as {present:false} — which this
+      // surface deliberately treats as not-a-gap, i.e. a blocked repo would
+      // report clean. (Verified against renovatebot/renovate itself, whose
+      // dashboard is issue #2958 from 2018 and carries a live blocked section.)
       const out = await gh([
         "api",
+        "--paginate",
         `repos/${repo}/issues?state=open&per_page=100`,
         "--jq",
         '[.[] | select(.pull_request | not) | select(.title == "Dependency Dashboard") | (.body // "")] | join("\\n# ---\\n")',
       ]);
       const body = out.trim();
       if (body.length === 0) return { present: false };
-      return { present: true, blockedBranches: parseBlockedBranches(body) };
+      return {
+        present: true,
+        blockedBranches: parseBlockedBranches(body),
+        unknownSections: parseUnknownSections(body),
+      };
+    },
+    async branchTip(repo, branch) {
+      // Raw, not percent-encoded: the ref segment legitimately contains `/`
+      // (`renovate/all-minor-patch`) and GitHub resolves it as a ref only when
+      // the slash is literal. assertUrlSegment is what keeps that safe.
+      assertUrlSegment("branch", branch);
+      let out: string;
+      try {
+        out = await gh([
+          "api",
+          `repos/${repo}/commits/${branch}`,
+          "--jq",
+          // .author is the GitHub ACCOUNT (null when the commit email matches
+          // none), .commit.author is the raw git identity, which always exists.
+          '{type: (.author.type // ""), login: (.author.login // ""), email: .commit.author.email, name: .commit.author.name, date: .commit.committer.date}',
+        ]);
+      } catch (e) {
+        if (/HTTP 404/.test(e instanceof Error ? e.message : String(e))) return null;
+        throw e;
+      }
+      const raw = JSON.parse(out) as {
+        type: string;
+        login: string;
+        email: string;
+        name: string;
+        date: string;
+      };
+      return { authorIsMachine: isMachineAuthor(raw), committedAt: raw.date };
     },
   };
+}
+
+/**
+ * Does this commit have a human behind it? Deliberately NOT just
+ * `.author.type === "Bot"`: the identity whose orphaned branches froze nine
+ * repos in August 2026 was `renovate-bot`, a PAT-driven machine account that
+ * GitHub reports as type `User`. A rule keyed on the Bot type would have
+ * missed the exact incident this audit exists to catch, so the known machine
+ * logins are matched by name too.
+ *
+ * A miss here costs latency, never blindness — renovateBlockedGaps still
+ * reports any blocked branch once it goes stale, whoever authored it.
+ */
+export function isMachineAuthor(commit: {
+  type: string;
+  login: string;
+  email: string;
+  name: string;
+}): boolean {
+  if (commit.type === "Bot") return true;
+  return [commit.login, commit.email, commit.name].some((f) =>
+    /(\[bot\]|^renovate-bot$|^renovate-bot@)/i.test(f ?? ""),
+  );
 }
