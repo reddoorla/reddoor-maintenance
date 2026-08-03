@@ -45,6 +45,16 @@ export function createEslintConfig(opts: CreateEslintConfigOptions): Linter.Conf
       },
     },
     {
+      // eslint-plugin-svelte 3.20+ allows only an `error` prop in +error.svelte,
+      // but SvelteKit really does pass merged layout `data` to error pages
+      // (typed by hand since kit generates no ./$types for +error). The rule
+      // takes no options (schema: []), so scope it off for error pages only.
+      files: ["**/+error.svelte"],
+      rules: {
+        "svelte/valid-prop-names-in-kit-pages": "off",
+      },
+    },
+    {
       files: ["**/*.d.ts"],
       rules: {
         "no-var": "off",
