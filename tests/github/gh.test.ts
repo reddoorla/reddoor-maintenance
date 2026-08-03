@@ -473,16 +473,93 @@ describe("makeGitHub", () => {
 
     it("listOrgRepos paginates (the 30-per-page default is the false-'queue is empty' trap) and parses rows", async () => {
       const { spawn, calls } = fakeSpawn({
-        stdout: "espada\tpublic\tfalse\nthe-tower\tprivate\tfalse\nreddoor-test\tprivate\ttrue\n",
+        stdout:
+          "espada\tpublic\tfalse\tenabled\tenabled\n" +
+          "the-tower\tprivate\tfalse\tdisabled\tdisabled\n" +
+          // security_and_analysis missing entirely (token lacks admin read) —
+          // jq's // "unavailable" default must land here, never an empty string.
+          "reddoor-test\tprivate\ttrue\tunavailable\tunavailable\n",
       });
       const out = await makeGitHub({ token: "T", spawn }).listOrgRepos("reddoorla");
       expect(calls[0]!.args).toContain("--paginate");
       expect(calls[0]!.args).toContain("orgs/reddoorla/repos?per_page=100");
       expect(out).toEqual([
-        { name: "espada", visibility: "public", archived: false },
-        { name: "the-tower", visibility: "private", archived: false },
-        { name: "reddoor-test", visibility: "private", archived: true },
+        {
+          name: "espada",
+          visibility: "public",
+          archived: false,
+          secretScanning: "enabled",
+          pushProtection: "enabled",
+        },
+        {
+          name: "the-tower",
+          visibility: "private",
+          archived: false,
+          secretScanning: "disabled",
+          pushProtection: "disabled",
+        },
+        {
+          name: "reddoor-test",
+          visibility: "private",
+          archived: true,
+          secretScanning: "unavailable",
+          pushProtection: "unavailable",
+        },
       ]);
+    });
+
+    it("workflowHealth: active + last SUCCESS parsed from the success-filtered probe; 404 = absent; other failures throw", async () => {
+      // Two sequential gh calls: workflow GET (.state), then the runs probe.
+      const seen: string[][] = [];
+      let n = 0;
+      const healthy = await makeGitHub({
+        token: "T",
+        spawn: async (_cmd, args) => {
+          seen.push([...args]);
+          return n++ === 0
+            ? { code: 0, stdout: "active\n", stderr: "" }
+            : { code: 0, stdout: "2026-08-02T13:00:00Z\n", stderr: "" };
+        },
+      }).workflowHealth("o/r", "renovate.yml");
+      expect(healthy).toEqual({
+        present: true,
+        state: "active",
+        lastSuccessAt: "2026-08-02T13:00:00Z",
+      });
+      // Pin BOTH probe paths + jq. The runs probe MUST be per-workflow (the
+      // all-workflows /actions/runs endpoint returns the same shape, and a
+      // live ci.yml would then mask a dead renovate.yml) and MUST filter to
+      // status=success (a revoked credential still creates fresh FAILING runs
+      // every tick — counting those as alive is the exact blindness here).
+      expect(seen[0]![1]).toBe("repos/o/r/actions/workflows/renovate.yml");
+      expect(seen[1]![1]).toBe(
+        "repos/o/r/actions/workflows/renovate.yml/runs?status=success&per_page=1",
+      );
+      expect(seen[1]![3]).toBe('.workflow_runs[0].created_at // ""');
+
+      let m = 0;
+      const neverSucceeded = await makeGitHub({
+        token: "T",
+        spawn: async () =>
+          m++ === 0
+            ? { code: 0, stdout: "active\n", stderr: "" }
+            : { code: 0, stdout: "\n", stderr: "" },
+      }).workflowHealth("o/r", "renovate.yml");
+      expect(neverSucceeded).toEqual({ present: true, state: "active", lastSuccessAt: null });
+
+      const absent = fakeSpawn({ code: 1, stderr: "gh: Not Found (HTTP 404)" });
+      expect(
+        await makeGitHub({ token: "T", spawn: absent.spawn }).workflowHealth("o/r", "renovate.yml"),
+      ).toEqual({ present: false });
+      expect(absent.calls[0]!.args[1]).toBe("repos/o/r/actions/workflows/renovate.yml");
+
+      // A non-404 failure must THROW (the audit turns it into a gap) — an
+      // unreadable workflow silently reading as absent-or-fine is the exact
+      // couldn't-verify-is-fine hole this sweep exists to kill.
+      const err = fakeSpawn({ code: 1, stderr: "HTTP 500" });
+      await expect(
+        makeGitHub({ token: "T", spawn: err.spawn }).workflowHealth("o/r", "renovate.yml"),
+      ).rejects.toThrow(/workflowHealth/);
     });
   });
 });
