@@ -108,8 +108,19 @@ describe("submitToIngest", () => {
     }
   });
 
-  it("defaults the budget to 8s (bounded well inside a 10s Netlify sync function)", () => {
-    expect(INGEST_TIMEOUT_MS).toBe(8000);
+  it("defaults the budget wide enough for a cold central call, inside Netlify's envelope", async () => {
+    // Tied to the platform constant rather than a hard-coded 10s: Netlify's
+    // synchronous envelope is 30s, and the budget was previously calibrated
+    // against a 10s limit that no longer applies (see INGEST_TIMEOUT_MS).
+    const { SYNCHRONOUS_FUNCTION_TIMEOUT } = await import("@netlify/functions");
+    const envelopeMs = SYNCHRONOUS_FUNCTION_TIMEOUT * 1000;
+
+    expect(INGEST_TIMEOUT_MS).toBe(20_000);
+    // Must clear a cold central call (~5-7s observed) by a real margin, or an
+    // already-persisted lead gets reported to the visitor as a failure.
+    expect(INGEST_TIMEOUT_MS).toBeGreaterThanOrEqual(15_000);
+    // …while still leaving the action room to render its response.
+    expect(envelopeMs - INGEST_TIMEOUT_MS).toBeGreaterThanOrEqual(10_000);
   });
 });
 
