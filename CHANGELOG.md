@@ -1,5 +1,33 @@
 # @reddoorla/maintenance
 
+## 0.78.0
+
+### Minor Changes
+
+- 6becfdf: Let a site opt the `a11y` audit into scanning its real routes.
+
+  The audit only ever axe-scanned two synthetic fixture pages
+  (`/dev/a11y-fixtures`, `/dev/animate-in`). No real page was ever checked, which is
+  how five production pages on gallerysonder shipped a hero `<img>` with no `alt`
+  attribute — a critical violation — with CI green the whole time.
+
+  A site now lists its own routes in `package.json#reddoor.a11yRoutes`, and they are
+  scanned **in addition to** the fixtures (which stay: they cover design-system
+  components in isolation, which no real page does). Each violation is reported
+  against the route path so it is attributable. Junk entries are dropped and an
+  absent or unusable key leaves behaviour byte-identical to before.
+
+  Opt-in rather than automatic on purpose: the shared CI workflow runs this audit
+  with `--fail-on-violations`, and most of the fleet carries pre-existing
+  accessibility debt, so enabling it centrally would red every repo at once.
+
+- 7d0ca76: Remove the `ci` config template (and `"ci"` from `ConfigName`): every live fleet ci.yml carries per-site values (`netlify-site:`, `node-version:`, `permissions:`) a static template cannot own, so the exact-match heal in `self-updating`/`sync-configs` was an armed clobber — any run would have stripped those values in green auto-mergeable PRs. Ownership is split instead: the starter clone provides each site's ci.yml, and Renovate bumps the pinned reusable-workflow ref when reddoorla/.github tags a new version. Also retires the two ACCEPTED_GAPS entries — the central repo and .github now run Renovate themselves.
+- 1d8b798: `protection-audit` now verifies the full posture floor per public repo, not just ruleset shape: secret scanning + push protection must be enabled, and the renovate workflow must exist, be active, and have actually run within 3 days (GitHub silently disables quiet schedules, and template-cloned schedule triggers may never register — the first live sweep caught two never-run and two stale repos).
+
+### Patch Changes
+
+- c4c7ae3: Shared eslint config: turn `svelte/valid-prop-names-in-kit-pages` off for `+error.svelte` files. eslint-plugin-svelte 3.20+ allows only an `error` prop there, but SvelteKit really passes merged layout `data` to error pages (proven by reddoorla.com's live 404), and the rule takes no options to widen the list.
+
 ## 0.77.0
 
 ### Minor Changes
