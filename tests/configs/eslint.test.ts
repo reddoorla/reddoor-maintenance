@@ -27,6 +27,20 @@ describe("configs/eslint", () => {
     );
   });
 
+  it("turns valid-prop-names-in-kit-pages off for +error.svelte only", () => {
+    const config = createEslintConfig({ svelteConfig: {} });
+    const errorBlock = config.find(
+      (c) => "files" in c && Array.isArray(c.files) && c.files.includes("**/+error.svelte"),
+    );
+    expect(errorBlock?.rules).toEqual({ "svelte/valid-prop-names-in-kit-pages": "off" });
+    // Flat config: last matching block wins, so the off-switch must come after
+    // every block that enables the rule (e.g. svelte.configs.recommended).
+    const rulePositions = config
+      .map((c, i) => ({ i, severity: c.rules?.["svelte/valid-prop-names-in-kit-pages"] }))
+      .filter((p) => p.severity !== undefined);
+    expect(rulePositions.at(-1)?.severity).toBe("off");
+  });
+
   it("passes through the supplied svelteConfig into the .svelte parser options", () => {
     const svelteConfig = { __marker: "from-test" };
     const config = createEslintConfig({ svelteConfig });
