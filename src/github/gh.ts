@@ -152,10 +152,45 @@ export type GitHub = {
    *  A clean 404 is the answer `{present: false}` — any OTHER failure throws,
    *  because "couldn't check" must never read as "healthy" downstream. */
   workflowHealth: (repo: string, filename: string) => Promise<WorkflowHealth>;
+  /** Renovate's own Dependency Dashboard issue, which is the only place it
+   *  reports branches it has DECIDED TO STOP MANAGING. workflowHealth answers
+   *  "did Renovate run?"; this answers "was it allowed to do anything?" — a
+   *  distinction that cost the fleet 9 repos of frozen updates (see
+   *  renovateBlockedGaps). Absent dashboard is the answer `{present:false}`,
+   *  not an error: `dependencyDashboard` is a config a repo may disable. */
+  dependencyDashboard: (repo: string) => Promise<DependencyDashboard>;
 };
 
 export type WorkflowHealth =
   { present: false } | { present: true; state: string; lastSuccessAt: string | null };
+
+export type DependencyDashboard = { present: false } | { present: true; blockedBranches: string[] };
+
+/**
+ * Pull the branches Renovate has given up on out of a Dependency Dashboard
+ * body. They live under a `## PR Edited (Blocked)` heading — "The following
+ * updates have been manually edited so Renovate will no longer make changes."
+ * — each as a `<!-- rebase-branch=NAME -->` marker.
+ *
+ * Section-scoped on purpose: `rebase-branch=` markers also appear under
+ * "Open"/"Awaiting Schedule" (where they mean "tick to rebase", i.e. perfectly
+ * healthy), so a whole-body grep would report every repo as blocked. Any
+ * heading closes the section.
+ */
+export function parseBlockedBranches(body: string): string[] {
+  const found: string[] = [];
+  let inBlocked = false;
+  for (const line of body.split("\n")) {
+    if (/^#{1,6}\s/.test(line)) {
+      inBlocked = /^#{1,6}\s+PR Edited \(Blocked\)/i.test(line);
+      continue;
+    }
+    if (!inBlocked) continue;
+    const marker = line.match(/rebase-branch=([^\s>]+)/);
+    if (marker?.[1]) found.push(marker[1]);
+  }
+  return [...new Set(found)];
+}
 
 export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
   const spawn = deps.spawn ?? defaultSpawn;
@@ -567,6 +602,21 @@ export function makeGitHub(deps: { token: string; spawn?: SpawnFn }): GitHub {
         '.workflow_runs[0].created_at // ""',
       ]);
       return { present: true, state: wf.stdout.trim(), lastSuccessAt: runs.trim() || null };
+    },
+    async dependencyDashboard(repo) {
+      // Every open Dependency Dashboard, not just the first: the App-identity
+      // migration left several repos holding TWO (alamo-anatomy had #3 and
+      // #39), and the stale one is not always the one carrying the blocked
+      // section. `select(.pull_request | not)` because /issues returns PRs too.
+      const out = await gh([
+        "api",
+        `repos/${repo}/issues?state=open&per_page=100`,
+        "--jq",
+        '[.[] | select(.pull_request | not) | select(.title == "Dependency Dashboard") | (.body // "")] | join("\\n# ---\\n")',
+      ]);
+      const body = out.trim();
+      if (body.length === 0) return { present: false };
+      return { present: true, blockedBranches: parseBlockedBranches(body) };
     },
   };
 }

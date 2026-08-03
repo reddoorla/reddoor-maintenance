@@ -3,6 +3,7 @@ import {
   collectProtectionCoverage,
   partitionAcceptedGaps,
   renovateGaps,
+  renovateBlockedGaps,
   secretScanningGaps,
   ACCEPTED_GAPS,
   RENOVATE_WORKFLOW_FILE,
@@ -11,7 +12,8 @@ import {
 } from "../../src/audits/protection-coverage.js";
 import { desiredRuleset, FLEET_RULESET_NAME } from "../../src/github/rulesets.js";
 import type { ExistingRuleset } from "../../src/github/rulesets.js";
-import type { WorkflowHealth } from "../../src/github/gh.js";
+import { parseBlockedBranches } from "../../src/github/gh.js";
+import type { DependencyDashboard, WorkflowHealth } from "../../src/github/gh.js";
 
 const ORG = "reddoorla";
 const NOW = new Date("2026-08-02T18:00:00Z");
@@ -33,10 +35,13 @@ function makeDeps(
   repos: RepoRow[],
   rulesetsByRepo: Record<string, ExistingRuleset[]>,
   healthByRepo: Record<string, WorkflowHealth> = {},
+  dashboardByRepo: Record<string, DependencyDashboard> = {},
 ): ProtectionCoverageDeps & { healthCalls: string[] } {
   const healthCalls: string[] = [];
   return {
     healthCalls,
+    dependencyDashboard: async (repo) =>
+      dashboardByRepo[repo] ?? { present: true, blockedBranches: [] },
     listOrgRepos: async () =>
       repos.map((r) => ({
         name: r.name,
@@ -307,5 +312,116 @@ describe("partitionAcceptedGaps", () => {
       expect(a.detailPrefix.length).toBeGreaterThan(0);
       expect(a.reason.length).toBeGreaterThan(0);
     }
+  });
+});
+
+/** Verbatim shape of a real blocked dashboard (alamo-anatomy #39, 2026-08-03),
+ *  trimmed to the sections that matter. The `rebase-branch=` marker under
+ *  "Awaiting Schedule" is the whole reason the parser is section-scoped: a
+ *  naive body-wide grep reports every healthy repo in the fleet as blocked. */
+const REAL_DASHBOARD_BODY = `This issue lists Renovate updates and detected dependencies.
+
+## Awaiting Schedule
+
+The following updates are awaiting their schedule.
+
+ - [ ] <!-- unschedule-branch=renovate/cookie-0.7.0-1.x -->chore(deps): update dependency cookie to v1
+ - [ ] <!-- rebase-branch=renovate/typescript-6.x -->chore(deps): update typescript
+
+## PR Edited (Blocked)
+
+The following updates have been manually edited so Renovate will no longer make changes.
+
+ - [ ] <!-- rebase-branch=renovate/all-minor-patch -->fix(deps): update all non-major dependencies (\`@reddoorla/maintenance\`, \`vite\`)
+ - [ ] <!-- rebase-branch=renovate/kit-2.x -->chore(deps): update kit
+
+## Detected Dependencies
+
+ - \`@reddoorla/maintenance ^0.75.0\` → [Updates: \`^0.79.0\`]
+`;
+
+describe("parseBlockedBranches", () => {
+  it("extracts only the branches under the PR Edited (Blocked) heading", () => {
+    expect(parseBlockedBranches(REAL_DASHBOARD_BODY)).toEqual([
+      "renovate/all-minor-patch",
+      "renovate/kit-2.x",
+    ]);
+  });
+
+  it("a healthy dashboard with rebase markers elsewhere yields nothing", () => {
+    const healthy = REAL_DASHBOARD_BODY.split("## PR Edited (Blocked)")[0]!;
+    expect(parseBlockedBranches(healthy)).toEqual([]);
+  });
+
+  it("the next heading closes the section", () => {
+    expect(
+      parseBlockedBranches(
+        "## PR Edited (Blocked)\n - [ ] <!-- rebase-branch=a -->x\n## Open\n - [ ] <!-- rebase-branch=b -->y",
+      ),
+    ).toEqual(["a"]);
+  });
+
+  it("dedupes across the joined bodies of multiple dashboards", () => {
+    const doubled = `${REAL_DASHBOARD_BODY}\n# ---\n${REAL_DASHBOARD_BODY}`;
+    expect(parseBlockedBranches(doubled)).toEqual(["renovate/all-minor-patch", "renovate/kit-2.x"]);
+  });
+
+  it("empty body is not blocked", () => {
+    expect(parseBlockedBranches("")).toEqual([]);
+  });
+});
+
+describe("renovateBlockedGaps", () => {
+  it("an absent dashboard is NOT a gap (repos may disable it; liveness owns dead-renovate)", () => {
+    expect(renovateBlockedGaps({ present: false })).toEqual([]);
+  });
+
+  it("a present dashboard with nothing blocked is clean", () => {
+    expect(renovateBlockedGaps({ present: true, blockedBranches: [] })).toEqual([]);
+  });
+
+  it("names every blocked branch and tells the reader how to unblock it", () => {
+    const [gap] = renovateBlockedGaps({
+      present: true,
+      blockedBranches: ["renovate/all-minor-patch"],
+    });
+    expect(gap).toContain("renovate/all-minor-patch");
+    expect(gap).toContain("BLOCKED");
+    expect(gap).toMatch(/delete the branch/i);
+  });
+});
+
+describe("effectiveness is judged separately from liveness", () => {
+  it("REGRESSION: a green, fresh renovate run is still a gap when a branch is blocked", async () => {
+    // The exact August 2026 shape: workflow active, succeeded hours ago —
+    // liveness is spotless — yet updates were frozen for a week.
+    const deps = makeDeps(
+      [{ name: "alamo-anatomy" }],
+      { "reddoorla/alamo-anatomy": [sound(1)] },
+      { "reddoorla/alamo-anatomy": { present: true, state: "active", lastSuccessAt: FRESH_RUN } },
+      {
+        "reddoorla/alamo-anatomy": {
+          present: true,
+          blockedBranches: ["renovate/all-minor-patch"],
+        },
+      },
+    );
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("renovate/all-minor-patch");
+    // and liveness itself reported nothing wrong
+    expect(renovateGaps({ present: true, state: "active", lastSuccessAt: FRESH_RUN }, NOW)).toEqual(
+      [],
+    );
+  });
+
+  it("a dashboard probe that THROWS is a gap, never a silent pass", async () => {
+    const deps = makeDeps([{ name: "espada" }], { "reddoorla/espada": [sound(1)] });
+    deps.dependencyDashboard = async () => {
+      throw new Error("boom");
+    };
+    const rows = await collectProtectionCoverage(ORG, deps, NOW);
+    expect(rows[0]!.status).toBe("gap");
+    expect(rows[0]!.detail).toContain("probe failed");
   });
 });
