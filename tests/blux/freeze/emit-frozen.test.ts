@@ -18,6 +18,10 @@ const base: FrozenResult = {
   },
   templateHtml: `<div id="burbank_map"></div>`,
   styleCss: ".x{}",
+  imageBoxes: {
+    viewport: 1440,
+    boxes: { "s0.i0": { w: 1425, h: 760, source: 3960 } },
+  },
 };
 
 describe("emitFrozen", () => {
@@ -29,7 +33,12 @@ describe("emitFrozen", () => {
     expect(paths.style).toBe(join(out, "frozen", "home.style.css"));
     expect(paths.fonts).toBe(join(out, "frozen", "home.fonts.json"));
     expect(paths.manifest).toBe(join(out, "the-pointe.slots.json"));
+    expect(paths.imageBoxes).toBe(join(out, "frozen", "home.image-boxes.json"));
     expect(paths.map).toBeUndefined();
+
+    // The render reads this to ask the CDN for the size the page paints, so it
+    // has to land in frozen/ under the uid like every other artifact glob.
+    expect(JSON.parse(readFileSync(paths.imageBoxes, "utf-8"))).toEqual(base.imageBoxes);
 
     // fonts.json is the starter's expected shape: a plain array of hrefs.
     expect(JSON.parse(readFileSync(paths.fonts, "utf-8"))).toEqual(base.manifest.fontLinks);

@@ -62,6 +62,37 @@ export interface FrozenManifest {
 }
 
 /** The emitted freeze artifact: the manifest plus the repo files' bodies. */
+/**
+ * One image's painted box, measured on the settled page, with the widest render
+ * that exists behind it.
+ *
+ * Both halves are needed to size a request safely: the box says what the page
+ * paints, and `source` is a hard ceiling because image CDNs UPSCALE past it —
+ * asking a 123px badge for 900px took it from 4.9KB to 30KB — so an image whose
+ * source is already at or below what its box needs must be left alone.
+ */
+export interface ImageBox {
+  /** Painted width in CSS px at the settle viewport. */
+  w: number;
+  /** Painted height in CSS px at the settle viewport. */
+  h: number;
+  /** The CDN variant width the export was serving, or null if it declared none. */
+  source: number | null;
+}
+
+/**
+ * Painted boxes per image slot, emitted as `frozen/<uid>.image-boxes.json`.
+ *
+ * A sidecar rather than a field on each slot: the slots manifest is what
+ * `blux migrate-frozen` PUTs into Prismic, and a measurement is a property of
+ * the LAYOUT, not of the content an editor owns.
+ */
+export interface ImageBoxFile {
+  /** Layout width the boxes were measured at — the freeze's own viewport. */
+  viewport: number;
+  boxes: Record<string, ImageBox>;
+}
+
 export interface FrozenResult {
   manifest: FrozenManifest;
   /** Tokenized `<body>` innerHTML — the repo template. */
@@ -72,6 +103,10 @@ export interface FrozenResult {
    *  in the template — emitted as `frozen/<uid>.map.json`, hydrated by the
    *  starter's frozen-map layer. */
   mapConfig?: MapConfig | undefined;
+  /** Painted box per image slot — emitted as `frozen/<uid>.image-boxes.json`,
+   *  read by the starter's image-size layer to request the size the page
+   *  actually paints. */
+  imageBoxes: ImageBoxFile;
 }
 
 /** The placeholder a slot's value is substituted for at render time.

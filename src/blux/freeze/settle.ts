@@ -25,6 +25,8 @@ export interface SettleOptions {
 export interface SettledExport {
   /** The serialized settled DOM (full document HTML). */
   html: string;
+  /** Layout width the DOM was settled and measured at. */
+  viewport: number;
   /**
    * Nav-anchor answer key, measured from the export's OWN runtime: hash index
    * → the id its JS actually scrolls to. Blux core maps `/#N` to
@@ -175,6 +177,52 @@ async function auditAnchors(page: Page): Promise<Record<string, string>> {
 }
 
 /**
+ * Stamp each media element with the box it is actually painted into.
+ *
+ * A frozen page inherits whatever CDN variant the export happened to use, and
+ * that bears no relation to the size the browser paints it at. Measured on
+ * the-pointe: a 5774px-wide file (1.34MB) into an 823px box, 5341px into a
+ * 1425px band, 3960px carousel slides into 1425x760 — 4.03MB of 5.06MB in
+ * images larger than their box. The render can only ask a CDN for the right
+ * size if it knows that size, and the size cannot be derived from the markup:
+ * Blux sets it in CSS, so an element carrying `width:5774px` renders at 823.
+ *
+ * A laid-out page is therefore the only honest source, and this is the one
+ * place in the pipeline that has one. `bakeImages` reads the attribute back off
+ * when it assigns slot keys and strips it again, so the template is unchanged.
+ *
+ * An element the export settled hidden measures zero. Each is revealed on its
+ * own, measured, and put straight back, so no other element's layout is
+ * disturbed while it is being read.
+ */
+async function stampMediaBoxes(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const read = (el: Element): { w: number; h: number } => {
+      const r = el.getBoundingClientRect();
+      return { w: Math.round(r.width), h: Math.round(r.height) };
+    };
+    for (const el of document.querySelectorAll("[data-media]")) {
+      let box = read(el);
+      if (box.w === 0) {
+        const hidden: Array<[HTMLElement, string]> = [];
+        for (
+          let n: HTMLElement | null = el as HTMLElement;
+          n && n !== document.body;
+          n = n.parentElement
+        ) {
+          if (getComputedStyle(n).display !== "none") continue;
+          hidden.push([n, n.style.display]);
+          n.style.display = "block";
+        }
+        box = read(el);
+        for (const [n, prev] of hidden.reverse()) n.style.display = prev;
+      }
+      if (box.w > 0) el.setAttribute("data-rd-box", `${box.w}x${box.h}`);
+    }
+  });
+}
+
+/**
  * Render a local `index.html` in headless chromium, let its JS settle the
  * layout, and return the serialized settled DOM plus the measured nav-anchor
  * answer key.
@@ -202,6 +250,9 @@ export async function settleExport(
     }
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.waitForTimeout(1200);
+    // Measured on the settled page, before serializing — this is the only
+    // point in the freeze that has a laid-out document.
+    await stampMediaBoxes(page);
     const html = await page.content();
 
     // Anchor audit on a separate, HTTP-served copy (see serveExport). Media
@@ -222,7 +273,7 @@ export async function settleExport(
       await auditPage.waitForTimeout(800);
       const anchorTargets = await auditAnchors(auditPage);
       await auditPage.close();
-      return { html, anchorTargets };
+      return { html, anchorTargets, viewport: width };
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
