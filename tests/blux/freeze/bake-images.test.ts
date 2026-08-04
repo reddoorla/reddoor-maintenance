@@ -38,3 +38,55 @@ describe("bakeImages", () => {
     expect(slots.map((s) => s.key)).toEqual(["s0.i0", "s0.i1", "s1.i0"]);
   });
 });
+
+describe("bakeImages painted boxes", () => {
+  const media = (attrs: string) =>
+    `<body><section><div data-base="https://cdn/f/" data-media="x.png" ${attrs}></div></section></body>`;
+
+  it("records the box settle measured, keyed by slot", () => {
+    // The render can only ask a CDN for the right size if it knows that size,
+    // and the size is not derivable from the markup — Blux sets it in CSS, so
+    // an element carrying width:5774px can render into an 823px box.
+    const { boxes } = bakeImages(media(`data-size="5774" data-rd-box="823x548"`));
+    expect(boxes).toEqual({ "s0.i0": { w: 823, h: 548, source: 5774 } });
+  });
+
+  it("keeps data-size as the ceiling, because CDNs upscale past it", () => {
+    // Asking a 123px badge for 900px took it from 4.9KB to 30KB, so the widest
+    // render that EXISTS has to travel with the box.
+    const { boxes } = bakeImages(media(`data-size="123" data-rd-box="73x73"`));
+    expect(boxes["s0.i0"]!.source).toBe(123);
+  });
+
+  it("records a null source when the export declared no size", () => {
+    const { boxes } = bakeImages(media(`data-rd-box="400x300"`));
+    expect(boxes["s0.i0"]).toEqual({ w: 400, h: 300, source: null });
+  });
+
+  it("leaves the template byte-identical to an unmeasured freeze", () => {
+    // The attribute is settle's channel into this function and nothing else;
+    // shipping it in the template would change the committed artifact for
+    // every existing frozen site.
+    const withBox = bakeImages(media(`data-size="475" data-rd-box="200x120"`));
+    const without = bakeImages(media(`data-size="475"`));
+    expect(withBox.html).toBe(without.html);
+    expect(withBox.html).not.toContain("data-rd-box");
+  });
+
+  it("strips the attribute from elements that never became a slot", () => {
+    const { html } = bakeImages(`<body><section><div data-rd-box="10x10"></div></section></body>`);
+    expect(html).not.toContain("data-rd-box");
+  });
+
+  it("records nothing when settle could not measure the element", () => {
+    // An element that never paints has no box worth recording; the render then
+    // leaves its url alone rather than guessing.
+    const { boxes } = bakeImages(media(`data-size="475"`));
+    expect(boxes).toEqual({});
+  });
+
+  it("ignores a malformed measurement rather than recording NaN", () => {
+    const { boxes } = bakeImages(media(`data-size="475" data-rd-box="wide"`));
+    expect(boxes).toEqual({});
+  });
+});

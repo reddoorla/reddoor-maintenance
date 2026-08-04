@@ -11,7 +11,14 @@ import { extractMapConfig } from "../grid/extract-map.js";
 import { validateExtraSlots } from "./extra-slots.js";
 import type { FrozenResult } from "./types.js";
 
-export type { Slot, FrozenManifest, FrozenResult, ExtraSlotsFile } from "./types.js";
+export type {
+  Slot,
+  FrozenManifest,
+  FrozenResult,
+  ExtraSlotsFile,
+  ImageBox,
+  ImageBoxFile,
+} from "./types.js";
 export { frozenPageCustomType, FROZEN_PAGE_TYPE } from "./frozen-page-type.js";
 export { validateExtraSlots } from "./extra-slots.js";
 export { EXTRA_SLOT_PREFIX } from "./types.js";
@@ -34,7 +41,7 @@ export interface FreezeOptions {
  * so image tokens live in style attributes and never collide with text tokens.
  */
 export async function freezeSite(opts: FreezeOptions): Promise<FrozenResult> {
-  const { html: settled, anchorTargets } = await settleExport(opts.indexHtmlPath);
+  const { html: settled, anchorTargets, viewport } = await settleExport(opts.indexHtmlPath);
   // Settled-DOM repairs run before image/text tokenizing: swap the dead
   // Google-Map DOM for a placeholder (using the raw export for the KML mid),
   // pin each hero slider to slide 1, and bake nav hashlink targets (settle's
@@ -72,6 +79,7 @@ export async function freezeSite(opts: FreezeOptions): Promise<FrozenResult> {
     templateHtml: fin.templateHtml,
     styleCss: fin.styleCss,
     mapConfig,
+    imageBoxes: { viewport, boxes: baked.boxes },
   };
 }
 
@@ -79,7 +87,8 @@ export async function freezeSite(opts: FreezeOptions): Promise<FrozenResult> {
  * Write the freeze artifacts under `outDir`. Returns their paths.
  *
  * `frozen/` is site-repo-ready: uid-keyed `<uid>.html` / `<uid>.style.css` /
- * `<uid>.fonts.json` (+ `<uid>.map.json` when the export has a map widget),
+ * `<uid>.fonts.json` / `<uid>.image-boxes.json` (+ `<uid>.map.json` when the
+ * export has a map widget),
  * copied verbatim into the site repo's `src/lib/blux-frozen/frozen/` — exactly
  * the names the starter's artifact globs load. The slots manifest stays
  * site-keyed at the out-dir root, where `blux migrate-frozen` finds it.
@@ -92,6 +101,7 @@ export async function emitFrozen(
   style: string;
   fonts: string;
   manifest: string;
+  imageBoxes: string;
   map?: string;
 }> {
   const { site, uid } = result.manifest;
@@ -105,8 +115,10 @@ export async function emitFrozen(
   await writeFile(style, result.styleCss, "utf-8");
   await writeFile(fonts, JSON.stringify(result.manifest.fontLinks, null, 2), "utf-8");
   await writeFile(manifest, JSON.stringify(result.manifest, null, 2), "utf-8");
-  if (!result.mapConfig) return { template, style, fonts, manifest };
+  const imageBoxes = join(frozenDir, `${uid}.image-boxes.json`);
+  await writeFile(imageBoxes, `${JSON.stringify(result.imageBoxes, null, 2)}\n`, "utf-8");
+  if (!result.mapConfig) return { template, style, fonts, manifest, imageBoxes };
   const map = join(frozenDir, `${uid}.map.json`);
   await writeFile(map, JSON.stringify(result.mapConfig, null, 2), "utf-8");
-  return { template, style, fonts, manifest, map };
+  return { template, style, fonts, manifest, imageBoxes, map };
 }

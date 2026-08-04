@@ -1,5 +1,5 @@
 import { parse, HTMLElement } from "node-html-parser";
-import { slotKey, tokenFor, type Slot } from "./types.js";
+import { slotKey, tokenFor, type ImageBox, type Slot } from "./types.js";
 import { sectionIndexOf, sectionKeyOf } from "./section.js";
 import { CDN_HOSTS } from "../assets.js";
 
@@ -33,11 +33,21 @@ function stripUrlHintAttrs(root: HTMLElement): void {
  * remaining CDN url in `src`/`href`/`poster` → bare `token`. Keys are
  * `s{section}.i{n}` in document order.
  */
-export function bakeImages(html: string): { html: string; slots: Slot[] } {
+export function bakeImages(html: string): {
+  html: string;
+  slots: Slot[];
+  boxes: Record<string, ImageBox>;
+} {
   const root = parse(html);
   const sectionIndex = sectionIndexOf(root);
   const counters = new Map<string, number>();
   const slots: Slot[] = [];
+  // Painted box per image slot, so the render can ask the CDN for the size the
+  // page needs instead of whatever variant the export happened to use. `settle`
+  // stamped these on a laid-out page (`data-rd-box`); they are read off here,
+  // where slot keys are assigned, and the attribute is stripped so the template
+  // is byte-identical to what it was before the measurement existed.
+  const boxes: Record<string, ImageBox> = {};
 
   const nextKey = (el: HTMLElement): string => {
     const section = sectionKeyOf(el, sectionIndex);
@@ -62,6 +72,20 @@ export function bakeImages(html: string): { html: string; slots: Slot[] } {
 
     const key = nextKey(el);
     slots.push({ key, kind: "image", url, section: sectionKeyOf(el, sectionIndex) });
+
+    // `data-size` is the CDN variant Blux served, i.e. the widest render that
+    // exists — a ceiling, not a suggestion, because image CDNs upscale past it
+    // rather than refusing. Recorded so the render never asks for more.
+    const painted = /^(\d+)x(\d+)$/.exec(el.getAttribute("data-rd-box") ?? "");
+    if (painted) {
+      boxes[key] = {
+        w: Number(painted[1]),
+        h: Number(painted[2]),
+        source: size ? Number(size) : null,
+      };
+    }
+    el.removeAttribute("data-rd-box");
+
     const decl = `background-image:url(${tokenFor("image", key)})`;
     const style = el.getAttribute("style");
     el.setAttribute("style", style ? `${style};${decl}` : decl);
@@ -79,6 +103,11 @@ export function bakeImages(html: string): { html: string; slots: Slot[] } {
     }
   }
 
+  // Any element that never became a slot keeps no measurement either.
+  for (const el of root.querySelectorAll("[data-rd-box]")) {
+    el.removeAttribute("data-rd-box");
+  }
+
   stripUrlHintAttrs(root);
-  return { html: root.toString(), slots };
+  return { html: root.toString(), slots, boxes };
 }
