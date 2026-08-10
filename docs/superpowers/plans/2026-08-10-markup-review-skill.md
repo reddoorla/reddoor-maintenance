@@ -25,7 +25,7 @@
 
 - Create: `~/.claude/skills/markup-review/markup.mjs`
 
-- [ ] **Step 1: Write the scaffold**
+- [x] **Step 1: Write the scaffold**
 
 ```js
 #!/usr/bin/env node
@@ -137,7 +137,7 @@ three stubs directly above the `switch` so the file parses:
 `async function cmdList() { die(1, "not implemented"); }` and likewise for the
 other two.)
 
-- [ ] **Step 2: Verify usage and the auth-error path**
+- [x] **Step 2: Verify usage and the auth-error path**
 
 Run: `node ~/.claude/skills/markup-review/markup.mjs --help`
 Expected: usage text, exit 0.
@@ -151,7 +151,7 @@ Expected: usage text on stderr, `exit=1`.
 
 - Modify: `~/.claude/skills/markup-review/markup.mjs` (replace the `cmdList` stub)
 
-- [ ] **Step 1: Implement**
+- [x] **Step 1: Implement**
 
 ```js
 async function allMarkups() {
@@ -186,7 +186,7 @@ async function cmdList(query) {
 }
 ```
 
-- [ ] **Step 2: Verify against the live workspace**
+- [x] **Step 2: Verify against the live workspace**
 
 Run: `node ~/.claude/skills/markup-review/markup.mjs list`
 Expected: one line for the HEDLOC board with its unresolved count.
@@ -199,7 +199,7 @@ Run: `node ~/.claude/skills/markup-review/markup.mjs list --query hedloc` (match
 
 - Modify: `~/.claude/skills/markup-review/markup.mjs` (replace the `cmdThreads` stub)
 
-- [ ] **Step 1: Implement**
+- [x] **Step 1: Implement**
 
 ```js
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -275,7 +275,7 @@ async function cmdThreads(idOrName, { all, json }) {
 }
 ```
 
-- [ ] **Step 2: Verify live (empty board is fine here)**
+- [x] **Step 2: Verify live (empty board is fine here)**
 
 Run: `node ~/.claude/skills/markup-review/markup.mjs threads HEDLOC`
 Expected: `no unresolved threads on 4bc39757-…` (name→id resolution proven).
@@ -289,7 +289,7 @@ Expected: `{ "markupId": "4bc39757-…", "threads": [] }`.
 
 - Modify: `~/.claude/skills/markup-review/markup.mjs` (replace the `cmdResolve` stub)
 
-- [ ] **Step 1: Implement**
+- [x] **Step 1: Implement**
 
 ```js
 async function cmdResolve(threadId, reply) {
@@ -304,13 +304,13 @@ async function cmdResolve(threadId, reply) {
 }
 ```
 
-- [ ] **Step 2: Static check only** — behavior is exercised end-to-end in Task 5 (there is no thread to act on yet). Run `node --check ~/.claude/skills/markup-review/markup.mjs`; expected: no output, exit 0.
+- [x] **Step 2: Static check only** — behavior is exercised end-to-end in Task 5 (there is no thread to act on yet). Run `node --check ~/.claude/skills/markup-review/markup.mjs`; expected: no output, exit 0.
 
 ### Task 5: Live smoke — create a throwaway pin, lock down field names, round-trip
 
 This is the verification the spec demands, self-contained so designers never see noise: the test thread is created and deleted by the smoke itself.
 
-- [ ] **Step 1: Create a throwaway thread on the HEDLOC board via the API**
+- [x] **Step 1: Create a throwaway thread on the HEDLOC board via the API**
 
 ```bash
 node -e '
@@ -328,16 +328,16 @@ const H = { Authorization: "Bearer " + key, "Markup-API-Version": "2023-02-22", 
 
 Expected: 200/201 with the created thread JSON — **record the real field names**. If 400, the response body names the missing/misnamed fields (e.g. `projectId` instead of `markupId`, a nested `message` object, a required `viewMode`/page context) — adjust the body per the validation message and retry until created. If thread creation is refused outright for API users, fall back: ask Tucker to drop one pin by hand on the HEDLOC board and continue from Step 3.
 
-- [ ] **Step 2: Reconcile the renderer with reality**
+- [x] **Step 2: Reconcile the renderer with reality**
 
 Compare the created thread's JSON against `renderThread`/`cmdResolve`'s assumed names (`number`, `resolved`, `offsetXPercentage/offsetYPercentage`, `messages[].text`, `messages[].user.name`, `createdAt`, message body `{text}`). Fix any mismatch in `markup.mjs` (renderer + reply body are the only two places).
 
-- [ ] **Step 3: Read it through the CLI**
+- [x] **Step 3: Read it through the CLI**
 
 Run: `node ~/.claude/skills/markup-review/markup.mjs threads HEDLOC`
 Expected: the smoke pin rendered as a fix-list item (position, author, text, deep link, screenshot URL).
 
-- [ ] **Step 4: Round-trip resolve → unresolve with a reply**
+- [x] **Step 4: Round-trip resolve → unresolve with a reply**
 
 ```bash
 node ~/.claude/skills/markup-review/markup.mjs resolve <thread-id> --reply "smoke: resolved by tooling test"
@@ -349,7 +349,7 @@ node ~/.claude/skills/markup-review/markup.mjs threads HEDLOC            # expec
 
 Also confirms the `--all`/`resolved=true` query semantics from Task 3 (adjust `fetchThreads` if the resolved pass returns the wrong set).
 
-- [ ] **Step 5: Clean up**
+- [x] **Step 5: Clean up**
 
 ```bash
 node -e '… same auth preamble … fetch("https://api.markup.io/api/v2/threads/<thread-id>", { method: "DELETE", headers: H }).then(r => console.log(r.status))'
@@ -363,7 +363,7 @@ Expected: 200/204; then `threads HEDLOC --all` shows nothing. If DELETE is not p
 
 - Create: `~/.claude/skills/markup-review/SKILL.md`
 
-- [ ] **Step 1: Write it**
+- [x] **Step 1: Write it**
 
 ```markdown
 ---
@@ -391,15 +391,15 @@ CLI: `node ~/.claude/skills/markup-review/markup.mjs` (list | threads | resolve 
 - The API key is never echoed; if the CLI exits 2, relay its message verbatim.
 ```
 
-- [ ] **Step 2: Self-check with the writing-skills lens**
+- [x] **Step 2: Self-check with the writing-skills lens**
 
 Read the SKILL.md once as a stranger: are the triggers unambiguous, is every instruction executable, is there any dead or contradictory rule? Fix inline. (The "Hard rules" second bullet must match the CLI's real capabilities — see plan self-review note below.)
 
 ### Task 7: Wrap up
 
-- [ ] **Step 1: Re-run the full CLI surface once** (`--help`, `list`, `threads <board>`, `threads <board> --json`) — all green, exit codes per contract.
-- [ ] **Step 2: Check plan checkboxes, note any field-name adjustments made in Task 5** as a short "as-built" appendix at the bottom of this plan file.
-- [ ] **Step 3: Commit plan updates** on the `docs/markup-review-skill-spec` branch and push (this file rides the same PR #515 as the spec).
+- [x] **Step 1: Re-run the full CLI surface once** (`--help`, `list`, `threads <board>`, `threads <board> --json`) — all green, exit codes per contract.
+- [x] **Step 2: Check plan checkboxes, note any field-name adjustments made in Task 5** as a short "as-built" appendix at the bottom of this plan file.
+- [x] **Step 3: Commit plan updates** on the `docs/markup-review-skill-spec` branch and push (this file rides the same PR #515 as the spec).
 
 ---
 
@@ -408,3 +408,22 @@ Read the SKILL.md once as a stranger: are the triggers unambiguous, is every ins
 - **Spec coverage:** verbs/flags/exit codes (Tasks 1–4) ✓; skill workflow + hard rules (Task 6) ✓; live smoke incl. throwaway pin + round-trip (Task 5) ✓; error handling (Task 1 core + per-verb dies) ✓; no-fleet-coupling and no-harness waivers honored ✓.
 - **Placeholder scan:** the two knowingly-unverified spots (thread/message field names; `resolved=true` param semantics) are not placeholders but explicit smoke targets with a named reconciliation step (Task 5 Steps 1–2, 4) and a single adjustment surface (renderer + reply body).
 - **Consistency fix applied:** SKILL.md's "Hard rules" originally implied a standalone reply-without-resolve verb that the CLI doesn't have; the rule now says declined pins stay untouched with the reason in the round report. If reply-without-resolve proves wanted in practice, add a `reply` verb then (YAGNI now).
+
+---
+
+## As-built appendix (2026-08-10)
+
+**Thread/message field names (Task 5 reconciliation — live-verified on a throwaway thread, since deleted):**
+
+- Pin position is NOT top-level: it lives at `elements[0].offsetXPercentage/.offsetYPercentage` as 0..1 FRACTIONS (the element also carries `path`, the DOM selector); top-level `viewportXPercentage`/`viewportYPercentage` (also 0..1) are the fallback. Renderer multiplies by 100.
+- Message text is `messages[].message` (plain string); `messages[].messageJson` holds the Quill delta. The assumed `.text` does not exist.
+- `createdAt`/`modifiedAt`/`lastActivityAt` on threads are epoch MILLISECONDS; note `GET /markups/:id` returns ISO strings — the two resources disagree. Renderer formats via `new Date(ms).toISOString()`.
+- Reply POST body is `{content: "<text>"}` (docs schema CreateMessageBodyPublic), not the assumed `{text}`.
+- `thread.screenshot` is null until the browser extension attaches one (API-created pins never have one); `GET /threads/:id/screenshot` 404s while null. The renderer prints the screenshot line only when `screenshot != null`, and fetching the printed URL requires the Bearer + Markup-API-Version headers.
+- `number`, `resolved`, `user.name` matched the plan's assumptions unchanged.
+
+**Other deviations locked in earlier tasks:**
+
+- The resolved-filter param must be `resolved=1`; `resolved=true` → 400 "resolved must be a boolean value" (Task 3/4 era, live-verified).
+- Thread CREATION (not a CLI feature — recorded for future reference only): the plan's guessed body 400'd; the real shape needs `isImageThread`, `projectId`, `url`, `canonicalUrl`, `elements:[{elementPath, offsetXPercentage, offsetYPercentage}]`, top-level `offsetX/YPercentage`, `message` as a Quill delta `{ops:[…]}`, `browserContext` (omitting it → bare 500), `elementParents`, `viewModeId` (from `GET /markups/:id/view-modes` → `data.projectViewModes[]`), and `viewportX/YPercentage` (0..1).
+- SKILL.md shipped with two authorized deviations from the plan text: hard-rule 2 rewritten as a direct statement (declined pins stay untouched; never resolve just to post a comment), and step 3 expanded with the screenshot auth caveat above.
