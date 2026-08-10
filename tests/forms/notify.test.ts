@@ -106,6 +106,57 @@ describe("spam suppression", () => {
   });
 });
 
+describe("same-domain spoof suppression", () => {
+  // Bots spoof the site's own address as the submitter email; the autoresponder
+  // then backscatters "We got your message" into the client's inbox (MSOT,
+  // 2026-08-08). The POC notification must still send — only the autoresponder
+  // is suppressed.
+  it("suppresses the autoresponder when the submitter email is on the site's own domain", () => {
+    const site = makeWebsiteRow({
+      url: "https://acme.example.com",
+      pointOfContact: "owner@acme.example.com",
+    });
+    const sub = makeSubmissionRow({ email: "info@acme.example.com" });
+    expect(buildAutoresponder(site, sub)).toBeNull();
+    expect(buildPocNotification(site, sub)).not.toBeNull();
+  });
+
+  it("matches subdomains of the site host, either direction", () => {
+    const site = makeWebsiteRow({ url: "https://acme.example.com" });
+    expect(buildAutoresponder(site, makeSubmissionRow({ email: "bob@mail.acme.example.com" }))).toBeNull();
+    const wwwSite = makeWebsiteRow({ url: "https://www.acme.com" });
+    expect(buildAutoresponder(wwwSite, makeSubmissionRow({ email: "info@acme.com" }))).toBeNull();
+  });
+
+  it("is case-insensitive", () => {
+    const site = makeWebsiteRow({ url: "https://acme.example.com" });
+    expect(buildAutoresponder(site, makeSubmissionRow({ email: "Info@ACME.Example.COM" }))).toBeNull();
+  });
+
+  it("still autoresponds to genuine outside leads", () => {
+    const site = makeWebsiteRow({ url: "https://acme.example.com" });
+    expect(buildAutoresponder(site, makeSubmissionRow({ email: "lead@gmail.com" }))).not.toBeNull();
+  });
+
+  it("does not match a lookalike domain that merely ends with the site host", () => {
+    const site = makeWebsiteRow({ url: "https://acme.example.com" });
+    expect(
+      buildAutoresponder(site, makeSubmissionRow({ email: "x@notacme.example.com.evil.net" })),
+    ).not.toBeNull();
+    const apex = makeWebsiteRow({ url: "https://solutionsoftx.com" });
+    expect(
+      buildAutoresponder(apex, makeSubmissionRow({ email: "x@medicalsolutionsoftx.com" })),
+    ).not.toBeNull();
+  });
+
+  it("fails open when the site url is empty or unparseable", () => {
+    const empty = makeWebsiteRow({ url: "" });
+    expect(buildAutoresponder(empty, makeSubmissionRow({ email: "info@acme.example.com" }))).not.toBeNull();
+    const junk = makeWebsiteRow({ url: "not a url" });
+    expect(buildAutoresponder(junk, makeSubmissionRow({ email: "info@acme.example.com" }))).not.toBeNull();
+  });
+});
+
 describe("notifySubmission", () => {
   it("returns sent + message id and also fires the autoresponder", async () => {
     const send = vi.fn().mockResolvedValue({ messageId: "msg_1" });
