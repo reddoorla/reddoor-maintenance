@@ -120,7 +120,7 @@ gets a reply explaining why and stays unresolved.
 ## Security notes
 
 - The API key is workspace-wide by MarkUp's design. It stays in
-  `credentials.env` (mode 600 alongside the other secrets), loaded per-run,
+  `~/Documents/GitHub/reddoor-maintenance/.env`, loaded per-run,
   headers only.
 - The script only ever calls `api.markup.io`. Thread text/screenshots are
   designer-authored internal content and safe to print into the session.
