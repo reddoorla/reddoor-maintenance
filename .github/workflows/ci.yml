@@ -3,7 +3,7 @@ name: ci
 on:
   push:
     # `changeset-release/main` is the Changesets "Version Packages" bot branch.
-    # Its PR opens via RENOVATE_TOKEN (see release.yml) so a pull_request event
+    # Its PR opens via the reddoor-renovate App token (see release.yml) so a pull_request event
     # DOES fire — but GitHub gates pull_request runs from that automation behind
     # manual approval, leaving every release PR's required `build` check stuck in
     # "action_required" and unmergeable without an admin approving each re-push.

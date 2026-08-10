@@ -42,6 +42,23 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
 
+      # Mint short-lived reddoor-renovate App installation tokens for every
+      # fleet-wide GitHub call in this job — replaces the retired org RENOVATE
+      # PAT (2026-08 rotation) with the same App identity Renovate runs as.
+      # `owner:` widens the token from this repo to the whole installation
+      # (all reddoorla repos), which the fleet sweeps need. Minted TWICE
+      # (here + after the 45-minute audit) because installation tokens expire
+      # after 60 minutes — a single early mint could hand the late steps a
+      # dead token and silently mute them.
+      # Digest-pinned: this mints a fleet-write token, so a mutable tag ref is
+      # a supply-chain hole (same rule as renovate.yml); Renovate bumps these.
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          app-id: ${{ vars.RENOVATE_APP_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+          owner: reddoorla
+
       - name: Fleet security + deps audit + Airtable write-back
         # Repo-backed sites are audited from GitHub Dependabot alerts (ground truth: prod+dev,
         # GitHub Advisory DB) via the REST API. Sites with no repo (or when the alerts API is
@@ -59,11 +76,11 @@ jobs:
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-          # Reads Dependabot alerts. The org RENOVATE PAT is reused as GITHUB_TOKEN (same as
-          # release.yml); it needs the "Dependabot alerts: read" permission on the fleet repos.
+          # Reads Dependabot alerts. The minted reddoor-renovate App token is reused as
+          # GITHUB_TOKEN; the App's "Dependabot alerts: read" permission covers the fleet repos.
           # WITHOUT that permission the alerts endpoint 403s and each repo-backed site GRACEFULLY
           # falls back to `pnpm audit` (prior behavior) — a missing permission degrades, never breaks.
-          GITHUB_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -o pipefail
           # A site reporting vulns (security) or major drift (deps) exits non-zero by design; key the
@@ -128,19 +145,28 @@ jobs:
       # no-op, and a repo with an already-open Renovate PR is skipped. NEVER fails the
       # security job — a missing token clean-skips, and a per-repo failure (no
       # renovate.yml / token lacks actions:write) is a warning, not a red.
+      # Re-mint for the late steps: the audit above can run up to 45 minutes
+      # and installation tokens die at 60 — see the first mint's comment.
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token-late
+        with:
+          app-id: ${{ vars.RENOVATE_APP_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+          owner: reddoorla
+
       - name: Trigger Renovate for sites with actionable vulnerabilities
         timeout-minutes: 10
         env:
           AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
-          RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+          RENOVATE_TOKEN: ${{ steps.app-token-late.outputs.token }}
         run: |
           node dist/cli/bin.js renovate-dispatch --fleet | tee /tmp/dispatch.out || true
           summary=$(grep -oE "RENOVATE_DISPATCH_SUMMARY dispatched=[0-9]+ skipped=[0-9]+ failed=[0-9]+" /tmp/dispatch.out | tail -n1 || true)
           echo "renovate-dispatch: ${summary:-<no summary — see output above>}"
           failed=$(echo "$summary" | grep -oE "failed=[0-9]+" | cut -d= -f2 || true)
           if [ -n "$failed" ] && [ "$failed" -gt 0 ]; then
-            echo "::warning::renovate-dispatch: $failed repo(s) failed to dispatch (check RENOVATE_TOKEN actions:write scope / renovate.yml present)."
+            echo "::warning::renovate-dispatch: $failed repo(s) failed to dispatch (check the reddoor-renovate App's Actions:write permission / renovate.yml present)."
           fi
 
       # Org-wide protection coverage: every PUBLIC repo must carry a sound branch
@@ -159,17 +185,17 @@ jobs:
         id: protection
         continue-on-error: true
         env:
-          RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+          RENOVATE_TOKEN: ${{ steps.app-token-late.outputs.token }}
         run: |
           # pipefail is NOT in Actions' default `bash -e {0}` shell — without it,
           # `| tee` would swallow the audit's exit 1 and this step could never
           # report failure (the review caught this alarm shipping DEAD).
           set -o pipefail
-          # A wiped/rotated-empty RENOVATE_TOKEN must be a FAILURE here, not the
-          # CLI's local-dev clean-skip: a skip verifies zero repos, and treating
-          # it as success would auto-close real gap issues below.
+          # An empty minted token (failed mint step) must be a FAILURE here, not
+          # the CLI's local-dev clean-skip: a skip verifies zero repos, and
+          # treating it as success would auto-close real gap issues below.
           if [ -z "$RENOVATE_TOKEN" ]; then
-            echo "::error::protection-audit: RENOVATE_TOKEN is empty — cannot verify coverage."
+            echo "::error::protection-audit: minted App token is empty — cannot verify coverage."
             exit 1
           fi
           node dist/cli/bin.js protection-audit --org reddoorla | tee /tmp/protection.out
