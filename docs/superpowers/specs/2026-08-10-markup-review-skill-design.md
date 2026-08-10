@@ -62,10 +62,10 @@ A self-contained **user-level skill**:
 
 - No npm install; no package.json. One file of plain JS.
 - Credentials: `MARKUP_API_KEY` read from
-  `~/.config/reddoor-maint/credentials.env` (the established secrets file —
-  reused as a location; this is not a fleet coupling). The script loads that
-  file itself (same parse-the-env-file approach the maint CLI uses), so it
-  works from any cwd. The key is sent in headers only and never printed;
+  `~/Documents/GitHub/reddoor-maintenance/.env` (where Tucker keeps it, next
+  to `CLOUDFLARE_PAT` — a storage location, not a fleet coupling). The script
+  loads that file itself (simple parse-the-env-file), so it works from any
+  cwd. The key is sent in headers only and never printed;
   error output includes status codes, never the key.
 - Workspace id, if any call requires one, is discovered via the API
   (`GET /workspace`-family) rather than configured.
