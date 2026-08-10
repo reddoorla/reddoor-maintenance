@@ -1,4 +1,8 @@
-import { isDashboardVisible, type WebsiteRow } from "../reports/airtable/websites.js";
+import {
+  allActionableVulnsTransitive,
+  isDashboardVisible,
+  type WebsiteRow,
+} from "../reports/airtable/websites.js";
 import { isRenovatePR } from "../alerts/renovate.js";
 import type { PullRequestSummary } from "./gh.js";
 
@@ -142,7 +146,11 @@ export function formatRenovateDispatchSummary(result: RenovateDispatchResult): s
  * Returns only the rows whose value CHANGES (a steady fleet writes nothing —
  * a 0→0 site emits no write). A skipped repo (healthy Renovate PR in flight) is
  * NOT a failed attempt — a fix is genuinely moving toward merge — so its counter
- * holds.
+ * holds. A dispatched site whose critical/high advisories are ALL proven
+ * TRANSITIVE also holds: Renovate has no direct-dep bump to open, so the run is a
+ * known green no-op waiting on the weekly lockfile window, not a failed fix
+ * attempt (Sonder rode 5 such no-ops to a false "auto-fix failed", 2026-08-10).
+ * Missing/unknown relationship data keeps the increment — never mute on absence.
  */
 export function computeAutoFixAttemptUpdates(
   sites: WebsiteRow[],
@@ -163,7 +171,11 @@ export function computeAutoFixAttemptUpdates(
     if (!isDashboardVisible(s)) continue; // increments stay active-only
     const repo = s.gitRepo?.trim();
     if (!repo) continue; // …and repo-backed-only
-    if (dispatched.has(repo)) updates.push({ id: s.id, attempts: current + 1 });
+    if (!dispatched.has(repo)) continue;
+    // Transitive-only episode: the dispatch can't produce a fix PR (no direct dep
+    // to bump) — don't count the no-op as a failed attempt.
+    if (allActionableVulnsTransitive(s.securityAdvisories)) continue;
+    updates.push({ id: s.id, attempts: current + 1 });
   }
   return updates;
 }

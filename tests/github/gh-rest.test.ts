@@ -309,6 +309,7 @@ describe("makeGitHubRest.listDependabotAlerts", () => {
         cves: ["CVE-2021-42740"],
         url: "https://github.com/reddoorla/acme/security/dependabot/1",
         scope: "development",
+        relationship: null,
       },
     ]);
     expect(calls[0]!.url).toContain(
@@ -388,7 +389,41 @@ describe("makeGitHubRest.listDependabotAlerts", () => {
     const gh = makeGitHubRest({ token: "tok", fetch: fn });
     const alerts = await gh.listDependabotAlerts("reddoorla/acme");
     expect(alerts).toEqual([
-      { package: "p", severity: "", summary: "", cves: [], url: "https://x/1", scope: "runtime" },
+      {
+        package: "p",
+        severity: "",
+        summary: "",
+        cves: [],
+        url: "https://x/1",
+        scope: "runtime",
+        relationship: null,
+      },
+    ]);
+  });
+
+  it("maps dependency.relationship (direct/transitive); 'unknown' and absent map to null", async () => {
+    const mk = (name: string, relationship?: string) => ({
+      html_url: `https://x/${name}`,
+      dependency: {
+        package: { name },
+        scope: "runtime",
+        ...(relationship ? { relationship } : {}),
+      },
+      security_advisory: { severity: "high", summary: "s" },
+    });
+    const { fn } = fakeFetch([
+      {
+        status: 200,
+        body: [mk("a", "transitive"), mk("b", "direct"), mk("c", "unknown"), mk("d")],
+      },
+    ]);
+    const gh = makeGitHubRest({ token: "tok", fetch: fn });
+    const alerts = await gh.listDependabotAlerts("reddoorla/acme");
+    expect(alerts.map((a) => [a.package, a.relationship])).toEqual([
+      ["a", "transitive"],
+      ["b", "direct"],
+      ["c", null],
+      ["d", null],
     ]);
   });
 
@@ -415,6 +450,7 @@ describe("makeGitHubRest.listDependabotAlerts", () => {
         cves: [],
         url: "https://x/1",
         scope: null,
+        relationship: null,
       },
     ]);
     expect(decodeURIComponent(calls[0]!.url)).toContain("state=open");
@@ -448,6 +484,7 @@ describe("makeGitHubRest.listDependabotAlerts", () => {
         cves: [],
         url: "https://x/b",
         scope: "runtime",
+        relationship: null,
       },
     ]);
   });

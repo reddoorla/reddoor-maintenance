@@ -99,6 +99,21 @@ describe("websites/mapRow → new metric fields", () => {
     expect(row({}).securityAdvisories).toBeNull();
   });
 
+  it("round-trips a valid dependency relationship and drops an unrecognized one", () => {
+    const r = row({
+      "Security advisories": JSON.stringify([
+        { module: "brace-expansion", severity: "high", relationship: "transitive" },
+        { module: "axios", severity: "high", relationship: "direct" },
+        { module: "nanoid", severity: "high", relationship: "sideways" },
+      ]),
+    });
+    expect(r.securityAdvisories?.map((a) => [a.module, a.relationship])).toEqual([
+      ["brace-expansion", "transitive"],
+      ["axios", "direct"],
+      ["nanoid", undefined],
+    ]);
+  });
+
   it("maps Security Auto-Fix Attempts (number, null when absent)", () => {
     expect(row({ "Security Auto-Fix Attempts": 3 }).securityAutoFixAttempts).toBe(3);
     expect(row({ "Security Auto-Fix Attempts": 0 }).securityAutoFixAttempts).toBe(0);

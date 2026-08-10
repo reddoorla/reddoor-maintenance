@@ -1,6 +1,10 @@
 // src/alerts/digest-collectors.ts
 import type { AttentionItem } from "./attention.js";
-import { siteSlug, type WebsiteRow } from "../reports/airtable/websites.js";
+import {
+  allActionableVulnsTransitive,
+  siteSlug,
+  type WebsiteRow,
+} from "../reports/airtable/websites.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
 import { approveBlockers } from "../reports/preflight.js";
 
@@ -46,6 +50,12 @@ const AUTO_FIX_EXHAUSTED_CYCLES = 3;
  * any critical exists, else `warning`. Null counts (never audited) read as 0 → skipped.
  * Once `securityAutoFixAttempts` reaches AUTO_FIX_EXHAUSTED_CYCLES the item is flagged
  * `autoFixExhausted` (forced-critical, escalated title) — Renovate tried and couldn't fix it.
+ * EXCEPT when the persisted advisories prove every critical/high vuln is TRANSITIVE: then
+ * nightly dispatches were green no-ops (no direct dep to bump — the fix rides the weekly
+ * lockfile window), "auto-fix failed" would be a lie, and a stale pre-fix counter must not
+ * escalate (Sonder said "auto-fix failed (5×)" on exactly this, 2026-08-10). Those sites get
+ * an honest transitive-only title, keep count-based severity, and stay out of the digest
+ * email (amber cockpit Watch still shows them). Unknown relationship data never mutes.
  *
  * Emission is UNCONDITIONAL — every surface applies its own policy on top:
  *   - digest email: includes a vuln only when `autoFixExhausted` (the operator hears
@@ -62,7 +72,8 @@ export function collectVulnAlerts(sites: WebsiteRow[], baseUrl: string): Attenti
     const metric = critical + high;
     if (metric <= 0) continue;
     const attempts = s.securityAutoFixAttempts ?? 0;
-    const exhausted = attempts >= AUTO_FIX_EXHAUSTED_CYCLES;
+    const transitiveOnly = allActionableVulnsTransitive(s.securityAdvisories);
+    const exhausted = !transitiveOnly && attempts >= AUTO_FIX_EXHAUSTED_CYCLES;
     const noun = metric === 1 ? "vuln" : "vulns";
     items.push({
       key: `vuln:${s.id}`,
@@ -70,7 +81,9 @@ export function collectVulnAlerts(sites: WebsiteRow[], baseUrl: string): Attenti
       siteName: s.name,
       title: exhausted
         ? `${metric} critical/high ${noun} — auto-fix failed (${attempts}×)`
-        : `${metric} critical/high ${noun}`,
+        : transitiveOnly
+          ? `${metric} critical/high ${noun} — transitive-only, fix rides the weekly lockfile window`
+          : `${metric} critical/high ${noun}`,
       url: dashboardUrl(baseUrl, s.name),
       severity: exhausted || critical > 0 ? "critical" : "warning",
       metric,

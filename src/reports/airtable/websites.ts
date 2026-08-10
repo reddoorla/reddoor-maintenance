@@ -514,6 +514,11 @@ export type SecurityAdvisory = {
    *  dashboard flag build-time-only ("development") vulns. Omitted for advisories from the
    *  lockfile `pnpm audit` fallback, which carries no per-package graph scope. */
   scope?: "runtime" | "development";
+  /** GitHub Dependabot dependency-graph relationship, when known. "transitive" means no
+   *  direct-dep bump can fix it — Renovate's vuln alerts have no fix vehicle until the weekly
+   *  lockfile-maintenance window. Omitted when GitHub reports "unknown" or for the
+   *  `pnpm audit` fallback. Drives {@link allActionableVulnsTransitive}. */
+  relationship?: "direct" | "transitive";
 };
 export type DomainResult = { certDaysRemaining: number | null; checkedAt: string };
 export type NetlifyDeployResult = {
@@ -629,6 +634,10 @@ export function normalizeSecurityAdvisory(raw: unknown): SecurityAdvisory | null
     e["scope"] === "runtime" || e["scope"] === "development"
       ? (e["scope"] as "runtime" | "development")
       : undefined;
+  const relationship =
+    e["relationship"] === "direct" || e["relationship"] === "transitive"
+      ? (e["relationship"] as "direct" | "transitive")
+      : undefined;
   return {
     module,
     severity,
@@ -636,7 +645,27 @@ export function normalizeSecurityAdvisory(raw: unknown): SecurityAdvisory | null
     cves,
     url: typeof e["url"] === "string" ? (e["url"] as string) : null,
     ...(scope ? { scope } : {}),
+    ...(relationship ? { relationship } : {}),
   };
+}
+
+/**
+ * True iff the persisted advisory detail proves EVERY actionable (critical/high) vuln is a
+ * TRANSITIVE dependency — i.e. Renovate's vulnerability alerts have no direct-dep bump to
+ * open, and the fix rides the weekly lockfile-maintenance window instead. Deliberately
+ * conservative: `null` detail (never audited / `pnpm audit` fallback), an advisory missing
+ * its `relationship` (unknown / pre-existing JSON), or a counts-vs-detail mismatch (no
+ * critical/high advisory in the list) all return false — missing data must never mute the
+ * auto-fix-failed escalation. Consumed by the attempts counter (don't count a known no-op
+ * dispatch as a failed fix attempt) and the digest (say "transitive-only", not
+ * "auto-fix failed"). The persist cap keeps advisories sorted critical-first, so
+ * critical/high entries are never the ones capped away.
+ */
+export function allActionableVulnsTransitive(advisories: SecurityAdvisory[] | null): boolean {
+  if (!advisories) return false;
+  const actionable = advisories.filter((a) => a.severity === "critical" || a.severity === "high");
+  if (actionable.length === 0) return false;
+  return actionable.every((a) => a.relationship === "transitive");
 }
 
 /** Parse the `Security advisories` JSON cell. null when absent/blank/unparseable/not-an-array
