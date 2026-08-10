@@ -74,13 +74,13 @@ A self-contained **user-level skill**:
 
 `node ~/.claude/skills/markup-review/markup.mjs <verb> …`
 
-| Verb | Behavior |
-| ---- | -------- |
-| `list [--query <text>]` | Boards in the workspace: id, name, source URL, unresolved-thread count. `--query` filters by name/URL substring (client-side). |
+| Verb                                           | Behavior                                                                                                                                                                                                                                                                                                                                                                      |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list [--query <text>]`                        | Boards in the workspace: id, name, source URL, unresolved-thread count. `--query` filters by name/URL substring (client-side).                                                                                                                                                                                                                                                |
 | `threads <markup-id-or-name> [--all] [--json]` | Default: **unresolved only**, rendered as a fix-list grouped by page/source: thread id + number, pin position (x%/y%), author, date, comment text, replies, screenshot URL, deep link. `--all` includes resolved. `--json` emits the raw structured data instead. A bare name that matches exactly one board resolves to it; multiple matches list the candidates and exit 1. |
-| `resolve <thread-id> [--reply "<text>"]` | Optionally posts the reply message first, then resolves the thread. |
-| `unresolve <thread-id>` | The undo. |
-| `--help` / no args | Usage. |
+| `resolve <thread-id> [--reply "<text>"]`       | Optionally posts the reply message first, then resolves the thread.                                                                                                                                                                                                                                                                                                           |
+| `unresolve <thread-id>`                        | The undo.                                                                                                                                                                                                                                                                                                                                                                     |
+| `--help` / no args                             | Usage.                                                                                                                                                                                                                                                                                                                                                                        |
 
 Exit codes: 0 success; 1 usage/ambiguity; 2 auth (missing key, 401/403 —
 message names the likely missing scope); 3 not-found; 4 API/network error.

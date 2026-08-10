@@ -82,7 +82,10 @@ async function api(method, path, body) {
     die(4, `network error on ${method} ${path}: ${e.message}`);
   }
   if (res.status === 401 || res.status === 403)
-    die(2, `${res.status} on ${method} ${path} — key invalid, or missing threads:read/threads:write scope.`);
+    die(
+      2,
+      `${res.status} on ${method} ${path} — key invalid, or missing threads:read/threads:write scope.`,
+    );
   if (res.status === 404) die(3, `404 on ${method} ${path} — no such resource.`);
   if (!res.ok) die(4, `${res.status} on ${method} ${path}: ${(await res.text()).slice(0, 300)}`);
   if (res.status === 204) return null;
@@ -171,8 +174,7 @@ async function cmdList(query) {
   if (query) {
     const q = query.toLowerCase();
     markups = markups.filter(
-      (m) =>
-        (m.name ?? "").toLowerCase().includes(q) || (m.url ?? "").toLowerCase().includes(q),
+      (m) => (m.name ?? "").toLowerCase().includes(q) || (m.url ?? "").toLowerCase().includes(q),
     );
   }
   if (!markups.length)
@@ -227,10 +229,7 @@ async function fetchThreads(markupId, all) {
     if (offset >= (j.data.total ?? collected.length) || page.length === 0) break;
   }
   if (all) {
-    const j = await api(
-      "GET",
-      `/threads?markupId=${markupId}&limit=100&offset=0&resolved=true`,
-    );
+    const j = await api("GET", `/threads?markupId=${markupId}&limit=100&offset=0&resolved=true`);
     collected.push(...(j.data.threads ?? []));
   }
   return collected;
