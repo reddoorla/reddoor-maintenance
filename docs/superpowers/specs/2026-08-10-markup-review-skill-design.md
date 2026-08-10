@@ -35,13 +35,13 @@ server-side secret.
 
 Resources used here:
 
-| Need                      | Endpoint                                                |
-| ------------------------- | ------------------------------------------------------- |
-| Find a site's board       | `GET /markups` (cursor-paginated), `GET /markups/search`|
-| Unresolved-count per board| `GET /markups/:id/view-modes` (thread counts)           |
-| The pins                  | `GET /threads` (filter by markup; fields: id, number, resolved, user, createdAt, pin `offsetXPercentage`/`offsetYPercentage`, nested messages w/ attachments) |
-| Pin screenshot            | `GET` thread screenshot endpoint                        |
-| Close the loop            | `POST /threads/:id/resolve`, `/unresolve`; `POST /threads/:threadId/messages` (reply) |
+| Need                       | Endpoint                                                                              |
+| -------------------------- | ------------------------------------------------------------------------------------- |
+| Find a site's board        | `GET /markups` (cursor-paginated), `GET /markups/search`                              |
+| Unresolved-count per board | `GET /markups/:id/view-modes` (thread counts)                                         |
+| The pins                   | `GET /threads` (filter by markup; id, number, resolved, user, createdAt, pin offsets) |
+| Pin screenshot             | `GET` thread screenshot endpoint                                                      |
+| Close the loop             | `POST /threads/:id/resolve`, `/unresolve`; `POST /threads/:threadId/messages` (reply) |
 
 Deep-link format: `https://app.markup.io/markup/{markupId}/#thread/{threadId}`.
 
@@ -54,7 +54,7 @@ endpoint groups above and confirming field names against one live call each.
 
 A self-contained **user-level skill**:
 
-```
+```text
 ~/.claude/skills/markup-review/
   SKILL.md      # the workflow the session follows
   markup.mjs    # dependency-free CLI (Node ≥ 18, native fetch)
