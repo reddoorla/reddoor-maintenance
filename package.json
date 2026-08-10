@@ -96,7 +96,7 @@
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
-    "@google-analytics/data": "^6.1.0",
+    "@google-analytics/data": "^7.0.0",
     "@lhci/cli": "^0.15.1",
     "@libsql/client": "^0.8.1",
     "@libsql/kysely-libsql": "^0.4.1",

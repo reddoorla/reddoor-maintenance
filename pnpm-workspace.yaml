@@ -60,6 +60,19 @@ overrides:
   brace-expansion@<1.1.16: ">=1.1.16 <2"
   brace-expansion@>=2.0.0 <2.1.2: ">=2.1.2 <3"
   brace-expansion@>=3.0.0 <5.0.7: ">=5.0.7 <6"
+  # NOT a security pin — a type-identity pin. @google-analytics/data 7's
+  # google-gax@6 pins google-auth-library to EXACTLY 10.5.0 while our direct
+  # dep is ^10.6.2, so pnpm installs TWO copies. The JWT instance we hand to
+  # BetaAnalyticsDataClient (src/reports/ga/client.ts) then comes from a
+  # different install than the AnyAuthClient type gax checks against, and
+  # #private fields make the classes nominally incompatible → TS2322. Runtime
+  # always duck-typed across the copies fine; this collapses everything to the
+  # single direct-dep version so the types agree. "$google-auth-library"
+  # tracks package.json's spec, keeping future Renovate bumps paired. pnpm
+  # 11.8 WARNs that "$" references are deprecated in favor of catalogs; we
+  # hold pnpm at 11.8.x fleet-wide, so migrate this to a catalog entry
+  # whenever that hold lifts.
+  google-auth-library: "$google-auth-library"
   # postcss <=8.5.17: `sourceMappingURL` auto-loading path-traverses out of the
   # CSS file's directory and folds the traversed-to .map's `sourcesContent` into
   # result.map — arbitrary .map disclosure (GHSA-r28c-9q8g-f849, high, CVSS 7.5).
