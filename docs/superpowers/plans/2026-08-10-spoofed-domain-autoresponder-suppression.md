@@ -15,6 +15,7 @@
 ### Task 1: Spoof guard in `buildAutoresponder`
 
 **Files:**
+
 - Modify: `src/forms/notify.ts` (imports at top; guard inside `buildAutoresponder`, directly after the `if (!submission.email) return null;` line)
 - Test: `tests/forms/notify.test.ts` (new `describe` block after the existing `describe("spam suppression", ...)` block)
 
@@ -29,7 +30,10 @@ describe("same-domain spoof suppression", () => {
   // 2026-08-08). The POC notification must still send — only the autoresponder
   // is suppressed.
   it("suppresses the autoresponder when the submitter email is on the site's own domain", () => {
-    const site = makeWebsiteRow({ url: "https://acme.example.com", pointOfContact: "owner@acme.example.com" });
+    const site = makeWebsiteRow({
+      url: "https://acme.example.com",
+      pointOfContact: "owner@acme.example.com",
+    });
     const sub = makeSubmissionRow({ email: "info@acme.example.com" });
     expect(buildAutoresponder(site, sub)).toBeNull();
     expect(buildPocNotification(site, sub)).not.toBeNull();
@@ -37,14 +41,18 @@ describe("same-domain spoof suppression", () => {
 
   it("matches subdomains of the site host, either direction", () => {
     const site = makeWebsiteRow({ url: "https://acme.example.com" });
-    expect(buildAutoresponder(site, makeSubmissionRow({ email: "bob@mail.acme.example.com" }))).toBeNull();
+    expect(
+      buildAutoresponder(site, makeSubmissionRow({ email: "bob@mail.acme.example.com" })),
+    ).toBeNull();
     const wwwSite = makeWebsiteRow({ url: "https://www.acme.com" });
     expect(buildAutoresponder(wwwSite, makeSubmissionRow({ email: "info@acme.com" }))).toBeNull();
   });
 
   it("is case-insensitive", () => {
     const site = makeWebsiteRow({ url: "https://acme.example.com" });
-    expect(buildAutoresponder(site, makeSubmissionRow({ email: "Info@ACME.Example.COM" }))).toBeNull();
+    expect(
+      buildAutoresponder(site, makeSubmissionRow({ email: "Info@ACME.Example.COM" })),
+    ).toBeNull();
   });
 
   it("still autoresponds to genuine outside leads", () => {
@@ -54,16 +62,24 @@ describe("same-domain spoof suppression", () => {
 
   it("does not match a lookalike domain that merely ends with the site host", () => {
     const site = makeWebsiteRow({ url: "https://acme.example.com" });
-    expect(buildAutoresponder(site, makeSubmissionRow({ email: "x@notacme.example.com.evil.net" }))).not.toBeNull();
+    expect(
+      buildAutoresponder(site, makeSubmissionRow({ email: "x@notacme.example.com.evil.net" })),
+    ).not.toBeNull();
     const apex = makeWebsiteRow({ url: "https://solutionsoftx.com" });
-    expect(buildAutoresponder(apex, makeSubmissionRow({ email: "x@medicalsolutionsoftx.com" }))).not.toBeNull();
+    expect(
+      buildAutoresponder(apex, makeSubmissionRow({ email: "x@medicalsolutionsoftx.com" })),
+    ).not.toBeNull();
   });
 
   it("fails open when the site url is empty or unparseable", () => {
     const empty = makeWebsiteRow({ url: "" });
-    expect(buildAutoresponder(empty, makeSubmissionRow({ email: "info@acme.example.com" }))).not.toBeNull();
+    expect(
+      buildAutoresponder(empty, makeSubmissionRow({ email: "info@acme.example.com" })),
+    ).not.toBeNull();
     const junk = makeWebsiteRow({ url: "not a url" });
-    expect(buildAutoresponder(junk, makeSubmissionRow({ email: "info@acme.example.com" }))).not.toBeNull();
+    expect(
+      buildAutoresponder(junk, makeSubmissionRow({ email: "info@acme.example.com" })),
+    ).not.toBeNull();
   });
 });
 ```
@@ -86,20 +102,20 @@ import { hostsMatch } from "./ingest.js";
 In `buildAutoresponder`, directly after `if (!submission.email) return null;`:
 
 ```ts
-  // A submitter email on the site's OWN domain is never a real lead wanting a
-  // confirmation — it is the spoofed-sender backscatter case (a bot writes the
-  // site's info@ as its email and the "We got your message" lands in the
-  // client's inbox). The POC notification still sends; only this email is
-  // suppressed. Unparseable/blank site url → fail open and send, same
-  // philosophy as turnstileHostnameAcceptable.
-  const emailDomain = submission.email.split("@").pop() ?? "";
-  let siteHost = "";
-  try {
-    siteHost = new URL(site.url).hostname;
-  } catch {
-    /* fail open */
-  }
-  if (siteHost && hostsMatch(emailDomain, siteHost)) return null;
+// A submitter email on the site's OWN domain is never a real lead wanting a
+// confirmation — it is the spoofed-sender backscatter case (a bot writes the
+// site's info@ as its email and the "We got your message" lands in the
+// client's inbox). The POC notification still sends; only this email is
+// suppressed. Unparseable/blank site url → fail open and send, same
+// philosophy as turnstileHostnameAcceptable.
+const emailDomain = submission.email.split("@").pop() ?? "";
+let siteHost = "";
+try {
+  siteHost = new URL(site.url).hostname;
+} catch {
+  /* fail open */
+}
+if (siteHost && hostsMatch(emailDomain, siteHost)) return null;
 ```
 
 (`hostsMatch("", host)` is false by definition, so a malformed email with no `@` tail also fails open.)
@@ -127,6 +143,7 @@ git commit -m "fix(forms): suppress autoresponder when submitter email is on the
 ### Task 2: Changeset
 
 **Files:**
+
 - Create: `.changeset/spoofed-domain-autoresponder.md`
 
 - [ ] **Step 1: Write the changeset**

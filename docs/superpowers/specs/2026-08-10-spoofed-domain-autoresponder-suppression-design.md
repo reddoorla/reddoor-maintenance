@@ -11,7 +11,7 @@ as `new` and both emails went out).
 ## Problem
 
 `buildAutoresponder` (src/forms/notify.ts) emails whatever address the
-submitter typed. When a bot spoofs the *site's own domain*, that confirmation
+submitter typed. When a bot spoofs the _site's own domain_, that confirmation
 lands in the client's inbox as unexplained backscatter. Auto-spam rows already
 skip both emails; this gap is borderline rows that score below `SPAM_THRESHOLD`.
 

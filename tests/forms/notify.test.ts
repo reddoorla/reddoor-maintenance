@@ -123,14 +123,18 @@ describe("same-domain spoof suppression", () => {
 
   it("matches subdomains of the site host, either direction", () => {
     const site = makeWebsiteRow({ url: "https://acme.example.com" });
-    expect(buildAutoresponder(site, makeSubmissionRow({ email: "bob@mail.acme.example.com" }))).toBeNull();
+    expect(
+      buildAutoresponder(site, makeSubmissionRow({ email: "bob@mail.acme.example.com" })),
+    ).toBeNull();
     const wwwSite = makeWebsiteRow({ url: "https://www.acme.com" });
     expect(buildAutoresponder(wwwSite, makeSubmissionRow({ email: "info@acme.com" }))).toBeNull();
   });
 
   it("is case-insensitive", () => {
     const site = makeWebsiteRow({ url: "https://acme.example.com" });
-    expect(buildAutoresponder(site, makeSubmissionRow({ email: "Info@ACME.Example.COM" }))).toBeNull();
+    expect(
+      buildAutoresponder(site, makeSubmissionRow({ email: "Info@ACME.Example.COM" })),
+    ).toBeNull();
   });
 
   it("still autoresponds to genuine outside leads", () => {
@@ -151,9 +155,13 @@ describe("same-domain spoof suppression", () => {
 
   it("fails open when the site url is empty or unparseable", () => {
     const empty = makeWebsiteRow({ url: "" });
-    expect(buildAutoresponder(empty, makeSubmissionRow({ email: "info@acme.example.com" }))).not.toBeNull();
+    expect(
+      buildAutoresponder(empty, makeSubmissionRow({ email: "info@acme.example.com" })),
+    ).not.toBeNull();
     const junk = makeWebsiteRow({ url: "not a url" });
-    expect(buildAutoresponder(junk, makeSubmissionRow({ email: "info@acme.example.com" }))).not.toBeNull();
+    expect(
+      buildAutoresponder(junk, makeSubmissionRow({ email: "info@acme.example.com" })),
+    ).not.toBeNull();
   });
 });
 
