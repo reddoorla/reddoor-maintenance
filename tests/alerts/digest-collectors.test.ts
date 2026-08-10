@@ -11,9 +11,21 @@ import {
   collectAnalyticsFailures,
   collectPreflightBlocked,
 } from "../../src/alerts/digest-collectors.js";
-import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import type { WebsiteRow, SecurityAdvisory } from "../../src/reports/airtable/websites.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
+
+/** Minimal persisted advisory; override severity/relationship per case. */
+function adv(over: Partial<SecurityAdvisory> = {}): SecurityAdvisory {
+  return {
+    module: "brace-expansion",
+    severity: "high",
+    title: "ReDoS",
+    cves: [],
+    url: null,
+    ...over,
+  };
+}
 
 const BASE = "https://reddoor-maintenance.netlify.app";
 
@@ -131,6 +143,86 @@ describe("collectVulnAlerts", () => {
       BASE,
     );
     expect(items).toEqual([]);
+  });
+
+  it("transitive-only: honest title, NO exhausted flag even past the attempts threshold (the Sonder mode)", () => {
+    // 2026-08-10: the digest said "2 critical/high vulns — auto-fix failed (5×)" when
+    // both HIGHs were transitive — nothing Renovate could bump; the fix waits for the
+    // weekly lockfile window. The item must say THAT, not "auto-fix failed".
+    const items = collectVulnAlerts(
+      [
+        site({
+          securityVulnsCritical: 0,
+          securityVulnsHigh: 2,
+          securityAutoFixAttempts: 5,
+          securityAdvisories: [
+            adv({ module: "brace-expansion", relationship: "transitive" }),
+            adv({ module: "nanoid", relationship: "transitive" }),
+          ],
+        }),
+      ],
+      BASE,
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0]!.autoFixExhausted).toBeUndefined();
+    expect(items[0]!.title).toBe(
+      "2 critical/high vulns — transitive-only, fix rides the weekly lockfile window",
+    );
+    // No exhausted flag and no critical vuln → stays a warning (amber Watch), not forced-critical.
+    expect(items[0]!.severity).toBe("warning");
+  });
+
+  it("transitive-only with a critical vuln keeps count-based critical severity (honest wording, honest weight)", () => {
+    const items = collectVulnAlerts(
+      [
+        site({
+          securityVulnsCritical: 1,
+          securityVulnsHigh: 0,
+          securityAutoFixAttempts: 4,
+          securityAdvisories: [adv({ severity: "critical", relationship: "transitive" })],
+        }),
+      ],
+      BASE,
+    );
+    expect(items[0]!.autoFixExhausted).toBeUndefined();
+    expect(items[0]!.severity).toBe("critical");
+    expect(items[0]!.title).toBe(
+      "1 critical/high vuln — transitive-only, fix rides the weekly lockfile window",
+    );
+  });
+
+  it("a DIRECT critical/high advisory keeps the exhausted escalation at the threshold", () => {
+    const items = collectVulnAlerts(
+      [
+        site({
+          securityVulnsCritical: 0,
+          securityVulnsHigh: 2,
+          securityAutoFixAttempts: 3,
+          securityAdvisories: [
+            adv({ module: "axios", relationship: "direct" }),
+            adv({ module: "nanoid", relationship: "transitive" }),
+          ],
+        }),
+      ],
+      BASE,
+    );
+    expect(items[0]).toMatchObject({ autoFixExhausted: true, severity: "critical" });
+    expect(items[0]!.title).toBe("2 critical/high vulns — auto-fix failed (3×)");
+  });
+
+  it("unknown relationship (no advisory detail) keeps the exhausted escalation — never mute on missing data", () => {
+    const items = collectVulnAlerts(
+      [
+        site({
+          securityVulnsCritical: 0,
+          securityVulnsHigh: 2,
+          securityAutoFixAttempts: 3,
+          securityAdvisories: null,
+        }),
+      ],
+      BASE,
+    );
+    expect(items[0]).toMatchObject({ autoFixExhausted: true });
   });
 });
 

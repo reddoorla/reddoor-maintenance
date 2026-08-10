@@ -18,6 +18,10 @@ type AdvisoryEntry = {
   /** Dependency graph scope from Dependabot ("runtime" | "development"); absent for the
    *  lockfile `pnpm audit` fallback, which carries no per-package scope. Display-only. */
   scope?: "runtime" | "development";
+  /** Dependency graph relationship from Dependabot; absent when GitHub reports "unknown"
+   *  or for the `pnpm audit` fallback. "transitive" = no direct-dep fix vehicle, so the
+   *  auto-fix-attempts counter and the digest treat nightly dispatches as no-ops. */
+  relationship?: "direct" | "transitive";
 };
 
 // pnpm audit output (npm-compat with extra advisories map keyed by ID).
@@ -239,6 +243,7 @@ async function dependabotAudit(
       ...(a.cves.length > 0 ? { cves: a.cves } : {}),
       ...(a.url ? { url: a.url } : {}),
       ...(a.scope ? { scope: a.scope } : {}),
+      ...(a.relationship ? { relationship: a.relationship } : {}),
     });
   }
 

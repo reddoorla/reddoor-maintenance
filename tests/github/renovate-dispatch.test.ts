@@ -11,7 +11,20 @@ import {
 } from "../../src/github/renovate-dispatch.js";
 import type { PullRequestSummary } from "../../src/github/gh.js";
 import type { RenovateDispatchResult } from "../../src/github/renovate-dispatch.js";
+import type { SecurityAdvisory } from "../../src/reports/airtable/websites.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
+
+/** Minimal persisted advisory; override severity/relationship per case. */
+function adv(over: Partial<SecurityAdvisory> = {}): SecurityAdvisory {
+  return {
+    module: "brace-expansion",
+    severity: "high",
+    title: "ReDoS",
+    cves: [],
+    url: null,
+    ...over,
+  };
+}
 
 function pr(over: Partial<PullRequestSummary>): PullRequestSummary {
   return {
@@ -389,6 +402,106 @@ describe("computeAutoFixAttemptUpdates", () => {
       }),
     ];
     expect(computeAutoFixAttemptUpdates(sites, result())).toEqual([]);
+  });
+
+  it("does NOT increment when every critical/high advisory is transitive (no fix vehicle — the dispatch is a known no-op, not a failed attempt)", () => {
+    // The Sonder mode (2026-08-10): brace-expansion + nanoid, both HIGH and both
+    // transitive — nightly dispatches ran green but nothing could open a fix PR
+    // until the weekly lockfile window, yet the counter ratcheted to 5.
+    const sites = [
+      makeWebsiteRow({
+        id: "rSonder",
+        status: "maintenance",
+        gitRepo: "reddoorla/gallerysonder",
+        securityVulnsHigh: 2,
+        securityAutoFixAttempts: 2,
+        securityAdvisories: [
+          adv({ module: "brace-expansion", relationship: "transitive" }),
+          adv({ module: "nanoid", relationship: "transitive" }),
+        ],
+      }),
+    ];
+    expect(
+      computeAutoFixAttemptUpdates(sites, result({ dispatched: ["reddoorla/gallerysonder"] })),
+    ).toEqual([]);
+  });
+
+  it("still increments when any critical/high advisory is DIRECT (a real fix vehicle existed)", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintenance",
+        gitRepo: "reddoorla/a",
+        securityVulnsHigh: 2,
+        securityAutoFixAttempts: 1,
+        securityAdvisories: [
+          adv({ module: "axios", relationship: "direct" }),
+          adv({ module: "nanoid", relationship: "transitive" }),
+        ],
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result({ dispatched: ["reddoorla/a"] }))).toEqual([
+      { id: "rA", attempts: 2 },
+    ]);
+  });
+
+  it("still increments when the advisory carries no relationship (pnpm-audit fallback / pre-existing JSON) — unknown must not mute the alarm", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintenance",
+        gitRepo: "reddoorla/a",
+        securityVulnsHigh: 1,
+        securityAdvisories: [adv({ module: "axios" })], // no relationship key
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result({ dispatched: ["reddoorla/a"] }))).toEqual([
+      { id: "rA", attempts: 1 },
+    ]);
+  });
+
+  it("still increments when there is no persisted advisory detail at all (null)", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintenance",
+        gitRepo: "reddoorla/a",
+        securityVulnsHigh: 1,
+        securityAdvisories: null,
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result({ dispatched: ["reddoorla/a"] }))).toEqual([
+      { id: "rA", attempts: 1 },
+    ]);
+  });
+
+  it("still increments when counts say critical/high but the advisory list holds none (stale mismatch — don't mute on inconsistency)", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintenance",
+        gitRepo: "reddoorla/a",
+        securityVulnsHigh: 1,
+        securityAdvisories: [adv({ severity: "moderate", relationship: "transitive" })],
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result({ dispatched: ["reddoorla/a"] }))).toEqual([
+      { id: "rA", attempts: 1 },
+    ]);
+  });
+
+  it("transitive-only gating never blocks the reset-on-clean path", () => {
+    const sites = [
+      makeWebsiteRow({
+        id: "rA",
+        status: "maintenance",
+        gitRepo: "reddoorla/a",
+        securityVulnsHigh: 0,
+        securityAutoFixAttempts: 5,
+        securityAdvisories: [adv({ relationship: "transitive" })], // stale detail, counts now clean
+      }),
+    ];
+    expect(computeAutoFixAttemptUpdates(sites, result())).toEqual([{ id: "rA", attempts: 0 }]);
   });
 
   it("excludes inactive and repo-less sites from INCREMENTS (never counts their attempts)", () => {

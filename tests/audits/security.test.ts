@@ -303,6 +303,7 @@ describe("audits/security — Dependabot source (preferred when gitRepo + token)
       cves: ["CVE-1"],
       url: "https://x/1",
       scope: "development",
+      relationship: null,
     },
     {
       package: "cookie",
@@ -311,6 +312,7 @@ describe("audits/security — Dependabot source (preferred when gitRepo + token)
       cves: [],
       url: "https://x/2",
       scope: "runtime",
+      relationship: null,
     },
   ];
 
@@ -344,6 +346,7 @@ describe("audits/security — Dependabot source (preferred when gitRepo + token)
           cves: [],
           url: null,
           scope: "development",
+          relationship: null,
         },
       ]),
     });
@@ -366,6 +369,32 @@ describe("audits/security — Dependabot source (preferred when gitRepo + token)
     };
     expect(details.advisories.find((a) => a.module === "shell-quote")?.scope).toBe("development");
     expect(details.advisories.find((a) => a.module === "cookie")?.scope).toBe("runtime");
+  });
+
+  it("tags each advisory with the dependency relationship from the alert (omitted when GitHub reports none)", async () => {
+    const result = await securityAudit({
+      site: { path: "/fake", gitRepo: "reddoorla/acme" },
+      dependabotDeps: fakeDependabot([
+        { ...alerts[0]!, relationship: "direct" },
+        { ...alerts[1]!, relationship: "transitive" },
+        {
+          package: "nanoid",
+          severity: "high",
+          summary: "predictable ids",
+          cves: [],
+          url: null,
+          scope: "runtime",
+          relationship: null,
+        },
+      ]),
+    });
+    const details = result.details as {
+      advisories: Array<{ module: string; relationship?: string }>;
+    };
+    expect(details.advisories.find((a) => a.module === "shell-quote")?.relationship).toBe("direct");
+    expect(details.advisories.find((a) => a.module === "cookie")?.relationship).toBe("transitive");
+    // null from the API stays OFF the persisted advisory (unknown, not a claim).
+    expect("relationship" in details.advisories.find((a) => a.module === "nanoid")!).toBe(false);
   });
 
   it("returns pass with 'Dependabot: 0 alerts' when there are no open alerts", async () => {
@@ -429,6 +458,7 @@ describe("audits/security — Dependabot source (preferred when gitRepo + token)
           cves: [],
           url: null,
           scope: null,
+          relationship: null,
         },
       ]),
     });
