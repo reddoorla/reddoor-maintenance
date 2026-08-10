@@ -42,6 +42,10 @@ export type DependabotAlert = {
   /** Dependency graph scope, or null when GitHub doesn't classify it. "development" marks a
    *  build-time-only dependency (lower live-exploit surface for a static site). */
   scope: "runtime" | "development" | null;
+  /** Dependency graph relationship (`dependency.relationship`), or null when GitHub reports
+   *  "unknown"/nothing. "transitive" means no direct-dep bump can fix it — Renovate's vuln
+   *  alerts have no fix vehicle until the weekly lockfile-maintenance window. */
+  relationship: "direct" | "transitive" | null;
 };
 
 export type GitHubRest = {
@@ -122,6 +126,7 @@ function mapDependabotAlert(raw: Record<string, unknown>): DependabotAlert | nul
   const adv = (raw["security_advisory"] ?? {}) as Record<string, unknown>;
   const cveId = typeof adv["cve_id"] === "string" ? (adv["cve_id"] as string) : null;
   const rawScope = dependency["scope"];
+  const rawRelationship = dependency["relationship"];
   return {
     package: packageName,
     severity: typeof adv["severity"] === "string" ? (adv["severity"] as string) : "",
@@ -129,6 +134,8 @@ function mapDependabotAlert(raw: Record<string, unknown>): DependabotAlert | nul
     cves: cveId ? [cveId] : [],
     url: typeof raw["html_url"] === "string" ? (raw["html_url"] as string) : null,
     scope: rawScope === "runtime" || rawScope === "development" ? rawScope : null,
+    relationship:
+      rawRelationship === "direct" || rawRelationship === "transitive" ? rawRelationship : null,
   };
 }
 
