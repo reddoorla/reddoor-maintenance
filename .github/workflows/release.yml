@@ -14,18 +14,30 @@ jobs:
       pull-requests: write
       id-token: write
     steps:
+      # Mint a reddoor-renovate App token scoped to THIS repo only (no `owner:` —
+      # create-github-app-token's default when owner/repositories are omitted):
+      # the changesets action only pushes and opens PRs here, so the release job
+      # never needs fleet reach. Replaces the retired org RENOVATE PAT
+      # (2026-08 rotation). Digest-pinned per renovate.yml.
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          app-id: ${{ vars.RENOVATE_APP_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-          # Authenticate git with the RENOVATE PAT (not the default GITHUB_TOKEN)
+          # Authenticate git with the App token (not the default GITHUB_TOKEN)
           # so the "Version Packages" branch PUSH the changesets action makes is
-          # attributed to the PAT user. A GITHUB_TOKEN push is recursion-guarded
-          # (no push event fires) and makes the PR's pull_request runs trigger as
-          # github-actions[bot] → gated in "action_required". With the PAT, the
-          # push fires ci.yml (see its push trigger on this branch) and the check
-          # goes green without an admin approving each release cycle. Publishing
+          # attributed to the App's bot user. A GITHUB_TOKEN push is
+          # recursion-guarded (no push event fires) and makes the PR's
+          # pull_request runs trigger as github-actions[bot] → gated in
+          # "action_required". An App-authored push (like a PAT one) fires
+          # ci.yml (see its push trigger on this branch) and the check goes
+          # green without an admin approving each release cycle. Publishing
           # still uses npm OIDC (id-token: write), independent of this token.
-          token: ${{ secrets.RENOVATE_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 
@@ -71,12 +83,13 @@ jobs:
           # When npm CLI 11.5+ detects the GitHub Actions OIDC env and a trusted
           # publisher is configured on the package, it mints a short-lived token.
           #
-          # Use the org RENOVATE PAT (not the built-in GITHUB_TOKEN) so the
+          # Use the minted App token (not the built-in GITHUB_TOKEN) so the
           # "Version Packages" PR this action opens actually TRIGGERS ci.yml.
           # GitHub does not start workflow runs for events made with the built-in
           # GITHUB_TOKEN (recursion guard), which left every release PR's required
           # `build` check stuck in "action_required" and unmergeable without an
-          # admin override. RENOVATE_TOKEN already has contents + pull-requests
+          # admin override. The reddoor-renovate App has contents + pull-requests
           # write (it opens the fleet's Renovate PRs). Publishing still uses npm
-          # OIDC (id-token: write) — this token only authors the version PR.
-          GITHUB_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+          # OIDC (id-token: write) — this token only authors the version PR,
+          # which now shows as reddoor-renovate[bot].
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}

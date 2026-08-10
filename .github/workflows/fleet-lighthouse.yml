@@ -119,6 +119,21 @@ jobs:
       # default-branch CI state, last-commit date) per repo-backed site into Airtable
       # so the cockpit reads them with zero request-path GitHub calls. `if: always()`
       # so a Lighthouse flake never skips the GitHub sweep.
+      # Mint the reddoor-renovate App token HERE, not at job start: the audit
+      # above can run ~48 minutes and installation tokens expire at 60 — a
+      # job-start mint would hand the sweep a nearly-dead token. Replaces the
+      # retired org RENOVATE PAT (2026-08 rotation). `if: always()` to match
+      # the sweep step — a Lighthouse flake must not skip the mint and
+      # silently de-token the sweep. `owner:` widens the token to the whole
+      # installation (all reddoorla repos). Digest-pinned per renovate.yml.
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        if: always()
+        with:
+          app-id: ${{ vars.RENOVATE_APP_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+          owner: reddoorla
+
       - name: Sweep GitHub signals to Airtable
         if: always()
         continue-on-error: true
@@ -127,8 +142,18 @@ jobs:
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-          RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
-        run: node dist/cli/bin.js github-signals --fleet --write-airtable
+          RENOVATE_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          # An empty token would make github-signals clean-skip (its local-dev
+          # behavior) and the cockpit's GitHub columns would go silently stale —
+          # the exact failure mode the PAT migration guards against. Fail loudly
+          # instead (continue-on-error keeps the job's verdict unchanged, but
+          # the error annotation is visible on the run).
+          if [ -z "$RENOVATE_TOKEN" ]; then
+            echo "::error::github-signals: minted App token is empty — the mint step failed."
+            exit 1
+          fi
+          node dist/cli/bin.js github-signals --fleet --write-airtable
 
       # M5 alerting (MEDIUM-I): a red nightly is otherwise only GitHub's best-effort
       # email to the last pusher. File/reopen a single deduped tracking issue so a
