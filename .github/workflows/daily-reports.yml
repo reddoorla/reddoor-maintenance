@@ -107,6 +107,9 @@ jobs:
           AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          # Turso creds: the digest reads notify-bounce counts + submissions telemetry from libSQL.
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           # The digest's Renovate/CI signals now come from the nightly-persisted
           # fields (collectRenovateAlerts/collectCiAlerts), so no live GitHub sweep
           # runs here — RENOVATE_TOKEN is no longer needed for this step.
