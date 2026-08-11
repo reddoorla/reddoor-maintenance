@@ -1,5 +1,41 @@
 # @reddoorla/maintenance
 
+## 0.82.0
+
+### Minor Changes
+
+- ebd108c: Update prettier-plugin-svelte to v4 (resolves 4.1.1). v4 changes Svelte
+  formatting output — notably it now preserves whitespace inside `<textarea>`
+  (like `<pre>`) — so any formatting this package's tooling performs on Svelte
+  files now emits v4 style. This aligns the tool's own plugin with the fleet
+  baseline in `baseline-versions.ts`, which has advertised `^4.0.1` since #456;
+  until now the tool itself ran v3 and could fight sites already on v4. This
+  repo's only .svelte files are prettier-ignored test fixtures, so no source
+  reformat was needed here.
+
+### Patch Changes
+
+- c5766b4: Update @google-analytics/data to v7. Its google-gax@6 pins google-auth-library
+  to exactly 10.5.0 while our direct dep floats at ^10.6.2, which split the
+  install in two and made the JWT we hand to BetaAnalyticsDataClient nominally
+  incompatible with gax's AnyAuthClient (TS2322). A pnpm override now pairs every
+  copy to the direct dep's spec, so one install serves both and the types agree.
+- 7e73089: alerts: stop calling a transitive-only vuln episode "auto-fix failed"
+
+  Sonder's digest said "2 critical/high vulns — auto-fix failed (5×)" (2026-08-10)
+  when both HIGHs (brace-expansion, nanoid) were TRANSITIVE — Renovate's vuln
+  alerts had no direct dep to bump, every nightly dispatch was a green no-op, and
+  the real fix was Monday's lockfile-maintenance window. Two honesty fixes, both
+  driven by the Dependabot `dependency.relationship` field now threaded through
+  DependabotAlert → security audit → the persisted `Security advisories` JSON
+  (no new Airtable field): the auto-fix-attempts counter no longer increments when
+  every open critical/high advisory is proven transitive (a known no-op dispatch
+  is not a failed attempt), and collectVulnAlerts titles such sites
+  "transitive-only, fix rides the weekly lockfile window" instead of escalating a
+  stale counter to "auto-fix failed" (no forced-critical, no digest-email
+  inclusion — the amber cockpit Watch still shows them). Missing/unknown
+  relationship data never mutes: those sites keep the old increment + escalation.
+
 ## 0.81.0
 
 ### Minor Changes
