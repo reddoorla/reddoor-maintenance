@@ -9,7 +9,28 @@ name: daily-reports
 on:
   schedule:
     - cron: "23 9 * * *" # 09:23 UTC daily, offset off the top of the hour
-  workflow_dispatch: {} # manual run from the Actions tab
+  workflow_dispatch:
+    # Manual run from the Actions tab. Left blank, this is the normal daily loop.
+    #
+    # `preview_site` turns the run into a read-only credential proof instead:
+    # `report <slug> --preview` renders one site's report through the very same
+    # draft path — including the GA and Search Console enrichment — but takes
+    # previewOnly, so it never queues a draft, never writes an Airtable Reports
+    # row, and never consumes the (site, period) idempotency guard. The send and
+    # digest steps are skipped, so no email leaves the runner either.
+    #
+    # This exists because the GA/Search Console credentials are only wired into
+    # THIS workflow's draft step. A local run proves the code path but not the
+    # repository secrets, and the secrets were exactly what was missing when
+    # every CI-drafted report shipped with a blank ANALYTICS section (#469).
+    # Waiting for the next naturally-due report to find out is a multi-week
+    # feedback loop on a credential that either works or silently does not.
+    inputs:
+      preview_site:
+        description: "Airtable Website NAME (e.g. Sonder) — render one report preview to prove the GA/Search Console secrets. Blank = normal daily run."
+        required: false
+        type: string
+        default: ""
 
 # Single-flight: a once-daily job can't realistically overlap, but this closes
 # the search-then-create drafting race (Airtable has no atomic upsert) and stops
@@ -79,17 +100,61 @@ jobs:
           GA_SUBJECT: ${{ secrets.GA_SUBJECT }}
           GA_SA_KEY_JSON: ${{ secrets.GA_SA_KEY_JSON }}
           GA_SA_KEY_PATH: ${{ runner.temp }}/ga-service-account.json
+          PREVIEW_SITE: ${{ inputs.preview_site }}
         run: |
           if [ -n "$GA_SA_KEY_JSON" ]; then
             printf '%s' "$GA_SA_KEY_JSON" > "$GA_SA_KEY_PATH"
             chmod 600 "$GA_SA_KEY_PATH"
           fi
-          node dist/cli/bin.js report --due
+          if [ -n "$PREVIEW_SITE" ]; then
+            # Read-only credential proof — renders one site, writes nothing.
+            node dist/cli/bin.js report "$PREVIEW_SITE" --preview
+          else
+            node dist/cli/bin.js report --due
+          fi
+
+      # Verdict for a preview run. The ANALYTICS block is rendered only when
+      # hasAnalyticsData() is true — renderAnalyticsSection returns "" outright
+      # when GA produced nothing — so the literal `>ANALYTICS<` in the emitted
+      # HTML is a truthful, non-circular proof that the credentials resolved and
+      # real numbers came back. Its absence is exactly the #469 failure, which
+      # was invisible precisely because the run stayed green without it. Fails
+      # the step so the answer cannot be mistaken for a pass.
+      - name: Verify the preview carried ANALYTICS
+        if: ${{ inputs.preview_site }}
+        env:
+          PREVIEW_SITE: ${{ inputs.preview_site }}
+        run: |
+          slug=$(printf '%s' "$PREVIEW_SITE" | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's/[^a-z0-9]+/-/g; s/^-|-$//g')
+          html="reports/${slug}/draft.html"
+          if [ ! -f "$html" ]; then
+            echo "::error::no preview rendered at $html — the draft step did not produce a report."
+            exit 1
+          fi
+          if grep -q '>ANALYTICS<' "$html"; then
+            echo "PASS: $html contains the ANALYTICS section — GA credentials resolved and returned data."
+          else
+            echo "::error::FAIL: $html rendered with NO ANALYTICS section. GA/Search Console credentials did not resolve, or GA returned nothing for this property (the #469 failure mode)."
+            exit 1
+          fi
+
+      - name: Upload the rendered preview
+        if: ${{ inputs.preview_site && always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: report-preview
+          path: reports/**/draft.html
+          if-no-files-found: warn
+          retention-days: 7
 
       # 2. SEND — existing gate (Draft ready ∧ Approved to send ∧ Sent at BLANK).
       # At-least-once: a failed send leaves Sent at null → retried tomorrow; the
       # Resend idempotency key (report:<id>) + the durable Sent at prevent dupes.
       - name: Send approved reports
+        # A preview run is a credential proof, not the daily loop — it must not
+        # email anyone.
+        if: ${{ !inputs.preview_site }}
         timeout-minutes: 15
         env:
           AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
@@ -102,6 +167,7 @@ jobs:
       # 3. DIGEST — one "your fleet today" email to the operator (report
       # --digest, shipped in #163; skips itself when there's nothing to say).
       - name: Email the operator digest
+        if: ${{ !inputs.preview_site }}
         timeout-minutes: 10
         env:
           AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
@@ -139,15 +205,22 @@ jobs:
       - name: Fail the run if drafting failed
         if: steps.draft.outcome == 'failure'
         run: |
-          echo "::error::report --due failed earlier in this run (send/digest were allowed to proceed)"
+          echo "::error::the draft step failed earlier in this run (send/digest were allowed to proceed)"
           exit 1
 
       # M5 alerting (#152 pattern): a red daily run is otherwise only GitHub's
       # best-effort email to the last pusher. File/reopen one deduped tracking
       # issue so a failure is durably visible; auto-close on recovery.
       # continue-on-error so the alert machinery can NEVER turn a run red.
+      #
+      # Both halves are scoped to non-preview runs. A manual preview is a
+      # credential probe, not the daily loop: letting it file "Daily reports run
+      # failing" would raise an alarm about a job that never ran, and — far
+      # worse — letting a passing probe hit the close half would auto-close a
+      # genuinely open daily-failure issue. That is a false all-clear on the one
+      # surface that exists to make failures durably visible.
       - name: Open/update the daily-reports-failing tracking issue
-        if: failure()
+        if: ${{ failure() && !inputs.preview_site }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -164,7 +237,7 @@ jobs:
           fi
 
       - name: Close the daily-reports-failing issue on recovery
-        if: success()
+        if: ${{ success() && !inputs.preview_site }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
