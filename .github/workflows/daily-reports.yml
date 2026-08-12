@@ -108,7 +108,14 @@ jobs:
           fi
           if [ -n "$PREVIEW_SITE" ]; then
             # Read-only credential proof — renders one site, writes nothing.
-            node dist/cli/bin.js report "$PREVIEW_SITE" --preview
+            # `report <slug>` matches on siteSlug(name), NOT the display name, so
+            # the input is slugified here rather than handed over raw. Otherwise
+            # the obvious input ("Sonder", the name the operator actually sees in
+            # Airtable) dies with `No Websites row matched slug "Sonder"`.
+            slug=$(printf '%s' "$PREVIEW_SITE" | tr '[:upper:]' '[:lower:]' \
+              | sed -E 's/[^a-z0-9]+/-/g; s/^-|-$//g')
+            echo "resolving '$PREVIEW_SITE' -> slug '$slug'"
+            node dist/cli/bin.js report "$slug" --preview
           else
             node dist/cli/bin.js report --due
           fi
