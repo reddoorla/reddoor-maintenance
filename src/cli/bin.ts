@@ -522,6 +522,10 @@ cli
     "Single-site dry run; writes reports/<slug>/draft.html, never touches Airtable.",
   )
   .option(
+    "--enrich",
+    "With --preview: also fetch GA + Search Console, so the render exercises those credentials for real. Still writes nothing.",
+  )
+  .option(
     "--send-ready",
     "Send all Reports with Draft ready=true AND Approved to send=true AND Sent at IS NULL.",
   )
@@ -536,6 +540,7 @@ cli
         due?: boolean;
         type?: string;
         preview?: boolean;
+        enrich?: boolean;
         sendReady?: boolean;
         digest?: boolean;
         cwd?: string;

@@ -13,11 +13,13 @@ on:
     # Manual run from the Actions tab. Left blank, this is the normal daily loop.
     #
     # `preview_site` turns the run into a read-only credential proof instead:
-    # `report <slug> --preview` renders one site's report through the very same
-    # draft path — including the GA and Search Console enrichment — but takes
-    # previewOnly, so it never queues a draft, never writes an Airtable Reports
-    # row, and never consumes the (site, period) idempotency guard. The send and
-    # digest steps are skipped, so no email leaves the runner either.
+    # `report <slug> --preview --enrich` renders one site's report through the
+    # very same draft path AND runs the real GA / Search Console fetches, but
+    # takes previewOnly, so it never queues a draft, never writes an Airtable
+    # Reports row, and never consumes the (site, period) idempotency guard. The
+    # send and digest steps are skipped, so no email leaves the runner either.
+    # `--enrich` is load-bearing: a plain `--preview` does no IO whatsoever, so
+    # the verify step below could never pass however good the secrets were.
     #
     # This exists because the GA/Search Console credentials are only wired into
     # THIS workflow's draft step. A local run proves the code path but not the
@@ -115,7 +117,11 @@ jobs:
             slug=$(printf '%s' "$PREVIEW_SITE" | tr '[:upper:]' '[:lower:]' \
               | sed -E 's/[^a-z0-9]+/-/g; s/^-|-$//g')
             echo "resolving '$PREVIEW_SITE' -> slug '$slug'"
-            node dist/cli/bin.js report "$slug" --preview
+            # --enrich is what makes this a credential proof rather than a render:
+            # without it the preview path does no IO at all, so the ANALYTICS
+            # section can never appear and the verify step below fails 100% of
+            # the time regardless of whether the secrets are good.
+            node dist/cli/bin.js report "$slug" --preview --enrich
           else
             node dist/cli/bin.js report --due
           fi
