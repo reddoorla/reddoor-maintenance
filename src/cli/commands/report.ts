@@ -20,6 +20,7 @@ import type { ReportType } from "../../reports/types.js";
 export type ReportCommandOptions = {
   due?: boolean;
   preview?: boolean;
+  enrich?: boolean;
   sendReady?: boolean;
   digest?: boolean;
   type?: string;
@@ -101,12 +102,16 @@ export async function runReportCommand(
     // Validate the type BEFORE any Airtable access so a bad --type fails fast (and
     // without needing credentials).
     const reportType = parseSingleSiteReportType(opts.type);
-    return runSingleSiteDraft(slug, { previewOnly: Boolean(opts.preview), reportType });
+    return runSingleSiteDraft(slug, {
+      previewOnly: Boolean(opts.preview),
+      enrich: Boolean(opts.enrich),
+      reportType,
+    });
   }
 
   throw Object.assign(
     new Error(
-      "Usage: reddoor-maint report [<slug>] [--type <Maintenance|Testing>] [--due] [--preview] [--send-ready] [--digest]",
+      "Usage: reddoor-maint report [<slug>] [--type <Maintenance|Testing>] [--due] [--preview] [--enrich] [--send-ready] [--digest]",
     ),
     {
       exitCode: 2,
@@ -353,7 +358,7 @@ export async function draftDueReports(
 
 async function runSingleSiteDraft(
   slug: string,
-  opts: { previewOnly: boolean; reportType: ReportType },
+  opts: { previewOnly: boolean; enrich: boolean; reportType: ReportType },
 ): Promise<{ output: string; code: number }> {
   const base = openBase(readAirtableConfig());
   const websites = await listWebsites(base);
@@ -363,6 +368,9 @@ async function runSingleSiteDraft(
   }
   const result = await draftReportForSite(opts.previewOnly ? null : base, site, opts.reportType, {
     previewOnly: opts.previewOnly,
+    // Only forced on. Left undefined, draftReportForSite keeps its default
+    // (enrich iff there is a base), so the real drafting path is untouched.
+    ...(opts.enrich ? { enrich: true } : {}),
   });
   if (opts.previewOnly) {
     return { output: `Preview written to ${result.htmlPath}`, code: 0 };

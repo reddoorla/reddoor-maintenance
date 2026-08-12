@@ -65,6 +65,18 @@ export type DraftOptions = {
   previewPath?: string;
   /** If true: render locally only, never touch Airtable. */
   previewOnly?: boolean;
+  /** Whether to run the GA / Search Console enrichment fetches. Defaults to
+   *  `base !== null`, i.e. the real drafting path enriches and a preview does not.
+   *
+   *  This exists because `base === null` was carrying two unrelated meanings —
+   *  "never write to Airtable" AND "perform no IO at all" — and only the first is
+   *  what `previewOnly` actually asks for. Enrichment reads Google; it writes
+   *  nothing, so there is no reason a preview cannot do it on request. Conflating
+   *  the two made the preview path structurally incapable of ever producing an
+   *  ANALYTICS section, which in turn made a CI job built to prove the GA secrets
+   *  fail 100% of the time and report it as a credential outage (2026-08-12). Set
+   *  this true to render a preview that exercises the credentials for real. */
+  enrich?: boolean;
   /** UTC "YYYY-MM" recurrence key; falls back to periodEnd's month when omitted. */
   period?: string;
   /** Airtable record id of an EXISTING (not-ready) row to COMPLETE in place rather
@@ -174,24 +186,27 @@ export async function draftReportForSite(
       ? new Date(siteRow.lastLighthouseAuditAt)
       : null;
 
-  // GA enrichment (real path only). Soft-fail: any GA problem leaves the numbers null so
+  // GA enrichment. Soft-fail: any GA problem leaves the numbers null so
   // the draft still proceeds (operator fills them manually) — GA is an enhancement, not a
   // gate. Rendered with the fetched numbers so the review HTML matches the Airtable fields.
   // An *error* (vs a legitimate not-configured skip) is recorded in softFailures so the
   // caller can surface a fleet-wide outage in the batch summary.
-  const gaResult =
-    base !== null ? await fetchGaUsers(siteRow, periodStart, periodEnd) : NO_ENRICHMENT;
-  const searchResult =
-    base !== null
-      ? await fetchSearch(siteRow, periodStart, periodEnd)
-      : // No-IO render path: nothing was attempted, so this is not an environment gap
-        // (`notConfigured` would wrongly tell the operator to go wire a secret).
-        {
-          ...NO_ENRICHMENT,
-          defaultQueryMissed: false,
-          propertyMissing: false,
-          notConfigured: false,
-        };
+  // Enrichment is gated on `enrich`, NOT on `base`: reading Google and writing to
+  // Airtable are independent, and only the write is what previewOnly forbids.
+  const shouldEnrich = options.enrich ?? base !== null;
+  const gaResult = shouldEnrich
+    ? await fetchGaUsers(siteRow, periodStart, periodEnd)
+    : NO_ENRICHMENT;
+  const searchResult = shouldEnrich
+    ? await fetchSearch(siteRow, periodStart, periodEnd)
+    : // No-IO render path: nothing was attempted, so this is not an environment gap
+      // (`notConfigured` would wrongly tell the operator to go wire a secret).
+      {
+        ...NO_ENRICHMENT,
+        defaultQueryMissed: false,
+        propertyMissing: false,
+        notConfigured: false,
+      };
   const gaUsers = gaResult.value;
   const search = searchResult.value;
   const softFailures: SoftFailure[] = [

@@ -160,6 +160,64 @@ describe("draftReportForSite", () => {
     }
   });
 
+  // `base === null` used to mean BOTH "never write to Airtable" and "do no IO at all",
+  // so a preview could never contain an ANALYTICS section however good the credentials
+  // were. A CI job built to prove the GA secrets on top of `--preview` therefore failed
+  // 100% of the time and reported it as a credential outage (2026-08-12). These two cases
+  // pin the split: writing and enriching are now independent.
+  describe("preview enrichment (writes vs IO are separate concerns)", () => {
+    async function withTempPreview(fn: (previewPath: string) => Promise<void>) {
+      const { mkdtemp, rm } = await import("node:fs/promises");
+      const { tmpdir } = await import("node:os");
+      const { join } = await import("node:path");
+      const dir = await mkdtemp(join(tmpdir(), "draft-enrich-"));
+      try {
+        await fn(join(dir, "preview.html"));
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    }
+
+    it("previewOnly does NO enrichment by default — the fast no-IO render path", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchPeriodUsers).mockResolvedValue({ current: 666, previous: 540 });
+      await withTempPreview(async (previewPath) => {
+        const result = await draftReportForSite(
+          null,
+          siteFixture({ ga4PropertyId: "471880366" }),
+          "Maintenance",
+          { previewOnly: true, previewPath },
+        );
+        expect(fetchPeriodUsers).not.toHaveBeenCalled();
+        expect(result.reportRow).toBeNull();
+      });
+    });
+
+    it("previewOnly + enrich fetches GA and renders ANALYTICS, still writing nothing", async () => {
+      process.env.GA_SUBJECT = "tucker@reddoorla.com";
+      vi.mocked(fetchPeriodUsers).mockResolvedValue({ current: 666, previous: 540 });
+      vi.mocked(fetchSearchPresence).mockResolvedValue({
+        foundOnPage1: false,
+        position: null,
+        propertyFound: true,
+      });
+      await withTempPreview(async (previewPath) => {
+        const result = await draftReportForSite(
+          null,
+          siteFixture({ ga4PropertyId: "471880366" }),
+          "Maintenance",
+          { previewOnly: true, enrich: true, previewPath },
+        );
+        expect(vi.mocked(fetchPeriodUsers).mock.calls[0]![0].propertyId).toBe("471880366");
+        // The rendered HTML is what the CI credential proof greps for.
+        expect(result.html).toContain(">ANALYTICS<");
+        // Enriching must not have turned this into a writing path.
+        expect(result.reportRow).toBeNull();
+        expect(result.htmlPath).toBe(previewPath);
+      });
+    });
+  });
+
   it("derives periodStart as the day AFTER the latest prior report's periodEnd (half-open)", async () => {
     // The prior report already covered through its periodEnd inclusively, so this
     // report starts the next day. Without the +1 the boundary day (here 2026-04-26)
