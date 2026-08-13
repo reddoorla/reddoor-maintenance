@@ -2637,6 +2637,65 @@ describe("renderModelReport", () => {
       "the-pointe-burbank",
     );
   });
+
+  // TWO SOURCES OF TRUTH FOR ONE SAFETY-CRITICAL FACT. `remoteOnly` now exists on
+  // BOTH the `ModelDiff` (where this renderer reads it) and on `PushReport` as
+  // `remoteOnlyReported` — the field Task 10 added so that a consumer holding
+  // only the report can still tell "this checkout lost every slice" apart from
+  // "everything is in sync".
+  //
+  // Two sources for one fact is itself a defect shape: they can disagree, and
+  // the disagreement is silent. It means something upstream is broken — a diff
+  // computed against a different remote read than the push ran against, a report
+  // built from a stale diff, or a caller passing a mismatched pair. Any of those
+  // makes every other number in the report untrustworthy, because they were all
+  // derived from the same inputs.
+  //
+  // So the renderer RECONCILES rather than picking a winner. It has both; the
+  // check is nearly free; and a mismatch must be loud, because the quiet version
+  // is a report that looks authoritative and is not.
+  it("reconciles the diff's remoteOnly against the push report's, and says so loudly on a mismatch", () => {
+    const d = emptyDiff();
+    d.remoteOnly.push(remoteEntry("customtype", "frozen_page"));
+    const out = renderModelReport("espada", d, {
+      apply: true,
+      report: {
+        mode: "apply",
+        sent: [],
+        failed: [],
+        // Disagrees with the diff above: the diff saw one remote-only model,
+        // the push run recorded none.
+        remoteOnlyReported: [],
+      },
+    });
+    expect(out).toMatch(/INCONSISTENT/);
+    expect(out).toContain("frozen_page");
+  });
+
+  it("says nothing about reconciliation when the two agree", () => {
+    const d = emptyDiff();
+    d.remoteOnly.push(remoteEntry("customtype", "frozen_page"));
+    const out = renderModelReport("espada", d, {
+      apply: true,
+      report: {
+        mode: "apply",
+        sent: [],
+        failed: [],
+        remoteOnlyReported: [{ kind: "customtype", id: "frozen_page" }],
+      },
+    });
+    expect(out).not.toMatch(/INCONSISTENT/);
+    expect(out).toContain("REMOTE-ONLY");
+  });
+
+  // A dry run never builds a PushReport, so the reconciliation must be SKIPPED
+  // rather than treated as "the report said none". Absent and empty are
+  // different facts — the rule this whole plan is built around.
+  it("does not report an inconsistency when there is no push report at all", () => {
+    const d = emptyDiff();
+    d.remoteOnly.push(remoteEntry("customtype", "frozen_page"));
+    expect(renderModelReport("espada", d, { apply: false })).not.toMatch(/INCONSISTENT/);
+  });
 });
 ```
 
@@ -2658,7 +2717,49 @@ export function isClean(diff: ModelDiff): boolean {
   return diff.toCreate.length === 0 && diff.toUpdate.length === 0 && diff.remoteOnly.length === 0;
 }
 
-export type ReportOptions = { apply: boolean; failed?: PushReport["failed"] };
+/** `report` is the whole `PushReport` when a push actually ran, and ABSENT on a
+ *  dry run — absent and empty are different facts, so do not default it to an
+ *  empty report. `failed` remains for callers that have only the failure list. */
+export type ReportOptions = {
+  apply: boolean;
+  failed?: PushReport["failed"];
+  report?: PushReport;
+};
+
+/**
+ * Reconcile the two places `remoteOnly` now lives.
+ *
+ * `ModelDiff.remoteOnly` is what the comparison saw; `PushReport
+ * .remoteOnlyReported` is what the push run recorded. They are derived from the
+ * same inputs and must agree. When they do not, something upstream is broken —
+ * a diff computed against a different remote read than the push ran against, a
+ * report built from a stale diff, or a caller pairing a report with the wrong
+ * diff — and every other number in this report came from those same inputs, so
+ * none of them can be trusted either.
+ *
+ * Returns the lines to render, empty when they agree or when there is no report
+ * to reconcile against (a dry run never builds one).
+ */
+function reconcileRemoteOnly(diff: ModelDiff, report: PushReport | undefined): string[] {
+  if (report === undefined) return [];
+  const key = (e: { kind: string; id: string }) => `${e.kind}:${e.id}`;
+  const fromDiff = new Set(diff.remoteOnly.map(key));
+  const fromReport = new Set(report.remoteOnlyReported.map(key));
+  const only = (a: Set<string>, b: Set<string>) => [...a].filter((k) => !b.has(k)).sort();
+  const missingFromReport = only(fromDiff, fromReport);
+  const missingFromDiff = only(fromReport, fromDiff);
+  if (missingFromReport.length === 0 && missingFromDiff.length === 0) return [];
+  return [
+    "",
+    `⚠ INCONSISTENT — the comparison and the push run disagree about which models` +
+      ` exist only in Prismic. Treat every figure in this report as unreliable and` +
+      ` re-run; do not act on it.`,
+    ...missingFromReport.map(
+      (k) => `    seen by the comparison, absent from the push report: ${k}`,
+    ),
+    ...missingFromDiff.map((k) => `    in the push report, absent from the comparison: ${k}`),
+  ];
+}
 
 /** One site's model delta, plain text. Used verbatim as the PR comment body
  *  (inside a fenced block) and as CLI output — one renderer, so what CI shows a
@@ -2670,7 +2771,13 @@ export function renderModelReport(
 ): string {
   const lines: string[] = [`Prismic models — repository: ${repositoryName}`];
 
-  if (isClean(diff)) {
+  // Reconcile FIRST, and render it even on an otherwise-clean diff. A mismatch
+  // means the inputs disagree, so "clean" is exactly the verdict that must not
+  // be printed unqualified — a report that says "nothing to push" while its own
+  // two sources disagree is the most dangerous output this renderer can produce.
+  const inconsistency = reconcileRemoteOnly(diff, opts.report);
+
+  if (isClean(diff) && inconsistency.length === 0) {
     lines.push(`${diff.unchanged.length} model(s) match Prismic — nothing to push.`);
     return lines.join("\n");
   }
@@ -2691,13 +2798,16 @@ export function renderModelReport(
     );
     for (const entry of diff.remoteOnly) lines.push(`    ${entry.kind} ${entry.id}`);
   }
-  for (const f of opts.failed ?? []) lines.push(`FAILED  ${f.kind} ${f.id}: ${f.error}`);
+  for (const f of opts.failed ?? opts.report?.failed ?? [])
+    lines.push(`FAILED  ${f.kind} ${f.id}: ${f.error}`);
+
+  lines.push(...inconsistency);
 
   lines.push("");
   const n = diff.toCreate.length + diff.toUpdate.length;
   lines.push(
     opts.apply
-      ? `${n - (opts.failed?.length ?? 0)}/${n} model(s) pushed. ${diff.unchanged.length} already matched.`
+      ? `${n - (opts.failed ?? opts.report?.failed ?? []).length}/${n} model(s) pushed. ${diff.unchanged.length} already matched.`
       : `DRY RUN — nothing was sent. ${n} model(s) would be pushed; ${diff.unchanged.length} already match.`,
   );
   return lines.join("\n");
@@ -2706,8 +2816,8 @@ export function renderModelReport(
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm vitest run tests/cli/prismic-models-report.test.ts`
-Expected: PASS — 12 tests
+Run: `pnpm vitest run tests/cli/prismic-models-report.test.ts && pnpm typecheck`
+Expected: PASS — 15 tests, typecheck clean
 
 - [ ] **Step 5: Commit**
 
