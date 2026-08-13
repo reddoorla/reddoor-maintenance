@@ -131,8 +131,10 @@ Expected: FAIL — `Failed to resolve import "../../../src/prismic/models/canon.
 // Prismic. Prismic hands its copy back through its own serializer, so it differs
 // from the file on disk in ways that mean NOTHING: key order, an explicit
 // `"select": null` added to Link fields, `imageUrl` (the slice preview
-// screenshot, which lives in Prismic and is `""` in every file on disk), and —
-// the one beachfront's original did not handle — EMPTY STRINGS.
+// screenshot — Prismic owns it, so whatever the file on disk holds is
+// meaningless for comparison: usually `""`, but nine RichText models across the
+// fleet carry a stale `https://…`), and — the one beachfront's original did not
+// handle — EMPTY STRINGS.
 //
 // The empty-string rule is load-bearing, not cosmetic. Slice Machine writes
 // image thumbnails to disk as {"name":"desktop","width":1200,"height":""}.
@@ -573,8 +575,9 @@ const local: PrismicModel = {
 };
 
 describe("withRemoteScreenshots", () => {
-  // A push REPLACES the model. Sending the local imageUrl:"" would blank every
-  // slice preview in the editor UI as a side effect of adding one field.
+  // A push REPLACES the model. Sending the local imageUrl — `""` on most models,
+  // a stale URL on the nine RichText ones — would blank or rot every slice
+  // preview in the editor UI as a side effect of adding one field.
   it("carries the remote imageUrl onto the model being sent", () => {
     const remote: PrismicModel = {
       id: "hero",
@@ -630,10 +633,15 @@ import type { PrismicModel } from "./types.js";
 
 /** The model to SEND: local semantics, remote screenshots.
  *
- *  A push REPLACES the model, and every `imageUrl` on disk is `""` (the preview
- *  screenshot lives only in Prismic). Sending the local value would blank every
- *  slice preview in the editor UI as a side effect of adding one field. Custom
- *  types have no variations and are returned untouched. Never mutates `local`. */
+ *  A push REPLACES the model, and Prismic owns the preview screenshot, so the
+ *  local `imageUrl` is never the value to send: it is `""` on most models and a
+ *  STALE url on the nine RichText ones. Sending it would blank or rot the slice
+ *  preview in the editor UI as a side effect of adding one field. Custom types
+ *  have no variations and are returned untouched. Never mutates `local`.
+ *
+ *  Note the asymmetry with `canon`, which drops `imageUrl` entirely: comparison
+ *  must ignore it, but a PUSH still has to carry a real value, and the only
+ *  trustworthy one is the remote's. */
 export function withRemoteScreenshots(
   local: PrismicModel,
   remote: PrismicModel | undefined,
