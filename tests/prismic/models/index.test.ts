@@ -128,32 +128,47 @@ describe("prismic/models public surface", () => {
  *
  * ── PROVEN BY MUTATION ──────────────────────────────────────────────────────
  *
- * 2026-08-13, one attack at a time, each applied to a file in the module and
- * reverted, with `git diff --stat` confirming the file really changed and the
- * run gated on the exit code, the named failing test, and the presence of a test
- * summary (a previous harness in this project reported "17 of 17 caught" while
- * vitest was exiting before it ran a single test). 21 attacks, 21 caught:
- * `const { rm } = await import("node:fs/promises")`; `rm` added to the static
- * import; `import * as fs from "node:fs"` + `fs.rm(…)`; `const fs = await
- * import("node:fs/promises")` + `fs.rm(…)`; a `createRequire` route; a bare
- * side-effect `import "node:child_process"`; `import cp = require(…)`;
- * `export * from "node:fs/promises"` in index.ts; a specifier built by
- * concatenation; a specifier read from a variable; `new Function(…)`;
- * `new (Function.constructor as never)(…)`; `(0, eval)("…")`; `globalThis.fetch`;
- * `globalThis["fe" + "tch"]`; `process.binding("fs")`; `(await import(…)).rm`;
- * `import(…).then(({ rm }) => …)`; `const { ["r" + "m"]: del } = await import(…)`;
- * `const { mkdir: _m, ...rest } = await import(…)`; `spawn("rm", ["-rf", …])`;
- * `method: "DELETE"`; `method: action === "delete" ? "DELETE" : "POST"` (failure
- * 1's exact shape); `export { deleteModel } from "./remote.js"`; a whole new
- * file `models/cleanup.ts` importing `rm`; the same as `models/cleanup.mjs`; and
- * the same one directory down at `models/util/nuke.ts`.
+ * 2026-08-13. 31 attacks, 31 caught; 4 controls, 4 green.
+ *
+ * A MUTATION HARNESS CAN LIE, AND IT LIES TOWARD SUCCESS: the "17 of 17 caught"
+ * report in this project was worthless because `--reporter=basic` does not exist
+ * in vitest 4, so vitest exited before running anything and "the test failed"
+ * and "the test never ran" produced the same observation. So each run here was
+ * gated on FIVE things: `git diff --stat` (or `git status` for a created file)
+ * proving the mutation reached disk; the process EXIT CODE; a `Tests …` summary
+ * line existing at all; that summary reporting the expected total of tests
+ * actually RUN; and the SPECIFIC NAMED test appearing in the FAIL list. Three
+ * meta-controls confirmed the harness could still say no: a no-op comment edit
+ * declared as an attack was reported ESCAPED, a mutation that changed nothing
+ * was reported INVALID, and a real attack declared against the wrong test name
+ * was reported ESCAPED rather than counted.
+ *
+ * The attacks: `const { rm } = await import("node:fs/promises")` (failure 4's
+ * exact shape); `rm` added to the static import; `import * as fs from "node:fs"`
+ * + `fs.promises.rm(…)`; `const fsp = await import("node:fs/promises")` +
+ * `fsp.rm(…)`, in diff.ts; a `createRequire` route; a bare side-effect
+ * `import "node:child_process"`; `import cp = require(…)`; `export * from
+ * "node:fs/promises"` in index.ts; a specifier built by concatenation; a
+ * specifier read from a variable; `new Function(…)`; `new (Function.constructor
+ * as never)(…)`; `(0, eval)("…")`; `globalThis.fetch`; `globalThis["fe"+"tch"]`;
+ * `process.binding("fs")`; `(await import(…)).rm`; `import(…).then(({ rm }) =>
+ * …)`; `const { ["r" + "m"]: del } = await import(…)`; `const { mkdir: _m,
+ * ...rest } = await import(…)`; `spawn("rm", ["-rf", …])`; a DELETE request in
+ * remote.ts; `method: action === "delete" ? "DELETE" : "POST"` (failure 1's
+ * exact shape); a delete-shaped name added to the public surface; `export * as
+ * remote from "./remote.js"`; a whole new file `models/cleanup.ts` importing
+ * `rm`; the same as `models/cleanup.mjs`; the same one directory down at
+ * `models/util/nuke.ts`; a new file that acquires NOTHING (still undeclared,
+ * still fails); and `readFile` taken by `push.ts` and by `diff.ts` — permitted
+ * for the module, refused for the pure core, which is the property the retired
+ * push.ts guard used to hold.
  *
  * Four CONTROLS must stay GREEN and do: an extra import of an already-allowed
  * BINDING (`dirname` into local.ts), an ordinary local-variable rename in
  * push.ts, a comment-only edit that writes `DELETE /customtypes/{id}` into a
- * file other than remote.ts, and an added type-only import. A guard that fires
- * on honest edits gets deleted by the next person in a hurry, and then there is
- * no guard at all.
+ * file other than remote.ts, and an added type-only import between two core
+ * files. A guard that fires on honest edits gets deleted by the next person in
+ * a hurry, and then there is no guard at all.
  *
  * NOTE ON THE `typescript` IMPORT. It is already a devDependency used by
  * `pnpm typecheck`. This is the one test in the repo that imports it, and that
@@ -170,29 +185,59 @@ describe("the module-wide capability guard", () => {
    *  extension to this list deliberately, and say why. */
   const PARSEABLE = [".ts"];
 
-  /** Every module the whole directory may name, by any mechanism. Keep this
-   *  minimal: a specifier here is a channel that exists. */
-  const ALLOWED_SPECIFIERS = [
-    "../../audits/util/spawn.js", // type-only: SpawnFn
-    "../../recipes/_prettier.js", // formatWithPrettier — the target repo's own prettier
-    "./canon.js",
-    "./config.js",
-    "./diff.js",
-    "./local.js",
-    "./push.js",
-    "./remote.js",
-    "./token.js",
-    "./types.js",
-    "./write.js",
-    "node:fs/promises",
-    "node:path",
+  /** Every file this guard expects to find, asserted EXACTLY. A new file in this
+   *  directory is a new place for a capability to live, so it arrives with a
+   *  line here and the review that implies — including one nested a directory
+   *  down, which the collector below reaches. */
+  const MODULE_FILES = [
+    // the pure comparison core
+    "canon.ts",
+    "diff.ts",
+    "push.ts",
+    "token.ts",
+    "types.ts",
+    // the public surface
+    "index.ts",
+    // the adapters — the only files that touch the world
+    "config.ts",
+    "local.ts",
+    "remote.ts",
+    "write.ts",
   ];
 
   /**
-   * THE CAPABILITY ALLOW-LIST: what each of those modules may hand this
-   * directory. This is the assertion failure 4 proves cannot be skipped — the
-   * specifier list alone can never say "may write, may not delete", because the
-   * module genuinely needs `node:fs/promises`.
+   * THE PURE CORE IS CLOSED: these files may name ONLY each other. Not
+   * `node:fs/promises`, not `node:path`, nothing outside this list — which is to
+   * say they acquire no capability at all, not even a permitted one.
+   *
+   * This is the assertion retired from `push.test.ts` when that guard was folded
+   * in here, and it is NOT redundant with the module-wide lists below. Those
+   * lists are a UNION over the directory — `node:fs/promises` is on them because
+   * `write.ts` genuinely needs it — so without this, `push.ts` could take
+   * `writeFile` and pass every one of them. `pushModels` receives `send` as an
+   * INJECTED dependency, so it needs no IO of its own AT ALL, and that is a
+   * property worth keeping rather than a coincidence of today's imports.
+   *
+   * `diff.ts` is in here for the reason failure 3 exists: `push.ts` may name
+   * `./diff.js`, so IO added inside `diff.ts` and reached through
+   * `withRemoteScreenshots` would look clean from `push.ts`. A closed core
+   * removes that hop by construction rather than by a second guard.
+   *
+   * Stated as closure rather than as a per-file list on purpose: a per-file list
+   * is a place to quietly add one more specifier, and "the core names only the
+   * core" is a sentence a reviewer can check against the table above in one
+   * pass. It also stays green for the honest edit — one core file taking a type
+   * from another — which is how a guard survives contact with a hurry.
+   */
+  const PURE_CORE = ["canon.ts", "diff.ts", "push.ts", "token.ts", "types.ts"];
+
+  /**
+   * THE CAPABILITY ALLOW-LIST: every module this directory may name, and what
+   * each of them may HAND IT. One table, not two — the module list is derived
+   * from these keys below, so a specifier can never be permitted in one place
+   * and forgotten in the other. This is the assertion failure 4 proves cannot be
+   * skipped: the specifier half alone can never say "may write, may not delete",
+   * because the module genuinely needs `node:fs/promises`.
    *
    * A specifier with an EMPTY list may be named but must yield nothing at
    * runtime — it is imported type-only, and types are erased.
@@ -205,6 +250,15 @@ describe("the module-wide capability guard", () => {
     // the one verb here that can move bytes out from under a name, and it earns
     // its place: it is what makes the same-id refresh atomic, and it is only
     // ever called with a temp file this module just created as its source.
+    //
+    // This list is the UNION over the three adapters that read and write files
+    // (config, local, write), and the union is deliberate: it means an adapter
+    // taking a read verb another adapter already has is an ordinary edit rather
+    // than a guard failure, which is what keeps this test from being deleted by
+    // someone in a hurry. It costs the per-file precision of the retired
+    // `write.ts` guard (write.ts could add `readdir` unnoticed) and buys nothing
+    // back for delete, because no removing verb is on it at all. The files that
+    // must acquire NOTHING are pinned separately, and exactly, in PURE_CORE.
     "node:fs/promises": [
       "lstat",
       "mkdir",
@@ -230,6 +284,10 @@ describe("the module-wide capability guard", () => {
     "../../audits/util/spawn.js": [], // type-only, erased at runtime
     "../../recipes/_prettier.js": ["formatWithPrettier"],
   };
+
+  /** Derived, never maintained by hand: a channel exists exactly when the table
+   *  above says what may come through it. */
+  const ALLOWED_SPECIFIERS = Object.keys(ALLOWED_BINDINGS);
 
   /**
    * Ambient names any file here may reference. Requirement (d): this is stated
@@ -342,7 +400,8 @@ describe("the module-wide capability guard", () => {
   const isModuleGetter = (n: ts.CallExpression): boolean => {
     const callee = unwrap(n.expression);
     if (callee.kind === ts.SyntaxKind.ImportKeyword) return true;
-    if (ts.isIdentifier(callee)) return callee.text === "require" || callee.text === "createRequire";
+    if (ts.isIdentifier(callee))
+      return callee.text === "require" || callee.text === "createRequire";
     // process.getBuiltinModule("node:fs") and the legacy process.binding("fs").
     if (ts.isPropertyAccessExpression(callee))
       return callee.name.text === "getBuiltinModule" || callee.name.text === "binding";
@@ -380,7 +439,8 @@ describe("the module-wide capability guard", () => {
       walk(sf);
     };
 
-    const addSpan = (n: ts.Node): void => out.spans.push({ start: n.getStart(sf), end: n.getEnd() });
+    const addSpan = (n: ts.Node): void =>
+      void out.spans.push({ start: n.getStart(sf), end: n.getEnd() });
     const bind = (specifier: string, binding: string): void =>
       void out.bindings.push({ specifier, binding });
 
@@ -437,7 +497,8 @@ describe("the module-wide capability guard", () => {
         if (clause !== undefined && !clause.isTypeOnly) {
           // A default import of a CJS builtin (`import fs from "node:fs"`) and a
           // namespace import both hand over the whole module under one name.
-          if (clause.name) namespaces.set(clause.name.text, { specifier, decl: clause.name, uses: 0 });
+          if (clause.name)
+            namespaces.set(clause.name.text, { specifier, decl: clause.name, uses: 0 });
           const bound = clause.namedBindings;
           if (bound && ts.isNamespaceImport(bound))
             namespaces.set(bound.name.text, { specifier, decl: bound.name, uses: 0 });
@@ -481,7 +542,9 @@ describe("the module-wide capability guard", () => {
         // `typeof import("x")` / `import("x").Foo` — type space, erased.
         addSpan(n);
         out.specifiers.push(
-          ts.isLiteralTypeNode(n.argument) ? literalSpecifier(n.argument.literal) : UNRESOLVED_SPECIFIER,
+          ts.isLiteralTypeNode(n.argument)
+            ? literalSpecifier(n.argument.literal)
+            : UNRESOLVED_SPECIFIER,
         );
         return;
       }
@@ -538,11 +601,7 @@ describe("the module-wide capability guard", () => {
       // `fs.rm(…)` resolves to `rm`. `fs["r" + "m"]`, `fs` handed to a function,
       // `{ ...fs }` — none of those do.
       if (ts.isPropertyAccessExpression(p) && p.expression === n) bind(ns.specifier, p.name.text);
-      else
-        bind(
-          ns.specifier,
-          `<an unresolvable use of the module object bound to "${n.text}">`,
-        );
+      else bind(ns.specifier, `<an unresolvable use of the module object bound to "${n.text}">`);
     });
     for (const [name, ns] of namespaces)
       if (ns.uses === 0)
@@ -580,7 +639,8 @@ describe("the module-wide capability guard", () => {
         for (const el of name.elements) if (ts.isBindingElement(el)) declare(el.name);
     };
     each((n) => {
-      if (ts.isVariableDeclaration(n) || ts.isParameter(n) || ts.isBindingElement(n)) declare(n.name);
+      if (ts.isVariableDeclaration(n) || ts.isParameter(n) || ts.isBindingElement(n))
+        declare(n.name);
       else if (
         ts.isFunctionDeclaration(n) ||
         ts.isClassDeclaration(n) ||
@@ -596,7 +656,8 @@ describe("the module-wide capability guard", () => {
         declare(n.name);
         const bound = n.namedBindings;
         if (bound && ts.isNamespaceImport(bound)) declared.add(bound.name.text);
-        if (bound && ts.isNamedImports(bound)) for (const el of bound.elements) declared.add(el.name.text);
+        if (bound && ts.isNamedImports(bound))
+          for (const el of bound.elements) declared.add(el.name.text);
       } else if (ts.isImportEqualsDeclaration(n)) declare(n.name);
     });
 
@@ -637,6 +698,9 @@ describe("the module-wide capability guard", () => {
     // Every file in the directory is one this guard PARSED. A capability added
     // in `models/cleanup.mjs` must not be a capability nobody looked at.
     expect(unparseable).toEqual([]);
+    // …and every file it parsed is one somebody declared. `models/cleanup.ts`
+    // and `models/util/nuke.ts` both fail here before any allow-list runs.
+    expect(files.map((f) => f.name).sort()).toEqual([...MODULE_FILES].sort());
     expect(files.length).toBeGreaterThan(0);
     expect(extracted.flatMap((e) => e.specifiers).length).toBeGreaterThan(0);
     expect(extracted.flatMap((e) => e.bindings).length).toBeGreaterThan(0);
@@ -650,6 +714,31 @@ describe("the module-wide capability guard", () => {
     const offending = extracted.flatMap((e) =>
       e.specifiers.filter((s) => !ALLOWED_SPECIFIERS.includes(s)).map((s) => `${e.file}: ${s}`),
     );
+    expect([...new Set(offending)].sort()).toEqual([]);
+  });
+
+  // The property retired from push.test.ts, kept because the module-wide lists
+  // are a union and a union cannot express it. See PURE_CORE above.
+  it("keeps the comparison core pure — it names nothing outside itself", () => {
+    // A rename would otherwise turn this rule into a rule about nothing.
+    expect(PURE_CORE.filter((f) => !files.some((seen) => seen.name === f))).toEqual([]);
+    /** `"./canon.js"` -> `"canon.ts"`. Anything that is not a sibling `.js`
+     *  specifier — a bare package, a `node:` builtin, a parent directory, an
+     *  unresolvable sentinel — resolves to nothing and fails. */
+    const sibling = (specifier: string): string | null => {
+      const m = /^\.\/([^/]+)\.js$/.exec(specifier);
+      return m?.[1] === undefined ? null : `${m[1]}.ts`;
+    };
+    const offending = extracted
+      .filter((e) => PURE_CORE.includes(e.file))
+      .flatMap((e) =>
+        e.specifiers
+          .filter((s) => {
+            const target = sibling(s);
+            return target === null || !PURE_CORE.includes(target);
+          })
+          .map((s) => `${e.file}: ${s}`),
+      );
     expect([...new Set(offending)].sort()).toEqual([]);
   });
 

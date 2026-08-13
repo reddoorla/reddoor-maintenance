@@ -1,5 +1,4 @@
 // tests/prismic/models/write.test.ts
-import { readFileSync } from "node:fs";
 import {
   chmod,
   lstat,
@@ -15,7 +14,6 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import ts from "typescript";
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
 import { writeModelFile, modelFilePath } from "../../../src/prismic/models/write.js";
 import { defaultSpawn, type SpawnFn } from "../../../src/audits/util/spawn.js";
@@ -628,259 +626,22 @@ describe("writeModelFile against a real prettier", () => {
   }, 30_000);
 });
 
-/**
- * An ALLOW-LIST of filesystem CAPABILITIES.
- *
- * This guard has now failed four times in this project, each time to a shape
- * nobody enumerated, and the fourth failure is the one that names the rule: an
- * allow-listed SPECIFIER is not an allow-listed CAPABILITY. `node:fs/promises`
- * has to stay permitted — this module legitimately needs `mkdir`, `readFile`,
- * `realpath`, `rename` and `writeFile` — so a specifier list waves through
- *
- *     const { rm } = await import("node:fs/promises");
- *
- * twice over: the import walk only inspects `ts.isImportDeclaration`, so it
- * never sees `rm`, and the specifier walk records `"node:fs/promises"`, which is
- * already on the list and deduped away. A working recursive delete then sits
- * inside the module that exists BECAUSE remote-only models may never be deleted.
- *
- * So the list below is over the bindings actually obtained, by every mechanism —
- * static import, namespace member access, dynamic-import destructuring,
- * awaited-import assignment, aliasing — and anything this cannot statically
- * resolve is recorded as a `<…>` sentinel that no allow-list can contain. It
- * fails closed twice: on the sentinel, and on the assertion that it examined a
- * non-zero number of bindings at all.
- *
- * Verified 2026-08-13 by mutation, one at a time, each applied to write.ts and
- * reverted, with `git diff --stat` confirming the file really changed before any
- * verdict was believed. Thirteen redden this guard: the exact `const { rm } =
- * await import("node:fs/promises")` snippet above; `rm` added to the static
- * import; `import * as fs` + `fs.rm(…)`; `const fs = await import("node:fs")` +
- * `fs.promises.rm(…)`; `(0, eval)("…")`; `(await import(…)).rm`;
- * `import(…).then(({ rm }) => …)`; a specifier built by concatenation;
- * `const { ["r"+"m"]: del } = await import(…)`; `const { mkdir: _m, ...rest }`;
- * `spawn("rm", ["-rf", …])`; a `createRequire` route; and
- * `new (Function.constructor as never)(…)`. Two controls must stay GREEN and do:
- * a comment-only edit, and `readFile as reread` — an alias of a verb already on
- * the list, which grants nothing new.
- *
- * The last of those thirteen ESCAPED on the first run: `unwrap` did not step
- * through the `as never` an evasion needs in order to pass `pnpm typecheck`, so
- * `Function.constructor` read as an unrecognised callee. That is the whole
- * pattern of this guard's four failures in miniature — the shape nobody listed.
- *
- * What it still cannot see, stated rather than implied: a capability handed in
- * as a PARAMETER. `spawn` is exactly that, which is why a direct `spawn(…)` call
- * is recorded as a sentinel above; a future signature that took `{ rm }` in a
- * deps object would be invisible here, and only the module-wide guard planned
- * for Task 12 can address that class.
- */
-describe("write.ts channels", () => {
-  const source = readFileSync(
-    new URL("../../../src/prismic/models/write.ts", import.meta.url),
-    "utf-8",
-  );
-  const sf = ts.createSourceFile(
-    "write.ts",
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS,
-  );
-
-  /** `fs`, `node:fs`, `fs/promises`, `node:fs/promises` — all four spellings
-   *  reach the same verbs. */
-  const isFsModule = (spec: string): boolean => /^(node:)?fs(\/promises)?$/.test(spec);
-
-  /** Every filesystem verb this module can name, plus `<…>` sentinels for any
-   *  route to one that cannot be resolved by reading the source. */
-  const capabilities: string[] = [];
-  /** Every module named, by any mechanism. */
-  const specifiers: string[] = [];
-  /** Identifier text -> the declaring node, for names that stand for a whole fs
-   *  module object. Their uses are resolved in a second pass. */
-  const fsNamespaces = new Map<string, ts.Node>();
-  const namespaceUses = new Map<string, number>();
-
-  /**
-   * Strip everything that changes only how an expression READS, never what it
-   * IS: parentheses, a comma sequence's discarded left half, and the type
-   * assertions (`as never`, `satisfies`, `!`, `<T>`) that a mutation needs in
-   * order to get past `pnpm typecheck` in the first place. `(0, eval)` and
-   * `(Function.constructor as never)` both reduce to what they really are.
-   *
-   * Found by mutation: without the assertion cases, `new (Function.constructor
-   * as never)("…")` walked straight through this guard.
-   */
-  const unwrap = (n: ts.Expression): ts.Expression => {
-    let cur = n;
-    for (;;) {
-      if (ts.isParenthesizedExpression(cur)) cur = cur.expression;
-      else if (ts.isAsExpression(cur) || ts.isSatisfiesExpression(cur)) cur = cur.expression;
-      else if (ts.isNonNullExpression(cur) || ts.isTypeAssertionExpression(cur))
-        cur = cur.expression;
-      else if (ts.isBinaryExpression(cur) && cur.operatorToken.kind === ts.SyntaxKind.CommaToken)
-        cur = cur.right;
-      else return cur;
-    }
-  };
-
-  /** True for any call that hands back a module object. */
-  const isModuleGetter = (n: ts.CallExpression): boolean => {
-    const callee = unwrap(n.expression);
-    if (callee.kind === ts.SyntaxKind.ImportKeyword) return true;
-    if (ts.isIdentifier(callee))
-      return callee.text === "require" || callee.text === "createRequire";
-    // process.getBuiltinModule("node:fs") and the legacy process.binding("fs").
-    if (ts.isPropertyAccessExpression(callee))
-      return callee.name.text === "getBuiltinModule" || callee.name.text === "binding";
-    return false;
-  };
-
-  const specifierOf = (n: ts.CallExpression): string => {
-    const arg = n.arguments[0];
-    return arg !== undefined && ts.isStringLiteralLike(arg) ? arg.text : "<computed>";
-  };
-
-  /** What a dynamically obtained fs module object is bound TO. */
-  const recordDynamicBinding = (call: ts.CallExpression): void => {
-    // `await import(…)` — step over the await to reach the real consumer.
-    const value: ts.Node = ts.isAwaitExpression(call.parent) ? call.parent : call;
-    const parent = value.parent;
-    if (ts.isVariableDeclaration(parent) && parent.initializer === value) {
-      const name = parent.name;
-      if (ts.isIdentifier(name)) {
-        fsNamespaces.set(name.text, name);
-        return;
-      }
-      if (ts.isObjectBindingPattern(name)) {
-        for (const el of name.elements) {
-          if (el.dotDotDotToken !== undefined) {
-            capabilities.push("<rest element over an fs module>");
-            continue;
-          }
-          const key = el.propertyName ?? el.name;
-          capabilities.push(ts.isIdentifier(key) ? key.text : "<computed fs destructuring>");
-        }
-        return;
-      }
-    }
-    // `.then(({ rm }) => …)`, passed as an argument, assigned to a property,
-    // returned — all real ways to get the module somewhere this cannot follow.
-    capabilities.push("<fs module obtained in an unresolvable shape>");
-  };
-
-  const walk = (n: ts.Node): void => {
-    if (ts.isImportDeclaration(n) && ts.isStringLiteralLike(n.moduleSpecifier)) {
-      const spec = n.moduleSpecifier.text;
-      specifiers.push(spec);
-      const clause = n.importClause;
-      if (isFsModule(spec) && clause !== undefined && !clause.isTypeOnly) {
-        // A default or namespace import hands over every verb under one name,
-        // so the name is registered and its USES are what get enumerated.
-        if (clause.name) fsNamespaces.set(clause.name.text, clause.name);
-        const bound = clause.namedBindings;
-        if (bound && ts.isNamespaceImport(bound)) fsNamespaces.set(bound.name.text, bound.name);
-        if (bound && ts.isNamedImports(bound)) {
-          for (const el of bound.elements) {
-            // `import { rm as keep }` records `rm`: the capability, not the alias.
-            if (!el.isTypeOnly) capabilities.push((el.propertyName ?? el.name).text);
-          }
-        }
-      }
-    }
-    if (
-      ts.isExportDeclaration(n) &&
-      n.moduleSpecifier &&
-      ts.isStringLiteralLike(n.moduleSpecifier)
-    ) {
-      specifiers.push(n.moduleSpecifier.text);
-      // `export * from "node:fs/promises"` re-exports every verb.
-      if (isFsModule(n.moduleSpecifier.text) && n.exportClause === undefined)
-        capabilities.push("<export * from an fs module>");
-    }
-    if (ts.isCallExpression(n)) {
-      if (isModuleGetter(n)) {
-        const spec = specifierOf(n);
-        specifiers.push(spec);
-        if (isFsModule(spec) || spec === "<computed>") recordDynamicBinding(n);
-      }
-      const callee = unwrap(n.expression);
-      // Code this cannot read is code this cannot bound.
-      if (ts.isIdentifier(callee) && callee.text === "eval") capabilities.push("<eval>");
-      // The loudest hole this guard does NOT close on its own: `spawn` is handed
-      // in as a parameter, and `spawn("rm", …)` reaches every verb on the list
-      // without naming a module. This module never calls it directly — it passes
-      // it to `formatWithPrettier` — so requiring that stays honest and makes any
-      // future direct use a conversation rather than a silent capability.
-      if (ts.isIdentifier(callee) && callee.text === "spawn")
-        capabilities.push("<direct spawn(…) call>");
-    }
-    if (ts.isNewExpression(n)) {
-      const callee = unwrap(n.expression);
-      if (ts.isIdentifier(callee) && callee.text === "Function")
-        capabilities.push("<new Function>");
-      // `new (Function.constructor)("…")` is the same capability spelled around
-      // the identifier check above.
-      if (ts.isPropertyAccessExpression(callee) && callee.name.text === "constructor")
-        capabilities.push("<new …constructor>");
-    }
-    ts.forEachChild(n, walk);
-  };
-  walk(sf);
-
-  /** Second pass: every USE of a name that stands for a whole fs module. */
-  const resolveNamespaceUses = (n: ts.Node): void => {
-    if (ts.isIdentifier(n) && fsNamespaces.has(n.text) && fsNamespaces.get(n.text) !== n) {
-      namespaceUses.set(n.text, (namespaceUses.get(n.text) ?? 0) + 1);
-      const p = n.parent;
-      // `fs.rm(…)` resolves to `rm`. `fs["r" + "m"]`, `fs` handed to a function,
-      // `{ ...fs }` — none of those do.
-      if (ts.isPropertyAccessExpression(p) && p.expression === n) capabilities.push(p.name.text);
-      else capabilities.push(`<unresolvable use of the fs module bound to "${n.text}">`);
-    }
-    ts.forEachChild(n, resolveNamespaceUses);
-  };
-  resolveNamespaceUses(sf);
-
-  for (const [name] of fsNamespaces) {
-    if ((namespaceUses.get(name) ?? 0) === 0)
-      capabilities.push(`<fs module bound to "${name}" with no resolvable use>`);
-  }
-
-  // FAIL CLOSED. A walk that silently stopped matching — a TypeScript upgrade
-  // renaming a node predicate, a refactor moving the imports — would otherwise
-  // report an empty set, and an empty set trivially satisfies any allow-list
-  // written as "nothing unexpected".
-  it("actually examined this module's filesystem bindings", () => {
-    expect(capabilities.length).toBeGreaterThan(0);
-    expect(specifiers.length).toBeGreaterThan(0);
-  });
-
-  it("obtains exactly five filesystem verbs — none of which can delete a file", () => {
-    // `rename` is the one verb here that can move bytes out from under a name,
-    // and it earns its place: it is what makes the same-id refresh atomic. It is
-    // only ever called with a temp file this module just created as its source
-    // and the model path it already proved as its destination. A verb that
-    // removes a path outright — rm, unlink, rmdir — is what this list refuses,
-    // because a pull-down is the SAFE answer to a remote-only model and the
-    // module answering it must not grow the ability the design forbids.
-    expect([...new Set(capabilities)].sort()).toEqual([
-      "mkdir",
-      "readFile",
-      "realpath",
-      "rename",
-      "writeFile",
-    ]);
-  });
-
-  it("names only the modules on its allow-list, by any mechanism", () => {
-    expect([...new Set(specifiers)].sort()).toEqual([
-      "../../audits/util/spawn.js",
-      "../../recipes/_prettier.js",
-      "./types.js",
-      "node:fs/promises",
-      "node:path",
-    ]);
-  });
-});
+// THE SOURCE-LEVEL GUARD FOR THIS FILE LIVES IN index.test.ts.
+//
+// It used to live here, as an allow-list of the filesystem CAPABILITIES this
+// file obtains — the bindings, not the specifiers, because `node:fs/promises`
+// has to stay permitted and so a specifier list can never say "may write, may
+// not delete". That allow-list is now in `tests/prismic/models/index.test.ts`,
+// run over EVERY file in `src/prismic/models/`, and this copy is deleted rather
+// than kept in sync: the second guard is always the one that stops being
+// updated.
+//
+// Two things moved and one changed. The bindings walk and the `spawn("rm", …)`
+// sentinel moved verbatim. The fs verb list is now the UNION over the three
+// adapters that touch files (config, local, write) rather than write.ts's own
+// five, which means this file could take a READ verb the other two already have
+// without the guard firing. Nothing that removes a path is on the union either,
+// so the no-delete property is unchanged; what is traded away is per-file
+// least privilege, deliberately, so that an ordinary edit does not redden a test
+// that must stay credible. See the header of index.test.ts for the full history
+// and for the limit this guard does NOT close.
