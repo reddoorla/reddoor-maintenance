@@ -1721,6 +1721,22 @@ describe("pushModels", () => {
     const report = await pushModels(diff, { apply: true, send });
     expect(report.sent).toEqual([]);
   });
+
+  // A cross-function invariant that otherwise lives only in someone's head.
+  // `withRemoteScreenshots` ALTERS 179/179 real slice models that `diffModels`
+  // classifies as `unchanged` — an imageUrl-only difference is exactly what
+  // `canon` ignores and exactly what that function rewrites. That is harmless
+  // ONLY because `unchanged` is never pushed. If a future refactor ever routed
+  // `unchanged` through the send path, every slice in the fleet would be
+  // rewritten on every run for no reason. Pin it.
+  it("never sends an unchanged model", async () => {
+    const send = vi.fn();
+    const diff = emptyDiff();
+    diff.unchanged.push(localEntry("slice", "hero"), localEntry("customtype", "page"));
+    const report = await pushModels(diff, { apply: true, send });
+    expect(send).not.toHaveBeenCalled();
+    expect(report.sent).toEqual([]);
+  });
 });
 ```
 
