@@ -348,6 +348,17 @@ describe("the module-wide capability guard", () => {
    *  spelling that reaches Prismic. */
   const VERB = /^(?:GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS)$/i;
 
+  /**
+   * The verbs on the fs allow-list that CHANGE something, split from the ones
+   * that only look. Every one of them is granted, and the F4 pin below is about
+   * what they are granted to do WITH.
+   *
+   * The split is asserted against the allow-list itself, so adding a verb there
+   * forces classifying it here rather than quietly landing in neither list.
+   */
+  const FS_READING_VERBS = ["lstat", "readFile", "readdir", "realpath", "stat"];
+  const MUTATING_VERBS = ["mkdir", "rename", "writeFile"];
+
   type Binding = { specifier: string; binding: string };
   type Extract = {
     file: string;
@@ -365,6 +376,11 @@ describe("the module-wide capability guard", () => {
     identifierCount: number;
     verbs: string[];
     methodValues: string[];
+    /** Every call to a verb that CHANGES the filesystem, rendered argument by
+     *  argument. See the pin below for why the arguments and not just the verb. */
+    mutations: string[];
+    /** The initializer of every variable named `tmp`, as written. */
+    tmpInitializers: string[];
     directSpawnCalls: number;
   };
 
@@ -438,6 +454,8 @@ describe("the module-wide capability guard", () => {
       identifierCount: 0,
       verbs: [],
       methodValues: [],
+      mutations: [],
+      tmpInitializers: [],
       directSpawnCalls: 0,
     };
     /** Names that stand for a WHOLE module object — namespace import, default
@@ -502,6 +520,32 @@ describe("the module-wide capability guard", () => {
         return name.text;
       if (ts.isComputedPropertyName(name)) return literalText(name.expression);
       return null;
+    };
+
+    /** One argument of a mutating call, rendered as what it IS: a literal, a
+     *  name, or — for anything with no fixed spelling — its node kind, which can
+     *  never match the expected pin. Deliberately shallow: this is here to be
+     *  READ in a diff, not to model expressions. */
+    const renderArg = (a: ts.Node): string => {
+      const e = unwrapNode(a);
+      if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e))
+        return JSON.stringify(e.text);
+      if (ts.isNumericLiteral(e)) return e.text;
+      if (e.kind === ts.SyntaxKind.TrueKeyword) return "true";
+      if (e.kind === ts.SyntaxKind.FalseKeyword) return "false";
+      if (e.kind === ts.SyntaxKind.NullKeyword) return "null";
+      if (ts.isIdentifier(e)) return e.text;
+      if (ts.isObjectLiteralExpression(e))
+        return `{ ${e.properties
+          .map((p) =>
+            ts.isPropertyAssignment(p)
+              ? `${literalKey(p.name) ?? "<an unreadable key>"}: ${renderArg(p.initializer)}`
+              : ts.isShorthandPropertyAssignment(p)
+                ? `${p.name.text}: <a shorthand value>`
+                : "<a spread or accessor>",
+          )
+          .join(", ")} }`;
+      return `<${ts.SyntaxKind[e.kind]}>`;
     };
 
     /** Where a dynamically obtained module object ENDS UP. Anything this cannot
@@ -693,6 +737,20 @@ describe("the module-wide capability guard", () => {
       // enough to fail.
       if (ts.isCallExpression(n) && n.arguments.some((a) => literalText(a) === "method"))
         recordMethod(undefined, "passed as a property name to a call");
+
+      // ── (f) the mutating call sites, with their ARGUMENTS ───────────────
+      if (ts.isCallExpression(n)) {
+        const callee = unwrapNode(n.expression);
+        const verb = ts.isIdentifier(callee)
+          ? callee.text
+          : ts.isPropertyAccessExpression(callee)
+            ? callee.name.text
+            : null;
+        if (verb !== null && MUTATING_VERBS.includes(verb))
+          out.mutations.push(`${verb}(${n.arguments.map(renderArg).join(", ")})`);
+      }
+      if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === "tmp")
+        out.tmpInitializers.push(n.initializer?.getText(sf) ?? "<no initializer>");
     });
 
     // ── second pass: every USE of a name that stands for a whole module ────
@@ -1049,6 +1107,65 @@ describe("the module-wide capability guard", () => {
       extracted.filter((e) => e.methodValues.length > 0).map((e) => [e.file, e.methodValues]),
     );
     expect(byFile).toEqual({ "remote.ts": ["POST"] });
+  });
+
+  /**
+   * F4 — GRANTED VERBS, GOVERNED ARGUMENTS. The third rung on the same ladder.
+   *
+   * The allow-lists above say which VERBS this module may hold. They say nothing
+   * about what it does with them, and the 2026-08-13 red team's most PLAUSIBLE
+   * escapes lived entirely inside verbs the table grants:
+   *
+   *   • `writeFile(model, "")` blanks a live model — the granted write verb IS
+   *     truncate, because `w` opens O_TRUNC and an empty body finishes the job.
+   *   • `rename(model, aside)` moves it off its tracked path, which is a delete
+   *     as far as git is concerned.
+   *
+   * Neither names a removing verb, neither reaches Prismic, and both are the
+   * shape a well-meaning colleague actually writes — this module's own refusal
+   * message says "Move or rename the existing model", and its comments advertise
+   * that it holds no delete verb, which points an engineer straight at
+   * move-aside.
+   *
+   * So the mutating call SITES are pinned, argument by argument. `write.ts` is
+   * the only file in the module that mutates anything, and it does so in exactly
+   * four places. The rendering is deliberately literal — an empty-string body
+   * shows up as `""`, a moved-aside destination shows up as a name that is not
+   * `full`, a `recursive: false` mkdir shows up as itself.
+   *
+   * THIS IS THE STRICTEST RULE IN THE FILE and it will red on an honest rename
+   * of a local in `write.ts`. That is the trade, taken deliberately and only
+   * here: this is the one file that mutates a live client repo, four lines is a
+   * small enough surface that a reviewer can check the expectation against the
+   * source in one pass, and the fix when it reds honestly is one line in this
+   * list — with the review that implies.
+   */
+  it("mutates the filesystem only at the four pinned call sites in write.ts", () => {
+    // The classification is complete: a verb added to the fs allow-list has to
+    // be sorted into reading or mutating, or this fails before the pin runs.
+    expect([...FS_READING_VERBS, ...MUTATING_VERBS].sort()).toEqual(
+      [...(ALLOWED_BINDINGS["node:fs/promises"] ?? [])].sort(),
+    );
+    const byFile = Object.fromEntries(
+      extracted.filter((e) => e.mutations.length > 0).map((e) => [e.file, e.mutations]),
+    );
+    expect(byFile).toEqual({
+      "write.ts": [
+        // The directory for the model, created recursively. Nothing else.
+        "mkdir(dir, { recursive: true })",
+        // The free path: an EXCLUSIVE create, so it can destroy nothing.
+        'writeFile(full, body, { encoding: "utf-8", flag: "wx" })',
+        // The refresh path: a complete replacement staged beside the target…
+        'writeFile(tmp, body, { encoding: "utf-8", flag: "w" })',
+        // …and moved onto it. `tmp` FIRST — `rename(full, aside)` is the
+        // move-aside delete, and it differs from this by one argument.
+        "rename(tmp, full)",
+      ],
+    });
+    // …and `tmp` is the temp file this module just wrote, not a path handed in.
+    expect(extracted.find((e) => e.file === "write.ts")?.tmpInitializers).toEqual([
+      "`${full}.tmp`",
+    ]);
   });
 
   it("calls no injected process-spawner directly", () => {
