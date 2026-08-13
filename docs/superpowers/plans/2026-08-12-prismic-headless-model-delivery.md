@@ -126,6 +126,38 @@ Every read-shaped task gets one test of this form, and it is the load-bearing te
 
 If you cannot write that test for a function you are implementing, the function has a catch-all in it.
 
+---
+
+## A mutation harness can lie, and it lies in the direction that looks like success
+
+Task 11 ran 17 mutations against a capability guard. Every one reported "caught". They were all worthless: the harness passed `--reporter=basic`, which does not exist in vitest 4, so vitest exited before running a single test and **every mutation read as caught because nothing ran.**
+
+It was only noticed because four of the mutations were ones that _had_ to be caught for unrelated reasons, so the implementer had a prior expectation to check against. Without that, seventeen green results would have been reported as proof.
+
+This is the same defect class as everything else in this plan, aimed at the tooling: **"the test failed" and "the test never ran" produced the same observation.**
+
+**Required shape for every mutation harness in this project:**
+
+1. Gate on the runner's **exit code**, not on output text.
+2. Assert the **specific named test** appears in the failure list — not merely that something failed.
+3. Assert a **test summary was actually produced**, proving the runner got far enough to run tests at all.
+4. Carry at least two **CONTROLS that must stay GREEN** — an honest edit that should not trip the guard (a comment-only change, a local rename). Without controls, "everything reds" is indistinguishable from a harness that reds on anything.
+5. Confirm the mutation **actually applied** (`git diff --stat`) before running. A no-op mutation reads exactly like a caught one.
+
+Points 4 and 5 are opposite ends of the same failure: 5 catches a mutation that never happened, 4 catches a harness that fails regardless of the mutation.
+
+---
+
+## `pnpm exec` in a target repo can INSTALL into that repo
+
+Found in Task 11. `pnpm exec prettier` inside a bare clone does not merely fail to find prettier — it runs a **full `pnpm install` in the client's repository first**, materialising `node_modules/`. That is an unrequested mutation of a live client repo performed by a read-shaped operation.
+
+The fix used here is to resolve and spawn the target's binary **by absolute path** (`<repoRoot>/node_modules/.bin/prettier`, probed via `realpath` so a dangling shim reads as absent), which removes pnpm and corepack from the path entirely.
+
+The general fact matters beyond this plan: **any recipe that shells `pnpm exec` into a target repo has this property.** `formatWithPrettier` has two other callers (`health-endpoint`, `smoke-suite`); they happen to run after an install, so their exposure is lower — but it is the same mechanism, and neither has a timeout.
+
+Also note `defaultSpawn` only sets `detached` when `timeoutMs` is present, so a spawn without a timeout cannot have its process group killed.
+
 ## Two deliberate deviations from the spec
 
 Both are stated up front so a reviewer can reject them before code is written.
@@ -2412,6 +2444,21 @@ describe("prismic/models public surface", () => {
   // devDependency used by `pnpm typecheck`, but no other test in this repo does
   // that. It is a deliberate, single, module-wide precedent — which is precisely
   // why this lives in ONE test over the whole directory instead of three copies.
+  //
+  // KNOWN LIMIT — state it, do not paper over it. A source-local guard can only
+  // see capabilities the source NAMES. A capability handed in as a PARAMETER is
+  // invisible to it: `push.ts` already takes `send` this way, `write.ts` takes
+  // `spawn`, and a future `deps: { rm }` would pass every assertion above while
+  // carrying a delete straight into the module. Task 11 added a `spawn("rm", …)`
+  // sentinel for the loudest version of this, but the general class is not
+  // closable by reading this directory's source.
+  //
+  // What actually bounds it is the injection sites: those parameters are supplied
+  // by the CLI command and by tests, both of which are in this repo and both of
+  // which are reviewable. So the honest claim this guard makes is "no file in
+  // this module ACQUIRES a delete capability", NOT "no delete can occur". Do not
+  // let a comment elsewhere upgrade that claim — an overstated guarantee is how
+  // the previous four versions of this guard got trusted past what they proved.
   it("grants no file in the module any capability beyond its allow-list", async () => {
     // Implementation is the engineer's, to requirements (a)–(e) above.
   });
