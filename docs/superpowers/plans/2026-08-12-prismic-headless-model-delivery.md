@@ -811,6 +811,27 @@ describe("readPrismicConfig", () => {
     expect(await readPrismicConfig(dir)).toBeNull();
   });
 
+  // Only ENOENT means "not a Prismic site". A config that is THERE and cannot be
+  // read must throw: returning null would silently reclass a live Prismic site
+  // as a non-Prismic one and drop it from the fleet sweep with the sweep still
+  // reporting success. A directory named slicemachine.config.json reproduces
+  // this deterministically (EISDIR) with no permission games, so it works when
+  // the suite runs as root in CI.
+  it("THROWS when the config is present but unreadable", async () => {
+    await mkdir(join(dir, "slicemachine.config.json"), { recursive: true });
+    await expect(readPrismicConfig(dir)).rejects.toThrow(/present but unreadable/);
+  });
+
+  // ...and the fallback must not paper over it either: an unreadable
+  // slicemachine.config.json must not silently fall through to a valid
+  // prismic.config.json, because the site would then be swept against whichever
+  // file happened to be readable.
+  it("does not fall through to prismic.config.json when the first is unreadable", async () => {
+    await mkdir(join(dir, "slicemachine.config.json"), { recursive: true });
+    await writeFile(join(dir, "prismic.config.json"), JSON.stringify({ repositoryName: "b" }));
+    await expect(readPrismicConfig(dir)).rejects.toThrow(/present but unreadable/);
+  });
+
   it("defaults libraries to ./src/lib/slices when the key is absent", async () => {
     await writeFile(join(dir, "slicemachine.config.json"), JSON.stringify({ repositoryName: "x" }));
     expect((await readPrismicConfig(dir))?.libraries).toEqual(["./src/lib/slices"]);
@@ -884,20 +905,33 @@ const SENTINEL = "your-prismic-repo-name";
  * config THROWS: a repo that has Prismic and a broken config must surface as an
  * error, never as a silent skip. That distinction is the whole point of the
  * return type.
+ *
+ * "Present but unreadable" therefore has to throw as well, and only a genuine
+ * ENOENT may fall through to the next candidate filename. An earlier draft
+ * caught EVERY read error and continued, which made an unreadable config
+ * indistinguishable from an absent one and returned null — silently reclassing
+ * a live Prismic site as "not a Prismic site" and dropping it from the fleet
+ * sweep entirely, with the sweep still reporting success. That is the same
+ * silent-skip class as `localModels` (Task 8), one layer up and one order of
+ * magnitude worse: there it loses one model, here it loses a whole site.
  */
 export async function readPrismicConfig(repoRoot: string): Promise<PrismicConfig | null> {
   for (const name of CONFIG_FILES) {
     let raw: string;
     try {
       raw = await readFile(join(repoRoot, name), "utf-8");
-    } catch {
-      continue; // not this one
+    } catch (e) {
+      // ENOENT is the ONLY error that means "this repo does not have this file".
+      // EACCES, EISDIR (a directory named slicemachine.config.json), ELOOP and
+      // I/O errors all mean the file is THERE and we cannot read it.
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw new Error(`${name}: present but unreadable (${(e as Error).message})`, { cause: e });
     }
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
     } catch (e) {
-      throw new Error(`${name}: invalid JSON (${(e as Error).message})`);
+      throw new Error(`${name}: invalid JSON (${(e as Error).message})`, { cause: e });
     }
     const cfg = parsed as { repositoryName?: unknown; libraries?: unknown };
     if (typeof cfg.repositoryName !== "string" || cfg.repositoryName.trim() === "") {
