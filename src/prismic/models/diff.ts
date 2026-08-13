@@ -230,3 +230,42 @@ export function describeDiff(local: PrismicModel, remote: PrismicModel | undefin
 
   return lines;
 }
+
+/** A push REPLACES the whole model, and Prismic — not the repo — owns the
+ *  slice-preview screenshot at `variations[].imageUrl`: it is `""` on disk
+ *  for most models and a stale URL on nine real fleet RichText models (see
+ *  canon.ts). Sending the local value would blank or rot every slice
+ *  preview in the editor as a side effect of pushing one unrelated field
+ *  change. This is the deliberate asymmetry with `canon()`: comparison
+ *  DROPS `imageUrl` entirely (it must never cause a diff), but a push still
+ *  has to put a real value on the wire, and the only trustworthy one is
+ *  whatever is currently live on the remote.
+ *
+ *  A variation with no string `id` is left untouched rather than matched by
+ *  array index. `describeDiff` can fall back to an index label
+ *  (`variations[i]`) because a wrong pairing there only costs a mislabeled
+ *  comment line; here a wrong pairing WRITES the wrong screenshot onto a
+ *  live variation on push. Guessing identity is the wrong trade when being
+ *  wrong is destructive instead of cosmetic, so an id-less local variation
+ *  just passes through with whatever `imageUrl` it already has. */
+export function withRemoteScreenshots(
+  local: PrismicModel,
+  remote: PrismicModel | undefined,
+): PrismicModel {
+  if (!remote || !Array.isArray(local.variations)) return local;
+  const shots = new Map(
+    (Array.isArray(remote.variations) ? remote.variations : [])
+      .map((v) => asZone(v))
+      .filter((o): o is Zone & { id: string } => typeof o.id === "string")
+      .map((o) => [o.id, o.imageUrl] as const),
+  );
+  return {
+    ...local,
+    variations: local.variations.map((v) => {
+      const o = asZone(v);
+      if (typeof o.id !== "string") return v;
+      const shot = shots.get(o.id);
+      return shot ? { ...o, imageUrl: shot } : v;
+    }),
+  };
+}
