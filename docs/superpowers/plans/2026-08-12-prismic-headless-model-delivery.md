@@ -1293,6 +1293,40 @@ function assertNoDuplicateIds(entries: LocalEntry[]): void {
     seen.set(k, e.path);
   }
 }
+
+/**
+ * Refuse a slice model whose variation lacks a string `id`.
+ *
+ * The Types API cannot accept such a model, so this is a load-time rejection of
+ * something that would fail on push anyway — but failing HERE names the file,
+ * while failing there returns an opaque 422. It also protects the review gate:
+ * `describeDiff` keys variations by id, so two id-less variations would collide
+ * and the second one's field changes would silently never be compared. All 232
+ * real fleet variations carry an `id`, so this is defensive, not a live repair.
+ */
+function assertVariationsHaveIds(entries: LocalEntry[]): void {
+  for (const e of entries) {
+    const variations = e.model.variations;
+    if (!Array.isArray(variations)) continue;
+    variations.forEach((v, i) => {
+      const id = (v as { id?: unknown } | null)?.id;
+      if (typeof id !== "string" || id === "") {
+        throw new Error(
+          `${e.path}: variation at index ${i} has no string "id". ` +
+            `Prismic rejects such a model, and the diff cannot describe it.`,
+        );
+      }
+    });
+  }
+}
+```
+
+Call both from `localModels` before returning:
+
+```ts
+assertNoDuplicateIds(out);
+assertVariationsHaveIds(out);
+return out;
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -4916,3 +4950,5 @@ Stated so no one reads a gap as an oversight:
 - **No model deletion, ever, from any code path here.** Two tripwire tests assert the capability does not exist.
 - **No answer to token expiry.** It remains undocumented and unproven. The `--tokens` doctor and the nightly read-failure path are the detection, not a fix.
 - **beachfront-dentistry's `scripts/lib/slice-models.mjs` is left in place.** It is that repo's seed precondition and predates this module; converging them is out of scope.
+- **This pipeline can never deliver a pure field REORDER.** `canon()` sorts keys before comparing, so a model whose fields were only reordered compares equal, lands in `unchanged`, and is never pushed or described — verified across all 251 fleet models, 0 of which register a reorder as a change. Prismic renders editor fields in JSON key order, so a reorder IS a real authoring intent that this delivery path silently drops. That is deliberate: without key-sorting, every model would diff forever against Prismic's own serializer output. It also matches Slice Machine's own key-order blindness, so the behaviour is not a regression. **An operator who reorders fields and sees "nothing to push" is hitting a known limitation, not a bug** — the runbook (Task 29) must say so, or it will be filed as one.
+- **No structured diff records.** A review proposed `describeDiff` return `{ op, path[] }` objects for the renderer to format. Declined: the string output is already proven readable on real fleet models, and its only consumer would format it straight back into the same strings. Revisit only if the PR comment and the CLI need to diverge in formatting.
