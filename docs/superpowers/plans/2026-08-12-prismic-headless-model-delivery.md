@@ -3094,9 +3094,22 @@ export async function checkOneSite(
   });
 
   return {
+    // Pass the WHOLE report, not `failed: report.failed`.
+    //
+    // This is the only place in the plan that constructs `ReportOptions`, so
+    // destructuring one field here is what decides whether Task 13's
+    // reconciliation ever runs at all. With only `failed` supplied, `opts.report`
+    // is undefined at every call site and every cross-check that needs a report —
+    // remoteOnly, apply-vs-mode, and the sent/failed bucket invariant — silently
+    // does nothing. The safeguard added after Task 10's review would ship dark and
+    // never execute once. Found by the Task 13 implementer, 2026-08-13.
+    //
+    // Pass `report` INSTEAD OF `failed`, not in addition: with one source for the
+    // failure list there is nothing to reconcile and that check correctly skips,
+    // while the rest light up.
     output: renderModelReport(cfg.repositoryName, diff, {
       apply: opts.apply,
-      failed: report.failed,
+      report,
     }),
     // A dry run NEVER fails on drift: a model PR is supposed to differ from the
     // remote, and the comment is the review artifact, not a gate. Only a real
@@ -3119,8 +3132,39 @@ export async function runPrismicModelsCommand(
     apply: opts.apply === true,
     allowGenericToken: true,
   });
-  if (opts.commentFile) await writeFile(resolve(cwd, opts.commentFile), result.output, "utf-8");
+  if (opts.commentFile) {
+    await writeFile(resolve(cwd, opts.commentFile), forComment(result.output), "utf-8");
+  }
   return { output: result.output, code: result.code };
+}
+
+/**
+ * GitHub rejects an issue comment body over 65,536 characters, so whatever posts
+ * this has to shorten it — and a report that was shortened without saying so is
+ * this pipeline's governing failure in its purest form: the reviewer sees a
+ * complete-looking comment and approves a model change whose destructive lines
+ * were the ones cut.
+ *
+ * A first-ever push is the realistic trigger, not an edge case. The fleet holds
+ * 68 custom types and 132 slices across 15 repos (measured 2026-08-13 from each
+ * repo's origin/HEAD), and an empty Prismic repository sorts EVERY local model
+ * into `toCreate` with a field-level line each — which is exactly the shape of
+ * Task 32's composition-hospitality proof.
+ *
+ * So truncate deliberately, keep the HEAD (the renderer puts the verdict and the
+ * DESTRUCTIVE warning there precisely so they survive), and make the cut itself
+ * loud enough that nobody mistakes the remainder for the whole.
+ */
+const GITHUB_COMMENT_LIMIT = 65_536;
+
+export function forComment(body: string, limit = GITHUB_COMMENT_LIMIT): string {
+  if (body.length <= limit) return body;
+  const notice =
+    `\n\n⚠ TRUNCATED — this report is ${body.length} characters and GitHub caps a` +
+    ` comment at ${limit}. Everything below the cut is missing, including any` +
+    ` further destructive lines. Run \`reddoor-maint prismic-models --dry\` locally` +
+    ` for the whole report before approving.\n`;
+  return body.slice(0, limit - notice.length) + notice;
 }
 ```
 
