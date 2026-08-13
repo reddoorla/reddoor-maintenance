@@ -2316,40 +2316,77 @@ describe("prismic/models public surface", () => {
     ).toBe(false);
   });
 
-  // Written as a positive ALLOW-LIST over quoted HTTP verbs, not a ban on the
-  // string "DELETE". Three reasons, all learned the hard way in Task 9:
+  // THE MODULE-WIDE CAPABILITY GUARD — build it here, once, over every file in
+  // `src/prismic/models/`. Do not write a per-file copy anywhere else.
   //
-  //  1. `remote.ts`'s header legitimately contains `DELETE /customtypes/{id}` in
-  //     prose — that sentence is the REASON this rule exists and has to stay
-  //     readable. A blanket string ban fails on the commit that introduces it.
-  //  2. Stripping comments before scanning is the too-clever trap: the file
-  //     contains `https://customtypes.prismic.io`, and a naive stripper eats the
-  //     `//`. Matching only QUOTED verbs needs no parsing at all.
-  //  3. The HTTP verb is the real choke point, not the word "delete". Prismic
-  //     removes a model only via `DELETE /customtypes/{id}`, and this module
-  //     builds paths as `/{collection}/{action}` — so even `POST
-  //     /customtypes/delete` is a 404, not a deletion. Adding "delete" to an
-  //     action union is inert; issuing the verb is not.
-  it("issues no HTTP verb other than GET or POST anywhere in the module", async () => {
-    const dir = new URL("../../../src/prismic/models/", import.meta.url);
-    const files = (await readdir(dir)).filter((f) => f.endsWith(".ts"));
-    // A guard that silently examines nothing is worse than no guard: if this
-    // ever stops matching files it would pass over an empty set forever.
-    expect(files.length).toBeGreaterThan(5);
-    const verbs = new Set<string>();
-    for (const f of files) {
-      const src = await readFile(new URL(f, dir), "utf-8");
-      for (const m of src.matchAll(/["'](GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)["']/g)) {
-        verbs.add(m[1] as string);
-      }
-      // Closes the walk-around where someone never writes the literal at all
-      // (`method: verbFromSomewhere`). Requiring the literal also catches PUT and
-      // PATCH arriving without an argument.
-      for (const m of src.matchAll(/method:\s*([^,\n]+)/g)) {
-        expect(m[1]?.trim(), `${f}: every method: must be the "POST" literal`).toBe('"POST"');
-      }
-    }
-    expect([...verbs].sort()).toEqual(["GET", "POST"]);
+  // Read this history before you touch it. The no-delete guard has now failed
+  // THREE times, each fix closing exactly the channel the previous one missed:
+  //
+  //  1. Task 9 — an exported-NAME check. Blind to a working DELETE added INLINE
+  //     inside `sendModel`. The suite went green with the test named "has no
+  //     delete function at all" reporting PASS.
+  //  2. Task 10 v1 — quoted-verb + STATIC-import check. Blind to
+  //     `const { request } = await import("node:https")`, which three
+  //     independent review lenses found. `await import()` is this codebase's
+  //     dominant lazy-load idiom: 63 call sites across 12 files under `src/`,
+  //     26 of them in `src/cli/bin.ts` (AST-counted 2026-08-12).
+  //  3. Task 10 v2 — an AST allow-list over `push.ts` only. Correct, and it
+  //     survived 12 attack shapes, but it left ONE hop: `./diff.js` is
+  //     allow-listed, so IO added inside `diff.ts` and reached through
+  //     `withRemoteScreenshots` looks clean from `push.ts`, and `diff.ts` had no
+  //     guard of its own.
+  //
+  // The pattern in all three is the same and it is the lesson: **each fix was a
+  // DENY-LIST**, enumerating forbidden channels, and a new channel always
+  // existed. Enumerating what is forbidden is unwinnable. Enumerate what is
+  // ALLOWED instead, over the whole module at once, so there is no seam between
+  // two guards and no unguarded file to hop to.
+  //
+  // Parse with the TypeScript AST, not regex. That is load-bearing, not
+  // stylistic: this guard has to QUOTE the constructs it forbids in order to
+  // explain itself, and a Task 10 draft had already dropped a `request\(` check
+  // because it tripped over its own prose. Syntax nodes cannot see inside a
+  // comment. `remote.ts`'s header legitimately contains `DELETE
+  // /customtypes/{id}` — that sentence is the REASON this rule exists and must
+  // stay readable, so a text ban would fail on the commit that introduced it.
+  //
+  // Requirements, all of which earned their place by catching something:
+  //
+  //  a. Extract every module specifier by EVERY mechanism — static and bare
+  //     `import`, `export … from`, dynamic `import()`, `import x = require()`,
+  //     `typeof import()`, `require`, `createRequire` — for every `.ts` file in
+  //     the directory. Each must appear in one explicit allow-list. A
+  //     non-literal specifier (`import(someVar)`) is UNRESOLVABLE and must fail,
+  //     never be skipped.
+  //  b. Run an INDEPENDENT token census for `import`/`require`. If the node walk
+  //     recognised fewer than the tokens present, fail — that is a hole in the
+  //     extractor, and it must fail as a hole rather than pass as a clean file.
+  //  c. FAIL CLOSED. Assert a non-zero file count, a non-zero specifier count
+  //     and a non-zero token count. A guard that silently examines nothing is
+  //     worse than no guard.
+  //  d. Allow-list FREE IDENTIFIERS, not the roots of call chains. Task 10 found
+  //     this hole in its own first draft: `(0, eval)("…")` has a parenthesised
+  //     comma expression as its callee, so a root-of-chain walk sees zero roots
+  //     and waves it through. Only `remote.ts` may name `fetch`.
+  //  e. Every quoted HTTP verb across the module must be GET or POST, and every
+  //     `method:` must be the `"POST"` literal — which also closes the
+  //     never-write-the-literal walk-around and catches PUT/PATCH.
+  //
+  // Prove it with mutation, and prove it against the real attack shapes rather
+  // than a token one: dynamic import, `createRequire`, bare side-effect import,
+  // `import x = require()`, `export * from`, a computed specifier, `new
+  // Function()`, `(0, eval)()`, `globalThis.fetch`, `globalThis["fe"+"tch"]`.
+  // Keep at least two CONTROLS that must stay green — an extra import of an
+  // already-allowed module, and an ordinary local rename. A guard that fires on
+  // honest edits gets deleted by the next person in a hurry, and then there is
+  // no guard at all.
+  //
+  // Note this test imports the `typescript` package. It is already a
+  // devDependency used by `pnpm typecheck`, but no other test in this repo does
+  // that. It is a deliberate, single, module-wide precedent — which is precisely
+  // why this lives in ONE test over the whole directory instead of three copies.
+  it("grants no file in the module any capability beyond its allow-list", async () => {
+    // Implementation is the engineer's, to requirements (a)–(e) above.
   });
 });
 ```
