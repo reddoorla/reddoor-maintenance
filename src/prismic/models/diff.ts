@@ -1,4 +1,3 @@
-// src/prismic/models/diff.ts
 import { sameModel } from "./canon.js";
 import type { LocalEntry, ModelDiff, ModelKind, RemoteEntry } from "./types.js";
 

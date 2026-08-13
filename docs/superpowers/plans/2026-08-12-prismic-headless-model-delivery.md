@@ -1139,6 +1139,33 @@ describe("localModels", () => {
     const ids = (await localModels(dir, ["./src/lib/slices", "./src/lib/blux"])).map((m) => m.id);
     expect(ids.sort()).toEqual(["blux_band", "hero"]);
   });
+
+  // Two directories CAN declare the same model id — the slice directory name and
+  // the model `id` are independent (gallerysonder's `ContentWidthMedia/` holds
+  // `video_block`), so nothing on disk prevents a collision. Left undetected it
+  // is a silent, nondeterministic push: `diffModels` processes both entries
+  // independently, one can land in `unchanged` while the other lands in
+  // `toUpdate` against the SAME remote model, and the push sends whichever came
+  // later in directory-read order. Detected here rather than papered over in
+  // `diffModels`, because the operator has a real problem only they can fix.
+  it("THROWS on two local files declaring the same id, naming BOTH paths", async () => {
+    await writeJson("src/lib/slices/Hero/model.json", { id: "hero", type: "SharedSlice" });
+    await writeJson("src/lib/slices/HeroLegacy/model.json", { id: "hero", type: "SharedSlice" });
+    const err = await localModels(dir, ["./src/lib/slices"]).catch((e: Error) => e);
+    expect((err as Error).message).toContain("src/lib/slices/Hero/model.json");
+    expect((err as Error).message).toContain("src/lib/slices/HeroLegacy/model.json");
+    expect((err as Error).message).toMatch(/duplicate/i);
+  });
+
+  // A custom type and a slice sharing an id is LEGAL — different Types API
+  // collections — and `diffModels` already keys on kind+id. Only same-kind
+  // collisions are an error.
+  it("allows a customtype and a slice to share an id", async () => {
+    await writeJson("customtypes/hero/index.json", { id: "hero" });
+    await writeJson("src/lib/slices/Hero/model.json", { id: "hero", type: "SharedSlice" });
+    const models = await localModels(dir, ["./src/lib/slices"]);
+    expect(models.map((m) => m.kind).sort()).toEqual(["customtype", "slice"]);
+  });
 });
 ```
 
@@ -1230,7 +1257,41 @@ export async function localModels(repoRoot: string, libraries: string[]): Promis
     }
   }
 
+  assertNoDuplicateIds(out);
   return out;
+}
+
+/**
+ * Refuse a repo where two files of the SAME kind declare the same model id.
+ *
+ * This is possible on disk because a slice's directory name and its model `id`
+ * are independent — gallerysonder's `ContentWidthMedia/` holds `video_block` —
+ * so two directories can quietly claim one id. Undetected, it is a silent and
+ * NONDETERMINISTIC push: `diffModels` processes both entries independently, so
+ * one can land in `unchanged` while the other lands in `toUpdate` against the
+ * same remote model, and the push sends whichever `readdir` happened to yield
+ * last. That is the silent-divergence class this module exists to prevent, so
+ * it fails loudly here instead of being papered over in `diffModels` — the
+ * collision is a real problem in the repo and only a human can say which file
+ * is the intended one.
+ *
+ * Same id across DIFFERENT kinds is legal (custom types and slices are separate
+ * Types API collections, and `diffModels` keys on kind+id), so the check is
+ * scoped by kind.
+ */
+function assertNoDuplicateIds(entries: LocalEntry[]): void {
+  const seen = new Map<string, string>();
+  for (const e of entries) {
+    const k = `${e.kind}:${e.id}`;
+    const first = seen.get(k);
+    if (first !== undefined) {
+      throw new Error(
+        `duplicate ${e.kind} id "${e.id}": declared by both ${first} and ${e.path}. ` +
+          `Two files cannot own one model — delete or rename one.`,
+      );
+    }
+    seen.set(k, e.path);
+  }
 }
 ```
 
