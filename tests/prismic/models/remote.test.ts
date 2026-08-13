@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect, vi } from "vitest";
 import { CUSTOM_TYPES_API, remoteModels, sendModel } from "../../../src/prismic/models/remote.js";
 
@@ -69,12 +70,11 @@ describe("remoteModels", () => {
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tok");
   });
 
-  // The positive counterpart of every throw below. An empty remote set is a
-  // REAL state — a brand-new Prismic repository — and this pins the one route
-  // by which it may be reached: two successful calls that genuinely returned
-  // nothing. Every other route to [] is a bug, and the tests below are what
-  // keep it that way.
-  it("returns [] only when both collections succeeded and were genuinely empty", async () => {
+  // The positive counterpart of every throw below: an empty remote set is a
+  // REAL state (a brand-new Prismic repository) and must stay reachable. The
+  // name does NOT claim "only" — this test cannot prove a negative on its own,
+  // and the "only" is carried by the seven throwing tests below it.
+  it("returns [] when both collections succeeded and were genuinely empty", async () => {
     const fetchImpl = vi.fn(async () => ok([]));
     await expect(
       remoteModels("espada", "tok", fetchImpl as unknown as typeof fetch),
@@ -114,11 +114,15 @@ describe("remoteModels", () => {
     expect(message).toMatch(/typo-repo/);
   });
 
-  it("throws when the body is not an array", async () => {
+  it("throws when the body is not an array, naming the repository", async () => {
     const fetchImpl = vi.fn(async () => ok({ notAnArray: true }));
-    await expect(
+    const message = await messageOf(
       remoteModels("espada", "tok", fetchImpl as unknown as typeof fetch),
-    ).rejects.toThrow(/expected an array/);
+    );
+    expect(message).toMatch(/expected an array/);
+    // The URL is identical for every site in the fleet — the repository travels
+    // in a header — so without this the message cannot be attributed to a site.
+    expect(message).toMatch(/espada/);
   });
 
   // An earlier draft SKIPPED an id-less remote entry. That is the absent-vs-
@@ -131,9 +135,12 @@ describe("remoteModels", () => {
     const fetchImpl = vi.fn(async (url: string | URL) =>
       String(url).endsWith("/customtypes") ? ok([{ label: "no id" }, { id: "page" }]) : ok([]),
     );
-    await expect(
+    const message = await messageOf(
       remoteModels("espada", "tok", fetchImpl as unknown as typeof fetch),
-    ).rejects.toThrow(/no string "id"/);
+    );
+    expect(message).toMatch(/no string "id"/);
+    expect(message).toMatch(/index 0/);
+    expect(message).toMatch(/espada/);
   });
 
   // The tests below exist to stop anyone adding a catch. None of these failures
@@ -151,7 +158,12 @@ describe("remoteModels", () => {
     ).rejects.toThrow(/fetch failed/);
   });
 
-  it("throws when a 200 body is not JSON at all", async () => {
+  // Asserting only /customtypes/ would prove almost nothing: that substring is
+  // in the URL, so it appears in EVERY error from this collection — the test
+  // would pass on any throw at all and only really distinguished throwing from
+  // returning []. It has to name the repository and quote the body, which is
+  // the behaviour that makes an HTML error page from a proxy diagnosable.
+  it("throws on a 200 whose body is not JSON, naming the repository and quoting the body", async () => {
     const fetchImpl = vi.fn(
       async () =>
         new Response("<html>gateway timeout</html>", {
@@ -159,9 +171,24 @@ describe("remoteModels", () => {
           headers: { "content-type": "text/html" },
         }),
     );
-    await expect(
+    const message = await messageOf(
       remoteModels("espada", "tok", fetchImpl as unknown as typeof fetch),
-    ).rejects.toThrow(/customtypes/);
+    );
+    expect(message).toMatch(/did not parse as JSON/);
+    expect(message).toMatch(/<html>gateway timeout<\/html>/);
+    expect(message).toMatch(/espada/);
+  });
+
+  // The status in that message is `res.status`, not a hardcoded 200: the branch
+  // is reached on any 2xx, and naming a status that was not received sends an
+  // operator looking for a response that never existed.
+  it("names the real 2xx status, not 200, when a non-200 success body is unparseable", async () => {
+    const fetchImpl = vi.fn(async () => new Response("nope", { status: 202 }));
+    const message = await messageOf(
+      remoteModels("espada", "tok", fetchImpl as unknown as typeof fetch),
+    );
+    expect(message).toMatch(/202/);
+    expect(message).not.toMatch(/200/);
   });
 
   // A hung connection is the one failure with no error to propagate, so it is
@@ -243,7 +270,7 @@ describe("sendModel", () => {
   // `id` from the parsed model; this refuses to write anything that proves that
   // statement wrong, rather than trusting it at the point of no return.
   it("refuses to send an entry whose id disagrees with the model body", async () => {
-    const fetchImpl = vi.fn(async () => new Response("", { status: 204 }));
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
     await expect(
       sendModel(
         "espada",
@@ -253,6 +280,23 @@ describe("sendModel", () => {
         fetchImpl as unknown as typeof fetch,
       ),
     ).rejects.toThrow(/"hero".*"not_hero"/s);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  // The hole the mismatch check alone leaves: `id: ""` and `model.id: ""`
+  // AGREE, so a pure mismatch test waves them through and Prismic is sent a
+  // model with no id. Probed during review — it resolved and fetched.
+  it("refuses to send an entry whose id is the empty string on both sides", async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+    await expect(
+      sendModel(
+        "espada",
+        "tok",
+        { kind: "slice", id: "", model: { id: "" } },
+        "update",
+        fetchImpl as unknown as typeof fetch,
+      ),
+    ).rejects.toThrow(/refusing to update/);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
@@ -269,9 +313,77 @@ describe("sendModel", () => {
       ),
     ).rejects.toThrow(/timed out after 1ms/);
   });
+});
 
-  it("has no delete function at all", async () => {
+// The guard on the most important safety property in this design: a stale local
+// checkout must never be able to remove a live content model, and the way that
+// is guaranteed is that the capability does not exist in this file.
+//
+// WHY THERE ARE THREE ASSERTIONS AND NOT THE ONE. The export-name check below
+// was the whole test until 2026-08-12, when a review mutated `sendModel` into a
+// working delete — `"delete"` added to the action union, plus
+// `method: action === "delete" ? "DELETE" : "POST"` — and ALL 16 TESTS PASSED,
+// tsc exited 0, and the test then named "has no delete function at all"
+// reported a green tick. An export-name check only sees things that are
+// exported under a new name; it is blind to a delete performed inline inside a
+// function that already exists, which is exactly how one would really get added,
+// because `sendModel` is right there and already does the writing.
+//
+// So the other two assertions read the FILE, not the module. Do not remove them
+// as redundant with the export check — they are the only two that caught the
+// mutation.
+describe("the no-delete invariant", () => {
+  // Read from disk on purpose: the property is about what the file CONTAINS,
+  // and an import only ever exposes what it exports.
+  const source = readFileSync(
+    new URL("../../../src/prismic/models/remote.ts", import.meta.url),
+    "utf-8",
+  );
+
+  it("exports no name suggesting removal", async () => {
     const mod = await import("../../../src/prismic/models/remote.js");
-    expect(Object.keys(mod).some((k) => /delete|remove|destroy/i.test(k))).toBe(false);
+    // Widened past delete/remove/destroy, which missed purgeModel, dropModel
+    // and unregisterModel.
+    expect(
+      Object.keys(mod).filter((k) => /delete|remove|destroy|purge|drop|unregister/i.test(k)),
+    ).toEqual([]);
+  });
+
+  // The choke point, and the reason this assertion is about HTTP verbs rather
+  // than about the word "delete". Prismic removes a model with
+  // `DELETE /customtypes/{id}` and no other way: this module builds its paths as
+  // `/{collection}/{action}`, so even `POST /customtypes/delete` is a 404, not a
+  // deletion. No DELETE verb, no delete capability.
+  //
+  // Stated as a positive allow-list rather than a DELETE ban so it reads as what
+  // the module IS (a reader and a writer) instead of a list of things it must
+  // not be, and so PUT/PATCH have to be argued for too. It matches only QUOTED
+  // verbs, which is what keeps it from tripping on the file header's prose
+  // sentence explaining that the API supports DELETE — that sentence is the
+  // reason the rule exists and must stay readable.
+  it("sends no HTTP verb but GET and POST", () => {
+    // `match` + `slice`, not `matchAll` + `m[1]`: under noUncheckedIndexedAccess
+    // a capture group is `string | undefined`, and the `?? ""` needed to satisfy
+    // it would quietly turn "the regex found nothing" into a passing empty list.
+    // A whole-match array cannot do that — `?? []` on a null match yields [],
+    // which fails the assertion loudly instead.
+    const verbs = (source.match(/["'`](?:GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS)["'`]/g) ?? []).map(
+      (quoted) => quoted.slice(1, -1),
+    );
+    expect([...new Set(verbs)].sort()).toEqual(["GET", "POST"]);
+  });
+
+  // The verb check above can be walked around by never writing the literal —
+  // `method: verbFromSomewhere`. Requiring every `method:` in the file to be the
+  // POST literal closes that, and is what fails first on the exact mutation
+  // described above.
+  it("sets no computed HTTP method — every method: is the POST literal", () => {
+    const methods = (source.match(/method:\s*[^\n]+/g) ?? []).map((line) =>
+      line
+        .replace(/^method:\s*/, "")
+        .replace(/,$/, "")
+        .trim(),
+    );
+    expect(methods).toEqual(['"POST"']);
   });
 });

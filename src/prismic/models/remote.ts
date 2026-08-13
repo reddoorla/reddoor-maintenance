@@ -18,8 +18,15 @@
 // never-delete invariant guards nothing, and in --apply pushes the entire model
 // set at a repository that already holds good models. An empty result is a real
 // state (a brand-new repository) and must be reachable ONLY through a
-// successful call that genuinely returned nothing. Every `catch` below
-// rethrows; none of them defaults.
+// successful call that genuinely returned nothing.
+//
+// Every `catch` below rethrows, with ONE deliberate exception: `errorBody`
+// returns a placeholder string when the response body cannot be read. It is
+// named here rather than left for a reader to discover, because this paragraph
+// is the rule future editors will apply and an unnamed exception reads as a
+// violation. It is safe for a reason that does not generalise: it runs only on
+// paths that are ALREADY throwing, so the worst it can do is degrade a message.
+// A catch that can influence what this module RETURNS has no such excuse.
 import type { LocalEntry, ModelKind, PrismicModel, RemoteEntry } from "./types.js";
 
 export const CUSTOM_TYPES_API = "https://customtypes.prismic.io";
@@ -28,16 +35,21 @@ export const CUSTOM_TYPES_API = "https://customtypes.prismic.io";
 const COLLECTION: Record<ModelKind, string> = { customtype: "customtypes", slice: "slices" };
 
 /**
- * Per-request deadline. Matches the two other API clients in this repo
- * (`NETLIFY_FETCH_TIMEOUT_MS`, `DEPENDABOT_FETCH_TIMEOUT_MS`, both 15 s).
+ * Per-request deadline. 15 s matches the two other JSON API clients here —
+ * `src/audits/netlify-deploy.ts`'s `NETLIFY_FETCH_TIMEOUT_MS` and
+ * `src/github/gh-rest.ts`'s `DEPENDABOT_FETCH_TIMEOUT_MS`. It is NOT a
+ * fleet-wide constant: nine other `AbortSignal.timeout` call sites across five
+ * files run from 10 s (`src/audits/browser.ts`, `src/audits/function-health.ts`,
+ * `src/audits/form-e2e.ts`) to 20 s, each set for its own workload. 15 s is
+ * chosen here because a model collection is small JSON, not because 15 is the
+ * house number.
  *
  * It is here because a hung connection is the ONLY failure mode with no error
  * to propagate, so it is the only one that would sit in a fleet sweep instead of
- * failing it. Node's `fetch` supplies no deadline of its own: `RequestInit`
- * carries a `signal` and nothing else, and undici's own timeouts are configured
- * on the dispatcher rather than per call, so nothing bounds this request unless
- * it is bounded here. A fleet sweep walks many repositories, and an
- * unresponsive one must fail its own site rather than hold up the run.
+ * failing it. `fetch` takes no deadline of its own — `RequestInit` carries a
+ * `signal` and nothing else — so the only bound on an unsignalled call is
+ * undici's dispatcher-level `headersTimeout`, which defaults to 300 s. That is
+ * a bound, but at fleet scale it is a sweep-killer rather than a safety net.
  *
  * A timeout on a WRITE is deliberately not set tight: it leaves an ambiguous
  * state, because Prismic may have applied the change before the deadline fired.
@@ -146,13 +158,17 @@ async function getCollection(
   // failed `res.json()` throws on the second read and would replace the real
   // diagnosis with "Body is unusable". Same read-then-parse shape as
   // `local.ts`'s `readModel`.
+  // EVERY throw from here down names the repository. The URL cannot identify
+  // the site — it is the same string for all of them, because the repository
+  // travels in a HEADER (see `authHeaders`) — so without this a fleet sweep
+  // reports "expected an array, got null" with no way to tell which of the
+  // fleet's sites produced it.
+  const where = `GET ${url} [repository: ${repo}]`;
   let raw: string;
   try {
     raw = await res.text();
   } catch (e) {
-    throw new Error(`GET ${url} [repository: ${repo}]: 200 but the body could not be read`, {
-      cause: e,
-    });
+    throw new Error(`${where}: ${res.status} but the body could not be read`, { cause: e });
   }
   // A 200 whose body is not JSON (an HTML error page from a proxy, a truncated
   // response) must not surface as an opaque SyntaxError with no context. Wrapped
@@ -162,12 +178,16 @@ async function getCollection(
   try {
     body = JSON.parse(raw);
   } catch (e) {
-    throw new Error(`GET ${url}: 200 but the body did not parse as JSON: ${raw.slice(0, 200)}`, {
-      cause: e,
-    });
+    // `res.status`, not a hardcoded 200: this branch is reached on ANY 2xx, and
+    // a message naming a status that was not received sends an operator looking
+    // for a response that never existed.
+    throw new Error(
+      `${where}: ${res.status} but the body did not parse as JSON: ${raw.slice(0, 200)}`,
+      { cause: e },
+    );
   }
   if (!Array.isArray(body)) {
-    throw new Error(`GET ${url}: expected an array, got ${jsonTypeOf(body)}`);
+    throw new Error(`${where}: expected an array, got ${jsonTypeOf(body)}`);
   }
   return body.map((m, i) => {
     // THROW, never drop. Dropping an id-less remote entry is the absent-vs-
@@ -183,13 +203,23 @@ async function getCollection(
     // around.
     const id = (m as { id?: unknown } | null)?.id;
     if (typeof id !== "string" || id === "") {
-      throw new Error(`GET ${url}: entry at index ${i} has no string "id"`);
+      throw new Error(`${where}: entry at index ${i} has no string "id"`);
     }
     return { kind, id, model: m as PrismicModel };
   });
 }
 
-/** Every model registered in one Prismic repository, both collections. */
+/** Every model registered in one Prismic repository, both collections.
+ *
+ *  The two GETs are independent and run SEQUENTIALLY on purpose. `Promise.all`
+ *  would halve the per-repository wall clock, but at two small JSON requests per
+ *  site that is noise inside a nightly sweep that also clones and audits — and
+ *  the cost is not noise: when a failure hits BOTH collections (a dead token,
+ *  the case actually seen in the wild) the reported error becomes whichever
+ *  request lost the race, so the same broken credential reports a different
+ *  message run to run. Deterministic attribution is worth more here than the
+ *  seconds. Do not "optimise" this without a measurement showing the sweep is
+ *  actually bounded by it. */
 export async function remoteModels(
   repo: string,
   token: string,
@@ -223,12 +253,19 @@ export async function sendModel(
   // the parsed model — but this is the point of no return, and the parameter
   // type is structural, so any caller can hand over a pair that was never built
   // by either constructor. Check it here rather than trust it.
+  // `=== ""` is checked separately from the mismatch, and it is not redundant:
+  // an entry with `id: ""` AND `model.id: ""` AGREES, so the mismatch test
+  // alone waves it through and Prismic is sent a model with no id. `local.ts`
+  // rejects an empty `model.id` on the way in for the same reason — but the
+  // argument three lines up is that this parameter is structural and a caller
+  // can hand-build a pair that never passed through `local.ts` at all, which
+  // applies to the empty string exactly as much as to the mismatch.
   const bodyId = (entry.model as { id?: unknown }).id;
-  if (typeof bodyId !== "string" || bodyId !== entry.id) {
+  if (typeof bodyId !== "string" || bodyId === "" || bodyId !== entry.id) {
     throw new Error(
       `refusing to ${action} ${entry.kind} "${entry.id}": the model body's id is ` +
-        `${JSON.stringify(bodyId)}. Prismic writes the body's id, so this would ` +
-        `modify a different model than the one being reported.`,
+        `${JSON.stringify(bodyId)}. Prismic writes the body's id, not the reported ` +
+        `one, so this would modify the wrong model or none at all.`,
     );
   }
   const url = `${CUSTOM_TYPES_API}/${COLLECTION[entry.kind]}/${action}`;
