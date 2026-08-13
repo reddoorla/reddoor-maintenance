@@ -338,6 +338,11 @@ describe("the module-wide capability guard", () => {
    *  "this guard cannot tell" is a failure, never a pass. */
   const UNRESOLVED_SPECIFIER = "<a module specifier this guard cannot resolve to a literal>";
 
+  /** Case-INSENSITIVE on purpose: `fetch` uppercases the method itself, so
+   *  `method: "delete"` is a real DELETE and `"DELETE"` is not the only
+   *  spelling that reaches Prismic. */
+  const VERB = /^(?:GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS)$/i;
+
   type Binding = { specifier: string; binding: string };
   type Extract = {
     file: string;
@@ -443,6 +448,51 @@ describe("the module-wide capability guard", () => {
       void out.spans.push({ start: n.getStart(sf), end: n.getEnd() });
     const bind = (specifier: string, binding: string): void =>
       void out.bindings.push({ specifier, binding });
+
+    /** `unwrap` over any node, not just a typed expression: every guard it uses
+     *  is a kind test, so a key or an argument goes through it unharmed. */
+    const unwrapNode = (n: ts.Node): ts.Node => unwrap(n as ts.Expression);
+
+    /** The string a node reduces to STATICALLY, or `null` when it does not.
+     *  `"POST"` and `` `POST` `` reduce; `` `${x}POST` ``, `verb`, `a + b` and
+     *  `cond ? x : y` do not, and "does not" is a FAILURE below, never a skip. */
+    const literalText = (n: ts.Node | undefined): string | null => {
+      if (n === undefined) return null;
+      const e = unwrapNode(n);
+      return ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e) ? e.text : null;
+    };
+
+    /**
+     * Record ONE value that can reach a request `method`.
+     *
+     * Stated as an allow-list over VALUES, which is the whole of F1: the guard
+     * does not enumerate the syntaxes an author might use to smuggle a verb in
+     * (`init.method = x`, `{ ["method"]: x }`, `Object.defineProperty`, a
+     * template, a variable) — it collects every write it can see and demands
+     * that each one reduce statically to the literal `"POST"`. Anything it
+     * cannot reduce is recorded as a sentence no allow-list contains, so "this
+     * guard cannot tell" fails exactly like "this is a DELETE".
+     */
+    const recordMethod = (value: ts.Node | undefined, how: string): void => {
+      const lit = literalText(value);
+      if (lit !== null) {
+        out.methodValues.push(lit);
+        return;
+      }
+      const kind = value === undefined ? "not visible here" : ts.SyntaxKind[unwrapNode(value).kind];
+      out.methodValues.push(`<a method ${how}, ${kind}: this guard cannot reduce it to a literal>`);
+    };
+
+    /** A property name as the string it really is, or `null` when the guard
+     *  cannot reduce it — a computed key over anything but a string literal, or
+     *  a private name. `null` is a FAILURE: `{ [k]: "delete" }` must not pass by
+     *  being unreadable. */
+    const literalKey = (name: ts.PropertyName): string | null => {
+      if (ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name))
+        return name.text;
+      if (ts.isComputedPropertyName(name)) return literalText(name.expression);
+      return null;
+    };
 
     /** Where a dynamically obtained module object ENDS UP. Anything this cannot
      *  follow is recorded as a sentinel that no allow-list can contain. */
@@ -574,21 +624,57 @@ describe("the module-wide capability guard", () => {
         if (ts.isIdentifier(callee) && callee.text === "spawn") out.directSpawnCalls += 1;
       }
       // ── (e) HTTP verbs and request methods ──────────────────────────────
-      if (ts.isStringLiteralLike(n) && /^(?:GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS)$/.test(n.text))
-        out.verbs.push(n.text);
+      // CASE-INSENSITIVE, and over template PARTS as well as string literals.
+      // `fetch` byte-uppercases the method before it goes on the wire, so
+      // `"delete"` is a real DELETE; and `` `${""}DELETE` `` puts the verb in a
+      // TemplateTail, which `isStringLiteralLike` does not cover. Both escaped
+      // the 2026-08-13 red team.
+      const literalLike =
+        ts.isStringLiteralLike(n) ||
+        n.kind === ts.SyntaxKind.TemplateHead ||
+        n.kind === ts.SyntaxKind.TemplateMiddle ||
+        n.kind === ts.SyntaxKind.TemplateTail;
+      if (literalLike && VERB.test((n as ts.LiteralLikeNode).text))
+        out.verbs.push((n as ts.LiteralLikeNode).text);
+
+      // Every construct that can WRITE a request method. Reads are deliberately
+      // not collected — `init.method ?? "GET"` in remote.ts's error path is a
+      // read and must stay green — so this is keyed on assignment position.
       if (ts.isPropertyAssignment(n)) {
-        const key = n.name;
-        const named =
-          (ts.isIdentifier(key) || ts.isStringLiteralLike(key)) && key.text === "method";
-        if (named)
-          out.methodValues.push(
-            ts.isStringLiteralLike(n.initializer)
-              ? n.initializer.text
-              : `<a method: this guard cannot reduce to a literal (${ts.SyntaxKind[n.initializer.kind]})>`,
-          );
+        const key = literalKey(n.name);
+        // An unreadable key MIGHT be "method"; that is a failure, not a skip.
+        if (key === null) recordMethod(undefined, "under a key this guard cannot read");
+        else if (key === "method") recordMethod(n.initializer, "in an object literal");
       }
       if (ts.isShorthandPropertyAssignment(n) && n.name.text === "method")
-        out.methodValues.push("<a shorthand method:, whose value is not visible here>");
+        recordMethod(undefined, "as a shorthand property, whose value is elsewhere");
+      // `init.method = …`, `init["method"] = …`, and every compound form of
+      // both. A compound operator (`+=`, `??=`) never yields the RHS, so its
+      // value is unreducible by construction.
+      if (
+        ts.isBinaryExpression(n) &&
+        n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+        n.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+      ) {
+        const lhs = unwrapNode(n.left);
+        const target = ts.isPropertyAccessExpression(lhs)
+          ? lhs.name.text
+          : ts.isElementAccessExpression(lhs)
+            ? // A computed target might BE "method": unreadable is a failure.
+              (literalText(lhs.argumentExpression) ?? "method")
+            : null;
+        if (target === "method")
+          recordMethod(
+            n.operatorToken.kind === ts.SyntaxKind.EqualsToken ? n.right : undefined,
+            "assigned onto an existing object",
+          );
+      }
+      // `Object.defineProperty(init, "method", …)`, `Reflect.set(init, "method",
+      // …)`, or any other call handed the property NAME as a literal. The guard
+      // does not model what these calls do; carrying that string into a call is
+      // enough to fail.
+      if (ts.isCallExpression(n) && n.arguments.some((a) => literalText(a) === "method"))
+        recordMethod(undefined, "passed as a property name to a call");
     });
 
     // ── second pass: every USE of a name that stands for a whole module ────
@@ -775,18 +861,49 @@ describe("the module-wide capability guard", () => {
   // delete capability. This one CANNOT fail closed — zero quoted verbs is the
   // correct and current state of eight of the nine files — which is why it is
   // the companion to the allow-lists above rather than the guard itself.
-  it("writes no HTTP verb but GET and POST, and no request method but POST", () => {
+  //
+  // The comparison is case-SENSITIVE while the collector is case-INSENSITIVE,
+  // and the asymmetry is the point: a lowercase `"delete"` is collected and then
+  // fails, because the only two values this module may write are the exact
+  // literals it writes today.
+  it("writes no HTTP verb but GET and POST, in a literal or a template part", () => {
     const verbs = extracted.flatMap((e) =>
       e.verbs.filter((v) => v !== "GET" && v !== "POST").map((v) => `${e.file}: ${v}`),
     );
     expect(verbs).toEqual([]);
-    // …and the method itself must be the literal, which closes the
-    // never-write-the-verb walk-around: `method: action === "delete" ? "DELETE"
-    // : "POST"` fails here even before the verb list sees it.
-    const methods = extracted.flatMap((e) =>
-      e.methodValues.filter((m) => m !== "POST").map((m) => `${e.file}: ${m}`),
+  });
+
+  /**
+   * THE METHOD AXIS — the highest-risk single line in the module.
+   *
+   * `remote.ts` is the one file that holds `fetch`, the write token, and the
+   * `/customtypes/{id}` URL, so a request method is the only route in this
+   * module to an IRREVERSIBLE Prismic-side delete. Six shapes escaped the
+   * 2026-08-13 red team here, all of them ordinary TypeScript: `init.method =
+   * "delete"` after the literal was built, `{ ["method"]: "delete" }`,
+   * `Object.defineProperty(init, "method", …)`, `` `${""}DELETE` ``, and
+   * `init.method = action`.
+   *
+   * So this is stated as an allow-list over VALUES, exactly like the bindings
+   * table: every value that can reach a request `method` must reduce statically
+   * to the string literal `"POST"`. The collector above enumerates the WRITE
+   * POSITIONS it understands and records a sentence for every one it does not,
+   * which means an unlisted syntax fails as an unreadable write rather than
+   * passing as no write at all.
+   *
+   * THE COUNT IS PINNED, and zero is a FAILURE. An extractor that quietly stops
+   * matching — a renamed predicate after a TypeScript upgrade, a refactor that
+   * moves the request builder — reports an empty list, and an empty list
+   * satisfies "every method is POST" trivially. The module has exactly one
+   * method write today (`remote.ts`'s `sendModel`, ~line 275); if that becomes
+   * zero, or a second file starts building requests, this reds and somebody
+   * looks.
+   */
+  it("writes exactly ONE request method in the module: the POST literal in remote.ts", () => {
+    const byFile = Object.fromEntries(
+      extracted.filter((e) => e.methodValues.length > 0).map((e) => [e.file, e.methodValues]),
     );
-    expect(methods).toEqual([]);
+    expect(byFile).toEqual({ "remote.ts": ["POST"] });
   });
 
   it("calls no injected process-spawner directly", () => {
