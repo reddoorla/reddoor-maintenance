@@ -79,22 +79,29 @@ describe("canon", () => {
     expect(sameModel({ thumbnails: [1, null] }, { thumbnails: [1] })).toBe(false);
   });
 
-  it("is idempotent: canon(canon(x)) deep-equals canon(x)", () => {
+  it("is idempotent: canon(canon(x)) equals canon(x), key order included", () => {
+    // sameModel — not toEqual — because toEqual is key-order-insensitive and
+    // would pass even if a second canon() pass produced a different key
+    // order than the first. Comparing through sameModel forces the stronger
+    // claim: re-running canon serializes identically, not just structurally.
     const x = {
       b: 1,
       imageUrl: "https://drop-me",
       a: { z: null, y: "", w: [1, null, { q: undefined, p: 2 }] },
     };
-    expect(canon(canon(x))).toEqual(canon(x));
+    expect(sameModel(canon(x), x)).toBe(true);
   });
 
   // Trimmed from a real fleet model: gallerysonder's ImageGallery/model.json
   // (~/Documents/GitHub/gallerysonder/src/lib/slices/ImageGallery/model.json,
   // read-only reference, not modified). `local` keeps the on-disk shape;
   // `remote` simulates what Prismic hands back after ingest — imageUrl
-  // replaced with a real screenshot URL, and a named thumbnail's height:""
-  // (the file on disk has no configured thumbnails, so this one entry is
-  // added to exercise that path) coerced away entirely.
+  // replaced with a real screenshot URL, a named thumbnail's height:"" (the
+  // file on disk has no configured thumbnails, so this one entry is added to
+  // exercise that path) coerced away entirely, AND every object's keys
+  // reordered at every level — exactly what a real serializer round-trip
+  // does, and what makes this fixture (unlike the smaller unit tests above)
+  // actually exercise `.sort()` rather than happening to match by luck.
   it("matches a real fleet model against its Prismic-serialized twin", () => {
     const local = {
       id: "image_gallery",
@@ -124,29 +131,29 @@ describe("canon", () => {
       ],
     };
     const remote = {
-      id: "image_gallery",
       type: "SharedSlice",
       name: "ImageGallery",
+      id: "image_gallery",
       variations: [
         {
-          id: "default",
-          imageUrl: "https://images.prismic.io/slice-machine/deadbeef_default.png",
-          primary: {
-            button_bottom_link: {
-              type: "Link",
-              config: { label: "button bottom link", placeholder: "", select: null },
-            },
-          },
           items: {
             image: {
-              type: "Image",
               config: {
-                label: "image",
+                thumbnails: [{ width: 500, name: "Square" }],
                 constraint: {},
-                thumbnails: [{ name: "Square", width: 500 }],
+                label: "image",
               },
+              type: "Image",
             },
           },
+          primary: {
+            button_bottom_link: {
+              config: { select: null, placeholder: "", label: "button bottom link" },
+              type: "Link",
+            },
+          },
+          imageUrl: "https://images.prismic.io/slice-machine/deadbeef_default.png",
+          id: "default",
         },
       ],
     };

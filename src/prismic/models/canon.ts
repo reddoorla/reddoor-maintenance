@@ -9,14 +9,29 @@
 // medical-solutions-of-texas, reddoor-website, vineyard-custom-homes), and —
 // the one beachfront's original did not handle — EMPTY STRINGS.
 //
-// The empty-string rule is load-bearing, not cosmetic. Slice Machine writes
-// image thumbnails to disk as {"name":"desktop","width":1200,"height":""}.
-// Prismic coerces that "" to null on ingest and returns a model with the key
-// absent. Filtering null but keeping "" made the two copies unequal FOREVER: a
-// push sends "", Prismic stores null, the next scan diffs again. The nightly
-// drift check would have alarmed on hedloc every night for a divergence that
-// never existed. Proven by round-tripping a thumbnail through the Types API on
-// the-pinnacle: sent height:"", read back height:null.
+// The empty-string rule is load-bearing, not cosmetic — but a thumbnail
+// height:"" is the RARE trigger, not the common one. Fleet-wide (grep
+// '"height": *""' across every *.json, not just model.json — see the warning
+// below) it occurs exactly ONCE: hedloc/customtypes/home/index.json, a
+// thumbnail {"name":"desktop","width":1200,"height":""}. The other four real
+// thumbnail entries on disk (caltex-landing/src/lib/slices/Hero/model.json ×2,
+// hedloc/src/lib/slices/Hero/model.json ×2) already carry "height":null, not
+// "". What makes the rule load-bearing is its reach far beyond thumbnails:
+// plain "" shows up in ordinary field configs constantly — "placeholder":""
+// alone appears 801 times fleet-wide. Any one of those is the same trap in
+// miniature if Prismic ever normalises it away on ingest. The proof for the
+// specific hedloc case is a round-trip through the Types API on the-pinnacle:
+// sent height:"", read back height:null — confirming Prismic really does
+// coerce "" to null (and drop the key) rather than store it verbatim, so
+// keeping "" while dropping null would have made hedloc's copies unequal
+// FOREVER: a push sends "", Prismic stores null, the next scan diffs again.
+//
+// WARNING for the next person grepping to check a claim like this one: half
+// of what canon() compares are custom types, not slice models, and they live
+// at a different path — customtypes/<id>/index.json, not
+// src/lib/slices/<Name>/model.json. A model.json-only search misses them
+// entirely, which is exactly how the hedloc occurrence above stays invisible
+// to a scan that only looks at slice models.
 //
 // Safe because the only comparison it collapses is `"" vs absent`, which IS the
 // non-difference. `"" vs "something"` still differs (one side keeps the key),
