@@ -281,8 +281,13 @@ describe("the module-wide capability guard", () => {
     "./token.js": ["prismicTokenEnvName", "resolvePrismicToken"],
     "./write.js": ["modelFilePath", "writeModelFile"],
     "./types.js": [], // type-only, erased at runtime
-    "../../audits/util/spawn.js": [], // type-only, erased at runtime
-    "../../recipes/_prettier.js": ["formatWithPrettier"],
+    // NOTHING outside this module's own directory and the two node builtins
+    // above. `../../audits/util/spawn.js` and `../../recipes/_prettier.js` used
+    // to be here, because `writeModelFile` took a `SpawnFn` and handed it to
+    // `formatWithPrettier`. It takes the narrower `FormatModelFile` now — see
+    // F3 in the header — so the module reaches no sibling module at all, and
+    // re-acquiring either one fails HERE rather than at a sentinel that only
+    // recognised one spelling of a call.
   };
 
   /** Derived, never maintained by hand: a channel exists exactly when the table
@@ -619,12 +624,20 @@ describe("the module-wide capability guard", () => {
           out.specifiers.push(specifier);
           recordDynamicBinding(n, specifier);
         }
-        // The loudest single hole this guard does NOT close: `spawn` arrives as
-        // a PARAMETER, and `spawn("rm", ["-rf", …])` reaches every verb the
-        // allow-list refuses without naming a module. `write.ts` never calls it
-        // directly — it hands it to `formatWithPrettier` — so requiring that
-        // stays honest and makes any future direct use a conversation rather
-        // than a silent capability.
+        // A DENY-LIST ON A SPELLING, kept only as a tripwire on the way back.
+        // It used to be described as the loudest single hole this guard does not
+        // close; the 2026-08-13 red team walked through it three ways (`const
+        // run = spawn`, a helper parameter, a property) and reached `rm -rf`, a
+        // `git rm` and a concatenated `curl -X DELE"+"TE`. A sentinel counting
+        // one spelling of a callee cannot be fixed into a guarantee.
+        //
+        // What closed it was NARROWING THE CAPABILITY: `writeModelFile` no
+        // longer takes an arbitrary-argv `SpawnFn` at all, it takes
+        // `FormatModelFile` ("format these paths, in this repo, with this
+        // binary"), so the module holds nothing that can run anything else and
+        // the bindings table above covers the sibling modules by construction.
+        // This counter stays because it is free and because a spawn re-entering
+        // the module should be a conversation, not because it proves anything.
         const callee = unwrap(n.expression);
         if (ts.isIdentifier(callee) && callee.text === "spawn") out.directSpawnCalls += 1;
       }

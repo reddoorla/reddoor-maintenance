@@ -15,8 +15,13 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
-import { writeModelFile, modelFilePath } from "../../../src/prismic/models/write.js";
-import { defaultSpawn, type SpawnFn } from "../../../src/audits/util/spawn.js";
+import {
+  writeModelFile,
+  modelFilePath,
+  type FormatModelFile,
+} from "../../../src/prismic/models/write.js";
+import { defaultSpawn } from "../../../src/audits/util/spawn.js";
+import { formatWithPrettier } from "../../../src/recipes/_prettier.js";
 import type { RemoteEntry } from "../../../src/prismic/models/types.js";
 
 let dir: string;
@@ -53,15 +58,23 @@ const giveOwnPrettier = async (root: string, body = "#!/bin/sh\nexit 0\n"): Prom
   return await realpath(bin);
 };
 
-/** Spawn doubles, TYPED as `SpawnFn`. A bare `vi.fn(async () => …)` is
- *  `Mock<Procedure | Constructable>`, which vitest runs happily and `tsc`
- *  rejects — the split this plan warns about, hit here on the first gate. */
-const okSpawn = (): Mock<SpawnFn> =>
-  vi.fn<SpawnFn>(async () => ({ code: 0, stdout: "", stderr: "" }));
-const exitingSpawn = (code: number): Mock<SpawnFn> =>
-  vi.fn<SpawnFn>(async () => ({ code, stdout: "", stderr: "not found" }));
-const throwingSpawn = (): Mock<SpawnFn> =>
-  vi.fn<SpawnFn>(async () => {
+/**
+ * Formatter doubles, TYPED as `FormatModelFile`. A bare `vi.fn(async () => …)`
+ * is `Mock<Procedure | Constructable>`, which vitest runs happily and `tsc`
+ * rejects — the split this plan warns about, hit here on the first gate.
+ *
+ * These used to be `SpawnFn` doubles, because `writeModelFile` used to take an
+ * arbitrary-argv process spawner. It takes the CAPABILITY now — "format these
+ * paths, in this repo, with this binary" — so the doubles are at that seam
+ * instead, and the two behaviours that used to be asserted through a spawn
+ * (prettier exits non-zero, the spawn itself throws) are asserted where they now
+ * live, in `tests/recipes/_prettier.test.ts`. The end-to-end test at the bottom
+ * of this file still drives the REAL binding, spawn and all.
+ */
+const okFormat = (): Mock<FormatModelFile> => vi.fn<FormatModelFile>(async () => true);
+const failingFormat = (): Mock<FormatModelFile> => vi.fn<FormatModelFile>(async () => false);
+const throwingFormat = (): Mock<FormatModelFile> =>
+  vi.fn<FormatModelFile>(async () => {
     throw new Error("ENOENT pnpm");
   });
 
@@ -191,8 +204,8 @@ describe("writeModelFile", () => {
   };
 
   it("creates the directory and writes parseable JSON", async () => {
-    const spawn = okSpawn();
-    const res = await writeModelFile(spawn, dir, entry, LIB);
+    const format = okFormat();
+    const res = await writeModelFile(format, dir, entry, LIB);
     expect(res.path).toBe("customtypes/frozen_page/index.json");
     expect(JSON.parse(await readFile(join(dir, res.path), "utf-8"))).toEqual({
       id: "frozen_page",
@@ -211,14 +224,17 @@ describe("writeModelFile", () => {
   // `pnpm install` inside the client repo and falling through to the CALLING
   // repo's prettier — reporting `formatted: true` for a format the target never
   // did.
+  //
+  // Asserted as the WHOLE CALL LIST, not `toHaveBeenCalledWith`: the claim is
+  // that this module formats the one file it wrote and touches nothing else, and
+  // a "was called with" assertion is silent about a second call.
   it("formats the written file with the TARGET REPO's own prettier, by absolute path", async () => {
     const bin = await realpath(join(dir, "node_modules", ".bin", "prettier"));
-    const spawn = okSpawn();
-    await writeModelFile(spawn, dir, entry, LIB);
-    expect(spawn).toHaveBeenCalledWith(bin, ["--write", "customtypes/frozen_page/index.json"], {
-      cwd: dir,
-      timeoutMs: 60_000,
-    });
+    const format = okFormat();
+    await writeModelFile(format, dir, entry, LIB);
+    expect(format.mock.calls).toEqual([
+      [dir, ["customtypes/frozen_page/index.json"], { bin, timeoutMs: 60_000 }],
+    ]);
   });
 
   // ABSENCE ASSERTION — mutation-proven. The one that says what this module is
@@ -228,12 +244,12 @@ describe("writeModelFile", () => {
   // formats a live client's file with OUR prettier and exits 0. Both answers
   // then arrive as `formatted: true`, and the deviation from `--stdin-filepath`
   // was justified specifically to use the TARGET's prettier.
-  it("does not spawn at all when the target repo has no prettier of its own", async () => {
+  it("does not invoke the formatter at all when the target repo has no prettier of its own", async () => {
     const bare = join(dir, "bare-clone");
     await mkdir(bare, { recursive: true });
-    const spawn = okSpawn();
-    const res = await writeModelFile(spawn, bare, entry, LIB);
-    expect(spawn).not.toHaveBeenCalled();
+    const format = okFormat();
+    const res = await writeModelFile(format, bare, entry, LIB);
+    expect(format).not.toHaveBeenCalled();
     expect(res.formatted).toBe(false);
     // The model is still written — losing it would be worse than not formatting.
     expect(JSON.parse(await readFile(join(bare, res.path), "utf-8"))).toMatchObject({
@@ -247,13 +263,13 @@ describe("writeModelFile", () => {
     const bare = join(dir, "dangling");
     await mkdir(join(bare, "node_modules", ".bin"), { recursive: true });
     await symlink(join(bare, "gone"), join(bare, "node_modules", ".bin", "prettier"));
-    const spawn = okSpawn();
-    expect((await writeModelFile(spawn, bare, entry, LIB)).formatted).toBe(false);
-    expect(spawn).not.toHaveBeenCalled();
+    const format = okFormat();
+    expect((await writeModelFile(format, bare, entry, LIB)).formatted).toBe(false);
+    expect(format).not.toHaveBeenCalled();
   });
 
   it("reports formatted:false (never throws) when prettier is unavailable", async () => {
-    const res = await writeModelFile(throwingSpawn(), dir, entry, LIB);
+    const res = await writeModelFile(throwingFormat(), dir, entry, LIB);
     expect(res.formatted).toBe(false);
     expect(JSON.parse(await readFile(join(dir, res.path), "utf-8"))).toMatchObject({
       id: "frozen_page",
@@ -265,7 +281,7 @@ describe("writeModelFile", () => {
   // "(unformatted)" flag off this one boolean, so both channels have to reach
   // it.
   it("reports formatted:false when prettier exits non-zero", async () => {
-    const res = await writeModelFile(exitingSpawn(2), dir, entry, LIB);
+    const res = await writeModelFile(failingFormat(), dir, entry, LIB);
     expect(res.formatted).toBe(false);
     expect(JSON.parse(await readFile(join(dir, res.path), "utf-8"))).toMatchObject({
       id: "frozen_page",
@@ -273,7 +289,7 @@ describe("writeModelFile", () => {
   });
 
   it("reports formatted:true on a clean prettier run", async () => {
-    expect((await writeModelFile(okSpawn(), dir, entry, LIB)).formatted).toBe(true);
+    expect((await writeModelFile(okFormat(), dir, entry, LIB)).formatted).toBe(true);
   });
 
   // Measured 2026-08-13 from each of the 15 in-scope repos' `origin/main` via
@@ -292,7 +308,7 @@ describe("writeModelFile", () => {
   it("writes 2-space JSON with a trailing newline as the pre-prettier baseline", async () => {
     const bare = join(dir, "unformattable");
     await mkdir(bare, { recursive: true });
-    const res = await writeModelFile(okSpawn(), bare, entry, LIB);
+    const res = await writeModelFile(okFormat(), bare, entry, LIB);
     expect(res.formatted).toBe(false);
     const raw = await readFile(join(bare, res.path), "utf-8");
     expect(raw).toContain('\n  "id"');
@@ -313,7 +329,7 @@ describe("writeModelFile", () => {
   // different one — data loss produced by the operation whose entire purpose is
   // to be the SAFE alternative to deleting a model.
   it("refuses to overwrite a file that declares a DIFFERENT model id", async () => {
-    const spawn = okSpawn();
+    const format = okFormat();
     const occupied = "src/lib/slices/ContentWidthMedia/model.json";
     await mkdir(join(dir, "src/lib/slices/ContentWidthMedia"), { recursive: true });
     await writeFile(
@@ -321,27 +337,37 @@ describe("writeModelFile", () => {
       JSON.stringify({ id: "video_block", type: "SharedSlice" }, null, "\t") + "\n",
     );
 
-    const err = await refusalFrom(writeModelFile(spawn, dir, slice("content_width_media"), LIB));
+    const err = await refusalFrom(writeModelFile(format, dir, slice("content_width_media"), LIB));
     expect(JSON.parse(await readFile(join(dir, occupied), "utf-8"))).toEqual({
       id: "video_block",
       type: "SharedSlice",
     });
-    expect(spawn).not.toHaveBeenCalled();
+    expect(format).not.toHaveBeenCalled();
     expect(err?.message).toMatch(/video_block/);
   });
 
   // The same-id case is the one legitimate overwrite: refreshing a model from
   // Prismic replaces the model it names, not somebody else's.
+  //
+  // The call-list assertion is here for a reason found by the 2026-08-13 red
+  // team: no test constrained the injected capability on the REFRESH branch, and
+  // that branch is where every surviving attack variant sat. It is the path that
+  // may legitimately destroy bytes in a live client repo, so it is the path that
+  // must say exactly what it invoked — the one file it just wrote, once, in the
+  // target repo, with the binary found under that repo's own root.
   it("overwrites a file that declares the SAME model id", async () => {
     const rel = "customtypes/frozen_page/index.json";
+    const bin = await realpath(join(dir, "node_modules", ".bin", "prettier"));
     await mkdir(join(dir, "customtypes/frozen_page"), { recursive: true });
     await writeFile(join(dir, rel), JSON.stringify({ id: "frozen_page", label: "Stale" }));
-    const res = await writeModelFile(okSpawn(), dir, entry, LIB);
+    const format = okFormat();
+    const res = await writeModelFile(format, dir, entry, LIB);
     expect(res.formatted).toBe(true);
     expect(JSON.parse(await readFile(join(dir, res.path), "utf-8"))).toEqual({
       id: "frozen_page",
       label: "Frozen",
     });
+    expect(format.mock.calls).toEqual([[dir, [rel], { bin, timeoutMs: 60_000 }]]);
   });
 
   // ABSENCE ASSERTION — mutation-proven: restoring the old
@@ -370,7 +396,7 @@ describe("writeModelFile", () => {
     await chmod(modelDir, 0o500); // r-x: the file stays writable, the directory does not
     let err: Error | undefined;
     try {
-      err = await refusalFrom(writeModelFile(okSpawn(), dir, entry, LIB));
+      err = await refusalFrom(writeModelFile(okFormat(), dir, entry, LIB));
     } finally {
       await chmod(modelDir, 0o700);
     }
@@ -397,8 +423,8 @@ describe("writeModelFile", () => {
     await writeFile(join(dir, rel), before);
     await mkdir(join(dir, `${rel}.tmp`)); // staging cannot write over a directory
 
-    const first = await refusalFrom(writeModelFile(okSpawn(), dir, entry, LIB));
-    const second = await refusalFrom(writeModelFile(okSpawn(), dir, entry, LIB));
+    const first = await refusalFrom(writeModelFile(okFormat(), dir, entry, LIB));
+    const second = await refusalFrom(writeModelFile(okFormat(), dir, entry, LIB));
 
     const strays = (await readdir(modelDir)).filter((f) => f.endsWith(".tmp"));
     expect(strays).toEqual(["index.json.tmp"]);
@@ -424,7 +450,7 @@ describe("writeModelFile", () => {
     await writeFile(join(dir, rel), JSON.stringify({ id: "frozen_page", label: "Stale" }));
     await writeFile(join(dir, `${rel}.tmp`), "{ half-written wreckage from a killed run");
 
-    const res = await writeModelFile(okSpawn(), dir, entry, LIB);
+    const res = await writeModelFile(okFormat(), dir, entry, LIB);
 
     expect(JSON.parse(await readFile(join(dir, res.path), "utf-8"))).toEqual({
       id: "frozen_page",
@@ -447,7 +473,7 @@ describe("writeModelFile", () => {
     const rel = "customtypes/frozen_page/index.json";
     await mkdir(join(dir, "customtypes/frozen_page"), { recursive: true });
     await writeFile(join(dir, rel), "{ not json");
-    const err = await refusalFrom(writeModelFile(okSpawn(), dir, entry, LIB));
+    const err = await refusalFrom(writeModelFile(okFormat(), dir, entry, LIB));
     expect(await readFile(join(dir, rel), "utf-8")).toBe("{ not json");
     expect(err?.message).toMatch(/is not valid JSON/);
   });
@@ -456,14 +482,14 @@ describe("writeModelFile", () => {
     const rel = "customtypes/frozen_page/index.json";
     await mkdir(join(dir, "customtypes/frozen_page"), { recursive: true });
     await writeFile(join(dir, rel), JSON.stringify({ label: "who am i" }));
-    const err = await refusalFrom(writeModelFile(okSpawn(), dir, entry, LIB));
+    const err = await refusalFrom(writeModelFile(okFormat(), dir, entry, LIB));
     expect(JSON.parse(await readFile(join(dir, rel), "utf-8"))).toEqual({ label: "who am i" });
     expect(err?.message).toMatch(/declares no string "id"/);
   });
 
   it("refuses when a DIRECTORY sits where the model file goes", async () => {
     await mkdir(join(dir, "customtypes/frozen_page/index.json"), { recursive: true });
-    await expect(writeModelFile(okSpawn(), dir, entry, LIB)).rejects.toThrow();
+    await expect(writeModelFile(okFormat(), dir, entry, LIB)).rejects.toThrow();
   });
 
   // ABSENCE ASSERTION — mutation-proven: replacing the `wx` flag with a plain
@@ -477,8 +503,16 @@ describe("writeModelFile", () => {
     const rel = "customtypes/frozen_page/index.json";
     await mkdir(join(dir, "customtypes/frozen_page"), { recursive: true });
     await symlink(join(dir, "nowhere.json"), join(dir, rel));
-    const err = await refusalFrom(writeModelFile(okSpawn(), dir, entry, LIB));
+    const format = okFormat();
+    const err = await refusalFrom(writeModelFile(format, dir, entry, LIB));
     expect(await present(join(dir, "nowhere.json"))).toBe(false);
+    // The link ITSELF must survive untouched. "Nothing was created through it"
+    // and "nothing was destroyed at it" are two different claims, and only the
+    // first was checked here until the 2026-08-13 red team pointed out that a
+    // refusal which quietly replaced the operator's link would pass this test.
+    expect(await lstat(join(dir, rel)).then((s) => s.isSymbolicLink())).toBe(true);
+    // …and nothing was handed to the formatter for a file that was never written.
+    expect(format).not.toHaveBeenCalled();
     expect(err).toBeInstanceOf(Error);
   });
 
@@ -493,10 +527,10 @@ describe("writeModelFile", () => {
   it("refuses a library whose spelling points outside the repo root", async () => {
     const repoRoot = join(dir, "repo");
     await mkdir(repoRoot, { recursive: true });
-    const spawn = okSpawn();
-    const err = await refusalFrom(writeModelFile(spawn, repoRoot, slice("hero"), "../outside"));
+    const format = okFormat();
+    const err = await refusalFrom(writeModelFile(format, repoRoot, slice("hero"), "../outside"));
     expect(await present(join(dir, "outside"))).toBe(false);
-    expect(spawn).not.toHaveBeenCalled();
+    expect(format).not.toHaveBeenCalled();
     expect(err).toBeInstanceOf(Error);
   });
 
@@ -521,10 +555,10 @@ describe("writeModelFile", () => {
     await mkdir(sibling, { recursive: true });
     await symlink(sibling, join(repoRoot, "customtypes"));
 
-    const spawn = okSpawn();
-    const err = await refusalFrom(writeModelFile(spawn, repoRoot, entry, LIB));
+    const format = okFormat();
+    const err = await refusalFrom(writeModelFile(format, repoRoot, entry, LIB));
     expect(await present(join(sibling, "frozen_page"))).toBe(false);
-    expect(spawn).not.toHaveBeenCalled();
+    expect(format).not.toHaveBeenCalled();
     expect(err?.message).toMatch(/outside this repo/);
   });
 
@@ -537,7 +571,7 @@ describe("writeModelFile", () => {
     await giveOwnPrettier(repoRoot);
     await symlink(join(repoRoot, "real-customtypes"), join(repoRoot, "customtypes"));
 
-    const res = await writeModelFile(okSpawn(), repoRoot, entry, LIB);
+    const res = await writeModelFile(okFormat(), repoRoot, entry, LIB);
     expect(
       JSON.parse(
         await readFile(join(repoRoot, "real-customtypes/frozen_page/index.json"), "utf-8"),
@@ -556,17 +590,17 @@ describe("writeModelFile", () => {
   // silence. remote.ts's `sendModel` refuses the same mismatch at the other end
   // of the pipeline for the same reason.
   it("refuses an entry whose model body declares a different id", async () => {
-    const spawn = okSpawn();
+    const format = okFormat();
     const err = await refusalFrom(
       writeModelFile(
-        spawn,
+        format,
         dir,
         { kind: "customtype", id: "frozen_page", model: { id: "catalog_page" } },
         LIB,
       ),
     );
     expect(await present(join(dir, "customtypes"))).toBe(false);
-    expect(spawn).not.toHaveBeenCalled();
+    expect(format).not.toHaveBeenCalled();
     expect(err?.message).toMatch(/catalog_page/);
   });
 });
@@ -601,11 +635,21 @@ describe("writeModelFile against a real prettier", () => {
       );
       await writeFile(join(root, ".prettierrc.json"), JSON.stringify({ useTabs: true }) + "\n");
 
+      // THE REAL BINDING, spelled exactly as an injection site must spell it —
+      // this is the one place in the suite where the narrowed capability is tied
+      // back to an actual process spawn, so the argv the target's prettier
+      // really receives is still asserted rather than assumed.
       const seen: { cmd: string; args: readonly string[] }[] = [];
-      const recording: SpawnFn = (cmd, args, opts) => {
-        seen.push({ cmd, args });
-        return defaultSpawn(cmd, args, opts);
-      };
+      const recording: FormatModelFile = (repoRoot, relPaths, opts) =>
+        formatWithPrettier(
+          (cmd, args, spawnOpts) => {
+            seen.push({ cmd, args });
+            return defaultSpawn(cmd, args, spawnOpts);
+          },
+          repoRoot,
+          relPaths,
+          opts,
+        );
 
       const res = await writeModelFile(
         recording,
@@ -636,12 +680,20 @@ describe("writeModelFile against a real prettier", () => {
 // than kept in sync: the second guard is always the one that stops being
 // updated.
 //
-// Two things moved and one changed. The bindings walk and the `spawn("rm", …)`
-// sentinel moved verbatim. The fs verb list is now the UNION over the three
-// adapters that touch files (config, local, write) rather than write.ts's own
-// five, which means this file could take a READ verb the other two already have
-// without the guard firing. Nothing that removes a path is on the union either,
-// so the no-delete property is unchanged; what is traded away is per-file
-// least privilege, deliberately, so that an ordinary edit does not redden a test
-// that must stay credible. See the header of index.test.ts for the full history
-// and for the limit this guard does NOT close.
+// Two things moved and one changed. The bindings walk moved verbatim. The fs
+// verb list is now the UNION over the three adapters that touch files (config,
+// local, write) rather than write.ts's own five, which means this file could
+// take a READ verb the other two already have without the guard firing. Nothing
+// that removes a path is on the union either, so the no-delete property is
+// unchanged; what is traded away is per-file least privilege, deliberately, so
+// that an ordinary edit does not redden a test that must stay credible.
+//
+// The `spawn("rm", …)` sentinel that also moved there is now close to vestigial,
+// and deliberately so: `writeModelFile` no longer TAKES a process spawner. It
+// takes {@link FormatModelFile}, the capability it actually needs, so the argv
+// is built at the injection site and this module cannot express `rm -rf` at all.
+// The 2026-08-13 red team went through that sentinel three ways (`const run =
+// spawn`, a helper parameter, a property), which is what a deny-list on a
+// callee's SPELLING is worth. Narrowing the signature was the fix; the sentinel
+// stays only as a tripwire on the way back. See the header of index.test.ts for
+// the full history and for the escape classes that guard does NOT close.

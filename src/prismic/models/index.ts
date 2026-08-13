@@ -18,7 +18,7 @@ export { prismicTokenEnvName, resolvePrismicToken, type ResolvedToken } from "./
 export { localModels } from "./local.js";
 export { CUSTOM_TYPES_API, remoteModels, sendModel } from "./remote.js";
 export { pushModels, type PushOptions, type SendFn } from "./push.js";
-export { modelFilePath, writeModelFile, type WriteResult } from "./write.js";
+export { modelFilePath, writeModelFile, type FormatModelFile, type WriteResult } from "./write.js";
 export type {
   LocalEntry,
   ModelDiff,

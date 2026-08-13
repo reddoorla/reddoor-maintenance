@@ -11,9 +11,41 @@
 // assumed, and the proof is what `occupantId` below is.
 import { mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
 import { dirname, join, posix, relative, sep } from "node:path";
-import type { SpawnFn } from "../../audits/util/spawn.js";
-import { formatWithPrettier } from "../../recipes/_prettier.js";
 import type { RemoteEntry } from "./types.js";
+
+/**
+ * The ONLY capability this module takes for formatting — and it is deliberately
+ * NOT a process spawner.
+ *
+ * `writeModelFile` used to take `SpawnFn`, which is an arbitrary-argv primitive:
+ * with one in hand this module could run `rm -rf` over a live model, `git rm`
+ * it, or `curl -X DELETE` at the Types API — none of which names a module, a
+ * binding or an HTTP verb that a source guard can see. The guard's answer was a
+ * sentinel counting direct calls to a callee spelled `spawn`, and a deny-list on
+ * a SPELLING dies to `const run = spawn`, to a helper parameter, or to a
+ * property; this file used the helper idiom three lines away.
+ *
+ * So the module holds the narrower thing instead: "format these repo-relative
+ * paths, in this repo, with this binary". The argv is built by the caller's
+ * binding — one line at the injection site — and this module never holds a
+ * primitive that can run anything else. That removes the capability class rather
+ * than narrowing the hole, which is why it was worth changing a signature for.
+ *
+ * Bind it with the recipe helper the fleet already uses:
+ *
+ *     const format: FormatModelFile = (root, paths, opts) =>
+ *       formatWithPrettier(spawn, root, paths, opts);
+ *
+ * BEST-EFFORT BY CONTRACT, exactly like `formatWithPrettier`: resolve `false`,
+ * never throw. `writeModelFile` defends against a binding that breaks that
+ * anyway — the model is already on disk before this runs, and losing a pulled
+ * model to a formatting failure is the worst outcome on offer.
+ */
+export type FormatModelFile = (
+  repoRoot: string,
+  relPaths: readonly string[],
+  opts: { bin: string; timeoutMs: number },
+) => Promise<boolean>;
 
 /**
  * The characters a model id may contain, as an ALLOW-LIST.
@@ -287,9 +319,11 @@ async function targetPrettierBin(repoRoot: string): Promise<string | null> {
  * HTTP budget, because this is process startup rather than one request, and far
  * below the 5-minute install budgets, because it formats ONE small JSON file.
  *
- * A timeout also makes {@link SpawnFn}'s default implementation detach the
- * child (spawn.ts only sets `detached` when `timeoutMs` is present), so the
- * kill reaches prettier and not just a wrapper.
+ * A timeout also makes the fleet's default spawn implementation detach the
+ * child (`src/audits/util/spawn.ts` only sets `detached` when `timeoutMs` is
+ * present), so the kill reaches prettier and not just a wrapper. This module
+ * does not hold that spawn — see {@link FormatModelFile} — but the number it
+ * passes is what decides that behaviour at the injection site.
  */
 const PRETTIER_TIMEOUT_MS = 60_000;
 
@@ -312,7 +346,8 @@ const PRETTIER_TIMEOUT_MS = 60_000;
  * guessed" — both are 0 — and the second answer is the one this whole deviation
  * from `--stdin-filepath` exists to avoid.
  *
- * Formatting is best-effort by contract (`formatWithPrettier` never throws), so
+ * Formatting is best-effort by contract ({@link FormatModelFile} never throws,
+ * and this refuses to take its word for it — see the call), so
  * the file is always written; `formatted: false` tells the caller to flag the PR
  * for a manual format check rather than losing the model. It is one bit and it
  * deliberately merges three causes — the target has no prettier, its prettier
@@ -333,7 +368,7 @@ const PRETTIER_TIMEOUT_MS = 60_000;
  * wrong file is indistinguishable from one that worked.
  */
 export async function writeModelFile(
-  spawn: SpawnFn,
+  format: FormatModelFile,
   repoRoot: string,
   entry: RemoteEntry,
   library: string,
@@ -433,8 +468,8 @@ export async function writeModelFile(
       // guarantee (nothing is destroyed, ever) for a lesser one (a new file is
       // never partial). `link()` would give both — it fails EEXIST if the name
       // is taken — but only at the cost of an `unlink` to clear the temp, and a
-      // delete verb in this module is precisely what the channels guard in
-      // write.test.ts exists to forbid. The free path has nothing to destroy,
+      // delete verb in this module is precisely what the module-wide capability
+      // guard in index.test.ts exists to forbid. The free path has nothing to destroy,
       // so it does not need to buy the protection twice.
       await writeFile(full, body, { encoding: "utf-8", flag: "wx" });
     } catch (e) {
@@ -517,11 +552,22 @@ export async function writeModelFile(
     }
   }
 
-  // Resolved, never resolved-by-PATH: see targetPrettierBin.
+  // Resolved, never resolved-by-PATH: see targetPrettierBin. No prettier of its
+  // own means the formatter is never invoked at all — this module refuses to
+  // hand a path to something it did not find under the TARGET's root.
   const bin = await targetPrettierBin(repoRoot);
-  const formatted =
-    bin === null
-      ? false
-      : await formatWithPrettier(spawn, repoRoot, [rel], { bin, timeoutMs: PRETTIER_TIMEOUT_MS });
-  return { path: rel, formatted };
+  if (bin === null) return { path: rel, formatted: false };
+  try {
+    return {
+      path: rel,
+      formatted: await format(repoRoot, [rel], { bin, timeoutMs: PRETTIER_TIMEOUT_MS }),
+    };
+  } catch {
+    // {@link FormatModelFile} is best-effort BY CONTRACT, and this does not take
+    // the injection site's word for it. The model is already on disk; rejecting
+    // here would report a failed pull-down for a file that is sitting in the
+    // repo — the silent-wrong-report failure this module is written against,
+    // pointed at its own caller.
+    return { path: rel, formatted: false };
+  }
 }
