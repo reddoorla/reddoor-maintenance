@@ -52,16 +52,18 @@ describe("prismic/models public surface", () => {
 /**
  * THE MODULE-WIDE CAPABILITY GUARD.
  *
- * It runs over EVERY file in `src/prismic/models/`, and it is the only copy.
- * The per-file guards that used to live in `push.test.ts` ("pushModels reaches
- * Prismic only through the injected send") and `write.test.ts` ("write.ts
- * channels") are now pointers to this one: two guards with a seam between them
- * is the shape that failed here twice, and the second one to be written is
- * always the one that never gets updated.
+ * It runs over EVERY file in `src/prismic/models/`, and it is the only copy of
+ * the CHANNELS guard — specifiers and bindings. The per-file versions that used
+ * to live in `push.test.ts` ("pushModels reaches Prismic only through the
+ * injected send") and `write.test.ts` ("write.ts channels") are now pointers to
+ * this one: two guards with a seam between them is the shape that failed here
+ * twice, and the second one to be written is always the one that never gets
+ * updated. (`remote.test.ts` deliberately keeps two text-level checks of its
+ * own; see the end of this header for why that is not the same mistake.)
  *
  * ── WHY IT LOOKS LIKE THIS ──────────────────────────────────────────────────
  *
- * The no-delete guard has failed FOUR times in this project, each fix closing
+ * The no-delete guard has failed FIVE times in this project, each fix closing
  * exactly the channel the previous one missed:
  *
  *  1. An exported-NAME check (remote.test.ts). Blind to a working DELETE added
@@ -85,19 +87,35 @@ describe("prismic/models public surface", () => {
  *     legitimately needs mkdir/readFile/writeFile), so `new Set(...)` deduped it
  *     away; the bindings walk only inspected `ts.isImportDeclaration`, so it
  *     never saw `rm`. Both assertions reported PASS.
+ *  5. THE VERSION THAT SURVIVED 31 OF ITS AUTHOR'S OWN ATTACKS, then took 144
+ *     from a red team and let 19 through, confirmed by independent verifiers
+ *     (2026-08-13). Four root causes, addressed below as F1–F4: the method axis
+ *     was enumerated by SYNTAX rather than stated over values, so an assignment
+ *     after the object literal walked past it; the declared-name set was
+ *     FILE-WIDE, so one parameter called `fetch` unlocked every use of the
+ *     global in that file; the `spawn` sentinel was a deny-list on a callee's
+ *     SPELLING, so `const run = spawn` defeated it; and the granted fs verbs had
+ *     ungoverned ARGUMENTS, so `writeFile(model, "")` and `rename(model, aside)`
+ *     destroyed a live model using verbs the table hands over on purpose.
  *
- * Two lessons, and every line below is one of them:
+ * Three lessons, and every line below is one of them:
  *
  *  • ALLOW-LIST, NEVER DENY-LIST. The first three fixes each enumerated
  *    forbidden channels, and a new channel always existed. Enumerate what is
  *    ALLOWED instead, over the whole directory at once, so there is no seam
- *    between two guards and no unguarded file to hop to.
+ *    between two guards and no unguarded file to hop to. (The one deny-list in
+ *    this file — `constructor` — is marked as such and argues for itself.)
  *  • ALLOW-LISTING THE SOURCE IS NOT ALLOW-LISTING THE CAPABILITY.
  *    `node:fs/promises` must stay allowed, so a specifier allow-list can never
  *    express "may write files, may not delete them". The allow-list has to be
  *    over the BINDINGS actually obtained, by every mechanism — destructuring a
  *    dynamic import, member access on a namespace import, aliasing — and a
  *    binding the walk cannot statically resolve must FAIL, never be skipped.
+ *  • ALLOW-LISTING THE CAPABILITY IS NOT GOVERNING ITS USE. This is failure 5's
+ *    lesson and the newest rung. `writeFile` is granted, and `writeFile(model,
+ *    "")` is a delete; `rename` is granted, and `rename(model, aside)` is a
+ *    delete. A verb list cannot say that. The call SITES have to be pinned, with
+ *    their arguments, in the one file that mutates.
  *
  * PARSED WITH THE AST, NOT REGEXED, and that is load-bearing rather than
  * stylistic. A guard like this has to QUOTE the constructs it forbids in order
@@ -108,27 +126,91 @@ describe("prismic/models public surface", () => {
  * exists, and a text ban would have failed on the commit that introduced it.
  * Syntax nodes cannot see inside a comment.
  *
- * ── THE HONEST LIMIT — READ THIS BEFORE CITING THE GUARD ─────────────────────
+ * ── WHAT THIS GUARD IS, AND WHAT IT IS NOT — READ BEFORE CITING IT ──────────
  *
- * A source-local guard can only see capabilities the source NAMES. A capability
- * handed in as a PARAMETER is invisible to it. `push.ts` already takes `send`
- * that way and `write.ts` takes `spawn`; a future `deps: { rm }` would pass
- * every assertion below while carrying a delete straight into the module. The
- * `spawn` sentinel below is the loudest single version of that class, not a
- * closure of it.
+ * IT IS A TRIPWIRE AGAINST ACCIDENTAL INTRODUCTION. IT IS NOT A SECURITY
+ * BOUNDARY, and it cannot be made into one.
  *
- * So the claim this guard makes is exactly:
+ * It catches the delete a colleague adds because it was the obvious next line —
+ * which is how failures 1 through 4 above actually arrived. It does not stop an
+ * author who is trying to get a delete past it: failure 5 was somebody trying,
+ * and 19 of 144 attempts worked. A determined author always wins here, because
+ * the module legitimately holds `fetch`, a write token, `writeFile` and
+ * `rename`, and because JavaScript hands every value in the language a route to
+ * `Function`.
  *
- *     NO FILE IN THIS MODULE ACQUIRES A DELETE CAPABILITY.
+ * The claim, stated so it can be checked rather than believed:
  *
- * It is NOT "no delete can occur". What bounds the rest is the injection sites —
- * the CLI command and the tests, both in this repo and both reviewable. Do not
- * let a comment anywhere upgrade the claim: an overstated guarantee is how the
- * previous four versions of this guard got trusted past what they proved.
+ *     NO FILE IN THIS MODULE ACQUIRES A DELETE CAPABILITY BY ANY CHANNEL THIS
+ *     GUARD CAN SEE — which is: a named module, a binding taken off one, a free
+ *     identifier, a request method, or a call to a mutating fs verb.
+ *
+ * It is NOT "no delete can occur". Every previous version of this guard was
+ * trusted past what it proved, and an overstated claim in a header is how that
+ * happened every single time.
+ *
+ * A PREVIOUS VERSION OF THIS HEADER SAID what bounds the rest is the injection
+ * sites, "the CLI command and the tests, both in this repo and both reviewable".
+ * That sentence was wrong twice over and is deleted: there IS no CLI injection
+ * site — nothing in `src/` calls `writeModelFile` at all (Task 16 will), and the
+ * only live injector is `write.test.ts` — and even if there were, an injection
+ * site does not BOUND anything. It is one more place a capability can be handed
+ * in, which is the class below, not its closure.
+ *
+ * ── THE ESCAPE CLASSES THAT REMAIN OPEN ─────────────────────────────────────
+ *
+ * Named, because a reader deserves the list rather than a hint. Every one of
+ * these was reached or confirmed on 2026-08-13.
+ *
+ *  1. INJECTED CAPABILITIES. A capability handed in as a parameter names no
+ *     module. `push.ts` takes `send`, `write.ts` takes `format`; a future
+ *     `deps: { rm }`, or an inline-typed `run?: (cmd, args) => Promise<unknown>`,
+ *     passes every assertion here while carrying anything at all. MEASURED: an
+ *     inline-typed spawner aliased before its call was run against this guard
+ *     and passed, 14/14 green. What was done about it is F3 — `writeModelFile`
+ *     no longer TAKES a process spawner, so the class is smaller by one very
+ *     large member, but it is not closed and cannot be by source-local analysis.
+ *  2. `.constructor` AND REFLECTION. `Object.constructor` is `Function`, so
+ *     arbitrary code — and any module — is one property access off any value the
+ *     module holds. The rule below is a DENY-LIST on the word `constructor`; it
+ *     closes the realistic spellings and not the class. `x["cons" + "tructor"]`,
+ *     `Object.getOwnPropertyNames`, and `Object.getPrototypeOf(x).constructor`
+ *     reach the same place; the last one is caught only because it also writes
+ *     the word. MEASURED: the concatenated spelling was run against this guard
+ *     and passed, 14/14 green.
+ *  3. SHADOWING INSIDE THE FUNCTION THAT SHADOWS. Free identifiers now resolve
+ *     per SCOPE, so one parameter named `fetch` no longer unlocks a whole file.
+ *     Inside that function the parameter still hides the global, and the guard
+ *     cannot see what the caller passed. The `fetch` name pin covers that one
+ *     name; nothing covers a capability arriving under a name nobody thought of.
+ *  4. WHAT THE PINNED ARGUMENTS DO NOT SAY. The four mutating call sites are
+ *     pinned by spelling. Nothing constrains the VALUES that flow into them: if
+ *     `body` were computed differently, or `full` derived from somewhere else,
+ *     the pin still matches. It pins the shape of the code, not its semantics.
+ *  5. RUNTIME. Everything here is static. Nothing constrains what an injected
+ *     `fetch` or `format` actually does, what a caller passes as `repoRoot`, or
+ *     what Prismic returns. The behavioural guarantees live in the per-file
+ *     suites next to this one, not here.
+ *  6. OUT OF SCOPE ENTIRELY. This reads `src/prismic/models/` and nothing else.
+ *     The tests, the CLI, and every other module in this repo are unguarded by
+ *     it — including the file you are reading, which could be edited to assert
+ *     nothing at all. The count pins below are the only defence against that,
+ *     and they are a defence against accident, not against intent.
  *
  * ── PROVEN BY MUTATION ──────────────────────────────────────────────────────
  *
- * 2026-08-13. 31 attacks, 31 caught; 4 controls, 4 green.
+ * 2026-08-13, ROUND ONE: 31 attacks, 31 caught; 4 controls, 4 green.
+ *
+ * 2026-08-13, RED TEAM: 144 attacks, 90 caught, and 19 ESCAPES CONFIRMED BY
+ * INDEPENDENT VERIFIERS. Round one's "31 of 31" was true and worth very little:
+ * it proved the guard caught the attacks its own author thought of. The four
+ * root causes of the 19 were the method axis (six shapes — an assignment after
+ * the object literal, a computed key, `Object.defineProperty`, a template, a
+ * variable, a lowercase verb), the file-wide `declared` set, the `spawn`
+ * sentinel's deny-list on a spelling, and the ungoverned arguments of granted
+ * verbs. All four are addressed above as F1–F4; the classes that remain are
+ * listed as F5, and every fix was re-proven by mutation with the exact escape
+ * shape that motivated it.
  *
  * A MUTATION HARNESS CAN LIE, AND IT LIES TOWARD SUCCESS: the "17 of 17 caught"
  * report in this project was worthless because `--reporter=basic` does not exist
@@ -163,12 +245,35 @@ describe("prismic/models public surface", () => {
  * for the module, refused for the pure core, which is the property the retired
  * push.ts guard used to hold.
  *
- * Four CONTROLS must stay GREEN and do: an extra import of an already-allowed
- * BINDING (`dirname` into local.ts), an ordinary local-variable rename in
- * push.ts, a comment-only edit that writes `DELETE /customtypes/{id}` into a
- * file other than remote.ts, and an added type-only import between two core
- * files. A guard that fires on honest edits gets deleted by the next person in
- * a hurry, and then there is no guard at all.
+ * The F1–F4 fixes were proven the same way, with the escape shapes that
+ * motivated them: 11 method-axis shapes; the `process` and `globalThis`
+ * shadow-unlocks, which ran FULLY GREEN against the previous guard and are
+ * caught now; both routes back to a process spawner; `writeFile(full, "")`,
+ * `rename(full, aside)`, and a blanking `writeFile` added to `local.ts` — which
+ * the module-wide bindings UNION permits, so only the call-site pin sees it.
+ *
+ * CONTROLS must stay GREEN and do: an extra import of an already-allowed BINDING
+ * (`dirname` into local.ts), an ordinary local-variable rename in push.ts and in
+ * remote.ts, a comment-only edit that writes `DELETE /customtypes/{id}` into a
+ * file other than remote.ts, an added type-only import between two core files, a
+ * REFACTORED READ of `init.method`, an honest local shadowing an imported
+ * binding, a hoisted `var`, a forward reference, and catch/for-of bindings. A
+ * guard that fires on honest edits gets deleted by the next person in a hurry,
+ * and then there is no guard at all.
+ *
+ * ONE RULE HERE DELIBERATELY BREAKS THAT, and it is the mutating-call-site pin:
+ * renaming the local `body` in write.ts reds it. That was measured, not
+ * discovered later. It is confined to the one file that mutates a live client
+ * repo, and the fix when it reds honestly is one line here plus the review that
+ * implies.
+ *
+ * THE TWO REGEXES IN `remote.test.ts` ARE STILL THERE ON PURPOSE. This file's
+ * "it is the only copy" is about the CHANNELS guard — specifiers and bindings —
+ * which really does live here alone. remote.ts additionally keeps two text-level
+ * checks of its own (quoted HTTP verbs, and every `method:` being the POST
+ * literal), because it is the one file holding `fetch`, the write token and the
+ * `/customtypes/{id}` URL, and a second independent reading of that file is
+ * worth the duplication. They are not a substitute for anything above.
  *
  * NOTE ON THE `typescript` IMPORT. It is already a devDependency used by
  * `pnpm typecheck`. This is the one test in the repo that imports it, and that
@@ -304,11 +409,20 @@ describe("the module-wide capability guard", () => {
    * and not on a list below fails however it is later spelled, called, aliased,
    * destructured or parenthesised.
    *
-   * Everything here is INERT — pure data and control constructors that reach no
-   * file, socket or subprocess, plus names that exist only in type space and are
+   * Everything here is INERT IN THE SENSE THAT IT REACHES NO FILE, SOCKET OR
+   * SUBPROCESS BY ITSELF, plus names that exist only in type space and are
    * erased before anything runs. `Function`, `eval`, `globalThis`, `process`,
    * `require`, `Buffer`, `Reflect` and `WebAssembly` are conspicuously absent,
    * and that absence is the point.
+   *
+   * "INERT" WAS AN OVERSTATEMENT UNTIL 2026-08-13 AND IS NOW A QUALIFIED ONE.
+   * `Object.constructor` is `Function`, and so is `[].constructor.constructor`
+   * and the `constructor` of every value in the language — so each name here
+   * carries a one-hop route to arbitrary code, and three red-team escapes took
+   * it. What makes the qualification hold is the `constructor` deny-list below,
+   * which is a tripwire on the shortest spelling rather than a closure. Adding a
+   * name to this list adds another route; weigh that, not just what the name
+   * does on its own.
    */
   const INERT_AMBIENT = [
     "Array",
@@ -381,6 +495,8 @@ describe("the module-wide capability guard", () => {
     mutations: string[];
     /** The initializer of every variable named `tmp`, as written. */
     tmpInitializers: string[];
+    /** Every mention of `constructor`, in any role. A DENY-LIST — see the test. */
+    constructorMentions: string[];
     directSpawnCalls: number;
   };
 
@@ -456,6 +572,7 @@ describe("the module-wide capability guard", () => {
       methodValues: [],
       mutations: [],
       tmpInitializers: [],
+      constructorMentions: [],
       directSpawnCalls: 0,
     };
     /** Names that stand for a WHOLE module object — namespace import, default
@@ -564,6 +681,23 @@ describe("the module-wide capability guard", () => {
           for (const el of name.elements) {
             if (el.dotDotDotToken !== undefined) {
               bind(specifier, "<a rest element over a whole module object>");
+              continue;
+            }
+            // A NESTED pattern reaches properties OF an allowed binding, which
+            // the allow-list cannot govern: `const { readFile: { constructor } }
+            // = await import("node:fs/promises")` records the permitted
+            // `readFile` and hands over `Function`. Recording the outer name
+            // alone was how that reached arbitrary code execution on 2026-08-13.
+            if (!ts.isIdentifier(el.name)) {
+              const key = el.propertyName ?? el.name;
+              bind(
+                specifier,
+                `<a nested pattern destructured off "${
+                  ts.isIdentifier(key) || ts.isStringLiteralLike(key)
+                    ? key.text
+                    : "an unreadable key"
+                }">`,
+              );
               continue;
             }
             const key = el.propertyName ?? el.name;
@@ -751,6 +885,16 @@ describe("the module-wide capability guard", () => {
       }
       if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === "tmp")
         out.tmpInitializers.push(n.initializer?.getText(sf) ?? "<no initializer>");
+
+      // ── (g) `constructor`, in ANY role. A deny-list; see the test. ──────
+      if (ts.isIdentifier(n) && n.text === "constructor")
+        out.constructorMentions.push(
+          `line ${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1}: as a name`,
+        );
+      if (literalLike && (n as ts.LiteralLikeNode).text === "constructor")
+        out.constructorMentions.push(
+          `line ${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1}: as a string`,
+        );
     });
 
     // ── second pass: every USE of a name that stands for a whole module ────
@@ -1166,6 +1310,42 @@ describe("the module-wide capability guard", () => {
     expect(extracted.find((e) => e.file === "write.ts")?.tmpInitializers).toEqual([
       "`${full}.tmp`",
     ]);
+  });
+
+  /**
+   * `.constructor` — AND THIS ONE IS A DENY-LIST, DELIBERATELY.
+   *
+   * Everything else in this file is an allow-list, for reasons the header
+   * labours. This rule cannot be one, and the reason is worth stating precisely
+   * rather than apologising for.
+   *
+   * `Object.constructor` IS `Function`. So is `[].constructor.constructor`, and
+   * `join.constructor`, and the `constructor` reachable off literally every
+   * value in the language — including every name on INERT_AMBIENT, which is what
+   * makes the word "inert" up there false as written. With `Function` in hand
+   * you have `new Function("return import('node:fs/promises')")()` and therefore
+   * any module, any verb, any of it. Three of the 2026-08-13 escapes went this
+   * way.
+   *
+   * AN ALLOW-LIST CANNOT EXPRESS THE FIX. The other allow-lists here are over
+   * names ACQUIRED — module specifiers, bindings taken off them, free
+   * identifiers. `.constructor` acquires nothing: it is a property the runtime
+   * hangs off every object the module already legitimately holds. To state it as
+   * an allow-list you would have to allow-list every property ACCESS in the
+   * module — `e.message`, `res.status`, `entry.model`, `parsed.id`, hundreds of
+   * them — which is a list nobody maintains and which reddens on every honest
+   * edit. That is the guard that gets deleted.
+   *
+   * So: a deny-list, on one word, in any role — a property access, a computed
+   * access, a destructured key, a bare string. It closes the realistic
+   * instances. It does NOT close the class: `x["cons" + "tructor"]`,
+   * `Object.getOwnPropertyNames(x)` and a name arriving from outside the module
+   * all reach the same place and none of them writes the word. Read it as a
+   * tripwire on the shortest path, not as a boundary.
+   */
+  it("names `constructor` nowhere, in any role — the one deny-list in this file", () => {
+    const offending = extracted.flatMap((e) => e.constructorMentions.map((m) => `${e.file}: ${m}`));
+    expect(offending).toEqual([]);
   });
 
   it("calls no injected process-spawner directly", () => {
