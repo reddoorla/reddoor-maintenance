@@ -343,7 +343,7 @@ export function describeDiff(local: PrismicModel, remote: PrismicModel | undefin
  *  just passes through with whatever `imageUrl` it already has.
  *
  *  On an INSERT (`remote === undefined`) there is no remote to defer to at
- *  all, but the local value is still not safe to send verbatim — ten real
+ *  all, but the local value is still not safe to send verbatim — nine real
  *  fleet repos carry a stale on-disk URL, and sending it on a fresh insert
  *  is the exact damage this function exists to prevent, just on the one
  *  path with no remote value to fall back on. Every variation's `imageUrl`
