@@ -3955,8 +3955,20 @@ jobs:
       # credential to every site after the first. A repository with no secret
       # here is reported by `--tokens` as MISSING, not silently skipped.
       #
-      # Add a line per site as tokens are minted; `node dist/cli/bin.js
-      # prismic-models --fleet airtable --tokens` prints the exact names.
+      # THE NAME COMES FROM THE PRISMIC repositoryName, NOT THE REPO SLUG. They
+      # differ on real sites, verified 2026-08-12 by running readPrismicConfig
+      # over every cloned fleet repo:
+      #   medical-solutions-of-texas -> msot
+      #   reddoor-website            -> reddoor-la
+      #   beachfront-dentistry       -> 48bb12d1   (a hash, not a name)
+      # An earlier draft of this list said PRISMIC_TOKEN_MEDICAL_SOLUTIONS_OF_TEXAS.
+      # That secret would never have resolved, the sweep would have reported the
+      # site as MISSING a token, and the fix would have looked like a credentials
+      # problem rather than a naming one.
+      #
+      # Add a line per site as tokens are minted, and take the names from
+      # `node dist/cli/bin.js prismic-models --fleet airtable --tokens` — it
+      # derives them from each site's own config and is the only authority here.
       - name: Sweep the fleet for Prismic model drift
         id: sweep
         continue-on-error: true
@@ -3971,7 +3983,8 @@ jobs:
           PRISMIC_TOKEN_ESPADA: ${{ secrets.PRISMIC_TOKEN_ESPADA }}
           PRISMIC_TOKEN_GALLERYSONDER: ${{ secrets.PRISMIC_TOKEN_GALLERYSONDER }}
           PRISMIC_TOKEN_HEDLOC: ${{ secrets.PRISMIC_TOKEN_HEDLOC }}
-          PRISMIC_TOKEN_MEDICAL_SOLUTIONS_OF_TEXAS: ${{ secrets.PRISMIC_TOKEN_MEDICAL_SOLUTIONS_OF_TEXAS }}
+          # medical-solutions-of-texas's Prismic repository is named "msot".
+          PRISMIC_TOKEN_MSOT: ${{ secrets.PRISMIC_TOKEN_MSOT }}
           PRISMIC_TOKEN_REVOGEN: ${{ secrets.PRISMIC_TOKEN_REVOGEN }}
           PRISMIC_TOKEN_THE_POINTE_BURBANK: ${{ secrets.PRISMIC_TOKEN_THE_POINTE_BURBANK }}
           PRISMIC_TOKEN_THE_TOWER_BURBANK: ${{ secrets.PRISMIC_TOKEN_THE_TOWER_BURBANK }}
