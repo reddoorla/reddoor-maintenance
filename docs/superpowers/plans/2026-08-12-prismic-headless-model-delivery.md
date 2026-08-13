@@ -102,6 +102,22 @@ An expired token is the likely trigger, and token expiry on Prismic is undocumen
 
 So `remoteModels()` must: treat only a 404 on a single model as "not present"; throw on every other non-2xx with the status attached; throw on a body that does not parse; and **never** return an empty array as a way of expressing failure. An empty remote model set is a real, meaningful state (a brand-new Prismic repository) and it must be reachable ONLY by a successful call that genuinely returned nothing.
 
+### ⚠️ The 404 clause above does NOT apply to a collection GET
+
+Read this before acting on the rule, because the rule as stated will lead you into the exact bug it exists to prevent.
+
+"404 means the thing does not exist" is true of `GET /customtypes/{id}` — a request for ONE model. **It is false of `GET /customtypes`**, the whole-collection read that `remoteModels()` actually performs. There, a 404 means the repository or the route is not there; it does not mean "this repository has no models". A typo'd or wrong `repositoryName` is the realistic trigger, and treating that 404 as an empty collection makes every local model look like `toCreate` and pushes the entire model set at whatever repository the header did reach.
+
+This was found during Task 9 review, and the danger is specifically that the fix is a _plausible-looking one-liner_ someone writes **because they read the rule above and applied it one level up**:
+
+```ts
+if (res.status === 404) return []; // ← NEVER do this on a collection endpoint
+```
+
+`remote.ts` carries a comment at that exact site saying not to, and a test that fails if anyone does. Leave both.
+
+The general form of the lesson: **the not-found signal is only meaningful for a request that named one thing.** For a request that asks "what is there?", there is no not-found — only success, or failure to find out.
+
 ### The test that proves it
 
 Every read-shaped task gets one test of this form, and it is the load-bearing test of that task:
@@ -1498,6 +1514,14 @@ const ok = (body: unknown) =>
     headers: { "content-type": "application/json" },
   });
 
+// Every fake below declares the real fetch parameters even when it ignores them.
+// `vi.fn(async () => …)` infers a ZERO-ARG signature, so a later
+// `mock.calls[0] as [string, RequestInit]` is a type error — which vitest will
+// not tell you, because vitest does not typecheck. The suite goes green while
+// the file compiles nowhere. See the verification note at the top of this plan;
+// this is the second time that trap has been hit.
+type FetchFake = (url: string | URL, init?: RequestInit) => Promise<Response>;
+
 describe("remoteModels", () => {
   it("GETs both collections and tags each entry with its kind", async () => {
     const fetchImpl = vi.fn(async (url: string | URL) =>
@@ -1530,7 +1554,11 @@ describe("remoteModels", () => {
     );
     await expect(
       remoteModels("gallerysonder", "stale", fetchImpl as unknown as typeof fetch),
-    ).rejects.toThrow(/403.*gallerysonder/s);
+      // NOT `/403.*gallerysonder/s` — that silently also asserts ORDER, and the
+      // implementation puts the repository BEFORE the status. Assert each token
+      // independently, or the test fails against correct code for a reason that
+      // has nothing to do with what it is testing.
+    ).rejects.toThrow(/403/);
   });
 
   it("throws when the body is not an array", async () => {
@@ -1601,7 +1629,12 @@ describe("sendModel", () => {
   });
 
   it("POSTs a slice update to /slices/update", async () => {
-    const fetchImpl = vi.fn(async () => new Response("", { status: 204 }));
+    // `new Response("", { status: 204 })` THROWS — 204 is a null-body status and
+    // the Response constructor rejects a body for it. The fake would never be
+    // constructed and the failure surfaces from inside the code under test, as
+    // if the request had failed. 204 is what the Types API really answers to an
+    // update, so the fake has to be buildable: pass null, not "".
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
     await sendModel(
       "espada",
       "tok",
