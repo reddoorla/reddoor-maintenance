@@ -1523,12 +1523,47 @@ describe("remoteModels", () => {
     ).rejects.toThrow(/expected an array/);
   });
 
-  it("skips a remote entry with no string id rather than minting an undefined key", async () => {
+  // An earlier draft SKIPPED an id-less remote entry. That is the absent-vs-
+  // unreadable collapse on the remote side, and it is the dangerous direction:
+  // a dropped remote entry makes its local counterpart look like `toCreate`, so
+  // `--apply` pushes over a model that already exists, and a dropped entry with
+  // no local counterpart never reaches `remoteOnly` — it becomes invisible to
+  // the one bucket whose entire job is to report what only exists in Prismic.
+  it("THROWS on a remote entry with no string id rather than dropping it", async () => {
     const fetchImpl = vi.fn(async (url: string | URL) =>
       String(url).endsWith("/customtypes") ? ok([{ label: "no id" }, { id: "page" }]) : ok([]),
     );
-    const models = await remoteModels("espada", "tok", fetchImpl as unknown as typeof fetch);
-    expect(models.map((m) => m.id)).toEqual(["page"]);
+    await expect(
+      remoteModels("espada", "tok", fetchImpl as unknown as typeof fetch),
+    ).rejects.toThrow(/no string "id"/);
+  });
+
+  // The two tests below exist to stop anyone adding a catch. Neither failure can
+  // be allowed to become an empty array: `remoteModels` returning [] means "this
+  // Prismic repository has no models", which sends every local model to
+  // `toCreate` and, in --apply, pushes the whole model set at a live repository.
+  // An expired token is the likely real-world trigger and Prismic's token expiry
+  // is undocumented.
+  it("propagates a network-level fetch rejection (never returns [])", async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new TypeError("fetch failed");
+    });
+    await expect(
+      remoteModels("espada", "tok", fetchImpl as unknown as typeof fetch),
+    ).rejects.toThrow(/fetch failed/);
+  });
+
+  it("throws when a 200 body is not JSON at all", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response("<html>gateway timeout</html>", {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        }),
+    );
+    await expect(
+      remoteModels("espada", "tok", fetchImpl as unknown as typeof fetch),
+    ).rejects.toThrow(/customtypes/);
   });
 });
 
@@ -1642,14 +1677,35 @@ async function getCollection(
       { status: res.status },
     );
   }
-  const body: unknown = await res.json();
+  // A 200 whose body is not JSON (an HTML error page from a proxy, a truncated
+  // response) must not surface as an opaque SyntaxError with no context. Wrapped,
+  // never caught-and-defaulted — see the absent-vs-unreadable rule at the top of
+  // this plan.
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch (e) {
+    throw new Error(`GET ${url}: 200 but the body did not parse as JSON`, { cause: e });
+  }
   if (!Array.isArray(body)) throw new Error(`GET ${url}: expected an array, got ${typeof body}`);
-  return body
-    .filter((m): m is PrismicModel => {
-      const id = (m as { id?: unknown } | null)?.id;
-      return typeof id === "string" && id !== "";
-    })
-    .map((model) => ({ kind, id: model.id, model }));
+  return body.map((m, i) => {
+    // THROW, never drop. Dropping an id-less remote entry is the absent-vs-
+    // unreadable collapse pointed at the remote set, and it fails in the
+    // destructive direction: the local counterpart then looks like `toCreate`
+    // and --apply pushes over a model Prismic already holds, while an entry with
+    // no local counterpart never reaches `remoteOnly` at all — invisible to the
+    // one bucket that exists to report Prismic-only models.
+    //
+    // The trade is deliberate: a malformed entry fails this site's whole check
+    // rather than silently corrupting it. Prismic has never returned such an
+    // entry across the fleet; if it ever does, that is a real event an operator
+    // needs to see, not one to route around.
+    const id = (m as { id?: unknown } | null)?.id;
+    if (typeof id !== "string" || id === "") {
+      throw new Error(`GET ${url}: entry at index ${i} has no string "id"`);
+    }
+    return { kind, id, model: m as PrismicModel };
+  });
 }
 
 /** Every model registered in one Prismic repository, both collections. */
@@ -1694,8 +1750,8 @@ export async function sendModel(
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm vitest run tests/prismic/models/remote.test.ts`
-Expected: PASS — 9 tests
+Run: `pnpm vitest run tests/prismic/models/remote.test.ts && pnpm typecheck`
+Expected: PASS — 11 tests, typecheck clean
 
 - [ ] **Step 5: Commit**
 
