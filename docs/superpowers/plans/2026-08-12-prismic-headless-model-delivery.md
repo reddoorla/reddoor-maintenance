@@ -3536,12 +3536,22 @@ async function pullRemoteOnly(
   // that throws on the first refusal leaves the models it already wrote on disk
   // with no record of which. That is the same "report that silently omits
   // models" `push.ts` refuses to produce.
+  // `writeModelFile` takes a FORMAT capability, not a process spawner. Task 12's
+  // red team ran `run("rm", ["-rf", model])` through the injected `SpawnFn` and it
+  // passed every assertion — so the module now holds "format these paths in this
+  // repo" and never an arbitrary-argv primitive. The argv is built here, at the
+  // single injection site, which is the one place a reviewer can see it.
+  //
+  // `deps.spawn` is a tsc ERROR now. Bind it in one line:
+  const format: FormatModelFile = (root, paths, fmtOpts) =>
+    formatWithPrettier(deps.spawn, root, paths, fmtOpts);
+
   const lines: string[] = [];
   let unformatted = 0;
   let refused = 0;
   for (const entry of diff.remoteOnly) {
     try {
-      const res = await writeModelFile(deps.spawn, repoRoot, entry, library);
+      const res = await writeModelFile(format, repoRoot, entry, library);
       if (!res.formatted) unformatted++;
       lines.push(
         `pulled   ${entry.kind} ${entry.id}  -> ${res.path}${res.formatted ? "" : "  (unformatted)"}`,
