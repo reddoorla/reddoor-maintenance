@@ -2316,16 +2316,40 @@ describe("prismic/models public surface", () => {
     ).toBe(false);
   });
 
-  it("contains no HTTP DELETE anywhere in the module", async () => {
+  // Written as a positive ALLOW-LIST over quoted HTTP verbs, not a ban on the
+  // string "DELETE". Three reasons, all learned the hard way in Task 9:
+  //
+  //  1. `remote.ts`'s header legitimately contains `DELETE /customtypes/{id}` in
+  //     prose — that sentence is the REASON this rule exists and has to stay
+  //     readable. A blanket string ban fails on the commit that introduces it.
+  //  2. Stripping comments before scanning is the too-clever trap: the file
+  //     contains `https://customtypes.prismic.io`, and a naive stripper eats the
+  //     `//`. Matching only QUOTED verbs needs no parsing at all.
+  //  3. The HTTP verb is the real choke point, not the word "delete". Prismic
+  //     removes a model only via `DELETE /customtypes/{id}`, and this module
+  //     builds paths as `/{collection}/{action}` — so even `POST
+  //     /customtypes/delete` is a 404, not a deletion. Adding "delete" to an
+  //     action union is inert; issuing the verb is not.
+  it("issues no HTTP verb other than GET or POST anywhere in the module", async () => {
     const dir = new URL("../../../src/prismic/models/", import.meta.url);
     const files = (await readdir(dir)).filter((f) => f.endsWith(".ts"));
-    // A guard that silently examines nothing is worse than no guard: if the glob
-    // ever stops matching, this test would pass over an empty set forever.
+    // A guard that silently examines nothing is worse than no guard: if this
+    // ever stops matching files it would pass over an empty set forever.
     expect(files.length).toBeGreaterThan(5);
+    const verbs = new Set<string>();
     for (const f of files) {
       const src = await readFile(new URL(f, dir), "utf-8");
-      expect(src, `${f} must not issue an HTTP DELETE`).not.toMatch(/["']DELETE["']/);
+      for (const m of src.matchAll(/["'](GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)["']/g)) {
+        verbs.add(m[1] as string);
+      }
+      // Closes the walk-around where someone never writes the literal at all
+      // (`method: verbFromSomewhere`). Requiring the literal also catches PUT and
+      // PATCH arriving without an argument.
+      for (const m of src.matchAll(/method:\s*([^,\n]+)/g)) {
+        expect(m[1]?.trim(), `${f}: every method: must be the "POST" literal`).toBe('"POST"');
+      }
     }
+    expect([...verbs].sort()).toEqual(["GET", "POST"]);
   });
 });
 ```
