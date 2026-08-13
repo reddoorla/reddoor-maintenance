@@ -16,6 +16,25 @@ describe("prismicTokenEnvName", () => {
       "PRISMIC_TOKEN_BEACH_FRONT_DENTISTRY",
     );
   });
+
+  // beachfront-dentistry's Prismic repository really is the hash `48bb12d1`.
+  // Legal only because the literal prefix forces a leading letter — a bare
+  // derivation without the prefix would produce an illegal identifier.
+  it("handles a hash-shaped repository name", () => {
+    expect(prismicTokenEnvName("48bb12d1")).toBe("PRISMIC_TOKEN_48BB12D1");
+  });
+
+  // A name with no alphanumerics collapses to the bare prefix, so EVERY such
+  // name would share one env var — two sites silently reading one credential,
+  // the same cross-wiring `allowGeneric: false` exists to prevent, arriving
+  // through the naming rule instead. Unreachable via readPrismicConfig (it
+  // rejects an empty repositoryName); this keeps it that way.
+  it.each(["", "---", "...", "!!!"])(
+    "throws rather than collapsing %o onto the bare prefix",
+    (name) => {
+      expect(() => prismicTokenEnvName(name)).toThrow(/no alphanumeric/);
+    },
+  );
 });
 
 describe("resolvePrismicToken", () => {

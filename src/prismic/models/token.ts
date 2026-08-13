@@ -13,12 +13,28 @@ export type ResolvedToken = { token: string; source: string };
  * of the nightly workflow hardcoded PRISMIC_TOKEN_MEDICAL_SOLUTIONS_OF_TEXAS;
  * that secret would never have resolved, and the failure would have looked like
  * a credentials problem rather than a naming one.
+ *
+ * Verified across all 15 Prismic-configured fleet repos: every derived name is
+ * a legal identifier and no two repositories collide onto one name.
+ *
+ * THROWS on a name with no alphanumeric characters. Such a name would collapse
+ * to the bare prefix, so every malformed config would share ONE env var — two
+ * sites silently reading one credential, which is precisely the cross-wiring
+ * `allowGeneric: false` exists to prevent, reintroduced through the naming
+ * rule. `readPrismicConfig` already rejects an empty repositoryName, so this is
+ * unreachable through the normal path and is here to keep it that way.
  */
 export function prismicTokenEnvName(repositoryName: string): string {
   const slug = repositoryName
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
+  if (slug === "") {
+    throw new Error(
+      `cannot derive a token env var from repositoryName ${JSON.stringify(repositoryName)}: ` +
+        `it has no alphanumeric characters`,
+    );
+  }
   return `PRISMIC_TOKEN_${slug}`;
 }
 
