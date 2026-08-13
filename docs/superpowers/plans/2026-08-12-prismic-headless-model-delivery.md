@@ -49,6 +49,50 @@ This is benign today only because `the-tower` is archived — it is the predeces
 
 ---
 
+## The absent-vs-unreadable rule — the defect class of this whole plan
+
+Read this before implementing ANY task that reads something. It has now been found three separate times in three tasks, each time surviving the fix for the previous one, and the most dangerous instance is still ahead in Task 9.
+
+**The rule: "I could not read X" must never produce the same result as "X does not exist."**
+
+Everything in this pipeline compares a local set against a remote set and acts on the difference. An absent thing and an unreadable thing are opposite facts, but a `catch` that returns a default collapses them into one — and because the pipeline's whole job is to make the two sets match, that collapse doesn't error, it **acts**. It deletes, it creates, or it reports "in sync". Prismic's Migration API then silently drops document fields the model no longer declares, HTTP 200, no warning.
+
+Where it has already been found:
+
+| Task | Site                                     | Collapsed into          | Consequence                                                           |
+| ---- | ---------------------------------------- | ----------------------- | --------------------------------------------------------------------- |
+| 8    | `readFile` of a model file               | "no model here"         | One model silently missing; CI reports "in sync"                      |
+| 8    | `readdir` filter dropping symlinked dirs | "not a model directory" | Same, and the guard added for the row above never even runs           |
+| 6    | `readFile` of `slicemachine.config.json` | "not a Prismic site"    | A whole live site drops out of the fleet sweep; sweep reports success |
+
+Each fix was written to close the row above it and did not close the next one, because each `catch` looked locally reasonable. The pattern is not "we forgot a case" — it is that **a catch-all default is the natural way to write this code**, and it is wrong every time.
+
+**The discrimination rule.** Only the errno that genuinely means non-existence may take the absent branch:
+
+- Filesystem reads: `ENOENT` only. `EACCES`, `EISDIR`, `ENOTDIR`, `ELOOP` and I/O errors all mean the thing is THERE and unreadable → throw, naming the repo-relative path, with `{ cause: e }`.
+- Directory listings: same, with one deliberate asymmetry. When ENUMERATING candidates, an entry that resolves to a non-directory is legitimately not a candidate and may be skipped silently — but an entry that cannot be resolved AT ALL (a dangling symlink) may not.
+- HTTP, and this is the one still ahead: **404 is the only status that means "this model does not exist."**
+
+### Task 9 is where this class becomes destructive
+
+`remoteModels()` fetches the current models from Prismic. If any failure — 401, 403, 429, 500, a timeout, a DNS blip, a JSON parse error on the response — is caught and turned into "Prismic has no models", then:
+
+- every local model lands in `toCreate`,
+- `remoteOnly` is empty, so the never-delete invariant has nothing to protect,
+- and in `--apply` mode CI pushes the **entire model set** at a repository that may already have perfectly good models.
+
+An expired token is the likely trigger, and token expiry on Prismic is undocumented. That is the single worst failure this plan can produce, and it is one `catch` away at all times.
+
+So `remoteModels()` must: treat only a 404 on a single model as "not present"; throw on every other non-2xx with the status attached; throw on a body that does not parse; and **never** return an empty array as a way of expressing failure. An empty remote model set is a real, meaningful state (a brand-new Prismic repository) and it must be reachable ONLY by a successful call that genuinely returned nothing.
+
+### The test that proves it
+
+Every read-shaped task gets one test of this form, and it is the load-bearing test of that task:
+
+> Given the read fails with something other than the not-found signal, the function THROWS — it does not return an empty/default value.
+
+If you cannot write that test for a function you are implementing, the function has a catch-all in it.
+
 ## Two deliberate deviations from the spec
 
 Both are stated up front so a reviewer can reject them before code is written.
