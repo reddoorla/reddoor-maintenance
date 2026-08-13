@@ -22,30 +22,30 @@ Both are stated up front so a reviewer can reject them before code is written.
 
 ## File structure
 
-| File                                                      | Responsibility                                                                    |
-| --------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `src/prismic/models/types.ts`                             | `ModelKind`, `PrismicModel`, `ModelEntry`, `ModelDiff`, `PushReport`. Types only. |
-| `src/prismic/models/canon.ts`                             | `canon()` / `sameModel()`. Pure. No imports.                                      |
-| `src/prismic/models/diff.ts`                              | `diffModels()`, `describeDiff()`, `withRemoteScreenshots()`. Pure.                |
-| `src/prismic/models/config.ts`                            | Read `slicemachine.config.json`: `repositoryName` + `libraries`.                  |
-| `src/prismic/models/token.ts`                             | `prismicTokenEnvName()`, `resolvePrismicToken()`. Env only.                       |
-| `src/prismic/models/local.ts`                             | `localModels(repoRoot)` — fs read of `customtypes/**` + each library.             |
-| `src/prismic/models/remote.ts`                            | `remoteModels()`, `sendModel()` — Types API fetch.                                |
-| `src/prismic/models/push.ts`                              | `pushModels()` — ordering (slices first) + the never-delete invariant.            |
-| `src/prismic/models/write.ts`                             | `writeModelFile()` — pull-down write + target-repo prettier.                      |
-| `src/prismic/models/index.ts`                             | Re-exports the public surface.                                                    |
-| `src/cli/commands/prismic-models.ts`                      | The command: in-repo / fleet / tokens-doctor modes.                               |
-| `src/cli/bin.ts`                                          | Register `prismic-models` (lazy import, matching every other command).            |
-| `src/reports/airtable/websites.ts`                        | 3 new `WebsiteRow` fields + `updatePrismicModels()`.                              |
-| `src/alerts/digest-collectors.ts`                         | `collectPrismicDriftAlerts()`.                                                    |
-| `src/alerts/attention.ts`                                 | `"prismic-drift"` added to `AttentionItem["kind"]`.                               |
-| `src/dashboard/fleet-cockpit.ts`, `src/reports/digest.ts` | Wire the collector.                                                               |
-| `src/recipes/prismic-ci/index.ts`                         | Rollout recipe: caller workflow → per-repo PR.                                    |
-| `src/types.ts`                                            | `"prismic-ci"` added to `RecipeName`.                                             |
-| `workflows/reusable/prismic-models.yml`                   | Source of truth for the `reddoorla/.github` reusable workflow.                    |
-| `.github/workflows/fleet-prismic-drift.yml`               | Nightly fleet sweep.                                                              |
-| `AUTONOMY.md`                                             | The model-push classification clause.                                             |
-| `docs/runbooks/prismic-model-delivery.md`                 | Token minting, secret distribution, drift response.                               |
+| File                                                      | Responsibility                                                                                   |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `src/prismic/models/types.ts`                             | `ModelKind`, `PrismicModel`, `LocalEntry`, `RemoteEntry`, `ModelDiff`, `PushReport`. Types only. |
+| `src/prismic/models/canon.ts`                             | `canon()` / `sameModel()`. Pure. No imports.                                                     |
+| `src/prismic/models/diff.ts`                              | `diffModels()`, `describeDiff()`, `withRemoteScreenshots()`. Pure.                               |
+| `src/prismic/models/config.ts`                            | Read `slicemachine.config.json`: `repositoryName` + `libraries`.                                 |
+| `src/prismic/models/token.ts`                             | `prismicTokenEnvName()`, `resolvePrismicToken()`. Env only.                                      |
+| `src/prismic/models/local.ts`                             | `localModels(repoRoot)` — fs read of `customtypes/**` + each library.                            |
+| `src/prismic/models/remote.ts`                            | `remoteModels()`, `sendModel()` — Types API fetch.                                               |
+| `src/prismic/models/push.ts`                              | `pushModels()` — ordering (slices first) + the never-delete invariant.                           |
+| `src/prismic/models/write.ts`                             | `writeModelFile()` — pull-down write + target-repo prettier.                                     |
+| `src/prismic/models/index.ts`                             | Re-exports the public surface.                                                                   |
+| `src/cli/commands/prismic-models.ts`                      | The command: in-repo / fleet / tokens-doctor modes.                                              |
+| `src/cli/bin.ts`                                          | Register `prismic-models` (lazy import, matching every other command).                           |
+| `src/reports/airtable/websites.ts`                        | 3 new `WebsiteRow` fields + `updatePrismicModels()`.                                             |
+| `src/alerts/digest-collectors.ts`                         | `collectPrismicDriftAlerts()`.                                                                   |
+| `src/alerts/attention.ts`                                 | `"prismic-drift"` added to `AttentionItem["kind"]`.                                              |
+| `src/dashboard/fleet-cockpit.ts`, `src/reports/digest.ts` | Wire the collector.                                                                              |
+| `src/recipes/prismic-ci/index.ts`                         | Rollout recipe: caller workflow → per-repo PR.                                                   |
+| `src/types.ts`                                            | `"prismic-ci"` added to `RecipeName`.                                                            |
+| `workflows/reusable/prismic-models.yml`                   | Source of truth for the `reddoorla/.github` reusable workflow.                                   |
+| `.github/workflows/fleet-prismic-drift.yml`               | Nightly fleet sweep.                                                                             |
+| `AUTONOMY.md`                                             | The model-push classification clause.                                                            |
+| `docs/runbooks/prismic-model-delivery.md`                 | Token minting, secret distribution, drift response.                                              |
 
 Tests mirror the source tree under `tests/prismic/models/`, `tests/cli/`, `tests/alerts/`, `tests/recipes/`.
 
@@ -209,32 +209,55 @@ export type ModelKind = "customtype" | "slice";
  *  failure class this module exists to prevent. */
 export type PrismicModel = Record<string, unknown> & { id: string };
 
-/** One model, local or remote. */
-export type ModelEntry = {
+/** A model read from a repo working tree. `path` is always known here, which
+ *  is what separates it from {@link RemoteEntry}. `id` mirrors `model.id`;
+ *  both constructors derive it from the parsed model, so they cannot disagree. */
+export type LocalEntry = {
   kind: ModelKind;
   id: string;
   model: PrismicModel;
-  /** Repo-relative path. Present on LOCAL entries, absent on remote ones. */
-  path?: string;
+  /** Repo-relative, forward-slashed. */
+  path: string;
+};
+
+/** A model read from Prismic. It has no file on disk, so no `path`.
+ *
+ *  Kept distinct from {@link LocalEntry} so DIRECTION is a compile-time
+ *  property, not a convention. `diffModels(local, remote)` with the
+ *  arguments swapped would otherwise typecheck and silently invert
+ *  `toCreate` and `remoteOnly` — CI would try to create models Prismic
+ *  already holds and would report every local model as remote-only. The
+ *  split makes that a type error. */
+export type RemoteEntry = {
+  kind: ModelKind;
+  id: string;
+  model: PrismicModel;
 };
 
 /** The four buckets a comparison sorts every model into. `remoteOnly` is the
  *  safety-critical one: it is REPORTED and never acted on by CI. */
 export type ModelDiff = {
-  toCreate: ModelEntry[];
-  toUpdate: Array<{ local: ModelEntry; remote: ModelEntry }>;
-  unchanged: ModelEntry[];
-  remoteOnly: ModelEntry[];
+  toCreate: LocalEntry[];
+  toUpdate: Array<{ local: LocalEntry; remote: RemoteEntry }>;
+  unchanged: LocalEntry[];
+  remoteOnly: RemoteEntry[];
 };
 
-/** Outcome of one push run. `sent` counts models actually accepted by Prismic;
- *  `failed` carries the id and the API's own message so an operator can act. */
+/** Outcome of one push run.
+ *
+ *  `mode` is the MODE, not the verdict — read `failed` for that. A dry run
+ *  populates `sent` with what it WOULD have sent, which is why the field
+ *  cannot be read as "Prismic accepted these" without checking `mode` first. */
 export type PushReport = {
-  applied: boolean;
+  mode: "dry" | "apply";
+  /** On `apply`, models Prismic accepted. On `dry`, models that would be sent. */
   sent: Array<{ kind: ModelKind; id: string; action: "insert" | "update" }>;
-  failed: Array<{ kind: ModelKind; id: string; error: string }>;
-  /** Copied through from the diff so a caller never has to re-derive it. */
-  remoteOnly: ModelEntry[];
+  /** `status` is the HTTP status when there was one. A 401/403 means the
+   *  write token is dead or wrong (fix the secret); a 422 means Prismic
+   *  rejected the model itself (fix the model). Those need different
+   *  operator responses, and token expiry is undocumented — this is what
+   *  tells them apart. */
+  failed: Array<{ kind: ModelKind; id: string; error: string; status?: number }>;
 };
 ```
 
@@ -265,24 +288,37 @@ git commit -m "feat(prismic): model pipeline types"
 // tests/prismic/models/diff.test.ts
 import { describe, it, expect } from "vitest";
 import { diffModels } from "../../../src/prismic/models/diff.js";
-import type { ModelEntry } from "../../../src/prismic/models/types.js";
+import type { LocalEntry, RemoteEntry } from "../../../src/prismic/models/types.js";
 
-const ct = (id: string, model: Record<string, unknown> = {}): ModelEntry => ({
+const ctLocal = (id: string, model: Record<string, unknown> = {}): LocalEntry => ({
   kind: "customtype",
   id,
   model: { id, ...model },
   path: `customtypes/${id}/index.json`,
 });
-const slice = (id: string, model: Record<string, unknown> = {}): ModelEntry => ({
+const ctRemote = (id: string, model: Record<string, unknown> = {}): RemoteEntry => ({
+  kind: "customtype",
+  id,
+  model: { id, ...model },
+});
+const sliceLocal = (id: string, model: Record<string, unknown> = {}): LocalEntry => ({
   kind: "slice",
   id,
   model: { id, type: "SharedSlice", ...model },
   path: `src/lib/slices/${id}/model.json`,
 });
+const sliceRemote = (id: string, model: Record<string, unknown> = {}): RemoteEntry => ({
+  kind: "slice",
+  id,
+  model: { id, type: "SharedSlice", ...model },
+});
 
 describe("diffModels", () => {
   it("sorts an identical fleet into `unchanged`", () => {
-    const d = diffModels([ct("page"), slice("hero")], [ct("page"), slice("hero")]);
+    const d = diffModels(
+      [ctLocal("page"), sliceLocal("hero")],
+      [ctRemote("page"), sliceRemote("hero")],
+    );
     expect(d.unchanged.map((e) => e.id).sort()).toEqual(["hero", "page"]);
     expect(d.toCreate).toEqual([]);
     expect(d.toUpdate).toEqual([]);
@@ -290,19 +326,22 @@ describe("diffModels", () => {
   });
 
   it("puts a local-only model in toCreate", () => {
-    const d = diffModels([ct("page"), ct("blog")], [ct("page")]);
+    const d = diffModels([ctLocal("page"), ctLocal("blog")], [ctRemote("page")]);
     expect(d.toCreate.map((e) => e.id)).toEqual(["blog"]);
   });
 
   it("puts a changed model in toUpdate, carrying BOTH sides", () => {
-    const d = diffModels([ct("page", { label: "Page v2" })], [ct("page", { label: "Page" })]);
+    const d = diffModels(
+      [ctLocal("page", { label: "Page v2" })],
+      [ctRemote("page", { label: "Page" })],
+    );
     expect(d.toUpdate).toHaveLength(1);
     expect(d.toUpdate[0]!.local.model.label).toBe("Page v2");
     expect(d.toUpdate[0]!.remote.model.label).toBe("Page");
   });
 
   it("puts a remote-only model in remoteOnly and NEVER anywhere else", () => {
-    const d = diffModels([ct("page")], [ct("page"), ct("frozen_page")]);
+    const d = diffModels([ctLocal("page")], [ctRemote("page"), ctRemote("frozen_page")]);
     expect(d.remoteOnly.map((e) => e.id)).toEqual(["frozen_page"]);
     expect(d.toCreate).toEqual([]);
     expect(d.toUpdate).toEqual([]);
@@ -312,15 +351,15 @@ describe("diffModels", () => {
   // different Types API collections. Keying on id alone would pair them and
   // report a phantom update that a push would then send to the wrong endpoint.
   it("keys on kind AND id, so a customtype never matches a slice of the same id", () => {
-    const d = diffModels([ct("hero")], [slice("hero")]);
+    const d = diffModels([ctLocal("hero")], [sliceRemote("hero")]);
     expect(d.toCreate.map((e) => e.kind)).toEqual(["customtype"]);
     expect(d.remoteOnly.map((e) => e.kind)).toEqual(["slice"]);
   });
 
   it("ignores serializer noise via sameModel (a `select: null` is not a diff)", () => {
     const d = diffModels(
-      [ct("page", { f: { type: "Link" } })],
-      [ct("page", { f: { type: "Link", select: null } })],
+      [ctLocal("page", { f: { type: "Link" } })],
+      [ctRemote("page", { f: { type: "Link", select: null } })],
     );
     expect(d.unchanged.map((e) => e.id)).toEqual(["page"]);
   });
@@ -337,7 +376,7 @@ Expected: FAIL — cannot resolve `../../../src/prismic/models/diff.js`
 ```ts
 // src/prismic/models/diff.ts
 import { sameModel } from "./canon.js";
-import type { ModelDiff, ModelEntry, ModelKind } from "./types.js";
+import type { LocalEntry, ModelDiff, ModelKind, RemoteEntry } from "./types.js";
 
 /** Identity of a model ACROSS collections. A custom type and a slice can share
  *  an id (they are different Types API resources), so `kind` is part of the key —
@@ -347,7 +386,7 @@ const key = (e: { kind: ModelKind; id: string }): string => `${e.kind}:${e.id}`;
 
 /** Sort local + remote models into the four buckets. Pure — no IO, no ordering
  *  assumptions. `remoteOnly` is reported only; nothing downstream may delete it. */
-export function diffModels(local: ModelEntry[], remote: ModelEntry[]): ModelDiff {
+export function diffModels(local: LocalEntry[], remote: RemoteEntry[]): ModelDiff {
   const remoteByKey = new Map(remote.map((e) => [key(e), e]));
   const localKeys = new Set(local.map(key));
   const diff: ModelDiff = { toCreate: [], toUpdate: [], unchanged: [], remoteOnly: [] };
@@ -1114,7 +1153,7 @@ Expected: FAIL — cannot resolve `../../../src/prismic/models/local.js`
 // src/prismic/models/local.ts
 import { readdir, readFile } from "node:fs/promises";
 import { join, posix, relative, sep } from "node:path";
-import type { ModelEntry, ModelKind, PrismicModel } from "./types.js";
+import type { LocalEntry, ModelKind, PrismicModel } from "./types.js";
 
 /** Repo-relative, forward-slashed — the form used in PR comments and passed to
  *  the target repo's prettier, both of which are POSIX-shaped even on Windows. */
@@ -1126,7 +1165,7 @@ const relPath = (repoRoot: string, full: string): string =>
  *  that does not exist, and a silent skip would let CI report "in sync" while a
  *  field was actually missing in Prismic — the five-field drop this pipeline
  *  exists to prevent. */
-async function readModel(repoRoot: string, full: string, kind: ModelKind): Promise<ModelEntry> {
+async function readModel(repoRoot: string, full: string, kind: ModelKind): Promise<LocalEntry> {
   const rel = relPath(repoRoot, full);
   let parsed: unknown;
   try {
@@ -1174,8 +1213,8 @@ async function exists(full: string): Promise<boolean> {
  * `video_block`), and keying on the directory would send Prismic ids it has
  * never seen.
  */
-export async function localModels(repoRoot: string, libraries: string[]): Promise<ModelEntry[]> {
-  const out: ModelEntry[] = [];
+export async function localModels(repoRoot: string, libraries: string[]): Promise<LocalEntry[]> {
+  const out: LocalEntry[] = [];
 
   const ctRoot = join(repoRoot, "customtypes");
   for (const d of await subdirs(ctRoot)) {
@@ -1355,7 +1394,7 @@ Expected: FAIL — cannot resolve `../../../src/prismic/models/remote.js`
 // checkout must never be able to remove a live content model, and the surest
 // way to guarantee that is for the capability not to exist in the code at all.
 // Deleting a model is an operator action taken in the Prismic dashboard.
-import type { ModelEntry, ModelKind, PrismicModel } from "./types.js";
+import type { LocalEntry, ModelKind, PrismicModel, RemoteEntry } from "./types.js";
 
 export const CUSTOM_TYPES_API = "https://customtypes.prismic.io";
 
@@ -1372,15 +1411,22 @@ async function getCollection(
   token: string,
   kind: ModelKind,
   fetchImpl: typeof fetch,
-): Promise<ModelEntry[]> {
+): Promise<RemoteEntry[]> {
   const url = `${CUSTOM_TYPES_API}/${COLLECTION[kind]}`;
   const res = await fetchImpl(url, { headers: authHeaders(repo, token) });
   if (!res.ok) {
     // Name the status AND the repository: the one failure mode seen in the wild
     // is a stale/wrong token, and "403" alone is what got generalised last time
-    // into "the API does not allow this".
-    throw new Error(
-      `GET ${url} [repository: ${repo}] -> ${res.status} ${(await res.text()).slice(0, 200)}`,
+    // into "the API does not allow this". The status is also attached to the
+    // Error object itself (not just interpolated into the message) so a caller
+    // can tell a dead token (401/403 — fix the secret) apart from a rejected
+    // model (422 — fix the model) without parsing text. Same idiom used
+    // elsewhere in this codebase: `Object.assign(new Error(...), { exitCode })`.
+    throw Object.assign(
+      new Error(
+        `GET ${url} [repository: ${repo}] -> ${res.status} ${(await res.text()).slice(0, 200)}`,
+      ),
+      { status: res.status },
     );
   }
   const body: unknown = await res.json();
@@ -1398,7 +1444,7 @@ export async function remoteModels(
   repo: string,
   token: string,
   fetchImpl: typeof fetch = fetch,
-): Promise<ModelEntry[]> {
+): Promise<RemoteEntry[]> {
   const customtypes = await getCollection(repo, token, "customtype", fetchImpl);
   const slices = await getCollection(repo, token, "slice", fetchImpl);
   return [...customtypes, ...slices];
@@ -1410,7 +1456,7 @@ export async function remoteModels(
 export async function sendModel(
   repo: string,
   token: string,
-  entry: Pick<ModelEntry, "kind" | "id" | "model">,
+  entry: Pick<LocalEntry, "kind" | "id" | "model">,
   action: "insert" | "update",
   fetchImpl: typeof fetch = fetch,
 ): Promise<void> {
@@ -1421,8 +1467,13 @@ export async function sendModel(
     body: JSON.stringify(entry.model),
   });
   if (!res.ok) {
-    throw new Error(
-      `POST ${url} [${entry.kind} ${entry.id}] -> ${res.status} ${(await res.text()).slice(0, 300)}`,
+    // Same reasoning as getCollection above: attach `status` to the Error so
+    // pushModels can distinguish a dead write token from a bad model.
+    throw Object.assign(
+      new Error(
+        `POST ${url} [${entry.kind} ${entry.id}] -> ${res.status} ${(await res.text()).slice(0, 300)}`,
+      ),
+      { status: res.status },
     );
   }
 }
@@ -1455,13 +1506,23 @@ git commit -m "feat(prismic): Types API reads + insert/update, with no delete pa
 // tests/prismic/models/push.test.ts
 import { describe, it, expect, vi } from "vitest";
 import { pushModels } from "../../../src/prismic/models/push.js";
-import type { ModelDiff, ModelEntry } from "../../../src/prismic/models/types.js";
+import type {
+  LocalEntry,
+  ModelDiff,
+  ModelKind,
+  RemoteEntry,
+} from "../../../src/prismic/models/types.js";
 
-const entry = (kind: ModelEntry["kind"], id: string): ModelEntry => ({
+const localEntry = (kind: ModelKind, id: string): LocalEntry => ({
   kind,
   id,
   model: { id },
   path: `${kind}/${id}`,
+});
+const remoteEntry = (kind: ModelKind, id: string): RemoteEntry => ({
+  kind,
+  id,
+  model: { id },
 });
 
 const emptyDiff = (): ModelDiff => ({ toCreate: [], toUpdate: [], unchanged: [], remoteOnly: [] });
@@ -1470,10 +1531,10 @@ describe("pushModels", () => {
   it("sends nothing when apply is false, but still reports what it would send", async () => {
     const send = vi.fn();
     const diff = emptyDiff();
-    diff.toCreate.push(entry("slice", "hero"));
+    diff.toCreate.push(localEntry("slice", "hero"));
     const report = await pushModels(diff, { apply: false, send });
     expect(send).not.toHaveBeenCalled();
-    expect(report.applied).toBe(false);
+    expect(report.mode).toBe("dry");
     expect(report.sent).toEqual([{ kind: "slice", id: "hero", action: "insert" }]);
   });
 
@@ -1482,13 +1543,19 @@ describe("pushModels", () => {
   // pushed 11 slices before 6 types on the-tower-burbank for exactly this reason.
   it("sends ALL slices before ANY custom type", async () => {
     const order: string[] = [];
-    const send = vi.fn(async (e: ModelEntry) => {
+    const send = vi.fn(async (e: LocalEntry) => {
       order.push(`${e.kind}:${e.id}`);
     });
     const diff = emptyDiff();
-    diff.toCreate.push(entry("customtype", "page"), entry("slice", "blux_band"));
-    diff.toUpdate.push({ local: entry("customtype", "blog"), remote: entry("customtype", "blog") });
-    diff.toUpdate.push({ local: entry("slice", "hero"), remote: entry("slice", "hero") });
+    diff.toCreate.push(localEntry("customtype", "page"), localEntry("slice", "blux_band"));
+    diff.toUpdate.push({
+      local: localEntry("customtype", "blog"),
+      remote: remoteEntry("customtype", "blog"),
+    });
+    diff.toUpdate.push({
+      local: localEntry("slice", "hero"),
+      remote: remoteEntry("slice", "hero"),
+    });
     await pushModels(diff, { apply: true, send });
     expect(order.slice(0, 2).every((k) => k.startsWith("slice:"))).toBe(true);
     expect(order.slice(2).every((k) => k.startsWith("customtype:"))).toBe(true);
@@ -1497,8 +1564,11 @@ describe("pushModels", () => {
   it("uses insert for toCreate and update for toUpdate", async () => {
     const send = vi.fn();
     const diff = emptyDiff();
-    diff.toCreate.push(entry("slice", "new_one"));
-    diff.toUpdate.push({ local: entry("slice", "old_one"), remote: entry("slice", "old_one") });
+    diff.toCreate.push(localEntry("slice", "new_one"));
+    diff.toUpdate.push({
+      local: localEntry("slice", "old_one"),
+      remote: remoteEntry("slice", "old_one"),
+    });
     const report = await pushModels(diff, { apply: true, send });
     expect(report.sent).toEqual([
       { kind: "slice", id: "new_one", action: "insert" },
@@ -1508,31 +1578,32 @@ describe("pushModels", () => {
 
   it("passes the remote copy so screenshots survive an update", async () => {
     const send = vi.fn();
-    const local = entry("slice", "hero");
-    const remote = { ...entry("slice", "hero"), model: { id: "hero", variations: [] } };
+    const local = localEntry("slice", "hero");
+    const remote = { ...remoteEntry("slice", "hero"), model: { id: "hero", variations: [] } };
     const diff = emptyDiff();
     diff.toUpdate.push({ local, remote });
     await pushModels(diff, { apply: true, send });
     expect(send.mock.calls[0]![1]).toBe(remote.model);
   });
 
-  // THE safety property. remoteOnly is carried into the report so it is visible,
-  // and nothing in this function can act on it.
-  it("never sends anything for remoteOnly, but reports it", async () => {
+  // THE safety property: nothing in this function can act on a remote-only
+  // model. `remoteOnly` lives on the diff, not the report — a caller who
+  // needs to know which models are remote-only reads it there.
+  it("never sends anything for a remote-only model", async () => {
     const send = vi.fn();
     const diff = emptyDiff();
-    diff.remoteOnly.push(entry("customtype", "frozen_page"));
-    const report = await pushModels(diff, { apply: true, send });
+    diff.remoteOnly.push(remoteEntry("customtype", "frozen_page"));
+    await pushModels(diff, { apply: true, send });
     expect(send).not.toHaveBeenCalled();
-    expect(report.remoteOnly.map((e) => e.id)).toEqual(["frozen_page"]);
+    expect(diff.remoteOnly.map((e) => e.id)).toEqual(["frozen_page"]);
   });
 
   it("records a per-model failure and KEEPS GOING", async () => {
-    const send = vi.fn(async (e: ModelEntry) => {
+    const send = vi.fn(async (e: LocalEntry) => {
       if (e.id === "bad") throw new Error("422 unprocessable");
     });
     const diff = emptyDiff();
-    diff.toCreate.push(entry("slice", "bad"), entry("slice", "good"));
+    diff.toCreate.push(localEntry("slice", "bad"), localEntry("slice", "good"));
     const report = await pushModels(diff, { apply: true, send });
     expect(report.failed).toEqual([{ kind: "slice", id: "bad", error: "422 unprocessable" }]);
     expect(report.sent.map((s) => s.id)).toEqual(["good"]);
@@ -1543,7 +1614,7 @@ describe("pushModels", () => {
       throw new Error("boom");
     });
     const diff = emptyDiff();
-    diff.toCreate.push(entry("slice", "hero"));
+    diff.toCreate.push(localEntry("slice", "hero"));
     const report = await pushModels(diff, { apply: true, send });
     expect(report.sent).toEqual([]);
   });
@@ -1560,12 +1631,12 @@ Expected: FAIL — cannot resolve `../../../src/prismic/models/push.js`
 ```ts
 // src/prismic/models/push.ts
 import { withRemoteScreenshots } from "./diff.js";
-import type { ModelDiff, ModelEntry, PrismicModel, PushReport } from "./types.js";
+import type { LocalEntry, ModelDiff, PrismicModel, PushReport } from "./types.js";
 
 /** Sends one model. Injected so `pushModels` stays testable and so the fetch
  *  layer, not this one, owns credentials. */
 export type SendFn = (
-  entry: ModelEntry,
+  entry: LocalEntry,
   remote: PrismicModel | undefined,
   action: "insert" | "update",
 ) => Promise<void>;
@@ -1597,7 +1668,7 @@ export type PushOptions = {
  */
 export async function pushModels(diff: ModelDiff, opts: PushOptions): Promise<PushReport> {
   const work: Array<{
-    entry: ModelEntry;
+    entry: LocalEntry;
     remote: PrismicModel | undefined;
     action: "insert" | "update";
   }> = [
@@ -1611,12 +1682,7 @@ export async function pushModels(diff: ModelDiff, opts: PushOptions): Promise<Pu
   // Slices first — see the ORDER MATTERS note above.
   work.sort((a, b) => (a.entry.kind === b.entry.kind ? 0 : a.entry.kind === "slice" ? -1 : 1));
 
-  const report: PushReport = {
-    applied: opts.apply,
-    sent: [],
-    failed: [],
-    remoteOnly: diff.remoteOnly,
-  };
+  const report: PushReport = { mode: opts.apply ? "apply" : "dry", sent: [], failed: [] };
 
   for (const { entry, remote, action } of work) {
     if (!opts.apply) {
@@ -1631,7 +1697,16 @@ export async function pushModels(diff: ModelDiff, opts: PushOptions): Promise<Pu
       );
       report.sent.push({ kind: entry.kind, id: entry.id, action });
     } catch (e) {
-      report.failed.push({ kind: entry.kind, id: entry.id, error: (e as Error).message });
+      // Carry the HTTP status (when there is one) so a caller can tell a dead
+      // write token (401/403 — fix the secret) apart from a rejected model
+      // (422 — fix the model). The nightly sweep must not conflate the two.
+      const err = e as Error & { status?: number };
+      report.failed.push({
+        kind: entry.kind,
+        id: entry.id,
+        error: err.message,
+        ...(err.status !== undefined ? { status: err.status } : {}),
+      });
     }
   }
   return report;
@@ -1668,7 +1743,7 @@ import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeModelFile, modelFilePath } from "../../../src/prismic/models/write.js";
-import type { ModelEntry } from "../../../src/prismic/models/types.js";
+import type { RemoteEntry } from "../../../src/prismic/models/types.js";
 
 let dir: string;
 beforeEach(async () => {
@@ -1708,7 +1783,7 @@ describe("modelFilePath", () => {
 });
 
 describe("writeModelFile", () => {
-  const entry: ModelEntry = {
+  const entry: RemoteEntry = {
     kind: "customtype",
     id: "frozen_page",
     model: { id: "frozen_page", label: "Frozen" },
@@ -1778,7 +1853,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, posix, sep } from "node:path";
 import type { SpawnFn } from "../../audits/util/spawn.js";
 import { formatWithPrettier } from "../../recipes/_prettier.js";
-import type { ModelEntry } from "./types.js";
+import type { RemoteEntry } from "./types.js";
 
 /** `video_block` -> `VideoBlock`. Slice Machine's on-disk directory convention.
  *  A model that exists only in Prismic has no local directory to reuse, so the
@@ -1791,7 +1866,7 @@ const pascal = (id: string): string =>
     .join("");
 
 /** Repo-relative path a pulled-down model should live at. */
-export function modelFilePath(entry: Pick<ModelEntry, "kind" | "id">, library: string): string {
+export function modelFilePath(entry: Pick<RemoteEntry, "kind" | "id">, library: string): string {
   if (entry.kind === "customtype") return posix.join("customtypes", entry.id, "index.json");
   const lib = library.replace(/^\.\//, "").split(sep).join(posix.sep);
   return posix.join(lib, pascal(entry.id), "model.json");
@@ -1818,7 +1893,7 @@ export type WriteResult = { path: string; formatted: boolean };
 export async function writeModelFile(
   spawn: SpawnFn,
   repoRoot: string,
-  entry: ModelEntry,
+  entry: RemoteEntry,
   library: string,
 ): Promise<WriteResult> {
   const rel = modelFilePath(entry, library);
@@ -1909,7 +1984,14 @@ export { localModels } from "./local.js";
 export { CUSTOM_TYPES_API, remoteModels, sendModel } from "./remote.js";
 export { pushModels, type PushOptions, type SendFn } from "./push.js";
 export { modelFilePath, writeModelFile, type WriteResult } from "./write.js";
-export type { ModelDiff, ModelEntry, ModelKind, PrismicModel, PushReport } from "./types.js";
+export type {
+  LocalEntry,
+  ModelDiff,
+  ModelKind,
+  PrismicModel,
+  PushReport,
+  RemoteEntry,
+} from "./types.js";
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -1948,29 +2030,42 @@ import { renderModelReport, isClean } from "../../src/cli/commands/prismic-model
 import type { ModelDiff } from "../../src/prismic/models/index.js";
 
 const emptyDiff = (): ModelDiff => ({ toCreate: [], toUpdate: [], unchanged: [], remoteOnly: [] });
-const e = (kind: "customtype" | "slice", id: string, model: Record<string, unknown> = {}) => ({
+const localEntry = (
+  kind: "customtype" | "slice",
+  id: string,
+  model: Record<string, unknown> = {},
+) => ({
   kind,
   id,
   model: { id, ...model },
   path: `${kind}/${id}`,
 });
+const remoteEntry = (
+  kind: "customtype" | "slice",
+  id: string,
+  model: Record<string, unknown> = {},
+) => ({
+  kind,
+  id,
+  model: { id, ...model },
+});
 
 describe("isClean", () => {
   it("is clean when everything is unchanged", () => {
     const d = emptyDiff();
-    d.unchanged.push(e("slice", "hero"));
+    d.unchanged.push(localEntry("slice", "hero"));
     expect(isClean(d)).toBe(true);
   });
 
   it("is not clean with a model to create", () => {
     const d = emptyDiff();
-    d.toCreate.push(e("slice", "hero"));
+    d.toCreate.push(localEntry("slice", "hero"));
     expect(isClean(d)).toBe(false);
   });
 
   it("is not clean with a model to update", () => {
     const d = emptyDiff();
-    d.toUpdate.push({ local: e("slice", "hero"), remote: e("slice", "hero") });
+    d.toUpdate.push({ local: localEntry("slice", "hero"), remote: remoteEntry("slice", "hero") });
     expect(isClean(d)).toBe(false);
   });
 
@@ -1978,7 +2073,7 @@ describe("isClean", () => {
   // check exists to catch, and the silent-field-drop class in reverse.
   it("is not clean with a remote-only model", () => {
     const d = emptyDiff();
-    d.remoteOnly.push(e("customtype", "frozen_page"));
+    d.remoteOnly.push(remoteEntry("customtype", "frozen_page"));
     expect(isClean(d)).toBe(false);
   });
 });
@@ -1986,7 +2081,7 @@ describe("isClean", () => {
 describe("renderModelReport", () => {
   it("says everything matches on a clean diff", () => {
     const d = emptyDiff();
-    d.unchanged.push(e("slice", "hero"), e("customtype", "page"));
+    d.unchanged.push(localEntry("slice", "hero"), localEntry("customtype", "page"));
     const out = renderModelReport("espada", d, { apply: false });
     expect(out).toContain("2 model(s) match Prismic");
     expect(out).not.toContain("REMOTE-ONLY");
@@ -1994,7 +2089,7 @@ describe("renderModelReport", () => {
 
   it("lists new models under NEW with their repo path", () => {
     const d = emptyDiff();
-    d.toCreate.push(e("slice", "hero"));
+    d.toCreate.push(localEntry("slice", "hero"));
     expect(renderModelReport("espada", d, { apply: false })).toContain(
       "NEW  slice hero  (slice/hero)",
     );
@@ -2003,10 +2098,10 @@ describe("renderModelReport", () => {
   it("lists changed models with their field-level lines", () => {
     const d = emptyDiff();
     d.toUpdate.push({
-      local: e("slice", "hero", {
+      local: localEntry("slice", "hero", {
         variations: [{ id: "default", primary: { wash: { type: "Boolean" } } }],
       }),
-      remote: e("slice", "hero", { variations: [{ id: "default", primary: {} }] }),
+      remote: remoteEntry("slice", "hero", { variations: [{ id: "default", primary: {} }] }),
     });
     const out = renderModelReport("espada", d, { apply: false });
     expect(out).toContain("CHANGED  slice hero");
@@ -2015,7 +2110,7 @@ describe("renderModelReport", () => {
 
   it("lists remote-only models under a REMOTE-ONLY heading that says they are never deleted", () => {
     const d = emptyDiff();
-    d.remoteOnly.push(e("customtype", "frozen_page"));
+    d.remoteOnly.push(remoteEntry("customtype", "frozen_page"));
     const out = renderModelReport("espada", d, { apply: false });
     expect(out).toContain("REMOTE-ONLY");
     expect(out).toContain("frozen_page");
@@ -2024,14 +2119,14 @@ describe("renderModelReport", () => {
 
   it("labels a dry run as a dry run and an applied run as pushed", () => {
     const d = emptyDiff();
-    d.toCreate.push(e("slice", "hero"));
+    d.toCreate.push(localEntry("slice", "hero"));
     expect(renderModelReport("espada", d, { apply: false })).toMatch(/DRY RUN/);
     expect(renderModelReport("espada", d, { apply: true })).toMatch(/pushed/i);
   });
 
   it("surfaces per-model push failures", () => {
     const d = emptyDiff();
-    d.toCreate.push(e("slice", "hero"));
+    d.toCreate.push(localEntry("slice", "hero"));
     const out = renderModelReport("espada", d, {
       apply: true,
       failed: [{ kind: "slice", id: "hero", error: "422 unprocessable" }],
@@ -2083,10 +2178,10 @@ export function renderModelReport(
   }
 
   for (const entry of diff.toCreate) {
-    lines.push(`NEW  ${entry.kind} ${entry.id}  (${entry.path ?? "?"})`);
+    lines.push(`NEW  ${entry.kind} ${entry.id}  (${entry.path})`);
   }
   for (const { local, remote } of diff.toUpdate) {
-    lines.push(`CHANGED  ${local.kind} ${local.id}  (${local.path ?? "?"})`);
+    lines.push(`CHANGED  ${local.kind} ${local.id}  (${local.path})`);
     for (const l of describeDiff(local.model, remote.model)) lines.push(`    ${l}`);
   }
   if (diff.remoteOnly.length > 0) {
@@ -2141,7 +2236,7 @@ import { mkdtemp, rm, mkdir, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runPrismicModelsCommand } from "../../src/cli/commands/prismic-models.js";
-import type { ModelEntry } from "../../src/prismic/models/index.js";
+import type { RemoteEntry } from "../../src/prismic/models/index.js";
 
 let dir: string;
 
@@ -2163,7 +2258,7 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-const deps = (remote: ModelEntry[], send = vi.fn()) => ({
+const deps = (remote: RemoteEntry[], send = vi.fn()) => ({
   remoteModels: vi.fn(async () => remote),
   sendModel: send,
   env: { PRISMIC_WRITE_TOKEN: "tok" } as Record<string, string | undefined>,
@@ -2310,8 +2405,9 @@ import {
   remoteModels as remoteModelsImpl,
   resolvePrismicToken,
   sendModel as sendModelImpl,
-  type ModelEntry,
+  type LocalEntry,
   type PrismicModel,
+  type RemoteEntry,
 } from "../../prismic/models/index.js";
 import { isClean, renderModelReport } from "./prismic-models-report.js";
 
@@ -2328,11 +2424,11 @@ export type PrismicModelsCommandOptions = {
 
 /** Injected IO, so the command is testable without a network or a real token. */
 export type PrismicModelsDeps = {
-  remoteModels: (repo: string, token: string) => Promise<ModelEntry[]>;
+  remoteModels: (repo: string, token: string) => Promise<RemoteEntry[]>;
   sendModel: (
     repo: string,
     token: string,
-    entry: ModelEntry,
+    entry: LocalEntry,
     action: "insert" | "update",
   ) => Promise<void>;
   env: Record<string, string | undefined>;
@@ -2370,7 +2466,7 @@ export async function checkOneSite(
   }
 
   const local = await localModels(repoRoot, cfg.libraries);
-  let remote: ModelEntry[];
+  let remote: RemoteEntry[];
   try {
     remote = await deps.remoteModels(cfg.repositoryName, resolved.token);
   } catch (e) {
@@ -2385,7 +2481,7 @@ export async function checkOneSite(
   const diff = diffModels(local, remote);
   const report = await pushModels(diff, {
     apply: opts.apply,
-    send: (entry: ModelEntry, _remote: PrismicModel | undefined, action) =>
+    send: (entry: LocalEntry, _remote: PrismicModel | undefined, action) =>
       deps.sendModel(cfg.repositoryName, resolved.token, entry, action),
   });
 
@@ -2601,7 +2697,7 @@ import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runPrismicModelsCommand } from "../../src/cli/commands/prismic-models.js";
-import type { ModelEntry } from "../../src/prismic/models/index.js";
+import type { RemoteEntry } from "../../src/prismic/models/index.js";
 
 let dir: string;
 beforeEach(async () => {
@@ -2617,7 +2713,7 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-const remote: ModelEntry[] = [
+const remote: RemoteEntry[] = [
   { kind: "customtype", id: "page", model: { id: "page" } },
   { kind: "customtype", id: "frozen_page", model: { id: "frozen_page", label: "Frozen" } },
   { kind: "slice", id: "video_block", model: { id: "video_block", type: "SharedSlice" } },
@@ -2712,11 +2808,11 @@ import { PRETTIER_FLAG_NOTE } from "../../recipes/_prettier.js";
 import { readPrismicConfig, writeModelFile } from "../../prismic/models/index.js";
 
 export type PrismicModelsDeps = {
-  remoteModels: (repo: string, token: string) => Promise<ModelEntry[]>;
+  remoteModels: (repo: string, token: string) => Promise<RemoteEntry[]>;
   sendModel: (
     repo: string,
     token: string,
-    entry: ModelEntry,
+    entry: LocalEntry,
     action: "insert" | "update",
   ) => Promise<void>;
   env: Record<string, string | undefined>;
