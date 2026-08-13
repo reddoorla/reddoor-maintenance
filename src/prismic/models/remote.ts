@@ -38,11 +38,11 @@ const COLLECTION: Record<ModelKind, string> = { customtype: "customtypes", slice
  * Per-request deadline. 15 s matches the two other JSON API clients here —
  * `src/audits/netlify-deploy.ts`'s `NETLIFY_FETCH_TIMEOUT_MS` and
  * `src/github/gh-rest.ts`'s `DEPENDABOT_FETCH_TIMEOUT_MS`. It is NOT a
- * fleet-wide constant: nine other `AbortSignal.timeout` call sites across five
- * files run from 10 s (`src/audits/browser.ts`, `src/audits/function-health.ts`,
- * `src/audits/form-e2e.ts`) to 20 s, each set for its own workload. 15 s is
- * chosen here because a model collection is small JSON, not because 15 is the
- * house number.
+ * fleet-wide constant: of the nine other `AbortSignal.timeout` call sites across
+ * five files, seven use 10 s (`src/audits/browser.ts` ×5,
+ * `src/audits/function-health.ts`, `src/audits/form-e2e.ts`) and only those two
+ * named above use 15 s. Each is set for its own workload. 15 s is chosen here
+ * because a model collection is small JSON, not because 15 is the house number.
  *
  * It is here because a hung connection is the ONLY failure mode with no error
  * to propagate, so it is the only one that would sit in a fleet sweep instead of
