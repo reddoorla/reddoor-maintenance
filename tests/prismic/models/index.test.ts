@@ -353,6 +353,10 @@ describe("the module-wide capability guard", () => {
     spans: Array<{ start: number; end: number }>;
     importTokens: Array<{ text: string; line: number; pos: number }>;
     freeIdentifiers: string[];
+    /** EVERY identifier the file contains, in any role — declarations included.
+     *  Free-identifier resolution deliberately cannot see a name that is
+     *  declared before it is used, so the `fetch` pin below reads this instead. */
+    identifiers: string[];
     identifierCount: number;
     verbs: string[];
     methodValues: string[];
@@ -425,6 +429,7 @@ describe("the module-wide capability guard", () => {
       spans: [],
       importTokens: [],
       freeIdentifiers: [],
+      identifiers: [],
       identifierCount: 0,
       verbs: [],
       methodValues: [],
@@ -713,40 +718,6 @@ describe("the module-wide capability guard", () => {
     };
     eachToken(sf);
 
-    // ── (d) free identifiers ──────────────────────────────────────────────
-    const declared = new Set<string>();
-    const declare = (name: ts.Node | undefined): void => {
-      if (name === undefined) return;
-      if (ts.isIdentifier(name)) {
-        declared.add(name.text);
-        return;
-      }
-      if (ts.isObjectBindingPattern(name) || ts.isArrayBindingPattern(name))
-        for (const el of name.elements) if (ts.isBindingElement(el)) declare(el.name);
-    };
-    each((n) => {
-      if (ts.isVariableDeclaration(n) || ts.isParameter(n) || ts.isBindingElement(n))
-        declare(n.name);
-      else if (
-        ts.isFunctionDeclaration(n) ||
-        ts.isClassDeclaration(n) ||
-        ts.isTypeAliasDeclaration(n) ||
-        ts.isInterfaceDeclaration(n) ||
-        ts.isTypeParameterDeclaration(n) ||
-        ts.isEnumDeclaration(n) ||
-        ts.isModuleDeclaration(n)
-      )
-        declare(n.name);
-      else if (ts.isCatchClause(n)) declare(n.variableDeclaration?.name);
-      else if (ts.isImportClause(n)) {
-        declare(n.name);
-        const bound = n.namedBindings;
-        if (bound && ts.isNamespaceImport(bound)) declared.add(bound.name.text);
-        if (bound && ts.isNamedImports(bound))
-          for (const el of bound.elements) declared.add(el.name.text);
-      } else if (ts.isImportEqualsDeclaration(n)) declare(n.name);
-    });
-
     /** Whether this identifier is a NAME rather than a use of one — `e.status`'s
      *  `status`, a declaration's own name, an object key. Shorthand is checked
      *  first because `{ fetch }` genuinely IS a reference to `fetch`, and the
@@ -761,13 +732,150 @@ describe("the module-wide capability guard", () => {
       if ((ts.isImportSpecifier(p) || ts.isExportSpecifier(p)) && p.propertyName === n) return true;
       return "name" in p && (p as { name?: ts.Node }).name === n;
     };
-    const referenced = new Set<string>();
-    each((n) => {
-      if (!ts.isIdentifier(n)) return;
-      out.identifierCount += 1;
-      if (!isName(n)) referenced.add(n.text);
-    });
-    out.freeIdentifiers = [...referenced].filter((r) => !declared.has(r)).sort();
+    /**
+     * ── (d) FREE IDENTIFIERS, RESOLVED PER SCOPE ──────────────────────────
+     *
+     * The set of declared names used to be FILE-WIDE, and that was an unlock
+     * rather than a hole: ONE parameter named `fetch`, anywhere in a file, put
+     * that string into the set and unfiltered EVERY use of the global `fetch`
+     * in that file — including inside the pure core. It arrives on an
+     * honest-looking edit, because `fetch?: typeof fetch` is this repo's own DI
+     * idiom (`src/forms/{client,turnstile,mailchimp,webhook,endpoint,action}.ts`
+     * all take it that way), and combined with the method axis above it put a
+     * Types-API DELETE inside `write.ts` in the 2026-08-13 red team. The same
+     * unlock existed for `process`, `globalThis`, `Function` and `Reflect`.
+     *
+     * So a name is resolved against the scopes that actually ENCLOSE its use: a
+     * stack over the source file, blocks, every function-like construct, catch
+     * clauses, the three `for` forms, classes and the type-parameter carriers,
+     * with `var` and function declarations hoisted to the nearest FUNCTION
+     * scope rather than the block they were written in. A use is free only when
+     * no enclosing scope declares it.
+     *
+     * References are collected with the scope they sit in and resolved AFTER
+     * the walk, so a name declared later in a scope still resolves for a use
+     * earlier in it — which is what hoisting and mutual recursion need.
+     *
+     * WHAT THIS DOES NOT DO: it shrinks the blast radius of an injected name
+     * from the whole file to the one function that takes it. It does not close
+     * the injected-capability class — inside that function the parameter still
+     * shadows the global and the guard cannot see what the caller passed. See
+     * the header.
+     */
+    type Scope = { parent: Scope | null; fn: boolean; names: Set<string> };
+    const fileScope: Scope = { parent: null, fn: true, names: new Set() };
+    /** Where `var` and function declarations land: the nearest FUNCTION scope,
+     *  never the block they were written in. */
+    const hoistTarget = (s: Scope): Scope => (s.fn ? s : hoistTarget(s.parent ?? fileScope));
+    const declareIn = (scope: Scope, name: ts.Node | undefined): void => {
+      if (name === undefined) return;
+      if (ts.isIdentifier(name)) {
+        scope.names.add(name.text);
+        return;
+      }
+      if (ts.isObjectBindingPattern(name) || ts.isArrayBindingPattern(name))
+        for (const el of name.elements) if (ts.isBindingElement(el)) declareIn(scope, el.name);
+    };
+    const isFunctionLike = (n: ts.Node): boolean =>
+      ts.isFunctionDeclaration(n) ||
+      ts.isFunctionExpression(n) ||
+      ts.isArrowFunction(n) ||
+      ts.isMethodDeclaration(n) ||
+      ts.isConstructorDeclaration(n) ||
+      ts.isGetAccessorDeclaration(n) ||
+      ts.isSetAccessorDeclaration(n) ||
+      ts.isFunctionTypeNode(n) ||
+      ts.isConstructorTypeNode(n) ||
+      ts.isMethodSignature(n) ||
+      ts.isCallSignatureDeclaration(n) ||
+      ts.isConstructSignatureDeclaration(n);
+    /** Every construct that introduces a lexical scope. Anything not listed
+     *  here shares its parent's scope, which is the conservative direction: a
+     *  declaration then reads as VISIBLE too widely, so a use resolves rather
+     *  than being reported free — the mistake this list can make is a false
+     *  PASS on a shadowed name, never a false failure on honest code. Blocks
+     *  and the `for` forms are listed precisely because `let`/`const` in them
+     *  are not visible outside. */
+    const opensScope = (n: ts.Node): boolean =>
+      isFunctionLike(n) ||
+      ts.isBlock(n) ||
+      ts.isModuleBlock(n) ||
+      ts.isCaseBlock(n) ||
+      ts.isCatchClause(n) ||
+      ts.isForStatement(n) ||
+      ts.isForInStatement(n) ||
+      ts.isForOfStatement(n) ||
+      ts.isClassDeclaration(n) ||
+      ts.isClassExpression(n) ||
+      ts.isTypeAliasDeclaration(n) ||
+      ts.isInterfaceDeclaration(n) ||
+      ts.isConditionalTypeNode(n) ||
+      ts.isMappedTypeNode(n);
+
+    const refs: Array<{ name: string; scope: Scope }> = [];
+    const identifiers = new Set<string>();
+    const walkScoped = (n: ts.Node, outer: Scope): void => {
+      // 1. What this node declares in the scope it SITS IN.
+      if (ts.isVariableDeclaration(n)) {
+        const list = n.parent;
+        const blockScoped =
+          ts.isVariableDeclarationList(list) &&
+          (list.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) !== 0;
+        declareIn(blockScoped ? outer : hoistTarget(outer), n.name);
+      } else if (ts.isFunctionDeclaration(n)) declareIn(hoistTarget(outer), n.name);
+      else if (
+        ts.isClassDeclaration(n) ||
+        ts.isTypeAliasDeclaration(n) ||
+        ts.isInterfaceDeclaration(n) ||
+        ts.isEnumDeclaration(n) ||
+        ts.isModuleDeclaration(n)
+      )
+        declareIn(outer, n.name);
+      else if (ts.isImportClause(n)) {
+        declareIn(fileScope, n.name);
+        const bound = n.namedBindings;
+        if (bound && ts.isNamespaceImport(bound)) fileScope.names.add(bound.name.text);
+        if (bound && ts.isNamedImports(bound))
+          for (const el of bound.elements) fileScope.names.add(el.name.text);
+      } else if (ts.isImportEqualsDeclaration(n)) declareIn(fileScope, n.name);
+
+      // 2. The scope this node OPENS, and what belongs to that scope: its
+      //    parameters, its type parameters, a catch binding, and the name a
+      //    class or function expression gives itself.
+      const inner: Scope = opensScope(n)
+        ? { parent: outer, fn: isFunctionLike(n), names: new Set() }
+        : outer;
+      if (ts.isCatchClause(n)) declareIn(inner, n.variableDeclaration?.name);
+      if (ts.isClassDeclaration(n) || ts.isClassExpression(n) || ts.isFunctionExpression(n))
+        declareIn(inner, n.name);
+      for (const p of (n as { parameters?: readonly ts.ParameterDeclaration[] }).parameters ?? [])
+        declareIn(inner, p.name);
+      for (const t of (n as { typeParameters?: readonly ts.TypeParameterDeclaration[] })
+        .typeParameters ?? [])
+        declareIn(inner, t.name);
+      if (ts.isMappedTypeNode(n)) declareIn(inner, n.typeParameter.name);
+      if (ts.isInferTypeNode(n)) declareIn(outer, n.typeParameter.name);
+
+      // 3. Uses.
+      if (ts.isIdentifier(n)) {
+        out.identifierCount += 1;
+        identifiers.add(n.text);
+        if (!isName(n)) refs.push({ name: n.text, scope: outer });
+      }
+
+      ts.forEachChild(n, (c) => walkScoped(c, inner));
+    };
+    walkScoped(sf, fileScope);
+
+    const resolves = (name: string, scope: Scope): boolean => {
+      for (let s: Scope | null = scope; s !== null; s = s.parent)
+        if (s.names.has(name)) return true;
+      return false;
+    };
+    out.freeIdentifiers = [
+      ...new Set(refs.filter((r) => !resolves(r.name, r.scope)).map((r) => r.name)),
+    ].sort();
+    out.identifiers = [...identifiers].sort();
 
     return out;
   };
@@ -854,6 +962,30 @@ describe("the module-wide capability guard", () => {
       return e.freeIdentifiers.filter((f) => !allowed.has(f)).map((f) => `${e.file}: ${f}`);
     });
     expect(offending.sort()).toEqual([]);
+  });
+
+  /**
+   * The companion to per-scope resolution, and honestly a NAME PIN rather than a
+   * capability rule: `fetch` may not appear in any file but `remote.ts`, in ANY
+   * role — as a parameter, a property, a type, a local, anything.
+   *
+   * It exists because scope resolution alone cannot see the shape that actually
+   * escaped: `fetch?: typeof fetch` is this repo's own DI idiom in six
+   * `src/forms/*` files, so it arrives looking like house style, and once a
+   * function takes it the uses inside that function resolve to the parameter and
+   * are invisible to the assertion above. Pinning the NAME catches the plausible
+   * instance; it does not close the class, because the same capability injected
+   * as `deps.http` or typed `FetchLike` names nothing this can see. That is the
+   * injected-capability limit stated in the header, not a gap this test forgot.
+   */
+  it("names fetch in no file but remote.ts, in any role at all", () => {
+    const offending = extracted
+      .filter((e) => e.file !== "remote.ts" && e.identifiers.includes("fetch"))
+      .map((e) => e.file);
+    expect(offending).toEqual([]);
+    // …and remote.ts really does name it, so a rename cannot turn this rule into
+    // a rule about nothing.
+    expect(extracted.find((e) => e.file === "remote.ts")?.identifiers).toContain("fetch");
   });
 
   // Kept on remote.ts's reasoning: Prismic removes a model with
