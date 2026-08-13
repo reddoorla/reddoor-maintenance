@@ -45,8 +45,29 @@ describe("withRemoteScreenshots", () => {
     expect(sent.variations[1]!.imageUrl).toBe("");
   });
 
-  it("returns the local model unchanged when there is no remote (an insert)", () => {
-    expect(withRemoteScreenshots(local, undefined)).toBe(local);
+  // On an insert there is no remote to defer to at all, but the local value
+  // is still not safe to send verbatim — ten real fleet repos carry a stale
+  // on-disk URL, and sending it on a fresh insert is the exact damage this
+  // function exists to prevent, just on the one path with no remote to fall
+  // back on. `""` is normalised in instead: it's what Slice Machine writes
+  // normally, and what the overwhelming majority of the fleet's 232
+  // variations already carry, so it's proven acceptable to the Types API.
+  it('normalises every variation\'s imageUrl to "" on an insert, instead of sending the local value verbatim', () => {
+    const stale: PrismicModel = {
+      id: "rich_text",
+      variations: [{ id: "default", imageUrl: "https://images.prismic.io/STALE.png" }],
+    };
+    const sent = withRemoteScreenshots(stale, undefined) as unknown as {
+      variations: Array<Record<string, unknown>>;
+    };
+    expect(sent.variations[0]!.imageUrl).toBe("");
+    // The key stays present, never deleted — an absent `imageUrl` is
+    // unproven against the Types API.
+    expect(Object.hasOwn(sent.variations[0]!, "imageUrl")).toBe(true);
+    // And the original stale object is untouched.
+    expect((stale.variations as Array<Record<string, unknown>>)[0]!.imageUrl).toBe(
+      "https://images.prismic.io/STALE.png",
+    );
   });
 
   it("returns the local model unchanged for a custom type (no variations)", () => {
@@ -81,5 +102,26 @@ describe("withRemoteScreenshots", () => {
       variations: Array<Record<string, unknown>>;
     };
     expect(sent.variations[0]!.imageUrl).toBe("");
+  });
+
+  // An id MATCH alone is not proof the matched remote variation carries the
+  // `imageUrl` key at all — it could be genuinely absent (not `""`,
+  // ABSENT). `shots.has(id)` used to be true in this case too (the id was
+  // found), so the old code would overwrite a real local URL with
+  // `undefined`. The check has to be presence of the KEY on the matched
+  // variation, not presence of the id in the map.
+  it("leaves local untouched when the matched remote variation has no imageUrl key at all", () => {
+    const withValue: PrismicModel = {
+      id: "hero",
+      variations: [{ id: "default", imageUrl: "https://img/hero-default.png" }],
+    };
+    const remote: PrismicModel = {
+      id: "hero",
+      variations: [{ id: "default" }], // matched by id, but no `imageUrl` key
+    };
+    const sent = withRemoteScreenshots(withValue, remote) as unknown as {
+      variations: Array<Record<string, unknown>>;
+    };
+    expect(sent.variations[0]!.imageUrl).toBe("https://img/hero-default.png");
   });
 });

@@ -186,18 +186,36 @@ describe("describeDiff", () => {
     expect(describeDiff({ id: "x" }, { id: "x" })).toEqual([]);
   });
 
-  // Kept as `toContain`, not `toEqual`: with no remote at all, the model's
-  // OWN top-level keys (starting with `id`) ALSO render as new metadata —
-  // correct (nothing on the remote side exists, `id` included), but
-  // incidental to what this test demonstrates: the missing-remote branch
-  // doesn't throw and marks real content as new. Pinning the full array here
-  // would make the test brittle to unrelated metadata-line additions.
+  // Once the model-level metadata pass is skipped on an insert (see the
+  // "insert noise" test below), this is a clean, fully deterministic
+  // single-line result — no more incidental `+ (model) id`/etc. lines to
+  // dodge, so this can pin the full array.
   it("treats a missing remote as all-new without throwing", () => {
     const local: PrismicModel = {
       id: "hero",
       variations: [{ id: "default", primary: { t: {} } }],
     };
-    expect(describeDiff(local, undefined)).toContain("+ variation default (new)");
+    expect(describeDiff(local, undefined)).toEqual(["+ variation default (new)"]);
+  });
+
+  // --- Finding #4a (MINOR), insert path: on an insert EVERY key is new, so
+  // itemizing the model's own top-level keys one at a time is pure noise
+  // once the structural `+ tab X (new)` line already says "this is all
+  // new". Verified against the real fleet: the metadata pass alone produced
+  // 1,111 `+ (model) k` lines against 368 structural ones on inserts (75%
+  // noise) — a custom type used to open with `+ (model) format`, `+
+  // (model) id`, `+ (model) label`, `+ (model) repeatable`, `+ (model)
+  // status` before the first `+ tab Main (new)`.
+  it("skips model-level metadata noise entirely on an insert (remote undefined)", () => {
+    const local: PrismicModel = {
+      id: "page",
+      label: "Page",
+      format: "page",
+      repeatable: true,
+      status: true,
+      json: { Main: {} },
+    };
+    expect(describeDiff(local, undefined)).toEqual(["+ tab Main (new)"]);
   });
 
   // --- Finding #1 (CRITICAL): a model-level or variation-level rename
@@ -328,6 +346,22 @@ describe("describeDiff", () => {
       at(remote, "json", "Main", "sections", "config").repeat = false;
       expect(describeDiff(pageCustomType, remote)).toEqual(["~ Main.sections (changed)"]);
     });
+
+    // Finding #1 (IMPORTANT, second review round): the child-specific
+    // report above was itself a NEW metadata blind spot one level down —
+    // when the container's OWN metadata changes ALONGSIDE a child change,
+    // reporting only the child line hid the destructive half. Mutating
+    // both at once on every real fleet container: 155/155 reported only
+    // the child line. Both must render, container line first.
+    it("reports the container's OWN metadata change ALONGSIDE its child change, not instead of it", () => {
+      const remote = structuredClone(pageCustomType);
+      at(remote, "json", "Main", "sections", "config").repeat = false; // container's own config differs
+      delete at(remote, "json", "Main", "sections", "config", "fields").section; // AND a child differs
+      expect(describeDiff(pageCustomType, remote)).toEqual([
+        "~ Main.sections (changed)",
+        "+ Main.sections.section",
+      ]);
+    });
   });
 
   // --- `items` zone (untested in round 1): 28 real fleet variations use a
@@ -336,6 +370,32 @@ describe("describeDiff", () => {
     const remote = structuredClone(carouselSlice);
     delete at(remote, "variations", 0, "items").subcaption;
     expect(describeDiff(carouselSlice, remote)).toEqual(["+ default.items.subcaption"]);
+  });
+
+  // --- Finding #2 (IMPORTANT, second review round): a THIRD metadata blind
+  // spot, this one at the zone-presence level. `asZone(undefined)` is `{}`,
+  // so an ABSENT `items` and an EMPTY `items: {}` are indistinguishable to
+  // the zone pass — while `canon` keeps `{}` and correctly calls the models
+  // different (an empty object survives canon's filter; a key that plain
+  // doesn't exist has nothing to survive). Both shapes exist on disk today
+  // (210/245 real fleet variations carry `items: {}`, 2 carry none), so a
+  // hand edit deleting an `"items": {}` line reaches this — plausible,
+  // since Prismic deprecates `items`. This is the backstop the runtime
+  // invariant below closes: it doesn't special-case zone presence, it
+  // guarantees NOTHING sameModel calls different can render blank, closing
+  // this class and degrading any FUTURE blind spot to an honest "changed,
+  // no detail" instead of a silent one.
+  it("renders the backstop line when the only difference is zone PRESENCE (items: {} vs absent)", () => {
+    const local: PrismicModel = {
+      id: "hero",
+      variations: [{ id: "default", primary: {}, items: {} }],
+    };
+    const remote: PrismicModel = {
+      id: "hero",
+      variations: [{ id: "default", primary: {} }], // no `items` key at all
+    };
+    expect(sameModel(local, remote)).toBe(false);
+    expect(describeDiff(local, remote)).toEqual(["~ (model) changed (no field-level detail)"]);
   });
 
   // --- Finding #6c, the property test that would have caught Finding #1:

@@ -35,6 +35,29 @@ type Verb = "added" | "removed" | "changed";
  *  recursing without limit, not to clip genuine fleet depth. */
 const MAX_FIELD_DEPTH = 20;
 
+/** CAVEAT that applies to every add/remove pass in this file (`compareMeta`
+ *  here AND `compareZone` below): they test raw key PRESENCE via
+ *  `Object.hasOwn`, not `sameModel`. Only the CHANGED pass runs values
+ *  through `sameModel`/`canon()`. So a key whose VALUE `canon` drops as
+ *  noise (`null`/`""`) but that exists on only ONE side could, in
+ *  principle, render an add/remove line for what is really serializer
+ *  noise, not a real difference.
+ *
+ *  Bounded and currently harmless: 0 of the 1,167 real `""`/`null` keys in
+ *  the fleet sit at a raw-presence level here — all are inside field
+ *  configs, one level down, where the CHANGED pass's `sameModel` call does
+ *  guard them — and a pair whose ONLY difference is canon-noise is
+ *  classified `unchanged` by `diffModels` and never reaches `describeDiff`
+ *  at all.
+ *
+ *  BUT that second bound is a property of the CALLER, not of this
+ *  function. If any future caller ever runs `describeDiff` on a pair
+ *  `diffModels` sorted into `unchanged` — a verbose mode, a debug flag —
+ *  that bound disappears and this becomes a false-alarm source: crying
+ *  "changed" on pure serializer noise is the INVERTED failure from the one
+ *  this whole file exists to prevent, and the nightly drift sweep must
+ *  never produce it. */
+
 /** Flat key-diff for a METADATA object — the model's own top-level keys, or
  *  a variation's own top-level keys. Deliberately NOT recursive: metadata
  *  values (`label`, `name`, `repeatable`, …) are leaves, never Group/Slices
@@ -109,6 +132,18 @@ const containerChildren = (field: unknown): Zone | undefined => {
   return undefined;
 };
 
+/** A container field's own definition with its CHILDREN key excluded —
+ *  `fields` for Group, `choices` for Slices. Isolates "did the container's
+ *  own config change" (a Group's `repeat` flag, a Slices field's `fieldset`
+ *  label) from "did a child change", so `compareZone` can report the two
+ *  independently instead of one hiding the other. */
+const withoutChildren = (field: unknown, childrenKey: "fields" | "choices"): unknown => {
+  const f = asZone(field);
+  const cfg = asZone(f.config);
+  const { [childrenKey]: _children, ...restCfg } = cfg;
+  return { ...f, config: restCfg };
+};
+
 /** Field-zone diff — used for `primary`/`items`, custom-type tabs, and
  *  (recursively) the inside of Group/Slices containers. A field present on
  *  both sides but different is, by default, one `~ label.field (changed)`
@@ -118,10 +153,18 @@ const containerChildren = (field: unknown): Zone | undefined => {
  *  line — e.g. `+ Main.slices.lead_text` rather than `~ Main.slices
  *  (changed)`, which used to be the only signal a reviewer got for "someone
  *  removed a slice-zone choice" (137 real Group/Slices containers in the
- *  fleet, some hiding up to 28 children). If recursion finds nothing — the
- *  container's OWN metadata changed (e.g. its `repeat` flag) with identical
- *  children — the generic changed line is still emitted, so the change
- *  never goes silent either way. */
+ *  fleet, some hiding up to 28 children).
+ *
+ *  The container's OWN config (everything except its children) is ALSO
+ *  compared whenever a child difference is found, not only when it isn't:
+ *  reporting the child line alone was itself a metadata blind spot one
+ *  level down from the one `describeDiff` fixes at the model/variation
+ *  level — mutating a Group's `repeat` flag alongside a field addition
+ *  rendered as a lone `+ Main.sections.new_field`, with the destructive
+ *  half of the change invisible (155/155 real fleet containers, mutating
+ *  both at once). If recursion finds nothing at all — the container's own
+ *  config changed with byte-identical children — the generic changed line
+ *  is still emitted, so the change never goes silent either way. */
 const compareZone = (label: string, lz: unknown, rz: unknown, depth: number): string[] => {
   const a = asZone(lz);
   const b = asZone(rz);
@@ -136,14 +179,18 @@ const compareZone = (label: string, lz: unknown, rz: unknown, depth: number): st
       const av = asZone(a[k]);
       const bv = asZone(b[k]);
       if (av.type === bv.type && (av.type === "Group" || av.type === "Slices")) {
-        const lc = containerChildren(a[k]);
-        const rc = containerChildren(b[k]);
-        if (lc !== undefined || rc !== undefined) {
-          const nested = compareZone(childPath, lc, rc, depth + 1);
-          if (nested.length > 0) {
-            out.push(...nested);
-            continue;
-          }
+        const childrenKey = av.type === "Group" ? "fields" : "choices";
+        const nested = compareZone(
+          childPath,
+          containerChildren(a[k]),
+          containerChildren(b[k]),
+          depth + 1,
+        );
+        if (nested.length > 0) {
+          if (!sameModel(withoutChildren(a[k], childrenKey), withoutChildren(b[k], childrenKey)))
+            out.push(`~ ${childPath} (changed)`);
+          out.push(...nested);
+          continue;
         }
       }
     }
@@ -176,7 +223,13 @@ export function describeDiff(local: PrismicModel, remote: PrismicModel | undefin
   const r = asZone(remote);
   const lines: string[] = [];
 
-  lines.push(...compareMeta(l, r, MODEL_FIELD_KEYS, modelMetaLine));
+  // On an insert (no remote yet) EVERY key is new, so itemizing each one is
+  // pure noise once the structural `+ tab X (new)` / `+ variation X (new)`
+  // lines already say "this is all new" — verified against the real fleet:
+  // the metadata pass alone produced 1,111 `+ (model) k` lines against 368
+  // structural ones on inserts (75% noise), a custom type opening with five
+  // `+ (model) …` lines before the first `+ tab Main (new)`.
+  if (remote !== undefined) lines.push(...compareMeta(l, r, MODEL_FIELD_KEYS, modelMetaLine));
 
   // Slice shape.
   if (Array.isArray(l.variations) || Array.isArray(r.variations)) {
@@ -228,6 +281,16 @@ export function describeDiff(local: PrismicModel, remote: PrismicModel | undefin
       if (!Object.hasOwn(lt, tab)) lines.push(`- tab ${tab} (REMOVED remotely)`);
   }
 
+  // A blank "CHANGED <model>" is the failure this function exists to prevent, and
+  // three separate blind spots have now produced one (metadata, containers, zone
+  // presence). This is the backstop: anything `sameModel` calls different MUST
+  // render at least one line. It closes the known zone-presence class and
+  // degrades any FUTURE blind spot to an honest "changed, no detail" instead of a
+  // silent blank. It also turns the property test below from a sample into a
+  // guarantee.
+  if (lines.length === 0 && remote !== undefined && !sameModel(local, remote))
+    lines.push("~ (model) changed (no field-level detail)");
+
   return lines;
 }
 
@@ -241,17 +304,21 @@ export function describeDiff(local: PrismicModel, remote: PrismicModel | undefin
  *  has to put a real value on the wire, and the only trustworthy one is
  *  whatever is currently live on the remote.
  *
- *  PRESENCE, not truthiness — the remote's value wins whenever the remote
- *  HAS one, including when it is `""`. A truthy check (`shot ? … : v`) looks
- *  equivalent and is tempting to "simplify" back to, but it is not: it
- *  conflates "no remote data for this id" (nothing is known, so keeping
- *  local is correct) with "remote explicitly reports `""`" (Prismic
- *  currently has NO screenshot for this variation — that IS the live
- *  truth). Falling through to local on a remote `""` doesn't preserve a
- *  preview, it WRITES a stale URL onto a variation that currently has
- *  none — the exact damage this function exists to prevent, on exactly the
- *  nine RichText models that carry one. `shots.has(id)` is what tells the
- *  two cases apart; the map's VALUE is not enough to.
+ *  PRESENCE, not truthiness — the remote's value wins whenever the MATCHED
+ *  remote variation HAS an `imageUrl` KEY, including when its value is
+ *  `""`. A truthy check (`shot ? … : v`) looks equivalent and is tempting
+ *  to "simplify" back to, but it is not: it conflates "no remote data for
+ *  this id" (nothing is known, so keeping local is correct) with "remote
+ *  explicitly reports `""`" (Prismic currently has NO screenshot for this
+ *  variation — that IS the live truth). Falling through to local on a
+ *  remote `""` doesn't preserve a preview, it WRITES a stale URL onto a
+ *  variation that currently has none — the exact damage this function
+ *  exists to prevent, on exactly the nine RichText models that carry one.
+ *  The check has to be `Object.hasOwn(remoteVariation, "imageUrl")`, not
+ *  `shots.has(id)`: an id MATCH alone is not proof the matched remote
+ *  variation carries the key at all — without this, a matched remote
+ *  variation that genuinely has no `imageUrl` property would overwrite a
+ *  real local URL with `undefined`.
  *
  *  A variation with no string `id` is left untouched rather than matched by
  *  array index. `describeDiff` can fall back to an index label
@@ -259,24 +326,47 @@ export function describeDiff(local: PrismicModel, remote: PrismicModel | undefin
  *  comment line; here a wrong pairing WRITES the wrong screenshot onto a
  *  live variation on push. Guessing identity is the wrong trade when being
  *  wrong is destructive instead of cosmetic, so an id-less local variation
- *  just passes through with whatever `imageUrl` it already has. */
+ *  just passes through with whatever `imageUrl` it already has.
+ *
+ *  On an INSERT (`remote === undefined`) there is no remote to defer to at
+ *  all, but the local value is still not safe to send verbatim — ten real
+ *  fleet repos carry a stale on-disk URL, and sending it on a fresh insert
+ *  is the exact damage this function exists to prevent, just on the one
+ *  path with no remote value to fall back on. Every variation's `imageUrl`
+ *  is normalised to `""` instead (unconditionally — there is no matching
+ *  happening here, so the id-less-variation caveat above does not apply):
+ *  `""` is what Slice Machine writes normally and what the overwhelming
+ *  majority of the fleet's 232 variations already carry, so it is proven
+ *  acceptable to the Types API. The KEY stays present — never deleted —
+ *  because an absent `imageUrl` is unproven against the API, and a live
+ *  push is not the place to find out. */
 export function withRemoteScreenshots(
   local: PrismicModel,
   remote: PrismicModel | undefined,
 ): PrismicModel {
-  if (!remote || !Array.isArray(local.variations)) return local;
+  if (!Array.isArray(local.variations)) return local;
+
+  if (!remote) {
+    return {
+      ...local,
+      variations: local.variations.map((v) => ({ ...asZone(v), imageUrl: "" })),
+    };
+  }
+
   const shots = new Map(
     (Array.isArray(remote.variations) ? remote.variations : [])
       .map((v) => asZone(v))
       .filter((o): o is Zone & { id: string } => typeof o.id === "string")
-      .map((o) => [o.id, o.imageUrl] as const),
+      .map((o) => [o.id, o] as const),
   );
   return {
     ...local,
     variations: local.variations.map((v) => {
       const o = asZone(v);
-      if (typeof o.id !== "string" || !shots.has(o.id)) return v;
-      return { ...o, imageUrl: shots.get(o.id) };
+      if (typeof o.id !== "string") return v;
+      const remoteVariation = shots.get(o.id);
+      if (!remoteVariation || !Object.hasOwn(remoteVariation, "imageUrl")) return v;
+      return { ...o, imageUrl: remoteVariation.imageUrl };
     }),
   };
 }
