@@ -10,6 +10,14 @@
 
 **Source spec:** [docs/superpowers/specs/2026-08-12-prismic-headless-model-delivery-design.md](../specs/2026-08-12-prismic-headless-model-delivery-design.md)
 
+## Verification note — `vitest` does not typecheck
+
+Every task below prints a `pnpm vitest run …` command and an expected result. **A green vitest run is not evidence that `pnpm typecheck` passes.** Vitest transpiles without type-checking, so a test file can be type-invalid and still run — and the task's "Expected: FAIL — cannot resolve …" step will look exactly as predicted while the file would never compile.
+
+This was found live in Task 5: the plan's test file used a direct `as { variations: Array<…> }` cast, which TypeScript rejects for insufficient overlap because `PrismicModel.variations` is `unknown` through the index signature. The red run looked normal; only `pnpm typecheck` caught it. The fix is the two-step `as unknown as { … }`, and that pattern is expected anywhere a test reaches into `PrismicModel`'s loose fields.
+
+**Run `pnpm typecheck` in every task, not just the ones that mention it.**
+
 ---
 
 ## Two deliberate deviations from the spec
