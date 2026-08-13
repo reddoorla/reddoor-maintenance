@@ -20,22 +20,39 @@ This was found live in Task 5: the plan's test file used a direct `as { variatio
 
 ---
 
-## Fleet measurements — corrected 2026-08-12
+## Fleet measurements — and how to take one
 
-Earlier drafts of this plan cited **77 custom types / 174 slices / 232 variations**. Those numbers counted every model file on disk without applying the sentinel filter that `readPrismicConfig` itself applies, so they described a scope this pipeline never processes. Any comment or assertion quoting them is wrong. The measured figures:
+**Measured 2026-08-12 from each repo's default branch (`origin/HEAD`) via `git ls-tree`. Never from a working tree — see the methodology note below, which is the more important half of this section.**
 
 | Scope                                            | Custom types | Slices  | Variations |
 | ------------------------------------------------ | ------------ | ------- | ---------- |
-| **In scope** — 15 Prismic-configured live repos  | **69**       | **131** | **183**    |
-| `reddoor-starter` (sentinel — correctly skipped) | 7            | 28      | —          |
+| **In scope** — 15 Prismic-configured live repos  | **68**       | **132** | **180**    |
+| `reddoor-starter` (sentinel — correctly skipped) | 7            | 26      | —          |
 | `canvas-starter` (sentinel — correctly skipped)  | 1            | 15      | —          |
-| Old totals                                       | 77           | 174     | 232        |
 
-69 + 8 = 77 and 131 + 43 = 174 — the two starter templates account for the entire gap on both axes. They carry `repositoryName: "your-prismic-repo-name"` and have no Prismic repository behind them, so `readPrismicConfig` returns `null` and they are correctly out of scope. `composition-hospitality` carries the same sentinel.
+The two starter templates carry `repositoryName: "your-prismic-repo-name"` and have no Prismic repository behind them, so `readPrismicConfig` returns `null` and they are correctly out of scope. `composition-hospitality` carries the same sentinel but has no local checkout — **a local-only sweep finds two sentinel repos, not three**, which is a trap worth knowing before you "correct" the number down.
 
-Every one of the 183 variations across the 131 in-scope slice models carries a string `id`, so `assertVariationsHaveIds` is defensive, not a live repair.
+Derived facts, same basis: all 180 variations carry a string `id` (so `assertVariationsHaveIds` is defensive, not a live repair); 171 of 180 `imageUrl` values are `""` and 9 hold a real URL; **zero** `imageUrl` keys sit anywhere other than on a variation.
 
-**When quoting a fleet number in a comment, date it.** These change as sites are onboarded; an undated count silently rots into a false claim, which is what happened to 77/174.
+### Never measure the fleet from a working tree
+
+Earlier drafts cited 77/174/232, then 69/131/183. Both were wrong, and the second was wrong in a way that matters more than being off by one: **it was unreproducible.** Six of the fifteen sibling checkouts sit on feature branches, and the checkouts are live — someone else is working in them right now.
+
+This was caught the hard way. Two measurements of `reddoor-website` taken from the same working tree roughly forty minutes apart returned **8 custom types / 15 slices** and then **7 / 9**. Nothing in this repo changed between them; the sibling checkout moved. A third of the fleet's numbers drifted underneath the very commits that were adding those numbers to comments — the same rot two review rounds had just been spent eliminating, reintroduced by the measurement method itself.
+
+**The rule: measure against a named ref with git plumbing, never the filesystem.**
+
+```bash
+db=$(git -C "$repo" symbolic-ref --short refs/remotes/origin/HEAD)   # e.g. origin/main
+git -C "$repo" ls-tree -r --name-only "$db" | grep -c '^customtypes/[^/]*/index\.json$'
+git -C "$repo" ls-tree -r --name-only "$db" | grep -c '/model\.json$'
+```
+
+No checkout, no fetch, nothing written to a client repo. Two gotchas: `canvas-starter` has no `origin/HEAD` configured (fall back to `origin/main`), and `origin/HEAD` itself advances on fetch — so state the basis AND the date, which is what makes the figure reproducible rather than merely current.
+
+**When quoting a fleet number in a comment, date it and say what it was measured against.** An undated count rots into a false claim; an undated count from a working tree was never true in the first place.
+
+**One exception, deliberately preserved:** `diff.ts:215` records 174 slices / 77 custom types. That is an _experiment record_ — a mutation-testing run that actually happened over that model set — not a live count. It is a strict superset of the in-scope figure, so the evidence it documents is stronger, not staler. Do not reconcile it downward; that would claim an experiment nobody ran.
 
 ---
 
