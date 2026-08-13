@@ -5,6 +5,7 @@ import {
   lstat,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   realpath,
   rm,
@@ -377,6 +378,61 @@ describe("writeModelFile", () => {
     }
     expect(await readFile(join(dir, rel), "utf-8")).toBe(before);
     expect(err?.message).toMatch(/UNTOUCHED/);
+  });
+
+  // ABSENCE ASSERTION — mutation-proven: giving the temp a per-run unique name
+  // (`${full}.${process.pid}-${n}.tmp`) makes this fail on the count, because
+  // the second attempt no longer contends for the path the first one used and
+  // the pre-staged blocker stops blocking.
+  //
+  // This module has no delete verb and never will, so the leftovers it can
+  // produce have to be BOUNDED rather than cleaned up. A unique temp name means
+  // every interrupted write leaves another untracked file in a live client repo,
+  // forever; one name per model path means the mess is one file however many
+  // times it fails. The failure is injected by putting a DIRECTORY at the temp
+  // path — a real EISDIR from the real filesystem, not a stub.
+  it("leaves at most ONE temp file however many times staging fails", async () => {
+    const rel = "customtypes/frozen_page/index.json";
+    const modelDir = join(dir, "customtypes/frozen_page");
+    const before = JSON.stringify({ id: "frozen_page", label: "Live" }, null, 2) + "\n";
+    await mkdir(modelDir, { recursive: true });
+    await writeFile(join(dir, rel), before);
+    await mkdir(join(dir, `${rel}.tmp`)); // staging cannot write over a directory
+
+    const first = await refusalFrom(writeModelFile(okSpawn(), dir, entry, LIB));
+    const second = await refusalFrom(writeModelFile(okSpawn(), dir, entry, LIB));
+
+    const strays = (await readdir(modelDir)).filter((f) => f.endsWith(".tmp"));
+    expect(strays).toEqual(["index.json.tmp"]);
+    expect(await readFile(join(dir, rel), "utf-8")).toBe(before);
+    expect(first?.message).toMatch(/UNTOUCHED/);
+    expect(second?.message).toMatch(/UNTOUCHED/);
+  });
+
+  // ABSENCE ASSERTION — mutation-proven: changing the temp's flag back to `wx`
+  // makes this fail, because the leftover blocks the create and the model is
+  // never refreshed.
+  //
+  // The other half of "bounded, not cleaned up". A temp left by an interrupted
+  // run must not become a permanent hard stop for that model — with a
+  // deterministic name, `wx` would make it exactly that, and no delete verb
+  // exists here to clear it. `w` overwrites the stale temp, and the `rename`
+  // then CONSUMES it: a successful pull-down removes the mess a failed one left,
+  // which is cleanup without the ability to delete.
+  it("overwrites a temp left by an interrupted run, and consumes it on success", async () => {
+    const rel = "customtypes/frozen_page/index.json";
+    const modelDir = join(dir, "customtypes/frozen_page");
+    await mkdir(modelDir, { recursive: true });
+    await writeFile(join(dir, rel), JSON.stringify({ id: "frozen_page", label: "Stale" }));
+    await writeFile(join(dir, `${rel}.tmp`), "{ half-written wreckage from a killed run");
+
+    const res = await writeModelFile(okSpawn(), dir, entry, LIB);
+
+    expect(JSON.parse(await readFile(join(dir, res.path), "utf-8"))).toEqual({
+      id: "frozen_page",
+      label: "Frozen",
+    });
+    expect((await readdir(modelDir)).filter((f) => f.endsWith(".tmp"))).toEqual([]);
   });
 
   // ABSENCE ASSERTION — mutation-proven. "I cannot tell what is at this path" is

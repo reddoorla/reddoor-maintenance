@@ -293,10 +293,6 @@ async function targetPrettierBin(repoRoot: string): Promise<string | null> {
  */
 const PRETTIER_TIMEOUT_MS = 60_000;
 
-/** Serial number for temp files, so a retry inside one process cannot collide
- *  with a temp its own earlier attempt left behind. */
-let tmpSeq = 0;
-
 /**
  * Write one model into a repo and format it with THAT repo's own prettier.
  *
@@ -383,12 +379,15 @@ export async function writeModelFile(
   }
 
   // If the write below fails, this directory stays behind empty — and so, on the
-  // refresh path, may a partial temp file. Both are deliberate and neither is
+  // refresh path, may one partial temp file. Both are deliberate and neither is
   // worth "fixing": undoing them needs a delete verb, and this module imports
   // none. The pull-down is the safe answer to a model CI may never delete, so it
   // does not get the ability to remove things in order to tidy up after itself.
-  // Leftovers are visible in `git status`, are named in the error that produced
-  // them, and are read by nothing; a delete verb in this file is none of those.
+  // Both leftovers are visible in `git status`, named in the error that produced
+  // them, read by nothing, and BOUNDED — one empty directory and one `.tmp` per
+  // model path, however many times it fails, with the next attempt overwriting
+  // the temp and a successful one consuming it. A delete verb in this file would
+  // be none of those things.
   try {
     await mkdir(dir, { recursive: true });
   } catch (e) {
@@ -465,16 +464,37 @@ export async function writeModelFile(
     // the replacement a single atomic step: the model path holds the old model
     // or the new one, never a fragment. Same directory, so it is the same
     // filesystem and `rename` cannot fail with EXDEV.
-    const tmp = `${full}.${process.pid}-${(tmpSeq += 1)}.tmp`;
+    // ONE deterministic temp path per model, opened with `w`. Both halves of
+    // that are load-bearing, because this module has no delete verb and so can
+    // never tidy up after itself.
+    //
+    // Deterministic, because a per-run unique name (`…<pid>-<n>.tmp`) means every
+    // interrupted write leaves ANOTHER untracked file in a live client repo,
+    // forever — ten interruptions, ten files for a human to find. One name per
+    // model path bounds the mess at one file no matter how often it fails.
+    //
+    // `w` and NOT `wx`, and this must not be "hardened" later: with a
+    // deterministic name, `wx` would let a single leftover temp block this model
+    // from ever being pulled down again until a human intervened, converting an
+    // accumulation nuisance into a permanent hard stop. `w` overwrites the stale
+    // temp instead, so the next attempt heals the mess — and a SUCCEEDING attempt
+    // removes it outright, because `rename` consumes the source name. That is
+    // cleanup without a delete verb, which is the whole trick.
+    //
+    // The trade being made explicit: `wx` would also stop a concurrent run from
+    // clobbering an in-flight temp. That is not a real scenario here — this is a
+    // human-invoked CLI against a single checkout — and `rename` is atomic
+    // regardless, so the worst a concurrency loss could do is publish one of two
+    // complete models rather than a fragment.
+    const tmp = `${full}.tmp`;
     const tmpRel = relative(repoRoot, tmp);
     try {
-      // `wx` on the temp too: never adopt a file some earlier run left here.
-      await writeFile(tmp, body, { encoding: "utf-8", flag: "wx" });
+      await writeFile(tmp, body, { encoding: "utf-8", flag: "w" });
     } catch (e) {
       throw new Error(
         `${rel}: could not stage the replacement model (${(e as Error).message}). ` +
           `The model already in the repo is UNTOUCHED. A partial ${tmpRel} may be left ` +
-          `behind — delete it; nothing reads it.`,
+          `behind — the next pull-down of this model overwrites it, and nothing reads it.`,
         { cause: e },
       );
     }
@@ -490,7 +510,8 @@ export async function writeModelFile(
       throw new Error(
         `${rel}: could not replace the model with the staged copy ` +
           `(${(e as Error).message}). The model already in the repo is UNTOUCHED and the ` +
-          `staged copy is at ${tmpRel} — delete it; nothing reads it.`,
+          `staged copy is at ${tmpRel} — the next pull-down of this model overwrites it, ` +
+          `and nothing reads it.`,
         { cause: e },
       );
     }
