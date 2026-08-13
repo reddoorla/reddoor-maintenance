@@ -109,10 +109,11 @@ describe("localModels", () => {
   // Two directories CAN declare the same model id — the slice directory name and
   // the model `id` are independent (gallerysonder's `ContentWidthMedia/` holds
   // `video_block`), so nothing on disk prevents a collision. Left undetected it
-  // is a silent, nondeterministic push: `diffModels` processes both entries
+  // is a silent, arbitrary push: `diffModels` processes both entries
   // independently, one can land in `unchanged` while the other lands in
-  // `toUpdate` against the SAME remote model, and the push sends whichever came
-  // later in directory-read order. Detected here rather than papered over in
+  // `toUpdate` against the SAME remote model, and the push sends whichever of
+  // the two directories sorts last — stable since the listing is sorted, but no
+  // less arbitrary. Detected here rather than papered over in
   // `diffModels`, because the operator has a real problem only they can fix.
   it("THROWS on two local files declaring the same id, naming BOTH paths", async () => {
     await writeJson("src/lib/slices/Hero/model.json", { id: "hero", type: "SharedSlice" });
@@ -168,6 +169,96 @@ describe("localModels", () => {
     await mkdir(join(dir, "src/lib"), { recursive: true });
     await writeFile(join(dir, "src/lib/slices"), "not a directory\n");
     await expect(localModels(dir, ["./src/lib/slices"])).rejects.toThrow(/src\/lib\/slices/);
+  });
+
+  it("THROWS on a model file containing literal null, naming the file", async () => {
+    await mkdir(join(dir, "customtypes/page"), { recursive: true });
+    await writeFile(join(dir, "customtypes/page/index.json"), "null\n");
+    await expect(localModels(dir, [])).rejects.toThrow(/customtypes\/page\/index\.json/);
+  });
+
+  // `null`, `[]` and `"a string"` all PARSE — the guard is about what parsed to,
+  // not whether it parsed. Without it the `.id` read throws a bare TypeError
+  // naming no file.
+  it("THROWS on a model file that parses to an array or a string, naming the file", async () => {
+    for (const [i, raw] of ["[]", '"a string"', "42"].entries()) {
+      await mkdir(join(dir, `customtypes/t${i}`), { recursive: true });
+      await writeFile(join(dir, `customtypes/t${i}/index.json`), `${raw}\n`);
+      await expect(localModels(dir, [])).rejects.toThrow(
+        new RegExp(`customtypes/t${i}/index\\.json.*not a JSON object`),
+      );
+      await rm(join(dir, `customtypes/t${i}`), { recursive: true, force: true });
+    }
+  });
+
+  // --- symlinked model DIRECTORIES ------------------------------------------
+  // `readdir` reports a symlink-to-a-directory as isSymbolicLink() and NOT
+  // isDirectory(), so a naive `.filter(d => d.isDirectory())` drops a real,
+  // fully readable model with no entry and no error. These cases run for BOTH
+  // roots because customtypes/ and each library are separate call sites.
+
+  it("follows a symlinked customtype directory", async () => {
+    await writeJson("real/page/index.json", { id: "page", label: "Page" });
+    await mkdir(join(dir, "customtypes"), { recursive: true });
+    await symlink(join(dir, "real/page"), join(dir, "customtypes/page"));
+    const models = await localModels(dir, []);
+    expect(models.map((m) => `${m.kind}:${m.id}`)).toEqual(["customtype:page"]);
+  });
+
+  it("follows a symlinked slice directory", async () => {
+    await writeJson("real/Hero/model.json", { id: "hero", type: "SharedSlice" });
+    await mkdir(join(dir, "src/lib/slices"), { recursive: true });
+    await symlink(join(dir, "real/Hero"), join(dir, "src/lib/slices/Hero"));
+    const models = await localModels(dir, ["./src/lib/slices"]);
+    expect(models.map((m) => `${m.kind}:${m.id}`)).toEqual(["slice:hero"]);
+  });
+
+  // Present-but-unresolvable is not absent: that link may well have been a model
+  // directory, and we are not entitled to decide it wasn't.
+  it("THROWS on a dangling symlink where a customtype directory should be", async () => {
+    await mkdir(join(dir, "customtypes"), { recursive: true });
+    await symlink(join(dir, "nowhere"), join(dir, "customtypes/page"));
+    await expect(localModels(dir, [])).rejects.toThrow(/customtypes\/page/);
+  });
+
+  it("THROWS on a dangling symlink where a slice directory should be", async () => {
+    await mkdir(join(dir, "src/lib/slices"), { recursive: true });
+    await symlink(join(dir, "nowhere"), join(dir, "src/lib/slices/Hero"));
+    await expect(localModels(dir, ["./src/lib/slices"])).rejects.toThrow(/src\/lib\/slices\/Hero/);
+  });
+
+  // A symlink to a FILE is skipped in silence, exactly like the plain README.md
+  // that sits in a slices directory: a non-directory entry is legitimately not a
+  // candidate model directory. This is the one place the polarity differs from
+  // the file level, and it is deliberate.
+  it("skips a symlink to a regular file in customtypes/ without erroring", async () => {
+    await writeFile(join(dir, "notes.txt"), "hello\n");
+    await writeJson("customtypes/page/index.json", { id: "page" });
+    await symlink(join(dir, "notes.txt"), join(dir, "customtypes/README.md"));
+    expect((await localModels(dir, [])).map((m) => m.id)).toEqual(["page"]);
+  });
+
+  it("skips a symlink to a regular file in a slice library without erroring", async () => {
+    await writeFile(join(dir, "notes.txt"), "hello\n");
+    await writeJson("src/lib/slices/Hero/model.json", { id: "hero", type: "SharedSlice" });
+    await symlink(join(dir, "notes.txt"), join(dir, "src/lib/slices/README.md"));
+    expect((await localModels(dir, ["./src/lib/slices"])).map((m) => m.id)).toEqual(["hero"]);
+  });
+
+  // A symlink LOOP is the deterministic stand-in for "any other errno": stat
+  // answers ELOOP, which is neither "it's a directory" nor "it's absent".
+  it("THROWS on an unresolvable (looping) symlink in customtypes/", async () => {
+    await mkdir(join(dir, "customtypes"), { recursive: true });
+    await symlink(join(dir, "customtypes/b"), join(dir, "customtypes/a"));
+    await symlink(join(dir, "customtypes/a"), join(dir, "customtypes/b"));
+    await expect(localModels(dir, [])).rejects.toThrow(/customtypes\/(a|b)/);
+  });
+
+  it("THROWS on an unresolvable (looping) symlink in a slice library", async () => {
+    await mkdir(join(dir, "src/lib/slices"), { recursive: true });
+    await symlink(join(dir, "src/lib/slices/b"), join(dir, "src/lib/slices/a"));
+    await symlink(join(dir, "src/lib/slices/a"), join(dir, "src/lib/slices/b"));
+    await expect(localModels(dir, ["./src/lib/slices"])).rejects.toThrow(/src\/lib\/slices\/(a|b)/);
   });
 
   // --- variation ids --------------------------------------------------------

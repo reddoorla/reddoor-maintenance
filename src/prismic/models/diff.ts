@@ -242,9 +242,12 @@ export function describeDiff(local: PrismicModel, remote: PrismicModel | undefin
             // runtime, and every id-less variation on a side would key to
             // the literal string "undefined" and collide with every OTHER
             // id-less variation on that SAME side — silently dropping all
-            // but the last one's diff. 0/232 real fleet variations lack an
-            // id today, so this is defensive, but the index fallback is
-            // unique per side and its label says exactly what it is.
+            // but the last one's diff. 0 of the 183 in-scope fleet
+            // variations lack an id (measured 2026-08-12 across the 15
+            // repos this pipeline actually loads; the two starters carry a
+            // sentinel repositoryName and are never read), so this is
+            // defensive, but the index fallback is unique per side and its
+            // label says exactly what it is.
             const id = typeof z.id === "string" ? z.id : `variations[${i}]`;
             return [id, z] as [string, Zone];
           })
@@ -335,9 +338,10 @@ export function describeDiff(local: PrismicModel, remote: PrismicModel | undefin
  *  path with no remote value to fall back on. Every variation's `imageUrl`
  *  is normalised to `""` instead (unconditionally — there is no matching
  *  happening here, so the id-less-variation caveat above does not apply):
- *  `""` is what Slice Machine writes normally and what the overwhelming
- *  majority of the fleet's 232 variations already carry, so it is proven
- *  acceptable to the Types API. The KEY stays present — never deleted —
+ *  `""` is what Slice Machine writes normally and what 174 of the 183
+ *  in-scope fleet variations already carry (measured 2026-08-12 across the
+ *  15 repos this pipeline loads; the other 9 hold a real URL and none omit
+ *  the key), so it is proven acceptable to the Types API. The KEY stays present — never deleted —
  *  because an absent `imageUrl` is unproven against the API, and a live
  *  push is not the place to find out. */
 export function withRemoteScreenshots(

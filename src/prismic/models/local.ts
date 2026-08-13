@@ -1,4 +1,4 @@
-import { lstat, readdir, readFile } from "node:fs/promises";
+import { lstat, readdir, readFile, stat } from "node:fs/promises";
 import { join, posix, relative, sep } from "node:path";
 import type { LocalEntry, ModelKind, PrismicModel } from "./types.js";
 
@@ -64,6 +64,15 @@ async function readModel(repoRoot: string, full: string, kind: ModelKind): Promi
   } catch (e) {
     throw new Error(`${rel}: invalid JSON (${(e as Error).message})`, { cause: e });
   }
+  // `null`, `[]` and `"a string"` are all valid JSON, so they reach here having
+  // parsed cleanly. Without this guard, a file containing literal `null` throws
+  // a raw TypeError from the `.id` read below — the ONE throw in this file that
+  // would name neither the file nor a cause, leaving an operator with
+  // "Cannot read properties of null" and 200-odd model files to search.
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    const got = parsed === null ? "null" : Array.isArray(parsed) ? "an array" : typeof parsed;
+    throw new Error(`${rel}: model is not a JSON object (got ${got})`);
+  }
   const model = parsed as Partial<PrismicModel>;
   if (typeof model.id !== "string" || model.id === "") {
     throw new Error(`${rel}: model has no string "id"`);
@@ -72,7 +81,8 @@ async function readModel(repoRoot: string, full: string, kind: ModelKind): Promi
 }
 
 /**
- * A directory's subdirectory names, or [] when the directory is PROVEN absent.
+ * The names of `dir`'s entries that are model DIRECTORIES, or [] when `dir`
+ * itself is PROVEN absent.
  *
  * The two halves of that sentence are both load-bearing. A configured library
  * pointing nowhere (alamo-anatomy) must read as EMPTY — that is a config wart,
@@ -83,22 +93,70 @@ async function readModel(repoRoot: string, full: string, kind: ModelKind): Promi
  * its slices". ENOTDIR is the concrete case worth surfacing — a library path
  * that points at a FILE is a config error, and answering [] would hide it.
  *
+ * A SYMLINK to a directory counts as a directory. `readdir` reports it as
+ * `isSymbolicLink()` and NOT `isDirectory()`, so the obvious
+ * `.filter((d) => d.isDirectory())` drops a symlinked model directory with no
+ * entry and no error — a present, perfectly readable model vanishing in
+ * silence, which is the exact class this module exists to prevent. It would
+ * also be internally inconsistent: at the FILE level this reader follows
+ * symlinks happily (a symlinked `model.json` is read like any other file), so
+ * refusing them one level up is an accident, not a policy.
+ *
+ * The polarity here is deliberately NOT the polarity of {@link isProvenAbsent},
+ * and the difference is the difference between the two questions being asked:
+ *
+ *   - At the FILE level we already know a model is supposed to be at that exact
+ *     path, so anything other than a clean ENOENT is an error.
+ *   - Here we are ENUMERATING candidates, and a non-directory entry is
+ *     legitimately not a candidate — a stray `README.md` in the slices folder
+ *     is not a broken model, and a symlink to a file is the same thing wearing
+ *     a hat. Both are skipped in silence.
+ *
+ * What we are never entitled to do is call an entry "not a candidate" when we
+ * could not resolve it at all. A DANGLING symlink therefore throws rather than
+ * skipping: it may well have been a model directory, and we cannot tell.
+ *
  * Names are sorted so that read order — and therefore the file named "first" in
  * a duplicate-id error, and the order entries reach the PR comment — does not
  * depend on the filesystem's arbitrary directory ordering.
  */
 async function subdirs(repoRoot: string, dir: string): Promise<string[]> {
+  let entries;
   try {
-    return (await readdir(dir, { withFileTypes: true }))
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name)
-      .sort();
+    entries = await readdir(dir, { withFileTypes: true });
   } catch (e) {
     if (await isProvenAbsent(dir)) return [];
     throw new Error(`${relPath(repoRoot, dir)}: cannot list directory (${(e as Error).message})`, {
       cause: e,
     });
   }
+
+  const names: string[] = [];
+  for (const d of entries) {
+    if (d.isDirectory()) {
+      names.push(d.name);
+      continue;
+    }
+    // A plain file, socket, fifo — not a candidate, and not a problem.
+    if (!d.isSymbolicLink()) continue;
+
+    const full = join(dir, d.name);
+    let target;
+    try {
+      // `stat`, which FOLLOWS the link — the one place in this file where
+      // following is what we want, because the question is "what is on the
+      // other end", not "is something here".
+      target = await stat(full);
+    } catch (e) {
+      throw new Error(
+        `${relPath(repoRoot, full)}: symlink cannot be resolved (${(e as Error).message}). ` +
+          `A link we cannot follow may be a model directory — refusing to guess.`,
+        { cause: e },
+      );
+    }
+    if (target.isDirectory()) names.push(d.name);
+  }
+  return names.sort();
 }
 
 /**
@@ -148,10 +206,12 @@ export async function localModels(repoRoot: string, libraries: string[]): Promis
  * This is possible on disk because a slice's directory name and its model `id`
  * are independent — gallerysonder's `ContentWidthMedia/` holds `video_block` —
  * so two directories can quietly claim one id. Undetected, it is a silent and
- * NONDETERMINISTIC push: `diffModels` processes both entries independently, so
- * one can land in `unchanged` while the other lands in `toUpdate` against the
- * same remote model, and the push sends whichever `readdir` happened to yield
- * last. That is the silent-divergence class this module exists to prevent, so
+ * ARBITRARY push: `diffModels` processes both entries independently, so one can
+ * land in `unchanged` while the other lands in `toUpdate` against the same
+ * remote model, and the push sends whichever of the two directories sorts last.
+ * (Sorting the listing made that stable, not correct — a stable coin flip is
+ * still a coin flip, and nothing would tell the operator the other file was
+ * ignored.) That is the silent-divergence class this module exists to prevent, so
  * it fails loudly here instead of being papered over in `diffModels` — the
  * collision is a real problem in the repo and only a human can say which file
  * is the intended one.
@@ -179,12 +239,20 @@ function assertNoDuplicateIds(entries: LocalEntry[]): void {
  * Refuse a slice model whose variation lacks a string `id`.
  *
  * The Types API cannot accept such a model, so this is a load-time rejection of
- * something that would fail on push anyway — but failing HERE names the file,
- * while failing there returns an opaque 422. It also protects the review gate:
- * `describeDiff` keys variations by id, so two id-less variations would collide
- * and the second one's field changes would silently never be compared. Measured
- * 2026-08-12: all 183 variations across the fleet's 131 slice models carry an
- * `id`, so this is defensive, not a live repair.
+ * something that would fail on push anyway — but WHERE it fails is the whole
+ * value: here it names the file and the index, while on push Prismic answers
+ * with an opaque 422 that names neither, against a repo the operator may not
+ * have knowingly touched.
+ *
+ * It does NOT exist to protect `describeDiff`, which is safe on its own:
+ * `diff.ts` keys an id-less variation by a positional `variations[i]` fallback
+ * that is unique per side, precisely so two of them cannot collide there.
+ *
+ * Measured 2026-08-12 across the 15 in-scope fleet repos: all 183 variations in
+ * 131 slice models carry an `id`, so this is defensive, not a live repair. "In
+ * scope" excludes reddoor-starter and canvas-starter, whose sentinel
+ * `repositoryName` makes `readPrismicConfig` return null — this pipeline never
+ * loads their models, so counting them would describe files nothing reads.
  *
  * A model with no `variations` array is untouched — custom types have none at
  * all, so anything stricter here would reject every custom type in the fleet.
