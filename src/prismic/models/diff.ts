@@ -22,3 +22,68 @@ export function diffModels(local: LocalEntry[], remote: RemoteEntry[]): ModelDif
   for (const r of remote) if (!localKeys.has(key(r))) diff.remoteOnly.push(r);
   return diff;
 }
+
+type Zone = Record<string, unknown>;
+const asZone = (v: unknown): Zone => (v !== null && typeof v === "object" ? (v as Zone) : {});
+
+/** Field-level lines for ONE model pair, used in PR comments and CLI output.
+ *  Handles both shapes: slices carry `variations[]` each with `primary`/`items`
+ *  zones; custom types carry `json: { <Tab>: { <field>: … } }`. A model with
+ *  neither yields []. A missing `remote` renders everything as new. */
+export function describeDiff(local: unknown, remote: unknown): string[] {
+  const l = asZone(local);
+  const r = asZone(remote);
+  const lines: string[] = [];
+
+  const compareZone = (label: string, lz: unknown, rz: unknown): void => {
+    const a = asZone(lz);
+    const b = asZone(rz);
+    for (const k of Object.keys(a)) if (!(k in b)) lines.push(`+ ${label}.${k}`);
+    for (const k of Object.keys(b)) if (!(k in a)) lines.push(`- ${label}.${k} (REMOVED remotely)`);
+    for (const k of Object.keys(a))
+      if (k in b && !sameModel(a[k], b[k])) lines.push(`~ ${label}.${k} (changed)`);
+  };
+
+  // Slice shape.
+  if (Array.isArray(l.variations) || Array.isArray(r.variations)) {
+    const lv = new Map(
+      (Array.isArray(l.variations) ? l.variations : []).map((v) => [
+        asZone(v).id as string,
+        asZone(v),
+      ]),
+    );
+    const rv = new Map(
+      (Array.isArray(r.variations) ? r.variations : []).map((v) => [
+        asZone(v).id as string,
+        asZone(v),
+      ]),
+    );
+    for (const [id, v] of lv) {
+      const rr = rv.get(id);
+      if (!rr) {
+        lines.push(`+ variation ${id} (new)`);
+        continue;
+      }
+      for (const zone of ["primary", "items"] as const)
+        compareZone(`${id}.${zone}`, v[zone], rr[zone]);
+    }
+    for (const id of rv.keys()) if (!lv.has(id)) lines.push(`- variation ${id} (REMOVED remotely)`);
+  }
+
+  // Custom-type shape.
+  if (l.json !== undefined || r.json !== undefined) {
+    const lt = asZone(l.json);
+    const rt = asZone(r.json);
+    for (const tab of Object.keys(lt)) {
+      if (!(tab in rt)) {
+        lines.push(`+ tab ${tab} (new)`);
+        continue;
+      }
+      compareZone(tab, lt[tab], rt[tab]);
+    }
+    for (const tab of Object.keys(rt))
+      if (!(tab in lt)) lines.push(`- tab ${tab} (REMOVED remotely)`);
+  }
+
+  return lines;
+}
