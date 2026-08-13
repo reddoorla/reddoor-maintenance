@@ -56,4 +56,24 @@ export type PushReport = {
    *  model itself (fix the model). Those need different operator responses, and
    *  token expiry is undocumented — this is what tells them apart. */
   failed: Array<{ kind: ModelKind; id: string; error: string; status?: number }>;
+  /** Models Prismic holds that this checkout does not — copied off the diff's
+   *  `remoteOnly` bucket, REPORTED here and NEVER TOUCHED. Nothing was sent for
+   *  them, nothing was deleted, nothing was even attempted; this pipeline has no
+   *  delete capability at all (`remote.ts` has no delete function).
+   *
+   *  It is on the REPORT and not only on the diff because without it a healthy
+   *  in-sync run and a catastrophically broken checkout produce the SAME report.
+   *  A slice library path that stops resolving — a renamed directory, a typo in
+   *  `libraries`, a partial checkout — reads as zero local models, because
+   *  `subdirs` in local.ts answers [] for a proven-ENOENT library on purpose
+   *  (alamo-anatomy is the live case). Every model Prismic holds then sorts into
+   *  `remoteOnly`, `pushModels` builds its work list from `toCreate` + `toUpdate`
+   *  only, and the run returns `{sent: [], failed: []}` — character for character
+   *  the report of a repo with nothing to do. A consumer handed only the report
+   *  could not tell "everything is fine" from "this checkout has lost every
+   *  slice in the repo". This field is the difference.
+   *
+   *  `model` is deliberately NOT carried: the report is serialised into PR
+   *  comments and an Airtable cell, and the identity is what a human acts on. */
+  remoteOnlyReported: Array<{ kind: ModelKind; id: string }>;
 };

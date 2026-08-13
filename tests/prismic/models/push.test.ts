@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import ts from "typescript";
 import { describe, it, expect, vi } from "vitest";
 import { pushModels, type SendFn } from "../../../src/prismic/models/push.js";
 import type {
@@ -66,7 +67,51 @@ describe("pushModels", () => {
     const send = vi.fn<SendFn>();
     const report = await pushModels(emptyDiff(), { apply: true, send });
     expect(send).not.toHaveBeenCalled();
-    expect(report).toEqual({ mode: "apply", sent: [], failed: [] });
+    expect(report).toEqual({ mode: "apply", sent: [], failed: [], remoteOnlyReported: [] });
+  });
+
+  // The report of the healthy run above and the report of a CATASTROPHE were,
+  // until `remoteOnlyReported` existed, the same four characters. If a repo's
+  // slice library path stops resolving — a renamed directory, a typo in
+  // `libraries`, a partial checkout — `subdirs` answers [] for the proven-ENOENT
+  // library BY DESIGN (alamo-anatomy is the live case), `localModels` returns
+  // zero slices without throwing, `diffModels` sorts every slice Prismic holds
+  // into `remoteOnly`, and this function's work list is empty. `{sent: [],
+  // failed: []}`, from a checkout that has lost every slice in the repo.
+  //
+  // This is the absent-vs-unreadable collapse pointed at the REPORT layer, and
+  // the fix is the same one the rest of this pipeline uses: make the two states
+  // say different things. Assert the DIFFERENCE, not just the field's presence —
+  // a renderer that only ever sees one of the two reports is the consumer at
+  // risk, so what has to be true is that the two are not interchangeable.
+  it("distinguishes a catastrophic checkout from an in-sync one", async () => {
+    const send = vi.fn<SendFn>();
+    const insync = await pushModels(emptyDiff(), { apply: true, send });
+
+    const lostEverything = emptyDiff();
+    lostEverything.remoteOnly.push(remoteEntry("slice", "hero"), remoteEntry("customtype", "page"));
+    const report = await pushModels(lostEverything, { apply: true, send });
+
+    expect(send).not.toHaveBeenCalled();
+    expect(report).not.toEqual(insync);
+    expect(report.remoteOnlyReported).toEqual([
+      { kind: "slice", id: "hero" },
+      { kind: "customtype", id: "page" },
+    ]);
+    // Identity only — the report is serialised into a PR comment and an Airtable
+    // cell, and a live repository's full model JSON does not belong in either.
+    expect(report.remoteOnlyReported.every((e) => !("model" in e))).toBe(true);
+  });
+
+  // Reported in BOTH modes, because it describes the comparison rather than the
+  // run: a dry run that hid it would be the mode an operator reaches for FIRST
+  // when checking whether a site is healthy.
+  it("reports remote-only models on a dry run too", async () => {
+    const send = vi.fn<SendFn>();
+    const diff = emptyDiff();
+    diff.remoteOnly.push(remoteEntry("customtype", "page"));
+    const report = await pushModels(diff, { apply: false, send });
+    expect(report.remoteOnlyReported).toEqual([{ kind: "customtype", id: "page" }]);
   });
 
   // page's `slices` field references blux_* slice ids; a custom type whose
@@ -203,6 +248,71 @@ describe("pushModels", () => {
     expect(report.sent.map((s) => s.id)).toEqual(["good"]);
   });
 
+  // Every failure test above uses a SLICE-ONLY diff, and the ordering test's
+  // `send` never throws — so nothing pinned continuation across the
+  // slice→customtype boundary, the ONE boundary the slices-first sort creates.
+  //
+  // The gap is not academic. Add the obvious cascade-noise suppressor — "once a
+  // slice has failed, skip the custom types, they reference slices that are not
+  // there" — and a 3-model diff returns `sent: []`, `failed: [one slice]`: one
+  // model of three accounted for, two in neither bucket, and every other test in
+  // this file still green. That is exactly the "`sent`/`failed` pair that
+  // silently omits models" the doc comment on `pushModels` says the pipeline
+  // exists to stop producing, which is also the justification it gives for not
+  // aborting the run on a 401/403.
+  const mixedDiff = (): ModelDiff => {
+    const d = emptyDiff();
+    d.toCreate.push(localEntry("customtype", "page"), localEntry("slice", "hero"));
+    d.toUpdate.push({
+      local: localEntry("slice", "banner"),
+      remote: remoteEntry("slice", "banner"),
+    });
+    d.toUpdate.push({
+      local: localEntry("customtype", "blog"),
+      remote: remoteEntry("customtype", "blog"),
+    });
+    return d;
+  };
+  const EVERY_MODEL = ["customtype:blog", "customtype:page", "slice:banner", "slice:hero"];
+
+  it("keeps going into the custom types after a slice has failed", async () => {
+    const send = vi.fn<SendFn>(async (e) => {
+      if (e.id === "hero") throw Object.assign(new Error("401 unauthorized"), { status: 401 });
+    });
+    const report = await pushModels(mixedDiff(), { apply: true, send });
+    expect(report.failed.map((f) => `${f.kind}:${f.id}`)).toEqual(["slice:hero"]);
+    // The custom types come AFTER every slice, so this is the assertion a
+    // cascade suppressor would break.
+    expect(report.sent.map((s) => `${s.kind}:${s.id}`).sort()).toEqual([
+      "customtype:blog",
+      "customtype:page",
+      "slice:banner",
+    ]);
+  });
+
+  // The invariant behind that example, asserted as a property: whichever models
+  // reject, every model in the work list lands in EXACTLY ONE bucket. Stated
+  // this way it also pins `sent.length + failed.length === work.length`, which
+  // is the thing a future edit is actually at risk of breaking.
+  it.each([...EVERY_MODEL, "<none>", "<all>"])(
+    "accounts for every model in exactly one bucket when %s rejects",
+    async (failing) => {
+      const send = vi.fn<SendFn>(async (e) => {
+        if (failing === "<all>" || `${e.kind}:${e.id}` === failing) throw new Error("rejected");
+      });
+      const report = await pushModels(mixedDiff(), { apply: true, send });
+      const accounted = [
+        ...report.sent.map((s) => `${s.kind}:${s.id}`),
+        ...report.failed.map((f) => `${f.kind}:${f.id}`),
+      ];
+      // Sorted-multiset equality, so a model counted TWICE fails as loudly as
+      // one omitted — a retry that pushed to both buckets is the other way this
+      // accounting goes wrong.
+      expect(accounted.sort()).toEqual(EVERY_MODEL);
+      expect(report.sent.length + report.failed.length).toBe(EVERY_MODEL.length);
+    },
+  );
+
   it("does not record a failed model as sent", async () => {
     const send = throws(new Error("boom"));
     const diff = emptyDiff();
@@ -265,46 +375,328 @@ describe("pushModels", () => {
     expect(fromNull.failed).toHaveLength(2);
     expect(fromNull.sent).toEqual([]);
   });
+
+  // `null` was handled; the general case was not. Reading `.status` off the raw
+  // thrown value and falling back to `String(e)` both throw for values that are
+  // neither null nor undefined. Each shape below was run against that old
+  // one-line expression and confirmed to escape `pushModels` entirely —
+  // discarding the WHOLE report, including the `sent` list of models Prismic had
+  // already accepted, which is the loss that matters.
+  //
+  // None is reachable through `sendModel`, which always throws an Error carrying
+  // a numeric `status`. They bite the population the doc comment says this module
+  // "can promise nothing about": a future injected sender — a retry wrapper, a
+  // batching decorator, a test double. Two models, so the assertion also shows
+  // the run CONTINUED rather than merely survived the first one.
+  it.each([
+    ["a null-prototype object, which has no toString at all", () => Object.create(null) as unknown],
+    [
+      "an object whose toString throws",
+      (): unknown => ({
+        toString() {
+          throw new Error("toString says no");
+        },
+      }),
+    ],
+    [
+      "an Error whose status getter throws",
+      (): unknown =>
+        Object.defineProperty(new Error("boom"), "status", {
+          get() {
+            throw new Error("status says no");
+          },
+        }),
+    ],
+    // The one where BOTH fallbacks fail: `String(e)` on this calls
+    // `Error.prototype.toString`, which reads `message` and throws again. This is
+    // what makes `messageOf`'s placeholder reachable rather than decorative.
+    [
+      "an Error whose message getter throws, defeating String(e) too",
+      (): unknown =>
+        Object.defineProperty(new Error(), "message", {
+          get() {
+            throw new Error("message says no");
+          },
+        }),
+    ],
+  ])("survives a thrown value whose accessors throw: %s", async (_shape, make) => {
+    const diff = emptyDiff();
+    diff.toCreate.push(localEntry("slice", "first"), localEntry("slice", "second"));
+    const report = await pushModels(diff, { apply: true, send: throws(make()) });
+    expect(report.failed.map((f) => f.id)).toEqual(["first", "second"]);
+    // A `string`-typed field must hold a string. The placeholder is reachable —
+    // an unstringifiable value has no message to report — but it must never be
+    // empty or `undefined`.
+    expect(report.failed.every((f) => typeof f.error === "string" && f.error !== "")).toBe(true);
+    expect(report.failed.every((f) => !Object.hasOwn(f, "status"))).toBe(true);
+  });
 });
 
 // The behavioural guard above ("never sends anything for a remote-only model")
 // is only the whole property while `send` is the ONLY way out of this module.
-// This pins that. It is the same shape as remote.ts's no-delete guard and exists
-// for the same reason: that one was an export-NAME check until a review mutated
-// a working DELETE into the middle of `sendModel` and all 16 tests still passed.
-// A name check cannot see IO added inline to a function that already exists.
+// This pins that.
+//
+// IT IS AN ALLOW-LIST, NOT A DENY-LIST, and that is the entire design rather
+// than a stylistic preference. The deny-list version of this guard has now
+// failed THREE TIMES, each fix closing exactly the channel the previous one
+// missed:
+//
+//   1. An export-NAME check (remote.test.ts). Blind to a working DELETE added
+//      INLINE inside `sendModel` — a function that already did the writing, so
+//      no new export appeared. All 16 tests passed and tsc exited 0.
+//   2. A quoted-verb check plus an import check matching `from "…"`. Blind to
+//      `const { request } = await import("node:https")`: the import pattern saw
+//      only STATIC specifiers, the network pattern saw only `fetch(` and
+//      `XMLHttpRequest(`, and `request(` fell straight through the seam between
+//      two guards written as a division of labour. `await import()` is this
+//      codebase's dominant lazy-load idiom — 63 dynamic-import calls across 12
+//      files under src/, 26 of them in src/cli/bin.ts alone (counted from the
+//      AST, not a grep, on 2026-08-13) — so it was the likeliest channel on the
+//      list, not an exotic one.
+//   3. Whatever comes next. There is always a next one, and THAT is the finding:
+//      enumerating forbidden channels is a game lost on the first channel nobody
+//      enumerated.
+//
+// The structural fact that lets us stop playing it: `pushModels` receives `send`
+// as an INJECTED dependency, so this module needs no IO capability of its own at
+// all — no client, no socket, no filesystem, nothing. So rather than list what it
+// must not do, list the entire two-entry set of things it MAY import and fail
+// everything else, including specifiers nobody here thought of.
+//
+// FAIL-CLOSED IS PART OF THE PROPERTY. An extraction that matches nothing must
+// FAIL, not pass: a guard that silently examines nothing is worse than no guard,
+// because it also stops anyone from writing a real one. Hence the non-zero
+// assertion, and hence "leaves no import or require token unaccounted for" — any
+// import token the extractor did not recognise is reported as a hole in the
+// EXTRACTOR rather than waved through as a clean file.
+//
+// WHAT IT DOES NOT REACH, said plainly so nobody reads the above as
+// completeness. The guard is about THIS FILE. `./diff.js` is on the allow-list
+// and the binding taken from it is pinned to `withRemoteScreenshots`, so no new
+// function can be imported from there — but IO added inside `diff.ts` itself,
+// reached through that one function, would look clean from here. `diff.ts`
+// imports only `./canon.js` and `./types.js` today and has no source guard of
+// its own; that is the remaining channel, and it is a guard-hop away rather than
+// a seam between two patterns. The other is `opts.send`, which is the point of
+// the module and is pinned behaviourally above instead.
+//
+// Verified 2026-08-13 by mutation, one attack at a time, each applied to push.ts
+// and reverted: dynamic `import`, `createRequire`, bare side-effect import,
+// `import x = require()`, `export * from`, a computed dynamic specifier, a new
+// binding from the allow-listed module, `new Function()`, `(0, eval)()`,
+// `globalThis.fetch`, `process.binding`, and `globalThis["fe" + "tch"]` — twelve
+// caught, plus two controls (an extra bare import of an ALLOWED module, and an
+// ordinary local-variable refactor) confirmed still green, because a guard that
+// fires on honest edits is a guard that gets deleted.
+//
+// DO NOT "simplify" this back into a regex that bans the verbs and specifiers of
+// the day. That is precisely the shape that failed twice.
 describe("pushModels reaches Prismic only through the injected send", () => {
-  // Read from disk on purpose: the property is about what the file CONTAINS.
+  // Read from disk on purpose: the property is about what the file CONTAINS, and
+  // an import only ever exposes what it exports.
   const source = readFileSync(
     new URL("../../../src/prismic/models/push.ts", import.meta.url),
     "utf-8",
   );
+  // PARSED, not regexed — and the parser is also the only comment-stripper worth
+  // trusting here. A guard like this must quote the constructs it forbids in
+  // order to explain itself (the paragraphs above say `await import("node:https")`
+  // out loud), and the previous draft of the network check had to drop `request\(`
+  // because it tripped on a comment citing remote.ts's `request()` helper. A rule
+  // that fails on its own explanation gets deleted as noise, taking the real
+  // assertion with it. Tokens and syntax nodes cannot see inside a comment.
+  const sf = ts.createSourceFile("push.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const eachNode = (visit: (n: ts.Node) => void): void => {
+    const walk = (n: ts.Node): void => {
+      visit(n);
+      ts.forEachChild(n, walk);
+    };
+    walk(sf);
+  };
 
-  // A positive allow-list, not a ban-list — it reads as what the module IS (pure
-  // orchestration over a diff) and forces any future import to be argued for.
-  // Adding `node:fs`, a `./remote.js` import, or an http client here would fail
-  // it, which is the point: every one of those is a second channel that the
-  // behavioural test above could not see.
-  it("imports nothing but the pure diff helper and its types", () => {
-    // `match` + `replace`, not `matchAll` + `m[1]`: under noUncheckedIndexedAccess
-    // a capture group is `string | undefined`, and the `?? ""` needed to satisfy
-    // it would quietly turn "the regex found nothing" into a passing empty list.
-    const specifiers = (source.match(/from\s+"[^"]+"/g) ?? []).map((m) =>
-      m.replace(/^from\s+"/, "").replace(/"$/, ""),
-    );
-    expect([...new Set(specifiers)].sort()).toEqual(["./diff.js", "./types.js"]);
+  /** What an unresolvable specifier is recorded AS. `import(someVariable)` must
+   *  fail the allow-list, not vanish from it — "this guard cannot tell" is a
+   *  failure, never a pass. */
+  const UNRESOLVED = "<a module specifier this guard cannot resolve to a literal>";
+  const literal = (n: ts.Node | undefined): string =>
+    n !== undefined && ts.isStringLiteralLike(n) ? n.text : UNRESOLVED;
+
+  /** Every module this file names, by every mechanism, with the span of the
+   *  construct that named it (used by the unaccounted-token check below). */
+  const named: Array<{ specifier: string; start: number; end: number }> = [];
+  eachNode((n) => {
+    const add = (specifier: string): number =>
+      named.push({ specifier, start: n.getStart(sf), end: n.getEnd() });
+    if (ts.isImportDeclaration(n) || ts.isExportDeclaration(n)) {
+      // `export … from "x"` is an import channel too: it evaluates the module.
+      if (n.moduleSpecifier) add(literal(n.moduleSpecifier));
+    } else if (ts.isImportEqualsDeclaration(n)) {
+      add(
+        ts.isExternalModuleReference(n.moduleReference)
+          ? literal(n.moduleReference.expression)
+          : UNRESOLVED,
+      );
+    } else if (ts.isImportTypeNode(n)) {
+      add(ts.isLiteralTypeNode(n.argument) ? literal(n.argument.literal) : UNRESOLVED);
+    } else if (ts.isCallExpression(n)) {
+      const callee = n.expression;
+      const isDynamicImport = callee.kind === ts.SyntaxKind.ImportKeyword;
+      const isRequire =
+        ts.isIdentifier(callee) && (callee.text === "require" || callee.text === "createRequire");
+      if (isDynamicImport || isRequire) add(literal(n.arguments[0]));
+    }
   });
 
-  it("makes no network call of its own", () => {
-    // Call syntax, not the bare word: the SendFn doc comment says the fetch
-    // layer owns credentials, and that sentence is the reason the rule exists.
-    //
-    // Only the two primitives that need no import. `http.request` and friends
-    // are covered by the allow-list above and NOT listed here on purpose — an
-    // earlier draft included `request\(`, which promptly failed on a comment
-    // citing remote.ts's `request()` helper. A pattern that trips on prose
-    // about the rule gets deleted by the next person as noise, taking the real
-    // assertion with it.
-    expect(source).not.toMatch(/\b(?:fetch|XMLHttpRequest)\s*\(/);
+  /** Every token in the file that can begin an import, wherever it sits. This is
+   *  the SECOND mechanism, deliberately independent of the node walk above: the
+   *  walk enumerates node kinds and can therefore be incomplete, so anything it
+   *  missed shows up here as a token inside no recognised construct. */
+  const IMPORTY = new Set(["import", "require", "createRequire"]);
+  const importTokens: Array<{ text: string; line: number; pos: number }> = [];
+  const eachToken = (n: ts.Node): void => {
+    const kids = n.getChildren(sf);
+    if (kids.length > 0) {
+      for (const c of kids) eachToken(c);
+      return;
+    }
+    const text = n.getText(sf);
+    if (!IMPORTY.has(text)) return;
+    const pos = n.getStart(sf);
+    importTokens.push({ text, pos, line: sf.getLineAndCharacterOfPosition(pos).line + 1 });
+  };
+  eachToken(sf);
+
+  it("names only the pure diff helper and its types, by ANY import mechanism", () => {
+    // Static `import … from`, bare `import "…"`, `export … from`, dynamic
+    // `await import(…)`, `import x = require(…)`, `typeof import(…)`,
+    // `require(…)` and `createRequire(…)` all land in `named` above.
+    expect([...new Set(named.map((m) => m.specifier))].sort()).toEqual(["./diff.js", "./types.js"]);
+  });
+
+  it("examined a non-zero number of module specifiers — the guard fails closed", () => {
+    expect(named.length).toBeGreaterThan(0);
+    expect(importTokens.length).toBeGreaterThan(0);
+  });
+
+  it("leaves no import or require token unaccounted for by the extractor", () => {
+    const unaccounted = importTokens.filter(
+      (t) => !named.some((m) => t.pos >= m.start && t.pos < m.end),
+    );
+    expect(unaccounted.map((t) => `${t.text} (line ${t.line})`)).toEqual([]);
+  });
+
+  // The specifier list alone would wave through `import { deleteModel } from
+  // "./diff.js"`. `./types.js` is imported TYPE-ONLY — erased at runtime, so it
+  // cannot carry a capability at all — and `./diff.js` may contribute exactly
+  // one pure function.
+  it("takes exactly one pure function by value; the types are erased at runtime", () => {
+    const byValue: string[] = [];
+    eachNode((n) => {
+      if (!ts.isImportDeclaration(n) || !n.importClause || n.importClause.isTypeOnly) return;
+      if (n.importClause.name) byValue.push(n.importClause.name.text);
+      const bound = n.importClause.namedBindings;
+      if (bound && ts.isNamespaceImport(bound)) byValue.push(`* as ${bound.name.text}`);
+      if (bound && ts.isNamedImports(bound))
+        for (const el of bound.elements) if (!el.isTypeOnly) byValue.push(el.name.text);
+    });
+    expect(byValue.sort()).toEqual(["withRemoteScreenshots"]);
+  });
+
+  // The other half of "needs no IO capability of its own": an import is not the
+  // only way to get one. `fetch`, `eval`, `Function`, `globalThis` and `process`
+  // are AMBIENT — no import token, no specifier, nothing above can see them.
+  //
+  // Same allow-list shape rather than a second ban-list, and stated over FREE
+  // IDENTIFIERS — every name this file references but does not itself declare —
+  // rather than over call sites. That distinction was earned: an earlier draft
+  // here allow-listed the ROOT of each call chain, which `(0, eval)("…")` walks
+  // straight past, because the callee of that call is a parenthesised comma
+  // expression and not an identifier at all. Free identifiers have no such
+  // syntax-shaped hole — a name that is not declared here and not on this list
+  // fails however it is later spelled, called, aliased or destructured.
+  //
+  // Six names is the entire ambient surface a pure diff-orchestrator needs. Any
+  // seventh has to be argued for in this list, which is the point.
+  it("references no ambient name but the six a pure module needs", () => {
+    const AMBIENT = new Set([
+      "Array",
+      "Error",
+      "Promise",
+      "String",
+      "undefined",
+      // `as const` — the parser reports the assertion's type as a reference to an
+      // identifier literally named `const`. A parse artefact, not a global.
+      "const",
+    ]);
+    const declared = new Set<string>();
+    const declare = (name: ts.Node | undefined): void => {
+      if (!name) return;
+      if (ts.isIdentifier(name)) {
+        declared.add(name.text);
+        return;
+      }
+      if (ts.isObjectBindingPattern(name) || ts.isArrayBindingPattern(name))
+        for (const el of name.elements) if (ts.isBindingElement(el)) declare(el.name);
+    };
+    eachNode((n) => {
+      if (ts.isVariableDeclaration(n) || ts.isParameter(n) || ts.isBindingElement(n))
+        declare(n.name);
+      else if (
+        ts.isFunctionDeclaration(n) ||
+        ts.isClassDeclaration(n) ||
+        ts.isTypeAliasDeclaration(n) ||
+        ts.isInterfaceDeclaration(n) ||
+        ts.isTypeParameterDeclaration(n) ||
+        ts.isEnumDeclaration(n) ||
+        ts.isModuleDeclaration(n)
+      )
+        declare(n.name);
+      else if (ts.isCatchClause(n)) declare(n.variableDeclaration?.name);
+      else if (ts.isImportClause(n)) {
+        declare(n.name);
+        const bound = n.namedBindings;
+        if (bound && ts.isNamespaceImport(bound)) declared.add(bound.name.text);
+        if (bound && ts.isNamedImports(bound))
+          for (const el of bound.elements) declared.add(el.name.text);
+      }
+    });
+
+    /** Whether this identifier is a NAME rather than a use of one — `e.status`'s
+     *  `status`, a declaration's own name, an object key. Shorthand is checked
+     *  first because `{ fetch }` genuinely IS a reference to `fetch`, and the
+     *  catch-all below would otherwise read it as a key. */
+    const isName = (n: ts.Identifier): boolean => {
+      const p: ts.Node | undefined = n.parent;
+      if (!p) return true;
+      if (ts.isShorthandPropertyAssignment(p)) return false;
+      if (ts.isPropertyAccessExpression(p)) return p.name === n;
+      if (ts.isQualifiedName(p)) return p.right === n;
+      if (ts.isBindingElement(p) && p.propertyName === n) return true;
+      if ((ts.isImportSpecifier(p) || ts.isExportSpecifier(p)) && p.propertyName === n) return true;
+      return "name" in p && (p as { name?: ts.Node }).name === n;
+    };
+
+    const referenced = new Set<string>();
+    eachNode((n) => {
+      if (ts.isIdentifier(n) && !isName(n)) referenced.add(n.text);
+    });
+    expect([...referenced].filter((r) => !declared.has(r) && !AMBIENT.has(r)).sort()).toEqual([]);
+    // Fails closed: a traversal that found no identifiers at all would otherwise
+    // pass this test loudest of any in the file.
+    expect(referenced.size).toBeGreaterThan(0);
+  });
+
+  // Kept on remote.test.ts's reasoning: Prismic removes a model with
+  // `DELETE /customtypes/{id}` and no other way, so no DELETE verb means no
+  // delete capability. This one CANNOT fail closed — zero quoted verbs is the
+  // correct and current state of this file — which is why it is the companion to
+  // the allow-lists above rather than the guard itself.
+  it("writes no HTTP verb but GET and POST", () => {
+    const verbs: string[] = [];
+    eachNode((n) => {
+      if (ts.isStringLiteralLike(n) && /^(?:GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS)$/.test(n.text))
+        verbs.push(n.text);
+    });
+    expect(verbs.filter((v) => v !== "GET" && v !== "POST")).toEqual([]);
   });
 });
