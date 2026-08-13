@@ -20,6 +20,35 @@ This was found live in Task 5: the plan's test file used a direct `as { variatio
 
 ---
 
+## Fleet measurements — corrected 2026-08-12
+
+Earlier drafts of this plan cited **77 custom types / 174 slices / 232 variations**. Those numbers counted every model file on disk without applying the sentinel filter that `readPrismicConfig` itself applies, so they described a scope this pipeline never processes. Any comment or assertion quoting them is wrong. The measured figures:
+
+| Scope                                            | Custom types | Slices  | Variations |
+| ------------------------------------------------ | ------------ | ------- | ---------- |
+| **In scope** — 15 Prismic-configured live repos  | **69**       | **131** | **183**    |
+| `reddoor-starter` (sentinel — correctly skipped) | 7            | 28      | —          |
+| `canvas-starter` (sentinel — correctly skipped)  | 1            | 15      | —          |
+| Old totals                                       | 77           | 174     | 232        |
+
+69 + 8 = 77 and 131 + 43 = 174 — the two starter templates account for the entire gap on both axes. They carry `repositoryName: "your-prismic-repo-name"` and have no Prismic repository behind them, so `readPrismicConfig` returns `null` and they are correctly out of scope. `composition-hospitality` carries the same sentinel.
+
+Every one of the 183 variations across the 131 in-scope slice models carries a string `id`, so `assertVariationsHaveIds` is defensive, not a live repair.
+
+**When quoting a fleet number in a comment, date it.** These change as sites are onboarded; an undated count silently rots into a false claim, which is what happened to 77/174.
+
+---
+
+## A `repositoryName` collision is possible ACROSS repos
+
+Found while reconciling the counts above: `the-tower` and `the-tower-burbank` **both** declare `repositoryName: "the-tower-burbank"`. Two GitHub repos, one Prismic repository.
+
+This is benign today only because `the-tower` is archived — it is the predecessor of `the-tower-burbank`. But nothing in the pipeline notices it. `assertNoDuplicateIds` (Task 8) prevents two files inside one repo from claiming one model id; there is no equivalent guard preventing two repos from claiming one Prismic repository. Both would derive the same `PRISMIC_TOKEN_THE_TOWER_BURBANK`, both would treat their own `customtypes/` as the source of truth, and in a fleet sweep whichever ran second would overwrite the first — silently, with no diff shown, because each repo's own comparison is internally consistent.
+
+**Task 17 must fail the fleet sweep on a `repositoryName` collision, naming both repos**, for the same reason Task 8 fails on a duplicate model id: only a human can say which repo is the intended owner.
+
+---
+
 ## Two deliberate deviations from the spec
 
 Both are stated up front so a reviewer can reject them before code is written.
@@ -839,7 +868,9 @@ export type PrismicConfig = {
 
 /** Slice Machine's file, and the name the Prismic CLI renames it to. Both are
  *  read so an adopting repo does not go dark; slicemachine.config.json wins
- *  because that is what all 18 live fleet sites ship today. */
+ *  because that is the file every Prismic-configured fleet repo ships today
+ *  (15 as of 2026-08-12; not every fleet site uses Prismic — 1836dig and the
+ *  two LA-Homelessness sites have no config at all). */
 const CONFIG_FILES = ["slicemachine.config.json", "prismic.config.json"] as const;
 
 /** The starter's placeholder. Three fleet repos still carry it unreplaced. */
@@ -1006,7 +1037,7 @@ export function prismicTokenEnvName(repositoryName: string): string {
  * `allowGeneric: true`: the site's own Actions secret is `PRISMIC_WRITE_TOKEN`,
  * the name every site's code already reads, and there is exactly one Prismic
  * repository in scope. FLEET runs set it FALSE: a single generic token in the
- * environment while iterating 18 repositories would silently attach the wrong
+ * environment while iterating every fleet repository would silently attach the wrong
  * credential to every site after the first.
  */
 export function resolvePrismicToken(
@@ -1309,8 +1340,9 @@ function assertNoDuplicateIds(entries: LocalEntry[]): void {
  * something that would fail on push anyway — but failing HERE names the file,
  * while failing there returns an opaque 422. It also protects the review gate:
  * `describeDiff` keys variations by id, so two id-less variations would collide
- * and the second one's field changes would silently never be compared. All 232
- * real fleet variations carry an `id`, so this is defensive, not a live repair.
+ * and the second one's field changes would silently never be compared. Measured
+ * 2026-08-12: all 183 variations across the fleet's 131 in-scope slice models
+ * carry an `id`, so this is defensive, not a live repair.
  */
 function assertVariationsHaveIds(entries: LocalEntry[]): void {
   for (const e of entries) {
@@ -3031,7 +3063,11 @@ git commit -m "feat(prismic): --pull adopts remote-only models, formatted by the
 ```ts
 // tests/cli/prismic-models-fleet.test.ts
 import { describe, it, expect } from "vitest";
-import { prismicSweepExitCode } from "../../src/cli/commands/prismic-models.js";
+import {
+  prismicSweepExitCode,
+  findRepositoryCollisions,
+  describeCollisions,
+} from "../../src/cli/commands/prismic-models.js";
 
 // Mirrors githubSignalsExitCode: a nightly sweep must go non-zero when failures
 // are the MAJORITY, not only on a total wipeout — 11/12 unreadable repos is an
@@ -3056,6 +3092,71 @@ describe("prismicSweepExitCode", () => {
   it("does not count drift as failure", () => {
     // 11 checked (some drifting), 0 failed -> 0
     expect(prismicSweepExitCode(11, 0)).toBe(0);
+  });
+});
+
+// Two repos CAN declare one repositoryName. `the-tower` and `the-tower-burbank`
+// both declare "the-tower-burbank" today — benign only because `the-tower` is
+// archived, and nothing in the pipeline notices. This is the fleet-level twin of
+// Task 8's `assertNoDuplicateIds`: there, two files claiming one model id; here,
+// two repos claiming one Prismic repository. Both would derive the same
+// PRISMIC_TOKEN_*, both would treat their own customtypes/ as truth, and the one
+// that ran second would overwrite the first with NO diff shown — each repo's own
+// comparison is internally consistent, so neither can see the conflict. Only a
+// human can say which repo owns the models.
+describe("findRepositoryCollisions", () => {
+  it("finds nothing when every site maps to a distinct Prismic repository", () => {
+    expect(
+      findRepositoryCollisions([
+        { site: "the-pointe", repositoryName: "the-pointe" },
+        { site: "espada", repositoryName: "espada" },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("reports the shared repository naming BOTH sites", () => {
+    expect(
+      findRepositoryCollisions([
+        { site: "the-tower", repositoryName: "the-tower-burbank" },
+        { site: "the-tower-burbank", repositoryName: "the-tower-burbank" },
+      ]),
+    ).toEqual([{ repositoryName: "the-tower-burbank", sites: ["the-tower", "the-tower-burbank"] }]);
+  });
+
+  // A site with no Prismic config is not a collision, however many there are.
+  it("ignores sites with no repositoryName", () => {
+    expect(
+      findRepositoryCollisions([
+        { site: "1836dig", repositoryName: null },
+        { site: "la-homelessness-youth", repositoryName: null },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("reports all three sites when three claim one repository", () => {
+    const [c] = findRepositoryCollisions([
+      { site: "c", repositoryName: "shared" },
+      { site: "a", repositoryName: "shared" },
+      { site: "b", repositoryName: "shared" },
+    ]);
+    expect(c?.sites).toEqual(["a", "b", "c"]);
+  });
+});
+
+// A collision must reach the operator, and it must go non-zero — it is the one
+// finding no per-repo CI run can ever surface.
+describe("describeCollisions", () => {
+  it("renders nothing when there are no collisions", () => {
+    expect(describeCollisions([])).toBe("");
+  });
+
+  it("names the repository and every claiming site", () => {
+    const out = describeCollisions([
+      { repositoryName: "the-tower-burbank", sites: ["the-tower", "the-tower-burbank"] },
+    ]);
+    expect(out).toContain("the-tower-burbank");
+    expect(out).toContain("the-tower and the-tower-burbank");
+    expect(out).toMatch(/overwrite each other/);
   });
 });
 ```
@@ -3091,6 +3192,65 @@ export type SweepRow = {
   detail: string;
 };
 
+/**
+ * Sites that claim the same Prismic repository as another site.
+ *
+ * The fleet-level twin of `assertNoDuplicateIds`: there, two files inside one
+ * repo claiming one model id; here, two repos claiming one Prismic repository.
+ * It is possible today — `the-tower` and `the-tower-burbank` both declare
+ * `repositoryName: "the-tower-burbank"`, benign only because `the-tower` is
+ * archived and so is not in the fleet inventory.
+ *
+ * Why this DETECTS instead of throwing, unlike `assertNoDuplicateIds`: that one
+ * aborts the read of a single broken repo, which is proportionate. Aborting here
+ * would take the drift alarm offline for every site in the fleet because two
+ * repos have a config problem — and the sweep is read-only, so nothing is being
+ * corrupted at the moment of detection. The real damage happens later and
+ * elsewhere: each repo's own CI pushes to the shared Prismic repository on
+ * merge, and each overwrites the other. Neither repo can ever see it, because
+ * each one's local-vs-remote comparison is internally consistent; the conflict
+ * exists only BETWEEN them.
+ *
+ * That makes the fleet sweep the only vantage point in the whole system from
+ * which this is visible — so it must report it loudly and go non-zero, and it
+ * must name both sites, because only a human can say which repo is the owner.
+ *
+ * Sites with no Prismic config (`null`) never collide with each other.
+ */
+export type RepositoryCollision = { repositoryName: string; sites: string[] };
+
+export function findRepositoryCollisions(
+  rows: Array<{ site: string; repositoryName: string | null }>,
+): RepositoryCollision[] {
+  const bySite = new Map<string, string[]>();
+  for (const r of rows) {
+    if (r.repositoryName === null) continue;
+    const list = bySite.get(r.repositoryName) ?? [];
+    list.push(r.site);
+    bySite.set(r.repositoryName, list);
+  }
+  return [...bySite.entries()]
+    .filter(([, sites]) => sites.length > 1)
+    .map(([repositoryName, sites]) => ({ repositoryName, sites: [...sites].sort() }));
+}
+
+/** The report block for a collision. Deliberately shouty: this is the one
+ *  finding in the sweep that no per-repo CI run can ever surface. */
+export function describeCollisions(collisions: RepositoryCollision[]): string {
+  if (collisions.length === 0) return "";
+  return [
+    "## ⛔ Prismic repository claimed by more than one site",
+    "",
+    ...collisions.map(
+      (c) =>
+        `- **${c.repositoryName}** is claimed by ${c.sites.join(" and ")}. ` +
+        `Each repo's CI pushes to it on merge, so they overwrite each other — ` +
+        `and neither repo can detect this on its own. Fix the ` +
+        `slicemachine.config.json in whichever repo is not the owner.`,
+    ),
+  ].join("\n");
+}
+
 /** Fleet mode: clone every site, compare each against its Prismic repository,
  *  never push. Read-only by construction — `apply` is not plumbed through here,
  *  because a fleet-wide model push outside CI is 🔴 under AUTONOMY.md. */
@@ -3109,7 +3269,7 @@ export async function sweepFleet(
   const rows: SweepRow[] = [];
   for (const s of prep.prepared) {
     // Fleet mode forbids the generic token: one PRISMIC_WRITE_TOKEN in the
-    // environment while iterating 18 repositories would attach the wrong
+    // environment while iterating every fleet repository would attach the wrong
     // credential to every site after the first.
     const r = await checkOneSite(s.path, deps, { apply: false, allowGenericToken: false });
     rows.push({
@@ -3131,20 +3291,29 @@ if (opts.fleet) {
   const checked = rows.filter((r) => r.clean !== null).length;
   const failed = rows.filter((r) => r.clean === null && r.repositoryName !== null).length;
   const body = rows.map((r) => `[${r.site}] ${r.detail}`).join("\n\n");
-  return { output: appendSkipNotice(body, skipped), code: prismicSweepExitCode(checked, failed) };
+
+  // A collision forces non-zero regardless of the majority rule. It is not a
+  // "site failed to read" — every site read fine — so `failed` cannot express
+  // it, and a fleet where two repos overwrite each other's models must not
+  // report success just because 15 of 15 sites were individually readable.
+  const collisions = findRepositoryCollisions(rows);
+  const collisionBlock = describeCollisions(collisions);
+  const output = appendSkipNotice(collisionBlock ? `${collisionBlock}\n\n${body}` : body, skipped);
+  const code = collisions.length > 0 ? 1 : prismicSweepExitCode(checked, failed);
+  return { output, code };
 }
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pnpm vitest run tests/cli/prismic-models-fleet.test.ts && pnpm typecheck`
-Expected: PASS — 6 tests, typecheck clean
+Expected: PASS — 12 tests, typecheck clean
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/cli/commands/prismic-models.ts tests/cli/prismic-models-fleet.test.ts
-git commit -m "feat(prismic): fleet sweep is read-only, majority-failure exit code"
+git commit -m "feat(prismic): fleet sweep is read-only, detects cross-repo repositoryName collisions"
 ```
 
 ---
@@ -3892,7 +4061,7 @@ describe("fleet-prismic-drift workflow", () => {
     expect(wf).not.toMatch(/contents: write/);
   });
 
-  // Every per-site token has to be present for the sweep to read 18 repositories.
+  // Every per-site token has to be present for the sweep to read every fleet repository.
   it("passes the per-repo Prismic tokens through as an env block", () => {
     expect(wf).toContain("PRISMIC_TOKEN_");
     expect(wf).toContain("secrets.");
@@ -3967,7 +4136,7 @@ jobs:
 
       # One PRISMIC_TOKEN_<REPOSITORY_NAME> per Prismic repository. Fleet mode
       # deliberately refuses the generic PRISMIC_WRITE_TOKEN — one generic token
-      # in the environment while iterating 18 repositories would attach the wrong
+      # in the environment while iterating every fleet repository would attach the wrong
       # credential to every site after the first. A repository with no secret
       # here is reported by `--tokens` as MISSING, not silently skipped.
       #
