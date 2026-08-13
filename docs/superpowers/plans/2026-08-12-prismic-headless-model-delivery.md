@@ -2268,6 +2268,7 @@ git commit -m "feat(prismic): pull-down writes go through the target repo's own 
 ```ts
 // tests/prismic/models/index.test.ts
 import { describe, it, expect } from "vitest";
+import { readdir, readFile } from "node:fs/promises";
 import * as models from "../../../src/prismic/models/index.js";
 
 describe("prismic/models public surface", () => {
@@ -2296,8 +2297,35 @@ describe("prismic/models public surface", () => {
   // Tripwire. The Types API can delete (verified 204), and the single most
   // important safety property in this design is that our code cannot. If someone
   // adds one, this test forces the conversation.
+  //
+  // NAME-BASED ALONE IS NOT A GUARD. The identical assertion in Task 9 was proven
+  // insufficient by mutation on 2026-08-12: a reviewer wired a complete, working
+  // DELETE into `sendModel` — an extra action in the union plus
+  // `method: action === "delete" ? "DELETE" : "POST"` — and the whole suite went
+  // green, tsc clean, with the test named "has no delete function at all"
+  // reporting PASS. Inspecting exported NAMES cannot see a capability added
+  // inside a function that already exists, which is exactly how it would really
+  // arrive, because the writing function is already sitting there.
+  //
+  // So the surface check below is kept for the export-shaped case, and the
+  // source-text check beside it covers the inline case. Both are needed; neither
+  // is redundant with the other. Do not delete either as duplicative.
   it("exports no delete capability", () => {
-    expect(Object.keys(models).some((k) => /delete|remove|destroy/i.test(k))).toBe(false);
+    expect(
+      Object.keys(models).some((k) => /delete|remove|destroy|purge|drop|unregister/i.test(k)),
+    ).toBe(false);
+  });
+
+  it("contains no HTTP DELETE anywhere in the module", async () => {
+    const dir = new URL("../../../src/prismic/models/", import.meta.url);
+    const files = (await readdir(dir)).filter((f) => f.endsWith(".ts"));
+    // A guard that silently examines nothing is worse than no guard: if the glob
+    // ever stops matching, this test would pass over an empty set forever.
+    expect(files.length).toBeGreaterThan(5);
+    for (const f of files) {
+      const src = await readFile(new URL(f, dir), "utf-8");
+      expect(src, `${f} must not issue an HTTP DELETE`).not.toMatch(/["']DELETE["']/);
+    }
   });
 });
 ```
