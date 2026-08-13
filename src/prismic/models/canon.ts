@@ -44,10 +44,11 @@
 // ID is `imageUrl` would go invisible to comparison on both sides — the exact
 // silent-drop failure class this module exists to prevent. Not currently live:
 // fleet field API IDs are snake_case (`background_image`, `meta_image`, …),
-// and all 183 current occurrences of the key sit at `variations[].imageUrl`
+// and all 180 current occurrences of the key sit at `variations[].imageUrl`
 // (measured 2026-08-12 by walking every model this pipeline loads, at every
-// depth, across the 15 in-scope fleet repos — the two starters carry a sentinel
-// repositoryName and are never read, so their models are not counted).
+// depth, across the 15 in-scope fleet repos on their DEFAULT branches — the
+// starters carry a sentinel repositoryName and are never read, so their models
+// are not counted; zero occurrences were found anywhere but on a variation).
 
 /** Recursively normalise a model for comparison. Pure. */
 export function canon(v: unknown): unknown {

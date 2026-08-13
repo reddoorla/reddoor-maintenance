@@ -48,6 +48,42 @@ describe("readPrismicConfig", () => {
     expect((await readPrismicConfig(dir))?.libraries).toEqual(["./src/lib/slices"]);
   });
 
+  // Silently defaulting a malformed value would make every slice on the site
+  // invisible, and the sweep would report "this site has no slices" as fact
+  // rather than "we could not tell".
+  it("THROWS when libraries is present but is not an array of strings", async () => {
+    for (const libraries of ["./src/lib/slices", [1, 2], null, { a: 1 }, ["ok", 7]]) {
+      await writeFile(
+        join(dir, "slicemachine.config.json"),
+        JSON.stringify({ repositoryName: "x", libraries }),
+      );
+      await expect(readPrismicConfig(dir)).rejects.toThrow(
+        /slicemachine\.config\.json: libraries is present but is not an array of strings/,
+      );
+    }
+  });
+
+  // An explicitly empty array is a STATEMENT ("no slice libraries here"), not a
+  // malformation — it must survive as [] and never be helpfully defaulted.
+  it("accepts an explicitly empty libraries array as-is", async () => {
+    await writeFile(
+      join(dir, "slicemachine.config.json"),
+      JSON.stringify({ repositoryName: "x", libraries: [] }),
+    );
+    expect((await readPrismicConfig(dir))?.libraries).toEqual([]);
+  });
+
+  // Untrimmed, " espada " goes into the Types API `repository` header verbatim
+  // and 404s — which reads as "that Prismic repo does not exist" and sends the
+  // operator hunting the wrong problem.
+  it("trims whitespace off repositoryName on the way out", async () => {
+    await writeFile(
+      join(dir, "slicemachine.config.json"),
+      JSON.stringify({ repositoryName: "  espada  " }),
+    );
+    expect((await readPrismicConfig(dir))?.repositoryName).toBe("espada");
+  });
+
   // The `your-prismic-repo-name` sentinel ships in the starter; measured
   // 2026-08-12, 2 of the 17 local checkouts that carry a Prismic config still
   // have it. Treating it as a real repository name would send a
@@ -56,6 +92,43 @@ describe("readPrismicConfig", () => {
     await writeFile(
       join(dir, "slicemachine.config.json"),
       JSON.stringify({ repositoryName: "your-prismic-repo-name" }),
+    );
+    expect(await readPrismicConfig(dir)).toBeNull();
+  });
+
+  // The Prismic CLI's migration RENAMES slicemachine.config.json to
+  // prismic.config.json, so a half-migrated repo holds a stale sentinel in the
+  // first file and its real configuration in the second. Stopping at the first
+  // sentinel would drop a LIVE site from the sweep on the strength of a file
+  // nobody uses any more.
+  it("keeps looking when the first candidate holds the sentinel", async () => {
+    await writeFile(
+      join(dir, "slicemachine.config.json"),
+      JSON.stringify({ repositoryName: "your-prismic-repo-name" }),
+    );
+    await writeFile(
+      join(dir, "prismic.config.json"),
+      JSON.stringify({ repositoryName: "b", libraries: ["./src/lib/blux"] }),
+    );
+    expect(await readPrismicConfig(dir)).toEqual({
+      repositoryName: "b",
+      libraries: ["./src/lib/blux"],
+    });
+  });
+
+  it("returns null only once EVERY candidate holds the sentinel", async () => {
+    for (const f of ["slicemachine.config.json", "prismic.config.json"]) {
+      await writeFile(join(dir, f), JSON.stringify({ repositoryName: "your-prismic-repo-name" }));
+    }
+    expect(await readPrismicConfig(dir)).toBeNull();
+  });
+
+  // Trim happens before the sentinel comparison, or a stray space would turn an
+  // unconfigured starter into a "real" repository name and point a sweep at it.
+  it("treats a whitespace-padded sentinel as the sentinel", async () => {
+    await writeFile(
+      join(dir, "slicemachine.config.json"),
+      JSON.stringify({ repositoryName: "  your-prismic-repo-name  " }),
     );
     expect(await readPrismicConfig(dir)).toBeNull();
   });

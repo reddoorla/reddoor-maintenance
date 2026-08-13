@@ -214,7 +214,18 @@ const compareZone = (label: string, lz: unknown, rz: unknown, depth: number): st
  *  actually saw. Verified against the real fleet: mutating slice `name` or
  *  `description` alone (174/174 real variations) and customtype `label`,
  *  `status`, `format`, or `repeatable` alone (77/77 real custom types) both
- *  rendered blank before this fix. `repeatable` flipping is destructive, not
+ *  rendered blank before this fix.
+ *
+ *  Those two counts are an EXPERIMENT RECORD, not a live inventory, and they
+ *  deliberately do not match the 132 slice models / 68 custom types cited
+ *  elsewhere in this directory. The run (2026-08-12) covered every model file
+ *  ON DISK, including the two starter templates whose sentinel
+ *  `repositoryName` keeps them out of this pipeline — a strict SUPERSET of
+ *  what `readPrismicConfig` admits. That makes the evidence stronger than the
+ *  in-scope figure would suggest: the blind spot reproduced across all 174 and
+ *  all 77, the in-scope models among them. Do not "reconcile" these numbers
+ *  down to the in-scope count — that would claim an experiment that was never
+ *  run. `repeatable` flipping is destructive, not
  *  cosmetic — and this is also precisely what the nightly drift sweep exists
  *  to catch, since an out-of-band dashboard edit (someone renaming a type,
  *  say) IS a metadata-only edit by definition. */
@@ -242,12 +253,12 @@ export function describeDiff(local: PrismicModel, remote: PrismicModel | undefin
             // runtime, and every id-less variation on a side would key to
             // the literal string "undefined" and collide with every OTHER
             // id-less variation on that SAME side — silently dropping all
-            // but the last one's diff. 0 of the 183 in-scope fleet
-            // variations lack an id (measured 2026-08-12 across the 15
-            // repos this pipeline actually loads; the two starters carry a
-            // sentinel repositoryName and are never read), so this is
-            // defensive, but the index fallback is unique per side and its
-            // label says exactly what it is.
+            // but the last one's diff. 0 of the 180 in-scope fleet
+            // variations lack an id (measured 2026-08-12 on each repo's
+            // DEFAULT branch across the 15 repos this pipeline loads; the
+            // starters carry a sentinel repositoryName and are never read),
+            // so this is defensive, but the index fallback is unique per
+            // side and its label says exactly what it is.
             const id = typeof z.id === "string" ? z.id : `variations[${i}]`;
             return [id, z] as [string, Zone];
           })
@@ -338,10 +349,11 @@ export function describeDiff(local: PrismicModel, remote: PrismicModel | undefin
  *  path with no remote value to fall back on. Every variation's `imageUrl`
  *  is normalised to `""` instead (unconditionally — there is no matching
  *  happening here, so the id-less-variation caveat above does not apply):
- *  `""` is what Slice Machine writes normally and what 174 of the 183
- *  in-scope fleet variations already carry (measured 2026-08-12 across the
- *  15 repos this pipeline loads; the other 9 hold a real URL and none omit
- *  the key), so it is proven acceptable to the Types API. The KEY stays present — never deleted —
+ *  `""` is what Slice Machine writes normally and what 171 of the 180
+ *  in-scope fleet variations already carry (measured 2026-08-12 on each
+ *  repo's DEFAULT branch across the 15 repos this pipeline loads; the other
+ *  9 hold a real URL and NONE omit the key), so it is proven acceptable to
+ *  the Types API. The KEY stays present — never deleted —
  *  because an absent `imageUrl` is unproven against the API, and a live
  *  push is not the place to find out. */
 export function withRemoteScreenshots(

@@ -248,11 +248,18 @@ function assertNoDuplicateIds(entries: LocalEntry[]): void {
  * `diff.ts` keys an id-less variation by a positional `variations[i]` fallback
  * that is unique per side, precisely so two of them cannot collide there.
  *
- * Measured 2026-08-12 across the 15 in-scope fleet repos: all 183 variations in
- * 131 slice models carry an `id`, so this is defensive, not a live repair. "In
- * scope" excludes reddoor-starter and canvas-starter, whose sentinel
- * `repositoryName` makes `readPrismicConfig` return null — this pipeline never
- * loads their models, so counting them would describe files nothing reads.
+ * Measured 2026-08-12: all 180 variations in the fleet's 132 slice models carry
+ * an `id`, so this is defensive, not a live repair.
+ *
+ * That count — and every fleet count in this directory — is taken from each
+ * repo's DEFAULT BRANCH (`origin/HEAD`) via git plumbing, never from the local
+ * working tree. Six of the fifteen checkouts sit on feature branches at any
+ * given moment, and one of them gained a commit mid-measurement, so a
+ * working-tree count is not reproducible and drifted by 3 variations while
+ * these very comments were being written. "In scope" excludes the starter
+ * repos, whose sentinel `repositoryName` makes `readPrismicConfig` return null:
+ * this pipeline never loads their models, so counting them would describe files
+ * nothing reads.
  *
  * A model with no `variations` array is untouched — custom types have none at
  * all, so anything stricter here would reject every custom type in the fleet.
