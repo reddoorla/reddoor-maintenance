@@ -9,8 +9,8 @@
 // the same shape, because a write onto an occupied path destroys a file exactly
 // as silently as a failed read drops a model. Both answers must be PROVEN, never
 // assumed, and the proof is what `occupantId` below is.
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join, posix, sep } from "node:path";
+import { mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
+import { dirname, join, posix, relative, sep } from "node:path";
 import type { SpawnFn } from "../../audits/util/spawn.js";
 import { formatWithPrettier } from "../../recipes/_prettier.js";
 import type { RemoteEntry } from "./types.js";
@@ -78,11 +78,14 @@ const pascal = (id: string): string =>
  * resolves it against the repo, and the target repo's prettier resolves it
  * against its own cwd as an argv. They agree only for a plain relative path —
  * an absolute or climbing path makes the write and the format touch DIFFERENT
- * files, with both reporting success. Hence the per-segment check at the end,
- * which is the containment guarantee for this whole module: no realpath check
- * follows it, deliberately, because local.ts reads models through symlinks by
- * design and a realpath rule here would refuse to write back the very files it
- * reads.
+ * files, with both reporting success. Hence the per-segment check at the end.
+ *
+ * That check is a STRING-SHAPE check and nothing more. It proves the path spells
+ * a plain relative location; it cannot prove where that location resolves to,
+ * because a symlinked component (`customtypes`, or the slice library) redirects
+ * the whole subtree without changing a single character of this string. The
+ * containment guarantee for the write itself is {@link assertResolvesInsideRepo}
+ * in `writeModelFile`, which resolves it.
  */
 export function modelFilePath(entry: Pick<RemoteEntry, "kind" | "id">, library: string): string {
   if (!ID_ALLOWED.test(entry.id)) {
@@ -176,6 +179,125 @@ async function occupantId(rel: string, full: string): Promise<string | null> {
 }
 
 /**
+ * `realpath` of the deepest ancestor of `p` that exists.
+ *
+ * Only ENOENT walks up — the same polarity `occupantId` uses, for the same
+ * reason. EACCES, ELOOP (a symlink cycle) and ENOTDIR are "I cannot tell where
+ * this resolves", and the answer to that must never be spelled the same way as
+ * "it resolves here".
+ */
+async function realpathOfNearestExisting(p: string): Promise<string> {
+  let cur = p;
+  for (;;) {
+    try {
+      return await realpath(cur);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw new Error(`${cur}: cannot be resolved (${(e as Error).message})`, { cause: e });
+      }
+      const parent = dirname(cur);
+      /* c8 ignore next 2 -- unreachable: repoRoot is an ancestor and realpaths. */
+      if (parent === cur) throw new Error(`${p}: no ancestor of this path exists`, { cause: e });
+      cur = parent;
+    }
+  }
+}
+
+/**
+ * Refuse unless `dir` really resolves inside `repoRoot`.
+ *
+ * `modelFilePath`'s per-segment check proves the path is spelled as a plain
+ * relative location. It cannot prove where it LANDS: make `customtypes` — or a
+ * site's slice library — a symlink to a sibling directory and every segment
+ * still reads as innocuous, `readFile` answers ENOENT at the leaf so the path
+ * reads as PROVEN free, `mkdir -p` follows the link, and the exclusive create
+ * succeeds. The model lands in the sibling, which in this fleet is another LIVE
+ * CLIENT REPO, and the returned repo-relative path is a lie.
+ *
+ * This is deliberately ASYMMETRIC with local.ts, which reads models through
+ * symlinks by design and must keep doing so. Reading through a symlink returns
+ * a file the operator put there; writing through one puts a file somewhere the
+ * operator never named. The two directions do not deserve the same rule, and
+ * this rule is only ever applied to the write path.
+ *
+ * Nothing under `customtypes/` or a slice library is a symlink in any of the 15
+ * in-scope repos (measured 2026-08-13 from each repo's `origin/main` via
+ * `git ls-tree`: zero entries of mode 120000), so this is a latent hole rather
+ * than a live one — which is exactly when it is cheap to close.
+ */
+async function assertResolvesInsideRepo(repoRoot: string, rel: string, dir: string): Promise<void> {
+  const realRoot = await realpathOfNearestExisting(repoRoot);
+  const real = await realpathOfNearestExisting(dir);
+  if (real !== realRoot && !real.startsWith(realRoot + sep)) {
+    throw new Error(
+      `refusing to write ${rel}: it resolves to ${real}, which is outside this repo ` +
+        `(${realRoot}). A symlinked path component redirects the write while every segment ` +
+        `of the repo-relative path still looks ordinary — and every sibling of a repo in ` +
+        `this fleet is another live client repo.`,
+    );
+  }
+}
+
+/**
+ * Absolute path to the TARGET repo's OWN prettier, or `null` when it has none.
+ *
+ * This exists because the alternative — spawn and let resolution sort it out —
+ * cannot tell the two answers apart, and the whole justification for formatting
+ * through the target's binary instead of `--stdin-filepath` is that it is the
+ * TARGET's. Measured 2026-08-13, `pnpm exec prettier` in a fixture repo with no
+ * `node_modules`:
+ *
+ *  - it first runs a dependency check and executes a full `pnpm install` in the
+ *    target — an unrequested mutation of a live client repo, and the thing that
+ *    would hang a pull-down on a slow or unreachable registry;
+ *  - in a repo that does not depend on prettier, it then falls through to the
+ *    CALLING repo's `node_modules/.bin` (which `pnpm reddoor-maint …` puts on
+ *    PATH), formats the client's file with a binary the client does not have,
+ *    and exits 0 — so `formatted: true` reports a format the target never did.
+ *
+ * `node_modules/.bin/prettier` under the repo root is the right probe rather
+ * than a resolve-from-`repoRoot`: Node's algorithm walks UP, which would find
+ * the maintenance repo's own prettier for any clone checked out beneath it —
+ * the precise confusion this is here to end. All 15 in-scope repos declare
+ * prettier as a root devDependency and pnpm materialises the shim there
+ * (measured 2026-08-13).
+ *
+ * Every failure collapses to `null`, including EACCES: unlike a read on the
+ * model path, "I cannot tell" here costs only `formatted: false`, which is the
+ * conservative flag and the documented degraded path.
+ */
+async function targetPrettierBin(repoRoot: string): Promise<string | null> {
+  try {
+    // realpath doubles as the existence probe, so this module does not need a
+    // `stat` capability on top of the one it already has — and it resolves the
+    // shim, so a DANGLING `.bin/prettier` reads as absent rather than present.
+    return await realpath(join(repoRoot, "node_modules", ".bin", "prettier"));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * How long the target's prettier gets before the pull-down gives up on it.
+ *
+ * A stalled format wedges a human-invoked CLI with nothing printed and no
+ * `formatted: false` — the one outcome worse than not formatting. 60s is this
+ * repo's established budget for a CLI spawn that may touch the network
+ * (`gh.ts` ×7, `deps-outdated`); it is deliberately far above remote.ts's 15s
+ * HTTP budget, because this is process startup rather than one request, and far
+ * below the 5-minute install budgets, because it formats ONE small JSON file.
+ *
+ * A timeout also makes {@link SpawnFn}'s default implementation detach the
+ * child (spawn.ts only sets `detached` when `timeoutMs` is present), so the
+ * kill reaches prettier and not just a wrapper.
+ */
+const PRETTIER_TIMEOUT_MS = 60_000;
+
+/** Serial number for temp files, so a retry inside one process cannot collide
+ *  with a temp its own earlier attempt left behind. */
+let tmpSeq = 0;
+
+/**
  * Write one model into a repo and format it with THAT repo's own prettier.
  *
  * The formatting step is not cosmetic. The first pull-down PR of the 2026-08-12
@@ -187,19 +309,32 @@ async function occupantId(rel: string, full: string): Promise<string | null> {
  * prettier knows the answer, and a pull-down PR that imposes OUR house style
  * instead buries the real change in a diff full of reformatting noise.
  *
+ * Which is why the target's prettier is resolved POSITIVELY, by
+ * {@link targetPrettierBin}, and run by absolute path. Spawning `pnpm exec
+ * prettier` and reading the exit code cannot distinguish "the target's prettier
+ * formatted this" from "the target has none and the calling repo's prettier
+ * guessed" — both are 0 — and the second answer is the one this whole deviation
+ * from `--stdin-filepath` exists to avoid.
+ *
  * Formatting is best-effort by contract (`formatWithPrettier` never throws), so
  * the file is always written; `formatted: false` tells the caller to flag the PR
  * for a manual format check rather than losing the model. It is one bit and it
- * deliberately merges two causes — prettier absent (a clone with no
- * node_modules) and prettier exiting non-zero — because the operator's next
- * action is identical for both and the CLI prints the same `PRETTIER_FLAG_NOTE`.
- * The consequence is bounded and visible downstream: an unformatted file reds
- * the target repo's own `prettier --check` in CI, which is how the trap above
- * was found in the first place.
+ * deliberately merges three causes — the target has no prettier, its prettier
+ * exited non-zero, or it timed out — because the operator's next action is
+ * identical for all three and the CLI prints the same `PRETTIER_FLAG_NOTE`. The
+ * consequence is bounded and visible downstream: an unformatted file reds the
+ * target repo's own `prettier --check` in CI, which is how the trap above was
+ * found in the first place.
  *
- * NOTHING here is best-effort, though. Every way this can fail to write the
- * RIGHT file at the RIGHT path throws, because a pull-down that silently writes
- * the wrong file is indistinguishable from one that worked.
+ * One residual is worth naming rather than papering over: prettier's own
+ * `--write` is not atomic, so a format killed by the timeout can in principle
+ * leave the model half-rewritten. The window is prettier's, not ours, and it
+ * opens only after the complete model is already on disk — the stall this
+ * guards against (process startup) is before prettier writes anything.
+ *
+ * NOTHING else here is best-effort. Every way this can fail to write the RIGHT
+ * file at the RIGHT path throws, because a pull-down that silently writes the
+ * wrong file is indistinguishable from one that worked.
  */
 export async function writeModelFile(
   spawn: SpawnFn,
@@ -226,6 +361,13 @@ export async function writeModelFile(
 
   const rel = modelFilePath(entry, library);
   const full = join(repoRoot, rel);
+  const dir = dirname(full);
+
+  // FIRST, before anything reads or creates: prove this path resolves inside the
+  // repo. Ordering it here means a symlinked component is reported as what it is
+  // rather than as whatever the sibling repo happens to hold — and it means the
+  // pull-down never so much as reads a file outside the repo it was pointed at.
+  await assertResolvesInsideRepo(repoRoot, rel, dir);
 
   // Proven free, or occupied by this exact model. Anything else — another
   // model's file, a file we cannot parse, a path we cannot read — throws above.
@@ -240,14 +382,15 @@ export async function writeModelFile(
     );
   }
 
-  // If the write below fails, this directory stays behind empty. That is
-  // deliberate and not worth "fixing": undoing it needs a delete verb, and this
-  // module imports none — the pull-down is the safe answer to a model CI may
-  // never delete, so it does not get the ability to remove things in order to
-  // tidy up after itself. An empty directory is visible in `git status` and
-  // harmless; a delete verb in this file is neither.
+  // If the write below fails, this directory stays behind empty — and so, on the
+  // refresh path, may a partial temp file. Both are deliberate and neither is
+  // worth "fixing": undoing them needs a delete verb, and this module imports
+  // none. The pull-down is the safe answer to a model CI may never delete, so it
+  // does not get the ability to remove things in order to tidy up after itself.
+  // Leftovers are visible in `git status`, are named in the error that produced
+  // them, and are read by nothing; a delete verb in this file is none of those.
   try {
-    await mkdir(dirname(full), { recursive: true });
+    await mkdir(dir, { recursive: true });
   } catch (e) {
     throw new Error(
       `${posix.dirname(rel)}: cannot create the directory for this model ` +
@@ -256,33 +399,108 @@ export async function writeModelFile(
     );
   }
 
-  try {
-    // Tabs + trailing newline is only a BASELINE that matches the fleet's
-    // prettier config closely enough to minimise the rewrite; prettier below is
-    // the authority.
+  // Again, now that the directory exists. The check above resolved the deepest
+  // ancestor that existed AT THE TIME — `mkdir -p` follows symlinks, so that
+  // check is what stops a link from putting a directory inside a sibling repo;
+  // this one resolves the leaf that will actually be written into. `mkdir` only
+  // ever creates real directories, so the two agree unless something changed
+  // underneath us, and this is the answer that counts because it is the last one
+  // before the write.
+  await assertResolvesInsideRepo(repoRoot, rel, dir);
+
+  // Two spaces + a trailing newline is a BASELINE, not an opinion: prettier
+  // below is the authority, and this only decides what a file looks like when
+  // prettier could not run. Measured 2026-08-13 from each of the 15 in-scope
+  // repos' `origin/main` via `git ls-tree`: 180 of the 200 committed model
+  // files are 2-space indented and only 20 are tab-indented (erp-industrial and
+  // gallerysonder, the only two repos that set `useTabs: true`; the other 13
+  // either set no `useTabs` or ship no prettier config at all, and prettier's
+  // default is spaces). A tab baseline reds `prettier --check` in 13 of 15
+  // repos on exactly the degraded path this baseline is for.
+  const body = JSON.stringify(entry.model, null, 2) + "\n";
+
+  if (occupant === null) {
+    try {
+      // `wx` — an exclusive create, so the kernel rechecks atomically what
+      // `occupantId` could only observe a moment ago. That closes two holes at
+      // once, and the second is not hypothetical: a DANGLING symlink answers
+      // ENOENT on read (local.ts documents the same lie from the reading side),
+      // so without `wx` this would happily write the model through the link to
+      // wherever it points — outside the repo, if the link says so.
+      //
+      // This path deliberately does NOT go through the temp+rename below.
+      // `rename` overwrites unconditionally; there is no exclusive variant of
+      // it, so routing the free path through a rename would trade a proven
+      // guarantee (nothing is destroyed, ever) for a lesser one (a new file is
+      // never partial). `link()` would give both — it fails EEXIST if the name
+      // is taken — but only at the cost of an `unlink` to clear the temp, and a
+      // delete verb in this module is precisely what the channels guard in
+      // write.test.ts exists to forbid. The free path has nothing to destroy,
+      // so it does not need to buy the protection twice.
+      await writeFile(full, body, { encoding: "utf-8", flag: "wx" });
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new Error(
+          `${rel}: nothing readable was at this path a moment ago and something is there now — ` +
+            `a dangling symlink, or a concurrent write. Refusing to overwrite it.`,
+          { cause: e },
+        );
+      }
+      throw e;
+    }
+  } else {
+    // The sanctioned same-id refresh — the ONE path in this module that may
+    // legitimately destroy bytes in a live client repo, which is why it is the
+    // one path that must never destroy them by accident.
     //
-    // `wx` when we proved the path free — an exclusive create, so the kernel
-    // rechecks atomically what `occupantId` could only observe a moment ago.
-    // That closes two holes at once, and the second is not hypothetical: a
-    // DANGLING symlink answers ENOENT on read (local.ts documents the same lie
-    // from the reading side), so without `wx` this would happily write the model
-    // through the link to wherever it points — outside the repo, if the link
-    // says so.
-    await writeFile(full, JSON.stringify(entry.model, null, "\t") + "\n", {
-      encoding: "utf-8",
-      flag: occupant === null ? "wx" : "w",
-    });
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "EEXIST") {
+    // A plain `w` opens with O_TRUNC: any failure between the truncate and the
+    // last byte — ENOSPC, EDQUOT, EIO, or the operator interrupting this
+    // human-invoked CLI — leaves the live model as a fragment that is not valid
+    // JSON. That wreckage is self-latching, because the fragment is exactly
+    // what `occupantId` reads on the retry, so the retry refuses too; and it is
+    // indistinguishable from this module's other failures, every one of which
+    // provably leaves the repo untouched.
+    //
+    // Writing a complete temp file first and renaming it over the target makes
+    // the replacement a single atomic step: the model path holds the old model
+    // or the new one, never a fragment. Same directory, so it is the same
+    // filesystem and `rename` cannot fail with EXDEV.
+    const tmp = `${full}.${process.pid}-${(tmpSeq += 1)}.tmp`;
+    const tmpRel = relative(repoRoot, tmp);
+    try {
+      // `wx` on the temp too: never adopt a file some earlier run left here.
+      await writeFile(tmp, body, { encoding: "utf-8", flag: "wx" });
+    } catch (e) {
       throw new Error(
-        `${rel}: nothing readable was at this path a moment ago and something is there now — ` +
-          `a dangling symlink, or a concurrent write. Refusing to overwrite it.`,
+        `${rel}: could not stage the replacement model (${(e as Error).message}). ` +
+          `The model already in the repo is UNTOUCHED. A partial ${tmpRel} may be left ` +
+          `behind — delete it; nothing reads it.`,
         { cause: e },
       );
     }
-    throw e;
+    try {
+      // `rename` replaces the NAME, so if the model path is a symlink (to
+      // somewhere inside this repo — anywhere else was refused above) it is
+      // replaced by a regular file rather than written through. No entry under
+      // `customtypes/` or a slice library is a symlink in any in-scope repo
+      // (measured 2026-08-13), and were one to appear the swap shows up in
+      // `git diff` as a 120000→100644 mode change rather than silently.
+      await rename(tmp, full);
+    } catch (e) {
+      throw new Error(
+        `${rel}: could not replace the model with the staged copy ` +
+          `(${(e as Error).message}). The model already in the repo is UNTOUCHED and the ` +
+          `staged copy is at ${tmpRel} — delete it; nothing reads it.`,
+        { cause: e },
+      );
+    }
   }
 
-  const formatted = await formatWithPrettier(spawn, repoRoot, [rel]);
+  // Resolved, never resolved-by-PATH: see targetPrettierBin.
+  const bin = await targetPrettierBin(repoRoot);
+  const formatted =
+    bin === null
+      ? false
+      : await formatWithPrettier(spawn, repoRoot, [rel], { bin, timeoutMs: PRETTIER_TIMEOUT_MS });
   return { path: rel, formatted };
 }
