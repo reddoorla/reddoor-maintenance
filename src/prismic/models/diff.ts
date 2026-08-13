@@ -241,6 +241,18 @@ export function describeDiff(local: PrismicModel, remote: PrismicModel | undefin
  *  has to put a real value on the wire, and the only trustworthy one is
  *  whatever is currently live on the remote.
  *
+ *  PRESENCE, not truthiness — the remote's value wins whenever the remote
+ *  HAS one, including when it is `""`. A truthy check (`shot ? … : v`) looks
+ *  equivalent and is tempting to "simplify" back to, but it is not: it
+ *  conflates "no remote data for this id" (nothing is known, so keeping
+ *  local is correct) with "remote explicitly reports `""`" (Prismic
+ *  currently has NO screenshot for this variation — that IS the live
+ *  truth). Falling through to local on a remote `""` doesn't preserve a
+ *  preview, it WRITES a stale URL onto a variation that currently has
+ *  none — the exact damage this function exists to prevent, on exactly the
+ *  nine RichText models that carry one. `shots.has(id)` is what tells the
+ *  two cases apart; the map's VALUE is not enough to.
+ *
  *  A variation with no string `id` is left untouched rather than matched by
  *  array index. `describeDiff` can fall back to an index label
  *  (`variations[i]`) because a wrong pairing there only costs a mislabeled
@@ -263,9 +275,8 @@ export function withRemoteScreenshots(
     ...local,
     variations: local.variations.map((v) => {
       const o = asZone(v);
-      if (typeof o.id !== "string") return v;
-      const shot = shots.get(o.id);
-      return shot ? { ...o, imageUrl: shot } : v;
+      if (typeof o.id !== "string" || !shots.has(o.id)) return v;
+      return { ...o, imageUrl: shots.get(o.id) };
     }),
   };
 }

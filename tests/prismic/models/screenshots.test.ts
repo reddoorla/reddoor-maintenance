@@ -62,4 +62,24 @@ describe("withRemoteScreenshots", () => {
     withRemoteScreenshots(local, remote);
     expect((local.variations as Array<Record<string, unknown>>)[0]!.imageUrl).toBe("");
   });
+
+  // Remote `""` is live truth: Prismic currently has no screenshot for this
+  // variation. A push REPLACES the model, so deferring to the local value here
+  // would WRITE a stale URL onto a variation that has none — the precise damage
+  // this function exists to prevent, on exactly the nine RichText models that
+  // carry stale on-disk URLs. Presence, not truthiness.
+  it("sends the remote's empty imageUrl rather than a stale local one", () => {
+    const stale: PrismicModel = {
+      id: "rich_text",
+      variations: [{ id: "default", imageUrl: "https://images.prismic.io/STALE.png" }],
+    };
+    const remote: PrismicModel = {
+      id: "rich_text",
+      variations: [{ id: "default", imageUrl: "" }],
+    };
+    const sent = withRemoteScreenshots(stale, remote) as unknown as {
+      variations: Array<Record<string, unknown>>;
+    };
+    expect(sent.variations[0]!.imageUrl).toBe("");
+  });
 });
