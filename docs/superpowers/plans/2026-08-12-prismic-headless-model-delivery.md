@@ -2335,12 +2335,30 @@ describe("prismic/models public surface", () => {
   //     allow-listed, so IO added inside `diff.ts` and reached through
   //     `withRemoteScreenshots` looks clean from `push.ts`, and `diff.ts` had no
   //     guard of its own.
+  //  4. Task 11 — an AST allow-list over SPECIFIERS. Defeated by
+  //     `const { rm } = await import("node:fs/promises")`, which is a working
+  //     recursive+force delete inside the very module that exists because
+  //     remote-only models may never be deleted. The specifier walk DID see the
+  //     dynamic import — and recorded `"node:fs/promises"`, which is ALREADY
+  //     ALLOWED (the module legitimately needs mkdir/readFile/writeFile), so
+  //     `new Set(...)` deduped it away. The bindings walk only inspected
+  //     `ts.isImportDeclaration` nodes, so it never saw `rm` at all. Both
+  //     assertions reported PASS.
   //
-  // The pattern in all three is the same and it is the lesson: **each fix was a
-  // DENY-LIST**, enumerating forbidden channels, and a new channel always
-  // existed. Enumerating what is forbidden is unwinnable. Enumerate what is
-  // ALLOWED instead, over the whole module at once, so there is no seam between
-  // two guards and no unguarded file to hop to.
+  // The pattern in the first three is the same and it is the first lesson:
+  // **each fix was a DENY-LIST**, enumerating forbidden channels, and a new
+  // channel always existed. Enumerating what is forbidden is unwinnable.
+  // Enumerate what is ALLOWED instead, over the whole module at once, so there
+  // is no seam between two guards and no unguarded file to hop to.
+  //
+  // The fourth adds the sharper lesson: **allow-listing the SOURCE is not
+  // allow-listing the CAPABILITY.** `node:fs/promises` must stay allowed, so an
+  // allow-list of specifiers can never express "may read and write files, may
+  // not delete them". The allow-list has to be over the BINDINGS actually
+  // obtained — by every mechanism, including destructuring from a dynamic
+  // import, member access on a namespace import, and aliasing. A binding
+  // obtained by a mechanism the walk cannot statically resolve must FAIL, never
+  // be skipped.
   //
   // Parse with the TypeScript AST, not regex. That is load-bearing, not
   // stylistic: this guard has to QUOTE the constructs it forbids in order to
@@ -2358,6 +2376,15 @@ describe("prismic/models public surface", () => {
   //     the directory. Each must appear in one explicit allow-list. A
   //     non-literal specifier (`import(someVar)`) is UNRESOLVABLE and must fail,
   //     never be skipped.
+  //  a2. And extract every BINDING obtained from those specifiers, by every
+  //     mechanism — named import, default, namespace member access, aliasing,
+  //     and destructuring from a dynamic `import()`. Allow-list the bindings per
+  //     specifier: `node:fs/promises` may yield `mkdir`, `readFile`,
+  //     `writeFile`, `rename` — and NOT `rm`, `rmdir`, `unlink`, or `truncate`.
+  //     This is the requirement that failure 4 proves cannot be skipped: the
+  //     specifier list alone can never express "may write, may not delete",
+  //     because the module genuinely needs that specifier. A binding whose
+  //     origin the walk cannot resolve must FAIL.
   //  b. Run an INDEPENDENT token census for `import`/`require`. If the node walk
   //     recognised fewer than the tokens present, fail — that is a hole in the
   //     extractor, and it must fail as a hole rather than pass as a clean file.
@@ -3279,20 +3306,61 @@ async function pullRemoteOnly(
   if (diff.remoteOnly.length === 0) {
     return { output: `nothing to pull — no remote-only models in ${cfg.repositoryName}`, code: 0 };
   }
-  const library = cfg.libraries[0] ?? "./src/lib/slices";
+  // NOT `cfg.libraries[0] ?? "./src/lib/slices"`. That default re-collapses a
+  // distinction `config.ts` deliberately makes: an ABSENT `libraries` key gets
+  // the fleet default there, but `libraries: []` is a STATEMENT — "this site has
+  // no slice libraries" — and config.ts documents it as such. Fabricating the
+  // fleet default here writes a slice model into a directory the site does not
+  // use, and reports it as a successful pull. `writeModelFile` refuses a blank
+  // library, so surface that refusal instead of inventing a path.
+  //
+  // `[0]` is also an unstated rule when several libraries exist. The fleet is
+  // uniform at one today (measured 2026-08-13), so this is not yet a live
+  // ambiguity — but say which one is chosen rather than letting index 0 decide
+  // silently.
+  const library = cfg.libraries[0];
+  if (library === undefined || library.trim() === "") {
+    return {
+      output:
+        `cannot pull slices into "${cfg.repositoryName}": its Prismic config declares no slice ` +
+        `library. Add one to slicemachine.config.json, or pull only custom types.`,
+      code: 1,
+    };
+  }
+
+  // FAILURE IS PER-MODEL, exactly as in `pushModels`. The guards in
+  // `writeModelFile` make refusals genuinely reachable — a directory already
+  // occupied by a DIFFERENT model id is the live case (slice directory names are
+  // derived from the id and the fleet copies slices between sites) — and a loop
+  // that throws on the first refusal leaves the models it already wrote on disk
+  // with no record of which. That is the same "report that silently omits
+  // models" `push.ts` refuses to produce.
   const lines: string[] = [];
   let unformatted = 0;
+  let refused = 0;
   for (const entry of diff.remoteOnly) {
-    const res = await writeModelFile(deps.spawn, repoRoot, entry, library);
-    if (!res.formatted) unformatted++;
-    lines.push(
-      `pulled  ${entry.kind} ${entry.id}  -> ${res.path}${res.formatted ? "" : "  (unformatted)"}`,
-    );
+    try {
+      const res = await writeModelFile(deps.spawn, repoRoot, entry, library);
+      if (!res.formatted) unformatted++;
+      lines.push(
+        `pulled   ${entry.kind} ${entry.id}  -> ${res.path}${res.formatted ? "" : "  (unformatted)"}`,
+      );
+    } catch (e) {
+      refused++;
+      lines.push(
+        `REFUSED  ${entry.kind} ${entry.id}  — ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
   }
   if (unformatted > 0) lines.push(`⚠ ${PRETTIER_FLAG_NOTE}`);
   lines.push("");
-  lines.push(`${diff.remoteOnly.length} model(s) pulled. Review, commit, and open a PR.`);
-  return { output: lines.join("\n"), code: 0 };
+  lines.push(
+    `${diff.remoteOnly.length - refused} of ${diff.remoteOnly.length} model(s) pulled` +
+      (refused > 0 ? `, ${refused} refused` : "") +
+      `. Review, commit, and open a PR.`,
+  );
+  // A refusal is a real finding the operator must act on, so it must not exit 0.
+  return { output: lines.join("\n"), code: refused > 0 ? 1 : 0 };
 }
 ```
 
