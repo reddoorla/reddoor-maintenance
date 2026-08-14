@@ -48,7 +48,12 @@ type WriteSummary = {
       | "netlify-deploy"
       | "function-health"
       | "smoke"
-      | "form-e2e";
+      | "form-e2e"
+      // Not an audit: the nightly Prismic model sweep reuses this result shape so
+      // its write-back reports through the same `FLEET_WRITE_SUMMARY` line every
+      // other fleet writer emits, rather than inventing a second contract for CI
+      // to grep.
+      | "prismic-models";
     counts: object;
   }>;
   /** Fleet-activity events detected from this site's prior row vs the fresh audits.

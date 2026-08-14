@@ -415,6 +415,12 @@ const deps = (
   spawn: vi.fn<SpawnFn>(async () => {
     throw new Error("the fleet sweep must never spawn a process");
   }),
+  // No test in this file writes to Airtable. Required (not optional) on the deps
+  // type precisely so that stays true by construction: a stub that throws is the
+  // only way this path can be reached from here.
+  openVerdictSink: async () => {
+    throw new Error("this test never opens Airtable");
+  },
 });
 
 type SiteSpec = {
@@ -955,10 +961,17 @@ describe("runPrismicModelsCommand — fleet sweep", () => {
     expect(r.output).toContain("COMMIT NOT RESOLVED");
   });
 
-  // Task 20 implements --write-airtable. Until then a fleet sweep that ran and
-  // wrote nothing would report success to a workflow that believes the rows were
-  // updated, which is the same silent no-op the guard exists to stop.
-  it("still refuses --write-airtable alongside the implemented --fleet", async () => {
+  // Task 20 built `--write-airtable`, so the nightly's real invocation
+  // (`--fleet airtable --write-airtable`) must now SWEEP rather than refuse — the
+  // inverse of what this case asserted while the mode was unbuilt, and worth
+  // keeping in that form: a refusal that outlives its reason is a nightly that
+  // silently stops sweeping.
+  //
+  // This file's deps hand over a sink that throws, so the write step reports that
+  // nothing was written and the run goes non-zero — which is the right answer for
+  // "asked to write, wrote nothing", and is asserted here as such. The verdicts
+  // actually landing is tests/cli/prismic-models-writeback.test.ts.
+  it("sweeps rather than refusing when --write-airtable is added to --fleet", async () => {
     await makeSite("espada", { repositoryName: "espada", models: ["page"] });
     const fleet = await inventory(["espada"]);
     const d = deps({ espada: [customType("page")] }, { PRISMIC_TOKEN_ESPADA: "a" });
@@ -967,9 +980,11 @@ describe("runPrismicModelsCommand — fleet sweep", () => {
       { cwd: root, fleet, workdir, writeAirtable: true },
       d,
     );
+    expect(r.output).not.toContain("NOT IMPLEMENTED");
+    expect(d.remoteModels).toHaveBeenCalled();
+    expect(r.output).toContain("1 checked, 0 failed, 0 skipped");
+    // Asked to write, wrote nothing, said so, and did not exit 0.
+    expect(r.output).toMatch(/NOTHING WAS WRITTEN/);
     expect(r.code).toBe(1);
-    expect(r.output).toContain("--write-airtable");
-    expect(r.output).toContain("NOT IMPLEMENTED");
-    expect(d.remoteModels).not.toHaveBeenCalled();
   });
 });

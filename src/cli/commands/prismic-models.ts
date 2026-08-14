@@ -71,6 +71,13 @@ import {
   type PrismicModel,
   type RemoteEntry,
 } from "../../prismic/models/index.js";
+// `siteSlug` is a VALUE import and deliberately safe to take: websites.ts imports
+// nothing at runtime (its `airtable`/client imports are all `import type`), so
+// this does not put the Airtable SDK into the module graph of a consuming fleet
+// site's `reddoor-maint prismic-models` CI run. `FleetWriteResult` and
+// `PrismicModelsWriteback` are type-only and erase entirely.
+import { siteSlug, type PrismicModelsWriteback } from "../../reports/airtable/websites.js";
+import type { FleetWriteResult } from "../../audits/write-audits-to-airtable.js";
 import { formatWithPrettier, PRETTIER_FLAG_NOTE } from "../../recipes/_prettier.js";
 import {
   isClean,
@@ -111,6 +118,17 @@ export type PrismicModelsDeps = {
    * argv is built at the one binding below, where a reviewer can see it.
    */
   spawn: SpawnFn;
+  /**
+   * The fleet's record, opened only by `--write-airtable` — see
+   * {@link PrismicVerdictSink}.
+   *
+   * REQUIRED rather than optional, and that is the point: an optional dep with a
+   * real-Airtable default would let any future test that passes `writeAirtable:
+   * true` reach a live base if `AIRTABLE_PAT` happened to be in the environment.
+   * Required, every test has to hand over a stub, and the ones that never write
+   * hand over a stub that throws.
+   */
+  openVerdictSink: () => Promise<PrismicVerdictSink>;
 };
 
 export const defaultDeps = (): PrismicModelsDeps => ({
@@ -118,6 +136,24 @@ export const defaultDeps = (): PrismicModelsDeps => ({
   sendModel: (repo, token, entry, action) => sendModelImpl(repo, token, entry, action),
   env: process.env,
   spawn: makeSpawn(),
+  // Imported HERE rather than at the top of the file: the Airtable client is a
+  // devDependency of this package, and a consuming fleet site running the in-repo
+  // check in its own CI has no `airtable` installed. A static import would make
+  // every one of those runs fail on module load.
+  openVerdictSink: async () => {
+    const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
+    const { listWebsites, updatePrismicModels } =
+      await import("../../reports/airtable/websites.js");
+    // `openBase` throttles every HTTP call this base makes at its single funnel
+    // (≤4.5 req/s), so the serial writes below cannot burst past Airtable's rate
+    // limit no matter how large the fleet gets.
+    const base = openBase(readAirtableConfig());
+    const websites = await listWebsites(base);
+    return {
+      websites: websites.map((w) => ({ id: w.id, name: w.name })),
+      update: (recordId, models) => updatePrismicModels(base, recordId, models),
+    };
+  },
 });
 
 /**
@@ -1469,6 +1505,205 @@ export async function sweepFleet(
   return { rows, skipped: prep.skipped, resolved: sites.length };
 }
 
+/**
+ * The fleet's record, as this command needs it — and the ONE seam through which
+ * `--write-airtable` can touch Airtable.
+ *
+ * Injected (see {@link PrismicModelsDeps.openVerdictSink}) so the whole write
+ * path is exercised with no base, no credential and no network.
+ *
+ * `websites` is the WHOLE table rather than a per-site lookup, because the join
+ * below has to be able to see that TWO rows claim one site name. A query that
+ * fetched one row per site would answer "here is your row" for a table that
+ * holds two, and the verdict would land on whichever one Airtable returned
+ * first — a client's row carrying another client's verdict.
+ */
+export type PrismicVerdictSink = {
+  websites: ReadonlyArray<{ id: string; name: string }>;
+  update: (recordId: string, models: PrismicModelsWriteback) => Promise<void>;
+};
+
+/**
+ * The banner on a stored detail for a site whose CHECK FAILED.
+ *
+ * The column is read in a dashboard next to sites whose detail is real model
+ * drift, and the operator's next move is completely different: a dead token or a
+ * broken checkout is not a schema change. The verdict field already says
+ * `unknown`; this makes the text say it too, in the first line, which is what a
+ * feed or a digest title will quote.
+ */
+const NO_VERDICT_BANNER =
+  "⚠ NO VERDICT — this site's check FAILED, so nothing was established about its models:";
+
+/**
+ * ONE sweep row, as the fleet's record should hold it.
+ *
+ * This is the function the whole task turns on, so it is separate, pure and
+ * exported: what a row that COULD NOT BE CHECKED writes down.
+ *
+ * The plan said: nothing — "leave the row alone, it keeps the last true value
+ * and the freshness gate ages it out". Both halves are wrong. The last value
+ * stopped being true the moment the check started failing; and nothing ages a
+ * stale `pass` out, because the digest's freshness gate only ever examines
+ * FAILURES (`prismicModels !== "fail"` → skip). So a site whose token died on
+ * Monday would sit in the cockpit as a green tick, indefinitely, while its check
+ * failed every night — "I could not read X" rendered exactly as "X is fine", in
+ * the record an operator trusts.
+ *
+ * So every row writes, every night, and the three sweep outcomes stay three
+ * distinct things:
+ *
+ *   - `checked`  → `pass`/`fail`. A real verdict; `pass` clears the old detail.
+ *   - `failed`   → `unknown`. Nothing was established. NOT `fail`, which would
+ *                  report a dead token as model drift and send the operator
+ *                  hunting a schema change that never happened.
+ *   - `skipped`  → blank. There is no verdict to hold: this repo has no Prismic
+ *                  in it. Blanking is also what CLEARS a `pass` from back when
+ *                  the site did have Prismic — a config that was deleted must
+ *                  not leave its last verdict standing forever.
+ *
+ * `status === "checked"` with `clean === null` is not reachable by design —
+ * `checkOneSite` always returns a boolean there — but `status` and `clean` are
+ * independent fields, so a future bug CAN produce it. It falls to `unknown`
+ * rather than to `pass`: the one thing this function must never do is invent a
+ * clean verdict.
+ */
+export function sweepRowWriteback(row: SweepRow, checkedAt: string): PrismicModelsWriteback {
+  if (row.status === "skipped") return { verdict: null, checkedAt, detail: row.detail };
+  if (row.status === "failed" || row.clean === null) {
+    return { verdict: "unknown", checkedAt, detail: `${NO_VERDICT_BANNER}\n${row.detail}` };
+  }
+  return {
+    verdict: row.clean ? "pass" : "fail",
+    checkedAt,
+    // A clean site clears its detail: leaving yesterday's drift text under a
+    // `pass` is a finding that reads as current and is not.
+    detail: row.clean ? null : row.detail,
+  };
+}
+
+/**
+ * Persist a fleet sweep to Airtable, one row at a time.
+ *
+ * SERIAL, like every other fleet writer here. The base returned by `openBase`
+ * throttles its own HTTP calls (≤4.5 req/s), so this is belt-and-braces rather
+ * than the only guard — but a `Promise.all` fan-out across the fleet would still
+ * queue every request at once for no gain, and the failures are easier to read in
+ * inventory order.
+ *
+ * EVERY ROW LANDS IN EXACTLY ONE BUCKET — written or failed. A row that fell out
+ * of both would be a site the operator believes this sweep covered and it did
+ * not, which is the same class of hole as a site missing from the sweep itself.
+ *
+ * The join is by SLUG, matching `writeAuditsToAirtable` and every other fleet
+ * writer, so "Espada" in the inventory and "espada" in Airtable are one site. A
+ * slug that matches TWO records is refused rather than resolved: a verdict
+ * written to the wrong client's row is worse than a verdict not written, and only
+ * a human can say which row is the real one.
+ *
+ * Nothing here throws. A per-row failure — no matching record, an ambiguous
+ * match, an UNKNOWN_FIELD_NAME from columns the operator has not added yet — is
+ * COLLECTED, because one unwritable row must not cost the other fourteen their
+ * verdicts.
+ */
+export async function writeSweepToAirtable(
+  rows: readonly SweepRow[],
+  websites: ReadonlyArray<{ id: string; name: string }>,
+  update: PrismicVerdictSink["update"],
+  checkedAt: string,
+): Promise<FleetWriteResult> {
+  const bySlug = new Map<string, Array<{ id: string; name: string }>>();
+  for (const w of websites) {
+    const slug = siteSlug(w.name);
+    const list = bySlug.get(slug) ?? [];
+    list.push(w);
+    bySlug.set(slug, list);
+  }
+
+  const result: FleetWriteResult = { written: [], failed: [] };
+  for (const row of rows) {
+    const slug = siteSlug(row.site);
+    const matches = bySlug.get(slug) ?? [];
+    const target = matches.length === 1 ? matches[0] : undefined;
+    if (!target) {
+      result.failed.push({
+        slug,
+        error:
+          matches.length === 0
+            ? `no Websites row matched "${row.site}" — its verdict was NOT recorded anywhere,` +
+              ` so the cockpit will keep whatever this site's row said before (or nothing).` +
+              ` Check the inventory name against the Websites Name column.`
+            : `${matches.length} Websites rows match "${row.site}"` +
+              ` (${matches.map((m) => m.name).join(", ")}) — refusing to guess which one owns` +
+              ` this verdict, because writing it to the wrong row is worse than not writing it.`,
+      });
+      continue;
+    }
+    try {
+      await update(target.id, sweepRowWriteback(row, checkedAt));
+      result.written.push({
+        siteName: target.name,
+        writes: [{ audit: "prismic-models", counts: {} }],
+      });
+    } catch (e) {
+      // `describeThrown`, not `(e as Error).message`: `update` is injected and a
+      // thrown string would render as `undefined` through the cast — a write that
+      // failed for a blank reason, in the summary line CI reads.
+      result.failed.push({ slug, error: describeThrown(e) });
+    }
+  }
+  return result;
+}
+
+/**
+ * The write step of `--write-airtable`, and its two failure shapes.
+ *
+ * PER-ROW failures do not redden the sweep. The three columns are operator-added,
+ * so until they exist every row fails with UNKNOWN_FIELD_NAME — the feature ships
+ * dark, and reddening the nightly for a schema the operator has not made yet
+ * teaches everyone to ignore the red. What a workflow gates on is the
+ * `FLEET_WRITE_SUMMARY wrote=N failed=M total=T` line, which is exactly why that
+ * formatter is shared rather than reinvented here.
+ *
+ * NOT BEING ABLE TO WRITE AT ALL is a different fact and does redden: the run was
+ * asked to record its verdicts and recorded none, which is the silent no-op this
+ * whole command refuses. The report is kept either way — it is the only thing
+ * the run produced, and losing it to a credentials error would leave the operator
+ * with a stack trace instead of a sweep.
+ */
+async function persistSweep(
+  rows: readonly SweepRow[],
+  deps: PrismicModelsDeps,
+): Promise<{ output: string; code: number }> {
+  let sink: PrismicVerdictSink;
+  let formatSummary: (result: FleetWriteResult) => string;
+  try {
+    // Loaded BEFORE the first write, so a formatter that cannot be imported fails
+    // while "nothing was written" is still a true sentence. Dynamically, because
+    // this module is also loaded by a consuming fleet site's own CI, where the
+    // audit chain this import drags in is not installed.
+    formatSummary = (await import("../../audits/write-audits-to-airtable.js"))
+      .formatFleetWriteSummary;
+    sink = await deps.openVerdictSink();
+  } catch (e) {
+    return {
+      output:
+        `⛔ --write-airtable was asked for and NOTHING WAS WRITTEN: ${describeThrown(e)}.` +
+        ` Every verdict above is unrecorded, so the cockpit and the digest keep whatever they` +
+        ` held before — which for a site that has broken since is a green tick. Do NOT read` +
+        ` the report above as having reached the fleet's record.`,
+      code: 1,
+    };
+  }
+  const result = await writeSweepToAirtable(
+    rows,
+    sink.websites,
+    sink.update,
+    new Date().toISOString(),
+  );
+  return { output: formatSummary(result), code: 0 };
+}
+
 /** `--fleet`: the read-only nightly sweep, and the exit-code rule that decides
  *  whether it wakes anybody up. */
 async function runFleetSweep(
@@ -1545,29 +1780,26 @@ async function runFleetSweep(
     skipped,
   );
   const alarms = collisions.length + envCollisions.length;
+  const code = alarms > 0 || nothingChecked !== "" ? 1 : prismicSweepExitCode(checked, failed);
+
+  if (!requested(opts.writeAirtable)) return { output, code };
+
+  // THE WRITE IS APPENDED TO THE SWEEP, never substituted for it.
+  //
+  // The obvious shape — an early `return` from the write branch with
+  // `prismicSweepExitCode(checked, failed)` — silently drops every OTHER reason
+  // this sweep goes non-zero: a repository collision, a derived-token collision,
+  // and the not-one-site-was-checked refusal. All three are conditions no
+  // per-repo CI run can ever see, and all three would have exited 0 from the
+  // moment anybody added `--write-airtable` to the nightly. The sweep's own
+  // verdict therefore WINS over the write's; the write can only redden a run
+  // that was otherwise green.
+  const persisted = await persistSweep(rows, deps);
   return {
-    output,
-    code: alarms > 0 || nothingChecked !== "" ? 1 : prismicSweepExitCode(checked, failed),
+    output: `${output}\n\n${persisted.output}`,
+    code: code !== 0 ? code : persisted.code,
   };
 }
-
-/**
- * Modes the flags advertise and this command does not do yet.
- *
- * Task 18 registers `--pull`, `--tokens`, `--fleet` and `--write-airtable` on
- * the CLI; Tasks 15, 16, 17 and 20 implement them. Between those two points the
- * options are accepted, IGNORED, and the in-repo check of the cwd runs instead —
- * so `--fleet inventory.json` reports a successful sweep of one repo that was
- * never in the inventory, and exits 0. "Silently does something other than what
- * you asked, and calls it success" is the exact failure class this pipeline
- * exists to eliminate; it does not get an exemption for being ours.
- *
- * Each implementing task deletes its own line from this list — a one-line diff,
- * against a guard that costs nothing to carry.
- */
-const UNIMPLEMENTED_MODES = [
-  ["--write-airtable", "writeAirtable"],
-] as const satisfies ReadonlyArray<readonly [string, keyof PrismicModelsCommandOptions]>;
 
 /** Was a mode flag actually asked for? `undefined` is absent and `false` is what
  *  a boolean flag parser leaves behind for a flag nobody typed; anything else —
@@ -1654,6 +1886,22 @@ function modeConflict(opts: PrismicModelsCommandOptions): string | null {
       );
     }
   }
+  // LAST, so a more specific conflict gets to explain itself first.
+  //
+  // `--write-airtable` persists a FLEET SWEEP's per-site verdicts, and outside
+  // fleet mode there is no sweep to persist. Accepting it and running the in-repo
+  // check anyway is the exact silent no-op the unimplemented-mode guard used to
+  // stand in front of: an operator asks for a write, the run exits 0, and nothing
+  // was written. That guard was this flag's last entry and Task 20 removed it, so
+  // this rule is what replaces it.
+  if (requested(opts.writeAirtable) && !requested(opts.fleet)) {
+    return (
+      "--write-airtable needs --fleet. It persists a fleet sweep's per-site verdicts to the" +
+      " Websites table, and the in-repo check has no sweep to write — its review artifact is" +
+      " the PR comment (--comment-file). Accepting the flag and comparing this one repo" +
+      " instead would exit 0 having written nothing. Nothing was compared, pushed or written."
+    );
+  }
   return null;
 }
 
@@ -1662,10 +1910,18 @@ function modeConflict(opts: PrismicModelsCommandOptions): string | null {
  *
  * Kept apart from {@link modeConflict} because they are different facts and
  * deserve different exit codes: a contradiction exits 2 ("you asked for
- * something impossible") and will never work, while these exit 1 alongside the
- * unimplemented-mode guard below, and a later task deletes the case. What they
- * share is the refusal itself — the alternative is a run that does something
- * OTHER than what was asked and calls it success.
+ * something impossible") and will never work, while these exit 1 and a later
+ * task deletes the case. What they share is the refusal itself — the
+ * alternative is a run that does something OTHER than what was asked and calls
+ * it success.
+ *
+ * THIS IS ALL THAT IS LEFT of the unimplemented-mode machinery. There was also a
+ * per-FLAG table (`UNIMPLEMENTED_MODES`), whose last entry was `--write-airtable`
+ * until Task 20 built it; Task 20 removed the table rather than leaving it
+ * empty, because a guard that lists nothing protects nothing while still reading
+ * like protection to the next person. The COMBINATION guard here is a different
+ * shape (a table keyed on one flag never caught `--tokens --fleet` anyway) and it
+ * still has a real case, so it stays.
  */
 function unbuiltCombination(opts: PrismicModelsCommandOptions): string | null {
   if (requested(opts.tokens) && requested(opts.fleet)) {
@@ -1740,24 +1996,9 @@ export async function runPrismicModelsCommand(
   const conflict = modeConflict(opts);
   if (conflict) return { output: conflict, code: 2 };
 
-  // A gap, not a contradiction — exit 1 with the unimplemented modes below,
-  // rather than 2. Checked before the table because the table keys on ONE flag
-  // and this is a combination: `--tokens --fleet` trips neither entry.
+  // A gap, not a contradiction — exit 1 rather than 2.
   const unbuilt = unbuiltCombination(opts);
   if (unbuilt) return { output: unbuilt, code: 1 };
-
-  const asked = UNIMPLEMENTED_MODES.filter(([, key]) => requested(opts[key]));
-  if (asked.length > 0) {
-    const flags = asked.map(([flag]) => flag).join(", ");
-    return {
-      output:
-        `${flags} — NOT IMPLEMENTED YET. Nothing was compared, nothing was pushed and` +
-        ` nothing was written. This command currently does the in-repo comparison only:` +
-        ` \`reddoor-maint prismic-models [site]\` (dry by default), \`--apply\` to push,` +
-        ` \`--comment-file <path>\` to save the report. Do NOT read this exit as a result.`,
-      code: 1,
-    };
-  }
 
   // Validated BEFORE any work, and by TYPE as well as by value.
   //

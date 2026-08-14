@@ -66,6 +66,12 @@ const deps = (over: Partial<PrismicModelsDeps> = {}): PrismicModelsDeps => ({
   env: { PRISMIC_WRITE_TOKEN: "tok" },
   spawn: okSpawn(),
   ...over,
+  // No test in this file writes to Airtable. Required (not optional) on the deps
+  // type precisely so that stays true by construction: a stub that throws is the
+  // only way this path can be reached from here.
+  openVerdictSink: async () => {
+    throw new Error("this test never opens Airtable");
+  },
 });
 
 describe("runPrismicModelsCommand --pull", () => {
@@ -291,15 +297,20 @@ describe("runPrismicModelsCommand --pull", () => {
     expect(r.output).not.toContain("NOT IMPLEMENTED");
   });
 
-  it("still refuses --pull --write-airtable, which is not built yet", async () => {
+  // Task 20 built `--write-airtable` and removed the unimplemented-mode guard
+  // that used to refuse this pair, so the refusal now comes from the mode
+  // conflict instead — `--write-airtable` persists a FLEET SWEEP and there is no
+  // sweep in a pull-down. Exit 2 rather than 1: this is a malformed invocation,
+  // not a finding about a site. What must not change is that nothing is pulled.
+  it("still refuses --pull --write-airtable, and pulls nothing", async () => {
     const r = await runPrismicModelsCommand(
       undefined,
       { cwd: dir, pull: true, writeAirtable: true },
       deps(),
     );
-    expect(r.code).toBe(1);
+    expect(r.code).toBe(2);
     expect(r.output).toContain("--write-airtable");
-    expect(r.output).toContain("NOT IMPLEMENTED");
+    expect(r.output).toContain("--fleet");
     expect(await exists("customtypes/frozen_page")).toBe(false);
   });
 });

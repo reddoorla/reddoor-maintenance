@@ -44,6 +44,12 @@ const deps = (
   // Only `--pull` ever reaches for this, and nothing in this file asks for it —
   // a call would be the in-repo check shelling out, which it must never do.
   spawn: vi.fn<SpawnFn>(async () => ({ code: 0, stdout: "", stderr: "" })),
+  // No test in this file writes to Airtable. Required (not optional) on the deps
+  // type precisely so that stays true by construction: a stub that throws is the
+  // only way this path can be reached from here.
+  openVerdictSink: async () => {
+    throw new Error("this test never opens Airtable");
+  },
 });
 
 describe("runPrismicModelsCommand — in-repo", () => {
@@ -322,55 +328,40 @@ describe("runPrismicModelsCommand — in-repo", () => {
     expect(r.output).toContain("boolean");
   });
 
-  // Task 18 registers these flags; Tasks 15/16/17/20 implement them. In between,
-  // they were accepted and IGNORED — `--fleet inventory.json` ran an in-repo
-  // check of the cwd and reported a successful sweep, exit 0.
+  // Task 18 registered these flags; Tasks 15/16/17/20 implemented them. In
+  // between, they were accepted and IGNORED — `--fleet inventory.json` ran an
+  // in-repo check of the cwd and reported a successful sweep, exit 0 — and a
+  // table of unimplemented modes refused each one until its task landed.
   //
-  // `--tokens` left this list in Task 15, `--pull` in Task 16 and `--fleet` in
-  // Task 17 (see prismic-models-tokens.test.ts, prismic-models-pull.test.ts and
-  // prismic-models-fleet.test.ts); an implemented mode that stayed here would be
-  // unreachable instead. `--write-airtable` is the last one standing.
-  it.each([["--write-airtable", { writeAirtable: true }]])(
-    "exits non-zero for the unimplemented %s instead of doing something else",
-    async (flag, o) => {
-      await site();
-      await customType("page");
-      const send = sender();
-      const r = await runPrismicModelsCommand(
-        undefined,
-        { cwd: dir, ...o },
-        deps([{ kind: "customtype", id: "page", model: { id: "page" } }], send),
-      );
-      expect(r.code).toBe(1);
-      expect(r.output).toContain(flag);
-      expect(r.output).toContain("NOT IMPLEMENTED");
-      expect(send).not.toHaveBeenCalled();
-    },
-  );
-
-  // The nightly's real invocation is `--fleet airtable --write-airtable`. With
-  // `--fleet` now built and the write-back not, the guard has to fire on the half
-  // that is missing and sweep NOTHING: a sweep that ran, wrote no rows and exited
-  // 0 would tell the workflow every verdict had been persisted.
-  //
-  // (This replaces a two-flag "names every unimplemented mode" case — only one
-  // unimplemented mode is left, so the guard's flag join is no longer reachable
-  // through real options.)
-  it("names --write-airtable when it is asked for alongside the implemented --fleet", async () => {
+  // `--write-airtable` was the last entry and Task 20 built it, so the table is
+  // gone. The hole it covered is NOT: `--write-airtable` on the in-repo check has
+  // nothing to write, and accepting it would compare this one repo and exit 0 for
+  // an operator who asked for a fleet write-back. The mode conflict is what
+  // stands there now — exit 2, because it is a malformed invocation rather than a
+  // finding about a site.
+  it("refuses --write-airtable outside fleet mode instead of doing something else", async () => {
     await site();
-    const d = deps([]);
+    await customType("page");
+    const send = sender();
     const r = await runPrismicModelsCommand(
       undefined,
-      { cwd: dir, fleet: "inventory.json", writeAirtable: true },
-      d,
+      { cwd: dir, writeAirtable: true },
+      deps([{ kind: "customtype", id: "page", model: { id: "page" } }], send),
     );
-    expect(r.code).toBe(1);
+    expect(r.code).toBe(2);
     expect(r.output).toContain("--write-airtable");
-    expect(r.output).toContain("NOT IMPLEMENTED");
-    // Nothing was swept: no site was read and no summary was produced.
-    expect(d.remoteModels).not.toHaveBeenCalled();
-    expect(r.output).not.toMatch(/\d+ checked/);
+    expect(r.output).toContain("--fleet");
+    expect(send).not.toHaveBeenCalled();
+    // It must not have quietly run the in-repo comparison instead.
+    expect(r.output).not.toContain("match Prismic");
   });
+
+  // The nightly's real invocation, `--fleet airtable --write-airtable`, was
+  // refused outright until Task 20 and now runs. That case moved to the suites
+  // that own fleet fixtures — prismic-models-fleet.test.ts (the sweep still
+  // happens) and prismic-models-writeback.test.ts (the verdicts land) — rather
+  // than growing an inventory in this in-repo suite. What stays here is the
+  // in-repo half above: the flag must not be accepted without --fleet.
 
   // A flag parser leaves `false` behind for a boolean flag nobody typed. Since
   // Tasks 15 and 16 that also has to hold for the IMPLEMENTED modes: `tokens:

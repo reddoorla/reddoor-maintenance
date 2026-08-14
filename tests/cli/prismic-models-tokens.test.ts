@@ -165,6 +165,12 @@ const deps = (env: Record<string, string | undefined> = {}): PrismicModelsDeps =
   // The doctor spawns nothing. Injected so a regression that shells out shows up
   // as a call on this mock rather than as a real process.
   spawn: vi.fn<SpawnFn>(async () => ({ code: 0, stdout: "", stderr: "" })),
+  // No test in this file writes to Airtable. Required (not optional) on the deps
+  // type precisely so that stays true by construction: a stub that throws is the
+  // only way this path can be reached from here.
+  openVerdictSink: async () => {
+    throw new Error("this test never opens Airtable");
+  },
 });
 
 const site = (repositoryName = "espada"): Promise<void> =>
