@@ -448,9 +448,21 @@ const PRISMIC_STALE_PASS_DAYS = 7;
  * True when the nightly `prismic-models --fleet airtable` sweep is EXPECTED to
  * cover this site. Mirrors the Airtable inventory's own filter (src/inventory/
  * airtable.ts): live `maintenance` sites (active, not pre-launch) that carry a
- * `url`. Deliberately duplicated rather than imported — the inventory builds
- * `Site` objects and needs a workdir; this is a pure predicate over a row — but
- * the two must stay in step: widen the inventory and widen this.
+ * `url` AND a Name that yields a slug. Deliberately duplicated rather than
+ * imported — the inventory builds `Site` objects and needs a workdir; this is a
+ * pure predicate over a row — but the two must stay in step: widen the inventory
+ * and widen this. That is no longer left to memory: every shape of row is put
+ * through BOTH implementations by tests/alerts/prismic-sweep-scope.test.ts, which
+ * goes red the moment they diverge.
+ *
+ * THE SLUG CLAUSE IS NOT COSMETIC, and it was the first drift this pair produced.
+ * The inventory drops an empty-slug row (`siteSlug(name) === ""`) with a warning,
+ * because such a row can neither form a checkout path nor be matched back to its
+ * Websites row on write-back — and `writeSweepToAirtable` joins by that same slug,
+ * so even a verdict computed for it could never land. Without this clause a live
+ * site named in a script with no `[a-z0-9]` (or with an empty Name) was covered
+ * here and swept nowhere: the permanent, un-ackable morning email this predicate
+ * exists to prevent, produced by the predicate itself.
  *
  * Only the STALENESS escalation consults it. A `fail`/`unknown` is a verdict some
  * run actually established and is reported wherever it came from; the staleness
@@ -462,7 +474,11 @@ const PRISMIC_STALE_PASS_DAYS = 7;
  */
 function prismicSweepCovers(s: WebsiteRow): boolean {
   return (
-    s.status !== null && ACTIVE_STATUSES.has(s.status) && !isPreLaunch(s.status) && s.url.length > 0
+    s.status !== null &&
+    ACTIVE_STATUSES.has(s.status) &&
+    !isPreLaunch(s.status) &&
+    s.url.length > 0 &&
+    siteSlug(s.name).length > 0
   );
 }
 
