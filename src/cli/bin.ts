@@ -235,6 +235,35 @@ cli
       ),
   );
 
+// Fleet-wide, this opens ONE PULL REQUEST PER REPOSITORY and never pushes to a
+// client's main. `--dry` exists because that is the only way to see the blast
+// radius before firing it. Both directions of the flag ↔ option link are pinned
+// by tests/cli/prismic-ci-command.test.ts.
+cli
+  .command(
+    "prismic-ci [site]",
+    "Add the Prismic model delivery workflow to a site via PR (one PR per repo; never pushes to main).",
+  )
+  .option("--dry", "List the sites that would be offered the workflow, without opening any PR")
+  .option("--fleet <inventory>", 'Inventory file (.json or .mjs/.js), or "airtable"')
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(
+    async (
+      site,
+      opts: {
+        dry?: boolean;
+        fleet?: string;
+        workdir?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/prismic-ci.js")).runPrismicCiCommand(site, opts),
+        opts,
+      ),
+  );
+
 // EVERY flag below must be one the command actually reads, and every option the
 // command reads must appear below. cac rejects an unknown option outright, so a
 // missing line here is a hard error in whatever workflow types the flag; a line
