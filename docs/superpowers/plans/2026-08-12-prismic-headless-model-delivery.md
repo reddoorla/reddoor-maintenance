@@ -5676,50 +5676,31 @@ git commit -m "docs: Prismic model delivery runbook (tokens, drift response, tra
 
 ---
 
-### Task 30: remove the vestigial `data-dynamiq` Prismic config
+### Task 30: ~~remove the vestigial `data-dynamiq` Prismic config~~ — WITHDRAWN, its premise is false
 
-`data-dynamiq` has no Prismic but still ships a `slicemachine.config.json` pointing at a repository named `reddoor-wireframer`. Left in place it makes the nightly sweep try to read a repository this site has no token for, and report a false drift alarm forever.
+**Measured 2026-08-14. Every clause of this task's premise is wrong, and executing step 2 would have broken a live site.** The task is kept here rather than deleted because the way it was wrong is the plan's own subject matter: "I did not find a Prismic repository" was inferred from a repository name that looked internal, and never checked.
 
-- [ ] **Step 1: Confirm the site really has no Prismic**
+The premise said `data-dynamiq` "has no Prismic," so its `slicemachine.config.json` was a leftover to `git rm`. What is actually true:
 
-```bash
-cd ~/Documents/GitHub/data-dynamiq
-cat slicemachine.config.json
-grep -rn "@prismicio" package.json || echo "no prismic dependency"
-ls customtypes src/lib/slices 2>/dev/null || echo "no model directories"
-```
+| Premise claim                                        | Measured                                                                                                                                |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| no `@prismicio` dependency                           | ❌ `@prismicio/client@^7.21.8` **and** `@prismicio/svelte@^2.2.1`                                                                       |
+| no model directories                                 | ❌ both — `customtypes/page/` and `src/lib/slices/RichText/`                                                                            |
+| nothing reads the file                               | ❌ `src/lib/prismicio.js` **imports it directly** (`import config from "../../slicemachine.config.json"`) — removing it fails the build |
+| the repository does not exist                        | ❌ `https://reddoor-wireframer.cdn.prismic.io/api/v2` → **HTTP 200**, one type `page`, 2 documents                                      |
+| the sweep would "report a false drift alarm forever" | ❌ it reports `could not read Prismic models: … 403`, which is the `unknown` verdict — never a drift claim                              |
 
-Expected: the config names `reddoor-wireframer`; no `@prismicio` dependency; no model directories.
+And the site's **homepage comes out of that repository**: `data-dynamiq` has no top-level `+page.svelte`; `/` is served by `src/routes/[[preview=preview]]/+page.server.js` calling `client.getByUID("page", "home")`, with no `if (page)` guard. Deleting the config would have broken the build, and had it somehow built, the `getByUID` throw-on-missing behaviour would have taken the homepage with it.
 
-- [ ] **Step 2: Branch and remove**
+The task also contradicts shipped code: `prismicTokenEnvName`'s doc comment and the `--tokens` doctor's printed header **both already name `data-dynamiq`'s Prismic repository as `reddoor-wireframer`**, alongside `msot` and `48bb12d1`, as a legitimate case of the Prismic name differing from the repo name.
 
-```bash
-git checkout -b chore/remove-vestigial-slicemachine-config
-git rm slicemachine.config.json
-```
+**Replacement action — nothing to remove.** `data-dynamiq` is an ordinary Prismic site in the sweep, and the only thing it needs is the same thing the other nine need: mint `PRISMIC_TOKEN_REDDOOR_WIREFRAMER` (operator step, already in Task 32's list). Then it reads and compares like every other site.
 
-- [ ] **Step 3: Verify the build still passes without it**
+**One real question this surfaced, for the operator, deliberately NOT actioned here.** The `reddoor-wireframer` repository holds two documents — `page/home` ("Homepage") and `page/another-page` — last published **2024-03-12**, i.e. starter wireframe content, and it is named for a Reddoor-internal wireframer rather than for the client. So the _content_ is plausibly vestigial even though the _config_ is load-bearing. If `data-dynamiq` should have its own Prismic repository, that is a content migration plus a `repositoryName` change; if it should not be Prismic-backed at all, that is removing the client, the `[[preview]]/[uid]` routes and the two dependencies — either is a real change to a live site, and neither is `git rm` on one file. Until then the model comparison is well-defined and harmless: one custom type, one slice, on both sides.
 
-Run: `pnpm install --frozen-lockfile && pnpm build`
-Expected: PASS — nothing reads the file
-
-- [ ] **Step 4: Commit, push, PR**
-
-```bash
-git commit -m "chore: drop the vestigial slicemachine.config.json
-
-This site has no Prismic. The config pointed at a repository named
-reddoor-wireframer and would make the nightly Prismic drift sweep report a
-permanent false alarm."
-git push -u origin chore/remove-vestigial-slicemachine-config
-gh pr create --fill
-```
-
-- [ ] **Step 5: Confirm the sweep now skips it**
-
-Run (from the maintenance worktree, after `pnpm build`):
-`node dist/cli/bin.js prismic-models ~/Documents/GitHub/data-dynamiq`
-Expected: `not a Prismic site (no repositoryName) — skipped`, exit 0
+- [x] **Step 1: Confirm the site really has no Prismic** — done, and it refuted the task. Commands and results above.
+- [ ] ~~Step 2: Branch and remove~~ — **do not run.** `git rm slicemachine.config.json` breaks the build.
+- [ ] ~~Steps 3–5~~ — moot. The sweep should keep visiting this site, not skip it.
 
 ---
 
