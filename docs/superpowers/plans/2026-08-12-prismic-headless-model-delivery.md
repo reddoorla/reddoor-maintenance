@@ -3740,6 +3740,13 @@ export function prismicSweepExitCode(checked: number, failed: number): number {
 export type SweepRow = {
   site: string;
   repositoryName: string | null;
+  /** Did the check RUN — separate from what it found. `skipped` means this repo
+   *  has no Prismic config; `failed` means we could not find out. Those were
+   *  once both `clean: null`, which made a broken config score as a routine skip
+   *  and disappear from the outage count. Carried through from `checkOneSite`,
+   *  never re-derived. */
+  status: "checked" | "skipped" | "failed";
+  /** Does the repo match Prismic. Only meaningful when `status === "checked"`. */
   clean: boolean | null;
   detail: string;
 };
@@ -3827,7 +3834,9 @@ export async function sweepFleet(
     rows.push({
       site: siteLabel(s),
       repositoryName: r.repositoryName ?? null,
-      clean: r.code === 0 ? r.clean : null,
+      // Carry `status` THROUGH. Do not re-derive a verdict here — see below.
+      status: r.status,
+      clean: r.clean,
       detail: r.output,
     });
   }
@@ -3840,8 +3849,22 @@ Wire it into `runPrismicModelsCommand` before the in-repo path:
 ```ts
 if (opts.fleet) {
   const { rows, skipped } = await sweepFleet(opts, deps, cwd);
-  const checked = rows.filter((r) => r.clean !== null).length;
-  const failed = rows.filter((r) => r.clean === null && r.repositoryName !== null).length;
+
+  // Count on `status`, NOT on `clean === null && repositoryName !== null`.
+  //
+  // That derivation was wrong in exactly the case the sweep exists to catch: a
+  // config that is PRESENT AND BROKEN never yields a `repositoryName`, so it
+  // scored identically to a genuine "not a Prismic site" skip and vanished from
+  // the failure count. The absent-vs-unreadable collapse, reappearing inside the
+  // rule meant to detect outages — found while fixing the same collapse one layer
+  // down in `checkOneSite`, 2026-08-13.
+  //
+  // `checkOneSite` now returns an explicit `status: "checked" | "skipped" |
+  // "failed"`, so the fleet layer reads a fact instead of inferring one from two
+  // nulls. Never reconstruct this from `clean`: `clean` answers "does this site
+  // match Prismic", which is only meaningful once `status === "checked"`.
+  const checked = rows.filter((r) => r.status === "checked").length;
+  const failed = rows.filter((r) => r.status === "failed").length;
   const body = rows.map((r) => `[${r.site}] ${r.detail}`).join("\n\n");
 
   // A collision forces non-zero regardless of the majority rule. It is not a
