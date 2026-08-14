@@ -45,7 +45,14 @@ export type AttentionItem = {
     | "analytics"
     | "preflight"
     | "turnstile"
-    | "notify-bounce";
+    | "notify-bounce"
+    /** The nightly Prismic model sweep. THREE item flavors share this kind —
+     *  `prismic-drift:` (repo and Prismic diverge), `prismic-unknown:` (the check
+     *  ran and could not answer), `prismic-stale:` (nobody has re-established the
+     *  last verdict). One `kind` because they are one signal on the cards and the
+     *  client filter; three KEYS because they are three different conditions and a
+     *  diff on one must never stand in for another. */
+    | "prismic-drift";
   /** Grouping key in the (component-3) render. */
   siteName: string;
   title: string;
