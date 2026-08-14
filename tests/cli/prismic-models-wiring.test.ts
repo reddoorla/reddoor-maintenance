@@ -38,6 +38,7 @@ vi.mock("../../src/prismic/models/index.js", async (importOriginal) => {
 
 import { runPrismicModelsCommand } from "../../src/cli/commands/prismic-models.js";
 import type { PrismicModelsDeps } from "../../src/cli/commands/prismic-models.js";
+import type { SpawnFn } from "../../src/audits/util/spawn.js";
 
 let dir: string;
 
@@ -63,6 +64,7 @@ const deps = (): PrismicModelsDeps => ({
   ]),
   sendModel: vi.fn(async () => {}),
   env: { PRISMIC_WRITE_TOKEN: "tok" },
+  spawn: vi.fn<SpawnFn>(async () => ({ code: 0, stdout: "", stderr: "" })),
 });
 
 describe("checkOneSite hands the renderer the WHOLE push report", () => {

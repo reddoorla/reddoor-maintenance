@@ -10,6 +10,7 @@ import {
   type PrismicModelsDeps,
 } from "../../src/cli/commands/prismic-models.js";
 import type { RemoteEntry } from "../../src/prismic/models/index.js";
+import type { SpawnFn } from "../../src/audits/util/spawn.js";
 
 let dir: string;
 
@@ -40,6 +41,9 @@ const deps = (
   remoteModels: vi.fn(async () => remote),
   sendModel: send,
   env: { PRISMIC_WRITE_TOKEN: "tok" },
+  // Only `--pull` ever reaches for this, and nothing in this file asks for it —
+  // a call would be the in-repo check shelling out, which it must never do.
+  spawn: vi.fn<SpawnFn>(async () => ({ code: 0, stdout: "", stderr: "" })),
 });
 
 describe("runPrismicModelsCommand — in-repo", () => {
@@ -317,10 +321,10 @@ describe("runPrismicModelsCommand — in-repo", () => {
   // they were accepted and IGNORED — `--fleet inventory.json` ran an in-repo
   // check of the cwd and reported a successful sweep, exit 0.
   //
-  // `--tokens` left this list in Task 15 (see prismic-models-tokens.test.ts); an
+  // `--tokens` left this list in Task 15 and `--pull` in Task 16 (see
+  // prismic-models-tokens.test.ts and prismic-models-pull.test.ts); an
   // implemented mode that stayed here would be unreachable instead.
   it.each([
-    ["--pull", { pull: true }],
     ["--fleet", { fleet: "inventory.json" }],
     ["--write-airtable", { writeAirtable: true }],
   ])("exits non-zero for the unimplemented %s instead of doing something else", async (flag, o) => {
@@ -342,16 +346,17 @@ describe("runPrismicModelsCommand — in-repo", () => {
     await site();
     const r = await runPrismicModelsCommand(
       undefined,
-      { cwd: dir, pull: true, writeAirtable: true },
+      { cwd: dir, fleet: "inventory.json", writeAirtable: true },
       deps([]),
     );
-    expect(r.output).toContain("--pull");
+    expect(r.output).toContain("--fleet");
     expect(r.output).toContain("--write-airtable");
   });
 
   // A flag parser leaves `false` behind for a boolean flag nobody typed. Since
-  // Task 15 that also has to hold for an IMPLEMENTED mode: `tokens: false` must
-  // reach the in-repo comparison, not the token doctor.
+  // Tasks 15 and 16 that also has to hold for the IMPLEMENTED modes: `tokens:
+  // false` and `pull: false` must reach the in-repo comparison, not the doctor
+  // and not a pull-down that writes into the working tree.
   it("does not trip the guard on flags that were not asked for", async () => {
     await site();
     await customType("page");

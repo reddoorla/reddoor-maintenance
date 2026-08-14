@@ -8,6 +8,7 @@ import {
   type PrismicModelsDeps,
   type TokenProbe,
 } from "../../src/cli/commands/prismic-models.js";
+import type { SpawnFn } from "../../src/audits/util/spawn.js";
 
 const probe = (over: Partial<TokenProbe> = {}): TokenProbe => ({
   site: "Espada",
@@ -161,6 +162,9 @@ const deps = (env: Record<string, string | undefined> = {}): PrismicModelsDeps =
   remoteModels: vi.fn(async () => []),
   sendModel: vi.fn(async () => {}),
   env,
+  // The doctor spawns nothing. Injected so a regression that shells out shows up
+  // as a call on this mock rather than as a real process.
+  spawn: vi.fn<SpawnFn>(async () => ({ code: 0, stdout: "", stderr: "" })),
 });
 
 const site = (repositoryName = "espada"): Promise<void> =>

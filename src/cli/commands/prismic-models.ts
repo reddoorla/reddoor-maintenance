@@ -36,8 +36,15 @@
 // them, so nothing downstream can read a failed check as a verdict either, and
 // `status` says whether it was a skip or a failure so a sweep cannot conflate
 // the two.
+//
+// They live in ONE function, `readSiteInputs`, and every mode of this command
+// goes through it — the comparison, `--apply` and `--pull`. `--pull` needs them
+// MORE, not less: it is the mode that writes into a live client's working tree,
+// so a checkout it never read or a model set it half-read would put Prismic's
+// copy of a model on top of a repo nobody managed to look at.
 import { readdir, rename, rm, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
+import { makeSpawn, type SpawnFn } from "../../audits/util/spawn.js";
 import {
   diffModels,
   localModels,
@@ -47,11 +54,14 @@ import {
   remoteModels as remoteModelsImpl,
   resolvePrismicToken,
   sendModel as sendModelImpl,
+  writeModelFile,
+  type FormatModelFile,
   type LocalEntry,
   type PrismicConfig,
   type PrismicModel,
   type RemoteEntry,
 } from "../../prismic/models/index.js";
+import { formatWithPrettier, PRETTIER_FLAG_NOTE } from "../../recipes/_prettier.js";
 import {
   isClean,
   reconcileReport,
@@ -80,12 +90,24 @@ export type PrismicModelsDeps = {
     action: "insert" | "update",
   ) => Promise<void>;
   env: Record<string, string | undefined>;
+  /**
+   * Used by `--pull` alone, and never handed to a module.
+   *
+   * This is an arbitrary-argv primitive: whoever holds it can run `rm -rf` over
+   * a model, `git rm` it, or `curl -X DELETE` at the Types API. Task 12's red
+   * team pushed `run("rm", ["-rf", model])` through this exact injection point
+   * and it passed every assertion, which is why `writeModelFile` now takes a
+   * {@link FormatModelFile} — "format these paths in this repo" — instead. The
+   * argv is built at the one binding below, where a reviewer can see it.
+   */
+  spawn: SpawnFn;
 };
 
 export const defaultDeps = (): PrismicModelsDeps => ({
   remoteModels: (repo, token) => remoteModelsImpl(repo, token),
   sendModel: (repo, token, entry, action) => sendModelImpl(repo, token, entry, action),
   env: process.env,
+  spawn: makeSpawn(),
 });
 
 /**
@@ -160,19 +182,53 @@ export type SiteCheck = {
   repositoryName?: string;
 };
 
-/** One site, one Prismic repository, one comparison. Shared by in-repo and fleet
- *  modes so a nightly verdict and a CI verdict can never disagree by construction.
+/** Everything a mode needs about one site — or the NAMED failure that stopped
+ *  it, already shaped as a {@link SiteCheck} so no caller has to invent a verdict
+ *  for a read that did not happen. */
+type SiteInputs =
+  | { ok: true; cfg: PrismicConfig; token: string; local: LocalEntry[]; remote: RemoteEntry[] }
+  | { ok: false; failure: SiteCheck };
+
+const inputFailure = (
+  output: string,
+  status: SiteCheckStatus,
+  code: number,
+  repositoryName?: string,
+): SiteInputs => ({
+  ok: false,
+  failure: {
+    output,
+    code,
+    // `null` on EVERY one of these, so nothing downstream can read a failed read
+    // as a verdict about the site.
+    clean: null,
+    status,
+    ...(repositoryName !== undefined ? { repositoryName } : {}),
+  },
+});
+
+/**
+ * Every read this command opens with, and the refusals listed at the top of this
+ * file that keep them honest — in ONE place, because a mode that repeats them by
+ * hand is a mode that can omit one.
  *
- *  Every failure RETURNS rather than throws. In-repo that keeps the report and
- *  the comment file — a throw would lose both and leave a reviewer with a stack
- *  trace instead of a reason. In fleet mode it is stronger than that: one repo
- *  with a broken config or a duplicate model id must not abort the sweep of the
- *  other fourteen. */
-export async function checkOneSite(
+ * That is not hypothetical: the first draft of `--pull` made all of these reads
+ * with no guard on any of them, which turned a missing checkout into "not a
+ * Prismic site — skipped", exit 0, for a mode that WRITES INTO A LIVE CLIENT
+ * REPO — and would have let an unreadable local model set sort every remote
+ * model into `remoteOnly` and pull the lot over the top of the repo.
+ *
+ * `noEffect` is the one thing that legitimately differs: the modes undo nothing,
+ * but they do different things, and "Nothing was compared and nothing was
+ * pushed" is the wrong sentence to print for a pull-down. It is a phrase and not
+ * a mode enum on purpose — the guards must not be able to branch on which mode
+ * called them.
+ */
+async function readSiteInputs(
   repoRoot: string,
   deps: PrismicModelsDeps,
-  opts: { apply: boolean; allowGenericToken: boolean },
-): Promise<SiteCheck> {
+  opts: { allowGenericToken: boolean; noEffect: string },
+): Promise<SiteInputs> {
   // THE DIRECTORY ITSELF, before anything inside it. `readPrismicConfig` reads
   // `<repoRoot>/slicemachine.config.json`, and for a repoRoot that does not
   // exist that read is ENOENT — which it correctly interprets as "this repo does
@@ -193,15 +249,13 @@ export async function checkOneSite(
   try {
     await readdir(repoRoot);
   } catch (e) {
-    return {
-      output:
-        `cannot read this checkout at ${repoRoot}: ${describeThrown(e)}. Nothing was` +
-        ` compared and nothing was pushed — this is NOT "no Prismic in this repo".` +
+    return inputFailure(
+      `cannot read this checkout at ${repoRoot}: ${describeThrown(e)}. ${opts.noEffect}` +
+        ` — this is NOT "no Prismic in this repo".` +
         ` Check the path (a typo, a wrong working-directory, or a clone that failed).`,
-      code: 1,
-      clean: null,
-      status: "failed",
-    };
+      "failed",
+      1,
+    );
   }
 
   let cfg: PrismicConfig | null;
@@ -212,22 +266,15 @@ export async function checkOneSite(
     // config that is present and unusable. Those two must not land on the same
     // line: the skip below is a green exit, and a live site whose config broke
     // would then leave CI green while nothing was compared at all.
-    return {
-      output:
-        `Prismic config present but unusable: ${describeThrown(e)}. Nothing was compared` +
-        ` and nothing was pushed — this is NOT "no Prismic in this repo".`,
-      code: 1,
-      clean: null,
-      status: "failed",
-    };
+    return inputFailure(
+      `Prismic config present but unusable: ${describeThrown(e)}. ${opts.noEffect}` +
+        ` — this is NOT "no Prismic in this repo".`,
+      "failed",
+      1,
+    );
   }
   if (!cfg) {
-    return {
-      output: "not a Prismic site (no repositoryName) — skipped",
-      code: 0,
-      clean: null,
-      status: "skipped",
-    };
+    return inputFailure("not a Prismic site (no repositoryName) — skipped", "skipped", 0);
   }
 
   // Derived BEFORE the lookup, because the name is what the operator needs in
@@ -240,13 +287,12 @@ export async function checkOneSite(
   try {
     canonicalEnv = prismicTokenEnvName(cfg.repositoryName);
   } catch (e) {
-    return {
-      output: `cannot work out which secret holds this repository's token: ${describeThrown(e)}`,
-      code: 1,
-      clean: null,
-      status: "failed",
-      repositoryName: cfg.repositoryName,
-    };
+    return inputFailure(
+      `cannot work out which secret holds this repository's token: ${describeThrown(e)}`,
+      "failed",
+      1,
+      cfg.repositoryName,
+    );
   }
 
   const resolved = resolvePrismicToken(cfg.repositoryName, deps.env, {
@@ -255,13 +301,12 @@ export async function checkOneSite(
   if (!resolved) {
     const names = [canonicalEnv];
     if (opts.allowGenericToken) names.push("PRISMIC_WRITE_TOKEN");
-    return {
-      output: `no write token for Prismic repository "${cfg.repositoryName}" — set ${names.join(" or ")}`,
-      code: 1,
-      clean: null,
-      status: "failed",
-      repositoryName: cfg.repositoryName,
-    };
+    return inputFailure(
+      `no write token for Prismic repository "${cfg.repositoryName}" — set ${names.join(" or ")}`,
+      "failed",
+      1,
+      cfg.repositoryName,
+    );
   }
 
   // Local first: it is free, and a repo that cannot be read has nothing to say
@@ -269,19 +314,21 @@ export async function checkOneSite(
   // unreadable, and on a duplicate model id — both are "this checkout cannot be
   // trusted", and with `--apply` treating either as "the repo declares fewer
   // models" is a push computed from a half-read repository.
+  //
+  // The pull-down reads it for the mirror-image reason: models it cannot see
+  // locally sort into `remoteOnly`, and a pull-down of a model the repo already
+  // has overwrites the local file with Prismic's copy — losing exactly the edits
+  // that were waiting to be pushed.
   let local: LocalEntry[];
   try {
     local = await localModels(repoRoot, cfg.libraries);
   } catch (e) {
-    return {
-      output:
-        `could not read this repo's own models: ${describeThrown(e)}. Nothing was compared` +
-        ` and nothing was pushed.`,
-      code: 1,
-      clean: null,
-      status: "failed",
-      repositoryName: cfg.repositoryName,
-    };
+    return inputFailure(
+      `could not read this repo's own models: ${describeThrown(e)}. ${opts.noEffect}.`,
+      "failed",
+      1,
+      cfg.repositoryName,
+    );
   }
 
   let remote: RemoteEntry[];
@@ -293,20 +340,42 @@ export async function checkOneSite(
     // `--apply`, pushes a whole model set at a repository that may already hold
     // perfectly good models. An expired token is the likely trigger and Prismic's
     // token expiry is undocumented, so this is not a rare branch.
-    return {
-      output: `could not read Prismic models: ${describeThrown(e)}`,
-      code: 1,
-      clean: null,
-      status: "failed",
-      repositoryName: cfg.repositoryName,
-    };
+    return inputFailure(
+      `could not read Prismic models: ${describeThrown(e)}`,
+      "failed",
+      1,
+      cfg.repositoryName,
+    );
   }
+
+  return { ok: true, cfg, token: resolved.token, local, remote };
+}
+
+/** One site, one Prismic repository, one comparison. Shared by in-repo and fleet
+ *  modes so a nightly verdict and a CI verdict can never disagree by construction.
+ *
+ *  Every failure RETURNS rather than throws. In-repo that keeps the report and
+ *  the comment file — a throw would lose both and leave a reviewer with a stack
+ *  trace instead of a reason. In fleet mode it is stronger than that: one repo
+ *  with a broken config or a duplicate model id must not abort the sweep of the
+ *  other fourteen. */
+export async function checkOneSite(
+  repoRoot: string,
+  deps: PrismicModelsDeps,
+  opts: { apply: boolean; allowGenericToken: boolean },
+): Promise<SiteCheck> {
+  const inputs = await readSiteInputs(repoRoot, deps, {
+    allowGenericToken: opts.allowGenericToken,
+    noEffect: "Nothing was compared and nothing was pushed",
+  });
+  if (!inputs.ok) return inputs.failure;
+  const { cfg, token, local, remote } = inputs;
 
   const diff = diffModels(local, remote);
   const report = await pushModels(diff, {
     apply: opts.apply,
     send: (entry: LocalEntry, _remote: PrismicModel | undefined, action) =>
-      deps.sendModel(cfg.repositoryName, resolved.token, entry, action),
+      deps.sendModel(cfg.repositoryName, token, entry, action),
   });
 
   // Zero models on BOTH sides passes `isClean`, and the renderer prints a warning
@@ -603,6 +672,121 @@ async function runTokenDoctor(
 }
 
 /**
+ * `--pull`: bring models that exist ONLY in Prismic into the repo, as files.
+ *
+ * This is the safe answer to `remoteOnly`. CI reports those models and can never
+ * delete them, which leaves exactly two resolutions: adopt the model into the
+ * repo (here) or delete it in the Prismic dashboard (a human, in a browser).
+ * Without this the nightly drift alarm has no non-manual way to clear.
+ *
+ * Operator-invoked only — never in CI. It mutates a working tree, and the
+ * resulting files are meant to land as a reviewed PR.
+ */
+async function pullRemoteOnly(
+  repoRoot: string,
+  deps: PrismicModelsDeps,
+): Promise<{ output: string; code: number }> {
+  // The same guards the comparison runs, and for a WRITE mode they matter more,
+  // not less: a missing checkout reported as "not a Prismic site" or a half-read
+  // local model set both end with Prismic's copy of a model written over a repo
+  // nobody managed to read.
+  const inputs = await readSiteInputs(repoRoot, deps, {
+    // TRUE, for the same reason the in-repo check sets it: one checkout, one
+    // Prismic repository, and `--pull` is refused outright in fleet mode — where
+    // a single generic token would attach the wrong credential to every site
+    // after the first.
+    allowGenericToken: true,
+    noEffect: "Nothing was pulled and nothing was written",
+  });
+  if (!inputs.ok) return { output: inputs.failure.output, code: inputs.failure.code };
+  const { cfg, local, remote } = inputs;
+
+  const diff = diffModels(local, remote);
+  if (diff.remoteOnly.length === 0) {
+    return { output: `nothing to pull — no remote-only models in ${cfg.repositoryName}`, code: 0 };
+  }
+
+  // NOT `cfg.libraries[0] ?? "./src/lib/slices"`. That default re-collapses a
+  // distinction `config.ts` deliberately makes: an ABSENT `libraries` key gets
+  // the fleet default THERE, but `libraries: []` is a STATEMENT — "this site has
+  // no slice libraries" — and config.ts documents it as such. Fabricating the
+  // fleet default here writes a slice model into a directory the site does not
+  // use and reports it as a successful pull.
+  //
+  // The blank is passed STRAIGHT THROUGH to `modelFilePath`, which refuses it
+  // per model, rather than being turned into a whole-run refusal: a custom type
+  // needs no slice library, and a site with `libraries: []` must still be able
+  // to adopt one. Refusing the run would make the fleet's own config statement
+  // into a hard stop on a mode that has nothing to do with slices.
+  //
+  // `[0]` is an unstated rule when several libraries exist. The fleet is uniform
+  // at one today, so this is not yet a live ambiguity — but the report SAYS
+  // which one was chosen rather than letting index 0 decide in silence.
+  const library = cfg.libraries[0] ?? "";
+
+  // `writeModelFile` takes a FORMAT capability, not a process spawner — see
+  // `deps.spawn`. The argv is built here, at the single injection site, which is
+  // the one place a reviewer can see it. Passing `deps.spawn` straight through
+  // is a tsc error, deliberately.
+  const format: FormatModelFile = (root, paths, fmtOpts) =>
+    formatWithPrettier(deps.spawn, root, paths, fmtOpts);
+
+  const lines: string[] = [`Prismic pull-down — repository: ${cfg.repositoryName}`];
+  if (cfg.libraries.length === 0) {
+    lines.push(
+      `slice library: NONE — this site's Prismic config declares no slice library, so no` +
+        ` slice can be placed. Custom types are unaffected.`,
+    );
+  } else {
+    lines.push(
+      `slice library: ${library}` +
+        (cfg.libraries.length > 1
+          ? ` (the first of ${cfg.libraries.length} declared; the others are not written to)`
+          : ""),
+    );
+  }
+  lines.push("");
+
+  // FAILURE IS PER-MODEL, exactly as in `pushModels`. The guards in
+  // `writeModelFile` make refusals genuinely reachable — a directory already
+  // occupied by a DIFFERENT model id is the live case, because slice directory
+  // names are derived from the id and the fleet copies slices between sites —
+  // and a loop that threw on the first refusal would leave the models it had
+  // already written on disk with no record of which. That is the same "report
+  // that silently omits models" `push.ts` refuses to produce.
+  let unformatted = 0;
+  let refused = 0;
+  for (const entry of diff.remoteOnly) {
+    try {
+      const res = await writeModelFile(format, repoRoot, entry, library);
+      if (!res.formatted) unformatted++;
+      lines.push(
+        `pulled   ${entry.kind} ${entry.id}  -> ${res.path}${res.formatted ? "" : "  (unformatted)"}`,
+      );
+    } catch (e) {
+      refused++;
+      lines.push(`REFUSED  ${entry.kind} ${entry.id}  — ${describeThrown(e)}`);
+    }
+  }
+  if (unformatted > 0) lines.push(`⚠ ${PRETTIER_FLAG_NOTE}`);
+  lines.push("");
+  lines.push(
+    `${diff.remoteOnly.length - refused} of ${diff.remoteOnly.length} model(s) pulled` +
+      (refused > 0 ? `, ${refused} refused` : "") +
+      `.`,
+  );
+  if (refused < diff.remoteOnly.length) lines.push("Review, commit, and open a PR.");
+  if (refused > 0) {
+    lines.push(
+      `A refusal leaves that model ONLY in Prismic — nothing was deleted there and nothing` +
+        ` was overwritten here. Act on each REFUSED line above.`,
+    );
+  }
+  // A refusal is a real finding the operator must act on, so it must not exit 0.
+  return { output: lines.join("\n"), code: refused > 0 ? 1 : 0 };
+}
+
+/**
  * Modes the flags advertise and this command does not do yet.
  *
  * Task 18 registers `--pull`, `--tokens`, `--fleet` and `--write-airtable` on
@@ -617,7 +801,6 @@ async function runTokenDoctor(
  * against a guard that costs nothing to carry.
  */
 const UNIMPLEMENTED_MODES = [
-  ["--pull", "pull"],
   ["--fleet", "fleet"],
   ["--write-airtable", "writeAirtable"],
 ] as const satisfies ReadonlyArray<readonly [string, keyof PrismicModelsCommandOptions]>;
@@ -642,6 +825,36 @@ const requested = (v: unknown): boolean => v !== undefined && v !== false;
  * can then tell them apart.
  */
 function modeConflict(opts: PrismicModelsCommandOptions): string | null {
+  if (requested(opts.pull) && requested(opts.tokens)) {
+    return (
+      "cannot combine --pull with --tokens. They are two different modes: one writes" +
+      " remote-only models into this working tree, the other prints which secret each" +
+      " site needs. Nothing was pulled, written or read — ask for one of them."
+    );
+  }
+  if (requested(opts.pull)) {
+    if (opts.apply === true) {
+      return (
+        "cannot combine --pull with --apply — pull, review, then push. Running both in one" +
+        " invocation would push this repo's models and adopt Prismic's in the same breath," +
+        " with no review in between. Nothing was pulled, written or pushed."
+      );
+    }
+    if (requested(opts.fleet)) {
+      return (
+        "cannot combine --pull with --fleet: --pull is single-repo only, because it WRITES" +
+        " INTO A WORKING TREE and the result is meant to land as one reviewed PR." +
+        " Nothing was pulled or written."
+      );
+    }
+    if (opts.commentFile !== undefined) {
+      return (
+        "cannot combine --pull with --comment-file. The comment file is the in-repo model" +
+        " check's review artifact; a pull-down's review artifact is the diff it leaves in" +
+        " the working tree. Nothing was pulled or written."
+      );
+    }
+  }
   if (requested(opts.tokens)) {
     if (opts.apply === true) {
       return (
@@ -757,10 +970,10 @@ export async function runPrismicModelsCommand(
   const cwd = opts.cwd ? resolve(opts.cwd) : process.cwd();
   const repoRoot = site ? resolve(cwd, site) : cwd;
 
-  // A MODE, not a modifier: it reads no models, calls Prismic not at all, and
-  // returns its own report. Everything below this line is the in-repo model
-  // comparison.
+  // MODES, not modifiers: each reads what it needs and returns its own report.
+  // Everything below this line is the in-repo model comparison.
   if (requested(opts.tokens)) return runTokenDoctor(repoRoot, deps);
+  if (requested(opts.pull)) return pullRemoteOnly(repoRoot, deps);
 
   const result = await checkOneSite(repoRoot, deps, {
     // `=== true` rather than truthiness, so the ONE place that decides whether
