@@ -45,6 +45,11 @@
 import { readdir, rename, rm, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { makeSpawn, type SpawnFn } from "../../audits/util/spawn.js";
+import { resolveSites } from "../fleet/resolve-sites.js";
+import { prepareFleetSites, appendSkipNotice, type SkippedSite } from "../fleet/prepare-sites.js";
+import { fleetWorkdir } from "../../util/fleet-workdir.js";
+import { siteLabel } from "../../util/site.js";
+import type { Site } from "../../types.js";
 import {
   diffModels,
   localModels,
@@ -786,6 +791,316 @@ async function pullRemoteOnly(
   return { output: lines.join("\n"), code: refused > 0 ? 1 : 0 };
 }
 
+/** Exit code for a fleet sweep. Non-zero when failures are the MAJORITY of the
+ *  fleet, matching `githubSignalsExitCode` — a run where 11/12 repos could not be
+ *  read is an outage, not a flake. DRIFT is never a failure: a readable site that
+ *  diverges is a finding written to Airtable, and reddening the nightly for it
+ *  would make the alarm meaningless the first time someone edits a model.
+ *
+ *  An exact tie is NOT a majority, deliberately and in agreement with
+ *  `githubSignalsExitCode`: 6 read and 6 unreadable is bad, but it is the
+ *  Airtable rows for the 6 that were read — not this exit code — that say so, and
+ *  a rule that reddened on a tie would fire the first time half a small fleet was
+ *  legitimately mid-migration. */
+export function prismicSweepExitCode(checked: number, failed: number): number {
+  return failed > checked ? 1 : 0;
+}
+
+/** One row per site from a fleet sweep, ready for the Airtable writer. */
+export type SweepRow = {
+  site: string;
+  repositoryName: string | null;
+  /** Did the check RUN — separate from what it found. `skipped` means this repo
+   *  has no Prismic config; `failed` means we could not find out. Those were
+   *  once both `clean: null`, which made a broken config score as a routine skip
+   *  and disappear from the outage count. Carried through from `checkOneSite`,
+   *  never re-derived. */
+  status: SiteCheckStatus;
+  /** Does the repo match Prismic. Only meaningful when `status === "checked"`. */
+  clean: boolean | null;
+  detail: string;
+};
+
+/**
+ * Sites that claim the same Prismic repository as another site.
+ *
+ * The fleet-level twin of `assertNoDuplicateIds`: there, two files inside one
+ * repo claiming one model id; here, two repos claiming one Prismic repository.
+ * It is possible today — `the-tower` and `the-tower-burbank` both declare
+ * `repositoryName: "the-tower-burbank"`, benign only because `the-tower` is
+ * archived and so is not in the fleet inventory.
+ *
+ * Why this DETECTS instead of throwing, unlike `assertNoDuplicateIds`: that one
+ * aborts the read of a single broken repo, which is proportionate. Aborting here
+ * would take the drift alarm offline for every site in the fleet because two
+ * repos have a config problem — and the sweep is read-only, so nothing is being
+ * corrupted at the moment of detection. The real damage happens later and
+ * elsewhere: each repo's own CI pushes to the shared Prismic repository on
+ * merge, and each overwrites the other. Neither repo can ever see it, because
+ * each one's local-vs-remote comparison is internally consistent; the conflict
+ * exists only BETWEEN them.
+ *
+ * That makes the fleet sweep the only vantage point in the whole system from
+ * which this is visible — so it must report it loudly and go non-zero, and it
+ * must name both sites, because only a human can say which repo is the owner.
+ *
+ * Sites with no Prismic config (`null`) never collide with each other. Nor does
+ * a site whose check FAILED: it has no repositoryName either, and inventing a
+ * collision from two sites nobody could read is the same guess this pipeline
+ * refuses everywhere else.
+ */
+export type RepositoryCollision = { repositoryName: string; sites: string[] };
+
+export function findRepositoryCollisions(
+  rows: ReadonlyArray<{ site: string; repositoryName: string | null }>,
+): RepositoryCollision[] {
+  const byRepository = new Map<string, string[]>();
+  for (const r of rows) {
+    if (r.repositoryName === null) continue;
+    const list = byRepository.get(r.repositoryName) ?? [];
+    list.push(r.site);
+    byRepository.set(r.repositoryName, list);
+  }
+  return (
+    [...byRepository.entries()]
+      .filter(([, sites]) => sites.length > 1)
+      .map(([repositoryName, sites]) => ({ repositoryName, sites: [...sites].sort() }))
+      // Sorted so the block an operator diffs run to run does not reorder itself
+      // when the inventory does.
+      .sort((a, b) => a.repositoryName.localeCompare(b.repositoryName))
+  );
+}
+
+/** The report block for a collision. Deliberately shouty, and deliberately at
+ *  the TOP of the sweep output: this is the one finding in the sweep that no
+ *  per-repo CI run can ever surface. */
+export function describeCollisions(collisions: readonly RepositoryCollision[]): string {
+  if (collisions.length === 0) return "";
+  return [
+    "## ⛔ Prismic repository claimed by more than one site",
+    "",
+    ...collisions.map(
+      (c) =>
+        `- **${c.repositoryName}** is claimed by ${c.sites.join(" and ")}. ` +
+        `Each repo's CI pushes to it on merge, so they overwrite each other — ` +
+        `and neither repo can detect this on its own. Fix the ` +
+        `slicemachine.config.json in whichever repo is not the owner.`,
+    ),
+  ].join("\n");
+}
+
+/**
+ * The three buckets, counted ONCE.
+ *
+ * The line an operator reads and the exit code that wakes them up are derived
+ * from this one function on purpose. Counted separately they are two questions,
+ * and a later edit to one of them produces a report that says "2 failed" above an
+ * exit 0 — the same self-contradiction `checkOneSite` refuses when it drives its
+ * verdict and its prose from one fact.
+ *
+ * Every row lands in exactly one bucket, so a site can never fall out of the
+ * total — the same rule `renderTokenDoctor`'s summary follows, and for the same
+ * reason: a summary that counted only the outcomes an operator likes is how
+ * unreadable sites disappear from a checklist.
+ */
+export function countSweep(rows: readonly SweepRow[]): {
+  checked: number;
+  failed: number;
+  skipped: number;
+} {
+  return {
+    checked: rows.filter((r) => r.status === "checked").length,
+    failed: rows.filter((r) => r.status === "failed").length,
+    skipped: rows.filter((r) => r.status === "skipped").length,
+  };
+}
+
+/**
+ * The count line, and the warning that keeps it honest.
+ *
+ * `failed` and `skipped` are adjacent here, which is precisely why the line
+ * spells out in words that they are opposite facts.
+ */
+export function summariseSweep(rows: readonly SweepRow[]): string {
+  const { checked, failed, skipped } = countSweep(rows);
+  const lines: string[] = [];
+  if (failed > 0) {
+    lines.push(
+      `⚠ ${failed} site(s) could not be read at all. Those are NOT sites without Prismic —` +
+        ` nothing was established about their models, so do not read this sweep as a complete` +
+        ` picture of the fleet.`,
+    );
+  }
+  lines.push(
+    `${checked} checked, ${failed} failed, ${skipped} skipped (no Prismic config),` +
+      ` of ${rows.length} site(s).`,
+  );
+  return lines.join("\n");
+}
+
+/** One fleet site, with the same failure isolation `runRecipeOverSites` gives a
+ *  recipe: a throw from anywhere in the comparison becomes a NAMED failed row for
+ *  THAT site instead of ending the sweep of the other fourteen.
+ *
+ *  `checkOneSite` returns rather than throws for every failure it anticipates, so
+ *  this catch is defence in depth — it covers whatever the pure comparison and
+ *  the renderer might throw on a model shape nobody has seen yet, and the
+ *  INJECTED `remoteModels`, which this module can promise nothing about. It does
+ *  not collapse anything: the row says `failed`, which counts toward the outage
+ *  rule and writes nothing to Airtable. */
+async function sweepOneSite(s: Site, deps: PrismicModelsDeps): Promise<SweepRow> {
+  const label = siteLabel(s);
+  try {
+    const r = await checkOneSite(s.path, deps, {
+      apply: false,
+      // Fleet mode forbids the generic token: one PRISMIC_WRITE_TOKEN in the
+      // environment while iterating every fleet repository would attach the wrong
+      // credential to every site after the first. In-repo mode is the opposite,
+      // and that asymmetry is the whole point of the flag.
+      allowGenericToken: false,
+    });
+    return {
+      site: label,
+      repositoryName: r.repositoryName ?? null,
+      // Carry `status` THROUGH — never re-derive a verdict here.
+      status: r.status,
+      clean: r.clean,
+      detail: r.output,
+    };
+  } catch (e) {
+    return {
+      site: label,
+      repositoryName: null,
+      status: "failed",
+      clean: null,
+      detail:
+        `unexpected error while checking this site: ${describeThrown(e)}.` +
+        ` Nothing was compared for it — this is NOT "no Prismic in this repo".`,
+    };
+  }
+}
+
+/** Fleet mode: prepare every site, compare each against its Prismic repository,
+ *  never push. Read-only by construction — `apply` is not plumbed through here,
+ *  because a fleet-wide model push outside CI is 🔴 under AUTONOMY.md. A caller
+ *  asking for `--apply` is refused by {@link modeConflict} rather than quietly
+ *  given a read-only sweep.
+ *
+ *  `resolveSites` is allowed to THROW (a positional site alongside `--fleet`,
+ *  an unsupported inventory extension, an Airtable read that failed). Those are
+ *  "the fleet itself could not be established", which has no per-site row to
+ *  live in and must not be reported as a sweep of zero sites; `bin.ts` prints the
+ *  message and exits with the error's own `exitCode`. */
+export async function sweepFleet(
+  site: string | undefined,
+  opts: PrismicModelsCommandOptions,
+  deps: PrismicModelsDeps,
+  cwd: string,
+): Promise<{ rows: SweepRow[]; skipped: SkippedSite[]; resolved: number }> {
+  const sites = await resolveSites({
+    // Passed through so `resolveSites` can refuse `prismic-models espada --fleet
+    // inv.json` (exit 2). Dropping it would silently sweep the whole fleet for
+    // an operator who named one site.
+    ...(site !== undefined ? { site } : {}),
+    ...(opts.fleet !== undefined ? { fleet: opts.fleet } : {}),
+    ...(opts.workdir !== undefined ? { workdir: opts.workdir } : {}),
+    cwd,
+  });
+  const workdir = opts.workdir ?? fleetWorkdir();
+  const prep = await prepareFleetSites(sites, { workdir });
+
+  // SEQUENTIAL. Each site is one repository's worth of Types API reads, and the
+  // report is read top to bottom by a human — a parallel sweep would interleave
+  // nothing (the rows are collected, not streamed) but would multiply the load
+  // on Prismic by the size of the fleet for no gain.
+  const rows: SweepRow[] = [];
+  for (const s of prep.prepared) rows.push(await sweepOneSite(s, deps));
+
+  // A SITE THAT COULD NOT BE PREPARED IS A SITE NOBODY READ, and it gets a row.
+  //
+  // `prepareFleetSites` isolates a clone failure into `skipped` so one bad
+  // inventory row cannot abort the fleet — that isolation is right, and it is
+  // also exactly how a site disappears: a sweep that walked `prepared` alone
+  // counted 0 checked and 0 failed when NOTHING could be cloned, and
+  // `prismicSweepExitCode(0, 0)` is 0. A fleet-wide clone outage — an expired
+  // App token, GitHub down, a full disk — then reported a clean night, with the
+  // real reason sitting in a warning line nothing gates on.
+  //
+  // The word "skipped" in `formatSkippedNotice` is about PREPARATION and is the
+  // opposite of `status: "skipped"`, which is a readable repo with no Prismic in
+  // it. The notice stays (the nightly greps its token to raise a `::warning::`);
+  // the row is what makes the site countable.
+  for (const s of prep.skipped) {
+    rows.push({
+      site: s.site,
+      repositoryName: null,
+      status: "failed",
+      clean: null,
+      detail:
+        `could not prepare this checkout: ${s.reason}.` +
+        ` Nothing was compared for it — this is NOT "no Prismic in this repo".`,
+    });
+  }
+
+  return { rows, skipped: prep.skipped, resolved: sites.length };
+}
+
+/** `--fleet`: the read-only nightly sweep, and the exit-code rule that decides
+ *  whether it wakes anybody up. */
+async function runFleetSweep(
+  site: string | undefined,
+  opts: PrismicModelsCommandOptions,
+  deps: PrismicModelsDeps,
+  cwd: string,
+): Promise<{ output: string; code: number }> {
+  const { rows, skipped, resolved } = await sweepFleet(site, opts, deps, cwd);
+
+  // NOTHING RESOLVED IS NOT A CLEAN FLEET. The inventory was read and named no
+  // sites, so nothing was compared and this run learned nothing — and the
+  // Airtable inventory is view-filtered, so one filter change empties it with no
+  // error anywhere. Exiting 0 here is a green tick that silently retires the
+  // whole drift alarm; `prismicSweepExitCode(0, 0)` cannot express it, because
+  // for a fleet that legitimately has no Prismic sites 0/0 is correct.
+  if (resolved === 0) {
+    return {
+      output:
+        `the inventory resolved NO SITES, so no sites were swept and nothing was compared.` +
+        ` This is not a clean fleet — check the inventory (an Airtable view filter, an empty` +
+        ` JSON file, a dynamic inventory returning []). Do NOT read this exit as a result.`,
+      code: 1,
+    };
+  }
+
+  // Count on `status`, NOT on `clean === null && repositoryName !== null`.
+  //
+  // That derivation was wrong in exactly the case the sweep exists to catch: a
+  // config that is PRESENT AND BROKEN never yields a `repositoryName`, so it
+  // scored identically to a genuine "not a Prismic site" skip and vanished from
+  // the failure count. The absent-vs-unreadable collapse, reappearing inside the
+  // rule meant to detect outages.
+  //
+  // `checkOneSite` returns an explicit `status`, so the fleet layer reads a fact
+  // instead of inferring one from two nulls. Never reconstruct this from
+  // `clean`: `clean` answers "does this site match Prismic", which is only
+  // meaningful once `status === "checked"`.
+  //
+  // THE SAME COUNT the summary below prints — see {@link countSweep}.
+  const { checked, failed } = countSweep(rows);
+  const body = rows.map((r) => `[${r.site}] ${r.detail}`).join("\n\n");
+
+  // A collision forces non-zero regardless of the majority rule. It is not a
+  // "site failed to read" — every site read fine — so `failed` cannot express
+  // it, and a fleet where two repos overwrite each other's models must not
+  // report success just because 15 of 15 sites were individually readable.
+  const collisions = findRepositoryCollisions(rows);
+  const collisionBlock = describeCollisions(collisions);
+  const output = appendSkipNotice(
+    [collisionBlock, body, summariseSweep(rows)].filter((s) => s !== "").join("\n\n"),
+    skipped,
+  );
+  return { output, code: collisions.length > 0 ? 1 : prismicSweepExitCode(checked, failed) };
+}
+
 /**
  * Modes the flags advertise and this command does not do yet.
  *
@@ -801,7 +1116,6 @@ async function pullRemoteOnly(
  * against a guard that costs nothing to carry.
  */
 const UNIMPLEMENTED_MODES = [
-  ["--fleet", "fleet"],
   ["--write-airtable", "writeAirtable"],
 ] as const satisfies ReadonlyArray<readonly [string, keyof PrismicModelsCommandOptions]>;
 
@@ -871,6 +1185,48 @@ function modeConflict(opts: PrismicModelsCommandOptions): string | null {
       );
     }
   }
+  if (requested(opts.fleet)) {
+    if (opts.apply === true) {
+      return (
+        "cannot combine --fleet with --apply. The fleet sweep is READ-ONLY BY CONSTRUCTION —" +
+        " `apply` is not plumbed through it at all, because a fleet-wide model push outside" +
+        " CI is 🔴 under AUTONOMY.md. Accepting the flag and sweeping read-only anyway would" +
+        " exit 0 having pushed nothing, which reads as a successful push. Nothing was" +
+        " compared, pushed or written — push per repo, through that repo's own CI."
+      );
+    }
+    if (opts.commentFile !== undefined) {
+      return (
+        "cannot combine --fleet with --comment-file. The comment file is ONE repo's review" +
+        " artifact, posted on ONE pull request; a fleet sweep has no pull request to post to." +
+        " Accepting it and writing nothing would leave a workflow waiting on a file that" +
+        " never appears. Nothing was swept or written — redirect the output instead."
+      );
+    }
+  }
+  return null;
+}
+
+/**
+ * Flag combinations this build cannot honour YET — a gap, not a contradiction.
+ *
+ * Kept apart from {@link modeConflict} because they are different facts and
+ * deserve different exit codes: a contradiction exits 2 ("you asked for
+ * something impossible") and will never work, while these exit 1 alongside the
+ * unimplemented-mode guard below, and a later task deletes the case. What they
+ * share is the refusal itself — the alternative is a run that does something
+ * OTHER than what was asked and calls it success.
+ */
+function unbuiltCombination(opts: PrismicModelsCommandOptions): string | null {
+  if (requested(opts.tokens) && requested(opts.fleet)) {
+    return (
+      "--tokens --fleet — NOT IMPLEMENTED YET. The token doctor is single-repo today, so a" +
+      " fleet-wide checklist would print ONE row — this directory's — under a heading that" +
+      " claims to cover the fleet, and an operator would mint one secret believing they had" +
+      " covered fifteen sites. Nothing was read. Run `reddoor-maint prismic-models <site>" +
+      " --tokens` per checkout until the fleet-wide doctor exists."
+    );
+  }
   return null;
 }
 
@@ -934,6 +1290,12 @@ export async function runPrismicModelsCommand(
   const conflict = modeConflict(opts);
   if (conflict) return { output: conflict, code: 2 };
 
+  // A gap, not a contradiction — exit 1 with the unimplemented modes below,
+  // rather than 2. Checked before the table because the table keys on ONE flag
+  // and this is a combination: `--tokens --fleet` trips neither entry.
+  const unbuilt = unbuiltCombination(opts);
+  if (unbuilt) return { output: unbuilt, code: 1 };
+
   const asked = UNIMPLEMENTED_MODES.filter(([, key]) => requested(opts[key]));
   if (asked.length > 0) {
     const flags = asked.map(([flag]) => flag).join(", ");
@@ -967,6 +1329,28 @@ export async function runPrismicModelsCommand(
     };
   }
 
+  // Validated by TYPE as well as by value, exactly like `--comment-file` above
+  // and for the same reason, one layer more dangerous.
+  //
+  // `--fleet ""` is what an unset workflow variable expands to, and EVERY
+  // truthiness test in the chain lets it through as "no fleet": `resolveSites`
+  // reads an empty `fleet` as absent and returns the current directory, so the
+  // nightly would sweep the maintenance repo, find no Prismic config there,
+  // report "not a Prismic site — skipped" and exit 0. The fleet-wide drift
+  // alarm, silently retired, with a green tick every night.
+  const fleetInventory: unknown = opts.fleet;
+  if (requested(fleetInventory) && (typeof fleetInventory !== "string" || !fleetInventory.trim())) {
+    return {
+      output:
+        `--fleet was given ${typeof fleetInventory === "string" ? "an empty value" : `a ${typeof fleetInventory}`},` +
+        ` which is not an inventory. Nothing was swept and nothing was compared. An unset` +
+        ` workflow variable expands to an empty string, and an empty --fleet reads as "no` +
+        ` fleet" — one directory swept and reported as the whole fleet. Pass an inventory` +
+        ` path or "airtable". Do NOT read this exit as a result.`,
+      code: 2,
+    };
+  }
+
   const cwd = opts.cwd ? resolve(opts.cwd) : process.cwd();
   const repoRoot = site ? resolve(cwd, site) : cwd;
 
@@ -974,6 +1358,10 @@ export async function runPrismicModelsCommand(
   // Everything below this line is the in-repo model comparison.
   if (requested(opts.tokens)) return runTokenDoctor(repoRoot, deps);
   if (requested(opts.pull)) return pullRemoteOnly(repoRoot, deps);
+  // Fleet mode takes `site` rather than `repoRoot`: a positional site alongside
+  // `--fleet` is a contradiction `resolveSites` already refuses, and resolving it
+  // to a path here would hide that from it.
+  if (requested(opts.fleet)) return runFleetSweep(site, opts, deps, cwd);
 
   const result = await checkOneSite(repoRoot, deps, {
     // `=== true` rather than truthiness, so the ONE place that decides whether

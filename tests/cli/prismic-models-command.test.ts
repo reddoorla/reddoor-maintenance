@@ -321,36 +321,50 @@ describe("runPrismicModelsCommand — in-repo", () => {
   // they were accepted and IGNORED — `--fleet inventory.json` ran an in-repo
   // check of the cwd and reported a successful sweep, exit 0.
   //
-  // `--tokens` left this list in Task 15 and `--pull` in Task 16 (see
-  // prismic-models-tokens.test.ts and prismic-models-pull.test.ts); an
-  // implemented mode that stayed here would be unreachable instead.
-  it.each([
-    ["--fleet", { fleet: "inventory.json" }],
-    ["--write-airtable", { writeAirtable: true }],
-  ])("exits non-zero for the unimplemented %s instead of doing something else", async (flag, o) => {
-    await site();
-    await customType("page");
-    const send = sender();
-    const r = await runPrismicModelsCommand(
-      undefined,
-      { cwd: dir, ...o },
-      deps([{ kind: "customtype", id: "page", model: { id: "page" } }], send),
-    );
-    expect(r.code).toBe(1);
-    expect(r.output).toContain(flag);
-    expect(r.output).toContain("NOT IMPLEMENTED");
-    expect(send).not.toHaveBeenCalled();
-  });
+  // `--tokens` left this list in Task 15, `--pull` in Task 16 and `--fleet` in
+  // Task 17 (see prismic-models-tokens.test.ts, prismic-models-pull.test.ts and
+  // prismic-models-fleet.test.ts); an implemented mode that stayed here would be
+  // unreachable instead. `--write-airtable` is the last one standing.
+  it.each([["--write-airtable", { writeAirtable: true }]])(
+    "exits non-zero for the unimplemented %s instead of doing something else",
+    async (flag, o) => {
+      await site();
+      await customType("page");
+      const send = sender();
+      const r = await runPrismicModelsCommand(
+        undefined,
+        { cwd: dir, ...o },
+        deps([{ kind: "customtype", id: "page", model: { id: "page" } }], send),
+      );
+      expect(r.code).toBe(1);
+      expect(r.output).toContain(flag);
+      expect(r.output).toContain("NOT IMPLEMENTED");
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
 
-  it("names every unimplemented mode that was asked for", async () => {
+  // The nightly's real invocation is `--fleet airtable --write-airtable`. With
+  // `--fleet` now built and the write-back not, the guard has to fire on the half
+  // that is missing and sweep NOTHING: a sweep that ran, wrote no rows and exited
+  // 0 would tell the workflow every verdict had been persisted.
+  //
+  // (This replaces a two-flag "names every unimplemented mode" case — only one
+  // unimplemented mode is left, so the guard's flag join is no longer reachable
+  // through real options.)
+  it("names --write-airtable when it is asked for alongside the implemented --fleet", async () => {
     await site();
+    const d = deps([]);
     const r = await runPrismicModelsCommand(
       undefined,
       { cwd: dir, fleet: "inventory.json", writeAirtable: true },
-      deps([]),
+      d,
     );
-    expect(r.output).toContain("--fleet");
+    expect(r.code).toBe(1);
     expect(r.output).toContain("--write-airtable");
+    expect(r.output).toContain("NOT IMPLEMENTED");
+    // Nothing was swept: no site was read and no summary was produced.
+    expect(d.remoteModels).not.toHaveBeenCalled();
+    expect(r.output).not.toMatch(/\d+ checked/);
   });
 
   // A flag parser leaves `false` behind for a boolean flag nobody typed. Since
