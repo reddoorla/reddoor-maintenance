@@ -342,15 +342,327 @@ describe("runPrismicModelsCommand --tokens", () => {
     expect(r.output).not.toContain("NOT IMPLEMENTED");
   });
 
-  it("still refuses --tokens --fleet, which is not built yet", async () => {
+  // Task 17b builds `--tokens --fleet`, so the last entry leaves the
+  // unimplemented-combination guard — and the guard goes with it, for the reason
+  // Task 20 gave when it deleted the per-flag table: a guard that lists nothing
+  // protects nothing while still reading like protection to the next person.
+  // What must not go with it is the REFUSALS, which are a different fact
+  // entirely (see the conflicts suite below).
+  it("no longer reports --tokens --fleet as unimplemented", async () => {
     await site();
+    const fleet = join(dir, "inventory.json");
+    await writeFile(fleet, JSON.stringify([{ name: "espada", path: dir }]));
     const r = await runPrismicModelsCommand(
       undefined,
-      { cwd: dir, tokens: true, fleet: "inventory.json" },
+      { cwd: dir, tokens: true, fleet, workdir: join(dir, ".workdir") },
       deps({ PRISMIC_TOKEN_ESPADA: "value" }),
     );
-    expect(r.code).toBe(1);
-    expect(r.output).toContain("--fleet");
-    expect(r.output).toContain("NOT IMPLEMENTED");
+    expect(r.output).not.toContain("NOT IMPLEMENTED");
   });
+});
+
+// ---------------------------------------------------------------------------
+// `--tokens --fleet`: the doctor across the whole fleet.
+//
+// The mode the plan documents in three places — the nightly workflow's comment,
+// the rollout recipe's operator step, and the live-proof step — and the one an
+// operator reads to decide which PRISMIC_TOKEN_* secrets to mint. Every failure
+// shape below is the same one: a site whose secret requirement nobody
+// established must never render as a site that needs no secret.
+// ---------------------------------------------------------------------------
+
+let fleetRoot: string;
+let fleetWork: string;
+beforeEach(async () => {
+  fleetRoot = await mkdtemp(join(tmpdir(), "prismic-tokens-fleet-"));
+  fleetWork = join(fleetRoot, ".workdir");
+});
+afterEach(async () => {
+  await rm(fleetRoot, { recursive: true, force: true });
+});
+
+/** One fleet checkout. Always non-empty, so a site with NO config is a readable
+ *  repo rather than the killed-clone shape (which is its own failure). */
+const fleetSite = async (
+  name: string,
+  repositoryName?: string,
+  opts: { brokenConfig?: boolean } = {},
+): Promise<void> => {
+  const d = join(fleetRoot, name);
+  await mkdir(d, { recursive: true });
+  await writeFile(join(d, "package.json"), JSON.stringify({ name }));
+  if (opts.brokenConfig) {
+    await writeFile(join(d, "slicemachine.config.json"), "{ this is not json");
+    return;
+  }
+  if (repositoryName !== undefined) {
+    await writeFile(
+      join(d, "slicemachine.config.json"),
+      JSON.stringify({ repositoryName, libraries: ["./src/lib/slices"] }),
+    );
+  }
+};
+
+/** An inventory naming sites by directory. A name with no directory behind it
+ *  and no gitRepo is a site that cannot be PREPARED — no checkout, no clone
+ *  source — which is the fleet-wide clone outage in miniature. */
+const fleetInventory = async (names: string[]): Promise<string> => {
+  const path = join(fleetRoot, "inventory.json");
+  await writeFile(
+    path,
+    JSON.stringify(names.map((name) => ({ name, path: join(fleetRoot, name) }))),
+  );
+  return path;
+};
+
+describe("runPrismicModelsCommand --tokens --fleet", () => {
+  // THE WHOLE VALUE OF THE COMMAND: repo → Prismic repository → secret, on one
+  // line, for every site. Four fleet repos differ between the two names, and
+  // PRISMIC_TOKEN_48BB12D1 is otherwise unattributable to any site on earth.
+  it("prints repo, Prismic repository and secret for EVERY site in the inventory", async () => {
+    await fleetSite("espada", "espada");
+    await fleetSite("beachfront-dentistry", "48bb12d1");
+    const fleet = await fleetInventory(["espada", "beachfront-dentistry"]);
+    const r = await runPrismicModelsCommand(
+      undefined,
+      { cwd: fleetRoot, tokens: true, fleet, workdir: fleetWork },
+      deps({ PRISMIC_TOKEN_ESPADA: "a", PRISMIC_TOKEN_48BB12D1: "b" }),
+    );
+    expect(r.code).toBe(0);
+    expect(r.output).toContain("espada");
+    expect(r.output).toContain("PRISMIC_TOKEN_ESPADA");
+    expect(r.output).toContain("beachfront-dentistry");
+    expect(r.output).toContain("48bb12d1");
+    expect(r.output).toContain("PRISMIC_TOKEN_48BB12D1");
+    // Both rows, not one: a single-row table under a fleet-wide heading is the
+    // exact failure this mode was refused for until it existed.
+    expect(r.output).toContain("2 unverified");
+  });
+
+  // Nothing here calls Prismic, so "the secret is set" is all that was learnt.
+  // OK for a credential nobody tested is this pipeline's governing rule pointed
+  // at the doctor's own output.
+  it("reports a set secret as PRESENT (not verified), never OK", async () => {
+    await fleetSite("espada", "espada");
+    const fleet = await fleetInventory(["espada"]);
+    const d = deps({ PRISMIC_TOKEN_ESPADA: "a" });
+    const r = await runPrismicModelsCommand(
+      undefined,
+      { cwd: fleetRoot, tokens: true, fleet, workdir: fleetWork },
+      d,
+    );
+    expect(r.output).toContain("PRESENT (not verified)");
+    expect(r.output).not.toMatch(/\bOK\b/);
+    expect(d.remoteModels).not.toHaveBeenCalled();
+    expect(d.sendModel).not.toHaveBeenCalled();
+  });
+
+  // The gate on the operator step: a checklist with an unminted secret on it
+  // must not exit 0, or the rollout proceeds against a fleet that cannot push.
+  it("exits 1 naming the secret nobody has minted yet", async () => {
+    await fleetSite("espada", "espada");
+    await fleetSite("hedloc", "hedloc");
+    const fleet = await fleetInventory(["espada", "hedloc"]);
+    const r = await runPrismicModelsCommand(
+      undefined,
+      { cwd: fleetRoot, tokens: true, fleet, workdir: fleetWork },
+      deps({ PRISMIC_TOKEN_ESPADA: "a" }),
+    );
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("PRISMIC_TOKEN_HEDLOC");
+    expect(r.output).toContain("MISSING");
+    expect(r.output).toContain("1 missing");
+  });
+
+  // THE MUTATION TARGET, and the bug Task 17 fixed in the sweep, in the doctor's
+  // own shape: `prepareFleetSites` isolates a clone failure into `skipped`, so a
+  // doctor built from `prep.prepared` alone drops that site off the checklist
+  // entirely — 1 site listed, exit 0, and an operator mints one secret believing
+  // they covered two. A checkout nobody could establish has an UNKNOWN token
+  // requirement, which is not the same as needing none.
+  it("counts a site that could not be PREPARED as unreadable, never as needing no token", async () => {
+    await fleetSite("espada", "espada");
+    // No directory and no gitRepo → cloneIfNeeded refuses; prep records it.
+    const fleet = await fleetInventory(["espada", "ghost-site"]);
+    const r = await runPrismicModelsCommand(
+      undefined,
+      { cwd: fleetRoot, tokens: true, fleet, workdir: fleetWork },
+      deps({ PRISMIC_TOKEN_ESPADA: "a" }),
+    );
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("ghost-site");
+    expect(r.output).toContain("CANNOT TELL");
+    expect(r.output).toContain("1 unreadable");
+    expect(r.output).not.toMatch(/needs no token/);
+    // The notice the fleet nightlies grep for a ::warning:: survives alongside
+    // the row — the row is the COUNT, the notice is the operator signal.
+    expect(r.output).toContain("site(s) skipped (could not prepare)");
+  });
+
+  // The case the count exists for. Under a prepared-only doctor this printed an
+  // empty checklist and exited 0: a fleet-wide clone outage reported as "no
+  // secrets needed".
+  it("exits 1 when the whole fleet fails to prepare", async () => {
+    const fleet = await fleetInventory(["ghost-a", "ghost-b"]);
+    const r = await runPrismicModelsCommand(
+      undefined,
+      { cwd: fleetRoot, tokens: true, fleet, workdir: fleetWork },
+      deps({}),
+    );
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("2 unreadable");
+    expect(r.output).not.toMatch(/needs no token/);
+  });
+
+  // Same rule inside a checkout that WAS prepared: a config that is present and
+  // broken yields no repositoryName, exactly like a repo with no Prismic at all.
+  it("does not report a broken config as a site with no Prismic", async () => {
+    await fleetSite("espada", "espada");
+    await fleetSite("hedloc", undefined, { brokenConfig: true });
+    const fleet = await fleetInventory(["espada", "hedloc"]);
+    const r = await runPrismicModelsCommand(
+      undefined,
+      { cwd: fleetRoot, tokens: true, fleet, workdir: fleetWork },
+      deps({ PRISMIC_TOKEN_ESPADA: "a" }),
+    );
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("CANNOT TELL");
+    expect(r.output).toContain("slicemachine.config.json");
+    expect(r.output).toContain("1 unreadable");
+    expect(r.output).not.toMatch(/needs no token/);
+  });
+
+  it("still skips a readable repo that genuinely has no Prismic in it", async () => {
+    await fleetSite("espada", "espada");
+    await fleetSite("1836dig");
+    const fleet = await fleetInventory(["espada", "1836dig"]);
+    const r = await runPrismicModelsCommand(
+      undefined,
+      { cwd: fleetRoot, tokens: true, fleet, workdir: fleetWork },
+      deps({ PRISMIC_TOKEN_ESPADA: "a" }),
+    );
+    expect(r.code).toBe(0);
+    expect(r.output).toContain("1 skipped");
+    expect(r.output).toContain("needs no token");
+  });
+
+  // THE MUTATION TARGET. This mode reads EVERY site's secret out of one
+  // environment, so a doctor that printed a value would spill the whole fleet's
+  // write credentials into a CI log in one run. Asserted as the real property —
+  // a value planted in `env` never reaches the output — never as a length
+  // heuristic, which PRISMIC_TOKEN_MEDICAL_SOLUTIONS_OF_TEXAS (40 characters)
+  // would trip on the NAME while proving nothing about the value.
+  it("never prints any site's token value", async () => {
+    await fleetSite("espada", "espada");
+    await fleetSite("beachfront-dentistry", "48bb12d1");
+    const fleet = await fleetInventory(["espada", "beachfront-dentistry"]);
+    const espadaToken = "espada-write-token-value-that-must-never-be-printed";
+    const beachfrontToken = "beachfront-write-token-value-that-must-never-be-printed";
+    const r = await runPrismicModelsCommand(
+      undefined,
+      { cwd: fleetRoot, tokens: true, fleet, workdir: fleetWork },
+      deps({
+        PRISMIC_TOKEN_ESPADA: espadaToken,
+        PRISMIC_TOKEN_48BB12D1: beachfrontToken,
+        PRISMIC_WRITE_TOKEN: "generic-value-also-secret",
+      }),
+    );
+    expect(r.output).not.toContain(espadaToken);
+    expect(r.output).not.toContain(beachfrontToken);
+    expect(r.output).not.toContain("generic-value-also-secret");
+    // The NAMES are the product, and they survive in full.
+    expect(r.output).toContain("PRISMIC_TOKEN_ESPADA");
+    expect(r.output).toContain("PRISMIC_TOKEN_48BB12D1");
+    // Structural, not stylistic: the row type has no field a value could sit in.
+    expect(Object.keys(probe())).not.toContain("token");
+  });
+
+  // The second axis of the collision, and the one the doctor is the right place
+  // to catch: two DIFFERENT Prismic repositories that upper-snake onto one
+  // PRISMIC_TOKEN_* would silently share a credential, so an operator must see
+  // it BEFORE minting rather than after one client's token reaches another
+  // client's repository.
+  it("reports two repositories deriving one secret, and goes non-zero for it", async () => {
+    await fleetSite("the-pointe", "the-pointe");
+    await fleetSite("the-pointe-two", "the.pointe");
+    const fleet = await fleetInventory(["the-pointe", "the-pointe-two"]);
+    const r = await runPrismicModelsCommand(
+      undefined,
+      { cwd: fleetRoot, tokens: true, fleet, workdir: fleetWork },
+      // BOTH secrets resolve, so without the collision rule this run is exit 0
+      // with a checklist that looks complete.
+      deps({ PRISMIC_TOKEN_THE_POINTE: "a" }),
+    );
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("PRISMIC_TOKEN_THE_POINTE");
+    expect(r.output).toContain("the.pointe");
+    expect(r.output).toMatch(/more than one Prismic repository/i);
+  });
+
+  // An inventory that names nobody is not a fleet with no secrets to mint. The
+  // Airtable inventory is view-filtered, so one filter change empties it with no
+  // error anywhere — and an empty checklist reads exactly like a finished one.
+  it("refuses an inventory that resolved no sites instead of printing an empty checklist", async () => {
+    const fleet = await fleetInventory([]);
+    const r = await runPrismicModelsCommand(
+      undefined,
+      { cwd: fleetRoot, tokens: true, fleet, workdir: fleetWork },
+      deps({}),
+    );
+    expect(r.code).toBe(1);
+    expect(r.output).toMatch(/NO SITES/i);
+  });
+
+  // The shape of the failures nobody has thought of yet: every site coming back
+  // "no Prismic config" is what an emptied set of checkouts looks like, and it
+  // prints as a confident "this fleet needs no secrets at all", exit 0.
+  it("refuses a run in which not one site's requirement was established", async () => {
+    await fleetSite("a");
+    await fleetSite("b");
+    const fleet = await fleetInventory(["a", "b"]);
+    const r = await runPrismicModelsCommand(
+      undefined,
+      { cwd: fleetRoot, tokens: true, fleet, workdir: fleetWork },
+      deps({}),
+    );
+    expect(r.code).toBe(1);
+    expect(r.output).toMatch(/NOT ONE SITE/i);
+  });
+});
+
+// The refusals that must SURVIVE Task 17b. `--tokens --fleet` leaving the
+// unimplemented list is not a licence for the contradictions, which are a
+// different fact with a different exit code (2 — a malformed invocation, not a
+// finding about a site).
+describe("runPrismicModelsCommand — refusals that outlive --tokens --fleet", () => {
+  const cases: Array<[string, Parameters<typeof runPrismicModelsCommand>[1]]> = [
+    ["--fleet --apply", { fleet: "inventory.json", apply: true }],
+    ["--fleet --comment-file", { fleet: "inventory.json", commentFile: "comment.md" }],
+    ["--fleet --pull", { fleet: "inventory.json", pull: true }],
+    ["--tokens --apply", { tokens: true, apply: true }],
+    ["--tokens --comment-file", { tokens: true, commentFile: "comment.md" }],
+    ["--tokens --pull", { tokens: true, pull: true }],
+    ["--tokens --fleet --apply", { tokens: true, fleet: "inventory.json", apply: true }],
+    ["--write-airtable without --fleet", { writeAirtable: true }],
+    // NEW WITH THIS TASK. `--write-airtable` persists a fleet SWEEP's per-site
+    // model verdicts; the doctor produces none. Before Task 17b this pair was
+    // caught by the unimplemented-combination guard on its way past; with
+    // `--tokens --fleet` built, the tokens branch runs FIRST and the run would
+    // print a checklist, write nothing, and exit 0 for an operator who asked for
+    // a write-back.
+    [
+      "--tokens --fleet --write-airtable",
+      { tokens: true, fleet: "inventory.json", writeAirtable: true },
+    ],
+  ];
+  for (const [name, opts] of cases) {
+    it(`still refuses ${name}`, async () => {
+      const d = deps({ PRISMIC_TOKEN_ESPADA: "value" });
+      const r = await runPrismicModelsCommand(undefined, { ...opts, cwd: fleetRoot }, d);
+      expect(r.code).toBe(2);
+      expect(r.output).toMatch(/cannot combine|needs --fleet/i);
+      expect(d.sendModel).not.toHaveBeenCalled();
+      expect(d.remoteModels).not.toHaveBeenCalled();
+    });
+  }
 });

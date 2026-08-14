@@ -51,7 +51,12 @@ import { readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises
 import { basename, join, resolve } from "node:path";
 import { makeSpawn, type SpawnFn } from "../../audits/util/spawn.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
-import { prepareFleetSites, appendSkipNotice, type SkippedSite } from "../fleet/prepare-sites.js";
+import {
+  prepareFleetSites,
+  appendSkipNotice,
+  type FleetPrepResult,
+  type SkippedSite,
+} from "../fleet/prepare-sites.js";
 import { fleetWorkdir } from "../../util/fleet-workdir.js";
 import { siteLabel } from "../../util/site.js";
 import type { Site } from "../../types.js";
@@ -709,12 +714,21 @@ export function renderTokenDoctor(probes: readonly TokenProbe[]): string {
  * function must never hold one. It asks the same question of the environment —
  * a value that is missing or whitespace-only is absent — so the doctor's verdict
  * and the pipeline's own resolution cannot disagree.
+ *
+ * `label` is how the FLEET doctor names the row, and it has to be passed in
+ * rather than derived here: a site that could not be PREPARED has no directory
+ * to take a basename from, so its row can only be labelled by the inventory —
+ * and one table that labels some rows by directory and others by inventory name
+ * is a table in which the same site appears under two identities. In-repo mode
+ * passes nothing and gets the directory name, which is what the operator has in
+ * front of them there.
  */
 async function probeSiteToken(
   repoRoot: string,
   env: Record<string, string | undefined>,
+  label?: string,
 ): Promise<TokenProbe> {
-  const site = basename(repoRoot) || repoRoot;
+  const site = label !== undefined && label.trim() !== "" ? label : basename(repoRoot) || repoRoot;
   const blank = {
     site,
     repositoryName: null,
@@ -783,6 +797,22 @@ async function probeSiteToken(
   };
 }
 
+/**
+ * Is there something here for the operator to DO — in one place, because the
+ * in-repo doctor and the fleet doctor must not be able to disagree about what
+ * counts as a finding.
+ *
+ * Three things do: a secret nobody has minted, a secret that is set and does not
+ * read, and a site nobody could read at all. The last is the one that is easy to
+ * leave out and the one this whole pipeline is written against: an unreadable
+ * checkout has an UNKNOWN token requirement, and exiting 0 on it hands the
+ * operator a checklist with a silent hole in it.
+ */
+const tokenDoctorActionable = (probes: readonly TokenProbe[]): boolean =>
+  probes.some(
+    (p) => p.status === "failed" || (p.status === "checked" && (!p.present || p.reads === false)),
+  );
+
 /** `--tokens`: the doctor. Non-zero when there is something for the operator to
  *  do — a secret to mint, or a site nobody could read. */
 async function runTokenDoctor(
@@ -790,10 +820,7 @@ async function runTokenDoctor(
   deps: PrismicModelsDeps,
 ): Promise<{ output: string; code: number }> {
   const probes = [await probeSiteToken(repoRoot, deps.env)];
-  const actionable = probes.some(
-    (p) => p.status === "failed" || (p.status === "checked" && (!p.present || p.reads === false)),
-  );
-  return { output: renderTokenDoctor(probes), code: actionable ? 1 : 0 };
+  return { output: renderTokenDoctor(probes), code: tokenDoctorActionable(probes) ? 1 : 0 };
 }
 
 /**
@@ -1428,6 +1455,44 @@ async function sweepOneSite(s: Site, deps: PrismicModelsDeps): Promise<SweepRow>
   }
 }
 
+/**
+ * The inventory, resolved and checked out — the ONE step both fleet modes open
+ * with.
+ *
+ * Shared rather than repeated because the sweep and the token doctor have to
+ * cover the same set of sites by construction: a doctor that resolved the fleet
+ * even slightly differently would tell an operator to mint secrets for a
+ * different list of sites than the nightly then sweeps, and the gap between the
+ * two lists is exactly a site whose drift alarm is dark for want of a credential.
+ *
+ * `resolved` is the number of sites the INVENTORY named, which is not
+ * `prep.prepared.length` and not the row count either — a site that could not be
+ * cloned is resolved but unprepared. Both callers need it for the same refusal:
+ * an inventory that named nobody is not a clean fleet.
+ *
+ * `resolveSites` is allowed to THROW here (a positional site alongside `--fleet`,
+ * an unsupported inventory extension, an Airtable read that failed). Those are
+ * "the fleet itself could not be established", which has no per-site row to live
+ * in; `bin.ts` prints the message and exits with the error's own `exitCode`.
+ */
+async function prepareFleet(
+  site: string | undefined,
+  opts: PrismicModelsCommandOptions,
+  cwd: string,
+): Promise<{ prep: FleetPrepResult; resolved: number }> {
+  const sites = await resolveSites({
+    // Passed through so `resolveSites` can refuse `prismic-models espada --fleet
+    // inv.json` (exit 2). Dropping it would silently sweep the whole fleet for
+    // an operator who named one site.
+    ...(site !== undefined ? { site } : {}),
+    ...(opts.fleet !== undefined ? { fleet: opts.fleet } : {}),
+    ...(opts.workdir !== undefined ? { workdir: opts.workdir } : {}),
+    cwd,
+  });
+  const workdir = opts.workdir ?? fleetWorkdir();
+  return { prep: await prepareFleetSites(sites, { workdir }), resolved: sites.length };
+}
+
 /** Fleet mode: prepare every site, compare each against its Prismic repository,
  *  never push. Read-only by construction — `apply` is not plumbed through here,
  *  because a fleet-wide model push outside CI is 🔴 under AUTONOMY.md. A caller
@@ -1445,17 +1510,7 @@ export async function sweepFleet(
   deps: PrismicModelsDeps,
   cwd: string,
 ): Promise<{ rows: SweepRow[]; skipped: SkippedSite[]; resolved: number }> {
-  const sites = await resolveSites({
-    // Passed through so `resolveSites` can refuse `prismic-models espada --fleet
-    // inv.json` (exit 2). Dropping it would silently sweep the whole fleet for
-    // an operator who named one site.
-    ...(site !== undefined ? { site } : {}),
-    ...(opts.fleet !== undefined ? { fleet: opts.fleet } : {}),
-    ...(opts.workdir !== undefined ? { workdir: opts.workdir } : {}),
-    cwd,
-  });
-  const workdir = opts.workdir ?? fleetWorkdir();
-  const prep = await prepareFleetSites(sites, { workdir });
+  const { prep, resolved } = await prepareFleet(site, opts, cwd);
 
   // SEQUENTIAL. Each site is one repository's worth of Types API reads, and the
   // report is read top to bottom by a human — a parallel sweep would interleave
@@ -1502,7 +1557,7 @@ export async function sweepFleet(
     });
   }
 
-  return { rows, skipped: prep.skipped, resolved: sites.length };
+  return { rows, skipped: prep.skipped, resolved };
 }
 
 /**
@@ -1801,6 +1856,133 @@ async function runFleetSweep(
   };
 }
 
+/**
+ * `--tokens --fleet`: the token doctor across the whole inventory.
+ *
+ * This is the command that gates the rollout — the operator reads it to decide
+ * which `PRISMIC_TOKEN_*` secrets to mint, and a secret nobody mints is a site
+ * whose model delivery never works and whose drift alarm never fires. So the
+ * failure that matters here is not a wrong verdict, it is a MISSING ROW: a site
+ * that quietly does not appear on the checklist is a site the operator believes
+ * they have covered.
+ *
+ * Three things follow, and each is the same rule in a different place:
+ *
+ *   - an inventory that resolved nobody is refused, not printed as an empty
+ *     checklist (the Airtable inventory is view-filtered — one filter change
+ *     empties it with no error anywhere);
+ *   - a site that could not be PREPARED gets a row saying nothing was
+ *     established about it, never a skip;
+ *   - a run in which not one site's requirement was established is refused
+ *     outright, because "every site says it has no Prismic config" is what an
+ *     emptied set of checkouts looks like and it prints as a confident "this
+ *     fleet needs no secrets at all".
+ *
+ * NOTHING HERE TOUCHES PRISMIC. Every row is `PRESENT (not verified)` at best —
+ * see {@link TokenProbe}. The doctor reads the environment for emptiness and
+ * holds no value, so no row, no renderer and no future edit can put a live write
+ * credential for FIFTEEN client repositories into one CI log.
+ */
+async function runFleetTokenDoctor(
+  site: string | undefined,
+  opts: PrismicModelsCommandOptions,
+  deps: PrismicModelsDeps,
+  cwd: string,
+): Promise<{ output: string; code: number }> {
+  const { prep, resolved } = await prepareFleet(site, opts, cwd);
+
+  // NOTHING RESOLVED IS NOT A FLEET WITH NO SECRETS TO MINT — the same refusal
+  // `runFleetSweep` opens with, and it has to be here too: the table below would
+  // render its header, its naming-rule explanation and "0 ok, 0 missing" over no
+  // rows at all, which is indistinguishable from a checklist an operator has
+  // finished working through.
+  if (resolved === 0) {
+    return {
+      output:
+        `the inventory resolved NO SITES, so no site's token requirement was established.` +
+        ` This is not a fleet that needs no secrets — check the inventory (an Airtable view` +
+        ` filter, an empty JSON file, a dynamic inventory returning []). Do NOT read this` +
+        ` exit as a checklist.`,
+      code: 1,
+    };
+  }
+
+  // SEQUENTIAL, in inventory order. Each probe is a handful of filesystem reads
+  // with no network in it at all, and the output is a checklist a human works
+  // down — there is nothing here that parallelism would buy.
+  const probes: TokenProbe[] = [];
+  for (const s of prep.prepared) probes.push(await probeSiteToken(s.path, deps.env, siteLabel(s)));
+
+  // A SITE THAT COULD NOT BE PREPARED IS A SITE WHOSE SECRET NOBODY ESTABLISHED,
+  // and it gets a row — the bug Task 17 fixed in the sweep, in the doctor's own
+  // shape. `prepareFleetSites` isolates a clone failure into `skipped` so one bad
+  // inventory row cannot abort the fleet; a doctor built from `prep.prepared`
+  // alone therefore prints a SHORTER checklist with no gap in it, and a
+  // fleet-wide clone outage — an expired App token, GitHub down, a full disk —
+  // comes out as "no secrets needed", exit 0.
+  //
+  // `status: "failed"`, never `"skipped"`: the renderer's skip row says in words
+  // "this site needs no token", which is a claim about a repo somebody read.
+  for (const s of prep.skipped) {
+    probes.push({
+      site: s.site,
+      status: "failed",
+      repositoryName: null,
+      expectedEnv: null,
+      present: false,
+      reads: null,
+      error: `could not prepare this checkout: ${s.reason}`,
+    });
+  }
+
+  // THE COLLISION THE OPERATOR MUST SEE BEFORE MINTING, not after. Two DIFFERENT
+  // Prismic repositories whose names upper-snake onto one `PRISMIC_TOKEN_*`
+  // share one credential, so whichever token is minted is sent to both — one
+  // client's write token at another client's repository. The doctor is where it
+  // is cheapest to notice, because minting is the step it would otherwise be
+  // baked into. It cannot be fixed in either repo (both configs are correct), so
+  // it is reported with the sweep's wording and its own remedy.
+  //
+  // The other axis — two SITES claiming one repositoryName — is deliberately not
+  // repeated here: those two sites share one repository and therefore genuinely
+  // want one secret, so it is not a minting error, and the nightly sweep already
+  // alarms on it with the fix that actually applies (edit one repo's config).
+  const envCollisions = findTokenEnvCollisions(probes);
+
+  // THE SHAPE OF THE FAILURES NOBODY HAS THOUGHT OF YET, and the doctor's twin
+  // of {@link describeNothingChecked}. A "skipped" row is inferred from the
+  // ABSENCE of a config file, so anything that empties the working trees turns
+  // every site in the fleet into a confident "needs no token" and exits 0. The
+  // `.git`-only guard in `probeSiteToken` catches the shape we know about; this
+  // catches the rest by refusing to call a run in which NOTHING was established
+  // a result.
+  const nothingProbed =
+    probes.some((p) => p.status === "checked") || probes.length === 0
+      ? ""
+      : `⛔ NOT ONE SITE'S TOKEN REQUIREMENT WAS ESTABLISHED. All ${probes.length} site(s) in` +
+        ` this inventory came back unreadable or without a Prismic config, so this run learnt` +
+        ` nothing about which secrets the fleet needs. That is not a fleet that is already` +
+        ` provisioned: a skip is inferred from a MISSING config file, so anything that empties` +
+        ` the checkouts makes every site look like a repo with no Prismic in it.` +
+        ` Do NOT read this exit as a result.`;
+
+  const output = appendSkipNotice(
+    [describeTokenEnvCollisions(envCollisions), renderTokenDoctor(probes), nothingProbed]
+      .filter((s) => s !== "")
+      .join("\n\n"),
+    prep.skipped,
+  );
+
+  // The SAME finding rule the in-repo doctor uses, plus the two facts only a
+  // fleet run can see. A checklist with an unminted secret on it, a site nobody
+  // read, or a shared credential must not exit 0: this exit is what gates the
+  // rollout step that follows it.
+  return {
+    output,
+    code: tokenDoctorActionable(probes) || envCollisions.length > 0 || nothingProbed !== "" ? 1 : 0,
+  };
+}
+
 /** Was a mode flag actually asked for? `undefined` is absent and `false` is what
  *  a boolean flag parser leaves behind for a flag nobody typed; anything else —
  *  `true`, a string, an empty string — is a request. */
@@ -1866,6 +2048,24 @@ function modeConflict(opts: PrismicModelsCommandOptions): string | null {
         " Nothing was written — redirect the output instead."
       );
     }
+    // NEEDED FROM TASK 17b ON. `--write-airtable` persists a fleet SWEEP's
+    // per-site MODEL verdicts, and the doctor produces none — it never compares a
+    // model or calls Prismic at all. Until `--tokens --fleet` existed this pair
+    // was caught on its way past by the unimplemented-combination guard; now the
+    // tokens branch runs first and the alternative is the silent no-op this whole
+    // guard exists for: a checklist printed, nothing written, exit 0, for an
+    // operator who asked for a write-back. Listed INSIDE the tokens block so it
+    // also catches the pair with --fleet, which the "--write-airtable needs
+    // --fleet" rule at the end cannot see.
+    if (requested(opts.writeAirtable)) {
+      return (
+        "cannot combine --tokens with --write-airtable. --write-airtable persists a fleet" +
+        " sweep's per-site MODEL verdicts to the Websites table, and the token doctor produces" +
+        " none — it compares no models and calls Prismic not at all, so there is nothing for it" +
+        " to write. Accepting it would print a checklist, write nothing and exit 0. Nothing was" +
+        " read or written — run the sweep for verdicts, the doctor for secrets."
+      );
+    }
   }
   if (requested(opts.fleet)) {
     if (opts.apply === true) {
@@ -1906,35 +2106,22 @@ function modeConflict(opts: PrismicModelsCommandOptions): string | null {
 }
 
 /**
- * Flag combinations this build cannot honour YET — a gap, not a contradiction.
+ * NOTHING IS UNBUILT ANY MORE — and that is why there is no guard here.
  *
- * Kept apart from {@link modeConflict} because they are different facts and
- * deserve different exit codes: a contradiction exits 2 ("you asked for
- * something impossible") and will never work, while these exit 1 and a later
- * task deletes the case. What they share is the refusal itself — the
- * alternative is a run that does something OTHER than what was asked and calls
- * it success.
+ * There were two layers of unimplemented-mode machinery: a per-FLAG table
+ * (`UNIMPLEMENTED_MODES`), whose last entry was `--write-airtable` until Task 20
+ * built it, and a COMBINATION guard, whose last entry was `--tokens --fleet`
+ * until Task 17b built it. Both are gone, and both were deleted for the same
+ * stated reason rather than left in place returning null: a guard that lists
+ * nothing protects nothing while still reading like protection to the next
+ * person, who then adds a mode believing something stands in front of it.
  *
- * THIS IS ALL THAT IS LEFT of the unimplemented-mode machinery. There was also a
- * per-FLAG table (`UNIMPLEMENTED_MODES`), whose last entry was `--write-airtable`
- * until Task 20 built it; Task 20 removed the table rather than leaving it
- * empty, because a guard that lists nothing protects nothing while still reading
- * like protection to the next person. The COMBINATION guard here is a different
- * shape (a table keyed on one flag never caught `--tokens --fleet` anyway) and it
- * still has a real case, so it stays.
+ * What did NOT go with them is {@link modeConflict}. A gap and a contradiction
+ * are different facts with different exit codes — 1 for "that mode does not
+ * exist yet", 2 for "you asked for two things that cannot both be true" — and
+ * every conflict is still refused, including the `--tokens --write-airtable`
+ * pair the combination guard used to catch on its way past.
  */
-function unbuiltCombination(opts: PrismicModelsCommandOptions): string | null {
-  if (requested(opts.tokens) && requested(opts.fleet)) {
-    return (
-      "--tokens --fleet — NOT IMPLEMENTED YET. The token doctor is single-repo today, so a" +
-      " fleet-wide checklist would print ONE row — this directory's — under a heading that" +
-      " claims to cover the fleet, and an operator would mint one secret believing they had" +
-      " covered fifteen sites. Nothing was read. Run `reddoor-maint prismic-models <site>" +
-      " --tokens` per checkout until the fleet-wide doctor exists."
-    );
-  }
-  return null;
-}
 
 /**
  * Write the comment file so a reader can never see a half-written or a stale one.
@@ -1989,16 +2176,12 @@ export async function runPrismicModelsCommand(
   opts: PrismicModelsCommandOptions,
   deps: PrismicModelsDeps = defaultDeps(),
 ): Promise<{ output: string; code: number }> {
-  // FIRST, before the unimplemented-mode guard: a contradiction is a
-  // contradiction whether or not the other half of it happens to be built yet,
-  // and it must read as "these two cannot be asked for together" rather than as
-  // "come back when that mode ships".
+  // FIRST, and now the only mode gate: a contradiction must read as "these two
+  // cannot be asked for together" rather than as a run that does something
+  // OTHER than what was asked and calls it success. The unimplemented-mode guard
+  // that used to sit under this line is gone — every mode is built.
   const conflict = modeConflict(opts);
   if (conflict) return { output: conflict, code: 2 };
-
-  // A gap, not a contradiction — exit 1 rather than 2.
-  const unbuilt = unbuiltCombination(opts);
-  if (unbuilt) return { output: unbuilt, code: 1 };
 
   // Validated BEFORE any work, and by TYPE as well as by value.
   //
@@ -2047,7 +2230,18 @@ export async function runPrismicModelsCommand(
 
   // MODES, not modifiers: each reads what it needs and returns its own report.
   // Everything below this line is the in-repo model comparison.
-  if (requested(opts.tokens)) return runTokenDoctor(repoRoot, deps);
+  //
+  // `--tokens` comes in two: one checkout, or the whole inventory. They are the
+  // same question asked of a different set of sites, so they share the probe, the
+  // renderer and the finding rule — and they must NEVER share a row count, which
+  // is what the fleet branch is here to prevent. Without it, `--tokens --fleet`
+  // falls through to the single-repo doctor and prints ONE row — this
+  // directory's — under a heading that claims to cover the fleet.
+  if (requested(opts.tokens)) {
+    return requested(opts.fleet)
+      ? runFleetTokenDoctor(site, opts, deps, cwd)
+      : runTokenDoctor(repoRoot, deps);
+  }
   if (requested(opts.pull)) return pullRemoteOnly(repoRoot, deps);
   // Fleet mode takes `site` rather than `repoRoot`: a positional site alongside
   // `--fleet` is a contradiction `resolveSites` already refuses, and resolving it
