@@ -59,6 +59,9 @@ import {
 } from "../fleet/prepare-sites.js";
 import { fleetWorkdir } from "../../util/fleet-workdir.js";
 import { siteLabel } from "../../util/site.js";
+// Shared with `prismic-ci`, which reaches the identical fleet checkout by the
+// identical route — see the module's own comment for why it is not two copies.
+import { noWorkingTreeFailure } from "../../util/working-tree.js";
 import type { Site } from "../../types.js";
 import {
   diffModels,
@@ -257,59 +260,6 @@ const inputFailure = (
     ...(repositoryName !== undefined ? { repositoryName } : {}),
   },
 });
-
-/** Directory entries that are NOT evidence of a checked-out working tree. A
- *  directory containing only these is git metadata (or Finder litter) with no
- *  repository checked out into it — see {@link noWorkingTreeFailure}. */
-const NOT_A_WORKING_TREE: ReadonlySet<string> = new Set([".git", ".DS_Store"]);
-
-/**
- * POSITIVE EVIDENCE OF A CHECKOUT, or the named reason there is none.
- *
- * A `readdir` that succeeds proves the DIRECTORY is readable. It does not prove
- * anything was checked out into it, and every verdict below is drawn from what is
- * NOT in that directory — so without this, "I could not establish a checkout"
- * comes out as "this repo has no Prismic in it".
- *
- * The gap that makes it severe is durability. `cloneIfNeeded` accepts ANY
- * non-empty directory at the site's path as that site's checkout
- * (clone-if-needed.ts:138), and `git clone` creates `.git` FIRST and fills the
- * working tree afterwards — so a clone killed in between (its own 5-minute
- * timeout, a cancelled job, a reboot, a full disk) leaves `<workdir>/<slug>/`
- * holding `.git` alone, with `origin` already pointing at the right repo. That
- * directory is non-empty, so no clone is ever attempted again; every config read
- * inside it is ENOENT, so `readPrismicConfig` returns null; and the site then
- * reports "not a Prismic site — skipped", exit 0, ON EVERY RUN AFTER THE FIRST.
- * One interrupted clone silently retires that site's drift alarm, and a fleet of
- * them is a green sweep.
- *
- * THE REAL CAUSE IS ONE LAYER DOWN and is deliberately not fixed here:
- * `cloneIfNeeded`'s "non-empty directory ⇒ this is the checkout" rule, and its
- * identity guard, which RETURNS SILENTLY when it cannot verify
- * (clone-if-needed.ts:100 — a directory with no git origin is treated as
- * verified). Both are shared by nine fleet commands, so changing them from this
- * command would be an unreviewed fleet-wide behaviour change; that deserves its
- * own task. This guard makes the Prismic command honest meanwhile — the answer it
- * refuses to give is the DANGEROUS one ("no Prismic here"), never the safe one.
- *
- * `.DS_Store` sits alongside `.git` because a fleet workdir on darwin acquires one
- * from Finder, and it is no more a working tree than `.git` is.
- */
-function noWorkingTreeFailure(
-  repoRoot: string,
-  entries: readonly string[],
-  noEffect: string,
-): string | null {
-  if (!entries.every((e) => NOT_A_WORKING_TREE.has(e))) return null;
-  return (
-    `this checkout has no working tree: ${repoRoot} holds` +
-    ` ${entries.length === 0 ? "nothing at all" : `only ${entries.join(", ")}`}.` +
-    ` ${noEffect} — this is NOT "no Prismic in this repo"; nothing at all was established` +
-    ` about this repo. A git clone killed part-way leaves exactly this (a .git and no files),` +
-    ` and a fleet workdir REUSES any non-empty directory as that site's checkout, so it will` +
-    ` never re-clone by itself. Delete ${repoRoot} and re-run.`
-  );
-}
 
 /**
  * Every read this command opens with, and the refusals listed at the top of this
@@ -1949,6 +1899,15 @@ async function runFleetTokenDoctor(
   // alarms on it with the fix that actually applies (edit one repo's config).
   const envCollisions = findTokenEnvCollisions(probes);
 
+  // A NOTE and not part of the exit code — {@link findDuplicateSiteRows}, in the
+  // doctor's output, for the reason the sweep prints it: the detector above
+  // DEDUPES a repeated site (correctly — one site listed twice derives one env
+  // var and is not a collision), so without this the only trace a duplicate
+  // leaves is a checklist whose counts are silently inflated and whose row
+  // appears twice. Same finding, same wording, same non-fatal treatment: the
+  // rows were all really probed and the thing to change is the inventory.
+  const duplicates = findDuplicateSiteRows(probes);
+
   // THE SHAPE OF THE FAILURES NOBODY HAS THOUGHT OF YET, and the doctor's twin
   // of {@link describeNothingChecked}. A "skipped" row is inferred from the
   // ABSENCE of a config file, so anything that empties the working trees turns
@@ -1967,7 +1926,12 @@ async function runFleetTokenDoctor(
         ` Do NOT read this exit as a result.`;
 
   const output = appendSkipNotice(
-    [describeTokenEnvCollisions(envCollisions), renderTokenDoctor(probes), nothingProbed]
+    [
+      describeTokenEnvCollisions(envCollisions),
+      describeDuplicateSiteRows(duplicates),
+      renderTokenDoctor(probes),
+      nothingProbed,
+    ]
       .filter((s) => s !== "")
       .join("\n\n"),
     prep.skipped,

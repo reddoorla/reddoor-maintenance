@@ -599,6 +599,32 @@ describe("runPrismicModelsCommand --tokens --fleet", () => {
     expect(r.output).toMatch(/more than one Prismic repository/i);
   });
 
+  // The sweep's finding, in the doctor's output, because the doctor inflates the
+  // same way: a site listed twice is probed twice, so its row and its verdict are
+  // counted twice ("2 unverified" for one site). `findTokenEnvCollisions` then
+  // silently DEDUPES it — correctly, it is not a collision — which leaves the
+  // inflation with nothing anywhere that says why. A NOTE, not an alarm and not
+  // part of the exit code: every row was really probed, no secret is wrong, and
+  // the thing to change is the inventory.
+  it("says a duplicated inventory row is why the counts are inflated", async () => {
+    await fleetSite("espada", "espada");
+    const fleet = await fleetInventory(["espada", "espada"]);
+    const r = await runPrismicModelsCommand(
+      undefined,
+      { cwd: fleetRoot, tokens: true, fleet, workdir: fleetWork },
+      deps({ PRISMIC_TOKEN_ESPADA: "a" }),
+    );
+    expect(r.code).toBe(0);
+    expect(r.output).toMatch(/listed more than once in the inventory/i);
+    // Both rows were really probed, so the count says so rather than hiding one.
+    expect(r.output).toContain("2 unverified");
+    // The duplicate is NOT the two-repositories-one-secret alarm: one site
+    // repeated derives one env var, and sending the operator to rename a Prismic
+    // repository for it would be a live-client change for a conflict that does
+    // not exist.
+    expect(r.output).not.toMatch(/more than one Prismic repository/i);
+  });
+
   // An inventory that names nobody is not a fleet with no secrets to mint. The
   // Airtable inventory is view-filtered, so one filter change empties it with no
   // error anywhere — and an empty checklist reads exactly like a finished one.
