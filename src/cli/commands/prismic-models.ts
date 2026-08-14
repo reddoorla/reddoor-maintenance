@@ -1282,11 +1282,17 @@ export function describeNothingChecked(rows: readonly SweepRow[]): string {
  * Refreshing was the other option and it is the wrong one here, for three
  * reasons that compound:
  *
- *   - The fleet workdir is SHARED. `bump-deps`, `sync-configs`, `upgrade` and the
- *     other recipe commands work in the same checkouts and leave branches and
- *     uncommitted edits in them. A read-only nightly that fetched-and-reset would
- *     silently destroy another command's work; a fetch-without-reset would change
- *     nothing about what is compared, since the comparison reads the working tree.
+ *   - The fleet workdir is SHARED — `fleetWorkdir()` is one directory
+ *     (`~/.reddoor-maint/sites`) and thirteen commands clone into it. The recipe
+ *     commands do not merely read those checkouts: `_with-recipe.ts` runs
+ *     `createBranch(site.path, …)` and commits into them, and `self-updating`
+ *     documents its own failure mode as "strands the checkout on the maint branch
+ *     with an unpushed commit". So a checkout may legitimately be sitting on
+ *     another command's branch, and a read-only nightly that fetched-and-reset
+ *     would silently destroy that work. A fetch WITHOUT a reset would change
+ *     nothing about what is compared, since the comparison reads the working tree
+ *     — which is also why naming the commit is worth more here than it looks: it
+ *     is the only way the report can say it compared a recipe branch.
  *   - `prepareFleetSites` is shared by nine commands, so a refresh there is a
  *     fleet-wide behaviour change that belongs in its own reviewed task — the same
  *     boundary that keeps this file out of `cloneIfNeeded`.
