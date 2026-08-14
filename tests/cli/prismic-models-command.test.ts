@@ -124,7 +124,12 @@ describe("runPrismicModelsCommand — in-repo", () => {
     expect(r.code).toBe(0);
   });
 
+  // The fixture writes a file because a repo with no Prismic config is a repo
+  // with FILES in it and no config. A bare empty directory is a different fact —
+  // a checkout that was never established — and it now fails rather than
+  // reporting the reassuring skip this test is about.
   it("is a clean skip (exit 0) on a repo with no Prismic config", async () => {
+    await writeFile(join(dir, "package.json"), "{}");
     const r = await runPrismicModelsCommand(undefined, { cwd: dir }, deps([]));
     expect(r.code).toBe(0);
     expect(r.output).toMatch(/not a Prismic site/i);
@@ -513,9 +518,40 @@ describe("checkOneSite", () => {
     expect(r.output).not.toMatch(/not a Prismic site/i);
   });
 
+  // MUTATION TARGET. `git clone` creates `.git` and fills the working tree
+  // afterwards, so a clone killed in between leaves a directory holding `.git`
+  // and nothing else. Every config read inside it is ENOENT — indistinguishable
+  // from a repo that has no Prismic — and `cloneIfNeeded` treats any non-empty
+  // directory as an established checkout, so the reassuring skip would repeat
+  // forever. A directory is not a working tree.
+  it("errors on a checkout that holds only a .git instead of skipping it", async () => {
+    await mkdir(join(dir, ".git"), { recursive: true });
+    const send = sender();
+    const r = await checkOneSite(dir, deps([], send), { apply: true, allowGenericToken: true });
+    expect(r.code).toBe(1);
+    expect(r.status).toBe("failed");
+    expect(r.clean).toBeNull();
+    expect(r.output).toContain(dir);
+    expect(r.output).toMatch(/no working tree/i);
+    expect(r.output).not.toMatch(/not a Prismic site/i);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  // The same fact with nothing at all in the directory. "I could not establish a
+  // checkout" is not "this repo has no Prismic", however empty the evidence.
+  it("errors on an empty directory rather than reporting no Prismic", async () => {
+    const r = await checkOneSite(dir, deps([]), { apply: false, allowGenericToken: true });
+    expect(r.code).toBe(1);
+    expect(r.status).toBe("failed");
+    expect(r.output).not.toMatch(/not a Prismic site/i);
+  });
+
   // `clean: null` alone cannot say which of these happened, and they are
   // opposite operational facts: one is routine, the other is an outage.
   it("separates a skip from a failure by status, not by a null verdict", async () => {
+    // A real repo that is not a Prismic site: files, no config. An empty
+    // directory is neither, and is now its own failure.
+    await writeFile(join(dir, "package.json"), "{}");
     const skipped = await checkOneSite(dir, deps([]), { apply: false, allowGenericToken: true });
     expect(skipped.status).toBe("skipped");
     expect(skipped.clean).toBeNull();

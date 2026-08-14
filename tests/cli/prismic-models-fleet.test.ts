@@ -5,7 +5,13 @@ import { join } from "node:path";
 import {
   prismicSweepExitCode,
   findRepositoryCollisions,
+  findTokenEnvCollisions,
+  findDuplicateSiteRows,
   describeCollisions,
+  describeTokenEnvCollisions,
+  describeDuplicateSiteRows,
+  describeNothingChecked,
+  resolveCheckoutCommit,
   summariseSweep,
   runPrismicModelsCommand,
   type SweepRow,
@@ -87,6 +93,35 @@ describe("findRepositoryCollisions", () => {
     expect(c?.sites).toEqual(["a", "b", "c"]);
   });
 
+  // MUTATION TARGET. The detector groups by NAME and has no notion of identity,
+  // so one site listed twice in the inventory looked like two sites fighting over
+  // a repository — and the remediation then sent an operator to change a
+  // slicemachine.config.json in a live client repo for a conflict that does not
+  // exist. A safety alarm that fires on its own inventory is an alarm that gets
+  // ignored.
+  it("is not fooled by one site listed twice in the inventory", () => {
+    expect(
+      findRepositoryCollisions([
+        { site: "espada", repositoryName: "espada" },
+        { site: "espada", repositoryName: "espada" },
+      ]),
+    ).toEqual([]);
+  });
+
+  // A site whose check FAILED usually DOES carry a repositoryName — the token,
+  // local-models and remote-read failures all know which repository the config
+  // named — and it belongs in the detector: that repo still claims the
+  // repository, and its own CI still pushes to it on merge, whether or not this
+  // sweep could read its models.
+  it("still sees a collision when one of the two sites failed its check", () => {
+    expect(
+      findRepositoryCollisions([
+        { site: "readable", repositoryName: "shared" },
+        { site: "token-missing", repositoryName: "shared" },
+      ]),
+    ).toEqual([{ repositoryName: "shared", sites: ["readable", "token-missing"] }]);
+  });
+
   // Two sites, two collisions, in a stable order regardless of inventory order —
   // the report is diffed run to run by an operator.
   it("sorts the collisions by repository name", () => {
@@ -118,6 +153,189 @@ describe("describeCollisions", () => {
   });
 });
 
+// The SECOND axis of the same conflict, and the one nothing else can see. The
+// collision detector groups by repositoryName, but the CREDENTIAL is keyed by
+// `prismicTokenEnvName`, which upper-snakes and collapses non-alphanumerics — so
+// two DIFFERENT Prismic repositories can derive one PRISMIC_TOKEN_*, and the
+// sweep would then send one client's write token to another client's repository.
+// That is the exact cross-wiring `allowGeneric: false` exists to prevent,
+// reintroduced through the naming rule.
+describe("findTokenEnvCollisions", () => {
+  it("finds nothing when every repository derives a distinct env var", () => {
+    expect(
+      findTokenEnvCollisions([
+        { site: "the-pointe", repositoryName: "the-pointe" },
+        { site: "the-pointe-burbank", repositoryName: "the-pointe-burbank" },
+      ]),
+    ).toEqual([]);
+  });
+
+  // MUTATION TARGET. Two names that are DIFFERENT Prismic repositories and one
+  // secret between them. Grouping by repositoryName cannot see this.
+  it("reports two repositories that collapse onto one PRISMIC_TOKEN_*", () => {
+    expect(
+      findTokenEnvCollisions([
+        { site: "a", repositoryName: "the-pointe" },
+        { site: "b", repositoryName: "the.pointe" },
+      ]),
+    ).toEqual([
+      {
+        envName: "PRISMIC_TOKEN_THE_POINTE",
+        entries: [
+          { site: "a", repositoryName: "the-pointe" },
+          { site: "b", repositoryName: "the.pointe" },
+        ],
+      },
+    ]);
+  });
+
+  // The same repositoryName twice derives one env var by definition. Reporting it
+  // here as well would print two alarms with two different fixes for one problem —
+  // and only one of those fixes is the right one.
+  it("leaves a plain repositoryName collision to the other detector", () => {
+    expect(
+      findTokenEnvCollisions([
+        { site: "the-tower", repositoryName: "the-tower-burbank" },
+        { site: "the-tower-burbank", repositoryName: "the-tower-burbank" },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("is not fooled by one site listed twice in the inventory", () => {
+    expect(
+      findTokenEnvCollisions([
+        { site: "espada", repositoryName: "espada" },
+        { site: "espada", repositoryName: "espada" },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("ignores sites with no repositoryName", () => {
+    expect(
+      findTokenEnvCollisions([
+        { site: "1836dig", repositoryName: null },
+        { site: "la-homelessness-youth", repositoryName: null },
+      ]),
+    ).toEqual([]);
+  });
+
+  // `prismicTokenEnvName` THROWS on a name with no alphanumeric characters. That
+  // throw must not take the detector — and with it the whole sweep's report —
+  // down; the site is already a named `failed` row elsewhere.
+  it("survives a repositoryName that derives no env var at all", () => {
+    expect(() =>
+      findTokenEnvCollisions([
+        { site: "broken", repositoryName: "---" },
+        { site: "espada", repositoryName: "espada" },
+      ]),
+    ).not.toThrow();
+    expect(findTokenEnvCollisions([{ site: "broken", repositoryName: "---" }])).toEqual([]);
+  });
+});
+
+describe("describeTokenEnvCollisions", () => {
+  it("renders nothing when there are none", () => {
+    expect(describeTokenEnvCollisions([])).toBe("");
+  });
+
+  // The operator's fix is NOT the repositoryName collision's fix: neither config
+  // is wrong, so "go and edit a slicemachine.config.json" would be false advice.
+  it("names the secret, both sites and both repositories, and does not blame a config", () => {
+    const out = describeTokenEnvCollisions([
+      {
+        envName: "PRISMIC_TOKEN_THE_POINTE",
+        entries: [
+          { site: "a", repositoryName: "the-pointe" },
+          { site: "b", repositoryName: "the.pointe" },
+        ],
+      },
+    ]);
+    expect(out).toContain("PRISMIC_TOKEN_THE_POINTE");
+    expect(out).toContain("a (the-pointe)");
+    expect(out).toContain("b (the.pointe)");
+    expect(out).toMatch(/DIFFERENT Prismic repositories/i);
+    expect(out).toMatch(/do not "fix" one of them/i);
+  });
+});
+
+// An inventory wart, reported as one. Never silently swallowed — the detectors
+// now drop the duplicate row, and a fact nobody prints is a fact nobody fixes.
+describe("findDuplicateSiteRows", () => {
+  it("finds nothing when every site appears once", () => {
+    expect(
+      findDuplicateSiteRows([
+        { site: "espada", repositoryName: "espada" },
+        { site: "hedloc", repositoryName: "hedloc" },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("reports the repeated site, its count and the repositories it declared", () => {
+    expect(
+      findDuplicateSiteRows([
+        { site: "espada", repositoryName: "espada" },
+        { site: "espada", repositoryName: "espada" },
+      ]),
+    ).toEqual([{ site: "espada", count: 2, repositoryNames: ["espada"] }]);
+  });
+
+  it("lists both names when one label carried two different repositories", () => {
+    const [d] = findDuplicateSiteRows([
+      { site: "espada", repositoryName: "espada" },
+      { site: "espada", repositoryName: "hedloc" },
+    ]);
+    expect(d?.repositoryNames).toEqual(["espada", "hedloc"]);
+  });
+});
+
+describe("describeDuplicateSiteRows", () => {
+  it("renders nothing when there are none", () => {
+    expect(describeDuplicateSiteRows([])).toBe("");
+  });
+
+  it("says it is an inventory problem and tells the operator not to touch a config", () => {
+    const out = describeDuplicateSiteRows([
+      { site: "espada", count: 2, repositoryNames: ["espada"] },
+    ]);
+    expect(out).toContain("espada");
+    expect(out).toMatch(/INVENTORY problem/i);
+    expect(out).toMatch(/do not change a slicemachine\.config\.json/i);
+  });
+});
+
+// A sweep in which nothing was checked learned nothing — the same reasoning as an
+// inventory that resolves to zero sites, one step later in the pipeline.
+describe("describeNothingChecked", () => {
+  const row = (over: Partial<SweepRow>): SweepRow => ({
+    site: "espada",
+    repositoryName: "espada",
+    commit: null,
+    status: "checked",
+    clean: true,
+    detail: "",
+    ...over,
+  });
+
+  it("says nothing when at least one site was checked", () => {
+    expect(describeNothingChecked([row({}), row({ site: "b", status: "skipped" })])).toBe("");
+  });
+
+  it("refuses an all-skipped fleet", () => {
+    const out = describeNothingChecked([
+      row({ status: "skipped", clean: null, repositoryName: null }),
+      row({ site: "b", status: "skipped", clean: null, repositoryName: null }),
+    ]);
+    expect(out).toMatch(/NOT ONE SITE WAS CHECKED/);
+    expect(out).toMatch(/Do NOT read this exit as a result/i);
+  });
+
+  // The zero-sites refusal names the actual cause (an empty inventory) and this
+  // one must not talk over it.
+  it("leaves an empty sweep to the zero-sites refusal", () => {
+    expect(describeNothingChecked([])).toBe("");
+  });
+});
+
 // Every row lands in exactly one bucket, so a site can never fall out of the
 // total — the same rule the token doctor's summary follows. A summary that
 // counted only the outcomes an operator likes is how unreadable sites disappear.
@@ -125,6 +343,7 @@ describe("summariseSweep", () => {
   const row = (over: Partial<SweepRow>): SweepRow => ({
     site: "espada",
     repositoryName: "espada",
+    commit: null,
     status: "checked",
     clean: true,
     detail: "",
@@ -207,11 +426,53 @@ type SiteSpec = {
   noConfig?: boolean;
   /** Custom type ids to write under `customtypes/`. */
   models?: string[];
+  /**
+   * How this checkout's git metadata looks.
+   *
+   * `"killed-clone"` is the shape of F1: `.git` and NOTHING ELSE, which is what
+   * `git clone` leaves when it dies after creating the repository and before
+   * checking the working tree out. `"none"` is a directory of files that is not a
+   * git checkout at all — the sweep must still compare it, and must say plainly
+   * that it cannot name the commit.
+   */
+  git?: "loose" | "packed" | "detached" | "none" | "killed-clone";
 };
+
+/** A commit id that is not any real commit, so nothing can accidentally pass by
+ *  agreeing with the machine this runs on. */
+const SHA = "0123456789abcdef0123456789abcdef01234567";
+
+/** Enough of a `.git` for `resolveCheckoutCommit` to read, written by hand: the
+ *  sweep resolves the commit from FILES, never by shelling out to git, so the
+ *  fixture is files too. */
+async function makeGitDir(dir: string, mode: NonNullable<SiteSpec["git"]>): Promise<void> {
+  if (mode === "none") return;
+  const git = join(dir, ".git");
+  await mkdir(git, { recursive: true });
+  if (mode === "detached") {
+    await writeFile(join(git, "HEAD"), `${SHA}\n`);
+    return;
+  }
+  await writeFile(join(git, "HEAD"), "ref: refs/heads/main\n");
+  if (mode === "packed") {
+    // What a FRESH clone actually writes — no loose ref file at all.
+    await writeFile(
+      join(git, "packed-refs"),
+      `# pack-refs with: peeled fully-peeled sorted \n${SHA} refs/heads/main\n`,
+    );
+    return;
+  }
+  await mkdir(join(git, "refs", "heads"), { recursive: true });
+  await writeFile(join(git, "refs", "heads", "main"), `${SHA}\n`);
+}
 
 async function makeSite(name: string, spec: SiteSpec): Promise<void> {
   const dir = join(root, name);
   await mkdir(dir, { recursive: true });
+  await makeGitDir(dir, spec.git ?? "loose");
+  // A killed clone leaves the git metadata and no working tree — so nothing
+  // below this line, which is the whole point of the fixture.
+  if (spec.git === "killed-clone") return;
   // Something other than the config, so a no-config site is still a NON-EMPTY
   // directory and therefore a readable repo rather than a prep failure.
   await writeFile(join(dir, "package.json"), JSON.stringify({ name }));
@@ -241,6 +502,40 @@ const customType = (id: string): RemoteEntry => ({
   kind: "customtype",
   id,
   model: { id } as RemoteEntry["model"],
+});
+
+// The sweep REUSES checkouts and never refreshes them, so every verdict is about
+// a commit rather than about that repo's default branch. Filesystem only — the
+// sweep must never shell out, so the resolver reads `.git` itself.
+describe("resolveCheckoutCommit", () => {
+  it("resolves a loose ref", async () => {
+    await makeSite("loose", { repositoryName: "loose" });
+    expect(await resolveCheckoutCommit(join(root, "loose"))).toEqual({ resolved: SHA });
+  });
+
+  // What a fresh clone actually writes: no loose ref file at all.
+  it("resolves a ref that lives only in packed-refs", async () => {
+    await makeSite("packed", { repositoryName: "packed", git: "packed" });
+    expect(await resolveCheckoutCommit(join(root, "packed"))).toEqual({ resolved: SHA });
+  });
+
+  it("resolves a detached HEAD", async () => {
+    await makeSite("detached", { repositoryName: "detached", git: "detached" });
+    expect(await resolveCheckoutCommit(join(root, "detached"))).toEqual({ resolved: SHA });
+  });
+
+  // "I could not read which commit" must never render as a commit — nor as
+  // silence, which is why the reason comes back with it.
+  it("returns a REASON rather than nothing when there is no .git", async () => {
+    await makeSite("plain", { repositoryName: "plain", git: "none" });
+    const r = await resolveCheckoutCommit(join(root, "plain"));
+    expect(r).not.toHaveProperty("resolved");
+    expect((r as { unresolved: string }).unresolved).toBeTruthy();
+  });
+
+  it("returns a reason for a directory that does not exist at all", async () => {
+    expect(await resolveCheckoutCommit(join(root, "no-such-dir"))).not.toHaveProperty("resolved");
+  });
 });
 
 describe("runPrismicModelsCommand — fleet sweep", () => {
@@ -529,6 +824,135 @@ describe("runPrismicModelsCommand — fleet sweep", () => {
     const r = await runPrismicModelsCommand(undefined, { cwd: root, fleet, workdir }, deps({}, {}));
     expect(r.code).toBe(1);
     expect(r.output).toMatch(/no sites/i);
+  });
+
+  // MUTATION TARGET — F1. `cloneIfNeeded` accepts ANY non-empty directory as
+  // that site's checkout, and `git clone` creates `.git` BEFORE checking the
+  // working tree out. So a clone killed in between (its own 5-minute timeout, a
+  // cancelled job, a reboot, a full disk) leaves a directory holding `.git`
+  // alone — which is non-empty, so no clone is ever attempted again; every config
+  // read in it is ENOENT, so the site reported "not a Prismic site — skipped",
+  // exit 0, ON EVERY RUN AFTER THE FIRST. One interrupted clone silently retired
+  // that site's drift alarm for good.
+  it("fails a checkout that holds only a .git, and never calls it 'not a Prismic site'", async () => {
+    await makeSite("espada", { repositoryName: "espada", models: ["page"] });
+    await makeSite("hedloc", { git: "killed-clone" });
+    const fleet = await inventory(["espada", "hedloc"]);
+    const r = await runPrismicModelsCommand(
+      undefined,
+      { cwd: root, fleet, workdir },
+      deps({ espada: [customType("page")] }, { PRISMIC_TOKEN_ESPADA: "a" }),
+    );
+    expect(r.output).toContain("1 checked, 1 failed, 0 skipped");
+    expect(r.output).toMatch(/no working tree/i);
+    expect(r.output).not.toMatch(/not a Prismic site/i);
+  });
+
+  // The DURABILITY is what makes it severe: the leftover directory is still
+  // non-empty on the next run, so the verdict has to hold rather than decay back
+  // into a green skip.
+  it("keeps failing that checkout on the next run", async () => {
+    await makeSite("hedloc", { git: "killed-clone" });
+    const fleet = await inventory(["hedloc"]);
+    const run = () =>
+      runPrismicModelsCommand(undefined, { cwd: root, fleet, workdir }, deps({}, {}));
+    const first = await run();
+    const second = await run();
+    expect(first.code).toBe(1);
+    expect(second.code).toBe(1);
+    expect(second.output).toContain("0 checked, 1 failed, 0 skipped");
+    expect(second.output).not.toMatch(/not a Prismic site/i);
+  });
+
+  // MUTATION TARGET — F1. Not one site compared, so the run learned nothing. The
+  // majority rule cannot express it: 0 checked / 0 failed is exactly what a fleet
+  // that legitimately holds no Prismic sites looks like, and "skipped" is inferred
+  // from a MISSING config file — so anything that empties the checkouts turns the
+  // whole fleet green.
+  it("exits 1 when every site was skipped, not one checked", async () => {
+    await makeSite("1836dig", { noConfig: true });
+    await makeSite("la-homelessness-youth", { noConfig: true });
+    const fleet = await inventory(["1836dig", "la-homelessness-youth"]);
+    const r = await runPrismicModelsCommand(undefined, { cwd: root, fleet, workdir }, deps({}, {}));
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("0 checked, 0 failed, 2 skipped");
+    expect(r.output).toMatch(/NOT ONE SITE WAS CHECKED/);
+  });
+
+  // MUTATION TARGET — F2. Two DIFFERENT Prismic repositories deriving ONE
+  // PRISMIC_TOKEN_*. There is no repositoryName collision here, so the other
+  // detector sees nothing — and the sweep is attaching one client's credential to
+  // another client's repository, which is the worst thing fleet mode can do.
+  it("goes non-zero when two repositories derive one token secret", async () => {
+    await makeSite("a", { repositoryName: "the-pointe", models: ["page"] });
+    await makeSite("b", { repositoryName: "the.pointe", models: ["page"] });
+    const fleet = await inventory(["a", "b"]);
+    const r = await runPrismicModelsCommand(
+      undefined,
+      { cwd: root, fleet, workdir },
+      deps(
+        { "the-pointe": [customType("page")], "the.pointe": [customType("page")] },
+        { PRISMIC_TOKEN_THE_POINTE: "one-token-for-two-clients" },
+      ),
+    );
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("PRISMIC_TOKEN_THE_POINTE");
+    expect(r.output).toMatch(/One token secret derived by more than one/i);
+    // REPORTED SEPARATELY from a repositoryName collision: the fixes differ, and
+    // these two configs are both correct.
+    expect(r.output).not.toMatch(/claimed by more than one site/i);
+    // Detected, not thrown — every site is still swept.
+    expect(r.output).toContain("2 checked, 0 failed, 0 skipped");
+  });
+
+  // MUTATION TARGET — F3. One site listed twice is an inventory wart, not two
+  // sites fighting over a repository. Reporting it as a collision sends the
+  // operator to change a live client repo's slicemachine.config.json for a
+  // conflict that does not exist, and reddens the nightly while doing it.
+  it("reports a duplicated inventory row as a note, not as a collision", async () => {
+    await makeSite("espada", { repositoryName: "espada", models: ["page"] });
+    const fleet = await inventory(["espada", "espada"]);
+    const r = await runPrismicModelsCommand(
+      undefined,
+      { cwd: root, fleet, workdir },
+      deps({ espada: [customType("page")] }, { PRISMIC_TOKEN_ESPADA: "a" }),
+    );
+    expect(r.code).toBe(0);
+    expect(r.output).not.toContain("⛔");
+    expect(r.output).toMatch(/listed more than once in the inventory/i);
+    // Both rows were really swept, so the count says so rather than hiding it.
+    expect(r.output).toContain("2 checked, 0 failed, 0 skipped");
+  });
+
+  // F4. The sweep reuses whatever checkout is in the workdir and never refreshes
+  // it, so a verdict can describe a tree from days ago while main has moved. It is
+  // reported rather than refreshed — see resolveCheckoutCommit — so the report has
+  // to say WHICH commit it compared, and say that it never refreshed it.
+  it("names the commit each verdict describes and says no checkout was refreshed", async () => {
+    await makeSite("espada", { repositoryName: "espada", models: ["page"] });
+    const fleet = await inventory(["espada"]);
+    const r = await runPrismicModelsCommand(
+      undefined,
+      { cwd: root, fleet, workdir },
+      deps({ espada: [customType("page")] }, { PRISMIC_TOKEN_ESPADA: "a" }),
+    );
+    expect(r.output).toContain(`[espada] @ ${SHA.slice(0, 12)}`);
+    expect(r.output).toMatch(/never fetches, pulls or resets a checkout/i);
+  });
+
+  // A checkout whose commit cannot be read is still compared — but it must say so
+  // in the place the commit would have been, rather than leaving a blank that
+  // reads like "no commit".
+  it("says the commit was NOT RESOLVED rather than leaving it blank", async () => {
+    await makeSite("espada", { repositoryName: "espada", models: ["page"], git: "none" });
+    const fleet = await inventory(["espada"]);
+    const r = await runPrismicModelsCommand(
+      undefined,
+      { cwd: root, fleet, workdir },
+      deps({ espada: [customType("page")] }, { PRISMIC_TOKEN_ESPADA: "a" }),
+    );
+    expect(r.output).toContain("1 checked, 0 failed, 0 skipped");
+    expect(r.output).toContain("COMMIT NOT RESOLVED");
   });
 
   // Task 20 implements --write-airtable. Until then a fleet sweep that ran and

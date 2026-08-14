@@ -11,7 +11,7 @@
 // THE RULE THIS FILE IS WRITTEN AGAINST — the same one as every module under it:
 // "I could not read X" must never produce the same result as "X does not exist."
 // Here it takes the form of exit codes and returned prose rather than empty
-// arrays, and there are five places it bites:
+// arrays, and there are six places it bites:
 //
 //   - checkout unreadable        -> exit 1, naming the path. A repoRoot that does
 //                                   not exist would otherwise reach the skip
@@ -19,6 +19,11 @@
 //                                   typo'd path or a failed clone reported "not a
 //                                   Prismic site" and exited 0 — under `--apply`
 //                                   too.
+//   - checkout has no working    -> exit 1, naming the path. A directory holding
+//     tree                         `.git` and nothing else is what a KILLED clone
+//                                   leaves behind, and every config read in it is
+//                                   ENOENT — so it read as "not a Prismic site"
+//                                   too, and a fleet workdir reuses it forever.
 //   - no config file at all      -> exit 0, "not a Prismic site" (a genuine skip:
 //                                   the reusable workflow runs on repos that have
 //                                   no Prismic at all)
@@ -42,8 +47,8 @@
 // MORE, not less: it is the mode that writes into a live client's working tree,
 // so a checkout it never read or a model set it half-read would put Prismic's
 // copy of a model on top of a repo nobody managed to look at.
-import { readdir, rename, rm, writeFile } from "node:fs/promises";
-import { basename, resolve } from "node:path";
+import { readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { basename, join, resolve } from "node:path";
 import { makeSpawn, type SpawnFn } from "../../audits/util/spawn.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
 import { prepareFleetSites, appendSkipNotice, type SkippedSite } from "../fleet/prepare-sites.js";
@@ -212,6 +217,59 @@ const inputFailure = (
   },
 });
 
+/** Directory entries that are NOT evidence of a checked-out working tree. A
+ *  directory containing only these is git metadata (or Finder litter) with no
+ *  repository checked out into it — see {@link noWorkingTreeFailure}. */
+const NOT_A_WORKING_TREE: ReadonlySet<string> = new Set([".git", ".DS_Store"]);
+
+/**
+ * POSITIVE EVIDENCE OF A CHECKOUT, or the named reason there is none.
+ *
+ * A `readdir` that succeeds proves the DIRECTORY is readable. It does not prove
+ * anything was checked out into it, and every verdict below is drawn from what is
+ * NOT in that directory — so without this, "I could not establish a checkout"
+ * comes out as "this repo has no Prismic in it".
+ *
+ * The gap that makes it severe is durability. `cloneIfNeeded` accepts ANY
+ * non-empty directory at the site's path as that site's checkout
+ * (clone-if-needed.ts:138), and `git clone` creates `.git` FIRST and fills the
+ * working tree afterwards — so a clone killed in between (its own 5-minute
+ * timeout, a cancelled job, a reboot, a full disk) leaves `<workdir>/<slug>/`
+ * holding `.git` alone, with `origin` already pointing at the right repo. That
+ * directory is non-empty, so no clone is ever attempted again; every config read
+ * inside it is ENOENT, so `readPrismicConfig` returns null; and the site then
+ * reports "not a Prismic site — skipped", exit 0, ON EVERY RUN AFTER THE FIRST.
+ * One interrupted clone silently retires that site's drift alarm, and a fleet of
+ * them is a green sweep.
+ *
+ * THE REAL CAUSE IS ONE LAYER DOWN and is deliberately not fixed here:
+ * `cloneIfNeeded`'s "non-empty directory ⇒ this is the checkout" rule, and its
+ * identity guard, which RETURNS SILENTLY when it cannot verify
+ * (clone-if-needed.ts:100 — a directory with no git origin is treated as
+ * verified). Both are shared by nine fleet commands, so changing them from this
+ * command would be an unreviewed fleet-wide behaviour change; that deserves its
+ * own task. This guard makes the Prismic command honest meanwhile — the answer it
+ * refuses to give is the DANGEROUS one ("no Prismic here"), never the safe one.
+ *
+ * `.DS_Store` sits alongside `.git` because a fleet workdir on darwin acquires one
+ * from Finder, and it is no more a working tree than `.git` is.
+ */
+function noWorkingTreeFailure(
+  repoRoot: string,
+  entries: readonly string[],
+  noEffect: string,
+): string | null {
+  if (!entries.every((e) => NOT_A_WORKING_TREE.has(e))) return null;
+  return (
+    `this checkout has no working tree: ${repoRoot} holds` +
+    ` ${entries.length === 0 ? "nothing at all" : `only ${entries.join(", ")}`}.` +
+    ` ${noEffect} — this is NOT "no Prismic in this repo"; nothing at all was established` +
+    ` about this repo. A git clone killed part-way leaves exactly this (a .git and no files),` +
+    ` and a fleet workdir REUSES any non-empty directory as that site's checkout, so it will` +
+    ` never re-clone by itself. Delete ${repoRoot} and re-run.`
+  );
+}
+
 /**
  * Every read this command opens with, and the refusals listed at the top of this
  * file that keep them honest — in ONE place, because a mode that repeats them by
@@ -251,8 +309,9 @@ async function readSiteInputs(
   // failures at once — ENOENT (not there), ENOTDIR (a file, not a checkout) and
   // EACCES (there and unreadable) — and it is exactly the readability the skip
   // verdict below claims to have established.
+  let entries: string[];
   try {
-    await readdir(repoRoot);
+    entries = await readdir(repoRoot);
   } catch (e) {
     return inputFailure(
       `cannot read this checkout at ${repoRoot}: ${describeThrown(e)}. ${opts.noEffect}` +
@@ -262,6 +321,13 @@ async function readSiteInputs(
       1,
     );
   }
+
+  // A readable directory is not a checkout. The skip below is an assertion about
+  // a repo we READ, and it is drawn from what is NOT in this directory — see
+  // {@link noWorkingTreeFailure} for the clone that leaves a `.git` and nothing
+  // else, and why that answer would then repeat forever.
+  const noTree = noWorkingTreeFailure(repoRoot, entries, opts.noEffect);
+  if (noTree) return inputFailure(noTree, "failed", 1);
 
   let cfg: PrismicConfig | null;
   try {
@@ -436,11 +502,17 @@ export async function checkOneSite(
     code: report.failed.length > 0 || inconsistencies.length > 0 ? 1 : 0,
     // `false`, not `null`, and for the same reason as `foundNothingAnywhere`
     // above: the check ran to completion and produced a finding — its inputs
-    // disagree — so a human needs to look. `null` means "we never found out",
-    // which under Task 17's majority-failure rule would count this toward an
-    // outage, and under Task 19 would write nothing to Airtable at all. Both
-    // would make the loudest failure this renderer can report the quietest one
-    // downstream.
+    // disagree — so a human needs to look. `null` means "we never found out".
+    //
+    // An earlier version of this comment justified that by saying `null` would
+    // count toward Task 17's majority-failure rule; Task 17 falsified it. That
+    // rule counts `status`, and this row is `status: "checked"` on either value,
+    // so the sweep's exit code would not move — which is the point. `clean` is
+    // the PER-SITE verdict: the field the sweep carries for each row and the one
+    // Task 19 writes to Airtable and the cockpit alarms on. `null` there writes
+    // no verdict at all for a check that ran to completion and found something,
+    // so the loudest failure this renderer can report would be the one row the
+    // fleet never hears about.
     clean: inconsistencies.length > 0 ? false : isClean(diff) && !foundNothingAnywhere,
     status: "checked",
     repositoryName: cfg.repositoryName,
@@ -615,8 +687,9 @@ async function probeSiteToken(
     reads: null,
   } as const;
 
+  let entries: string[];
   try {
-    await readdir(repoRoot);
+    entries = await readdir(repoRoot);
   } catch (e) {
     return {
       ...blank,
@@ -624,6 +697,17 @@ async function probeSiteToken(
       error: `cannot read this checkout at ${repoRoot}: ${describeThrown(e)}`,
     };
   }
+
+  // The doctor's `skipped` row says "this repo needs no secret", which is the
+  // same dangerous answer the sweep's skip is, reached the same way — see
+  // {@link noWorkingTreeFailure}. Sharing the check rather than repeating it,
+  // because two copies of a guard are two chances to fix only one of them.
+  const noTree = noWorkingTreeFailure(
+    repoRoot,
+    entries,
+    "Nothing was established about this repo's token",
+  );
+  if (noTree) return { ...blank, status: "failed", error: noTree };
 
   let cfg: PrismicConfig | null;
   try {
@@ -806,10 +890,25 @@ export function prismicSweepExitCode(checked: number, failed: number): number {
   return failed > checked ? 1 : 0;
 }
 
+/**
+ * WHICH COMMIT the comparison was actually made against.
+ *
+ * Two-valued and never a bare string, for the reason `clean` is three-valued: a
+ * row that could not name its commit must not be indistinguishable from one that
+ * did. `resolved` is a sha read out of the checkout's own refs; `unresolved`
+ * carries the REASON, which is printed rather than swallowed.
+ */
+export type CheckoutCommit = { resolved: string } | { unresolved: string };
+
 /** One row per site from a fleet sweep, ready for the Airtable writer. */
 export type SweepRow = {
   site: string;
   repositoryName: string | null;
+  /** The commit this site's verdict describes, or `null` when no checkout was
+   *  established at all (a prep failure — there is nothing on disk to name).
+   *  Present because the sweep REUSES checkouts and never refreshes them; see
+   *  {@link resolveCheckoutCommit}. */
+  commit: CheckoutCommit | null;
   /** Did the check RUN — separate from what it found. `skipped` means this repo
    *  has no Prismic config; `failed` means we could not find out. Those were
    *  once both `clean: null`, which made a broken config score as a routine skip
@@ -844,18 +943,50 @@ export type SweepRow = {
  * which this is visible — so it must report it loudly and go non-zero, and it
  * must name both sites, because only a human can say which repo is the owner.
  *
- * Sites with no Prismic config (`null`) never collide with each other. Nor does
- * a site whose check FAILED: it has no repositoryName either, and inventing a
- * collision from two sites nobody could read is the same guess this pipeline
- * refuses everywhere else.
+ * Sites with no Prismic config (`null`) never collide with each other.
+ *
+ * A site whose check FAILED is a different matter, and an earlier version of
+ * this docblock got it backwards: it claimed a failed site has no
+ * repositoryName. Most of them DO. `inputFailure` carries `cfg.repositoryName`
+ * through on the token-missing, local-models-unreadable and remote-unreadable
+ * paths, so those rows reach this detector with a name — and that is right, not
+ * a leak: a repo that DECLARES a Prismic repository claims it whether or not we
+ * managed to read its models, and its own CI will push to it on merge either
+ * way. Only the failures that never got as far as a usable config (an unreadable
+ * or working-tree-less checkout, a present-but-broken config, a repositoryName
+ * that derives no env var) carry `null`, and those genuinely cannot collide with
+ * anything — nobody knows what they claim.
  */
 export type RepositoryCollision = { repositoryName: string; sites: string[] };
+
+/**
+ * One row per SITE IDENTITY, first wins.
+ *
+ * Both detectors below group by name, and a name group with more than one member
+ * is their alarm — so an inventory that lists ONE site twice makes that site look
+ * like two sites fighting over a repository. The remediation text then sends the
+ * operator to fix a `slicemachine.config.json` that is not wrong, in a live
+ * client repo, for a conflict that does not exist. False positives in a safety
+ * alarm are how the alarm gets ignored, and this one has to survive being right
+ * rarely.
+ *
+ * Identity is the row's site label — `siteLabel`, i.e. the inventory `name` or
+ * the path — because that is the only identity this layer has. The duplication
+ * itself is not thrown away: {@link findDuplicateSiteRows} reports it as what it
+ * is, an inventory wart.
+ */
+function uniqueBySite<T extends { site: string }>(rows: readonly T[]): T[] {
+  const seen = new Set<string>();
+  return rows.filter((r) => (seen.has(r.site) ? false : (seen.add(r.site), true)));
+}
 
 export function findRepositoryCollisions(
   rows: ReadonlyArray<{ site: string; repositoryName: string | null }>,
 ): RepositoryCollision[] {
   const byRepository = new Map<string, string[]>();
-  for (const r of rows) {
+  // DEDUPED INSIDE the detector, not at the call site: a caller that forgets is
+  // a caller that ships the false alarm.
+  for (const r of uniqueBySite(rows)) {
     if (r.repositoryName === null) continue;
     const list = byRepository.get(r.repositoryName) ?? [];
     list.push(r.site);
@@ -869,6 +1000,153 @@ export function findRepositoryCollisions(
       // when the inventory does.
       .sort((a, b) => a.repositoryName.localeCompare(b.repositoryName))
   );
+}
+
+/**
+ * Two DIFFERENT Prismic repositories whose token env vars collapse onto one name.
+ *
+ * The second axis of the same conflict, and the more dangerous one, because
+ * nothing else in the system can see it. `findRepositoryCollisions` groups by
+ * `repositoryName`; the CREDENTIAL is keyed by `prismicTokenEnvName`, which
+ * upper-snakes the name and collapses every run of non-alphanumerics to one `_`.
+ * So `the-pointe`, `the.pointe`, `the_pointe` and `The Pointe` are four distinct
+ * Prismic repositories that all derive `PRISMIC_TOKEN_THE_POINTE` — no
+ * repositoryName collision, one secret.
+ *
+ * What follows from that is the worst outcome fleet mode can produce: the sweep
+ * sends ONE client's write token to ANOTHER client's repository. Read-only today
+ * that is mostly a 401 the operator reads as an expired token — and the natural
+ * fix, re-minting `PRISMIC_TOKEN_THE_POINTE` from the other repository, just
+ * moves the breakage to the site that was working. It is exactly the
+ * cross-wiring `allowGeneric: false` exists to prevent, reintroduced through the
+ * naming rule instead of through the environment.
+ *
+ * Reported SEPARATELY from a repositoryName collision because the operator's fix
+ * is different: that one is "rename a repository in one repo's
+ * slicemachine.config.json"; this one cannot be fixed in either repo, because
+ * both configs are correct — the derivation rule is what collapses them.
+ *
+ * Verified 2026-08-13 across the 15 in-scope repos, each read from its own
+ * `origin/HEAD` via `git ls-tree` + `git show` (never a working tree): 15 distinct
+ * repositoryNames, 15 distinct derived env vars, no collision on either axis. So
+ * this ships dark — which is the only state in which a safety alarm can be
+ * trusted when it does fire.
+ */
+export type TokenEnvCollision = {
+  envName: string;
+  entries: { site: string; repositoryName: string }[];
+};
+
+export function findTokenEnvCollisions(
+  rows: ReadonlyArray<{ site: string; repositoryName: string | null }>,
+): TokenEnvCollision[] {
+  const byEnv = new Map<string, { site: string; repositoryName: string }[]>();
+  for (const r of uniqueBySite(rows)) {
+    if (r.repositoryName === null) continue;
+    let envName: string;
+    try {
+      envName = prismicTokenEnvName(r.repositoryName);
+    } catch {
+      // A repositoryName with no alphanumeric characters derives NO env var, so
+      // it cannot collide with anything — and it is already a `failed` row that
+      // names itself (see `readSiteInputs`). Swallowing the throw here is not a
+      // silent skip: the site is reported, just not by this detector.
+      continue;
+    }
+    const list = byEnv.get(envName) ?? [];
+    list.push({ site: r.site, repositoryName: r.repositoryName });
+    byEnv.set(envName, list);
+  }
+  return (
+    [...byEnv.entries()]
+      // MORE THAN ONE REPOSITORY, not more than one row. Two sites declaring the
+      // SAME repositoryName derive the same env var by definition and are the
+      // other detector's finding; reporting them here too would print two alarms
+      // with two different fixes for one problem.
+      .filter(([, entries]) => new Set(entries.map((e) => e.repositoryName)).size > 1)
+      .map(([envName, entries]) => ({
+        envName,
+        entries: [...entries].sort((a, b) => a.site.localeCompare(b.site)),
+      }))
+      .sort((a, b) => a.envName.localeCompare(b.envName))
+  );
+}
+
+/** The report block for a derived-env-var collision. Separate from
+ *  {@link describeCollisions} because the fix is different — see
+ *  {@link TokenEnvCollision}. */
+export function describeTokenEnvCollisions(collisions: readonly TokenEnvCollision[]): string {
+  if (collisions.length === 0) return "";
+  return [
+    "## ⛔ One token secret derived by more than one Prismic repository",
+    "",
+    ...collisions.map(
+      (c) =>
+        `- **${c.envName}** is derived by ${c.entries
+          .map((e) => `${e.site} (${e.repositoryName})`)
+          .join(" and ")}. These are DIFFERENT Prismic repositories reading ONE secret, so ` +
+        `whichever token is set is sent to both — one client's credential at another ` +
+        `client's repository. Neither repo's config is wrong, so do not "fix" one of them: ` +
+        `the env var NAME is derived from the repository name and collapses them. Rename one ` +
+        `Prismic repository, or give the derivation a disambiguator. Until then, treat both ` +
+        `sites' verdicts as unproven.`,
+    ),
+  ].join("\n");
+}
+
+/** A site listed more than once in the inventory. */
+export type DuplicateSiteRow = { site: string; count: number; repositoryNames: string[] };
+
+/**
+ * Sites the inventory named more than once.
+ *
+ * A NOTE, not an alarm, and deliberately not an exit code: every one of those
+ * rows was actually swept, nothing was mis-compared, and no client repo needs
+ * changing — the inventory does. Making it non-zero would redden a nightly for a
+ * duplicated Airtable row, which is how an operator learns to ignore the red.
+ *
+ * It still has to be SAID, because the detectors above now drop the duplicates
+ * (see {@link uniqueBySite}) and a fact nobody prints is a fact nobody fixes. The
+ * distinct repositoryNames are listed because a repeated label carrying two
+ * DIFFERENT names is a sharper problem than a repeated row: one of the two rows
+ * is being reported under a label that does not describe it.
+ */
+export function findDuplicateSiteRows(
+  rows: ReadonlyArray<{ site: string; repositoryName: string | null }>,
+): DuplicateSiteRow[] {
+  const bySite = new Map<string, (string | null)[]>();
+  for (const r of rows) {
+    const list = bySite.get(r.site) ?? [];
+    list.push(r.repositoryName);
+    bySite.set(r.site, list);
+  }
+  return [...bySite.entries()]
+    .filter(([, names]) => names.length > 1)
+    .map(([site, names]) => ({
+      site,
+      count: names.length,
+      repositoryNames: [...new Set(names.filter((n): n is string => n !== null))].sort(),
+    }))
+    .sort((a, b) => a.site.localeCompare(b.site));
+}
+
+export function describeDuplicateSiteRows(duplicates: readonly DuplicateSiteRow[]): string {
+  if (duplicates.length === 0) return "";
+  return [
+    "## ⚠ A site is listed more than once in the inventory",
+    "",
+    ...duplicates.map((d) => {
+      const names =
+        d.repositoryNames.length === 0
+          ? "no repositoryName was established for it"
+          : `repositoryName ${d.repositoryNames.join(" and ")}`;
+      return (
+        `- **${d.site}** appears ${d.count}× (${names}). It was swept ${d.count}×, so the ` +
+        `counts below are inflated by ${d.count - 1}. This is an INVENTORY problem, not a ` +
+        `conflict between two sites — do not change a slicemachine.config.json for it.`
+      );
+    }),
+  ].join("\n");
 }
 
 /** The report block for a collision. Deliberately shouty, and deliberately at
@@ -935,7 +1213,50 @@ export function summariseSweep(rows: readonly SweepRow[]): string {
     `${checked} checked, ${failed} failed, ${skipped} skipped (no Prismic config),` +
       ` of ${rows.length} site(s).`,
   );
+  // WHAT WAS COMPARED, in the same breath as how many. The sweep reuses whatever
+  // checkout is already in the workdir and refreshes nothing (see
+  // {@link resolveCheckoutCommit}), so "espada matches Prismic" is a statement
+  // about a commit, not about that repo's default branch. Printed unconditionally
+  // rather than only when something looks stale: a caveat that appears only when
+  // the tool notices a problem is a caveat nobody has read by the time it matters.
+  lines.push(
+    `Each site was compared AS ITS CHECKOUT STANDS ON DISK. This sweep never fetches,` +
+      ` pulls or resets a checkout, so the commit marked "@" beside each site above — not` +
+      ` that repo's default branch — is what its verdict describes.`,
+  );
   return lines.join("\n");
+}
+
+/**
+ * The refusal for a sweep in which NOT ONE site was actually checked.
+ *
+ * Same reasoning as the zero-sites refusal, one step later in the pipeline: a run
+ * that compared no repository against Prismic learned nothing, and
+ * `prismicSweepExitCode` cannot express it, because 0 checked / 0 failed is
+ * indistinguishable from a fleet that legitimately holds no Prismic sites.
+ *
+ * An all-skipped fleet is precisely the shape a systemic checkout problem takes.
+ * "Skipped" is derived from the ABSENCE of a config file, so anything that empties
+ * the working trees — a workdir wiped mid-run, a workdir of interrupted clones, a
+ * clone target that landed one directory deeper than the inventory says — turns
+ * every site in the fleet into a confident "not a Prismic site", exit 0, night
+ * after night. The `.git`-only guard in `readSiteInputs` catches the shape we know
+ * about; this catches the shape of the ones we do not.
+ */
+export function describeNothingChecked(rows: readonly SweepRow[]): string {
+  // The zero-sites refusal in `runFleetSweep` already covers an empty inventory
+  // with a message that names the actual cause; two refusals for one fact would
+  // print a contradiction.
+  if (rows.length === 0) return "";
+  if (countSweep(rows).checked > 0) return "";
+  return (
+    `⛔ NOT ONE SITE WAS CHECKED. All ${rows.length} site(s) in this inventory came back` +
+    ` skipped or unreadable, so nothing was compared against Prismic and this run learned` +
+    ` nothing about the fleet's models. That is not a clean fleet: a skip is inferred from a` +
+    ` MISSING config file, so anything that empties the checkouts makes every site in the` +
+    ` fleet look like a repo that simply has no Prismic in it, and exit 0.` +
+    ` Do NOT read this exit as a result.`
+  );
 }
 
 /** One fleet site, with the same failure isolation `runRecipeOverSites` gives a
@@ -948,8 +1269,91 @@ export function summariseSweep(rows: readonly SweepRow[]): string {
  *  INJECTED `remoteModels`, which this module can promise nothing about. It does
  *  not collapse anything: the row says `failed`, which counts toward the outage
  *  rule and writes nothing to Airtable. */
+/**
+ * The commit a checkout currently stands at, read out of the checkout itself.
+ *
+ * WHY THE SWEEP REPORTS THE COMMIT INSTEAD OF REFRESHING THE CHECKOUT.
+ * `cloneIfNeeded` clones only into an EMPTY directory; for one that already
+ * exists it returns the site untouched, and nothing anywhere pulls. So a sweep
+ * can report "espada matches Prismic" from a working tree that was cloned days
+ * ago while that repo's main has moved — and the nightly's entire purpose is
+ * comparing the CURRENT repo against Prismic.
+ *
+ * Refreshing was the other option and it is the wrong one here, for three
+ * reasons that compound:
+ *
+ *   - The fleet workdir is SHARED. `bump-deps`, `sync-configs`, `upgrade` and the
+ *     other recipe commands work in the same checkouts and leave branches and
+ *     uncommitted edits in them. A read-only nightly that fetched-and-reset would
+ *     silently destroy another command's work; a fetch-without-reset would change
+ *     nothing about what is compared, since the comparison reads the working tree.
+ *   - `prepareFleetSites` is shared by nine commands, so a refresh there is a
+ *     fleet-wide behaviour change that belongs in its own reviewed task — the same
+ *     boundary that keeps this file out of `cloneIfNeeded`.
+ *   - The sweep must never spawn a process (it is read-only BY CONSTRUCTION, and
+ *     that is asserted). A pull is a network write path with its own failure
+ *     modes — merge conflicts, detached heads, credentials — in the one command
+ *     whose job is to raise an alarm, not to need one.
+ *
+ * So the verdict is made legible instead of made fresh: every row names the commit
+ * it describes, and `summariseSweep` says in words that no checkout was refreshed.
+ * A stale answer stays possible, but it stops being invisible — and an operator
+ * who wants a fresh one deletes the workdir, which is the cheap, obvious lever.
+ *
+ * Filesystem only: `.git/HEAD` plus the ref it names, then `packed-refs`. Every
+ * failure returns a REASON rather than nothing, because "this checkout is at no
+ * commit" and "we could not read which commit" are the two facts this file exists
+ * to keep apart.
+ */
+export async function resolveCheckoutCommit(repoRoot: string): Promise<CheckoutCommit> {
+  const isSha = (s: string): boolean => /^[0-9a-f]{7,64}$/i.test(s);
+  try {
+    const dotGit = join(repoRoot, ".git");
+    // A `.git` FILE (a worktree or a submodule) points at the real git dir.
+    const s = await stat(dotGit);
+    let gitDir = dotGit;
+    if (!s.isDirectory()) {
+      const pointer = /^gitdir:\s*(.+)$/m.exec(await readFile(dotGit, "utf-8"))?.[1]?.trim();
+      if (!pointer) return { unresolved: `.git is a file that names no gitdir` };
+      gitDir = resolve(repoRoot, pointer);
+    }
+    const head = (await readFile(join(gitDir, "HEAD"), "utf-8")).trim();
+    if (isSha(head)) return { resolved: head }; // detached HEAD
+    const ref = /^ref:\s*(.+)$/.exec(head)?.[1]?.trim();
+    if (!ref) return { unresolved: `HEAD is neither a commit id nor a ref (${head.slice(0, 60)})` };
+    try {
+      const loose = (await readFile(join(gitDir, ref), "utf-8")).trim();
+      return isSha(loose) ? { resolved: loose } : { unresolved: `${ref} holds no commit id` };
+    } catch {
+      // No loose ref file: the sha is in `packed-refs` (which is where a fresh
+      // clone puts it, so this is the COMMON path, not the exotic one).
+      const packed = await readFile(join(gitDir, "packed-refs"), "utf-8");
+      for (const line of packed.split("\n")) {
+        const [sha, name] = line.trim().split(/\s+/);
+        if (name === ref && sha !== undefined && isSha(sha)) return { resolved: sha };
+      }
+      return { unresolved: `${ref} is in neither this checkout's loose refs nor packed-refs` };
+    }
+  } catch (e) {
+    return { unresolved: describeThrown(e) };
+  }
+}
+
+/** The `@ …` marker printed beside a site in the sweep body. Empty for a site
+ *  with no checkout at all, which its row already says in words. */
+export function describeCheckoutCommit(commit: CheckoutCommit | null): string {
+  if (commit === null) return "";
+  return "resolved" in commit
+    ? ` @ ${commit.resolved.slice(0, 12)}`
+    : ` @ COMMIT NOT RESOLVED (${commit.unresolved})`;
+}
+
 async function sweepOneSite(s: Site, deps: PrismicModelsDeps): Promise<SweepRow> {
   const label = siteLabel(s);
+  // BEFORE the comparison and outside the try: this says which tree was read, so
+  // it has to be attached to a failed row as firmly as to a clean one. It never
+  // throws — every failure comes back as a named `unresolved`.
+  const commit = await resolveCheckoutCommit(s.path);
   try {
     const r = await checkOneSite(s.path, deps, {
       apply: false,
@@ -962,6 +1366,7 @@ async function sweepOneSite(s: Site, deps: PrismicModelsDeps): Promise<SweepRow>
     return {
       site: label,
       repositoryName: r.repositoryName ?? null,
+      commit,
       // Carry `status` THROUGH — never re-derive a verdict here.
       status: r.status,
       clean: r.clean,
@@ -971,6 +1376,7 @@ async function sweepOneSite(s: Site, deps: PrismicModelsDeps): Promise<SweepRow>
     return {
       site: label,
       repositoryName: null,
+      commit,
       status: "failed",
       clean: null,
       detail:
@@ -1028,12 +1434,24 @@ export async function sweepFleet(
   //
   // The word "skipped" in `formatSkippedNotice` is about PREPARATION and is the
   // opposite of `status: "skipped"`, which is a readable repo with no Prismic in
-  // it. The notice stays (the nightly greps its token to raise a `::warning::`);
-  // the row is what makes the site countable.
+  // it. The notice stays; the row is what makes the site countable.
+  //
+  // An earlier version of this comment said the nightly greps that notice's token
+  // to raise a `::warning::`. It does not, because there is no Prismic nightly:
+  // measured 2026-08-13, `.github/workflows/` holds no workflow that mentions
+  // prismic at all — Task 23 builds it. What is true today is that FOUR other
+  // fleet nightlies grep this exact token (fleet-lighthouse, fleet-smoke,
+  // fleet-security, fleet-form-e2e), which is why the wording is worth keeping
+  // stable and why Task 23 gets the grep for free. Until then the notice is for a
+  // human reading the output, and the COUNT is the only thing any machine reads.
   for (const s of prep.skipped) {
     rows.push({
       site: s.site,
       repositoryName: null,
+      // No checkout was established, so there is no commit to name. `null` here
+      // is "there is no tree", NOT "we could not read one" — that is the
+      // `unresolved` case, and they must not render alike.
+      commit: null,
       status: "failed",
       clean: null,
       detail:
@@ -1086,19 +1504,45 @@ async function runFleetSweep(
   //
   // THE SAME COUNT the summary below prints — see {@link countSweep}.
   const { checked, failed } = countSweep(rows);
-  const body = rows.map((r) => `[${r.site}] ${r.detail}`).join("\n\n");
+  const body = rows
+    .map((r) => `[${r.site}]${describeCheckoutCommit(r.commit)} ${r.detail}`)
+    .join("\n\n");
 
   // A collision forces non-zero regardless of the majority rule. It is not a
   // "site failed to read" — every site read fine — so `failed` cannot express
   // it, and a fleet where two repos overwrite each other's models must not
   // report success just because 15 of 15 sites were individually readable.
+  //
+  // TWO AXES, reported separately and BOTH fatal: two sites claiming one Prismic
+  // repository, and two DIFFERENT repositories deriving one token secret. They
+  // are one conflict seen from the repo side and from the credential side, they
+  // have different fixes, and the fleet sweep is the only vantage point in the
+  // system from which either is visible.
   const collisions = findRepositoryCollisions(rows);
-  const collisionBlock = describeCollisions(collisions);
+  const envCollisions = findTokenEnvCollisions(rows);
+  // A NOTE and not part of the exit code — see {@link findDuplicateSiteRows}.
+  const duplicates = findDuplicateSiteRows(rows);
+  // Derived from the SAME string that gets printed, so the refusal and the
+  // reason can never disagree.
+  const nothingChecked = describeNothingChecked(rows);
   const output = appendSkipNotice(
-    [collisionBlock, body, summariseSweep(rows)].filter((s) => s !== "").join("\n\n"),
+    [
+      describeCollisions(collisions),
+      describeTokenEnvCollisions(envCollisions),
+      describeDuplicateSiteRows(duplicates),
+      body,
+      summariseSweep(rows),
+      nothingChecked,
+    ]
+      .filter((s) => s !== "")
+      .join("\n\n"),
     skipped,
   );
-  return { output, code: collisions.length > 0 ? 1 : prismicSweepExitCode(checked, failed) };
+  const alarms = collisions.length + envCollisions.length;
+  return {
+    output,
+    code: alarms > 0 || nothingChecked !== "" ? 1 : prismicSweepExitCode(checked, failed),
+  };
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import {
@@ -248,7 +248,23 @@ describe("runPrismicModelsCommand --tokens", () => {
     expect(r.output).not.toMatch(/no Prismic/i);
   });
 
+  // The same rule again for the checkout that EXISTS and holds nothing but a
+  // `.git` — what a killed clone leaves. The doctor's skip row says "this repo
+  // needs no secret", which is the same wrong answer as the sweep's, so the
+  // check is shared rather than repeated.
+  it("does not report a checkout with no working tree as a site that needs no token", async () => {
+    await mkdir(join(dir, ".git"), { recursive: true });
+    const r = await runPrismicModelsCommand(undefined, { cwd: dir, tokens: true }, deps({}));
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("CANNOT TELL");
+    expect(r.output).toMatch(/no working tree/i);
+  });
+
+  // A repo with no Prismic config is a repo with FILES in it and no config; an
+  // empty directory is a checkout that was never established, and is now its own
+  // failure (see the working-tree test above).
   it("is a clean skip on a repo with no Prismic config", async () => {
+    await writeFile(join(dir, "package.json"), "{}");
     const r = await runPrismicModelsCommand(undefined, { cwd: dir, tokens: true }, deps({}));
     expect(r.code).toBe(0);
     expect(r.output).toMatch(/no Prismic/i);
