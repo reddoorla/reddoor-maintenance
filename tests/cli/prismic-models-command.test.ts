@@ -474,12 +474,18 @@ describe("checkOneSite", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  // Asserted on the CHECKOUT message specifically, not just on the exit code.
+  // Reading `<a-file>/slicemachine.config.json` is ENOTDIR, which
+  // `readPrismicConfig` already refuses to read as "no config here" — so without
+  // the guard this path exits 1 anyway, blaming a config file that does not
+  // exist. Mutation-tested: pinning only `code` left the guard unpinned here.
   it("errors when the repoRoot is a file rather than a checkout", async () => {
     const notADir = join(dir, "a-file");
     await writeFile(notADir, "");
     const r = await checkOneSite(notADir, deps([]), { apply: false, allowGenericToken: true });
     expect(r.code).toBe(1);
     expect(r.status).toBe("failed");
+    expect(r.output).toContain("cannot read this checkout");
     expect(r.output).not.toMatch(/not a Prismic site/i);
   });
 
