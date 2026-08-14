@@ -233,6 +233,53 @@ cli
       ),
   );
 
+// EVERY flag below must be one the command actually reads, and every option the
+// command reads must appear below. cac rejects an unknown option outright, so a
+// missing line here is a hard error in whatever workflow types the flag; a line
+// here with no handler is the silent no-op — it parses, it lands in `opts`, and
+// nothing ever looks at it. Both directions are pinned by
+// tests/cli/prismic-models-registration.test.ts, the second one at the type level
+// against `PrismicModelsCommandOptions`.
+cli
+  .command(
+    "prismic-models [site]",
+    "Compare a site's Prismic models against its repo (dry by default).",
+  )
+  .option(
+    "--apply",
+    "Push local models to Prismic. Never deletes — remote-only models are reported.",
+  )
+  .option("--pull", "Write remote-only models into the repo (single-site; review + PR the result).")
+  .option("--tokens", "Print the per-site write-token doctor: which env var, present?, reads?")
+  .option("--fleet <inventory>", 'Inventory file (.json or .mjs/.js), or "airtable". Read-only.')
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .option("--write-airtable", "Fleet mode: persist each site's verdict to its Websites row")
+  .option(
+    "--comment-file <path>",
+    "Write the report to this file (the CI workflow posts it as a PR comment)",
+  )
+  .action(
+    async (
+      site,
+      opts: {
+        apply?: boolean;
+        pull?: boolean;
+        tokens?: boolean;
+        fleet?: string;
+        workdir?: string;
+        writeAirtable?: boolean;
+        commentFile?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () =>
+          (await import("./commands/prismic-models.js")).runPrismicModelsCommand(site, opts),
+        opts,
+      ),
+  );
+
 cli
   .command("upgrade <upgrade> [site]", "Run a named upgrade recipe (svelte-4-to-5).")
   .example("reddoor-maint upgrade svelte-4-to-5 ./my-site")
