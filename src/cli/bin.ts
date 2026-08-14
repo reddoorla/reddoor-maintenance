@@ -62,6 +62,8 @@ const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {
   "smoke-suite": "Add the smoke suite (test:smoke + playwright config + /health smoke routes).",
   "self-updating":
     "Bootstrap Renovate + repo protection (writes renovate configs via PR, wires ruleset, disables platform auto-merge; ci.yml comes from the starter and is deliberately not managed).",
+  "prismic-ci":
+    "Add the Prismic model delivery workflow to a site via PR (dry delta comment on PRs, push to Prismic on merge to main).",
   init: "Run the full onboarding chain (convert-to-pnpm → onboard → sync-configs → svelte-codemods → a11y-fixtures-page → health-endpoint → smoke-suite → audit).",
 };
 
@@ -229,6 +231,82 @@ cli
       runOrExit(
         async () =>
           (await import("./commands/self-updating.js")).runSelfUpdatingCommand(site, opts),
+        opts,
+      ),
+  );
+
+// Fleet-wide, this opens ONE PULL REQUEST PER REPOSITORY and never pushes to a
+// client's main. `--dry` exists because that is the only way to see the blast
+// radius before firing it. Both directions of the flag ↔ option link are pinned
+// by tests/cli/prismic-ci-command.test.ts.
+cli
+  .command(
+    "prismic-ci [site]",
+    "Add the Prismic model delivery workflow to a site via PR (one PR per repo; never pushes to main).",
+  )
+  .option("--dry", "List the sites that would be offered the workflow, without opening any PR")
+  .option("--fleet <inventory>", 'Inventory file (.json or .mjs/.js), or "airtable"')
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .action(
+    async (
+      site,
+      opts: {
+        dry?: boolean;
+        fleet?: string;
+        workdir?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/prismic-ci.js")).runPrismicCiCommand(site, opts),
+        opts,
+      ),
+  );
+
+// EVERY flag below must be one the command actually reads, and every option the
+// command reads must appear below. cac rejects an unknown option outright, so a
+// missing line here is a hard error in whatever workflow types the flag; a line
+// here with no handler is the silent no-op — it parses, it lands in `opts`, and
+// nothing ever looks at it. Both directions are pinned by
+// tests/cli/prismic-models-registration.test.ts, the second one at the type level
+// against `PrismicModelsCommandOptions`.
+cli
+  .command(
+    "prismic-models [site]",
+    "Compare a site's Prismic models against its repo (dry by default).",
+  )
+  .option(
+    "--apply",
+    "Push local models to Prismic. Never deletes — remote-only models are reported.",
+  )
+  .option("--pull", "Write remote-only models into the repo (single-site; review + PR the result).")
+  .option("--tokens", "Print the per-site write-token doctor: which env var, present?, reads?")
+  .option("--fleet <inventory>", 'Inventory file (.json or .mjs/.js), or "airtable". Read-only.')
+  .option("--workdir <path>", "Clone target for fleet mode (default ~/.reddoor-maint/sites)")
+  .option("--write-airtable", "Fleet mode: persist each site's verdict to its Websites row")
+  .option(
+    "--comment-file <path>",
+    "Write the report to this file (the CI workflow posts it as a PR comment)",
+  )
+  .action(
+    async (
+      site,
+      opts: {
+        apply?: boolean;
+        pull?: boolean;
+        tokens?: boolean;
+        fleet?: string;
+        workdir?: string;
+        writeAirtable?: boolean;
+        commentFile?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () =>
+          (await import("./commands/prismic-models.js")).runPrismicModelsCommand(site, opts),
         opts,
       ),
   );

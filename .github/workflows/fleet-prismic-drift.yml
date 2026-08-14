@@ -1,0 +1,238 @@
+name: fleet-prismic-drift
+
+# Nightly: does every fleet repo's content model still match the models REGISTERED
+# in its Prismic repository? This is the instrument the whole Prismic alerting path
+# describes — the Airtable verdict columns, the cockpit tier and the digest's three
+# attention items all report what THIS run found. It is the detector for out-of-band
+# cloud edits (Type Builder, a hand-edit in the dashboard, a stray Slice Machine
+# push), and the only thing that can catch the silent-field-drop class: a unit test
+# cannot, because the local model is correct and the binding constraint is the
+# remote one.
+#
+# READ-ONLY BY CONSTRUCTION. `apply` is not plumbed through fleet mode at all, and
+# asking for it is refused with exit 2 — a fleet-wide model push outside a site's
+# own CI is 🔴 under AUTONOMY.md. Each site's models are pushed by that site's own
+# reusable workflow on merge to main, where the PR was the review gate.
+#
+# 05:00 UTC — ahead of the 06:00 security sweep and the 09:23 report drafts, so a
+# fresh verdict is on the row before the digest reads it.
+#
+# WHAT HAPPENS IF THIS WORKFLOW ITSELF STOPS RUNNING. A nightly that silently dies
+# is exactly the failure this alerting path exists to catch, so it is not left to
+# this file to notice: `collectPrismicDriftAlerts` escalates any verdict nobody has
+# re-established — a `pass` older than a week, a `fail`/`unknown` older than three
+# days — into its own `prismic-stale:` attention item, gated to the sites this sweep
+# is owed for. A dead cron therefore surfaces as "the check has not run recently"
+# rather than as a fleet of stale green ticks. The two scope predicates are pinned
+# to each other by tests/alerts/prismic-sweep-scope.test.ts.
+on:
+  schedule:
+    - cron: "0 5 * * *" # 05:00 UTC — before 06:00 security and the 09:23 drafts
+  workflow_dispatch: {} # manual run from the Actions tab
+
+# Never overlap a manual run with the scheduled one: two sweeps would write verdicts
+# into one Airtable base and share one clone workdir. A queued run is not cancelled —
+# a skipped night is a night with no verdict.
+concurrency:
+  group: fleet-prismic-drift
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write # open/close the nightly-failure tracking issue
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      # NO GitHub App token is minted here, unlike fleet-security and
+      # fleet-lighthouse, and that is deliberate rather than an omission. This sweep
+      # makes no GitHub API call at all: `cloneIfNeeded` builds an unauthenticated
+      # `https://github.com/<owner>/<repo>.git` from the Airtable `Git repo` column
+      # and the fleet is public. Minting an org-wide installation token for a job
+      # that never presents one is unnecessary privilege plus an extra way for a
+      # read-only nightly to go red (a rotated App key would fail the mint step).
+      # A repo that ever does need auth fails its clone, is isolated into `skipped`
+      # by `prepareFleetSites`, gets a `failed` row and an `unknown` verdict, and is
+      # raised as a `::warning::` below — loudly, never silently.
+
+      # ONE `PRISMIC_TOKEN_<REPOSITORY NAME>` PER PRISMIC REPOSITORY. Fleet mode sets
+      # `allowGenericToken: false` and so refuses the generic PRISMIC_WRITE_TOKEN:
+      # one generic token in the environment while iterating every repository in the
+      # fleet would attach the wrong client's credential to every site after the
+      # first. A repository with no secret here is reported as a token-missing
+      # FAILURE and written to its row as `unknown`; it is never silently skipped.
+      #
+      # THE NAME COMES FROM THE PRISMIC `repositoryName`, NOT THE REPO DIRECTORY.
+      # Four differ, and they are exactly the four a list written from repo names
+      # loses — measured 2026-08-13 by reading each repo's `slicemachine.config.json`
+      # from its own `origin/HEAD` (`git show`, never a working tree):
+      #   medical-solutions-of-texas -> msot
+      #   reddoor-website            -> reddoor-la
+      #   data-dynamiq               -> reddoor-wireframer
+      #   beachfront-dentistry       -> 48bb12d1   (a hash, not a name)
+      # An earlier draft of this file said PRISMIC_TOKEN_MEDICAL_SOLUTIONS_OF_TEXAS
+      # and omitted the other three. Those secrets would never have resolved, the
+      # sweep would have reported four live sites as MISSING a token, and the fix
+      # would have looked like a credentials problem rather than a naming one.
+      #
+      # 15 repositories, 15 distinct derived names, no collision on either axis
+      # (same measurement). The list is deliberately WIDER than strictly necessary
+      # where membership is uncertain: an extra name is inert, a missing one is a
+      # site the operator never mints a secret for. Take the names from
+      # `node dist/cli/bin.js prismic-models <site> --tokens`, which derives them
+      # from the site's own config and is the only authority here.
+      - name: Sweep the fleet for Prismic model drift
+        timeout-minutes: 30
+        env:
+          AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
+          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+          PRISMIC_TOKEN_48BB12D1: ${{ secrets.PRISMIC_TOKEN_48BB12D1 }}
+          PRISMIC_TOKEN_ALAMO_ANATOMY: ${{ secrets.PRISMIC_TOKEN_ALAMO_ANATOMY }}
+          PRISMIC_TOKEN_CALTEX_LANDING: ${{ secrets.PRISMIC_TOKEN_CALTEX_LANDING }}
+          PRISMIC_TOKEN_ERP_INDUSTRIAL: ${{ secrets.PRISMIC_TOKEN_ERP_INDUSTRIAL }}
+          PRISMIC_TOKEN_ESPADA: ${{ secrets.PRISMIC_TOKEN_ESPADA }}
+          PRISMIC_TOKEN_GALLERYSONDER: ${{ secrets.PRISMIC_TOKEN_GALLERYSONDER }}
+          PRISMIC_TOKEN_HEDLOC: ${{ secrets.PRISMIC_TOKEN_HEDLOC }}
+          PRISMIC_TOKEN_MSOT: ${{ secrets.PRISMIC_TOKEN_MSOT }}
+          PRISMIC_TOKEN_REDDOOR_LA: ${{ secrets.PRISMIC_TOKEN_REDDOOR_LA }}
+          PRISMIC_TOKEN_REDDOOR_WIREFRAMER: ${{ secrets.PRISMIC_TOKEN_REDDOOR_WIREFRAMER }}
+          PRISMIC_TOKEN_REVOGEN: ${{ secrets.PRISMIC_TOKEN_REVOGEN }}
+          PRISMIC_TOKEN_THE_POINTE: ${{ secrets.PRISMIC_TOKEN_THE_POINTE }}
+          PRISMIC_TOKEN_THE_POINTE_BURBANK: ${{ secrets.PRISMIC_TOKEN_THE_POINTE_BURBANK }}
+          PRISMIC_TOKEN_THE_TOWER_BURBANK: ${{ secrets.PRISMIC_TOKEN_THE_TOWER_BURBANK }}
+          PRISMIC_TOKEN_VINEYARD_CUSTOM_HOMES: ${{ secrets.PRISMIC_TOKEN_VINEYARD_CUSTOM_HOMES }}
+        run: |
+          # pipefail is NOT in Actions' default `bash -e {0}` shell. Without it `| tee`
+          # swallows the sweep's exit status and every outage below reads as a clean run.
+          set -o pipefail
+
+          out="${RUNNER_TEMP:-/tmp}/prismic-drift.out"
+
+          # THIS SWEEP'S EXIT CODE IS A REAL SIGNAL, and that is the opposite of
+          # fleet-security and fleet-smoke, which tolerate a non-zero CLI exit because
+          # a vulnerable or failing site reds them BY DESIGN. Drift never reds this
+          # one: a site whose models diverge is a finding written to its Airtable row.
+          # A non-zero exit here means the fleet could not be established — a majority
+          # of repos unreadable, two repos claiming one Prismic repository, two
+          # repositories deriving one token secret, an inventory that resolved no
+          # sites, not one site actually checked, or a write-back that could not open
+          # at all. None of those has a per-site row to live in, so nothing else can
+          # report them.
+          # --workdir under RUNNER_TEMP, which a fresh runner gives us empty. The sweep
+          # deliberately never pulls or resets a checkout (a shared fleet workdir may be
+          # sitting on another command's branch with unpushed work), so a REUSED workdir
+          # can report a verdict about a days-old tree. In CI there is no such tree: every
+          # site is cloned fresh tonight, and each row still names the commit it describes.
+          rc=0
+          node dist/cli/bin.js prismic-models \
+            --fleet airtable \
+            --write-airtable \
+            --workdir "${RUNNER_TEMP:-/tmp}/fleet-prismic" | tee "$out" || rc=$?
+
+          # `|| true` on every grep: under `set -e` a no-match inside a command
+          # substitution would abort the step before the diagnostics below run.
+
+          # A site dropped during fleet PREP is a site nobody read. It already gets a
+          # `failed` row (so it counts toward the outage rule and writes `unknown`),
+          # but surface it too — a tolerated single skip must stay visible in the
+          # Actions UI rather than buried. Same token four other fleet nightlies grep.
+          # Raised BEFORE the exit-code gate so it is reported on red nights as well.
+          skipped=$(grep -oE "⚠ [0-9]+ site\(s\) skipped \(could not prepare\):.*" "$out" | tail -n1 || true)
+          if [ -n "$skipped" ]; then
+            echo "::warning::fleet prismic drift: $skipped"
+          fi
+
+          if [ "$rc" -ne 0 ]; then
+            refusal=$(grep -m1 "⛔" "$out" || true)
+            echo "::error::the Prismic model drift sweep exited $rc — this is an OUTAGE, not drift: ${refusal:-see the run output above}"
+            exit 1
+          fi
+
+          # THE SWEEP RAN AND COULD NOT TELL. No machine-readable summary means the
+          # run reached neither the write-back nor any of the refusals that would have
+          # reddened it, so its exit 0 is a claim about nothing. Not gating on this is
+          # how a nightly reports a clean fleet it never looked at.
+          summary=$(grep -oE "FLEET_WRITE_SUMMARY wrote=[0-9]+ failed=[0-9]+ total=[0-9]+" "$out" | tail -n1 || true)
+          if [ -z "$summary" ]; then
+            echo "::error::the Prismic drift sweep exited 0 but printed no FLEET_WRITE_SUMMARY line — nothing was recorded and this run established nothing. Do NOT read the green exit as a result."
+            exit 1
+          fi
+
+          wrote=$(echo "$summary" | grep -oE "wrote=[0-9]+" | cut -d= -f2)
+          failed=$(echo "$summary" | grep -oE "failed=[0-9]+" | cut -d= -f2)
+          total=$(echo "$summary" | grep -oE "total=[0-9]+" | cut -d= -f2)
+          echo "fleet prismic drift write-back: wrote=$wrote failed=$failed total=$total"
+
+          # Every partial miss is visible, even one inside tolerance — a tolerated
+          # single-site flake is then never invisible.
+          if [ "$failed" -gt 0 ]; then
+            notwritten=$(grep -oE "[0-9]+ site\(s\) not written:.*" "$out" | tail -n1 || true)
+            echo "::warning::fleet prismic drift: $failed/$total verdict(s) not written — $notwritten"
+          fi
+
+          # NOTHING LANDED AT ALL. The verdicts were computed and none of them reached
+          # the fleet's record, so the cockpit and the digest keep whatever they held
+          # before — which for a site that broke today is a green tick. The CLI exits 0
+          # here on purpose (per-row write failures must not red a nightly while the
+          # verdict columns are still being rolled out), so the exit code alone would
+          # report a clean night. This is the check `fleet-smoke.yml` did not have when
+          # it stayed green through nine of eleven sites failing.
+          if [ "$wrote" -eq 0 ]; then
+            echo "::error::fleet prismic drift wrote 0 of $total verdict(s) — total write-back failure (check the Airtable PAT / base id / the three Prismic columns). Every verdict this run computed is unrecorded."
+            exit 1
+          fi
+
+          # Mass flake: more than a quarter of the sites failed to write. One known
+          # flaky row stays green-with-warning; a real outage reds.
+          if [ $((failed * 4)) -gt "$total" ]; then
+            echo "::error::fleet prismic drift: $failed/$total verdict(s) failed to write (>25%) — investigate (not a single-site flake)."
+            exit 1
+          fi
+
+      # A red nightly is otherwise only GitHub's best-effort email to the last pusher.
+      # File/reopen a single deduped tracking issue so a failure is durably visible,
+      # and auto-close it once the run goes green again. continue-on-error so the alert
+      # machinery can NEVER turn a run's status red — or green. A DISTINCT title from
+      # every other nightly's, so two workflows never comment on or close each other's
+      # issue.
+      - name: Open/update the nightly-failure tracking issue
+        if: failure()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Nightly Prismic model drift sweep failing"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body=$(printf 'The nightly **fleet-prismic-drift** sweep failed, so the fleet has NO fresh model verdict tonight.\n\nThis is an outage in the check, not model drift — drift is written to each site row and never reds this run. Likely causes: a majority of repos unreadable, two repos claiming one Prismic repository, two repositories deriving one token secret, an inventory that resolved no sites, or an Airtable write-back that could not open.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          existing=$(gh issue list --state open --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close the nightly-failure issue on recovery
+        if: success()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Nightly Prismic model drift sweep failing"
+          for n in $(gh issue list --state open --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+            gh issue close "$n" --comment "Recovered — the nightly Prismic model drift sweep is green again." && echo "closed #$n"
+          done

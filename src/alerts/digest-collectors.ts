@@ -3,6 +3,8 @@ import type { AttentionItem } from "./attention.js";
 import {
   allActionableVulnsTransitive,
   siteSlug,
+  ACTIVE_STATUSES,
+  isPreLaunch,
   type WebsiteRow,
 } from "../reports/airtable/websites.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
@@ -417,6 +419,167 @@ export function collectAnalyticsFailures(
       kind: "analytics",
       siteName: s.name,
       title: "GA/Search enrichment failing (analytics blank)",
+      url: dashboardUrl(baseUrl, s.name),
+      severity: "warning",
+      metric: 1,
+    });
+  }
+  return items;
+}
+
+/** How current a `fail` / `unknown` must be to still CLAIM the fleet's present
+ *  state. The sweep is nightly, so 3 days (mirrors GITHUB_SIGNALS_STALE_DAYS)
+ *  tolerates a weekend of runner flakes without letting a months-old finding drive
+ *  a "models diverge right now" alarm. Past it the finding does not vanish — it
+ *  converts to the staleness item below, which claims nothing about the models. */
+const PRISMIC_DRIFT_STALE_DAYS = 3;
+
+/** How long a `pass` may go unrefreshed before it is treated as unverified.
+ *
+ *  Deliberately LONGER than the currency window, and the asymmetry is the point.
+ *  An old `fail` stops being reported as CURRENT drift at 3 days because it may
+ *  already be fixed. An old `pass` is a green claim nobody has re-established, and
+ *  escalating that at 3 days would light up the WHOLE fleet after a long weekend of
+ *  runner flakes — the noise that gets a real alarm muted. A week is the interval
+ *  over which a silently-dead nightly actually matters. */
+const PRISMIC_STALE_PASS_DAYS = 7;
+
+/**
+ * True when the nightly `prismic-models --fleet airtable` sweep is EXPECTED to
+ * cover this site. Mirrors the Airtable inventory's own filter (src/inventory/
+ * airtable.ts): live `maintenance` sites (active, not pre-launch) that carry a
+ * `url` AND a Name that yields a slug. Deliberately duplicated rather than
+ * imported — the inventory builds `Site` objects and needs a workdir; this is a
+ * pure predicate over a row — but the two must stay in step: widen the inventory
+ * and widen this. That is no longer left to memory: every shape of row is put
+ * through BOTH implementations by tests/alerts/prismic-sweep-scope.test.ts, which
+ * goes red the moment they diverge.
+ *
+ * THE SLUG CLAUSE IS NOT COSMETIC, and it was the first drift this pair produced.
+ * The inventory drops an empty-slug row (`siteSlug(name) === ""`) with a warning,
+ * because such a row can neither form a checkout path nor be matched back to its
+ * Websites row on write-back — and `writeSweepToAirtable` joins by that same slug,
+ * so even a verdict computed for it could never land. Without this clause a live
+ * site named in a script with no `[a-z0-9]` (or with an empty Name) was covered
+ * here and swept nowhere: the permanent, un-ackable morning email this predicate
+ * exists to prevent, produced by the predicate itself.
+ *
+ * Only the STALENESS escalation consults it. A `fail`/`unknown` is a verdict some
+ * run actually established and is reported wherever it came from; the staleness
+ * item is an alarm invented FROM AN ABSENCE, and an absence is only wrong where a
+ * sweep was owed. A deprecated site that left the inventory would otherwise carry
+ * a frozen `pass` into the digest every morning forever — un-ackable (attention
+ * items sit above the accepted-watch mute) and unfixable except by hand-clearing
+ * an Airtable cell.
+ */
+function prismicSweepCovers(s: WebsiteRow): boolean {
+  return (
+    s.status !== null &&
+    ACTIVE_STATUSES.has(s.status) &&
+    !isPreLaunch(s.status) &&
+    s.url.length > 0 &&
+    siteSlug(s.name).length > 0
+  );
+}
+
+/**
+ * One item per site whose nightly Prismic model verdict needs a human, from the
+ * `prismic-models --fleet --write-airtable` sweep. PURE (`now` injected).
+ *
+ * The verdict is THREE-valued plus blank, and each state gets its own key so the
+ * digest's snapshot diff (keyed on `key`) can never let one condition stand in for
+ * another — a site sliding from drift to "couldn't check" re-news as NEW rather
+ * than diffing "standing" against the drift it replaced (both carry `metric` 1):
+ *
+ *   - `fail`, fresh    → `prismic-drift:<siteId>`   — repo and Prismic diverge.
+ *   - `unknown`, fresh → `prismic-unknown:<siteId>` — the check RAN AND COULD NOT
+ *     ANSWER (unreadable checkout, dead write token, unreachable Prismic). Its own
+ *     wording, because reporting a dead token as "models diverge" sends the
+ *     operator to fix a model when the job is to fix a secret.
+ *   - any verdict nobody has re-established → `prismic-stale:<siteId>` — a `pass`
+ *     older than {@link PRISMIC_STALE_PASS_DAYS} (or undateable), or a `fail` /
+ *     `unknown` older than {@link PRISMIC_DRIFT_STALE_DAYS}. A stale verdict is
+ *     never silence: dropping it would make "nobody could evaluate this" read
+ *     exactly like "this is fine", which is the failure this whole column exists
+ *     to close. Gated by {@link prismicSweepCovers}.
+ *   - blank (never swept, or not a Prismic site) → nothing, at any age. There is
+ *     no claim to un-verify.
+ *
+ * A `pass` inside its window is the ONLY silent verdict. At most one item per site
+ * — the Airtable cell holds one state at a time.
+ *
+ * `warning`, not `critical`: on the cockpit ANY item already tiers the site 🔴, so
+ * severity buys only (a) piercing the pre-launch mute and (b) sorting first in the
+ * needs-you feed. `critical` is reserved for the guardrails that are actively
+ * losing leads or breaking a live page (Turnstile, notify-bounce, delivery); a
+ * model that drifted — or a check that could not run — is neither, and piercing
+ * the pre-launch mute would alarm on exactly the sites the sweep excludes by
+ * design.
+ */
+export function collectPrismicDriftAlerts(
+  sites: WebsiteRow[],
+  baseUrl: string,
+  now: Date = new Date(),
+): AttentionItem[] {
+  const items: AttentionItem[] = [];
+  for (const s of sites) {
+    const verdict = s.prismicModels;
+    if (verdict === null) continue;
+
+    const at = s.prismicModelsCheckedAt;
+    // +Infinity when there is no timestamp, NaN when it won't parse — both mean
+    // "the age of this answer is unknowable", which the two verdict families read
+    // in OPPOSITE directions on purpose (see `unverified`).
+    const ageMs = at === null ? Number.POSITIVE_INFINITY : now.getTime() - Date.parse(at);
+    const ageKnown = Number.isFinite(ageMs);
+    const windowDays = verdict === "pass" ? PRISMIC_STALE_PASS_DAYS : PRISMIC_DRIFT_STALE_DAYS;
+    // An undateable `pass` is unverified — a green claim nobody can date is not a
+    // green claim. An undateable `fail`/`unknown` is NOT downgraded: never silently
+    // drop a real finding over a parse glitch.
+    const unverified = ageKnown ? ageMs > windowDays * MS_PER_DAY : verdict === "pass";
+
+    if (unverified) {
+      if (!prismicSweepCovers(s)) continue;
+      items.push({
+        key: `prismic-stale:${s.id}`,
+        kind: "prismic-drift",
+        siteName: s.name,
+        title: `Prismic model check has not run recently — the last verdict ("${verdict}") is unverified`,
+        url: dashboardUrl(baseUrl, s.name),
+        severity: "warning",
+        metric: 1,
+      });
+      continue;
+    }
+
+    if (verdict === "pass") continue;
+
+    const first = s.prismicModelsDrift
+      ?.split("\n")
+      .find((l) => l.trim() !== "")
+      ?.trim();
+    if (verdict === "unknown") {
+      items.push({
+        key: `prismic-unknown:${s.id}`,
+        kind: "prismic-drift",
+        siteName: s.name,
+        title: first
+          ? `Prismic model check could not run — ${first}`
+          : "Prismic model check could not run",
+        url: dashboardUrl(baseUrl, s.name),
+        severity: "warning",
+        metric: 1,
+      });
+      continue;
+    }
+
+    items.push({
+      key: `prismic-drift:${s.id}`,
+      kind: "prismic-drift",
+      siteName: s.name,
+      title: first
+        ? `Prismic models diverge from the repo — ${first}`
+        : "Prismic models diverge from the repo",
       url: dashboardUrl(baseUrl, s.name),
       severity: "warning",
       metric: 1,

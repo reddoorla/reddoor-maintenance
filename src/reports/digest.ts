@@ -15,6 +15,7 @@ import {
   collectAnalyticsFailures,
   collectTurnstileGuardrailAlerts,
   collectNotifyBounceAlerts,
+  collectPrismicDriftAlerts,
   NOTIFY_BOUNCE_WINDOW_DAYS,
 } from "../alerts/digest-collectors.js";
 import { diffAttention, readDigestState, writeDigestState } from "../alerts/digest-state.js";
@@ -338,6 +339,10 @@ export async function collectAttention(deps: CollectAttentionDeps): Promise<Atte
     ...runCollector("notify-bounce", () =>
       collectNotifyBounceAlerts(websites, notifyBounces, deps.baseUrl),
     ),
+    // Same collector the cockpit runs, over the same persisted `Prismic Models`
+    // columns and the same keys — so the snapshot this digest writes is the one
+    // the cockpit diffs NEW/WORSE against, and the two surfaces agree.
+    ...runCollector("prismic-drift", () => collectPrismicDriftAlerts(websites, deps.baseUrl, now)),
   ];
 }
 

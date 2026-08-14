@@ -201,6 +201,46 @@ export type WebsiteRow = {
    *  freshness AND encodes the n/a-vs-never-ran distinction. */
   formE2eOk: "pass" | "fail" | null;
   formE2eCheckedAt: string | null;
+  /**
+   * Nightly Prismic model drift sweep (`prismic-models --fleet --write-airtable`).
+   *
+   * FOUR-VALUED, unlike every other verdict column in this table, and the extra
+   * state is the point:
+   *
+   *   - `pass`    — the repo and its Prismic repository were compared and agree.
+   *   - `fail`    — they were compared and DIVERGE (a model to create/update, or
+   *                 one that exists only in Prismic). A finding for a human.
+   *   - `unknown` — THE CHECK ITSELF FAILED. Unreadable checkout, broken config,
+   *                 missing/expired token, unreadable remote. Nothing at all was
+   *                 established about this site's models.
+   *   - `null`    — no verdict to hold: the sweep has never run for this site, or
+   *                 it ran and found no Prismic config at all (a repo that simply
+   *                 is not a Prismic site). `prismicModelsCheckedAt` separates
+   *                 those two — fresh timestamp, blank verdict = "checked, and
+   *                 there is nothing here to check".
+   *
+   * `unknown` exists because the alternatives are both wrong in the dangerous
+   * direction. Writing `pass` for a site nobody could read is a green tick over
+   * an outage; writing NOTHING (the obvious "leave the last known value alone")
+   * leaves yesterday's `pass` standing for a site that has been failing every
+   * night since — and nothing ages a stale `pass` out, because the digest's
+   * freshness gate only ever examines failures. Both make "I could not read this
+   * site" indistinguishable from "this site is fine", in the record the cockpit
+   * and the digest read.
+   *
+   * OPERATOR PRECONDITION: `Prismic Models` is a single select whose options are
+   * `pass`, `fail`, `unknown`. Until the three columns exist the sweep's writes
+   * fail with UNKNOWN_FIELD_NAME and are collected as soft failures — the feature
+   * ships dark rather than reddening the nightly.
+   */
+  prismicModels: PrismicModelsVerdict | null;
+  /** When the sweep last ran for this site — written on EVERY outcome, including
+   *  `unknown` and blank, so the age of the row is the age of the answer. */
+  prismicModelsCheckedAt: string | null;
+  /** What the sweep found, verbatim: the drift report for a `fail`, the reason
+   *  nothing could be established for an `unknown`, the skip reason for a blank,
+   *  and null for a `pass` (which clears yesterday's finding). */
+  prismicModelsDrift: string | null;
   notifyRouting: NotifyRouting | null;
 };
 
@@ -340,6 +380,26 @@ export function toVerdict(raw: unknown): "pass" | "fail" | null {
   return raw === "pass" || raw === "fail" ? raw : null;
 }
 
+/** The `Prismic Models` cell — see {@link WebsiteRow.prismicModels} for why it
+ *  carries a third state that no other verdict column in this table has. */
+export type PrismicModelsVerdict = "pass" | "fail" | "unknown";
+
+/**
+ * Read the `Prismic Models` cell. Deliberately NOT {@link toVerdict}.
+ *
+ * `toVerdict` maps anything that is not literally `pass`/`fail` to null — which
+ * for this column would read `unknown` ("the check ran and failed") back as null
+ * ("the check never ran"), silently, on the way to the cockpit. That is the
+ * pipeline's governing failure ("I could not read X" wearing the face of "X does
+ * not exist") reintroduced by a shared helper that predates the third state.
+ *
+ * Everything else — blank, a typo, an option somebody added by hand, the wrong
+ * type — still reads as null. A verdict is never guessed.
+ */
+export function toPrismicModelsVerdict(raw: unknown): PrismicModelsVerdict | null {
+  return raw === "pass" || raw === "fail" || raw === "unknown" ? raw : null;
+}
+
 // NOTE: every `f["..."]` key below is a load-bearing magic string that must match
 // the live Airtable "Websites" column name EXACTLY — including the legacy
 // misspelling `"maintenence freq"`, the mixed-case `"GA4 property ID"`, and the
@@ -445,6 +505,9 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     lastSmokeAt: (f["Last Smoke At"] as string | undefined) ?? null,
     formE2eOk: toVerdict(f["Form E2E OK"]),
     formE2eCheckedAt: (f["Form E2E checked at"] as string | undefined) ?? null,
+    prismicModels: toPrismicModelsVerdict(f["Prismic Models"]),
+    prismicModelsCheckedAt: (f["Prismic Models Checked At"] as string | undefined) ?? null,
+    prismicModelsDrift: (f["Prismic Models Drift"] as string | undefined) ?? null,
   };
 }
 
@@ -951,6 +1014,79 @@ export async function updateGitHubSignals(
     fields["Last Commit At"] = signals.lastCommitAt;
   }
   await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+}
+
+/** One site's Prismic model verdict, as the sweep hands it to the record.
+ *
+ *  `verdict: null` is a REQUEST TO BLANK the cell, not "leave it alone" — see
+ *  {@link updatePrismicModels}. There is no way to express "leave it alone" here
+ *  on purpose. */
+export type PrismicModelsWriteback = {
+  verdict: PrismicModelsVerdict | null;
+  checkedAt: string;
+  /** The finding, the failure reason, or the skip reason — whichever this
+   *  verdict has. `null` clears the column. */
+  detail: string | null;
+};
+
+/** Airtable's long-text cells hold ~100k characters and the sweep's report runs
+ *  long on a badly drifted site (an empty Prismic repository sorts every local
+ *  model into `toCreate`, with a line per field). Half the cell is the budget;
+ *  the rest is headroom for whatever renders it. */
+const MAX_PRISMIC_DETAIL_CHARS = 50_000;
+
+/**
+ * Shorten a detail that will not fit, and SAY SO — with the original length, so
+ * nobody mistakes the remainder for the whole. Same reasoning as the PR comment's
+ * truncation notice: a report that was shortened without saying it was shortened
+ * is a report that looks complete and is not.
+ *
+ * The cut is by code unit, so it can land between the halves of an astral
+ * character; a lone surrogate is not valid text and can make Airtable reject the
+ * write, losing the entire finding to a cosmetic detail.
+ */
+function truncatePrismicDetail(detail: string): string {
+  if (detail.length <= MAX_PRISMIC_DETAIL_CHARS) return detail;
+  const notice =
+    `\n…[truncated: this report is ${detail.length} characters and only the first` +
+    ` ${MAX_PRISMIC_DETAIL_CHARS} are kept here. Run \`reddoor-maint prismic-models\` in the` +
+    ` site — dry is the default — for the whole thing.]`;
+  let head = detail.slice(0, MAX_PRISMIC_DETAIL_CHARS - notice.length);
+  const last = head.charCodeAt(head.length - 1);
+  if (last >= 0xd800 && last <= 0xdbff) head = head.slice(0, -1);
+  return head + notice;
+}
+
+/**
+ * Persist one site's Prismic model verdict.
+ *
+ * ALL THREE COLUMNS, ALWAYS, in one update — including when the verdict is
+ * `unknown` or blank. That is the whole design: the alternative ("only write a
+ * verdict when we have one") leaves the PREVIOUS verdict standing for a site
+ * whose check has since started failing, and a stale `pass` is never aged out by
+ * anything — the digest's freshness gate only examines failures. So the record
+ * always says what the last run actually established, and `checkedAt` always
+ * says when. See {@link WebsiteRow.prismicModels} for the four states.
+ *
+ * Best-effort AT THE CALL SITE: `Prismic Models*` are operator-added columns, so
+ * until they exist Airtable throws UNKNOWN_FIELD_NAME. The nightly sweep must
+ * survive that and collect it — same contract as `updateNextDueDates`.
+ *
+ * Takes a non-null `AirtableBase`, like every other writer here: whether to write
+ * at all is the caller's decision, and this repo keeps "do no writes" separate
+ * from "do no IO" one layer up.
+ */
+export async function updatePrismicModels(
+  base: AirtableBase,
+  recordId: string,
+  models: PrismicModelsWriteback,
+): Promise<void> {
+  const fields: Record<string, string | null> = {
+    "Prismic Models": models.verdict,
+    "Prismic Models Checked At": models.checkedAt,
+    "Prismic Models Drift": models.detail === null ? null : truncatePrismicDetail(models.detail),
+  };
+  await base(WEBSITES_TABLE).update([{ id: recordId, fields: fields as FieldSet }]);
 }
 
 /** Mark a site launched: flip Status → maintenance + stamp Launched at (M6b).

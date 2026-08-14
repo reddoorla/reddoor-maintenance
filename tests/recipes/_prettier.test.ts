@@ -1,5 +1,12 @@
-import { describe, it, expect } from "vitest";
-import { formatWithPrettier, PRETTIER_FLAG_NOTE } from "../../src/recipes/_prettier.js";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { isAbsolute, join } from "node:path";
+import {
+  formatWithPrettier,
+  resolveTargetPrettier,
+  PRETTIER_FLAG_NOTE,
+} from "../../src/recipes/_prettier.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 
 describe("recipes/_prettier formatWithPrettier", () => {
@@ -41,5 +48,94 @@ describe("recipes/_prettier formatWithPrettier", () => {
 
   it("exposes a stable flag note for recipes to surface", () => {
     expect(PRETTIER_FLAG_NOTE).toMatch(/prettier/i);
+  });
+
+  // `pnpm exec` picks the binary by resolution. That is right for a recipe that
+  // has just installed the site, and wrong for a caller working in a bare clone:
+  // measured 2026-08-13, `pnpm exec prettier` there both ran an unrequested
+  // `pnpm install` inside the target repo and, in a repo with no prettier
+  // dependency, fell through to the CALLING repo's prettier and exited 0. A
+  // caller that has already resolved the target's own binary passes it here so
+  // that nothing about which binary runs is left to resolution.
+  it("runs an explicitly given binary instead of going through pnpm exec", async () => {
+    const calls: Array<{ cmd: string; args: readonly string[] }> = [];
+    const spawn: SpawnFn = async (cmd, args) => {
+      calls.push({ cmd, args });
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const ok = await formatWithPrettier(spawn, "/site", ["a.ts"], {
+      bin: "/site/node_modules/.bin/prettier",
+    });
+    expect(ok).toBe(true);
+    expect(calls).toEqual([{ cmd: "/site/node_modules/.bin/prettier", args: ["--write", "a.ts"] }]);
+  });
+
+  // A stalled format wedges a human-invoked CLI with nothing printed. The
+  // timeout is also what makes the default spawn detach the child, so the kill
+  // reaches prettier rather than only its wrapper.
+  it("passes a timeout through when given one", async () => {
+    let seen: number | undefined = -1;
+    const spawn: SpawnFn = async (_cmd, _args, opts) => {
+      seen = opts?.timeoutMs;
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    await formatWithPrettier(spawn, "/site", ["a.ts"], { timeoutMs: 60_000 });
+    expect(seen).toBe(60_000);
+  });
+
+  // The two recipe callers pass no options, and must keep spawning exactly as
+  // they did — including with NO `timeoutMs` key at all, which is what the
+  // default spawn reads to decide whether to detach.
+  it("omits timeoutMs entirely when no timeout is given", async () => {
+    let opts: Record<string, unknown> | undefined;
+    const spawn: SpawnFn = async (_cmd, _args, o) => {
+      opts = o as Record<string, unknown> | undefined;
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    await formatWithPrettier(spawn, "/site", ["a.ts"]);
+    expect(opts).toEqual({ cwd: "/site" });
+    expect("timeoutMs" in (opts ?? {})).toBe(false);
+  });
+
+  it("returns false when a timed-out spawn rejects", async () => {
+    const spawn: SpawnFn = async () => {
+      throw new Error("spawn timeout after 60000ms: prettier");
+    };
+    await expect(
+      formatWithPrettier(spawn, "/site", ["a.ts"], { bin: "/b", timeoutMs: 60_000 }),
+    ).resolves.toBe(false);
+  });
+});
+
+describe("recipes/_prettier resolveTargetPrettier", () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "resolve-prettier-"));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("returns the target repo's own prettier, resolved to an absolute real path", async () => {
+    const bin = join(dir, "node_modules", ".bin");
+    await mkdir(bin, { recursive: true });
+    await writeFile(join(bin, "prettier"), "#!/bin/sh\n", "utf-8");
+    const resolved = await resolveTargetPrettier(dir);
+    expect(resolved).not.toBeNull();
+    expect(resolved!.endsWith(join("node_modules", ".bin", "prettier"))).toBe(true);
+    expect(isAbsolute(resolved!)).toBe(true);
+  });
+
+  it("returns null — never a bare `prettier` — when the target has none", async () => {
+    // The caller must then SKIP formatting and flag it. Falling back to a name
+    // on PATH is what resolves to the CALLING repo's prettier and exits 0.
+    expect(await resolveTargetPrettier(dir)).toBeNull();
+  });
+
+  it("reads a DANGLING shim as absent rather than present", async () => {
+    const bin = join(dir, "node_modules", ".bin");
+    await mkdir(bin, { recursive: true });
+    await symlink(join(dir, "node_modules", "prettier", "bin", "gone.js"), join(bin, "prettier"));
+    expect(await resolveTargetPrettier(dir)).toBeNull();
   });
 });

@@ -31,6 +31,14 @@ Local + reversible-remote. The agent does these freely:
   (see Merge authority).
 - Reads of Airtable / GitHub / the fleet; running audits, builds, tests, lint,
   typecheck, `changeset` (authoring, not publishing), the review workflows.
+- **Prismic model push via CI on a merged PR** — a model change rides a normal
+  PR: the check posts the delta as a PR comment, the PR is merged under Merge
+  authority below, and the site's own workflow pushes on `push: main`. The
+  review gate has already happened by then. The push is `--apply` in that one
+  workflow, it creates and updates but never deletes, and a model present only
+  in Prismic is reported rather than touched. Pulling one of those down
+  (`prismic-models <site> --pull`) is green for the same reason it is safe: it
+  writes into a working tree, never to Prismic, and lands as a reviewed PR.
 
 ### 🟡 YELLOW — autonomous behind a stronger gate, logged + reversible
 
@@ -45,10 +53,27 @@ Local + reversible-remote. The agent does these freely:
   `chore(release): version packages` PR** (that is what triggers the publish).
 - Production deploys (client Netlify sites; the agent touches them via PRs, never
   direct deploys).
-- Secrets (`gh secret set`), branch-protection / org / billing changes.
+- Secrets (`gh secret set`), branch-protection / org / billing changes —
+  including **minting or rotating any Prismic write token**: the fifteen central
+  `PRISMIC_TOKEN_<PRISMIC REPOSITORY NAME>` secrets and each site's own
+  `PRISMIC_WRITE_TOKEN`. Named here because the derivation invites a
+  hand-written list and four of the fifteen do not match their repo's directory
+  name; the agent may print the checklist
+  (`prismic-models --fleet airtable --tokens`, read-only) and never mint from it.
+  See [`docs/runbooks/prismic-model-delivery.md`](docs/runbooks/prismic-model-delivery.md).
+- **Prismic model deletes** — always. A model delete destroys published content's
+  schema and is not `git revert`-able. The `prismic-models` code has no delete
+  path at all (a module-wide capability guard over `src/prismic/models/` asserts
+  this); deleting a model is a human action in the Prismic dashboard.
 - **Fleet-wide mutations** — any operation that changes more than one client repo
   in one go (a codemod, a `sync-configs` sweep) lands as **per-repo PRs for
-  review**, never an unattended mass push.
+  review**, never an unattended mass push. **Any fleet-wide model push outside
+  CI** is the same rule aimed at Prismic, where the mutation lands in a client's
+  live content model instead of in a revertable commit: `prismic-models --fleet`
+  is read-only by construction (`--fleet --apply` is refused, exit 2), each
+  site's models are pushed only by that site's own workflow on merge to `main`,
+  and the rollout of that workflow (`prismic-ci --fleet`) lands as per-repo PRs
+  like everything else here.
 - History rewrites (force-push, `reset --hard` on shared branches), deletes of
   data the agent did not create.
 

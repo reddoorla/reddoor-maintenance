@@ -1,0 +1,145 @@
+{
+	"id": "page",
+	"label": "page",
+	"format": "page",
+	"repeatable": true,
+	"status": true,
+	"json": {
+		"Main": {
+			"uid": {
+				"type": "UID",
+				"config": {
+					"label": "UID",
+					"placeholder": ""
+				}
+			},
+			"dates": {
+				"type": "Text",
+				"config": {
+					"label": "dates",
+					"placeholder": ""
+				}
+			},
+			"artist": {
+				"type": "Text",
+				"config": {
+					"label": "small title",
+					"placeholder": ""
+				}
+			},
+			"title_line_one": {
+				"type": "Text",
+				"config": {
+					"label": "title line one",
+					"placeholder": ""
+				}
+			},
+			"title_line_two": {
+				"type": "Text",
+				"config": {
+					"label": "title line two",
+					"placeholder": ""
+				}
+			},
+			"title_line_three": {
+				"type": "Text",
+				"config": {
+					"label": "title line three",
+					"placeholder": ""
+				}
+			},
+			"background_image": {
+				"type": "Image",
+				"config": {
+					"label": "background image",
+					"constraint": {},
+					"thumbnails": []
+				}
+			},
+			"default_background_color": {
+				"type": "Color",
+				"config": {
+					"label": "default background color",
+					"placeholder": ""
+				}
+			},
+			"sections": {
+				"type": "Group",
+				"config": {
+					"label": "sections",
+					"repeat": true,
+					"fields": {
+						"section": {
+							"type": "Text",
+							"config": {
+								"label": "section",
+								"placeholder": ""
+							}
+						}
+					}
+				}
+			},
+			"nav_image": {
+				"type": "Image",
+				"config": {
+					"label": "nav image",
+					"constraint": {},
+					"thumbnails": []
+				}
+			},
+			"slices": {
+				"type": "Slices",
+				"fieldset": "Slice Zone",
+				"config": {
+					"choices": {
+						"quote_block": {
+							"type": "SharedSlice"
+						},
+						"video_block": {
+							"type": "SharedSlice"
+						},
+						"image_gallery": {
+							"type": "SharedSlice"
+						},
+						"title_block": {
+							"type": "SharedSlice"
+						},
+						"name_list": {
+							"type": "SharedSlice"
+						},
+						"rich_text": {
+							"type": "SharedSlice"
+						}
+					}
+				}
+			}
+		},
+		"SEO & Metadata": {
+			"meta_title": {
+				"type": "Text",
+				"config": {
+					"label": "Meta Title",
+					"placeholder": "Page title for search results and social shares — keep under 70 characters"
+				}
+			},
+			"meta_description": {
+				"type": "Text",
+				"config": {
+					"label": "Meta Description",
+					"placeholder": "One or two sentence summary shown in search results (this is not the title)"
+				}
+			},
+			"meta_image": {
+				"type": "Image",
+				"config": {
+					"label": "Meta Image",
+					"constraint": {
+						"width": 2400,
+						"height": 1260
+					},
+					"thumbnails": []
+				}
+			}
+		}
+	}
+}

@@ -88,6 +88,13 @@ export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     lastSmokeAt: null,
     formE2eOk: null,
     formE2eCheckedAt: null,
+    // Never swept, which is what every row looks like until the operator adds the
+    // three `Prismic Models*` columns. `null` here is "no verdict", NOT "clean" —
+    // a factory that defaulted to "pass" would hand every collector test a site
+    // that silently claims to match Prismic.
+    prismicModels: null,
+    prismicModelsCheckedAt: null,
+    prismicModelsDrift: null,
     ...over,
   };
 }
