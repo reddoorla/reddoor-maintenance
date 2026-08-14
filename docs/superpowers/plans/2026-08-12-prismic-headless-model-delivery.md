@@ -3893,6 +3893,34 @@ git commit -m "feat(prismic): fleet sweep is read-only, detects cross-repo repos
 
 ---
 
+### Task 17b: `--fleet --tokens` — the doctor across the whole fleet
+
+**Added 2026-08-13.** The Task 17 implementer found that this plan documents `prismic-models --fleet airtable --tokens` in **three** places — Task 23's workflow comment, Task 27's operator step, and Task 32's live-proof step — and **no task implements it**. `runTokenDoctor` probes one checkout.
+
+Left unrefused it is the failure class this plan exists to eliminate: it would print ONE row under a heading claiming to cover the fleet, and an operator would mint one secret believing they had covered fifteen. Task 17 refused it with `NOT IMPLEMENTED` (exit 1) rather than inventing a mode inside an unrelated commit, which was correct. This task builds it.
+
+**It is also on the critical path for Task 32** — the operator step that tells you which `PRISMIC_TOKEN_*` secrets to mint is the first thing the live proof needs.
+
+**Files:**
+
+- Modify: `src/cli/commands/prismic-models.ts`
+- Test: `tests/cli/prismic-models-tokens.test.ts`
+
+**What it must do**
+
+- Resolve the inventory exactly as `sweepFleet` does, prepare each site, and probe each one's token — reusing `probeSiteToken` and `renderTokenDoctor`, which already takes an array.
+- **Count preparation failures as `failed` rows, not skips.** Task 17 fixed exactly this bug in the sweep: `prepareFleetSites` puts a clone failure in `skipped`, and building rows only from `prep.prepared` meant a fleet-wide clone outage reported `0 checked, 0 failed, exit 0`. The doctor has the identical shape and must not repeat it — a site whose checkout could not be established has an UNKNOWN token requirement, which is not the same as needing none.
+- **Never print a token value.** Print env var NAMES and resolution status only. The existing test that no value can reach the output must cover this path too. Note the trap: a `{40,}` character-class regex matches `PRISMIC_TOKEN_MEDICAL_SOLUTIONS_OF_TEXAS` exactly, so assert the real property (the type holds no token; a token in `env` never appears in output), never a length heuristic.
+- **`PRESENT (not verified)`, never `OK`.** Nothing here validates a token against the API, and claiming OK for a secret nobody tested is this plan's own rule pointed at the doctor's output.
+- Remove `--fleet --tokens` from the refusal list, and confirm the remaining refusals still fire.
+- Exit non-zero when any site's token is MISSING — the whole point is to gate the operator step.
+
+**Fleet identity note.** The env var is derived from the **Prismic `repositoryName`**, not the repo directory name, and four differ: `medical-solutions-of-texas` → `msot`, `reddoor-website` → `reddoor-la`, `data-dynamiq` → `reddoor-wireframer`, `beachfront-dentistry` → `48bb12d1`. Printing repo → Prismic repository → env var is the whole value of this command; `48BB12D1` is otherwise unattributable to a site.
+
+Also report the **derived-env-var collision** axis that Task 17 added to the collision detector: two distinct repositories that upper-snake onto one `PRISMIC_TOKEN_*` would silently share a credential, and the doctor is where an operator would notice before minting.
+
+---
+
 ### Task 18: register the command in `bin.ts`
 
 **Files:**
