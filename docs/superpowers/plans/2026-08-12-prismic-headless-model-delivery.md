@@ -4496,6 +4496,17 @@ Append to `src/alerts/digest-collectors.ts`:
  *  runner flakes without letting a months-old verdict drive an alarm. */
 const PRISMIC_DRIFT_STALE_DAYS = 3;
 
+/** How long a `pass` may go unrefreshed before it is treated as unverified.
+ *
+ *  Deliberately LONGER than the drift window. The two windows answer opposite
+ *  questions and the asymmetry is the point: an old `fail` is dropped because it
+ *  may already be fixed, so 3 days keeps the alarm current. An old `pass` is
+ *  ESCALATED because nobody has re-established it, and firing that at 3 days
+ *  would alarm on a long weekend of runner flakes — the noise that gets a real
+ *  alarm muted. A week means a `pass` nobody has confirmed for seven nights is
+ *  surfaced, which is the interval over which a silently-dead nightly matters. */
+const PRISMIC_STALE_PASS_DAYS = 7;
+
 /**
  * One item per site whose repo and Prismic repository disagree, from the nightly
  * `prismic-models --fleet` sweep. PURE. Keyed `prismic-drift:<siteId>`; `metric`
@@ -4517,6 +4528,57 @@ export function collectPrismicDriftAlerts(
 ): AttentionItem[] {
   const items: AttentionItem[] = [];
   for (const s of sites) {
+    // THREE verdicts, not two — and this gate was HALF A GATE while it only knew
+    // about "fail".
+    //
+    // `unknown` means the check RAN AND COULD NOT ANSWER: an unreadable checkout,
+    // a dead write token, an unreachable Prismic. It must alarm. It is not drift,
+    // so it gets its own wording — reporting a dead token as "models diverge"
+    // sends the operator to fix a model when the job is to fix a secret.
+    //
+    // And the staleness rule was asymmetric in the dangerous direction. A stale
+    // `fail` ages out after PRISMIC_DRIFT_STALE_DAYS; a stale `pass` was
+    // IMMORTAL, because the loop skipped it before any freshness check ran. Prior
+    // to the `unknown` verdict a failed sweep wrote nothing at all, so yesterday's
+    // `pass` simply stood — a token that died on Monday read healthy forever.
+    // Writing `unknown` closes the common case, but a site that stops being swept
+    // ENTIRELY (dropped from the inventory, nightly disabled) still leaves a green
+    // verdict behind, so `pass` gets a freshness gate of its own.
+    if (s.prismicModels === "pass") {
+      const at = s.prismicModelsCheckedAt;
+      const ageMs = at === null ? Number.POSITIVE_INFINITY : now.getTime() - Date.parse(at);
+      // A `pass` with no timestamp, an unparseable one, or one past the window is
+      // a verdict nobody has re-established. Alarm rather than trust it.
+      if (!Number.isFinite(ageMs) || ageMs > PRISMIC_STALE_PASS_DAYS * MS_PER_DAY) {
+        items.push({
+          key: `prismic-stale:${s.id}`,
+          kind: "prismic-drift",
+          siteName: s.name,
+          title: `Prismic model check has not run recently — the last "pass" is unverified`,
+          url: dashboardUrl(baseUrl, s.name),
+          severity: "warning",
+          metric: 1,
+        });
+      }
+      continue;
+    }
+
+    if (s.prismicModels === "unknown") {
+      const first = s.prismicModelsDrift?.split("\n").find((l) => l.trim() !== "");
+      items.push({
+        key: `prismic-unknown:${s.id}`,
+        kind: "prismic-drift",
+        siteName: s.name,
+        title: first
+          ? `Prismic model check could not run — ${first.trim()}`
+          : "Prismic model check could not run",
+        url: dashboardUrl(baseUrl, s.name),
+        severity: "warning",
+        metric: 1,
+      });
+      continue;
+    }
+
     if (s.prismicModels !== "fail") continue;
     const at = s.prismicModelsCheckedAt;
     if (at !== null) {
