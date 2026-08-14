@@ -60,6 +60,8 @@ No checkout, no fetch, nothing written to a client repo. Two gotchas: `canvas-st
 
 Found while reconciling the counts above: `the-tower` and `the-tower-burbank` **both** declare `repositoryName: "the-tower-burbank"`. Two GitHub repos, one Prismic repository.
 
+**Confirmed unreachable by the sweep, 2026-08-13**, by a second measurement the first one could not make: the Airtable `Websites` inventory holds **no row whose `Git repo` is `reddoorla/the-tower`** (the two Tower rows are `The Tower Burbank` → `reddoorla/the-tower-burbank`, and a `legacy` `Tower Burbank` with no repo at all). The fleet sweep enumerates the inventory, not the GitHub org, so it never visits `the-tower` and the two repos are never in scope together. That is the reason it is safe — not the archive flag, which nothing reads.
+
 This is benign today only because `the-tower` is archived — it is the predecessor of `the-tower-burbank`. But nothing in the pipeline notices it. `assertNoDuplicateIds` (Task 8) prevents two files inside one repo from claiming one model id; there is no equivalent guard preventing two repos from claiming one Prismic repository. Both would derive the same `PRISMIC_TOKEN_THE_TOWER_BURBANK`, both would treat their own `customtypes/` as the source of truth, and in a fleet sweep whichever ran second would overwrite the first — silently, with no diff shown, because each repo's own comparison is internally consistent.
 
 **Task 17 must fail the fleet sweep on a `repositoryName` collision, naming both repos**, for the same reason Task 8 fails on a duplicate model id: only a human can say which repo is the intended owner.
@@ -5763,10 +5765,27 @@ git commit -m "chore: changeset for headless Prismic model delivery"
 
 The success criteria are behavioural. This task verifies them against a live repository rather than asserting them.
 
+**Which sites — measured 2026-08-13, and one of the three the operator named is NOT eligible.**
+
+The operator chose the-pointe, composition-hospitality and alamo-anatomy, on the stated reasoning that none is yet a live client site. Two hold up; the third does not, and the reason is worth stating because it is the same absent-vs-unreadable distinction this plan is built on — "I did not find a Prismic repository" is not "the site is a good low-risk candidate."
+
+| Candidate                 | Prismic `repositoryName` (from `origin/HEAD`)   | Airtable row                                                             | Eligible                           |
+| ------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------ | ---------------------------------- |
+| `alamo-anatomy`           | `alamo-anatomy`                                 | `Alamo Anatomy`, `launch period`, repo set                               | ✅                                 |
+| `the-pointe-burbank`      | `the-pointe-burbank`                            | `the-pointe-burbank`, `in development`, repo set                         | ✅                                 |
+| `the-pointe`              | `the-pointe`                                    | `The Pointe`, `legacy`, **no `Git repo`**                                | ⚠ real Prismic repo, but not swept |
+| `composition-hospitality` | **`your-prismic-repo-name`** (starter sentinel) | `Composition Hospitality`, `probably not our problem`, **no `Git repo`** | ❌                                 |
+
+`composition-hospitality` **has no Prismic repository at all** — it still carries the starter sentinel, so `readPrismicConfig` returns `null` and every path in this pipeline correctly treats it as not-a-Prismic-site. It cannot prove anything about model delivery until a Prismic repository is minted for it and `slicemachine.config.json` names it. It is also outside the swept inventory, so steps 1, 2 and 6 would never reach it either way.
+
+**Substitute `the-pointe-burbank`** — `in development`, in the inventory, with a real Prismic repository, which is precisely the "not yet a live client site" property the operator was selecting for. Note that "pointe" is itself ambiguous between two eligible-looking repos and they resolve differently: `the-pointe` has a real Prismic repository but no inventory row, so it can prove the PR/merge path (steps 3–5) and nothing about the sweep (steps 1, 2, 6).
+
 - [ ] **Step 1: Prove the sweep reads the whole fleet**
 
 Run: `node dist/cli/bin.js prismic-models --fleet airtable --tokens`
-Expected: one row per site; every Prismic site `OK`; `0 failing`. Any `MISSING` is an operator token to mint before continuing.
+Expected: one row per site, each printing repo → Prismic repository → env var name; every Prismic site `PRESENT (not verified)`; `0 failing`. Any `MISSING` is an operator token to mint before continuing.
+
+**Not `OK`** — see Task 17b. Nothing in this step validates a token against the Prismic API, and printing `OK` for a secret nobody has exercised is this plan's own absent-vs-unreadable rule pointed at the doctor's output. The first thing that actually proves a token is step 2, which reads each repository.
 
 - [ ] **Step 2: Prove the fleet is still clean**
 
