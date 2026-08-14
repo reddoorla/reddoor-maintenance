@@ -65,6 +65,7 @@ describe("types", () => {
       "health-endpoint",
       "smoke-suite",
       "self-updating",
+      "prismic-ci",
       "init",
     ];
     expect([...ALL_RECIPE_NAMES].sort()).toEqual([...all].sort());

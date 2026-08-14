@@ -62,6 +62,8 @@ const RECIPE_DESCRIPTIONS: Record<RecipeName, string> = {
   "smoke-suite": "Add the smoke suite (test:smoke + playwright config + /health smoke routes).",
   "self-updating":
     "Bootstrap Renovate + repo protection (writes renovate configs via PR, wires ruleset, disables platform auto-merge; ci.yml comes from the starter and is deliberately not managed).",
+  "prismic-ci":
+    "Add the Prismic model delivery workflow to a site via PR (dry delta comment on PRs, push to Prismic on merge to main).",
   init: "Run the full onboarding chain (convert-to-pnpm → onboard → sync-configs → svelte-codemods → a11y-fixtures-page → health-endpoint → smoke-suite → audit).",
 };
 

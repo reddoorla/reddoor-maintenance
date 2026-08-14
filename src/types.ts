@@ -39,6 +39,7 @@ export type RecipeName =
   | "health-endpoint"
   | "smoke-suite"
   | "self-updating"
+  | "prismic-ci"
   | "init";
 
 export type ConfigName =

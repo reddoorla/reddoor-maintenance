@@ -1,5 +1,12 @@
-import { describe, it, expect } from "vitest";
-import { formatWithPrettier, PRETTIER_FLAG_NOTE } from "../../src/recipes/_prettier.js";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { isAbsolute, join } from "node:path";
+import {
+  formatWithPrettier,
+  resolveTargetPrettier,
+  PRETTIER_FLAG_NOTE,
+} from "../../src/recipes/_prettier.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 
 describe("recipes/_prettier formatWithPrettier", () => {
@@ -97,5 +104,38 @@ describe("recipes/_prettier formatWithPrettier", () => {
     await expect(
       formatWithPrettier(spawn, "/site", ["a.ts"], { bin: "/b", timeoutMs: 60_000 }),
     ).resolves.toBe(false);
+  });
+});
+
+describe("recipes/_prettier resolveTargetPrettier", () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "resolve-prettier-"));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("returns the target repo's own prettier, resolved to an absolute real path", async () => {
+    const bin = join(dir, "node_modules", ".bin");
+    await mkdir(bin, { recursive: true });
+    await writeFile(join(bin, "prettier"), "#!/bin/sh\n", "utf-8");
+    const resolved = await resolveTargetPrettier(dir);
+    expect(resolved).not.toBeNull();
+    expect(resolved!.endsWith(join("node_modules", ".bin", "prettier"))).toBe(true);
+    expect(isAbsolute(resolved!)).toBe(true);
+  });
+
+  it("returns null — never a bare `prettier` — when the target has none", async () => {
+    // The caller must then SKIP formatting and flag it. Falling back to a name
+    // on PATH is what resolves to the CALLING repo's prettier and exits 0.
+    expect(await resolveTargetPrettier(dir)).toBeNull();
+  });
+
+  it("reads a DANGLING shim as absent rather than present", async () => {
+    const bin = join(dir, "node_modules", ".bin");
+    await mkdir(bin, { recursive: true });
+    await symlink(join(dir, "node_modules", "prettier", "bin", "gone.js"), join(bin, "prettier"));
+    expect(await resolveTargetPrettier(dir)).toBeNull();
   });
 });

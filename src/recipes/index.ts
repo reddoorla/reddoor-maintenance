@@ -54,6 +54,7 @@ export const ALL_RECIPE_NAMES: RecipeName[] = [
   "health-endpoint",
   "smoke-suite",
   "self-updating",
+  "prismic-ci",
   "init",
 ];
 
