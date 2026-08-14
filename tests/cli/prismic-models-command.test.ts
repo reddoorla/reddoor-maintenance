@@ -6,6 +6,7 @@ import {
   checkOneSite,
   forComment,
   runPrismicModelsCommand,
+  DEFAULT_COMMENT_LIMIT,
   type PrismicModelsDeps,
 } from "../../src/cli/commands/prismic-models.js";
 import type { RemoteEntry } from "../../src/prismic/models/index.js";
@@ -230,7 +231,7 @@ describe("runPrismicModelsCommand — in-repo", () => {
     expect(await readFile(out, "utf-8")).toContain("Prismic models");
   });
 
-  it("--comment-file writes exactly what the CLI printed when it fits", async () => {
+  it("--comment-file writes exactly what the CLI printed, under a run stamp", async () => {
     await site();
     await customType("page", { label: "Page v2" });
     const out = join(dir, "comment.md");
@@ -239,7 +240,124 @@ describe("runPrismicModelsCommand — in-repo", () => {
       { cwd: dir, commentFile: out },
       deps([{ kind: "customtype", id: "page", model: { id: "page", label: "Page" } }]),
     );
-    expect(await readFile(out, "utf-8")).toBe(r.output);
+    const body = await readFile(out, "utf-8");
+    // The report itself is verbatim — the reviewer and the operator must see the
+    // same characters. Only a provenance line sits above it.
+    expect(body.endsWith(r.output)).toBe(true);
+  });
+
+  // A comment file with no identity cannot be told apart from the PREVIOUS run's.
+  // The CLI dying before it writes leaves the old file in place, and on a re-used
+  // workspace that stale report gets posted as this run's output.
+  it("--comment-file stamps the run that wrote it", async () => {
+    await site();
+    await customType("page");
+    const out = join(dir, "comment.md");
+    const d = deps([{ kind: "customtype", id: "page", model: { id: "page" } }]);
+    d.env = { ...d.env, GITHUB_RUN_ID: "4242", GITHUB_RUN_ATTEMPT: "3", GITHUB_SHA: "deadbee" };
+    await runPrismicModelsCommand(undefined, { cwd: dir, commentFile: out }, d);
+    const [stamp] = (await readFile(out, "utf-8")).split("\n");
+    expect(stamp).toContain("run 4242");
+    expect(stamp).toContain("attempt 3");
+    expect(stamp).toContain("deadbee");
+    expect(stamp).toContain("espada");
+    expect(stamp).toMatch(/\d{4}-\d{2}-\d{2}T[\d:.]+Z/);
+  });
+
+  // Outside CI there is no run id to quote, and a stamp that said nothing would
+  // be no better than no stamp.
+  it("stamps a local run with a pid and a timestamp", async () => {
+    await site();
+    await customType("page");
+    const out = join(dir, "comment.md");
+    await runPrismicModelsCommand(
+      undefined,
+      { cwd: dir, commentFile: out },
+      deps([{ kind: "customtype", id: "page", model: { id: "page" } }]),
+    );
+    const [stamp] = (await readFile(out, "utf-8")).split("\n");
+    expect(stamp).toContain(`local pid ${process.pid}`);
+    expect(stamp).toMatch(/\d{4}-\d{2}-\d{2}T[\d:.]+Z/);
+  });
+
+  // `--comment-file ""` is what an unset workflow variable expands to. Falsy, so
+  // the write was skipped in silence: a green check on a model PR with no review
+  // comment on it at all.
+  it("exits non-zero on an empty --comment-file instead of silently writing nothing", async () => {
+    await site();
+    await customType("page");
+    const send = sender();
+    const r = await runPrismicModelsCommand(
+      undefined,
+      { cwd: dir, commentFile: "   ", apply: true },
+      deps([{ kind: "customtype", id: "page", model: { id: "page" } }], send),
+    );
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("--comment-file");
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  // A flag parser hands back `true` for `--comment-file` with no value. `resolve`
+  // throws on it, and that throw used to sit outside the try and take the whole
+  // command — report included — down with it.
+  it("reports a non-string --comment-file rather than crashing", async () => {
+    await site();
+    await customType("page");
+    const r = await runPrismicModelsCommand(
+      undefined,
+      { cwd: dir, commentFile: true as unknown as string },
+      deps([{ kind: "customtype", id: "page", model: { id: "page" } }]),
+    );
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("--comment-file");
+    expect(r.output).toContain("boolean");
+  });
+
+  // Task 18 registers these flags; Tasks 15/16/17/20 implement them. In between,
+  // they were accepted and IGNORED — `--fleet inventory.json` ran an in-repo
+  // check of the cwd and reported a successful sweep, exit 0.
+  it.each([
+    ["--pull", { pull: true }],
+    ["--tokens", { tokens: true }],
+    ["--fleet", { fleet: "inventory.json" }],
+    ["--write-airtable", { writeAirtable: true }],
+  ])("exits non-zero for the unimplemented %s instead of doing something else", async (flag, o) => {
+    await site();
+    await customType("page");
+    const send = sender();
+    const r = await runPrismicModelsCommand(
+      undefined,
+      { cwd: dir, ...o },
+      deps([{ kind: "customtype", id: "page", model: { id: "page" } }], send),
+    );
+    expect(r.code).toBe(1);
+    expect(r.output).toContain(flag);
+    expect(r.output).toContain("NOT IMPLEMENTED");
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("names every unimplemented mode that was asked for", async () => {
+    await site();
+    const r = await runPrismicModelsCommand(
+      undefined,
+      { cwd: dir, pull: true, tokens: true },
+      deps([]),
+    );
+    expect(r.output).toContain("--pull");
+    expect(r.output).toContain("--tokens");
+  });
+
+  // A flag parser leaves `false` behind for a boolean flag nobody typed.
+  it("does not trip the guard on flags that were not asked for", async () => {
+    await site();
+    await customType("page");
+    const r = await runPrismicModelsCommand(
+      undefined,
+      { cwd: dir, pull: false, tokens: false, writeAirtable: false },
+      deps([{ kind: "customtype", id: "page", model: { id: "page" } }]),
+    );
+    expect(r.code).toBe(0);
+    expect(r.output).not.toContain("NOT IMPLEMENTED");
   });
 
   // No comment means no review artifact. A dry run that silently failed to write
@@ -279,10 +397,16 @@ describe("runPrismicModelsCommand — in-repo", () => {
     const body = await readFile(out, "utf-8");
     // The CLI's own output is COMPLETE — only the comment is budgeted.
     expect(r.output.length).toBeGreaterThan(65_536);
-    expect(body.length).toBeLessThanOrEqual(65_536);
-    expect(body.startsWith("Prismic models — repository: espada")).toBe(true);
-    expect(body).toContain("TRUNCATED");
-    expect(body).toContain(String(r.output.length));
+    // Under the CAP, with headroom left for the wrapper the workflow adds.
+    expect(body.length).toBeLessThanOrEqual(DEFAULT_COMMENT_LIMIT);
+    expect(body.startsWith("⚠ TRUNCATED")).toBe(true);
+    // The report's own head — the repository name — still survives the cut.
+    expect(body).toContain("Prismic models — repository: espada");
+    // The tail notice stays — the head marker points at it — and quotes the real
+    // size of what was cut, which is the report plus the run stamp above it.
+    expect(body.trimEnd().endsWith("before approving.")).toBe(true);
+    const quoted = /this report is (\d+) characters/.exec(body)?.[1];
+    expect(Number(quoted)).toBeGreaterThan(r.output.length);
   });
 });
 
@@ -299,7 +423,83 @@ describe("checkOneSite", () => {
       },
     );
     expect(r.clean).toBe(true);
+    expect(r.status).toBe("checked");
     expect(r.repositoryName).toBe("espada");
+  });
+
+  // THE WRITE DESTINATION. `repositoryName` is the `repository:` header on every
+  // Types API call, so it is the single value that decides WHICH live client's
+  // Prismic repository this pushes to — and nothing else in the suite pins it.
+  // Task 17 threads a second repository identity through the same function.
+  it("sends to the repository the config names, with that repository's own token", async () => {
+    await site("the-pinnacle");
+    await customType("page", { label: "Page v2" });
+    const send = sender();
+    const d = deps(
+      [{ kind: "customtype", id: "page", model: { id: "page", label: "Page" } }],
+      send,
+    );
+    // The canonical per-site secret AND a generic one, so a mix-up is visible:
+    // resolution must pick the site's own.
+    d.env = { PRISMIC_TOKEN_THE_PINNACLE: "pinnacle-token", PRISMIC_WRITE_TOKEN: "generic-token" };
+    await checkOneSite(dir, d, { apply: true, allowGenericToken: true });
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      "the-pinnacle",
+      "pinnacle-token",
+      expect.objectContaining({ id: "page" }),
+      "update",
+    );
+    // The read side is the same identity: a comparison against one repository
+    // followed by a push to another is a diff computed for the wrong site.
+    expect(d.remoteModels).toHaveBeenCalledWith("the-pinnacle", "pinnacle-token");
+  });
+
+  // A repoRoot that does not exist makes every config read ENOENT, which
+  // `readPrismicConfig` correctly reads as "this repo does not have this file"
+  // and, candidates exhausted, returns null for. That null used to land on the
+  // "not a Prismic site — skipped" green exit: a typo'd path, a bad
+  // `working-directory:`, or a clone that failed all reported success — under
+  // `--apply` too.
+  it("errors on a repoRoot that does not exist instead of skipping it", async () => {
+    const missing = join(dir, "no-such-checkout");
+    const send = sender();
+    const r = await checkOneSite(missing, deps([], send), { apply: true, allowGenericToken: true });
+    expect(r.code).toBe(1);
+    expect(r.status).toBe("failed");
+    expect(r.clean).toBeNull();
+    expect(r.output).toContain(missing);
+    expect(r.output).not.toMatch(/not a Prismic site/i);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("errors when the repoRoot is a file rather than a checkout", async () => {
+    const notADir = join(dir, "a-file");
+    await writeFile(notADir, "");
+    const r = await checkOneSite(notADir, deps([]), { apply: false, allowGenericToken: true });
+    expect(r.code).toBe(1);
+    expect(r.status).toBe("failed");
+    expect(r.output).not.toMatch(/not a Prismic site/i);
+  });
+
+  // `clean: null` alone cannot say which of these happened, and they are
+  // opposite operational facts: one is routine, the other is an outage.
+  it("separates a skip from a failure by status, not by a null verdict", async () => {
+    const skipped = await checkOneSite(dir, deps([]), { apply: false, allowGenericToken: true });
+    expect(skipped.status).toBe("skipped");
+    expect(skipped.clean).toBeNull();
+    expect(skipped.code).toBe(0);
+
+    await writeFile(join(dir, "slicemachine.config.json"), "{ not json");
+    const broken = await checkOneSite(dir, deps([]), { apply: false, allowGenericToken: true });
+    expect(broken.status).toBe("failed");
+    expect(broken.clean).toBeNull();
+    expect(broken.code).toBe(1);
+    // Neither learns a repositoryName, so a sweep counting `repositoryName !==
+    // null` reads these two identically. That is what `status` is for.
+    expect(skipped.repositoryName).toBeUndefined();
+    expect(broken.repositoryName).toBeUndefined();
   });
 
   // Zero models on BOTH sides is a misconfiguration wearing a clean run, and the
@@ -326,20 +526,61 @@ describe("checkOneSite", () => {
 
 describe("forComment", () => {
   it("passes a body that fits through untouched", () => {
-    expect(forComment("Prismic models — repository: espada\nclean", 500)).toBe(
+    expect(forComment("Prismic models — repository: espada\nclean", 2_000)).toBe(
       "Prismic models — repository: espada\nclean",
     );
   });
 
   it("keeps the head, stays within the limit, and says it cut", () => {
     const body = `Prismic models — repository: espada\n${"- (field) gone\n".repeat(500)}`;
-    const out = forComment(body, 500);
-    expect(out.length).toBeLessThanOrEqual(500);
-    expect(out.startsWith("Prismic models — repository: espada")).toBe(true);
+    const out = forComment(body, 2_000);
+    expect(out.length).toBeLessThanOrEqual(2_000);
+    expect(out).toContain("Prismic models — repository: espada");
     expect(out).toContain("TRUNCATED");
     expect(out).toContain(String(body.length));
-    expect(out).toContain("500");
+    expect(out).toContain("2000");
     expect(out.endsWith(body)).toBe(false);
+  });
+
+  // 65,536 is GitHub's cap on the WHOLE comment, and the workflow wraps this body
+  // in a heading and a fenced block. A body truncated to exactly the cap
+  // overflows once wrapped -> HTTP 422 -> NO COMMENT AT ALL, which is not a
+  // shortened review gate but the absence of one, on a PR that changes models on
+  // a live client's site.
+  it("leaves the wrapper room inside GitHub's real cap by default", () => {
+    const wrap = (b: string) => `### Prismic model delta\n\n\`\`\`\n${b}\n\`\`\`\n`;
+    const body = "- (field) gone\n".repeat(20_000);
+    const out = forComment(body);
+    expect(body.length).toBeGreaterThan(65_536);
+    expect(wrap(out).length).toBeLessThanOrEqual(65_536);
+    expect(DEFAULT_COMMENT_LIMIT).toBeLessThan(65_536);
+  });
+
+  // The truncation notice is the one line saying "you are not reading the whole
+  // thing", and GitHub collapses a long comment FROM THE TOP — so the tail is the
+  // least-read position in the longest possible comment.
+  it("marks the truncation at the head as well as the tail", () => {
+    const body = "- (field) gone\n".repeat(500);
+    const out = forComment(body, 2_000);
+    expect(out.startsWith("⚠ TRUNCATED")).toBe(true);
+    expect(out.trimEnd().endsWith("before approving.")).toBe(true);
+  });
+
+  // The recovery instruction is the only thing a reviewer who cannot see the
+  // whole report is told to do. `--dry` does not exist and cac hard-errors on it.
+  it("tells the reviewer a command that exists", () => {
+    const out = forComment("x".repeat(5_000), 2_000);
+    expect(out).toContain("reddoor-maint prismic-models");
+    expect(out).not.toContain("--dry");
+  });
+
+  // Silently emitting the notice alone would overrun the very budget the caller
+  // asked to be kept — the overflow this parameter exists to prevent.
+  it("refuses a limit smaller than the warning itself", () => {
+    expect(() => forComment("x".repeat(5_000), 100)).toThrow(/smaller than the truncation warning/);
+    // Checked even when the body would have fitted, so the misconfiguration
+    // surfaces on the first run rather than on the first long report.
+    expect(() => forComment("x", 100)).toThrow(/smaller than the truncation warning/);
   });
 
   // The cut is by code unit, so it can land between the halves of an astral
@@ -347,8 +588,64 @@ describe("forComment", () => {
   // posts. Both parities are exercised by sweeping the limit.
   it("never ends the kept head on half a surrogate pair", () => {
     const body = "😀".repeat(5000);
-    for (let limit = 400; limit < 420; limit++) {
+    for (let limit = 700; limit < 720; limit++) {
       expect(forComment(body, limit)).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
     }
+  });
+});
+
+// The renderer's head says "⚠ INCONSISTENT — ... do not act on this" in PROSE.
+// The machine-readable verdict below it must not say `clean`, and the run must
+// not exit 0 — a green check under a report that disowns its own figures is a
+// reviewer approving numbers nobody stands behind.
+//
+// The disagreement is INJECTED because it is unreachable through today's
+// constructor: `checkOneSite` builds the diff and the push report from one read,
+// so they agree by construction. That is exactly the argument the reconciliation
+// is written against ("agreement by construction is a property of today's
+// caller, not of this function's inputs"), and Task 17 adds a second caller.
+describe("checkOneSite — an inconsistent report is not clean", () => {
+  afterEach(() => {
+    vi.doUnmock("../../src/cli/commands/prismic-models-report.js");
+    vi.resetModules();
+  });
+
+  const withReconciliation = async (lines: string[]) => {
+    vi.resetModules();
+    vi.doMock("../../src/cli/commands/prismic-models-report.js", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../../src/cli/commands/prismic-models-report.js")>()),
+      reconcileReport: () => lines,
+    }));
+    return import("../../src/cli/commands/prismic-models.js");
+  };
+
+  it("reports clean: false and exits 1 when the inputs disagree", async () => {
+    await site();
+    await customType("page");
+    const mod = await withReconciliation(["    mode: rendering as a DRY RUN, but ..."]);
+    const r = await mod.checkOneSite(
+      dir,
+      deps([{ kind: "customtype", id: "page", model: { id: "page" } }]),
+      { apply: false, allowGenericToken: true },
+    );
+    expect(r.clean).toBe(false);
+    expect(r.code).toBe(1);
+    // Not `null`: the check ran to completion and produced a finding. `null`
+    // would count toward Task 17's majority-failure rule and write nothing at
+    // all in Task 19.
+    expect(r.status).toBe("checked");
+  });
+
+  it("still reports a consistent clean run as clean", async () => {
+    await site();
+    await customType("page");
+    const mod = await withReconciliation([]);
+    const r = await mod.checkOneSite(
+      dir,
+      deps([{ kind: "customtype", id: "page", model: { id: "page" } }]),
+      { apply: false, allowGenericToken: true },
+    );
+    expect(r.clean).toBe(true);
+    expect(r.code).toBe(0);
   });
 });

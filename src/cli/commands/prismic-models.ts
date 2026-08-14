@@ -11,8 +11,14 @@
 // THE RULE THIS FILE IS WRITTEN AGAINST — the same one as every module under it:
 // "I could not read X" must never produce the same result as "X does not exist."
 // Here it takes the form of exit codes and returned prose rather than empty
-// arrays, and there are four places it bites:
+// arrays, and there are five places it bites:
 //
+//   - checkout unreadable        -> exit 1, naming the path. A repoRoot that does
+//                                   not exist would otherwise reach the skip
+//                                   below (every config read is ENOENT), so a
+//                                   typo'd path or a failed clone reported "not a
+//                                   Prismic site" and exited 0 — under `--apply`
+//                                   too.
 //   - no config file at all      -> exit 0, "not a Prismic site" (a genuine skip:
 //                                   the reusable workflow runs on repos that have
 //                                   no Prismic at all)
@@ -26,9 +32,11 @@
 //                                   `toCreate` and pushes the lot.
 //
 // Each of those is a `catch` that returns a NAMED error result — never a default
-// that lets the comparison proceed on a guess. `clean` is `null` on all four, so
-// nothing downstream can read a failed check as a verdict either.
-import { writeFile } from "node:fs/promises";
+// that lets the comparison proceed on a guess. `clean` is `null` on every one of
+// them, so nothing downstream can read a failed check as a verdict either, and
+// `status` says whether it was a skip or a failure so a sweep cannot conflate
+// the two.
+import { readdir, rename, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   diffModels,
@@ -44,7 +52,12 @@ import {
   type PrismicModel,
   type RemoteEntry,
 } from "../../prismic/models/index.js";
-import { isClean, renderModelReport } from "./prismic-models-report.js";
+import {
+  isClean,
+  reconcileReport,
+  renderModelReport,
+  type ReportOptions,
+} from "./prismic-models-report.js";
 
 export type PrismicModelsCommandOptions = {
   apply?: boolean;
@@ -104,16 +117,46 @@ const describeThrown = (e: unknown): string => {
   }
 };
 
+/**
+ * Which of the three outcomes a check reached, as DATA rather than as a shape a
+ * consumer has to infer.
+ *
+ *   - `checked` — the comparison ran. `clean` is a boolean verdict.
+ *   - `skipped` — a readable repo with no Prismic config. Not a Prismic site;
+ *                 nothing to alarm about. The reusable workflow runs on repos
+ *                 that have no Prismic at all, so this is a routine outcome.
+ *   - `failed`  — we could not find out. Unreadable checkout, broken config,
+ *                 missing token, unreadable local models, unreadable remote.
+ *
+ * `clean: null` alone cannot separate the last two, and they are OPPOSITE
+ * operational facts: one is "nothing to do here", the other is this pipeline's
+ * governing failure ("I could not read X" wearing the face of "X does not
+ * exist"). Task 17's majority-failure exit rule and Task 19's Airtable write
+ * both need the distinction, and the only signal available to them without this
+ * field is `repositoryName !== null` — which is WRONG for exactly the case that
+ * matters: a config that is present and broken never yields a repositoryName,
+ * so it is indistinguishable from a genuine skip. Count `status`, not the
+ * absence of a name.
+ */
+export type SiteCheckStatus = "checked" | "skipped" | "failed";
+
 /** The outcome of checking one site.
  *
  *  `clean` is the machine-readable verdict the fleet sweep writes to Airtable and
  *  the cockpit alarms on, and it is deliberately three-valued: `true` in sync,
  *  `false` diverged, `null` NOT KNOWN — the check itself failed. A boolean here
- *  would have to make "we could not find out" wear one of the other two faces. */
+ *  would have to make "we could not find out" wear one of the other two faces.
+ *
+ *  `clean` and `status` answer different questions and neither implies the
+ *  other: `status: "checked"` with `clean: false` is a site that was read
+ *  perfectly and disagrees with Prismic (a finding to write down), while
+ *  `status: "failed"` with `clean: null` is a site nobody managed to read (an
+ *  outage). A sweep that counted only `clean` would report those identically. */
 export type SiteCheck = {
   output: string;
   code: number;
   clean: boolean | null;
+  status: SiteCheckStatus;
   repositoryName?: string;
 };
 
@@ -130,6 +173,37 @@ export async function checkOneSite(
   deps: PrismicModelsDeps,
   opts: { apply: boolean; allowGenericToken: boolean },
 ): Promise<SiteCheck> {
+  // THE DIRECTORY ITSELF, before anything inside it. `readPrismicConfig` reads
+  // `<repoRoot>/slicemachine.config.json`, and for a repoRoot that does not
+  // exist that read is ENOENT — which it correctly interprets as "this repo does
+  // not have this file" and, having exhausted the candidates, returns null for.
+  // That null then lands on the skip below: "not a Prismic site — skipped",
+  // exit 0. So a typo'd path, a bad `working-directory:` in a workflow, or a
+  // clone that silently failed all produce a GREEN CI RUN WITH A REASSURING
+  // MESSAGE — including under `--apply`, the mode that writes to a live client's
+  // Prismic repository.
+  //
+  // This is the governing rule of the pipeline at the command layer: "I could
+  // not read X" must never produce the same result as "X does not exist". A
+  // missing directory is not a repo without Prismic; it is a repo we never
+  // looked at. `readdir` is the cheapest call that distinguishes all three
+  // failures at once — ENOENT (not there), ENOTDIR (a file, not a checkout) and
+  // EACCES (there and unreadable) — and it is exactly the readability the skip
+  // verdict below claims to have established.
+  try {
+    await readdir(repoRoot);
+  } catch (e) {
+    return {
+      output:
+        `cannot read this checkout at ${repoRoot}: ${describeThrown(e)}. Nothing was` +
+        ` compared and nothing was pushed — this is NOT "no Prismic in this repo".` +
+        ` Check the path (a typo, a wrong working-directory, or a clone that failed).`,
+      code: 1,
+      clean: null,
+      status: "failed",
+    };
+  }
+
   let cfg: PrismicConfig | null;
   try {
     cfg = await readPrismicConfig(repoRoot);
@@ -144,10 +218,16 @@ export async function checkOneSite(
         ` and nothing was pushed — this is NOT "no Prismic in this repo".`,
       code: 1,
       clean: null,
+      status: "failed",
     };
   }
   if (!cfg) {
-    return { output: "not a Prismic site (no repositoryName) — skipped", code: 0, clean: null };
+    return {
+      output: "not a Prismic site (no repositoryName) — skipped",
+      code: 0,
+      clean: null,
+      status: "skipped",
+    };
   }
 
   // Derived BEFORE the lookup, because the name is what the operator needs in
@@ -164,6 +244,7 @@ export async function checkOneSite(
       output: `cannot work out which secret holds this repository's token: ${describeThrown(e)}`,
       code: 1,
       clean: null,
+      status: "failed",
       repositoryName: cfg.repositoryName,
     };
   }
@@ -178,6 +259,7 @@ export async function checkOneSite(
       output: `no write token for Prismic repository "${cfg.repositoryName}" — set ${names.join(" or ")}`,
       code: 1,
       clean: null,
+      status: "failed",
       repositoryName: cfg.repositoryName,
     };
   }
@@ -197,6 +279,7 @@ export async function checkOneSite(
         ` and nothing was pushed.`,
       code: 1,
       clean: null,
+      status: "failed",
       repositoryName: cfg.repositoryName,
     };
   }
@@ -214,6 +297,7 @@ export async function checkOneSite(
       output: `could not read Prismic models: ${describeThrown(e)}`,
       code: 1,
       clean: null,
+      status: "failed",
       repositoryName: cfg.repositoryName,
     };
   }
@@ -235,37 +319,172 @@ export async function checkOneSite(
   // is a finding.
   const foundNothingAnywhere = isClean(diff) && diff.unchanged.length === 0;
 
+  // ONE options object, built here and handed to BOTH the reconciliation and the
+  // renderer. Two objects would be two questions, and the verdict could then
+  // disagree with the prose printed directly above it.
+  //
+  // Pass the WHOLE report, not `failed: report.failed`.
+  //
+  // This is the only place in the pipeline that constructs `ReportOptions`, so
+  // destructuring one field here is what decides whether the renderer's
+  // reconciliation ever runs at all. With only `failed` supplied, `opts.report`
+  // is undefined at every call site and every cross-check that needs a report —
+  // remoteOnly, apply-vs-mode, and the sent/failed bucket invariant — silently
+  // does nothing, and the safeguard ships dark.
+  //
+  // `report` INSTEAD OF `failed`, not in addition: with one source for the
+  // failure list there is nothing to reconcile and that one check correctly
+  // skips, while the rest light up. Pinned by
+  // tests/cli/prismic-models-wiring.test.ts, which feeds in a push report that
+  // disagrees with the diff and asserts the report says so.
+  const reportOptions: ReportOptions = { apply: opts.apply, report };
+
+  // The renderer's head says, in prose, "⚠ INCONSISTENT — ... do not act on
+  // this." A machine-readable verdict of `clean: true` under that sentence is
+  // the report contradicting itself, and it is the field — not the prose — that
+  // reaches Airtable and the cockpit. So the same fact drives both, read as
+  // DATA. It is deliberately NOT recovered by grepping the rendered string: that
+  // would make the exact wording of a warning load-bearing, and rewording it
+  // would silently turn every inconsistent site green.
+  const inconsistencies = reconcileReport(diff, reportOptions);
+
   return {
-    // Pass the WHOLE report, not `failed: report.failed`.
-    //
-    // This is the only place in the pipeline that constructs `ReportOptions`, so
-    // destructuring one field here is what decides whether the renderer's
-    // reconciliation ever runs at all. With only `failed` supplied, `opts.report`
-    // is undefined at every call site and every cross-check that needs a report —
-    // remoteOnly, apply-vs-mode, and the sent/failed bucket invariant — silently
-    // does nothing, and the safeguard ships dark.
-    //
-    // `report` INSTEAD OF `failed`, not in addition: with one source for the
-    // failure list there is nothing to reconcile and that one check correctly
-    // skips, while the rest light up. Pinned by
-    // tests/cli/prismic-models-wiring.test.ts, which feeds in a push report that
-    // disagrees with the diff and asserts the report says so.
-    output: renderModelReport(cfg.repositoryName, diff, { apply: opts.apply, report }),
+    output: renderModelReport(cfg.repositoryName, diff, reportOptions),
     // A dry run NEVER fails on drift: a model PR is supposed to differ from the
     // remote, and the comment is the review artifact, not a gate. Only a real
     // push failure — or one of the "we could not find out" returns above — is an
     // error.
-    code: report.failed.length > 0 ? 1 : 0,
-    clean: isClean(diff) && !foundNothingAnywhere,
+    //
+    // An inconsistency IS such an error, on both modes. Drift is a fact about
+    // the site; an inconsistency is a fact about the report, which says every
+    // figure in it is unreliable. Letting that pass green is a reviewer
+    // approving a merge from numbers the report itself disowns.
+    code: report.failed.length > 0 || inconsistencies.length > 0 ? 1 : 0,
+    // `false`, not `null`, and for the same reason as `foundNothingAnywhere`
+    // above: the check ran to completion and produced a finding — its inputs
+    // disagree — so a human needs to look. `null` means "we never found out",
+    // which under Task 17's majority-failure rule would count this toward an
+    // outage, and under Task 19 would write nothing to Airtable at all. Both
+    // would make the loudest failure this renderer can report the quietest one
+    // downstream.
+    clean: inconsistencies.length > 0 ? false : isClean(diff) && !foundNothingAnywhere,
+    status: "checked",
     repositoryName: cfg.repositoryName,
   };
 }
+
+/**
+ * Modes the flags advertise and this command does not do yet.
+ *
+ * Task 18 registers `--pull`, `--tokens`, `--fleet` and `--write-airtable` on
+ * the CLI; Tasks 15, 16, 17 and 20 implement them. Between those two points the
+ * options are accepted, IGNORED, and the in-repo check of the cwd runs instead —
+ * so `--fleet inventory.json` reports a successful sweep of one repo that was
+ * never in the inventory, and exits 0. "Silently does something other than what
+ * you asked, and calls it success" is the exact failure class this pipeline
+ * exists to eliminate; it does not get an exemption for being ours.
+ *
+ * Each implementing task deletes its own line from this list — a one-line diff,
+ * against a guard that costs nothing to carry.
+ */
+const UNIMPLEMENTED_MODES = [
+  ["--pull", "pull"],
+  ["--tokens", "tokens"],
+  ["--fleet", "fleet"],
+  ["--write-airtable", "writeAirtable"],
+] as const satisfies ReadonlyArray<readonly [string, keyof PrismicModelsCommandOptions]>;
+
+/** Was a mode flag actually asked for? `undefined` is absent and `false` is what
+ *  a boolean flag parser leaves behind for a flag nobody typed; anything else —
+ *  `true`, a string, an empty string — is a request. */
+const requested = (v: unknown): boolean => v !== undefined && v !== false;
+
+/**
+ * Write the comment file so a reader can never see a half-written or a stale one.
+ *
+ * Temp file + rename, because `rename(2)` on the same filesystem is atomic: the
+ * workflow's `cat prismic-models.txt` either sees the whole report or no file at
+ * all, never the first half of one that a crash interrupted. The temp file is a
+ * SIBLING of the target so the rename cannot cross a filesystem and fall back to
+ * a copy; a failed attempt takes its temp file with it rather than leaving
+ * litter next to the artifact.
+ */
+async function writeCommentFileAtomically(path: string, body: string): Promise<void> {
+  const tmp = `${path}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+  try {
+    await writeFile(tmp, body, "utf-8");
+    await rename(tmp, path);
+  } catch (e) {
+    await rm(tmp, { force: true }).catch(() => undefined);
+    throw e;
+  }
+}
+
+/**
+ * WHOSE run wrote this file.
+ *
+ * A comment file with no identity cannot be told apart from last run's. The
+ * command writes one on its skip and error paths too — deliberately, so a failed
+ * run still posts a reason instead of leaving the previous run's output in place
+ * to be posted as this one's — but "leaving it in place" is precisely what
+ * happens if the CLI dies before it writes at all, and on a re-used workspace
+ * the stale file then reads as a fresh, passing report.
+ *
+ * So the file says which run made it. In CI that is the run id, the attempt (a
+ * re-run of the same job keeps the id and increments this) and the commit;
+ * locally it is the pid. The timestamp is the part a human actually checks.
+ */
+const runStamp = (
+  env: Record<string, string | undefined>,
+  repositoryName: string | undefined,
+): string => {
+  const bits = ["reddoor-maint prismic-models", repositoryName ?? "no Prismic repository resolved"];
+  if (env.GITHUB_RUN_ID) bits.push(`run ${env.GITHUB_RUN_ID}`);
+  if (env.GITHUB_RUN_ATTEMPT) bits.push(`attempt ${env.GITHUB_RUN_ATTEMPT}`);
+  if (env.GITHUB_SHA) bits.push(`commit ${env.GITHUB_SHA}`);
+  if (!env.GITHUB_RUN_ID) bits.push(`local pid ${process.pid}`);
+  bits.push(new Date().toISOString());
+  return bits.join(" · ");
+};
 
 export async function runPrismicModelsCommand(
   site: string | undefined,
   opts: PrismicModelsCommandOptions,
   deps: PrismicModelsDeps = defaultDeps(),
 ): Promise<{ output: string; code: number }> {
+  const asked = UNIMPLEMENTED_MODES.filter(([, key]) => requested(opts[key]));
+  if (asked.length > 0) {
+    const flags = asked.map(([flag]) => flag).join(", ");
+    return {
+      output:
+        `${flags} — NOT IMPLEMENTED YET. Nothing was compared, nothing was pushed and` +
+        ` nothing was written. This command currently does the in-repo comparison only:` +
+        ` \`reddoor-maint prismic-models [site]\` (dry by default), \`--apply\` to push,` +
+        ` \`--comment-file <path>\` to save the report. Do NOT read this exit as a result.`,
+      code: 1,
+    };
+  }
+
+  // Validated BEFORE any work, and by TYPE as well as by value.
+  //
+  // `--comment-file ""` — what an unset workflow variable expands to — is falsy,
+  // so the old `if (opts.commentFile)` skipped the write in silence and exited 0:
+  // a green check on a model PR with no review comment on it at all. And a flag
+  // parser hands back `true` for `--comment-file` with no value, which
+  // `resolve()` throws on; that throw sat outside the try below and took the
+  // whole command down, losing the report with it.
+  const commentFile: unknown = opts.commentFile;
+  if (commentFile !== undefined && (typeof commentFile !== "string" || !commentFile.trim())) {
+    return {
+      output:
+        `--comment-file was given ${typeof commentFile === "string" ? "an empty value" : `a ${typeof commentFile}`},` +
+        ` which is not a path. Nothing was compared and nothing was pushed. An unset` +
+        ` workflow variable expands to an empty string — pass a real path, or drop the` +
+        ` flag. Do NOT read this exit as a result.`,
+      code: 1,
+    };
+  }
+
   const cwd = opts.cwd ? resolve(opts.cwd) : process.cwd();
   const repoRoot = site ? resolve(cwd, site) : cwd;
 
@@ -276,18 +495,26 @@ export async function runPrismicModelsCommand(
     apply: opts.apply === true,
     // TRUE here, and false in fleet mode — the modes are opposites and this is
     // the right side of it. An in-repo CI run has exactly one Prismic repository
-    // in scope and the site's own Actions secret is the generic
-    // `PRISMIC_WRITE_TOKEN`, the name every site's code already reads. A fleet
-    // run iterates every repository against one environment, where a generic
-    // token would attach the wrong credential to every site after the first.
+    // in scope, and `PRISMIC_WRITE_TOKEN` is the name the reusable workflow puts
+    // that repository's own Actions secret into (Task 24), rolled out per repo by
+    // Task 26. It is NOT a name sites already read: measured 2026-08-13 across
+    // the 15 in-scope repos from each one's origin/HEAD (`git grep`, never a
+    // working tree), 10 never mention it at all and the 5 that do only in
+    // one-shot migration scripts and docs — none in application code. A fleet run
+    // iterates every repository against one environment, where a generic token
+    // would attach the wrong credential to every site after the first.
     allowGenericToken: true,
   });
 
   let { output, code } = result;
-  if (opts.commentFile) {
-    const path = resolve(cwd, opts.commentFile);
+  if (commentFile !== undefined) {
+    // Inside the try along with everything else: `resolve` throws on a path
+    // containing a NUL byte, and the report is the thing worth keeping.
+    let path = commentFile;
     try {
-      await writeFile(path, forComment(output), "utf-8");
+      path = resolve(cwd, commentFile);
+      const stamped = `${runStamp(deps.env, result.repositoryName)}\n\n${output}`;
+      await writeCommentFileAtomically(path, forComment(stamped));
     } catch (e) {
       // The comment IS the review artifact. A dry run that failed to write it
       // and still exited 0 would leave a green check on a model PR whose delta
@@ -321,27 +548,65 @@ export async function runPrismicModelsCommand(
  * precisely so they survive), and make the cut itself loud enough that nobody
  * mistakes the remainder for the whole.
  *
- * `limit` is a parameter because the CALLER knows the real budget: whatever wraps
- * this in a comment (a heading, a fenced block) spends characters of its own out
- * of the same 65,536, so a workflow that wraps must pass a smaller number. A
- * limit smaller than the notice itself returns the notice alone and exceeds the
- * budget — losing the warning would be worse than overrunning a budget nobody
- * could have met.
+ * `limit` is this body's budget, and it is NOT the GitHub cap. 65,536 is the cap
+ * on the ENTIRE comment, and what posts this wraps it — Task 24's workflow puts
+ * a heading and a fenced block around it, and the file itself carries a run
+ * stamp. Every one of those characters is spent out of the same 65,536, so a
+ * body truncated to exactly the cap OVERFLOWS once wrapped, GitHub answers 422,
+ * and NO COMMENT IS POSTED AT ALL. That is worse than a shortened review gate:
+ * it is no review gate, on a PR that changes models on a live client's site, and
+ * it fails in the direction where the CI step can still go green. So the default
+ * is the cap MINUS headroom, and a caller who wraps more heavily passes less.
  */
 const GITHUB_COMMENT_LIMIT = 65_536;
 
-export function forComment(body: string, limit = GITHUB_COMMENT_LIMIT): string {
-  if (body.length <= limit) return body;
+/**
+ * Characters held back from the cap for whatever wraps this body.
+ *
+ * Task 24's wrapper — `### Prismic model delta`, a blank line, and a fenced
+ * block — is 34 characters. 2 KiB is sixty times that: room for a workflow to
+ * add a `<details>` block, a heading naming the site, or a footer, without
+ * anyone having to remember that the number here and the wrapper there are one
+ * budget. It costs 3% of the report and buys the failure mode that produces no
+ * comment at all.
+ */
+const COMMENT_WRAPPER_HEADROOM = 2_048;
+
+export const DEFAULT_COMMENT_LIMIT = GITHUB_COMMENT_LIMIT - COMMENT_WRAPPER_HEADROOM;
+
+export function forComment(body: string, limit = DEFAULT_COMMENT_LIMIT): string {
+  // At the HEAD as well as the tail. Everything else in this report was ordered
+  // so the facts that stop a merge survive GitHub collapsing a long comment from
+  // the top — and the tail notice, the one line that says "you are not reading
+  // the whole thing", sat in the least-read position of the longest possible
+  // comment. Terse, because it is paid for out of the report's own budget.
+  const headMarker = `⚠ TRUNCATED — this is not the whole report; the cut is explained at the end.\n\n`;
   const notice =
-    `\n\n⚠ TRUNCATED — this report is ${body.length} characters and GitHub caps a` +
-    ` comment at ${limit}. Everything below the cut is missing, including any` +
-    ` further destructive lines. Run \`reddoor-maint prismic-models --dry\` locally` +
-    ` for the whole report before approving.\n`;
-  let head = body.slice(0, Math.max(0, limit - notice.length));
+    `\n\n⚠ TRUNCATED — this report is ${body.length} characters and the budget for this` +
+    ` comment body is ${limit} (GitHub caps the whole comment, wrapper included, at` +
+    ` ${GITHUB_COMMENT_LIMIT}). Everything below the cut is missing, including any` +
+    ` further destructive lines. Run \`reddoor-maint prismic-models\` locally — dry is` +
+    ` the default — for the whole report before approving.\n`;
+
+  // A HARD ERROR, and checked before the early return so a caller finds out on
+  // the first run rather than on the first long report — which is the run that
+  // can least afford a surprise. Silently emitting notice-plus-nothing would
+  // overrun the very budget the caller asked to be kept, and there is no honest
+  // shortening at this size: the only fix is a bigger budget.
+  if (limit < headMarker.length + notice.length) {
+    throw new Error(
+      `forComment: limit ${limit} is smaller than the truncation warning itself` +
+        ` (${headMarker.length + notice.length} characters), so a shortened report could not` +
+        ` say that it was shortened. Raise the limit; do not drop the warning.`,
+    );
+  }
+  if (body.length <= limit) return body;
+
+  let head = body.slice(0, Math.max(0, limit - notice.length - headMarker.length));
   // The cut is by code unit, so it can land between the halves of an astral
   // character and leave a lone surrogate in the file the workflow posts. Drop the
   // orphan rather than emit invalid text.
   const last = head.charCodeAt(head.length - 1);
   if (last >= 0xd800 && last <= 0xdbff) head = head.slice(0, -1);
-  return head + notice;
+  return headMarker + head + notice;
 }

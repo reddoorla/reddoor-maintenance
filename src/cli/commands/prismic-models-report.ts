@@ -87,8 +87,21 @@ const intersect = (a: Set<string>, b: Set<string>): string[] =>
  * none" — absent and empty are different facts, the rule this pipeline is built
  * around. (The one check that needs no report still runs: a caller-supplied
  * `failed` naming a model this diff is not pushing is wrong on its own terms.)
+ *
+ * EXPORTED, and that is the point of it being a named function rather than an
+ * inline block inside the renderer. The report's head says "do not act on this"
+ * in PROSE, and the caller has to turn that into a machine-readable verdict —
+ * `clean`, and an exit code — for Airtable and the cockpit. The only other way
+ * to get the answer out of here is to grep the rendered string for the warning
+ * text, which makes the wording of a warning load-bearing: reword the sentence
+ * and the verdict silently flips to "clean" with nothing red. So the fact is
+ * published as DATA and the prose is rendered FROM it, never the reverse.
+ *
+ * Pure and cheap, so calling it once for the verdict and once inside the
+ * renderer costs nothing — but pass the SAME `ReportOptions` object to both, or
+ * the two answers are about different questions.
  */
-function reconcile(diff: ModelDiff, opts: ReportOptions): string[] {
+export function reconcileReport(diff: ModelDiff, opts: ReportOptions): string[] {
   const out: string[] = [];
   const work = keysOf([...diff.toCreate, ...diff.toUpdate.map((u) => u.local)]);
 
@@ -188,7 +201,7 @@ export function renderModelReport(
   // two sources disagree is the most dangerous output this renderer can produce,
   // and the clean early return below is precisely the path that would skip the
   // check.
-  const disagreements = reconcile(diff, opts);
+  const disagreements = reconcileReport(diff, opts);
   if (disagreements.length > 0) {
     head.push(
       `⚠ INCONSISTENT — the inputs to this report disagree with each other, so every` +
