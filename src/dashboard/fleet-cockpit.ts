@@ -23,6 +23,7 @@ import {
   collectAnalyticsFailures,
   collectTurnstileGuardrailAlerts,
   collectNotifyBounceAlerts,
+  collectPrismicDriftAlerts,
 } from "../alerts/digest-collectors.js";
 import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
 import { relativeTimeFromNow } from "./relative-time.js";
@@ -515,6 +516,10 @@ function collectFleetAttentionItems(
     ...collectAnalyticsFailures(sites, baseUrl, now),
     ...collectTurnstileGuardrailAlerts(sites, baseUrl, now),
     ...collectNotifyBounceAlerts(sites, notifyBounces, baseUrl),
+    // Reads the nightly-persisted `Prismic Models` verdict columns — no live
+    // Prismic/GitHub call, so this stays safe on the request path (the cockpit is
+    // request-path; a collector that shelled out would 502 in Lambda).
+    ...collectPrismicDriftAlerts(sites, baseUrl, now),
   ];
 }
 
