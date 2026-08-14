@@ -54,12 +54,21 @@ export const UNRESOLVED_PIN_SHA = "UNRESOLVED-publish-and-tag-reddoorla-dot-gith
 /**
  * The pin the fleet rolls out.
  *
- * TO RESOLVE: after the reusable workflow merges in `reddoorla/.github` and a
- * release is tagged, set `sha` to `gh api repos/reddoorla/.github/commits/<tag>
- * --jq .sha` and `tag` to that tag. Nothing else changes.
+ * RESOLVED 2026-08-14. `reddoorla/.github#30` merged as
+ * 558395431ddcb481ecba3dd84b78b38c338cfa03 and that commit was tagged v1.4.0;
+ * `gh api repos/reddoorla/.github/commits/v1.4.0 --jq .sha` returns the SHA
+ * below. `validate` (the digest-pinning + Renovate-preset check that is the
+ * only CI in that repo) passed on the merge commit.
+ *
+ * TO RE-RESOLVE after a future `reddoorla/.github` release: set `sha` to
+ * `gh api repos/reddoorla/.github/commits/<tag> --jq .sha` and `tag` to that
+ * tag. Nothing else changes. Renovate's github-actions manager bumps the
+ * already-installed `uses:` line per site repo; this constant is what NEW
+ * rollouts install, so a stale value here is not a broken fleet, only a fleet
+ * whose newest members start one version behind.
  */
 export const REUSABLE_WORKFLOW_PIN: ReusableWorkflowPin = {
-  sha: UNRESOLVED_PIN_SHA,
+  sha: "558395431ddcb481ecba3dd84b78b38c338cfa03",
   tag: "v1.4.0",
 };
 

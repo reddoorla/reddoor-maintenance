@@ -10,18 +10,30 @@ import {
   REUSABLE_WORKFLOW,
   REUSABLE_WORKFLOW_PIN,
   SECRET,
+  UNRESOLVED_PIN_SHA,
   WORKFLOW_PATH,
   isPinResolved,
   prismicCiWorkflow,
+  type ReusableWorkflowPin,
 } from "../../src/recipes/prismic-ci/template.js";
-import { withoutComments } from "../build/_helpers/workflow-source.js";
+import { withoutComments, workflowUses } from "../build/_helpers/workflow-source.js";
 import type { PullRequestSummary } from "../../src/github/gh.js";
 
 /** A pin that LOOKS exactly like a real one, so template assertions exercise the
  *  shipped renderer rather than a special case. Deliberately not the shipped pin:
- *  these tests must keep passing on the day Task 25's real SHA lands. */
-const PIN = { sha: "0123456789abcdef0123456789abcdef01234567", tag: "v1.4.0" };
+ *  these tests keep passing whatever `REUSABLE_WORKFLOW_PIN` currently says, and
+ *  they keep MEANING the same thing — which the two tests that read the shipped
+ *  constant directly did not. */
+const PIN: ReusableWorkflowPin = {
+  sha: "0123456789abcdef0123456789abcdef01234567",
+  tag: "v1.4.0",
+};
 const RENDERED = prismicCiWorkflow(PIN);
+
+/** The unresolved pin as the SHIPPED PLACEHOLDER rather than an ad-hoc string:
+ *  what the refusal has to hold for is the exact value production carries
+ *  between one `reddoorla/.github` release and the next. */
+const UNRESOLVED_PIN: ReusableWorkflowPin = { sha: UNRESOLVED_PIN_SHA, tag: "v1.4.0" };
 
 const REUSABLE_SOURCE = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -187,13 +199,40 @@ describe("prismicCiWorkflow", () => {
     expect(live).not.toContain("--apply");
   });
 
+  it("keeps the unresolved placeholder unmistakable — never SHA-shaped", () => {
+    // The whole reason the placeholder is spelled in prose. A 40-hex-shaped
+    // placeholder is indistinguishable from a real commit in review, and it is
+    // `isPinResolved` — a pure shape check — that decides whether 15 client
+    // repos get a workflow. This is also what makes `UNRESOLVED_PIN` a fixture
+    // worth injecting rather than an arbitrary bad string.
+    expect(UNRESOLVED_PIN_SHA).not.toMatch(/^[0-9a-f]{40}$/);
+    expect(isPinResolved(UNRESOLVED_PIN)).toBe(false);
+  });
+
   it("ships either a resolved pin or a pin the recipe refuses to use", () => {
-    // The shipped pin is unresolved until reddoorla/.github tags the release
-    // (plan Task 25). This invariant holds before AND after that lands, so it is
-    // a tripwire rather than a chore: what it forbids is a plausible-looking
-    // 40-hex placeholder, or a floating ref, sneaking into 15 client repos.
+    // THE TRIPWIRE ON THE SHIPPED CONSTANT — the one assertion in this file that
+    // is deliberately about `REUSABLE_WORKFLOW_PIN` itself. Both directions of
+    // the refusal are tested by injection elsewhere in this file and in
+    // tests/cli/prismic-ci-command.test.ts; what is left for here is the thing
+    // injection can never see: what the shipped workflow would actually install.
+    //
+    // It reads the rendered `uses:` REF rather than grepping the file, because
+    // the resolved branch of the old version of this test ("the text contains
+    // some 40-hex string followed by ` #`") was satisfied by any 40-hex anywhere
+    // — including one that had nothing to do with the pin the recipe gated on.
+    // What it forbids: a floating `@v1.4.0` or `@main` ref (a retagged release
+    // then runs arbitrary code holding a live client's Prismic write token), a
+    // ref that is not the pin the gate inspected, and a missing tag comment
+    // (which is what a human, and Renovate's github-actions manager, read).
+    const uses = workflowUses(PRISMIC_CI_WORKFLOW);
+    expect(uses).toEqual([`${REUSABLE_WORKFLOW}@${REUSABLE_WORKFLOW_PIN.sha}`]);
+
     if (isPinResolved(REUSABLE_WORKFLOW_PIN)) {
-      expect(PRISMIC_CI_WORKFLOW).toMatch(/@[0-9a-f]{40} #/);
+      expect(REUSABLE_WORKFLOW_PIN.sha).toMatch(/^[0-9a-f]{40}$/);
+      // The tag comment, carrying the SHIPPED tag — not merely "a comment".
+      expect(PRISMIC_CI_WORKFLOW).toContain(
+        `@${REUSABLE_WORKFLOW_PIN.sha} # ${REUSABLE_WORKFLOW_PIN.tag}`,
+      );
     } else {
       expect(PRISMIC_CI_WORKFLOW).not.toMatch(/@[0-9a-f]{40}/);
       expect(PRISMIC_CI_WORKFLOW).not.toMatch(/@(main|master|v[0-9])/);
@@ -244,13 +283,40 @@ describe("prismicCi", () => {
 
   it("refuses to write anything while the reusable-workflow pin is unresolved", async () => {
     await prismicSite();
-    const { d, pushed } = deps({ pin: { sha: "PIN-NOT-RESOLVED", tag: "v1.4.0" } });
+    const { d, pushed } = deps({ pin: UNRESOLVED_PIN });
     const r = await prismicCi(site(), d);
     expect(r.status).toBe("failed");
     expect(r.notes).toMatch(/pin/i);
+    // Named, so the operator's next move is legible from the summary line alone.
+    expect(r.notes).toContain(UNRESOLVED_PIN.sha);
     expect(await exists(join(dir, WORKFLOW_PATH))).toBe(false);
     expect(pushed).toEqual([]);
     expect(d.github!.openPullRequest).not.toHaveBeenCalled();
+    // The pin is checked before the first network call — 15 pointless round
+    // trips are not worth spending to learn what a shape check already knows.
+    expect(d.github!.secretExists).not.toHaveBeenCalled();
+    expect(d.github!.defaultBranch).not.toHaveBeenCalled();
+  });
+
+  it("with a RESOLVED pin, writes a workflow pinned to that 40-hex commit, tag alongside", async () => {
+    // THE MIRROR of the refusal above, and the half that never had a test. A
+    // guard that refuses in BOTH pin states is indistinguishable from a recipe
+    // that cannot deliver at all, and the suite as it stood passed for either —
+    // it only ever ran the refusal, because the shipped pin was unresolved.
+    //
+    // The assertion is on the COMMITTED bytes, not on the template: what lands
+    // in a client repo is the whole point, and everything between the gate and
+    // the commit (prettier, the write, the commit) can drop it.
+    expect(isPinResolved(PIN)).toBe(true); // the premise, stated
+    await prismicSite();
+    const { d, pushed } = deps();
+    const r = await prismicCi(site(), d);
+    expect(r.status).toBe("applied");
+    const written = git(["show", `${pushed[0]}:${WORKFLOW_PATH}`]);
+    expect(written).toContain(`@${PIN.sha} # ${PIN.tag}`);
+    expect(workflowUses(written)).toEqual([`${REUSABLE_WORKFLOW}@${PIN.sha}`]);
+    expect(PIN.sha).toMatch(/^[0-9a-f]{40}$/);
+    expect(d.github!.openPullRequest).toHaveBeenCalledTimes(1);
   });
 
   it("refuses, and names the secret, when the repo does not have PRISMIC_WRITE_TOKEN", async () => {

@@ -115,11 +115,13 @@ The reusable workflow's **source of truth is [`workflows/reusable/prismic-models
 - the repo's default branch is not `main` (the apply job guards `refs/heads/main`, so merged model changes would never reach Prismic);
 - the working tree is dirty, or a delivery PR is already open.
 
-### The pin currently ships unresolved — the recipe refuses every site
+### The pin — and what an unresolved one does
 
-`src/recipes/prismic-ci/template.ts` pins the reusable workflow by 40-hex SHA, and today it holds the placeholder `UNRESOLVED-publish-and-tag-reddoorla-dot-github-first`. It is deliberately not SHA-shaped: a placeholder that looked like a real commit would be indistinguishable in review and would install a workflow referencing a nonexistent commit into fifteen client repositories, failing at workflow-load time on every model PR with an error naming neither the file nor the reason.
+`src/recipes/prismic-ci/template.ts` pins the reusable workflow by 40-hex SHA. Between one `reddoorla/.github` release and the next it can hold the placeholder `UNRESOLVED-publish-and-tag-reddoorla-dot-github-first`, which is deliberately not SHA-shaped: a placeholder that looked like a real commit would be indistinguishable in review and would install a workflow referencing a nonexistent commit into fifteen client repositories, failing at workflow-load time on every model PR with an error naming neither the file nor the reason.
 
-So `isPinResolved()` is false, and **`prismic-ci` refuses on every site until the release is published and the pin is set**. To resolve: publish and tag the workflow in `reddoorla/.github`, then set `REUSABLE_WORKFLOW_PIN.sha` to `gh api repos/reddoorla/.github/commits/<tag> --jq .sha` and `.tag` to that tag. Nothing else changes. Renovate's github-actions manager bumps the per-repo pin afterwards, like any other pinned action.
+While it is unresolved, `isPinResolved()` is false and **`prismic-ci` refuses on every site — including under `--dry`, which exits non-zero rather than previewing a rollout that cannot happen**. To resolve: publish and tag the workflow in `reddoorla/.github`, then set `REUSABLE_WORKFLOW_PIN.sha` to `gh api repos/reddoorla/.github/commits/<tag> --jq .sha` and `.tag` to that tag. Nothing else changes. Renovate's github-actions manager bumps the per-repo pin afterwards, like any other pinned action.
+
+**Currently RESOLVED**: `558395431ddcb481ecba3dd84b78b38c338cfa03` (`v1.4.0`), so the recipe is armed — a `prismic-ci --fleet` run opens a pull request per site. Read this paragraph as a fact about a moment; `isPinResolved(REUSABLE_WORKFLOW_PIN)` is the only current answer. Both directions of the refusal are held by injected-pin tests (`tests/recipes/prismic-ci.test.ts`, `tests/cli/prismic-ci-command.test.ts`) that do not depend on the shipped value, plus one tripwire — "ships either a resolved pin or a pin the recipe refuses to use" — that does.
 
 ---
 

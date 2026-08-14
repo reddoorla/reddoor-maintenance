@@ -28,7 +28,11 @@
 import { readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { prismicCi } from "../../recipes/prismic-ci/index.js";
-import { REUSABLE_WORKFLOW_PIN, isPinResolved } from "../../recipes/prismic-ci/template.js";
+import {
+  REUSABLE_WORKFLOW_PIN,
+  isPinResolved,
+  type ReusableWorkflowPin,
+} from "../../recipes/prismic-ci/template.js";
 import type { RecipeResult, Site } from "../../types.js";
 import { fleetWorkdir } from "../../util/fleet-workdir.js";
 import { siteLabel } from "../../util/site.js";
@@ -49,6 +53,18 @@ export type PrismicCiCommandOptions = {
  *  real recipe. */
 export type PrismicCiCommandDeps = {
   runRecipe?: (site: Site) => Promise<RecipeResult>;
+  /**
+   * Which `reddoorla/.github` commit this run would pin. Injected only by tests;
+   * production uses the shipped {@link REUSABLE_WORKFLOW_PIN}.
+   *
+   * It is injectable because the unresolved-pin refusal is a SAFETY behaviour
+   * that must be tested in both directions at all times, and a test that reads
+   * the shipped constant can only ever exercise whichever direction the constant
+   * currently happens to be in. Two tests here did exactly that, and the release
+   * that resolved the pin turned them from "the refusal works" into a red suite
+   * with the refusal itself no longer covered by anything.
+   */
+  pin?: ReusableWorkflowPin;
 };
 
 const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
@@ -165,12 +181,16 @@ export async function runPrismicCiCommand(
   }
 
   // THE PIN, checked here as well as in the recipe — not a second copy of the
-  // gate but the same exported predicate on the same exported pin, asked at the
-  // one point the recipe cannot answer for: a `--dry` run never reaches the
-  // recipe at all, and a preview that promised fifteen pull requests the real
-  // run would refuse is a preview of something that cannot happen.
-  const pinUnresolved = !isPinResolved(REUSABLE_WORKFLOW_PIN)
-    ? `⛔ the reusable-workflow pin is unresolved (${REUSABLE_WORKFLOW_PIN.sha}) — every site` +
+  // gate but the same exported predicate on the same pin, asked at the one point
+  // the recipe cannot answer for: a `--dry` run never reaches the recipe at all,
+  // and a preview that promised fifteen pull requests the real run would refuse
+  // is a preview of something that cannot happen.
+  //
+  // ONE pin object serves both this preview and the recipe below, so the preview
+  // can never be answering about a different pin than the run it previews.
+  const pin = deps.pin ?? REUSABLE_WORKFLOW_PIN;
+  const pinUnresolved = !isPinResolved(pin)
+    ? `⛔ the reusable-workflow pin is unresolved (${pin.sha}) — every site` +
       ` below would be REFUSED, not delivered. Publish and tag the workflow in` +
       ` reddoorla/.github, then set REUSABLE_WORKFLOW_PIN.`
     : "";
@@ -190,7 +210,7 @@ export async function runPrismicCiCommand(
     };
   }
 
-  const run = deps.runRecipe ?? ((s: Site) => prismicCi(s));
+  const run = deps.runRecipe ?? ((s: Site) => prismicCi(s, { pin }));
   const results = await runRecipeOverSites("prismic-ci", sites, async (s) => {
     const failure = await checkoutFailure(s.path);
     return failure ? failedRow(siteLabel(s), failure) : run(s);

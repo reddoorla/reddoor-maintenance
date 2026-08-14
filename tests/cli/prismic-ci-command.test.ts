@@ -17,8 +17,31 @@ import {
   runPrismicCiCommand,
   type PrismicCiCommandOptions,
 } from "../../src/cli/commands/prismic-ci.js";
-import { REUSABLE_WORKFLOW_PIN, isPinResolved } from "../../src/recipes/prismic-ci/template.js";
+import {
+  UNRESOLVED_PIN_SHA,
+  isPinResolved,
+  type ReusableWorkflowPin,
+} from "../../src/recipes/prismic-ci/template.js";
 import type { RecipeResult, Site } from "../../src/types.js";
+
+/**
+ * THE TWO PIN STATES, AS FIXTURES — never as whatever the shipped constant
+ * happens to say today.
+ *
+ * Both refusal tests below used to assert that `REUSABLE_WORKFLOW_PIN` was
+ * unresolved and passed only because it was. The day it resolved they failed,
+ * and the behaviour they describe — nothing rolls out while the pin is a
+ * placeholder — was left with no test at all, in the week the command became
+ * capable of opening pull requests on fifteen live client repositories. Injected,
+ * both directions hold in either pin state, forever.
+ */
+const UNRESOLVED_PIN: ReusableWorkflowPin = { sha: UNRESOLVED_PIN_SHA, tag: "v1.4.0" };
+/** Shaped exactly like a real pin, deliberately NOT the shipped one — so a test
+ *  asserting the resolved path cannot be satisfied (or broken) by a release. */
+const RESOLVED_PIN: ReusableWorkflowPin = {
+  sha: "0123456789abcdef0123456789abcdef01234567",
+  tag: "v1.4.0",
+};
 
 const r = (over: Partial<RecipeResult> = {}): RecipeResult => ({
   recipe: "prismic-ci",
@@ -88,6 +111,7 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
+  vi.unstubAllEnvs();
 });
 
 /** One fleet checkout. Non-empty by default, so "no Prismic config here" is a
@@ -148,20 +172,26 @@ function recipeFake(result: (site: Site) => RecipeResult = () => r()) {
 const fleetOpts = (fleet: string): PrismicCiCommandOptions => ({ cwd: root, fleet, workdir });
 
 describe("runPrismicCiCommand", () => {
-  // THE STATE THE FLEET IS IN TODAY, end to end through the REAL recipe with the
-  // REAL shipped pin: `REUSABLE_WORKFLOW_PIN.sha` is a placeholder until the
-  // reusable workflow is published and tagged in reddoorla/.github, and while it
-  // is, nothing may roll out. The failure this guards is not "a wrong PR" but a
-  // quiet one: 15 sites refused, "0 applied, 0 failed", exit 0, read as a
-  // finished rollout.
+  // AN UNRESOLVED PIN REFUSES EVERY SITE, end to end through the REAL recipe.
+  // While the reusable workflow has not been published and tagged in
+  // reddoorla/.github, nothing may roll out — a caller workflow pinned to a
+  // commit that does not exist fails at workflow-load time on every model PR,
+  // with an error naming neither the file nor the reason. The failure this
+  // guards is not "a wrong PR" but a quiet one: 15 sites refused, "0 applied,
+  // 0 failed", exit 0, read as a finished rollout.
   it("refuses every site while the reusable-workflow pin is unresolved, and exits non-zero", async () => {
-    expect(isPinResolved(REUSABLE_WORKFLOW_PIN)).toBe(false); // the premise, stated
+    expect(isPinResolved(UNRESOLVED_PIN)).toBe(false); // the premise, stated
     await checkout("espada");
     await checkout("hedloc");
     const fleet = await inventory(["espada", "hedloc"]);
-    const res = await runPrismicCiCommand(undefined, fleetOpts(fleet));
+    const res = await runPrismicCiCommand(undefined, fleetOpts(fleet), { pin: UNRESOLVED_PIN });
     expect(res.code).toBe(1);
     expect(res.output).toMatch(/pin is unresolved/);
+    // The INJECTED sha, in the recipe's own refusal wording. This is what proves
+    // the command threads its pin down into the recipe rather than the recipe
+    // gating on the shipped constant behind the command's back — the two would
+    // be indistinguishable on the day they happen to agree.
+    expect(res.output).toContain(UNRESOLVED_PIN.sha);
     expect(res.output).toContain("espada");
     expect(res.output).toContain("hedloc");
     expect(res.output).toMatch(/0 applied, 0 noop, 2 failed/);
@@ -169,6 +199,26 @@ describe("runPrismicCiCommand", () => {
     // Nothing reached GitHub: the pin is checked before the first network call,
     // so no PR url can appear in this output.
     expect(res.output).not.toContain("https://github.com/");
+  });
+
+  // THE MIRROR, which never existed: a guard that refuses in BOTH pin states is
+  // indistinguishable from a recipe that simply cannot deliver, and the suite as
+  // it stood would have passed for either. A resolved pin must let every site
+  // THROUGH the pin gate and on to the real ones. `GITHUB_TOKEN` is stubbed
+  // empty so the gate it lands on next is deterministic and no test can reach
+  // the network — landing there at all is the proof.
+  it("with a RESOLVED pin, refuses nobody for the pin — every site reaches the later gates", async () => {
+    expect(isPinResolved(RESOLVED_PIN)).toBe(true); // the premise, stated
+    vi.stubEnv("GITHUB_TOKEN", "");
+    await checkout("espada");
+    await checkout("hedloc");
+    const fleet = await inventory(["espada", "hedloc"]);
+    const res = await runPrismicCiCommand(undefined, fleetOpts(fleet), { pin: RESOLVED_PIN });
+    expect(res.output).not.toMatch(/pin is unresolved/);
+    expect(res.output).not.toContain(RESOLVED_PIN.sha);
+    // Past the pin gate, into the one after it — for both sites.
+    expect(res.output).toMatch(/\[espada\] failed: GITHUB_TOKEN not set/);
+    expect(res.output).toMatch(/\[hedloc\] failed: GITHUB_TOKEN not set/);
   });
 
   // An inventory that names nobody is not a delivered fleet. The Airtable
@@ -302,7 +352,9 @@ describe("runPrismicCiCommand", () => {
   });
 
   // --dry is the only way to see the blast radius before firing it. It must
-  // write nothing…
+  // write nothing… (pinned to a RESOLVED pin: what this test is about is the
+  // preview, and it should neither start nor stop asserting that because a
+  // release landed.)
   it("--dry lists the sites without running the recipe", async () => {
     await checkout("espada");
     await checkout("hedloc");
@@ -311,7 +363,7 @@ describe("runPrismicCiCommand", () => {
     const res = await runPrismicCiCommand(
       undefined,
       { ...fleetOpts(fleet), dry: true },
-      { runRecipe: f.runRecipe },
+      { runRecipe: f.runRecipe, pin: RESOLVED_PIN },
     );
     expect(res.output).toMatch(/would/i);
     expect(res.output).toContain("espada");
@@ -329,10 +381,30 @@ describe("runPrismicCiCommand", () => {
     const res = await runPrismicCiCommand(
       undefined,
       { ...fleetOpts(fleet), dry: true },
-      { runRecipe: f.runRecipe },
+      { runRecipe: f.runRecipe, pin: UNRESOLVED_PIN },
     );
     expect(res.code).toBe(1);
     expect(res.output).toMatch(/pin is unresolved/);
+    expect(res.output).toContain(UNRESOLVED_PIN.sha);
+    expect(f.runRecipe).not.toHaveBeenCalled();
+  });
+
+  // THE MIRROR of the dry refusal. A preview that refused whatever the pin said
+  // would be just as wrong as one that promised whatever the pin said, and only
+  // one of the two was ever tested.
+  it("--dry previews the rollout, and exits 0, once the pin is resolved", async () => {
+    await checkout("espada");
+    const fleet = await inventory(["espada"]);
+    const f = recipeFake();
+    const res = await runPrismicCiCommand(
+      undefined,
+      { ...fleetOpts(fleet), dry: true },
+      { runRecipe: f.runRecipe, pin: RESOLVED_PIN },
+    );
+    expect(res.code).toBe(0);
+    expect(res.output).not.toMatch(/pin is unresolved/);
+    expect(res.output).toMatch(/would be offered the delivery workflow/);
+    expect(res.output).toContain("espada");
     expect(f.runRecipe).not.toHaveBeenCalled();
   });
 
