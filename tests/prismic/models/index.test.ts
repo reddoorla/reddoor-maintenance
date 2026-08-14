@@ -212,6 +212,23 @@ describe("prismic/models public surface", () => {
  * listed as F5, and every fix was re-proven by mutation with the exact escape
  * shape that motivated it.
  *
+ * TWO THINGS THIS RECORD DOES NOT SAY, stated because a reader will otherwise
+ * assume them — as this project's own controller did, twice, in writing:
+ *
+ *  - 90 caught + 19 escaped = 109. THE OTHER 35 ATTEMPTS HAVE NO DISPOSITION
+ *    HERE. They were most likely malformed or duplicate attack shapes discarded
+ *    during the run, but nobody wrote that down, and "we did not record it" is
+ *    not "it did not matter" — the exact distinction the module this guard
+ *    protects exists to enforce. Do not quote 144 as a number every one of
+ *    which was adjudicated.
+ *  - "19 ESCAPES, ALL FIXED" IS NOT WHAT HAPPENED, and it is the natural way to
+ *    misremember this paragraph. FOUR ROOT CAUSES were fixed. At least two of
+ *    the 19 escape SHAPES still pass this guard today, recorded in F5 above with
+ *    `MEASURED` beside each: the concatenated `x["cons" + "tructor"]` spelling,
+ *    and an inline-typed injected spawner aliased before its call. Both were
+ *    re-run after F1–F4 landed and both went 14/14 green. That is the whole
+ *    reason this header opens by refusing to call the guard a security boundary.
+ *
  * A MUTATION HARNESS CAN LIE, AND IT LIES TOWARD SUCCESS: the "17 of 17 caught"
  * report in this project was worthless because `--reporter=basic` does not exist
  * in vitest 4, so vitest exited before running anything and "the test failed"
