@@ -316,9 +316,11 @@ describe("runPrismicModelsCommand — in-repo", () => {
   // Task 18 registers these flags; Tasks 15/16/17/20 implement them. In between,
   // they were accepted and IGNORED — `--fleet inventory.json` ran an in-repo
   // check of the cwd and reported a successful sweep, exit 0.
+  //
+  // `--tokens` left this list in Task 15 (see prismic-models-tokens.test.ts); an
+  // implemented mode that stayed here would be unreachable instead.
   it.each([
     ["--pull", { pull: true }],
-    ["--tokens", { tokens: true }],
     ["--fleet", { fleet: "inventory.json" }],
     ["--write-airtable", { writeAirtable: true }],
   ])("exits non-zero for the unimplemented %s instead of doing something else", async (flag, o) => {
@@ -340,14 +342,16 @@ describe("runPrismicModelsCommand — in-repo", () => {
     await site();
     const r = await runPrismicModelsCommand(
       undefined,
-      { cwd: dir, pull: true, tokens: true },
+      { cwd: dir, pull: true, writeAirtable: true },
       deps([]),
     );
     expect(r.output).toContain("--pull");
-    expect(r.output).toContain("--tokens");
+    expect(r.output).toContain("--write-airtable");
   });
 
-  // A flag parser leaves `false` behind for a boolean flag nobody typed.
+  // A flag parser leaves `false` behind for a boolean flag nobody typed. Since
+  // Task 15 that also has to hold for an IMPLEMENTED mode: `tokens: false` must
+  // reach the in-repo comparison, not the token doctor.
   it("does not trip the guard on flags that were not asked for", async () => {
     await site();
     await customType("page");
@@ -358,6 +362,7 @@ describe("runPrismicModelsCommand — in-repo", () => {
     );
     expect(r.code).toBe(0);
     expect(r.output).not.toContain("NOT IMPLEMENTED");
+    expect(r.output).toContain("match Prismic");
   });
 
   // No comment means no review artifact. A dry run that silently failed to write

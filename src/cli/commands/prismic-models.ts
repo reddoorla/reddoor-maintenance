@@ -37,7 +37,7 @@
 // `status` says whether it was a skip or a failure so a sweep cannot conflate
 // the two.
 import { readdir, rename, rm, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import {
   diffModels,
   localModels,
@@ -374,6 +374,235 @@ export async function checkOneSite(
 }
 
 /**
+ * One site's token situation — the row `--tokens` prints, as DATA.
+ *
+ * `present` and `reads` are separate on purpose: Prismic write-token expiry is
+ * undocumented and was never proven either way, and "present but no longer
+ * reads" is exactly the shape an expiry would take. Collapsing them into one
+ * boolean would report an expired token as a missing one and send the operator
+ * to mint a duplicate.
+ *
+ * `reads` is THREE-valued for the same family of reason, one step further out.
+ * This doctor makes no Prismic call at all, so for every probe it builds today
+ * `reads` is `null` — NOBODY CHECKED — and the renderer says so in those words.
+ * A two-valued `reads` would have to spell "I did not look" as either "it works"
+ * or "it is broken", and the first of those is this pipeline's governing failure
+ * pointed at its own output.
+ *
+ * NOTE WHAT IS NOT HERE: a token value. There is no field for one, so no
+ * renderer, no formatter and no future edit to this row can print a live write
+ * credential into a CI log or an operator's scrollback. The check that decides
+ * `present` reads the environment variable's emptiness and keeps nothing.
+ */
+export type TokenProbe = {
+  /** The checkout this row is about — the repo directory name, which is what the
+   *  operator has in front of them. Printed alongside `repositoryName` because
+   *  the two routinely differ (beachfront-dentistry's Prismic repository is
+   *  `48bb12d1`, which is otherwise unattributable to any site). */
+  site: string;
+  /**
+   * Which of the three outcomes this probe reached — and the field the renderer
+   * keys on, for exactly the reason {@link SiteCheckStatus} exists one screen up.
+   *
+   * A config that is THERE and broken yields no `repositoryName`, precisely like
+   * a repo that has no Prismic at all. A renderer keyed on `repositoryName ===
+   * null` therefore reports a live client's site whose config just broke as "no
+   * Prismic config — this site needs no token", and the operator mints nothing
+   * for it. Count `status`, not the absence of a name.
+   */
+  status: SiteCheckStatus;
+  repositoryName: string | null;
+  expectedEnv: string | null;
+  present: boolean;
+  /** `true` a read succeeded, `false` it failed, `null` NOBODY CHECKED. */
+  reads: boolean | null;
+  /** Why this site could not be read (`status: "failed"`), or why a present
+   *  token did not read. Never a token value. */
+  error?: string;
+};
+
+const SITE_COL = 28;
+const REPO_COL = 26;
+/** Wide enough for the longest name the rule can derive in this fleet
+ *  (`PRISMIC_TOKEN_MEDICAL_SOLUTIONS_OF_TEXAS`, 40 characters). Names are never
+ *  shortened to fit — a truncated secret name is a secret nobody can mint. */
+const ENV_COL = 40;
+const NO_VALUE = "—";
+
+/** Prose above the table. Deliberately contains neither "OK" nor "MISSING":
+ *  those two words are verdicts in the rows below, and a test that asserts a
+ *  verdict is ABSENT would be satisfied by nothing if the header said it. */
+const DOCTOR_HEADER: readonly string[] = [
+  "Prismic write-token doctor — which secret each site needs, and whether it is set.",
+  "",
+  "The naming rule is PRISMIC_TOKEN_<REPOSITORY NAME>, upper-snaked from the PRISMIC",
+  "repository name, which is routinely not the repo directory name: reddoor-website's",
+  "repository is reddoor-la, data-dynamiq's is reddoor-wireframer, and",
+  "beachfront-dentistry's is 48bb12d1. Prefix-first is deliberate — it guarantees a",
+  "leading letter, and 48BB12D1_PRISMIC is rejected both by shell sourcing and by this",
+  "repo's own credentials parser.",
+  "",
+  "The generic PRISMIC_WRITE_TOKEN is NOT consulted here. It is the in-repo CI fallback",
+  "for whichever single repository a workflow is checked out against; this table is the",
+  "per-repository checklist, and a fallback cannot tick a repository's own box.",
+  "",
+  "Nothing below was verified against Prismic and no token value is ever printed — this",
+  "reads the environment for emptiness only. A secret that is set is reported as",
+  "PRESENT (not verified); run `reddoor-maint prismic-models` in the site to find out",
+  "whether it actually works.",
+  "",
+  `${"repo".padEnd(SITE_COL)} ${"Prismic repository".padEnd(REPO_COL)} ${"secret".padEnd(ENV_COL)} verdict`,
+];
+
+/** The operator's rename checklist. Prints the env var NAME that was looked for,
+ *  never a token value — see {@link TokenProbe}, which holds no value to print. */
+export function renderTokenDoctor(probes: readonly TokenProbe[]): string {
+  const lines: string[] = [...DOCTOR_HEADER];
+  let ok = 0;
+  let missing = 0;
+  let failing = 0;
+  let unverified = 0;
+  let unreadable = 0;
+  let skipped = 0;
+  for (const p of probes) {
+    const cols =
+      `${p.site.padEnd(SITE_COL)} ${(p.repositoryName ?? NO_VALUE).padEnd(REPO_COL)}` +
+      ` ${(p.expectedEnv ?? NO_VALUE).padEnd(ENV_COL)}`;
+    let verdict: string;
+    if (p.status === "failed") {
+      unreadable++;
+      // NOT the skip below, and the wording carries the distinction rather than
+      // leaving it to a column: this site may well need a secret, and nobody
+      // found out which one.
+      verdict =
+        `CANNOT TELL — ${p.error ?? "this site could not be read"}.` +
+        ` Nothing was established about this site's secret.`;
+    } else if (p.status === "skipped") {
+      skipped++;
+      verdict = "no Prismic config (skipped) — this site needs no token";
+    } else if (!p.present) {
+      missing++;
+      verdict = "MISSING — mint this secret";
+    } else if (p.reads === false) {
+      failing++;
+      verdict = `PRESENT BUT 403/FAILED — ${p.error ?? "read failed"}`;
+    } else if (p.reads === true) {
+      ok++;
+      verdict = "OK";
+    } else {
+      unverified++;
+      verdict = "PRESENT (not verified)";
+    }
+    lines.push(`${cols} ${verdict}`);
+  }
+  lines.push("");
+  if (unreadable > 0) {
+    lines.push(
+      `⚠ ${unreadable} site(s) could not be read at all. Those are NOT sites without` +
+        ` Prismic — nothing was established about their secrets, so do not read this table` +
+        ` as a complete checklist.`,
+    );
+  }
+  // Every probe lands in exactly one of these, so a site can never fall out of
+  // the total: a summary that counted only the three outcomes an operator likes
+  // is how unreadable sites disappear from a checklist.
+  lines.push(
+    `${ok} ok, ${missing} missing, ${failing} failing, ${unverified} unverified,` +
+      ` ${unreadable} unreadable, ${skipped} skipped.`,
+  );
+  return lines.join("\n");
+}
+
+/**
+ * Work out which secret ONE checkout needs, and whether it is set.
+ *
+ * The guards are the same three the in-repo check opens with, in the same order
+ * and for the same reason — a missing checkout and a broken config both read as
+ * "no Prismic config here" if you only ask `readPrismicConfig`, and this command
+ * is the one an operator uses to decide which secrets to mint. Reporting "needs
+ * no token" for a site nobody could read is how a live client's site quietly
+ * drops off the checklist.
+ *
+ * `resolvePrismicToken` is deliberately NOT used: it RETURNS THE TOKEN, and this
+ * function must never hold one. It asks the same question of the environment —
+ * a value that is missing or whitespace-only is absent — so the doctor's verdict
+ * and the pipeline's own resolution cannot disagree.
+ */
+async function probeSiteToken(
+  repoRoot: string,
+  env: Record<string, string | undefined>,
+): Promise<TokenProbe> {
+  const site = basename(repoRoot) || repoRoot;
+  const blank = {
+    site,
+    repositoryName: null,
+    expectedEnv: null,
+    present: false,
+    reads: null,
+  } as const;
+
+  try {
+    await readdir(repoRoot);
+  } catch (e) {
+    return {
+      ...blank,
+      status: "failed",
+      error: `cannot read this checkout at ${repoRoot}: ${describeThrown(e)}`,
+    };
+  }
+
+  let cfg: PrismicConfig | null;
+  try {
+    cfg = await readPrismicConfig(repoRoot);
+  } catch (e) {
+    return {
+      ...blank,
+      status: "failed",
+      error: `Prismic config present but unusable: ${describeThrown(e)}`,
+    };
+  }
+  if (!cfg) return { ...blank, status: "skipped" };
+
+  let expectedEnv: string;
+  try {
+    expectedEnv = prismicTokenEnvName(cfg.repositoryName);
+  } catch (e) {
+    return {
+      ...blank,
+      status: "failed",
+      repositoryName: cfg.repositoryName,
+      error: `cannot work out which secret holds this repository's token: ${describeThrown(e)}`,
+    };
+  }
+
+  return {
+    site,
+    status: "checked",
+    repositoryName: cfg.repositoryName,
+    expectedEnv,
+    // The one read of the environment, and only its emptiness survives this
+    // expression. `.trim()` matches `resolvePrismicToken` exactly: a
+    // whitespace-only secret is one the pipeline itself refuses, so a doctor
+    // that called it present would tick a box the push would then fail on.
+    present: (env[expectedEnv] ?? "").trim() !== "",
+    reads: null,
+  };
+}
+
+/** `--tokens`: the doctor. Non-zero when there is something for the operator to
+ *  do — a secret to mint, or a site nobody could read. */
+async function runTokenDoctor(
+  repoRoot: string,
+  deps: PrismicModelsDeps,
+): Promise<{ output: string; code: number }> {
+  const probes = [await probeSiteToken(repoRoot, deps.env)];
+  const actionable = probes.some(
+    (p) => p.status === "failed" || (p.status === "checked" && (!p.present || p.reads === false)),
+  );
+  return { output: renderTokenDoctor(probes), code: actionable ? 1 : 0 };
+}
+
+/**
  * Modes the flags advertise and this command does not do yet.
  *
  * Task 18 registers `--pull`, `--tokens`, `--fleet` and `--write-airtable` on
@@ -389,7 +618,6 @@ export async function checkOneSite(
  */
 const UNIMPLEMENTED_MODES = [
   ["--pull", "pull"],
-  ["--tokens", "tokens"],
   ["--fleet", "fleet"],
   ["--write-airtable", "writeAirtable"],
 ] as const satisfies ReadonlyArray<readonly [string, keyof PrismicModelsCommandOptions]>;
@@ -398,6 +626,40 @@ const UNIMPLEMENTED_MODES = [
  *  a boolean flag parser leaves behind for a flag nobody typed; anything else —
  *  `true`, a string, an empty string — is a request. */
 const requested = (v: unknown): boolean => v !== undefined && v !== false;
+
+/**
+ * Flag combinations that contradict each other, refused BEFORE any work.
+ *
+ * The alternative is not "pick a sensible order" — it is a silent no-op, which
+ * is the same class of failure as the unimplemented-mode guard below and the
+ * reason that guard exists. `--tokens --apply` runs a read-only doctor, prints a
+ * table and exits 0, and the operator who typed `--apply` reads that exit as
+ * "the models were pushed". `--tokens --comment-file ci.txt` leaves a workflow
+ * waiting on a file that is never written.
+ *
+ * Exit 2, not 1: this is a malformed invocation, not a finding about a site. A
+ * caller that treats 1 as "drift" and 2 as "you asked for something impossible"
+ * can then tell them apart.
+ */
+function modeConflict(opts: PrismicModelsCommandOptions): string | null {
+  if (requested(opts.tokens)) {
+    if (opts.apply === true) {
+      return (
+        "cannot combine --tokens with --apply. --tokens is a read-only checklist of which" +
+        " secret each site needs; it pushes nothing. Nothing was compared, pushed or" +
+        " written — drop one of the two flags."
+      );
+    }
+    if (opts.commentFile !== undefined) {
+      return (
+        "cannot combine --tokens with --comment-file. The comment file is the in-repo" +
+        " model check's review artifact; the token doctor writes no report for a PR." +
+        " Nothing was written — redirect the output instead."
+      );
+    }
+  }
+  return null;
+}
 
 /**
  * Write the comment file so a reader can never see a half-written or a stale one.
@@ -452,6 +714,13 @@ export async function runPrismicModelsCommand(
   opts: PrismicModelsCommandOptions,
   deps: PrismicModelsDeps = defaultDeps(),
 ): Promise<{ output: string; code: number }> {
+  // FIRST, before the unimplemented-mode guard: a contradiction is a
+  // contradiction whether or not the other half of it happens to be built yet,
+  // and it must read as "these two cannot be asked for together" rather than as
+  // "come back when that mode ships".
+  const conflict = modeConflict(opts);
+  if (conflict) return { output: conflict, code: 2 };
+
   const asked = UNIMPLEMENTED_MODES.filter(([, key]) => requested(opts[key]));
   if (asked.length > 0) {
     const flags = asked.map(([flag]) => flag).join(", ");
@@ -487,6 +756,11 @@ export async function runPrismicModelsCommand(
 
   const cwd = opts.cwd ? resolve(opts.cwd) : process.cwd();
   const repoRoot = site ? resolve(cwd, site) : cwd;
+
+  // A MODE, not a modifier: it reads no models, calls Prismic not at all, and
+  // returns its own report. Everything below this line is the in-repo model
+  // comparison.
+  if (requested(opts.tokens)) return runTokenDoctor(repoRoot, deps);
 
   const result = await checkOneSite(repoRoot, deps, {
     // `=== true` rather than truthiness, so the ONE place that decides whether
