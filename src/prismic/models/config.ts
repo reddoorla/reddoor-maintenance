@@ -23,14 +23,38 @@ export type PrismicConfig = {
  *  mask it — see the sentinel handling in {@link readPrismicConfig}. */
 const CONFIG_FILES = ["slicemachine.config.json", "prismic.config.json"] as const;
 
-/** The starter's placeholder — a repo that has not been pointed at a real
- *  Prismic repository yet. Three fleet repos still carry it unreplaced:
- *  reddoor-starter, canvas-starter, and composition-hospitality. Only the first
- *  two are visible from a local sweep (verified 2026-08-12; the third has no
- *  local checkout and was confirmed through the GitHub API), so a measurement
- *  taken across `~/Documents/GitHub` finds two and is not evidence that the
- *  third is gone. */
-const SENTINEL = "your-prismic-repo-name";
+/**
+ * Repository names that mean "this repo is not pointed at a content model of
+ * its own" — a placeholder, never a client's Prismic repository.
+ *
+ * `your-prismic-repo-name` is the starter's placeholder, carried unreplaced by
+ * three fleet repos: reddoor-starter, canvas-starter, and
+ * composition-hospitality. Only the first two are visible from a local sweep
+ * (verified 2026-08-12; the third has no local checkout and was confirmed
+ * through the GitHub API), so a measurement taken across `~/Documents/GitHub`
+ * finds two and is not evidence that the third is gone.
+ *
+ * `reddoor-wireframer` is Reddoor's shared wireframe repository (operator
+ * ruling 2026-08-14). Only data-dynamiq names it. It belongs here for a reason
+ * the starter sentinel never had: IT RESOLVES. The repository genuinely exists
+ * — HTTP 200, two starter documents last published 2024-03-12 — so unlike a
+ * 404-ing placeholder, nothing about querying it will ever reveal that it is
+ * one. Without this entry the site is a permanent `unknown` verdict and a
+ * nightly `prismic-unknown:` cockpit warning that no credential can clear,
+ * because the correct number of tokens to mint for it is zero.
+ *
+ * ADDING TO THIS LIST IS A DECISION ONLY AN OPERATOR CAN MAKE. A name here is
+ * dropped from every sweep, so a real client repository added by mistake stops
+ * being checked and reports as "no Prismic here" rather than as an error.
+ *
+ * A plain readonly array rather than a Set: this module's capability guard
+ * rejects free ambient identifiers, and `ReadonlySet` is one. Two entries do
+ * not need a hash lookup, and the guard is worth more than the micro-optimum.
+ */
+const PLACEHOLDER_REPOSITORY_NAMES: readonly string[] = [
+  "your-prismic-repo-name",
+  "reddoor-wireframer",
+];
 
 /**
  * Read a repo's Prismic config, or null when it is not a Prismic site.
@@ -94,10 +118,17 @@ export async function readPrismicConfig(repoRoot: string): Promise<PrismicConfig
     // than "your config has a stray space", sending them to the wrong problem.
     const repositoryName = cfg.repositoryName.trim();
 
-    // Sentinel = "not configured yet" → try the next candidate filename rather
-    // than declaring the repo non-Prismic. Checked before `libraries` because a
-    // repo this pipeline never processes has no configuration worth validating.
-    if (repositoryName === SENTINEL) continue;
+    // Placeholder = "no content model of its own" → try the next candidate
+    // filename rather than declaring the repo non-Prismic. Checked before
+    // `libraries` because a repo this pipeline never processes has no
+    // configuration worth validating.
+    //
+    // `continue`, not `return null`, and that applies to EVERY placeholder: a
+    // half-migrated repo can hold a stale placeholder in slicemachine.config.json
+    // and its real configuration in prismic.config.json, so short-circuiting
+    // here would drop a live site from the sweep on the strength of a file
+    // nobody reads any more.
+    if (PLACEHOLDER_REPOSITORY_NAMES.includes(repositoryName)) continue;
 
     // ABSENT defaults; PRESENT-but-unusable throws. Replacing a malformed value
     // with the fleet default is the same collapse this module refuses

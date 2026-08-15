@@ -96,6 +96,55 @@ describe("readPrismicConfig", () => {
     expect(await readPrismicConfig(dir)).toBeNull();
   });
 
+  // `reddoor-wireframer` is Reddoor's shared wireframe repository, not any
+  // client's content model — operator ruling 2026-08-14, for data-dynamiq, the
+  // only repo in the fleet that names it.
+  //
+  // It differs from the starter sentinel in the one way that makes it need
+  // encoding here: IT RESOLVES. The Prismic repository genuinely exists (HTTP
+  // 200, two starter documents last published 2024-03-12), so no failed lookup
+  // will ever reveal it as a placeholder the way a 404 would. Left unlisted it
+  // is a permanent `unknown` on data-dynamiq's row plus a nightly
+  // `prismic-unknown:` cockpit warning that NO token can clear, because the
+  // correct number of tokens to mint for it is zero.
+  it("returns null for the reddoor-wireframer placeholder, which resolves", async () => {
+    await writeFile(
+      join(dir, "slicemachine.config.json"),
+      JSON.stringify({ repositoryName: "reddoor-wireframer" }),
+    );
+    expect(await readPrismicConfig(dir)).toBeNull();
+  });
+
+  // Every placeholder gets the SAME treatment, not just the starter's. If this
+  // one short-circuited to null instead of walking to the next candidate, a
+  // half-migrated repo whose stale first file names the wireframer would be
+  // dropped from the sweep on the strength of a file nobody reads any more —
+  // the exact defect the sentinel walk exists to prevent, reintroduced by
+  // adding a second placeholder through a different code path.
+  it("keeps looking past the wireframer placeholder to a real second candidate", async () => {
+    await writeFile(
+      join(dir, "slicemachine.config.json"),
+      JSON.stringify({ repositoryName: "reddoor-wireframer" }),
+    );
+    await writeFile(
+      join(dir, "prismic.config.json"),
+      JSON.stringify({ repositoryName: "espada", libraries: ["./src/lib/slices"] }),
+    );
+    expect(await readPrismicConfig(dir)).toEqual({
+      repositoryName: "espada",
+      libraries: ["./src/lib/slices"],
+    });
+  });
+
+  // Trim before comparison, for the new placeholder as much as the old one.
+  it("treats a whitespace-padded wireframer placeholder as a placeholder", async () => {
+    await writeFile(
+      join(dir, "slicemachine.config.json"),
+      JSON.stringify({ repositoryName: "  reddoor-wireframer  " }),
+    );
+    expect(await readPrismicConfig(dir)).toBeNull();
+  });
+
   // The Prismic CLI's migration RENAMES slicemachine.config.json to
   // prismic.config.json, so a half-migrated repo holds a stale sentinel in the
   // first file and its real configuration in the second. Stopping at the first
