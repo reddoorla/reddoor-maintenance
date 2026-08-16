@@ -1,5 +1,103 @@
 # @reddoorla/maintenance
 
+## 0.83.0
+
+### Minor Changes
+
+- a1fe31b: Deliver Prismic content-model changes headlessly, from a reviewed PR.
+
+  A custom-type or slice-model edit now rides normal code review: CI comments the
+  delta on the pull request, and merging pushes the models to Prismic through the
+  Custom Types API. Nobody opens Slice Machine to deliver a schema change, and the
+  same comparison runs nightly across the fleet so an out-of-band cloud edit —
+  Type Builder, a dashboard hand-edit, a stray Slice Machine push — surfaces as
+  drift on the site's row rather than as a surprise months later.
+
+  The reason this is worth building rather than tolerating: the Migration API
+  silently drops any document field the registered model does not declare. HTTP
+  200, no warning, content gone. A unit test cannot catch it, because the local
+  model is correct and the binding constraint is the remote one.
+
+  New: `prismic-models [site]` (dry by default; `--apply`, `--pull`, `--tokens`,
+  `--fleet`, `--comment-file`, `--write-airtable`), a `prismic-ci` recipe and
+  fleet command that roll the delivery workflow out as a per-repo pull request,
+  a nightly `fleet-prismic-drift` sweep, and three Airtable verdict columns wired
+  through to the cockpit and the morning digest.
+
+  Two properties the design is built around, both enforced rather than documented:
+
+  - **Nothing deletes.** The models module exports no delete path, and a
+    module-wide capability guard fails the suite if any file in it acquires one
+    through a channel the guard can see. Models present only in Prismic are
+    reported, never removed. The guard is a tripwire against accidental
+    introduction and explicitly not a security boundary — its header names the
+    escape classes that remain open.
+  - **"I could not read it" never renders as "it is not there."** Every probe in
+    this feature separates whether a check ran from what it found, because
+    collapsing the two is how a fleet check reports a clean run it never
+    performed.
+
+  Two operator steps are required before any of it does anything: add `unknown`
+  as a third option to the Airtable `Prismic Models` single-select, and mint the
+  `PRISMIC_TOKEN_*` secrets — `prismic-models --fleet airtable --tokens` prints
+  the exact name per site and is the only authority on them, because four of the
+  fifteen derive from a Prismic repository name that differs from the repo's.
+
+### Patch Changes
+
+- 6af67e4: Say which side a Prismic model difference is on, and stop two digest tests from
+  depending on the day they run.
+
+  **The `-` lines said the opposite of what they meant.** A model difference the
+  repo lacked rendered as `- variation rail (REMOVED remotely)`, which reads as
+  "the remote removed it". The truth is the reverse: Prismic is the side that
+  still HAS it, the repo is the side missing it, and **pushing is what deletes
+  it** — taking the document data with it at HTTP 200 and no warning. Read the old
+  way, an operator goes hunting for who deleted something in Prismic when nobody
+  did, and merges the push that actually does the deleting.
+
+  They now read `- variation rail (only in Prismic — pushing DELETES it)`, naming
+  the side and the consequence. This is not hypothetical: the line was misread
+  once on live `reddoor-la` drift, and only settled by reading `compareZone` to
+  see which argument was local and which was remote. A report line that needs its
+  source read to be understood is not a report. The `⚠ DESTRUCTIVE` header was
+  always correct; only the per-line wording was wrong.
+
+  **`runDigest` now accepts an optional `now`**, like `collectAttention` already
+  did. Several collectors it feeds are age-sensitive — `collectPrismicDriftAlerts`
+  changes an item's key _and_ its wording once a verdict crosses
+  `PRISMIC_DRIFT_STALE_DAYS` — so a digest test that cannot fix the clock is
+  asserting on the day it happens to run. Two such tests were written against a
+  fixture stamped `2026-08-12` and went red four days later, reporting the
+  staleness wording as though the drift wiring had broken. Production behaviour is
+  unchanged: omit `now` and the run captures `new Date()` before any await,
+  exactly as before.
+
+- 1e80078: Treat `reddoor-wireframer` as a placeholder repository name, like the starter's
+  `your-prismic-repo-name`, so the Prismic model sweep skips the one repo that
+  names it instead of demanding a credential for it forever.
+
+  `data-dynamiq` points at Reddoor's shared wireframe repository rather than a
+  content model of its own (operator ruling). It needs encoding rather than
+  discovering, because it differs from the starter sentinel in the way that
+  matters: **it resolves.** The Prismic repository genuinely exists — HTTP 200,
+  two starter documents last published 2024-03-12 — so no failed lookup will ever
+  reveal it as a placeholder the way a 404 would. Left unlisted it is a permanent
+  `unknown` verdict on the site's row and a nightly `prismic-unknown:` cockpit
+  warning that no credential can clear, because the correct number of tokens to
+  mint for it is zero. The fleet token doctor goes from `1 missing` to `0 missing`.
+
+  The check stays a `continue` rather than a `return null`, for every placeholder
+  and not just the starter's: a half-migrated repo can hold a stale placeholder in
+  `slicemachine.config.json` and its real configuration in `prismic.config.json`,
+  and short-circuiting would drop a live site from the sweep on the strength of a
+  file nobody reads any more.
+
+  Note for anyone extending the list: a name added here is dropped from every
+  sweep, so a real client repository added by mistake stops being checked and
+  reports as "no Prismic here" rather than as an error. That is an operator
+  decision, not a housekeeping one.
+
 ## 0.82.0
 
 ### Minor Changes
