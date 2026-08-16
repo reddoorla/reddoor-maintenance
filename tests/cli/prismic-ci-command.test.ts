@@ -22,6 +22,7 @@ import {
   isPinResolved,
   type ReusableWorkflowPin,
 } from "../../src/recipes/prismic-ci/template.js";
+import { MIN_CLI_VERSION } from "../../src/recipes/prismic-ci/cli-version.js";
 import type { RecipeResult, Site } from "../../src/types.js";
 
 /**
@@ -134,6 +135,13 @@ async function checkout(
     await writeFile(
       join(d, "slicemachine.config.json"),
       JSON.stringify({ repositoryName: name, libraries: ["./src/lib/slices"] }),
+    );
+    // A lockfile pinning a CLI new enough to carry `prismic-models`. Without it
+    // the recipe's version gate refuses before any other gate is reached, and
+    // these tests are about the gates AFTER it — see cli-version.ts.
+    await writeFile(
+      join(d, "pnpm-lock.yaml"),
+      `lockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    dependencies:\n      '@reddoorla/maintenance':\n        specifier: ^${MIN_CLI_VERSION}\n        version: ${MIN_CLI_VERSION}\n`,
     );
   }
 }
