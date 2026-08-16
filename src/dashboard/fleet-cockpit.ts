@@ -24,6 +24,7 @@ import {
   collectTurnstileGuardrailAlerts,
   collectNotifyBounceAlerts,
   collectPrismicDriftAlerts,
+  prismicAckIsLive,
 } from "../alerts/digest-collectors.js";
 import { diffAttention, type DigestSnapshot } from "../alerts/digest-state.js";
 import { relativeTimeFromNow } from "./relative-time.js";
@@ -246,6 +247,18 @@ export function assignTier(
       signals.add(cand.signal);
     }
   }
+  // A Prismic divergence the operator accepted stays VISIBLE, as a muted chip. The
+  // item itself was suppressed upstream (`collectPrismicDriftAlerts`), so without
+  // this the site would read as plainly healthy and the acceptance would be
+  // invisible — an accepted finding is still a finding, and the expiry date is the
+  // part the operator most needs on the card. Not a WatchCandidate: this is already
+  // acked by its own column, and routing it through `accepted` would let a stray
+  // "prismic" string in Accepted Watch Conditions mute it with no expiry.
+  if (site.prismicModels === "fail" && prismicAckIsLive(site.prismicAckUntil, now)) {
+    const until = new Date(Date.parse(site.prismicAckUntil!)).toISOString().slice(0, 10);
+    acceptedReasons.push(`Prismic drift accepted until ${until}`);
+  }
+
   return watchReasons.length > 0
     ? { tier: "watch", watchReasons, watchAcceptKeys, watchSignals: [...signals], acceptedReasons }
     : {

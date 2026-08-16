@@ -95,6 +95,7 @@ export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     prismicModels: null,
     prismicModelsCheckedAt: null,
     prismicModelsDrift: null,
+    prismicAckUntil: null,
     ...over,
   };
 }

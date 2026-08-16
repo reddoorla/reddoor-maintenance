@@ -241,6 +241,26 @@ export type WebsiteRow = {
    *  nothing could be established for an `unknown`, the skip reason for a blank,
    *  and null for a `pass` (which clears yesterday's finding). */
   prismicModelsDrift: string | null;
+  /**
+   * An expiry the operator sets to accept a KNOWN, EXPECTED `fail` — most often
+   * "I am modelling in Prismic on a branch that has not landed, so Prismic is
+   * legitimately ahead of `main`". While this timestamp is in the future the
+   * drift item is not raised.
+   *
+   * It expires on purpose, and nothing renews it automatically. A permanent ack
+   * would reproduce this column's own failure mode one step later: once the
+   * branch lands, the same acked cell would swallow real drift and "nobody is
+   * looking at this" would render as "this is fine". An expiry means the worst
+   * case is a silence that ends by itself.
+   *
+   * Narrow by construction — it mutes only `fail`, the finding the operator
+   * actually reviewed. `unknown` (the check could not run) and a verdict too old
+   * to be current are never muted by it; see `collectPrismicDriftAlerts`.
+   *
+   * OPERATOR PRECONDITION: `Prismic Ack Until` is a dateTime column. Until it
+   * exists this reads null and nothing is acked, which is the safe direction.
+   */
+  prismicAckUntil: string | null;
   notifyRouting: NotifyRouting | null;
 };
 
@@ -508,6 +528,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     prismicModels: toPrismicModelsVerdict(f["Prismic Models"]),
     prismicModelsCheckedAt: (f["Prismic Models Checked At"] as string | undefined) ?? null,
     prismicModelsDrift: (f["Prismic Models Drift"] as string | undefined) ?? null,
+    prismicAckUntil: (f["Prismic Ack Until"] as string | undefined) ?? null,
   };
 }
 

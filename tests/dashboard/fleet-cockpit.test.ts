@@ -250,6 +250,38 @@ describe("assignTier", () => {
     expect(r.acceptedReasons).toEqual(["Best Practices 78"]);
   });
 
+  // An accepted Prismic divergence must not simply VANISH. The item is suppressed
+  // upstream so the site stops nagging, and the card then has to say that a finding
+  // exists and when the acceptance runs out — otherwise the operator sees a plain
+  // green site and the only record of the decision is an Airtable cell nobody opens.
+  it("shows an accepted Prismic divergence as a dated chip, not silence", () => {
+    const r = assignTier(
+      site({ prismicModels: "fail", prismicAckUntil: "2026-06-20T00:00:00Z" }),
+      [],
+      NOW,
+    );
+    expect(r.tier).toBe("healthy");
+    expect(r.acceptedReasons).toEqual(["Prismic drift accepted until 2026-06-20"]);
+  });
+
+  it("drops the chip once the ack expires", () => {
+    const r = assignTier(
+      site({ prismicModels: "fail", prismicAckUntil: "2026-06-01T00:00:00Z" }),
+      [],
+      NOW,
+    );
+    expect(r.acceptedReasons).toEqual([]);
+  });
+
+  it("shows no chip for a passing site that happens to carry an ack date", () => {
+    const r = assignTier(
+      site({ prismicModels: "pass", prismicAckUntil: "2026-06-20T00:00:00Z" }),
+      [],
+      NOW,
+    );
+    expect(r.acceptedReasons).toEqual([]);
+  });
+
   it("still watches an un-accepted Lighthouse category", () => {
     const r = assignTier(site({ bpScore: 78 }), [], NOW);
     expect(r.tier).toBe("watch");
