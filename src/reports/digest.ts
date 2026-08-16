@@ -359,13 +359,25 @@ export type DigestRunOptions = {
    *  fetch from libSQL; null = simulate unavailable (section omitted); a Map =
    *  injected (tests). */
   submissionCounts?: ReadonlyMap<string, SiteSubmissionCounts> | null;
+  /**
+   * The run clock. Production omits it and gets `new Date()`.
+   *
+   * Injectable because several collectors this run feeds are AGE-SENSITIVE —
+   * `collectPrismicDriftAlerts` alone changes an item's key and its wording once
+   * a verdict crosses `PRISMIC_DRIFT_STALE_DAYS` — so a digest test that cannot
+   * fix the clock is asserting on the day it happens to run. Two did, and both
+   * went red four days after they were written, reporting the staleness wording
+   * as if the drift wiring had broken. `collectAttention` already takes a `now`
+   * for exactly this reason; this threads the same lever one layer out.
+   */
+  now?: Date;
 };
 
 export async function runDigest(
   options: DigestRunOptions,
 ): Promise<{ output: string; code: number }> {
   // Capture clock BEFORE any await so the idempotency key can't roll past midnight mid-run.
-  const today = new Date();
+  const today = options.now ?? new Date();
   try {
     const base = options.base ?? openBase(readAirtableConfig());
     // Read each table ONCE for the whole run, then thread the arrays into

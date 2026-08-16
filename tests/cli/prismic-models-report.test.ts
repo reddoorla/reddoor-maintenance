@@ -370,7 +370,7 @@ describe("renderModelReport", () => {
       }),
     });
     const out = renderModelReport("espada", d, { apply: false });
-    expect(out).toContain("- Main.headline (REMOVED remotely)");
+    expect(out).toContain("- Main.headline (only in Prismic — pushing DELETES it)");
     expect(out).toMatch(/DESTRUCTIVE/);
     // Ahead of the detail it summarises — see the leads-with-the-verdict test.
     expect(out.indexOf("DESTRUCTIVE")).toBeLessThan(out.indexOf("- Main.headline"));

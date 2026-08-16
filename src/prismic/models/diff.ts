@@ -92,14 +92,14 @@ const modelMetaLine = (k: string, verb: Verb): string =>
   verb === "added"
     ? `+ (model) ${k}`
     : verb === "removed"
-      ? `- (model) ${k} (REMOVED remotely)`
+      ? `- (model) ${k} (only in Prismic — pushing DELETES it)`
       : `~ (model) ${k}`;
 
 const variationMetaLine = (id: string, k: string, verb: Verb): string =>
   verb === "added"
     ? `+ variation ${id}: ${k}`
     : verb === "removed"
-      ? `- variation ${id}: ${k} (REMOVED remotely)`
+      ? `- variation ${id}: ${k} (only in Prismic — pushing DELETES it)`
       : `~ variation ${id}: ${k}`;
 
 /** Top-level keys that hold FIELD structure, not metadata — excluded from
@@ -171,7 +171,7 @@ const compareZone = (label: string, lz: unknown, rz: unknown, depth: number): st
   const out: string[] = [];
   for (const k of Object.keys(a)) if (!Object.hasOwn(b, k)) out.push(`+ ${label}.${k}`);
   for (const k of Object.keys(b))
-    if (!Object.hasOwn(a, k)) out.push(`- ${label}.${k} (REMOVED remotely)`);
+    if (!Object.hasOwn(a, k)) out.push(`- ${label}.${k} (only in Prismic — pushing DELETES it)`);
   for (const k of Object.keys(a)) {
     if (!Object.hasOwn(b, k) || sameModel(a[k], b[k])) continue;
     const childPath = `${label}.${k}`;
@@ -277,7 +277,8 @@ export function describeDiff(local: PrismicModel, remote: PrismicModel | undefin
         ...compareMeta(v, rr, VARIATION_META_EXCLUDE, (k, verb) => variationMetaLine(id, k, verb)),
       );
     }
-    for (const id of rv.keys()) if (!lv.has(id)) lines.push(`- variation ${id} (REMOVED remotely)`);
+    for (const id of rv.keys())
+      if (!lv.has(id)) lines.push(`- variation ${id} (only in Prismic — pushing DELETES it)`);
   }
 
   // Custom-type shape.
@@ -292,7 +293,8 @@ export function describeDiff(local: PrismicModel, remote: PrismicModel | undefin
       lines.push(...compareZone(tab, lt[tab], rt[tab], 0));
     }
     for (const tab of Object.keys(rt))
-      if (!Object.hasOwn(lt, tab)) lines.push(`- tab ${tab} (REMOVED remotely)`);
+      if (!Object.hasOwn(lt, tab))
+        lines.push(`- tab ${tab} (only in Prismic — pushing DELETES it)`);
   }
 
   // A blank "CHANGED <model>" is the failure this function exists to prevent, and
