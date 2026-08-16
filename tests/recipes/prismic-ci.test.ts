@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { prismicCi, type PrismicCiDeps } from "../../src/recipes/prismic-ci/index.js";
+import { MIN_CLI_VERSION } from "../../src/recipes/prismic-ci/cli-version.js";
 import {
   PRISMIC_CI_WORKFLOW,
   REUSABLE_WORKFLOW,
@@ -70,13 +71,37 @@ afterEach(async () => {
 
 const site = () => ({ path: dir, name: "Espada", gitRepo: "reddoorla/espada" });
 
-async function prismicSite(): Promise<void> {
+/** A pnpm v9 lockfile pinning @reddoorla/maintenance, with the peer suffix real
+ *  fleet lockfiles carry. Every delivering site needs one, because the recipe
+ *  refuses a repo whose installed CLI it cannot vouch for — see `cli-version.ts`. */
+function lockfilePinning(version: string): string {
+  return [
+    "lockfileVersion: '9.0'",
+    "",
+    "importers:",
+    "",
+    "  .:",
+    "    dependencies:",
+    "      '@reddoorla/maintenance':",
+    "        specifier: ^0.83.0",
+    `        version: ${version}(svelte@5.56.4)(typescript@5.9.3)`,
+    "",
+  ].join("\n");
+}
+
+/** @param cliVersion what the site's lockfile resolves; omit for a current one.
+ *  `null` writes NO lockfile, for the "cannot establish" branch. */
+async function prismicSite(cliVersion: string | null = MIN_CLI_VERSION): Promise<void> {
   await seedRepo();
   await writeFile(
     join(dir, "slicemachine.config.json"),
     JSON.stringify({ repositoryName: "espada" }),
   );
   git(["add", "slicemachine.config.json"]);
+  if (cliVersion !== null) {
+    await writeFile(join(dir, "pnpm-lock.yaml"), lockfilePinning(cliVersion));
+    git(["add", "pnpm-lock.yaml"]);
+  }
   git(["commit", "-qm", "prismic"]);
 }
 
@@ -317,6 +342,53 @@ describe("prismicCi", () => {
     expect(workflowUses(written)).toEqual([`${REUSABLE_WORKFLOW}@${PIN.sha}`]);
     expect(PIN.sha).toMatch(/^[0-9a-f]{40}$/);
     expect(d.github!.openPullRequest).toHaveBeenCalledTimes(1);
+  });
+
+  // THE VERSION GATE. The reusable workflow runs the SITE's own installed bin
+  // (`pnpm install --frozen-lockfile`, then `reddoor-maint`), so a caller
+  // installed next to a binary without `prismic-models` fails on the first model
+  // PR — in a client repo, with an error naming an unknown command rather than a
+  // rollout that ran too early. Measured before this gate existed: npm's latest
+  // was 0.82.0 and the fleet's lockfiles pinned as far back as 0.69.0, so a
+  // rollout that day would have broken all twelve.
+  it("refuses a site whose lockfile pins a CLI without the command, naming both versions", async () => {
+    await prismicSite("0.82.0");
+    const { d, pushed } = deps();
+    const r = await prismicCi(site(), d);
+    expect(r.status).toBe("failed");
+    expect(r.notes).toContain("0.82.0");
+    expect(r.notes).toContain(MIN_CLI_VERSION);
+    expect(r.notes).toMatch(/bump the dependency/i);
+    // Nothing written, and not one network call spent to learn what a local file
+    // already said.
+    expect(await exists(join(dir, WORKFLOW_PATH))).toBe(false);
+    expect(pushed).toEqual([]);
+    expect(d.github!.secretExists).not.toHaveBeenCalled();
+    expect(d.github!.openPullRequest).not.toHaveBeenCalled();
+  });
+
+  // "I could not establish the version" REFUSES rather than proceeding. The
+  // asymmetry is the point: waiting costs a re-run, being wrong costs broken CI
+  // on someone else's repository. It must also not be mistaken for the
+  // too-old branch — different wording, so the operator's next move differs.
+  it("refuses, distinctly, when it cannot establish the version at all", async () => {
+    await prismicSite(null); // no pnpm-lock.yaml
+    const { d, pushed } = deps();
+    const r = await prismicCi(site(), d);
+    expect(r.status).toBe("failed");
+    expect(r.notes).toMatch(/cannot establish/i);
+    expect(r.notes).toMatch(/no pnpm-lock\.yaml/i);
+    expect(r.notes).not.toMatch(/bump the dependency/i);
+    expect(pushed).toEqual([]);
+    expect(d.github!.secretExists).not.toHaveBeenCalled();
+  });
+
+  it("delivers to a site whose lockfile is newer than the minimum", async () => {
+    await prismicSite("1.2.3");
+    const { d, pushed } = deps();
+    const r = await prismicCi(site(), d);
+    expect(r.status).toBe("applied");
+    expect(pushed).toHaveLength(1);
   });
 
   it("refuses, and names the secret, when the repo does not have PRISMIC_WRITE_TOKEN", async () => {

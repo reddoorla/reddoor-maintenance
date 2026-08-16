@@ -28,6 +28,7 @@ import {
   prismicCiWorkflow,
   type ReusableWorkflowPin,
 } from "./template.js";
+import { MIN_CLI_VERSION, atLeast, readLockedCliVersion } from "./cli-version.js";
 
 /** Head-branch prefix of every PR this recipe opens. `branchName("prismic-ci")`
  *  produces `maint/prismic-ci-<timestamp>`, and the re-run guard matches on this
@@ -146,6 +147,37 @@ export async function prismicCi(site: Site, deps: PrismicCiDeps = {}): Promise<R
     );
   }
   const workflow = pin === REUSABLE_WORKFLOW_PIN ? PRISMIC_CI_WORKFLOW : prismicCiWorkflow(pin);
+
+  // 3b. THE BINARY THAT WILL ACTUALLY RUN. The reusable workflow does not
+  //     install this CLI — it runs `pnpm install --frozen-lockfile` and then the
+  //     site's OWN installed bin, so the version that executes is whatever this
+  //     repo's lockfile pins. Installing the caller next to a binary with no
+  //     `prismic-models` command yields a workflow that fails on the first model
+  //     PR, in a client repo, with an error naming an unknown command rather
+  //     than a rollout that ran too early.
+  //
+  //     Local and cheap, so it sits with the pin gate ahead of the first network
+  //     call. And it is a REFUSAL on "could not establish", not a pass: the
+  //     asymmetry is deliberate, because the cost of waiting is a re-run and the
+  //     cost of being wrong is broken CI on someone else's repository.
+  const locked = await readLockedCliVersion(site.path);
+  if (!locked.ok) {
+    return resultOf(
+      site,
+      "failed",
+      `cannot establish which @reddoorla/maintenance version this repo's CI would run ` +
+        `(${locked.reason}) — refusing to install a workflow that may not run`,
+    );
+  }
+  if (!atLeast(locked.version, MIN_CLI_VERSION)) {
+    return resultOf(
+      site,
+      "failed",
+      `this repo's lockfile pins @reddoorla/maintenance ${locked.version}, which has no ` +
+        `\`prismic-models\` command (first shipped in ${MIN_CLI_VERSION}) — bump the dependency ` +
+        `and commit the lockfile first, or the workflow fails on its first model PR`,
+    );
+  }
 
   const ghConfig = readGitHubConfig();
   if (!deps.github && !ghConfig) return resultOf(site, "failed", "GITHUB_TOKEN not set");
