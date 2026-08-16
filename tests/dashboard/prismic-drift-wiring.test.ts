@@ -184,6 +184,20 @@ describe("prismic drift wiring — the digest", () => {
     expect(keys).toContain("lighthouse:rec_espada:performance");
   });
 
+  // `now: NOW` is load-bearing, exactly as it is in every sibling test above.
+  //
+  // These two were the only tests in this file that let `runDigest` fall back to
+  // `new Date()`, while asserting on a fixture stamped FRESH (2026-08-12). They
+  // passed the day they were written and went red four days later, on 2026-08-16,
+  // when wall-clock time walked past PRISMIC_DRIFT_STALE_DAYS = 3: the verdict
+  // stopped being a fresh `fail` and became an unverified one, so the digest
+  // correctly said "has not run recently" instead of "diverge from the repo".
+  //
+  // The production code was right in both readings; only the test was
+  // time-dependent. A test whose outcome depends on the day it runs does not
+  // describe the behaviour it names, and this one would have failed CI on the
+  // next push to main with a message pointing at drift wording rather than at a
+  // clock.
   it("the drift item actually lands in the operator's digest EMAIL", async () => {
     const base = makeFakeBase({ Reports: [], Websites: [siteRecord()] });
     const { client, captured } = captureClient();
@@ -192,6 +206,7 @@ describe("prismic drift wiring — the digest", () => {
       resend: client,
       baseUrl: BASE_URL,
       submissionCounts: null,
+      now: NOW,
     });
     expect(result.code).toBe(0);
     expect(captured).toHaveLength(1);
@@ -210,7 +225,7 @@ describe("prismic drift wiring — the digest", () => {
       ],
     });
     const { client, captured } = captureClient();
-    await runDigest({ base, resend: client, baseUrl: BASE_URL, submissionCounts: null });
+    await runDigest({ base, resend: client, baseUrl: BASE_URL, submissionCounts: null, now: NOW });
     const html = captured[0]!.html;
     expect(html).toContain("Prismic model check could not run");
     expect(html).toContain("write token rejected (403)");

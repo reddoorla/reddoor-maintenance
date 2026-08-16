@@ -126,15 +126,42 @@ describe("describeDiff", () => {
     expect(describeDiff(local, remote)).toEqual(["+ default.primary.wash"]);
   });
 
-  it("marks a field the REMOTE has and the local does not as REMOVED remotely", () => {
+  it("marks a field the REMOTE has and the local does not as Prismic-only", () => {
     const local: PrismicModel = { id: "hero", variations: [{ id: "default", primary: {} }] };
     const remote: PrismicModel = {
       id: "hero",
       variations: [{ id: "default", primary: { order_uids: { type: "Text" } } }],
     };
     expect(describeDiff(local, remote)).toEqual([
-      "- default.primary.order_uids (REMOVED remotely)",
+      "- default.primary.order_uids (only in Prismic — pushing DELETES it)",
     ]);
+  });
+
+  // THE WORDING IS THE WHOLE POINT OF THIS TEST, so it asserts the exact string
+  // rather than a loose match.
+  //
+  // The old phrasing — "REMOVED remotely" — read as "the remote removed it",
+  // the exact opposite of what the line means, and it inverted the operator's
+  // next move. Prismic is the side that still HAS the thing; the repo is the
+  // side missing it; and a push is what would delete it, taking the document
+  // data with it at HTTP 200 with no warning. Read the old way, an operator goes
+  // hunting for who deleted something in Prismic — when nobody did.
+  //
+  // This is not hypothetical: it was misread once, on live `reddoor-la` drift,
+  // and only caught by going back to `compareZone` to see which argument was
+  // local and which was remote. A line that needs the source read to be
+  // understood is not a report.
+  it("states the DIRECTION on a minus line — never that Prismic did the deleting", () => {
+    const local: PrismicModel = { id: "hero", variations: [{ id: "default" }] };
+    const remote: PrismicModel = { id: "hero", variations: [{ id: "default" }, { id: "rail" }] };
+    const [line, ...rest] = describeDiff(local, remote);
+    expect(rest).toEqual([]);
+    expect(line).toBe("- variation rail (only in Prismic — pushing DELETES it)");
+    expect(line).not.toMatch(/REMOVED remotely/i);
+    // Names the consequence, not just the location: "only in Prismic" alone
+    // still leaves "so what?" unanswered for the one reader who matters — the
+    // one deciding whether to merge.
+    expect(line).toMatch(/DELETES/);
   });
 
   it("marks a changed field", () => {
@@ -157,7 +184,7 @@ describe("describeDiff", () => {
     };
     expect(describeDiff(local, remote)).toEqual([
       "+ variation wide (new)",
-      "- variation narrow (REMOVED remotely)",
+      "- variation narrow (only in Prismic — pushing DELETES it)",
     ]);
   });
 
@@ -237,7 +264,7 @@ describe("describeDiff", () => {
     const remote: PrismicModel = { id: "page", label: "Page", status: true };
     expect(describeDiff(local, remote)).toEqual([
       "+ (model) repeatable",
-      "- (model) status (REMOVED remotely)",
+      "- (model) status (only in Prismic — pushing DELETES it)",
     ]);
   });
 
@@ -284,7 +311,7 @@ describe("describeDiff", () => {
     const remote: PrismicModel = { id: "hero", variations: [{ id: "default", primary: {} }] };
     expect(describeDiff(local, remote)).toEqual(["+ default.primary.constructor"]);
     expect(describeDiff(remote, local)).toEqual([
-      "- default.primary.constructor (REMOVED remotely)",
+      "- default.primary.constructor (only in Prismic — pushing DELETES it)",
     ]);
   });
 
@@ -325,7 +352,7 @@ describe("describeDiff", () => {
       const local = structuredClone(pageCustomType);
       delete at(local, "json", "Main", "slices", "config", "choices").video_block;
       const lines = describeDiff(local, pageCustomType);
-      expect(lines).toContain("- Main.slices.video_block (REMOVED remotely)");
+      expect(lines).toContain("- Main.slices.video_block (only in Prismic — pushing DELETES it)");
       expect(lines).not.toContain("~ Main.slices (changed)");
     });
 
