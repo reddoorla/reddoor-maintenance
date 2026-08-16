@@ -516,6 +516,22 @@ function prismicSweepCovers(s: WebsiteRow): boolean {
  * the pre-launch mute would alarm on exactly the sites the sweep excludes by
  * design.
  */
+/**
+ * Is an operator's acceptance of a known divergence still in force?
+ *
+ * Every uncertain answer is `false` — an absent, blank or unparseable cell leaves
+ * the alarm ringing. The asymmetry is the point: a mistyped date costing one noisy
+ * item is recoverable, and a mistyped date silently muting a live finding is the
+ * exact failure this column was built to close. The boundary belongs to the alarm
+ * too: an ack "until 09:00" has nothing left to say at 09:00.
+ */
+export function prismicAckIsLive(ackUntil: string | null, now: Date): boolean {
+  if (ackUntil === null || ackUntil.trim() === "") return false;
+  const until = Date.parse(ackUntil);
+  if (!Number.isFinite(until)) return false;
+  return until > now.getTime();
+}
+
 export function collectPrismicDriftAlerts(
   sites: WebsiteRow[],
   baseUrl: string,
@@ -572,6 +588,12 @@ export function collectPrismicDriftAlerts(
       });
       continue;
     }
+
+    // The operator has reviewed THIS divergence and accepted it until a date they
+    // set — see `WebsiteRow.prismicAckUntil`. Reached only on `fail`: the `unknown`
+    // and staleness branches above have already returned, so an ack can never mute
+    // "the check could not run" or "nobody has re-established this".
+    if (prismicAckIsLive(s.prismicAckUntil, now)) continue;
 
     items.push({
       key: `prismic-drift:${s.id}`,
