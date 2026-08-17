@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { defineConfig, devices, type PlaywrightTestConfig } from "@playwright/test";
 
 export type A11yRoute = { path: string; name: string };
@@ -24,7 +25,46 @@ export const smokeRoutes: A11yRoute[] = [{ path: "/", name: "home" }];
 // so honor it here too and every re-exporter inherits the port binding on its
 // next package bump. Unset (local `pnpm test:smoke`) → the fixed 5173.
 const smokePort = process.env.REDDOOR_SMOKE_PORT;
-const port = smokePort || "5173";
+
+/**
+ * Allocate a free port SYNCHRONOUSLY, for the local path where nothing handed
+ * us one. Same trick as src/util/free-port.ts (bind :0, read the assigned port,
+ * release it) — but that is async, and this value is needed at module scope
+ * while Playwright is still building the config object.
+ *
+ * It cannot be an async default export instead: sites consume this base by
+ * SPREADING it (`{ ...base, use: { ...base.use } }` — see the smoke-suite
+ * recipe template). Spreading a Promise yields none of its properties, so the
+ * site would get a silently empty config — the exact false-green this whole
+ * change exists to remove. The export must stay a plain object.
+ *
+ * A subprocess is the cost of that constraint: ~30-50ms, once per Playwright
+ * run. On any failure we return null and the caller falls back to 5173, which
+ * (with reuseExistingServer now false) degrades to a loud "port already in use"
+ * rather than a silent wrong-server run.
+ */
+function allocateFreePortSync(): string | null {
+  try {
+    const out = execFileSync(
+      process.execPath,
+      [
+        "-e",
+        'const s=require("node:net").createServer();s.on("error",()=>process.exit(1));' +
+          's.listen(0,"127.0.0.1",()=>{const p=s.address().port;s.close(()=>process.stdout.write(String(p)))});',
+      ],
+      { encoding: "utf8", timeout: 5_000, stdio: ["ignore", "pipe", "ignore"] },
+    ).trim();
+    return /^\d+$/.test(out) ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+// REDDOOR_SMOKE_PORT (the central audit already allocated one) wins; otherwise
+// this run allocates its own. The old fallback was the fixed 5173 — the same
+// port a dev server sits on, which is what let `reuseExistingServer` silently
+// hijack local runs (#524).
+const port = smokePort || allocateFreePortSync() || "5173";
 
 // NOTE: default export only — sites consume this as `import base from
 // "@reddoorla/maintenance/configs/playwright-a11y"` (or re-export the default).
@@ -63,14 +103,26 @@ const playwrightA11yConfig: PlaywrightTestConfig = defineConfig({
     // nothing, naming neither the port nor the squatter. With --strictPort it
     // is an immediate "Port 5173 is already in use".
     //
-    // This does NOT overlap with `reuseExistingServer`: that check runs first,
-    // so a dev server already serving the probe URL is still reused and the
-    // command never executes. --strictPort only bites when 5173 is held by
-    // something that is not the server under test, which is exactly the case
-    // worth failing on.
+    // --strictPort now only bites if the allocated port is taken in the window
+    // between releasing and binding it, which is exactly the case worth failing
+    // on.
     command: `npm run vite:dev -- --port ${port} --strictPort`,
     url: `http://localhost:${port}/dev/a11y-fixtures`,
-    reuseExistingServer: !process.env.CI,
+    // NEVER reuse (#524). This used to be `!process.env.CI`, so local runs
+    // reused whatever answered the probe URL. The probe only asks "does this
+    // respond?" — never "is this serving the code I am about to test?" — so a
+    // dev server left open, or one whose tree changed under it after a
+    // checkout, silently became the system under test. That fails in both
+    // directions: a false red blamed on the code (beachfront 2026-08-12, where
+    // it was investigated as a macOS-vs-Linux difference and written up as one
+    // before being caught), and a false green where a passing suite ran against
+    // an old build. CI already had it false, and that asymmetry is precisely
+    // what made the failure read as a platform bug.
+    //
+    // The cost is a fresh vite boot per run (~10-20s against a ~2min suite).
+    // Because the port above is allocated rather than fixed, your own dev
+    // server on 5173 keeps running untouched.
+    reuseExistingServer: false,
     timeout: 120_000,
   },
 });

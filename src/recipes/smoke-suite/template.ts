@@ -138,7 +138,10 @@ export default defineConfig({
         webServer: {
           command: \`npm run vite:dev -- --port \${smokePort} --strictPort\`,
           url: \`http://localhost:\${smokePort}/dev/a11y-fixtures\`,
-          reuseExistingServer: !process.env.CI,
+          // Never reuse: the readiness probe cannot tell the server under test
+          // from any other server answering that URL. The shared base does the
+          // same, and allocates its own port when REDDOOR_SMOKE_PORT is unset.
+          reuseExistingServer: false,
           timeout: 120_000,
         },
       }

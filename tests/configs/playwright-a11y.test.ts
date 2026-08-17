@@ -23,13 +23,12 @@ describe("configs/playwright-a11y", () => {
     ]);
   });
 
-  it("uses port 5173 and a portable webServer command", () => {
-    expect(playwrightA11yConfig.use?.baseURL).toBe("http://localhost:5173");
-    expect(playwrightA11yConfig.webServer).toMatchObject({
-      // `npm run ...` works on both pnpm and npm sites.
-      command: "npm run vite:dev -- --port 5173 --strictPort",
-      url: "http://localhost:5173/dev/a11y-fixtures",
-    });
+  it("uses a portable webServer command bound to the config's own port", () => {
+    const server = playwrightA11yConfig.webServer as { command: string; url: string };
+    const port = new URL(server.url).port;
+    // `npm run ...` works on both pnpm and npm sites.
+    expect(server.command).toBe(`npm run vite:dev -- --port ${port} --strictPort`);
+    expect(playwrightA11yConfig.use?.baseURL).toBe(`http://localhost:${port}`);
   });
 
   it("runs the chromium project only (matches starter)", () => {
@@ -58,13 +57,42 @@ describe("configs/playwright-a11y", () => {
       });
     });
 
-    it("falls back to the fixed 5173, still port-bound, when unset", async () => {
+    it("allocates its OWN free port when unset, never the shared default 5173", async () => {
+      // #524: locally REDDOOR_SMOKE_PORT is unset, and the old code fell back to
+      // the fixed 5173 — the same port a dev server sits on. Combined with
+      // reuseExistingServer that silently tested whatever was already there.
       const mod = await importWithSmokePort(undefined);
-      expect(mod.default.use?.baseURL).toBe("http://localhost:5173");
-      expect(mod.default.webServer).toMatchObject({
-        command: "npm run vite:dev -- --port 5173 --strictPort",
-        url: "http://localhost:5173/dev/a11y-fixtures",
-      });
+      const server = mod.default.webServer as { command: string; url: string };
+      const port = Number(new URL(server.url).port);
+      expect(port).not.toBe(5173);
+      expect(port).toBeGreaterThan(1023);
+      expect(port).toBeLessThan(65536);
+      expect(server.command).toBe(`npm run vite:dev -- --port ${port} --strictPort`);
+      expect(mod.default.use?.baseURL).toBe(`http://localhost:${port}`);
+    });
+
+    // #524: the actual defect. `reuseExistingServer: !process.env.CI` made a
+    // LOCAL run reuse anything answering the probe URL — a dev server left open,
+    // or one whose working tree changed under it after a checkout. The probe asks
+    // "does this URL respond?", never "is this the code I am about to test?", so
+    // it fails both directions: false red against a stale server (beachfront
+    // 2026-08-12, misdiagnosed as a macOS-vs-Linux difference) and false green
+    // when a passing run was served by an old build.
+    it("never reuses an already-running server, even outside CI", async () => {
+      const prevCi = process.env.CI;
+      delete process.env.CI;
+      try {
+        const mod = await importWithSmokePort(undefined);
+        expect(
+          (mod.default.webServer as { reuseExistingServer: boolean }).reuseExistingServer,
+        ).toBe(false);
+        const withPort = await importWithSmokePort("41234");
+        expect(
+          (withPort.default.webServer as { reuseExistingServer: boolean }).reuseExistingServer,
+        ).toBe(false);
+      } finally {
+        if (prevCi !== undefined) process.env.CI = prevCi;
+      }
     });
 
     it("pins vite to whatever port the probe polls, allocated or not", async () => {
