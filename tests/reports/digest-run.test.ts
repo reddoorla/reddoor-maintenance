@@ -8,6 +8,7 @@ import type { SiteSubmissionCounts } from "../../src/db/submissions.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import type { ResendClient, ResendSendInput } from "../../src/reports/send/resend.js";
 import { makeFakeBase, type FakeRecord } from "./_helpers/fake-airtable-base.js";
+import { OPERATOR_FALLBACK } from "../../src/util/operator.js";
 
 // The vi.mock is kept narrowly for the ONE env-config-path test below.
 // All other runDigest tests use direct base injection via DigestRunOptions.base.
@@ -431,12 +432,12 @@ describe("runDigest", () => {
     expect(result.output).toContain("msg_1");
   });
 
-  it("falls back to the constant when OPERATOR_EMAIL is unset", async () => {
+  it("falls back to the operator inbox when OPERATOR_EMAIL is unset", async () => {
     delete process.env.OPERATOR_EMAIL;
     const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
     const { client, captured } = captureClient();
     await runDigest({ base, resend: client, baseUrl: "https://reddoor-maintenance.netlify.app" });
-    expect(captured[0]!.to).toEqual(["info@reddoorla.com"]);
+    expect(captured[0]!.to).toEqual([OPERATOR_FALLBACK]);
   });
 
   // ── error contract ──────────────────────────────────────────────────────────

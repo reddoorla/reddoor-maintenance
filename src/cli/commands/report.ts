@@ -16,6 +16,7 @@ import {
   type AnalyticsRunHealth,
 } from "../../alerts/analytics-health.js";
 import type { ReportType } from "../../reports/types.js";
+import { operatorEmail } from "../../util/operator.js";
 
 export type ReportCommandOptions = {
   due?: boolean;
@@ -134,7 +135,7 @@ async function runDueDraft(): Promise<{ output: string; code: number }> {
 async function alertOnFleetAnalyticsFailure(health: AnalyticsRunHealth): Promise<void> {
   if (!assessAnalyticsAlert(health).fire) return;
   try {
-    const to = process.env.OPERATOR_EMAIL?.trim() || "info@reddoorla.com";
+    const to = operatorEmail();
     const { subject, html } = composeAnalyticsAlertEmail(health, dashboardBaseUrl());
     const { defaultResendClient } = await import("../../reports/send/resend.js");
     await defaultResendClient().send({
