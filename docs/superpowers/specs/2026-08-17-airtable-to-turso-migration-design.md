@@ -258,6 +258,30 @@ Also required before it is trusted:
 - **Phase 5 — freeze.** Airtable read-only; parity runs for one week.
 - **Phase 6 — retire.** Delete the Airtable client layer.
 
+## Site status values need semantic names
+
+The current `Status` values — `maintenance`, `in development`, `legacy`,
+`hosting`, `launch period`, `probably not our problem`, `deprecated` — are
+holdovers from when Airtable was a **reference** for current work rather than a
+load-bearing input. They read as personal shorthand, not as a state machine.
+
+They are now load-bearing in at least three places: which sites the nightly
+sweeps touch, which sites appear in the cockpit, and (as of the change requested
+on 2026-08-17) whether spam handling applies to a submission at all. A value
+whose name does not say what it _causes_ is a trap once code branches on it —
+`probably not our problem` is a note to self, not a predicate.
+
+The migration is the moment to fix this, because it is the one time every reader
+of the column is being touched anyway. Phase 1 should propose a replacement
+vocabulary where each value names the behaviour it selects (swept or not,
+billed or not, spam-filtered or not), plus a mapping from the old values and a
+one-time data migration. Renaming later means a second pass over every branch.
+
+Related: the status was observed changing from `in development` to `maintenance`
+during a single session on 2026-08-17. Whatever the new vocabulary is, the
+transitions between values need to be deliberate, because behaviour now changes
+underneath a running fleet when one is flipped.
+
 ## Open questions
 
 - Dashboard page-view volume is unmeasured; it is the widest input into any
