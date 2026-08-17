@@ -11,6 +11,7 @@ import { buildReportDataForSite, scoresFromRow } from "../reports/report-data.js
 import { renderReportEmail } from "../reports/send/render-email.js";
 import { defaultResendClient, type ResendClient } from "../reports/send/resend.js";
 import { parseAddresses, isProbablyEmail } from "../reports/send/orchestrate.js";
+import { operatorEmail } from "../util/operator.js";
 import type { ReportType } from "../reports/types.js";
 
 const FROM_ADDRESS = "Reddoor Reports <reports@reddoorla.com>";
@@ -27,7 +28,7 @@ export type SelftestEmailDeps = {
   all?: boolean;
   /** Report type to preview. Default "Announcement". */
   type?: ReportType;
-  /** Raw `--to` (comma- or newline-separated). Default: OPERATOR_EMAIL → info@reddoorla.com. */
+  /** Raw `--to` (comma- or newline-separated). Default: the operator inbox. */
   to?: string;
   /** Render only; write reports/<slug>/selftest-<type>.html, never send. */
   dryRun?: boolean;
@@ -44,7 +45,7 @@ export type SelftestEmailResult = { results: SelftestEmailSiteResult[] };
 
 /** Resolve the recipient list: explicit `--to` (validated) else the operator default. */
 function resolveRecipients(to: string | undefined): string[] {
-  const operator = process.env.OPERATOR_EMAIL?.trim() || "info@reddoorla.com";
+  const operator = operatorEmail();
   const parsed = to ? parseAddresses(to) : null;
   const list = parsed ?? [operator];
   for (const addr of list) {

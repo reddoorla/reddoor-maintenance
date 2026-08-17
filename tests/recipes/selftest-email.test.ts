@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
 import type { ResendClient, ResendSendInput } from "../../src/reports/send/resend.js";
+import { OPERATOR_FALLBACK } from "../../src/util/operator.js";
 
 // No network: GA/Search enrichment and the header fetch/downscale are stubbed.
 vi.mock("../../src/reports/draft.js", async (orig) => ({
@@ -83,11 +84,11 @@ describe("selftestEmail", () => {
         site: "Acme Co",
         status: "sent",
         subject: expect.any(String),
-        recipients: ["info@reddoorla.com"],
+        recipients: [OPERATOR_FALLBACK],
       },
     ]);
     expect(sent).toHaveLength(1);
-    expect(sent[0]!.to).toEqual(["info@reddoorla.com"]);
+    expect(sent[0]!.to).toEqual([OPERATOR_FALLBACK]);
     expect(sent[0]!.cc).toBeUndefined(); // private: no global ops CC
     expect(sent[0]!.subject).toContain("Your testing & maintenance report for Acme Co");
     // The core guarantee: zero Airtable mutations.
