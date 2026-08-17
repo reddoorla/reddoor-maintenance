@@ -52,17 +52,57 @@ type CspDirectives = Record<string, string[]>;
 type CspObject = { mode?: string; directives?: CspDirectives; [k: string]: unknown };
 
 /**
+ * SHA-256 of Svelte's SSR event-replay stub, `this.__e=event`.
+ *
+ * Svelte emits `onload`/`onerror="this.__e=event"` on any load/error element
+ * (`<img>`, `<iframe>`, …) that carries a spread attribute or a `use:`
+ * directive — i.e. every `<img {...getImageProps(field)} />` the Prismic
+ * helpers produce. The stub stashes an event that fires BEFORE hydration so the
+ * component can replay it once it is alive.
+ *
+ * Hashes do not apply to inline event handlers unless `'unsafe-hashes'` is
+ * present, so without both of these the browser refuses to run the stub: the
+ * pre-hydration `load`/`error` is silently dropped (anything keyed on it — a
+ * fade-in, a fallback swap — can strand) and a `script-src-attr` violation is
+ * reported per image on every page view, burying real violations and hammering
+ * the report endpoint. Measured on beachfront-dentistry 2026-08-13: 12
+ * violations on `/` alone.
+ *
+ * `'unsafe-hashes'` widens hash matching to event handlers; it does NOT permit
+ * arbitrary inline handlers, so only this exact one-liner is allowed. Pair it
+ * with `'unsafe-inline'` and that guarantee is gone — the test asserts we do
+ * not. The stub itself only assigns the event to a property, so an injected
+ * element carrying identical text achieves nothing.
+ *
+ * Verified in Chrome 2026-08-17 against a page served with this policy: the
+ * handler runs and `img.__e.type === "error"`; under the previous baseline it
+ * did not run at all. Re-derive with:
+ *   node -e 'console.log(require("crypto").createHash("sha256").update("this.__e=event").digest("base64"))'
+ */
+export const SVELTE_EVENT_REPLAY_HASH = "sha256-7dQwUgLau1NFCCGjfn9FsYptB6ZtWxJin6VohGIu20I=";
+
+/**
  * Baseline CSP for the reddoor stack (Prismic + Vimeo). Opt-in only — a CSP is
  * breakage-prone, so it is never injected unless a site asks via `csp`. Extend
  * per project by passing `csp: { directives: { ... } }`; named directives
  * replace the baseline entry, unnamed ones are kept. SvelteKit adds
  * nonces/hashes for the inline scripts/styles it emits.
+ *
+ * NOTE: a site overriding `script-src` replaces this entry wholesale, so it must
+ * carry `'unsafe-hashes'` + SVELTE_EVENT_REPLAY_HASH itself or it reintroduces
+ * the violation above.
  */
 const BASELINE_CSP = {
   mode: "auto",
   directives: {
     "default-src": ["self"],
-    "script-src": ["self", "https://static.cdn.prismic.io", "https://player.vimeo.com"],
+    "script-src": [
+      "self",
+      "https://static.cdn.prismic.io",
+      "https://player.vimeo.com",
+      "unsafe-hashes",
+      SVELTE_EVENT_REPLAY_HASH,
+    ],
     "style-src": ["self", "unsafe-inline"],
     "img-src": ["self", "data:", "https://images.prismic.io", "https://*.prismic.io"],
     "media-src": ["self", "https://*.vimeocdn.com"],
