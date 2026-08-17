@@ -35,7 +35,20 @@ export type FormE2eDetails = {
  *  which never manufactures a verdict. */
 export type FormSubmitOutcome =
   | { formPresent: false }
-  | { formPresent: true; success: boolean; detail?: string; elapsedMs?: number }
+  | {
+      formPresent: true;
+      success: boolean;
+      detail?: string;
+      /** Click → success banner VISIBLE. A user-experience number: it includes the
+       *  browser's own render of the banner, which no server budget governs. */
+      elapsedMs?: number;
+      /** Click → the action's POST response arrives. This is the span the site's
+       *  `INGEST_TIMEOUT_MS` abort budget actually governs (it wraps the
+       *  site→central fetch, which is nested inside this POST), so it — not
+       *  `elapsedMs` — is what the budget check must compare against. Undefined
+       *  when no POST was observed. */
+      postElapsedMs?: number;
+    }
   | { testModeUndeclared: true };
 
 /**
@@ -204,9 +217,17 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
     // being reported as failures. Warn on the RUN while leaving the persisted
     // verdict at "pass": the form does work, and flipping the cockpit to "fail"
     // would report a working form as broken.
+    // Measured against the POST span, NOT click→banner. `INGEST_TIMEOUT_MS` aborts
+    // the site→central fetch and nothing else, so comparing it to a window that
+    // also contains Turnstile's token round-trip and the browser's render of the
+    // success banner over-warns: the claim "may be reported to the visitor as
+    // failed" is only true if the FETCH overruns. On 2026-08-17 vineyard-custom-homes
+    // warned at 16.9s click→banner while its own function answered in 0.25s warm
+    // / 2.0s cold — the warning was reporting page-render time as abort risk.
+    // No POST observed → no claim to make.
     const thin =
-      typeof outcome.elapsedMs === "number" && isIngestBudgetThin(outcome.elapsedMs)
-        ? budgetThinSummary(outcome.elapsedMs)
+      typeof outcome.postElapsedMs === "number" && isIngestBudgetThin(outcome.postElapsedMs)
+        ? budgetThinSummary(outcome.postElapsedMs)
         : null;
     return {
       audit: "form-e2e",
@@ -368,9 +389,19 @@ export async function defaultFormRunner(): Promise<FormRunner> {
         // Capture the action POST so a failure names the real server response
         // (espada 2026-07-10: three "no success banner" warns were undiagnosable
         // without it — the POST status/alert text is the evidence).
+        // Stamped as a side-effect rather than awaited here on purpose: awaiting
+        // the POST before the banner would serialize two 30s timeouts in the
+        // no-POST case and double the worst-case run. `startedAt` is assigned at
+        // the click below, which always happens before this can resolve.
+        let startedAt = 0;
+        let postElapsedMs: number | undefined;
         const postResponse = page
           .waitForResponse((r) => r.request().method() === "POST", {
             timeout: PAGE_TIMEOUT_MS,
+          })
+          .then((r) => {
+            postElapsedMs = Date.now() - startedAt;
+            return r;
           })
           .catch(() => null);
         // Both standard submit controls: reddoor-website uses `<input type="submit">`
@@ -378,7 +409,7 @@ export async function defaultFormRunner(): Promise<FormRunner> {
         // Timed from the click so `elapsedMs` measures what a visitor waits for —
         // the site action plus its central ingest call — and not the page load,
         // the fills, or the deliberate FILL_SETTLE_MS pause.
-        const startedAt = Date.now();
+        startedAt = Date.now();
         await page
           .locator('button[type="submit"], input[type="submit"]')
           .first()
@@ -390,7 +421,13 @@ export async function defaultFormRunner(): Promise<FormRunner> {
           .then(() => true)
           .catch(() => false);
         const elapsedMs = Date.now() - startedAt;
-        if (ok) return { formPresent: true, success: true, elapsedMs };
+        if (ok)
+          return {
+            formPresent: true,
+            success: true,
+            elapsedMs,
+            ...(postElapsedMs !== undefined ? { postElapsedMs } : {}),
+          };
         const actionResp = await postResponse;
         const alertText = await page
           .locator('[role="alert"]')
