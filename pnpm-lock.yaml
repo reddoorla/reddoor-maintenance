@@ -96,8 +96,8 @@ importers:
         specifier: ^2.70.1
         version: 2.70.2(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.55.9(@typescript-eslint/types@8.67.0))(vite@8.2.0(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.12)))(svelte@5.55.9(@typescript-eslint/types@8.67.0))(typescript@6.0.3)(vite@8.2.0(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.12))
       '@types/mjml':
-        specifier: ^4.7.4
-        version: 4.7.4
+        specifier: ^5.0.0
+        version: 5.0.0
       '@types/node':
         specifier: ^22.0.0
         version: 22.20.1
@@ -1317,8 +1317,8 @@ packages:
   '@types/mjml-core@5.0.0':
     resolution: {integrity: sha512-E1Rho2ZfVEqZekQoESDuPAw7C3MrzdUvS6YAiEPGdhQQqAchMXfdChXlSi6ly9YhZgUP026ujrRlEGJn9o/zAg==}
 
-  '@types/mjml@4.7.4':
-    resolution: {integrity: sha512-vyi1vzWgMzFMwZY7GSZYX0GU0dmtC8vLHwpgk+NWmwbwRSrlieVyJ9sn5elodwUfklJM7yGl0zQeet1brKTWaQ==}
+  '@types/mjml@5.0.0':
+    resolution: {integrity: sha512-z6P0yjEOVOz6cZVyD3vkPSifzVH0fa9M8BFM8Jl9HtpeFkBJyCZHRLPx1uFnkZijgAYmtO/JfSbp4EF1fNwsXQ==}
 
   '@types/node@12.20.55':
     resolution: {integrity: sha512-J8xLz7q2OFulZ2cyGTLE1TbbZcjpno7FaN6zdJNrgAdrJ+DZzh/uFR6YrTb4C+nXakvud8Q4+rbhoIWlYQbUFQ==}
@@ -5354,7 +5354,7 @@ snapshots:
 
   '@types/mjml-core@5.0.0': {}
 
-  '@types/mjml@4.7.4':
+  '@types/mjml@5.0.0':
     dependencies:
       '@types/mjml-core': 5.0.0
 
