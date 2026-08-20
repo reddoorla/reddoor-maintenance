@@ -71,7 +71,12 @@ export function announcementSiteExtras(
  */
 export function buildAnnouncementMjml(data: ReportData): string {
   const copy = data.copy ?? DEFAULT_COPY;
-  const previewText = "Your monthly report from Reddoor";
+  // Site-interpolated, matching the launch ("<site> is live") and maintenance
+  // ("Checked up on <site>") templates. The old text read "Your monthly report
+  // from Reddoor", which was wrong twice over: this is the announcement, not a
+  // report, and it hard-coded a monthly cadence the body contradicts for every
+  // client on a quarterly/yearly pace.
+  const previewText = `Your ongoing site care for ${data.siteName}`;
   const cad = data.cadence;
 
   const hasMaint = Boolean(cad && cad.maintenance !== "None");
