@@ -60,6 +60,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:time-travel": "REDDOOR_TIME_TRAVEL_DAYS=${REDDOOR_TIME_TRAVEL_DAYS:-90} vitest run",
     "pretest:dist": "pnpm run build",
     "test:dist": "node scripts/smoke-dist.mjs",
     "lint": "eslint . && prettier --check .",

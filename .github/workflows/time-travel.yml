@@ -1,0 +1,92 @@
+name: time-travel
+
+# Runs the whole suite on a clock shifted forward, to catch tests that secretly depend on
+# "today" BEFORE wall time makes them fail on main.
+#
+# The failure class: a test pins an absolute date fixture but lets the production code fall
+# back to `new Date()`. It is green when written and stays green until wall time walks past
+# whatever staleness window the code applies — then it is red forever, with nobody having
+# touched anything, and the diff that "broke" it is innocent.
+#
+# This has already happened twice in tests/dashboard/prismic-drift-wiring.test.ts: on
+# 2026-08-16 (two tests) and again on 2026-08-19 (a third test sitting twelve lines below
+# the comment explaining the trap). The second one held main red for three days, because
+# ci.yml only runs on push and nothing was pushed — the repo had no way to notice.
+#
+# Weekly rather than per-PR: the whole point is detecting decay over time, which a PR check
+# cannot see, and the horizon is relative so each run asks "does this still hold 90 days
+# from today?" A green run here is a claim about the next quarter, not about this commit.
+on:
+  schedule:
+    - cron: "0 11 * * 1" # Mondays 11:00 UTC — clear of 10:00 fleet-smoke
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Days to travel forward"
+        required: false
+        default: "90"
+
+concurrency:
+  group: time-travel
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write # open/close the time-travel tracking issue
+
+jobs:
+  time-travel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # tests/time-travel-guard.test.ts asserts the clock actually moved, so a shim that
+      # silently fails to apply turns this job RED instead of reporting a hollow green.
+      # That check is the whole reason this job can be trusted — do not skip the suite's
+      # guard test or filter it out of this run.
+      - name: Run the suite on a forward clock
+        env:
+          REDDOOR_TIME_TRAVEL_DAYS: ${{ github.event.inputs.days || '90' }}
+        run: pnpm test
+
+      # A red scheduled run is otherwise only GitHub's best-effort email to the last
+      # pusher — the same blind spot that let the 08-19 breakage sit for three days.
+      # continue-on-error so the alert machinery can NEVER turn a run's status red.
+      - name: Open/update the time-travel tracking issue
+        if: failure()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DAYS: ${{ github.event.inputs.days || '90' }}
+        run: |
+          title="Time-travel suite failing"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body=$(printf 'The weekly **time-travel** run failed at +%s days.\n\nA test depends on the wall clock and will start failing on `main` on its own, without any commit causing it. Find the failing test and freeze its clock (pass an explicit `now`), rather than widening the production window to accommodate it.\n\nIf the failure is `time-travel guard — the shim actually moved the clock`, the shim itself did not apply and every other result in that run is meaningless.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$DAYS" "$run_url")
+          existing=$(gh issue list --state open --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close the time-travel issue on recovery
+        if: success()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Time-travel suite failing"
+          for n in $(gh issue list --state open --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+            gh issue close "$n" --comment "Recovered — the time-travel run is green again." && echo "closed #$n"
+          done
