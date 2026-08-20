@@ -10,8 +10,9 @@ name: time-travel
 #
 # This has already happened twice in tests/dashboard/prismic-drift-wiring.test.ts: on
 # 2026-08-16 (two tests) and again on 2026-08-19 (a third test sitting twelve lines below
-# the comment explaining the trap). The second one held main red for three days, because
-# ci.yml only runs on push and nothing was pushed — the repo had no way to notice.
+# the comment explaining the trap). The second one held main red for three days: ci.yml
+# runs on push and pull_request, and for those three days there was neither — so no run
+# happened and the repo had no way to notice it had already broken.
 #
 # Weekly rather than per-PR: the whole point is detecting decay over time, which a PR check
 # cannot see, and the horizon is relative so each run asks "does this still hold 90 days
@@ -37,6 +38,9 @@ permissions:
 jobs:
   time-travel:
     runs-on: ubuntu-latest
+    # The suite runs in ~3 min. A hang would otherwise burn the 6h default and, since
+    # cancel-in-progress is false, queue next Monday's run behind this one.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -54,6 +58,7 @@ jobs:
       # That check is the whole reason this job can be trusted — do not skip the suite's
       # guard test or filter it out of this run.
       - name: Run the suite on a forward clock
+        id: suite
         env:
           REDDOOR_TIME_TRAVEL_DAYS: ${{ github.event.inputs.days || '90' }}
         run: pnpm test
@@ -61,8 +66,13 @@ jobs:
       # A red scheduled run is otherwise only GitHub's best-effort email to the last
       # pusher — the same blind spot that let the 08-19 breakage sit for three days.
       # continue-on-error so the alert machinery can NEVER turn a run's status red.
+      #
+      # Scoped to the SUITE step, not bare `failure()`: a lockfile drift or a build break
+      # in globalSetup would otherwise file an issue confidently asserting a wall-clock
+      # diagnosis, sending the reader hunting for a time bomb that isn't there. Those
+      # failures still turn the run red — they just don't get to name their own cause.
       - name: Open/update the time-travel tracking issue
-        if: failure()
+        if: failure() && steps.suite.outcome == 'failure'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
