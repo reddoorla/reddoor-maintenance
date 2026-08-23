@@ -46,10 +46,18 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
 
       - name: Fleet smoke suite + Airtable write-back
-        # Clone + install + chromium + vite boot + specs, ~10 sites sequential — the
+        # Clone + install + chromium + vite boot + specs, ~13 sites sequential — the
         # heaviest nightly leg. Backstop a wedged run so it can't pin the runner and
         # (via concurrency.cancel-in-progress=false) block the next night too.
-        timeout-minutes: 90
+        #
+        # Raised with SMOKE_TIMEOUT_MS (5m → 15m per site): this backstop must stay
+        # above a realistically-bad night, or the step dies before printing the gate
+        # line and the diagnosis degrades from "these two sites were never measured"
+        # to a bare cancellation. A typical sweep is ~17 minutes wall-clock; at 120
+        # this still absorbs several sites burning their full budget. It is NOT sized
+        # for all 13 timing out at once (that would be 195m) — in that world the
+        # missing-line branch of the gate reds the run anyway, which is correct.
+        timeout-minutes: 120
         env:
           AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
@@ -68,11 +76,11 @@ jobs:
             --only smoke \
             --write-airtable \
             --concurrency 1 \
-            --workdir /tmp/fleet-smoke | tee /tmp/smoke.out || true
+            --workdir /tmp/fleet-smoke | tee "${RUNNER_TEMP:-/tmp}/smoke.out" || true
 
           # `|| true`: under Actions' default `set -e`, a no-match grep in a command
           # substitution would abort the step before the diagnostic below runs.
-          summary=$(grep -oE "FLEET_WRITE_SUMMARY wrote=[0-9]+ failed=[0-9]+ total=[0-9]+" /tmp/smoke.out | tail -n1 || true)
+          summary=$(grep -oE "FLEET_WRITE_SUMMARY wrote=[0-9]+ failed=[0-9]+ total=[0-9]+" "${RUNNER_TEMP:-/tmp}/smoke.out" | tail -n1 || true)
           if [ -z "$summary" ]; then
             echo "::error::fleet smoke printed no write summary — the run crashed before write-back (check Airtable creds / API)."
             exit 1
@@ -84,13 +92,13 @@ jobs:
 
           # Surface every partial miss as a visible annotation, even one within tolerance.
           if [ "$failed" -gt 0 ]; then
-            notwritten=$(grep -oE "[0-9]+ site\(s\) not written:.*" /tmp/smoke.out | tail -n1 || true)
+            notwritten=$(grep -oE "[0-9]+ site\(s\) not written:.*" "${RUNNER_TEMP:-/tmp}/smoke.out" | tail -n1 || true)
             echo "::warning::fleet smoke: $failed/$total site(s) not written — $notwritten"
           fi
 
           # A site that couldn't be prepared (bad URL/repo) is dropped from the run
           # rather than crashing it; raise it so the misconfigured Airtable row is fixed.
-          skipped=$(grep -oE "⚠ [0-9]+ site\(s\) skipped \(could not prepare\):.*" /tmp/smoke.out | tail -n1 || true)
+          skipped=$(grep -oE "⚠ [0-9]+ site\(s\) skipped \(could not prepare\):.*" "${RUNNER_TEMP:-/tmp}/smoke.out" | tail -n1 || true)
           if [ -n "$skipped" ]; then
             echo "::warning::fleet smoke: $skipped"
           fi
@@ -106,6 +114,29 @@ jobs:
             echo "::error::fleet smoke: $failed/$total site(s) failed to write (>25%) — investigate (not a single-site flake)."
             exit 1
           fi
+
+          # "Never measured" gate. Distinct from every check above, which ask whether a
+          # row was WRITTEN. A site whose `test:smoke` exceeds its budget produces no
+          # verdict at all: it still counts as written (it writes nothing new), and the
+          # Airtable writer deliberately preserves the prior value rather than record a
+          # false fail — so the row keeps serving its last GREEN result. reddoor and
+          # beachfront-dentistry sat like that for four nights while this workflow
+          # reported success every morning. Only a suite that RAN and failed is data;
+          # one that never ran is a broken measurement, and reds the run.
+          #
+          # An ABSENT line is itself a failure: it means the CLI crashed before the
+          # summary or predates the gate. A `count=0` line is the proof it swept clean.
+          unmeasured_line=$(grep -oE "FLEET_SMOKE_UNMEASURED count=[0-9]+ sites=.*" "${RUNNER_TEMP:-/tmp}/smoke.out" | tail -n1 || true)
+          if [ -z "$unmeasured_line" ]; then
+            echo "::error::fleet smoke printed no FLEET_SMOKE_UNMEASURED line — cannot confirm the fleet was measured."
+            exit 1
+          fi
+          unmeasured=$(echo "$unmeasured_line" | grep -oE "count=[0-9]+" | cut -d= -f2)
+          if [ "$unmeasured" -gt 0 ]; then
+            echo "::error::fleet smoke: $unmeasured site(s) never measured — $(echo "$unmeasured_line" | sed 's/.*sites=//')"
+            exit 1
+          fi
+          echo "fleet smoke: all $total site(s) measured"
 
       # A red nightly is otherwise only GitHub's best-effort email to the last pusher.
       # File/reopen a single deduped tracking issue so a failure is durably visible,

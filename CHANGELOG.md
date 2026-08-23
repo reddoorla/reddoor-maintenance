@@ -1,5 +1,108 @@
 # @reddoorla/maintenance
 
+## 0.85.2
+
+### Patch Changes
+
+- 40005b3: The baseline CSP now allows Svelte's SSR event-replay stub, by pinned hash.
+
+  Svelte's server renderer emits `onload`/`onerror="this.__e=event"` on any
+  load/error element carrying a spread attribute or a `use:` directive — which is
+  every `<img {...getImageProps(field)} />` the Prismic helpers produce. The stub
+  stashes an event that fires before hydration so the component can replay it once
+  it is alive.
+
+  Hashes do not apply to inline event handlers unless `'unsafe-hashes'` is
+  present, so the baseline refused to run it. Two consequences, both permanent:
+  the pre-hydration `load`/`error` was silently dropped, so anything keyed on it
+  (a fade-in, a fallback swap) could strand; and a `script-src-attr` violation was
+  reported per image on every page view, which buried real violations, hammered
+  the report endpoint, and kept Playwright's `networkidle` from settling. Measured
+  on beachfront-dentistry: 12 violations on `/` alone, ~40 across nine routes.
+
+  `script-src` now carries `'unsafe-hashes'` plus the SHA-256 of that exact
+  one-liner, exported as `SVELTE_EVENT_REPLAY_HASH`.
+
+  On the security tradeoff: `'unsafe-hashes'` widens hash matching to event
+  handlers, it does not permit arbitrary inline handlers — only this exact text is
+  allowed, and the stub does nothing but assign the event to a property. The test
+  asserts `'unsafe-inline'` is never present alongside it, since that would let
+  any handler run and make the hash meaningless. The hash is recomputed from the
+  handler text inside the test rather than copy-pasted, so a wrong literal in the
+  source cannot be confirmed by an equally wrong literal in the test.
+
+  Verified in Chrome against a page served with this policy: the handler runs and
+  `img.__e.type === "error"`. Under the previous baseline, on the same page, it
+  did not run at all.
+
+  A site that overrides `script-src` replaces the baseline entry wholesale, so it
+  must carry both tokens itself or it reintroduces the violation.
+
+- 2c7660b: Playwright runs get their own port and never reuse a server they didn't start.
+
+  `reuseExistingServer` was `!process.env.CI`, so a local run reused anything that
+  answered the readiness probe. The probe only asks "does this URL respond?" — it
+  never asks "is this server serving the code I am about to test?" So a vite left
+  open from earlier, or one whose working tree changed underneath it after a
+  checkout, silently became the system under test.
+
+  That fails in both directions, and the second one is the expensive one. A false
+  red gets blamed on the code: on beachfront-dentistry two `qa-expand` tests failed
+  deterministically while CI was green on the same commit, which read convincingly
+  as a macOS-vs-Linux platform difference, was investigated as one, and reached a
+  PR description before anyone noticed the tests were correct. A false green is
+  worse and quieter — you change code, the suite passes against the old build, and
+  nothing ever prompts you to look twice. CI was immune because `CI` flipped the
+  flag to `false`, and that asymmetry is exactly what made the whole thing look
+  like a platform bug instead of a config one.
+
+  Local runs now allocate their own free port instead of falling back to the fixed
+  5173, so your dev server keeps running untouched and a collision is no longer
+  possible. `REDDOOR_SMOKE_PORT` still wins when the central smoke audit supplies
+  one. The cost is a fresh vite boot per run, roughly 10-20s against a ~2 minute
+  suite.
+
+  The port is allocated through a short synchronous subprocess rather than by
+  making the config an async export, because sites consume this base by
+  **spreading** it (`{ ...base, use: { ...base.use } }`). Spreading a Promise
+  yields none of its properties, which would have handed every site a silently
+  empty config — the same false-green class this change exists to remove.
+
+## 0.85.1
+
+### Patch Changes
+
+- ca9a208: Internal fleet mail falls back to the operator inbox, not the client inbox.
+
+  When `OPERATOR_EMAIL` is unset, the daily digest, the fleet analytics-failure
+  alert, and `selftest-email` all addressed `info@reddoorla.com` — the shared
+  client-facing inbox other staff read and reply to clients from. They now fall
+  back to the operator's own monitored address, which is what the pre-launch lead
+  guard in `forms/notify` had been doing correctly all along.
+
+  The split was not a decision anyone would defend written down; it was four call
+  sites each spelling out their own default, and one of them disagreeing. They now
+  share a single definition in `src/util/operator.ts`, so there is one place to be
+  right and no way for the next caller to pick the wrong inbox by copying its
+  neighbour.
+
+  This surfaced on 2026-08-17. The scheduled `daily-reports` run failed before it
+  reached its digest step, so the digest was re-run by hand from a laptop — where
+  `OPERATOR_EMAIL` was unset, because it had only ever been set as a GitHub
+  Actions repo variable. CI was correct and every local run silently was not. The
+  fleet digest arrived in the client inbox, and a colleague forwarded it back
+  asking what it was.
+
+  The failure mode worth naming is that nothing broke. A fallback that resolves to
+  a real, deliverable address cannot fail loudly — it just quietly picks the wrong
+  audience, and the only reason this was caught is that a human happened to read
+  it and ask. Degrading toward the inbox the operator actually watches is the
+  difference between a missed email and a misdirected one.
+
+  Client-facing `Reply-To` and the forced ops CC on client report sends still use
+  `info@reddoorla.com`, which is correct — a client replying to a report should
+  reach the shared inbox. Only the operator-recipient fallbacks moved.
+
 ## 0.85.0
 
 ### Minor Changes

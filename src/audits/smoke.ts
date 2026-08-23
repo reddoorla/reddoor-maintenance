@@ -2,12 +2,71 @@ import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AuditResult } from "../types.js";
 import type { AuditContext } from "./util/inject.js";
-import { defaultSpawn } from "./util/spawn.js";
+import { defaultSpawn, isSpawnTimeout } from "./util/spawn.js";
 import { siteLabel } from "../util/site.js";
 import { findFreePort } from "../util/free-port.js";
 
 /** Persisted smoke verdict: the site's own `test:smoke` suite passed or failed. */
 export type SmokeDetails = { ok: "pass" | "fail"; checkedAt: string };
+
+/** Wall-clock budget for a site's own `test:smoke` run.
+ *
+ *  Measured, not guessed. reddoor-website's `Smoke test` step takes **4m57s** on a
+ *  2-core GitHub runner with chromium already installed and `node_modules` warm
+ *  (run 32413378638, 2026-08-20). The old budget was 5m00s — three seconds of
+ *  headroom — and the fleet path is strictly heavier than that step: the site's
+ *  `test:smoke` is `playwright install chromium && playwright test`, so the browser
+ *  install lands INSIDE this budget, on a fresh clone, after `svelte-kit sync`.
+ *
+ *  So the budget was already effectively negative, and the medtech release (#133)
+ *  pushed the suite past it: reddoor was killed at 5m03s and beachfront-dentistry
+ *  at 5m04s — both the wall, not their suites.
+ *
+ *  15 minutes is ~3x the measured suite, leaving room for a site to grow a quarter's
+ *  worth of specs before anyone has to think about this again, while still killing a
+ *  genuinely wedged run far inside fleet-smoke.yml's 90-minute step backstop. */
+export const SMOKE_TIMEOUT_MS = 15 * 60_000;
+
+/** Summary prefix for a smoke run that produced no verdict at all.
+ *
+ *  A timeout is NOT a failing suite — it means the measurement never happened. The
+ *  two must stay distinguishable: a failing suite is a finding about the site, an
+ *  unmeasured one is a finding about this audit. Exported so the CI summary keys on
+ *  the same constant the audit stamps, instead of re-describing it in a grep that
+ *  can drift out of sync. */
+export const SMOKE_UNMEASURED_PREFIX = "smoke: NOT MEASURED";
+
+/** True when a smoke audit never reached a verdict (timed out mid-suite).
+ *
+ *  Deliberately distinct from {@link hasSmokeResult}: an unmeasured run carries no
+ *  `details`, so the Airtable writer already preserves the prior verdict rather than
+ *  recording a false fail. That is correct — and it is also why nothing surfaced it.
+ *  This predicate is what makes it visible to CI. */
+export function isUnmeasuredSmoke(result: { audit: string; summary: string }): boolean {
+  return result.audit === "smoke" && result.summary.startsWith(SMOKE_UNMEASURED_PREFIX);
+}
+
+/** Render the "did every site actually get measured?" line for CI.
+ *
+ *  Emits `FLEET_SMOKE_UNMEASURED count=N sites=a,b` on EVERY run, count=0 included —
+ *  deliberately, and for the same reason `FLEET_WRITE_SUMMARY` does. A gate that only
+ *  prints on failure cannot be told apart from a gate that never ran, so the workflow
+ *  treats an ABSENT line as a crash and a `count=0` line as a proven-clean sweep. That
+ *  distinction is the whole point: this alarm exists because the previous one was
+ *  structurally incapable of firing, and an alarm nobody has seen pass is not evidence.
+ *
+ *  Only `smoke` results are considered; other audits in the same pool are ignored. */
+export function formatUnmeasuredSmokeSummary(
+  results: ReadonlyArray<{ audit: string; site: string; summary: string }>,
+): string {
+  const unmeasured = results.filter(isUnmeasuredSmoke).map((r) => r.site);
+  let out = "";
+  if (unmeasured.length > 0) {
+    out += `⚠ ${unmeasured.length} site(s) never measured: ${unmeasured.join("; ")}\n`;
+  }
+  out += `FLEET_SMOKE_UNMEASURED count=${unmeasured.length} sites=${unmeasured.join(",")}`;
+  return out;
+}
 
 // ESC built from a char code so the regex source carries no literal control
 // char (keeps `no-control-regex` quiet). Matches the SGR color codes Playwright emits.
@@ -83,8 +142,8 @@ async function hasNodeModules(sitePath: string): Promise<boolean> {
  * Run a site's own `pnpm test:smoke` suite in its checkout and reduce the exit
  * code to a verdict. Clone-based: the CLI (`prepareFleetSites`) has already put a
  * real checkout at `site.path` (smoke is NOT in CHECKOUT_FREE_AUDITS). Reuses the
- * a11y harness treatment: a 5-min timeout (Playwright cold-boots the dev server +
- * installs chromium) and a freshly-allocated free port passed as REDDOOR_SMOKE_PORT
+ * a11y harness treatment: a {@link SMOKE_TIMEOUT_MS} budget (Playwright cold-boots the
+ * dev server + installs chromium) and a freshly-allocated free port passed as REDDOOR_SMOKE_PORT
  * so the site's smoke playwright config can bind `--port <n> --strictPort` and stay
  * immune to a zombie-vite squatting 5173 (see free-port.ts).
  *
@@ -92,6 +151,11 @@ async function hasNodeModules(sitePath: string): Promise<boolean> {
  * skip (R3.2), same bucket as `pnpm` itself being unavailable. exit 0 → pass;
  * non-zero → fail (only reached once the suite is known to exist). A skip never
  * carries details, so the Airtable writer preserves the prior verdict.
+ *
+ * A suite that exceeds the budget is a THIRD outcome: it produced no verdict at all,
+ * so it is reported as {@link SMOKE_UNMEASURED_PREFIX} and likewise carries no details.
+ * That keeps Airtable on the prior value (right — nothing was learned) while letting
+ * fleet-smoke.yml red the run, which is what the write-back gate alone cannot do.
  */
 export async function smokeAudit(ctx: AuditContext): Promise<AuditResult> {
   const spawn = ctx.spawn ?? defaultSpawn;
@@ -182,12 +246,27 @@ export async function smokeAudit(ctx: AuditContext): Promise<AuditResult> {
       env: { ...process.env, REDDOOR_SMOKE_PORT: String(port) },
       // Playwright on a cold tree installs chromium, boots the site's dev server,
       // and runs the smoke specs — the shared 30s default starves it (mirrors a11y).
-      timeoutMs: 5 * 60_000,
+      timeoutMs: SMOKE_TIMEOUT_MS,
     });
   } catch (err) {
     const e = err as NodeJS.ErrnoException;
     if (e.code === "ENOENT" || /ENOENT/.test(String(err))) {
       return { audit: "smoke", site: label, status: "skip", summary: "pnpm not available" };
+    }
+    // A timeout is not a verdict. Rethrowing sent it to runOneAudit's catch-all,
+    // which stringified it into `smoke: unexpected error — Error: spawn timeout…`:
+    // technically a `fail`, carrying no details, so Airtable correctly preserved the
+    // prior verdict — and therefore kept showing GREEN for a site that had not been
+    // measured in days, while the workflow (gated on write-back) exited 0. Name it
+    // instead, and leave `details` unset so the write-back behavior is unchanged.
+    if (isSpawnTimeout(err)) {
+      const minutes = Math.round(SMOKE_TIMEOUT_MS / 60_000);
+      return {
+        audit: "smoke",
+        site: label,
+        status: "fail",
+        summary: `${SMOKE_UNMEASURED_PREFIX} — \`pnpm test:smoke\` exceeded its ${minutes}m budget; no verdict, prior Airtable value preserved`,
+      };
     }
     throw err;
   }

@@ -238,11 +238,17 @@ describe("prismic drift wiring — the digest", () => {
       Websites: [siteRecord({ "Prismic Models": "pass", "Prismic Models Drift": undefined })],
     });
     const { client, captured } = captureClient();
+    // `now: NOW` is load-bearing, not decoration. The fixture's "Prismic Models Checked At"
+    // is FRESH (2026-08-12T06:00Z); a `pass` older than PRISMIC_STALE_PASS_DAYS (7) raises
+    // prismic-stale, which makes the digest SEND instead of skip. Omitting `now` ran this
+    // one test against the real clock, so it passed until 2026-08-19T06:00Z and has failed
+    // every run since — a time bomb, not a flake. Every sibling test here already freezes it.
     const result = await runDigest({
       base,
       resend: client,
       baseUrl: BASE_URL,
       submissionCounts: null,
+      now: NOW,
     });
     expect(result.output).toContain("skipped");
     expect(captured).toHaveLength(0);

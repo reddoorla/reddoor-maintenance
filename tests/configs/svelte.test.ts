@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import createSvelteConfig, { createSvelteConfig as named } from "../../src/configs/svelte.js";
+import createSvelteConfig, {
+  createSvelteConfig as named,
+  SVELTE_EVENT_REPLAY_HASH,
+} from "../../src/configs/svelte.js";
 
 describe("configs/svelte", () => {
   it("default export equals the named export", () => {
@@ -120,8 +123,36 @@ describe("configs/svelte", () => {
       "self",
       "https://static.cdn.prismic.io",
       "https://player.vimeo.com",
+      "unsafe-hashes",
+      SVELTE_EVENT_REPLAY_HASH,
     ]);
     expect(csp.directives?.["report-uri"]).toEqual(["/api/csp-report"]);
+  });
+
+  // #525: Svelte's SSR emits `onerror="this.__e=event"` on any load/error element
+  // carrying a spread attribute or `use:` directive — which is every Prismic
+  // `<img {...getImageProps(field)} />`. Hashes do NOT apply to event handlers
+  // unless 'unsafe-hashes' is present, so without it the browser refuses to run
+  // the stub: the pre-hydration load/error is never replayed, and a violation is
+  // reported per image on every page view.
+  //
+  // Recomputed here from the handler text rather than copy-pasted, so a wrong
+  // literal in the source cannot be "confirmed" by an equally wrong literal in
+  // the test. Verified in Chrome 2026-08-17: with this hash the stub runs
+  // (`img.__e.type === "error"`); with the old baseline it does not.
+  it("allows exactly Svelte's event-replay stub, by pinned hash", async () => {
+    const { createHash } = await import("node:crypto");
+    const expected = `sha256-${createHash("sha256").update("this.__e=event", "utf8").digest("base64")}`;
+    expect(SVELTE_EVENT_REPLAY_HASH).toBe(expected);
+
+    const scriptSrc = (createSvelteConfig({ csp: true }).kit as Kit).csp!.directives![
+      "script-src"
+    ]!;
+    expect(scriptSrc).toContain("unsafe-hashes");
+    expect(scriptSrc).toContain(expected);
+    // 'unsafe-hashes' widens hashes to event handlers; it must never be paired
+    // with unsafe-inline, which would let ANY handler run and make the hash moot.
+    expect(scriptSrc).not.toContain("unsafe-inline");
   });
 
   it("returns directive arrays decoupled from the shared baseline (mutating one config never poisons the next)", () => {
@@ -132,6 +163,8 @@ describe("configs/svelte", () => {
       "self",
       "https://static.cdn.prismic.io",
       "https://player.vimeo.com",
+      "unsafe-hashes",
+      SVELTE_EVENT_REPLAY_HASH,
     ]);
   });
 

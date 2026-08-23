@@ -20,6 +20,7 @@ import {
 } from "../alerts/digest-collectors.js";
 import { diffAttention, readDigestState, writeDigestState } from "../alerts/digest-state.js";
 import { escapeHtml as esc } from "../util/html.js";
+import { operatorEmail } from "../util/operator.js";
 import type {
   AttentionItem,
   AttentionSeverity,
@@ -163,8 +164,6 @@ function submissionsSection(s: SubmissionsDigestSection | null | undefined): str
 }
 
 const FROM_ADDRESS = "Reddoor Reports <reports@reddoorla.com>";
-/** Single-operator fleet — fallback when OPERATOR_EMAIL is unset. */
-const DIGEST_OPERATOR_FALLBACK = "info@reddoorla.com";
 
 /** UTC "YYYY-MM-DD" — the Resend idempotency key suffix, so a same-day cron re-fire dedupes. */
 function digestDateKey(d: Date): string {
@@ -456,7 +455,7 @@ export async function runDigest(
 
     const html = renderDigestHtml({ readyForYourYes, needsAttention, submissions });
     const client = options.resend ?? defaultResendClient();
-    const to = [process.env.OPERATOR_EMAIL?.trim() || DIGEST_OPERATOR_FALLBACK];
+    const to = [operatorEmail()];
     const n = readyForYourYes.length;
     const reportWord = n === 1 ? "report" : "reports";
     let result: Awaited<ReturnType<typeof client.send>>;

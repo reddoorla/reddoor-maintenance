@@ -66,7 +66,7 @@ export const DEFAULT_COPY: ResolvedCopy = {
   announceImprovementResend:
     "Your contact forms now deliver straight to your inbox through reliable infrastructure, so no inquiry slips through the cracks.",
   announceImprovementSvelte5:
-    "We've modernized your site to the latest framework — it's faster, more secure, and built to last.",
+    "We've modernized your site to our latest framework — it's faster, more secure, and built to last.",
   announceCadence: "After each one we'll send you a short report like this —",
   announceCadenceNote: "there's nothing you need to do.",
   announceOpenDoor:

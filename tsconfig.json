@@ -18,6 +18,15 @@
     "noEmit": true,
     "ignoreDeprecations": "6.0"
   },
-  "include": ["src/**/*", "tests/**/*", "tsup.config.ts", "vitest.config.ts"],
+  "include": [
+    "src/**/*",
+    "tests/**/*",
+    "tsup.config.ts",
+    "vitest.config.ts",
+    // Nothing imports this one (vitest loads it by path), so without an explicit entry it
+    // sits outside the program and a type error in it ships green — only detonating in the
+    // weekly time-travel run, where it fails all 360 files under a misleading banner.
+    "vitest.time-travel-setup.ts"
+  ],
   "exclude": ["dist", "node_modules", "tests/fixtures"]
 }
