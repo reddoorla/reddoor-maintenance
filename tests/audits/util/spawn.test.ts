@@ -3,7 +3,12 @@ import { EventEmitter } from "node:events";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { makeSpawn, defaultSpawn } from "../../../src/audits/util/spawn.js";
+import {
+  makeSpawn,
+  defaultSpawn,
+  SpawnTimeoutError,
+  isSpawnTimeout,
+} from "../../../src/audits/util/spawn.js";
 
 /** Minimal stand-in for a ChildProcess: an EventEmitter with a pid and
  *  stdout/stderr emitters. Kills are recorded via the injected killImpl, not
@@ -255,5 +260,38 @@ describe("defaultSpawn real process-group reap (integration)", () => {
     }
     if (alive) process.kill(grandPid, "SIGKILL"); // cleanup if the fix regressed
     expect(alive).toBe(false);
+  });
+});
+
+describe("spawn timeout identification", () => {
+  it("rejects a timeout with a typed SpawnTimeoutError carrying command + budget", async () => {
+    vi.useFakeTimers();
+    const s = makeSpawn({ spawnImpl, killImpl, killGraceMs: 1000 });
+    const p = s("pnpm", ["test:smoke"], { timeoutMs: 500 });
+    const seen = p.catch((e: unknown) => e);
+    vi.advanceTimersByTime(500);
+    vi.useRealTimers();
+    const err = await seen;
+    expect(err).toBeInstanceOf(SpawnTimeoutError);
+    expect((err as SpawnTimeoutError).command).toBe("pnpm");
+    expect((err as SpawnTimeoutError).timeoutMs).toBe(500);
+    // The historical message shape is preserved so anything already reading it
+    // keeps working — this class is additive, not a rename.
+    expect((err as Error).message).toBe("spawn timeout after 500ms: pnpm");
+    expect(isSpawnTimeout(err)).toBe(true);
+  });
+
+  it("identifies a timeout re-thrown as a plain Error (injected doubles, wrappers)", () => {
+    expect(isSpawnTimeout(new Error("spawn timeout after 60000ms: prettier"))).toBe(true);
+  });
+
+  it("does NOT mistake other failures for a timeout", () => {
+    // The whole point of the class is telling "no verdict" apart from "a verdict".
+    // A false positive here would silence a real failing suite as "never measured".
+    expect(isSpawnTimeout(new Error("ENOENT: pnpm not found"))).toBe(false);
+    expect(isSpawnTimeout(new Error("spawn timeout"))).toBe(false); // no budget → not the shape
+    expect(isSpawnTimeout("spawn timeout after 500ms: pnpm")).toBe(false); // not an Error
+    expect(isSpawnTimeout(undefined)).toBe(false);
+    expect(isSpawnTimeout(null)).toBe(false);
   });
 });
