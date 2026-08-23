@@ -17,6 +17,18 @@ const DUPLICATE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 export type IngestDeps = {
   getWebsiteBySlug: (slug: string) => Promise<WebsiteRow | null>;
   createSubmission: (input: SubmissionInput) => Promise<SubmissionRow>;
+  /** Optional last-resort capture for a lead whose site lookup THREW (a store
+   *  outage, not an unknown slug). When present, the lead is persisted here and
+   *  the visitor still gets "accepted"; `db replay-deadletters` re-runs it once
+   *  the lookup recovers. Absent → the error propagates exactly as before, so
+   *  callers that never wired it are byte-for-byte unchanged. */
+  deadLetter?: (input: {
+    siteSlug: string;
+    payload: unknown;
+    turnstile: TurnstileVerification;
+    error: string;
+    receivedAt: Date;
+  }) => Promise<{ id: string }>;
   notify: (
     site: WebsiteRow,
     submission: SubmissionRow,
@@ -146,7 +158,40 @@ export async function ingestSubmission(
   if (!normalized.ok) {
     return { status: "rejected", reason: "invalid-payload", errors: normalized.errors };
   }
-  const site = await deps.getWebsiteBySlug(slug);
+  // Persist before enrich (#539 Phase 0). The lookup THROWING is a store outage,
+  // not an answer — and until 2026-08-23 it was the one await that could cost a
+  // lead: the row write comes later, so a thrown lookup 502'd the visitor with
+  // nothing recorded anywhere (the 2026-08-17 Airtable quota outage did exactly
+  // that, while the submissions store itself was healthy the whole time). With
+  // `deadLetter` wired, the lead lands there and the visitor gets an honest
+  // "accepted"; `db replay-deadletters` runs it through this same function once
+  // the lookup recovers, producing a normal row with real classification+notify.
+  //
+  // Three deliberate boundaries:
+  // - A lookup that RESOLVES to null is still `unknown-site` — the store answered,
+  //   and a junk slug is a rejection, not a lead to save.
+  // - A testMode probe rethrows: it persists nothing by design, so there is
+  //   nothing to save, and swallowing the outage would green the form-e2e audit
+  //   precisely when central ingest is degraded.
+  // - `deadLetter` itself throwing propagates: both stores are down, and the 502
+  //   is honest — there is nowhere left to put the lead.
+  let site: WebsiteRow | null;
+  try {
+    site = await deps.getWebsiteBySlug(slug);
+  } catch (err) {
+    if (!deps.deadLetter || isTestMode(rawPayload)) throw err;
+    const dl = await deps.deadLetter({
+      siteSlug: slug,
+      payload: rawPayload,
+      turnstile: verification,
+      error: String(err),
+      receivedAt: deps.now(),
+    });
+    console.error(
+      `[ingest] site lookup failed for '${slug}' — lead dead-lettered as ${dl.id}: ${String(err)}`,
+    );
+    return { status: "accepted", submissionId: dl.id, notifyStatus: "skipped" };
+  }
   if (!site) return { status: "unknown-site", slug };
 
   // Synthetic end-to-end probe (the `form-e2e` fleet audit). A central-only marker

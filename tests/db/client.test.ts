@@ -40,6 +40,7 @@ describe("openDb", () => {
       "0003_add_spam_score",
       "0004_add_spam_reason",
       "0005_add_fanout_status",
+      "0006_submission_deadletter",
     ]);
     await db.destroy();
   });

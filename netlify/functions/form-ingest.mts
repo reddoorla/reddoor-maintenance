@@ -11,6 +11,7 @@ import {
   markSubmissionsSpamRetro,
 } from "../../src/db/submissions.js";
 import { recordScreenOut } from "../../src/db/screenouts.js";
+import { createDeadLetter } from "../../src/db/deadletter.js";
 import { ingestSubmission, parseScreenOut, ingestScreenOut } from "../../src/forms/ingest.js";
 import { verifyTurnstileWithSecrets } from "../../src/forms/turnstile.js";
 import { classifySpam } from "../../src/forms/spam-classifier.js";
@@ -169,6 +170,11 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
       {
         getWebsiteBySlug: (s) => getWebsiteBySlug(base, s),
         createSubmission: (input) => createSubmission(db, input),
+        // Last-resort lead capture when the site lookup (Airtable, until #539
+        // phase 2) throws: the lead lands in submission_deadletter on THIS db —
+        // which stayed healthy through the 2026-08-17 Airtable outage — instead
+        // of 502ing away unrecorded. Replayed via `db replay-deadletters`.
+        deadLetter: (input) => createDeadLetter(db, input),
         notify: makeNotify(send),
         stampNotified: (id, status, messageId) => stampNotified(db, id, status, messageId),
         now: () => new Date(),
