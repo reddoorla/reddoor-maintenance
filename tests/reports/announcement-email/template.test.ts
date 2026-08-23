@@ -32,6 +32,32 @@ describe("buildAnnouncementMjml", () => {
     expect(mjml).toContain("completed a full test of your site"); // announceBody
   });
 
+  // The preview line is what the inbox list shows before the mail is opened. It used to be a
+  // hard-coded "Your monthly report from Reddoor", which asserted a monthly cadence the body
+  // contradicts for every quarterly/yearly client. Two DIFFERENT site fixtures prove it is
+  // really interpolated rather than a constant that happens to match one of them.
+  it("interpolates the site name into the preview line", () => {
+    const acme = buildAnnouncementMjml(baseData());
+    expect(acme).toContain("<mj-preview>Your ongoing site care for Acme Co</mj-preview>");
+
+    const other = buildAnnouncementMjml(baseData({ siteName: "Beachfront Dentistry" }));
+    expect(other).toContain(
+      "<mj-preview>Your ongoing site care for Beachfront Dentistry</mj-preview>",
+    );
+  });
+
+  it("never claims a monthly cadence in the preview line", () => {
+    const mjml = buildAnnouncementMjml(
+      baseData({ cadence: { maintenance: "Quarterly", testing: "Yearly" } }),
+    );
+    expect(mjml).not.toContain("Your monthly report from Reddoor");
+  });
+
+  it("escapes special characters in the site name in the preview line", () => {
+    const mjml = buildAnnouncementMjml(baseData({ siteName: "Smith & Sons" }));
+    expect(mjml).toContain("<mj-preview>Your ongoing site care for Smith &amp; Sons</mj-preview>");
+  });
+
   it("renders the TESTING and MAINTENANCE CHECKS sections, with their report intros + every check", () => {
     const mjml = buildAnnouncementMjml(baseData({ cadence: BOTH_MONTHLY }));
     expect(mjml).toContain(">TESTING</mj-text>");
@@ -184,7 +210,7 @@ describe("buildAnnouncementMjml", () => {
   // announceImprovementResend has no special chars (asserted raw); announceImprovementSvelte5
   // contains apostrophes + an em dash that escape to entities → assert a clean substring.
   const RESEND_TEXT = DEFAULT_COPY.announceImprovementResend;
-  const SVELTE5_FRAGMENT = "modernized your site to the latest framework";
+  const SVELTE5_FRAGMENT = "modernized your site to our latest framework";
 
   it("renders RECENT IMPROVEMENTS with both callouts when both flags are set", () => {
     const mjml = buildAnnouncementMjml(

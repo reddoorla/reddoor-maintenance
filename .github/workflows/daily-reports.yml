@@ -192,9 +192,12 @@ jobs:
           # The digest's Renovate/CI signals now come from the nightly-persisted
           # fields (collectRenovateAlerts/collectCiAlerts), so no live GitHub sweep
           # runs here — RENOVATE_TOKEN is no longer needed for this step.
-          # Both optional — the CLI falls back to info@reddoorla.com and
-          # https://reddoor-maintenance.netlify.app when unset/empty. Set the
-          # repo Actions *variables* (not secrets) to override.
+          # Both optional — the CLI falls back to the operator inbox
+          # (src/util/operator.ts) and https://reddoor-maintenance.netlify.app
+          # when unset/empty. Set the repo Actions *variables* (not secrets) to
+          # override. Keep OPERATOR_EMAIL mirrored into a local
+          # ~/.config/reddoor-maint/credentials.env too: this variable covers CI
+          # only, and `report --digest` also gets run by hand from a laptop.
           OPERATOR_EMAIL: ${{ vars.OPERATOR_EMAIL }}
           DASHBOARD_BASE_URL: ${{ vars.DASHBOARD_BASE_URL }}
         run: node dist/cli/bin.js report --digest

@@ -2,7 +2,15 @@ import { describe, it, expect } from "vitest";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { smokeAudit, summarizeSmokeFailure } from "../../src/audits/smoke.js";
+import {
+  smokeAudit,
+  summarizeSmokeFailure,
+  formatUnmeasuredSmokeSummary,
+  isUnmeasuredSmoke,
+  SMOKE_TIMEOUT_MS,
+  SMOKE_UNMEASURED_PREFIX,
+} from "../../src/audits/smoke.js";
+import { SpawnTimeoutError } from "../../src/audits/util/spawn.js";
 import type { SpawnFn } from "../../src/audits/util/spawn.js";
 
 const NOW = new Date("2026-07-06T00:00:00.000Z");
@@ -45,8 +53,10 @@ describe("audits/smoke", () => {
     expect(cmd).toBe("pnpm");
     expect(args).toEqual(["test:smoke"]);
     expect(cwd).toBe(site.path);
-    // 5-min budget — Playwright cold-boots the site's dev server + installs chromium.
-    expect(timeoutMs).toBe(5 * 60_000);
+    // The suite runs on the shipped budget — Playwright cold-boots the site's dev
+    // server AND installs chromium inside it. The value itself is asserted once, in
+    // "the budget clears the measured cost of the slowest fleet suite" below.
+    expect(timeoutMs).toBe(SMOKE_TIMEOUT_MS);
     // Free-port hardening (the a11y --strictPort treatment): a numeric port is passed.
     expect(Number(smokePort)).toBeGreaterThan(0);
     expect(r.audit).toBe("smoke");
@@ -256,5 +266,94 @@ describe("summarizeSmokeFailure", () => {
 
   it("returns a sentinel when neither stream carries anything useful", () => {
     expect(summarizeSmokeFailure("", "")).toBe("no reporter output");
+  });
+});
+
+describe("audits/smoke — a timeout is not a verdict", () => {
+  /** The budget must clear the slowest suite the fleet actually runs, with margin.
+   *  4m57s is reddoor-website's own `Smoke test` step on a 2-core GitHub runner with
+   *  chromium pre-installed and node_modules warm (run 32413378638, 2026-08-20); the
+   *  fleet path additionally installs chromium and syncs a fresh clone INSIDE this
+   *  budget. The old 5m00s left three seconds and killed two sites for four nights.
+   *
+   *  This is the single assertion on the shipped constant. */
+  it("the budget clears the measured cost of the slowest fleet suite", () => {
+    const MEASURED_WARM_RUN_MS = 297_000; // 4m57s, reddoor-website CI
+    expect(SMOKE_TIMEOUT_MS).toBeGreaterThan(MEASURED_WARM_RUN_MS * 2);
+    // Still well inside fleet-smoke.yml's 90-minute step backstop, so a wedged
+    // suite is killed by THIS budget and named, not by the runner and anonymous.
+    expect(SMOKE_TIMEOUT_MS).toBeLessThan(90 * 60_000);
+  });
+
+  it("reports a timed-out suite as NOT MEASURED rather than a failing suite", async () => {
+    const site = await siteWithSmokeScript();
+    const spawn: SpawnFn = async (_c, a) => {
+      if (a[0] === "test:smoke") throw new SpawnTimeoutError("pnpm", SMOKE_TIMEOUT_MS);
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const r = await smokeAudit({ site, spawn, now: NOW });
+    expect(r.status).toBe("fail");
+    expect(r.summary.startsWith(SMOKE_UNMEASURED_PREFIX)).toBe(true);
+    expect(r.summary).toContain("15m");
+    expect(isUnmeasuredSmoke(r)).toBe(true);
+  });
+
+  it("leaves `details` unset on a timeout, so Airtable keeps the prior verdict", async () => {
+    // The write-back gate is `hasSmokeResult`, which keys on details.checkedAt. A
+    // timeout learned nothing, so it must not overwrite a real prior result with a
+    // fabricated fail — the same contract the pnpm-install path already honours.
+    const site = await siteWithSmokeScript();
+    const spawn: SpawnFn = async (_c, a) => {
+      if (a[0] === "test:smoke") throw new SpawnTimeoutError("pnpm", SMOKE_TIMEOUT_MS);
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const r = await smokeAudit({ site, spawn, now: NOW });
+    expect(r.details).toBeUndefined();
+  });
+
+  it("a suite that RAN and failed is still a normal fail, not NOT MEASURED", async () => {
+    // The distinction this whole change rests on: a real finding about the site must
+    // not be swallowed by the unmeasured path, or the alarm would cry wolf nightly.
+    const site = await siteWithSmokeScript();
+    const spawn: SpawnFn = async (_c, a) =>
+      a[0] === "test:smoke"
+        ? { code: 1, stdout: "  1) [chromium] › a.spec.ts:1:1 › boom\n  1 failed", stderr: "" }
+        : { code: 0, stdout: "", stderr: "" };
+    const r = await smokeAudit({ site, spawn, now: NOW });
+    expect(r.status).toBe("fail");
+    expect(isUnmeasuredSmoke(r)).toBe(false);
+    expect(r.details).toEqual({ ok: "fail", checkedAt: NOW.toISOString() });
+  });
+});
+
+describe("formatUnmeasuredSmokeSummary", () => {
+  // PROVE THE INSTRUMENT: the clean-fleet case comes first and must pass before any
+  // FAIL this gate produces is worth acting on. A gate that has only ever fired is an
+  // untested assertion — and the alarm it replaces could never fire at all.
+  it("emits count=0 for a fleet where every site was measured", () => {
+    const out = formatUnmeasuredSmokeSummary([
+      { audit: "smoke", site: "caltex", summary: "smoke: suite green" },
+      { audit: "smoke", site: "sonder", summary: "smoke: suite failed (exit 1) — 1 failed" },
+      { audit: "smoke", site: "espada", summary: "no test:smoke script" },
+    ]);
+    expect(out).toContain("FLEET_SMOKE_UNMEASURED count=0 sites=");
+    expect(out).not.toContain("never measured");
+  });
+
+  it("names each unmeasured site and counts them", () => {
+    const out = formatUnmeasuredSmokeSummary([
+      { audit: "smoke", site: "caltex", summary: "smoke: suite green" },
+      { audit: "smoke", site: "reddoor", summary: `${SMOKE_UNMEASURED_PREFIX} — budget` },
+      { audit: "smoke", site: "beachfront-dentistry", summary: `${SMOKE_UNMEASURED_PREFIX} — x` },
+    ]);
+    expect(out).toContain("FLEET_SMOKE_UNMEASURED count=2 sites=reddoor,beachfront-dentistry");
+    expect(out).toContain("2 site(s) never measured");
+  });
+
+  it("ignores non-smoke audits sharing the pool", () => {
+    const out = formatUnmeasuredSmokeSummary([
+      { audit: "lighthouse", site: "caltex", summary: `${SMOKE_UNMEASURED_PREFIX} — decoy` },
+    ]);
+    expect(out).toContain("count=0");
   });
 });

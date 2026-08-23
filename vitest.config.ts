@@ -9,6 +9,18 @@ export default defineConfig({
     // Rebuild dist/ before the suite if src changed, so the CLI tests that exec
     // dist/cli/bin.js never run against stale output. See vitest.global-setup.ts.
     globalSetup: ["./vitest.global-setup.ts"],
+    // Opt-in only: with REDDOOR_TIME_TRAVEL_DAYS set, the whole suite runs on a clock
+    // shifted that far forward, so a test that secretly depends on "today" fails in the
+    // scheduled time-travel run instead of rotting into a red `main`. Absent the env var
+    // this list is empty and `pnpm test` behaves exactly as before.
+    // See vitest.time-travel-setup.ts and .github/workflows/time-travel.yml.
+    // `!== undefined`, deliberately, not truthiness: setting the var AT ALL means you meant
+    // to time-travel, so an empty or malformed value must reach the setup file and throw.
+    // Gating on truthiness instead would let `REDDOOR_TIME_TRAVEL_DAYS=""` skip the shim and
+    // report a green run on the real clock — the hollow green this whole guard exists to
+    // prevent, arriving through the guard itself.
+    setupFiles:
+      process.env.REDDOOR_TIME_TRAVEL_DAYS !== undefined ? ["./vitest.time-travel-setup.ts"] : [],
     coverage: {
       // Run via `pnpm test:coverage` (the CI gate); plain `pnpm test` stays fast.
       provider: "v8",
