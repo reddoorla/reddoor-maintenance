@@ -41,6 +41,7 @@ describe("openDb", () => {
       "0004_add_spam_reason",
       "0005_add_fanout_status",
       "0006_submission_deadletter",
+      "0007_fleet_state",
     ]);
     await db.destroy();
   });

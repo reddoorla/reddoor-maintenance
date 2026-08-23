@@ -667,7 +667,10 @@ cli
   );
 
 cli
-  .command("db <action>", "Operate the libSQL store (migrate | replay-deadletters).")
+  .command(
+    "db <action>",
+    "Operate the libSQL store (migrate | replay-deadletters | import-airtable | parity).",
+  )
   .action(async (action: string, opts: { cwd?: string; verbose?: boolean }) =>
     runOrExit(async () => (await import("./commands/db.js")).runDbCommand(action, opts), opts),
   );

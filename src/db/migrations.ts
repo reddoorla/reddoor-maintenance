@@ -114,4 +114,163 @@ export const MIGRATIONS: Migration[] = [
         ON submission_deadletter (replayed_at);
     `,
   },
+  {
+    // Phase 1.2 of the Airtable → Turso migration (#539): the fleet-state tables.
+    // Split by WRITER, not topic (design D2, confirmed by the 2026-08-23 writer
+    // map — every code-written column has exactly one writer):
+    //   sites         — operator (dashboard editor / console / launch flow)
+    //   site_health   — the nightly audit write-back, one batched upsert
+    //   site_schedule — updateNextDueDates (report cron, derived)
+    //   reports       — report drafting + the operator approve flow
+    // PKs are the Airtable `rec…` ids (design D1): 278+ submissions rows already
+    // reference them, and the parity harness diffs the two stores row-for-row.
+    //
+    // Naming: snake_case throughout; Airtable's misspellings ("maintenence") and
+    // display quirks die here. `sites.legacy` is a JSON object holding the 33
+    // populated-but-code-unreferenced columns (launch-era checklist, hosting
+    // reference cells) keyed by their original Airtable column name — data kept,
+    // schema not fossilized. The plaintext DNS/cms credential cells deliberately
+    // do NOT migrate at all (operator ruling 2026-08-23); they live on only in
+    // the frozen base. `site_health.analytics_soft_fail_at` is the column code
+    // always wanted ("Analytics soft-fail at") but no operator ever created in
+    // Airtable — it ships real here.
+    //
+    // reports.checklist is JSON keyed by the STABLE checklist key ("deploy",
+    // "cms", …, from src/reports/checklist.ts), not the Airtable column name —
+    // the importer translates, so "Test: Verified After Updates" stops leaking
+    // its legacy name into a second store.
+    id: "0007_fleet_state",
+    sql: `
+      CREATE TABLE IF NOT EXISTS sites (
+        id TEXT PRIMARY KEY,
+        slug TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        url TEXT,
+        status TEXT,
+        point_of_contact TEXT,
+        maintenance_freq TEXT,
+        testing_freq TEXT,
+        maintenance_day TEXT,
+        testing_day TEXT,
+        ga4_property_id TEXT,
+        search_query TEXT,
+        search_console_property TEXT,
+        git_repo TEXT,
+        netlify_id TEXT,
+        report_recipients_to TEXT,
+        report_recipients_cc TEXT,
+        copy_intro TEXT,
+        copy_contact TEXT,
+        copy_footer TEXT,
+        newsletter_webhook TEXT,
+        mailchimp_api_key TEXT,
+        mailchimp_audience_id TEXT,
+        notify_routing TEXT,
+        require_turnstile INTEGER NOT NULL DEFAULT 0,
+        accepted_watch_conditions TEXT,
+        prismic_ack_until TEXT,
+        launched_at TEXT,
+        header_image BLOB,
+        header_image_filename TEXT,
+        header_image_type TEXT,
+        header_image_generated_at TEXT,
+        legacy TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_sites_status ON sites (status);
+
+      CREATE TABLE IF NOT EXISTS site_health (
+        site_id TEXT PRIMARY KEY,
+        p_score INTEGER,
+        r_score INTEGER,
+        bp_score INTEGER,
+        seo_score INTEGER,
+        lighthouse_at TEXT,
+        a11y_violations INTEGER,
+        deps_drifted INTEGER,
+        deps_major_behind INTEGER,
+        deps_outdated INTEGER,
+        deps_major_outdated INTEGER,
+        vulns_critical INTEGER,
+        vulns_high INTEGER,
+        vulns_moderate INTEGER,
+        vulns_low INTEGER,
+        security_audit_at TEXT,
+        security_advisories TEXT,
+        auto_fix_attempts INTEGER,
+        analytics_soft_fail_at TEXT,
+        cert_days_remaining INTEGER,
+        domain_checked_at TEXT,
+        deploy_status TEXT,
+        last_deploy_at TEXT,
+        deploy_log_url TEXT,
+        deploy_checked_at TEXT,
+        function_health TEXT,
+        cms_reachable TEXT,
+        turnstile_widget TEXT,
+        function_health_checked_at TEXT,
+        crossbrowser_ok INTEGER,
+        mobile_ok INTEGER,
+        links_ok INTEGER,
+        broken_links INTEGER,
+        browser_checked_at TEXT,
+        uptime_reachable TEXT,
+        titles_meta_ok TEXT,
+        smoke_ok TEXT,
+        last_smoke_at TEXT,
+        form_e2e_ok TEXT,
+        form_e2e_checked_at TEXT,
+        renovate_failing_cis INTEGER,
+        default_branch_ci TEXT,
+        last_commit_at TEXT,
+        github_signals_at TEXT,
+        prismic_models TEXT,
+        prismic_models_checked_at TEXT,
+        prismic_models_drift TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS site_schedule (
+        site_id TEXT PRIMARY KEY,
+        next_maintenance_at TEXT,
+        next_testing_at TEXT,
+        computed_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS reports (
+        id TEXT PRIMARY KEY,
+        site_id TEXT,
+        report_id TEXT,
+        report_type TEXT,
+        period TEXT,
+        period_start TEXT,
+        period_end TEXT,
+        completed_on TEXT,
+        lighthouse_performance INTEGER,
+        lighthouse_accessibility INTEGER,
+        lighthouse_best_practices INTEGER,
+        lighthouse_seo INTEGER,
+        ga_users_current INTEGER,
+        ga_users_previous INTEGER,
+        search_found_page1 INTEGER,
+        search_position REAL,
+        last_tested_date TEXT,
+        commentary TEXT,
+        subject_override TEXT,
+        draft_ready INTEGER NOT NULL DEFAULT 0,
+        approved_to_send INTEGER NOT NULL DEFAULT 0,
+        approved_at TEXT,
+        approved_by TEXT,
+        send_override INTEGER NOT NULL DEFAULT 0,
+        override_reason TEXT,
+        override_by TEXT,
+        override_at TEXT,
+        sent_at TEXT,
+        delivery_status TEXT,
+        resend_message_id TEXT,
+        checklist TEXT,
+        checklist_auto_evidence TEXT,
+        rendered_html TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_reports_site ON reports (site_id, period_start DESC);
+    `,
+  },
 ];

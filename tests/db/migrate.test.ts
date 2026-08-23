@@ -13,6 +13,7 @@ describe("runMigrations", () => {
       "0004_add_spam_reason",
       "0005_add_fanout_status",
       "0006_submission_deadletter",
+      "0007_fleet_state",
     ]);
     const tables = await client.execute(
       "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
@@ -37,6 +38,7 @@ describe("runMigrations", () => {
       "0004_add_spam_reason",
       "0005_add_fanout_status",
       "0006_submission_deadletter",
+      "0007_fleet_state",
     ]);
   });
 
@@ -65,6 +67,7 @@ describe("runMigrations", () => {
       "0004_add_spam_reason",
       "0005_add_fanout_status",
       "0006_submission_deadletter",
+      "0007_fleet_state",
     ]);
   });
 
@@ -96,6 +99,7 @@ describe("runMigrations", () => {
       "0004_add_spam_reason",
       "0005_add_fanout_status",
       "0006_submission_deadletter",
+      "0007_fleet_state",
     ]);
   });
 });
