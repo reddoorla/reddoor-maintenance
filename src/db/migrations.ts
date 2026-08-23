@@ -81,4 +81,37 @@ export const MIGRATIONS: Migration[] = [
     id: "0005_add_fanout_status",
     sql: `ALTER TABLE submissions ADD COLUMN fanout_status TEXT;`,
   },
+  {
+    // Phase 0 of the Airtable → Turso migration (#539): a lead whose SITE LOOKUP
+    // fails must still land somewhere durable. On 2026-08-17 the Airtable quota
+    // outage made `getWebsiteBySlug` throw before `createSubmission` ran, so every
+    // lead in the window 502'd away unrecorded — while THIS store (which holds
+    // submissions) was healthy the whole time. Rows here are written only on that
+    // path and replayed through the normal pipeline once the lookup recovers
+    // (`db replay-deadletters`), producing an ordinary submissions row with real
+    // spam classification and notify. Deliberately a separate table rather than a
+    // nullable `submissions.site_id`: site_id is NOT NULL, every reader assumes a
+    // real rec id, and a sentinel would collapse dashboard grouping (the "" key
+    // hazard audit.ts already documents).
+    //
+    // `turnstile` stores the verification COMPUTED AT RECEIPT ({outcome, hostname}
+    // JSON) — tokens expire in 300s, so replay could never re-verify; it replays
+    // with the answer we already had.
+    id: "0006_submission_deadletter",
+    sql: `
+      CREATE TABLE IF NOT EXISTS submission_deadletter (
+        id TEXT PRIMARY KEY,
+        site_slug TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        turnstile TEXT NOT NULL,
+        error TEXT NOT NULL,
+        received_at TEXT NOT NULL,
+        replayed_at TEXT,
+        replay_outcome TEXT,
+        replay_submission_id TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_deadletter_unreplayed
+        ON submission_deadletter (replayed_at);
+    `,
+  },
 ];

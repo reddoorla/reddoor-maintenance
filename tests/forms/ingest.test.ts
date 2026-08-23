@@ -1287,3 +1287,79 @@ describe("ingestSubmission deferred tail", () => {
     expect(dep.stampNotified).toHaveBeenCalledWith("recSUB", "skipped", null);
   });
 });
+
+describe("ingestSubmission — persist before enrich (#539 Phase 0)", () => {
+  // The 2026-08-17 failure shape: getWebsiteBySlug reads Airtable, whose quota
+  // outage made it THROW — while the submissions store (which the dead-letter
+  // shares) was healthy the whole time. Before this branch existed the throw
+  // propagated to the handler's 502 and the lead vanished unrecorded.
+  const outage = () => vi.fn().mockRejectedValue(new Error("airtable 429 quota"));
+
+  it("dead-letters the lead and accepts when the site lookup throws", async () => {
+    const deadLetter = vi.fn().mockResolvedValue({ id: "dl_1" });
+    const d = deps({ getWebsiteBySlug: outage(), deadLetter });
+    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: "hi" }, "pass");
+    expect(r.status).toBe("accepted");
+    if (r.status === "accepted") {
+      expect(r.submissionId).toBe("dl_1");
+      expect(r.notifyStatus).toBe("skipped");
+    }
+    // The whole lead survives: raw payload + slug + the verification computed at
+    // receipt (tokens expire in 300s — replay can never re-verify) + the error.
+    expect(deadLetter).toHaveBeenCalledWith({
+      siteSlug: "acme",
+      payload: { email: "a@b.co", message: "hi" },
+      turnstile: { outcome: "pass", hostname: null },
+      error: expect.stringContaining("airtable 429"),
+      receivedAt: new Date("2026-06-14T12:00:00Z"),
+    });
+    // Nothing downstream of the lookup ran — no row, no notify.
+    expect(d.createSubmission).not.toHaveBeenCalled();
+    expect(d.notify).not.toHaveBeenCalled();
+  });
+
+  it("still throws when deadLetter is not wired — non-wired callers are unchanged", async () => {
+    const d = deps({ getWebsiteBySlug: outage() });
+    await expect(ingestSubmission(d, "acme", { email: "a@b.co" })).rejects.toThrow(/quota/);
+  });
+
+  it("still throws for a testMode probe — the outage must red the form-e2e audit", async () => {
+    // A probe persists nothing by design, so there is nothing to save — and
+    // swallowing the outage would green the synthetic check at exactly the moment
+    // central ingest is degraded.
+    const deadLetter = vi.fn().mockResolvedValue({ id: "dl_x" });
+    const d = deps({ getWebsiteBySlug: outage(), deadLetter });
+    await expect(ingestSubmission(d, "acme", { email: "a@b.co", testMode: true })).rejects.toThrow(
+      /quota/,
+    );
+    expect(deadLetter).not.toHaveBeenCalled();
+  });
+
+  it("a lookup that RESOLVES null is still unknown-site, never dead-lettered", async () => {
+    // The store answered; a junk slug is a rejection, not a lead to save.
+    const deadLetter = vi.fn();
+    const d = deps({ getWebsiteBySlug: vi.fn().mockResolvedValue(null), deadLetter });
+    const r = await ingestSubmission(d, "nope", { email: "a@b.co" });
+    expect(r.status).toBe("unknown-site");
+    expect(deadLetter).not.toHaveBeenCalled();
+  });
+
+  it("propagates when the dead-letter write ALSO fails — both stores down, 502 is honest", async () => {
+    const d = deps({
+      getWebsiteBySlug: outage(),
+      deadLetter: vi.fn().mockRejectedValue(new Error("turso down too")),
+    });
+    await expect(ingestSubmission(d, "acme", { email: "a@b.co" })).rejects.toThrow(
+      /turso down too/,
+    );
+  });
+
+  it("an invalid payload is rejected BEFORE the lookup can dead-letter it", async () => {
+    // Garbage in an outage is still garbage — nothing worth saving.
+    const deadLetter = vi.fn();
+    const d = deps({ getWebsiteBySlug: outage(), deadLetter });
+    const r = await ingestSubmission(d, "acme", { nope: true }, "pass");
+    expect(r.status).toBe("rejected");
+    expect(deadLetter).not.toHaveBeenCalled();
+  });
+});

@@ -49,9 +49,26 @@ export interface MigrationsTable {
   applied_at: string;
 }
 
+/** A lead whose site lookup threw mid-ingest (migration 0006). `payload` and
+ *  `turnstile` are JSON — the raw wire body and the verification computed at
+ *  receipt — exactly what `db replay-deadletters` feeds back through
+ *  `ingestSubmission` once the lookup recovers. */
+export interface SubmissionDeadletterTable {
+  id: string;
+  site_slug: string;
+  payload: string;
+  turnstile: string;
+  error: string;
+  received_at: string;
+  replayed_at: string | null;
+  replay_outcome: string | null;
+  replay_submission_id: string | null;
+}
+
 export interface Database {
   submissions: SubmissionsTable;
   spam_screenouts: SpamScreenoutsTable;
   fleet_events: FleetEventsTable;
   _migrations: MigrationsTable;
+  submission_deadletter: SubmissionDeadletterTable;
 }
