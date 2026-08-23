@@ -10,7 +10,7 @@ on:
     # A push event is not subject to that approval gate and produces the same
     # `build` check on the same SHA, so listing the branch here lets the release
     # PR go green on its own.
-    branches: [main, changeset-release/main]
+    branches: [main, changeset-release/main, staging]
   pull_request:
 
 jobs:
