@@ -324,6 +324,16 @@ export async function runAuditCommand(
   const skipNotice = formatSkippedNotice(skippedPrep);
   if (skipNotice && !opts.json) output += `\n\n${skipNotice}`;
 
+  // "Did every site actually get measured?" — emitted for any fleet sweep that ran
+  // `smoke`, independent of --write-airtable, because it is a statement about the
+  // RUN, not about persistence. Deliberately not folded into FLEET_WRITE_SUMMARY:
+  // an unmeasured site still writes (it just writes nothing new), so the write gate
+  // counts it as a success. That gap is exactly what hid four nights of timeouts.
+  if (opts.fleet !== undefined && which.includes("smoke") && !opts.json) {
+    const { formatUnmeasuredSmokeSummary } = await import("../../audits/smoke.js");
+    output += `\n\n${formatUnmeasuredSmokeSummary(results)}`;
+  }
+
   // Did any site fail to write back to Airtable? The fleet writer collects
   // per-site failures instead of throwing, so without this the command would
   // exit 0 while rows silently failed to persist — automation keying on `$?`
