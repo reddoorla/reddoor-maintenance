@@ -3,6 +3,37 @@ import { StringDecoder } from "node:string_decoder";
 
 export type SpawnResult = { code: number; stdout: string; stderr: string };
 
+/** Rejection raised when `timeoutMs` elapses before the child exits.
+ *
+ *  Typed rather than a bare `Error` because callers need to tell "the command ran
+ *  and reported a verdict" apart from "we ran out of time and never learned one" —
+ *  those mean opposite things to an audit. Conflating them is how a smoke timeout
+ *  spent four nights reported as a generic `unexpected error` while Airtable kept
+ *  serving the stale prior verdict.
+ *
+ *  The message is unchanged from the historical string so anything already reading
+ *  it keeps working; prefer {@link isSpawnTimeout} over matching the text. */
+export class SpawnTimeoutError extends Error {
+  readonly timeoutMs: number;
+  readonly command: string;
+  constructor(command: string, timeoutMs: number) {
+    super(`spawn timeout after ${timeoutMs}ms: ${command}`);
+    this.name = "SpawnTimeoutError";
+    this.command = command;
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+/** True when a rejection is a spawn timeout.
+ *
+ *  Accepts the legacy message shape as well as the class, so an injected test
+ *  double or a subprocess wrapper that re-wraps the error still reads as a
+ *  timeout rather than silently degrading to "unexpected error". */
+export function isSpawnTimeout(err: unknown): boolean {
+  if (err instanceof SpawnTimeoutError) return true;
+  return err instanceof Error && /^spawn timeout after \d+ms:/.test(err.message);
+}
+
 export type SpawnOptions = {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
@@ -110,7 +141,7 @@ export function makeSpawn(internals: SpawnInternals = {}): SpawnFn {
             // Best-effort cleanup AFTER we've already rejected — it must never
             // hold the CLI open past its real work.
             killTimer.unref();
-            reject(new Error(`spawn timeout after ${opts.timeoutMs}ms: ${cmd}`));
+            reject(new SpawnTimeoutError(cmd, opts.timeoutMs as number));
           }, opts.timeoutMs)
         : undefined;
 
