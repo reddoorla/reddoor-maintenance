@@ -392,7 +392,12 @@ export async function defaultFormRunner(): Promise<FormRunner> {
         // Stamped as a side-effect rather than awaited here on purpose: awaiting
         // the POST before the banner would serialize two 30s timeouts in the
         // no-POST case and double the worst-case run. `startedAt` is assigned at
-        // the click below, which always happens before this can resolve.
+        // the click below — but the predicate matches ANY POST, and a page is free
+        // to fire one before the click (an analytics beacon, a consent ping). If
+        // that happens `startedAt` is still 0 and `Date.now() - 0` is the epoch —
+        // an absurd "elapsed" that would trip BUDGET_THIN, the exact false warn
+        // this measurement exists to kill. Un-clicked → leave it undefined; the
+        // audit treats absent timing as "no claim to make".
         let startedAt = 0;
         let postElapsedMs: number | undefined;
         const postResponse = page
@@ -400,7 +405,7 @@ export async function defaultFormRunner(): Promise<FormRunner> {
             timeout: PAGE_TIMEOUT_MS,
           })
           .then((r) => {
-            postElapsedMs = Date.now() - startedAt;
+            if (startedAt > 0) postElapsedMs = Date.now() - startedAt;
             return r;
           })
           .catch(() => null);
