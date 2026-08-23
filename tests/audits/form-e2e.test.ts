@@ -249,8 +249,11 @@ describe("audits/form-e2e declaresTestModeForwarding", () => {
 });
 
 describe("audits/form-e2e ingest budget headroom", () => {
-  const timed = (elapsedMs: number): FormRunner => ({
-    submit: async () => ({ formPresent: true, success: true, elapsedMs }),
+  /** A successful run with both spans stamped. `postElapsedMs` (click → POST
+   *  response, the span `INGEST_TIMEOUT_MS` actually governs) defaults to the
+   *  click→banner span, since post ≤ banner in any real run. */
+  const timed = (elapsedMs: number, postElapsedMs: number = elapsedMs): FormRunner => ({
+    submit: async () => ({ formPresent: true, success: true, elapsedMs, postElapsedMs }),
   });
 
   it("projects the sink work a testMode probe never reaches", () => {
@@ -282,6 +285,46 @@ describe("audits/form-e2e ingest budget headroom", () => {
     const r = await formE2eAudit({ site, now: NOW, formRunner: runner() });
     expect(r.status).toBe("pass");
     expect(r.summary).not.toMatch(/BUDGET_THIN/);
+  });
+
+  it("does NOT warn when only click→banner is slow — the budget governs the POST", async () => {
+    // THE OVER-WARN THIS BRANCH FIXES. 2026-08-17: vineyard-custom-homes warned at
+    // 16.9s click→banner while its own function answered in 0.25s warm / 2.0s cold.
+    // `INGEST_TIMEOUT_MS` aborts the site→central fetch (inside the POST) and
+    // nothing else — Turnstile's token round-trip and the browser's render of the
+    // banner are outside it, so a slow banner is not abort risk and must not warn.
+    const slowBanner = 30_000; // would trip the old elapsedMs-keyed check outright
+    const fastPost = 1_000;
+    const r = await formE2eAudit({ site, now: NOW, formRunner: timed(slowBanner, fastPost) });
+    expect(r.status).toBe("pass");
+    expect(r.summary).not.toMatch(/BUDGET_THIN/);
+  });
+
+  it("does NOT fall back to elapsedMs when no POST was observed", async () => {
+    // No POST span → no claim about the abort budget, however slow the banner was.
+    // Falling back to click→banner would quietly reintroduce the over-warn for
+    // exactly the runs where attribution is least knowable.
+    const noPost: FormRunner = {
+      submit: async () => ({ formPresent: true, success: true, elapsedMs: 30_000 }),
+    };
+    const r = await formE2eAudit({ site, now: NOW, formRunner: noPost });
+    expect(r.status).toBe("pass");
+    expect(r.summary).not.toMatch(/BUDGET_THIN/);
+  });
+
+  it("still warns when the POST span itself is thin", async () => {
+    // The counterweight to the two tests above: keying on the POST must not
+    // un-arm the check. A genuinely slow POST is exactly the 1836dig failure
+    // mode and still warns, with the POST span (not the banner span) reported.
+    const thinPost = INGEST_TIMEOUT_MS * BUDGET_WARN_RATIO - TESTMODE_SKIPPED_WORK_MS + 500;
+    const r = await formE2eAudit({
+      site,
+      now: NOW,
+      formRunner: timed(thinPost + 4_000, thinPost),
+    });
+    expect(r.status).toBe("warn");
+    expect(r.summary).toMatch(/BUDGET_THIN/);
+    expect(r.summary).toContain(`probe ${(thinPost / 1000).toFixed(1)}s`);
   });
 
   it("would have caught the 1836dig regression the pass/fail verdict missed", () => {
