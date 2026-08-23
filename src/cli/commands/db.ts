@@ -106,8 +106,61 @@ export async function runDbCommand(
     return { output: lines.join("\n"), code: result.stillFailing.length > 0 ? 1 : 0 };
   }
 
+  // Phase 1.3/1.4 of #539. Both read the same two Airtable tables raw (id +
+  // fields, no mapRow coercion — the importer's mapping is the authority) and
+  // share that mapping, so parity is definitionally checked against what the
+  // importer writes.
+  if (action === "import-airtable" || action === "parity") {
+    const { readDbConfig, openDb } = await import("../../db/client.js");
+    const db = await openDb(opts.url ? { url: opts.url } : readDbConfig());
+    const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
+    const base = openBase(readAirtableConfig());
+    const listRaw = async (table: string) =>
+      (await base(table).select().all()).map((r) => ({
+        id: r.id,
+        fields: r.fields as Record<string, unknown>,
+      }));
+    const io = {
+      listWebsiteRecords: () => listRaw("Websites"),
+      listReportRecords: () => listRaw("Reports"),
+      now: () => new Date(),
+    };
+
+    if (action === "import-airtable") {
+      const { importFleetState } = await import("../../db/import-airtable.js");
+      const summary = await importFleetState(db, {
+        ...io,
+        // Attachment bodies ride expiring signed URLs; a failed fetch imports the
+        // row with rendered_html null and is NAMED in the summary, never silent.
+        fetchAttachment: async (url) => {
+          try {
+            const res = await fetch(url);
+            return res.ok ? await res.text() : null;
+          } catch {
+            return null;
+          }
+        },
+      });
+      const lines = [
+        `imported ${summary.sites} site(s) → sites/site_health/site_schedule`,
+        `imported ${summary.reports} report(s)`,
+      ];
+      if (summary.renderedHtmlMisses.length > 0) {
+        lines.push(
+          `⚠ ${summary.renderedHtmlMisses.length} report(s) imported WITHOUT Rendered HTML ` +
+            `(fetch failed / URL expired): ${summary.renderedHtmlMisses.join(", ")}`,
+        );
+      }
+      return { output: lines.join("\n"), code: 0 };
+    }
+
+    const { checkFleetParity, formatParityResult } = await import("../../db/parity.js");
+    const result = await checkFleetParity(db, io);
+    return { output: formatParityResult(result), code: result.mismatches.length > 0 ? 1 : 0 };
+  }
+
   return {
-    output: `unknown db action '${action}'. Use: migrate, replay-deadletters.`,
+    output: `unknown db action '${action}'. Use: migrate, replay-deadletters, import-airtable, parity.`,
     code: 1,
   };
 }
