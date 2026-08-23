@@ -669,9 +669,10 @@ cli
 cli
   .command(
     "db <action>",
-    "Operate the libSQL store (migrate | replay-deadletters | import-airtable | parity).",
+    "Operate the libSQL store (migrate | replay-deadletters | import-airtable | parity | dump | verify-dump).",
   )
-  .action(async (action: string, opts: { cwd?: string; verbose?: boolean }) =>
+  .option("--file <path>", "verify-dump: the dump file to load into a scratch engine")
+  .action(async (action: string, opts: { file?: string; cwd?: string; verbose?: boolean }) =>
     runOrExit(async () => (await import("./commands/db.js")).runDbCommand(action, opts), opts),
   );
 

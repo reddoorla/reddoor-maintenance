@@ -1,6 +1,8 @@
 export type DbCommandOptions = {
   /** Override the libSQL url (tests use ":memory:"); otherwise read from env. */
   url?: string;
+  /** verify-dump: path to the dump file to load into a scratch engine. */
+  file?: string;
   cwd?: string;
   verbose?: boolean;
 };
@@ -159,8 +161,65 @@ export async function runDbCommand(
     return { output: formatParityResult(result), code: result.mismatches.length > 0 ? 1 : 0 };
   }
 
+  // Phase 1.5 of #539: platform-auth-free SQL dump to stdout-adjacent output.
+  // The nightly backup workflow redirects this to a file, encrypts, uploads;
+  // the rehearsed restore loads it into stock sqlite3 and compares row counts.
+  if (action === "dump") {
+    const { readDbConfig } = await import("../../db/client.js");
+    const cfg = opts.url ? { url: opts.url } : readDbConfig();
+    const { createClient } = await import("@libsql/client");
+    const client = createClient(cfg.url === ":memory:" ? { url: ":memory:" } : cfg);
+    const { dumpDatabase } = await import("../../db/dump.js");
+    const sql = await dumpDatabase({
+      execute: async (q) => {
+        const r = await client.execute(q);
+        return { columns: r.columns, rows: r.rows as Array<Record<string, unknown>> };
+      },
+    });
+    return { output: sql, code: 0 };
+  }
+
+  // The restore rehearsal (Phase 1.5's hard gate), runnable every night: load
+  // the dump into a FRESH in-memory engine and compare restored row counts
+  // against the INSERT counts in the dump text itself. A dump that cannot
+  // restore is not a backup — and per the repo's instrument rule the check
+  // emits its machine line on every run, clean included.
+  if (action === "verify-dump") {
+    const file = opts.file;
+    if (!file) return { output: "verify-dump: pass the dump path via --file", code: 1 };
+    const { readFile } = await import("node:fs/promises");
+    const sql = await readFile(file, "utf-8");
+    const { createClient } = await import("@libsql/client");
+    const scratch = createClient({ url: ":memory:" });
+    try {
+      await scratch.executeMultiple(sql);
+    } catch (err) {
+      return { output: `DUMP_VERIFY loaded=false error=${String(err)}`, code: 1 };
+    }
+    const { tableCounts, countInsertsInDump } = await import("../../db/dump.js");
+    const restored = await tableCounts({
+      execute: async (q) => {
+        const r = await scratch.execute(q);
+        return { columns: r.columns, rows: r.rows as Array<Record<string, unknown>> };
+      },
+    });
+    const expected = countInsertsInDump(sql);
+    const mismatches: string[] = [];
+    for (const [table, want] of Object.entries(expected)) {
+      if ((restored[table] ?? 0) !== want) {
+        mismatches.push(`${table}: dump=${want} restored=${restored[table] ?? 0}`);
+      }
+    }
+    const total = Object.values(restored).reduce((a, b) => a + b, 0);
+    const lines = [
+      ...mismatches.map((m) => `✗ ${m}`),
+      `DUMP_VERIFY loaded=true tables=${Object.keys(restored).length} rows=${total} mismatches=${mismatches.length}`,
+    ];
+    return { output: lines.join("\n"), code: mismatches.length > 0 ? 1 : 0 };
+  }
+
   return {
-    output: `unknown db action '${action}'. Use: migrate, replay-deadletters, import-airtable, parity.`,
+    output: `unknown db action '${action}'. Use: migrate, replay-deadletters, import-airtable, parity, dump, verify-dump.`,
     code: 1,
   };
 }
