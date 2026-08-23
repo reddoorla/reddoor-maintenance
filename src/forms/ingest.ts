@@ -165,6 +165,18 @@ export async function ingestSubmission(
 
   const n = normalized.value;
 
+  // A site still under construction is where the operator tests their OWN forms:
+  // one address, several unrelated sites, minutes apart. That is byte-for-byte the
+  // cross-site repeat-sender signature below, so a site in development reliably
+  // auto-spams its own builder's test submissions — the row lands `spam_auto`,
+  // notify is skipped and the cockpit hides it, which reads exactly like "the form
+  // is broken" (it did, on 2026-08-17). Spam handling on a site with no real
+  // visitors protects nothing, so skip ALL of it: content scoring, the Turnstile
+  // escalation, the repeat-sender scan and the duplicate/spray scan — including
+  // their retroactive re-bucketing of OTHER sites' rows, which a test submission
+  // has no business triggering. Re-enabled the moment the site leaves development.
+  const spamHandlingEnabled = site.status !== "in development";
+
   // Fold the content signals + the Turnstile verdict into ONE spam decision.
   // Absent classifier → treat as clean (fail-open). A throwing classifier is
   // swallowed the same way — a bug in the heuristic must never turn an
@@ -175,7 +187,7 @@ export async function ingestSubmission(
   // present-but-"unverifiable" token (expired/duplicate — a real browser DID render
   // the widget) stays neutral, as does anything on a site that hasn't opted in.
   let verdict: SpamVerdict = { score: 0, reasons: [] };
-  if (deps.classifySpam) {
+  if (spamHandlingEnabled && deps.classifySpam) {
     try {
       verdict = deps.classifySpam(n, turnstile);
     } catch (err) {
@@ -184,11 +196,16 @@ export async function ingestSubmission(
   }
   const reasons = [...verdict.reasons];
   let status: SubmissionStatus = verdict.score >= SPAM_THRESHOLD ? "spam_auto" : "new";
-  if (site.requireTurnstile && (turnstile === "fail" || turnstile === "absent")) {
+  if (
+    spamHandlingEnabled &&
+    site.requireTurnstile &&
+    (turnstile === "fail" || turnstile === "absent")
+  ) {
     status = "spam_auto";
     const reason = turnstile === "fail" ? "turnstile-required-failed" : "turnstile-required-absent";
     if (!reasons.includes(reason)) reasons.push(reason);
   } else if (
+    spamHandlingEnabled &&
     site.requireTurnstile &&
     turnstile === "pass" &&
     verification.hostname !== null &&
@@ -217,7 +234,7 @@ export async function ingestSubmission(
   // skipping this scan and the retro cleanup never fired for exactly the sprays it
   // was built for; escalation/reason still only applies when not already spam.
   // Best-effort — a lookup failure never blocks a lead.
-  if (n.formType !== "newsletter" && deps.listRecentSubmissionsForEmail) {
+  if (spamHandlingEnabled && n.formType !== "newsletter" && deps.listRecentSubmissionsForEmail) {
     try {
       const since = new Date(deps.now().getTime() - DUPLICATE_WINDOW_MS);
       const prior = await deps.listRecentSubmissionsForEmail(n.email, since);
@@ -254,7 +271,12 @@ export async function ingestSubmission(
   // with no signal. Only cross-site or different-sender copies count. Guarded:
   // non-newsletter forms with a real body; the db helper ignores short bodies /
   // small token sets. Best-effort — a lookup failure never blocks a lead.
-  if (n.formType !== "newsletter" && n.message !== undefined && deps.findRecentDuplicates) {
+  if (
+    spamHandlingEnabled &&
+    n.formType !== "newsletter" &&
+    n.message !== undefined &&
+    deps.findRecentDuplicates
+  ) {
     try {
       const since = new Date(deps.now().getTime() - DUPLICATE_WINDOW_MS);
       const dupes = await deps.findRecentDuplicates(n.message, since);

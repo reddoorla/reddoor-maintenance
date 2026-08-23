@@ -14,6 +14,105 @@ function deps(over: Partial<IngestDeps> = {}): IngestDeps {
   };
 }
 
+describe("ingestSubmission — spam handling is off for sites in development", () => {
+  const inDev = makeWebsiteRow({ id: "recSITE", status: "in development" });
+  const live = makeWebsiteRow({ id: "recSITE", status: "maintenance" });
+  const priorOnAnotherSite = [
+    { id: "recOTHER", siteId: "recDIFFERENT", email: "a@b.co", status: "new" as const },
+  ];
+
+  // ingest gates notify on `row.status` — the status coming BACK from
+  // createSubmission — so a fixed mock row silently decides the notify assertion
+  // instead of the code under test. Echo the status the way the real persist does.
+  const echoCreate = () =>
+    vi
+      .fn()
+      .mockImplementation((i: { status: string; spamScore: number; spamReason: string | null }) =>
+        Promise.resolve(
+          makeSubmissionRow({
+            id: "recSUB",
+            status: i.status as never,
+            spamScore: i.spamScore,
+            spamReason: i.spamReason,
+          }),
+        ),
+      );
+
+  it("keeps a submission the classifier calls spam", async () => {
+    const d = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(inDev),
+      createSubmission: echoCreate(),
+      classifySpam: () => ({ score: 999, reasons: ["links:9"] }),
+    });
+    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: "buy now" });
+    expect(r.status).toBe("accepted");
+    if (r.status === "accepted") expect(r.notifyStatus).toBe("sent");
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "new", spamScore: 0, spamReason: null }),
+    );
+    expect(d.notify).toHaveBeenCalledTimes(1);
+  });
+
+  // The exact failure from 2026-08-17: the operator tested three sites from one
+  // address and their own submission landed as spam_auto with notify skipped.
+  it("does not trip the cross-site repeat-sender rule, and retro-buckets nothing", async () => {
+    const retroBucket = vi.fn().mockResolvedValue(undefined);
+    const d = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(inDev),
+      listRecentSubmissionsForEmail: vi.fn().mockResolvedValue(priorOnAnotherSite),
+      retroBucket,
+    });
+    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: "hi" });
+    expect(r.status).toBe("accepted");
+    expect(d.createSubmission).toHaveBeenCalledWith(expect.objectContaining({ status: "new" }));
+    expect(d.listRecentSubmissionsForEmail).not.toHaveBeenCalled();
+    expect(retroBucket).not.toHaveBeenCalled();
+  });
+
+  // CONTROL. Identical inputs, only `status` differs. Without this the two tests
+  // above would pass just as happily against a gate that is always on, which is
+  // not evidence of anything.
+  it("CONTROL: the same submission on a `maintenance` site IS bucketed", async () => {
+    const retroBucket = vi.fn().mockResolvedValue(undefined);
+    const d = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(live),
+      createSubmission: echoCreate(),
+      listRecentSubmissionsForEmail: vi.fn().mockResolvedValue(priorOnAnotherSite),
+      retroBucket,
+    });
+    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: "hi" });
+    expect(r.status).toBe("accepted");
+    if (r.status === "accepted") expect(r.notifyStatus).toBe("skipped");
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "spam_auto", spamReason: "repeat-sender" }),
+    );
+    expect(retroBucket).toHaveBeenCalledWith(["recOTHER"], "retro:repeat-sender");
+  });
+
+  it("does not escalate a required-Turnstile miss", async () => {
+    const d = deps({
+      getWebsiteBySlug: vi
+        .fn()
+        .mockResolvedValue(makeWebsiteRow({ status: "in development", requireTurnstile: true })),
+    });
+    const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: "hi" }, "absent");
+    expect(d.createSubmission).toHaveBeenCalledWith(expect.objectContaining({ status: "new" }));
+    expect(r.status).toBe("accepted");
+  });
+
+  it("CONTROL: a required-Turnstile miss on a `maintenance` site IS bucketed", async () => {
+    const d = deps({
+      getWebsiteBySlug: vi
+        .fn()
+        .mockResolvedValue(makeWebsiteRow({ status: "maintenance", requireTurnstile: true })),
+    });
+    await ingestSubmission(d, "acme", { email: "a@b.co", message: "hi" }, "absent");
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "spam_auto", spamReason: "turnstile-required-absent" }),
+    );
+  });
+});
+
 describe("ingestSubmission", () => {
   it("rejects an invalid payload before touching Airtable", async () => {
     const d = deps();
