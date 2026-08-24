@@ -7,7 +7,7 @@ export type DbCommandOptions = {
   verbose?: boolean;
 };
 
-/** `db <action>` — migrate | replay-deadletters. The db layer is imported
+/** `db <action>` — migrate | replay-deadletters | import-airtable | parity | sync | dump | verify-dump. The db layer is imported
  *  dynamically so a non-db CLI invocation (and `--help`) never loads
  *  @libsql/client. Config is resolved inside each branch so an unknown action
  *  returns without needing any Turso env. */
@@ -112,7 +112,7 @@ export async function runDbCommand(
   // fields, no mapRow coercion — the importer's mapping is the authority) and
   // share that mapping, so parity is definitionally checked against what the
   // importer writes.
-  if (action === "import-airtable" || action === "parity") {
+  if (action === "import-airtable" || action === "parity" || action === "sync") {
     const { readDbConfig, openDb } = await import("../../db/client.js");
     const db = await openDb(opts.url ? { url: opts.url } : readDbConfig());
     const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
@@ -154,6 +154,28 @@ export async function runDbCommand(
         );
       }
       return { output: lines.join("\n"), code: 0 };
+    }
+
+    // Phase 2 backbone (#539): one hourly pass = import (attachment fetches
+    // only where the stored row lacks a body) + parity + one retry to absorb
+    // the import-read/parity-read race. Exit 1 on persistent mismatch.
+    if (action === "sync") {
+      const { syncFleetState, formatSyncResult } = await import("../../db/sync.js");
+      const result = await syncFleetState(db, {
+        ...io,
+        fetchAttachment: async (url) => {
+          try {
+            const res = await fetch(url);
+            return res.ok ? await res.text() : null;
+          } catch {
+            return null;
+          }
+        },
+      });
+      return {
+        output: formatSyncResult(result),
+        code: result.parity.mismatches.length > 0 ? 1 : 0,
+      };
     }
 
     const { checkFleetParity, formatParityResult } = await import("../../db/parity.js");
@@ -219,7 +241,7 @@ export async function runDbCommand(
   }
 
   return {
-    output: `unknown db action '${action}'. Use: migrate, replay-deadletters, import-airtable, parity, dump, verify-dump.`,
+    output: `unknown db action '${action}'. Use: migrate, replay-deadletters, import-airtable, parity, sync, dump, verify-dump.`,
     code: 1,
   };
 }
