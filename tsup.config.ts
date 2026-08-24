@@ -76,7 +76,7 @@ export default defineConfig({
     // loader reads them from dist/reports/header-image/assets/.
     const headerDest = "dist/reports/header-image/assets";
     await mkdir(headerDest, { recursive: true });
-    for (const asset of ["plate-clean.png", "headline-maintenance.png"]) {
+    for (const asset of ["plate-clean.png", "headline-maintenance.png", "headline-testing.png"]) {
       await copyFile(`src/reports/header-image/assets/${asset}`, `${headerDest}/${asset}`);
     }
   },

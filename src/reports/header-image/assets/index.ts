@@ -5,14 +5,32 @@ import { fileURLToPath } from "node:url";
 
 const PLATE = "plate-clean.png";
 
-/** Per-report-type headline overlays, stamped over the CLEAN plate at send
- *  time (see orchestrate.ts). Types with no entry — Announcement, Launch, and
- *  for now Testing — go out on the clean plate. Testing is absent because its
- *  Figma export (2026-08-20) shipped flattened onto an opaque red rectangle
- *  (alpha min=max=255) instead of transparent text; re-export it from Figma
- *  with a transparent background and add it here to enable it. */
+/** Per-report-type headline overlays, stamped over the CLEAN plate at send time
+ *  (see orchestrate.ts). Types with no entry go out on the clean plate.
+ *
+ *  Source: Figma "Web-Maintenance-Email" (mQ3hy2d9JnOG9ljCzbZS8j) —
+ *  Maintenance is node 158:15, Testing is 153:721 ("maintenance & testing",
+ *  which is what a Testing report actually covers). Export each at 4x; Figma
+ *  crops a text export to its ink box, which is why these are 1328x660 /
+ *  1715x664 rather than the 1840x720 text box.
+ *
+ *  ⚠️ A Figma MCP `download_assets` export arrives FLATTENED ONTO OPAQUE WHITE
+ *  (alpha min=max=255) — stamping that would paint a white slab over the paper
+ *  texture. This is what made the 2026-08-20 Testing asset unusable. Recover the
+ *  alpha rather than re-exporting by hand: for ink colour C over white,
+ *  a = (255 - px) / (255 - C) on the green channel. Verified against the
+ *  known-good Maintenance asset at mean abs alpha diff 0.02 (0.004% of pixels
+ *  off by more than 8).
+ *
+ *  Announcement and Launch are NOT registered yet. Their placeholder nodes
+ *  (505:2, 505:3) still carry the Maintenance copy — the intended strings live
+ *  in the layer names ("Your website is set up for ongoing care." / "Your
+ *  website is live.") and must be typed in Figma desktop, where the licensed
+ *  Helvetica Neue LT Std lives. The Plugin API cannot do it: `characters`
+ *  requires loadFontAsync, and the MCP font environment carries no Helvetica. */
 const HEADLINE_FILES = {
   Maintenance: "headline-maintenance.png",
+  Testing: "headline-testing.png",
 } as const;
 
 export type HeadlineKind = keyof typeof HEADLINE_FILES;
