@@ -347,9 +347,19 @@ export async function runAuditCommand(
     if (opts.fleet !== undefined) {
       const { writeFleetAuditsToAirtable, formatFleetWriteSummary } =
         await import("../../audits/write-audits-to-airtable.js");
+      const { makeHealthMirrorBestEffort } = await import("../../audits/health-mirror.js");
       const base = openBase(readAirtableConfig());
       const websites = await listWebsites(base);
-      const fleetWrite = await writeFleetAuditsToAirtable({ base, websites, results });
+      // Phase 3 dual-write (#539): mirror each site's written FieldSet into
+      // site_health. Null when libSQL creds are absent — Airtable write-back
+      // proceeds exactly as before.
+      const mirror = await makeHealthMirrorBestEffort();
+      const fleetWrite = await writeFleetAuditsToAirtable({
+        base,
+        websites,
+        results,
+        ...(mirror ? { mirror } : {}),
+      });
       if (fleetWrite.failed.length > 0) writeBackFailed = true;
       // Record fleet-activity events (vuln_cleared / cert_renewed rode along on each
       // WriteSummary) plus a per-sweep rollup. Best-effort: a missing Turso cred no-ops.

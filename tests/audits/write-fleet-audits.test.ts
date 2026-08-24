@@ -176,3 +176,66 @@ describe("formatFleetWriteSummary", () => {
     expect(matches.at(-1)).toBe("FLEET_WRITE_SUMMARY wrote=1 failed=1 total=2");
   });
 });
+
+describe("the Turso mirror (#539 Phase 3 dual-write)", () => {
+  const twoSiteResults = () => [
+    lhResult("acme-co", { performance: 0.9, accessibility: 1, "best-practices": 0.78, seo: 0.92 }),
+    lhResult("beta-corp", { performance: 0.5, accessibility: 0.9, "best-practices": 1, seo: 1 }),
+  ];
+
+  it("mirrors each written site's EXACT Airtable FieldSet", async () => {
+    const base = makeFakeBase({ Websites: websites });
+    const calls: Array<{ siteId: string; fields: Record<string, unknown> }> = [];
+    const out = await writeFleetAuditsToAirtable({
+      base,
+      websites: await loadWebsites(base),
+      results: twoSiteResults(),
+      mirror: async (siteId, fields) => {
+        calls.push({ siteId, fields });
+      },
+    });
+    expect(out.mirrored).toBe(2);
+    expect(out.mirrorFailed).toBe(0);
+    const updates = base.__calls.filter((c) => c.kind === "update");
+    for (const call of calls) {
+      const update = updates.find((u) => u.records[0]!.id === call.siteId);
+      expect(call.fields, `mirror payload for ${call.siteId}`).toEqual(update!.records[0]!.fields);
+    }
+  });
+
+  it("counts a mirror failure without failing the Airtable write or the batch", async () => {
+    const base = makeFakeBase({ Websites: websites });
+    const out = await writeFleetAuditsToAirtable({
+      base,
+      websites: await loadWebsites(base),
+      results: twoSiteResults(),
+      mirror: async (siteId) => {
+        if (siteId === "recB") throw new Error("turso down");
+      },
+    });
+    expect(out.written.map((w) => w.siteName).sort()).toEqual(["Acme Co", "Beta Corp"]);
+    expect(out.failed).toEqual([]);
+    expect(out.mirrored).toBe(1);
+    expect(out.mirrorFailed).toBe(1);
+  });
+
+  it("without a mirror: no counts on the result, no mirror keys on the summary line", async () => {
+    const base = makeFakeBase({ Websites: websites });
+    const out = await writeFleetAuditsToAirtable({
+      base,
+      websites: await loadWebsites(base),
+      results: twoSiteResults(),
+    });
+    expect(out.mirrored).toBeUndefined();
+    expect(formatFleetWriteSummary(out)).not.toContain("mirrored=");
+  });
+
+  it("mirror counts APPEND to the summary line — the workflows' grep prefix stays intact", () => {
+    const out = formatFleetWriteSummary({ ...fleetResult(3, []), mirrored: 2, mirrorFailed: 1 });
+    expect(out).toContain(
+      "FLEET_WRITE_SUMMARY wrote=3 failed=0 total=3 mirrored=2 mirror_failed=1",
+    );
+    // The fleet workflows extract with this exact regex; it must still match.
+    expect(out).toMatch(/FLEET_WRITE_SUMMARY wrote=[0-9]+ failed=[0-9]+ total=[0-9]+/);
+  });
+});

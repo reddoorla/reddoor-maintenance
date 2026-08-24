@@ -59,7 +59,16 @@ export async function runGitHubSignalsCommand(opts: {
   );
 
   const sweptAt = new Date().toISOString();
-  const result: FleetWriteResult = { written: [], failed: [] };
+  // Phase 3 dual-write (#539): mirror each row's written FieldSet into
+  // site_health. Null when libSQL creds are absent — the Airtable sweep
+  // proceeds exactly as before.
+  const { makeHealthMirrorBestEffort } = await import("../../audits/health-mirror.js");
+  const mirror = await makeHealthMirrorBestEffort();
+  const result: FleetWriteResult = {
+    written: [],
+    failed: [],
+    ...(mirror ? { mirrored: 0, mirrorFailed: 0 } : {}),
+  };
   const byRepo = new Map(websites.filter((w) => w.gitRepo).map((w) => [w.gitRepo, w]));
   const events: FleetEvent[] = [];
   const sweptMs = Date.parse(sweptAt);
@@ -72,12 +81,21 @@ export async function runGitHubSignalsCommand(opts: {
       continue;
     }
     try {
-      await updateGitHubSignals(base, target.id, {
+      const ghFields = await updateGitHubSignals(base, target.id, {
         renovateFailingCis: row.renovateFailingCis,
         ciState: row.ciState,
         lastCommitAt: row.lastCommitAt,
         sweptAt,
       });
+      if (mirror) {
+        try {
+          await mirror(target.id, ghFields);
+          result.mirrored = (result.mirrored ?? 0) + 1;
+        } catch (e) {
+          result.mirrorFailed = (result.mirrorFailed ?? 0) + 1;
+          console.error(`[health-mirror] ${target.name}: ${(e as Error).message}`);
+        }
+      }
       result.written.push({
         siteName: target.name,
         writes: [{ audit: "github-signals", counts: row }],

@@ -1,5 +1,7 @@
+import type { FieldSet } from "airtable";
 import type { AuditResult } from "../types.js";
 import type { AirtableBase } from "../reports/airtable/client.js";
+import type { HealthMirror } from "./health-mirror.js";
 import { type WebsiteRow, siteSlug, updateAuditFields } from "../reports/airtable/websites.js";
 import type {
   A11yCounts,
@@ -59,6 +61,12 @@ type WriteSummary = {
   /** Fleet-activity events detected from this site's prior row vs the fresh audits.
    *  Optional: only the fleet path records them; the single-site path ignores them. */
   events?: FleetEvent[];
+  /** The Websites rec id + the merged FieldSet actually written — what the
+   *  Phase 3 Turso mirror consumes, so mirror and Airtable write share ONE
+   *  payload. Populated by writeAuditsToAirtable; other WriteSummary
+   *  producers (prismic-models, github-signals) don't carry them. */
+  siteId?: string;
+  fields?: FieldSet;
 };
 
 /** Orchestrates the per-audit Airtable writes for `audit --write-airtable`.
@@ -193,8 +201,9 @@ export async function writeAuditsToAirtable(args: {
   // One atomic write of everything that ran. Skip the call only if there is nothing
   // to write at all (no real scores AND no other audit produced values) — an empty
   // update is a wasted request.
+  let fields: FieldSet = {};
   if (Object.keys(audits).length > 0) {
-    await updateAuditFields(base, target.id, audits);
+    fields = await updateAuditFields(base, target.id, audits);
   }
 
   // Detect fleet-activity transitions from the prior row (`target`, loaded before this
@@ -226,12 +235,17 @@ export async function writeAuditsToAirtable(args: {
     );
   }
 
-  return { siteName: target.name, writes, events };
+  return { siteName: target.name, writes, events, siteId: target.id, fields };
 }
 
 export type FleetWriteResult = {
   written: WriteSummary[];
   failed: Array<{ slug: string; error: string }>;
+  /** Turso write-through counts (#539 Phase 3 dual-write). Present ONLY when a
+   *  mirror was wired — absent means mirroring was not attempted (no libSQL
+   *  creds), which must stay distinguishable from `mirrored=0`. */
+  mirrored?: number;
+  mirrorFailed?: number;
 };
 
 /** Render the fleet write-back outcome for the CLI/CI. Beyond the human-readable
@@ -251,6 +265,11 @@ export function formatFleetWriteSummary(result: FleetWriteResult): string {
       .join("; ")}`;
   }
   out += `\nFLEET_WRITE_SUMMARY wrote=${wrote} failed=${failed} total=${total}`;
+  // Mirror counts APPEND so the fleet workflows' `grep -oE "FLEET_WRITE_SUMMARY
+  // wrote=... total=[0-9]+"` extraction still matches its prefix untouched.
+  if (result.mirrored !== undefined) {
+    out += ` mirrored=${result.mirrored} mirror_failed=${result.mirrorFailed ?? 0}`;
+  }
   return out;
 }
 
@@ -262,8 +281,15 @@ export async function writeFleetAuditsToAirtable(args: {
   base: AirtableBase;
   websites: WebsiteRow[];
   results: AuditResult[];
+  /** Optional Turso write-through (#539 Phase 3 dual-write). Each site's
+   *  just-written FieldSet mirrors into site_health right after its Airtable
+   *  write; a mirror failure is counted, never thrown — Airtable stays
+   *  authoritative and the hourly sync converges what the mirror missed.
+   *  (The lighthouse-miss partial write lands in `failed` and is deliberately
+   *  NOT mirrored — same convergence path.) */
+  mirror?: HealthMirror;
 }): Promise<FleetWriteResult> {
-  const { base, websites, results } = args;
+  const { base, websites, results, mirror } = args;
 
   const bySlug = new Map<string, AuditResult[]>();
   for (const r of results) {
@@ -274,6 +300,8 @@ export async function writeFleetAuditsToAirtable(args: {
 
   const written: WriteSummary[] = [];
   const failed: FleetWriteResult["failed"] = [];
+  let mirrored = 0;
+  let mirrorFailed = 0;
   // Serial on purpose: even at one (now atomic) update call per site, Airtable's
   // ~5 req/sec limit means a Promise.all fan-out across the fleet would burst and
   // trip 429s (silently filed as failures). Below a few dozen sites, serial trades
@@ -281,10 +309,20 @@ export async function writeFleetAuditsToAirtable(args: {
   // when the fleet grows.
   for (const [slug, siteResults] of bySlug) {
     try {
-      written.push(await writeAuditsToAirtable({ base, websites, slug, results: siteResults }));
+      const summary = await writeAuditsToAirtable({ base, websites, slug, results: siteResults });
+      written.push(summary);
+      if (mirror && summary.siteId && summary.fields && Object.keys(summary.fields).length > 0) {
+        try {
+          await mirror(summary.siteId, summary.fields);
+          mirrored++;
+        } catch (e) {
+          mirrorFailed++;
+          console.error(`[health-mirror] ${slug}: ${(e as Error).message}`);
+        }
+      }
     } catch (e) {
       failed.push({ slug, error: (e as Error).message });
     }
   }
-  return { written, failed };
+  return { written, failed, ...(mirror ? { mirrored, mirrorFailed } : {}) };
 }
