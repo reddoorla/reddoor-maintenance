@@ -1,15 +1,11 @@
 import type { Context, Config } from "@netlify/functions";
 import { openBase } from "../../src/reports/airtable/client.js";
-import {
-  getReportById as getReportByIdAirtable,
-  approveReportRow,
-  overrideReportRow,
-} from "../../src/reports/airtable/reports.js";
+import { approveReportRow, overrideReportRow } from "../../src/reports/airtable/reports.js";
 import { approveReport, verifyBasicAuth } from "../../src/dashboard/index.js";
-import { listWebsites } from "../../src/reports/airtable/websites.js";
+
 import { approveBlockers, formatBlockers } from "../../src/reports/preflight.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
-import { mirrorReportPatch } from "../../src/db/fleet-state.js";
+import { mirrorReportPatch, getReportById, getSiteById } from "../../src/db/fleet-state.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
 
@@ -97,6 +93,11 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     return plainText("Airtable env missing", 500);
   }
 
+  if (!process.env.TURSO_DATABASE_URL) {
+    console.error("[approve-report] TURSO_DATABASE_URL missing");
+    return plainText("Turso env missing", 500);
+  }
+
   const id = ctx.params?.id;
   if (!id) return plainText("Missing report id", 400);
 
@@ -113,7 +114,11 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
 
   try {
     const base = openBase({ apiKey, baseId });
-    // Phase 2 (#539): each Airtable write is mirrored into Turso reports so the
+    // Phase 2 (#539): the report + site READS come from Turso (hard dependency
+    // — the gate must see current state); the approve/override WRITES stay on
+    // Airtable and are mirrored back below.
+    const db2 = await openDb(readDbConfig());
+    // Each Airtable write is mirrored into Turso reports so the
     // page re-render shows the approval immediately, not after the next hourly
     // sync. Everything — opening the db included — is inside the catch: a
     // mirror failure (or absent Turso env) is non-fatal, the sync converges it.
@@ -126,7 +131,9 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
       }
     };
     const deps = {
-      getReportById: (rid: string) => getReportByIdAirtable(base, rid),
+      // Phase 2 (#539): reads from Turso (mirrored writes keep it current
+      // within this very request); writes stay on Airtable + mirror below.
+      getReportById: (rid: string) => getReportById(db2, rid),
       approveReportRow: async (rid: string, at: Date, by: string) => {
         await approveReportRow(base, rid, at, by);
         await mirror(rid, {
@@ -151,10 +158,9 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
       },
       now: () => new Date(),
       sendBlockers: async (report: Parameters<typeof approveBlockers>[1]) => {
-        // One Websites fetch per approve click (30/min rate limit; fine). A
-        // missing Site row is itself a send blocker — sendApprovedReports
-        // fails exactly that way.
-        const site = (await listWebsites(base)).find((w) => w.id === report.siteId);
+        // One indexed Turso lookup per approve click. A missing Site row is
+        // itself a send blocker — sendApprovedReports fails exactly that way.
+        const site = await getSiteById(db2, report.siteId);
         if (!site) return ["site-not-found: this report's Site link points at no Websites row"];
         return formatBlockers(approveBlockers(site, report));
       },

@@ -387,6 +387,12 @@ export async function mirrorReportPatch(
   await db.updateTable("reports").set(patch).where("id", "=", reportId).execute();
 }
 
+/** By rec id (the PK) — approve-report's read. */
+export async function getReportById(db: Db, id: string): Promise<ReportRow | null> {
+  const r = await db.selectFrom("reports").selectAll().where("id", "=", id).executeTakeFirst();
+  return r ? reportRowFromDb(r) : null;
+}
+
 /** The preview route's read: the stored rendered body, or null when the report
  *  has none (imported while its signed URL was expired, or predates rendering). */
 export async function getReportHtml(

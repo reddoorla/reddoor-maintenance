@@ -1,7 +1,5 @@
 import type { Context, Config } from "@netlify/functions";
-import { openBase } from "../../src/reports/airtable/client.js";
-import { getWebsiteBySlug } from "../../src/reports/airtable/websites.js";
-import { listReportsForSite } from "../../src/reports/airtable/reports.js";
+import { getSiteBySlug, listReportsForSite } from "../../src/db/fleet-state.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import { listSubmissionsForSite, countNotifyBouncedBySite } from "../../src/db/submissions.js";
 import { listScreenOutsSince, screenOutsSince } from "../../src/db/screenouts.js";
@@ -60,8 +58,6 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
         status: "ok",
         service: "reddoor-site-dashboard",
         env: {
-          AIRTABLE_PAT: typeof process.env.AIRTABLE_PAT === "string",
-          AIRTABLE_BASE_ID: typeof process.env.AIRTABLE_BASE_ID === "string",
           TURSO_DATABASE_URL: typeof process.env.TURSO_DATABASE_URL === "string",
         },
       },
@@ -90,34 +86,18 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     });
   }
 
-  const apiKey = process.env.AIRTABLE_PAT;
-  const baseId = process.env.AIRTABLE_BASE_ID;
-  if (!apiKey || !baseId) {
-    console.error("[site-dashboard] AIRTABLE_PAT or AIRTABLE_BASE_ID missing");
-    return plainText("Airtable env missing", 500);
-  }
-
   if (!process.env.TURSO_DATABASE_URL) {
     console.error("[site-dashboard] TURSO_DATABASE_URL missing");
     return plainText("Turso env missing", 500);
   }
 
   try {
-    const base = openBase({ apiKey, baseId });
-    // libSQL backs only the optional submission + spam panels here; the core page
-    // (site + reports) is Airtable. Open it defensively so a Turso blip drops just
-    // those panels rather than 502-ing the whole operator page — the per-panel
-    // try/catch below can't catch a throw from an eager open above them.
-    let db: Awaited<ReturnType<typeof openDb>> | null = null;
-    try {
-      db = await openDb(readDbConfig());
-    } catch (e) {
-      console.error(
-        `[site-dashboard] libSQL open failed; submission/spam panels dropped: ${String(e)}`,
-      );
-    }
+    // Phase 2 (#539): Turso IS the core page now (site + reports + submissions
+    // all read from it), so open it non-defensively — a failure 502s rather
+    // than rendering a page that pretends the site vanished.
+    const db = await openDb(readDbConfig());
 
-    const site = await getWebsiteBySlug(base, slug);
+    const site = await getSiteBySlug(db, slug);
     if (!site) {
       // A genuine miss returns inside the try — only a THROWN Airtable failure
       // reaches handlerError below, so "not found" stays a 404, not a 502.
@@ -129,40 +109,34 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     // Pre-slicing here would hide an OLD pending report from the approve list +
     // its button while the fleet banner (which counts ALL reports) still shows it,
     // leaving an unapprovable report and a banner/page disagreement.
-    const reports = await listReportsForSite(base, site.id);
+    const reports = await listReportsForSite(db, site.id);
 
     let submissions: Awaited<ReturnType<typeof listSubmissionsForSite>> = [];
-    if (db) {
-      try {
-        submissions = await listSubmissionsForSite(db, { id: site.id, name: site.name });
-      } catch {
-        // submissions section simply absent — the rest of the page still renders
-      }
+    try {
+      submissions = await listSubmissionsForSite(db, { id: site.id, name: site.name });
+    } catch {
+      // submissions section simply absent — the rest of the page still renders
     }
 
     let spamTotals: import("../../src/db/screenouts.js").ScreenOutTotals | null = null;
-    if (db) {
-      try {
-        const since = screenOutsSince(new Date(), 30);
-        spamTotals = (await listScreenOutsSince(db, since)).get(site.id) ?? null;
-      } catch {
-        // panel simply absent — never blank the page
-      }
+    try {
+      const since = screenOutsSince(new Date(), 30);
+      spamTotals = (await listScreenOutsSince(db, since)).get(site.id) ?? null;
+    } catch {
+      // panel simply absent — never blank the page
     }
 
     // Cockpit alarm verdict for the header chip strip — same collectors + assignTier
     // as buildCockpitModel (see buildSiteAlarmContext). Both reads are defensive:
     // a Turso blip drops just the bounce chip; any collector throw drops the strip.
     let notifyBounces: ReadonlyMap<string, number> = new Map();
-    if (db) {
-      try {
-        notifyBounces = await countNotifyBouncedBySite(
-          db,
-          screenOutsSince(new Date(), NOTIFY_BOUNCE_WINDOW_DAYS),
-        );
-      } catch {
-        // bounce chip simply absent
-      }
+    try {
+      notifyBounces = await countNotifyBouncedBySite(
+        db,
+        screenOutsSince(new Date(), NOTIFY_BOUNCE_WINDOW_DAYS),
+      );
+    } catch {
+      // bounce chip simply absent
     }
     let alarm: SiteAlarmContext | null = null;
     try {
