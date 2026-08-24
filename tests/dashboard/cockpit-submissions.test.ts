@@ -8,14 +8,14 @@ const now = new Date("2026-06-14T12:00:00Z");
 
 describe("buildCockpitModel — submissions", () => {
   it("defaults to an empty submissions queue when none are passed", () => {
-    const site = makeWebsiteRow({ id: "recSITE", name: "Acme", status: "maintenance" });
+    const site = makeWebsiteRow({ id: "recSITE", name: "Acme", status: "maintained" });
     const model = buildCockpitModel([site], [], {}, baseUrl, now);
     expect(model.submissions).toEqual([]);
     expect(model.summary.newSubmissions).toBe(0);
   });
 
   it("builds entries, per-card counts, and the summary from NEW submissions", () => {
-    const site = makeWebsiteRow({ id: "recSITE", name: "Acme Co", status: "maintenance" });
+    const site = makeWebsiteRow({ id: "recSITE", name: "Acme Co", status: "maintained" });
     const subs = [
       makeSubmissionRow({ id: "s1", siteId: "recSITE", formType: "contact" }),
       makeSubmissionRow({ id: "s2", siteId: "recSITE", formType: "rsvp" }),
@@ -28,7 +28,7 @@ describe("buildCockpitModel — submissions", () => {
   });
 
   it("skips an orphan submission whose site is unknown", () => {
-    const site = makeWebsiteRow({ id: "recSITE", name: "Acme", status: "maintenance" });
+    const site = makeWebsiteRow({ id: "recSITE", name: "Acme", status: "maintained" });
     const subs = [makeSubmissionRow({ id: "s1", siteId: "recGONE" })];
     const model = buildCockpitModel([site], [], {}, baseUrl, now, subs);
     expect(model.submissions).toEqual([]);
@@ -36,14 +36,14 @@ describe("buildCockpitModel — submissions", () => {
   });
 
   it("surfaces a submission for a hidden site in the strip (resolves against ALL sites)", () => {
-    const hidden = makeWebsiteRow({ id: "recHID", name: "Hidden", status: "hosting" });
+    const hidden = makeWebsiteRow({ id: "recHID", name: "Hidden", status: "hosted-only" });
     const subs = [makeSubmissionRow({ id: "s1", siteId: "recHID" })];
     const model = buildCockpitModel([hidden], [], {}, baseUrl, now, subs);
     expect(model.submissions?.length).toBe(1);
   });
 
   it("splits new submissions into leads vs newsletter/rsvp signups (card + summary)", () => {
-    const site = makeWebsiteRow({ id: "recSITE", name: "Acme Co", status: "maintenance" });
+    const site = makeWebsiteRow({ id: "recSITE", name: "Acme Co", status: "maintained" });
     const subs = [
       makeSubmissionRow({ id: "s1", siteId: "recSITE", formType: "contact" }),
       makeSubmissionRow({ id: "s2", siteId: "recSITE", formType: "contact" }),
@@ -60,7 +60,7 @@ describe("buildCockpitModel — submissions", () => {
   });
 
   it("counts inquiry/reserve as leads (lead-ness by exclusion)", () => {
-    const site = makeWebsiteRow({ id: "recSITE", name: "Acme Co", status: "maintenance" });
+    const site = makeWebsiteRow({ id: "recSITE", name: "Acme Co", status: "maintained" });
     const subs = [
       makeSubmissionRow({ id: "s1", siteId: "recSITE", formType: "inquiry" }),
       makeSubmissionRow({ id: "s2", siteId: "recSITE", formType: "reserve" }),

@@ -1,15 +1,22 @@
 import type { WebsiteRow } from "../reports/airtable/websites.js";
+import { CANONICAL_STATUSES, toAirtableStatus } from "../reports/airtable/site-status.js";
 
-/** Status options the editor offers (the code Status union; rare Airtable values
- *  like "legacy" are set directly in Airtable, not from the dashboard). */
-export const SITE_STATUS_OPTIONS = [
-  "in development",
-  "launch period",
-  "maintenance",
-  "hosting",
-  "probably not our problem",
-  "deprecated",
-] as const;
+/**
+ * Status options the editor offers, expressed as the values Airtable actually
+ * STORES — this dropdown writes straight into the "Status" single-select, so its
+ * options must be options that column accepts. `toAirtableStatus` keeps that true
+ * on both sides of the stage-2 vocabulary switch, with no edit here.
+ *
+ * Two consequences worth stating, because both are load-bearing:
+ *  - `archived` maps to Airtable's "deprecated", which is exactly the archived
+ *    option this editor has always offered. "legacy" — the other value that
+ *    canonicalizes to `archived` — remains set directly in Airtable, never from
+ *    the dashboard, as before.
+ *  - `render.ts` preselects against `site.statusRaw` (the raw cell), not
+ *    `site.status`, so a stored value outside this list still shows the disabled
+ *    "— select —" placeholder rather than being silently re-labelled.
+ */
+export const SITE_STATUS_OPTIONS: readonly string[] = CANONICAL_STATUSES.map(toAirtableStatus);
 export const FREQ_OPTIONS = ["None", "Monthly", "Quarterly", "Yearly"] as const;
 
 type FieldKind = "text" | "email" | "emails" | "enum" | "gitrepo";

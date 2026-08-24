@@ -1,4 +1,5 @@
 import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
+import { toAirtableStatus } from "../../src/reports/airtable/site-status.js";
 
 /**
  * Shared WebsiteRow test factory. Every field of the real `WebsiteRow` type has a
@@ -11,11 +12,11 @@ import type { WebsiteRow } from "../../src/reports/airtable/websites.js";
  * literals these factories replaced.
  */
 export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
-  return {
+  const row: WebsiteRow = {
     id: "recSITE",
     name: "Acme Co",
     url: "https://acme.example.com",
-    status: "maintenance",
+    status: "maintained",
     pointOfContact: null,
     maintenanceFreq: "None",
     testingFreq: "None",
@@ -98,6 +99,16 @@ export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     prismicAckUntil: null,
     nextMaintenanceAt: null,
     nextTestingAt: null,
+    statusRaw: null,
     ...over,
   };
+  // `statusRaw` is the literal Airtable cell behind `status`. Deriving it keeps
+  // every caller self-consistent for free: `makeWebsiteRow({ status: "archived" })`
+  // gets the Airtable value that WOULD produce that status, matching what mapRow
+  // hands the dashboard editor. A caller that needs an off-vocabulary raw cell
+  // (a typo, or "legacy" specifically) passes `statusRaw` explicitly.
+  if (over.statusRaw === undefined) {
+    row.statusRaw = row.status === null ? null : toAirtableStatus(row.status);
+  }
+  return row;
 }

@@ -60,19 +60,21 @@ describe("mapRow frequency coercion", () => {
 });
 
 describe("mapRow status", () => {
-  it("reads a 'legacy' Status cell as the recognized union member", () => {
-    expect(mapRow({ id: "r1", fields: { Status: "legacy" } }).status).toBe("legacy");
+  it("reads Airtable's 'legacy' AND 'deprecated' cells as the single canonical 'archived'", () => {
+    expect(mapRow({ id: "r1", fields: { Status: "legacy" } }).status).toBe("archived");
+    expect(mapRow({ id: "r1", fields: { Status: "deprecated" } }).status).toBe("archived");
+    // ...while statusRaw still distinguishes which cell it actually was.
+    expect(mapRow({ id: "r1", fields: { Status: "legacy" } }).statusRaw).toBe("legacy");
   });
 
-  it("isArchivedStatus recognizes legacy + deprecated only", () => {
-    expect(isArchivedStatus("legacy")).toBe(true);
-    expect(isArchivedStatus("deprecated")).toBe(true);
-    expect(isArchivedStatus("maintenance")).toBe(false);
+  it("isArchivedStatus recognizes the archived state only", () => {
+    expect(isArchivedStatus("archived")).toBe(true);
+    expect(isArchivedStatus("maintained")).toBe(false);
     expect(isArchivedStatus(null)).toBe(false);
   });
 
   it("isUnrecognizedStatus flags only values outside the union (typos), never null", () => {
-    expect(isUnrecognizedStatus("legacy")).toBe(false);
+    expect(isUnrecognizedStatus("archived")).toBe(false);
     // A typo'd cell flows through mapRow's blind cast; the helper is how the
     // cockpit detects it WITHOUT nulling it (null status is schedulable-by-default
     // in due.ts/preflight.ts, so nulling a typo would activate the row).

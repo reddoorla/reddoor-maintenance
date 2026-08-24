@@ -72,7 +72,7 @@ export async function selftestEmail(deps: SelftestEmailDeps): Promise<SelftestEm
   const websites = await listWebsites(base);
   let targets: WebsiteRow[];
   if (deps.all) {
-    // The report-eligible set (maintenance + hosting), not a hard-coded "maintenance" —
+    // The report-eligible set (maintained + hosted-only), not a hard-coded "maintained" —
     // the latter silently excluded hosting sites and implied a type↔status coupling that
     // doesn't exist (the requested --type drives the rendered template; single-site mode
     // applies no status filter at all).

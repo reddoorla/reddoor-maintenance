@@ -60,7 +60,7 @@ export async function announce(deps?: AnnounceDeps): Promise<AnnounceResult> {
   const now = deps?.now ?? new Date();
 
   const websites = await listWebsites(base);
-  let targets = websites.filter((w) => w.status === "maintenance");
+  let targets = websites.filter((w) => w.status === "maintained");
   if (deps?.site) {
     const wanted = siteSlug(deps.site);
     targets = targets.filter((w) => siteSlug(w.name) === wanted);

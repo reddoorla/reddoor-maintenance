@@ -32,7 +32,8 @@ import {
   type DeliveryStatus,
 } from "../reports/airtable/reports.js";
 import { MAINTENANCE_CHECKLIST, TESTING_CHECKLIST } from "../reports/checklist.js";
-import type { Status, WebsiteRow } from "../reports/airtable/websites.js";
+import type { WebsiteRow } from "../reports/airtable/websites.js";
+import { canonicalizeStatus } from "../reports/airtable/site-status.js";
 import {
   parseNotifyRouting,
   parseSecurityAdvisories,
@@ -72,7 +73,11 @@ function rowFromJoined(r: JoinedRow): WebsiteRow {
     id: String(r.id),
     name,
     url: str(r.url) ?? "",
-    status: str(r.status) as Status | null,
+    // `sites.status` holds the RAW Airtable cell (the importer stores it verbatim
+    // so the hourly parity check compares raw-to-raw). Canonicalizing HERE — the
+    // twin of mapRow's seam — is what keeps the #558 equivalence instrument green.
+    status: canonicalizeStatus(r.status),
+    statusRaw: str(r.status),
     pointOfContact: str(r.point_of_contact),
     maintenanceFreq: toFrequency(r.maintenance_freq, `${name} maintenance`),
     testingFreq: toFrequency(r.testing_freq, `${name} testing`),

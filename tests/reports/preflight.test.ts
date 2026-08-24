@@ -53,7 +53,7 @@ function cleanSite(over: Parameters<typeof makeWebsiteRow>[0] = {}) {
   return makeWebsiteRow({
     name: "Acme Co",
     url: "https://acme.example.com",
-    status: "maintenance",
+    status: "maintained",
     pointOfContact: "owner@acme.example.com",
     maintenanceFreq: "Monthly",
     maintenanceFreqRaw: "Monthly",
@@ -253,7 +253,7 @@ describe("preflightSite", () => {
   });
 
   it("infos non-maintenance status for announcements", () => {
-    expect(checks(cleanSite({ status: "launch period" }))).toContain("status-not-maintenance");
+    expect(checks(cleanSite({ status: "launching" }))).toContain("status-not-maintenance");
   });
 
   it("skips send-requirement checks for a site not on the checked calendar (freq None)", () => {

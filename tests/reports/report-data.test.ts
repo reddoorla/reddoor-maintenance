@@ -25,7 +25,7 @@ function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
     id: "rec1",
     name: "Acme Co",
     url: "https://acme.example.com",
-    status: "maintenance",
+    status: "maintained",
     maintenanceFreq: "Monthly",
     testingFreq: "Monthly",
     ga4PropertyId: "123",

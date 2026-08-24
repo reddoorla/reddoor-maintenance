@@ -198,7 +198,7 @@ describe("buildPocNotification — status-aware recipient", () => {
   const sub = makeSubmissionRow({ formType: "contact", name: "A", email: "lead@x.co" });
 
   it("routes a non-maintenance (launch period) site to the operator fallback", () => {
-    const out = buildPocNotification(makeWebsiteRow({ status: "launch period" }), sub);
+    const out = buildPocNotification(makeWebsiteRow({ status: "launching" }), sub);
     expect(out?.to).toEqual(["tucker@reddoorla.com"]);
   });
 
@@ -212,13 +212,13 @@ describe("buildPocNotification — status-aware recipient", () => {
 
   it("honors OPERATOR_EMAIL for a non-maintenance site", () => {
     process.env.OPERATOR_EMAIL = "ops@reddoorla.com";
-    const out = buildPocNotification(makeWebsiteRow({ status: "hosting" }), sub);
+    const out = buildPocNotification(makeWebsiteRow({ status: "hosted-only" }), sub);
     expect(out?.to).toEqual(["ops@reddoorla.com"]);
   });
 
   it("routes a maintenance site to its POC", () => {
     const out = buildPocNotification(
-      makeWebsiteRow({ status: "maintenance", pointOfContact: "client@site.com" }),
+      makeWebsiteRow({ status: "maintained", pointOfContact: "client@site.com" }),
       sub,
     );
     expect(out?.to).toEqual(["client@site.com"]);
@@ -226,7 +226,7 @@ describe("buildPocNotification — status-aware recipient", () => {
 
   it("skips (null) a maintenance site with no POC", () => {
     const out = buildPocNotification(
-      makeWebsiteRow({ status: "maintenance", pointOfContact: null, reportRecipientsTo: null }),
+      makeWebsiteRow({ status: "maintained", pointOfContact: null, reportRecipientsTo: null }),
       sub,
     );
     expect(out).toBeNull();
@@ -271,7 +271,7 @@ describe("resolveRecipients — field-based routing", () => {
     cc: ["tucker@reddoorla.com"],
   };
   const routed = (over: Partial<Parameters<typeof makeWebsiteRow>[0]> = {}) =>
-    makeWebsiteRow({ status: "maintenance", notifyRouting: routing, ...over });
+    makeWebsiteRow({ status: "maintained", notifyRouting: routing, ...over });
   const withInterest = (interest: string) =>
     makeSubmissionRow({
       formType: "contact",
@@ -301,19 +301,17 @@ describe("resolveRecipients — field-based routing", () => {
   });
 
   it("ignores routing for a pre-launch site (operator only, no CC)", () => {
-    expect(resolveRecipients(routed({ status: "launch period" }), withInterest("Leasing"))).toEqual(
-      {
-        to: ["tucker@reddoorla.com"],
-        cc: [],
-      },
-    );
+    expect(resolveRecipients(routed({ status: "launching" }), withInterest("Leasing"))).toEqual({
+      to: ["tucker@reddoorla.com"],
+      cc: [],
+    });
   });
 
   it("falls through to the POC when routing yields nothing and no default is set", () => {
     const noDefault: NotifyRouting = { field: "interest", routes: { Leasing: "lease@erp.com" } };
     const out = resolveRecipients(
       makeWebsiteRow({
-        status: "maintenance",
+        status: "maintained",
         notifyRouting: noDefault,
         pointOfContact: "poc@erp.com",
       }),
@@ -325,7 +323,7 @@ describe("resolveRecipients — field-based routing", () => {
   it("keeps single-POC behavior when no routing is configured", () => {
     expect(
       resolveRecipients(
-        makeWebsiteRow({ status: "maintenance", pointOfContact: "poc@erp.com" }),
+        makeWebsiteRow({ status: "maintained", pointOfContact: "poc@erp.com" }),
         makeSubmissionRow({ extraFields: null }),
       ),
     ).toEqual({ to: ["poc@erp.com"], cc: [] });
@@ -336,7 +334,7 @@ describe("resolveRecipients — field-based routing", () => {
     expect(
       resolveRecipients(
         makeWebsiteRow({
-          status: "maintenance",
+          status: "maintained",
           notifyRouting: blankRoute,
           pointOfContact: "poc@erp.com",
         }),
@@ -349,7 +347,7 @@ describe("resolveRecipients — field-based routing", () => {
     expect(
       resolveRecipients(
         makeWebsiteRow({
-          status: "maintenance",
+          status: "maintained",
           notifyRouting: badType,
           pointOfContact: "poc@erp.com",
         }),
@@ -366,7 +364,7 @@ describe("resolveRecipients — field-based routing", () => {
     };
     expect(
       resolveRecipients(
-        makeWebsiteRow({ status: "maintenance", notifyRouting: dupes }),
+        makeWebsiteRow({ status: "maintained", notifyRouting: dupes }),
         withInterest("Both"),
       ),
     ).toEqual({ to: ["a@erp.com", "b@erp.com"], cc: ["tucker@reddoorla.com"] });
@@ -379,7 +377,7 @@ describe("resolveRecipients — field-based routing", () => {
     expect(out.replyTo).toBe("lead@x.co");
 
     const plain = buildPocNotification(
-      makeWebsiteRow({ status: "maintenance", pointOfContact: "poc@x.com" }),
+      makeWebsiteRow({ status: "maintained", pointOfContact: "poc@x.com" }),
       makeSubmissionRow({ email: "lead@x.co" }),
     )!;
     expect(plain.cc).toBeUndefined();

@@ -459,7 +459,11 @@ function siteDetailsSection(site: WebsiteRow): string {
   const url = `/api/sites/${escapeHtml(siteSlug(site.name))}/details`;
   const lastCommit = site.lastCommitAt ? `${relativeTimeFromNow(site.lastCommitAt)}` : null;
   const rows = [
-    selectRow("Status", "status", SITE_STATUS_OPTIONS, site.status, url),
+    // `statusRaw`, not `status`: this select's options ARE the Airtable cell
+    // values (see SITE_STATUS_OPTIONS), so it must preselect against the raw cell.
+    // Comparing the canonical value would mis-preselect every site, and would show
+    // a "legacy" site as "deprecated" instead of the placeholder.
+    selectRow("Status", "status", SITE_STATUS_OPTIONS, site.statusRaw, url),
     selectRow("Maintenance cadence", "maintenanceFreq", FREQ_OPTIONS, site.maintenanceFreq, url),
     selectRow("Testing cadence", "testingFreq", FREQ_OPTIONS, site.testingFreq, url),
     inputRow("Report recipients (To)", "reportRecipientsTo", site.reportRecipientsTo, url),

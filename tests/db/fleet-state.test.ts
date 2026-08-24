@@ -183,6 +183,19 @@ describe("fleet-state read layer ≡ mapRow (the Phase 2 equivalence instrument)
     await expectEquivalent(WEIRD);
   });
 
+  // The status vocabulary (#539 Phase 4) is canonicalized on BOTH sides of this
+  // equivalence, so a one-sided change fails here. `legacy` and `deprecated` are
+  // the riskiest pair — they are the ONE many-to-one alias, both landing on
+  // `archived` while `statusRaw` keeps them apart.
+  it("archived record: BOTH old archived names pair identically through either reader", async () => {
+    for (const old of ["legacy", "deprecated"]) {
+      await expectEquivalent({
+        id: `recARCH-${old}`,
+        fields: { Name: `Archived ${old}`, Status: old },
+      });
+    }
+  });
+
   it("getSiteBySlug returns null for an unknown slug", async () => {
     const db = await importOf([RICH]);
     expect(await getSiteBySlug(db, "nope")).toBeNull();
@@ -226,7 +239,11 @@ describe("mirrorSiteField (the site-detail editor's Turso write-through)", () =>
   it("mirrors an edit into sites immediately", async () => {
     const db = await importOf([RICH]);
     await mirrorSiteField(db, "recRICH", "Status", "legacy");
-    expect((await getSiteBySlug(db, "acme-gallery"))?.status).toBe("legacy");
+    const mirrored = await getSiteBySlug(db, "acme-gallery");
+    // Stored raw, canonicalized on read — the Turso half of the #539 Phase 4
+    // status-vocabulary seam (mapRow does the same on the Airtable half).
+    expect(mirrored?.status).toBe("archived");
+    expect(mirrored?.statusRaw).toBe("legacy");
   });
 
   it("an emptied value clears to null — the importer's empty-clears semantics", async () => {
