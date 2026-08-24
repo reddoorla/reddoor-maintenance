@@ -53,6 +53,7 @@ const EXEMPT_MODULES: Record<string, string> = {
   "parity.ts": "parity harness — full-table comparison is the whole point",
   "dump.ts": "backup dump — full-table reads by design",
   "sync.ts": "orchestrates importer + parity (both exempt) — no queries of its own",
+  "header-images.ts": "one-shot backfill + CLI dual-write — bulk by-PK writes, not request-path",
 };
 
 /** Exported functions that never issue SQL (id minting, date math). */

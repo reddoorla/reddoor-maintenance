@@ -1,4 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+// The dual-write tests drive the writeAirtable branch — stub the real upload.
+vi.mock("../../src/reports/airtable/attachments.js", () => ({
+  uploadAttachment: vi.fn(async () => undefined),
+}));
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -88,5 +93,48 @@ describe("cli/header-image generateForTargets", () => {
     expect(res.code).toBe(0);
     expect(await readFile(join(outDir, "acmeHeader.jpg"))).toEqual(Buffer.from([1, 2, 3]));
     await rm(dir, { recursive: true, force: true });
+  });
+});
+
+describe("cli/header-image dual-write (#539 D5)", () => {
+  const gen = async () => ({
+    bytes: new Uint8Array([9, 9, 9]),
+    domain: "acme.com",
+    filename: "acmeHeader.jpg",
+    contentType: "image/jpeg" as const,
+  });
+
+  it("writeAirtable also lands the bytes in the injected Turso store, stamped as a generation", async () => {
+    const stores: Array<{ siteId: string; filename: string; generatedAt: string | null }> = [];
+    const res = await generateForTargets(
+      [row({ name: "Acme" })],
+      {
+        writeAirtable: true,
+        storeDb: async (siteId, img) => {
+          stores.push({ siteId, filename: img.filename, generatedAt: img.generatedAt });
+        },
+      },
+      gen,
+    );
+    expect(res.code).toBe(0);
+    expect(stores).toHaveLength(1);
+    expect(stores[0]!.filename).toBe("acmeHeader.jpg");
+    expect(stores[0]!.generatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(res.output).toContain("+ turso");
+  });
+
+  it("a Turso store failure is VISIBLE but does not void the Airtable upload", async () => {
+    const res = await generateForTargets(
+      [row({ name: "Acme" })],
+      {
+        writeAirtable: true,
+        storeDb: async () => {
+          throw new Error("turso down");
+        },
+      },
+      gen,
+    );
+    expect(res.code).toBe(0); // the Airtable upload succeeded
+    expect(res.output).toContain("turso store FAILED: turso down");
   });
 });

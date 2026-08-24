@@ -5,6 +5,7 @@ import { listWebsites, siteSlug, ACTIVE_STATUSES } from "../../reports/airtable/
 import type { WebsiteRow } from "../../reports/airtable/websites.js";
 import { uploadAttachment } from "../../reports/airtable/attachments.js";
 import { generateHeaderImage } from "../../reports/header-image/index.js";
+import type { StoredHeaderImage } from "../../db/header-images.js";
 
 export type HeaderImageOptions = {
   all?: boolean;
@@ -12,6 +13,11 @@ export type HeaderImageOptions = {
   writeAirtable?: boolean;
   outDir?: string;
   settleMs?: string;
+  /** Injected Turso store for the dual-write (#539, design D5): while Airtable
+   *  is still written (until the Phase 5 freeze), every upload ALSO lands the
+   *  bytes in sites.header_image* so the Turso read layer serves a real image.
+   *  Absent → Airtable-only (a local run without Turso env still works). */
+  storeDb?: (siteId: string, img: StoredHeaderImage) => Promise<void>;
 };
 
 /** Which rows this invocation should act on. Pure, so it is unit-tested. */
@@ -84,8 +90,24 @@ export async function generateForTargets(
       });
       if (opts.writeAirtable) {
         await uploadAttachment(row.id, "Header image", gen.bytes, gen.filename, gen.contentType);
+        let stored = "";
+        if (opts.storeDb) {
+          // Dual-write. A Turso failure must not void the Airtable upload —
+          // but it must be VISIBLE, never a silent divergence.
+          try {
+            await opts.storeDb(row.id, {
+              bytes: gen.bytes,
+              filename: gen.filename,
+              contentType: gen.contentType,
+              generatedAt: new Date().toISOString(),
+            });
+            stored = " + turso";
+          } catch (err) {
+            stored = ` (⚠ turso store FAILED: ${err instanceof Error ? err.message : String(err)})`;
+          }
+        }
         lines.push(
-          `✔ ${row.name} — uploaded ${gen.filename} (${(gen.bytes.byteLength / 1024 / 1024).toFixed(2)} MB)`,
+          `✔ ${row.name} — uploaded ${gen.filename} (${(gen.bytes.byteLength / 1024 / 1024).toFixed(2)} MB)${stored}`,
         );
       } else {
         const path = resolve(outDir, gen.filename);
@@ -121,5 +143,14 @@ export async function runHeaderImageCommand(
       code: 1,
     };
   }
-  return generateForTargets(targets, opts);
+  // Wire the Turso dual-write when the env is present; a local run without it
+  // still works Airtable-only (the store is per-site error-isolated above).
+  let withStore = opts;
+  if (opts.writeAirtable && !opts.storeDb && process.env.TURSO_DATABASE_URL) {
+    const { openDb, readDbConfig } = await import("../../db/client.js");
+    const { storeHeaderImage } = await import("../../db/header-images.js");
+    const db = await openDb(readDbConfig());
+    withStore = { ...opts, storeDb: (id, img) => storeHeaderImage(db, id, img) };
+  }
+  return generateForTargets(targets, withStore);
 }
