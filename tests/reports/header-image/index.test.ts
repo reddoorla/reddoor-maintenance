@@ -4,6 +4,7 @@ import {
   generateHeaderImage,
   applyReportTypeHeadline,
 } from "../../../src/reports/header-image/index.js";
+import { headlineInkCount } from "../../../src/reports/header-image/compose.js";
 import type { Shooter } from "../../../src/reports/header-image/capture.js";
 
 async function shot(color = "#123456"): Promise<Uint8Array> {
@@ -80,6 +81,25 @@ describe("reports/header-image applyReportTypeHeadline", () => {
   it("passes an unregistered report type straight through", async () => {
     const { bytes } = await generateHeaderImage({ url: "https://acme.com/", shooter });
     expect(await applyReportTypeHeadline(bytes, "Nonsense")).toBe(bytes);
+  });
+
+  // REGRESSION (2026-08-24): a header built on the OLD baked plate already has a
+  // headline. Stamping printed the new one directly over it and the two
+  // overprinted into unreadable pulp — that shipped in a real announcement.
+  // Canvas-sized headers passed the only guard there was, so nothing caught it.
+  it("refuses to stamp a header that already carries a headline", async () => {
+    const { bytes } = await generateHeaderImage({ url: "https://acme.com/", shooter });
+    // Simulate a pre-switch header: one whose headline is already part of the image.
+    const baked = await applyReportTypeHeadline(bytes, "Maintenance");
+    expect(await headlineInkCount(baked)).toBeGreaterThan(40_000);
+
+    const again = await applyReportTypeHeadline(baked, "Announcement");
+    expect(again).toBe(baked); // same reference: untouched, not re-encoded
+  });
+
+  it("sees an empty headline band on a freshly generated (clean-plate) header", async () => {
+    const { bytes } = await generateHeaderImage({ url: "https://acme.com/", shooter });
+    expect(await headlineInkCount(bytes)).toBe(0);
   });
 
   it("skips (never throws) on a non-canvas-sized header, returning it as stored", async () => {

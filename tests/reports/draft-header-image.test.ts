@@ -35,6 +35,10 @@ describe("reports/draft refreshHeaderImage", () => {
       new Uint8Array([1]),
       "acmeHeader.jpg",
       "image/jpeg",
+      // replace: Airtable's upload endpoint appends and readers take
+      // attachment [0], so without this the field accumulates and the site
+      // keeps sending its OLDEST header.
+      { replace: true },
     );
   });
 
