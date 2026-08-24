@@ -14,23 +14,30 @@ const PLATE = "plate-clean.png";
  *  crops a text export to its ink box, which is why these are 1328x660 /
  *  1715x664 rather than the 1840x720 text box.
  *
- *  ⚠️ A Figma MCP `download_assets` export arrives FLATTENED ONTO OPAQUE WHITE
- *  (alpha min=max=255) — stamping that would paint a white slab over the paper
- *  texture. This is what made the 2026-08-20 Testing asset unusable. Recover the
- *  alpha rather than re-exporting by hand: for ink colour C over white,
- *  a = (255 - px) / (255 - C) on the green channel. Verified against the
- *  known-good Maintenance asset at mean abs alpha diff 0.02 (0.004% of pixels
- *  off by more than 8).
+ *  ⚠️ A Figma MCP `download_assets` export arrives FLATTENED — never
+ *  transparent — and it flattens onto WHATEVER SITS BEHIND THE NODE, which is
+ *  not one fixed colour: Maintenance/Testing live inside a white Header frame
+ *  and come back on white, while Announcement/Launch sit on the bare canvas and
+ *  come back on Figma's canvas grey (30,30,30). Stamping either unprocessed
+ *  paints a solid slab over the paper texture — that, not a bad design file, is
+ *  what made the 2026-08-20 Testing asset unusable.
  *
- *  Announcement and Launch are NOT registered yet. Their placeholder nodes
- *  (505:2, 505:3) still carry the Maintenance copy — the intended strings live
- *  in the layer names ("Your website is set up for ongoing care." / "Your
- *  website is live.") and must be typed in Figma desktop, where the licensed
- *  Helvetica Neue LT Std lives. The Plugin API cannot do it: `characters`
- *  requires loadFontAsync, and the MCP font environment carries no Helvetica. */
+ *  Recover the alpha instead of re-exporting by hand: for ink C over backdrop B,
+ *  a = (px - B) / (C - B). DETECT B (the export's most common colour) rather
+ *  than assuming white, and pick the channel with the largest |C - B| — green
+ *  separates the brand red from white by 221 levels but from canvas grey by only
+ *  4, which would quantise the alpha to noise. Verified against the known-good
+ *  Maintenance asset at mean abs alpha diff 0.022, 0.0037% of pixels off by
+ *  more than 8.
+ *
+ *  Editing this copy needs Figma desktop, not the Plugin API: `characters`
+ *  requires loadFontAsync and the MCP font environment carries no Helvetica at
+ *  all, so the licensed Helvetica Neue LT Std can never load there. */
 const HEADLINE_FILES = {
   Maintenance: "headline-maintenance.png",
   Testing: "headline-testing.png",
+  Announcement: "headline-announcement.png",
+  Launch: "headline-launch.png",
 } as const;
 
 export type HeadlineKind = keyof typeof HEADLINE_FILES;

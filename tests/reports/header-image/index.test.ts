@@ -59,21 +59,27 @@ describe("reports/header-image generateHeaderImage", () => {
 });
 
 describe("reports/header-image applyReportTypeHeadline", () => {
-  it("stamps the headline for Maintenance and passes every other type through", async () => {
+  it("stamps a distinct headline for every registered type", async () => {
     const { bytes } = await generateHeaderImage({ url: "https://acme.com/", shooter });
+    const kinds = ["Maintenance", "Testing", "Announcement", "Launch"] as const;
 
-    const stamped = await applyReportTypeHeadline(bytes, "Maintenance");
-    expect(Buffer.from(stamped).equals(Buffer.from(bytes))).toBe(false);
+    const stamped = new Map<string, Buffer>();
+    for (const kind of kinds) {
+      const out = Buffer.from(await applyReportTypeHeadline(bytes, kind));
+      // Every registered type must actually change the header...
+      expect(out.equals(Buffer.from(bytes))).toBe(false);
+      // ...and each must differ from the others, which catches a
+      // HEADLINE_FILES entry pointing at the wrong asset.
+      for (const [other, buf] of stamped) {
+        expect(`${kind} vs ${other}: ${out.equals(buf)}`).toBe(`${kind} vs ${other}: false`);
+      }
+      stamped.set(kind, out);
+    }
+  });
 
-    const stampedTesting = await applyReportTypeHeadline(bytes, "Testing");
-    expect(Buffer.from(stampedTesting).equals(Buffer.from(bytes))).toBe(false);
-    // The two headlines differ, so their stamped output must differ too — this
-    // catches a HEADLINE_FILES entry pointing at the wrong asset.
-    expect(Buffer.from(stampedTesting).equals(Buffer.from(stamped))).toBe(false);
-
-    // No registered headline → the exact input reference comes back, untouched.
-    expect(await applyReportTypeHeadline(bytes, "Announcement")).toBe(bytes);
-    expect(await applyReportTypeHeadline(bytes, "Launch")).toBe(bytes);
+  it("passes an unregistered report type straight through", async () => {
+    const { bytes } = await generateHeaderImage({ url: "https://acme.com/", shooter });
+    expect(await applyReportTypeHeadline(bytes, "Nonsense")).toBe(bytes);
   });
 
   it("skips (never throws) on a non-canvas-sized header, returning it as stored", async () => {
