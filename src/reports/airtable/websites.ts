@@ -273,7 +273,7 @@ export function siteSlug(name: string): string {
 
 /** Blank-trim-to-null: a non-string or whitespace-only value becomes null,
  *  otherwise the trimmed string. */
-function trimToNull(raw: unknown): string | null {
+export function trimToNull(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const trimmed = raw.trim();
   return trimmed.length > 0 ? trimmed : null;
@@ -378,7 +378,7 @@ const FREQUENCIES: readonly Frequency[] = ["None", "Monthly", "Quarterly", "Year
  *  "None" (its section is simply omitted) rather than flowing a bogus string downstream,
  *  which the announcement would otherwise render as "We do this undefined." into a
  *  client email. Blank/undefined is a silent "None": no schedule is intentional. */
-function toFrequency(raw: unknown, context: string): Frequency {
+export function toFrequency(raw: unknown, context: string): Frequency {
   if (typeof raw !== "string") return "None";
   const trimmed = raw.trim();
   if ((FREQUENCIES as readonly string[]).includes(trimmed)) return trimmed as Frequency;
