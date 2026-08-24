@@ -1015,7 +1015,9 @@ export async function updateAuditFields(
 
 /** Persist the GitHub-signals sweep onto a Websites row (slice 2a). A null
  *  `lastCommitAt` is OMITTED so a not-determined-this-run value never clobbers a
- *  previously-good timestamp (mirrors updateDepsCounts' outdated handling). */
+ *  previously-good timestamp (mirrors updateDepsCounts' outdated handling).
+ *  Returns the FieldSet it wrote — the Phase 3 Turso mirror consumes the same
+ *  payload, so the two writes cannot diverge (updateAuditFields' contract). */
 export async function updateGitHubSignals(
   base: AirtableBase,
   recordId: string,
@@ -1025,7 +1027,7 @@ export async function updateGitHubSignals(
     lastCommitAt: string | null;
     sweptAt: string;
   },
-): Promise<void> {
+): Promise<FieldSet> {
   const fields: FieldSet = {
     "Renovate Failing CIs": signals.renovateFailingCis,
     "Default Branch CI": signals.ciState,
@@ -1035,6 +1037,7 @@ export async function updateGitHubSignals(
     fields["Last Commit At"] = signals.lastCommitAt;
   }
   await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+  return fields;
 }
 
 /** One site's Prismic model verdict, as the sweep hands it to the record.
