@@ -29,10 +29,27 @@ export const FLEET_SORT_KEYS = [
 ] as const;
 export type FleetSortKey = (typeof FLEET_SORT_KEYS)[number];
 
+/** Status-filter sentinel for "no status set" — the hygiene question ("which
+ *  sites have no Status?") this page replaces the Airtable grid for. Null-status
+ *  rows are otherwise reachable only by sorting nulls-last and scrolling, which
+ *  does not survive the ~200-site direction.
+ *
+ *  Status is free text upstream, so a stored value COULD equal this string. If
+ *  one ever does, the DATA wins (see `noStatusFilterActive`): a real row must
+ *  never become unreachable because of a UI affordance. */
+export const NO_STATUS_FILTER = "__none__";
+
+/** True when `status` should mean "no status set" rather than an exact match —
+ *  i.e. the sentinel is in force AND no stored status shadows it. */
+export function noStatusFilterActive(status: string, statuses: readonly string[]): boolean {
+  return status === NO_STATUS_FILTER && !statuses.includes(NO_STATUS_FILTER);
+}
+
 export type FleetTableQuery = {
   sort: FleetSortKey;
   dir: "asc" | "desc";
-  /** Exact raw status to filter to ("" = all sites, nulls included). */
+  /** Exact raw status to filter to ("" = all sites, nulls included), or
+   *  `NO_STATUS_FILTER` for the null-status rows. */
   status: string;
   /** Case-insensitive substring matched against site name AND slug ("" = all). */
   q: string;
@@ -66,15 +83,19 @@ export type FleetTableModel = {
   query: FleetTableQuery;
 };
 
+/** Case-insensitive so a hand-typed `?sort=NextMaintenance` is honoured rather
+ *  than silently reverting to name-asc; the emitted links stay camelCase. */
 function asSortKey(v: string): FleetSortKey {
-  return (FLEET_SORT_KEYS as readonly string[]).includes(v) ? (v as FleetSortKey) : "name";
+  const want = v.toLowerCase();
+  return FLEET_SORT_KEYS.find((k) => k.toLowerCase() === want) ?? "name";
 }
 
-/** Parse ?sort/?dir/?status/?q — junk degrades to defaults, never throws.
- *  Length caps only bound hostile input (real statuses/searches are short). */
+/** Parse ?sort/?dir/?status/?q — junk degrades to defaults, never throws. A
+ *  repeated param takes its FIRST value (URLSearchParams.get). Length caps only
+ *  bound hostile input (real statuses/searches are short). */
 export function parseFleetTableQuery(params: URLSearchParams): FleetTableQuery {
   const sort = asSortKey(params.get("sort")?.trim() ?? "");
-  const dir = params.get("dir")?.trim() === "desc" ? "desc" : "asc";
+  const dir = params.get("dir")?.trim().toLowerCase() === "desc" ? "desc" : "asc";
   const status = (params.get("status")?.trim() ?? "").slice(0, 64);
   const q = (params.get("q")?.trim() ?? "").slice(0, 200);
   return { sort, dir, status, q };
@@ -130,13 +151,28 @@ function toRow(site: WebsiteRow): FleetTableRow {
  *  name-asc then id — stable and identical under asc/desc, so flipping a
  *  column keeps equal-valued sites in one predictable order. */
 export function buildFleetTableModel(sites: WebsiteRow[], query: FleetTableQuery): FleetTableModel {
+  // Codepoint order on the lowercased value — the SAME collation the rows use,
+  // which is in turn what `listSites`' SQL ORDER BY gives under SQLite's BINARY
+  // default. `localeCompare` here would fold accents (listing "élan" before
+  // "zenith" in the dropdown while the rows put it after): one page, one
+  // collation, even where today's all-ASCII data cannot tell them apart.
   const statuses = [...new Set(sites.flatMap((s) => (s.status === null ? [] : [s.status])))].sort(
-    (a, b) => a.localeCompare(b),
+    (a, b) => {
+      const al = a.toLowerCase();
+      const bl = b.toLowerCase();
+      if (al !== bl) return al < bl ? -1 : 1;
+      return a < b ? -1 : a > b ? 1 : 0;
+    },
   );
 
+  const noStatus = noStatusFilterActive(query.status, statuses);
   const qLower = query.q.toLowerCase();
   const filtered = sites.filter((s) => {
-    if (query.status !== "" && s.status !== query.status) return false;
+    if (query.status !== "") {
+      if (noStatus) {
+        if (s.status !== null) return false;
+      } else if (s.status !== query.status) return false;
+    }
     if (qLower !== "") {
       const name = s.name.toLowerCase();
       if (!name.includes(qLower) && !siteSlug(s.name).includes(qLower)) return false;

@@ -5,6 +5,7 @@
  *  the page looked fine; a link cannot fail that way). */
 import { FAVICON_LINK } from "./favicon.js";
 import { escapeHtml, safeUrl } from "../util/html.js";
+import { NO_STATUS_FILTER, noStatusFilterActive } from "./fleet-table.js";
 import type { FleetSortKey, FleetTableModel, FleetTableRow } from "./fleet-table.js";
 
 const DASH = "—";
@@ -95,16 +96,43 @@ function row(r: FleetTableRow): string {
   </tr>`;
 }
 
+function statusOptions(m: FleetTableModel): string {
+  const active = m.query.status;
+  const noStatus = noStatusFilterActive(active, m.statuses);
+  const opts = ['<option value="">All statuses</option>'];
+  // Offered unless a stored status literally equals the sentinel — in which case
+  // the data owns the value and a second option carrying it would be a lie.
+  if (!m.statuses.includes(NO_STATUS_FILTER)) {
+    opts.push(
+      `<option value="${NO_STATUS_FILTER}"${noStatus ? " selected" : ""}>(no status set)</option>`,
+    );
+  }
+  for (const s of m.statuses) {
+    opts.push(
+      `<option value="${escapeHtml(s)}"${s === active ? " selected" : ""}>${escapeHtml(s)}</option>`,
+    );
+  }
+  // The options are derived from the DATA, so a status no site carries — a stale
+  // bookmark, or a value renamed out from under it — matches none of them and
+  // leaves the browser showing the first option, "All statuses", above an empty
+  // table. Name the filter actually in force instead.
+  if (active !== "" && !noStatus && !m.statuses.includes(active)) {
+    opts.push(
+      `<option value="${escapeHtml(active)}" selected>${escapeHtml(active)} (no matching sites)</option>`,
+    );
+  }
+  return opts.join("");
+}
+
 function filterForm(m: FleetTableModel): string {
-  const statusOpts = [
-    '<option value="">All statuses</option>',
-    ...m.statuses.map(
-      (s) =>
-        `<option value="${escapeHtml(s)}"${s === m.query.status ? " selected" : ""}>${escapeHtml(s)}</option>`,
-    ),
-  ].join("");
+  // The sort rides along as hidden inputs: sortHref preserves the filters, and
+  // without these Apply would silently drop the operator's ranking on every
+  // single filter change (opened /fleet?sort=perf, typed a search, came back
+  // name-sorted with nothing on the page saying so).
   return `<form class="filters" method="get" action="/fleet">
-    <select name="status">${statusOpts}</select>
+    <input type="hidden" name="sort" value="${escapeHtml(m.query.sort)}" />
+    <input type="hidden" name="dir" value="${escapeHtml(m.query.dir)}" />
+    <select name="status">${statusOptions(m)}</select>
     <input type="search" name="q" placeholder="Filter by name or slug" value="${escapeHtml(m.query.q)}" />
     <button type="submit">Apply</button>
     <a class="muted" href="/fleet">Clear</a>
