@@ -146,14 +146,27 @@ function footnoteLine(text: string): string {
   return `<mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="12px" font-weight="300" padding-top="24px" padding-bottom="36px" line-height="20px">${text}</mj-text>`;
 }
 
-/** True when the analytics block has at least one real datum to show — a GA user count or a body
- *  line (e.g. the announcement's page-1 search callout). The static SEO call-to-action footnote
- *  alone does NOT qualify: a block with no data is hidden rather than rendered empty. PURE. */
+/** True when the GA user count is worth showing: a count exists AND the previous window is not a
+ *  literal 0. A zero last period means the tag wasn't collecting for a full window yet (new
+ *  property, mid-window install), so any count/trend is partial-window noise — suppress it until
+ *  a real comparison exists. `previous === undefined` (GA gave no prior window) still shows. PURE. */
+export function gaCountVisible(opts: {
+  current?: number | undefined;
+  previous?: number | undefined;
+}): boolean {
+  return opts.current !== undefined && opts.previous !== 0;
+}
+
+/** True when the analytics block has at least one real datum to show — a visible GA user count
+ *  ({@link gaCountVisible}) or a body line (e.g. the announcement's page-1 search callout). The
+ *  static SEO call-to-action footnote alone does NOT qualify: a block with no data is hidden
+ *  rather than rendered empty. PURE. */
 export function hasAnalyticsData(opts: {
   current?: number | undefined;
+  previous?: number | undefined;
   bodyLines?: string[];
 }): boolean {
-  return opts.current !== undefined || (opts.bodyLines?.length ?? 0) > 0;
+  return gaCountVisible(opts) || (opts.bodyLines?.length ?? 0) > 0;
 }
 
 /**
@@ -182,7 +195,7 @@ export function analyticsSection(opts: {
   const sectionPad = opts.pad ? ` padding-top="${opts.pad}" padding-bottom="${opts.pad}"` : "";
   const labelTop = opts.pad ?? "75px";
   const usersBlock =
-    opts.current !== undefined
+    opts.current !== undefined && gaCountVisible(opts)
       ? `
         <mj-text color="${RED}" font-size="44px" font-weight="400">${fmtUsers(opts.current)} Users</mj-text>
         ${analyticsTrendLine(opts.current, opts.previous, opts.periodDays)}`

@@ -182,11 +182,12 @@ describe("renderReportHtml", () => {
       expect(html).toContain("▼ 20% vs last period (500 → 400)");
     });
 
-    it("shows 'New this period' when the previous period was a real 0", async () => {
+    it("hides the analytics block when the previous period was a real 0 (partial window)", async () => {
       const { html } = await renderReportHtml(
         baseData({ gaUsersCurrent: 120, gaUsersPrevious: 0 }),
       );
-      expect(html).toContain("New this period");
+      expect(html).not.toContain("New this period");
+      expect(html).not.toContain("ANALYTICS");
     });
 
     it("hides the analytics block entirely when GA is unavailable", async () => {
