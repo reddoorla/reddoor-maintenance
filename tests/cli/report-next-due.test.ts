@@ -41,12 +41,13 @@ describe("writeNextDueDates diff-guard", () => {
     const mirrorCalls: unknown[] = [];
     await writeNextDueDates(base, sites, [], TODAY, async (...args) => {
       mirrorCalls.push(args);
+      return true;
     });
     expect(base.__calls.filter((c) => c.kind === "update")).toHaveLength(0);
     expect(mirrorCalls).toHaveLength(0);
     // The FULL line — a `toContain` on a prefix would tolerate a mirrored= drift.
     expect(log.mock.calls.flat().join("\n")).toContain(
-      "NEXT_DUE_WRITE wrote=0 skipped=2 failed=0 mirrored=0 mirror_failed=0",
+      "NEXT_DUE_WRITE wrote=0 skipped=2 failed=0 mirrored=0 mirror_failed=0 mirror_missed=0",
     );
   });
 
@@ -181,6 +182,7 @@ describe("the site_schedule mirror", () => {
       TODAY,
       async (siteId, fields, computedAt) => {
         calls.push({ siteId, fields, computedAt });
+        return true;
       },
     );
     const update = base.__calls.find((c) => c.kind === "update")!;
@@ -192,7 +194,7 @@ describe("the site_schedule mirror", () => {
       },
     ]);
     expect(log.mock.calls.flat().join("\n")).toContain(
-      "NEXT_DUE_WRITE wrote=1 skipped=0 failed=0 mirrored=1 mirror_failed=0",
+      "NEXT_DUE_WRITE wrote=1 skipped=0 failed=0 mirrored=1 mirror_failed=0 mirror_missed=0",
     );
   });
 
@@ -211,9 +213,25 @@ describe("the site_schedule mirror", () => {
     );
     expect(base.__calls.filter((c) => c.kind === "update")).toHaveLength(1);
     expect(log.mock.calls.flat().join("\n")).toContain(
-      "NEXT_DUE_WRITE wrote=1 skipped=0 failed=0 mirrored=0 mirror_failed=1",
+      "NEXT_DUE_WRITE wrote=1 skipped=0 failed=0 mirrored=0 mirror_failed=1 mirror_missed=0",
     );
     expect(warn.mock.calls.flat().join("\n")).toContain("[schedule-mirror] Stale: turso down");
+  });
+
+  it("a 0-row mirror UPDATE counts as missed, never as mirrored (site not yet imported)", async () => {
+    const log = quietLog();
+    const base = makeFakeBase({ Websites: [] });
+    await writeNextDueDates(
+      base,
+      [makeWebsiteRow({ id: "recNEW", name: "Fresh", maintenanceFreq: "Monthly" })],
+      [],
+      TODAY,
+      async () => false,
+    );
+    expect(base.__calls.filter((c) => c.kind === "update")).toHaveLength(1);
+    expect(log.mock.calls.flat().join("\n")).toContain(
+      "NEXT_DUE_WRITE wrote=1 skipped=0 failed=0 mirrored=0 mirror_failed=0 mirror_missed=1",
+    );
   });
 
   it("without a mirror the summary line carries no mirror keys", async () => {
@@ -228,5 +246,6 @@ describe("the site_schedule mirror", () => {
     const line = log.mock.calls.flat().join("\n");
     expect(line).toContain("NEXT_DUE_WRITE wrote=1 skipped=0 failed=0");
     expect(line).not.toContain("mirrored=");
+    expect(line).not.toContain("mirror_missed=");
   });
 });

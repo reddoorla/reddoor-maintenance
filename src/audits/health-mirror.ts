@@ -7,12 +7,14 @@ import { mirrorHealthFields, mirrorScheduleFields } from "../db/fleet-state.js";
  *  count that as mirror_missed, never as mirrored. */
 export type HealthMirror = (siteId: string, fields: Record<string, unknown>) => Promise<boolean>;
 
-/** The site_schedule twin, for the nightly next-due write-back. */
+/** The site_schedule twin, for the nightly next-due write-back. Same
+ *  matched-row contract as {@link HealthMirror}: false = 0-row UPDATE →
+ *  mirror_missed. */
 export type ScheduleMirror = (
   siteId: string,
   fields: Record<string, unknown>,
   computedAt: string,
-) => Promise<void>;
+) => Promise<boolean>;
 
 /** Build the Turso write-through for the nightly writers (#539 Phase 3
  *  dual-write), or null when libSQL creds are absent — mirroring NOT attempted

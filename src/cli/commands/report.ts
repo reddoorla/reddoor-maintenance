@@ -185,6 +185,7 @@ export async function writeNextDueDates(
   let failed = 0;
   let mirrored = 0;
   let mirrorFailed = 0;
+  let mirrorMissed = 0;
   for (const site of websites) {
     // The whole per-site body sits in ONE try — compute included — so a bad
     // row can only cost its own write, exactly the pre-diff-guard blast radius.
@@ -199,8 +200,10 @@ export async function writeNextDueDates(
       wrote++;
       if (scheduleMirror) {
         try {
-          await scheduleMirror(site.id, fields, today.toISOString());
-          mirrored++;
+          // false = the UPDATE matched no site_schedule row (site created in
+          // Airtable since the last hourly import) — missed, not mirrored.
+          if (await scheduleMirror(site.id, fields, today.toISOString())) mirrored++;
+          else mirrorMissed++;
         } catch (e) {
           mirrorFailed++;
           console.warn(`⚠ [schedule-mirror] ${site.name}: ${(e as Error).message}`);
@@ -214,7 +217,9 @@ export async function writeNextDueDates(
   // failed= keeps a write outage visible: without it wrote+skipped silently
   // undercounts, and a FULL outage prints wrote=0 skipped=0 — indistinguishable
   // from an empty fleet.
-  const mirrorNote = scheduleMirror ? ` mirrored=${mirrored} mirror_failed=${mirrorFailed}` : "";
+  const mirrorNote = scheduleMirror
+    ? ` mirrored=${mirrored} mirror_failed=${mirrorFailed} mirror_missed=${mirrorMissed}`
+    : "";
   console.log(`NEXT_DUE_WRITE wrote=${wrote} skipped=${skipped} failed=${failed}${mirrorNote}`);
 }
 

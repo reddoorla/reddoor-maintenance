@@ -469,6 +469,7 @@ describe("draftDueReports next-due write-back", () => {
     }> = [];
     const res = await draftDueReports(base, TODAY, async (siteId, fields, computedAt) => {
       mirrored.push({ siteId, fields, computedAt });
+      return true;
     });
     expect(res.output).toBe("No reports due.");
     expect(mirrored).toEqual([
