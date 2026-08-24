@@ -26,6 +26,14 @@ export {
 } from "./site-details.js";
 export type { SiteDetailDeps, SiteDetailResult } from "./site-details.js";
 export { renderSubmissionsPageHtml } from "./submissions-page-render.js";
+export { renderFleetTableHtml } from "./fleet-table-render.js";
+export { parseFleetTableQuery, buildFleetTableModel, FLEET_SORT_KEYS } from "./fleet-table.js";
+export type {
+  FleetTableModel,
+  FleetTableRow,
+  FleetTableQuery,
+  FleetSortKey,
+} from "./fleet-table.js";
 export { parseSubmissionsQuery, buildSubmissionsPageModel, PAGE_SIZE } from "./submissions-page.js";
 export type {
   SubmissionsPageModel,
