@@ -1,6 +1,6 @@
 import type { Context, Config } from "@netlify/functions";
-import { openBase } from "../../src/reports/airtable/client.js";
-import { getWebsiteBySlug } from "../../src/reports/airtable/websites.js";
+import { openDb, readDbConfig } from "../../src/db/client.js";
+import { getSiteBySlug } from "../../src/db/fleet-state.js";
 import { verifyBasicAuth, triggerRenovateForSite } from "../../src/dashboard/index.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
@@ -64,24 +64,23 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   const token = process.env.RENOVATE_TOKEN?.trim() || process.env.GH_TOKEN?.trim();
   if (!token) return json({ ok: false, error: "not-configured" }, 503);
 
-  const apiKey = process.env.AIRTABLE_PAT;
-  const baseId = process.env.AIRTABLE_BASE_ID;
-  if (!apiKey || !baseId) {
-    console.error("[trigger-renovate] AIRTABLE_PAT or AIRTABLE_BASE_ID missing");
-    return json({ ok: false, error: "airtable-env-missing" }, 500);
+  if (!process.env.TURSO_DATABASE_URL) {
+    console.error("[trigger-renovate] TURSO_DATABASE_URL missing");
+    return json({ ok: false, error: "db-env-missing" }, 500);
   }
 
   const slug = ctx.params?.slug;
   if (!slug) return json({ ok: false, error: "missing-slug" }, 400);
 
   try {
-    const base = openBase({ apiKey, baseId });
+    // Phase 2 (#539): the site lookup is a Turso read.
+    const db = await openDb(readDbConfig());
     // REST (fetch) client, not the gh-CLI client: this runs in the Netlify
     // (Lambda) runtime, which has no `gh` binary — shelling out throws ENOENT.
     const gh = makeGitHubRest({ token });
     const result = await triggerRenovateForSite(
       {
-        getSite: (s) => getWebsiteBySlug(base, s),
+        getSite: (s) => getSiteBySlug(db, s),
         dispatch: async (repo) => {
           const ref = await gh.defaultBranch(repo);
           await gh.dispatchWorkflow(repo, RENOVATE_WORKFLOW_FILE, ref);

@@ -1,6 +1,6 @@
 import type { Context, Config } from "@netlify/functions";
-import { openBase } from "../../src/reports/airtable/client.js";
-import { listWebsites, siteSlug } from "../../src/reports/airtable/websites.js";
+import { siteSlug } from "../../src/reports/airtable/websites.js";
+import { listSites } from "../../src/db/fleet-state.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import {
   listSubmissionsFiltered,
@@ -71,7 +71,6 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   }
 
   try {
-    const base = openBase({ apiKey, baseId });
     // DB is a hard dependency here — submissions ARE the page, so an open failure
     // must fall through to handlerError (502) rather than degrade to an empty page.
     const db = await openDb(readDbConfig());
@@ -82,7 +81,9 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       req.method === "POST" ? new URLSearchParams(await req.text()) : new URL(req.url).searchParams;
     const { filter, rawFilter, siteSlug: slugParam, page } = parseSubmissionsQuery(params);
 
-    const websites = await listWebsites(base);
+    // Phase 2 (#539): the fleet list is a Turso read — this page no longer
+    // touches Airtable at all.
+    const websites = await listSites(db);
     if (slugParam) {
       const match = websites.find((w) => siteSlug(w.name) === slugParam);
       // A non-matching ?site= slug previously fell through and returned the WHOLE

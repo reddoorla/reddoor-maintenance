@@ -105,13 +105,10 @@ describe("renderSubmissionsPageHtml — bulk mark-read form", () => {
 vi.mock("../../src/reports/airtable/client.js", () => ({
   openBase: vi.fn(() => ({}) as unknown),
 }));
-vi.mock("../../src/reports/airtable/websites.js", async (orig) => {
-  const real = (await orig()) as Record<string, unknown>;
-  return {
-    ...real,
-    listWebsites: vi.fn(async () => [{ id: "recA", name: "Site A" }]),
-  };
-});
+// Phase 2: the fleet list is a Turso read (fleet-state), not Airtable.
+vi.mock("../../src/db/fleet-state.js", () => ({
+  listSites: vi.fn(async () => [{ id: "recA", name: "Site A" }]),
+}));
 vi.mock("../../src/db/client.js", () => ({
   openDb: vi.fn(async () => ({}) as unknown),
   readDbConfig: vi.fn(() => ({ url: ":memory:" })),

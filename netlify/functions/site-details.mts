@@ -1,6 +1,8 @@
 import type { Context, Config } from "@netlify/functions";
 import { openBase } from "../../src/reports/airtable/client.js";
-import { getWebsiteBySlug, updateSiteField } from "../../src/reports/airtable/websites.js";
+import { updateSiteField } from "../../src/reports/airtable/websites.js";
+import { getSiteBySlug, mirrorSiteField } from "../../src/db/fleet-state.js";
+import { openDb, readDbConfig } from "../../src/db/client.js";
 import { verifyBasicAuth, setSiteDetail } from "../../src/dashboard/index.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
@@ -73,10 +75,22 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
 
   try {
     const base = openBase({ apiKey, baseId });
+    // Phase 2 (#539): read from Turso; WRITE to Airtable (still the source of
+    // truth until Phase 3) and mirror into `sites` so a Turso-reading page
+    // shows the edit immediately instead of after the next hourly sync. A
+    // mirror failure is non-fatal — the sync converges it within the hour.
+    const db = await openDb(readDbConfig());
     const result = await setSiteDetail(
       {
-        getSite: (s) => getWebsiteBySlug(base, s),
-        updateField: (id, col, val) => updateSiteField(base, id, col, val),
+        getSite: (s) => getSiteBySlug(db, s),
+        updateField: async (id, col, val) => {
+          await updateSiteField(base, id, col, val);
+          try {
+            await mirrorSiteField(db, id, col, val);
+          } catch (err) {
+            console.error(`[site-details] Turso mirror failed for ${col}: ${String(err)}`);
+          }
+        },
       },
       slug,
       field,

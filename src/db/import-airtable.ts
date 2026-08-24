@@ -59,8 +59,10 @@ const b01 = (v: unknown): number => (v === true ? 1 : 0);
 const b01n = (v: unknown): number | null => (typeof v === "boolean" ? (v ? 1 : 0) : null);
 const json = (v: unknown): string | null => (v === undefined ? null : JSON.stringify(v));
 
-/** Direct field→column map for `sites` (operator-owned config). */
-const SITE_FIELDS: Record<string, keyof SitesTable> = {
+/** Direct field→column map for `sites` (operator-owned config). Exported for
+ *  the site-details write-through (fleet-state.mirrorSiteField), so the editor
+ *  and the importer share ONE Airtable-column → sites-column truth. */
+export const SITE_FIELDS: Record<string, keyof SitesTable> = {
   Name: "name",
   url: "url",
   Status: "status",

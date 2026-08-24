@@ -13,7 +13,14 @@
 import { describe, it, expect } from "vitest";
 import { openDb } from "../../src/db/client.js";
 import { importFleetState, type ImportIo, type RawRecord } from "../../src/db/import-airtable.js";
-import { getSiteBySlug, getSiteById, listSites } from "../../src/db/fleet-state.js";
+import {
+  getSiteBySlug,
+  getSiteById,
+  listSites,
+  mirrorSiteField,
+} from "../../src/db/fleet-state.js";
+import { EDITABLE_SITE_FIELDS } from "../../src/dashboard/site-details.js";
+import { SITE_FIELDS } from "../../src/db/import-airtable.js";
 import { mapRow, siteSlug } from "../../src/reports/airtable/websites.js";
 
 const NOW = new Date("2026-08-24T12:00:00.000Z");
@@ -190,5 +197,37 @@ describe("fleet-state read layer ≡ mapRow (the Phase 2 equivalence instrument)
     expect(row).not.toBeNull();
     expect(row!.pScore).toBeNull();
     expect(row!.name).toBe("Acme Gallery");
+  });
+});
+
+describe("mirrorSiteField (the site-detail editor's Turso write-through)", () => {
+  it("every editor-editable column has an importer-claimed sites column (lockstep)", () => {
+    // A field added to the editor without an importer mapping would silently
+    // leave Turso stale until the next sync — this makes it a build failure.
+    for (const f of Object.values(EDITABLE_SITE_FIELDS)) {
+      expect(
+        SITE_FIELDS[f.column],
+        `editor column '${f.column}' unmapped in SITE_FIELDS`,
+      ).toBeDefined();
+    }
+  });
+
+  it("mirrors an edit into sites immediately", async () => {
+    const db = await importOf([RICH]);
+    await mirrorSiteField(db, "recRICH", "Status", "legacy");
+    expect((await getSiteBySlug(db, "acme-gallery"))?.status).toBe("legacy");
+  });
+
+  it("an emptied value clears to null — the importer's empty-clears semantics", async () => {
+    const db = await importOf([RICH]);
+    await mirrorSiteField(db, "recRICH", "GA4 property ID", "  ");
+    expect((await getSiteBySlug(db, "acme-gallery"))?.ga4PropertyId).toBeNull();
+  });
+
+  it("throws on a column the importer does not claim", async () => {
+    const db = await importOf([RICH]);
+    await expect(mirrorSiteField(db, "recRICH", "No Such Column", "x")).rejects.toThrow(
+      "importer claims no sites column",
+    );
   });
 });

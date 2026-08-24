@@ -302,6 +302,11 @@ function scenarios(state: { createdId: string }): Scenario[] {
       run: (db) => fleetState.listSites(db),
     },
     {
+      name: "mirrorSiteField (editor write-through)",
+      covers: ["mirrorSiteField"],
+      run: (db) => fleetState.mirrorSiteField(db, "recA", "Status", "maintenance"),
+    },
+    {
       name: "createDeadLetter",
       covers: ["createDeadLetter"],
       run: (db) =>
