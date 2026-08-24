@@ -21,8 +21,17 @@
  *  header-image writer moves in Phase 3. The `url` is "" because the bytes
  *  live in the row itself, not behind a signed URL.
  */
+import type { Selectable } from "kysely";
 import type { Db } from "./client.js";
+import type { ReportsTable } from "./schema.js";
 import { SITE_FIELDS } from "./import-airtable.js";
+import {
+  toReportType,
+  parseAutoEvidence,
+  type ReportRow,
+  type DeliveryStatus,
+} from "../reports/airtable/reports.js";
+import { MAINTENANCE_CHECKLIST, TESTING_CHECKLIST } from "../reports/checklist.js";
 import type { Status, WebsiteRow } from "../reports/airtable/websites.js";
 import {
   parseNotifyRouting,
@@ -201,4 +210,120 @@ export async function getSiteById(db: Db, id: string): Promise<WebsiteRow | null
 export async function listSites(db: Db): Promise<WebsiteRow[]> {
   const rows = await joined(db).orderBy("sites.name").execute();
   return rows.map((r) => rowFromJoined(r as JoinedRow));
+}
+
+// ————————————————————————— reports —————————————————————————
+
+/** stable checklist key → Airtable column name. The importer stores stable keys
+ *  (mapReportRecord); `ReportRow.checklist` exposes Airtable column names — one
+ *  derived map, built from the checklist definitions themselves. */
+const CHECKLIST_FIELD_BY_KEY: ReadonlyMap<string, string> = new Map(
+  [...MAINTENANCE_CHECKLIST, ...TESTING_CHECKLIST].map((i) => [i.key, i.field]),
+);
+
+function checklistFromStored(raw: string | null): Record<string, boolean> {
+  let stored: Record<string, unknown> = {};
+  if (typeof raw === "string" && raw.trim() !== "") {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+        stored = parsed as Record<string, unknown>;
+    } catch {
+      // fall through to all-false — a bad blob must not throw the page
+    }
+  }
+  const out: Record<string, boolean> = {};
+  for (const [key, field] of CHECKLIST_FIELD_BY_KEY) out[field] = Boolean(stored[key]);
+  return out;
+}
+
+function reportRowFromDb(r: Selectable<ReportsTable>): ReportRow {
+  const p = r.lighthouse_performance;
+  const a = r.lighthouse_accessibility;
+  const b = r.lighthouse_best_practices;
+  const seo = r.lighthouse_seo;
+  const lighthouse =
+    typeof p === "number" &&
+    typeof a === "number" &&
+    typeof b === "number" &&
+    typeof seo === "number"
+      ? { performance: p, accessibility: a, bestPractices: b, seo }
+      : null;
+  return {
+    id: r.id,
+    reportId: r.report_id ?? "",
+    siteId: r.site_id ?? "",
+    reportType: toReportType(r.report_type ?? undefined),
+    period: r.period,
+    periodStart: r.period_start,
+    periodEnd: r.period_end,
+    completedOn: r.completed_on,
+    lighthouse,
+    gaUsersCurrent: r.ga_users_current,
+    gaUsersPrevious: r.ga_users_previous,
+    searchFoundPage1: bool(r.search_found_page1),
+    searchPosition: r.search_position,
+    lastTestedDate: r.last_tested_date,
+    commentary: r.commentary,
+    subjectOverride: r.subject_override,
+    draftReady: r.draft_ready !== 0,
+    approvedToSend: r.approved_to_send !== 0,
+    sentAt: r.sent_at,
+    approvedAt: r.approved_at,
+    approvedBy: r.approved_by,
+    deliveryStatus: (r.delivery_status ?? "pending") as DeliveryStatus,
+    // The body lives IN the row (rendered_html) — the link points at the
+    // dashboard's own preview route instead of an EXPIRING Airtable signed URL.
+    // Strictly better for the operator: the old link 404'd once the URL aged out.
+    renderedHtmlAttachment:
+      r.rendered_html !== null
+        ? { url: `/api/reports/${r.id}/preview`, filename: `${r.report_id ?? r.id}.html` }
+        : null,
+    resendMessageId: r.resend_message_id,
+    checklist: checklistFromStored(r.checklist),
+    autoEvidence: parseAutoEvidence(r.checklist_auto_evidence),
+    sendOverride: r.send_override !== 0,
+    overrideReason: r.override_reason,
+    overrideBy: r.override_by,
+    overrideAt: r.override_at,
+  };
+}
+
+/** Same contract as the Airtable listAllReports. Newest-period-first (Airtable
+ *  returned manual table order; every consumer filters/sorts itself). */
+export async function listAllReports(db: Db): Promise<ReportRow[]> {
+  const rows = await db
+    .selectFrom("reports")
+    .selectAll()
+    .orderBy("period_start", "desc")
+    .orderBy("id")
+    .execute();
+  return rows.map(reportRowFromDb);
+}
+
+/** Same contract as the Airtable listReportsForSite — served by idx_reports_site. */
+export async function listReportsForSite(db: Db, siteId: string): Promise<ReportRow[]> {
+  const rows = await db
+    .selectFrom("reports")
+    .selectAll()
+    .where("site_id", "=", siteId)
+    .orderBy("period_start", "desc")
+    .orderBy("id")
+    .execute();
+  return rows.map(reportRowFromDb);
+}
+
+/** The preview route's read: the stored rendered body, or null when the report
+ *  has none (imported while its signed URL was expired, or predates rendering). */
+export async function getReportHtml(
+  db: Db,
+  id: string,
+): Promise<{ html: string; reportId: string | null } | null> {
+  const r = await db
+    .selectFrom("reports")
+    .select(["rendered_html", "report_id"])
+    .where("id", "=", id)
+    .executeTakeFirst();
+  if (!r || r.rendered_html === null) return null;
+  return { html: r.rendered_html, reportId: r.report_id };
 }

@@ -265,6 +265,20 @@ describe("importFleetState + checkFleetParity", () => {
     expect(row?.rendered_html).toBe("<html>report</html>");
   });
 
+  it("a STRING auto-evidence cell is stored verbatim, never double-encoded", async () => {
+    // Airtable long-text cells arrive as strings; JSON.stringify-ing one again
+    // would make parseAutoEvidence yield a string → null on the read side.
+    const evidence = JSON.stringify({ deploy: { result: "pass", checkedAt: null, note: "" } });
+    const rec: RawRecord = {
+      ...REPORT,
+      fields: { ...REPORT.fields, "Checklist auto-evidence": evidence },
+    };
+    const db = await openDb({ url: ":memory:" });
+    await importFleetState(db, io({ listReportRecords: async () => [rec] }));
+    const row = await db.selectFrom("reports").selectAll().executeTakeFirst();
+    expect(row?.checklist_auto_evidence).toBe(evidence);
+  });
+
   it("parity NAMES a drifted cell — table, id, column, both values", async () => {
     const db = await openDb({ url: ":memory:" });
     await importFleetState(db, io());

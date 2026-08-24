@@ -322,7 +322,15 @@ export function mapReportRecord(rec: RawRecord, renderedHtml: string | null): Re
     delivery_status: s(f["Delivery status"]) ?? "pending",
     resend_message_id: s(f["Resend message ID"]),
     checklist: JSON.stringify(checklist),
-    checklist_auto_evidence: json(f["Checklist auto-evidence"] ?? undefined),
+    // The Airtable cell is a long-text field, so the API hands us a STRING of
+    // JSON — store it verbatim. json() here would double-encode it, and
+    // parseAutoEvidence on the read side would then parse to a string and
+    // yield null (evidence silently lost). The non-string branch only exists
+    // for defensive completeness.
+    checklist_auto_evidence:
+      typeof f["Checklist auto-evidence"] === "string"
+        ? s(f["Checklist auto-evidence"])
+        : json(f["Checklist auto-evidence"] ?? undefined),
     rendered_html: renderedHtml,
   };
 }

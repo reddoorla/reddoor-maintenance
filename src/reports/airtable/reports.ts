@@ -78,7 +78,7 @@ export function isPendingApproval(r: ReportRow): boolean {
   return r.draftReady && !r.approvedToSend && r.sentAt === null;
 }
 
-function mapRow(rec: { id: string; fields: Record<string, unknown> }): ReportRow {
+export function mapRow(rec: { id: string; fields: Record<string, unknown> }): ReportRow {
   const f = rec.fields;
   const linkSites = (f["Site"] as string[] | undefined) ?? [];
   const html =
