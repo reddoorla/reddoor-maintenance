@@ -8,6 +8,8 @@ import {
 import { approveReport, verifyBasicAuth } from "../../src/dashboard/index.js";
 import { listWebsites } from "../../src/reports/airtable/websites.js";
 import { approveBlockers, formatBlockers } from "../../src/reports/preflight.js";
+import { openDb, readDbConfig } from "../../src/db/client.js";
+import { mirrorReportPatch } from "../../src/db/fleet-state.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
 
@@ -111,11 +113,42 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
 
   try {
     const base = openBase({ apiKey, baseId });
+    // Phase 2 (#539): each Airtable write is mirrored into Turso reports so the
+    // page re-render shows the approval immediately, not after the next hourly
+    // sync. Everything — opening the db included — is inside the catch: a
+    // mirror failure (or absent Turso env) is non-fatal, the sync converges it.
+    const mirror = async (rid: string, patch: Parameters<typeof mirrorReportPatch>[2]) => {
+      try {
+        const db = await openDb(readDbConfig());
+        await mirrorReportPatch(db, rid, patch);
+      } catch (err) {
+        console.error(`[approve-report] Turso mirror failed for ${rid}: ${String(err)}`);
+      }
+    };
     const deps = {
       getReportById: (rid: string) => getReportByIdAirtable(base, rid),
-      approveReportRow: (rid: string, at: Date, by: string) => approveReportRow(base, rid, at, by),
-      overrideReport: (rid: string, at: Date, by: string, reason: string) =>
-        overrideReportRow(base, rid, at, by, reason),
+      approveReportRow: async (rid: string, at: Date, by: string) => {
+        await approveReportRow(base, rid, at, by);
+        await mirror(rid, {
+          approved_to_send: 1,
+          approved_at: at.toISOString(),
+          approved_by: by,
+        });
+      },
+      overrideReport: async (rid: string, at: Date, by: string, reason: string) => {
+        await overrideReportRow(base, rid, at, by, reason);
+        // overrideReportRow ALSO flips Approved to send with the same stamp —
+        // the mirror must match it field-for-field.
+        await mirror(rid, {
+          send_override: 1,
+          override_reason: reason,
+          override_by: by,
+          override_at: at.toISOString(),
+          approved_to_send: 1,
+          approved_at: at.toISOString(),
+          approved_by: by,
+        });
+      },
       now: () => new Date(),
       sendBlockers: async (report: Parameters<typeof approveBlockers>[1]) => {
         // One Websites fetch per approve click (30/min rate limit; fine). A

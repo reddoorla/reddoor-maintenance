@@ -151,6 +151,47 @@ function rowFromJoined(r: JoinedRow): WebsiteRow {
   };
 }
 
+/** Every sites column EXCEPT the header-image BLOB. Since the 2026-08-24
+ *  backfill, header_image holds 0.7–3.5 MB JPEGs — a selectAll would haul
+ *  megabytes into every site lookup (per LEAD on the ingest path, ×44 on the
+ *  fleet list) and Turso bills the bytes. WebsiteRow only needs the metadata
+ *  columns; the bytes have their own dedicated readers when a consumer wants
+ *  them. Kept in lockstep with SitesTable by the blob-exclusion test. */
+const SITE_COLUMNS = [
+  "sites.id",
+  "sites.slug",
+  "sites.name",
+  "sites.url",
+  "sites.status",
+  "sites.point_of_contact",
+  "sites.maintenance_freq",
+  "sites.testing_freq",
+  "sites.maintenance_day",
+  "sites.testing_day",
+  "sites.ga4_property_id",
+  "sites.search_query",
+  "sites.search_console_property",
+  "sites.git_repo",
+  "sites.netlify_id",
+  "sites.report_recipients_to",
+  "sites.report_recipients_cc",
+  "sites.copy_intro",
+  "sites.copy_contact",
+  "sites.copy_footer",
+  "sites.newsletter_webhook",
+  "sites.mailchimp_api_key",
+  "sites.mailchimp_audience_id",
+  "sites.notify_routing",
+  "sites.require_turnstile",
+  "sites.accepted_watch_conditions",
+  "sites.prismic_ack_until",
+  "sites.launched_at",
+  "sites.header_image_filename",
+  "sites.header_image_type",
+  "sites.header_image_generated_at",
+  "sites.legacy",
+] as const;
+
 /** The three-table join every read composes from. site_health/site_schedule
  *  rows are upserted alongside sites by the importer, but LEFT JOIN anyway —
  *  a site row must never vanish from a surface because a health row is absent. */
@@ -159,7 +200,8 @@ function joined(db: Db) {
     .selectFrom("sites")
     .leftJoin("site_health", "site_health.site_id", "sites.id")
     .leftJoin("site_schedule", "site_schedule.site_id", "sites.id")
-    .selectAll(["sites", "site_health", "site_schedule"]);
+    .select(SITE_COLUMNS)
+    .selectAll(["site_health", "site_schedule"]);
 }
 
 /** Write-through for the site-detail editor (Phase 2): after the Airtable
@@ -311,6 +353,38 @@ export async function listReportsForSite(db: Db, siteId: string): Promise<Report
     .orderBy("id")
     .execute();
   return rows.map(reportRowFromDb);
+}
+
+/** Columns the REQUEST-PATH report writers mirror after their Airtable write
+ *  (same pattern as mirrorSiteField): the approve/override flow and the
+ *  resend-webhook's delivery status. Send-path columns (sent_at,
+ *  resend_message_id, rendered_html) are deliberately absent — the send is a
+ *  CLI batch whose writes reach Turso via the hourly sync until Phase 3. */
+export type ReportMirrorPatch = Partial<
+  Pick<
+    ReportsTable,
+    | "approved_to_send"
+    | "approved_at"
+    | "approved_by"
+    | "send_override"
+    | "override_reason"
+    | "override_by"
+    | "override_at"
+    | "delivery_status"
+  >
+>;
+
+/** Mirror an Airtable report write into Turso so the page re-render after an
+ *  approve/override/bounce shows the new state immediately instead of after
+ *  the next hourly sync. Callers treat a failure as non-fatal (the sync
+ *  converges it); an empty patch is a no-op, never invalid SQL. */
+export async function mirrorReportPatch(
+  db: Db,
+  reportId: string,
+  patch: ReportMirrorPatch,
+): Promise<void> {
+  if (Object.keys(patch).length === 0) return;
+  await db.updateTable("reports").set(patch).where("id", "=", reportId).execute();
 }
 
 /** The preview route's read: the stored rendered body, or null when the report
