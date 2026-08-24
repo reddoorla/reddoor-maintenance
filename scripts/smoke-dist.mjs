@@ -327,6 +327,8 @@ const shippedAssets = [
   "dist/reports/header-image/assets/plate-clean.png",
   "dist/reports/header-image/assets/headline-maintenance.png",
   "dist/reports/header-image/assets/headline-testing.png",
+  "dist/reports/header-image/assets/headline-announcement.png",
+  "dist/reports/header-image/assets/headline-launch.png",
   "dist/reports/maintenance-email/assets/check.png",
   "dist/reports/maintenance-email/assets/blurredTests.jpg",
 ];
