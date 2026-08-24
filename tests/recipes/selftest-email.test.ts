@@ -25,8 +25,17 @@ vi.mock("../../src/reports/maintenance-email/header-image.js", async (orig) => (
     placeholderColor: "#eee",
   }),
 }));
+// The stamp is the step a preview exists to show; stub it so the wiring — not sharp —
+// is what's under test. Returns bytes distinct from the fetched header so the assertion
+// below can prove prepareHeaderImage received the STAMPED image, not the raw one.
+vi.mock("../../src/reports/header-image/index.js", async (orig) => ({
+  ...(await orig<typeof import("../../src/reports/header-image/index.js")>()),
+  applyReportTypeHeadline: vi.fn().mockResolvedValue(new Uint8Array([9, 9])),
+}));
 
 import { selftestEmail } from "../../src/recipes/selftest-email.js";
+import { prepareHeaderImage } from "../../src/reports/maintenance-email/header-image.js";
+import { applyReportTypeHeadline } from "../../src/reports/header-image/index.js";
 
 function scored(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -180,5 +189,36 @@ describe("selftestEmail", () => {
     });
     expect(res.results[0]!.status).toBe("dry-run");
     expect(sent).toHaveLength(0);
+  });
+
+  // REGRESSION (2026-08-24): selftest called prepareHeaderImage on the stored header
+  // directly, skipping the headline stamp that orchestrate.ts applies. Since the stored
+  // header is the CLEAN plate, every preview shipped a header with an EMPTY headline
+  // band — so the one artifact meant to catch a bad header was itself wrong, and
+  // matched no real send. The preview must run the SAME two steps, in the same order.
+  it("stamps the requested type's headline before downscaling, like a real send", async () => {
+    vi.mocked(applyReportTypeHeadline).mockClear();
+    vi.mocked(prepareHeaderImage).mockClear();
+    const base = makeFakeBase({
+      Websites: [
+        {
+          id: "rec1",
+          fields: {
+            Name: "Acme Co",
+            url: "https://acme.example.com",
+            Status: "maintenance",
+            ...scored(),
+          },
+        },
+      ],
+      Reports: [],
+    });
+    const { client } = captureResend();
+    await selftestEmail({ base, resend: client, site: "acme-co", type: "Launch", now: NOW });
+
+    // Stamped with the type the operator asked to preview, from the fetched bytes...
+    expect(applyReportTypeHeadline).toHaveBeenCalledWith(new Uint8Array([1]), "Launch");
+    // ...and the downscale consumed the STAMPED result, not the raw header.
+    expect(prepareHeaderImage).toHaveBeenCalledWith(new Uint8Array([9, 9]));
   });
 });
