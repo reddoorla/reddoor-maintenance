@@ -301,11 +301,33 @@ describe("mirrorHealthFields / mirrorScheduleFields (the Phase 3 writer mirrors)
     );
   });
 
-  it("an empty FieldSet executes no SQL at all", async () => {
+  it("an empty FieldSet executes no SQL at all — and reports true (nothing to mirror is not a miss)", async () => {
     const h = await openCapturingDb();
-    await mirrorHealthFields(h.db, "recA", {});
-    await mirrorScheduleFields(h.db, "recA", {}, NOW.toISOString());
+    await expect(mirrorHealthFields(h.db, "recA", {})).resolves.toBe(true);
+    await expect(mirrorScheduleFields(h.db, "recA", {}, NOW.toISOString())).resolves.toBe(true);
     expect(h.captured).toHaveLength(0);
+  });
+
+  it("reports whether a site_health row matched: true on a known-good site, false on one the hourly sync hasn't imported", async () => {
+    const db = await importOf([RICH]);
+    // Instrument proof first: the known-good path must return true before the
+    // false branch below may be read as a finding (a check that has only ever
+    // failed is an untested assertion).
+    await expect(mirrorHealthFields(db, "recRICH", { "Smoke OK": "pass" })).resolves.toBe(true);
+    // A site created in Airtable after the last import has no site_health row:
+    // the UPDATE matches 0 rows and the caller must be told — counting it as
+    // "mirrored" is the honesty gap Phase 5 cutover confidence would inherit.
+    await expect(mirrorHealthFields(db, "recGHOST", { "Smoke OK": "pass" })).resolves.toBe(false);
+  });
+
+  it("schedule mirror reports the same matched/missed distinction", async () => {
+    const db = await importOf([RICH]);
+    await expect(
+      mirrorScheduleFields(db, "recRICH", { "Next testing at": "2026-12-01" }, NOW.toISOString()),
+    ).resolves.toBe(true);
+    await expect(
+      mirrorScheduleFields(db, "recGHOST", { "Next testing at": "2026-12-01" }, NOW.toISOString()),
+    ).resolves.toBe(false);
   });
 
   it("schedule lockstep: mirrored next-due dates equal the importer's schedule row", async () => {

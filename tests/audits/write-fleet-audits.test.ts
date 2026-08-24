@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 import {
   writeFleetAuditsToAirtable,
@@ -164,6 +167,14 @@ describe("formatFleetWriteSummary", () => {
     expect(out).toContain("FLEET_WRITE_SUMMARY wrote=0 failed=3 total=3");
   });
 
+  it("the all-mirrors-failed outage state prints mirrored=0 — distinguishable from no-mirror-wired", () => {
+    // The gate is `mirrored !== undefined`, NOT truthiness: mirrored=0 with
+    // failures is the fleet-wide Turso outage alarm and must never format like
+    // "no mirror was wired" (which prints no mirror keys at all).
+    const out = formatFleetWriteSummary({ ...fleetResult(2, []), mirrored: 0, mirrorFailed: 2 });
+    expect(out).toContain("mirrored=0 mirror_failed=2");
+  });
+
   it("emits the real summary as the LAST match even when an error string embeds a decoy (the tail -n1 invariant the CI gate depends on)", () => {
     // The workflow gate does `grep -oE 'FLEET_WRITE_SUMMARY ...' | tail -n1`. That
     // is only safe because the real line is emitted AFTER the failed-sites block,
@@ -174,5 +185,150 @@ describe("formatFleetWriteSummary", () => {
     );
     const matches = out.match(/FLEET_WRITE_SUMMARY wrote=\d+ failed=\d+ total=\d+/g)!;
     expect(matches.at(-1)).toBe("FLEET_WRITE_SUMMARY wrote=1 failed=1 total=2");
+  });
+});
+
+describe("the Turso mirror (#539 Phase 3 dual-write)", () => {
+  const twoSiteResults = () => [
+    lhResult("acme-co", { performance: 0.9, accessibility: 1, "best-practices": 0.78, seo: 0.92 }),
+    lhResult("beta-corp", { performance: 0.5, accessibility: 0.9, "best-practices": 1, seo: 1 }),
+  ];
+
+  it("mirrors each written site's EXACT Airtable FieldSet", async () => {
+    const base = makeFakeBase({ Websites: websites });
+    const calls: Array<{ siteId: string; fields: Record<string, unknown> }> = [];
+    const out = await writeFleetAuditsToAirtable({
+      base,
+      websites: await loadWebsites(base),
+      results: twoSiteResults(),
+      mirror: async (siteId, fields) => {
+        calls.push({ siteId, fields });
+        return true;
+      },
+    });
+    expect(out.mirrored).toBe(2);
+    expect(out.mirrorFailed).toBe(0);
+    const updates = base.__calls.filter((c) => c.kind === "update");
+    for (const call of calls) {
+      const update = updates.find((u) => u.records[0]!.id === call.siteId);
+      expect(call.fields, `mirror payload for ${call.siteId}`).toEqual(update!.records[0]!.fields);
+    }
+  });
+
+  it("counts a mirror failure without failing the Airtable write or the batch", async () => {
+    const base = makeFakeBase({ Websites: websites });
+    const out = await writeFleetAuditsToAirtable({
+      base,
+      websites: await loadWebsites(base),
+      results: twoSiteResults(),
+      mirror: async (siteId) => {
+        if (siteId === "recB") throw new Error("turso down");
+        return true;
+      },
+    });
+    expect(out.written.map((w) => w.siteName).sort()).toEqual(["Acme Co", "Beta Corp"]);
+    expect(out.failed).toEqual([]);
+    expect(out.mirrored).toBe(1);
+    expect(out.mirrorFailed).toBe(1);
+  });
+
+  it("without a mirror: no counts on the result, no mirror keys on the summary line", async () => {
+    const base = makeFakeBase({ Websites: websites });
+    const out = await writeFleetAuditsToAirtable({
+      base,
+      websites: await loadWebsites(base),
+      results: twoSiteResults(),
+    });
+    expect(out.mirrored).toBeUndefined();
+    expect(formatFleetWriteSummary(out)).not.toContain("mirrored=");
+  });
+
+  it("mirror counts APPEND to the summary line — the workflows' grep prefix stays intact", () => {
+    const out = formatFleetWriteSummary({
+      ...fleetResult(3, []),
+      mirrored: 2,
+      mirrorFailed: 1,
+      mirrorMissed: 0,
+    });
+    expect(out).toContain(
+      "FLEET_WRITE_SUMMARY wrote=3 failed=0 total=3 mirrored=2 mirror_failed=1 mirror_missed=0",
+    );
+  });
+
+  it("counts a mirror whose UPDATE matched no row as mirror_missed — not mirrored, not mirror_failed", async () => {
+    const base = makeFakeBase({ Websites: websites });
+    const out = await writeFleetAuditsToAirtable({
+      base,
+      websites: await loadWebsites(base),
+      results: twoSiteResults(),
+      // recB was created in Airtable after the last hourly import: its
+      // site_health row doesn't exist, so the real mirror resolves false.
+      mirror: async (siteId) => siteId !== "recB",
+    });
+    expect(out.written).toHaveLength(2);
+    expect(out.failed).toEqual([]);
+    expect(out.mirrored).toBe(1);
+    expect(out.mirrorMissed).toBe(1);
+    expect(out.mirrorFailed).toBe(0);
+    expect(formatFleetWriteSummary(out)).toContain(
+      "FLEET_WRITE_SUMMARY wrote=2 failed=0 total=2 mirrored=1 mirror_failed=0 mirror_missed=1",
+    );
+  });
+
+  it("does NOT call the mirror for a written site whose FieldSet is empty (empty-payload guard)", async () => {
+    const base = makeFakeBase({ Websites: websites });
+    const calls: string[] = [];
+    const out = await writeFleetAuditsToAirtable({
+      base,
+      websites: await loadWebsites(base),
+      // lint persists nothing to Airtable: the site lands in `written` with an
+      // EMPTY FieldSet. Mirroring {} would count a mirror that wrote nothing.
+      results: [
+        { audit: "lint", site: "acme-co", status: "pass", summary: "", details: {} } as AuditResult,
+      ],
+      mirror: async (siteId) => {
+        calls.push(siteId);
+        return true;
+      },
+    });
+    expect(out.written).toHaveLength(1);
+    expect(calls).toEqual([]);
+    expect(out.mirrored).toBe(0);
+    expect(out.mirrorFailed).toBe(0);
+    expect(out.mirrorMissed).toBe(0);
+  });
+});
+
+describe("FLEET_WRITE_SUMMARY vs the workflows' own extraction (drift instrument)", () => {
+  it("a fully-populated summary line matches every grep -oE pattern the fleet workflows actually use (≥5 = vacuity floor)", () => {
+    // Read the REAL patterns out of .github/workflows/*.yml instead of keeping
+    // a 6th hand-copied duplicate of the grep here: workflow-side drift (a
+    // pattern edited to expect a key this formatter doesn't emit, or a prefix
+    // change here the workflows don't extract) becomes a build failure.
+    const wfDir = fileURLToPath(new URL("../../.github/workflows/", import.meta.url));
+    const patterns: Array<{ file: string; pattern: string }> = [];
+    for (const f of readdirSync(wfDir).filter((n) => n.endsWith(".yml") || n.endsWith(".yaml"))) {
+      const text = readFileSync(join(wfDir, f), "utf8");
+      for (const m of text.matchAll(/grep -oE "(FLEET_WRITE_SUMMARY [^"]*)"/g)) {
+        patterns.push({ file: f, pattern: m[1]! });
+      }
+    }
+    // Vacuity floor: five fleet workflows extract this line today. An
+    // instrument that finds NO subject proves nothing and must fail loudly.
+    expect(patterns.length).toBeGreaterThanOrEqual(5);
+    const line = formatFleetWriteSummary({
+      ...fleetResult(3, [{ slug: "x", error: "y" }]),
+      mirrored: 2,
+      mirrorFailed: 1,
+      mirrorMissed: 1,
+    });
+    // Every mirror key present, in order, appended AFTER the workflows' prefix.
+    expect(line).toContain(" mirrored=2 mirror_failed=1 mirror_missed=1");
+    for (const { file, pattern } of patterns) {
+      expect(
+        line,
+        `${file} extracts /${pattern}/ — the emitted summary must keep matching it`,
+      ).toMatch(new RegExp(pattern));
+    }
   });
 });

@@ -448,6 +448,39 @@ describe("draftDueReports next-due write-back", () => {
     });
   });
 
+  it("forwards the schedule mirror through to the write-back (the pass-through is load-bearing)", async () => {
+    // Same not-due fixture as above: the write-back fires (no stored dates yet),
+    // nothing drafts, and the mirror must receive the exact FieldSet Airtable got.
+    // Every other draftDueReports test calls 2-arg, so ONLY this test would catch
+    // draftDueReports dropping its scheduleMirror forwarding to writeNextDueDates.
+    vi.mocked(listWebsites).mockResolvedValue([
+      siteRow({
+        id: "rec_a",
+        maintenanceFreq: "Quarterly",
+        maintenanceDay: "2026-06-30",
+        testingFreq: "None",
+      }),
+    ]);
+    const base = makeFakeBase({ Reports: [] });
+    const mirrored: Array<{
+      siteId: string;
+      fields: Record<string, unknown>;
+      computedAt: string;
+    }> = [];
+    const res = await draftDueReports(base, TODAY, async (siteId, fields, computedAt) => {
+      mirrored.push({ siteId, fields, computedAt });
+      return true;
+    });
+    expect(res.output).toBe("No reports due.");
+    expect(mirrored).toEqual([
+      {
+        siteId: "rec_a",
+        fields: { "Next maintenance at": "2026-09-30", "Next testing at": null },
+        computedAt: TODAY.toISOString(),
+      },
+    ]);
+  });
+
   it("swallows a per-site write-back failure and still drafts the due report", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.mocked(listWebsites).mockResolvedValue([siteRow()]); // Monthly, no anchor → due now

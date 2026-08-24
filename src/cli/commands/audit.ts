@@ -12,6 +12,9 @@ import { isHttpUrl } from "../../util/url.js";
 import { fleetWorkdir } from "../../util/fleet-workdir.js";
 import { recordFleetEventsBestEffort } from "../../audits/fleet-events-writer.js";
 import { fleetSweptEvent } from "../../audits/fleet-event-detectors.js";
+import type { AirtableBase } from "../../reports/airtable/client.js";
+import type { HealthMirror } from "../../audits/health-mirror.js";
+import type { FleetEvent } from "../../db/fleet-events.js";
 
 export type AuditCommandOptions = {
   only?: string;
@@ -345,25 +348,12 @@ export async function runAuditCommand(
     const { listWebsites } = await import("../../reports/airtable/websites.js");
 
     if (opts.fleet !== undefined) {
-      const { writeFleetAuditsToAirtable, formatFleetWriteSummary } =
-        await import("../../audits/write-audits-to-airtable.js");
-      const base = openBase(readAirtableConfig());
-      const websites = await listWebsites(base);
-      const fleetWrite = await writeFleetAuditsToAirtable({ base, websites, results });
-      if (fleetWrite.failed.length > 0) writeBackFailed = true;
-      // Record fleet-activity events (vuln_cleared / cert_renewed rode along on each
-      // WriteSummary) plus a per-sweep rollup. Best-effort: a missing Turso cred no-ops.
-      const sweep = which.includes("security") ? "security" : "lighthouse";
-      const now = new Date();
-      const auditEvents = fleetWrite.written.flatMap((w) => w.events ?? []);
-      await recordFleetEventsBestEffort(
-        [...auditEvents, fleetSweptEvent(sweep, fleetWrite.written.length, now.toISOString())],
-        now,
-      );
+      const wb = await runFleetWriteBack({ results, which });
+      if (wb.anyFailed) writeBackFailed = true;
       // Gate on !json: the write-summary is human text; appending it after the
       // results array would corrupt `--json` output (the other notices already
       // guard this way). The write itself still happens regardless of --json.
-      if (!opts.json) output += `\n\n${formatFleetWriteSummary(fleetWrite)}`;
+      if (!opts.json) output += `\n\n${wb.summary}`;
     } else {
       const { resolveSlugFromCwd } = await import("../../audits/lighthouse-airtable.js");
       const { writeAuditsToAirtable } = await import("../../audits/write-audits-to-airtable.js");
@@ -400,4 +390,62 @@ export async function runAuditCommand(
     writeBackFailed ? 1 : 0,
   );
   return { output, code };
+}
+
+/** The fleet `--write-airtable` step: write every site's audits back to its
+ *  Websites row, dual-write each just-written FieldSet into Turso (#539
+ *  Phase 3), and record fleet-activity events. Extracted from runAuditCommand
+ *  so the mirror WIRING itself is pinned by test — the mutation this seam
+ *  kills is dropping the `...(mirror ? { mirror } : {})` pass-through, which
+ *  would silently stop all five nightly sweeps from mirroring while every
+ *  sweep stayed green (adversarial review of #566, finding 6). Deps default
+ *  to the real fleet wiring; dynamic imports keep the no-write paths from
+ *  loading Airtable/db clients. */
+export async function runFleetWriteBack(args: {
+  results: AuditResult[];
+  which: AuditName[];
+  deps?: {
+    openBase?: () => AirtableBase;
+    makeMirror?: () => Promise<HealthMirror | null>;
+    recordEvents?: (events: FleetEvent[], now: Date) => Promise<void>;
+  };
+}): Promise<{ summary: string; anyFailed: boolean }> {
+  const { results, which, deps = {} } = args;
+  const { writeFleetAuditsToAirtable, formatFleetWriteSummary } =
+    await import("../../audits/write-audits-to-airtable.js");
+  let base: AirtableBase;
+  if (deps.openBase) {
+    base = deps.openBase();
+  } else {
+    const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
+    base = openBase(readAirtableConfig());
+  }
+  const { listWebsites } = await import("../../reports/airtable/websites.js");
+  const websites = await listWebsites(base);
+  // Phase 3 dual-write (#539): mirror each site's written FieldSet into
+  // site_health. Null when libSQL creds are absent — Airtable write-back
+  // proceeds exactly as before.
+  const makeMirror =
+    deps.makeMirror ??
+    (async () => {
+      const { makeHealthMirrorBestEffort } = await import("../../audits/health-mirror.js");
+      return makeHealthMirrorBestEffort();
+    });
+  const mirror = await makeMirror();
+  const fleetWrite = await writeFleetAuditsToAirtable({
+    base,
+    websites,
+    results,
+    ...(mirror ? { mirror } : {}),
+  });
+  // Record fleet-activity events (vuln_cleared / cert_renewed rode along on each
+  // WriteSummary) plus a per-sweep rollup. Best-effort: a missing Turso cred no-ops.
+  const sweep = which.includes("security") ? "security" : "lighthouse";
+  const now = new Date();
+  const auditEvents = fleetWrite.written.flatMap((w) => w.events ?? []);
+  await (deps.recordEvents ?? recordFleetEventsBestEffort)(
+    [...auditEvents, fleetSweptEvent(sweep, fleetWrite.written.length, now.toISOString())],
+    now,
+  );
+  return { summary: formatFleetWriteSummary(fleetWrite), anyFailed: fleetWrite.failed.length > 0 };
 }

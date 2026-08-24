@@ -262,6 +262,13 @@ export type WebsiteRow = {
    */
   prismicAckUntil: string | null;
   notifyRouting: NotifyRouting | null;
+  /** Read-back of the code-owned next-due dates (date-only, written by the
+   *  nightly `writeNextDueDates`). These exist so the writer can DIFF the
+   *  freshly-computed dates against what the row already holds and skip the
+   *  ~31 no-op writes a night the fleet was paying for (#539 Phase 3). Null =
+   *  cell blank or the operator-added `Next … at` column absent. */
+  nextMaintenanceAt: string | null;
+  nextTestingAt: string | null;
 };
 
 export function siteSlug(name: string): string {
@@ -529,6 +536,8 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     prismicModelsCheckedAt: (f["Prismic Models Checked At"] as string | undefined) ?? null,
     prismicModelsDrift: (f["Prismic Models Drift"] as string | undefined) ?? null,
     prismicAckUntil: (f["Prismic Ack Until"] as string | undefined) ?? null,
+    nextMaintenanceAt: (f["Next maintenance at"] as string | undefined) ?? null,
+    nextTestingAt: (f["Next testing at"] as string | undefined) ?? null,
   };
 }
 
@@ -948,12 +957,15 @@ export async function updateNextDueDates(
   base: AirtableBase,
   recordId: string,
   dates: { maintenanceAt: string | null; testingAt: string | null },
-): Promise<void> {
+): Promise<FieldSet> {
   const fields: Record<string, string | null> = {
     "Next maintenance at": dates.maintenanceAt,
     "Next testing at": dates.testingAt,
   };
   await base(WEBSITES_TABLE).update([{ id: recordId, fields: fields as FieldSet }]);
+  // Same contract as updateAuditFields/updateGitHubSignals: the Phase 3 Turso
+  // mirror consumes the returned FieldSet, so the two writes cannot diverge.
+  return fields as FieldSet;
 }
 
 /** Generic single-field writer for the dashboard site-details editor. The caller
@@ -1015,7 +1027,9 @@ export async function updateAuditFields(
 
 /** Persist the GitHub-signals sweep onto a Websites row (slice 2a). A null
  *  `lastCommitAt` is OMITTED so a not-determined-this-run value never clobbers a
- *  previously-good timestamp (mirrors updateDepsCounts' outdated handling). */
+ *  previously-good timestamp (mirrors updateDepsCounts' outdated handling).
+ *  Returns the FieldSet it wrote — the Phase 3 Turso mirror consumes the same
+ *  payload, so the two writes cannot diverge (updateAuditFields' contract). */
 export async function updateGitHubSignals(
   base: AirtableBase,
   recordId: string,
@@ -1025,7 +1039,7 @@ export async function updateGitHubSignals(
     lastCommitAt: string | null;
     sweptAt: string;
   },
-): Promise<void> {
+): Promise<FieldSet> {
   const fields: FieldSet = {
     "Renovate Failing CIs": signals.renovateFailingCis,
     "Default Branch CI": signals.ciState,
@@ -1035,6 +1049,7 @@ export async function updateGitHubSignals(
     fields["Last Commit At"] = signals.lastCommitAt;
   }
   await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+  return fields;
 }
 
 /** One site's Prismic model verdict, as the sweep hands it to the record.
