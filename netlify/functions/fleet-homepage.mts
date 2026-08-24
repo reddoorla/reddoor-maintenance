@@ -1,7 +1,6 @@
 import type { Context, Config } from "@netlify/functions";
 import { openBase } from "../../src/reports/airtable/client.js";
-import { listWebsites } from "../../src/reports/airtable/websites.js";
-import { listAllReports } from "../../src/reports/airtable/reports.js";
+import { listSites, listAllReports } from "../../src/db/fleet-state.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import {
   listNewSubmissions,
@@ -81,26 +80,19 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
 
   try {
     const base = openBase({ apiKey, baseId });
-    // libSQL backs only the optional submissions strip + spam roll-up; websites is
-    // the cockpit's core Airtable data. Open it defensively so a Turso blip drops
-    // just those panels rather than 502-ing the whole cockpit — the per-panel
-    // try/catch below can't catch a throw from an eager open above them.
-    let db: Awaited<ReturnType<typeof openDb>> | null = null;
-    try {
-      db = await openDb(readDbConfig());
-    } catch (e) {
-      console.error(
-        `[fleet-homepage] libSQL open failed; submission/spam panels dropped: ${String(e)}`,
-      );
-    }
+    // Phase 2 (#539): Turso IS the cockpit's core data now (sites + reports +
+    // submissions), so open it non-defensively — a failure 502s rather than
+    // rendering a misleading "0 sites" page. Airtable remains only for the
+    // digest NEW-badges (readDigestState below, defensive).
+    const db = await openDb(readDbConfig());
     // Fetch the three inputs once. reports + digest are each defensive so one
-    // hiccup can't blank the page; websites is the cockpit's core data, so a
+    // hiccup can't blank the page; sites is the cockpit's core data, so a
     // failure there can't degrade to an empty (misleading "0 sites") page —
     // instead the whole try falls to handlerError for a clean retry-able 502.
-    const websites = await listWebsites(base);
+    const websites = await listSites(db);
     let reports: Awaited<ReturnType<typeof listAllReports>> = [];
     try {
-      reports = await listAllReports(base);
+      reports = await listAllReports(db);
     } catch {
       // approve strip + delivery signals simply absent — triage still renders
     }
@@ -111,7 +103,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       // everything badges as not-NEW (the {} initial); never crashes the page
     }
     let newSubmissions: Awaited<ReturnType<typeof listNewSubmissions>> = [];
-    if (db) {
+    {
       try {
         newSubmissions = await listNewSubmissions(db);
       } catch {
@@ -119,7 +111,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       }
     }
     let spamTotals: { honeypot: number; tooFast: number; markedSpam: number } | null = null;
-    if (db) {
+    {
       try {
         const since = screenOutsSince(new Date(), 30);
         const map = await listScreenOutsSince(db, since);
@@ -134,7 +126,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       }
     }
     let recentEvents: Awaited<ReturnType<typeof listFleetEvents>> = [];
-    if (db) {
+    {
       try {
         const sinceIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
         recentEvents = await listFleetEvents(db, { sinceIso, limit: 20 });
@@ -143,7 +135,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       }
     }
     let autoFilteredCount = 0;
-    if (db) {
+    {
       try {
         const since = screenOutsSince(new Date(), 7);
         autoFilteredCount = await countAutoSpamSince(db, since);
@@ -152,7 +144,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       }
     }
     let notifyBounces: ReadonlyMap<string, number> = new Map();
-    if (db) {
+    {
       try {
         const since = screenOutsSince(new Date(), NOTIFY_BOUNCE_WINDOW_DAYS);
         notifyBounces = await countNotifyBouncedBySite(db, since);

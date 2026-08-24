@@ -318,6 +318,11 @@ function scenarios(state: { createdId: string }): Scenario[] {
       run: (db) => fleetState.listReportsForSite(db, "recA"),
     },
     {
+      name: "getReportById (approve gate read)",
+      covers: ["getReportById"],
+      run: (db) => fleetState.getReportById(db, "recA"),
+    },
+    {
       name: "getReportHtml (preview route)",
       covers: ["getReportHtml"],
       run: (db) => fleetState.getReportHtml(db, "recA"),

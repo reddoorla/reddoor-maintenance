@@ -48,10 +48,11 @@ describe("site-dashboard adapter — slug resolution + env/auth gating", () => {
     const body = (await res.json()) as { service: string; env: Record<string, boolean> };
     expect(body.service).toBe("reddoor-site-dashboard");
     // presence-only: false because env is unset, never the value itself
-    expect(body.env.AIRTABLE_PAT).toBe(false);
+    // (Phase 2: the page is Turso-backed; Airtable is gone from this function)
+    expect(body.env.TURSO_DATABASE_URL).toBe(false);
   });
 
-  it("500s when a slug is given but Airtable env is missing — but only AFTER auth passes", async () => {
+  it("500s when a slug is given but Turso env is missing — but only AFTER auth passes", async () => {
     process.env.DASHBOARD_PASSWORD = "s3cret";
     const res = await siteDashboard(
       get("https://dash.reddoor.test/s/acme", authHeader("s3cret")),

@@ -25,6 +25,9 @@ describe("approve-report adapter — env + method gating", () => {
   beforeEach(() => {
     process.env.AIRTABLE_PAT = "pat";
     process.env.AIRTABLE_BASE_ID = "appX";
+    // Phase 2: the report/site reads open a real (in-memory) Turso — approve
+    // logic itself is mocked, so an empty db is fine.
+    process.env.TURSO_DATABASE_URL = ":memory:";
     process.env.DASHBOARD_PASSWORD = "s3cret";
     approveMock.mockReset();
   });
