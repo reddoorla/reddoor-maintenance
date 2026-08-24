@@ -18,12 +18,20 @@ import {
   getSiteById,
   listSites,
   mirrorSiteField,
+  mirrorHealthFields,
+  mirrorScheduleFields,
   mirrorReportPatch,
   listAllReports,
 } from "../../src/db/fleet-state.js";
 import { openCapturingDb } from "./query-plan-harness.js";
 import { EDITABLE_SITE_FIELDS } from "../../src/dashboard/site-details.js";
-import { SITE_FIELDS } from "../../src/db/import-airtable.js";
+import {
+  SITE_FIELDS,
+  HEALTH_FIELDS,
+  HEALTH_BOOLEAN,
+  SCHEDULE_FIELDS,
+  healthColumnFor,
+} from "../../src/db/import-airtable.js";
 import { mapRow, siteSlug } from "../../src/reports/airtable/websites.js";
 
 const NOW = new Date("2026-08-24T12:00:00.000Z");
@@ -232,6 +240,113 @@ describe("mirrorSiteField (the site-detail editor's Turso write-through)", () =>
     await expect(mirrorSiteField(db, "recRICH", "No Such Column", "x")).rejects.toThrow(
       "importer claims no sites column",
     );
+  });
+});
+
+describe("mirrorHealthFields / mirrorScheduleFields (the Phase 3 writer mirrors)", () => {
+  const allHealthFields = [...Object.keys(HEALTH_FIELDS), ...Object.keys(HEALTH_BOOLEAN)];
+
+  it("RICH exercises every claimed health + schedule field (fixture completeness)", () => {
+    // The lockstep below is only total if the fixture carries every field —
+    // a new HEALTH_FIELDS entry missing from RICH must fail HERE, not silently
+    // shrink the equivalence.
+    for (const field of [...allHealthFields, ...Object.keys(SCHEDULE_FIELDS)]) {
+      expect(RICH.fields, `RICH fixture missing health field '${field}'`).toHaveProperty(field);
+    }
+  });
+
+  it("stores exactly what the importer stores, for every claimed health field (lockstep)", async () => {
+    // Mirror all of RICH's health cells onto the SPARSE site's (all-null) row:
+    // it must converge to byte-equality with the row the importer built from
+    // the same cells. One coercion diverging fails on that column.
+    const db = await importOf([RICH, SPARSE]);
+    const healthFields = Object.fromEntries(
+      Object.entries(RICH.fields).filter(([k]) => healthColumnFor(k) !== null),
+    );
+    await mirrorHealthFields(db, "recSPARSE", healthFields);
+    const imported = await db
+      .selectFrom("site_health")
+      .selectAll()
+      .where("site_id", "=", "recRICH")
+      .executeTakeFirstOrThrow();
+    const mirrored = await db
+      .selectFrom("site_health")
+      .selectAll()
+      .where("site_id", "=", "recSPARSE")
+      .executeTakeFirstOrThrow();
+    expect({ ...mirrored, site_id: "same" }).toEqual({ ...imported, site_id: "same" });
+  });
+
+  it("is partial: absent fields stay untouched (updateGitHubSignals' null-lastCommitAt contract)", async () => {
+    const db = await importOf([RICH]);
+    const before = await db
+      .selectFrom("site_health")
+      .selectAll()
+      .where("site_id", "=", "recRICH")
+      .executeTakeFirstOrThrow();
+    await mirrorHealthFields(db, "recRICH", { "Smoke OK": "fail" });
+    const after = await db
+      .selectFrom("site_health")
+      .selectAll()
+      .where("site_id", "=", "recRICH")
+      .executeTakeFirstOrThrow();
+    expect(after.smoke_ok).toBe("fail");
+    expect({ ...after, smoke_ok: "x" }).toEqual({ ...before, smoke_ok: "x" });
+  });
+
+  it("throws on a field no site_health column claims — and writes nothing for it", async () => {
+    const db = await importOf([RICH]);
+    await expect(mirrorHealthFields(db, "recRICH", { "No Such Column": 1 })).rejects.toThrow(
+      "importer claims no site_health column",
+    );
+  });
+
+  it("an empty FieldSet executes no SQL at all", async () => {
+    const h = await openCapturingDb();
+    await mirrorHealthFields(h.db, "recA", {});
+    await mirrorScheduleFields(h.db, "recA", {}, NOW.toISOString());
+    expect(h.captured).toHaveLength(0);
+  });
+
+  it("schedule lockstep: mirrored next-due dates equal the importer's schedule row", async () => {
+    const db = await importOf([RICH, SPARSE]);
+    const scheduleFields = Object.fromEntries(
+      Object.entries(RICH.fields).filter(([k]) => k in SCHEDULE_FIELDS),
+    );
+    // importOf stamps computed_at with NOW — pass the same stamp so the whole
+    // row (not all-but-one column) must match.
+    await mirrorScheduleFields(db, "recSPARSE", scheduleFields, NOW.toISOString());
+    const imported = await db
+      .selectFrom("site_schedule")
+      .selectAll()
+      .where("site_id", "=", "recRICH")
+      .executeTakeFirstOrThrow();
+    const mirrored = await db
+      .selectFrom("site_schedule")
+      .selectAll()
+      .where("site_id", "=", "recSPARSE")
+      .executeTakeFirstOrThrow();
+    expect({ ...mirrored, site_id: "same" }).toEqual({ ...imported, site_id: "same" });
+  });
+
+  it("schedule mirror clears a date to null and rejects unclaimed fields", async () => {
+    const db = await importOf([RICH]);
+    await mirrorScheduleFields(
+      db,
+      "recRICH",
+      { "Next maintenance at": null, "Next testing at": "2026-12-01" },
+      NOW.toISOString(),
+    );
+    const row = await db
+      .selectFrom("site_schedule")
+      .selectAll()
+      .where("site_id", "=", "recRICH")
+      .executeTakeFirstOrThrow();
+    expect(row.next_maintenance_at).toBeNull();
+    expect(row.next_testing_at).toBe("2026-12-01");
+    await expect(
+      mirrorScheduleFields(db, "recRICH", { Nope: "x" }, NOW.toISOString()),
+    ).rejects.toThrow("importer claims no site_schedule column");
   });
 });
 
