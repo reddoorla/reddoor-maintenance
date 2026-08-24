@@ -2,10 +2,18 @@
  *
  *  A sortable/filterable inventory of EVERY fleet site — the console's
  *  replacement for eyeballing the Airtable grid. Unlike the cockpit
- *  (isDashboardVisible = {maintenance, launch period}), NOTHING here is
+ *  (isDashboardVisible = {maintained, launching}), NOTHING here is
  *  status-filtered by default: archived/legacy/null-status rows all render,
- *  and the status is carried RAW (a vocabulary rename is pending operator
- *  sign-off — this module never remaps or invents status names).
+ *  and the status is carried RAW — this module never remaps or invents status
+ *  names.
+ *
+ *  RAW means `statusRaw`, the literal Airtable cell, NOT the canonical
+ *  `status` (#539 Phase 4). This table is the console's mirror of the Airtable
+ *  grid, so it must show what that grid shows: the canonical vocabulary merges
+ *  `legacy` and `deprecated` into `archived`, which would render 12 fleet rows
+ *  identically and offer a status FILTER whose options match no Airtable cell.
+ *  Canonical values decide behaviour; anything displaying a Status cell uses
+ *  the raw one.
  *
  *  All sorting/filtering happens HERE, in memory, over the one `listSites`
  *  read (44 rows). Deliberately NO new SQL: the EXPLAIN-query-plan gate
@@ -101,6 +109,14 @@ export function parseFleetTableQuery(params: URLSearchParams): FleetTableQuery {
   return { sort, dir, status, q };
 }
 
+/** The status this table speaks: the RAW Airtable cell, never the canonical one.
+ *  ONE accessor so the rendered label, the filter options, the filter predicate
+ *  and the sort key can never disagree about which vocabulary they are in — a
+ *  dropdown offering "archived" that matches no cell would filter to nothing. */
+function rawStatus(site: WebsiteRow): string | null {
+  return site.statusRaw ?? site.status;
+}
+
 /** Per-key sort value. Strings compare lowercased; dates are ISO strings, which
  *  compare lexicographically. null = "no value" → always sorts last. */
 function sortValue(site: WebsiteRow, key: FleetSortKey): string | number | null {
@@ -110,7 +126,7 @@ function sortValue(site: WebsiteRow, key: FleetSortKey): string | number | null 
     case "url":
       return site.url.toLowerCase();
     case "status":
-      return site.status === null ? null : site.status.toLowerCase();
+      return rawStatus(site) === null ? null : rawStatus(site)!.toLowerCase();
     case "perf":
       return site.pScore;
     case "a11y":
@@ -133,7 +149,7 @@ function toRow(site: WebsiteRow): FleetTableRow {
     slug: siteSlug(site.name),
     name: site.name,
     url: site.url,
-    status: site.status,
+    status: rawStatus(site),
     pScore: site.pScore,
     rScore: site.rScore,
     bpScore: site.bpScore,
@@ -156,22 +172,22 @@ export function buildFleetTableModel(sites: WebsiteRow[], query: FleetTableQuery
   // default. `localeCompare` here would fold accents (listing "élan" before
   // "zenith" in the dropdown while the rows put it after): one page, one
   // collation, even where today's all-ASCII data cannot tell them apart.
-  const statuses = [...new Set(sites.flatMap((s) => (s.status === null ? [] : [s.status])))].sort(
-    (a, b) => {
-      const al = a.toLowerCase();
-      const bl = b.toLowerCase();
-      if (al !== bl) return al < bl ? -1 : 1;
-      return a < b ? -1 : a > b ? 1 : 0;
-    },
-  );
+  const statuses = [
+    ...new Set(sites.flatMap((s) => (rawStatus(s) === null ? [] : [rawStatus(s)!]))),
+  ].sort((a, b) => {
+    const al = a.toLowerCase();
+    const bl = b.toLowerCase();
+    if (al !== bl) return al < bl ? -1 : 1;
+    return a < b ? -1 : a > b ? 1 : 0;
+  });
 
   const noStatus = noStatusFilterActive(query.status, statuses);
   const qLower = query.q.toLowerCase();
   const filtered = sites.filter((s) => {
     if (query.status !== "") {
       if (noStatus) {
-        if (s.status !== null) return false;
-      } else if (s.status !== query.status) return false;
+        if (rawStatus(s) !== null) return false;
+      } else if (rawStatus(s) !== query.status) return false;
     }
     if (qLower !== "") {
       const name = s.name.toLowerCase();
