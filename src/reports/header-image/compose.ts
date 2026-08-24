@@ -1,6 +1,14 @@
 import sharp from "sharp";
 import type { OverlayOptions } from "sharp";
-import { CANVAS, SCREEN, DOMAIN, PAPER, HEADLINE } from "./geometry.js";
+import {
+  CANVAS,
+  SCREEN,
+  DOMAIN,
+  PAPER,
+  HEADLINE,
+  HEADLINE_BAND,
+  HEADLINE_INK,
+} from "./geometry.js";
 
 export type ComposeInput = {
   /** The bundled 2400x3200 plate. */
@@ -85,6 +93,38 @@ export async function composeHeaderImage(input: ComposeInput): Promise<Uint8Arra
     .jpeg({ quality: JPEG_QUALITY })
     .toBuffer();
   return new Uint8Array(out);
+}
+
+/**
+ * Count headline-red pixels already present in the headline band.
+ *
+ * A header composed on the clean plate has EXACTLY ZERO (measured), because the
+ * band sits between the logo and the laptop and nothing else paints there. A
+ * header built on the old baked plate has ~62,000 — its headline is part of the
+ * image. That gap is what lets {@link stampHeadline}'s caller refuse to print a
+ * second headline over the first. PURE.
+ */
+export async function headlineInkCount(header: Uint8Array): Promise<number> {
+  const { data, info } = await sharp(Buffer.from(header))
+    .extract({
+      left: HEADLINE_BAND.x,
+      top: HEADLINE_BAND.y,
+      width: HEADLINE_BAND.w,
+      height: HEADLINE_BAND.h,
+    })
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  let n = 0;
+  for (let i = 0; i < data.length; i += info.channels) {
+    const r = data[i] ?? 0;
+    const g = data[i + 1] ?? 0;
+    const b = data[i + 2] ?? 0;
+    // Generous band around the brand red rather than an exact match: the stored
+    // header is a JPEG, so its ink has been through lossy re-encoding.
+    if (r > HEADLINE_INK.r - 60 && g < HEADLINE_INK.g + 60 && b < HEADLINE_INK.b + 60) n++;
+  }
+  return n;
 }
 
 /**

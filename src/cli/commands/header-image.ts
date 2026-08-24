@@ -89,7 +89,11 @@ export async function generateForTargets(
         ...(settleMs === undefined ? {} : { settleMs }),
       });
       if (opts.writeAirtable) {
-        await uploadAttachment(row.id, "Header image", gen.bytes, gen.filename, gen.contentType);
+        // replace: the field must hold exactly the current header — see
+        // uploadAttachment, where appending left readers on a stale [0].
+        await uploadAttachment(row.id, "Header image", gen.bytes, gen.filename, gen.contentType, {
+          replace: true,
+        });
         let stored = "";
         if (opts.storeDb) {
           // Dual-write. A Turso failure must not void the Airtable upload —

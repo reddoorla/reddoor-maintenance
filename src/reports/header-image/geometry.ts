@@ -30,6 +30,17 @@ export const SCREEN = { x: 302, y: 1913, w: 1349, h: 844 } as const;
  *  asset at this origin reproduces the baked plate's headline exactly. */
 export const HEADLINE = { x: 277, y: 998 } as const;
 
+/** The band a headline occupies, sized to the WIDEST registered overlay
+ *  (Testing, 1715x664). Used to detect a header that already carries a baked-in
+ *  headline, so it can't be stamped a second time. Deliberately clear of the
+ *  logo above (ends y≈506) and the laptop screen below (starts y=1913), so the
+ *  only ink that can land here is a headline. */
+export const HEADLINE_BAND = { x: HEADLINE.x, y: HEADLINE.y, w: 1715, h: 664 } as const;
+
+/** The headline ink colour (brand red), and how far a pixel may drift from it
+ *  and still count — JPEG re-encoding moves it by a level or two. */
+export const HEADLINE_INK = { r: 209, g: 34, b: 62 } as const;
+
 /** The per-site domain line, bottom left.
  *
  *  Solved against the hand-made reference rather than guessed: rendering

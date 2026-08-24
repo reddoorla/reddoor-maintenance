@@ -26,6 +26,7 @@ export type RefreshHeaderDeps = {
     bytes: Uint8Array,
     filename: string,
     contentType: string,
+    opts?: { replace?: boolean },
   ) => Promise<void>;
 };
 
@@ -48,7 +49,9 @@ export async function refreshHeaderImage(
   const upload = deps.upload ?? uploadAttachment;
   try {
     const gen = await generate({ url: site.url, slug: siteSlug(site.name) });
-    await upload(site.id, "Header image", gen.bytes, gen.filename, gen.contentType);
+    await upload(site.id, "Header image", gen.bytes, gen.filename, gen.contentType, {
+      replace: true,
+    });
     return true;
   } catch (err) {
     console.warn(

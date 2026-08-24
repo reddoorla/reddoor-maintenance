@@ -1,8 +1,14 @@
 import sharp from "sharp";
 import { captureHomepage, type Shooter } from "./capture.js";
-import { composeHeaderImage, stampHeadline } from "./compose.js";
+import { composeHeaderImage, stampHeadline, headlineInkCount } from "./compose.js";
 import { loadPlate, loadHeadline, headlineKindFor } from "./assets/index.js";
 import { CANVAS } from "./geometry.js";
+
+/** Headline-red pixels tolerated in the band before a stored header is treated
+ *  as already carrying a headline. A clean-plate header measures 0 and a baked
+ *  one ~62,000, so this sits far from both — it exists only to absorb stray
+ *  JPEG artefacts, not to tune a boundary. */
+const HEADLINE_INK_TOLERANCE = 500;
 
 export type GenerateInput = {
   /** The site's production URL. */
@@ -84,14 +90,23 @@ async function assertNotBlank(shot: Uint8Array): Promise<void> {
 
 /**
  * Stamp the report type's headline onto a stored (clean) header at send time.
- * Types with no headline registered (Announcement, Launch, and Testing until
- * its asset is re-exported) pass through untouched — as does any header whose
- * dimensions aren't the canvas's (a legacy hand-made header, or a stored image
- * from before the clean-plate switch was regenerated), where stamping at fixed
- * coordinates would misplace or double-print the text. A pre-switch stored
- * header therefore keeps its baked maintenance headline until the site's next
- * draft regenerates it clean — drafting refreshes the header, so this
- * self-heals fleet-wide within one report cycle.
+ * Types with no headline registered pass through untouched, as does any header
+ * that must not be stamped:
+ *
+ *  - wrong dimensions (a legacy hand-made header), where fixed coordinates
+ *    would misplace the text;
+ *  - a header that ALREADY CARRIES A HEADLINE, i.e. one built on the old baked
+ *    plate. Stamping those prints the new headline directly over the baked one
+ *    and the two overprint into unreadable pulp — which shipped in a real
+ *    announcement on 2026-08-24. An earlier version of this comment claimed
+ *    such headers were safe because they'd "keep their baked headline"; that
+ *    was wrong. They are canvas-sized, so nothing stopped them being stamped.
+ *
+ * The band is empty on a clean-plate header and holds ~62k red px on a baked
+ * one, so the check is unambiguous rather than a tuned threshold. A skipped
+ * header still goes out looking correct (its baked headline is a real headline)
+ * and self-heals on the site's next draft, which regenerates it clean;
+ * `header-image --all --force` does the whole fleet at once.
  */
 export async function applyReportTypeHeadline(
   header: Uint8Array,
@@ -108,6 +123,13 @@ export async function applyReportTypeHeadline(
     if (meta.width !== CANVAS.width || meta.height !== CANVAS.height) {
       console.warn(
         `⚑ header headline skipped: stored header is ${meta.width}x${meta.height}, not ${CANVAS.width}x${CANVAS.height} — sending it as stored`,
+      );
+      return header;
+    }
+    const existing = await headlineInkCount(header);
+    if (existing > HEADLINE_INK_TOLERANCE) {
+      console.warn(
+        `⚑ header headline skipped: the stored header already carries a headline (${existing} ink px in the band) — it predates the clean-plate switch, so stamping would overprint. Sending it as stored; run \`header-image ${"<site>"} --write-airtable\` to regenerate it clean.`,
       );
       return header;
     }

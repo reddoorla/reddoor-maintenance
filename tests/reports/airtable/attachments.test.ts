@@ -1,5 +1,8 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { fetchAttachmentBytes } from "../../../src/reports/airtable/attachments.js";
+import {
+  fetchAttachmentBytes,
+  uploadAttachment,
+} from "../../../src/reports/airtable/attachments.js";
 
 /** Build a minimal Response-like stub for the global fetch mock. */
 function fetchStub(opts: {
@@ -82,5 +85,86 @@ describe("fetchAttachmentBytes", () => {
     const out = await fetchAttachmentBytes("https://example.com/header.png");
     expect(out.contentType).toBe("image/png");
     expect(out.bytes.length).toBe(8);
+  });
+});
+
+describe("uploadAttachment", () => {
+  /** Airtable's upload endpoint APPENDS, so its response carries the field's
+   *  full post-append list. This stub replays that, then records the prune. */
+  function uploadStubs(existingIds: string[]) {
+    const calls: Array<{ url: string; method: string; body: unknown }> = [];
+    global.fetch = vi.fn(async (url: string, init: RequestInit) => {
+      calls.push({
+        url: String(url),
+        method: init.method ?? "GET",
+        body: init.body ? JSON.parse(String(init.body)) : undefined,
+      });
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        text: async () => "",
+        json: async () => ({ fields: { "Header image": existingIds.map((id) => ({ id })) } }),
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+    return calls;
+  }
+
+  const env = { AIRTABLE_PAT: "pat_test", AIRTABLE_BASE_ID: "app_test" };
+
+  it("prunes back to the newest attachment when replace is set", async () => {
+    Object.assign(process.env, env);
+    // Four stacked headers — exactly the state that made beachfront send a
+    // stale [0] header on 2026-08-24.
+    const calls = uploadStubs(["attOld1", "attOld2", "attOld3", "attNew"]);
+
+    await uploadAttachment("recX", "Header image", new Uint8Array([1, 2]), "h.jpg", "image/jpeg", {
+      replace: true,
+    });
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.url).toContain("uploadAttachment");
+    expect(calls[1]?.method).toBe("PATCH");
+    // Only the just-uploaded attachment survives.
+    expect(calls[1]?.body).toEqual({ fields: { "Header image": [{ id: "attNew" }] } });
+  });
+
+  it("leaves the field alone without replace (history-keeping fields)", async () => {
+    Object.assign(process.env, env);
+    const calls = uploadStubs(["attOld", "attNew"]);
+    await uploadAttachment("recX", "Rendered HTML", "<p>x</p>", "r.html", "text/html");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toContain("uploadAttachment");
+  });
+
+  it("does not prune when the upload left a single attachment", async () => {
+    Object.assign(process.env, env);
+    const calls = uploadStubs(["attOnly"]);
+    await uploadAttachment("recX", "Header image", new Uint8Array([1]), "h.jpg", "image/jpeg", {
+      replace: true,
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("does not fail the upload when the prune request fails", async () => {
+    Object.assign(process.env, env);
+    let n = 0;
+    global.fetch = vi.fn(async () => {
+      n += 1;
+      return {
+        ok: n === 1,
+        status: n === 1 ? 200 : 422,
+        statusText: n === 1 ? "OK" : "Unprocessable",
+        text: async () => "",
+        json: async () => ({ fields: { "Header image": [{ id: "a" }, { id: "b" }] } }),
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    // The file is already uploaded by then — a prune failure must not throw.
+    await expect(
+      uploadAttachment("recX", "Header image", new Uint8Array([1]), "h.jpg", "image/jpeg", {
+        replace: true,
+      }),
+    ).resolves.toBeUndefined();
   });
 });

@@ -51,12 +51,28 @@ export async function fetchAttachmentBytes(
  * Requires AIRTABLE_PAT + AIRTABLE_BASE_ID in env (same as the rest of the
  * reports module). The fieldName is URL-encoded for the request path.
  */
+/**
+ * Upload one file into an Airtable attachment field.
+ *
+ * ⚠️ Airtable's uploadAttachment endpoint APPENDS — it never replaces. Every
+ * re-upload therefore stacks another file in the field while readers
+ * (`websites.ts`, `db/header-images.ts`) take attachment [0], the OLDEST. Left
+ * alone that means a field silently serves a stale image forever: beachfront
+ * accumulated four headers and kept sending the first, which is how a
+ * pre-clean-plate header reached a 2026-08-24 announcement and got a second
+ * headline printed over its baked one.
+ *
+ * Pass `{ replace: true }` for a field that should hold exactly one current
+ * file (the site header). Omit it where history is wanted (per-period report
+ * previews, which are one row per period anyway).
+ */
 export async function uploadAttachment(
   recordId: string,
   fieldName: string,
   body: Uint8Array | string,
   filename: string,
   contentType: string,
+  opts: { replace?: boolean } = {},
 ): Promise<void> {
   const apiKey = process.env.AIRTABLE_PAT;
   const baseId = process.env.AIRTABLE_BASE_ID;
@@ -79,5 +95,33 @@ export async function uploadAttachment(
   });
   if (!res.ok) {
     throw new Error(`Airtable upload failed: ${res.status} ${res.statusText} ${await res.text()}`);
+  }
+  if (!opts.replace) return;
+
+  // The upload response carries the record with the field's full, post-append
+  // attachment list. Keep only the last entry (the one just uploaded) by
+  // PATCHing the field to that id — Airtable preserves an attachment referenced
+  // by id alone and drops any omitted. Best-effort: the file IS uploaded by this
+  // point, so a prune failure must not fail the caller; it only leaves the
+  // field over-full, which the next successful run tidies.
+  try {
+    const body = (await res.json()) as {
+      fields?: Record<string, Array<{ id?: string }> | undefined>;
+    };
+    const list = body.fields?.[fieldName] ?? [];
+    const newest = list[list.length - 1]?.id;
+    if (!newest || list.length <= 1) return;
+    const patch = await fetch(`https://api.airtable.com/v0/${baseId}/${recordId}`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ fields: { [fieldName]: [{ id: newest }] } }),
+    });
+    if (!patch.ok) {
+      console.warn(
+        `⚠ kept ${list.length} attachments in "${fieldName}" — prune failed: ${patch.status} ${patch.statusText}`,
+      );
+    }
+  } catch (e) {
+    console.warn(`⚠ attachment prune skipped for "${fieldName}": ${(e as Error).message}`);
   }
 }
