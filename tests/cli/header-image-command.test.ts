@@ -20,7 +20,7 @@ function row(over: Partial<WebsiteRow>): WebsiteRow {
     id: "rec1",
     name: "Acme",
     url: "https://acme.com/",
-    status: "maintenance",
+    status: "maintained",
     headerImage: null,
     ...over,
   } as WebsiteRow;
@@ -40,7 +40,7 @@ describe("cli/header-image resolveTargets", () => {
         headerImage: { url: "u", filename: "f", type: "image/jpeg" },
       }),
       row({ id: "b", name: "NeedsOne" }),
-      row({ id: "c", name: "Archived", status: "deprecated" }),
+      row({ id: "c", name: "Archived", status: "archived" }),
       row({ id: "d", name: "NoUrl", url: "" }),
     ];
     expect(resolveTargets(rows, { all: true }).map((r) => r.name)).toEqual(["NeedsOne"]);

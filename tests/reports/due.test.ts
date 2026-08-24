@@ -127,7 +127,7 @@ describe("findDueReports", () => {
 
   it("skips sites with status=deprecated (even if freq is set)", () => {
     const due = findDueReports(
-      [site({ status: "deprecated", maintenanceFreq: "Monthly", maintenanceDay: "2026-01-01" })],
+      [site({ status: "archived", maintenanceFreq: "Monthly", maintenanceDay: "2026-01-01" })],
       [],
       TODAY,
     );
@@ -138,7 +138,7 @@ describe("findDueReports", () => {
     const due = findDueReports(
       [
         site({
-          status: "probably not our problem",
+          status: "external",
           maintenanceFreq: "Monthly",
           maintenanceDay: "2026-01-01",
         }),
@@ -152,8 +152,8 @@ describe("findDueReports", () => {
   it("skips pre-launch sites (launch period / in development) — not live yet", () => {
     const due = findDueReports(
       [
-        site({ id: "rec_a", status: "launch period", maintenanceDay: "2026-01-01" }),
-        site({ id: "rec_b", status: "in development", maintenanceDay: "2026-01-01" }),
+        site({ id: "rec_a", status: "launching", maintenanceDay: "2026-01-01" }),
+        site({ id: "rec_b", status: "building", maintenanceDay: "2026-01-01" }),
       ],
       [],
       TODAY,
@@ -163,7 +163,7 @@ describe("findDueReports", () => {
 
   it("includes hosting sites (eligible, live)", () => {
     const due = findDueReports(
-      [site({ id: "rec_b", status: "hosting", maintenanceDay: "2026-01-01" })],
+      [site({ id: "rec_b", status: "hosted-only", maintenanceDay: "2026-01-01" })],
       [],
       TODAY,
     );
@@ -346,7 +346,7 @@ describe("nextDueDate", () => {
 
   it("returns null for a pre-launch status (launch period — not live yet)", () => {
     const s = site({
-      status: "launch period",
+      status: "launching",
       maintenanceFreq: "Monthly",
       maintenanceDay: "2026-06-30",
     });
@@ -355,7 +355,7 @@ describe("nextDueDate", () => {
 
   it("returns null for an ineligible status", () => {
     const s = site({
-      status: "deprecated",
+      status: "archived",
       maintenanceFreq: "Monthly",
       maintenanceDay: "2026-06-30",
     });

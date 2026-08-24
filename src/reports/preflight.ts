@@ -235,7 +235,7 @@ export function preflightSite(
       });
     }
   }
-  if (type === "Announcement" && site.status !== "maintenance") {
+  if (type === "Announcement" && site.status !== "maintained") {
     findings.push({
       level: "info",
       check: "status-not-maintenance",
@@ -370,7 +370,7 @@ export async function preflight(deps?: PreflightDeps): Promise<PreflightResult> 
   const selected = deps?.site
     ? websites.filter((w) => siteSlug(w.name) === siteSlug(deps.site!))
     : type === "Announcement"
-      ? websites.filter((w) => w.status === "maintenance")
+      ? websites.filter((w) => w.status === "maintained")
       : websites.filter((w) => w.status === null || ELIGIBLE_STATUSES.has(w.status));
 
   const allReports = selected.length > 0 ? await listAllReports(base) : [];

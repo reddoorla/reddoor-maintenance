@@ -74,11 +74,11 @@ describe("buildFleetTableModel — inclusion", () => {
     // This table replaces eyeballing the Airtable grid: nothing may be
     // status-filtered out by default, unlike the cockpit's isDashboardVisible.
     const sites = [
-      makeWebsiteRow({ id: "r1", name: "Alpha", status: "maintenance" }),
-      makeWebsiteRow({ id: "r2", name: "Bravo", status: "legacy" }),
-      makeWebsiteRow({ id: "r3", name: "Charlie", status: "deprecated" }),
+      makeWebsiteRow({ id: "r1", name: "Alpha", status: "maintained" }),
+      makeWebsiteRow({ id: "r2", name: "Bravo", status: "archived", statusRaw: "legacy" }),
+      makeWebsiteRow({ id: "r3", name: "Charlie", status: "archived", statusRaw: "deprecated" }),
       makeWebsiteRow({ id: "r4", name: "Delta", status: null }),
-      makeWebsiteRow({ id: "r5", name: "Echo", status: "in development" }),
+      makeWebsiteRow({ id: "r5", name: "Echo", status: "building" }),
     ];
     const m = buildFleetTableModel(sites, DEFAULT_QUERY);
     expect(m.rows).toHaveLength(5);
@@ -90,9 +90,9 @@ describe("buildFleetTableModel — inclusion", () => {
   });
   it("lists distinct raw statuses present in the fleet, a-z, for the filter select", () => {
     const sites = [
-      makeWebsiteRow({ id: "r1", status: "maintenance" }),
-      makeWebsiteRow({ id: "r2", status: "legacy" }),
-      makeWebsiteRow({ id: "r3", status: "maintenance" }),
+      makeWebsiteRow({ id: "r1", status: "maintained" }),
+      makeWebsiteRow({ id: "r2", status: "archived", statusRaw: "legacy" }),
+      makeWebsiteRow({ id: "r3", status: "maintained" }),
       makeWebsiteRow({ id: "r4", status: null }),
     ];
     const m = buildFleetTableModel(sites, DEFAULT_QUERY);
@@ -124,9 +124,9 @@ describe("buildFleetTableModel — inclusion", () => {
 
 describe("buildFleetTableModel — filtering", () => {
   const sites = [
-    makeWebsiteRow({ id: "r1", name: "Acme Co", status: "maintenance" }),
-    makeWebsiteRow({ id: "r2", name: "Beachfront", status: "legacy" }),
-    makeWebsiteRow({ id: "r3", name: "CalTex", status: "maintenance" }),
+    makeWebsiteRow({ id: "r1", name: "Acme Co", status: "maintained" }),
+    makeWebsiteRow({ id: "r2", name: "Beachfront", status: "archived", statusRaw: "legacy" }),
+    makeWebsiteRow({ id: "r3", name: "CalTex", status: "maintained" }),
     makeWebsiteRow({ id: "r4", name: "Untracked", status: null }),
   ];
   it("filters by exact raw status", () => {
@@ -156,7 +156,7 @@ describe("buildFleetTableModel — filtering", () => {
     // "maintenance" is a prefix of "maintenance hold": a substring match would
     // quietly widen every status filter as the vocabulary grows.
     const overlapping = [
-      makeWebsiteRow({ id: "r1", name: "Acme Co", status: "maintenance" }),
+      makeWebsiteRow({ id: "r1", name: "Acme Co", status: "maintained" }),
       makeWebsiteRow({ id: "r2", name: "Beachfront", status: storedStatus("maintenance hold") }),
     ];
     const m = buildFleetTableModel(overlapping, { ...DEFAULT_QUERY, status: "maintenance" });
@@ -170,7 +170,7 @@ describe("buildFleetTableModel — filtering", () => {
 
 describe("buildFleetTableModel — the no-status filter", () => {
   const sites = [
-    makeWebsiteRow({ id: "r1", name: "Acme Co", status: "maintenance" }),
+    makeWebsiteRow({ id: "r1", name: "Acme Co", status: "maintained" }),
     makeWebsiteRow({ id: "r2", name: "Beachfront", status: null }),
     makeWebsiteRow({ id: "r3", name: "CalTex", status: null }),
   ];
@@ -260,9 +260,9 @@ describe("buildFleetTableModel — sorting", () => {
   });
   it("sorts by raw status alphabetically, null-status rows last", () => {
     const sites = [
-      makeWebsiteRow({ id: "r1", name: "Alpha", status: "maintenance" }),
+      makeWebsiteRow({ id: "r1", name: "Alpha", status: "maintained" }),
       makeWebsiteRow({ id: "r2", name: "Bravo", status: null }),
-      makeWebsiteRow({ id: "r3", name: "Charlie", status: "legacy" }),
+      makeWebsiteRow({ id: "r3", name: "Charlie", status: "archived", statusRaw: "legacy" }),
     ];
     const m = buildFleetTableModel(sites, { ...DEFAULT_QUERY, sort: "status" });
     expect(m.rows.map((r) => r.name)).toEqual(["Charlie", "Alpha", "Bravo"]);
@@ -280,8 +280,8 @@ describe("buildFleetTableModel — sorting", () => {
     // included; the three-row shape surfaced it from none.
     const byStatus = [
       makeWebsiteRow({ id: "r1", name: "Alpha", status: null }),
-      makeWebsiteRow({ id: "r2", name: "Bravo", status: "legacy" }),
-      makeWebsiteRow({ id: "r3", name: "Charlie", status: "maintenance" }),
+      makeWebsiteRow({ id: "r2", name: "Bravo", status: "archived", statusRaw: "legacy" }),
+      makeWebsiteRow({ id: "r3", name: "Charlie", status: "maintained" }),
       makeWebsiteRow({ id: "r4", name: "Delta", status: null }),
       makeWebsiteRow({ id: "r5", name: "Echo", status: storedStatus("archived") }),
     ];
@@ -328,7 +328,8 @@ describe("buildFleetTableModel — every advertised sort key actually sorts", ()
       id: "r1",
       name: "Alpha",
       url: "https://2.example.com",
-      status: "legacy",
+      status: "archived",
+      statusRaw: "legacy",
       pScore: 40,
       rScore: 10,
       bpScore: 30,
@@ -341,7 +342,7 @@ describe("buildFleetTableModel — every advertised sort key actually sorts", ()
       id: "r2",
       name: "Bravo",
       url: "https://1.example.com",
-      status: "maintenance",
+      status: "maintained",
       pScore: 30,
       rScore: 40,
       bpScore: 10,
@@ -354,7 +355,13 @@ describe("buildFleetTableModel — every advertised sort key actually sorts", ()
       id: "r3",
       name: "Charlie",
       url: "https://4.example.com",
-      status: storedStatus("archived"),
+      // A cell ALREADY migrated to the new vocabulary — "archived" is both the
+      // canonical status and, post-stage-2, a real Airtable cell. `statusRaw` is
+      // set explicitly because the factory would otherwise derive "deprecated"
+      // from the canonical status and collide with Delta below, and this
+      // fixture's whole premise is four DISTINCT raw statuses.
+      status: "archived",
+      statusRaw: "archived",
       pScore: 20,
       rScore: 30,
       bpScore: 20,
@@ -367,7 +374,8 @@ describe("buildFleetTableModel — every advertised sort key actually sorts", ()
       id: "r4",
       name: "Delta",
       url: "https://3.example.com",
-      status: "deprecated",
+      status: "archived",
+      statusRaw: "deprecated",
       pScore: 10,
       rScore: 20,
       bpScore: 40,

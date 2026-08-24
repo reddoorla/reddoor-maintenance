@@ -21,11 +21,11 @@ export type AirtableInventoryOptions = {
  * Read sites from the Airtable Websites table as an InventoryProvider.
  * Each row becomes one Site; `path` is computed as `{workdir}/{slug}`.
  * Only LIVE `maintenance` sites that have a `url` are included — pre-launch
- * stages ("launch period" / "in development", via isPreLaunch) are excluded so a
+ * stages ("launching" / "building", via isPreLaunch) are excluded so a
  * not-yet-live site is never audited as production (its deploy/domain/uptime/CMS
  * audits would fail against nothing and red its Airtable row) nor swept by other
  * `--fleet airtable` ops; it re-enters the fleet when a Launch report flips its
- * Status to "maintenance". The production URL is exposed as `Site.deployedUrl` so
+ * Status to "maintained". The production URL is exposed as `Site.deployedUrl` so
  * the lighthouse audit can run against it with no checkout. `repoUrl` is
  * intentionally NOT set from `url` — a clone source must come from `gitRepo`
  * (`owner/repo`), never the production URL.

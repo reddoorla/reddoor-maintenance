@@ -19,7 +19,7 @@ function sites() {
       id: "r1",
       name: "Acme Co",
       url: "https://acme.example.com",
-      status: "maintenance",
+      status: "maintained",
       pScore: 87,
       rScore: 95,
       bpScore: 90,
@@ -28,7 +28,7 @@ function sites() {
       nextTestingAt: "2026-10-01",
       lastLighthouseAuditAt: "2026-08-20T18:00:00Z",
     }),
-    makeWebsiteRow({ id: "r2", name: "Beachfront", status: "legacy" }),
+    makeWebsiteRow({ id: "r2", name: "Beachfront", status: "archived", statusRaw: "legacy" }),
     makeWebsiteRow({ id: "r3", name: "Untracked", status: null }),
   ];
 }
@@ -122,6 +122,8 @@ describe("renderFleetTableHtml — filter form", () => {
     expect(html).toContain('<option value="maintenance"');
   });
   it("marks the active status selected and repopulates q", () => {
+    // A QUERY filter, not a site status: the filter matches the RAW cell the
+    // table renders, so it stays "legacy" rather than the canonical "archived".
     const html = render({ status: "legacy", q: "beach" });
     expect(html).toMatch(/<option value="legacy" selected/);
     expect(html).toContain('value="beach"');
