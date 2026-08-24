@@ -96,6 +96,7 @@ export function buildAnnouncementMjml(data: ReportData): string {
       : [];
   const hasAnalytics = hasAnalyticsData({
     current: data.gaUsersCurrent,
+    previous: data.gaUsersPrevious,
     bodyLines: analyticsBodyLines,
   });
 
