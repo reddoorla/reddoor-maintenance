@@ -7,7 +7,7 @@ const NOW = new Date("2026-08-12T09:00:00.000Z");
 const DASH = "https://dash";
 
 /** A drifting, freshly-swept, in-scope site. `makeWebsiteRow` supplies the real
- *  defaults (`status: "maintenance"`, a non-empty `url`) — both load-bearing: the
+ *  defaults (`status: "maintained"`, a non-empty `url`) — both load-bearing: the
  *  staleness escalation only fires for sites the nightly sweep is EXPECTED to
  *  cover, and a partial cast would have silently taken every site out of scope. */
 const site = (over: Partial<WebsiteRow> = {}): WebsiteRow =>
@@ -228,37 +228,37 @@ describe("collectPrismicDriftAlerts — a verdict nobody has re-established", ()
 
 describe("collectPrismicDriftAlerts — only sites the sweep is expected to cover can go stale", () => {
   // The staleness item is an alarm INVENTED FROM AN ABSENCE, so it is only honest
-  // where the absence is wrong. A deprecated site leaving the fleet inventory is
+  // where the absence is wrong. An archived site leaving the fleet inventory is
   // the sweep working as designed; alarming on it daily forever, in an email the
   // operator cannot ack, is how a real alarm gets muted.
   const ancientPass = { prismicModels: "pass", prismicModelsCheckedAt: daysAgo(90) } as const;
 
   it("says nothing for an archived site holding an ancient pass", () => {
-    for (const status of ["deprecated", "legacy"] as const) {
+    for (const status of ["archived"] as const) {
       expect(collectPrismicDriftAlerts([site({ ...ancientPass, status })], DASH, NOW)).toEqual([]);
     }
   });
 
   it("says nothing for a pre-launch site — the sweep excludes it by design", () => {
-    for (const status of ["launch period", "in development"] as const) {
+    for (const status of ["launching", "building"] as const) {
       expect(collectPrismicDriftAlerts([site({ ...ancientPass, status })], DASH, NOW)).toEqual([]);
     }
   });
 
-  it("says nothing for a hosting-only / out-of-fleet site", () => {
-    for (const status of ["hosting", "probably not our problem", null] as const) {
+  it("says nothing for a hosted-only / out-of-fleet site", () => {
+    for (const status of ["hosted-only", "external", null] as const) {
       expect(collectPrismicDriftAlerts([site({ ...ancientPass, status })], DASH, NOW)).toEqual([]);
     }
   });
 
-  it("says nothing for a maintenance site with no url — the inventory skips it", () => {
+  it("says nothing for a maintained site with no url — the inventory skips it", () => {
     expect(collectPrismicDriftAlerts([site({ ...ancientPass, url: "" })], DASH, NOW)).toEqual([]);
   });
 
   it("still reports a FRESH finding on an out-of-scope site — that verdict was actually established", () => {
-    // A hand-run `prismic-models --site x --write-airtable` on a deprecated repo
+    // A hand-run `prismic-models --site x --write-airtable` on an archived repo
     // still found real drift. The scope gate guards the invented alarm only.
-    const items = collectPrismicDriftAlerts([site({ status: "deprecated" })], DASH, NOW);
+    const items = collectPrismicDriftAlerts([site({ status: "archived" })], DASH, NOW);
     expect(items).toHaveLength(1);
     expect(items[0]!.key).toBe("prismic-drift:rec1");
   });

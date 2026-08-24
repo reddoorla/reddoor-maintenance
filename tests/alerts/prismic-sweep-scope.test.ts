@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { collectPrismicDriftAlerts } from "../../src/alerts/digest-collectors.js";
 import { fromAirtableBase } from "../../src/inventory/airtable.js";
 import type { Status, WebsiteRow } from "../../src/reports/airtable/websites.js";
+import { CANONICAL_STATUSES } from "../../src/reports/airtable/site-status.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
 
@@ -41,16 +42,10 @@ const NOW = new Date("2026-08-13T09:00:00.000Z");
 const DASH = "https://dash.example.com";
 const WORKDIR = "/tmp/prismic-sweep-scope";
 
-/** Every `Status` the code recognises, plus the two off-list values a real cell
- *  can hold: blank (`null`) and a typo, which `mapRow` casts through unchanged. */
+/** Every canonical `Status`, plus the two off-list values a real cell can hold:
+ *  blank (`null`) and a typo, which `canonicalizeStatus` passes through unchanged. */
 const STATUSES: ReadonlyArray<Status | null> = [
-  "maintenance",
-  "launch period",
-  "in development",
-  "hosting",
-  "probably not our problem",
-  "deprecated",
-  "legacy",
+  ...CANONICAL_STATUSES,
   null,
   "Maintenance " as Status, // operator typo: trailing space + capital
 ];
@@ -158,7 +153,7 @@ describe("the Prismic staleness gate and the sweep inventory cover the same site
       id: "rec1",
       name: "Espada",
       url: "https://espada.example.com",
-      status: "maintenance",
+      status: "maintained",
       prismicModels: "pass",
       prismicModelsCheckedAt: new Date(NOW.getTime() - 400 * 86_400_000).toISOString(),
     });

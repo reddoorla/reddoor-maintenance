@@ -220,7 +220,7 @@ export async function ingestSubmission(
   // escalation, the repeat-sender scan and the duplicate/spray scan — including
   // their retroactive re-bucketing of OTHER sites' rows, which a test submission
   // has no business triggering. Re-enabled the moment the site leaves development.
-  const spamHandlingEnabled = site.status !== "in development";
+  const spamHandlingEnabled = site.status !== "building";
 
   // Fold the content signals + the Turnstile verdict into ONE spam decision.
   // Absent classifier → treat as clean (fail-open). A throwing classifier is

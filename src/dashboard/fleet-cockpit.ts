@@ -93,7 +93,7 @@ const WATCH_CATEGORIES: ReadonlyArray<{
  *  `reason` is the human label. The tuple type guarantees a primary exists. */
 type WatchCandidate = { signal: string; acceptKeys: [string, ...string[]]; reason: string };
 
-/** Which attention items PIERCE the pre-launch mute. A "launch period" site mutes
+/** Which attention items PIERCE the pre-launch mute. A "launching" site mutes
  *  expected pre-launch conditions (early/absent Lighthouse, errored deploy,
  *  Renovate/analytics warnings) — but a genuine alarm must not hide behind the
  *  mute: 2026-07, a human content push left hedloc's default-branch CI red for
@@ -125,16 +125,16 @@ export function assignTier(
   watchSignals: string[];
   acceptedReasons: string[];
 } {
-  // Lifecycle short-circuit (FIRST, before any alarm rule): a "launch period" site
-  // is PRE-LIVE prep, not a live site (Status flips to "maintenance" at go-live).
+  // Lifecycle short-circuit (FIRST, before any alarm rule): a "launching" site
+  // is PRE-LIVE prep, not a live site (Status flips to "maintained" at go-live).
   // Its expected pre-launch conditions — no GA4 property, early/absent Lighthouse,
   // an errored/absent Netlify deploy, Renovate warnings — would otherwise force it
   // to 🔴 attention and read as "broken". Mute those as a calm "pre-launch" tier
   // that never alarms and is excluded from the "needs you" feed — but a GENUINE
   // alarm (piercesPreLaunchMute: any critical item, or CI red) re-tiers the site
-  // to 🔴 attention through the normal machinery. (Only "launch period" reaches
-  // the cockpit — isDashboardVisible = {maintenance, launch period}.)
-  if (site.status === "launch period") {
+  // to 🔴 attention through the normal machinery. (Only "launching" reaches
+  // the cockpit — isDashboardVisible = {maintained, launching}.)
+  if (site.status === "launching") {
     // Genuine alarms pierce the mute; this attention return sits ABOVE the
     // accepted-watch loop, so an operator ack can never silence a pierced alarm —
     // the same invariant the live-site items short-circuit keeps. Everything else
@@ -208,7 +208,7 @@ export function assignTier(
   // A live (maintenance) site still served from *.netlify.app never got a custom
   // domain — a launch-completeness gap. Only for maintenance: a launch-period site on
   // netlify.app is expected (not launched yet).
-  if (site.status === "maintenance" && isNetlifyAppUrl(site.url)) {
+  if (site.status === "maintained" && isNetlifyAppUrl(site.url)) {
     candidates.push({
       signal: "no-domain",
       acceptKeys: ["no custom domain", "no-domain", "netlify", "netlify.app", "on netlify"],
@@ -316,7 +316,7 @@ export type CockpitSummary = {
   attention: number;
   watch: number;
   healthy: number;
-  /** Count of pre-live "launch period" sites still muted as expected pre-launch
+  /** Count of pre-live "launching" sites still muted as expected pre-launch
    *  conditions. A piercing alarm (piercesPreLaunchMute) re-tiers such a site to
    *  attention, so it counts there instead — muted never means "hidden if broken". */
   preLaunch: number;
@@ -667,8 +667,7 @@ export function buildCockpitModel(
     // A launch-period card carries only the piercing alarms: muted pre-launch noise
     // must not ride into the chips or the needs-you feed when a genuine alarm flips
     // the tier (and a still-muted card shows no alarm chips at all).
-    const items =
-      site.status === "launch period" ? collected.filter(piercesPreLaunchMute) : collected;
+    const items = site.status === "launching" ? collected.filter(piercesPreLaunchMute) : collected;
     const { tier, watchReasons, watchAcceptKeys, watchSignals, acceptedReasons } = assignTier(
       site,
       items,

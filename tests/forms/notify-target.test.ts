@@ -7,7 +7,7 @@ function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
   return {
     id: "recSite",
     name: "1836dig",
-    status: "maintenance" as Status,
+    status: "maintained" as Status,
     pointOfContact: "owner@client.com",
     notifyRouting: null,
     reportRecipientsTo: null,
@@ -29,14 +29,14 @@ describe("describeNotifyTarget", () => {
   it("REGRESSION: the guard holding is reported as operator-only, not merely 'not client'", () => {
     // The 2026-08-03 incident: the operator believed this state was in effect.
     // Nothing reported it either way.
-    const t = describeNotifyTarget(site({ status: "launch period" as Status }));
+    const t = describeNotifyTarget(site({ status: "launching" as Status }));
     expect(t.audience).toBe("operator");
     expect(t.to).not.toContain("owner@client.com");
-    expect(t.reason).toMatch(/launch period/);
+    expect(t.reason).toMatch(/launching/);
   });
 
-  it("every status other than maintenance is guarded", () => {
-    for (const status of ["in development", "hosting", "deprecated", "legacy", null]) {
+  it("every status other than maintained is guarded", () => {
+    for (const status of ["building", "hosted-only", "archived", null]) {
       expect(describeNotifyTarget(site({ status: status as Status })).audience).toBe("operator");
     }
   });

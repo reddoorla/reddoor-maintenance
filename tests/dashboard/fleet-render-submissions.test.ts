@@ -36,7 +36,7 @@ function oneSubmissionModel(): CockpitModel {
   const site = makeWebsiteRow({
     id: "recSITE",
     name: "Acme Co",
-    status: "maintenance",
+    status: "maintained",
     securityVulnsCritical: 2, // forces attention tier
     securityVulnsHigh: 0,
     securityVulnsModerate: 0,
@@ -162,7 +162,7 @@ describe("renderCockpitHtml — inbox lane lead/signup split", () => {
 describe("renderFleetBrowsePanel — per-card submissions chip split", () => {
   function cardModel(cardOver: Partial<SiteCard>): CockpitModel {
     const card: SiteCard = {
-      site: makeWebsiteRow({ id: "recSITE", name: "Acme Co", status: "maintenance" }),
+      site: makeWebsiteRow({ id: "recSITE", name: "Acme Co", status: "maintained" }),
       tier: "healthy",
       items: [],
       watchReasons: [],

@@ -7,6 +7,7 @@ import {
   type Status,
   type WebsiteRow,
 } from "../reports/airtable/websites.js";
+import { canonicalizeStatus, toAirtableStatus } from "../reports/airtable/site-status.js";
 import { describeNotifyTarget, type NotifyTarget } from "../forms/notify.js";
 
 /** The Airtable column the pre-launch guard actually lives in. */
@@ -14,10 +15,10 @@ export const STATUS_COLUMN = "Status";
 
 /** The two ends of the verify flip. Deliberately the ONLY transition this
  *  performs: a site in any other status is already guarded (or is deliberately
- *  something else, like "hosting"), and silently rewriting that would be the
+ *  something else, like "hosted-only"), and silently rewriting that would be the
  *  same class of unseen change as the incident. */
-export const LIVE_STATUS: Status = "maintenance";
-export const VERIFY_STATUS: Status = "launch period";
+export const LIVE_STATUS: Status = "maintained";
+export const VERIFY_STATUS: Status = "launching";
 
 export type FormsNotifyTargetDeps = {
   base?: AirtableBase;
@@ -83,12 +84,17 @@ export async function formsNotifyTarget(
     return { site: row.name, status: row.status, target: describeNotifyTarget(row) };
   }
 
-  const to = deps.set === "on" ? VERIFY_STATUS : (deps.restore?.trim() as Status | undefined);
+  // `--restore` is operator free text: canonicalize it so EITHER vocabulary is
+  // accepted during the transition, then write through toAirtableStatus. An
+  // unrecognized value still reaches Airtable verbatim (and is rejected there) —
+  // turning a typo into a silent substitution would be worse than today.
+  const to =
+    deps.set === "on" ? VERIFY_STATUS : (canonicalizeStatus(deps.restore?.trim()) ?? undefined);
   if (deps.set === "off" && !to) {
     throw Object.assign(
       new Error(
         `--set off needs --restore <status>: the status to return to is never inferred. ` +
-          `Guessing "${LIVE_STATUS}" for a site that was "hosting" or "legacy" would start ` +
+          `Guessing "${LIVE_STATUS}" for a site that was "hosted-only" or "archived" would start ` +
           `sending real client notifications — the inverse of the failure this command exists ` +
           `to prevent.`,
       ),
@@ -96,7 +102,7 @@ export async function formsNotifyTarget(
     );
   }
   // Only ever flip a LIVE site into verify mode. A site already outside
-  // "maintenance" is guarded already, and rewriting its status would destroy a
+  // "maintained" is guarded already, and rewriting its status would destroy a
   // real value nobody asked us to touch.
   if (deps.set === "on" && row.status !== LIVE_STATUS) {
     throw Object.assign(
@@ -109,7 +115,7 @@ export async function formsNotifyTarget(
     );
   }
 
-  await updateSiteField(base, row.id, STATUS_COLUMN, to!);
+  await updateSiteField(base, row.id, STATUS_COLUMN, toAirtableStatus(to!));
 
   // Read it back. The write returning is NOT evidence the field changed.
   const after = findSite(await listWebsites(base), deps.site);

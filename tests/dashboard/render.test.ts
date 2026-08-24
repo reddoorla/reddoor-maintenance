@@ -1111,7 +1111,7 @@ describe("renderSiteDashboardHtml — Trigger Renovate button", () => {
 describe("renderSiteDashboardHtml — editable site details", () => {
   it("renders Status + cadence as selects and POC as an input, wired to the details endpoint", () => {
     const html = renderSiteDashboardHtml(
-      siteRow({ name: "Acme", status: "maintenance", pointOfContact: "a@b.com" }),
+      siteRow({ name: "Acme", status: "maintained", pointOfContact: "a@b.com" }),
       [],
     );
     expect(html).toMatch(

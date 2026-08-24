@@ -20,7 +20,7 @@ const site = (over: Partial<WebsiteRow> = {}): WebsiteRow =>
   makeWebsiteRow({
     id: "rec_espada",
     name: "Espada",
-    status: "maintenance",
+    status: "maintained",
     url: "https://espada.example.com",
     prismicModels: "fail",
     prismicModelsCheckedAt: FRESH,

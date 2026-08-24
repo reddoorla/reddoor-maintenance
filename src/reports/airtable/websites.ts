@@ -1,22 +1,24 @@
 import type { FieldSet } from "airtable";
 import type { AirtableBase } from "./client.js";
 import type { LighthouseScores, LighthouseScoreWriteback } from "../types.js";
+import {
+  CANONICAL_STATUSES,
+  canonicalizeStatus,
+  toAirtableStatus,
+  type Status,
+} from "./site-status.js";
 
 export const WEBSITES_TABLE = "Websites";
 
 export type Frequency = "None" | "Monthly" | "Quarterly" | "Yearly";
 
-export type Status =
-  | "in development"
-  | "launch period"
-  | "maintenance"
-  | "hosting"
-  | "probably not our problem"
-  | "deprecated"
-  | "legacy";
+/** The canonical lifecycle vocabulary lives in ./site-status.ts (which also owns
+ *  the old-Airtable-name aliases and the write-direction mapping). Re-exported
+ *  here because every consumer already imports `Status` from this module. */
+export type { Status };
 
 /**
- * Per-site notification routing. When present on a `maintenance` site, the form
+ * Per-site notification routing. When present on a `maintained` site, the form
  * notification is addressed by the value of a submission field (`field`, read from
  * `extraFields`) — e.g. route a contact form's `interest` to a different recipient
  * per option, always CC-ing a shared address. Absent (`null`) → the site keeps the
@@ -39,7 +41,17 @@ export type WebsiteRow = {
   id: string;
   name: string;
   url: string;
+  /** Canonical lifecycle status (see ./site-status.ts). Canonicalized at the read
+   *  boundary, so an old-vocabulary Airtable cell and a new one read identically.
+   *  A present-but-unrecognized cell survives VERBATIM (blind-cast) rather than
+   *  becoming null — `isUnrecognizedStatus` flags it, and null would make
+   *  due.ts/preflight.ts treat the row as eligible-by-default. */
   status: Status | null;
+  /** The literal Airtable Status cell behind `status` — same pattern as
+   *  `maintenanceFreqRaw`. The dashboard status editor round-trips THIS, so its
+   *  dropdown offers and preselects the values Airtable actually holds while the
+   *  two vocabularies coexist. Null = blank cell. */
+  statusRaw: string | null;
   pointOfContact: string | null;
   maintenanceFreq: Frequency;
   testingFreq: Frequency;
@@ -321,10 +333,7 @@ export function parseNotifyRouting(raw: unknown): NotifyRouting | null {
  * audit/report path runs against these. A `null` status (not-yet-active) is
  * deliberately excluded.
  */
-export const ACTIVE_STATUSES: ReadonlySet<Status> = new Set<Status>([
-  "maintenance",
-  "launch period",
-]);
+export const ACTIVE_STATUSES: ReadonlySet<Status> = new Set<Status>(["maintained", "launching"]);
 
 export function isDashboardVisible(site: WebsiteRow): boolean {
   return site.status !== null && ACTIVE_STATUSES.has(site.status);
@@ -332,37 +341,32 @@ export function isDashboardVisible(site: WebsiteRow): boolean {
 
 /**
  * Pre-launch lifecycle stages: the site is being built/prepared, NOT yet live. A
- * Launch report (recipes/launch.ts) flips Status → "maintenance" at go-live
- * (updateLaunched), so "maintenance" is the true live state. Pre-launch sites must
+ * Launch report (recipes/launch.ts) flips Status → "maintained" at go-live
+ * (updateLaunched), so "maintained" is the true live state. Pre-launch sites must
  * not be audited as production (their deploy/domain/uptime/CMS audits fail because
  * nothing is live yet) nor scheduled recurring Maintenance/Testing reports.
+ *
+ * NOTE `launching` is deliberately in BOTH this set and ACTIVE_STATUSES — a
+ * launching site is cockpit-visible but not production-audited. That dual
+ * membership predates the vocabulary rename and was re-approved as-is with it.
  */
-export const PRE_LAUNCH_STATUSES: ReadonlySet<Status> = new Set<Status>([
-  "in development",
-  "launch period",
-]);
+export const PRE_LAUNCH_STATUSES: ReadonlySet<Status> = new Set<Status>(["building", "launching"]);
 
 export function isPreLaunch(status: Status | null): boolean {
   return status !== null && PRE_LAUNCH_STATUSES.has(status);
 }
 
-/** Every Status value the code recognizes. Typed ReadonlySet<string> so a
- *  blind-cast typo'd cell can be probed without a cast. */
-export const KNOWN_STATUSES: ReadonlySet<string> = new Set<Status>([
-  "in development",
-  "launch period",
-  "maintenance",
-  "hosting",
-  "probably not our problem",
-  "deprecated",
-  "legacy",
-]);
+/** Every Status value the code recognizes — the canonical vocabulary, since both
+ *  read seams canonicalize. Typed ReadonlySet<string> so a blind-cast typo'd cell
+ *  can be probed without a cast. */
+export const KNOWN_STATUSES: ReadonlySet<string> = new Set<Status>(CANONICAL_STATUSES);
 
 /** Terminal, out-of-fleet lifecycle states: kept in Airtable for the record,
  *  excluded from every fleet op (sweeps, reports, audits, cockpit tiers) exactly
  *  as before, but surfaced on the cockpit as an archived lane so a row can never
- *  silently vanish. */
-export const ARCHIVED_STATUSES: ReadonlySet<Status> = new Set<Status>(["legacy", "deprecated"]);
+ *  silently vanish. Airtable's `legacy` AND `deprecated` both canonicalize to the
+ *  single `archived` — an approved merge; the two were always treated alike. */
+export const ARCHIVED_STATUSES: ReadonlySet<Status> = new Set<Status>(["archived"]);
 
 export function isArchivedStatus(status: Status | null): boolean {
   return status !== null && ARCHIVED_STATUSES.has(status);
@@ -443,7 +447,8 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     id: rec.id,
     name,
     url: String(f["url"] ?? ""),
-    status: (f["Status"] as Status | undefined) ?? null,
+    status: canonicalizeStatus(f["Status"]),
+    statusRaw: (f["Status"] as string | undefined) ?? null,
     pointOfContact: (f["point of contact"] as string | undefined) ?? null,
     maintenanceFreq: toFrequency(f["maintenence freq"], `${name} maintenance`),
     testingFreq: toFrequency(f["testing freq"], `${name} testing`),
@@ -1125,13 +1130,15 @@ export async function updatePrismicModels(
   await base(WEBSITES_TABLE).update([{ id: recordId, fields: fields as FieldSet }]);
 }
 
-/** Mark a site launched: flip Status → maintenance + stamp Launched at (M6b).
- *  The first code that writes Status. Called after a Launch report sends. */
+/** Mark a site launched: flip Status → maintained + stamp Launched at (M6b).
+ *  The first code that writes Status. Called after a Launch report sends.
+ *  Routed through `toAirtableStatus`, so it still writes Airtable's "maintenance"
+ *  option until the stage-2 switch flips. */
 export async function updateLaunched(
   base: AirtableBase,
   recordId: string,
   at: string,
 ): Promise<void> {
-  const fields: FieldSet = { Status: "maintenance", "Launched at": at };
+  const fields: FieldSet = { Status: toAirtableStatus("maintained"), "Launched at": at };
   await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
 }

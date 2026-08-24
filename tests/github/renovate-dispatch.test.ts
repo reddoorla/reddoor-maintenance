@@ -72,20 +72,20 @@ describe("selectRenovateTargets", () => {
     const sites = [
       makeWebsiteRow({
         name: "A",
-        status: "maintenance",
+        status: "maintained",
         gitRepo: "reddoorla/a",
         securityVulnsHigh: 3,
       }),
       makeWebsiteRow({
         name: "B",
-        status: "maintenance",
+        status: "maintained",
         gitRepo: "reddoorla/b",
         securityVulnsCritical: 1,
         securityVulnsHigh: 0,
       }),
       makeWebsiteRow({
         name: "C",
-        status: "launch period",
+        status: "launching",
         gitRepo: "reddoorla/c",
         securityVulnsHigh: 2,
       }),
@@ -107,21 +107,21 @@ describe("selectRenovateTargets", () => {
       // no repo — can't dispatch
       makeWebsiteRow({
         name: "norepo",
-        status: "maintenance",
+        status: "maintained",
         gitRepo: null,
         securityVulnsHigh: 5,
       }),
       // blank repo string — also can't dispatch
       makeWebsiteRow({
         name: "blankrepo",
-        status: "maintenance",
+        status: "maintained",
         gitRepo: "  ",
         securityVulnsHigh: 5,
       }),
       // only moderate/low — not actionable enough to dispatch off-schedule
       makeWebsiteRow({
         name: "modlow",
-        status: "maintenance",
+        status: "maintained",
         gitRepo: "reddoorla/m",
         securityVulnsCritical: 0,
         securityVulnsHigh: 0,
@@ -129,7 +129,7 @@ describe("selectRenovateTargets", () => {
         securityVulnsLow: 4,
       }),
       // clean — nothing to do
-      makeWebsiteRow({ name: "clean", status: "maintenance", gitRepo: "reddoorla/clean" }),
+      makeWebsiteRow({ name: "clean", status: "maintained", gitRepo: "reddoorla/clean" }),
     ];
     expect(selectRenovateTargets(sites)).toEqual([]);
   });
@@ -137,7 +137,7 @@ describe("selectRenovateTargets", () => {
   it("treats null vuln counts as zero (no false dispatch)", () => {
     const site = makeWebsiteRow({
       name: "nulls",
-      status: "maintenance",
+      status: "maintained",
       gitRepo: "reddoorla/n",
       securityVulnsCritical: null,
       securityVulnsHigh: null,
@@ -148,7 +148,7 @@ describe("selectRenovateTargets", () => {
   it("trims the repo so a padded Airtable value still dispatches cleanly", () => {
     const site = makeWebsiteRow({
       name: "pad",
-      status: "maintenance",
+      status: "maintained",
       gitRepo: " reddoorla/p ",
       securityVulnsHigh: 1,
     });
@@ -248,7 +248,7 @@ describe("computeAutoFixAttemptUpdates", () => {
     const sites = [
       makeWebsiteRow({
         id: "rA",
-        status: "maintenance",
+        status: "maintained",
         gitRepo: "reddoorla/a",
         securityVulnsHigh: 2,
       }),
@@ -262,7 +262,7 @@ describe("computeAutoFixAttemptUpdates", () => {
     const sites = [
       makeWebsiteRow({
         id: "rA",
-        status: "maintenance",
+        status: "maintained",
         gitRepo: "reddoorla/a",
         securityVulnsCritical: 1,
         securityAutoFixAttempts: 2,
@@ -277,7 +277,7 @@ describe("computeAutoFixAttemptUpdates", () => {
     const sites = [
       makeWebsiteRow({
         id: "rA",
-        status: "maintenance",
+        status: "maintained",
         gitRepo: "reddoorla/a",
         securityVulnsCritical: 0,
         securityVulnsHigh: 0,
@@ -291,7 +291,7 @@ describe("computeAutoFixAttemptUpdates", () => {
     const sites = [
       makeWebsiteRow({
         id: "rA",
-        status: "maintenance",
+        status: "maintained",
         gitRepo: "reddoorla/a",
         securityVulnsHigh: 2,
         securityAutoFixAttempts: 1,
@@ -304,7 +304,7 @@ describe("computeAutoFixAttemptUpdates", () => {
     const sites = [
       makeWebsiteRow({
         id: "rA",
-        status: "maintenance",
+        status: "maintained",
         gitRepo: "reddoorla/a",
         securityVulnsHigh: 2,
         securityAutoFixAttempts: 1,
@@ -322,7 +322,7 @@ describe("computeAutoFixAttemptUpdates", () => {
     const sites = [
       makeWebsiteRow({
         id: "rA",
-        status: "maintenance",
+        status: "maintained",
         gitRepo: "reddoorla/a",
         securityVulnsHigh: 0,
         securityAutoFixAttempts: 0,
@@ -336,7 +336,7 @@ describe("computeAutoFixAttemptUpdates", () => {
     const sites = [
       makeWebsiteRow({
         id: "rAlamo",
-        status: "maintenance",
+        status: "maintained",
         gitRepo: "reddoorla/alamo",
         securityVulnsCritical: 0,
         securityVulnsHigh: 0,
@@ -350,7 +350,7 @@ describe("computeAutoFixAttemptUpdates", () => {
     const sites = [
       makeWebsiteRow({
         id: "rLeg",
-        status: "legacy",
+        status: "archived",
         gitRepo: "reddoorla/leg",
         securityVulnsCritical: 0,
         securityVulnsHigh: 0,
@@ -358,7 +358,7 @@ describe("computeAutoFixAttemptUpdates", () => {
       }),
       makeWebsiteRow({
         id: "rNoRepo",
-        status: "maintenance",
+        status: "maintained",
         gitRepo: null,
         securityVulnsCritical: 0,
         securityVulnsHigh: 0,
@@ -375,7 +375,7 @@ describe("computeAutoFixAttemptUpdates", () => {
     const sites = [
       makeWebsiteRow({
         id: "rA",
-        status: "maintenance",
+        status: "maintained",
         gitRepo: "reddoorla/a",
         securityVulnsCritical: 2,
         securityAutoFixAttempts: 4,
@@ -388,14 +388,14 @@ describe("computeAutoFixAttemptUpdates", () => {
     const sites = [
       makeWebsiteRow({
         id: "rZero",
-        status: "maintenance",
+        status: "maintained",
         gitRepo: "reddoorla/z",
         securityVulnsHigh: 0,
         securityAutoFixAttempts: 0,
       }),
       makeWebsiteRow({
         id: "rNull",
-        status: "maintenance",
+        status: "maintained",
         gitRepo: "reddoorla/n",
         securityVulnsHigh: 0,
         securityAutoFixAttempts: null,
@@ -411,7 +411,7 @@ describe("computeAutoFixAttemptUpdates", () => {
     const sites = [
       makeWebsiteRow({
         id: "rSonder",
-        status: "maintenance",
+        status: "maintained",
         gitRepo: "reddoorla/gallerysonder",
         securityVulnsHigh: 2,
         securityAutoFixAttempts: 2,
@@ -430,7 +430,7 @@ describe("computeAutoFixAttemptUpdates", () => {
     const sites = [
       makeWebsiteRow({
         id: "rA",
-        status: "maintenance",
+        status: "maintained",
         gitRepo: "reddoorla/a",
         securityVulnsHigh: 2,
         securityAutoFixAttempts: 1,
@@ -449,7 +449,7 @@ describe("computeAutoFixAttemptUpdates", () => {
     const sites = [
       makeWebsiteRow({
         id: "rA",
-        status: "maintenance",
+        status: "maintained",
         gitRepo: "reddoorla/a",
         securityVulnsHigh: 1,
         securityAdvisories: [adv({ module: "axios" })], // no relationship key
@@ -464,7 +464,7 @@ describe("computeAutoFixAttemptUpdates", () => {
     const sites = [
       makeWebsiteRow({
         id: "rA",
-        status: "maintenance",
+        status: "maintained",
         gitRepo: "reddoorla/a",
         securityVulnsHigh: 1,
         securityAdvisories: null,
@@ -479,7 +479,7 @@ describe("computeAutoFixAttemptUpdates", () => {
     const sites = [
       makeWebsiteRow({
         id: "rA",
-        status: "maintenance",
+        status: "maintained",
         gitRepo: "reddoorla/a",
         securityVulnsHigh: 1,
         securityAdvisories: [adv({ severity: "moderate", relationship: "transitive" })],
@@ -494,7 +494,7 @@ describe("computeAutoFixAttemptUpdates", () => {
     const sites = [
       makeWebsiteRow({
         id: "rA",
-        status: "maintenance",
+        status: "maintained",
         gitRepo: "reddoorla/a",
         securityVulnsHigh: 0,
         securityAutoFixAttempts: 5,
@@ -515,7 +515,7 @@ describe("computeAutoFixAttemptUpdates", () => {
       }),
       makeWebsiteRow({
         id: "rNo",
-        status: "maintenance",
+        status: "maintained",
         gitRepo: null,
         securityVulnsHigh: 5,
         securityAutoFixAttempts: 2,

@@ -411,7 +411,7 @@ describe("renderCockpitHtml — generic accept matcher + accept-key discoverabil
     siteRow({
       id: "nl",
       name: "NetlifyOnly",
-      status: "maintenance",
+      status: "maintained",
       url: "https://x.netlify.app",
       ...over,
     });
@@ -467,7 +467,7 @@ describe("renderCockpitHtml — generic accept matcher + accept-key discoverabil
         siteRow({
           id: "m",
           name: "Multi",
-          status: "maintenance",
+          status: "maintained",
           url: "https://x.netlify.app",
           bpScore: 78,
           acceptedWatchConditions: ["best practices"],
@@ -727,7 +727,7 @@ describe("renderCockpitHtml — cockpit cards", () => {
         siteRow({
           id: "p",
           name: "Launching",
-          status: "launch period",
+          status: "launching",
           pScore: 60, // sub-floor Lighthouse — expected pre-launch noise, stays muted
           deployStatus: "error", // errored deploy — also expected pre-launch
         }),
@@ -750,7 +750,7 @@ describe("renderCockpitHtml — cockpit cards", () => {
         siteRow({
           id: "p",
           name: "Launching",
-          status: "launch period",
+          status: "launching",
           securityVulnsCritical: 2,
           securityAutoFixAttempts: 3, // auto-fix exhausted → genuine alarm
         }),
@@ -811,7 +811,7 @@ describe("renderCockpitHtml — filter signals & all-clear", () => {
         siteRow({
           id: "nd",
           name: "NoDomain",
-          status: "maintenance",
+          status: "maintained",
           url: "https://x.netlify.app",
         }),
       ]),
@@ -1037,13 +1037,14 @@ describe("renderCockpitHtml — archived lane + status honesty", () => {
     const html = renderCockpitHtml(
       model([
         siteRow({ id: "a", name: "Acme" }),
-        siteRow({ id: "l", name: "Old & Legacy", status: "legacy" }),
+        // Airtable still holds "legacy"; the cockpit shows the canonical name.
+        siteRow({ id: "l", name: "Old & Legacy", status: "archived", statusRaw: "legacy" }),
       ]),
     );
     expect(html).toContain("1 archived");
     expect(html).toContain("🗄 Archived (1)");
     expect(html).toContain("Old &amp; Legacy"); // escaped site name
-    expect(html).toContain('<span class="muted">legacy</span>');
+    expect(html).toContain('<span class="muted">archived</span>');
     expect(html).toContain('href="/s/old-legacy"');
     // The archived row is a roster entry, never a fleet card.
     expect(html).toContain("Fleet (1)");

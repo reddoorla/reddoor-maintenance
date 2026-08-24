@@ -171,7 +171,7 @@ describe("assignTier", () => {
     // The lifecycle short-circuit still beats expected pre-launch conditions:
     // early Lighthouse, Renovate churn, analytics warnings never read as broken.
     const r = assignTier(
-      site({ status: "launch period" }),
+      site({ status: "launching" }),
       [
         item({ kind: "lighthouse", severity: "warning", key: "lighthouse:recSITE:performance" }),
         item({ kind: "renovate", severity: "warning", key: "renovate:recSITE" }),
@@ -184,7 +184,7 @@ describe("assignTier", () => {
   });
 
   it("mutes a 'launch period' site to 'pre-launch' even with a failed deploy", () => {
-    expect(assignTier(site({ status: "launch period", deployStatus: "error" }), [], NOW).tier).toBe(
+    expect(assignTier(site({ status: "launching", deployStatus: "error" }), [], NOW).tier).toBe(
       "pre-launch",
     );
   });
@@ -192,14 +192,14 @@ describe("assignTier", () => {
   it("a CRITICAL non-vuln item pierces the pre-launch mute (attention, not muted)", () => {
     expect(
       assignTier(
-        site({ status: "launch period" }),
+        site({ status: "launching" }),
         [item({ kind: "turnstile", severity: "critical", key: "turnstile:recSITE" })],
         NOW,
       ).tier,
     ).toBe("attention");
     expect(
       assignTier(
-        site({ status: "launch period" }),
+        site({ status: "launching" }),
         [item({ kind: "notify-bounce", severity: "critical", key: "notify-bounce:recSITE" })],
         NOW,
       ).tier,
@@ -210,15 +210,15 @@ describe("assignTier", () => {
     // item() defaults to a critical vuln — pre-exhaustion, Renovate is still on it,
     // so even a day-zero critical CVE stays muted (the operator only hears about a
     // vuln after auto-fix tried and failed).
-    expect(assignTier(site({ status: "launch period" }), [item()], NOW).tier).toBe("pre-launch");
+    expect(assignTier(site({ status: "launching" }), [item()], NOW).tier).toBe("pre-launch");
     expect(
-      assignTier(site({ status: "launch period" }), [item({ autoFixExhausted: true })], NOW).tier,
+      assignTier(site({ status: "launching" }), [item({ autoFixExhausted: true })], NOW).tier,
     ).toBe("attention");
   });
 
   it("default-branch CI red pierces the pre-launch mute despite its warning severity", () => {
     const r = assignTier(
-      site({ status: "launch period" }),
+      site({ status: "launching" }),
       [item({ kind: "ci", severity: "warning", key: "ci:recSITE" })],
       NOW,
     );
@@ -230,7 +230,7 @@ describe("assignTier", () => {
     // live-site items short-circuit.
     const r = assignTier(
       site({
-        status: "launch period",
+        status: "launching",
         acceptedWatchConditions: ["ci", "turnstile", "performance"],
       }),
       [item({ kind: "ci", severity: "warning", key: "ci:recSITE" })],
@@ -318,7 +318,7 @@ describe("assignTier", () => {
   it("accepts the no-custom-domain condition", () => {
     const r = assignTier(
       site({
-        status: "maintenance",
+        status: "maintained",
         url: "https://foo.netlify.app/",
         acceptedWatchConditions: ["no custom domain"],
       }),
@@ -360,7 +360,7 @@ describe("assignTier — generic accept-key matcher + discoverability", () => {
   it("accepts the no-custom-domain watch via the friendly alias 'netlify'", () => {
     const r = assignTier(
       site({
-        status: "maintenance",
+        status: "maintained",
         url: "https://foo.netlify.app/",
         acceptedWatchConditions: ["netlify"],
       }),
@@ -375,7 +375,7 @@ describe("assignTier — generic accept-key matcher + discoverability", () => {
   it("still accepts the no-custom-domain watch via canonical 'no custom domain' (back-compat)", () => {
     const r = assignTier(
       site({
-        status: "maintenance",
+        status: "maintained",
         url: "https://foo.netlify.app/",
         acceptedWatchConditions: ["no custom domain"],
       }),
@@ -387,7 +387,7 @@ describe("assignTier — generic accept-key matcher + discoverability", () => {
   });
 
   it("exposes the primary accept key aligned to each un-accepted watch reason", () => {
-    const r = assignTier(site({ status: "maintenance", url: "https://foo.netlify.app/" }), [], NOW);
+    const r = assignTier(site({ status: "maintained", url: "https://foo.netlify.app/" }), [], NOW);
     expect(r.tier).toBe("watch");
     expect(r.watchReasons).toEqual(["on *.netlify.app (no custom domain)"]);
     expect(r.watchAcceptKeys).toEqual(["no custom domain"]);
@@ -420,7 +420,7 @@ describe("assignTier — generic accept-key matcher + discoverability", () => {
   it("mutes only the accepted ones among several simultaneous watch conditions", () => {
     const r = assignTier(
       site({
-        status: "maintenance",
+        status: "maintained",
         url: "https://foo.netlify.app/",
         bpScore: 78,
         lastCommitAt: "2026-01-01T00:00:00Z",
@@ -463,12 +463,12 @@ describe("buildCockpitModel", () => {
   it("only includes Status-visible sites (maintenance or launch period)", () => {
     const m = buildCockpitModel(
       [
-        site({ id: "a", name: "Maintained", status: "maintenance" }),
-        site({ id: "b", name: "Launching", status: "launch period" }),
-        site({ id: "c", name: "Hosted", status: "hosting" }),
-        site({ id: "d", name: "Deprecated", status: "deprecated" }),
+        site({ id: "a", name: "Maintained", status: "maintained" }),
+        site({ id: "b", name: "Launching", status: "launching" }),
+        site({ id: "c", name: "Hosted", status: "hosted-only" }),
+        site({ id: "d", name: "Deprecated", status: "archived" }),
         site({ id: "e", name: "NoStatus", status: null }),
-        site({ id: "f", name: "Old Legacy", status: "legacy" }),
+        site({ id: "f", name: "Old Legacy", status: "archived" }),
       ],
       [],
       {},
@@ -481,9 +481,9 @@ describe("buildCockpitModel", () => {
   it("lists archived (legacy/deprecated) rows on model.archived, A-Z, never as cards", () => {
     const m = buildCockpitModel(
       [
-        site({ id: "l", name: "Old Legacy", status: "legacy" }),
-        site({ id: "d", name: "Dead", status: "deprecated" }),
-        site({ id: "a", name: "Maintained", status: "maintenance" }),
+        site({ id: "l", name: "Old Legacy", status: "archived" }),
+        site({ id: "d", name: "Dead", status: "archived" }),
+        site({ id: "a", name: "Maintained", status: "maintained" }),
       ],
       [],
       {},
@@ -492,8 +492,8 @@ describe("buildCockpitModel", () => {
     );
     expect(m.cards.map((c) => c.site.name)).toEqual(["Maintained"]);
     expect(m.archived).toEqual([
-      { name: "Dead", slug: "dead", status: "deprecated" },
-      { name: "Old Legacy", slug: "old-legacy", status: "legacy" },
+      { name: "Dead", slug: "dead", status: "archived" },
+      { name: "Old Legacy", slug: "old-legacy", status: "archived" },
     ]);
     // Archived statuses are RECOGNIZED — they never read as typos.
     expect(m.unrecognizedStatus).toEqual([]);
@@ -504,7 +504,7 @@ describe("buildCockpitModel", () => {
     const m = buildCockpitModel(
       [
         site({ id: "t", name: "Typo Site", status: "maintenence " as WebsiteRow["status"] }),
-        site({ id: "a", name: "Maintained", status: "maintenance" }),
+        site({ id: "a", name: "Maintained", status: "maintained" }),
       ],
       [],
       {},
@@ -575,7 +575,7 @@ describe("buildCockpitModel", () => {
         site({
           id: "p",
           name: "Launching",
-          status: "launch period",
+          status: "launching",
           pScore: 60, // sub-floor Lighthouse — expected early, warning severity
           deployStatus: "error", // errored deploy — expected pre-launch
         }),
@@ -604,7 +604,7 @@ describe("buildCockpitModel", () => {
         site({
           id: "p",
           name: "Launching",
-          status: "launch period",
+          status: "launching",
           securityVulnsCritical: 2, // critical, but auto-fix has not been exhausted
         }),
       ],
@@ -627,7 +627,7 @@ describe("buildCockpitModel", () => {
         site({
           id: "p",
           name: "Launching",
-          status: "launch period",
+          status: "launching",
           securityVulnsCritical: 2,
           securityAutoFixAttempts: 3, // auto-fix exhausted → hard break
         }),
@@ -650,7 +650,7 @@ describe("buildCockpitModel", () => {
         site({
           id: "p",
           name: "Launching",
-          status: "launch period",
+          status: "launching",
           defaultBranchCi: "failing", // factory's githubSignalsAt default is fresh
           pScore: 60, // sub-floor noise — stays filtered off the card
         }),
@@ -764,7 +764,7 @@ describe("assignTier — structured watchSignals", () => {
 
   it("flags a maintenance site still on *.netlify.app (no custom domain) as watch", () => {
     const r = assignTier(
-      site({ status: "maintenance", url: "https://vineyard-custom-homes.netlify.app" }),
+      site({ status: "maintained", url: "https://vineyard-custom-homes.netlify.app" }),
       [],
       NOW,
     );
@@ -774,16 +774,12 @@ describe("assignTier — structured watchSignals", () => {
   });
 
   it("does NOT flag a maintenance site that has a custom domain", () => {
-    const r = assignTier(site({ status: "maintenance", url: "https://acme.example.com" }), [], NOW);
+    const r = assignTier(site({ status: "maintained", url: "https://acme.example.com" }), [], NOW);
     expect(r.watchSignals).not.toContain("no-domain");
   });
 
   it("does NOT flag a launch-period site on *.netlify.app (no domain is expected pre-launch)", () => {
-    const r = assignTier(
-      site({ status: "launch period", url: "https://espada.netlify.app" }),
-      [],
-      NOW,
-    );
+    const r = assignTier(site({ status: "launching", url: "https://espada.netlify.app" }), [], NOW);
     expect(r.watchSignals).not.toContain("no-domain");
   });
 });

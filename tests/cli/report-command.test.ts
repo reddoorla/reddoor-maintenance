@@ -96,7 +96,7 @@ function siteRow(over = {}) {
     id: "rec_site_acme",
     name: "Acme Co",
     url: "https://acme.example.com",
-    status: "maintenance",
+    status: "maintained",
     pointOfContact: null,
     maintenanceFreq: "Monthly",
     testingFreq: "None",
