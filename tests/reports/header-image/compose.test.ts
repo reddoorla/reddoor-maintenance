@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import sharp from "sharp";
-import { composeHeaderImage } from "../../../src/reports/header-image/compose.js";
-import { loadPlate } from "../../../src/reports/header-image/assets/index.js";
-import { SCREEN, CANVAS } from "../../../src/reports/header-image/geometry.js";
+import { composeHeaderImage, stampHeadline } from "../../../src/reports/header-image/compose.js";
+import { loadPlate, loadHeadline } from "../../../src/reports/header-image/assets/index.js";
+import { SCREEN, CANVAS, HEADLINE } from "../../../src/reports/header-image/geometry.js";
 
 /** A solid-colour stand-in for a homepage screenshot. */
 async function fakeShot(color: string, w = 1600, h = 1000): Promise<Uint8Array> {
@@ -143,6 +143,15 @@ describe("reports/header-image compose", () => {
     expect(Buffer.from(withText).equals(Buffer.from(plain))).toBe(false);
   });
 
+  it("composes on the CLEAN plate — no headline ink before stamping", async () => {
+    const out = await composeHeaderImage({
+      plate: await loadPlate(),
+      screenshot: await fakeShot("#00ff00"),
+      domain: "acme.com",
+    });
+    expect(await headlineInk(out)).toBe(0);
+  });
+
   it("escapes XML metacharacters in the domain", async () => {
     // The domain is interpolated into an SVG; a raw & would produce invalid XML
     // and sharp would throw.
@@ -153,5 +162,50 @@ describe("reports/header-image compose", () => {
         domain: 'a&b<c>"d".com',
       }),
     ).resolves.toBeInstanceOf(Uint8Array);
+  });
+});
+
+/** Count headline-red pixels inside the HEADLINE ink box (asset is 1328x660).
+ *  Measured on the references: 0 on the clean plate, ~62k on the baked
+ *  maintenance plate — a stamping defect (missing, misplaced, wrong layer
+ *  order) moves this by tens of thousands, far outside JPEG noise. */
+async function headlineInk(bytes: Uint8Array): Promise<number> {
+  const { data, info } = await sharp(Buffer.from(bytes))
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  let n = 0;
+  for (let y = HEADLINE.y; y < HEADLINE.y + 660; y++) {
+    for (let x = HEADLINE.x; x < HEADLINE.x + 1328; x++) {
+      const i = (y * info.width + x) * info.channels;
+      const [r, g, b] = [data[i] ?? 0, data[i + 1] ?? 0, data[i + 2] ?? 0];
+      if (r > 160 && g < 90 && b < 100) n++;
+    }
+  }
+  return n;
+}
+
+describe("reports/header-image stampHeadline", () => {
+  it("paints the maintenance headline into the measured box", async () => {
+    const clean = await composeHeaderImage({
+      plate: await loadPlate(),
+      screenshot: await fakeShot("#00ff00"),
+      domain: "acme.com",
+    });
+    const stamped = await stampHeadline(clean, await loadHeadline("Maintenance"));
+    expect(await headlineInk(stamped)).toBeGreaterThan(40_000);
+    // Stamping must not disturb the screen rect below it.
+    await expectColorNear(stamped, SCREEN.x + SCREEN.w / 2, SCREEN.y + SCREEN.h / 2, "#00ff00");
+  });
+
+  it("rejects a header that is not canvas-sized (legacy hand-made headers)", async () => {
+    const small = await sharp({
+      create: { width: 600, height: 800, channels: 3, background: "#ffffff" },
+    })
+      .jpeg()
+      .toBuffer();
+    await expect(
+      stampHeadline(new Uint8Array(small), await loadHeadline("Maintenance")),
+    ).rejects.toThrow(/600x800/);
   });
 });
