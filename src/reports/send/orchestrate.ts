@@ -99,7 +99,7 @@ export async function sendApprovedReports(
       if (report.reportType === "Launch") {
         try {
           await updateLaunched(base, site.id, new Date().toISOString());
-          lines.push(`  ↳ launched: ${site.name} flipped to maintenance`);
+          lines.push(`  ↳ launched: ${site.name} flipped to maintained`);
           await recordFleetEventsBestEffort(
             [
               {
