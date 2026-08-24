@@ -37,9 +37,17 @@ describe("writeNextDueDates diff-guard", () => {
         nextMaintenanceAt: TODAY_YMD,
       }),
     ];
-    await writeNextDueDates(base, sites, [], TODAY);
+    // A skipped site must never reach the mirror either — record every call.
+    const mirrorCalls: unknown[] = [];
+    await writeNextDueDates(base, sites, [], TODAY, async (...args) => {
+      mirrorCalls.push(args);
+    });
     expect(base.__calls.filter((c) => c.kind === "update")).toHaveLength(0);
-    expect(log.mock.calls.flat().join("\n")).toContain("NEXT_DUE_WRITE wrote=0 skipped=2");
+    expect(mirrorCalls).toHaveLength(0);
+    // The FULL line — a `toContain` on a prefix would tolerate a mirrored= drift.
+    expect(log.mock.calls.flat().join("\n")).toContain(
+      "NEXT_DUE_WRITE wrote=0 skipped=2 failed=0 mirrored=0 mirror_failed=0",
+    );
   });
 
   it("writes (both fields, one update) when a date moved — and only for that site", async () => {
@@ -57,7 +65,7 @@ describe("writeNextDueDates diff-guard", () => {
       "Next maintenance at": TODAY_YMD,
       "Next testing at": null,
     });
-    expect(log.mock.calls.flat().join("\n")).toContain("NEXT_DUE_WRITE wrote=1 skipped=1");
+    expect(log.mock.calls.flat().join("\n")).toContain("NEXT_DUE_WRITE wrote=1 skipped=1 failed=0");
   });
 
   it("a testing-only change writes too — BOTH dates are load-bearing in the guard", async () => {
@@ -88,6 +96,76 @@ describe("writeNextDueDates diff-guard", () => {
       "Next testing at": null,
     });
   });
+
+  it("both stored dates non-null, exactly ONE moved (same month) → writes", async () => {
+    // The comparison-matrix cell the original suite lacked. Stored 2026-09-01 /
+    // 2026-11-01; computed maintenance EQUAL (Monthly from the 2026-08-01 anchor
+    // → 2026-09-01) and computed testing DIFFERENT but within the stored month
+    // (Quarterly from the 2026-08-15 anchor → 2026-11-15). Kills two verified
+    // surviving mutants: a `??`-collapsed guard (the equal maintenance side masks
+    // the testing diff) and a month-truncating `?.slice(0, 7)` compare (2026-11
+    // === 2026-11 would skip).
+    const log = quietLog();
+    const base = makeFakeBase({ Websites: [] });
+    const sites = [
+      makeWebsiteRow({
+        id: "recONE",
+        name: "OneMoved",
+        maintenanceFreq: "Monthly",
+        maintenanceDay: "2026-08-01",
+        testingFreq: "Quarterly",
+        testingDay: "2026-08-15",
+        nextMaintenanceAt: "2026-09-01",
+        nextTestingAt: "2026-11-01",
+      }),
+    ];
+    await writeNextDueDates(base, sites, [], TODAY);
+    const updates = base.__calls.filter((c) => c.kind === "update");
+    expect(updates).toHaveLength(1);
+    expect(updates[0]!.records[0]!.fields).toEqual({
+      "Next maintenance at": "2026-09-01",
+      "Next testing at": "2026-11-15",
+    });
+    expect(log.mock.calls.flat().join("\n")).toContain("NEXT_DUE_WRITE wrote=1 skipped=0 failed=0");
+  });
+});
+
+describe("per-site blast radius", () => {
+  it("one site's Airtable failure costs ONLY that site — the next site still writes (failed=1)", async () => {
+    const log = quietLog();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // makeFakeBase's update can never throw, so wrap it: recBOOM's write 422s
+    // (the 08-17 incident shape — one quota/validation failure mid-fleet) while
+    // recOK's passes through to the fake and lands in __calls as usual.
+    const fake = makeFakeBase({ Websites: [] });
+    type Updatable = {
+      update: (recs: Array<{ id: string; fields: Record<string, unknown> }>) => Promise<unknown>;
+    };
+    const base = ((table: string) => {
+      const t = (fake as unknown as (table: string) => Updatable)(table);
+      return {
+        ...t,
+        update: async (recs: Array<{ id: string; fields: Record<string, unknown> }>) => {
+          if (recs.some((r) => r.id === "recBOOM")) {
+            throw new Error("422 INVALID_VALUE_FOR_COLUMN");
+          }
+          return t.update(recs);
+        },
+      };
+    }) as unknown as typeof fake;
+    const sites = [
+      makeWebsiteRow({ id: "recBOOM", name: "Boom", maintenanceFreq: "Monthly" }),
+      makeWebsiteRow({ id: "recOK", name: "Okay", maintenanceFreq: "Monthly" }),
+    ];
+    await writeNextDueDates(base, sites, [], TODAY);
+    // Site 2's write landed: the failure's blast radius was one site, not the run.
+    const updates = fake.__calls.filter((c) => c.kind === "update");
+    expect(updates).toHaveLength(1);
+    expect(updates[0]!.records[0]!.id).toBe("recOK");
+    expect(warn.mock.calls.flat().join("\n")).toContain("next-due write skipped for Boom");
+    // failed=1 keeps the outage visible — wrote+skipped alone would undercount.
+    expect(log.mock.calls.flat().join("\n")).toContain("NEXT_DUE_WRITE wrote=1 skipped=0 failed=1");
+  });
 });
 
 describe("the site_schedule mirror", () => {
@@ -114,7 +192,7 @@ describe("the site_schedule mirror", () => {
       },
     ]);
     expect(log.mock.calls.flat().join("\n")).toContain(
-      "NEXT_DUE_WRITE wrote=1 skipped=0 mirrored=1 mirror_failed=0",
+      "NEXT_DUE_WRITE wrote=1 skipped=0 failed=0 mirrored=1 mirror_failed=0",
     );
   });
 
@@ -133,7 +211,7 @@ describe("the site_schedule mirror", () => {
     );
     expect(base.__calls.filter((c) => c.kind === "update")).toHaveLength(1);
     expect(log.mock.calls.flat().join("\n")).toContain(
-      "NEXT_DUE_WRITE wrote=1 skipped=0 mirrored=0 mirror_failed=1",
+      "NEXT_DUE_WRITE wrote=1 skipped=0 failed=0 mirrored=0 mirror_failed=1",
     );
     expect(warn.mock.calls.flat().join("\n")).toContain("[schedule-mirror] Stale: turso down");
   });
@@ -148,7 +226,7 @@ describe("the site_schedule mirror", () => {
       TODAY,
     );
     const line = log.mock.calls.flat().join("\n");
-    expect(line).toContain("NEXT_DUE_WRITE wrote=1 skipped=0");
+    expect(line).toContain("NEXT_DUE_WRITE wrote=1 skipped=0 failed=0");
     expect(line).not.toContain("mirrored=");
   });
 });

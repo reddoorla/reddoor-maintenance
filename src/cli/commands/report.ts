@@ -182,6 +182,7 @@ export async function writeNextDueDates(
   const ymd = (d: Date | null): string | null => (d ? d.toISOString().slice(0, 10) : null);
   let wrote = 0;
   let skipped = 0;
+  let failed = 0;
   let mirrored = 0;
   let mirrorFailed = 0;
   for (const site of websites) {
@@ -206,11 +207,15 @@ export async function writeNextDueDates(
         }
       }
     } catch (e) {
+      failed++;
       console.warn(`⚠ next-due write skipped for ${site.name}: ${(e as Error).message}`);
     }
   }
+  // failed= keeps a write outage visible: without it wrote+skipped silently
+  // undercounts, and a FULL outage prints wrote=0 skipped=0 — indistinguishable
+  // from an empty fleet.
   const mirrorNote = scheduleMirror ? ` mirrored=${mirrored} mirror_failed=${mirrorFailed}` : "";
-  console.log(`NEXT_DUE_WRITE wrote=${wrote} skipped=${skipped}${mirrorNote}`);
+  console.log(`NEXT_DUE_WRITE wrote=${wrote} skipped=${skipped} failed=${failed}${mirrorNote}`);
 }
 
 export async function draftDueReports(
