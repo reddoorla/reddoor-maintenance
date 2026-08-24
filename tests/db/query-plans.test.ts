@@ -67,6 +67,11 @@ const ALLOWED_RAW_SCANS: Array<{ scenario: string; table: string; why: string }>
     table: "sites",
     why: "reads all ~44 sites by design; bounded by fleet size, not data growth",
   },
+  {
+    scenario: "listAllReports (cockpit fleet read)",
+    table: "reports",
+    why: "the cockpit reads every report today (13 rows, ~44/month growth) — window it before Phase 4's report review adds volume",
+  },
 ];
 
 type Scenario = { name: string; covers: string[]; run: (db: Db) => Promise<unknown> };
@@ -300,6 +305,21 @@ function scenarios(state: { createdId: string }): Scenario[] {
       name: "listSites (fleet-wide read: cockpit, browse, submissions filter)",
       covers: ["listSites"],
       run: (db) => fleetState.listSites(db),
+    },
+    {
+      name: "listAllReports (cockpit fleet read)",
+      covers: ["listAllReports"],
+      run: (db) => fleetState.listAllReports(db),
+    },
+    {
+      name: "listReportsForSite (site page)",
+      covers: ["listReportsForSite"],
+      run: (db) => fleetState.listReportsForSite(db, "recA"),
+    },
+    {
+      name: "getReportHtml (preview route)",
+      covers: ["getReportHtml"],
+      run: (db) => fleetState.getReportHtml(db, "recA"),
     },
     {
       name: "mirrorSiteField (editor write-through)",
