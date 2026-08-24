@@ -89,8 +89,11 @@ export const SITE_FIELDS: Record<string, keyof SitesTable> = {
   "Launched at": "launched_at",
 };
 
-/** Direct field→column map for `site_health` (nightly-cron-owned). */
-const HEALTH_FIELDS: Record<string, keyof SiteHealthTable> = {
+/** Direct field→column map for `site_health` (nightly-cron-owned). Exported for
+ *  the Phase 3 writer mirrors (fleet-state.mirrorHealthFields) and their
+ *  lockstep tests, so the nightly writers and the importer share ONE
+ *  Airtable-column → site_health-column truth. */
+export const HEALTH_FIELDS: Record<string, keyof SiteHealthTable> = {
   pScore: "p_score",
   rScore: "r_score",
   bpScore: "bp_score",
@@ -158,17 +161,41 @@ const HEALTH_NUMERIC: ReadonlySet<keyof SiteHealthTable> = new Set([
 ]);
 
 /** Boolean-checkbox health columns (Airtable true/absent → 1/0/null). */
-const HEALTH_BOOLEAN: Record<string, keyof SiteHealthTable> = {
+export const HEALTH_BOOLEAN: Record<string, keyof SiteHealthTable> = {
   "Crossbrowser OK": "crossbrowser_ok",
   "Mobile OK": "mobile_ok",
   "Links OK": "links_ok",
 };
 
 /** Fields consumed by the schedule table. */
-const SCHEDULE_FIELDS: Record<string, keyof SiteScheduleTable> = {
+export const SCHEDULE_FIELDS: Record<string, keyof SiteScheduleTable> = {
   "Next maintenance at": "next_maintenance_at",
   "Next testing at": "next_testing_at",
 };
+
+/** Resolve one Airtable health field to its site_health column AND the exact
+ *  coercion the importer applies to it. The ONE shared path between
+ *  mapWebsiteRecord (full-row import) and fleet-state.mirrorHealthFields
+ *  (partial write-through): a coercion that exists twice will eventually
+ *  disagree, and the hourly import silently papers over the loser. Returns
+ *  null for a field no health column claims. */
+export function healthColumnFor(
+  field: string,
+): { col: keyof SiteHealthTable; coerce: (v: unknown) => string | number | null } | null {
+  const direct = HEALTH_FIELDS[field];
+  if (direct) return { col: direct, coerce: HEALTH_NUMERIC.has(direct) ? n : s };
+  const bool = HEALTH_BOOLEAN[field];
+  if (bool) return { col: bool, coerce: b01n };
+  return null;
+}
+
+/** The schedule twin of {@link healthColumnFor} (both columns store as text). */
+export function scheduleColumnFor(
+  field: string,
+): { col: keyof SiteScheduleTable; coerce: (v: unknown) => string | null } | null {
+  const col = SCHEDULE_FIELDS[field];
+  return col ? { col, coerce: s } : null;
+}
 
 export type MappedWebsite = {
   site: Omit<
@@ -239,13 +266,11 @@ export function mapWebsiteRecord(rec: RawRecord, computedAt: string): MappedWebs
   }
 
   const health = { site_id: rec.id } as SiteHealthTable;
-  for (const [field, col] of Object.entries(HEALTH_FIELDS)) {
-    (health as unknown as Record<string, unknown>)[col] = HEALTH_NUMERIC.has(col)
-      ? n(f[field])
-      : s(f[field]);
-  }
-  for (const [field, col] of Object.entries(HEALTH_BOOLEAN)) {
-    (health as unknown as Record<string, unknown>)[col] = b01n(f[field]);
+  // Through healthColumnFor — the SAME resolution+coercion the Phase 3 writer
+  // mirrors use, so import and write-through cannot drift apart.
+  for (const field of [...Object.keys(HEALTH_FIELDS), ...Object.keys(HEALTH_BOOLEAN)]) {
+    const m = healthColumnFor(field);
+    if (m) (health as unknown as Record<string, unknown>)[m.col] = m.coerce(f[field]);
   }
 
   const schedule: SiteScheduleTable = {

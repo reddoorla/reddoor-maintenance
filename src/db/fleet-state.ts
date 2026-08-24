@@ -21,10 +21,10 @@
  *  header-image writer moves in Phase 3. The `url` is "" because the bytes
  *  live in the row itself, not behind a signed URL.
  */
-import type { Selectable } from "kysely";
+import type { Selectable, Updateable } from "kysely";
 import type { Db } from "./client.js";
-import type { ReportsTable } from "./schema.js";
-import { SITE_FIELDS } from "./import-airtable.js";
+import type { ReportsTable, SiteHealthTable, SiteScheduleTable } from "./schema.js";
+import { SITE_FIELDS, healthColumnFor, scheduleColumnFor } from "./import-airtable.js";
 import {
   toReportType,
   parseAutoEvidence,
@@ -230,6 +230,68 @@ export async function mirrorSiteField(
     .updateTable("sites")
     .set({ [col]: stored })
     .where("id", "=", siteId)
+    .execute();
+}
+
+/** Write-through mirror for the nightly health writers (#539 Phase 3). Takes
+ *  the EXACT FieldSet just written to Airtable (updateAuditFields /
+ *  updateGitHubSignals return it), so the mirror can never carry a different
+ *  payload than the Airtable write it shadows. Resolution + coercion come from
+ *  the importer's healthColumnFor — one truth; an Airtable column no
+ *  site_health column claims throws (same contract as mirrorSiteField).
+ *  Partial by design: absent fields stay untouched, matching
+ *  updateGitHubSignals' deliberate omission of a null lastCommitAt. A site the
+ *  hourly sync hasn't imported yet updates 0 rows — it converges on the next
+ *  sync, like every mirror. */
+export async function mirrorHealthFields(
+  db: Db,
+  siteId: string,
+  fields: Record<string, unknown>,
+): Promise<void> {
+  // Per-column value types (number vs text) are guaranteed by healthColumnFor's
+  // coercion — the numeric/text split lives there, once — so the patch builds
+  // untyped and casts at the .set() boundary (the importer's own idiom).
+  const patch: Record<string, string | number | null> = {};
+  for (const [field, value] of Object.entries(fields)) {
+    const m = healthColumnFor(field);
+    if (!m)
+      throw new Error(`mirrorHealthFields: importer claims no site_health column for '${field}'`);
+    patch[m.col] = m.coerce(value);
+  }
+  if (Object.keys(patch).length === 0) return;
+  await db
+    .updateTable("site_health")
+    .set(patch as Updateable<SiteHealthTable>)
+    .where("site_id", "=", siteId)
+    .execute();
+}
+
+/** The site_schedule twin of {@link mirrorHealthFields}, for the nightly
+ *  next-due write-back. `computedAt` stamps when THIS computation ran — the
+ *  hourly sync overwrites it with its own import stamp, same as every mirrored
+ *  value. Empty fields → full no-op (no lone computed_at stamp for a write
+ *  that carried nothing). */
+export async function mirrorScheduleFields(
+  db: Db,
+  siteId: string,
+  fields: Record<string, unknown>,
+  computedAt: string,
+): Promise<void> {
+  const patch: Record<string, string | null> = {};
+  for (const [field, value] of Object.entries(fields)) {
+    const m = scheduleColumnFor(field);
+    if (!m)
+      throw new Error(
+        `mirrorScheduleFields: importer claims no site_schedule column for '${field}'`,
+      );
+    patch[m.col] = m.coerce(value);
+  }
+  if (Object.keys(patch).length === 0) return;
+  patch.computed_at = computedAt;
+  await db
+    .updateTable("site_schedule")
+    .set(patch as Updateable<SiteScheduleTable>)
+    .where("site_id", "=", siteId)
     .execute();
 }
 

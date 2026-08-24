@@ -338,6 +338,22 @@ function scenarios(state: { createdId: string }): Scenario[] {
       run: (db) => fleetState.mirrorReportPatch(db, "recA", { approved_to_send: 1 }),
     },
     {
+      name: "mirrorHealthFields (nightly audit write-through)",
+      covers: ["mirrorHealthFields"],
+      run: (db) => fleetState.mirrorHealthFields(db, "recA", { "Smoke OK": "pass" }),
+    },
+    {
+      name: "mirrorScheduleFields (next-due write-through)",
+      covers: ["mirrorScheduleFields"],
+      run: (db) =>
+        fleetState.mirrorScheduleFields(
+          db,
+          "recA",
+          { "Next maintenance at": "2026-09-01" },
+          "2026-08-24T00:00:00.000Z",
+        ),
+    },
+    {
       name: "createDeadLetter",
       covers: ["createDeadLetter"],
       run: (db) =>
