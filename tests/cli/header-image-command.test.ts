@@ -101,7 +101,7 @@ describe("cli/header-image dual-write (#539 D5)", () => {
     bytes: new Uint8Array([9, 9, 9]),
     domain: "acme.com",
     filename: "acmeHeader.jpg",
-    contentType: "image/jpeg",
+    contentType: "image/jpeg" as const,
   });
 
   it("writeAirtable also lands the bytes in the injected Turso store, stamped as a generation", async () => {
