@@ -28,6 +28,7 @@ import * as submissions from "../../src/db/submissions.js";
 import * as screenouts from "../../src/db/screenouts.js";
 import * as fleetEvents from "../../src/db/fleet-events.js";
 import * as deadletter from "../../src/db/deadletter.js";
+import * as fleetState from "../../src/db/fleet-state.js";
 import type { Db } from "../../src/db/client.js";
 
 const SRC_DB_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../src/db");
@@ -38,6 +39,7 @@ const GATED_MODULES: Record<string, Record<string, unknown>> = {
   "screenouts.ts": screenouts,
   "fleet-events.ts": fleetEvents,
   "deadletter.ts": deadletter,
+  "fleet-state.ts": fleetState,
 };
 
 /** Modules the gate deliberately does not plan-check. Every entry needs a reason
@@ -59,7 +61,13 @@ const PURE_EXPORTS = new Set(["newSubmissionId", "screenOutsSince", "newDeadLett
 /** Raw scans accepted with a written justification. Empty today — the 0008
  *  indexes cover every hot path — but the mechanism stays so a future entry is
  *  a reviewed, named decision instead of a silent regression. */
-const ALLOWED_RAW_SCANS: Array<{ scenario: string; table: string; why: string }> = [];
+const ALLOWED_RAW_SCANS: Array<{ scenario: string; table: string; why: string }> = [
+  {
+    scenario: "listSites (fleet-wide read: cockpit, browse, submissions filter)",
+    table: "sites",
+    why: "reads all ~44 sites by design; bounded by fleet size, not data growth",
+  },
+];
 
 type Scenario = { name: string; covers: string[]; run: (db: Db) => Promise<unknown> };
 
@@ -277,6 +285,21 @@ function scenarios(state: { createdId: string }): Scenario[] {
       name: "pruneFleetEvents",
       covers: ["pruneFleetEvents"],
       run: (db) => fleetEvents.pruneFleetEvents(db, "2026-01-01T00:00:00.000Z"),
+    },
+    {
+      name: "getSiteBySlug (form ingest / site detail lookup)",
+      covers: ["getSiteBySlug"],
+      run: (db) => fleetState.getSiteBySlug(db, "acme-gallery"),
+    },
+    {
+      name: "getSiteById (approve-report lookup)",
+      covers: ["getSiteById"],
+      run: (db) => fleetState.getSiteById(db, "recA"),
+    },
+    {
+      name: "listSites (fleet-wide read: cockpit, browse, submissions filter)",
+      covers: ["listSites"],
+      run: (db) => fleetState.listSites(db),
     },
     {
       name: "createDeadLetter",

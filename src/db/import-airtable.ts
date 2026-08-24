@@ -189,7 +189,10 @@ export function mapWebsiteRecord(rec: RawRecord, computedAt: string): MappedWebs
   // canonical JSON array here (same trimming mapRow applies at read time).
   const awcRaw = f["Accepted Watch Conditions"];
   const awc = Array.isArray(awcRaw)
-    ? awcRaw.filter((x): x is string => typeof x === "string").map((x) => x.trim())
+    ? awcRaw
+        .filter((x): x is string => typeof x === "string")
+        .map((x) => x.trim())
+        .filter(Boolean)
     : typeof awcRaw === "string"
       ? awcRaw
           .split(/[\n,]/)
