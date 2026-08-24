@@ -9,6 +9,7 @@ import { announcementSiteExtras } from "../announcement-email/template.js";
 import { renderReportEmail } from "./render-email.js";
 import type { ReportData } from "../types.js";
 import { prepareHeaderImage } from "../maintenance-email/header-image.js";
+import { applyReportTypeHeadline } from "../header-image/index.js";
 import { defaultResendClient, type ResendClient } from "./resend.js";
 import { isIdempotencyConflict } from "./idempotency.js";
 import { gatingHealth, isHealthGateClear, isSendOverridden } from "../checklist.js";
@@ -191,9 +192,13 @@ async function sendOne(
   }
 
   const original = await fetchAttachmentBytes(site.headerImage.url);
-  // Downscale the (often multi-MB / 2400px+) Airtable header to email display size, and get
-  // back display dims + a placeholder color so the template can reserve the box.
-  const header = await prepareHeaderImage(original.bytes);
+  // The stored header is the CLEAN plate; stamp this report type's headline
+  // onto it (Maintenance only for now — see assets/index.ts HEADLINE_FILES),
+  // then downscale the (often multi-MB / 2400px+) result to email display
+  // size, getting back display dims + a placeholder color so the template can
+  // reserve the box.
+  const withHeadline = await applyReportTypeHeadline(original.bytes, report.reportType);
+  const header = await prepareHeaderImage(withHeadline);
 
   const slug = siteSlug(site.name);
   const cidName = `${slug}-header`;

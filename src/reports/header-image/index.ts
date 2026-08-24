@@ -1,7 +1,8 @@
 import sharp from "sharp";
 import { captureHomepage, type Shooter } from "./capture.js";
-import { composeHeaderImage } from "./compose.js";
-import { loadPlate } from "./assets/index.js";
+import { composeHeaderImage, stampHeadline } from "./compose.js";
+import { loadPlate, loadHeadline, headlineKindFor } from "./assets/index.js";
+import { CANVAS } from "./geometry.js";
 
 export type GenerateInput = {
   /** The site's production URL. */
@@ -78,6 +79,44 @@ async function assertNotBlank(shot: Uint8Array): Promise<void> {
     throw new Error(
       "header-image: capture looks blank (near-white, >95% one colour) — keeping the existing header",
     );
+  }
+}
+
+/**
+ * Stamp the report type's headline onto a stored (clean) header at send time.
+ * Types with no headline registered (Announcement, Launch, and Testing until
+ * its asset is re-exported) pass through untouched — as does any header whose
+ * dimensions aren't the canvas's (a legacy hand-made header, or a stored image
+ * from before the clean-plate switch was regenerated), where stamping at fixed
+ * coordinates would misplace or double-print the text. A pre-switch stored
+ * header therefore keeps its baked maintenance headline until the site's next
+ * draft regenerates it clean — drafting refreshes the header, so this
+ * self-heals fleet-wide within one report cycle.
+ */
+export async function applyReportTypeHeadline(
+  header: Uint8Array,
+  reportType: string,
+): Promise<Uint8Array> {
+  const kind = headlineKindFor(reportType);
+  if (!kind) return header;
+  // Best-effort by design: the headline is cosmetic, so anything unexpected —
+  // undecodable bytes included — warns and sends the header as stored rather
+  // than failing the send. Mandatory processing (and its hard failures) lives
+  // in prepareHeaderImage downstream.
+  try {
+    const meta = await sharp(Buffer.from(header)).metadata();
+    if (meta.width !== CANVAS.width || meta.height !== CANVAS.height) {
+      console.warn(
+        `⚑ header headline skipped: stored header is ${meta.width}x${meta.height}, not ${CANVAS.width}x${CANVAS.height} — sending it as stored`,
+      );
+      return header;
+    }
+    return await stampHeadline(header, await loadHeadline(kind));
+  } catch (err) {
+    console.warn(
+      `⚑ header headline skipped (${err instanceof Error ? err.message : String(err)}) — sending the header as stored`,
+    );
+    return header;
   }
 }
 

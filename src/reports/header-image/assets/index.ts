@@ -3,7 +3,24 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const PLATE = "plate.png";
+const PLATE = "plate-clean.png";
+
+/** Per-report-type headline overlays, stamped over the CLEAN plate at send
+ *  time (see orchestrate.ts). Types with no entry — Announcement, Launch, and
+ *  for now Testing — go out on the clean plate. Testing is absent because its
+ *  Figma export (2026-08-20) shipped flattened onto an opaque red rectangle
+ *  (alpha min=max=255) instead of transparent text; re-export it from Figma
+ *  with a transparent background and add it here to enable it. */
+const HEADLINE_FILES = {
+  Maintenance: "headline-maintenance.png",
+} as const;
+
+export type HeadlineKind = keyof typeof HEADLINE_FILES;
+
+/** The headline kind for a report type, or null for types that ship clean. */
+export function headlineKindFor(reportType: string): HeadlineKind | null {
+  return Object.hasOwn(HEADLINE_FILES, reportType) ? (reportType as HeadlineKind) : null;
+}
 
 // Walk up from this module's URL looking for the assets dir in either the dev
 // layout (src/reports/header-image/assets/) or the published layout
@@ -35,7 +52,13 @@ function resolveAssetsDir(): string {
   }
 }
 
-/** Read the bundled 2400x3200 plate. */
+/** Read the bundled 2400x3200 CLEAN plate (no headline — the report type's
+ *  headline is stamped at send time, so one stored image serves every type). */
 export async function loadPlate(): Promise<Uint8Array> {
   return new Uint8Array(await readFile(join(resolveAssetsDir(), PLATE)));
+}
+
+/** Read a headline overlay (transparent PNG, ink-box cropped). */
+export async function loadHeadline(kind: HeadlineKind): Promise<Uint8Array> {
+  return new Uint8Array(await readFile(join(resolveAssetsDir(), HEADLINE_FILES[kind])));
 }
