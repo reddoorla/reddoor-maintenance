@@ -65,9 +65,14 @@ describe("reports/header-image applyReportTypeHeadline", () => {
     const stamped = await applyReportTypeHeadline(bytes, "Maintenance");
     expect(Buffer.from(stamped).equals(Buffer.from(bytes))).toBe(false);
 
+    const stampedTesting = await applyReportTypeHeadline(bytes, "Testing");
+    expect(Buffer.from(stampedTesting).equals(Buffer.from(bytes))).toBe(false);
+    // The two headlines differ, so their stamped output must differ too — this
+    // catches a HEADLINE_FILES entry pointing at the wrong asset.
+    expect(Buffer.from(stampedTesting).equals(Buffer.from(stamped))).toBe(false);
+
     // No registered headline → the exact input reference comes back, untouched.
     expect(await applyReportTypeHeadline(bytes, "Announcement")).toBe(bytes);
-    expect(await applyReportTypeHeadline(bytes, "Testing")).toBe(bytes);
     expect(await applyReportTypeHeadline(bytes, "Launch")).toBe(bytes);
   });
 

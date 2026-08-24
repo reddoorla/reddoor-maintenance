@@ -326,6 +326,7 @@ await check("loadHeadline returns the maintenance headline without ENOENT", asyn
 const shippedAssets = [
   "dist/reports/header-image/assets/plate-clean.png",
   "dist/reports/header-image/assets/headline-maintenance.png",
+  "dist/reports/header-image/assets/headline-testing.png",
   "dist/reports/maintenance-email/assets/check.png",
   "dist/reports/maintenance-email/assets/blurredTests.jpg",
 ];

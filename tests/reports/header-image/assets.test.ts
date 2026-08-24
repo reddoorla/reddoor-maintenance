@@ -15,22 +15,27 @@ describe("reports/header-image assets", () => {
     expect(meta.height).toBe(3200);
   });
 
-  it("loads the maintenance headline as genuinely transparent ink-box art", async () => {
-    const bytes = await loadHeadline("Maintenance");
+  it.each([
+    ["Maintenance" as const, 1328, 660],
+    ["Testing" as const, 1715, 664],
+  ])("loads the %s headline as genuinely transparent ink-box art", async (kind, w, h) => {
+    const bytes = await loadHeadline(kind);
     const meta = await sharp(Buffer.from(bytes)).metadata();
-    expect(meta.width).toBe(1328);
-    expect(meta.height).toBe(660);
+    expect(meta.width).toBe(w);
+    expect(meta.height).toBe(h);
     expect(meta.channels).toBe(4);
-    // The Testing export of 2026-08-20 shipped flattened onto an opaque red
-    // rectangle (alpha everywhere 255) — this pins the failure mode so a
-    // future re-export can't reintroduce it for any registered headline.
+    // A Figma MCP export arrives flattened onto opaque white (alpha everywhere
+    // 255) — stamping that paints a white slab over the paper texture, which is
+    // exactly what made the 2026-08-20 Testing asset unusable. Pin the failure
+    // mode so a future re-export can't reintroduce it for any headline.
     const alpha = (await sharp(Buffer.from(bytes)).stats()).channels[3];
     expect(alpha?.min).toBe(0);
   });
 
   it("maps only report types with a registered overlay; the rest ship clean", () => {
     expect(headlineKindFor("Maintenance")).toBe("Maintenance");
-    expect(headlineKindFor("Testing")).toBeNull();
+    expect(headlineKindFor("Testing")).toBe("Testing");
+    // Awaiting their copy being typed in Figma — see HEADLINE_FILES.
     expect(headlineKindFor("Announcement")).toBeNull();
     expect(headlineKindFor("Launch")).toBeNull();
   });
