@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import sharp from "sharp";
-import { generateHeaderImage } from "../../../src/reports/header-image/index.js";
+import {
+  generateHeaderImage,
+  applyReportTypeHeadline,
+} from "../../../src/reports/header-image/index.js";
 import type { Shooter } from "../../../src/reports/header-image/capture.js";
 
 async function shot(color = "#123456"): Promise<Uint8Array> {
@@ -52,5 +55,28 @@ describe("reports/header-image generateHeaderImage", () => {
     await expect(generateHeaderImage({ url: "https://acme.com/", shooter: blank })).rejects.toThrow(
       /blank/i,
     );
+  });
+});
+
+describe("reports/header-image applyReportTypeHeadline", () => {
+  it("stamps the headline for Maintenance and passes every other type through", async () => {
+    const { bytes } = await generateHeaderImage({ url: "https://acme.com/", shooter });
+
+    const stamped = await applyReportTypeHeadline(bytes, "Maintenance");
+    expect(Buffer.from(stamped).equals(Buffer.from(bytes))).toBe(false);
+
+    // No registered headline → the exact input reference comes back, untouched.
+    expect(await applyReportTypeHeadline(bytes, "Announcement")).toBe(bytes);
+    expect(await applyReportTypeHeadline(bytes, "Testing")).toBe(bytes);
+    expect(await applyReportTypeHeadline(bytes, "Launch")).toBe(bytes);
+  });
+
+  it("skips (never throws) on a non-canvas-sized header, returning it as stored", async () => {
+    const legacy = new Uint8Array(
+      await sharp({ create: { width: 600, height: 800, channels: 3, background: "#ffffff" } })
+        .jpeg()
+        .toBuffer(),
+    );
+    expect(await applyReportTypeHeadline(legacy, "Maintenance")).toBe(legacy);
   });
 });

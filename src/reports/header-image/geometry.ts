@@ -21,6 +21,15 @@ export const CANVAS = { width: 2400, height: 3200 } as const;
  *  in the hand-made headers. Aspect 1.5983 (16:10 to within 0.1%). */
 export const SCREEN = { x: 302, y: 1913, w: 1349, h: 844 } as const;
 
+/** Where a report-type headline overlay lands on the clean plate.
+ *
+ *  Measured, not guessed: red ink present in the baked maintenance plate but
+ *  absent from plate-clean spans x=277 y=998 w=1326 h=658 — and
+ *  headline-maintenance.png is that ink box cropped to its own edges
+ *  (1328x660, ±1px of anti-aliasing at the threshold), so compositing the
+ *  asset at this origin reproduces the baked plate's headline exactly. */
+export const HEADLINE = { x: 277, y: 998 } as const;
+
 /** The per-site domain line, bottom left.
  *
  *  Solved against the hand-made reference rather than guessed: rendering

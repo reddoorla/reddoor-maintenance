@@ -97,7 +97,7 @@ export { renderSiteDashboardHtml, renderCockpitHtml, verifyBasicAuth } from "./d
 // independently of the maintenance-email assets — and unit tests cannot catch
 // that, because vitest evaluates the source file where import.meta.url already
 // points at src/.
-export { loadPlate } from "./reports/header-image/assets/index.js";
+export { loadPlate, loadHeadline } from "./reports/header-image/assets/index.js";
 
 // header-image/index.ts is not a tsup entry, so it only exists in dist/ as a
 // hashed chunk with no stable import path. Re-exported here so consumers (and

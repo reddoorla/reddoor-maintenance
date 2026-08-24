@@ -84,6 +84,14 @@ describe("hasAnalyticsData", () => {
     expect(hasAnalyticsData({})).toBe(false);
     expect(hasAnalyticsData({ bodyLines: [] })).toBe(false);
   });
+  it("treats a zero previous period as no GA data (partial-window tag install)", () => {
+    expect(hasAnalyticsData({ current: 5, previous: 0 })).toBe(false);
+    expect(hasAnalyticsData({ current: 0, previous: 0 })).toBe(false);
+    // A search body line keeps the block alive even when the GA count is suppressed.
+    expect(hasAnalyticsData({ current: 5, previous: 0, bodyLines: ["x"] })).toBe(true);
+    // previous undefined = GA gave no prior window; the count still shows.
+    expect(hasAnalyticsData({ current: 5, previous: undefined })).toBe(true);
+  });
 });
 
 describe("analyticsTrendLine", () => {
@@ -141,6 +149,21 @@ describe("analyticsSection", () => {
     expect(mjml).toContain(">ANALYTICS</mj-text>");
     expect(mjml).toContain("Page 1 Google result (#3)");
     expect(mjml).not.toContain("Users"); // no "— Users" / "0 Users"
+  });
+  it("hides the whole block when the previous period is zero and nothing else has data", () => {
+    expect(analyticsSection({ current: 7, previous: 0, background: "white" })).toBe("");
+    expect(analyticsSection({ current: 0, previous: 0, background: "white" })).toBe("");
+  });
+  it("keeps the body line but suppresses the count when the previous period is zero", () => {
+    const mjml = analyticsSection({
+      current: 7,
+      previous: 0,
+      background: "white",
+      bodyLines: ["Page 1 Google result (#3)"],
+    });
+    expect(mjml).toContain(">ANALYTICS</mj-text>");
+    expect(mjml).toContain("Page 1 Google result (#3)");
+    expect(mjml).not.toContain("Users");
   });
   it("threads periodDays into the trend label", () => {
     const mjml = analyticsSection({

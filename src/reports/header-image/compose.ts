@@ -1,6 +1,6 @@
 import sharp from "sharp";
 import type { OverlayOptions } from "sharp";
-import { CANVAS, SCREEN, DOMAIN, PAPER } from "./geometry.js";
+import { CANVAS, SCREEN, DOMAIN, PAPER, HEADLINE } from "./geometry.js";
 
 export type ComposeInput = {
   /** The bundled 2400x3200 plate. */
@@ -82,6 +82,28 @@ export async function composeHeaderImage(input: ComposeInput): Promise<Uint8Arra
 
   const out = await sharp(Buffer.from(input.plate))
     .composite(layers)
+    .jpeg({ quality: JPEG_QUALITY })
+    .toBuffer();
+  return new Uint8Array(out);
+}
+
+/**
+ * Stamp a report-type headline overlay onto a finished (clean-plate) header at
+ * the measured HEADLINE origin. PURE and strict: the header must be exactly
+ * CANVAS-sized — a legacy hand-made header at other dimensions would misplace
+ * the text, so the caller (applyReportTypeHeadline) size-guards and skips
+ * instead of calling in. One extra JPEG generation at quality 88 is invisible
+ * at the email's 600px display size.
+ */
+export async function stampHeadline(header: Uint8Array, headline: Uint8Array): Promise<Uint8Array> {
+  const meta = await sharp(Buffer.from(header)).metadata();
+  if (meta.width !== CANVAS.width || meta.height !== CANVAS.height) {
+    throw new Error(
+      `stampHeadline: header is ${meta.width}x${meta.height}, expected ${CANVAS.width}x${CANVAS.height}`,
+    );
+  }
+  const out = await sharp(Buffer.from(header))
+    .composite([{ input: Buffer.from(headline), left: HEADLINE.x, top: HEADLINE.y }])
     .jpeg({ quality: JPEG_QUALITY })
     .toBuffer();
   return new Uint8Array(out);
