@@ -273,4 +273,32 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_reports_site ON reports (site_id, period_start DESC);
     `,
   },
+  {
+    // Indexes the EXPLAIN-query-plan gate (tests/db/query-plans.test.ts) proved the
+    // hot paths need — each serves a named query shape that otherwise full-scans
+    // submissions, the one unbounded-growth table:
+    //   submitted_at    — every windowed read (/submissions default page, digest
+    //                     per-site counts, duplicate/repeat-sender scans)
+    //   resend_message_id — the resend-webhook bounce lookup (markNotifyBouncedByMessageId)
+    //   submission_id   — createSubmission's MAX(submission_id)+1 display number,
+    //                     O(1) off the index instead of a scan per insert
+    //   spam_reason (partial, covering) — listSpamReasonsFiltered's facet tally
+    //                     reads ONLY spam_reason WHERE spam_reason IS NOT NULL;
+    //                     partial keeps it to the spam subset
+    //   spam_screenouts(date) — listScreenOutsSince windows on date, which the
+    //                     (site_id, date) PK can't serve
+    id: "0008_query_plan_indexes",
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_submissions_submitted
+        ON submissions (submitted_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_submissions_spam_reason
+        ON submissions (spam_reason) WHERE spam_reason IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_submissions_resend_message
+        ON submissions (resend_message_id);
+      CREATE INDEX IF NOT EXISTS idx_submissions_display_number
+        ON submissions (submission_id);
+      CREATE INDEX IF NOT EXISTS idx_screenouts_date
+        ON spam_screenouts (date);
+    `,
+  },
 ];

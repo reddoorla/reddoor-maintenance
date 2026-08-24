@@ -42,6 +42,7 @@ describe("openDb", () => {
       "0005_add_fanout_status",
       "0006_submission_deadletter",
       "0007_fleet_state",
+      "0008_query_plan_indexes",
     ]);
     await db.destroy();
   });
