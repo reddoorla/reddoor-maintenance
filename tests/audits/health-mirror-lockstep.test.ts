@@ -6,9 +6,16 @@
  *  with every slice populated) rather than a hand-copied column list.
  */
 import { describe, it, expect } from "vitest";
-import { updateAuditFields, updateGitHubSignals } from "../../src/reports/airtable/websites.js";
-import { healthColumnFor } from "../../src/db/import-airtable.js";
-import { makeHealthMirrorBestEffort } from "../../src/audits/health-mirror.js";
+import {
+  updateAuditFields,
+  updateGitHubSignals,
+  updateNextDueDates,
+} from "../../src/reports/airtable/websites.js";
+import { healthColumnFor, scheduleColumnFor } from "../../src/db/import-airtable.js";
+import {
+  makeHealthMirrorBestEffort,
+  makeScheduleMirrorBestEffort,
+} from "../../src/audits/health-mirror.js";
 import { makeFakeBase } from "../reports/_helpers/fake-airtable-base.js";
 import { openDb } from "../../src/db/client.js";
 import { importFleetState, type ImportIo } from "../../src/db/import-airtable.js";
@@ -71,6 +78,19 @@ describe("every audit-writer column is importer-claimed (dual-write lockstep)", 
       expect(healthColumnFor(key), `unclaimed github-signals column '${key}'`).not.toBeNull();
     }
   });
+
+  it("updateNextDueDates returns the FieldSet it wrote, and every key is schedule-claimed", async () => {
+    const b = base();
+    const fields = await updateNextDueDates(b, "recA", {
+      maintenanceAt: "2026-09-01",
+      testingAt: null,
+    });
+    const update = b.__calls.find((c) => c.kind === "update");
+    expect(update?.records[0]?.fields).toEqual(fields);
+    for (const key of Object.keys(fields)) {
+      expect(scheduleColumnFor(key), `unclaimed next-due column '${key}'`).not.toBeNull();
+    }
+  });
 });
 
 describe("makeHealthMirrorBestEffort", () => {
@@ -99,5 +119,30 @@ describe("makeHealthMirrorBestEffort", () => {
       .where("site_id", "=", "recA")
       .executeTakeFirstOrThrow();
     expect(row.smoke_ok).toBe("pass");
+  });
+
+  it("the schedule twin: null without creds, mirrors end-to-end with one", async () => {
+    expect(
+      await makeScheduleMirrorBestEffort(async () => {
+        throw new Error("no creds");
+      }),
+    ).toBeNull();
+    const db = await openDb({ url: ":memory:" });
+    const io: ImportIo = {
+      listWebsiteRecords: async () => [{ id: "recA", fields: { Name: "Acme Co" } }],
+      listReportRecords: async () => [],
+      fetchAttachment: async () => null,
+      now: () => new Date("2026-08-24T12:00:00.000Z"),
+    };
+    await importFleetState(db, io);
+    const mirror = await makeScheduleMirrorBestEffort(async () => db);
+    await mirror!("recA", { "Next maintenance at": "2026-09-01" }, "2026-08-24T09:23:00.000Z");
+    const row = await db
+      .selectFrom("site_schedule")
+      .selectAll()
+      .where("site_id", "=", "recA")
+      .executeTakeFirstOrThrow();
+    expect(row.next_maintenance_at).toBe("2026-09-01");
+    expect(row.computed_at).toBe("2026-08-24T09:23:00.000Z");
   });
 });

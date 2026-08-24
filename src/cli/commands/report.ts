@@ -16,6 +16,7 @@ import {
   type AnalyticsRunHealth,
 } from "../../alerts/analytics-health.js";
 import type { ReportType } from "../../reports/types.js";
+import type { ScheduleMirror } from "../../audits/health-mirror.js";
 import { operatorEmail } from "../../util/operator.js";
 
 export type ReportCommandOptions = {
@@ -122,7 +123,10 @@ export async function runReportCommand(
 
 async function runDueDraft(): Promise<{ output: string; code: number }> {
   const base = openBase(readAirtableConfig());
-  const result = await draftDueReports(base, new Date());
+  // Phase 3 dual-write (#539): mirror real next-due writes into site_schedule.
+  // Null when libSQL creds are absent — the Airtable path is unchanged.
+  const { makeScheduleMirrorBestEffort } = await import("../../audits/health-mirror.js");
+  const result = await draftDueReports(base, new Date(), await makeScheduleMirrorBestEffort());
   await alertOnFleetAnalyticsFailure(result.health);
   return { output: result.output, code: result.code };
 }
@@ -157,29 +161,62 @@ async function alertOnFleetAnalyticsFailure(health: AnalyticsRunHealth): Promise
  * from the SAME `nextDueDate` the scheduler uses — replacing the old Airtable formula +
  * automation. Best-effort and per-site isolated: a missing `Next … at` column or one bad
  * row warns and is skipped, never aborting the nightly draft run.
+ *
+ * The diff-guard (#539 Phase 3): a site whose computed dates equal what its row
+ * already holds is SKIPPED — before it, every one of the 44 sites got a nightly
+ * write while only the handful whose schedule actually moved needed one (a
+ * never-maintained site re-wrote null over null forever). This also scopes the
+ * write to maintained sites by construction: no schedule → computed null →
+ * equal to the stored null → skipped. Each real write dual-writes through
+ * `scheduleMirror` into site_schedule (null mirror = Turso creds absent; the
+ * hourly sync converges either way). The NEXT_DUE_WRITE line is observability,
+ * not a CI gate — nothing greps it yet.
  */
-async function writeNextDueDates(
+export async function writeNextDueDates(
   base: AirtableBase,
   websites: WebsiteRow[],
   reports: ReportRow[],
   today: Date,
+  scheduleMirror: ScheduleMirror | null = null,
 ): Promise<void> {
   const ymd = (d: Date | null): string | null => (d ? d.toISOString().slice(0, 10) : null);
+  let wrote = 0;
+  let skipped = 0;
+  let mirrored = 0;
+  let mirrorFailed = 0;
   for (const site of websites) {
+    // The whole per-site body sits in ONE try — compute included — so a bad
+    // row can only cost its own write, exactly the pre-diff-guard blast radius.
     try {
-      await updateNextDueDates(base, site.id, {
-        maintenanceAt: ymd(nextDueDate(site, reports, "Maintenance", today)),
-        testingAt: ymd(nextDueDate(site, reports, "Testing", today)),
-      });
+      const maintenanceAt = ymd(nextDueDate(site, reports, "Maintenance", today));
+      const testingAt = ymd(nextDueDate(site, reports, "Testing", today));
+      if (maintenanceAt === site.nextMaintenanceAt && testingAt === site.nextTestingAt) {
+        skipped++;
+        continue;
+      }
+      const fields = await updateNextDueDates(base, site.id, { maintenanceAt, testingAt });
+      wrote++;
+      if (scheduleMirror) {
+        try {
+          await scheduleMirror(site.id, fields, today.toISOString());
+          mirrored++;
+        } catch (e) {
+          mirrorFailed++;
+          console.warn(`⚠ [schedule-mirror] ${site.name}: ${(e as Error).message}`);
+        }
+      }
     } catch (e) {
       console.warn(`⚠ next-due write skipped for ${site.name}: ${(e as Error).message}`);
     }
   }
+  const mirrorNote = scheduleMirror ? ` mirrored=${mirrored} mirror_failed=${mirrorFailed}` : "";
+  console.log(`NEXT_DUE_WRITE wrote=${wrote} skipped=${skipped}${mirrorNote}`);
 }
 
 export async function draftDueReports(
   base: AirtableBase,
   today: Date,
+  scheduleMirror: ScheduleMirror | null = null,
 ): Promise<{ output: string; code: number; health: AnalyticsRunHealth }> {
   const websites = await listWebsites(base);
   // ONE unfiltered fetch for the whole fleet. Per-site queries can't be pushed to
@@ -189,7 +226,7 @@ export async function draftDueReports(
 
   // Refresh every site's code-owned next-due dates first, so they stay current even on
   // a run where nothing is due (the early return below).
-  await writeNextDueDates(base, websites, reports, today);
+  await writeNextDueDates(base, websites, reports, today, scheduleMirror);
 
   const due = findDueReports(websites, reports, today);
 
