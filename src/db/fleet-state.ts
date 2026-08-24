@@ -22,6 +22,7 @@
  *  live in the row itself, not behind a signed URL.
  */
 import type { Db } from "./client.js";
+import { SITE_FIELDS } from "./import-airtable.js";
 import type { Status, WebsiteRow } from "../reports/airtable/websites.js";
 import {
   parseNotifyRouting,
@@ -150,6 +151,35 @@ function joined(db: Db) {
     .leftJoin("site_health", "site_health.site_id", "sites.id")
     .leftJoin("site_schedule", "site_schedule.site_id", "sites.id")
     .selectAll(["sites", "site_health", "site_schedule"]);
+}
+
+/** Write-through for the site-detail editor (Phase 2): after the Airtable
+ *  write (still the Phase 2 source of truth), mirror the same cell into
+ *  `sites` so a Turso-reading page renders the edit immediately instead of
+ *  waiting for the next hourly sync. The column mapping is the IMPORTER's own
+ *  map — one truth — and the value gets the importer's empty-clears-to-null
+ *  semantics. Throws on a column the importer doesn't claim (the lockstep
+ *  test makes that unreachable for the editor's allowlist); the caller treats
+ *  a mirror failure as non-fatal — the hourly sync converges it.
+ *
+ *  Deliberately NOT applicable to `Require Turnstile` or other non-text
+ *  columns: every editor field is plain text today, and the lockstep test
+ *  pins that assumption. */
+export async function mirrorSiteField(
+  db: Db,
+  siteId: string,
+  airtableColumn: string,
+  value: string,
+): Promise<void> {
+  const col = SITE_FIELDS[airtableColumn];
+  if (!col)
+    throw new Error(`mirrorSiteField: importer claims no sites column for '${airtableColumn}'`);
+  const stored = value.trim() === "" ? null : value;
+  await db
+    .updateTable("sites")
+    .set({ [col]: stored })
+    .where("id", "=", siteId)
+    .execute();
 }
 
 /** Same contract as the Airtable getWebsiteBySlug: slug is siteSlug(Name),
