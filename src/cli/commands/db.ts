@@ -183,6 +183,36 @@ export async function runDbCommand(
     return { output: formatParityResult(result), code: result.mismatches.length > 0 ? 1 : 0 };
   }
 
+  // One-shot completion of design D5 (#539 Phase 2): copy every site's CURRENT
+  // Airtable "Header image" attachment into sites.header_image*. Idempotent —
+  // an already-populated BLOB is never overwritten (a re-run must not clobber
+  // a freshly generated image with a stale Airtable copy). Exit 1 when any
+  // fetch failed, so a partial backfill is never read as complete.
+  if (action === "backfill-header-images") {
+    const { readDbConfig, openDb } = await import("../../db/client.js");
+    const db = await openDb(opts.url ? { url: opts.url } : readDbConfig());
+    const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
+    const base = openBase(readAirtableConfig());
+    const { backfillHeaderImages, formatBackfillResult } =
+      await import("../../db/header-images.js");
+    const result = await backfillHeaderImages(db, {
+      listWebsiteRecords: async () =>
+        (await base("Websites").select().all()).map((r) => ({
+          id: r.id,
+          fields: r.fields as Record<string, unknown>,
+        })),
+      fetchBytes: async (url) => {
+        try {
+          const res = await fetch(url);
+          return res.ok ? new Uint8Array(await res.arrayBuffer()) : null;
+        } catch {
+          return null;
+        }
+      },
+    });
+    return { output: formatBackfillResult(result), code: result.failed.length > 0 ? 1 : 0 };
+  }
+
   // Phase 1.5 of #539: platform-auth-free SQL dump to stdout-adjacent output.
   // The nightly backup workflow redirects this to a file, encrypts, uploads;
   // the rehearsed restore loads it into stock sqlite3 and compares row counts.
@@ -241,7 +271,7 @@ export async function runDbCommand(
   }
 
   return {
-    output: `unknown db action '${action}'. Use: migrate, replay-deadletters, import-airtable, parity, sync, dump, verify-dump.`,
+    output: `unknown db action '${action}'. Use: migrate, replay-deadletters, import-airtable, parity, sync, backfill-header-images, dump, verify-dump.`,
     code: 1,
   };
 }
