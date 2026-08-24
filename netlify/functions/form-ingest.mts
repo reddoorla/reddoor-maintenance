@@ -1,6 +1,8 @@
 import type { Context, Config } from "@netlify/functions";
 import { openBase } from "../../src/reports/airtable/client.js";
 import { getWebsiteBySlug } from "../../src/reports/airtable/websites.js";
+import { getSiteBySlug } from "../../src/db/fleet-state.js";
+import { makeSiteLookup } from "../../src/forms/site-lookup.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import {
   createSubmission,
@@ -108,6 +110,15 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     const base = openBase({ apiKey, baseId });
     const db = await openDb(readDbConfig());
 
+    // Phase 2 (#539): the site lookup is Turso-primary — the hourly sync keeps
+    // `sites` fresh; Airtable is consulted only for a slug Turso doesn't know
+    // (the new-site window). This retires the 08-17 outage class: an Airtable
+    // outage can no longer touch the lead hot path.
+    const lookupSite = makeSiteLookup({
+      fromDb: (s) => getSiteBySlug(db, s),
+      fromAirtable: (s) => getWebsiteBySlug(base, s),
+    });
+
     // Screen-out beacon: a no-PII { _screenOut: honeypot|too-fast } body is routed
     // to the per-site/day Spam Screenouts counter instead of the submission path.
     // (parseScreenOut also accepts the deprecated bare `screenOut` key that older
@@ -117,7 +128,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
       const date = new Date().toISOString().slice(0, 10);
       const r = await ingestScreenOut(
         {
-          getWebsiteBySlug: (s) => getWebsiteBySlug(base, s),
+          getWebsiteBySlug: lookupSite,
           recordScreenOut: (siteId, reason) => recordScreenOut(db, siteId, reason, date),
         },
         slug,
@@ -168,7 +179,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
 
     const result = await ingestSubmission(
       {
-        getWebsiteBySlug: (s) => getWebsiteBySlug(base, s),
+        getWebsiteBySlug: lookupSite,
         createSubmission: (input) => createSubmission(db, input),
         // Last-resort lead capture when the site lookup (Airtable, until #539
         // phase 2) throws: the lead lands in submission_deadletter on THIS db —
