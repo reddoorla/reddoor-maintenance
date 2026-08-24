@@ -243,9 +243,16 @@ export type FleetWriteResult = {
   failed: Array<{ slug: string; error: string }>;
   /** Turso write-through counts (#539 Phase 3 dual-write). Present ONLY when a
    *  mirror was wired — absent means mirroring was not attempted (no libSQL
-   *  creds), which must stay distinguishable from `mirrored=0`. */
+   *  creds), which must stay distinguishable from `mirrored=0` (a wired mirror
+   *  that landed nothing = the fleet-wide outage alarm). */
   mirrored?: number;
   mirrorFailed?: number;
+  /** Mirror UPDATEs that matched no site_health row (site created in Airtable
+   *  after the last hourly import). Not a failure — the row converges on the
+   *  next sync — but not mirrored either: counted apart so `mirrored=` stays
+   *  an honest Phase 5 cutover signal instead of overcounting by the no-row
+   *  sites. */
+  mirrorMissed?: number;
 };
 
 /** Render the fleet write-back outcome for the CLI/CI. Beyond the human-readable
@@ -269,6 +276,7 @@ export function formatFleetWriteSummary(result: FleetWriteResult): string {
   // wrote=... total=[0-9]+"` extraction still matches its prefix untouched.
   if (result.mirrored !== undefined) {
     out += ` mirrored=${result.mirrored} mirror_failed=${result.mirrorFailed ?? 0}`;
+    out += ` mirror_missed=${result.mirrorMissed ?? 0}`;
   }
   return out;
 }
@@ -302,6 +310,7 @@ export async function writeFleetAuditsToAirtable(args: {
   const failed: FleetWriteResult["failed"] = [];
   let mirrored = 0;
   let mirrorFailed = 0;
+  let mirrorMissed = 0;
   // Serial on purpose: even at one (now atomic) update call per site, Airtable's
   // ~5 req/sec limit means a Promise.all fan-out across the fleet would burst and
   // trip 429s (silently filed as failures). Below a few dozen sites, serial trades
@@ -313,8 +322,8 @@ export async function writeFleetAuditsToAirtable(args: {
       written.push(summary);
       if (mirror && summary.siteId && summary.fields && Object.keys(summary.fields).length > 0) {
         try {
-          await mirror(summary.siteId, summary.fields);
-          mirrored++;
+          if (await mirror(summary.siteId, summary.fields)) mirrored++;
+          else mirrorMissed++;
         } catch (e) {
           mirrorFailed++;
           console.error(`[health-mirror] ${slug}: ${(e as Error).message}`);
@@ -324,5 +333,5 @@ export async function writeFleetAuditsToAirtable(args: {
       failed.push({ slug, error: (e as Error).message });
     }
   }
-  return { written, failed, ...(mirror ? { mirrored, mirrorFailed } : {}) };
+  return { written, failed, ...(mirror ? { mirrored, mirrorFailed, mirrorMissed } : {}) };
 }

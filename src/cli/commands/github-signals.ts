@@ -1,8 +1,8 @@
-import { openBase, readAirtableConfig } from "../../reports/airtable/client.js";
+import { openBase, readAirtableConfig, type AirtableBase } from "../../reports/airtable/client.js";
 import { listWebsites, siteSlug, updateGitHubSignals } from "../../reports/airtable/websites.js";
 import type { Site } from "../../types.js";
 import { collectGitHubSignals } from "../../audits/github-signals.js";
-import { makeGitHub } from "../../github/gh.js";
+import { makeGitHub, type GitHub } from "../../github/gh.js";
 import {
   formatFleetWriteSummary,
   type FleetWriteResult,
@@ -10,6 +10,32 @@ import {
 import { detectSignalEvents, fleetSweptEvent } from "../../audits/fleet-event-detectors.js";
 import { recordFleetEventsBestEffort } from "../../audits/fleet-events-writer.js";
 import type { FleetEvent } from "../../db/fleet-events.js";
+import type { HealthMirror } from "../../audits/health-mirror.js";
+
+/** The slice of the GitHub client this sweep actually probes. */
+type GhProbes = Pick<
+  GitHub,
+  "openPullRequests" | "defaultBranchStatus" | "mergedRenovatePullRequests"
+>;
+
+/** Injectable wiring for {@link runGitHubSignalsCommand}. Every default is the
+ *  real fleet path; tests override to reach the per-row write+mirror loop —
+ *  the hand-rolled `makeHealthMirrorBestEffort()` call made that loop
+ *  untestable (no test could prove a mirror throw stays out of `failed`, that
+ *  the counters increment the right way round, or that the mirror sees the
+ *  same payload Airtable got). Same seam shape as
+ *  `writeFleetAuditsToAirtable`'s `mirror` argument. */
+export type GitHubSignalsDeps = {
+  /** Airtable base (default: real creds via readAirtableConfig). */
+  openBase: () => AirtableBase;
+  /** GitHub probe client for the fleet token (default: makeGitHub). */
+  makeGh: (token: string) => GhProbes;
+  /** Turso mirror factory (default: makeHealthMirrorBestEffort — null without
+   *  libSQL creds, leaving the Airtable sweep byte-for-byte unchanged). */
+  makeMirror: () => Promise<HealthMirror | null>;
+  /** Fleet-activity recorder (default: recordFleetEventsBestEffort). */
+  recordEvents: (events: FleetEvent[], now: Date) => Promise<void>;
+};
 
 /** Exit code for a fleet github-signals run. Exit 1 when failures are the
  *  MAJORITY of the fleet (`failed > written`), not only on a total wipeout —
@@ -24,10 +50,13 @@ export function githubSignalsExitCode(written: number, failed: number): number {
  *  Renovate-failing count + default-branch CI state + last-commit date, write each
  *  row serially (Airtable ~5 req/sec), and emit FLEET_WRITE_SUMMARY for CI. A
  *  missing fleet token is a clean skip (local runs), not a failure. */
-export async function runGitHubSignalsCommand(opts: {
-  fleet?: boolean | undefined;
-  writeAirtable?: boolean | undefined;
-}): Promise<{ output: string; code: number }> {
+export async function runGitHubSignalsCommand(
+  opts: {
+    fleet?: boolean | undefined;
+    writeAirtable?: boolean | undefined;
+  },
+  deps: Partial<GitHubSignalsDeps> = {},
+): Promise<{ output: string; code: number }> {
   if (!opts.fleet || !opts.writeAirtable) {
     return { output: "github-signals currently supports only --fleet --write-airtable", code: 2 };
   }
@@ -38,9 +67,9 @@ export async function runGitHubSignalsCommand(opts: {
       code: 0,
     };
   }
-  const base = openBase(readAirtableConfig());
+  const base = deps.openBase ? deps.openBase() : openBase(readAirtableConfig());
   const websites = await listWebsites(base);
-  const gh = makeGitHub({ token });
+  const gh: GhProbes = deps.makeGh ? deps.makeGh(token) : makeGitHub({ token });
   const sites: Site[] = websites.map((w) => ({
     path: "",
     name: w.name,
@@ -61,13 +90,19 @@ export async function runGitHubSignalsCommand(opts: {
   const sweptAt = new Date().toISOString();
   // Phase 3 dual-write (#539): mirror each row's written FieldSet into
   // site_health. Null when libSQL creds are absent — the Airtable sweep
-  // proceeds exactly as before.
-  const { makeHealthMirrorBestEffort } = await import("../../audits/health-mirror.js");
-  const mirror = await makeHealthMirrorBestEffort();
+  // proceeds exactly as before. (Dynamic import so the no-mirror path never
+  // loads the db client.)
+  const makeMirror =
+    deps.makeMirror ??
+    (async () => {
+      const { makeHealthMirrorBestEffort } = await import("../../audits/health-mirror.js");
+      return makeHealthMirrorBestEffort();
+    });
+  const mirror = await makeMirror();
   const result: FleetWriteResult = {
     written: [],
     failed: [],
-    ...(mirror ? { mirrored: 0, mirrorFailed: 0 } : {}),
+    ...(mirror ? { mirrored: 0, mirrorFailed: 0, mirrorMissed: 0 } : {}),
   };
   const byRepo = new Map(websites.filter((w) => w.gitRepo).map((w) => [w.gitRepo, w]));
   const events: FleetEvent[] = [];
@@ -88,9 +123,16 @@ export async function runGitHubSignalsCommand(opts: {
         sweptAt,
       });
       if (mirror) {
+        // Count, never throw: a Turso blip must not move an Airtable-written
+        // row into `failed` (that would red the sweep via githubSignalsExitCode
+        // on a fleet-wide mirror outage). A 0-row match (site not yet imported)
+        // is a miss, not a mirror — see FleetWriteResult.mirrorMissed.
         try {
-          await mirror(target.id, ghFields);
-          result.mirrored = (result.mirrored ?? 0) + 1;
+          if (await mirror(target.id, ghFields)) {
+            result.mirrored = (result.mirrored ?? 0) + 1;
+          } else {
+            result.mirrorMissed = (result.mirrorMissed ?? 0) + 1;
+          }
         } catch (e) {
           result.mirrorFailed = (result.mirrorFailed ?? 0) + 1;
           console.error(`[health-mirror] ${target.name}: ${(e as Error).message}`);
@@ -118,7 +160,7 @@ export async function runGitHubSignalsCommand(opts: {
   for (const repo of skipped) result.failed.push({ slug: repo, error: "probe failed (skipped)" });
 
   events.push(fleetSweptEvent("github-signals", result.written.length, sweptAt));
-  await recordFleetEventsBestEffort(events, new Date());
+  await (deps.recordEvents ?? recordFleetEventsBestEffort)(events, new Date());
 
   // Exit non-zero when failures are the MAJORITY of the fleet, not only on a
   // total wipeout. A run where 11/12 repos failed but 1 wrote used to return 0,

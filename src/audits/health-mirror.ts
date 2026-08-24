@@ -1,8 +1,11 @@
 import { openDb, readDbConfig, type Db } from "../db/client.js";
 import { mirrorHealthFields } from "../db/fleet-state.js";
 
-/** One site's just-written Airtable FieldSet, mirrored into site_health. */
-export type HealthMirror = (siteId: string, fields: Record<string, unknown>) => Promise<void>;
+/** One site's just-written Airtable FieldSet, mirrored into site_health.
+ *  Resolves true when a site_health row matched; false when the UPDATE touched
+ *  0 rows (site created in Airtable after the last hourly import) — callers
+ *  count that as mirror_missed, never as mirrored. */
+export type HealthMirror = (siteId: string, fields: Record<string, unknown>) => Promise<boolean>;
 
 /** Build the Turso write-through for the nightly writers (#539 Phase 3
  *  dual-write), or null when libSQL creds are absent — mirroring NOT attempted

@@ -240,14 +240,17 @@ export async function mirrorSiteField(
  *  the importer's healthColumnFor — one truth; an Airtable column no
  *  site_health column claims throws (same contract as mirrorSiteField).
  *  Partial by design: absent fields stay untouched, matching
- *  updateGitHubSignals' deliberate omission of a null lastCommitAt. A site the
- *  hourly sync hasn't imported yet updates 0 rows — it converges on the next
- *  sync, like every mirror. */
+ *  updateGitHubSignals' deliberate omission of a null lastCommitAt. Returns
+ *  whether a site_health row matched: a site the hourly sync hasn't imported
+ *  yet updates 0 rows → false, so the caller can count it honestly
+ *  (mirror_missed) instead of claiming it mirrored — it still converges on the
+ *  next sync, like every mirror. An empty FieldSet runs no SQL and returns
+ *  true: nothing to mirror is not a miss. */
 export async function mirrorHealthFields(
   db: Db,
   siteId: string,
   fields: Record<string, unknown>,
-): Promise<void> {
+): Promise<boolean> {
   // Per-column value types (number vs text) are guaranteed by healthColumnFor's
   // coercion — the numeric/text split lives there, once — so the patch builds
   // untyped and casts at the .set() boundary (the importer's own idiom).
@@ -258,25 +261,29 @@ export async function mirrorHealthFields(
       throw new Error(`mirrorHealthFields: importer claims no site_health column for '${field}'`);
     patch[m.col] = m.coerce(value);
   }
-  if (Object.keys(patch).length === 0) return;
-  await db
+  if (Object.keys(patch).length === 0) return true;
+  const res = await db
     .updateTable("site_health")
     .set(patch as Updateable<SiteHealthTable>)
     .where("site_id", "=", siteId)
-    .execute();
+    .executeTakeFirst();
+  // kysely/libSQL reports numUpdatedRows as a BigInt — compare in BigInt.
+  return res.numUpdatedRows > 0n;
 }
 
 /** The site_schedule twin of {@link mirrorHealthFields}, for the nightly
  *  next-due write-back. `computedAt` stamps when THIS computation ran — the
  *  hourly sync overwrites it with its own import stamp, same as every mirrored
  *  value. Empty fields → full no-op (no lone computed_at stamp for a write
- *  that carried nothing). */
+ *  that carried nothing). Same return contract as mirrorHealthFields: false
+ *  when the UPDATE matched no site_schedule row (site not yet imported), true
+ *  otherwise — including the empty-fields no-op. */
 export async function mirrorScheduleFields(
   db: Db,
   siteId: string,
   fields: Record<string, unknown>,
   computedAt: string,
-): Promise<void> {
+): Promise<boolean> {
   const patch: Record<string, string | null> = {};
   for (const [field, value] of Object.entries(fields)) {
     const m = scheduleColumnFor(field);
@@ -286,13 +293,14 @@ export async function mirrorScheduleFields(
       );
     patch[m.col] = m.coerce(value);
   }
-  if (Object.keys(patch).length === 0) return;
+  if (Object.keys(patch).length === 0) return true;
   patch.computed_at = computedAt;
-  await db
+  const res = await db
     .updateTable("site_schedule")
     .set(patch as Updateable<SiteScheduleTable>)
     .where("site_id", "=", siteId)
-    .execute();
+    .executeTakeFirst();
+  return res.numUpdatedRows > 0n;
 }
 
 /** Same contract as the Airtable getWebsiteBySlug: slug is siteSlug(Name),
