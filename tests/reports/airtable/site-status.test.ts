@@ -20,6 +20,7 @@ import {
   type WebsiteRow,
 } from "../../../src/reports/airtable/websites.js";
 import { ELIGIBLE_STATUSES } from "../../../src/reports/due.js";
+import { SITE_STATUS_OPTIONS } from "../../../src/dashboard/site-details.js";
 
 /**
  * THE behaviour-equivalence instrument for the #539 Phase 4 status-vocabulary
@@ -33,7 +34,7 @@ import { ELIGIBLE_STATUSES } from "../../../src/reports/due.js";
  * row rather than silently changing which sites get audited, reported on, or
  * notified.
  *
- * Two rows are load-bearing beyond the obvious:
+ * Three rows are load-bearing beyond the obvious:
  *  - `launch period` is TRUE for BOTH `dashboardVisible` and `preLaunch`. That
  *    dual membership (cockpit-visible, not production-audited) is deliberate and
  *    was explicitly re-approved as-is with the vocabulary — it is NOT a bug to
@@ -41,6 +42,11 @@ import { ELIGIBLE_STATUSES } from "../../../src/reports/due.js";
  *  - `(empty)` — a non-blank-but-empty cell — is `unrecognized: true`, NOT null.
  *    `due.ts`/`preflight.ts` treat a null status as eligible-by-default, so
  *    nulling anything non-absent would ACTIVATE the row.
+ *  - `(null)` — an ABSENT cell — is the other side of that same rule, and is the
+ *    one row where `eligible` is TRUE without the status being in
+ *    ELIGIBLE_STATUSES. That is production, not an oversight: `due.ts:86,118`
+ *    skip only a non-null ineligible status, and `preflight.ts:374` selects
+ *    `w.status === null` explicitly.
  */
 const BASELINE = {
   "in development": {
@@ -148,13 +154,26 @@ const BASELINE = {
     preLaunch: false,
     archived: false,
     unrecognized: false,
-    eligible: false,
+    // TRUE, and deliberately so — this row is the exception the file header
+    // states. `due.ts` skips only `status !== null && !ELIGIBLE.has(status)` and
+    // `preflight.ts` selects `w.status === null || ELIGIBLE.has(...)`, so an
+    // ABSENT Status cell is eligible-by-default (back-compat with rows that
+    // pre-date the Status convention). Recording `false` here would freeze the
+    // opposite of production into a table whose only value is being a true
+    // record of it.
+    eligible: true,
     active: false,
     known: false,
     spamHandling: true,
     notifyToPoc: false,
   },
 } as const;
+
+/** The BASELINE rows that are NOT alias keys: a genuine typo plus the two blank
+ *  shapes. Named so the completeness gate can require them by name rather than
+ *  trusting the table to still contain them. `(empty)` is the ACTIVATE-risk row
+ *  the header calls out; deleting it must red a test, not shrink a loop. */
+const NON_ALIAS_BASELINE_KEYS = ["wat", "(empty)", "(null)"] as const;
 
 /** The Airtable cell a BASELINE key stands for. */
 function cellFor(key: string): unknown {
@@ -173,7 +192,10 @@ function predicates(status: Status | null) {
     preLaunch: isPreLaunch(status),
     archived: isArchivedStatus(status),
     unrecognized: isUnrecognizedStatus(status),
-    eligible: status !== null && ELIGIBLE_STATUSES.has(status),
+    // Exactly the polarity `due.ts` and `preflight.ts` use: an ABSENT status is
+    // eligible-by-default. Writing `status !== null && …` here would invert the
+    // null case against production.
+    eligible: status === null || ELIGIBLE_STATUSES.has(status),
     active: status !== null && ACTIVE_STATUSES.has(status),
     known: status !== null && KNOWN_STATUSES.has(status),
     spamHandling: status !== "building",
@@ -189,11 +211,21 @@ describe("site-status: behaviour equivalence across the vocabulary rename", () =
   }
 
   it("covers every Airtable Status value the alias map knows, plus a typo and both blanks", () => {
-    // A new alias with no BASELINE row would slip through the loop above
-    // unmeasured — this is the completeness gate on the table.
-    for (const old of Object.keys(AIRTABLE_STATUS_ALIASES)) {
-      expect(BASELINE, `BASELINE has no row for the alias '${old}'`).toHaveProperty(old);
+    // The completeness gate on the table, in BOTH directions — because the loop
+    // above measures whatever rows exist, so a DELETED row shrinks the loop
+    // silently rather than failing anything. Losing `(empty)` in particular would
+    // drop the one row that guards against nulling a present-but-empty cell and
+    // thereby ACTIVATING it for scheduled client reports.
+    const required = new Set<string>([
+      ...Object.keys(AIRTABLE_STATUS_ALIASES),
+      ...NON_ALIAS_BASELINE_KEYS,
+    ]);
+    for (const key of required) {
+      expect(BASELINE, `BASELINE has no row for '${key}'`).toHaveProperty(key);
     }
+    // …and no row may exist that nothing requires: an unexplained key means the
+    // set above is out of date, which is how a gate quietly stops gating.
+    expect([...Object.keys(BASELINE)].sort()).toEqual([...required].sort());
   });
 
   it("reaches every canonical status (no canonical value is left unexercised)", () => {
@@ -309,14 +341,19 @@ describe("mapRow status seam", () => {
   });
 });
 
-describe("the four status sets are stated in the canonical vocabulary", () => {
+describe("the status sets are stated in the canonical vocabulary", () => {
   it("holds only canonical values", () => {
     const canonical = new Set<string>(CANONICAL_STATUSES);
+    // KNOWN_STATUSES is deliberately NOT in this list. It is literally
+    // `new Set(CANONICAL_STATUSES)`, so asserting its members are canonical is
+    // a tautology no production mutation can red — a guarantee-shaped assertion
+    // that guarantees nothing. It is pinned below against an independent literal
+    // instead, which is a check that can actually fail. The four sets here are
+    // hand-written elsewhere and genuinely can drift.
     for (const [name, set] of [
       ["ACTIVE_STATUSES", ACTIVE_STATUSES],
       ["PRE_LAUNCH_STATUSES", PRE_LAUNCH_STATUSES],
       ["ARCHIVED_STATUSES", ARCHIVED_STATUSES],
-      ["KNOWN_STATUSES", KNOWN_STATUSES],
       ["ELIGIBLE_STATUSES", ELIGIBLE_STATUSES],
     ] as const) {
       for (const v of set) {
@@ -325,7 +362,43 @@ describe("the four status sets are stated in the canonical vocabulary", () => {
     }
   });
 
-  it("KNOWN_STATUSES is exactly the canonical set", () => {
-    expect([...KNOWN_STATUSES].sort()).toEqual([...CANONICAL_STATUSES].sort());
+  it("the canonical vocabulary is exactly these six names, in this order", () => {
+    // Written out as an INDEPENDENT literal, not derived from CANONICAL_STATUSES.
+    // The order is load-bearing (see below), and every derived-from-itself
+    // assertion in this area has to be one a mutation can actually red.
+    expect([...CANONICAL_STATUSES]).toEqual([
+      "building",
+      "launching",
+      "maintained",
+      "hosted-only",
+      "external",
+      "archived",
+    ]);
+    // KNOWN_STATUSES is that vocabulary as a set — pinned against the same
+    // independent literal, so widening either one alone fails here.
+    expect([...KNOWN_STATUSES].sort()).toEqual(
+      ["archived", "building", "external", "hosted-only", "launching", "maintained"].sort(),
+    );
+  });
+
+  it("the dashboard status dropdown offers exactly these Airtable options, in this order", () => {
+    // `SITE_STATUS_OPTIONS = CANONICAL_STATUSES.map(toAirtableStatus)` is the
+    // ONLY consumer of CANONICAL_STATUSES' ORDER, and until this pin existed
+    // nothing read it: reversing the array left the whole suite green while
+    // silently reordering an operator-facing dropdown.
+    //
+    // This matters more at stage 2 than now. `render.ts` preselects
+    // `site.statusRaw`, not `site.status`; today that mutation is caught only
+    // because the two vocabularies differ, and after the flip they will not.
+    // Pinning the option list keeps a check on the dropdown through exactly the
+    // window in which the other check goes blind.
+    expect([...SITE_STATUS_OPTIONS]).toEqual([
+      "in development",
+      "launch period",
+      "maintenance",
+      "hosting",
+      "probably not our problem",
+      "deprecated",
+    ]);
   });
 });

@@ -1122,6 +1122,37 @@ describe("renderSiteDashboardHtml — editable site details", () => {
     expect(html).toContain('value="a@b.com"');
   });
 
+  it("preselects the Status select from the RAW cell, so a 'legacy' site shows the placeholder", () => {
+    // The entire reason `WebsiteRow.statusRaw` exists. This select's options ARE
+    // Airtable cell values, and "legacy" is not one of them — it canonicalizes to
+    // `archived`, which writes back as "deprecated". Preselecting `site.status`
+    // would silently show a legacy site as "deprecated" and POST that on the next
+    // save, rewriting a real cell nobody edited. The correct render is the
+    // disabled "— select —" placeholder: the operator must actively pick.
+    const html = renderSiteDashboardHtml(
+      siteRow({ name: "Acme", status: "archived", statusRaw: "legacy" }),
+      [],
+    );
+    const statusSelect = /<select id="detail-status"[^>]*>(.*?)<\/select>/s.exec(html)![1];
+    expect(statusSelect).toContain('<option value="" disabled selected hidden>— select —</option>');
+    expect(statusSelect).not.toContain("selected>deprecated<");
+    expect(statusSelect).not.toMatch(/<option value="deprecated" selected/);
+  });
+
+  it("preselects the raw cell an archived-by-'deprecated' site actually holds", () => {
+    // The other half of the many-to-one merge: same canonical `archived`, but
+    // this cell IS an offered option, so it preselects rather than falling back
+    // to the placeholder. Both halves are needed — a render that always showed
+    // the placeholder would pass the test above for the wrong reason.
+    const html = renderSiteDashboardHtml(
+      siteRow({ name: "Acme", status: "archived", statusRaw: "deprecated" }),
+      [],
+    );
+    const statusSelect = /<select id="detail-status"[^>]*>(.*?)<\/select>/s.exec(html)![1];
+    expect(statusSelect).toContain('<option value="deprecated" selected');
+    expect(statusSelect).not.toContain("— select —");
+  });
+
   it("renders copy fields as textareas and escapes their content", () => {
     const html = renderSiteDashboardHtml(siteRow({ name: "Acme", copyIntro: "<b>hi</b>" }), []);
     expect(html).toMatch(/<textarea[^>]*data-detail-field="copyIntro"/);

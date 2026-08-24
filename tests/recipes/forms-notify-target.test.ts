@@ -6,7 +6,7 @@ import {
 } from "../../src/cli/commands/forms-notify-target.js";
 import type { AirtableBase } from "../../src/reports/airtable/client.js";
 import type { Status, WebsiteRow } from "../../src/reports/airtable/websites.js";
-import { canonicalizeStatus } from "../../src/reports/airtable/site-status.js";
+import { canonicalizeStatus, toAirtableStatus } from "../../src/reports/airtable/site-status.js";
 
 /** Stands in for the Airtable base. `writesLand` is the knob that matters:
  *  with it off, `updateSiteField` succeeds and the row does NOT change — the
@@ -15,6 +15,10 @@ const fake = vi.hoisted(() => ({
   rows: [] as WebsiteRow[],
   updates: [] as string[],
   writesLand: true,
+  /** Store a DIFFERENT cell than the one written — the shape a canonical-only
+   *  read-back guard cannot see, because "legacy" and "deprecated" are the same
+   *  canonical status. Null = store what was sent. */
+  substituteWrite: null as string | null,
 }));
 
 vi.mock("../../src/reports/airtable/client.js", async (orig) => {
@@ -30,20 +34,30 @@ vi.mock("../../src/reports/airtable/websites.js", async (orig) => {
     updateSiteField: async (_b: unknown, id: string, column: string, value: string) => {
       fake.updates.push(`${id}.${column}=${value}`);
       if (!fake.writesLand) return;
+      const stored = fake.substituteWrite ?? value;
       fake.rows = fake.rows.map((r) =>
         // The write lands as an AIRTABLE cell value; a re-read goes through
-        // mapRow, so canonicalize it the way the real reader would.
-        r.id === id && column === "Status" ? { ...r, status: canonicalizeStatus(value) } : r,
+        // mapRow, which sets BOTH fields — the canonical status and the raw cell
+        // verbatim. Modelling only `status` here would hide the whole class of
+        // bug where the cell that landed is not the cell that was asked for.
+        r.id === id && column === "Status"
+          ? { ...r, status: canonicalizeStatus(stored), statusRaw: stored }
+          : r,
       );
     },
   };
 });
 
-function row(status: Status | null): WebsiteRow {
+function row(status: Status | null, statusRaw?: string | null): WebsiteRow {
   return {
     id: "recSite",
     name: "1836dig",
     status,
+    // What mapRow would have read out of the cell behind `status`. Callers that
+    // care about the raw cell (an archived row is `legacy` OR `deprecated`) pass
+    // it explicitly.
+    statusRaw:
+      statusRaw !== undefined ? statusRaw : status === null ? null : toAirtableStatus(status),
     pointOfContact: "owner@client.com",
     notifyRouting: null,
     reportRecipientsTo: null,
@@ -56,6 +70,7 @@ function setup(status: Status | null, writesLand = true) {
   fake.rows = [row(status)];
   fake.updates = [];
   fake.writesLand = writesLand;
+  fake.substituteWrite = null;
 }
 
 describe("formsNotifyTarget", () => {
@@ -117,11 +132,39 @@ describe("formsNotifyTarget", () => {
   it("restores to the status it was given, not to a guessed one", async () => {
     setup(VERIFY_STATUS);
     const r = await formsNotifyTarget({ base, site: "1836dig", set: "off", restore: "hosting" });
-    // --restore takes EITHER vocabulary; the cell written is still the OLD
-    // Airtable option, because AIRTABLE_USES_NEW_VOCABULARY is false.
+    // The ROUND-TRIPPING case: "hosting" canonicalizes to `hosted-only` and maps
+    // straight back to "hosting", so what lands is byte-identical to what was
+    // typed. `r.status` shows the canonical name the rest of the code sees.
     expect(fake.updates).toEqual(["recSite.Status=hosting"]);
     expect(r.flip).toMatchObject({ confirmed: true });
     expect(r.status).toBe("hosted-only");
+  });
+
+  it("writes --restore legacy VERBATIM — never the 'deprecated' it canonicalizes to", async () => {
+    // `legacy` and `deprecated` are the one many-to-one merge in the Phase 4
+    // vocabulary: both canonicalize to `archived`, which maps BACK to
+    // "deprecated". Routing operator free text through that map would rewrite a
+    // real Airtable cell to a value nobody asked for — and unlike every other
+    // change in this rename, `git revert` cannot undo a rewritten cell.
+    setup(VERIFY_STATUS);
+    const r = await formsNotifyTarget({ base, site: "1836dig", set: "off", restore: "legacy" });
+    expect(fake.updates).toEqual(["recSite.Status=legacy"]);
+    expect(fake.updates).not.toContain("recSite.Status=deprecated");
+    // Reported canonically (both archived cells are `archived` to the code)…
+    expect(r.status).toBe("archived");
+    // …but confirmation is checked against the RAW cell, so "I wrote legacy and
+    // legacy is what is there" is what `confirmed` actually means.
+    expect(r.flip).toMatchObject({ confirmed: true });
+  });
+
+  it("does not report a flip confirmed when the cell that landed differs from the one sent", async () => {
+    // The read-back guard's whole job. An Airtable that quietly stores a
+    // DIFFERENT archived option than the one written still canonicalizes to the
+    // same `archived`, so a canonical-only comparison would call this confirmed.
+    setup(VERIFY_STATUS);
+    fake.substituteWrite = "deprecated";
+    const r = await formsNotifyTarget({ base, site: "1836dig", set: "off", restore: "legacy" });
+    expect(r.flip).toMatchObject({ confirmed: false });
   });
 
   it("an unknown site is a clean exit-2, not a crash", async () => {

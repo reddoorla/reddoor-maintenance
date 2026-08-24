@@ -348,7 +348,15 @@ export type RecentEntry = {
 };
 
 /** A Websites row surfaced OUTSIDE the fleet cards: archived (legacy/deprecated)
- *  or holding an unrecognized Status cell. `status` is the raw cell value. */
+ *  or holding an unrecognized Status cell.
+ *
+ *  `status` is the RAW Airtable cell, not the canonical status (#539 Phase 4).
+ *  These two lanes exist to mirror what Airtable holds so a row can never
+ *  silently vanish, and both of them survive on the distinction the canonical
+ *  vocabulary erases: `legacy` and `deprecated` both canonicalize to `archived`,
+ *  so labelling the lane canonically would render 12 live rows identically and
+ *  disagree with the cell the operator is looking at. Everything else about
+ *  these rows — which lane they land in — is decided canonically. */
 export type OffFleetSiteEntry = { name: string; slug: string; status: string };
 
 export type CockpitModel = {
@@ -617,13 +625,32 @@ export function buildCockpitModel(
   // Off-fleet visibility: archived rows get a neutral roster lane; a typo'd Status
   // (outside the union) gets an amber watch row in the Needs-you feed. Both are
   // read-only surfacing — neither joins `visible`, so no fleet op gains a site.
+  //
+  // Membership is decided on the CANONICAL status; the label is the RAW cell.
+  // These lanes are the fleet's mirror of Airtable, and `legacy`/`deprecated` are
+  // the one pair the canonical vocabulary merges — labelling them `archived`
+  // would collapse 12 distinguishable live rows into one indistinguishable
+  // label and disagree with the cell it mirrors.
+  //
+  // The typo lane reads `statusRaw` for the same REASON, though not for the same
+  // effect: canonicalization passes an unrecognized value through verbatim, so a
+  // row in that lane always has `statusRaw === status`. Writing it this way is
+  // consistency, not a fix — and it stays correct if that ever stops being true.
   const archived: OffFleetSiteEntry[] = websites
     .filter((w) => isArchivedStatus(w.status))
-    .map((w) => ({ name: w.name, slug: siteSlug(w.name), status: w.status as string }))
+    .map((w) => ({
+      name: w.name,
+      slug: siteSlug(w.name),
+      status: w.statusRaw ?? (w.status as string),
+    }))
     .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
   const unrecognizedStatus: OffFleetSiteEntry[] = websites
     .filter((w) => isUnrecognizedStatus(w.status))
-    .map((w) => ({ name: w.name, slug: siteSlug(w.name), status: w.status as string }));
+    .map((w) => ({
+      name: w.name,
+      slug: siteSlug(w.name),
+      status: w.statusRaw ?? (w.status as string),
+    }));
 
   // Per-site NEW-submission counts, keyed by Websites record id, split into
   // actionable leads vs newsletter/rsvp signups (2026-07-16). Used for the

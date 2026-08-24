@@ -39,6 +39,36 @@ export type FormsNotifyTargetResult = {
   flip?: { from: Status | null; to: Status; confirmed: boolean };
 };
 
+/**
+ * The exact Airtable cell to write for an operator-supplied `--restore` value:
+ * the operator's own string, verbatim.
+ *
+ * This is the ONE non-revertible surface in the #539 Phase 4 stage-1 rename —
+ * every other change is code, and `git revert` undoes code. It cannot undo a
+ * rewritten Airtable cell. So the rule here is stricter than everywhere else:
+ * substitute only when the substitution is provably lossless, i.e. when
+ * canonicalizing and mapping back ROUND-TRIPS to the operator's own string.
+ *
+ * That condition is, today, never false in a way that changes the answer — which
+ * is the point. `toAirtableStatus(canonicalizeStatus(raw))` either equals `raw`
+ * (so writing it is writing `raw`) or it does not (so we must write `raw`). The
+ * function therefore reduces to "write raw", and it is written this way so the
+ * reduction is visible rather than assumed. The case that made it matter:
+ * `--restore legacy` canonicalizes to `archived`, which maps back to
+ * "deprecated" — a different, real, operator-visible Airtable option that nobody
+ * asked for. `hosting` → `hosted-only` → "hosting" round-trips and is safe.
+ *
+ * Airtable, not this module, is the authority on which option strings the
+ * "Status" single-select accepts. Writing verbatim delegates to it: a typo is
+ * rejected loudly at the API, exactly as it was before the rename.
+ */
+export function restoreCell(raw: string): string {
+  const canonical = canonicalizeStatus(raw);
+  if (canonical === null) return raw;
+  const roundTripped = toAirtableStatus(canonical);
+  return roundTripped === raw ? roundTripped : raw;
+}
+
 function findSite(rows: WebsiteRow[], site: string): WebsiteRow | undefined {
   const wanted = site.trim().toLowerCase();
   return rows.find(
@@ -84,12 +114,11 @@ export async function formsNotifyTarget(
     return { site: row.name, status: row.status, target: describeNotifyTarget(row) };
   }
 
-  // `--restore` is operator free text: canonicalize it so EITHER vocabulary is
-  // accepted during the transition, then write through toAirtableStatus. An
-  // unrecognized value still reaches Airtable verbatim (and is rejected there) —
-  // turning a typo into a silent substitution would be worse than today.
-  const to =
-    deps.set === "on" ? VERIFY_STATUS : (canonicalizeStatus(deps.restore?.trim()) ?? undefined);
+  // `--restore` is operator free text. It is canonicalized for what this command
+  // REPORTS (`flip.to`, and the predicates downstream), but NEVER for what it
+  // WRITES — see `restoreCell` below.
+  const restoreRaw = deps.restore?.trim();
+  const to = deps.set === "on" ? VERIFY_STATUS : (canonicalizeStatus(restoreRaw) ?? undefined);
   if (deps.set === "off" && !to) {
     throw Object.assign(
       new Error(
@@ -115,7 +144,11 @@ export async function formsNotifyTarget(
     );
   }
 
-  await updateSiteField(base, row.id, STATUS_COLUMN, toAirtableStatus(to!));
+  // `--set on` writes a status this MODULE owns (VERIFY_STATUS), so mapping it to
+  // the current Airtable vocabulary is correct. `--set off` writes the operator's
+  // own string — see restoreCell.
+  const cell = deps.set === "on" ? toAirtableStatus(VERIFY_STATUS) : restoreCell(restoreRaw!);
+  await updateSiteField(base, row.id, STATUS_COLUMN, cell);
 
   // Read it back. The write returning is NOT evidence the field changed.
   const after = findSite(await listWebsites(base), deps.site);
@@ -128,6 +161,17 @@ export async function formsNotifyTarget(
     site: after.name,
     status: after.status,
     target: describeNotifyTarget(after),
-    flip: { from: row.status, to: to!, confirmed: after.status === to },
+    // `confirmed` compares the RAW cell against the exact string written, not
+    // canonical-to-canonical. Canonical equality is too weak to be a read-back
+    // guard here: `legacy` and `deprecated` are the same canonical status, so a
+    // cell holding either would confirm a flip to the other. Comparing raw is the
+    // only comparison that can actually catch "the cell is not what I sent". The
+    // canonical check rides along so a reader that stopped canonicalizing is
+    // caught too.
+    flip: {
+      from: row.status,
+      to: to!,
+      confirmed: after.statusRaw === cell && after.status === to,
+    },
   };
 }

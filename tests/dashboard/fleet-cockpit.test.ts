@@ -481,8 +481,8 @@ describe("buildCockpitModel", () => {
   it("lists archived (legacy/deprecated) rows on model.archived, A-Z, never as cards", () => {
     const m = buildCockpitModel(
       [
-        site({ id: "l", name: "Old Legacy", status: "archived" }),
-        site({ id: "d", name: "Dead", status: "archived" }),
+        site({ id: "l", name: "Old Legacy", status: "archived", statusRaw: "legacy" }),
+        site({ id: "d", name: "Dead", status: "archived", statusRaw: "deprecated" }),
         site({ id: "a", name: "Maintained", status: "maintained" }),
       ],
       [],
@@ -491,9 +491,13 @@ describe("buildCockpitModel", () => {
       NOW,
     );
     expect(m.cards.map((c) => c.site.name)).toEqual(["Maintained"]);
+    // `status` on an OffFleetSiteEntry is the RAW cell: the lane mirrors the
+    // Airtable column, and `legacy`/`deprecated` are the one pair the canonical
+    // vocabulary merges. Reporting both as "archived" would make the fleet's 7
+    // legacy and 5 deprecated rows indistinguishable from each other.
     expect(m.archived).toEqual([
-      { name: "Dead", slug: "dead", status: "archived" },
-      { name: "Old Legacy", slug: "old-legacy", status: "archived" },
+      { name: "Dead", slug: "dead", status: "deprecated" },
+      { name: "Old Legacy", slug: "old-legacy", status: "legacy" },
     ]);
     // Archived statuses are RECOGNIZED — they never read as typos.
     expect(m.unrecognizedStatus).toEqual([]);

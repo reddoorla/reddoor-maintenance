@@ -16,16 +16,29 @@
  *   legacy                    ┐
  *   deprecated                ┴ archived        ← approved MERGE, many-to-one
  *
- * `legacy` and `deprecated` were already treated identically everywhere
- * (ARCHIVED_STATUSES held both), so collapsing them changes no behaviour — but
- * it does mean there is NO clean reverse map. Nothing here pretends otherwise:
- * `toAirtableStatus` picks one archived name deliberately and says why.
+ * `legacy` and `deprecated` were already treated identically by every PREDICATE
+ * (ARCHIVED_STATUSES held both), so collapsing them changes no *selection* — no
+ * fleet op gains or loses a site. It is NOT true that collapsing them changes
+ * nothing at all, and one surface proved it: the cockpit's Archived lane LABELS
+ * each row with its Status cell, and canonicalizing there rendered all 12 live
+ * archived rows as "archived". That lane now labels from `statusRaw`, which is
+ * exactly why `WebsiteRow.statusRaw` exists. The rule this leaves behind:
+ * canonical values decide BEHAVIOUR; anything DISPLAYING a Status cell, or
+ * writing one back, uses the raw cell.
+ *
+ * The merge also means there is NO clean reverse map. Nothing here pretends
+ * otherwise: `toAirtableStatus` picks one archived name deliberately and says
+ * why, and no code path feeds operator-supplied text through it (see
+ * `src/recipes/forms-notify-target.ts`, which writes `--restore` verbatim).
  *
  * THE SHAPE OF THE TRANSITION (three stages):
  *
  *   stage 1 (this)  code speaks the NEW vocabulary internally; reads canonicalize
  *                   at the two Airtable/Turso seams; writes still emit the OLD
- *                   Airtable option names. Airtable untouched. No behaviour change.
+ *                   Airtable option names. Airtable untouched. No SELECTION
+ *                   change — every predicate picks exactly the sites it picked
+ *                   before (pinned row-by-row in tests/reports/airtable/
+ *                   site-status.test.ts). Displayed labels come from `statusRaw`.
  *   stage 2         add the new options to the Airtable single-select, migrate the
  *                   cells, and flip AIRTABLE_USES_NEW_VOCABULARY to true — ONE
  *                   constant. The alias map stays, so a not-yet-migrated cell keeps
@@ -120,8 +133,10 @@ export const AIRTABLE_USES_NEW_VOCABULARY = false;
  * Writing back exactly what the editor offers keeps that dropdown, and the value
  * it POSTs, byte-identical this stage. It is the ONLY code path that can write an
  * archived status: `updateLaunched` writes `maintained`, `ensureSite` writes
- * `building`, and `forms-notify-target` writes `launching` (or an
- * operator-supplied `--restore` value).
+ * `building`, and `forms-notify-target --set on` writes `launching`. Its
+ * `--set off --restore <x>` path does NOT come through here — it writes the
+ * operator's string verbatim, precisely so this many-to-one pick can never be
+ * applied to a value a human typed.
  */
 const AIRTABLE_OLD_NAMES: Readonly<Record<Status, string>> = {
   building: "in development",
@@ -134,12 +149,17 @@ const AIRTABLE_OLD_NAMES: Readonly<Record<Status, string>> = {
 
 /**
  * The string to WRITE into the Airtable "Status" cell for a canonical status.
- * Every writer routes through here.
+ * Every writer of a CODE-OWNED status routes through here.
  *
- * An unknown blind-cast value passes through verbatim: `forms-notify-target
- * --restore <status>` takes operator free text, and turning a typo into a silent
- * substitution would be worse than letting Airtable reject it, which is what
- * happens today.
+ * It must NOT be handed operator free text. `archived` is many-to-one, so
+ * `toAirtableStatus(canonicalizeStatus(x))` is not the identity — feeding it
+ * "legacy" yields "deprecated", silently writing an option the operator never
+ * asked for and which no `git revert` can undo. `forms-notify-target --restore`
+ * is the one operator-text path and it writes verbatim instead (`restoreCell`).
+ *
+ * An unknown blind-cast value still passes through verbatim, so a caller that
+ * ignores the rule above degrades to "let Airtable reject it" rather than to a
+ * substitution.
  */
 export function toAirtableStatus(s: Status): string {
   if (AIRTABLE_USES_NEW_VOCABULARY) return s;
