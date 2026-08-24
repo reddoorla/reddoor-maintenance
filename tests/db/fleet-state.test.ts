@@ -329,13 +329,16 @@ describe("mirrorHealthFields / mirrorScheduleFields (the Phase 3 writer mirrors)
     expect({ ...mirrored, site_id: "same" }).toEqual({ ...imported, site_id: "same" });
   });
 
-  it("schedule mirror clears a date to null and rejects unclaimed fields", async () => {
+  it("schedule mirror clears a date to null, stamps computed_at, rejects unclaimed fields", async () => {
     const db = await importOf([RICH]);
+    // A stamp DISTINCT from the import's NOW, so a mirror that forgets to
+    // write computed_at cannot hide behind the import's identical value.
+    const later = "2026-08-25T03:00:00.000Z";
     await mirrorScheduleFields(
       db,
       "recRICH",
       { "Next maintenance at": null, "Next testing at": "2026-12-01" },
-      NOW.toISOString(),
+      later,
     );
     const row = await db
       .selectFrom("site_schedule")
@@ -344,6 +347,7 @@ describe("mirrorHealthFields / mirrorScheduleFields (the Phase 3 writer mirrors)
       .executeTakeFirstOrThrow();
     expect(row.next_maintenance_at).toBeNull();
     expect(row.next_testing_at).toBe("2026-12-01");
+    expect(row.computed_at).toBe(later);
     await expect(
       mirrorScheduleFields(db, "recRICH", { Nope: "x" }, NOW.toISOString()),
     ).rejects.toThrow("importer claims no site_schedule column");
