@@ -336,6 +336,23 @@ export type ImportSummary = {
   /** Reports whose Rendered HTML attachment could not be fetched (URL expired /
    *  network) — imported with rendered_html null, named so the run is honest. */
   renderedHtmlMisses: string[];
+  /** Attachment fetches attempted and succeeded this run. */
+  renderedHtmlFetched: number;
+  /** Fetches skipped because the stored row already carries rendered_html
+   *  (only in reportHtml: "when-missing" mode — the hourly sync's mode). */
+  renderedHtmlSkipped: number;
+};
+
+export type ImportOptions = {
+  /** "always" (default): fetch every report's Rendered HTML attachment — the
+   *  one-shot full import's mode. "when-missing": fetch only for reports whose
+   *  stored row has no rendered_html yet — the hourly sync's mode, so 24 runs a
+   *  day don't re-download every attachment every hour. Safe for Phase 2:
+   *  nothing reads reports.rendered_html from Turso until the Phase 4 report
+   *  review lands; revisit the staleness story there (a re-rendered report's
+   *  stored HTML goes stale under "when-missing"). Parity is unaffected —
+   *  rendered_html is a parity SKIP_COLUMN. */
+  reportHtml?: "always" | "when-missing";
 };
 
 export type ImportIo = {
@@ -354,7 +371,11 @@ export type ImportIo = {
  * overwritten when the fetch succeeded, for the same reason: a re-run with an
  * expired signed URL must not erase a body captured while it was valid.
  */
-export async function importFleetState(db: Db, io: ImportIo): Promise<ImportSummary> {
+export async function importFleetState(
+  db: Db,
+  io: ImportIo,
+  opts: ImportOptions = {},
+): Promise<ImportSummary> {
   const computedAt = io.now().toISOString();
   const websites = await io.listWebsiteRecords();
 
@@ -386,11 +407,32 @@ export async function importFleetState(db: Db, io: ImportIo): Promise<ImportSumm
   }
 
   const reports = await io.listReportRecords();
+  // "when-missing": one pre-read of which report rows already hold a body, so
+  // the loop can skip their attachment fetches. A skipped fetch keeps the
+  // stored body (the upsert falls into the rowSansHtml branch) and is counted,
+  // not treated as a miss.
+  const alreadyStored =
+    opts.reportHtml === "when-missing"
+      ? new Set(
+          (
+            await db
+              .selectFrom("reports")
+              .select("id")
+              .where("rendered_html", "is not", null)
+              .execute()
+          ).map((r) => r.id),
+        )
+      : null;
   const misses: string[] = [];
+  let fetched = 0;
+  let skipped = 0;
   for (const rec of reports) {
     const url = renderedHtmlUrl(rec);
-    const html = url ? await io.fetchAttachment(url) : null;
-    if (url && html === null) misses.push(rec.id);
+    const skip = url !== null && alreadyStored !== null && alreadyStored.has(rec.id);
+    if (skip) skipped++;
+    const html = url && !skip ? await io.fetchAttachment(url) : null;
+    if (url && !skip && html === null) misses.push(rec.id);
+    if (html !== null) fetched++;
     const row = mapReportRecord(rec, html);
     const { rendered_html: _rh, ...rowSansHtml } = row;
     void _rh;
@@ -401,5 +443,11 @@ export async function importFleetState(db: Db, io: ImportIo): Promise<ImportSumm
       .execute();
   }
 
-  return { sites: mapped.length, reports: reports.length, renderedHtmlMisses: misses };
+  return {
+    sites: mapped.length,
+    reports: reports.length,
+    renderedHtmlMisses: misses,
+    renderedHtmlFetched: fetched,
+    renderedHtmlSkipped: skipped,
+  };
 }

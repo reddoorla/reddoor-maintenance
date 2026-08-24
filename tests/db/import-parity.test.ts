@@ -172,7 +172,13 @@ describe("importFleetState + checkFleetParity", () => {
   it("parity is GREEN immediately after an import (the known-good pass)", async () => {
     const db = await openDb({ url: ":memory:" });
     const summary = await importFleetState(db, io());
-    expect(summary).toEqual({ sites: 1, reports: 1, renderedHtmlMisses: [] });
+    expect(summary).toEqual({
+      sites: 1,
+      reports: 1,
+      renderedHtmlMisses: [],
+      renderedHtmlFetched: 1,
+      renderedHtmlSkipped: 0,
+    });
 
     const parity = await checkFleetParity(db, io());
     expect(parity.mismatches).toEqual([]);
@@ -219,6 +225,42 @@ describe("importFleetState + checkFleetParity", () => {
     await importFleetState(db, io());
     const second = await importFleetState(db, io({ fetchAttachment: async () => null }));
     expect(second.renderedHtmlMisses).toEqual(["recR1"]); // named, not silent
+    const row = await db.selectFrom("reports").selectAll().executeTakeFirst();
+    expect(row?.rendered_html).toBe("<html>report</html>");
+  });
+
+  it('reportHtml "when-missing" skips the fetch for a report whose body is stored', async () => {
+    // The hourly sync's mode: 24 runs a day must not re-download every
+    // attachment every hour. The skip keeps the stored body (rowSansHtml
+    // branch) and is COUNTED, never confused with a miss.
+    const db = await openDb({ url: ":memory:" });
+    await importFleetState(db, io());
+    let fetches = 0;
+    const second = await importFleetState(
+      db,
+      io({
+        fetchAttachment: async () => {
+          fetches++;
+          return "<html>would-be-refetch</html>";
+        },
+      }),
+      { reportHtml: "when-missing" },
+    );
+    expect(fetches).toBe(0);
+    expect(second.renderedHtmlSkipped).toBe(1);
+    expect(second.renderedHtmlMisses).toEqual([]);
+    const row = await db.selectFrom("reports").selectAll().executeTakeFirst();
+    expect(row?.rendered_html).toBe("<html>report</html>"); // original, untouched
+  });
+
+  it('reportHtml "when-missing" STILL fetches a report with no stored body', async () => {
+    // The mode must never freeze a miss: a report imported while its signed URL
+    // was expired gets its body on the next sync, not never.
+    const db = await openDb({ url: ":memory:" });
+    await importFleetState(db, io({ fetchAttachment: async () => null })); // miss
+    const second = await importFleetState(db, io(), { reportHtml: "when-missing" });
+    expect(second.renderedHtmlFetched).toBe(1);
+    expect(second.renderedHtmlSkipped).toBe(0);
     const row = await db.selectFrom("reports").selectAll().executeTakeFirst();
     expect(row?.rendered_html).toBe("<html>report</html>");
   });

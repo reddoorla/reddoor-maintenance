@@ -669,7 +669,7 @@ cli
 cli
   .command(
     "db <action>",
-    "Operate the libSQL store (migrate | replay-deadletters | import-airtable | parity | dump | verify-dump).",
+    "Operate the libSQL store (migrate | replay-deadletters | import-airtable | parity | sync | dump | verify-dump).",
   )
   .option("--file <path>", "verify-dump: the dump file to load into a scratch engine")
   .action(async (action: string, opts: { file?: string; cwd?: string; verbose?: boolean }) =>

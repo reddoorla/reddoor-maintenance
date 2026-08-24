@@ -50,6 +50,7 @@ const EXEMPT_MODULES: Record<string, string> = {
   "import-airtable.ts": "one-shot bulk importer — full-table upserts by design, not request-path",
   "parity.ts": "parity harness — full-table comparison is the whole point",
   "dump.ts": "backup dump — full-table reads by design",
+  "sync.ts": "orchestrates importer + parity (both exempt) — no queries of its own",
 };
 
 /** Exported functions that never issue SQL (id minting, date math). */
