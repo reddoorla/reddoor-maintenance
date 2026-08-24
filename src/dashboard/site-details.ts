@@ -8,13 +8,17 @@ import { CANONICAL_STATUSES, toAirtableStatus } from "../reports/airtable/site-s
  * on both sides of the stage-2 vocabulary switch, with no edit here.
  *
  * Two consequences worth stating, because both are load-bearing:
- *  - `archived` maps to Airtable's "deprecated", which is exactly the archived
- *    option this editor has always offered. "legacy" — the other value that
- *    canonicalizes to `archived` — remains set directly in Airtable, never from
- *    the dashboard, as before.
+ *  - Since the stage-2 flip these options ARE the canonical names, so `archived`
+ *    now writes "archived" rather than the old "deprecated". "legacy" and
+ *    "deprecated" both still exist as Airtable options until stage 3 and both
+ *    still canonicalize to `archived`, but neither is offered here — as before,
+ *    they can only be set directly in Airtable, never from the dashboard.
  *  - `render.ts` preselects against `site.statusRaw` (the raw cell), not
  *    `site.status`, so a stored value outside this list still shows the disabled
- *    "— select —" placeholder rather than being silently re-labelled.
+ *    "— select —" placeholder rather than being silently re-labelled. Post-flip
+ *    the two agree for every migrated row, so the case that still exercises the
+ *    difference is a hand-set "legacy"/"deprecated" cell — which is precisely
+ *    what tests/dashboard/render.test.ts pins.
  */
 export const SITE_STATUS_OPTIONS: readonly string[] = CANONICAL_STATUSES.map(toAirtableStatus);
 export const FREQ_OPTIONS = ["None", "Monthly", "Quarterly", "Yearly"] as const;

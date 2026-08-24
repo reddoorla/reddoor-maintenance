@@ -33,17 +33,26 @@
  *
  * THE SHAPE OF THE TRANSITION (three stages):
  *
- *   stage 1 (this)  code speaks the NEW vocabulary internally; reads canonicalize
+ *   stage 1 (DONE)  code speaks the NEW vocabulary internally; reads canonicalize
  *                   at the two Airtable/Turso seams; writes still emit the OLD
  *                   Airtable option names. Airtable untouched. No SELECTION
  *                   change — every predicate picks exactly the sites it picked
  *                   before (pinned row-by-row in tests/reports/airtable/
  *                   site-status.test.ts). Displayed labels come from `statusRaw`.
- *   stage 2         add the new options to the Airtable single-select, migrate the
- *                   cells, and flip AIRTABLE_USES_NEW_VOCABULARY to true — ONE
- *                   constant. The alias map stays, so a not-yet-migrated cell keeps
- *                   reading correctly throughout.
- *   stage 3         once no old value survives in Airtable, delete the alias map.
+ *   stage 2 (DONE)  the Airtable "Status" single-select gained the 6 new options
+ *                   and all 44 cells were migrated (verified live: maintained=13,
+ *                   archived=12, external=9, building=6, hosted-only=2,
+ *                   launching=2 — zero old values, zero unrecognized), `db sync`
+ *                   ran clean (mismatches=0), and AIRTABLE_USES_NEW_VOCABULARY
+ *                   flipped to true. Writers now emit canonical names verbatim.
+ *                   The alias map STAYS: the 7 old options still exist in the
+ *                   field, so a human can still pick one in the Airtable UI.
+ *   stage 3 (TODO)  delete the 7 old options from the Airtable "Status" field,
+ *                   then delete — in this file — AIRTABLE_STATUS_ALIASES,
+ *                   AIRTABLE_OLD_NAMES, and the now-dead
+ *                   AIRTABLE_USES_NEW_VOCABULARY branch in `toAirtableStatus`
+ *                   (which reduces to the identity). Only safe once no old value
+ *                   can be entered, not merely once none is stored.
  *
  * Canonicalization happens on READ, never at rest: `src/db/import-airtable.ts`
  * still stores the raw Airtable cell verbatim in `sites.status`, so the hourly
@@ -73,6 +82,11 @@ export const CANONICAL_STATUSES: readonly Status[] = [
  * Old Airtable single-select value → canonical status. Lives only for the
  * transition window (deleted at stage 3). Many-to-one by design: `legacy` and
  * `deprecated` both land on `archived`.
+ *
+ * Still load-bearing AFTER the stage-2 migration. No stored cell uses these
+ * names any more, but the 7 old options remain in the field until stage 3, so a
+ * human can still select one in the Airtable UI — and reads must keep
+ * tolerating that. Delete this only together with the options themselves.
  */
 export const AIRTABLE_STATUS_ALIASES: Readonly<Record<string, Status>> = {
   "in development": "building",
@@ -113,18 +127,28 @@ export function canonicalizeStatus(raw: unknown): Status | null {
 }
 
 /**
- * THE stage-2 switch. While false, every write emits the OLD Airtable option
- * names, because the "Status" single-select does not yet carry the new options —
- * writing an unknown option would be rejected or (with typecast on) silently
- * create a duplicate option beside the real one.
+ * THE stage-2 switch, now FLIPPED. While it was false, every write emitted the
+ * OLD Airtable option names, because the "Status" single-select did not yet carry
+ * the new options — writing an unknown option would be rejected or (with typecast
+ * on) silently create a duplicate option beside the real one.
  *
- * Flipping this to true is the entire code side of stage 2.
+ * The new options were added and all 44 cells migrated before this flipped, so
+ * every write now lands on an option that exists. Flipping it was the entire code
+ * side of stage 2.
+ *
+ * Stage 3 deletes this constant along with the `false` branch it guards.
  */
-export const AIRTABLE_USES_NEW_VOCABULARY = false;
+export const AIRTABLE_USES_NEW_VOCABULARY = true;
 
 /**
  * Canonical status → the OLD Airtable option name. Only consulted while
- * AIRTABLE_USES_NEW_VOCABULARY is false.
+ * AIRTABLE_USES_NEW_VOCABULARY is false — which, since the stage-2 flip, is
+ * never. This map is DEAD CODE kept only so the flip stays a one-line revert
+ * while stage 3 is pending; stage 3 deletes it outright.
+ *
+ * The rationale below describes the stage-1 behaviour it used to drive, and is
+ * retained because it explains why `archived` mapped to "deprecated" — the pick a
+ * revert would resurrect.
  *
  * `archived` is the many-to-one case and needs a deliberate pick. It is
  * "deprecated" because that — not "legacy" — is the archived option the dashboard
