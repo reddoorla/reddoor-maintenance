@@ -328,6 +328,11 @@ function scenarios(state: { createdId: string }): Scenario[] {
       run: (db) => fleetState.mirrorSiteField(db, "recA", "Status", "maintenance"),
     },
     {
+      name: "mirrorReportPatch (approve/webhook write-through)",
+      covers: ["mirrorReportPatch"],
+      run: (db) => fleetState.mirrorReportPatch(db, "recA", { approved_to_send: 1 }),
+    },
+    {
       name: "createDeadLetter",
       covers: ["createDeadLetter"],
       run: (db) =>

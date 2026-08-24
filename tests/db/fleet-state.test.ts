@@ -18,7 +18,10 @@ import {
   getSiteById,
   listSites,
   mirrorSiteField,
+  mirrorReportPatch,
+  listAllReports,
 } from "../../src/db/fleet-state.js";
+import { openCapturingDb } from "./query-plan-harness.js";
 import { EDITABLE_SITE_FIELDS } from "../../src/dashboard/site-details.js";
 import { SITE_FIELDS } from "../../src/db/import-airtable.js";
 import { mapRow, siteSlug } from "../../src/reports/airtable/websites.js";
@@ -229,5 +232,85 @@ describe("mirrorSiteField (the site-detail editor's Turso write-through)", () =>
     await expect(mirrorSiteField(db, "recRICH", "No Such Column", "x")).rejects.toThrow(
       "importer claims no sites column",
     );
+  });
+});
+
+describe("site reads never haul the header-image BLOB", () => {
+  // Since the 2026-08-24 backfill, header_image holds multi-MB JPEGs. A
+  // selectAll would ship them on every ingest lookup and 44× per fleet list —
+  // the SQL itself is the contract, so capture and inspect it.
+  it("getSiteBySlug selects the metadata columns but NOT header_image — and misses no other sites column", async () => {
+    const h = await openCapturingDb();
+    await getSiteBySlug(h.db, "nope");
+    const sql = h.captured.map((c) => c.sql).join("\n");
+    expect(sql).toContain('"header_image_filename"');
+    expect(sql).not.toMatch(/"sites"\."header_image"|[^_"]"header_image"/);
+    // Schema lockstep: every sites column except the BLOB must be selected —
+    // a new migration column silently missing from SITE_COLUMNS fails here.
+    const pragma = await h.client.execute("SELECT name FROM pragma_table_info('sites')");
+    for (const row of pragma.rows) {
+      const col = String(row.name);
+      if (col === "header_image") continue;
+      expect(sql, `sites column '${col}' missing from the read layer's select`).toContain(
+        `"${col}"`,
+      );
+    }
+  });
+});
+
+describe("mirrorReportPatch (approve/webhook write-through)", () => {
+  it("an approve patch is visible on the very next read", async () => {
+    const db = await importOf([RICH]);
+    await db
+      .insertInto("reports")
+      .values({
+        id: "recRPT9",
+        site_id: "recRICH",
+        report_id: "R9",
+        report_type: "Maintenance",
+        period: null,
+        period_start: "2026-08-01",
+        period_end: null,
+        completed_on: null,
+        lighthouse_performance: null,
+        lighthouse_accessibility: null,
+        lighthouse_best_practices: null,
+        lighthouse_seo: null,
+        ga_users_current: null,
+        ga_users_previous: null,
+        search_found_page1: null,
+        search_position: null,
+        last_tested_date: null,
+        commentary: null,
+        subject_override: null,
+        draft_ready: 1,
+        approved_to_send: 0,
+        approved_at: null,
+        approved_by: null,
+        send_override: 0,
+        override_reason: null,
+        override_by: null,
+        override_at: null,
+        sent_at: null,
+        delivery_status: "pending",
+        resend_message_id: null,
+        checklist: null,
+        checklist_auto_evidence: null,
+        rendered_html: null,
+      })
+      .execute();
+    await mirrorReportPatch(db, "recRPT9", {
+      approved_to_send: 1,
+      approved_at: "2026-08-24T12:00:00.000Z",
+      approved_by: "op",
+    });
+    const [row] = await listAllReports(db);
+    expect(row!.approvedToSend).toBe(true);
+    expect(row!.approvedBy).toBe("op");
+  });
+
+  it("an empty patch is a no-op, not invalid SQL", async () => {
+    const db = await importOf([RICH]);
+    await expect(mirrorReportPatch(db, "recX", {})).resolves.toBeUndefined();
   });
 });

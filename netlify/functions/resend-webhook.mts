@@ -7,6 +7,7 @@ import {
   classifyUnmatchedEvent,
 } from "../../src/reports/webhook-events.js";
 import { findReportByMessageId, setDeliveryStatus } from "../../src/reports/airtable/reports.js";
+import { mirrorReportPatch } from "../../src/db/fleet-state.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import { markNotifyBouncedByMessageId } from "../../src/db/submissions.js";
 
@@ -169,6 +170,13 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
 
   try {
     await setDeliveryStatus(base, report.id, newStatus);
+    // Phase 2 (#539): mirror into Turso reports (non-fatal — the sync converges it).
+    try {
+      const db = await openDb(readDbConfig());
+      await mirrorReportPatch(db, report.id, { delivery_status: newStatus });
+    } catch (err) {
+      console.error(`[resend-webhook] Turso mirror failed for ${report.id}: ${String(err)}`);
+    }
     console.log(
       `[resend-webhook] updated record=${report.id} → ${newStatus} (messageId=${messageId})`,
     );
