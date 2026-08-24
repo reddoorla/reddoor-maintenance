@@ -477,7 +477,7 @@ export function renderCockpitHtml(model: CockpitModel): string {
 </head>
 <body>
   <h1>Reddoor fleet cockpit</h1>
-  <div class="meta">${total} site${total === 1 ? "" : "s"} on the Reddoor stack.</div>
+  <div class="meta">${total} site${total === 1 ? "" : "s"} on the Reddoor stack. <a href="/fleet">Fleet table →</a></div>
   ${verdictBar(model, feed)}
   ${renderNeedsYouFeed(feed)}
   ${renderFleetBrowsePanel(model)}

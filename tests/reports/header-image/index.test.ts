@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import sharp from "sharp";
-import { generateHeaderImage } from "../../../src/reports/header-image/index.js";
+import {
+  generateHeaderImage,
+  applyReportTypeHeadline,
+} from "../../../src/reports/header-image/index.js";
 import type { Shooter } from "../../../src/reports/header-image/capture.js";
 
 async function shot(color = "#123456"): Promise<Uint8Array> {
@@ -52,5 +55,39 @@ describe("reports/header-image generateHeaderImage", () => {
     await expect(generateHeaderImage({ url: "https://acme.com/", shooter: blank })).rejects.toThrow(
       /blank/i,
     );
+  });
+});
+
+describe("reports/header-image applyReportTypeHeadline", () => {
+  it("stamps a distinct headline for every registered type", async () => {
+    const { bytes } = await generateHeaderImage({ url: "https://acme.com/", shooter });
+    const kinds = ["Maintenance", "Testing", "Announcement", "Launch"] as const;
+
+    const stamped = new Map<string, Buffer>();
+    for (const kind of kinds) {
+      const out = Buffer.from(await applyReportTypeHeadline(bytes, kind));
+      // Every registered type must actually change the header...
+      expect(out.equals(Buffer.from(bytes))).toBe(false);
+      // ...and each must differ from the others, which catches a
+      // HEADLINE_FILES entry pointing at the wrong asset.
+      for (const [other, buf] of stamped) {
+        expect(`${kind} vs ${other}: ${out.equals(buf)}`).toBe(`${kind} vs ${other}: false`);
+      }
+      stamped.set(kind, out);
+    }
+  });
+
+  it("passes an unregistered report type straight through", async () => {
+    const { bytes } = await generateHeaderImage({ url: "https://acme.com/", shooter });
+    expect(await applyReportTypeHeadline(bytes, "Nonsense")).toBe(bytes);
+  });
+
+  it("skips (never throws) on a non-canvas-sized header, returning it as stored", async () => {
+    const legacy = new Uint8Array(
+      await sharp({ create: { width: 600, height: 800, channels: 3, background: "#ffffff" } })
+        .jpeg()
+        .toBuffer(),
+    );
+    expect(await applyReportTypeHeadline(legacy, "Maintenance")).toBe(legacy);
   });
 });

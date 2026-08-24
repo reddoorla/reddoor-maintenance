@@ -1129,3 +1129,10 @@ describe("renderCockpitHtml — Recently lane", () => {
     expect(html).toContain("sent with override");
   });
 });
+
+describe("renderCockpitHtml — fleet table link", () => {
+  it("links to the fleet table page from the cockpit header area", () => {
+    const html = renderCockpitHtml(model([siteRow()]));
+    expect(html).toContain('href="/fleet"');
+  });
+});

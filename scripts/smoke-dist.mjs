@@ -232,8 +232,10 @@ const requiredExports = [
   "loadBundledImages",
   "CHECK_CID",
   "BLURRED_CID",
-  // header-image plate — its own dist copy, its own ENOENT exposure
+  // header-image plate + headline overlays — each its own dist copy, each its
+  // own ENOENT exposure
   "loadPlate",
+  "loadHeadline",
   // version helpers — present so consumers can pin to our actual version
   "selfPackageVersion",
   "selfCaretRange",
@@ -297,6 +299,20 @@ await check("loadPlate returns the plate without ENOENT", async () => {
   }
 });
 
+// Same class again for the headline overlay: a THIRD independent onSuccess
+// copy. Without it a missing headline would surface only at send time, as a
+// maintenance report going out on a blank plate.
+await check("loadHeadline returns the maintenance headline without ENOENT", async () => {
+  const bytes = await mod.loadHeadline("Maintenance");
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) {
+    throw new Error("headline loaded but empty");
+  }
+  const png = [0x89, 0x50, 0x4e, 0x47];
+  if (!png.every((b, i) => bytes[i] === b)) {
+    throw new Error(`headline is not a PNG (first bytes: ${[...bytes.slice(0, 4)].join(",")})`);
+  }
+});
+
 // The check above is necessary but NOT sufficient: the walk-up loader prefers
 // the src/ layout, which exists in this checkout but never ships. So a plate
 // that tsup failed to copy still resolves here while breaking every consumer —
@@ -308,7 +324,11 @@ await check("loadPlate returns the plate without ENOENT", async () => {
 // src/, which exists here and never ships. Each entry is a separate explicit
 // copyFile in tsup's onSuccess, so any one can be dropped independently.
 const shippedAssets = [
-  "dist/reports/header-image/assets/plate.png",
+  "dist/reports/header-image/assets/plate-clean.png",
+  "dist/reports/header-image/assets/headline-maintenance.png",
+  "dist/reports/header-image/assets/headline-testing.png",
+  "dist/reports/header-image/assets/headline-announcement.png",
+  "dist/reports/header-image/assets/headline-launch.png",
   "dist/reports/maintenance-email/assets/check.png",
   "dist/reports/maintenance-email/assets/blurredTests.jpg",
 ];
