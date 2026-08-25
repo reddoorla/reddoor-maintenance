@@ -45,10 +45,15 @@ export async function storeHeaderImage(
 
 type Attachment = { url: string; filename: string; type: string };
 
-/** First "Header image" attachment of a raw Websites record, or null. */
+/** NEWEST "Header image" attachment of a raw Websites record, or null.
+ *
+ *  The tail, not the head: Airtable's uploadAttachment APPENDS, so a field that ever
+ *  held more than one file served its OLDEST image from `[0]` forever — see the note
+ *  in `reports/airtable/websites.ts` and #574/#577. Kept in step with that reader so
+ *  the Turso mirror and the send path can never disagree about which file is current. */
 export function headerImageAttachment(rec: RawRecord): Attachment | null {
   const atts = rec.fields["Header image"] as Array<Partial<Attachment>> | undefined;
-  const a = atts?.[0];
+  const a = atts?.at(-1);
   return a && typeof a.url === "string" && a.url.length > 0
     ? {
         url: a.url,

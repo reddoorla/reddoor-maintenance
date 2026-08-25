@@ -442,7 +442,13 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
   const name = String(f["Name"] ?? "");
   const attachments =
     (f["Header image"] as Array<{ url: string; filename: string; type: string }> | undefined) ?? [];
-  const header = attachments[0] ?? null;
+  // LAST, not first: Airtable's uploadAttachment APPENDS, so the newest file is the
+  // tail. Reading [0] served the OLDEST forever whenever a field held more than one —
+  // which is how a pre-clean-plate header reached a live announcement (#574/#577).
+  // The prune keeps these fields at a single entry, so this is normally the same
+  // element; preferring the tail means a field that stacks again still serves the
+  // CURRENT header instead of silently reverting to the first one ever uploaded.
+  const header = attachments.at(-1) ?? null;
   return {
     id: rec.id,
     name,

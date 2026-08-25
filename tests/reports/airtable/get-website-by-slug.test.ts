@@ -38,6 +38,30 @@ describe("getWebsiteBySlug", () => {
     expect(await getWebsiteBySlug(base, "nope")).toBeNull();
   });
 
+  // REGRESSION (2026-08-24): mapRow took `attachments[0]`, but Airtable's
+  // uploadAttachment APPENDS — so the newest file is the TAIL. Any field that ever held
+  // more than one served its OLDEST image forever, which is how a pre-clean-plate header
+  // reached a live announcement and got a second headline stamped over it (#574/#577).
+  it("maps the NEWEST Header image attachment, not the first ever uploaded", async () => {
+    const base = makeFakeBase({
+      Websites: [
+        {
+          id: "rec0",
+          fields: {
+            Name: "Acme Co",
+            Status: "maintenance",
+            "Header image": [
+              { url: "https://x/old.jpg", filename: "old.jpg", type: "image/jpeg" },
+              { url: "https://x/new.jpg", filename: "new.jpg", type: "image/jpeg" },
+            ],
+          },
+        },
+      ],
+    });
+    const row = await getWebsiteBySlug(base, "acme-co");
+    expect(row?.headerImage?.filename).toBe("new.jpg");
+  });
+
   it("rejects non-slug input without querying Airtable (formula-injection guard)", async () => {
     const base = seed(["Acme Co"]);
     const row = await getWebsiteBySlug(base, 'x") = 1 OR ""="');
