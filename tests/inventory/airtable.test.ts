@@ -12,19 +12,19 @@ describe("fromAirtableBase", () => {
       Websites: [
         {
           id: "rec_1",
-          fields: { Name: "Acme", url: "https://acme.example.com", Status: "maintenance" },
+          fields: { Name: "Acme", url: "https://acme.example.com", Status: "maintained" },
         },
       ],
     });
     await expect(fromAirtableBase(base)()).rejects.toThrow(/workdir/);
   });
 
-  it("returns one Site per LIVE maintenance site, with deployedUrl from url and no repoUrl", async () => {
+  it("returns one Site per LIVE maintained site, with deployedUrl from url and no repoUrl", async () => {
     const base = makeFakeBase({
       Websites: [
         {
           id: "rec_1",
-          fields: { Name: "Acme Co", url: "https://acme.example.com", Status: "maintenance" },
+          fields: { Name: "Acme Co", url: "https://acme.example.com", Status: "maintained" },
         },
       ],
     });
@@ -38,20 +38,20 @@ describe("fromAirtableBase", () => {
     expect(sites[0]!.meta?.displayName).toBe("Acme Co");
   });
 
-  it("excludes pre-launch sites (launch period / in development) — not live yet", async () => {
+  it("excludes pre-launch sites (launching / building) — not live yet", async () => {
     const base = makeFakeBase({
       Websites: [
         {
           id: "rec_live",
-          fields: { Name: "Live Co", url: "https://live.example.com", Status: "maintenance" },
+          fields: { Name: "Live Co", url: "https://live.example.com", Status: "maintained" },
         },
         {
           id: "rec_launch",
-          fields: { Name: "Beta Corp", url: "https://beta.example.com", Status: "launch period" },
+          fields: { Name: "Beta Corp", url: "https://beta.example.com", Status: "launching" },
         },
         {
           id: "rec_dev",
-          fields: { Name: "Dev Site", url: "https://dev.example.com", Status: "in development" },
+          fields: { Name: "Dev Site", url: "https://dev.example.com", Status: "building" },
         },
       ],
     });
@@ -60,20 +60,20 @@ describe("fromAirtableBase", () => {
     expect(sites.map((s) => s.name)).toEqual(["live-co"]);
   });
 
-  it("excludes sites whose Status is not live maintenance", async () => {
+  it("excludes sites whose Status is not live maintained", async () => {
     const base = makeFakeBase({
       Websites: [
         {
           id: "rec_m",
-          fields: { Name: "Live", url: "https://live.example", Status: "maintenance" },
+          fields: { Name: "Live", url: "https://live.example", Status: "maintained" },
         },
         {
           id: "rec_dep",
-          fields: { Name: "Old", url: "https://old.example", Status: "deprecated" },
+          fields: { Name: "Old", url: "https://old.example", Status: "archived" },
         },
         {
           id: "rec_host",
-          fields: { Name: "Hosted", url: "https://hosted.example", Status: "hosting" },
+          fields: { Name: "Hosted", url: "https://hosted.example", Status: "hosted-only" },
         },
       ],
     });
@@ -81,11 +81,11 @@ describe("fromAirtableBase", () => {
     expect(sites.map((s) => s.name)).toEqual(["live"]);
   });
 
-  it("excludes a maintenance site that has no url", async () => {
+  it("excludes a maintained site that has no url", async () => {
     const base = makeFakeBase({
       Websites: [
-        { id: "rec_nourl", fields: { Name: "NoUrl", Status: "maintenance" } },
-        { id: "rec_ok", fields: { Name: "Ok", url: "https://ok.example", Status: "maintenance" } },
+        { id: "rec_nourl", fields: { Name: "NoUrl", Status: "maintained" } },
+        { id: "rec_ok", fields: { Name: "Ok", url: "https://ok.example", Status: "maintained" } },
       ],
     });
     const sites = await fromAirtableBase(base, { workdir: "/tmp" })();
@@ -96,7 +96,7 @@ describe("fromAirtableBase", () => {
     process.env.REDDOOR_FLEET_WORKDIR = "/tmp/env-workdir";
     const base = makeFakeBase({
       Websites: [
-        { id: "r", fields: { Name: "x", url: "https://x.example", Status: "maintenance" } },
+        { id: "r", fields: { Name: "x", url: "https://x.example", Status: "maintained" } },
       ],
     });
     const sites = await fromAirtableBase(base)();
@@ -107,7 +107,7 @@ describe("fromAirtableBase", () => {
     process.env.REDDOOR_FLEET_WORKDIR = "/tmp/env-workdir";
     const base = makeFakeBase({
       Websites: [
-        { id: "r", fields: { Name: "x", url: "https://x.example", Status: "maintenance" } },
+        { id: "r", fields: { Name: "x", url: "https://x.example", Status: "maintained" } },
       ],
     });
     const sites = await fromAirtableBase(base, { workdir: "/tmp/explicit" })();
@@ -120,11 +120,11 @@ describe("fromAirtableBase", () => {
         // "!!!" → siteSlug "" : un-pathable and un-matchable on write-back.
         {
           id: "rec_empty",
-          fields: { Name: "!!!", url: "https://x.example", Status: "maintenance" },
+          fields: { Name: "!!!", url: "https://x.example", Status: "maintained" },
         },
         {
           id: "rec_ok",
-          fields: { Name: "Real Site", url: "https://real.example", Status: "maintenance" },
+          fields: { Name: "Real Site", url: "https://real.example", Status: "maintained" },
         },
       ],
     });
@@ -137,15 +137,15 @@ describe("fromAirtableBase", () => {
       Websites: [
         {
           id: "rec_evil",
-          fields: { Name: "Evil", url: "file:///etc/passwd", Status: "maintenance" },
+          fields: { Name: "Evil", url: "file:///etc/passwd", Status: "maintained" },
         },
         {
           id: "rec_bad",
-          fields: { Name: "Bad", url: "notaurl", Status: "maintenance" },
+          fields: { Name: "Bad", url: "notaurl", Status: "maintained" },
         },
         {
           id: "rec_ok",
-          fields: { Name: "Good Site", url: "https://good.example.com", Status: "maintenance" },
+          fields: { Name: "Good Site", url: "https://good.example.com", Status: "maintained" },
         },
       ],
     });

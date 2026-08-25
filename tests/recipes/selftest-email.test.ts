@@ -78,7 +78,7 @@ describe("selftestEmail", () => {
           fields: {
             Name: "Acme Co",
             url: "https://acme.example.com",
-            Status: "maintenance",
+            Status: "maintained",
             ...scored(),
           },
         },
@@ -112,7 +112,7 @@ describe("selftestEmail", () => {
           fields: {
             Name: "Acme Co",
             url: "https://acme.example.com",
-            Status: "maintenance",
+            Status: "maintained",
             ...scored(),
           },
         },
@@ -132,25 +132,25 @@ describe("selftestEmail", () => {
     expect(sent[0]!.subject).toContain("Testing Report");
   });
 
-  it("--all sends one email per report-eligible site (maintenance + hosting); a scores-less site is skipped", async () => {
+  it("--all sends one email per report-eligible site (maintained + hosted-only); a scores-less site is skipped", async () => {
     const base = makeFakeBase({
       Websites: [
         {
           id: "r1",
-          fields: { Name: "Good Co", url: "https://good.com", Status: "maintenance", ...scored() },
+          fields: { Name: "Good Co", url: "https://good.com", Status: "maintained", ...scored() },
         },
         {
           id: "r2",
           fields: {
             Name: "No Scores",
             url: "https://ns.com",
-            Status: "maintenance",
+            Status: "maintained",
             "Header image": [{ url: "u", filename: "f", type: "image/jpeg" }],
           },
         },
         {
           id: "r3",
-          fields: { Name: "Hosting Co", url: "https://h.com", Status: "hosting", ...scored() },
+          fields: { Name: "Hosting Co", url: "https://h.com", Status: "hosted-only", ...scored() },
         },
       ],
       Reports: [],
@@ -160,7 +160,7 @@ describe("selftestEmail", () => {
     const byName = new Map(res.results.map((r) => [r.site, r.status]));
     expect(byName.get("Good Co")).toBe("sent");
     expect(byName.get("No Scores")).toBe("skipped");
-    expect(byName.get("Hosting Co")).toBe("sent"); // hosting is report-eligible, not excluded
+    expect(byName.get("Hosting Co")).toBe("sent"); // hosted-only is report-eligible, not excluded
     expect(sent).toHaveLength(2);
   });
 
@@ -172,7 +172,7 @@ describe("selftestEmail", () => {
           fields: {
             Name: "Acme Co",
             url: "https://acme.example.com",
-            Status: "maintenance",
+            Status: "maintained",
             ...scored(),
           },
         },
@@ -206,7 +206,7 @@ describe("selftestEmail", () => {
           fields: {
             Name: "Acme Co",
             url: "https://acme.example.com",
-            Status: "maintenance",
+            Status: "maintained",
             ...scored(),
           },
         },

@@ -2,9 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   canonicalizeStatus,
   toAirtableStatus,
-  AIRTABLE_USES_NEW_VOCABULARY,
   CANONICAL_STATUSES,
-  AIRTABLE_STATUS_ALIASES,
   type Status,
 } from "../../../src/reports/airtable/site-status.js";
 import {
@@ -24,21 +22,39 @@ import { SITE_STATUS_OPTIONS } from "../../../src/dashboard/site-details.js";
 
 /**
  * THE behaviour-equivalence instrument for the #539 Phase 4 status-vocabulary
- * rename (stage 1).
+ * rename, now carried through all three stages.
  *
- * BASELINE below was captured by RUNNING every status predicate over every
- * Airtable Status cell value against the PRE-RENAME code (origin/main @ 5a97866),
- * not by reading it off the source. It is a frozen record of what the fleet
- * selected before the rename. Every row must still hold after canonicalization,
- * so a mis-mapped alias (`hosting` → `maintained`, say) fails HERE with a named
- * row rather than silently changing which sites get audited, reported on, or
- * notified.
+ * The VALUES in BASELINE below are the original frozen capture: they were
+ * recorded by RUNNING every status predicate over every Airtable Status cell
+ * value against the PRE-RENAME code (origin/main @ 5a97866), not by reading them
+ * off the source. Not one of them has been edited since.
+ *
+ * What stage 3 changed is the KEY, not the value. The rows used to be addressed
+ * by the old Airtable cell name; the alias map that connected those names to
+ * canonical ones is now deleted, so each row is addressed by the canonical
+ * status the old name mapped to:
+ *
+ *   in development → building        probably not our problem → external
+ *   launch period  → launching       legacy    ┐
+ *   maintenance    → maintained      deprecated ┴ archived
+ *   hosting        → hosted-only
+ *
+ * `legacy` and `deprecated` collapse to a single `archived` row. That is safe
+ * for this table specifically because their two captured rows were IDENTICAL in
+ * all nine predicates — checked against the frozen capture before merging them,
+ * not assumed from the fact that ARCHIVED_STATUSES held both.
+ *
+ * So the property this still pins is the one that matters going forward: the
+ * canonical vocabulary selects exactly the sites the old vocabulary selected. A
+ * future edit to ELIGIBLE_STATUSES, ACTIVE_STATUSES or either inline literal
+ * fails HERE with a named row rather than silently changing which sites get
+ * audited, reported on, or notified.
  *
  * Three rows are load-bearing beyond the obvious:
- *  - `launch period` is TRUE for BOTH `dashboardVisible` and `preLaunch`. That
- *    dual membership (cockpit-visible, not production-audited) is deliberate and
- *    was explicitly re-approved as-is with the vocabulary — it is NOT a bug to
- *    fix under cover of a rename.
+ *  - `launching` is TRUE for BOTH `dashboardVisible` and `preLaunch`. That dual
+ *    membership (cockpit-visible, not production-audited) is deliberate and was
+ *    explicitly re-approved as-is with the vocabulary — it is NOT a bug to fix
+ *    under cover of a rename.
  *  - `(empty)` — a non-blank-but-empty cell — is `unrecognized: true`, NOT null.
  *    `due.ts`/`preflight.ts` treat a null status as eligible-by-default, so
  *    nulling anything non-absent would ACTIVATE the row.
@@ -48,8 +64,23 @@ import { SITE_STATUS_OPTIONS } from "../../../src/dashboard/site-details.js";
  *    skip only a non-null ineligible status, and `preflight.ts:374` selects
  *    `w.status === null` explicitly.
  */
+/** The seven Airtable option names that existed before the migration, kept ONLY
+ *  as test data. Stage 3 deleted the alias map that used to translate them, so
+ *  this list is what "an old value must now alarm" is checked against — it is
+ *  no longer imported from production code, because production code no longer
+ *  knows these strings. */
+const OLD_AIRTABLE_VALUES = [
+  "in development",
+  "launch period",
+  "maintenance",
+  "hosting",
+  "probably not our problem",
+  "legacy",
+  "deprecated",
+] as const;
+
 const BASELINE = {
-  "in development": {
+  building: {
     dashboardVisible: false,
     preLaunch: true,
     archived: false,
@@ -60,7 +91,7 @@ const BASELINE = {
     spamHandling: false,
     notifyToPoc: false,
   },
-  "launch period": {
+  launching: {
     dashboardVisible: true,
     preLaunch: true,
     archived: false,
@@ -71,7 +102,7 @@ const BASELINE = {
     spamHandling: true,
     notifyToPoc: false,
   },
-  maintenance: {
+  maintained: {
     dashboardVisible: true,
     preLaunch: false,
     archived: false,
@@ -82,7 +113,7 @@ const BASELINE = {
     spamHandling: true,
     notifyToPoc: true,
   },
-  hosting: {
+  "hosted-only": {
     dashboardVisible: false,
     preLaunch: false,
     archived: false,
@@ -93,7 +124,7 @@ const BASELINE = {
     spamHandling: true,
     notifyToPoc: false,
   },
-  "probably not our problem": {
+  external: {
     dashboardVisible: false,
     preLaunch: false,
     archived: false,
@@ -104,18 +135,7 @@ const BASELINE = {
     spamHandling: true,
     notifyToPoc: false,
   },
-  legacy: {
-    dashboardVisible: false,
-    preLaunch: false,
-    archived: true,
-    unrecognized: false,
-    eligible: false,
-    active: false,
-    known: true,
-    spamHandling: true,
-    notifyToPoc: false,
-  },
-  deprecated: {
+  archived: {
     dashboardVisible: false,
     preLaunch: false,
     archived: true,
@@ -169,11 +189,12 @@ const BASELINE = {
   },
 } as const;
 
-/** The BASELINE rows that are NOT alias keys: a genuine typo plus the two blank
- *  shapes. Named so the completeness gate can require them by name rather than
- *  trusting the table to still contain them. `(empty)` is the ACTIVATE-risk row
- *  the header calls out; deleting it must red a test, not shrink a loop. */
-const NON_ALIAS_BASELINE_KEYS = ["wat", "(empty)", "(null)"] as const;
+/** The BASELINE rows that are NOT canonical statuses: a genuine typo plus the
+ *  two blank shapes. Named so the completeness gate can require them by name
+ *  rather than trusting the table to still contain them. `(empty)` is the
+ *  ACTIVATE-risk row the header calls out; deleting it must red a test, not
+ *  shrink a loop. */
+const NON_STATUS_BASELINE_KEYS = ["wat", "(empty)", "(null)"] as const;
 
 /** The Airtable cell a BASELINE key stands for. */
 function cellFor(key: string): unknown {
@@ -210,16 +231,18 @@ describe("site-status: behaviour equivalence across the vocabulary rename", () =
     });
   }
 
-  it("covers every Airtable Status value the alias map knows, plus a typo and both blanks", () => {
+  it("covers every canonical status, plus a typo and both blanks", () => {
     // The completeness gate on the table, in BOTH directions — because the loop
     // above measures whatever rows exist, so a DELETED row shrinks the loop
     // silently rather than failing anything. Losing `(empty)` in particular would
     // drop the one row that guards against nulling a present-but-empty cell and
     // thereby ACTIVATING it for scheduled client reports.
-    const required = new Set<string>([
-      ...Object.keys(AIRTABLE_STATUS_ALIASES),
-      ...NON_ALIAS_BASELINE_KEYS,
-    ]);
+    //
+    // Required from CANONICAL_STATUSES rather than a literal list, so ADDING a
+    // status to the vocabulary without capturing its selection behaviour fails
+    // here — which is the direction this gate will actually be tested in now
+    // that the old names are gone.
+    const required = new Set<string>([...CANONICAL_STATUSES, ...NON_STATUS_BASELINE_KEYS]);
     for (const key of required) {
       expect(BASELINE, `BASELINE has no row for '${key}'`).toHaveProperty(key);
     }
@@ -241,14 +264,19 @@ describe("site-status: behaviour equivalence across the vocabulary rename", () =
 });
 
 describe("canonicalizeStatus", () => {
-  it("maps every old Airtable name to its approved canonical name", () => {
-    expect(canonicalizeStatus("in development")).toBe("building");
-    expect(canonicalizeStatus("launch period")).toBe("launching");
-    expect(canonicalizeStatus("maintenance")).toBe("maintained");
-    expect(canonicalizeStatus("hosting")).toBe("hosted-only");
-    expect(canonicalizeStatus("probably not our problem")).toBe("external");
-    expect(canonicalizeStatus("legacy")).toBe("archived");
-    expect(canonicalizeStatus("deprecated")).toBe("archived");
+  it("no longer TRANSLATES an old Airtable name — stage 3 deleted the alias map", () => {
+    // The direct inverse of the stage-1/2 assertion this replaces. Each of these
+    // used to yield its canonical partner; the mapping is now gone, so each cell
+    // survives verbatim and lands in the unrecognized bucket (asserted just
+    // below). Kept as an explicit list rather than folded into the loop below so
+    // the retired mapping stays legible at the point where it stopped applying.
+    expect(canonicalizeStatus("in development")).toBe("in development");
+    expect(canonicalizeStatus("launch period")).toBe("launch period");
+    expect(canonicalizeStatus("maintenance")).toBe("maintenance");
+    expect(canonicalizeStatus("hosting")).toBe("hosting");
+    expect(canonicalizeStatus("probably not our problem")).toBe("probably not our problem");
+    expect(canonicalizeStatus("legacy")).toBe("legacy");
+    expect(canonicalizeStatus("deprecated")).toBe("deprecated");
   });
 
   it("passes a canonical name through unchanged (stage 2 reads the SAME code)", () => {
@@ -266,9 +294,17 @@ describe("canonicalizeStatus", () => {
     expect(canonicalizeStatus("maintenance ")).toBe("maintenance "); // padded ≠ known
   });
 
-  it("does NOT flag an old-vocabulary cell as unrecognized (the transition-window pin)", () => {
-    for (const old of Object.keys(AIRTABLE_STATUS_ALIASES)) {
-      expect(isUnrecognizedStatus(canonicalizeStatus(old)), `'${old}' must not alarm`).toBe(false);
+  it("FLAGS an old-vocabulary cell as unrecognized — stage 3 removed the tolerance", () => {
+    // The inverse of the stage-1/2 pin, and deliberately so. The seven old
+    // options no longer exist in the Airtable field (verified against the live
+    // base before this landed: the single-select carries exactly the six
+    // canonical choices), so an old value can no longer be entered. If one
+    // reappears it is a genuine anomaly — a restored backup, a scripted write,
+    // an API caller with a stale constant — and must surface as a cockpit watch
+    // row rather than being silently translated into a status nobody chose.
+    for (const old of OLD_AIRTABLE_VALUES) {
+      expect(isUnrecognizedStatus(canonicalizeStatus(old)), `'${old}' must alarm`).toBe(true);
+      expect(canonicalizeStatus(old), `'${old}' must survive verbatim`).toBe(old);
     }
   });
 
@@ -280,21 +316,16 @@ describe("canonicalizeStatus", () => {
 });
 
 describe("toAirtableStatus (stage 2: the Airtable single-select now carries the NEW options)", () => {
-  it("is switched to the NEW vocabulary — stage 2 flipped this ONE constant", () => {
-    expect(AIRTABLE_USES_NEW_VOCABULARY).toBe(true);
-  });
-
   it("emits the NEW Airtable option — the canonical name itself — for every status", () => {
     expect(toAirtableStatus("building")).toBe("building");
     expect(toAirtableStatus("launching")).toBe("launching");
     expect(toAirtableStatus("maintained")).toBe("maintained");
     expect(toAirtableStatus("hosted-only")).toBe("hosted-only");
     expect(toAirtableStatus("external")).toBe("external");
-    // The many-to-one merge is RESOLVED by stage 2: `legacy` and `deprecated`
-    // both canonicalize to `archived`, and `archived` is now itself a real
-    // Airtable option, so the write no longer has to pick one of the two old
-    // names. AIRTABLE_OLD_NAMES still maps it to "deprecated", but that branch is
-    // now unreachable and stage 3 deletes it.
+    // The many-to-one merge is fully RESOLVED: `archived` is a real Airtable
+    // option and the two old names it absorbed no longer exist in the field, so
+    // there is nothing left for a write to pick between. Stage 3 deleted the
+    // reverse map that used to make this the interesting case.
     expect(toAirtableStatus("archived")).toBe("archived");
   });
 
@@ -315,13 +346,17 @@ describe("mapRow status seam", () => {
   const row = (fields: Record<string, unknown>): WebsiteRow =>
     mapRow({ id: "recTEST", fields: { Name: "Acme", ...fields } });
 
-  it("canonicalizes the Airtable cell at the read boundary", () => {
-    expect(row({ Status: "maintenance" }).status).toBe("maintained");
-    expect(row({ Status: "legacy" }).status).toBe("archived");
+  it("reads a canonical cell through unchanged", () => {
+    for (const s of CANONICAL_STATUSES) expect(row({ Status: s }).status).toBe(s);
   });
 
-  it("accepts a NEW-vocabulary cell too (so stage 2 needs no reader change)", () => {
-    expect(row({ Status: "maintained" }).status).toBe("maintained");
+  it("no longer translates a retired cell — it reads as itself, and alarms", () => {
+    // What this seam used to do (`maintenance` in, `maintained` out) is exactly
+    // what stage 3 removed. Pinned here as well as at canonicalizeStatus because
+    // this is the boundary production actually crosses.
+    expect(row({ Status: "maintenance" }).status).toBe("maintenance");
+    expect(row({ Status: "legacy" }).status).toBe("legacy");
+    expect(isUnrecognizedStatus(row({ Status: "legacy" }).status)).toBe(true);
   });
 
   it("keeps an unrecognized cell NON-NULL so it cannot become eligible-by-default", () => {
@@ -335,9 +370,31 @@ describe("mapRow status seam", () => {
   });
 
   it("preserves the RAW cell in statusRaw (what the dashboard editor round-trips)", () => {
-    expect(row({ Status: "legacy" }).statusRaw).toBe("legacy");
-    expect(row({ Status: "maintenance" }).statusRaw).toBe("maintenance");
+    // HONEST NOTE ON WHAT THIS STILL PROVES. `status` is now the identity on
+    // every string, so for any value the Status single-select can actually hold,
+    // `status` and `statusRaw` are the SAME string — this can no longer
+    // demonstrate the divergence it was written for (a `legacy` cell reading as
+    // `archived` while displaying as "legacy"). What it does still pin is that
+    // statusRaw is a verbatim, un-narrowed copy of the cell: an unrecognized
+    // value survives intact for the editor to round-trip, and an absent cell is
+    // null rather than "". Both fields are kept because the read/display split is
+    // the architecture that made this migration survivable; the seam is dormant,
+    // not wrong. See the equality pin below, which is what would actually fail if
+    // canonicalization were ever reintroduced.
+    expect(row({ Status: "wat" }).statusRaw).toBe("wat");
+    expect(row({ Status: "maintained" }).statusRaw).toBe("maintained");
     expect(row({}).statusRaw).toBeNull();
+  });
+
+  it("status and statusRaw now COINCIDE for every value a single-select can hold", () => {
+    // The load-bearing half of the note above, stated as an assertion so it
+    // cannot quietly stop being true. If a future change reintroduces any
+    // translation at this seam, this fails and forces the raw-vs-canonical
+    // question to be answered deliberately rather than discovered in the cockpit.
+    for (const cell of [...CANONICAL_STATUSES, ...OLD_AIRTABLE_VALUES, "wat", ""]) {
+      const r = row({ Status: cell });
+      expect(r.status, `status/statusRaw diverged for ${JSON.stringify(cell)}`).toBe(r.statusRaw);
+    }
   });
 });
 

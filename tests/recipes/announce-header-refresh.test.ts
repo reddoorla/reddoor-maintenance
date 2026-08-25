@@ -53,7 +53,7 @@ function baseWithOneSite() {
         fields: {
           Name: "Acme Co",
           url: "https://acme.example.com",
-          Status: "maintenance",
+          Status: "maintained",
           pScore: 87,
           rScore: 91,
           bpScore: 100,

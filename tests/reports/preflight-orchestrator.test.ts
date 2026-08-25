@@ -9,7 +9,7 @@ function siteRecord(id: string, name: string, over: Record<string, unknown> = {}
     fields: {
       Name: name,
       url: `https://${name.toLowerCase().replace(/\s+/g, "")}.example.com`,
-      Status: "maintenance",
+      Status: "maintained",
       "point of contact": `owner@${name.toLowerCase().replace(/\s+/g, "")}.example.com`,
       "maintenence freq": "Monthly",
       "maintenance day": "2026-06-30",
@@ -26,12 +26,12 @@ function siteRecord(id: string, name: string, over: Record<string, unknown> = {}
 const NOW = new Date("2026-07-02T12:00:00Z");
 
 describe("preflight() orchestrator (fake Airtable base)", () => {
-  it("--all with Announcement selects only maintenance-status sites (announce's own filter)", async () => {
+  it("--all with Announcement selects only maintained-status sites (announce's own filter)", async () => {
     const base = makeFakeBase({
       Websites: [
         siteRecord("rec1", "Acme"),
-        siteRecord("rec2", "Hosting Co", { Status: "hosting" }),
-        siteRecord("rec3", "Dead Co", { Status: "deprecated" }),
+        siteRecord("rec2", "Hosting Co", { Status: "hosted-only" }),
+        siteRecord("rec3", "Dead Co", { Status: "archived" }),
       ],
       Reports: [],
     });
@@ -39,14 +39,14 @@ describe("preflight() orchestrator (fake Airtable base)", () => {
     expect(results.map((r) => r.site)).toEqual(["Acme"]);
   });
 
-  it("--all with Maintenance mirrors report --due eligibility: hosting + null-status included, deprecated excluded", async () => {
+  it("--all with Maintenance mirrors report --due eligibility: hosted-only + null-status included, archived excluded", async () => {
     const base = makeFakeBase({
       Websites: [
         siteRecord("rec1", "Acme"),
-        siteRecord("rec2", "Hosting Co", { Status: "hosting" }),
+        siteRecord("rec2", "Hosting Co", { Status: "hosted-only" }),
         siteRecord("rec3", "Legacy Row", { Status: undefined }),
-        siteRecord("rec4", "Dead Co", { Status: "deprecated" }),
-        siteRecord("rec5", "Not Ours", { Status: "probably not our problem" }),
+        siteRecord("rec4", "Dead Co", { Status: "archived" }),
+        siteRecord("rec5", "Not Ours", { Status: "external" }),
       ],
       Reports: [],
     });
