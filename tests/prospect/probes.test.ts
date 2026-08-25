@@ -199,6 +199,23 @@ describe("runVisibilityProbes", () => {
     expect(result.answers[0]!.askedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
   });
 
+  // Item 4b: SNIPPET_CHARS is private to this module, and the renderer used
+  // to re-derive "was this truncated?" from `snippet.length >= 300` — a
+  // second copy of the same threshold that would silently drift if
+  // SNIPPET_CHARS were ever tuned. Carry the boolean explicitly, set exactly
+  // where the truncation happens, so there is only one source of truth.
+  it("sets truncated: true only when the answer actually exceeded the snippet cap", async () => {
+    const engines = [engine("perplexity", () => ({ answer: "z".repeat(900), citedDomains: [] }))];
+    const result = await runVisibilityProbes(args, engines, { delayMs: 0 });
+    expect(result.answers[0]!.truncated).toBe(true);
+  });
+
+  it("sets truncated: false when the answer is under the snippet cap", async () => {
+    const engines = [engine("perplexity", () => ({ answer: "a short answer", citedDomains: [] }))];
+    const result = await runVisibilityProbes(args, engines, { delayMs: 0 });
+    expect(result.answers.every((a) => a.truncated === false)).toBe(true);
+  });
+
   it("treats the prospect's own apex as the same site when the crawl ran on www", async () => {
     const wwwArgs = {
       url: "https://www.acme.example/",

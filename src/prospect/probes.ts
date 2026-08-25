@@ -150,6 +150,7 @@ export async function runVisibilityProbes(
           brandMentioned,
           citedDomains,
           snippet: reply.answer.slice(0, SNIPPET_CHARS),
+          truncated: reply.answer.length > SNIPPET_CHARS,
           askedAt: new Date().toISOString(),
         });
       },

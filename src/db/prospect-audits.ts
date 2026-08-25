@@ -18,10 +18,23 @@ export function newProspectAuditId(): string {
   return `pa_${crypto.randomUUID()}`;
 }
 
+/** "complete" when every pipeline stage succeeded; "partial" when any stage
+ *  failed or was deliberately skipped (StageResult's `ok: false` covers
+ *  both — the pipeline doesn't distinguish them at this layer). The report
+ *  itself already degrades each failed section to "not measured"; this is
+ *  what lets a future dashboard tell complete from partial without
+ *  deserializing the whole result_json. */
+export type ProspectAuditStatus = "complete" | "partial";
+
 export type NewProspectAudit = {
   url: string;
   business: string | null;
   resultJson: string;
+  /** Defaults to "complete" — the column's own SQL default — for callers
+   *  (tests, ad-hoc scripts) that don't track per-stage outcomes. The
+   *  prospect-audit CLI, the only real writer, always computes and passes
+   *  this explicitly. */
+  status?: ProspectAuditStatus;
 };
 
 export async function createProspectAudit(
@@ -38,7 +51,7 @@ export async function createProspectAudit(
       url: audit.url,
       business: audit.business,
       created_at: new Date().toISOString(),
-      status: "complete",
+      status: audit.status ?? "complete",
       result_json: audit.resultJson,
     })
     .execute();
@@ -50,6 +63,7 @@ export type ProspectAuditRow = {
   url: string;
   business: string | null;
   created_at: string;
+  status: string;
   result_json: string;
 };
 
@@ -59,7 +73,7 @@ export async function getProspectAuditByToken(
 ): Promise<ProspectAuditRow | null> {
   const row = await db
     .selectFrom("prospect_audits")
-    .select(["id", "url", "business", "created_at", "result_json"])
+    .select(["id", "url", "business", "created_at", "status", "result_json"])
     .where("token", "=", token)
     .executeTakeFirst();
   return row ?? null;

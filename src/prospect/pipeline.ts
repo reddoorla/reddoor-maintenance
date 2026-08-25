@@ -120,7 +120,8 @@ export async function runProspectAudit(
   // stays available to the renderer off analyze.data.business and is never
   // copied up here. The probes stage below reads this same resolved value,
   // so it too only ever queries the name.
-  const business = opts.business?.trim() || (analyze.ok ? analyze.data.businessName : "") || null;
+  const businessName =
+    opts.business?.trim() || (analyze.ok ? analyze.data.businessName : "") || null;
 
   const probeOpts: ProbeRunOptions = {
     ...(deps.probeDelayMs !== undefined ? { delayMs: deps.probeDelayMs } : {}),
@@ -135,7 +136,7 @@ export async function runProspectAudit(
       runVisibilityProbes(
         {
           url,
-          business: business ?? "",
+          business: businessName ?? "",
           buyerQuestions: analyze.ok ? analyze.data.buyerQuestions.map((q) => q.question) : [],
           competitors: opts.competitors ?? [],
         },
@@ -147,7 +148,7 @@ export async function runProspectAudit(
 
   return {
     url,
-    business,
+    businessName,
     generatedAt: new Date().toISOString(),
     scores: computeScores({
       checks: checks.ok ? checks.data : null,

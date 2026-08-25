@@ -153,6 +153,11 @@ export type ProbeAnswer = {
   citedDomains: string[];
   /** First ~300 chars of the engine's answer — the report's receipt. */
   snippet: string;
+  /** True when `snippet` is a truncated prefix of a longer answer — set
+   *  right where the truncation happens (probes.ts's SNIPPET_CHARS), so the
+   *  renderer never has to re-derive "was this cut short?" from a length
+   *  check of its own against a constant it can't see. */
+  truncated: boolean;
   /** ISO-8601, set when the answer came back — this stage's whole output is
    *  quotable claims about a live third party, and answer engines' answers
    *  drift, so a disputed line in a report needs a date attached. */
@@ -195,7 +200,16 @@ export type Scores = {
 
 export type ProspectAuditResult = {
   url: string;
-  business: string | null;
+  /** The resolved searchable proper NOUN — "Acme Roofing", not a description
+   *  of it (mirrors `AnalyzeResult.businessName`, the value this is usually
+   *  copied from). Distinct from `AnalyzeResult.business` (prose, nested
+   *  under `analyze.data`) — the two share a root name only because they're
+   *  one level apart, not because they hold the same kind of value. Null
+   *  when no name was ever resolved (operator override empty, model returned
+   *  none) — itself a finding, not an error. Persisted verbatim into the
+   *  database's `business` COLUMN (kept as-is; a rename there would need its
+   *  own migration for no benefit) — map at that one boundary, not here. */
+  businessName: string | null;
   generatedAt: string;
   scores: Scores;
   /** The crawl is the one fatal stage (see pipeline.ts): a crawl failure

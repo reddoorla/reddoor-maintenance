@@ -48,7 +48,7 @@ const req = (method = "GET"): Request => new Request("https://dash.reddoor.test/
 function seedResult(business: string): ProspectAuditResult {
   return {
     url: "https://acme.example/",
-    business,
+    businessName: business,
     generatedAt: "2026-08-25T17:00:00.000Z",
     scores: { findability: 50, readability: 50, answers: null, aiVisibility: null },
     crawl: {

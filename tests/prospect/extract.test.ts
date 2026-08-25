@@ -69,6 +69,53 @@ describe("extractPage — a client-rendered shell", () => {
   });
 });
 
+// Item 5: the only two fixtures before this were a hand-perfect showcase and
+// an empty SPA shell — neither resembles a real small-business target, which
+// is almost always page-builder output (WordPress/Elementor/Squarespace).
+// This models that reality: two page-builder <h1>s, a heading level skip, two
+// JSON-LD blocks (one valid, one hand-pasted and malformed), og:title with no
+// og:image, a duplicate canonical, and one image with alt beside one without.
+describe("extractPage — a realistic page-builder site (messy.html)", () => {
+  const page = extractPage(fixture("messy.html"));
+
+  it("reads the title, and reports the missing description honestly", () => {
+    expect(page.title).toBe("Home - Riverside Plumbing Co");
+    expect(page.metaDescription).toBeNull();
+  });
+
+  it("picks the FIRST of two conflicting canonical links, not a merge or a throw", () => {
+    // Real page-builder sites frequently emit two: one from the theme, one
+    // from an SEO plugin, disagreeing on the trailing path. extractPage has
+    // no way to know which is "correct" — it takes the first in document
+    // order, silently. Documented here so a future change to that tie-break
+    // is a deliberate decision, not an accidental one.
+    expect(page.canonical).toBe("https://riversideplumbing.example/home/");
+  });
+
+  it("captures both page-builder h1s, in document order, plus the heading skip past h2", () => {
+    expect(page.headings).toEqual([
+      { level: 1, text: "Riverside Plumbing Co" },
+      { level: 1, text: "24/7 Emergency Plumbing in Riverside County" },
+      { level: 3, text: "Our Services" },
+    ]);
+  });
+
+  it("reports partial social meta: og:title present, og:image absent", () => {
+    expect(page.social["og:title"]).toBe("Riverside Plumbing Co");
+    expect(page.social["og:image"]).toBeUndefined();
+  });
+
+  it("captures both JSON-LD blocks verbatim — one valid, one that fails to parse", () => {
+    expect(page.jsonLd).toHaveLength(2);
+    expect(JSON.parse(page.jsonLd[0]!)["@type"]).toBe("Organization");
+    expect(() => JSON.parse(page.jsonLd[1]!)).toThrow();
+  });
+
+  it("counts one image with alt beside one without", () => {
+    expect(page.images).toEqual({ total: 2, withAlt: 1 });
+  });
+});
+
 describe("extractPage — text rendered the way a browser does", () => {
   it("skips a <template> stamp's headings, images and schema entirely, while a real sibling heading still counts", () => {
     const page = extractPage(

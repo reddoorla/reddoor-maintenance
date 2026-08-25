@@ -19,6 +19,21 @@ export function isHttpUrl(s: string): boolean {
 }
 
 /**
+ * The hostname of `s`, or `s` itself when it doesn't parse as a URL — a
+ * human-facing fallback label, never a thrown error. Used anywhere a short
+ * site label is wanted and the full URL would be noisy: the prospect-audit
+ * CLI's summary line and its report's <h1>/title both fall back to this when
+ * no business name was resolved.
+ */
+export function hostnameOf(s: string): string {
+  try {
+    return new URL(s).hostname;
+  } catch {
+    return s;
+  }
+}
+
+/**
  * True when `s` is a URL served from Netlify's default `*.netlify.app` host —
  * i.e. the site has no custom domain. Matches the apex `netlify.app` and any
  * subdomain of it (including deploy-preview hosts like `branch--site.netlify.app`),

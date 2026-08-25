@@ -1,4 +1,5 @@
 import { escapeHtml, safeUrl } from "../util/html.js";
+import { hostnameOf } from "../util/url.js";
 import { ANALYZE_SKIPPED, PROBES_SKIPPED } from "./pipeline.js";
 import type {
   AnalyzeResult,
@@ -138,10 +139,10 @@ function formatIsoDate(iso: string): string {
  *  it was just handed proves nothing about whether a buyer who never named
  *  the business would find it. */
 /** `businessNameUsed` is whether a real business name was ever resolved and
- *  handed to any engine (ProspectAuditResult.business, the same value the
- *  pipeline actually queried with) — never the raw ProbesResult, which has
- *  no way to say "no name was available". Without this gate, "even with the
- *  name handed to them" is a false claim whenever businessName was empty. */
+ *  handed to any engine (ProspectAuditResult.businessName, the same value
+ *  the pipeline actually queried with) — never the raw ProbesResult, which
+ *  has no way to say "no name was available". Without this gate, "even with
+ *  the name handed to them" is a false claim whenever businessName was empty. */
 function buildProbesSection(p: ProbesResult, businessNameUsed: boolean): string {
   const byKind = new Map<ProbeAnswer["kind"], ProbeAnswer[]>();
   for (const a of p.answers) {
@@ -168,7 +169,7 @@ function buildProbesSection(p: ProbesResult, businessNameUsed: boolean): string 
           (a) => `<div class="card">
           <div class="q">${escapeHtml(a.engine)} · “${escapeHtml(a.query)}”</div>
           <p class="muted">Asked ${escapeHtml(formatIsoDate(a.askedAt))}</p>
-          <p>${escapeHtml(a.snippet)}${a.snippet.length >= 300 ? "…" : ""}</p>
+          <p>${escapeHtml(a.snippet)}${a.truncated ? "…" : ""}</p>
           <p class="muted">${
             a.domainCited || a.brandMentioned
               ? "You were named in this answer."
@@ -194,20 +195,17 @@ function buildProbesSection(p: ProbesResult, businessNameUsed: boolean): string 
  *  failed, so the blocked/allowed lists are empty out of ignorance, not
  *  because we confirmed access. Saying "every crawler can reach the site" in
  *  that case would manufacture a finding from our own missing data.
- *  `sidecarErrors` comes from the (always-present) crawl stage, not from `c`
- *  itself — ChecksResult doesn't carry the raw fetch errors, only whether
- *  each sidecar was measured. sitemapMeasured/llmsTxtMeasured get the same
- *  treatment as crawlerAccessMeasured: a failed fetch reads as "not
- *  measured", never as a confirmed "missing" — that's a claim about the
- *  prospect's site we haven't earned. */
-function buildFindabilitySection(
-  c: ChecksResult,
-  sidecarErrors: { robots: string | null; sitemap: string | null; llms: string | null },
-): string {
+ *  sitemapMeasured/llmsTxtMeasured get the same treatment as
+ *  crawlerAccessMeasured: a failed fetch reads as "not measured", never as a
+ *  confirmed "missing" — that's a claim about the prospect's site we haven't
+ *  earned. Item 1: none of the three "not measured" lines below take the raw
+ *  fetch error as input anymore — status codes and transport vocabulary
+ *  ("503 Service Unavailable", "ETIMEDOUT") are operator vocabulary, same as
+ *  a stage failure (see STAGE_FAILED_MESSAGE); the real error still lives in
+ *  the persisted JSON and CLI output, never in this client-facing page. */
+function buildFindabilitySection(c: ChecksResult): string {
   const accessBlock = !c.crawlerAccessMeasured
-    ? `<p class="muted">Crawler access: not measured — ${escapeHtml(
-        sidecarErrors.robots ?? "the robots.txt fetch failed",
-      )}</p>`
+    ? `<p class="muted">Crawler access: not measured — ${STAGE_FAILED_MESSAGE}.</p>`
     : c.crawlerAccess.blockedAi.length
       ? `<p><strong>Blocked AI crawlers:</strong> ${escapeHtml(
           c.crawlerAccess.blockedAi.map(describeAgent).join(", "),
@@ -221,10 +219,10 @@ function buildFindabilitySection(
       : "";
   const sitemapLine = c.sitemapMeasured
     ? `<li>sitemap.xml: ${c.sitemapPresent ? "present" : "missing"}</li>`
-    : `<li>sitemap.xml: not measured — ${escapeHtml(sidecarErrors.sitemap ?? "the fetch failed")}</li>`;
+    : `<li>sitemap.xml: not measured — ${STAGE_FAILED_MESSAGE}.</li>`;
   const llmsLine = c.llmsTxtMeasured
     ? `<li>llms.txt: ${c.llmsTxtPresent ? "present" : "missing"}</li>`
-    : `<li>llms.txt: not measured — ${escapeHtml(sidecarErrors.llms ?? "the fetch failed")}</li>`;
+    : `<li>llms.txt: not measured — ${STAGE_FAILED_MESSAGE}.</li>`;
   return `${accessBlock}${classical}
     <ul>
       ${sitemapLine}
@@ -313,31 +311,23 @@ function buildAnswersSection(a: AnalyzeResult): string {
 }
 
 export function renderProspectReport(result: ProspectAuditResult): string {
-  const host = (() => {
-    try {
-      return new URL(result.url).hostname;
-    } catch {
-      return result.url;
-    }
-  })();
-  // `business` is the searchable NAME (possibly ""), never the description.
-  // An empty/missing name is itself a finding — fall back to the hostname
-  // rather than printing nothing, or worse, printing "" as if it were a
-  // verified fact about the business.
-  const name = result.business && result.business.trim() ? result.business : host;
+  const host = hostnameOf(result.url);
+  // `businessName` is the searchable NAME (possibly ""), never the
+  // description. An empty/missing name is itself a finding — fall back to
+  // the hostname rather than printing nothing, or worse, printing "" as if
+  // it were a verified fact about the business.
+  const name = result.businessName && result.businessName.trim() ? result.businessName : host;
   const date = formatIsoDate(result.generatedAt);
 
-  const findabilitySection = stageBody(result.checks, (c) =>
-    buildFindabilitySection(c, result.crawl.data.sidecarErrors),
-  );
+  const findabilitySection = stageBody(result.checks, buildFindabilitySection);
   const lighthouseBlock = buildLighthouseBlock(result.lighthouse);
   const readabilitySection = stageBody(result.checks, buildReadabilitySection);
 
   // A real business name was resolved and handed to the engines only when
-  // `result.business` is non-empty — the same value the pipeline actually
-  // queried with (see pipeline.ts). Used to gate the probes section's "even
-  // with the name handed to them" phrasing (Fix 6).
-  const businessNameUsed = Boolean(result.business && result.business.trim());
+  // `result.businessName` is non-empty — the same value the pipeline
+  // actually queried with (see pipeline.ts). Used to gate the probes
+  // section's "even with the name handed to them" phrasing (Fix 6).
+  const businessNameUsed = Boolean(result.businessName && result.businessName.trim());
 
   const fixes = result.analyze.ok
     ? (() => {

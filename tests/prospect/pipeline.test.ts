@@ -120,7 +120,7 @@ describe("runProspectAudit", () => {
   it("returns every stage populated on a healthy run", async () => {
     const result = await runProspectAudit(HOME, {}, deps());
     expect(result.url).toBe(HOME);
-    expect(result.business).toBe("Acme Roofing");
+    expect(result.businessName).toBe("Acme Roofing");
     expect(result.crawl.ok).toBe(true);
     expect(result.checks.ok).toBe(true);
     expect(result.lighthouse.ok).toBe(true);
@@ -134,7 +134,7 @@ describe("runProspectAudit", () => {
 
   it("prefers the operator's business name over the model's", async () => {
     const result = await runProspectAudit(HOME, { business: "Acme Roofing LLC" }, deps());
-    expect(result.business).toBe("Acme Roofing LLC");
+    expect(result.businessName).toBe("Acme Roofing LLC");
   });
 
   it("degrades the analyze section and its score, keeping the rest", async () => {
@@ -249,7 +249,7 @@ describe("runProspectAudit", () => {
     );
     // An empty businessName is itself a finding (AnalyzeSchema allows it) —
     // the operator supplied no override either, so there is no name to report.
-    expect(result.business).toBeNull();
+    expect(result.businessName).toBeNull();
     expect(result.probes.ok).toBe(true);
     if (result.probes.ok) {
       // resolveBusinessName (probes.ts) falls back to domainOf(url) rather

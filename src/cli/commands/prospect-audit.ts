@@ -1,7 +1,8 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { isHttpUrl } from "../../util/url.js";
+import { hostnameOf, isHttpUrl } from "../../util/url.js";
 import { resolveDashboardBaseUrl } from "../../dashboard/handler-helpers.js";
+import type { ProspectAuditStatus } from "../../db/prospect-audits.js";
 import type { PipelineDeps, StageName } from "../../prospect/pipeline.js";
 import type { ProspectAuditResult } from "../../prospect/types.js";
 
@@ -31,12 +32,18 @@ function scoreLine(label: string, value: number | null): string {
   return `${label.padEnd(14)} ${value === null ? "not measured" : String(value).padStart(3)}`;
 }
 
-function hostnameOf(url: string): string {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return url;
-  }
+/** Item 3: the `status` column exists to answer, without deserializing the
+ *  whole result_json, whether this was a clean run or a degraded one. crawl
+ *  is excluded — it's the one fatal stage (see pipeline.ts), so by the time a
+ *  ProspectAuditResult exists it was always ok. Every other stage's
+ *  StageResult already collapses "failed" and "deliberately skipped"
+ *  (--no-probes, the checks→analyze cascade) into the same `ok: false` — both
+ *  mean the report has a "not measured" section, so both count as partial
+ *  here too. */
+function auditStatus(result: ProspectAuditResult): ProspectAuditStatus {
+  const allStagesOk =
+    result.checks.ok && result.lighthouse.ok && result.analyze.ok && result.probes.ok;
+  return allStagesOk ? "complete" : "partial";
 }
 
 /** Filesystem-safe, never empty. Collapses anything outside [a-z0-9.-] to a
@@ -80,7 +87,7 @@ function summarize(
   recovery: RecoveryWrite | null,
 ): string {
   const lines = [
-    `Prospect audit — ${result.business ?? result.url}`,
+    `Prospect audit — ${result.businessName ?? result.url}`,
     "",
     scoreLine("Findability", result.scores.findability),
     scoreLine("Readability", result.scores.readability),
@@ -186,7 +193,12 @@ export async function runProspectAuditCommand(
       const db = await openDb(readDbConfig());
       const created = await createProspectAudit(db, {
         url: result.url,
-        business: result.business,
+        // Map at the boundary: ProspectAuditResult.businessName is the field
+        // name (Item 2 — it's a resolved NAME, not a description); the
+        // `prospect_audits.business` column keeps its existing name, since
+        // renaming a column needs its own migration for no benefit here.
+        business: result.businessName,
+        status: auditStatus(result),
         resultJson: JSON.stringify(result),
       });
       token = created.token;

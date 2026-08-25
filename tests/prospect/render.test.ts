@@ -124,6 +124,7 @@ function probesData(over: Partial<ProbesResult> = {}): ProbesResult {
         brandMentioned: true,
         citedDomains: ["acme.example"],
         snippet: "Acme Roofing is a Boise contractor.",
+        truncated: false,
         askedAt: "2026-08-25T16:00:00.000Z",
       },
       {
@@ -134,6 +135,7 @@ function probesData(over: Partial<ProbesResult> = {}): ProbesResult {
         brandMentioned: false,
         citedDomains: ["bestroofs.example"],
         snippet: "BestRoofs is frequently recommended.",
+        truncated: false,
         askedAt: "2026-08-25T16:05:00.000Z",
       },
     ],
@@ -147,7 +149,7 @@ function probesData(over: Partial<ProbesResult> = {}): ProbesResult {
 function result(over: Partial<ProspectAuditResult> = {}): ProspectAuditResult {
   return {
     url: "https://acme.example/",
-    business: "Acme Roofing",
+    businessName: "Acme Roofing",
     generatedAt: "2026-08-25T17:00:00.000Z",
     scores: { findability: 62, readability: 41, answers: 50, aiVisibility: 33 },
     crawl: { ok: true, data: crawlData() },
@@ -221,7 +223,7 @@ describe("renderProspectReport", () => {
   });
 
   it("escapes content that came from the prospect's site", () => {
-    const evil = renderProspectReport(result({ business: '<script>alert("x")</script>' }));
+    const evil = renderProspectReport(result({ businessName: '<script>alert("x")</script>' }));
     expect(evil).not.toContain('<script>alert("x")</script>');
     expect(evil).toContain("&lt;script&gt;");
   });
@@ -259,10 +261,10 @@ describe("renderProspectReport", () => {
   // never present an empty name as a verified fact. The DESCRIPTION
   // (analyze.data.business) is prose in the body, not the title.
   it("falls back to the hostname when the business name is null or empty", () => {
-    const nullName = renderProspectReport(result({ business: null }));
+    const nullName = renderProspectReport(result({ businessName: null }));
     expect(nullName).toContain("acme.example");
 
-    const emptyName = renderProspectReport(result({ business: "" }));
+    const emptyName = renderProspectReport(result({ businessName: "" }));
     expect(emptyName).toContain("acme.example");
   });
 
@@ -299,6 +301,7 @@ describe("renderProspectReport", () => {
                 brandMentioned: false,
                 citedDomains: [],
                 snippet: "I don't have information about that business.",
+                truncated: false,
                 askedAt: "2026-08-25T16:00:00.000Z",
               },
             ],
@@ -422,6 +425,7 @@ describe("renderProspectReport", () => {
                 brandMentioned: true,
                 citedDomains: ["acme.example"],
                 snippet: "Acme Roofing is a Boise contractor.",
+                truncated: false,
                 askedAt: "2026-08-25T16:00:00.000Z",
               },
             ],
@@ -483,6 +487,7 @@ describe("renderProspectReport", () => {
                   brandMentioned: true,
                   citedDomains: [scriptPayload],
                   snippet: scriptPayload,
+                  truncated: false,
                   askedAt: "2026-08-25T16:00:00.000Z",
                 },
               ],
@@ -587,6 +592,66 @@ describe("renderProspectReport", () => {
     });
   });
 
+  // Item 1 (post-review follow-up): the "not measured" sidecar lines above
+  // were client-safe about MISSING vs NOT MEASURED, but still interpolated
+  // the raw fetch error — status codes and transport vocabulary a small-
+  // business owner would read as "your audit is broken software", not a
+  // diagnostic. Same client-safe mapping stage failures already get.
+  describe("Item 1: the sidecar 'not measured' lines never print the raw fetch error", () => {
+    it("keeps 'sitemap.xml: not measured' and 'llms.txt: not measured' free of the raw error text", () => {
+      const degraded = renderProspectReport(
+        result({
+          crawl: {
+            ok: true,
+            data: crawlData({
+              sidecarErrors: {
+                robots: null,
+                llms: "fetch failed: ETIMEDOUT",
+                sitemap: "fetch failed: 503 Service Unavailable",
+              },
+            }),
+          },
+          checks: {
+            ok: true,
+            data: checksData({ sitemapMeasured: false, llmsTxtMeasured: false }),
+          },
+        }),
+      );
+      expect(degraded).toMatch(/sitemap\.xml.*not measured/i);
+      expect(degraded).toMatch(/llms\.txt.*not measured/i);
+      expect(degraded).not.toContain("503 Service Unavailable");
+      expect(degraded).not.toContain("ETIMEDOUT");
+      expect(degraded).not.toContain("fetch failed");
+    });
+
+    it("keeps the crawler-access 'not measured' line free of the raw robots.txt fetch error", () => {
+      const degraded = renderProspectReport(
+        result({
+          crawl: {
+            ok: true,
+            data: crawlData({
+              sidecarErrors: {
+                robots: "fetch failed: 503 Service Unavailable",
+                llms: null,
+                sitemap: null,
+              },
+            }),
+          },
+          checks: {
+            ok: true,
+            data: checksData({
+              crawlerAccessMeasured: false,
+              crawlerAccess: { blockedAi: [], allowedAi: [], blockedClassical: [] },
+            }),
+          },
+        }),
+      );
+      expect(degraded).toMatch(/crawler access.*not measured/i);
+      expect(degraded).not.toContain("503 Service Unavailable");
+      expect(degraded).not.toContain("fetch failed");
+    });
+  });
+
   // Fix 3: internal error strings ("529 overloaded", retry counts, timeouts)
   // are operator vocabulary — to a stranger they read as broken software.
   // The renderer must map every genuine stage failure to one client-safe
@@ -660,7 +725,7 @@ describe("renderProspectReport", () => {
     it("drops that phrasing when no business name was ever resolved", () => {
       const noName = renderProspectReport(
         result({
-          business: null,
+          businessName: null,
           probes: {
             ok: true,
             data: probesData({
@@ -673,6 +738,7 @@ describe("renderProspectReport", () => {
                   brandMentioned: false,
                   citedDomains: [],
                   snippet: "I don't have information about that business.",
+                  truncated: false,
                   askedAt: "2026-08-25T16:00:00.000Z",
                 },
               ],
@@ -702,6 +768,7 @@ describe("renderProspectReport", () => {
                   brandMentioned: false,
                   citedDomains: [],
                   snippet: "I don't have information about that business.",
+                  truncated: false,
                   askedAt: "2026-08-25T16:00:00.000Z",
                 },
               ],
@@ -784,6 +851,65 @@ describe("renderProspectReport", () => {
       ]) {
         expect(allBlocked).toMatch(new RegExp(`${agent} \\(feeds [^)]+\\)`));
       }
+    });
+  });
+
+  // Item 4b: the renderer used to print an ellipsis based on
+  // `snippet.length >= 300` — a re-derivation of probes.ts's private
+  // SNIPPET_CHARS that would silently drift if that constant were ever
+  // tuned. It now reads the explicit `truncated` flag ProbeAnswer carries.
+  describe("Item 4b: the receipt ellipsis follows ProbeAnswer.truncated, not a re-derived length check", () => {
+    it("shows an ellipsis for a short snippet marked truncated: true", () => {
+      const rendered = renderProspectReport(
+        result({
+          probes: {
+            ok: true,
+            data: probesData({
+              answers: [
+                {
+                  engine: "perplexity",
+                  query: "who is Acme Roofing",
+                  kind: "branded",
+                  domainCited: true,
+                  brandMentioned: true,
+                  citedDomains: ["acme.example"],
+                  snippet: "short",
+                  truncated: true,
+                  askedAt: "2026-08-25T16:00:00.000Z",
+                },
+              ],
+            }),
+          },
+        }),
+      );
+      expect(rendered).toContain("short…");
+    });
+
+    it("shows no ellipsis for a 300-char snippet marked truncated: false", () => {
+      const longButNotTruncated = "x".repeat(300);
+      const rendered = renderProspectReport(
+        result({
+          probes: {
+            ok: true,
+            data: probesData({
+              answers: [
+                {
+                  engine: "perplexity",
+                  query: "who is Acme Roofing",
+                  kind: "branded",
+                  domainCited: true,
+                  brandMentioned: true,
+                  citedDomains: ["acme.example"],
+                  snippet: longButNotTruncated,
+                  truncated: false,
+                  askedAt: "2026-08-25T16:00:00.000Z",
+                },
+              ],
+            }),
+          },
+        }),
+      );
+      expect(rendered).not.toContain(`${longButNotTruncated}…`);
     });
   });
 });

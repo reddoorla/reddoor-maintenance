@@ -12,6 +12,7 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { runProspectAuditCommand } from "../../src/cli/commands/prospect-audit.js";
+import { createProspectAudit } from "../../src/db/prospect-audits.js";
 import type { PipelineDeps } from "../../src/prospect/pipeline.js";
 
 let forcePersistFailure = false;
@@ -181,5 +182,50 @@ describe("prospect-audit CLI — Turso persistence", () => {
     expect(output).toMatch(/could not write --out/i);
     // Nothing failed to land anywhere overall, so no recovery copy either.
     expect(output).not.toMatch(/recovery copy/i);
+  });
+});
+
+// Item 3: the `status` column was written unconditionally as "complete" and
+// never read back. The pipeline already models partial failure precisely
+// (StageResult) — the CLI is the one place that actually knows whether every
+// stage succeeded, so it computes the real value and passes it through.
+describe("prospect-audit CLI — status column", () => {
+  it("passes status: 'partial' to createProspectAudit when a stage failed or was skipped", async () => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    // stubDeps()'s lighthouse always throws, and probes:false skips that
+    // stage too — both make this a partial run.
+    const { code } = await runProspectAuditCommand("https://acme.example/", {
+      probes: false,
+      deps: stubDeps(),
+    });
+    expect(code).toBe(0);
+    const calls = vi.mocked(createProspectAudit).mock.calls;
+    const lastCall = calls[calls.length - 1]!;
+    expect(lastCall[1].status).toBe("partial");
+  });
+
+  it("passes status: 'complete' to createProspectAudit when every stage succeeded", async () => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    const deps = stubDeps();
+    deps.lighthouse = async () => ({
+      performance: 80,
+      accessibility: 90,
+      bestPractices: 70,
+      seo: 100,
+      summary: "lighthouse: all categories passing",
+      status: "pass" as const,
+    });
+    deps.engines = [
+      {
+        name: "perplexity",
+        ask: async () => ({ answer: "Acme Roofing is a roofer.", citedDomains: ["acme.example"] }),
+      },
+    ];
+    deps.probeDelayMs = 0;
+    const { code } = await runProspectAuditCommand("https://acme.example/", { deps });
+    expect(code).toBe(0);
+    const calls = vi.mocked(createProspectAudit).mock.calls;
+    const lastCall = calls[calls.length - 1]!;
+    expect(lastCall[1].status).toBe("complete");
   });
 });

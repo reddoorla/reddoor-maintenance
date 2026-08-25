@@ -70,6 +70,43 @@ describe("prospect_audits", () => {
     expect(row!.business).toBeNull();
   });
 
+  // Item 3: the column was written unconditionally as "complete" and never
+  // even selected back out. The pipeline already models partial failure
+  // precisely (StageResult) — give the column the job it was obviously meant
+  // for, and prove both values actually round-trip through the row shape
+  // getProspectAuditByToken returns.
+  it("round-trips status: 'complete' when every stage succeeded", async () => {
+    const { token } = await createProspectAudit(db, {
+      url: "https://example.com",
+      business: "Example Co",
+      status: "complete",
+      resultJson: "{}",
+    });
+    const row = await getProspectAuditByToken(db, token);
+    expect(row!.status).toBe("complete");
+  });
+
+  it("round-trips status: 'partial' when a stage failed or was skipped", async () => {
+    const { token } = await createProspectAudit(db, {
+      url: "https://example.com",
+      business: "Example Co",
+      status: "partial",
+      resultJson: "{}",
+    });
+    const row = await getProspectAuditByToken(db, token);
+    expect(row!.status).toBe("partial");
+  });
+
+  it("defaults status to 'complete' — the column's own SQL default — when the caller doesn't specify one", async () => {
+    const { token } = await createProspectAudit(db, {
+      url: "https://example.com",
+      business: "Example Co",
+      resultJson: "{}",
+    });
+    const row = await getProspectAuditByToken(db, token);
+    expect(row!.status).toBe("complete");
+  });
+
   it("generates distinct 22-char base64url tokens", () => {
     const a = generateToken();
     const b = generateToken();

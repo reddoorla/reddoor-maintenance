@@ -246,3 +246,53 @@ describe("runChecks — meta, headings, technical", () => {
     expect(c.meta.pageCount).toBe(1);
   });
 });
+
+// Item 5: exercise runChecks against the realistic page-builder fixture
+// (messy.html), with a rendered variant that adds a reviews-widget paragraph
+// the raw HTML never has — simulating the common late-injected-content case,
+// where raw-vs-rendered JS-dependence should read as PARTIAL, not total (the
+// bare.html/rich.html pair only ever exercises the all-or-nothing extremes).
+describe("runChecks — a realistic page-builder site (messy.html)", () => {
+  const rawHtml = fixture("messy.html");
+  const renderedHtml = rawHtml.replace(
+    "</body>",
+    `<div class="elementor-widget elementor-widget-reviews">
+      <h3 class="elementor-heading-title">What our customers say</h3>
+      <p>Riverside Plumbing showed up within the hour and fixed our water heater the same day — five stars.</p>
+    </div></body>`,
+  );
+
+  function messyCrawl(): CrawlResult {
+    return crawl({ pages: [page("https://riversideplumbing.example/", rawHtml, renderedHtml)] });
+  }
+
+  it("flags the heading level skip (h1 -> h3, no h2) without flagging a missing h1", () => {
+    const c = runChecks(messyCrawl());
+    expect(c.headings).toEqual({ pagesWithoutH1: 0, pagesWithLevelSkips: 1 });
+  });
+
+  it("finds the valid Organization block and counts the malformed one as invalid", () => {
+    const c = runChecks(messyCrawl());
+    expect(c.schema.typesFound).toEqual(["Organization"]);
+    expect(c.schema.invalidBlocks).toBe(1);
+    expect(c.schema.missingExpected).toEqual(["Service", "FAQPage", "Article"]);
+  });
+
+  it("counts the missing meta description and the duplicate-but-present canonical", () => {
+    const c = runChecks(messyCrawl());
+    expect(c.meta.missingDescription).toBe(1);
+    expect(c.meta.missingCanonical).toBe(0);
+  });
+
+  it("does NOT flag missingSocial for og:title-without-og:image (documented behavior, not a bug: og:title alone is the meaningful social-preview signal — see runChecks's own comment on missingSocial)", () => {
+    const c = runChecks(messyCrawl());
+    expect(c.meta.missingSocial).toBe(0);
+  });
+
+  it("reads JS-dependence as PARTIAL, not total, for a late-injected reviews widget", () => {
+    const c = runChecks(messyCrawl());
+    expect(c.jsDependence.avgMissing).not.toBeNull();
+    expect(c.jsDependence.avgMissing!).toBeGreaterThan(0);
+    expect(c.jsDependence.avgMissing!).toBeLessThan(0.5);
+  });
+});
