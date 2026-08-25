@@ -14,12 +14,18 @@
  *  field fails that test until this module carries it.
  *
  *  `headerImage` is the ONE deliberate exception (design D5): Airtable stopped
- *  being its source — the bytes belong in `sites.header_image*`. Nothing
- *  writes those columns yet (verified empty across all 44 prod rows,
- *  2026-08-24), so this reads null fleet-wide today, and approve-report — the
- *  only request-path consumer — stays on the Airtable reader until the
- *  header-image writer moves in Phase 3. The `url` is "" because the bytes
- *  live in the row itself, not behind a signed URL.
+ *  being its source — the bytes belong in `sites.header_image*`. Those columns
+ *  ARE now written: the header-image CLI dual-writes on every generation and the
+ *  one-shot backfill copied the rest, so as of 2026-08-25 production carries a
+ *  BLOB for 12 of the 13 maintained sites (the 13th, LA Homelessness Youth, has
+ *  no header image in Airtable either — its reports are blocked at approve for
+ *  exactly that). An earlier version of this comment said the columns were empty
+ *  fleet-wide; that was true when written and is no longer.
+ *
+ *  The `url` is "" because the bytes live in the row itself, not behind a signed
+ *  URL — which is why `url` is NOT a usable handle. A consumer that needs the
+ *  image calls `loadHeaderImage(db, siteId)` for the bytes; the send path still
+ *  fetches the Airtable attachment, and moving it over is its own change.
  */
 import type { Selectable, Updateable } from "kysely";
 import type { Db } from "./client.js";
