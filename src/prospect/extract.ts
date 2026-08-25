@@ -4,7 +4,7 @@ import type { PageExtract } from "./types.js";
 /** Subtrees a browser never renders. Skipped WHOLE — including their headings,
  *  images and schema blocks, which a <template> stamp would otherwise donate to
  *  the page's real counts. */
-const OPAQUE = new Set(["STYLE", "NOSCRIPT", "TEMPLATE", "SVG"]);
+export const UNRENDERED_TAGS = new Set(["STYLE", "NOSCRIPT", "TEMPLATE", "SVG"]);
 
 /** Elements that force a break in rendered text. Inline elements deliberately do
  *  NOT: `<b>Acme</b>Corp` is one word on screen and must stay one word here,
@@ -64,7 +64,7 @@ function textOf(el: HTMLElement): string {
       if (child.nodeType !== NodeType.ELEMENT_NODE) continue;
       const e = child as HTMLElement;
       const tag = e.tagName;
-      if (OPAQUE.has(tag) || tag === "SCRIPT" || tag === "TITLE") continue;
+      if (UNRENDERED_TAGS.has(tag) || tag === "SCRIPT" || tag === "TITLE") continue;
       const block = BLOCK.has(tag);
       if (block) parts.push("\n");
       walk(e);
@@ -91,7 +91,7 @@ function collect(el: HTMLElement, out: Collected): void {
     if (child.nodeType !== NodeType.ELEMENT_NODE) continue;
     const e = child as HTMLElement;
     const tag = e.tagName;
-    if (OPAQUE.has(tag)) continue;
+    if (UNRENDERED_TAGS.has(tag)) continue;
     switch (tag) {
       case "META":
         out.metas.push(e);
