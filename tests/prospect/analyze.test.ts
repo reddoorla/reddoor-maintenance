@@ -36,6 +36,11 @@ const validOutput = {
   businessName: "Acme Roofing",
   business: "Acme Roofing — commercial roofing in Boise, Idaho",
   entityClarity: { score: 72, missing: ["service area"] },
+  categoryQueries: [
+    "commercial roofing contractor Boise",
+    "how much does a commercial roof replacement cost",
+    "flat roof repair Idaho",
+  ],
   buyerQuestions: [
     {
       question: "What does a roof repair cost?",
@@ -312,6 +317,38 @@ describe("analyzeSite", () => {
       run: async () => validOutput,
     });
     expect(result.buyerQuestions).toHaveLength(6);
+  });
+
+  // categoryQueries is what the probe stage searches on. An empty or thin array
+  // does not fail that stage loudly — it silently drops the category probes to
+  // one or none and the visibility score reads 0, which is indistinguishable
+  // from a prospect who genuinely never surfaces. It has to fail here instead.
+  it("rejects a model response with fewer than 3 category queries", async () => {
+    const thin = { ...validOutput, categoryQueries: validOutput.categoryQueries.slice(0, 2) };
+    await expect(
+      analyzeSite("https://acme.example/", crawl(), runChecks(crawl()), {
+        run: async () => thin,
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("rejects a model response with more than 5 category queries", async () => {
+    const tooMany = {
+      ...validOutput,
+      categoryQueries: Array.from({ length: 6 }, (_, i) => `q${i}`),
+    };
+    await expect(
+      analyzeSite("https://acme.example/", crawl(), runChecks(crawl()), {
+        run: async () => tooMany,
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("carries the category queries through to the result for the probe stage", async () => {
+    const result = await analyzeSite("https://acme.example/", crawl(), runChecks(crawl()), {
+      run: async () => validOutput,
+    });
+    expect(result.categoryQueries).toEqual(validOutput.categoryQueries);
   });
 
   it("rejects an entityClarity.score outside 0-100", async () => {

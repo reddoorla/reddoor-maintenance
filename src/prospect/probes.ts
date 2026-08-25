@@ -52,7 +52,11 @@ export type ProbeInput = {
    *  (`AnalyzeResult.businessName`, typically). Guarded by `resolveBusinessName`
    *  against a model that returns prose anyway; empty falls back to the domain. */
   business: string;
-  buyerQuestions: string[];
+  /** Standalone category searches (`AnalyzeResult.categoryQueries`) — sent to
+   *  the engines verbatim, so each must make sense with no context beside it.
+   *  Not `buyerQuestions`: those are written about the prospect's own site and
+   *  as cold searches they have no antecedent. */
+  categoryQueries: string[];
   competitors: string[];
 };
 
@@ -67,7 +71,7 @@ export function buildQueries(input: ProbeInput): ProbeQuery[] {
   const candidates: ProbeQuery[] = [
     { query: `who is ${name}`, kind: "branded" },
     { query: `${name} reviews`, kind: "branded" },
-    ...input.buyerQuestions.slice(0, 3).map((query): ProbeQuery => ({ query, kind: "category" })),
+    ...input.categoryQueries.slice(0, 3).map((query): ProbeQuery => ({ query, kind: "category" })),
     ...input.competitors
       .slice(0, 2)
       .map((c): ProbeQuery => ({ query: `${name} vs ${c}`, kind: "competitor" })),

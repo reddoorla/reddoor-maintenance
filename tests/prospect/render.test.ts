@@ -72,6 +72,7 @@ function analyzeData(over: Partial<AnalyzeResult> = {}): AnalyzeResult {
     business:
       "A Boise-based roofing contractor offering repair, replacement, and inspection services for residential customers.",
     entityClarity: { score: 55, missing: ["service area"] },
+    categoryQueries: ["roof repair contractor Boise", "how much does a roof replacement cost"],
     buyerQuestions: [
       {
         question: "What does a repair cost?",

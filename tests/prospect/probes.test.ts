@@ -20,14 +20,14 @@ const engine = (
 });
 
 describe("buildQueries", () => {
-  it("asks the branded questions, then the buyer questions", () => {
+  it("asks the branded queries, then the category searches", () => {
     const queries = buildQueries({
       business: "Acme Roofing",
       url: "https://acme.example/",
-      buyerQuestions: [
-        "What does a roof repair cost?",
-        "Do you work on flat roofs?",
-        "How fast?",
+      categoryQueries: [
+        "how much does a roof repair cost",
+        "flat roof contractors Boise",
+        "emergency roof repair near me",
         "Extra",
       ],
       competitors: [],
@@ -35,16 +35,41 @@ describe("buildQueries", () => {
     expect(queries[0]).toEqual({ query: "who is Acme Roofing", kind: "branded" });
     expect(queries[1]).toEqual({ query: "Acme Roofing reviews", kind: "branded" });
     const byQuery = queries.map((q) => q.query);
-    expect(byQuery).toContain("What does a roof repair cost?");
-    expect(queries.find((q) => q.query === "What does a roof repair cost?")!.kind).toBe("category");
+    expect(byQuery).toContain("how much does a roof repair cost");
+    expect(queries.find((q) => q.query === "how much does a roof repair cost")!.kind).toBe(
+      "category",
+    );
     expect(queries.length).toBeLessThanOrEqual(8);
+  });
+
+  // The production regression this field exists to prevent. Before it, the
+  // category slots were fed AnalyzeResult.buyerQuestions verbatim — questions
+  // written about the prospect's own site, which carry a pronoun or a bare
+  // "this agency" and are meaningless as a standalone search. Two of the three
+  // category probes in the first real audit came back "I don't have any context
+  // about who 'they' refers to", scoring the prospect 0 on our own bad prompt.
+  // buildQueries passes these through untouched, so nothing downstream can
+  // repair a query that arrives broken: the guarantee has to hold here.
+  it("passes category searches through verbatim, so they must stand alone", () => {
+    const standalone = ["how much does a rebrand cost", "packaging design agency Los Angeles"];
+    const queries = buildQueries({
+      business: "Acme Roofing",
+      url: "https://acme.example/",
+      categoryQueries: standalone,
+      competitors: [],
+    });
+    const category = queries.filter((q) => q.kind === "category").map((q) => q.query);
+    expect(category).toEqual(standalone);
+    for (const q of category) {
+      expect(q).not.toMatch(/\b(they|them|this agency|this company|your|you)\b/i);
+    }
   });
 
   it("adds comparison queries for each competitor", () => {
     const queries = buildQueries({
       business: "Acme Roofing",
       url: "https://acme.example/",
-      buyerQuestions: [],
+      categoryQueries: [],
       competitors: ["bestroofs.example", "toproof.example"],
     });
     const byQuery = queries.map((q) => q.query);
@@ -59,7 +84,7 @@ describe("buildQueries", () => {
     const queries = buildQueries({
       business: "",
       url: "https://acme.example/",
-      buyerQuestions: [],
+      categoryQueries: [],
       competitors: [],
     });
     expect(queries[0]!.query).toBe("who is acme.example");
@@ -73,7 +98,7 @@ describe("buildQueries", () => {
       business:
         "A residential and commercial roofing contractor serving the Boise, Idaho metro area.",
       url: "https://acme.example/",
-      buyerQuestions: [],
+      categoryQueries: [],
       competitors: [],
     });
     expect(queries[0]!.query).toBe("who is acme.example");
@@ -113,7 +138,7 @@ describe("runVisibilityProbes", () => {
   const args = {
     url: "https://acme.example/",
     business: "Acme Roofing",
-    buyerQuestions: ["What does a roof repair cost?"],
+    categoryQueries: ["how much does a roof repair cost"],
     competitors: [],
   };
 
@@ -220,7 +245,7 @@ describe("runVisibilityProbes", () => {
     const wwwArgs = {
       url: "https://www.acme.example/",
       business: "Acme Roofing",
-      buyerQuestions: ["Do you offer emergency repairs?"],
+      categoryQueries: ["emergency roof repair Boise"],
       competitors: [],
     };
     const engines = [
@@ -252,7 +277,7 @@ describe("runVisibilityProbes", () => {
     const subdomainArgs = {
       url: "https://shop.acme.example/",
       business: "Acme Roofing",
-      buyerQuestions: ["What does a roof repair cost?"],
+      categoryQueries: ["how much does a roof repair cost"],
       competitors: [],
     };
     const engines = [
