@@ -100,6 +100,7 @@ export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     nextMaintenanceAt: null,
     nextTestingAt: null,
     statusRaw: null,
+    notifyRoutingRaw: null,
     ...over,
   };
   // `statusRaw` is the literal Airtable cell behind `status`. Deriving it keeps
@@ -109,6 +110,14 @@ export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
   // (a typo, or "legacy" specifically) passes `statusRaw` explicitly.
   if (over.statusRaw === undefined) {
     row.statusRaw = row.status === null ? null : toAirtableStatus(row.status);
+  }
+  // Same idea for `notifyRoutingRaw`: the literal cell behind the parsed routing.
+  // A caller that sets `notifyRouting` gets the JSON that WOULD parse to it, so
+  // the editor's round-trip fixture is self-consistent without every call site
+  // spelling out both. A caller testing a MALFORMED cell (one that parses to
+  // null but is not blank) passes `notifyRoutingRaw` explicitly.
+  if (over.notifyRoutingRaw === undefined) {
+    row.notifyRoutingRaw = row.notifyRouting === null ? null : JSON.stringify(row.notifyRouting);
   }
   return row;
 }

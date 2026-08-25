@@ -1,29 +1,29 @@
 import type { WebsiteRow } from "../reports/airtable/websites.js";
+import { parseNotifyRouting } from "../reports/airtable/websites.js";
 import { CANONICAL_STATUSES, toAirtableStatus } from "../reports/airtable/site-status.js";
+import { isHttpUrl } from "../util/url.js";
 
 /**
  * Status options the editor offers, expressed as the values Airtable actually
  * STORES — this dropdown writes straight into the "Status" single-select, so its
- * options must be options that column accepts. `toAirtableStatus` keeps that true
- * on both sides of the stage-2 vocabulary switch, with no edit here.
+ * options must be options that column accepts.
  *
- * Two consequences worth stating, because both are load-bearing:
- *  - Since the stage-2 flip these options ARE the canonical names, so `archived`
- *    now writes "archived" rather than the old "deprecated". "legacy" and
- *    "deprecated" both still exist as Airtable options until stage 3 and both
- *    still canonicalize to `archived`, but neither is offered here — as before,
- *    they can only be set directly in Airtable, never from the dashboard.
- *  - `render.ts` preselects against `site.statusRaw` (the raw cell), not
- *    `site.status`, so a stored value outside this list still shows the disabled
- *    "— select —" placeholder rather than being silently re-labelled. Post-flip
- *    the two agree for every migrated row, so the case that still exercises the
- *    difference is a hand-set "legacy"/"deprecated" cell — which is precisely
- *    what tests/dashboard/render.test.ts pins.
+ * Since stage 3 (the retired option names deleted from the field, the alias map
+ * deleted from the code) these ARE the canonical names, and `toAirtableStatus`
+ * is the identity — so this list is exactly the six options the column holds.
+ *
+ * `render.ts` still preselects against `site.statusRaw` rather than
+ * `site.status`. Those two now coincide for every value the single-select can
+ * hold, so the distinction is dormant rather than load-bearing; it is kept
+ * because the placeholder behaviour it produces — an unrecognized cell shows the
+ * disabled "— select —" instead of being silently re-labelled — is what should
+ * happen if a stale value ever reappears.
  */
 export const SITE_STATUS_OPTIONS: readonly string[] = CANONICAL_STATUSES.map(toAirtableStatus);
 export const FREQ_OPTIONS = ["None", "Monthly", "Quarterly", "Yearly"] as const;
 
-type FieldKind = "text" | "email" | "emails" | "enum" | "gitrepo";
+type FieldKind =
+  "text" | "email" | "emails" | "enum" | "gitrepo" | "url" | "date" | "notifyRouting";
 export type EditableField = {
   column: string;
   kind: FieldKind;
@@ -49,9 +49,45 @@ export const EDITABLE_SITE_FIELDS: Record<string, EditableField> = {
   status: { column: "Status", kind: "enum", options: SITE_STATUS_OPTIONS },
   maintenanceFreq: { column: "maintenence freq", kind: "enum", options: FREQ_OPTIONS },
   testingFreq: { column: "testing freq", kind: "enum", options: FREQ_OPTIONS },
+  // #539 Phase 4 — the fields the design lists as "the eight nothing renders
+  // today". Kinds follow the LIVE Airtable column types, read off the base
+  // schema rather than inferred from the reader: `maintenance day`/`testing day`
+  // are `date`, `Notify Routing` is `multilineText` holding JSON, the rest are
+  // `singleLineText`. All seven are string-valued, which is why they need no
+  // change to `updateSiteField`. `Require Turnstile` (checkbox) and `Accepted
+  // Watch Conditions` (multipleSelects) are NOT here — they cannot be written as
+  // strings and need a typed writer first.
+  //
+  // `Mailchimp API Key` is deliberately absent too: it is a live credential, and
+  // every field in this map is rendered back into the page carrying its stored
+  // value (see `inputRow` in render.ts). It needs a write-only kind first.
+  netlifyId: { column: "Netlify ID", kind: "text", maxLen: 200 },
+  searchConsoleProperty: { column: "Search Console property", kind: "text", maxLen: 500 },
+  mailchimpAudienceId: { column: "Mailchimp Audience ID", kind: "text", maxLen: 200 },
+  newsletterWebhook: { column: "Newsletter Webhook", kind: "url" },
+  maintenanceDay: { column: "maintenance day", kind: "date" },
+  testingDay: { column: "testing day", kind: "date" },
+  notifyRouting: { column: "Notify Routing", kind: "notifyRouting" },
 };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * A real calendar day in `YYYY-MM-DD`, not merely a parseable one.
+ *
+ * `new Date("2026-02-31")` does not throw — it rolls over to 2 March. These
+ * columns feed the next-due schedule, so accepting a rolled-over day would
+ * silently reschedule a site to a date the operator never chose. The round-trip
+ * comparison below is what rejects it: a day that rolled is not the day that
+ * went in.
+ */
+function isCalendarDate(v: string): boolean {
+  if (!ISO_DATE_RE.test(v)) return false;
+  const [y, m, d] = v.split("-").map(Number) as [number, number, number];
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
 /** `owner/repo` shape. Exported for other dashboard surfaces that consume the
  *  legacy free-text `Git repo` cell (e.g. trigger-renovate). */
 export const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
@@ -81,6 +117,20 @@ export function normalizeFieldValue(f: EditableField, raw: string): string | nul
     }
     case "gitrepo":
       return v === "" ? "" : REPO_RE.test(v) ? v : null;
+    case "url":
+      // The SAME scheme allowlist the deployed-audit target uses. This value is
+      // fetched server-side by the newsletter forwarder, so a `file://` or
+      // `javascript:` cell is a local-file read or an injection sink, not a typo.
+      return v === "" ? "" : isHttpUrl(v) ? v : null;
+    case "date":
+      return v === "" ? "" : isCalendarDate(v) ? v : null;
+    case "notifyRouting":
+      // Validated by the PRODUCTION reader, not by a second parser written to
+      // agree with it. `parseNotifyRouting` returns null for anything it would
+      // drop, so the editor cannot store a value that reads back as "no
+      // routing" — which would look like a saved change while every form
+      // notification kept going to the previous target.
+      return v === "" ? "" : parseNotifyRouting(v) !== null ? v : null;
     case "text":
       return v.length <= (f.maxLen ?? 500) ? v : null;
   }

@@ -138,6 +138,7 @@ function rowFromJoined(r: JoinedRow): WebsiteRow {
     launchedAt: str(r.launched_at),
     newsletterWebhook: trimToNull(r.newsletter_webhook),
     notifyRouting: parseNotifyRouting(r.notify_routing),
+    notifyRoutingRaw: trimToNull(r.notify_routing),
     mailchimpApiKey: trimToNull(r.mailchimp_api_key),
     mailchimpAudienceId: trimToNull(r.mailchimp_audience_id),
     requireTurnstile: typeof r.require_turnstile === "number" ? r.require_turnstile !== 0 : false,

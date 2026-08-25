@@ -10,6 +10,7 @@ import {
   gatingFields,
 } from "../../src/reports/checklist.js";
 import { escapeHtml } from "../../src/util/html.js";
+import { EDITABLE_SITE_FIELDS } from "../../src/dashboard/site-details.js";
 import type { EvidenceRecord } from "../../src/reports/auto-tick.js";
 
 /** All 6 maintenance cells true → a complete Maintenance checklist. */
@@ -1124,6 +1125,55 @@ describe("renderSiteDashboardHtml — editable site details", () => {
     expect(html).toContain('<option value="maintained" selected');
     expect(html).toMatch(/data-detail-field="pointOfContact"/);
     expect(html).toContain('value="a@b.com"');
+  });
+
+  it("renders EVERY editable field — the allowlist and the form cannot drift apart", () => {
+    // The gate that makes "full field coverage" (#539 Phase 4) checkable rather
+    // than asserted. Before this, a field could be added to EDITABLE_SITE_FIELDS
+    // and be writable through the API while remaining invisible in the console —
+    // which is exactly the state the eight newly-covered fields were in. Driven
+    // off the allowlist itself so ADDING a field without rendering it fails here.
+    const html = renderSiteDashboardHtml(siteRow({ name: "Acme" }), []);
+    for (const field of Object.keys(EDITABLE_SITE_FIELDS)) {
+      expect(html, `no editor control rendered for '${field}'`).toContain(
+        `data-detail-field="${field}"`,
+      );
+    }
+  });
+
+  it("renders the newly-covered fields with their values, dates as date inputs", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow({
+        name: "Acme",
+        netlifyId: "nlf-abc",
+        searchConsoleProperty: "sc-domain:acme.com",
+        mailchimpAudienceId: "aud1",
+        newsletterWebhook: "https://hooks.example.com/x",
+        maintenanceDay: "2026-08-25",
+        testingDay: "2026-07-01",
+      }),
+      [],
+    );
+    expect(html).toContain('value="nlf-abc"');
+    expect(html).toContain('value="sc-domain:acme.com"');
+    expect(html).toContain('value="https://hooks.example.com/x"');
+    // `type="date"` so the browser enforces YYYY-MM-DD before the request is
+    // made; the server still validates it (a hand-crafted POST bypasses this).
+    expect(html).toMatch(/<input type="date"[^>]*data-detail-field="maintenanceDay"/);
+    expect(html).toMatch(/<input type="date"[^>]*data-detail-field="testingDay"/);
+    expect(html).toContain('value="2026-08-25"');
+  });
+
+  it("NEVER renders the Mailchimp API key, even though the row carries it", () => {
+    // The credential guard. `siteRow` puts a key on the row exactly as mapRow
+    // would, so this fails the moment someone adds it to the editor without a
+    // write-only kind.
+    const html = renderSiteDashboardHtml(
+      siteRow({ name: "Acme", mailchimpApiKey: "mc-super-secret-key" }),
+      [],
+    );
+    expect(html).not.toContain("mc-super-secret-key");
+    expect(html).not.toContain('data-detail-field="mailchimpApiKey"');
   });
 
   it("preselects the Status select from the RAW cell, so a 'legacy' site shows the placeholder", () => {
