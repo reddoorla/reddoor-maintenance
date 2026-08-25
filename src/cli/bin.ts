@@ -607,6 +607,10 @@ cli
   .option("--no-probes", "Skip the live AI-visibility probes (tier 3).")
   .option("--out <file>", "Also write the rendered report to this file.")
   .option("--json", "Print the raw result JSON instead of the report summary.")
+  .option(
+    "--email",
+    "Email the internal sheet (scores, what wasn't measured, top fixes, the link) to PROSPECT_AUDIT_RECIPIENTS.",
+  )
   .action(
     async (
       url: string,
@@ -616,6 +620,7 @@ cli
         probes?: boolean;
         out?: string;
         json?: boolean;
+        email?: boolean;
         cwd?: string;
         verbose?: boolean;
       },

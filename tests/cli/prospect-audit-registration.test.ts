@@ -49,6 +49,7 @@ const FLAGS = {
   "--no-probes": "probes",
   "--out": "out",
   "--json": "json",
+  "--email": "email",
 } as const satisfies Record<string, keyof ProspectAuditCliOptions>;
 
 type Uncovered = Exclude<
@@ -144,6 +145,7 @@ describe("prospect-audit CLI registration — behaviour", () => {
       "--out",
       "ignored.html",
       "--json",
+      "--email",
     ]);
     expect(out).not.toMatch(/unknown option/i);
     expect(out).not.toMatch(/unknown command/i);
