@@ -69,13 +69,14 @@ Pure functions over the crawl output (no network — fixture-testable):
 - llms.txt / sitemap presence; mobile viewport meta.
 - Security headers (reuse the fleet security audit's header logic against the
   live response).
-  **As built:** Lighthouse did NOT stay inside this pure stage. `checks.ts` is
-  network-free; Lighthouse touches the network, so it shipped as its own
-  `lighthouse.ts` stage between checks and analyze, isolated like every other
-  network stage and able to degrade on its own. It reuses the fleet audit's
-  `deployedUrl` direct-URL path as intended, and it throws — rather than
-  returning empty scores — when lhci measured nothing, so the pipeline records
-  "not measured" instead of a blank section that reads as a finding.
+
+**As built:** Lighthouse did NOT stay inside this pure stage. `checks.ts` is
+network-free; Lighthouse touches the network, so it shipped as its own
+`lighthouse.ts` stage between checks and analyze, isolated like every other
+network stage and able to degrade on its own. It reuses the fleet audit's
+`deployedUrl` direct-URL path as intended, and it throws — rather than
+returning empty scores — when lhci measured nothing, so the pipeline records
+"not measured" instead of a blank section that reads as a finding.
 
 ### 3. `analyze.ts` — the Claude answerability pass
 
