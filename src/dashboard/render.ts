@@ -448,6 +448,26 @@ function inputRow(label: string, field: string, value: string | null, url: strin
   return `<div class="detail"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><input type="text" id="detail-${field}" data-detail-field="${field}" data-details-url="${url}" value="${escapeHtml(value ?? "")}" />${savedSpan(field)}</dd></div>`;
 }
 
+/**
+ * How the site-details editor turns a control into the string it POSTs.
+ *
+ * Exported as SOURCE so tests can execute the exact text the page serves — the
+ * inline script is a template string and `vitest.config.ts` runs without a DOM,
+ * so nothing else in the suite can run it.
+ *
+ * The two special cases are DOM traps, not preferences:
+ *  - a checkbox's `.value` is its `value` content attribute ("on" by default),
+ *    never the checked state, so `el.value` posts "on" whether ticked or not;
+ *  - a `multiple` select's `.value` is the FIRST selected option only, so
+ *    `el.value` silently drops every other selection.
+ * Both shipped broken in #591 for exactly this reason.
+ */
+export const DETAIL_VALUE_FN = `function detailValue(el) {
+      if (el.type === "checkbox") return el.checked ? "true" : "false";
+      if (el.multiple) return Array.from(el.selectedOptions).map((o) => o.value).join(",");
+      return el.value;
+    }`;
+
 /** Editable `<input type="date">` row. The browser enforces YYYY-MM-DD before
  *  the request is made; `normalizeFieldValue`'s `date` kind still validates it
  *  server-side, because a hand-crafted POST never touches this widget. */
@@ -921,12 +941,13 @@ export function renderSiteDashboardHtml(
     });
     // Site-details editor: save on change (selects) / blur (inputs+textareas, only
     // when the value actually changed). The per-field span shows ✓ / ✗.
+    ${DETAIL_VALUE_FN}
     function saveDetail(el) {
       const span = document.querySelector('.detail-saved[data-for="' + el.dataset.detailField + '"]');
       fetch(el.dataset.detailsUrl, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ field: el.dataset.detailField, value: el.value }),
+        body: JSON.stringify({ field: el.dataset.detailField, value: detailValue(el) }),
       })
         .then((r) => {
           if (span) span.textContent = r.ok ? " ✓" : " ✗";
@@ -938,7 +959,13 @@ export function renderSiteDashboardHtml(
     document.querySelectorAll("select[data-detail-field]").forEach((s) => {
       s.addEventListener("change", () => saveDetail(s));
     });
-    document.querySelectorAll("input[data-detail-field], textarea[data-detail-field]").forEach((i) => {
+    // Checkboxes save on CHANGE. They cannot use the blur path below: that path
+    // only fires when \`value !== defaultValue\`, and for a checkbox both are the
+    // "on" content attribute, so it would never save at all.
+    document.querySelectorAll("input[type=checkbox][data-detail-field]").forEach((c) => {
+      c.addEventListener("change", () => saveDetail(c));
+    });
+    document.querySelectorAll("input:not([type=checkbox])[data-detail-field], textarea[data-detail-field]").forEach((i) => {
       i.addEventListener("blur", () => {
         if (i.value !== i.defaultValue) saveDetail(i);
       });
