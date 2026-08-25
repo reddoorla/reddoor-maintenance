@@ -41,3 +41,26 @@ export type {
   ParsedQuery,
   RawFilter,
 } from "./submissions-page.js";
+export { renderProspectAuditsPageHtml } from "./prospect-audits-render.js";
+export type { ProspectAuditsPageModel } from "./prospect-audits-render.js";
+export {
+  triggerProspectAudit,
+  respondToProspectAuditTrigger,
+  resolveRequestedBy,
+  basicAuthUsername,
+  prospectAuditRecipientsLabel,
+  makeWorkflowDispatchDispatcher,
+  PROSPECT_AUDIT_DUPLICATE_WINDOW_MS,
+  DUPLICATE_CHECK_LOOKBACK,
+  DEFAULT_PROSPECT_AUDIT_WORKFLOW_FILE,
+  DEFAULT_PROSPECT_AUDIT_RECIPIENTS_LABEL,
+} from "./prospect-audit-trigger.js";
+export type {
+  ProspectAuditDispatchInputs,
+  ProspectAuditDispatchTarget,
+  ProspectAuditDispatchResult,
+  ProspectAuditDispatcher,
+  ProspectAuditTriggerDeps,
+  ProspectAuditTriggerInput,
+  ProspectAuditTriggerResult,
+} from "./prospect-audit-trigger.js";
