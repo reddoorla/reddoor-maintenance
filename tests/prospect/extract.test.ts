@@ -68,3 +68,40 @@ describe("extractPage — a client-rendered shell", () => {
     expect(page.canonical).toBeNull();
   });
 });
+
+describe("extractPage — text rendered the way a browser does", () => {
+  it("skips a <template> stamp's headings, images and schema entirely, while a real sibling heading still counts", () => {
+    const page = extractPage(
+      '<template><h1>Phantom</h1><img src="/x.jpg" alt="phantom"><script type="application/ld+json">{"a":1}</script></template><h1>Real</h1>',
+    );
+    expect(page.headings).toEqual([{ level: 1, text: "Real" }]);
+    expect(page.images).toEqual({ total: 0, withAlt: 0 });
+    expect(page.jsonLd).toEqual([]);
+  });
+
+  it("does not insert a space between adjacent inline runs", () => {
+    const page = extractPage("<p>Welcome to <b>Acme</b>Corp today.</p>");
+    expect(page.text).toContain("AcmeCorp");
+  });
+
+  it("does not insert a space before trailing punctuation split across inline elements", () => {
+    const page = extractPage('<p>Call <a href="tel:+12085550199">208-555-0199</a>. Now.</p>');
+    expect(page.text).toContain("208-555-0199.");
+  });
+
+  it("still separates adjacent block elements with no whitespace between them in the source", () => {
+    const page = extractPage("<p>alpha</p><p>beta</p>");
+    expect(page.text).toBe("alpha beta");
+  });
+
+  it("breaks a heading at a <br> instead of jamming the two lines together", () => {
+    const page = extractPage("<h1>Big Bold<br>Headline</h1>");
+    expect(page.headings).toEqual([{ level: 1, text: "Big Bold Headline" }]);
+  });
+
+  it("reads a <title> misplaced inside <body> into page.title but keeps it out of text", () => {
+    const page = extractPage("<body><title>Sneaky</title><p>Hello</p></body>");
+    expect(page.title).toBe("Sneaky");
+    expect(page.text).not.toContain("Sneaky");
+  });
+});
