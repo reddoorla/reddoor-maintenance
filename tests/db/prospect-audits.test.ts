@@ -34,6 +34,32 @@ describe("prospect_audits", () => {
     expect(await getProspectAuditByToken(db, "AAAAAAAAAAAAAAAAAAAAAA")).toBeNull();
   });
 
+  it("rejects a duplicate token (pins the UNIQUE constraint the public /r/{token} handle relies on)", async () => {
+    const { token } = await createProspectAudit(db, {
+      url: "https://example.com",
+      business: "Example Co",
+      resultJson: "{}",
+    });
+    // Force the collision deterministically: insert a second row through the raw
+    // Kysely builder with the SAME literal token. Real tokens never collide (128
+    // random bits); this is not defending against a collision, it's proving the
+    // schema still rejects one if a future edit drops UNIQUE from the column.
+    await expect(
+      db
+        .insertInto("prospect_audits")
+        .values({
+          id: "pa_deliberate_dupe",
+          token,
+          url: "https://duplicate.example.com",
+          business: null,
+          created_at: new Date().toISOString(),
+          status: "complete",
+          result_json: "{}",
+        })
+        .execute(),
+    ).rejects.toThrow();
+  });
+
   it("stores a null business", async () => {
     const { token } = await createProspectAudit(db, {
       url: "https://example.com",

@@ -65,6 +65,7 @@ const PURE_EXPORTS = new Set([
   "newDeadLetterId",
   "generateToken",
   "isValidToken",
+  "newProspectAuditId",
 ]);
 
 /** Raw scans accepted with a written justification. Empty today — the 0008

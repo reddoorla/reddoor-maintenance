@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import type { Db } from "./client.js";
 
 /** 16 random bytes → 22-char base64url string: unguessable, URL-safe. */
@@ -11,6 +11,13 @@ export function isValidToken(s: string): boolean {
   return /^[A-Za-z0-9_-]{22}$/.test(s);
 }
 
+/** Opaque, collision-free id (mirrors newSubmissionId / newDeadLetterId).
+ *  crypto is a Node 20 global — no new dep. Nothing reads this format; `token`
+ *  is the public handle. */
+export function newProspectAuditId(): string {
+  return `pa_${crypto.randomUUID()}`;
+}
+
 export type NewProspectAudit = {
   url: string;
   business: string | null;
@@ -21,7 +28,7 @@ export async function createProspectAudit(
   db: Db,
   audit: NewProspectAudit,
 ): Promise<{ id: string; token: string }> {
-  const id = randomUUID();
+  const id = newProspectAuditId();
   const token = generateToken();
   await db
     .insertInto("prospect_audits")
