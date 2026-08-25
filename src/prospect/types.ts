@@ -18,6 +18,7 @@ export type PageExtract = {
   canonical: string | null;
   /** property/name → content for og:* and twitter:* metas. */
   social: Record<string, string>;
+  /** `level` is 1-6 (H1-H6). */
   headings: { level: number; text: string }[];
   /** Raw text of each <script type="application/ld+json"> block. */
   jsonLd: string[];
@@ -56,7 +57,11 @@ export type ChecksResult = {
   jsDependence: {
     /** 0..1 — fraction of rendered words absent from the raw HTML, averaged over pages. */
     avgMissing: number;
-    perPage: { url: string; missing: number }[];
+    perPage: {
+      url: string;
+      /** 0..1 — the same fraction as avgMissing, for this one page. */
+      missing: number;
+    }[];
   };
   schema: { typesFound: string[]; missingExpected: string[]; invalidBlocks: number };
   meta: {
