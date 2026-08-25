@@ -48,7 +48,9 @@ describe("renderFleetTableHtml — document + rows", () => {
   it("links each site name to its detail page and its URL out", () => {
     const html = render();
     expect(html).toContain('href="/s/acme-co"');
-    expect(html).toContain('href="https://acme.example.com"');
+    // safeUrl returns the parsed URL's href, which normalizes a bare origin
+    // to carry a trailing slash — not the caller's raw string.
+    expect(html).toContain('href="https://acme.example.com/"');
   });
   it("renders the RAW status value IN ITS CELL, and a dash for null status", () => {
     const html = render();
@@ -221,9 +223,13 @@ describe("renderFleetTableHtml — escaping", () => {
     expect(html).toContain("Evil &lt;script&gt;alert(1)&lt;/script&gt; &quot;Site&quot;");
   });
   it("escapes a hostile but VALID https URL in BOTH the href and the link text", () => {
-    // safeUrl gates the SCHEME only — for a well-formed https URL it returns the
-    // raw string, quotes and all, and never reaches u.href. So this is the only
-    // fixture shape that can exercise the <a> branch with hostile content; the
+    // safeUrl gates the scheme AND returns the parsed URL's percent-encoded
+    // href — not the caller's raw string — so the quote/angle-bracket
+    // breakout never reaches the href attribute literally; the URL parser
+    // itself encodes it to %22/%3C/%3E. The link TEXT is built from the
+    // caller's original r.url (unnormalized) so a reader still sees the raw
+    // value — escapeHtml alone keeps that inert. This fixture is the only
+    // shape that exercises the <a> branch with hostile content; the
     // javascript: fixture above collapses to "#" and renders no anchor at all.
     const hostile = [
       makeWebsiteRow({
@@ -233,9 +239,10 @@ describe("renderFleetTableHtml — escaping", () => {
       }),
     ];
     const html = renderFleetTableHtml(buildFleetTableModel(hostile, DEFAULT_QUERY));
-    const escaped = "https://evil.example.com/&quot;&gt;&lt;script&gt;alert(9)&lt;/script&gt;";
-    expect(html).toContain(`href="${escaped}"`); // attribute context
-    expect(html).toContain(`>${escaped}</a>`); // text context
+    const encodedHref = "https://evil.example.com/%22%3E%3Cscript%3Ealert(9)%3C/script%3E";
+    const escapedText = "https://evil.example.com/&quot;&gt;&lt;script&gt;alert(9)&lt;/script&gt;";
+    expect(html).toContain(`href="${encodedHref}"`); // attribute context — percent-encoded
+    expect(html).toContain(`>${escapedText}</a>`); // text context — HTML-escaped raw value
     expect(html).not.toContain('"><script');
   });
   it("escapes the slug in the site-detail href", () => {

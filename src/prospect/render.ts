@@ -2,7 +2,9 @@ import { escapeHtml, safeUrl } from "../util/html.js";
 import { ANALYZE_SKIPPED, PROBES_SKIPPED } from "./pipeline.js";
 import type {
   AnalyzeResult,
+  ChecksResult,
   Fix,
+  LighthouseScores,
   ProbeAnswer,
   ProbesResult,
   ProspectAuditResult,
@@ -16,6 +18,7 @@ const KIND_LABEL: Record<ProbeAnswer["kind"], string> = {
   category: "Category — the questions a buyer would actually type",
   competitor: "Competitor — head-to-head comparisons",
 };
+const KIND_ORDER: ProbeAnswer["kind"][] = ["category", "branded", "competitor"];
 
 const STYLES = `
   :root { color-scheme: light; }
@@ -46,7 +49,7 @@ const STYLES = `
   .cta a { color: #fff; }
   table { width: 100%; border-collapse: collapse; margin-top: 8px; }
   td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee; vertical-align: top; }
-  @media print { body { background: #fff; } .card, .score { break-inside: avoid; } }
+  @media print { body { background: #fff; } .card, .score, .cta { break-inside: avoid; } }
 `;
 
 function scoreCard(label: string, value: number | null, hint?: string): string {
@@ -77,20 +80,180 @@ function skippableStageNote(error: string, skipConstant: string, skipMessage: st
   return notMeasuredNote(error);
 }
 
-function formatAskedAt(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-      timeZone: "UTC",
-    });
-  } catch {
-    return iso;
-  }
+/** `new Date(iso).toLocaleDateString()` never throws on a bad timestamp — it
+ *  silently returns "Invalid Date" — so a try/catch here is dead code. Guard
+ *  on getTime() instead, and fall back to the raw ISO string so a corrupt
+ *  timestamp is at least visibly a timestamp rather than the literal words
+ *  "Invalid Date". */
+function formatIsoDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  });
 }
 
-const KIND_ORDER: ProbeAnswer["kind"][] = ["category", "branded", "competitor"];
+/** The probes section leads the report, so a branded-only run (analyze
+ *  failed upstream and supplied no buyer questions, or every category query
+ *  itself failed) must not let the branded recognition line read as a
+ *  positive discoverability finding on its own — an engine echoing a name
+ *  it was just handed proves nothing about whether a buyer who never named
+ *  the business would find it. */
+function buildProbesSection(p: ProbesResult): string {
+  const byKind = new Map<ProbeAnswer["kind"], ProbeAnswer[]>();
+  for (const a of p.answers) {
+    const bucket = byKind.get(a.kind) ?? [];
+    bucket.push(a);
+    byKind.set(a.kind, bucket);
+  }
+
+  const recognition = p.brandedRecognized
+    ? "<p>When the engines were asked about the business by name, they recognized it.</p>"
+    : "<p>When the engines were asked about the business by name, they did not recognize it — a real citation of the site never showed up, even with the name handed to them.</p>";
+
+  const categoryCaveat = byKind.has("category")
+    ? ""
+    : `<p class="muted"><strong>No buyer-question (category) query was tested here</strong> — only name-recognition. An engine echoing back a name it was just given says nothing about whether a buyer who had never heard of the business would be shown it; treat the line above as a floor, not a visibility signal.</p>`;
+
+  const groups = KIND_ORDER.filter((k) => byKind.has(k))
+    .map((kind) => {
+      const answers = byKind.get(kind) ?? [];
+      const cards = answers
+        .map(
+          (a) => `<div class="card">
+          <div class="q">${escapeHtml(a.engine)} · “${escapeHtml(a.query)}”</div>
+          <p class="muted">Asked ${escapeHtml(formatIsoDate(a.askedAt))}</p>
+          <p>${escapeHtml(a.snippet)}${a.snippet.length >= 300 ? "…" : ""}</p>
+          <p class="muted">${
+            a.domainCited || a.brandMentioned
+              ? "You were named in this answer."
+              : "You were not named in this answer."
+          }${a.citedDomains.length ? ` Cited: ${escapeHtml(a.citedDomains.join(", "))}` : ""}</p>
+        </div>`,
+        )
+        .join("");
+      return `<h3>${escapeHtml(KIND_LABEL[kind])}</h3>${cards}`;
+    })
+    .join("");
+
+  const competitors = p.competitorsSeen.length
+    ? `<h3>Who the engines cited instead</h3><ul>${p.competitorsSeen
+        .map((c) => `<li>${escapeHtml(c.domain)} — ${c.count} time${c.count === 1 ? "" : "s"}</li>`)
+        .join("")}</ul>`
+    : "";
+
+  return recognition + categoryCaveat + groups + competitors;
+}
+
+/** crawlerAccessMeasured is false only when the robots.txt fetch itself
+ *  failed, so the blocked/allowed lists are empty out of ignorance, not
+ *  because we confirmed access. Saying "every crawler can reach the site" in
+ *  that case would manufacture a finding from our own missing data.
+ *  `robotsSidecarError` comes from the (always-present) crawl stage, not
+ *  from `c` itself — ChecksResult doesn't carry the raw fetch error. */
+function buildFindabilitySection(c: ChecksResult, robotsSidecarError: string | null): string {
+  const accessBlock = !c.crawlerAccessMeasured
+    ? `<p class="muted">Crawler access: not measured — ${escapeHtml(
+        robotsSidecarError ?? "the robots.txt fetch failed",
+      )}</p>`
+    : c.crawlerAccess.blockedAi.length
+      ? `<p><strong>Blocked AI crawlers:</strong> ${escapeHtml(c.crawlerAccess.blockedAi.join(", "))}</p>`
+      : `<p>Every AI crawler we checked can reach the site.</p>`;
+  const classical =
+    c.crawlerAccessMeasured && c.crawlerAccess.blockedClassical.length
+      ? `<p><strong>Blocked search crawlers:</strong> ${escapeHtml(
+          c.crawlerAccess.blockedClassical.join(", "),
+        )}</p>`
+      : "";
+  return `${accessBlock}${classical}
+    <ul>
+      <li>sitemap.xml: ${c.sitemapPresent ? "present" : "missing"}</li>
+      <li>llms.txt: ${c.llmsTxtPresent ? "present" : "missing"}</li>
+      <li>Pages missing a meta description: ${c.meta.missingDescription} of ${c.meta.pageCount}</li>
+      <li>Pages missing a canonical URL: ${c.meta.missingCanonical} of ${c.meta.pageCount}</li>
+      <li>Pages missing share images/titles: ${c.meta.missingSocial} of ${c.meta.pageCount}</li>
+      <li>Security headers missing: ${
+        c.securityHeaders.missing.length ? escapeHtml(c.securityHeaders.missing.join(", ")) : "none"
+      }</li>
+      ${
+        c.meta.pagesWithoutExtract > 0
+          ? `<li><strong>${c.meta.pagesWithoutExtract}</strong> additional page${
+              c.meta.pagesWithoutExtract === 1 ? "" : "s"
+            } produced no readable content at all and ${
+              c.meta.pagesWithoutExtract === 1 ? "is" : "are"
+            } not counted in the ${c.meta.pageCount} pages above.</li>`
+          : ""
+      }
+    </ul>`;
+}
+
+/** Lighthouse runs as its own independent pipeline stage (see pipeline.ts) —
+ *  it does not depend on `checks` succeeding. Rendering it off `result.checks`
+ *  would throw away real, measured performance/SEO/accessibility numbers
+ *  whenever an unrelated stage failed, so this reads `result.lighthouse`
+ *  directly and is rendered unconditionally, not nested inside the checks
+ *  degrade path. */
+function buildLighthouseBlock(lh: StageResult<LighthouseScores>): string {
+  return lh.ok
+    ? `<p class="muted">Lighthouse — performance ${lh.data.performance ?? "n/a"},
+       SEO ${lh.data.seo ?? "n/a"}, accessibility ${lh.data.accessibility ?? "n/a"}.</p>`
+    : `<p class="muted">Lighthouse not measured — ${escapeHtml(lh.error)}</p>`;
+}
+
+function buildReadabilitySection(c: ChecksResult): string {
+  const jsLine =
+    c.jsDependence.avgMissing === null
+      ? `<p class="muted">JavaScript-dependence: not measured — no page produced a comparable raw/rendered pair.</p>`
+      : `<p><strong>${Math.round(c.jsDependence.avgMissing * 100)}%</strong> of the words a visitor reads only appear after JavaScript runs.
+    Most AI crawlers do not run JavaScript, so that share of your site is invisible to them.</p>`;
+  return `${jsLine}
+    <ul>
+      <li>Structured data found: ${c.schema.typesFound.length ? escapeHtml(c.schema.typesFound.join(", ")) : "none"}</li>
+      <li>Expected structured data missing: ${
+        c.schema.missingExpected.length ? escapeHtml(c.schema.missingExpected.join(", ")) : "none"
+      }</li>
+      <li>Pages without a top-level heading: ${c.headings.pagesWithoutH1} of ${c.meta.pageCount}</li>
+      ${
+        c.meta.pagesWithoutExtract > 0
+          ? `<li><strong>${c.meta.pagesWithoutExtract}</strong> page${
+              c.meta.pagesWithoutExtract === 1 ? "" : "s"
+            } produced no extract at all — excluded from every figure above, not counted as readable or unreadable.</li>`
+          : ""
+      }
+    </ul>`;
+}
+
+/** The report's whole premise is claims the recipient can go check — so the
+ *  one quoted passage of evidence links to the page it came from (via
+ *  safeUrl; a null/non-http page renders as plain escaped text, no dead
+ *  "#" anchor). `answered`/`impact`/`effort` are escaped even though a zod
+ *  enum constrains them upstream — the renderer should not depend on
+ *  another file staying in sync to stay safe. */
+function buildAnswersSection(a: AnalyzeResult): string {
+  const rows = a.buyerQuestions
+    .map((q) => {
+      const answered = escapeHtml(q.answered);
+      const evidenceText = q.evidence ? escapeHtml(q.evidence) : null;
+      const evidenceHref = q.evidence && q.page ? safeUrl(q.page) : null;
+      const evidenceCell =
+        evidenceText === null
+          ? '<span class="muted">no passage on the site</span>'
+          : evidenceHref && evidenceHref !== "#"
+            ? `<a href="${escapeHtml(evidenceHref)}" target="_blank" rel="noopener noreferrer">${evidenceText}</a>`
+            : evidenceText;
+      return `<tr>
+          <td>${escapeHtml(q.question)}</td>
+          <td><span class="tag ${answered}">${answered}</span></td>
+          <td>${evidenceCell}</td>
+        </tr>`;
+    })
+    .join("");
+  return `<p>${escapeHtml(a.narrative.answers)}</p>
+    <table><tr><th>What buyers ask</th><th>Answered</th><th>Evidence</th></tr>${rows}</table>`;
+}
 
 export function renderProspectReport(result: ProspectAuditResult): string {
   const host = (() => {
@@ -105,139 +268,13 @@ export function renderProspectReport(result: ProspectAuditResult): string {
   // rather than printing nothing, or worse, printing "" as if it were a
   // verified fact about the business.
   const name = result.business && result.business.trim() ? result.business : host;
-  const date = new Date(result.generatedAt).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    timeZone: "UTC",
-  });
+  const date = formatIsoDate(result.generatedAt);
 
-  const buildProbesSection = (p: ProbesResult): string => {
-    const byKind = new Map<ProbeAnswer["kind"], ProbeAnswer[]>();
-    for (const a of p.answers) {
-      const bucket = byKind.get(a.kind) ?? [];
-      bucket.push(a);
-      byKind.set(a.kind, bucket);
-    }
-    const groups = KIND_ORDER.filter((k) => byKind.has(k))
-      .map((kind) => {
-        const answers = byKind.get(kind) ?? [];
-        const cards = answers
-          .map(
-            (a) => `<div class="card">
-            <div class="q">${escapeHtml(a.engine)} · “${escapeHtml(a.query)}”</div>
-            <p class="muted">Asked ${escapeHtml(formatAskedAt(a.askedAt))}</p>
-            <p>${escapeHtml(a.snippet)}${a.snippet.length >= 300 ? "…" : ""}</p>
-            <p class="muted">${
-              a.domainCited || a.brandMentioned
-                ? "You were named in this answer."
-                : "You were not named in this answer."
-            }${a.citedDomains.length ? ` Cited: ${escapeHtml(a.citedDomains.join(", "))}` : ""}</p>
-          </div>`,
-          )
-          .join("");
-        return `<h3>${escapeHtml(KIND_LABEL[kind])}</h3>${cards}`;
-      })
-      .join("");
-
-    const recognition = p.brandedRecognized
-      ? "<p>When the engines were asked about the business by name, they recognized it.</p>"
-      : "<p>When the engines were asked about the business by name, they did not recognize it — a real citation of the site never showed up, even with the name handed to them.</p>";
-
-    const competitors = p.competitorsSeen.length
-      ? `<h3>Who the engines cited instead</h3><ul>${p.competitorsSeen
-          .map(
-            (c) => `<li>${escapeHtml(c.domain)} — ${c.count} time${c.count === 1 ? "" : "s"}</li>`,
-          )
-          .join("")}</ul>`
-      : "";
-    return recognition + groups + competitors;
-  };
-
-  const findabilitySection = stageBody(result.checks, (c) => {
-    // crawlerAccessMeasured is false only when the robots.txt fetch itself
-    // failed, so the blocked/allowed lists are empty out of ignorance, not
-    // because we confirmed access. Saying "every crawler can reach the site"
-    // in that case would manufacture a finding from our own missing data.
-    const accessBlock = !c.crawlerAccessMeasured
-      ? `<p class="muted">Crawler access: not measured — ${escapeHtml(
-          result.crawl.data.sidecarErrors.robots ?? "the robots.txt fetch failed",
-        )}</p>`
-      : c.crawlerAccess.blockedAi.length
-        ? `<p><strong>Blocked AI crawlers:</strong> ${escapeHtml(c.crawlerAccess.blockedAi.join(", "))}</p>`
-        : `<p>Every AI crawler we checked can reach the site.</p>`;
-    const classical =
-      c.crawlerAccessMeasured && c.crawlerAccess.blockedClassical.length
-        ? `<p><strong>Blocked search crawlers:</strong> ${escapeHtml(
-            c.crawlerAccess.blockedClassical.join(", "),
-          )}</p>`
-        : "";
-    const lh = result.lighthouse.ok
-      ? `<p class="muted">Lighthouse — performance ${result.lighthouse.data.performance ?? "n/a"},
-         SEO ${result.lighthouse.data.seo ?? "n/a"}, accessibility ${
-           result.lighthouse.data.accessibility ?? "n/a"
-         }.</p>`
-      : `<p class="muted">Lighthouse not measured — ${escapeHtml(result.lighthouse.error)}</p>`;
-    return `${accessBlock}${classical}
-      <ul>
-        <li>sitemap.xml: ${c.sitemapPresent ? "present" : "missing"}</li>
-        <li>llms.txt: ${c.llmsTxtPresent ? "present" : "missing"}</li>
-        <li>Pages missing a meta description: ${c.meta.missingDescription} of ${c.meta.pageCount}</li>
-        <li>Pages missing a canonical URL: ${c.meta.missingCanonical} of ${c.meta.pageCount}</li>
-        <li>Pages missing share images/titles: ${c.meta.missingSocial} of ${c.meta.pageCount}</li>
-        <li>Security headers missing: ${
-          c.securityHeaders.missing.length
-            ? escapeHtml(c.securityHeaders.missing.join(", "))
-            : "none"
-        }</li>
-        ${
-          c.meta.pagesWithoutExtract > 0
-            ? `<li><strong>${c.meta.pagesWithoutExtract}</strong> additional page${
-                c.meta.pagesWithoutExtract === 1 ? "" : "s"
-              } produced no readable content at all and ${
-                c.meta.pagesWithoutExtract === 1 ? "is" : "are"
-              } not counted in the ${c.meta.pageCount} pages above.</li>`
-            : ""
-        }
-      </ul>${lh}`;
-  });
-
-  const readabilitySection = stageBody(result.checks, (c) => {
-    const jsLine =
-      c.jsDependence.avgMissing === null
-        ? `<p class="muted">JavaScript-dependence: not measured — no page produced a comparable raw/rendered pair.</p>`
-        : `<p><strong>${Math.round(c.jsDependence.avgMissing * 100)}%</strong> of the words a visitor reads only appear after JavaScript runs.
-      Most AI crawlers do not run JavaScript, so that share of your site is invisible to them.</p>`;
-    return `${jsLine}
-      <ul>
-        <li>Structured data found: ${c.schema.typesFound.length ? escapeHtml(c.schema.typesFound.join(", ")) : "none"}</li>
-        <li>Expected structured data missing: ${
-          c.schema.missingExpected.length ? escapeHtml(c.schema.missingExpected.join(", ")) : "none"
-        }</li>
-        <li>Pages without a top-level heading: ${c.headings.pagesWithoutH1} of ${c.meta.pageCount}</li>
-        ${
-          c.meta.pagesWithoutExtract > 0
-            ? `<li><strong>${c.meta.pagesWithoutExtract}</strong> page${
-                c.meta.pagesWithoutExtract === 1 ? "" : "s"
-              } produced no extract at all — excluded from every figure above, not counted as readable or unreadable.</li>`
-            : ""
-        }
-      </ul>`;
-  });
-
-  const buildAnswersSection = (a: AnalyzeResult): string => {
-    const rows = a.buyerQuestions
-      .map(
-        (q) => `<tr>
-          <td>${escapeHtml(q.question)}</td>
-          <td><span class="tag ${q.answered}">${q.answered}</span></td>
-          <td>${q.evidence ? escapeHtml(q.evidence) : '<span class="muted">no passage on the site</span>'}</td>
-        </tr>`,
-      )
-      .join("");
-    return `<p>${escapeHtml(a.narrative.answers)}</p>
-      <table><tr><th>What buyers ask</th><th>Answered</th><th>Evidence</th></tr>${rows}</table>`;
-  };
+  const findabilitySection = stageBody(result.checks, (c) =>
+    buildFindabilitySection(c, result.crawl.data.sidecarErrors.robots),
+  );
+  const lighthouseBlock = buildLighthouseBlock(result.lighthouse);
+  const readabilitySection = stageBody(result.checks, buildReadabilitySection);
 
   const fixes = result.analyze.ok
     ? (() => {
@@ -245,10 +282,12 @@ export function renderProspectReport(result: ProspectAuditResult): string {
           (x, y) => IMPACT_ORDER[x.impact] - IMPACT_ORDER[y.impact],
         );
         return `<ol>${sorted
-          .map(
-            (f) => `<li><strong>${escapeHtml(f.title)}</strong> — ${escapeHtml(f.why)}
-          <span class="muted">(${f.impact} impact, ${f.effort} effort)</span></li>`,
-          )
+          .map((f) => {
+            const impact = escapeHtml(f.impact);
+            const effort = escapeHtml(f.effort);
+            return `<li><strong>${escapeHtml(f.title)}</strong> — ${escapeHtml(f.why)}
+          <span class="muted">(${impact} impact, ${effort} effort)</span></li>`;
+          })
           .join("")}</ol>`;
       })()
     : skippableStageNote(
@@ -294,13 +333,13 @@ export function renderProspectReport(result: ProspectAuditResult): string {
 <body>
 <div class="wrap">
   <h1>Can AI and Google actually find ${escapeHtml(name)}?</h1>
-  <p class="lede"><a href="${safeUrl(result.url)}">${escapeHtml(result.url)}</a> · audited ${escapeHtml(date)} by Reddoor Creative</p>
+  <p class="lede"><a href="${escapeHtml(safeUrl(result.url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(result.url)}</a> · audited ${escapeHtml(date)} by Reddoor Creative</p>
   ${narrative}
 
   <div class="scores">
     ${scoreCard("Findability", result.scores.findability)}
     ${scoreCard("Readability", result.scores.readability)}
-    ${scoreCard("Answers", result.scores.answers)}
+    ${scoreCard("Answers", result.scores.answers, "How many buyer questions the site itself answers — not what the AI engines say")}
     ${scoreCard("AI Visibility", result.scores.aiVisibility, "Based on buyer questions — not questions that name the business directly")}
   </div>
 
@@ -309,6 +348,7 @@ export function renderProspectReport(result: ProspectAuditResult): string {
 
   <h2>What the crawlers can reach</h2>
   ${findabilitySection}
+  ${lighthouseBlock}
 
   <h2>What the crawlers can read</h2>
   ${readabilitySection}

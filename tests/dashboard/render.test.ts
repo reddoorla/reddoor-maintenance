@@ -106,7 +106,9 @@ describe("renderSiteDashboardHtml", () => {
 
   it("renders the site URL as a clickable link", () => {
     const html = renderSiteDashboardHtml(siteRow(), []);
-    expect(html).toContain('href="https://acme.example.com"');
+    // safeUrl returns the parsed URL's href, which normalizes a bare origin
+    // to carry a trailing slash — not the caller's raw string.
+    expect(html).toContain('href="https://acme.example.com/"');
   });
 
   it("pairs each lighthouse score with its correct label inside the same tile", () => {
@@ -219,7 +221,9 @@ describe("renderSiteDashboardHtml — vulnerabilities section", () => {
     expect(html).toContain("esbuild");
     expect(html).toContain("axios");
     expect(html).toContain("CVE-1");
-    expect(html).toContain('href="https://b"');
+    // safeUrl returns the parsed URL's href, which normalizes a bare origin
+    // to carry a trailing slash — not the caller's raw string.
+    expect(html).toContain('href="https://b/"');
     // critical (esbuild) must render before moderate (axios)
     expect(html.indexOf("esbuild")).toBeLessThan(html.indexOf("axios"));
   });
