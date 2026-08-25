@@ -225,8 +225,11 @@ export function computeScores(input: {
     // the three crawler-access lists are empty out of ignorance, not because
     // the site blocks nobody. Crawler access is the largest component of this
     // score, so publish "not measured" rather than a confident number built on
-    // a blank.
-    if (checks.crawlerAccessMeasured) {
+    // a blank. pageCount === 0 means every crawled page failed to produce a
+    // usable extract — metadata and technical signals are claims about pages,
+    // and we read none, so a site we could not read a single page of must not
+    // score well on the strength of what we never looked at.
+    if (checks.crawlerAccessMeasured && checks.meta.pageCount > 0) {
       const aiTotal = checks.crawlerAccess.allowedAi.length + checks.crawlerAccess.blockedAi.length;
       const aiOpen = aiTotal === 0 ? 1 : checks.crawlerAccess.allowedAi.length / aiTotal;
       const classicalOpen = checks.crawlerAccess.blockedClassical.length === 0 ? 1 : 0;

@@ -180,4 +180,25 @@ describe("computeScores", () => {
     // Readability doesn't depend on crawlerAccessMeasured at all — it must still compute.
     expect(s.readability).toBe(100);
   });
+
+  it("does not score findability when no page was readable", () => {
+    const noPagesRead: ChecksResult = {
+      ...perfectChecks,
+      meta: {
+        ...perfectChecks.meta,
+        pageCount: 0,
+        pagesWithoutExtract: 2,
+      },
+    };
+    const s = computeScores({
+      checks: noPagesRead,
+      lighthouse: null,
+      analyze: analyze(["yes", "partial", "no", "no"]),
+      probes,
+    });
+    expect(s.findability).toBeNull();
+    // answers and aiVisibility come from their own stages, unaffected by checks.
+    expect(s.answers).toBe(38);
+    expect(s.aiVisibility).toBe(42);
+  });
 });
