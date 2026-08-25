@@ -239,6 +239,16 @@ function recipientsLine(site: WebsiteRow): string {
   return `<span class="recipients">To ${to.map(escapeHtml).join(", ")}${ccPart}</span>`;
 }
 
+/** "Refresh preview": dispatch a re-render so the stored body picks up commentary
+ *  edited after drafting. Offered only on an UNSENT report — the endpoint and the
+ *  workflow both refuse a sent one, and a button whose only outcome is a refusal
+ *  is worse than no button. */
+function rerenderButton(r: ReportRow): string {
+  if (r.sentAt !== null) return "";
+  const url = `/api/reports/${encodeURIComponent(r.id)}/rerender`;
+  return `<button class="rerender" data-rerender-url="${escapeHtml(url)}" title="Re-render this report from its current row (runs in Actions; takes a minute or two)">refresh preview</button>`;
+}
+
 /** The dashboard's own preview route for a report body (served from Turso).
  *  Never the Airtable attachment URL — that one is signed and expires. */
 function reportPreviewUrl(reportId: string): string {
@@ -276,7 +286,7 @@ function pendingRow(r: ReportRow, site: WebsiteRow, now: Date): string {
     ? `<a href="${escapeHtml(reportPreviewUrl(r.id))}" rel="noopener noreferrer" title="rendered at draft time — Commentary/subject edits after drafting are not reflected">draft preview ▸</a>`
     : `<span class="muted">no preview yet</span>`;
   const sendLine = sendTimingLine(now);
-  return `<li><div class="pending-head"><strong>${type}</strong> <span class="muted">${period}</span> ${preflightChip(findings)} ${preview} ${approveButton(r, blocked)}</div><div class="pending-info">${recipientsLine(site)} ${sendLine}</div>${checklistBlock(r)}${commentaryEditor(r)}${overrideControl(r)}</li>`;
+  return `<li><div class="pending-head"><strong>${type}</strong> <span class="muted">${period}</span> ${preflightChip(findings)} ${preview} ${rerenderButton(r)} ${approveButton(r, blocked)}</div><div class="pending-info">${recipientsLine(site)} ${sendLine}</div>${checklistBlock(r)}${commentaryEditor(r)}${overrideControl(r)}</li>`;
 }
 
 function pendingSection(reports: ReportRow[], site: WebsiteRow, now: Date): string {
@@ -1005,6 +1015,23 @@ export function renderSiteDashboardHtml(
     document.querySelectorAll("input:not([type=checkbox])[data-detail-field], textarea[data-detail-field]").forEach((i) => {
       i.addEventListener("blur", () => {
         if (i.value !== i.defaultValue) saveDetail(i);
+      });
+    });
+    // Refresh preview: dispatch the re-render workflow, then tell the operator to
+    // reload once it lands. No polling — the run takes a minute or two and a
+    // spinner that long reads as a hang.
+    document.querySelectorAll("button.rerender").forEach((b) => {
+      b.addEventListener("click", async () => {
+        b.disabled = true;
+        b.textContent = "Refreshing\u2026";
+        try {
+          const res = await fetch(b.dataset.rerenderUrl, { method: "POST" });
+          b.textContent = res.ok ? "Queued \u2713 reload in ~2 min" : "Failed";
+          if (!res.ok) b.disabled = false;
+        } catch {
+          b.textContent = "Failed";
+          b.disabled = false;
+        }
       });
     });
     // Report commentary: save on blur, only when it actually changed. Same

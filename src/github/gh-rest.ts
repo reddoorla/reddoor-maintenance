@@ -53,7 +53,14 @@ export type GitHubRest = {
   /** Fire a `workflow_dispatch` for `<workflow>` (a filename like `renovate.yml`)
    *  on `ref`. Needs the token's `actions:write` scope; a non-2xx (404 no such
    *  workflow / 403 missing scope) surfaces as a thrown error carrying the status. */
-  dispatchWorkflow: (repo: string, workflow: string, ref: string) => Promise<void>;
+  dispatchWorkflow: (
+    repo: string,
+    workflow: string,
+    ref: string,
+    /** Declared `workflow_dispatch` inputs. Omitted from the body entirely when
+     *  absent — a workflow that declares none rejects an `inputs` key. */
+    inputs?: Record<string, string>,
+  ) => Promise<void>;
   /** List a workflow's runs, newest first, created on/after `opts.since` (ISO).
    *  Used to re-find the run a prior `workflow_dispatch` started (dispatch returns
    *  204 with no id). Non-2xx surfaces as a thrown error carrying the status. */
@@ -172,7 +179,7 @@ export function makeGitHubRest(deps: { token: string; fetch?: typeof fetch }): G
       return body.default_branch;
     },
 
-    async dispatchWorkflow(repo, workflow, ref) {
+    async dispatchWorkflow(repo, workflow, ref, inputs) {
       const { owner, name } = splitRepo(repo);
       // Every segment interpolates into the API path — guard them all (defense in
       // depth), matching gh.ts's dispatchWorkflow. `ref` is repo-sourced.
@@ -185,7 +192,7 @@ export function makeGitHubRest(deps: { token: string; fetch?: typeof fetch }): G
         {
           method: "POST",
           headers: { ...baseHeaders, "content-type": "application/json" },
-          body: JSON.stringify({ ref }),
+          body: JSON.stringify(inputs ? { ref, inputs } : { ref }),
         },
       );
       // 204 No Content on success.

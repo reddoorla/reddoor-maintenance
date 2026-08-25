@@ -1,0 +1,69 @@
+name: report-rerender
+
+# Regenerate ONE unsent report's stored HTML so the console preview shows
+# commentary edited after drafting (#539 Phase 4 report review).
+#
+# It lives in Actions rather than in a Netlify function for one concrete reason:
+# rendering needs sharp, a native module no function bundles today (esbuild, no
+# externalization configured). The operator's ruling was that latency is worth
+# accuracy — a design firm's preview has to be what the client receives, not an
+# approximation that skips the header pipeline to fit in a request.
+#
+# Dispatch-only. There is no schedule: this is an on-demand action taken by a
+# human looking at a specific report, and a periodic sweep would re-render rows
+# nobody is looking at.
+on:
+  workflow_dispatch:
+    inputs:
+      report_id:
+        description: "Airtable Reports record id (recXXXXXXXX) — must be UNSENT."
+        required: true
+        type: string
+
+concurrency:
+  # Per report, not global: two operators refreshing different reports must not
+  # serialize behind each other, but two refreshes of the SAME report should —
+  # the second would only overwrite the first with the same bytes.
+  group: report-rerender-${{ inputs.report_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  rerender:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - name: Re-render the report body
+        env:
+          AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
+          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          REPORT_ID: ${{ inputs.report_id }}
+        run: |
+          set -o pipefail
+          out="${RUNNER_TEMP:-/tmp}"
+          # The CLI exits nonzero for every non-rendered outcome (already-sent,
+          # not-found, no-header), so a refusal is a RED run rather than a green
+          # one that silently changed nothing.
+          node dist/cli/bin.js report --rerender "$REPORT_ID" | tee "$out/rerender.out"
+
+          # Absent-line guard, same contract as the other machine lines in this
+          # repo: a run that exits 0 WITHOUT the line never actually rendered.
+          grep -qE '^REPORT_RERENDER .* status=rendered ' "$out/rerender.out" || {
+            echo "::error::report --rerender produced no rendered body — see the line above."
+            exit 1
+          }

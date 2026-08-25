@@ -1630,3 +1630,33 @@ describe("the commentary editor is offered only where the template renders it", 
     }
   });
 });
+
+describe("refresh-preview button", () => {
+  it("sits beside the preview link on a pending report", () => {
+    const html = renderSiteDashboardHtml(siteRow({ name: "Acme" }), [
+      reportRow({
+        id: "recREP1",
+        reportType: "Maintenance",
+        draftReady: true,
+        approvedToSend: false,
+        sentAt: null,
+        renderedHtmlAttachment: { url: "https://x/y.html", filename: "y.html" },
+      }),
+    ]);
+    expect(html).toContain('data-rerender-url="/api/reports/recREP1/rerender"');
+  });
+
+  it("is NOT offered for a sent report", () => {
+    // The server refuses it (409) and the workflow refuses it too — offering a
+    // button whose only outcome is a refusal is worse than offering none.
+    const html = renderSiteDashboardHtml(siteRow({ name: "Acme" }), [
+      reportRow({
+        id: "recSENT",
+        draftReady: true,
+        approvedToSend: true,
+        sentAt: "2026-08-20T09:00:00.000Z",
+      }),
+    ]);
+    expect(html).not.toContain('data-rerender-url="/api/reports/recSENT/rerender"');
+  });
+});
