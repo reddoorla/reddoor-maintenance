@@ -2,7 +2,12 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { runProspectAudit, type PipelineDeps } from "../../src/prospect/pipeline.js";
+import {
+  runProspectAudit,
+  PROBES_SKIPPED,
+  ANALYZE_SKIPPED,
+  type PipelineDeps,
+} from "../../src/prospect/pipeline.js";
 import type { CrawlDeps, FetchResponse } from "../../src/prospect/crawl.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -105,6 +110,9 @@ const deps = (over: Partial<PipelineDeps> = {}): PipelineDeps => ({
     summary: "lighthouse: all categories passing",
     status: "pass" as const,
   }),
+  // Real ProbeRunOptions pacing (probes.ts's pacedEach) genuinely sleeps
+  // between queries — 0 keeps this offline suite from spending seconds on it.
+  probeDelayMs: 0,
   ...over,
 });
 
@@ -163,7 +171,7 @@ describe("runProspectAudit", () => {
 
   it("skips probes entirely when asked", async () => {
     const result = await runProspectAudit(HOME, { probes: false }, deps());
-    expect(result.probes).toEqual({ ok: false, error: "skipped (--no-probes)" });
+    expect(result.probes).toEqual({ ok: false, error: PROBES_SKIPPED });
     expect(result.scores.aiVisibility).toBeNull();
   });
 
@@ -203,5 +211,51 @@ describe("runProspectAudit", () => {
     );
     expect(seen).toContain("crawl:ok");
     expect(seen).toContain("probes:ok");
+  });
+
+  it("degrades checks — and the cascading analyze skip — while probes still run", async () => {
+    const result = await runProspectAudit(
+      HOME,
+      {},
+      deps({
+        checks: () => {
+          throw new Error("checks blew up");
+        },
+      }),
+    );
+    expect(result.checks).toEqual({ ok: false, error: "checks blew up" });
+    expect(result.analyze).toEqual({ ok: false, error: ANALYZE_SKIPPED });
+    expect(result.probes.ok).toBe(true);
+    // findability/readability need a successful checks stage; answers needs
+    // buyer questions, which only a successful analyze stage supplies — all
+    // three are structurally null here. aiVisibility depends only on probes,
+    // which ran, but with zero buyer questions probes.ts's buildQueries never
+    // produces a "category" query (only "branded"/"competitor"), so
+    // visibilityScore — and this score — are null too: nothing here actually
+    // measured discoverability for a real buyer question.
+    expect(result.scores.findability).toBeNull();
+    expect(result.scores.readability).toBeNull();
+    expect(result.scores.answers).toBeNull();
+    expect(result.scores.aiVisibility).toBeNull();
+  });
+
+  it("falls back to the domain when the model returns no business name", async () => {
+    const result = await runProspectAudit(
+      HOME,
+      {},
+      deps({
+        analyze: { run: async () => ({ ...analyzeOutput, businessName: "" }) },
+      }),
+    );
+    // An empty businessName is itself a finding (AnalyzeSchema allows it) —
+    // the operator supplied no override either, so there is no name to report.
+    expect(result.business).toBeNull();
+    expect(result.probes.ok).toBe(true);
+    if (result.probes.ok) {
+      // resolveBusinessName (probes.ts) falls back to domainOf(url) rather
+      // than querying an empty string.
+      expect(result.probes.data.answers.some((a) => a.query.includes("acme.example"))).toBe(true);
+      expect(result.probes.data.answers.some((a) => a.query.includes("Acme Roofing"))).toBe(false);
+    }
   });
 });

@@ -189,7 +189,11 @@ export type ProspectAuditResult = {
   business: string | null;
   generatedAt: string;
   scores: Scores;
-  crawl: StageResult<CrawlResult>;
+  /** The crawl is the one fatal stage (see pipeline.ts): a crawl failure
+   *  throws before a ProspectAuditResult is ever built, so the `ok:false`
+   *  branch of StageResult can never appear here. Narrowed to the success
+   *  shape only, so consumers never handle the impossible branch. */
+  crawl: { ok: true; data: CrawlResult };
   checks: StageResult<ChecksResult>;
   lighthouse: StageResult<LighthouseScores>;
   analyze: StageResult<AnalyzeResult>;
