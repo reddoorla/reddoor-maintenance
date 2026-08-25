@@ -20,6 +20,28 @@ const KIND_LABEL: Record<ProbeAnswer["kind"], string> = {
 };
 const KIND_ORDER: ProbeAnswer["kind"][] = ["category", "branded", "competitor"];
 
+/** Terse product mapping so a recipient who has never seen a crawler's raw
+ *  user-agent string can place it — factual labelling, not a voice change. */
+const AI_AGENT_LABELS: Record<string, string> = {
+  GPTBot: "ChatGPT",
+  "OAI-SearchBot": "ChatGPT's search results",
+  ClaudeBot: "Claude",
+  PerplexityBot: "Perplexity",
+  "Google-Extended": "Gemini and Google's AI Overviews",
+  CCBot: "Common Crawl, used to train many AI models",
+};
+
+function describeAgent(agent: string): string {
+  const label = AI_AGENT_LABELS[agent];
+  return label ? `${agent} (feeds ${label})` : agent;
+}
+
+/** Every genuine stage failure collapses to this one phrase — the real error
+ *  (status codes, retry counts, timeouts — operator vocabulary) stays in the
+ *  persisted JSON and CLI output for operators, but never reaches a stranger
+ *  who would read it as broken software rather than a diagnostic. */
+const STAGE_FAILED_MESSAGE = "we could not complete this part of the analysis";
+
 const STYLES = `
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
@@ -49,7 +71,17 @@ const STYLES = `
   .cta a { color: #fff; }
   table { width: 100%; border-collapse: collapse; margin-top: 8px; }
   td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee; vertical-align: top; }
-  @media print { body { background: #fff; } .card, .score, .cta { break-inside: avoid; } }
+  @media print {
+    body { background: #fff; }
+    .card, .score, .cta { break-inside: avoid; }
+    /* Browsers default "print background graphics" OFF, which drops the red
+       .cta background but keeps its white text — the only ask in the report
+       would otherwise print white-on-white and vanish. Fall back to dark
+       text on no background with a visible border instead of relying on the
+       background for contrast. */
+    .cta { background: none; color: #1a1a1a; border: 2px solid ${RED}; }
+    .cta h2, .cta a { color: #1a1a1a; }
+  }
 `;
 
 function scoreCard(label: string, value: number | null, hint?: string): string {
@@ -61,11 +93,14 @@ function scoreCard(label: string, value: number | null, hint?: string): string {
 
 /** Body for a stage that succeeded, or a uniform "Not measured" note when it didn't. */
 function stageBody<T>(stage: StageResult<T>, body: (data: T) => string): string {
-  return stage.ok ? body(stage.data) : notMeasuredNote(stage.error);
+  return stage.ok ? body(stage.data) : notMeasuredNote();
 }
 
-function notMeasuredNote(error: string): string {
-  return `<p class="muted">Not measured — ${escapeHtml(error)}</p>`;
+/** The stage's real error is deliberately not a parameter here — see
+ *  STAGE_FAILED_MESSAGE above. Every genuine failure reads the same
+ *  client-safe way, regardless of what actually broke. */
+function notMeasuredNote(): string {
+  return `<p class="muted">Not measured — ${STAGE_FAILED_MESSAGE}.</p>`;
 }
 
 /** A stage a human deliberately turned off (--no-probes, or analyze skipped
@@ -77,7 +112,7 @@ function skippableStageNote(error: string, skipConstant: string, skipMessage: st
   if (error === skipConstant) {
     return `<p class="muted">${escapeHtml(skipMessage)}</p>`;
   }
-  return notMeasuredNote(error);
+  return notMeasuredNote();
 }
 
 /** `new Date(iso).toLocaleDateString()` never throws on a bad timestamp — it
@@ -102,7 +137,12 @@ function formatIsoDate(iso: string): string {
  *  positive discoverability finding on its own — an engine echoing a name
  *  it was just handed proves nothing about whether a buyer who never named
  *  the business would find it. */
-function buildProbesSection(p: ProbesResult): string {
+/** `businessNameUsed` is whether a real business name was ever resolved and
+ *  handed to any engine (ProspectAuditResult.business, the same value the
+ *  pipeline actually queried with) — never the raw ProbesResult, which has
+ *  no way to say "no name was available". Without this gate, "even with the
+ *  name handed to them" is a false claim whenever businessName was empty. */
+function buildProbesSection(p: ProbesResult, businessNameUsed: boolean): string {
   const byKind = new Map<ProbeAnswer["kind"], ProbeAnswer[]>();
   for (const a of p.answers) {
     const bucket = byKind.get(a.kind) ?? [];
@@ -112,7 +152,9 @@ function buildProbesSection(p: ProbesResult): string {
 
   const recognition = p.brandedRecognized
     ? "<p>When the engines were asked about the business by name, they recognized it.</p>"
-    : "<p>When the engines were asked about the business by name, they did not recognize it — a real citation of the site never showed up, even with the name handed to them.</p>";
+    : businessNameUsed
+      ? "<p>When the engines were asked about the business by name, they did not recognize it — a real citation of the site never showed up, even with the name handed to them.</p>"
+      : "<p>The engines did not recognize the business — there was no business name available to ask them with, so this reflects a harder starting point than a named query would.</p>";
 
   const categoryCaveat = byKind.has("category")
     ? ""
@@ -152,15 +194,24 @@ function buildProbesSection(p: ProbesResult): string {
  *  failed, so the blocked/allowed lists are empty out of ignorance, not
  *  because we confirmed access. Saying "every crawler can reach the site" in
  *  that case would manufacture a finding from our own missing data.
- *  `robotsSidecarError` comes from the (always-present) crawl stage, not
- *  from `c` itself — ChecksResult doesn't carry the raw fetch error. */
-function buildFindabilitySection(c: ChecksResult, robotsSidecarError: string | null): string {
+ *  `sidecarErrors` comes from the (always-present) crawl stage, not from `c`
+ *  itself — ChecksResult doesn't carry the raw fetch errors, only whether
+ *  each sidecar was measured. sitemapMeasured/llmsTxtMeasured get the same
+ *  treatment as crawlerAccessMeasured: a failed fetch reads as "not
+ *  measured", never as a confirmed "missing" — that's a claim about the
+ *  prospect's site we haven't earned. */
+function buildFindabilitySection(
+  c: ChecksResult,
+  sidecarErrors: { robots: string | null; sitemap: string | null; llms: string | null },
+): string {
   const accessBlock = !c.crawlerAccessMeasured
     ? `<p class="muted">Crawler access: not measured — ${escapeHtml(
-        robotsSidecarError ?? "the robots.txt fetch failed",
+        sidecarErrors.robots ?? "the robots.txt fetch failed",
       )}</p>`
     : c.crawlerAccess.blockedAi.length
-      ? `<p><strong>Blocked AI crawlers:</strong> ${escapeHtml(c.crawlerAccess.blockedAi.join(", "))}</p>`
+      ? `<p><strong>Blocked AI crawlers:</strong> ${escapeHtml(
+          c.crawlerAccess.blockedAi.map(describeAgent).join(", "),
+        )}</p>`
       : `<p>Every AI crawler we checked can reach the site.</p>`;
   const classical =
     c.crawlerAccessMeasured && c.crawlerAccess.blockedClassical.length
@@ -168,10 +219,16 @@ function buildFindabilitySection(c: ChecksResult, robotsSidecarError: string | n
           c.crawlerAccess.blockedClassical.join(", "),
         )}</p>`
       : "";
+  const sitemapLine = c.sitemapMeasured
+    ? `<li>sitemap.xml: ${c.sitemapPresent ? "present" : "missing"}</li>`
+    : `<li>sitemap.xml: not measured — ${escapeHtml(sidecarErrors.sitemap ?? "the fetch failed")}</li>`;
+  const llmsLine = c.llmsTxtMeasured
+    ? `<li>llms.txt: ${c.llmsTxtPresent ? "present" : "missing"}</li>`
+    : `<li>llms.txt: not measured — ${escapeHtml(sidecarErrors.llms ?? "the fetch failed")}</li>`;
   return `${accessBlock}${classical}
     <ul>
-      <li>sitemap.xml: ${c.sitemapPresent ? "present" : "missing"}</li>
-      <li>llms.txt: ${c.llmsTxtPresent ? "present" : "missing"}</li>
+      ${sitemapLine}
+      ${llmsLine}
       <li>Pages missing a meta description: ${c.meta.missingDescription} of ${c.meta.pageCount}</li>
       <li>Pages missing a canonical URL: ${c.meta.missingCanonical} of ${c.meta.pageCount}</li>
       <li>Pages missing share images/titles: ${c.meta.missingSocial} of ${c.meta.pageCount}</li>
@@ -198,9 +255,9 @@ function buildFindabilitySection(c: ChecksResult, robotsSidecarError: string | n
  *  degrade path. */
 function buildLighthouseBlock(lh: StageResult<LighthouseScores>): string {
   return lh.ok
-    ? `<p class="muted">Lighthouse — performance ${lh.data.performance ?? "n/a"},
-       SEO ${lh.data.seo ?? "n/a"}, accessibility ${lh.data.accessibility ?? "n/a"}.</p>`
-    : `<p class="muted">Lighthouse not measured — ${escapeHtml(lh.error)}</p>`;
+    ? `<p class="muted">Lighthouse — performance ${lh.data.performance ?? "not measured"},
+       SEO ${lh.data.seo ?? "not measured"}, accessibility ${lh.data.accessibility ?? "not measured"}.</p>`
+    : `<p class="muted">Lighthouse not measured — ${STAGE_FAILED_MESSAGE}.</p>`;
 }
 
 function buildReadabilitySection(c: ChecksResult): string {
@@ -271,16 +328,31 @@ export function renderProspectReport(result: ProspectAuditResult): string {
   const date = formatIsoDate(result.generatedAt);
 
   const findabilitySection = stageBody(result.checks, (c) =>
-    buildFindabilitySection(c, result.crawl.data.sidecarErrors.robots),
+    buildFindabilitySection(c, result.crawl.data.sidecarErrors),
   );
   const lighthouseBlock = buildLighthouseBlock(result.lighthouse);
   const readabilitySection = stageBody(result.checks, buildReadabilitySection);
+
+  // A real business name was resolved and handed to the engines only when
+  // `result.business` is non-empty — the same value the pipeline actually
+  // queried with (see pipeline.ts). Used to gate the probes section's "even
+  // with the name handed to them" phrasing (Fix 6).
+  const businessNameUsed = Boolean(result.business && result.business.trim());
 
   const fixes = result.analyze.ok
     ? (() => {
         const sorted = [...result.analyze.data.fixes].sort(
           (x, y) => IMPACT_ORDER[x.impact] - IMPACT_ORDER[y.impact],
         );
+        if (sorted.length === 0) {
+          // A genuinely well-optimized site: a bare empty list reads as a
+          // rendering bug, not a compliment. Say so directly, and keep this
+          // section as a pitch — it's the one the salesperson is sending
+          // the report to make.
+          return `<p>Nothing here reads as urgent — the essentials are already in place.
+          Reddoor can still help push this further: tightening structured data, monitoring
+          how the answer engines describe you, and keeping pace as they change.</p>`;
+        }
         return `<ol>${sorted
           .map((f) => {
             const impact = escapeHtml(f.impact);
@@ -297,11 +369,11 @@ export function renderProspectReport(result: ProspectAuditResult): string {
       );
 
   const probesSectionFinal = result.probes.ok
-    ? buildProbesSection(result.probes.data)
+    ? buildProbesSection(result.probes.data, businessNameUsed)
     : skippableStageNote(
         result.probes.error,
         PROBES_SKIPPED,
-        "You asked us to skip the AI-visibility probes for this audit.",
+        "This audit did not run the AI-visibility probes.",
       );
 
   const answersSectionFinal = result.analyze.ok
@@ -336,10 +408,11 @@ export function renderProspectReport(result: ProspectAuditResult): string {
   <p class="lede"><a href="${escapeHtml(safeUrl(result.url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(result.url)}</a> · audited ${escapeHtml(date)} by Reddoor Creative</p>
   ${narrative}
 
+  <p class="muted">Each score below runs 0–100 — read it as a score, not a percentage.</p>
   <div class="scores">
-    ${scoreCard("Findability", result.scores.findability)}
-    ${scoreCard("Readability", result.scores.readability)}
-    ${scoreCard("Answers", result.scores.answers, "How many buyer questions the site itself answers — not what the AI engines say")}
+    ${scoreCard("Findability", result.scores.findability, "How easily AI and search crawlers can find and reach your site — crawl rules, sitemap, key metadata")}
+    ${scoreCard("Readability", result.scores.readability, "How much of your site's content those crawlers can actually read once they're in — most don't run JavaScript")}
+    ${scoreCard("Answers", result.scores.answers, "How many buyer questions your site's own content answers — separate from what the AI engines say back")}
     ${scoreCard("AI Visibility", result.scores.aiVisibility, "Based on buyer questions — not questions that name the business directly")}
   </div>
 

@@ -45,7 +45,9 @@ function checksData(over: Partial<ChecksResult> = {}): ChecksResult {
     },
     headings: { pagesWithoutH1: 1, pagesWithLevelSkips: 0 },
     securityHeaders: { present: ["x-frame-options"], missing: ["content-security-policy"] },
+    sitemapMeasured: true,
     sitemapPresent: true,
+    llmsTxtMeasured: true,
     llmsTxtPresent: false,
     viewportOk: true,
     ...over,
@@ -207,7 +209,14 @@ describe("renderProspectReport", () => {
       }),
     );
     expect(degraded).toContain("Not measured");
-    expect(degraded).toContain("no visibility engine returned an answer");
+    // Fix 3: this assertion used to check that the raw stage error string
+    // ("no visibility engine returned an answer") appeared verbatim on the
+    // page — that is precisely the defect being fixed here (internal error
+    // strings reaching a stranger read as broken software, not a
+    // diagnostic). The real error stays in the persisted JSON/CLI output for
+    // operators; the client-facing page now gets a client-safe phrase.
+    expect(degraded).not.toContain("no visibility engine returned an answer");
+    expect(degraded).not.toContain("529 overloaded");
     expect(degraded).toContain("What the AI engines said about you");
   });
 
@@ -229,9 +238,14 @@ describe("renderProspectReport", () => {
     );
     expect(() => allFailed).not.toThrow();
     expect(allFailed.startsWith("<!doctype html>")).toBe(true);
-    expect(allFailed).toContain("crawl produced no comparable pages");
-    expect(allFailed).toContain("lighthouse: no report produced");
-    expect(allFailed).toContain("no visibility engine returned an answer");
+    // Fix 3: same correction as above — raw stage errors (status codes,
+    // internal diagnostic text) must never reach the client, only a
+    // client-safe phrase does. These three lines used to assert the raw
+    // messages appeared verbatim; now they assert the opposite.
+    expect(allFailed).not.toContain("crawl produced no comparable pages");
+    expect(allFailed).not.toContain("lighthouse: no report produced");
+    expect(allFailed).not.toContain("no visibility engine returned an answer");
+    expect(allFailed).toMatch(/could not complete/i);
     // analyze's error here is the SKIP constant, so it must read as a skip,
     // not a generic "Not measured" for that section.
     expect(allFailed).toMatch(/checks stage failed|skipped/i);
@@ -359,9 +373,17 @@ describe("renderProspectReport", () => {
   // Correction 6: a requested skip must read differently from an attempted
   // failure — compared against the pipeline's exported constants, never a
   // retyped string literal.
+  //
+  // Fix 1: the old wording here ("You asked us to skip...") addressed the
+  // READER as the person who requested the skip. That's wrong for a cold
+  // email — the recipient asked us for nothing; only the operator who passed
+  // --no-probes did. The regex below used to match that "you asked" phrasing
+  // directly; it's updated to assert the corrected, third-person wording
+  // instead (and to confirm the old address-the-reader phrasing is gone).
   it("reads a requested probes skip differently from an attempted probes failure", () => {
     const skipped = renderProspectReport(result({ probes: { ok: false, error: PROBES_SKIPPED } }));
-    expect(skipped).toMatch(/you asked|skipped by request|requested.*skip/i);
+    expect(skipped).toMatch(/did not run|skipped/i);
+    expect(skipped).not.toMatch(/you asked/i);
     expect(skipped).not.toContain("Not measured");
   });
 
@@ -505,6 +527,263 @@ describe("renderProspectReport", () => {
       // literally — this is the live-injection fix.
       expect(evil).not.toContain('href="https://acme.example/">');
       expect(evil).toMatch(/href="https:\/\/acme\.example\/%22/);
+    });
+  });
+
+  // --- Fixes 1-8: a reviewer read the rendered report as the recipient (a
+  // stranger who did not ask for it and can check every claim against their
+  // own site) and found it unfit to send as-is. Each block below covers one
+  // finding. ---
+
+  // Fix 1: "You asked us to skip..." was written for the operator who passed
+  // --no-probes, not for a stranger who requested nothing. See the updated
+  // Correction-6 tests above for the corrected wording; this block covers
+  // the case that wasn't already exercised there.
+  describe("Fix 1: the probes-skip note never addresses the reader as the requester", () => {
+    it("never says 'you asked' anywhere in the skip note, and states what the audit did instead", () => {
+      const skipped = renderProspectReport(
+        result({ probes: { ok: false, error: PROBES_SKIPPED } }),
+      );
+      expect(skipped).not.toMatch(/you asked/i);
+      expect(skipped).toMatch(/did not run the ai-visibility probes/i);
+    });
+  });
+
+  // Fix 2: sitemapMeasured/llmsTxtMeasured false means the fetch itself
+  // failed — the report must say "not measured", never "missing" (a claim
+  // about the prospect's site we have not earned). Mirrors how the
+  // crawler-access block already handles crawlerAccessMeasured.
+  describe("Fix 2: unmeasured sidecars read as 'not measured', never 'missing'", () => {
+    it("says sitemap.xml and llms.txt were not checked when their fetch failed", () => {
+      const degraded = renderProspectReport(
+        result({
+          crawl: {
+            ok: true,
+            data: crawlData({
+              sidecarErrors: {
+                robots: null,
+                llms: "fetch failed: ETIMEDOUT",
+                sitemap: "fetch failed: 404",
+              },
+            }),
+          },
+          checks: {
+            ok: true,
+            data: checksData({ sitemapMeasured: false, llmsTxtMeasured: false }),
+          },
+        }),
+      );
+      expect(degraded).toMatch(/sitemap\.xml.*not measured/i);
+      expect(degraded).toMatch(/llms\.txt.*not measured/i);
+      expect(degraded).not.toContain("sitemap.xml: missing");
+      expect(degraded).not.toContain("llms.txt: missing");
+    });
+
+    it("still reports a confirmed absence as 'missing' when the fetch succeeded", () => {
+      // sitemapMeasured/llmsTxtMeasured true (the default fixture) plus
+      // llmsTxtPresent false must still say "missing" — Fix 2 only changes
+      // the unmeasured case, not a real, confirmed absence.
+      expect(html).toContain("llms.txt: missing");
+    });
+  });
+
+  // Fix 3: internal error strings ("529 overloaded", retry counts, timeouts)
+  // are operator vocabulary — to a stranger they read as broken software.
+  // The renderer must map every genuine stage failure to one client-safe
+  // phrase and never print the raw message; the real error still lives in
+  // the persisted JSON and CLI output for operators.
+  describe("Fix 3: internal stage errors never reach the client", () => {
+    it("replaces a technical stage error with a client-safe phrase", () => {
+      const rendered = renderProspectReport(
+        result({
+          checks: { ok: false, error: "529 overloaded" },
+          lighthouse: { ok: false, error: "the model timed out after 3 retries (60s)" },
+        }),
+      );
+      expect(rendered).not.toContain("529 overloaded");
+      expect(rendered).not.toContain("timed out after 3 retries");
+      expect(rendered).toMatch(/could not complete/i);
+    });
+
+    it("keeps the skip/failure distinction after the client-safe mapping", () => {
+      const skipped = renderProspectReport(
+        result({ probes: { ok: false, error: PROBES_SKIPPED } }),
+      );
+      const failed = renderProspectReport(
+        result({ probes: { ok: false, error: "no visibility engine returned an answer" } }),
+      );
+      expect(skipped).not.toMatch(/could not complete/i);
+      expect(failed).toMatch(/could not complete/i);
+    });
+  });
+
+  // Fix 4: .cta is white text on a red background; browsers default "print
+  // background graphics" off, which drops the red and leaves white-on-white
+  // — the only ask in the document becomes invisible when printed.
+  describe("Fix 4: the call to action survives printing with backgrounds off", () => {
+    it("gives .cta dark text, no background, and a visible border under @media print", () => {
+      const printStart = html.indexOf("@media print");
+      expect(printStart).toBeGreaterThan(-1);
+      const printBlock = html.slice(printStart, html.indexOf("</style>", printStart));
+      expect(printBlock).toMatch(/\.cta\s*\{[^}]*background:\s*none/);
+      expect(printBlock).toMatch(/\.cta\s*\{[^}]*color:\s*#1a1a1a/);
+      expect(printBlock).toMatch(/\.cta\s*\{[^}]*border/);
+    });
+  });
+
+  // Fix 5: only Answers/AI Visibility got a hint; nothing stated the 0-100
+  // scale, so "47" under Readability reads as an unlabeled number.
+  describe("Fix 5: every score card states what it measures, on a stated 0-100 scale", () => {
+    it("gives all four score cards a hint", () => {
+      const hints = html.match(/class="hint"/g) ?? [];
+      expect(hints.length).toBe(4);
+    });
+
+    it("states the scale is 0-100, not a percentage", () => {
+      expect(html).toMatch(/0[–-]100/);
+    });
+
+    it("keeps the Answers hint distinct from the AI Visibility hint", () => {
+      // AI Visibility's existing meaning (buyer questions, not name-echo
+      // queries) must survive unchanged.
+      expect(html).toMatch(/not questions that name the business directly/i);
+      // The Answers hint must be about the SITE's own content, not what the
+      // engines say — worded distinctly enough that a reader would not
+      // mistake it for the same measurement as AI Visibility.
+      expect(html).toMatch(/site.{0,20}own (content|pages)/i);
+    });
+  });
+
+  // Fix 6: "...even with the name handed to them" is false when businessName
+  // was empty and no name was ever given to any engine.
+  describe("Fix 6: the 'name handed to them' claim is gated on a name actually being used", () => {
+    it("drops that phrasing when no business name was ever resolved", () => {
+      const noName = renderProspectReport(
+        result({
+          business: null,
+          probes: {
+            ok: true,
+            data: probesData({
+              answers: [
+                {
+                  engine: "perplexity",
+                  query: "who is this business",
+                  kind: "branded",
+                  domainCited: false,
+                  brandMentioned: false,
+                  citedDomains: [],
+                  snippet: "I don't have information about that business.",
+                  askedAt: "2026-08-25T16:00:00.000Z",
+                },
+              ],
+              visibilityScore: null,
+              brandedRecognized: false,
+            }),
+          },
+        }),
+      );
+      expect(noName).not.toContain("even with the name handed to them");
+    });
+
+    it("keeps the phrasing when a real business name was used and not recognized", () => {
+      // Default fixture: business "Acme Roofing" is resolved and handed to
+      // the engines. Reuse the existing "not recognized" fixture shape.
+      const notRecognized = renderProspectReport(
+        result({
+          probes: {
+            ok: true,
+            data: probesData({
+              answers: [
+                {
+                  engine: "perplexity",
+                  query: "who is Acme Roofing",
+                  kind: "branded",
+                  domainCited: false,
+                  brandMentioned: false,
+                  citedDomains: [],
+                  snippet: "I don't have information about that business.",
+                  askedAt: "2026-08-25T16:00:00.000Z",
+                },
+              ],
+              visibilityScore: null,
+              brandedRecognized: false,
+              competitorsSeen: [],
+            }),
+          },
+        }),
+      );
+      expect(notRecognized).toContain("even with the name handed to them");
+    });
+  });
+
+  // Fix 7: two consistency items.
+  describe("Fix 7: consistency — 'not measured' wording, and a real sentence for zero fixes", () => {
+    it("renders a null Lighthouse sub-score as 'not measured', not 'n/a'", () => {
+      const rendered = renderProspectReport(
+        result({
+          lighthouse: {
+            ok: true,
+            data: lighthouseData({ performance: null, accessibility: null, seo: null }),
+          },
+        }),
+      );
+      expect(rendered).not.toMatch(/\bn\/a\b/);
+      expect(rendered).toMatch(/not measured/i);
+    });
+
+    it("renders a sentence — not a bare empty list — when fixes is empty, and still pitches Reddoor", () => {
+      const rendered = renderProspectReport(
+        result({ analyze: { ok: true, data: analyzeData({ fixes: [] }) } }),
+      );
+      expect(rendered).not.toContain("<ol></ol>");
+      expect(rendered).not.toMatch(/<ol>\s*<\/ol>/);
+      const whatToFix = rendered.indexOf("What to fix first");
+      expect(whatToFix).toBeGreaterThan(-1);
+      const afterHeading = rendered.slice(whatToFix, whatToFix + 500);
+      expect(afterHeading).toMatch(/[a-z]/); // an actual sentence follows the heading
+      expect(afterHeading.toLowerCase()).toContain("reddoor");
+    });
+  });
+
+  // Fix 8: GPTBot/OAI-SearchBot/ClaudeBot/PerplexityBot/Google-Extended/CCBot
+  // mean nothing to a small-business owner without a product name attached.
+  describe("Fix 8: blocked AI crawlers are labelled with the product they feed", () => {
+    it("names the product each blocked crawler feeds", () => {
+      expect(html).toMatch(/GPTBot \(feeds ChatGPT\)/);
+    });
+
+    it("labels every crawler in AI_AGENTS when all six are blocked", () => {
+      const allBlocked = renderProspectReport(
+        result({
+          checks: {
+            ok: true,
+            data: checksData({
+              crawlerAccess: {
+                blockedAi: [
+                  "GPTBot",
+                  "OAI-SearchBot",
+                  "ClaudeBot",
+                  "PerplexityBot",
+                  "Google-Extended",
+                  "CCBot",
+                ],
+                allowedAi: [],
+                blockedClassical: [],
+              },
+            }),
+          },
+        }),
+      );
+      for (const agent of [
+        "GPTBot",
+        "OAI-SearchBot",
+        "ClaudeBot",
+        "PerplexityBot",
+        "Google-Extended",
+        "CCBot",
+      ]) {
+        expect(allBlocked).toMatch(new RegExp(`${agent} \\(feeds [^)]+\\)`));
+      }
     });
   });
 });
