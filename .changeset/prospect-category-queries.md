@@ -27,3 +27,19 @@ passes these through untouched, so nothing downstream can repair a query that
 arrives malformed — a test pins that guarantee at the boundary, and the schema
 rejects a thin array rather than letting it silently starve the probe stage and
 read out as a prospect who never surfaces.
+
+Also tightens how a brand mention is detected, which had the mirror-image flaw.
+`brandMentioned` was a bare `includes()`, so a prospect called Ace scored on every
+"surface", "placement" and "spacer" in an engine's prose. It now matches on word
+boundaries.
+
+Word boundaries alone don't settle it, though: a prospect called Summit, Apex or
+Bloom is a common noun, and "the summit of the roofline" is a clean word match. A
+single-token name is therefore no longer scored on an unprompted mention alone —
+it needs the domain citation to corroborate. Multi-word names and domain fallbacks
+still count on their own, since prose can't produce those by accident. The mention
+is recorded truthfully either way; this governs only what the score counts.
+
+That under-credits a genuinely distinctive one-word brand, which is the error worth
+making. The number goes in front of the prospect, and "you were mentioned here" has
+to survive them reading the snippet underneath it.

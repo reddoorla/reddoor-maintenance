@@ -3,6 +3,8 @@ import type Anthropic from "@anthropic-ai/sdk";
 import {
   buildQueries,
   resolveBusinessName,
+  mentionsBrand,
+  isDistinctiveName,
   domainOf,
   runVisibilityProbes,
   perplexityEngine,
@@ -134,6 +136,42 @@ describe("domainOf", () => {
   });
 });
 
+describe("mentionsBrand", () => {
+  it("matches the brand as a whole word", () => {
+    expect(mentionsBrand("we recommend acme roofing for this", "acme roofing")).toBe(true);
+    expect(mentionsBrand("acme roofing handles it.", "acme roofing")).toBe(true);
+    expect(mentionsBrand("(acme roofing)", "acme roofing")).toBe(true);
+  });
+
+  // The regression: a plain includes() scored these as a mention.
+  it("does not match the brand's letters inside a longer word", () => {
+    expect(mentionsBrand("check the surface and placement", "ace")).toBe(false);
+    expect(mentionsBrand("several spacers are needed", "ace")).toBe(false);
+    expect(mentionsBrand("summits across the region", "summit")).toBe(false);
+  });
+
+  it("matches a domain fallback, whose dot is not a wildcard", () => {
+    expect(mentionsBrand("see acme.example for details", "acme.example")).toBe(true);
+    expect(mentionsBrand("see acmeXexample for details", "acme.example")).toBe(false);
+  });
+
+  it("is false for an empty brand", () => {
+    expect(mentionsBrand("anything at all", "")).toBe(false);
+  });
+});
+
+describe("isDistinctiveName", () => {
+  it("treats a multi-word name or a domain as unmistakable", () => {
+    expect(isDistinctiveName("acme roofing")).toBe(true);
+    expect(isDistinctiveName("acme.example")).toBe(true);
+  });
+
+  it("treats a single bare word as something prose could say by accident", () => {
+    expect(isDistinctiveName("summit")).toBe(false);
+    expect(isDistinctiveName("bloom")).toBe(false);
+  });
+});
+
 describe("runVisibilityProbes", () => {
   const args = {
     url: "https://acme.example/",
@@ -164,6 +202,52 @@ describe("runVisibilityProbes", () => {
     // score would have read 1-of-3 = 33% here.
     expect(result.visibilityScore).toBe(0);
     expect(result.brandedRecognized).toBe(true);
+  });
+
+  it("scores an unprompted mention of a distinctive name, with no citation", async () => {
+    // The engine was never given the name on a category query, so naming the
+    // business back is real recall and counts on its own.
+    const engines = [
+      engine("perplexity", () => ({
+        answer: "Acme Roofing is usually the cheapest option in Boise.",
+        citedDomains: ["bestroofs.example"],
+      })),
+    ];
+    const result = await runVisibilityProbes(args, engines, { delayMs: 0 });
+    const category = result.answers.find((a) => a.kind === "category")!;
+    expect(category.brandMentioned).toBe(true);
+    expect(category.domainCited).toBe(false);
+    expect(result.visibilityScore).toBe(100);
+  });
+
+  it("does NOT score a bare one-word name that prose could have said by accident", async () => {
+    // "Summit" is a common noun. An answer about roofing will use it in the
+    // ordinary way, and scoring that as recognition puts a claim in front of the
+    // prospect that dies the moment they read the snippet under it. The mention
+    // is still RECORDED — it just needs the citation to count.
+    const summitArgs = { ...args, business: "Summit" };
+    const engines = [
+      engine("perplexity", () => ({
+        answer: "Repair costs rise toward the summit of a steep roof.",
+        citedDomains: ["bestroofs.example"],
+      })),
+    ];
+    const result = await runVisibilityProbes(summitArgs, engines, { delayMs: 0 });
+    const category = result.answers.find((a) => a.kind === "category")!;
+    expect(category.brandMentioned).toBe(true);
+    expect(result.visibilityScore).toBe(0);
+  });
+
+  it("still scores a one-word name when a citation corroborates the mention", async () => {
+    const summitArgs = { ...args, business: "Summit" };
+    const engines = [
+      engine("perplexity", () => ({
+        answer: "Summit handles most repairs in the area.",
+        citedDomains: ["acme.example"],
+      })),
+    ];
+    const result = await runVisibilityProbes(summitArgs, engines, { delayMs: 0 });
+    expect(result.visibilityScore).toBe(100);
   });
 
   it("counts the competitors the engines cited instead", async () => {
