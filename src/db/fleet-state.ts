@@ -459,6 +459,10 @@ export type ReportMirrorPatch = Partial<
     | "override_by"
     | "override_at"
     | "delivery_status"
+    // Phase 4 report review: the console edits commentary and re-renders the
+    // page immediately after the write, so the mirror has to carry it or the
+    // operator sees their own save as a no-op until the next hourly sync.
+    | "commentary"
   >
 >;
 
