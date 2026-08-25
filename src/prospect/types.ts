@@ -63,12 +63,21 @@ export type ChecksResult = {
   crawlerAccessMeasured: boolean;
   crawlerAccess: { blockedAi: string[]; allowedAi: string[]; blockedClassical: string[] };
   jsDependence: {
-    /** 0..1 — fraction of rendered words absent from the raw HTML, averaged over pages. */
-    avgMissing: number;
+    /** 0..1 — fraction of rendered words absent from the raw HTML, weighted by
+     *  page size (total missing words / total rendered words across every
+     *  comparable page) — or null when no page produced a comparable pair.
+     *  Never 0 for "nothing measured": a page whose raw fetch was blocked, or
+     *  whose rendered text tokenizes to nothing, drops out of the average
+     *  rather than forcing it toward a false "perfectly crawlable". */
+    avgMissing: number | null;
     perPage: {
       url: string;
-      /** 0..1 — the same fraction as avgMissing, for this one page. */
+      /** 0..1 — this page's own missing fraction (unweighted). */
       missing: number;
+      /** Token count wordSet(rendered.text) produced for this page — the
+       *  weight avgMissing gives it, and why a "coming soon" stub can't swing
+       *  the headline number the way a full page does. */
+      renderedWords: number;
     }[];
   };
   schema: { typesFound: string[]; missingExpected: string[]; invalidBlocks: number };
@@ -78,6 +87,11 @@ export type ChecksResult = {
     missingDescription: number;
     missingCanonical: number;
     missingSocial: number;
+    /** Pages where neither the raw nor the rendered fetch produced an extract
+     *  — excluded from pageCount and every other meta denominator above, so a
+     *  report reading "1 of 2 pages missing a description" doesn't silently
+     *  hide the third page that produced nothing at all. */
+    pagesWithoutExtract: number;
   };
   headings: { pagesWithoutH1: number; pagesWithLevelSkips: number };
   securityHeaders: { present: string[]; missing: string[] };

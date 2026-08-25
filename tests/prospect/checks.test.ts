@@ -94,6 +94,38 @@ describe("runChecks — JS dependence", () => {
     p.rendered = null;
     expect(runChecks(crawl({ pages: [p] })).jsDependence.perPage).toEqual([]);
   });
+
+  it("yields a non-null avgMissing on an all-Chinese page instead of silently reading as 0%", () => {
+    const html = `<html><body><p>这是一个用于测试的中文网页内容，用来验证令牌生成是否正常工作。</p></body></html>`;
+    const c = runChecks(crawl({ pages: [page("https://acme.example/", html)] }));
+    expect(c.jsDependence.avgMissing).not.toBeNull();
+    expect(c.jsDependence.perPage[0]!.renderedWords).toBeGreaterThan(0);
+  });
+
+  it("leaves avgMissing null, with perPage empty, when the rendered text has no letters or digits", () => {
+    const rawHtml = `<html><body><p>Full description text here for the raw crawl.</p></body></html>`;
+    const renderedHtml = `<html><body><p>!!! --- ... ,,, ???</p></body></html>`;
+    const c = runChecks(crawl({ pages: [page("https://acme.example/", rawHtml, renderedHtml)] }));
+    expect(c.jsDependence.avgMissing).toBeNull();
+    expect(c.jsDependence.perPage).toEqual([]);
+  });
+
+  it("weights avgMissing by page size, so a thin JS-only stub can't swing the headline number", () => {
+    const words200 = Array.from({ length: 200 }, (_, i) => `word${i}`).join(" ");
+    const staticPage = `<html><body><p>${words200}</p></body></html>`;
+    const stubRaw = `<html><body><div id="root"></div></body></html>`;
+    const stubRendered = `<html><body><p>alpha beta</p></body></html>`;
+    const c = runChecks(
+      crawl({
+        pages: [
+          page("https://acme.example/", staticPage),
+          page("https://acme.example/stub", stubRaw, stubRendered),
+        ],
+      }),
+    );
+    expect(c.jsDependence.avgMissing).not.toBeNull();
+    expect(c.jsDependence.avgMissing!).toBeLessThan(0.1);
+  });
 });
 
 describe("runChecks — schema", () => {
@@ -117,6 +149,20 @@ describe("runChecks — schema", () => {
     const c = runChecks(crawl({ pages: [page("https://acme.example/", html)] }));
     expect(c.schema.typesFound.sort()).toEqual(["FAQPage", "Organization", "WebPage"]);
   });
+
+  it("finds a type nested under an arbitrary property key, not only @graph/mainEntity/itemListElement", () => {
+    const html = `<html><head><script type="application/ld+json">{"@type":"Article","publisher":{"@type":"Organization","name":"Acme"}}</script></head><body>x</body></html>`;
+    const c = runChecks(crawl({ pages: [page("https://acme.example/", html)] }));
+    expect(c.schema.typesFound).toContain("Organization");
+    expect(c.schema.missingExpected).not.toContain("Organization");
+  });
+
+  it("normalizes a full schema.org URL @type to satisfy the matching expectation", () => {
+    const html = `<html><head><script type="application/ld+json">{"@type":"https://schema.org/LocalBusiness","name":"Acme"}</script></head><body>x</body></html>`;
+    const c = runChecks(crawl({ pages: [page("https://acme.example/", html)] }));
+    expect(c.schema.typesFound).toContain("LocalBusiness");
+    expect(c.schema.missingExpected).not.toContain("Organization");
+  });
 });
 
 describe("runChecks — meta, headings, technical", () => {
@@ -128,6 +174,7 @@ describe("runChecks — meta, headings, technical", () => {
       missingDescription: 0,
       missingCanonical: 0,
       missingSocial: 0,
+      pagesWithoutExtract: 0,
     });
     expect(c.headings).toEqual({ pagesWithoutH1: 0, pagesWithLevelSkips: 0 });
     expect(c.viewportOk).toBe(true);
@@ -157,5 +204,19 @@ describe("runChecks — meta, headings, technical", () => {
     expect(c.securityHeaders.missing).toEqual(
       SECURITY_HEADERS.filter((h) => h !== "strict-transport-security" && h !== "x-frame-options"),
     );
+  });
+
+  it("counts a page with no extract at all, and excludes it from pageCount", () => {
+    const good = page("https://acme.example/", fixture("rich.html"));
+    const failed: PageCapture = {
+      url: "https://acme.example/broken",
+      status: null,
+      raw: null,
+      rendered: null,
+      error: "fetch failed",
+    };
+    const c = runChecks(crawl({ pages: [good, failed] }));
+    expect(c.meta.pagesWithoutExtract).toBe(1);
+    expect(c.meta.pageCount).toBe(1);
   });
 });
