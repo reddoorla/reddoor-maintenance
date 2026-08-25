@@ -11,7 +11,7 @@ import { NOTIFY_BOUNCE_WINDOW_DAYS } from "../../src/alerts/digest-collectors.js
 import { listFleetEvents } from "../../src/db/fleet-events.js";
 import { listScreenOutsSince, screenOutsSince } from "../../src/db/screenouts.js";
 import { readDigestState } from "../../src/alerts/digest-state.js";
-import { verifyBasicAuth, renderCockpitHtml } from "../../src/dashboard/index.js";
+import { requireOperator, denialResponse, renderCockpitHtml } from "../../src/dashboard/index.js";
 import { buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
 import { resolveDashboardBaseUrl, handlerError } from "../../src/dashboard/handler-helpers.js";
 
@@ -48,23 +48,8 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   // Authenticate BEFORE the Airtable/Turso env guards so an unauthenticated probe
   // can't tell which backend env is unset (a differentiated 500 leaks config
   // state). Only the password check — unavoidable, since auth needs it — precedes.
-  const password = process.env.DASHBOARD_PASSWORD;
-  if (!password) {
-    // Distinguishable from a wrong-password 401 because it carries a
-    // setup hint instead of a WWW-Authenticate challenge. Operator sees
-    // this exactly once after deploy; clear next step.
-    console.error("[fleet-homepage] DASHBOARD_PASSWORD missing");
-    return plainText(
-      "Fleet homepage is unconfigured. Set DASHBOARD_PASSWORD in the Netlify site env.",
-      503,
-    );
-  }
-
-  if (!verifyBasicAuth(req.headers.get("authorization"), password)) {
-    return plainText("Authentication required.", 401, {
-      "www-authenticate": 'Basic realm="Reddoor fleet"',
-    });
-  }
+  const auth = requireOperator(req, { wants: "redirect" });
+  if (!auth.ok) return denialResponse(auth.denial);
 
   const apiKey = process.env.AIRTABLE_PAT;
   const baseId = process.env.AIRTABLE_BASE_ID;
@@ -165,7 +150,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       autoFilteredCount,
       notifyBounces,
     );
-    return html(renderCockpitHtml(model), 200);
+    return html(renderCockpitHtml(model, auth.email), 200);
   } catch (err) {
     return handlerError("fleet-homepage", err);
   }

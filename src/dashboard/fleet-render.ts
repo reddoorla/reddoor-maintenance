@@ -1,3 +1,4 @@
+import { renderAuthChrome } from "./auth/render.js";
 import type {
   CockpitModel,
   SubmissionEntry,
@@ -462,7 +463,10 @@ const AUDIT_SCRIPT = `<script>
  * and hands it here. Renders the doc shell + verdict bar + the per-site Needs-you
  * feed + the collapsed Fleet browse panel (one flat, filterable card grid).
  */
-export function renderCockpitHtml(model: CockpitModel): string {
+export function renderCockpitHtml(
+  model: CockpitModel,
+  operatorEmail: string | null = null,
+): string {
   const total = model.cards.length;
   const feed = buildNeedsYouFeed(model);
 
@@ -476,6 +480,7 @@ export function renderCockpitHtml(model: CockpitModel): string {
   <style>${STYLES}</style>
 </head>
 <body>
+  ${renderAuthChrome(operatorEmail)}
   <h1>Reddoor fleet cockpit</h1>
   <div class="meta">${total} site${total === 1 ? "" : "s"} on the Reddoor stack. <a href="/fleet">Fleet table →</a></div>
   ${verdictBar(model, feed)}

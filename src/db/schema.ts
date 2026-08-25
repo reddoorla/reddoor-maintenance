@@ -206,6 +206,19 @@ export interface ReportsTable {
   rendered_html: string | null;
 }
 
+/** One prospect-audit run (migration 0009). `token` is the 128-bit unguessable
+ *  public handle for GET /r/{token}; `result_json` holds the full
+ *  ProspectAuditResult (src/prospect/types.ts). */
+export interface ProspectAuditsTable {
+  id: string;
+  token: string;
+  url: string;
+  business: string | null;
+  created_at: string;
+  status: string;
+  result_json: string;
+}
+
 export interface Database {
   submissions: SubmissionsTable;
   spam_screenouts: SpamScreenoutsTable;
@@ -216,4 +229,5 @@ export interface Database {
   site_health: SiteHealthTable;
   site_schedule: SiteScheduleTable;
   reports: ReportsTable;
+  prospect_audits: ProspectAuditsTable;
 }

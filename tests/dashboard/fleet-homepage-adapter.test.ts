@@ -51,12 +51,12 @@ describe("fleet-homepage adapter — env + auth gating", () => {
   });
 
   it("does NOT leak backend env state to an UNAUTHENTICATED probe (auth precedes env guards)", async () => {
-    // Password set but no creds + Airtable/Turso unset: must be a 401, not a
-    // differentiated 500/503 that would disclose which backend env is missing.
+    // Password set but no creds + Airtable/Turso unset: must be the auth
+    // redirect, not a differentiated 500/503 disclosing which backend is missing.
     process.env.DASHBOARD_PASSWORD = "s3cret";
     // @ts-expect-error — minimal Context
     const res = await fleetHomepage(get(), {});
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(302);
   });
 
   it("503s with a setup hint when DASHBOARD_PASSWORD is unset", async () => {
@@ -69,14 +69,17 @@ describe("fleet-homepage adapter — env + auth gating", () => {
     expect(await res.text()).toMatch(/DASHBOARD_PASSWORD/);
   });
 
-  it("401s an unauthenticated request with a Basic challenge", async () => {
+  it("redirects an unauthenticated navigation to the login page", async () => {
     process.env.AIRTABLE_PAT = "pat";
     process.env.AIRTABLE_BASE_ID = "appX";
     process.env.TURSO_DATABASE_URL = "libsql://x";
     process.env.DASHBOARD_PASSWORD = "s3cret";
     // @ts-expect-error — minimal Context
     const res = await fleetHomepage(get(), {});
-    expect(res.status).toBe(401);
-    expect(res.headers.get("www-authenticate")).toMatch(/Basic realm="Reddoor fleet"/);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toMatch(/^\/auth\/login\?returnTo=/);
+    // No challenge header: a native password dialog is now opt-in via
+    // /auth/basic, never volunteered.
+    expect(res.headers.get("www-authenticate")).toBeNull();
   });
 });

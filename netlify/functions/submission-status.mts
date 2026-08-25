@@ -1,7 +1,7 @@
 import type { Context, Config } from "@netlify/functions";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import { getSubmissionById, setSubmissionStatusRow } from "../../src/db/submissions.js";
-import { setSubmissionStatus, verifyBasicAuth } from "../../src/dashboard/index.js";
+import { setSubmissionStatus, requireOperator, denialResponse } from "../../src/dashboard/index.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
 
@@ -42,16 +42,8 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
 
   if (!isCsrfAllowed(req)) return json({ ok: false, error: "cross-site-rejected" }, 403);
 
-  const password = process.env.DASHBOARD_PASSWORD;
-  if (!password) {
-    console.error("[submission-status] DASHBOARD_PASSWORD missing");
-    return json({ ok: false, error: "unconfigured" }, 503);
-  }
-  if (!verifyBasicAuth(req.headers.get("authorization"), password)) {
-    return json({ ok: false, error: "unauthorized" }, 401, {
-      "www-authenticate": 'Basic realm="Reddoor fleet"',
-    });
-  }
+  const auth = requireOperator(req, { wants: "json" });
+  if (!auth.ok) return denialResponse(auth.denial);
 
   if (!process.env.TURSO_DATABASE_URL) {
     console.error("[submission-status] TURSO_DATABASE_URL missing");

@@ -96,6 +96,7 @@
     }
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.120.0",
     "@changesets/cli": "^2.31.0",
     "@google-analytics/data": "^7.0.0",
     "@lhci/cli": "^0.15.1",
@@ -118,7 +119,8 @@
     "tsup": "^8.3.0",
     "tsx": "^4.19.0",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "zod": "^4.4.3"
   },
   "packageManager": "pnpm@11.8.0"
 }

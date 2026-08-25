@@ -1,5 +1,5 @@
 import type { Context, Config } from "@netlify/functions";
-import { verifyBasicAuth } from "../../src/dashboard/index.js";
+import { requireOperator, denialResponse } from "../../src/dashboard/index.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import { getReportHtml } from "../../src/db/fleet-state.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
@@ -28,16 +28,10 @@ function plainText(body: string, status: number, headers: Record<string, string>
 export default async (req: Request, ctx: Context): Promise<Response> => {
   if (req.method !== "GET") return plainText("Method not allowed.", 405);
 
-  const password = process.env.DASHBOARD_PASSWORD;
-  if (!password) {
-    console.error("[report-preview] DASHBOARD_PASSWORD missing");
-    return plainText("Dashboard is unconfigured. Set DASHBOARD_PASSWORD.", 503);
-  }
-  if (!verifyBasicAuth(req.headers.get("authorization"), password)) {
-    return plainText("Authentication required.", 401, {
-      "www-authenticate": 'Basic realm="Reddoor fleet"',
-    });
-  }
+  // Opened as a link in a new tab, so a navigation — redirect rather than 401,
+  // even though the path sits under /api/.
+  const auth = requireOperator(req, { wants: "redirect" });
+  if (!auth.ok) return denialResponse(auth.denial);
 
   if (!process.env.TURSO_DATABASE_URL) {
     console.error("[report-preview] TURSO_DATABASE_URL missing");

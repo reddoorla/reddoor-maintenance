@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Home - Riverside Plumbing Co</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta property="og:title" content="Riverside Plumbing Co" />
+    <!-- Theme emits its own self-referencing canonical, and the SEO plugin
+         emits a second, slightly different one — a real page-builder site
+         frequently ships both, disagreeing on the trailing path. -->
+    <link rel="canonical" href="https://riversideplumbing.example/home/" />
+    <link rel="canonical" href="https://riversideplumbing.example/" />
+    <!-- Valid Organization block, as an SEO plugin (Yoast/RankMath) would emit. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "Riverside Plumbing Co",
+        "url": "https://riversideplumbing.example/"
+      }
+    </script>
+    <!-- Malformed block, as a hand-pasted schema snippet from a tutorial
+         often ends up: missing comma, unquoted trailing content. -->
+    <script type="application/ld+json">
+      {
+        "@type": "LocalBusiness",
+        "name": "Riverside Plumbing Co"
+        "telephone": "555-0100"
+      }
+    </script>
+  </head>
+  <body>
+    <div class="elementor elementor-location-header">
+      <div class="elementor-widget elementor-widget-heading">
+        <h1 class="elementor-heading-title">Riverside Plumbing Co</h1>
+      </div>
+    </div>
+    <div class="elementor-section elementor-section-hero">
+      <div class="elementor-widget elementor-widget-heading">
+        <h1 class="elementor-heading-title">24/7 Emergency Plumbing in Riverside County</h1>
+      </div>
+      <p>We fix leaks, clogs and water heaters across Riverside County, usually the same day you call.</p>
+    </div>
+    <div class="elementor-section elementor-section-services">
+      <!-- Level skip: the page never has an h2, jumping straight from the
+           hero h1 to an h3 inside a widget. -->
+      <h3 class="elementor-heading-title">Our Services</h3>
+      <p>Drain cleaning, water heater repair, and emergency leak response, seven days a week.</p>
+      <img src="/images/plumber-truck.jpg" alt="Riverside Plumbing service truck on a residential street" />
+      <img src="/images/icon-wrench.png" />
+    </div>
+  </body>
+</html>

@@ -43,6 +43,7 @@ describe("openDb", () => {
       "0006_submission_deadletter",
       "0007_fleet_state",
       "0008_query_plan_indexes",
+      "0009_prospect_audits",
     ]);
     await db.destroy();
   });
