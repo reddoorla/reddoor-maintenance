@@ -1,5 +1,14 @@
 import { AI_AGENTS, CLASSICAL_AGENTS } from "./crawl.js";
-import type { ChecksResult, CrawlResult, PageCapture, PageExtract } from "./types.js";
+import type {
+  AnalyzeResult,
+  ChecksResult,
+  CrawlResult,
+  LighthouseScores,
+  PageCapture,
+  PageExtract,
+  ProbesResult,
+  Scores,
+} from "./types.js";
 
 /** The canonical header set the fleet's own netlify.toml template ships
  *  (src/recipes/sync-configs/templates.ts) — the same bar we hold our sites to. */
@@ -191,5 +200,86 @@ export function runChecks(crawl: CrawlResult): ChecksResult {
     sitemapPresent: crawl.sitemap.present,
     llmsTxtPresent: crawl.llmsTxt.present,
     viewportOk: views.length > 0 && views.every((v) => v.hasViewportMeta),
+  };
+}
+
+const pct = (n: number): number => Math.max(0, Math.min(100, Math.round(n)));
+
+/** The four report scores. A `null` means "not measured" — never fabricate a 0
+ *  for a stage that failed; a zero is a claim about the prospect's site. */
+export function computeScores(input: {
+  checks: ChecksResult | null;
+  lighthouse: LighthouseScores | null;
+  analyze: AnalyzeResult | null;
+  probes: ProbesResult | null;
+}): Scores {
+  const { checks, lighthouse, analyze, probes } = input;
+
+  let findability: number | null = null;
+  let readability: number | null = null;
+
+  if (checks) {
+    const pages = Math.max(1, checks.meta.pageCount);
+
+    // crawlerAccessMeasured false means the robots.txt fetch itself failed —
+    // the three crawler-access lists are empty out of ignorance, not because
+    // the site blocks nobody. Crawler access is the largest component of this
+    // score, so publish "not measured" rather than a confident number built on
+    // a blank.
+    if (checks.crawlerAccessMeasured) {
+      const aiTotal = checks.crawlerAccess.allowedAi.length + checks.crawlerAccess.blockedAi.length;
+      const aiOpen = aiTotal === 0 ? 1 : checks.crawlerAccess.allowedAi.length / aiTotal;
+      const classicalOpen = checks.crawlerAccess.blockedClassical.length === 0 ? 1 : 0;
+      const metaComplete =
+        1 -
+        (checks.meta.missingTitle + checks.meta.missingDescription + checks.meta.missingCanonical) /
+          (pages * 3);
+      const technical =
+        (checks.sitemapPresent ? 1 : 0) * 0.5 +
+        (checks.viewportOk ? 1 : 0) * 0.25 +
+        (checks.llmsTxtPresent ? 1 : 0) * 0.25;
+
+      // Crawler access 40 / classical access 10 / metadata 15 / technical 15,
+      // normalized to 0..1. Lighthouse SEO, when measured, takes the last 20
+      // points; without it the deterministic part spans the full 100.
+      const base01 =
+        (aiOpen * 40 + classicalOpen * 10 + Math.max(0, metaComplete) * 15 + technical * 15) / 80;
+      findability =
+        lighthouse && lighthouse.seo !== null
+          ? pct(base01 * 80 + lighthouse.seo * 0.2)
+          : pct(base01 * 100);
+    }
+
+    // avgMissing null means no page produced a comparable raw/rendered pair,
+    // so JS-dependence — 60 of readability's 100 points — was never measured.
+    // Substituting 0 would read as "measured and found clean"; report
+    // "not measured" for the whole score instead.
+    if (checks.jsDependence.avgMissing !== null) {
+      const structure =
+        1 - (checks.headings.pagesWithoutH1 + checks.headings.pagesWithLevelSkips) / (pages * 2);
+      const schemaCoverage =
+        1 -
+        checks.schema.missingExpected.length / 4 -
+        Math.min(0.25, checks.schema.invalidBlocks * 0.1);
+      readability = pct(
+        (1 - checks.jsDependence.avgMissing) * 60 +
+          Math.max(0, structure) * 25 +
+          Math.max(0, schemaCoverage) * 15,
+      );
+    }
+  }
+
+  let answers: number | null = null;
+  if (analyze && analyze.buyerQuestions.length > 0) {
+    const weight = { yes: 1, partial: 0.5, no: 0 } as const;
+    const total = analyze.buyerQuestions.reduce((s, q) => s + weight[q.answered], 0);
+    answers = pct((total / analyze.buyerQuestions.length) * 100);
+  }
+
+  return {
+    findability,
+    readability,
+    answers,
+    aiVisibility: probes ? pct(probes.visibilityScore) : null,
   };
 }
