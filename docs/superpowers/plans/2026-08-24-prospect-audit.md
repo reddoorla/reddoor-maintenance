@@ -593,6 +593,11 @@ Expected: FAIL — cannot resolve `../../src/prospect/extract.js`.
 
 - [ ] **Step 4: Write `src/prospect/extract.ts`**
 
+> **Drifted since:** this set was later renamed `UNRENDERED_TAGS` and EXPORTED,
+> because `crawl.ts`'s `sameOriginLinks` needs the same list (a `<template>`
+> stamp must not donate phantom links either). The shipped `src/prospect/extract.ts`
+> is the reference, not the block below.
+
 ```ts
 import { parse, HTMLElement, NodeType } from "node-html-parser";
 import type { PageExtract } from "./types.js";

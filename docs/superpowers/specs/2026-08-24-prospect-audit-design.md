@@ -69,9 +69,13 @@ Pure functions over the crawl output (no network — fixture-testable):
 - llms.txt / sitemap presence; mobile viewport meta.
 - Security headers (reuse the fleet security audit's header logic against the
   live response).
-- Lighthouse perf/SEO/best-practices/a11y via the existing runner pointed at
-  the live URL (the fleet lighthouse audit already supports `deployedUrl`-style
-  direct-URL runs; extract/reuse that path).
+  **As built:** Lighthouse did NOT stay inside this pure stage. `checks.ts` is
+  network-free; Lighthouse touches the network, so it shipped as its own
+  `lighthouse.ts` stage between checks and analyze, isolated like every other
+  network stage and able to degrade on its own. It reuses the fleet audit's
+  `deployedUrl` direct-URL path as intended, and it throws — rather than
+  returning empty scores — when lhci measured nothing, so the pipeline records
+  "not measured" instead of a blank section that reads as a finding.
 
 ### 3. `analyze.ts` — the Claude answerability pass
 
@@ -107,11 +111,16 @@ through the standard chain (`ANTHROPIC_API_KEY` → auth profile).
   Visibility score** + the "what the engines said about you" section.
 - Cost ≈ $0.10/audit.
 
-### 5. `persist.ts` + `render.ts` + surfaces
+### 5. persistence + `render.ts` + surfaces
 
 - **Turso** table `prospect_audits`: `id`, `token` (unguessable, 128-bit),
   `url`, `business`, `created_at`, `status`, `result_json` (full pipeline
   output). Follows the db module's existing conventions (`src/db/`).
+  **As built:** there is no `persist.ts`. The accessors live in
+  `src/db/prospect-audits.ts` alongside every other table's, matching the repo's
+  convention, and the two callers (the CLI command and the Netlify route) use
+  them directly — a per-feature persistence module would have been the only one
+  of its kind in `src/`.
 - **`render.ts`**: one renderer, JSON → self-contained branded HTML (Besley +
   brand red, consistent with the site's OG-card look; print-to-PDF clean;
   `noindex`). Used by both surfaces below so the file and the link never
