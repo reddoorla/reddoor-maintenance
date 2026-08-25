@@ -2,7 +2,8 @@ import type { Context, Config } from "@netlify/functions";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import { listRecentProspectAudits } from "../../src/db/prospect-audits.js";
 import {
-  verifyBasicAuth,
+  requireOperator,
+  denialResponse,
   triggerProspectAudit,
   respondToProspectAuditTrigger,
   resolveRequestedBy,
@@ -58,17 +59,11 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   // posture as every other trigger in this module.
   if (!isCsrfAllowed(req)) return json({ ok: false, error: "cross-site-rejected" }, 403);
 
-  const password = process.env.DASHBOARD_PASSWORD;
-  if (!password) {
-    console.error("[prospect-audit-run] DASHBOARD_PASSWORD missing");
-    return json({ ok: false, error: "unconfigured" }, 503);
-  }
-  const authHeader = req.headers.get("authorization");
-  if (!verifyBasicAuth(authHeader, password)) {
-    return json({ ok: false, error: "unauthorized" }, 401, {
-      "www-authenticate": 'Basic realm="Reddoor fleet"',
-    });
-  }
+  // Fired by fetch() from the /audits page, so JSON — a redirect to Google
+  // inside fetch() would hand the script Google's HTML, not a status it can act
+  // on.
+  const auth = requireOperator(req, { wants: "json" });
+  if (!auth.ok) return denialResponse(auth.denial);
 
   // The dispatch target is configurable, never hardcoded (see the module
   // comment above) — absent, this endpoint has nowhere safe to send a run.
@@ -112,7 +107,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   const url = typeof payload.url === "string" ? payload.url : "";
   const business =
     typeof payload.business === "string" && payload.business.trim() ? payload.business : null;
-  const requestedBy = resolveRequestedBy(authHeader);
+  const requestedBy = resolveRequestedBy(auth.email);
 
   try {
     const db = await openDb(readDbConfig());

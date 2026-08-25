@@ -190,32 +190,23 @@ export async function triggerProspectAudit(
   return { status: "dispatched" };
 }
 
-/** Extract the Basic-auth username (never validated against a password here —
- *  that's `verifyBasicAuth`'s job and already ran before this is called).
- *  Deliberately re-implemented rather than exported from basic-auth.ts, whose
- *  contract is specifically "ignore the username, gate on the password only";
- *  this is a distinct, best-effort "who typed this" label for the workflow's
- *  `requested_by` input, not an auth decision. Null on any malformed header. */
-export function basicAuthUsername(authHeader: string | null | undefined): string | null {
-  if (!authHeader) return null;
-  const match = /^basic\s+(.+)$/i.exec(authHeader.trim());
-  if (!match) return null;
-  let decoded: string;
-  try {
-    decoded = Buffer.from(match[1]!, "base64").toString("utf-8");
-  } catch {
-    return null;
-  }
-  const colonIdx = decoded.indexOf(":");
-  if (colonIdx === -1) return null;
-  const username = decoded.slice(0, colonIdx).trim();
-  return username || null;
-}
-
-/** The `requested_by` workflow input: the Basic-auth username when present,
- *  else "cockpit" (a non-interactive/legacy caller). */
-export function resolveRequestedBy(authHeader: string | null | undefined): string {
-  return basicAuthUsername(authHeader) ?? "cockpit";
+/**
+ * The `requested_by` workflow input: the operator's Google-verified address, or
+ * `"cockpit"` when there is no identity to report.
+ *
+ * This takes `requireOperator`'s verified email rather than reading a name off
+ * the request. The predecessor pulled the username out of the `Authorization`
+ * header — which `verifyBasicAuth` documents itself as deliberately ignoring,
+ * so any operator could type any name and the audit log recorded it verbatim.
+ * That made `requested_by` unverified free text, which is precisely the problem
+ * Google sign-in was introduced to fix.
+ *
+ * `null` (the shared-password fallback, used on deploy previews) still yields
+ * `"cockpit"`: an anonymous shared credential genuinely has no person behind
+ * it, and inventing one would put the old lie back.
+ */
+export function resolveRequestedBy(operatorEmail: string | null | undefined): string {
+  return operatorEmail?.trim() || "cockpit";
 }
 
 /** Human label for who gets the audit email, from the optional

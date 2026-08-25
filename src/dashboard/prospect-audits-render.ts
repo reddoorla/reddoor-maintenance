@@ -1,5 +1,6 @@
 import { escapeHtml, safeUrl } from "../util/html.js";
 import { FAVICON_LINK } from "./favicon.js";
+import { renderAuthChrome } from "./auth/render.js";
 import { relativeTimeFromNow } from "./relative-time.js";
 import { isValidToken, type ProspectAuditListItem } from "../db/prospect-audits.js";
 
@@ -10,6 +11,9 @@ import { isValidToken, type ProspectAuditListItem } from "../db/prospect-audits.
 export type ProspectAuditsPageModel = {
   audits: ProspectAuditListItem[];
   now: Date;
+  /** The signed-in operator, for the page chrome. Null when entry came through
+   *  the shared-password fallback, which has no identity to show. */
+  operatorEmail?: string | null;
 };
 
 const STYLES = `
@@ -197,6 +201,7 @@ export function renderProspectAuditsPageHtml(model: ProspectAuditsPageModel): st
   <style>${STYLES}</style>
 </head>
 <body>
+  ${renderAuthChrome(model.operatorEmail)}
   <a class="home" href="/">← Fleet home</a>
   <h1>Prospect audits</h1>
   <div class="meta">Run a Lighthouse + AI-visibility audit against a prospect's site.</div>

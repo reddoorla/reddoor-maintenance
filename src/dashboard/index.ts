@@ -56,7 +56,6 @@ export {
   triggerProspectAudit,
   respondToProspectAuditTrigger,
   resolveRequestedBy,
-  basicAuthUsername,
   prospectAuditRecipientsLabel,
   makeWorkflowDispatchDispatcher,
   PROSPECT_AUDIT_DUPLICATE_WINDOW_MS,

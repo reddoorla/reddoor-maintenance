@@ -73,26 +73,28 @@ describe("prospect-audits-page adapter — method + env/auth gating", () => {
     expect(await res.text()).toMatch(/DASHBOARD_PASSWORD/);
   });
 
-  it("401s an unauthenticated request with a Basic challenge", async () => {
+  it("redirects an unauthenticated navigation to the login page", async () => {
     process.env.DASHBOARD_PASSWORD = "s3cret";
     process.env.TURSO_DATABASE_URL = ":memory:";
     const res = await prospectAuditsPage(get(), ctx);
-    expect(res.status).toBe(401);
-    expect(res.headers.get("www-authenticate")).toMatch(/Basic realm="Reddoor fleet"/);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toMatch(/^\/auth\/login\?returnTo=/);
+    // No challenge header: the native dialog is opt-in via /auth/basic now.
+    expect(res.headers.get("www-authenticate")).toBeNull();
   });
 
-  it("401s a request whose Basic password is wrong", async () => {
+  it("refuses a request whose Basic password is wrong", async () => {
     process.env.DASHBOARD_PASSWORD = "s3cret";
     process.env.TURSO_DATABASE_URL = ":memory:";
     const res = await prospectAuditsPage(get(authHeader("nope")), ctx);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(302);
   });
 
   it("does NOT leak backend env state to an UNAUTHENTICATED probe (auth precedes the Turso guard)", async () => {
     process.env.DASHBOARD_PASSWORD = "s3cret";
     delete process.env.TURSO_DATABASE_URL;
     const res = await prospectAuditsPage(get(), ctx);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(302);
   });
 
   it("500s when Turso env is missing — but only AFTER auth passes", async () => {

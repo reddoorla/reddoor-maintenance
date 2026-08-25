@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from "vitest";
 import {
   triggerProspectAudit,
   respondToProspectAuditTrigger,
-  basicAuthUsername,
   resolveRequestedBy,
   prospectAuditRecipientsLabel,
   makeWorkflowDispatchDispatcher,
@@ -234,35 +233,20 @@ describe("respondToProspectAuditTrigger", () => {
   });
 });
 
-describe("basicAuthUsername / resolveRequestedBy", () => {
-  function basic(user: string, pass: string): string {
-    return "Basic " + Buffer.from(`${user}:${pass}`).toString("base64");
-  }
-
-  it("extracts the username from a well-formed Basic header", () => {
-    expect(basicAuthUsername(basic("tucker", "s3cret"))).toBe("tucker");
+describe("resolveRequestedBy", () => {
+  it("records the operator's verified address", () => {
+    expect(resolveRequestedBy("tim@reddoorla.com")).toBe("tim@reddoorla.com");
   });
 
-  it("returns null for a missing header", () => {
-    expect(basicAuthUsername(null)).toBeNull();
-    expect(basicAuthUsername(undefined)).toBeNull();
-  });
-
-  it("returns null for a non-Basic scheme", () => {
-    expect(basicAuthUsername("Bearer abc123")).toBeNull();
-  });
-
-  it("returns null for garbage base64 with no colon", () => {
-    expect(basicAuthUsername("Basic " + Buffer.from("nocolon").toString("base64"))).toBeNull();
-  });
-
-  it("resolveRequestedBy uses the username when present", () => {
-    expect(resolveRequestedBy(basic("tim", "x"))).toBe("tim");
-  });
-
-  it("resolveRequestedBy falls back to 'cockpit' when absent/malformed", () => {
+  it("falls back to 'cockpit' when there is no identity to record", () => {
+    // The shared-password fallback. It genuinely has no person behind it, and
+    // inventing one would restore the exact lie Google sign-in removed: the old
+    // helper read the Basic username, which verifyBasicAuth never validates, so
+    // any operator could type any name into the audit log.
     expect(resolveRequestedBy(null)).toBe("cockpit");
-    expect(resolveRequestedBy("Bearer abc")).toBe("cockpit");
+    expect(resolveRequestedBy(undefined)).toBe("cockpit");
+    expect(resolveRequestedBy("")).toBe("cockpit");
+    expect(resolveRequestedBy("   ")).toBe("cockpit");
   });
 });
 

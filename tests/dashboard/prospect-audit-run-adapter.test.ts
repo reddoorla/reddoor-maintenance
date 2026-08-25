@@ -13,6 +13,10 @@ vi.mock("../../src/reports/airtable/client.js", () => ({
 // the identical workaround (and its rationale) in prospect-report.test.ts /
 // prospect-audits-page-adapter.test.ts.
 import type { Db } from "../../src/db/client.js";
+import { mintSession, SESSION_COOKIE } from "../../src/dashboard/auth/session.js";
+
+/** Signing secret for the session-backed requested_by test. */
+const SESSION_SECRET = "test-session-secret";
 let sharedDb: Db | null = null;
 vi.mock("../../src/db/client.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/db/client.js")>();
@@ -127,11 +131,15 @@ describe("prospect-audit-run adapter — method + CSRF + auth gating", () => {
     expect(dispatchCalls).toHaveLength(0);
   });
 
-  it("401s an unauthenticated POST with a Basic challenge, and never dispatches", async () => {
+  it("401s an unauthenticated POST as JSON, and never dispatches", async () => {
     configureEnv();
     const res = await prospectAuditRun(post(GOOD_BODY), ctx);
     expect(res.status).toBe(401);
-    expect(res.headers.get("www-authenticate")).toMatch(/Basic realm="Reddoor fleet"/);
+    // Fired by fetch() from /audits, so the refusal has to be a status the page
+    // can act on — never a redirect, and never a challenge header that would
+    // pop a native dialog mid-fetch.
+    expect(res.headers.get("content-type")).toMatch(/application\/json/);
+    expect(res.headers.get("www-authenticate")).toBeNull();
     expect(dispatchCalls).toHaveLength(0);
   });
 
@@ -222,9 +230,28 @@ describe("prospect-audit-run adapter — a good request", () => {
       inputs: {
         url: "https://prospect.example/",
         business: "Prospect Co",
-        requested_by: "tucker",
+        // The shared-password fallback has no identity behind it, so the audit
+        // log says so rather than naming whoever the Basic username claimed.
+        requested_by: "cockpit",
       },
     });
+  });
+
+  it("records the signed-in operator's verified address as requested_by", async () => {
+    // The point of the whole exercise: with a real session the audit log names
+    // a person Google verified, not a string someone typed into a password box.
+    configureEnv();
+    process.env.DASHBOARD_SESSION_SECRET = SESSION_SECRET;
+    process.env.DASHBOARD_ALLOWED_EMAILS = "tim@reddoorla.com";
+    process.env.GOOGLE_OAUTH_CLIENT_ID = "client-123";
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = "client-secret";
+
+    const token = mintSession("tim@reddoorla.com", SESSION_SECRET, new Date());
+    await prospectAuditRun(
+      post(GOOD_BODY, { cookie: `${SESSION_COOKIE}=${encodeURIComponent(token)}` }),
+      ctx,
+    );
+    expect(dispatchCalls[0]?.inputs.requested_by).toBe("tim@reddoorla.com");
   });
 
   it("uses PROSPECT_AUDIT_WORKFLOW_FILE when set, instead of the default", async () => {
@@ -234,9 +261,15 @@ describe("prospect-audit-run adapter — a good request", () => {
     expect(dispatchCalls[0]?.workflowFile).toBe("custom-audit.yml");
   });
 
-  it("falls back requested_by to 'cockpit' when the Basic username is empty", async () => {
+  it("reports requested_by as 'cockpit' for any shared-password caller", async () => {
+    // Whatever username is supplied — one, none, or a lie — Basic carries no
+    // verified identity, so none of it reaches the audit log.
     configureEnv();
     await prospectAuditRun(post(GOOD_BODY, authHeader("", "s3cret")), ctx);
+    expect(dispatchCalls[0]?.inputs.requested_by).toBe("cockpit");
+
+    dispatchCalls.length = 0;
+    await prospectAuditRun(post(GOOD_BODY, authHeader("definitely-erik", "s3cret")), ctx);
     expect(dispatchCalls[0]?.inputs.requested_by).toBe("cockpit");
   });
 
