@@ -11,6 +11,29 @@ export type VisibilityEngine = {
 const MAX_QUERIES = 8;
 const SNIPPET_CHARS = 300;
 
+/**
+ * The model behind the Claude visibility probe — deliberately NOT the Opus 5
+ * the analyze pass uses.
+ *
+ * The probe is a search harness, not a judgement: it sends one query, lets the
+ * `web_search` server tool run, and the number that reaches `visibilityScore`
+ * is extracted mechanically from citation URLs (`web_search_tool_result` blocks
+ * and `web_search_result_location` citations). Nothing here is schema-
+ * constrained or reasoned about, and the citations come from the same search
+ * index whichever model drives the tool.
+ *
+ * It is also where the money is: seven probe calls per audit against the
+ * analyze pass's one, so this single constant is roughly half the cost of an
+ * audit. Opus here buys prose quality in `answer`, which only ever appears as a
+ * 300-character snippet.
+ *
+ * The one field where model size could plausibly move the result is
+ * `brandedRecognized` — a smaller model may hedge harder on an obscure
+ * business. Worth a side-by-side on a real prospect if that number ever looks
+ * wrong.
+ */
+export const PROBE_MODEL = "claude-sonnet-5";
+
 export function domainOf(raw: string): string {
   const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
   try {
@@ -305,7 +328,7 @@ export function claudeWebSearchEngine(createMessage?: ClaudeMessageCreate): Visi
       const collected: Anthropic.ContentBlock[] = [];
       for (let turn = 0; turn < MAX_CLAUDE_TURNS; turn++) {
         const res = await create({
-          model: "claude-opus-5",
+          model: PROBE_MODEL,
           max_tokens: 4000,
           tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 4 }],
           messages,
