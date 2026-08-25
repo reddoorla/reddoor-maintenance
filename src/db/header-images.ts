@@ -4,11 +4,13 @@
  *  home — the importer deliberately never touches those columns — but nothing
  *  wrote them, so the read layer's `headerImage` was null fleet-wide and both
  *  cockpit preflight and approve-report stayed pinned to the Airtable reader.
- *  Two writers close that:
+ *  Two writers and one reader close that:
  *
  *  - `storeHeaderImage` — the shared write, used by the header-image CLI's
  *    dual-write (Airtable upload + Turso store, until Phase 5 freezes Airtable)
  *    and by the backfill.
+ *  - `loadHeaderImage` — the reader. Until it existed the bytes went in and could
+ *    not come out, so every consumer still fetched Airtable's signed URL.
  *  - `backfillHeaderImages` — one-shot: copy every site's CURRENT Airtable
  *    attachment into Turso. Idempotent — a site whose BLOB is already
  *    populated is skipped, so re-runs never clobber a freshly generated image
@@ -41,6 +43,52 @@ export async function storeHeaderImage(
     })
     .where("id", "=", siteId)
     .execute();
+}
+
+/**
+ * Read one site's stored header image back.
+ *
+ * A SEPARATE query from the site read, deliberately. `getSiteBySlug` excludes
+ * the BLOB on purpose — it is 0.6–0.8 MB per site in production, so a selectAll
+ * would haul megabytes into every dashboard GET and every form ingest — which
+ * means reading the bytes has to be an explicit, per-site act rather than a
+ * field that arrives for free.
+ *
+ * Null when the site has no image, when the id is unknown, and when the
+ * metadata is present but the BLOB is not: handing a consumer an empty buffer
+ * with a filename would render a report with a broken header instead of failing
+ * loudly with "no header image".
+ */
+export async function loadHeaderImage(db: Db, siteId: string): Promise<StoredHeaderImage | null> {
+  const row = await db
+    .selectFrom("sites")
+    .select([
+      "header_image",
+      "header_image_filename",
+      "header_image_type",
+      "header_image_generated_at",
+    ])
+    .where("id", "=", siteId)
+    .executeTakeFirst();
+  if (!row) return null;
+  // Normalize BEFORE measuring. libSQL can hand the BLOB back as an ArrayBuffer
+  // rather than a Uint8Array, and an ArrayBuffer has `byteLength`, not `length` —
+  // so a naive `bytes.length === 0` compares `undefined` to 0, passes, and lets a
+  // zero-length image through as if it were real. Mutation-testing the null check
+  // is what exposed that; the guard did not do what its own name said.
+  const raw = row.header_image;
+  if (raw === null || raw === undefined) return null;
+  // `raw` is a Uint8Array on some drivers and an ArrayBuffer on others; the
+  // Uint8Array constructor accepts either, but the two do not share a TS type.
+  const bytes = new Uint8Array(raw as unknown as ArrayBufferLike);
+  if (bytes.length === 0) return null;
+
+  return {
+    bytes,
+    filename: row.header_image_filename ?? "header-image",
+    contentType: row.header_image_type ?? "application/octet-stream",
+    generatedAt: row.header_image_generated_at ?? null,
+  };
 }
 
 type Attachment = { url: string; filename: string; type: string };
