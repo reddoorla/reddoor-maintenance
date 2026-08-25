@@ -879,6 +879,13 @@ Expected: FAIL — cannot resolve `../../src/prospect/crawl.js`.
 
 - [ ] **Step 3: Write the pure half of `src/prospect/crawl.ts`**
 
+> **Superseded during execution (commit 6f1f31d).** The code below decides root
+> access by exact string equality against `"/"` and picks a group with `.find()`.
+> Both are wrong per RFC 9309: `Disallow: /*` and `Disallow: /$` are equally valid
+> spellings of a site-wide block, and EVERY group naming an agent must be combined
+> rather than the first one winning. Sitemap `<loc>` values also arrive XML-escaped.
+> The shipped `src/prospect/crawl.ts` is the corrected version — read it, not this.
+
 ```ts
 import { parse, HTMLElement, NodeType } from "node-html-parser";
 import type { RobotsAgentAccess } from "./types.js";
