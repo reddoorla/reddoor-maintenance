@@ -15,6 +15,7 @@ import {
 } from "../reports/airtable/reports.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
 import type { ReportMirror } from "../reports/report-mirror.js";
+import type { SiteMirror } from "../db/site-mirror.js";
 import { queueDraft } from "../reports/queue.js";
 import { uploadAttachment } from "../reports/airtable/attachments.js";
 import { renderReportHtml } from "../reports/render.js";
@@ -48,6 +49,9 @@ export type LaunchDeps = {
    *  unit suite calls `launch` with a fake base and must not open a real
    *  libSQL handle. */
   reportMirror?: ReportMirror;
+  /** #539 Phase 5: the Websites-row twin — launch writes the site's FIRST audit
+   *  results and (on send) its launched status. Injected at the CLI root. */
+  siteMirror?: SiteMirror;
 };
 
 /**
@@ -120,7 +124,18 @@ export async function launch(site: Site, deps: LaunchDeps = {}): Promise<LaunchR
     return stop();
   }
   try {
-    await writeAuditsToAirtable({ base, websites, slug: siteSlug(target.name), results });
+    const auditWrite = await writeAuditsToAirtable({
+      base,
+      websites,
+      slug: siteSlug(target.name),
+      results,
+    });
+    // #539 Phase 5: mirror the first-audit write-back. Launch is the ONE path
+    // that writes a brand-new site's health, so without this its row reads empty
+    // in the console until the next hourly sync.
+    if (auditWrite.siteId && auditWrite.fields) {
+      await deps.siteMirror?.health(auditWrite.siteId, auditWrite.fields);
+    }
   } catch (err) {
     steps.push({ name: "audit", result: errorOf(err) });
     return stop();

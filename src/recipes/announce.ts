@@ -10,6 +10,7 @@ import {
   type ReportEnrichment,
 } from "../reports/airtable/reports.js";
 import type { ReportMirror } from "../reports/report-mirror.js";
+import type { SiteMirror } from "../db/site-mirror.js";
 import { queueDraft } from "../reports/queue.js";
 import { uploadAttachment } from "../reports/airtable/attachments.js";
 import { renderReportHtml } from "../reports/render.js";
@@ -60,6 +61,9 @@ export type AnnounceDeps = {
    *  a fake base, and a default would open a real libSQL handle from inside the
    *  suite. The CLI composition root wires it. */
   reportMirror?: ReportMirror;
+  /** #539 Phase 5: the Websites-row twin — announce stamps `Analytics soft-fail
+   *  at` on the SITE row, a different Turso table from the report. */
+  siteMirror?: SiteMirror;
 };
 
 /**
@@ -127,11 +131,13 @@ export async function announce(deps?: AnnounceDeps): Promise<AnnounceResult> {
       // operator-added, so until it exists the write throws — which must not break the draft.
       if (readGaConfig() !== null && Boolean(w.ga4PropertyId || w.searchQuery)) {
         try {
-          await updateAnalyticsHealth(
+          const fields = await updateAnalyticsHealth(
             base,
             w.id,
             gaResult.softFailed || searchResult.softFailed ? now.toISOString() : null,
           );
+          // Mirror the EXACT FieldSet Airtable got — see draft.ts.
+          await deps?.siteMirror?.health(w.id, fields);
         } catch (e) {
           console.warn(`⚠ analytics-health write skipped for ${w.name}: ${(e as Error).message}`);
         }

@@ -157,9 +157,17 @@ export const defaultDeps = (): PrismicModelsDeps => ({
     // limit no matter how large the fleet gets.
     const base = openBase(readAirtableConfig());
     const websites = await listWebsites(base);
+    // #539 Phase 5: the verdict lands on three site_health columns. Mirroring
+    // here — inside the sink, which IS this command's composition root — keeps
+    // PrismicVerdictSink a two-field type that every test stub can satisfy.
+    const { makeSiteMirror } = await import("../../db/site-mirror.js");
+    const mirror = await makeSiteMirror();
     return {
       websites: websites.map((w) => ({ id: w.id, name: w.name })),
-      update: (recordId, models) => updatePrismicModels(base, recordId, models),
+      update: async (recordId, models) => {
+        const fields = await updatePrismicModels(base, recordId, models);
+        await mirror.health(recordId, fields);
+      },
     };
   },
 });

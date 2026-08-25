@@ -752,6 +752,34 @@ describe("sendApprovedReports", () => {
     expect(flip!.kind === "update" && flip!.records[0]!.fields["Launched at"]).toBeDefined();
   });
 
+  it("mirrors the launch flip into Turso as ONE write (#539 Phase 5)", async () => {
+    // Status and `Launched at` must travel together: mirroring them as two
+    // updates would open a window where Turso says a site is maintained but
+    // never launched — and the cockpit reads both.
+    const base = makeFakeBase({
+      Reports: [reportRow({ "Report type": "Launch" })],
+      Websites: [siteRow({ Status: "launch" })],
+    });
+    vi.mocked(openBase).mockReturnValue(base);
+    const { client } = captureClient();
+    const mirrored: Array<{ id: string; fields: Record<string, unknown> }> = [];
+
+    await sendApprovedReports({
+      resend: client,
+      siteMirror: {
+        health: async () => {},
+        site: async (id, fields) => {
+          mirrored.push({ id, fields });
+        },
+      },
+    });
+
+    expect(mirrored).toHaveLength(1);
+    expect(mirrored[0]!.id).toBe("rec_site_acme");
+    expect(mirrored[0]!.fields["Status"]).toBe("maintained");
+    expect(mirrored[0]!.fields["Launched at"]).toBeDefined();
+  });
+
   it("does NOT flip Status for a non-Launch (Maintenance) report", async () => {
     const base = makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] });
     vi.mocked(openBase).mockReturnValue(base);

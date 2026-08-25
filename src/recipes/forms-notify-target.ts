@@ -1,5 +1,6 @@
 import { openBase, readAirtableConfig } from "../reports/airtable/client.js";
 import type { AirtableBase } from "../reports/airtable/client.js";
+import type { SiteMirror } from "../db/site-mirror.js";
 import {
   listWebsites,
   siteSlug,
@@ -28,6 +29,10 @@ export type FormsNotifyTargetDeps = {
   set?: "on" | "off";
   /** Status to restore with `--set off`. Required, never inferred. */
   restore?: string;
+  /** #539 Phase 5: Turso write-through for the Status cell this flips. Injected
+   *  at the CLI root, never defaulted — the unit suite calls this with a fake
+   *  base and must not open a real libSQL handle. */
+  siteMirror?: SiteMirror;
 };
 
 export type FormsNotifyTargetResult = {
@@ -149,6 +154,10 @@ export async function formsNotifyTarget(
   // own string — see restoreCell.
   const cell = deps.set === "on" ? toAirtableStatus(VERIFY_STATUS) : restoreCell(restoreRaw!);
   await updateSiteField(base, row.id, STATUS_COLUMN, cell);
+  // Mirror the same cell. The console reads Status from Turso, so without this a
+  // site flipped into verify mode still reads as live for up to an hour — on the
+  // one surface an operator would check to confirm the flip.
+  await deps.siteMirror?.site(row.id, { [STATUS_COLUMN]: cell });
 
   // Read it back. The write returning is NOT evidence the field changed.
   const after = findSite(await listWebsites(base), deps.site);

@@ -8,6 +8,7 @@ import type { WebsiteRow } from "./airtable/websites.js";
 import type { ReportRow } from "./airtable/reports.js";
 import { createDraft, listReportsForSite } from "./airtable/reports.js";
 import type { ReportMirror } from "./report-mirror.js";
+import type { SiteMirror } from "../db/site-mirror.js";
 import { queueDraft } from "./queue.js";
 import { autoTickChecklist } from "./auto-tick.js";
 import { uploadAttachment } from "./airtable/attachments.js";
@@ -108,6 +109,10 @@ export type DraftOptions = {
    *  recipes) where it is pinned by test, the same division `runFleetWriteBack`
    *  uses for the health mirror. */
   reportMirror?: ReportMirror;
+  /** #539 Phase 5: the Websites-row twin of `reportMirror`. Drafting stamps
+   *  `Analytics soft-fail at` on the SITE row, which is a different Turso table
+   *  and a different mirror. Injected for the same reason — see reportMirror. */
+  siteMirror?: SiteMirror;
 };
 
 /** An enrichment fetch that *errored* (not one that was legitimately skipped
@@ -284,11 +289,13 @@ export async function draftReportForSite(
   // until it exists the write throws UNKNOWN_FIELD_NAME — which must NOT break drafting.
   if (readGaConfig() !== null && Boolean(siteRow.ga4PropertyId || siteRow.searchQuery)) {
     try {
-      await updateAnalyticsHealth(
+      const fields = await updateAnalyticsHealth(
         base,
         siteRow.id,
         softFailures.length > 0 ? today.toISOString() : null,
       );
+      // Mirror the EXACT FieldSet Airtable got, so the two writes cannot diverge.
+      await options.siteMirror?.health(siteRow.id, fields);
     } catch (e) {
       console.warn(`⚠ analytics-health write skipped for ${siteRow.name}: ${(e as Error).message}`);
     }

@@ -918,9 +918,12 @@ export async function updateAnalyticsHealth(
   base: AirtableBase,
   recordId: string,
   at: string | null,
-): Promise<void> {
+): Promise<FieldSet> {
   const fields: Record<string, string | null> = { "Analytics soft-fail at": at };
   await base(WEBSITES_TABLE).update([{ id: recordId, fields: fields as FieldSet }]);
+  // Same contract as updateNextDueDates/updateAuditFields: the #539 Turso mirror
+  // consumes the returned FieldSet, so the two writes cannot diverge.
+  return fields as FieldSet;
 }
 
 /** Persist a11y violation count. */
@@ -956,10 +959,11 @@ export async function updateAutoFixAttempts(
   base: AirtableBase,
   recordId: string,
   attempts: number,
-): Promise<void> {
-  await base(WEBSITES_TABLE).update([
-    { id: recordId, fields: { "Security Auto-Fix Attempts": attempts } },
-  ]);
+): Promise<FieldSet> {
+  const fields: FieldSet = { "Security Auto-Fix Attempts": attempts };
+  await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+  // Returned for the #539 Turso mirror — see updateNextDueDates.
+  return fields;
 }
 
 /**
@@ -1139,13 +1143,15 @@ export async function updatePrismicModels(
   base: AirtableBase,
   recordId: string,
   models: PrismicModelsWriteback,
-): Promise<void> {
+): Promise<FieldSet> {
   const fields: Record<string, string | null> = {
     "Prismic Models": models.verdict,
     "Prismic Models Checked At": models.checkedAt,
     "Prismic Models Drift": models.detail === null ? null : truncatePrismicDetail(models.detail),
   };
   await base(WEBSITES_TABLE).update([{ id: recordId, fields: fields as FieldSet }]);
+  // Returned for the #539 Turso mirror — see updateNextDueDates.
+  return fields as FieldSet;
 }
 
 /** Mark a site launched: flip Status → maintained + stamp Launched at (M6b).
@@ -1156,7 +1162,11 @@ export async function updateLaunched(
   base: AirtableBase,
   recordId: string,
   at: string,
-): Promise<void> {
+): Promise<FieldSet> {
   const fields: FieldSet = { Status: toAirtableStatus("maintained"), "Launched at": at };
   await base(WEBSITES_TABLE).update([{ id: recordId, fields }]);
+  // Returned for the #539 Turso mirror. BOTH columns travel together on purpose:
+  // mirroring them as two UPDATEs would open a window where Turso says a site is
+  // maintained but never launched.
+  return fields;
 }
