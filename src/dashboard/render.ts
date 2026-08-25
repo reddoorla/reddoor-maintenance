@@ -481,6 +481,16 @@ function multiSelectRow(
   return `<div class="detail wide"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><select multiple id="detail-${field}" data-detail-field="${field}" data-details-url="${url}">${opts}</select>${savedSpan(field)}</dd></div>`;
 }
 
+/** Write-only row for a credential. Emits NO `value`, so the stored secret never
+ *  reaches the browser; the placeholder reports only whether one is set. Saving
+ *  it blank is a no-op server-side (`setSiteDetail` returns "unchanged"), which
+ *  is what makes an always-blank input safe to render beside fields that clear
+ *  on empty. */
+function secretRow(label: string, field: string, isSet: boolean, url: string): string {
+  const ph = isSet ? "•••••••• (set — type to replace)" : "not set";
+  return `<div class="detail"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><input type="password" autocomplete="off" id="detail-${field}" data-detail-field="${field}" data-details-url="${url}" placeholder="${escapeHtml(ph)}" />${savedSpan(field)}</dd></div>`;
+}
+
 /** Editable multi-line `<textarea>` row for the copy override fields. */
 function textareaRow(label: string, field: string, value: string | null, url: string): string {
   return `<div class="detail wide"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><textarea id="detail-${field}" data-detail-field="${field}" data-details-url="${url}">${escapeHtml(value ?? "")}</textarea>${savedSpan(field)}</dd></div>`;
@@ -519,6 +529,7 @@ function siteDetailsSection(site: WebsiteRow): string {
     // operator edits has to be the thing `parseNotifyRouting` will read back.
     textareaRow("Notify routing (JSON)", "notifyRouting", site.notifyRoutingRaw, url),
     checkboxRow("Require Turnstile", "requireTurnstile", site.requireTurnstile, url),
+    secretRow("Mailchimp API key", "mailchimpApiKey", site.mailchimpApiKey !== null, url),
     multiSelectRow(
       "Accepted watch conditions",
       "acceptedWatchConditions",
