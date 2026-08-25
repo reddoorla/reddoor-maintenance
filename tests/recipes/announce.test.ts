@@ -109,6 +109,41 @@ describe("recipes/announce", () => {
     expect(result.results.map((r) => r.site)).toEqual(["Acme Co"]);
   });
 
+  it("hands the created row to deps.draftMirror (#539 Phase 5 create-side dual-write)", async () => {
+    // announce is the second unattended creator of Reports rows. Without this
+    // pass-through an announcement draft is invisible to the Turso-backed
+    // console until the next hourly sync — the same defect Phase 4 closed for
+    // every OTHER field on the page.
+    const base = makeFakeBase({
+      Websites: [
+        {
+          id: "rec_maint",
+          fields: {
+            Name: "Acme Co",
+            url: "https://acme.example.com",
+            Status: "maintained",
+            "Report recipients (To)": "client@acme.example.com",
+            ...scoredFields(),
+          },
+        },
+      ],
+      Reports: [],
+    });
+    const seen: Array<{ id: string; fields: Record<string, unknown> }> = [];
+
+    await announce({
+      base,
+      now: NOW,
+      refreshHeader: false,
+      draftMirror: async (rec) => {
+        seen.push(rec);
+      },
+    });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.fields["Report type"]).toBe("Announcement");
+  });
+
   it("filters to a single site by slug when deps.site is set", async () => {
     const base = makeFakeBase({
       Websites: [

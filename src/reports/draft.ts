@@ -6,7 +6,7 @@ import { siteSlug, updateAnalyticsHealth } from "./airtable/websites.js";
 import { resolveCopy } from "./copy.js";
 import type { WebsiteRow } from "./airtable/websites.js";
 import type { ReportRow } from "./airtable/reports.js";
-import { createDraft, listReportsForSite } from "./airtable/reports.js";
+import { createDraft, listReportsForSite, type CreatedDraftMirror } from "./airtable/reports.js";
 import { queueDraft } from "./queue.js";
 import { autoTickChecklist } from "./auto-tick.js";
 import { uploadAttachment } from "./airtable/attachments.js";
@@ -95,6 +95,17 @@ export type DraftOptions = {
    *  entirely. Tests set `false` (or a stub) so a unit suite never launches a
    *  browser or resolves DNS. Production leaves it unset and gets the real thing. */
   refreshHeader?: RefreshHeaderDeps | false;
+  /** #539 Phase 5: Turso write-through for the row `createDraft` creates, so a
+   *  fresh draft is readable in the Turso-backed console immediately instead of
+   *  after the next hourly sync.
+   *
+   *  Deliberately NOT defaulted here. Defaulting would open a real libSQL handle
+   *  from inside `draftReportForSite`, which every unit test calls — and on a
+   *  machine with TURSO_* exported that means a test suite writing rows into
+   *  production. The wiring lives at the composition roots (cli/commands/report.ts,
+   *  recipes) where it is pinned by test, the same division `runFleetWriteBack`
+   *  uses for the health mirror. */
+  draftMirror?: CreatedDraftMirror;
 };
 
 /** An enrichment fetch that *errored* (not one that was legitimately skipped
@@ -318,24 +329,28 @@ export async function draftReportForSite(
   const autoEvidence = Object.fromEntries(evidence);
 
   const reportId = `${siteRow.name} — ${reportType} — ${periodEnd.toISOString().slice(0, 10)}`;
-  const created = await createDraft(base, {
-    reportId,
-    siteId: siteRow.id,
-    reportType,
-    period: options.period ?? periodEnd.toISOString().slice(0, 7),
-    periodStart,
-    periodEnd,
-    completedOn,
-    lighthouse: scores,
-    lastTestedDate,
-    ...(gaUsers ? { gaUsersCurrent: gaUsers.current, gaUsersPrevious: gaUsers.previous } : {}),
-    ...(search ? { searchFoundPage1: search.foundOnPage1 } : {}),
-    ...(search?.foundOnPage1 && search.position !== null
-      ? { searchPosition: search.position }
-      : {}),
-    checklistTicks,
-    autoEvidence,
-  });
+  const created = await createDraft(
+    base,
+    {
+      reportId,
+      siteId: siteRow.id,
+      reportType,
+      period: options.period ?? periodEnd.toISOString().slice(0, 7),
+      periodStart,
+      periodEnd,
+      completedOn,
+      lighthouse: scores,
+      lastTestedDate,
+      ...(gaUsers ? { gaUsersCurrent: gaUsers.current, gaUsersPrevious: gaUsers.previous } : {}),
+      ...(search ? { searchFoundPage1: search.foundOnPage1 } : {}),
+      ...(search?.foundOnPage1 && search.position !== null
+        ? { searchPosition: search.position }
+        : {}),
+      checklistTicks,
+      autoEvidence,
+    },
+    options.draftMirror,
+  );
 
   await uploadDraftHtml(created.id, slug, periodEnd, html);
   const outcome = await queueDraft(base, {

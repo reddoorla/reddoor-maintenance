@@ -35,6 +35,8 @@ import {
   siteValueFor,
   healthColumnFor,
   scheduleColumnFor,
+  mapReportRecord,
+  type RawRecord,
 } from "./import-airtable.js";
 import type { AirtableCellValue } from "../reports/airtable/websites.js";
 import {
@@ -483,6 +485,31 @@ export async function mirrorReportPatch(
 ): Promise<void> {
   if (Object.keys(patch).length === 0) return;
   await db.updateTable("reports").set(patch).where("id", "=", reportId).execute();
+}
+
+/** Mirror a NEWLY CREATED Airtable Reports record into Turso (#539 Phase 5).
+ *
+ *  Every other report mirror is an UPDATE, which silently does nothing for a row
+ *  that does not exist yet — so a draft created at 09:05 was invisible to the
+ *  Turso-backed console until the 09:20 sync. Takes the raw record Airtable
+ *  echoed back from the create, and maps it with the IMPORTER's own
+ *  `mapReportRecord`: parity diffs Turso against exactly that function, so
+ *  delegating is what makes the mirrored row parity-clean by construction rather
+ *  than by a column list someone has to remember to extend.
+ *
+ *  Upsert, not insert, and the conflict branch drops `rendered_html` for the
+ *  same reason the importer's does: the body is written later by a separate
+ *  sharp-bearing step, so a re-mirror carrying null would blank a render that
+ *  had already succeeded. */
+export async function mirrorReportInsert(db: Db, rec: RawRecord): Promise<void> {
+  const row = mapReportRecord(rec, null);
+  const { rendered_html: _rh, ...rowSansHtml } = row;
+  void _rh;
+  await db
+    .insertInto("reports")
+    .values(row)
+    .onConflict((oc) => oc.column("id").doUpdateSet(rowSansHtml))
+    .execute();
 }
 
 /**

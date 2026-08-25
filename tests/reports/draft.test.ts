@@ -718,3 +718,36 @@ describe("draftReportForSite", () => {
     });
   });
 });
+
+/**
+ * #539 Phase 5: the create-side dual-write. `draftReportForSite` is the ONE
+ * place the nightly path creates a Reports row, so the mirror is threaded
+ * through its options and handed to `createDraft` — the mirror is deliberately
+ * NOT defaulted here, because a default would open a real libSQL handle from
+ * inside a unit suite whenever a developer happens to have TURSO_* exported.
+ * Wiring lives at the composition roots (report.ts), pinned by its own test.
+ */
+describe("draftReportForSite → the Turso create mirror", () => {
+  it("hands the created record to options.draftMirror", async () => {
+    const base = makeFakeBase({ Reports: [] });
+    const seen: Array<{ id: string; fields: Record<string, unknown> }> = [];
+
+    const result = await draftReportForSite(base, siteFixture(), "Maintenance", {
+      ...NO_HEADER,
+      draftMirror: async (rec) => {
+        seen.push(rec);
+      },
+    });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.id).toBe(result.reportRow!.id);
+    expect(seen[0]!.fields["Report type"]).toBe("Maintenance");
+  });
+
+  it("drafts exactly as before when no mirror is supplied", async () => {
+    const base = makeFakeBase({ Reports: [] });
+    await expect(
+      draftReportForSite(base, siteFixture(), "Maintenance", NO_HEADER),
+    ).resolves.toMatchObject({ queued: true });
+  });
+});

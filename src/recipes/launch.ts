@@ -13,7 +13,7 @@ import {
   findReportByPeriod,
   updateReportScores,
 } from "../reports/airtable/reports.js";
-import type { ReportRow } from "../reports/airtable/reports.js";
+import type { ReportRow, CreatedDraftMirror } from "../reports/airtable/reports.js";
 import { queueDraft } from "../reports/queue.js";
 import { uploadAttachment } from "../reports/airtable/attachments.js";
 import { renderReportHtml } from "../reports/render.js";
@@ -41,6 +41,11 @@ export type LaunchDeps = {
   audit?: (site: Site) => Promise<AuditResult[]>;
   /** Airtable handle. Defaults to opening the live base from credentials. */
   base?: AirtableBase;
+  /** #539 Phase 5: Turso write-through for the Launch row `createDraft`
+   *  creates. Wired at the CLI composition root, never defaulted here — the
+   *  unit suite calls `launch` with a fake base and must not open a real
+   *  libSQL handle. */
+  draftMirror?: CreatedDraftMirror;
 };
 
 /**
@@ -141,7 +146,11 @@ export async function launch(site: Site, deps: LaunchDeps = {}): Promise<LaunchR
       await updateReportScores(base, existing.id, scores, today);
       report = existing;
     } else {
-      report = await createDraft(base, draftInputFor(target, scores, today, period));
+      report = await createDraft(
+        base,
+        draftInputFor(target, scores, today, period),
+        deps.draftMirror,
+      );
     }
   } catch (err) {
     steps.push({ name: "draft", result: errorOf(err) });

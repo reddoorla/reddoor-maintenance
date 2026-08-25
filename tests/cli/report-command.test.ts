@@ -481,6 +481,31 @@ describe("draftDueReports next-due write-back", () => {
     ]);
   });
 
+  it("forwards the draft mirror into every draftReportForSite call (#539 Phase 5)", async () => {
+    // The create-side twin of the schedule-mirror pass-through above, and it
+    // fails the same way if dropped: the nightly batch is the ONLY caller that
+    // creates report rows unattended, so a lost pass-through means every
+    // drafted row is Turso-invisible until the next hourly sync — and at the
+    // freeze, invisible full stop.
+    vi.mocked(listWebsites).mockResolvedValue([siteRow()]); // Monthly, no anchor → due now
+    vi.mocked(draftReportForSite).mockResolvedValue({
+      reportRow: { reportId: "Acme Co — Maintenance — 2026-05-26" },
+      htmlPath: null,
+      html: "",
+      softFailures: [],
+      queued: true,
+      supersededIds: [],
+    } as unknown as Awaited<ReturnType<typeof draftReportForSite>>);
+    const base = makeFakeBase({ Reports: [] });
+    const draftMirror = vi.fn(async () => {});
+
+    await draftDueReports(base, TODAY, null, draftMirror);
+
+    const calls = vi.mocked(draftReportForSite).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) expect(call[3]?.draftMirror).toBe(draftMirror);
+  });
+
   it("swallows a per-site write-back failure and still drafts the due report", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.mocked(listWebsites).mockResolvedValue([siteRow()]); // Monthly, no anchor → due now

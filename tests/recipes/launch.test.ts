@@ -89,6 +89,21 @@ describe("recipes/launch", () => {
     expect(fields["Lighthouse — SEO"]).toBe(95);
   });
 
+  it("hands the created row to deps.draftMirror (#539 Phase 5 create-side dual-write)", async () => {
+    const base = makeFakeBase(websitesSeed());
+    const seen: Array<{ id: string; fields: Record<string, unknown> }> = [];
+
+    await launch(siteOf(), {
+      ...deps(base),
+      draftMirror: async (rec) => {
+        seen.push(rec);
+      },
+    });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.fields["Report type"]).toBe("Launch");
+  });
+
   it("flips Draft ready=true so the launch draft enters the approve queue (BLOCKER)", async () => {
     const base = makeFakeBase(websitesSeed());
     await launch(siteOf(), deps(base));

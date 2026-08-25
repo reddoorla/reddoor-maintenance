@@ -8,6 +8,7 @@ import {
   findReportByPeriod,
   updateReportScores,
   type ReportEnrichment,
+  type CreatedDraftMirror,
 } from "../reports/airtable/reports.js";
 import { queueDraft } from "../reports/queue.js";
 import { uploadAttachment } from "../reports/airtable/attachments.js";
@@ -53,6 +54,11 @@ export type AnnounceDeps = {
    * Maintenance/Testing draft happened to heal it.
    */
   refreshHeader?: RefreshHeaderDeps | false;
+  /** #539 Phase 5: Turso write-through for the row `createDraft` creates. Not
+   *  defaulted here — every unit test calls `announce` with a fake base, and a
+   *  default would open a real libSQL handle from inside the suite. The CLI
+   *  composition root wires it. */
+  draftMirror?: CreatedDraftMirror;
 };
 
 /**
@@ -142,7 +148,11 @@ export async function announce(deps?: AnnounceDeps): Promise<AnnounceResult> {
         report = existing;
         statusKind = "reused";
       } else {
-        report = await createDraft(base, draftInputFor(w, scores, now, period, enrichment));
+        report = await createDraft(
+          base,
+          draftInputFor(w, scores, now, period, enrichment),
+          deps?.draftMirror,
+        );
         statusKind = "drafted";
       }
 
