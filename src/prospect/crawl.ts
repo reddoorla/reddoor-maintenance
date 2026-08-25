@@ -1,6 +1,7 @@
 import { parse, HTMLElement, NodeType } from "node-html-parser";
 import type { CrawlResult, PageCapture, RobotsAgentAccess } from "./types.js";
 import { extractPage, UNRENDERED_TAGS } from "./extract.js";
+import { isPrivateOrLoopbackHost } from "../util/url.js";
 
 /** The answer-engine crawlers the report scores. */
 export const AI_AGENTS = [
@@ -91,6 +92,13 @@ export function evaluateAgentAccess(robotsTxt: string | null): RobotsAgentAccess
   });
 }
 
+/** Word/Google-Docs paste soup and broken page-builder plugins nest ordinary
+ *  markup far past anything hand-written would reach — a plain recursive walk
+ *  throws `RangeError: Maximum call stack size exceeded` around 5,000 levels.
+ *  Mirrors checks.ts's `MAX_SCHEMA_DEPTH` precedent: generous enough that no
+ *  real page is anywhere near it, so the branch just stops descending. */
+const MAX_WALK_DEPTH = 100;
+
 /** Same-origin http(s) hrefs in document order, absolute, fragment-stripped, deduped. */
 export function sameOriginLinks(html: string, baseUrl: string): string[] {
   const site = new URL(baseUrl);
@@ -106,7 +114,8 @@ export function sameOriginLinks(html: string, baseUrl: string): string[] {
   }
   const out: string[] = [];
   const seen = new Set<string>();
-  const walk = (el: HTMLElement): void => {
+  const walk = (el: HTMLElement, depth: number): void => {
+    if (depth > MAX_WALK_DEPTH) return;
     for (const child of el.childNodes) {
       if (child.nodeType !== NodeType.ELEMENT_NODE) continue;
       const e = child as HTMLElement;
@@ -134,10 +143,10 @@ export function sameOriginLinks(html: string, baseUrl: string): string[] {
           }
         }
       }
-      walk(e);
+      walk(e, depth + 1);
     }
   };
-  walk(doc);
+  walk(doc, 0);
   return out;
 }
 
@@ -189,7 +198,30 @@ export const USER_AGENT = "ReddoorAudit/1.0 (+https://reddoorla.com/; operator-r
 
 const ASSET_EXT = /\.(pdf|jpe?g|png|gif|webp|avif|svg|zip|mp4|mov|css|js|xml|json)$/i;
 
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+/** A generous multi-megabyte ceiling on any one response body — a real
+ *  business homepage (or robots.txt/llms.txt/sitemap.xml) is far below it.
+ *  Applies to every fetch `defaultCrawlDeps` makes: without it, an 80MB
+ *  page-builder bloat page reads in whole (proven: process RSS 64MB → 423MB),
+ *  and up to `maxPages` of those can be held in memory at once. Exported so a
+ *  test can assert against it directly. */
+export const MAX_RESPONSE_BYTES = 5_000_000;
+
+/** Thrown by `defaultCrawlDeps().fetchUrl` when a body exceeds
+ *  `MAX_RESPONSE_BYTES` — either the declared `content-length` refuses the
+ *  request early, or the actual byte count catches a missing or lying header
+ *  mid-stream. Its own class so callers can tell "too large" apart from a
+ *  genuine transport failure: `optional()` below treats it as an absent
+ *  sidecar (like a 404), not a fetch error worth reporting. */
+export class ResponseTooLargeError extends Error {
+  constructor(url: string) {
+    super(`response exceeds the ${MAX_RESPONSE_BYTES}-byte limit: ${url}`);
+    this.name = "ResponseTooLargeError";
+  }
+}
+
+/** Exported so probes.ts (which paces calls to metered AI-visibility APIs
+ *  with the same `pacedEach`) doesn't need its own identical copy. */
+export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /** Runs `fn` once per item, waiting `delayMs` between calls but never before
  *  the first — the same courtesy pacing the raw-fetch loop already applies to
@@ -215,12 +247,15 @@ type SidecarFetch = { res: FetchResponse | null; error: string | null };
  *  request means we do not know whether the file exists — `{res: null, error}`
  *  — and that distinction must survive downstream: reporting "no robots.txt"
  *  when the fetch itself failed would claim the site's crawlers are
- *  unrestricted when we simply never looked. */
+ *  unrestricted when we simply never looked. A `ResponseTooLargeError` is
+ *  neither: we DO know the file exists, we simply decline to read all of it —
+ *  so it reads as absent, exactly like a 404, rather than as a sidecar error. */
 async function optional(deps: CrawlDeps, url: string): Promise<SidecarFetch> {
   try {
     const res = await deps.fetchUrl(url);
     return res.status >= 400 ? { res: null, error: null } : { res, error: null };
   } catch (err) {
+    if (err instanceof ResponseTooLargeError) return { res: null, error: null };
     return { res: null, error: err instanceof Error ? err.message : String(err) };
   }
 }
@@ -344,6 +379,12 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
   // homepage's own candidate (hash-stripped by normalizeCandidates below) fail
   // to match `start.toString()` later and fetches the homepage a second time.
   start.hash = "";
+  // A prospect-supplied URL can carry HTTP userinfo (`user:pass@host`); that
+  // credential must never reach the origin, the page list, the result object,
+  // the database, or the published report. Strip it immediately, before
+  // anything downstream is derived from `start`.
+  start.username = "";
+  start.password = "";
 
   let home: FetchResponse;
   try {
@@ -373,6 +414,18 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
     resolved = new URL(home.url ?? start.toString());
   } catch {
     resolved = start;
+  }
+  // The PROSPECT controls where their own redirect lands — trusting it blindly
+  // would let a hostile site send this crawler at an internal target. Checked
+  // by address literal only (no DNS resolution): a deliberate, proportionate
+  // bound for an operator-run CLI, not a complete SSRF guard.
+  if (isPrivateOrLoopbackHost(resolved.hostname)) {
+    throw Object.assign(
+      new Error(
+        `${start.toString()} redirected to a private address (${resolved.hostname}) — refusing to crawl it.`,
+      ),
+      { exitCode: 1 },
+    );
   }
   const resolvedUrl = resolved.toString();
   const origin = resolved.origin;
@@ -436,6 +489,42 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
   };
 }
 
+/** Reads `res`'s body as text, refusing once it would exceed
+ *  `MAX_RESPONSE_BYTES`. Checks the declared `content-length` first so an
+ *  honest oversized response never starts streaming at all; then guards the
+ *  actual byte count as it streams, so a missing OR a lying header can't get
+ *  a huge body past the check either. `Body.text()` always decodes as UTF-8
+ *  per the Fetch spec, so decoding the accumulated bytes the same way here
+ *  reproduces `res.text()` exactly for anything under the cap. */
+async function readCapped(res: Response, url: string): Promise<string> {
+  const declared = res.headers.get("content-length");
+  if (declared !== null && Number(declared) > MAX_RESPONSE_BYTES) {
+    throw new ResponseTooLargeError(url);
+  }
+  if (!res.body) return "";
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    total += value.byteLength;
+    if (total > MAX_RESPONSE_BYTES) {
+      await reader.cancel();
+      throw new ResponseTooLargeError(url);
+    }
+    chunks.push(value);
+  }
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder("utf-8").decode(merged);
+}
+
 /** Real deps: identified sequential fetches + one shared Playwright chromium.
  *  Playwright is imported lazily so unit tests (which inject deps) never load it. */
 export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
@@ -457,7 +546,7 @@ export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
       res.headers.forEach((v, k) => {
         headers[k] = v;
       });
-      return { status: res.status, body: await res.text(), headers, url: res.url };
+      return { status: res.status, body: await readCapped(res, url), headers, url: res.url };
     },
     async renderPages(urls) {
       const { chromium } = await import("@playwright/test");

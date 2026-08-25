@@ -37,6 +37,50 @@ export function isNetlifyAppUrl(s: string): boolean {
 }
 
 /**
+ * True when `hostname` is a loopback, private, link-local, unique-local, or
+ * CGNAT literal address (or the `localhost` name) — the address-literal core
+ * that used to live only inside `isPublicHttpsUrl`, pulled out so a caller
+ * that legitimately handles non-https schemes (the prospect-audit crawler
+ * audits plain http sites too) can still refuse to follow a redirect onto an
+ * internal target. Scheme-agnostic on purpose: the caller decides which
+ * protocols are acceptable, this only judges the host.
+ *
+ * Best-effort by literal address — it does NOT resolve DNS, so a hostname
+ * that resolves to a private IP is not caught. That is a deliberate,
+ * proportionate bound for an operator-run CLI, not a complete SSRF guard.
+ */
+export function isPrivateOrLoopbackHost(hostname: string): boolean {
+  let host = hostname.toLowerCase();
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  // Strip IPv6 brackets (`[::1]` → `::1`).
+  if (host.startsWith("[") && host.endsWith("]")) host = host.slice(1, -1);
+  if (host.includes(":")) {
+    // IPv6 literal: block loopback (::1), unspecified (::), link-local (fe80::/10),
+    // and unique-local (fc00::/7).
+    if (host === "::1" || host === "::") return true;
+    if (/^fe[89ab]/.test(host)) return true;
+    if (/^f[cd]/.test(host)) return true;
+    // IPv4-mapped (`::ffff:a.b.c.d`, normalized by URL to `::ffff:aabb:ccdd`) and
+    // NAT64 (`64:ff9b::/96`) embed a v4 address the dotted-quad block below never
+    // sees — refuse both wholesale (no legitimate target uses these forms).
+    if (host.startsWith("::ffff:") || host.startsWith("64:ff9b:")) return true;
+    return false;
+  }
+  // IPv4 dotted-quad: block the private/loopback/link-local/CGNAT ranges.
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
+    const [a, b] = host.split(".").map(Number);
+    if (a === 0 || a === 10 || a === 127) return true;
+    if (a === 169 && b === 254) return true; // link-local
+    if (a === 172 && b !== undefined && b >= 16 && b <= 31) return true; // 172.16/12
+    if (a === 192 && b === 168) return true; // 192.168/16
+    if (a === 100 && b !== undefined && b >= 64 && b <= 127) return true; // CGNAT 100.64/10
+    return false;
+  }
+  // A registered hostname (not a literal IP) — accept; DNS isn't resolved here.
+  return false;
+}
+
+/**
  * True when `s` is an `https:` URL whose host is NOT an obviously-internal target
  * (loopback / private / link-local / unique-local / CGNAT). The newsletter
  * webhook URL is operator-set in Airtable but fires server-side, so this blocks
@@ -55,32 +99,5 @@ export function isPublicHttpsUrl(s: string): boolean {
     return false;
   }
   if (parsed.protocol !== "https:") return false;
-  let host = parsed.hostname.toLowerCase();
-  if (host === "localhost" || host.endsWith(".localhost")) return false;
-  // Strip IPv6 brackets (`[::1]` → `::1`).
-  if (host.startsWith("[") && host.endsWith("]")) host = host.slice(1, -1);
-  if (host.includes(":")) {
-    // IPv6 literal: block loopback (::1), unspecified (::), link-local (fe80::/10),
-    // and unique-local (fc00::/7).
-    if (host === "::1" || host === "::") return false;
-    if (/^fe[89ab]/.test(host)) return false;
-    if (/^f[cd]/.test(host)) return false;
-    // IPv4-mapped (`::ffff:a.b.c.d`, normalized by URL to `::ffff:aabb:ccdd`) and
-    // NAT64 (`64:ff9b::/96`) embed a v4 address the dotted-quad block below never
-    // sees — refuse both wholesale (no legitimate webhook target uses these forms).
-    if (host.startsWith("::ffff:") || host.startsWith("64:ff9b:")) return false;
-    return true;
-  }
-  // IPv4 dotted-quad: block the private/loopback/link-local/CGNAT ranges.
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
-    const [a, b] = host.split(".").map(Number);
-    if (a === 0 || a === 10 || a === 127) return false;
-    if (a === 169 && b === 254) return false; // link-local
-    if (a === 172 && b !== undefined && b >= 16 && b <= 31) return false; // 172.16/12
-    if (a === 192 && b === 168) return false; // 192.168/16
-    if (a === 100 && b !== undefined && b >= 64 && b <= 127) return false; // CGNAT 100.64/10
-    return true;
-  }
-  // A registered hostname (not a literal IP) — accept; DNS isn't resolved here.
-  return true;
+  return !isPrivateOrLoopbackHost(parsed.hostname);
 }

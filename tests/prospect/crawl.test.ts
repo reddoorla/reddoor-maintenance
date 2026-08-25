@@ -1,10 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import {
   crawlSite,
   pacedEach,
+  sameOriginLinks,
+  defaultCrawlDeps,
+  MAX_RESPONSE_BYTES,
+  ResponseTooLargeError,
   type CrawlDeps,
   type FetchResponse,
 } from "../../src/prospect/crawl.js";
@@ -279,6 +283,177 @@ describe("crawlSite", () => {
     const brochure = result.pages.find((p) => p.url === "https://acme.example/brochure")!;
     expect(brochure.raw).toBeNull();
     expect(brochure.error).toBe("not HTML (application/pdf)");
+  });
+
+  it("treats a page over the size ceiling as unusable and keeps crawling, rather than losing the run", async () => {
+    const result = await crawlSite(
+      HOME,
+      stubDeps(
+        { [HOME]: { body: fixture("rich.html") } },
+        {
+          async fetchUrl(url) {
+            if (url === HOME) return { status: 200, body: fixture("rich.html"), headers: {} };
+            if (url === "https://acme.example/services") throw new ResponseTooLargeError(url);
+            return { status: 404, body: "", headers: {} };
+          },
+        },
+      ),
+    );
+    const services = result.pages.find((p) => p.url === "https://acme.example/services")!;
+    expect(services.error).toMatch(/large|limit|ceiling|byte/i);
+    expect(services.raw).toBeNull();
+    expect(result.pages[0]!.raw).not.toBeNull();
+  });
+
+  it("treats a sidecar over the size ceiling as simply absent, not a sidecar error", async () => {
+    const result = await crawlSite(
+      HOME,
+      stubDeps(
+        { [HOME]: { body: fixture("rich.html") } },
+        {
+          async fetchUrl(url) {
+            if (url === HOME) return { status: 200, body: fixture("rich.html"), headers: {} };
+            if (url === "https://acme.example/robots.txt") throw new ResponseTooLargeError(url);
+            return { status: 404, body: "", headers: {} };
+          },
+        },
+      ),
+    );
+    expect(result.robotsTxt).toBeNull();
+    expect(result.sidecarErrors.robots).toBeNull();
+  });
+
+  it("refuses to crawl when the post-redirect location is a link-local literal address", async () => {
+    await expect(
+      crawlSite(
+        HOME,
+        stubDeps({
+          [HOME]: { body: fixture("bare.html"), url: "http://169.254.169.254/" },
+        }),
+      ),
+    ).rejects.toThrow(/169\.254\.169\.254|private|internal|loopback|link-local/i);
+  });
+
+  it("refuses to crawl when the post-redirect location is a loopback literal address", async () => {
+    await expect(
+      crawlSite(
+        HOME,
+        stubDeps({
+          [HOME]: { body: fixture("bare.html"), url: "http://127.0.0.1:8080/" },
+        }),
+      ),
+    ).rejects.toThrow(/127\.0\.0\.1|private|internal|loopback/i);
+  });
+
+  it("strips userinfo from the URL so credentials never reach the origin, page list, or a fetch call", async () => {
+    const calls: string[] = [];
+    const deps: CrawlDeps = {
+      async fetchUrl(url) {
+        calls.push(url);
+        return { status: 200, body: fixture("bare.html"), headers: {} };
+      },
+      async renderPages(urls) {
+        return new Map(urls.map((u) => [u, fixture("bare.html")]));
+      },
+      maxPages: 20,
+      delayMs: 0,
+    };
+    const result = await crawlSite("http://user:hunter2@acme.example/", deps);
+    expect(result.origin).toBe("http://acme.example");
+    expect(result.pages.map((p) => p.url)).toEqual(["http://acme.example/"]);
+    expect(calls.some((u) => u.includes("hunter2"))).toBe(false);
+    expect(calls.some((u) => u.includes("user:"))).toBe(false);
+  });
+});
+
+describe("sameOriginLinks — pathological nesting", () => {
+  it("does not throw on markup nested far past ordinary depth, still finding a shallow link", () => {
+    const depth = 5000;
+    const html =
+      '<html><body><a href="/shallow">Shallow</a>' +
+      "<div>".repeat(depth) +
+      '<a href="/buried">Buried</a>' +
+      "</div>".repeat(depth) +
+      "</body></html>";
+    let links: string[] = [];
+    expect(() => {
+      links = sameOriginLinks(html, "https://acme.example/");
+    }).not.toThrow();
+    expect(links).toContain("https://acme.example/shallow");
+    expect(links).not.toContain("https://acme.example/buried");
+  });
+});
+
+describe("defaultCrawlDeps — response size ceiling", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("names a generous, multi-megabyte ceiling", () => {
+    expect(MAX_RESPONSE_BYTES).toBeGreaterThan(1_000_000);
+    expect(MAX_RESPONSE_BYTES).toBeLessThan(50_000_000);
+  });
+
+  it("refuses early on a declared content-length over the ceiling, without reading the body", async () => {
+    let bodyWasRead = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        status: 200,
+        url: "https://acme.example/",
+        headers: {
+          get: (name: string) =>
+            name.toLowerCase() === "content-length" ? String(MAX_RESPONSE_BYTES + 1) : null,
+          forEach: (cb: (v: string, k: string) => void) => {
+            cb(String(MAX_RESPONSE_BYTES + 1), "content-length");
+          },
+        },
+        get body() {
+          bodyWasRead = true;
+          throw new Error("must not touch the body when content-length already refuses");
+        },
+        async text() {
+          bodyWasRead = true;
+          throw new Error("must not read the body when content-length already refuses");
+        },
+      })) as unknown as typeof fetch,
+    );
+
+    const deps = defaultCrawlDeps({ maxPages: 5, delayMs: 0 });
+    await expect(deps.fetchUrl("https://acme.example/")).rejects.toThrow(
+      /large|limit|ceiling|byte/i,
+    );
+    expect(bodyWasRead).toBe(false);
+  });
+
+  it("guards the actual read when content-length is missing or understates the body", async () => {
+    const chunkSize = 1_000_000;
+    const chunkCount = Math.ceil((MAX_RESPONSE_BYTES + chunkSize) / chunkSize);
+    let reads = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        status: 200,
+        url: "https://acme.example/",
+        headers: { get: () => null, forEach: () => {} },
+        body: {
+          getReader: () => ({
+            read: async () => {
+              reads++;
+              if (reads > chunkCount) return { done: true, value: undefined };
+              return { done: false, value: new Uint8Array(chunkSize) };
+            },
+            cancel: async () => {},
+          }),
+        },
+      })) as unknown as typeof fetch,
+    );
+
+    const deps = defaultCrawlDeps({ maxPages: 5, delayMs: 0 });
+    await expect(deps.fetchUrl("https://acme.example/")).rejects.toThrow(
+      /large|limit|ceiling|byte/i,
+    );
+    expect(reads).toBeLessThan(chunkCount + 1);
   });
 });
 

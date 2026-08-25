@@ -1,5 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { pacedEach } from "./crawl.js";
+import { pacedEach, sleep } from "./crawl.js";
 import type { ProbeAnswer, ProbesResult } from "./types.js";
 
 /** One answer engine. Adding OpenAI or Gemini later means one more of these. */
@@ -81,8 +81,6 @@ export function buildQueries(input: ProbeInput): ProbeQuery[] {
   }
   return deduped.slice(0, MAX_QUERIES);
 }
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /** A rate-limit response is worth one retry after a longer pause; anything else
  *  is a real failure and is left alone. */

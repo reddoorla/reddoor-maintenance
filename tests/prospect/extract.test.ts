@@ -105,3 +105,33 @@ describe("extractPage — text rendered the way a browser does", () => {
     expect(page.text).not.toContain("Sneaky");
   });
 });
+
+describe("extractPage — pathological nesting", () => {
+  // Word/Google-Docs paste soup and broken page-builder plugins produce spans
+  // nested far past anything a hand-written page would ever reach; the plain
+  // recursive walk throws `RangeError: Maximum call stack size exceeded`
+  // around 5,000 levels, which would otherwise take down the whole audit.
+  const depth = 5000;
+
+  it("does not throw on markup nested far past ordinary depth", () => {
+    const html =
+      "<html><body>" +
+      "<span>".repeat(depth) +
+      "deep text" +
+      "</span>".repeat(depth) +
+      "</body></html>";
+    expect(() => extractPage(html)).not.toThrow();
+  });
+
+  it("stays partial rather than throwing: shallow content survives, content past the depth cap is dropped", () => {
+    const html =
+      "<html><body><h1>Shallow heading</h1>" +
+      "<div>".repeat(depth) +
+      "<h2>Buried heading</h2>text buried deep" +
+      "</div>".repeat(depth) +
+      "</body></html>";
+    const page = extractPage(html);
+    expect(page.headings.some((h) => h.text === "Shallow heading")).toBe(true);
+    expect(page.headings.some((h) => h.text === "Buried heading")).toBe(false);
+  });
+});
