@@ -186,7 +186,7 @@ describe("submissions-page adapter — bulk mark-read POST", () => {
     expect(markMock).not.toHaveBeenCalled();
   });
 
-  it("401s an unauthenticated POST before any write", async () => {
+  it("redirects an unauthenticated POST to login before any write", async () => {
     const req = new Request("https://dash.x/submissions", {
       method: "POST",
       headers: {
@@ -196,7 +196,10 @@ describe("submissions-page adapter — bulk mark-read POST", () => {
       body: new URLSearchParams({ action: "mark-read" }).toString(),
     });
     const res = await submissionsPage(req, ctx);
-    expect(res.status).toBe(401);
+    // A real <form method="post"> — a navigation, not a fetch — so the refusal
+    // is the login redirect, same as the GET page.
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toMatch(/^\/auth\/login\?returnTo=/);
     expect(markMock).not.toHaveBeenCalled();
   });
 

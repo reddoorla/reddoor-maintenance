@@ -1,7 +1,7 @@
 import type { Context, Config } from "@netlify/functions";
 import { openBase } from "../../src/reports/airtable/client.js";
 import { approveReportRow, overrideReportRow } from "../../src/reports/airtable/reports.js";
-import { approveReport, verifyBasicAuth } from "../../src/dashboard/index.js";
+import { approveReport, requireOperator, denialResponse } from "../../src/dashboard/index.js";
 
 import { approveBlockers, formatBlockers } from "../../src/reports/preflight.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
@@ -75,16 +75,10 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
 
   // Auth BEFORE any Airtable read, same realm as site-dashboard.mts so the
   // browser reuses creds when the inline fetch fires from /s/:slug.
-  const password = process.env.DASHBOARD_PASSWORD;
-  if (!password) {
-    console.error("[approve-report] DASHBOARD_PASSWORD missing");
-    return plainText("Approve endpoint is unconfigured. Set DASHBOARD_PASSWORD.", 503);
-  }
-  if (!verifyBasicAuth(req.headers.get("authorization"), password)) {
-    return plainText("Authentication required.", 401, {
-      "www-authenticate": 'Basic realm="Reddoor fleet"',
-    });
-  }
+  // Fired by fetch() from the dashboard page, so JSON — a 302 to Google inside
+  // fetch() gives the script Google's HTML instead of something it can act on.
+  const auth = requireOperator(req, { wants: "json" });
+  if (!auth.ok) return denialResponse(auth.denial);
 
   const apiKey = process.env.AIRTABLE_PAT;
   const baseId = process.env.AIRTABLE_BASE_ID;

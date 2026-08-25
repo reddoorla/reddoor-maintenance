@@ -104,30 +104,31 @@ describe("fleet-table adapter — method + env/auth gating", () => {
     expect(await res.text()).toMatch(/DASHBOARD_PASSWORD/);
   });
 
-  it("401s an unauthenticated request with a Basic challenge", async () => {
+  it("redirects an unauthenticated navigation to the login page", async () => {
     process.env.TURSO_DATABASE_URL = "libsql://x";
     process.env.DASHBOARD_PASSWORD = "s3cret";
     const res = await fleetTable(get(), ctx);
-    expect(res.status).toBe(401);
-    expect(res.headers.get("www-authenticate")).toMatch(/Basic realm="Reddoor fleet"/);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toMatch(/^\/auth\/login\?returnTo=/);
+    expect(res.headers.get("www-authenticate")).toBeNull();
     // The whole fleet inventory is behind this gate — nothing may be read first.
     expect(listSitesMock).not.toHaveBeenCalled();
   });
 
-  it("401s a request whose Basic password is wrong", async () => {
+  it("refuses a request whose Basic password is wrong", async () => {
     process.env.TURSO_DATABASE_URL = "libsql://x";
     process.env.DASHBOARD_PASSWORD = "s3cret";
     const res = await fleetTable(get("https://dash.reddoor.test/fleet", authHeader("nope")), ctx);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(302);
     expect(listSitesMock).not.toHaveBeenCalled();
   });
 
   it("does NOT leak backend env state to an UNAUTHENTICATED probe (auth precedes env guards)", async () => {
-    // Password set but no creds AND Turso unset: must be a 401, not a
-    // differentiated 500 that would disclose whether the backend env is wired.
+    // Password set but no creds AND Turso unset: must be the auth redirect, not
+    // a differentiated 500 disclosing whether the backend env is wired.
     process.env.DASHBOARD_PASSWORD = "s3cret";
     const res = await fleetTable(get(), ctx);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(302);
   });
 
   it("500s when Turso env is missing — but only AFTER auth passes", async () => {

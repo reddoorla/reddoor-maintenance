@@ -4,6 +4,7 @@
  *  in a served template literal once killed a whole inline <script> while
  *  the page looked fine; a link cannot fail that way). */
 import { FAVICON_LINK } from "./favicon.js";
+import { renderAuthChrome } from "./auth/render.js";
 import { escapeHtml, safeUrl } from "../util/html.js";
 import { NO_STATUS_FILTER, noStatusFilterActive } from "./fleet-table.js";
 import type { FleetSortKey, FleetTableModel, FleetTableRow } from "./fleet-table.js";
@@ -140,7 +141,10 @@ function filterForm(m: FleetTableModel): string {
 }
 
 /** Render the fleet table as a standalone HTML document. */
-export function renderFleetTableHtml(m: FleetTableModel): string {
+export function renderFleetTableHtml(
+  m: FleetTableModel,
+  operatorEmail: string | null = null,
+): string {
   const table =
     m.rows.length === 0
       ? `<div class="empty">No sites match these filters.</div>`
@@ -159,6 +163,7 @@ export function renderFleetTableHtml(m: FleetTableModel): string {
   <style>${STYLES}</style>
 </head>
 <body>
+  ${renderAuthChrome(operatorEmail)}
   <a class="home" href="/">← Fleet home</a>
   <h1>Fleet table</h1>
   <div class="meta">${m.rows.length} of ${m.totalSites} site${m.totalSites === 1 ? "" : "s"}</div>

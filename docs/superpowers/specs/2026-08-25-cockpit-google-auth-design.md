@@ -153,16 +153,16 @@ variable is set, and renders nothing when it is not.
 All under `src/dashboard/auth/`, pure and separately testable, following the
 same decomposition as `src/prospect/`.
 
-| File             | Responsibility                                                      |
-| ---------------- | ------------------------------------------------------------------- |
-| `cookies.ts`     | Parse a `Cookie` header; serialize a `Set-Cookie` value. No crypto. |
-| `signing.ts`     | Versioned HMAC-SHA256 sign/verify over a string payload.            |
-| `session.ts`     | Session payload semantics — mint, verify, TTL.                      |
-| `oauth-state.ts` | The `{state, verifier, returnTo}` blob, and `safeReturnTo`.         |
-| `google.ts`      | PKCE pair, authorize URL, code exchange, verified-email lookup.     |
-| `allowlist.ts`   | Parse and test `DASHBOARD_ALLOWED_EMAILS`.                          |
-| `require.ts`     | `requireOperator` — the gate the twelve endpoints call.             |
-| `render.ts`      | The login page, and the signed-in chrome fragment.                  |
+| File             | Responsibility                                                                                                                                                                                                         |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cookies.ts`     | Parse a `Cookie` header; serialize a `Set-Cookie` value. No crypto.                                                                                                                                                    |
+| `signing.ts`     | Versioned HMAC-SHA256 sign/verify over a string payload.                                                                                                                                                               |
+| `session.ts`     | Session payload semantics — mint, verify, TTL.                                                                                                                                                                         |
+| `oauth-state.ts` | The `{state, verifier, returnTo}` blob, and `safeReturnTo`.                                                                                                                                                            |
+| `google.ts`      | PKCE pair, authorize URL, code exchange, verified-email lookup.                                                                                                                                                        |
+| `allowlist.ts`   | Parse and test `DASHBOARD_ALLOWED_EMAILS`.                                                                                                                                                                             |
+| `require.ts`     | `requireOperator`, the gate the endpoints call, plus `readAuthConfig` — the single reading of the auth environment that the gate and the sign-in handler share, so they cannot disagree about what "configured" means. |
+| `render.ts`      | The login page, and the signed-in chrome fragment.                                                                                                                                                                     |
 
 `signing.ts` is separated from `session.ts` because it is the security-critical
 primitive and deserves its own focused test file — and because `oauth-state.ts`
@@ -295,8 +295,16 @@ time-dependent takes an injected clock.
 - **signing**: round-trip; tampered payload; tampered signature; wrong secret;
   malformed segment counts; a signature of the wrong byte length rejects rather
   than throwing.
-- **session**: mint/verify round-trip; expired; not-yet-valid clock skew; a
-  token signed with a rotated secret fails.
+- **session**: mint/verify round-trip; expired (including `exp` exactly at now);
+  a token signed with a rotated secret fails; a validly-signed token whose
+  payload is the wrong shape is rejected.
+
+  Only `exp` is enforced. An earlier draft of this spec called for rejecting a
+  future `iat` as clock skew; that was dropped during implementation, and the
+  test now asserts the opposite. Rejecting a future `iat` turns ordinary skew
+  between deploys into a mysterious sign-out and buys nothing — the token is
+  signed by us either way.
+
 - **allowlist**: comma and whitespace handling; case-insensitive matching;
   empty and unset both admit nobody; an entry that is not an address never
   matches.
@@ -370,3 +378,13 @@ change needs a new deploy to take effect. No code revert required.
 This touches all twelve endpoints, including the two added by #580 and #581.
 Both are green and mergeable; they land first, and this is built against `main`
 afterwards, so the diff has one parent instead of a three-deep stack to rebase.
+
+**Implementation note.** The work was built against `main` while #580 and #581
+were still open, so it converts the **ten** endpoints that exist there.
+`prospect-audits-page` and `prospect-audit-run` arrive with those PRs and get
+the same two-line gate on rebase — `prospect-audits-page` as a navigation
+(`redirect`), `prospect-audit-run` as a `fetch` target (`json`). Until that is
+done those two routes still carry the old Basic-auth block, which keeps working
+because `verifyBasicAuth` and `DASHBOARD_PASSWORD` are retained for the
+fallback; they are simply not yet identity-aware, so their `requested_by` stays
+`"cockpit"`.

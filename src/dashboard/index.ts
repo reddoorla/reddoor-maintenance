@@ -1,6 +1,15 @@
 export { renderSiteDashboardHtml } from "./render.js";
 export { renderCockpitHtml } from "./fleet-render.js";
 export { verifyBasicAuth } from "./basic-auth.js";
+export { requireOperator, denialResponse, readAuthConfig, pathWithQuery } from "./auth/require.js";
+export type {
+  OperatorAuth,
+  OperatorDenial,
+  AuthConfig,
+  AuthRequestLike,
+  Wants,
+} from "./auth/require.js";
+export { renderLoginPageHtml, renderAuthChrome, loginErrorMessage } from "./auth/render.js";
 export { approveReport, APPROVED_BY } from "./approve.js";
 export type { ApproveDeps, ApproveResult } from "./approve.js";
 export { setSubmissionStatus } from "./submission-status.js";

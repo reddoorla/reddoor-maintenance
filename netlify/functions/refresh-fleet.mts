@@ -1,6 +1,7 @@
 import type { Context, Config } from "@netlify/functions";
 import {
-  verifyBasicAuth,
+  requireOperator,
+  denialResponse,
   refreshFleetState,
   summarizeFleetRunStatus,
   FLEET_REFRESH_WORKFLOWS,
@@ -35,18 +36,8 @@ function json(body: unknown, status: number, extra: Record<string, string> = {})
 
 /** Shared auth gate: returns a token on success, or a Response to return on failure. */
 function gateAuth(req: Request): { token: string } | { fail: Response } {
-  const password = process.env.DASHBOARD_PASSWORD;
-  if (!password) {
-    console.error("[refresh-fleet] DASHBOARD_PASSWORD missing");
-    return { fail: json({ ok: false, error: "unconfigured" }, 503) };
-  }
-  if (!verifyBasicAuth(req.headers.get("authorization"), password)) {
-    return {
-      fail: json({ ok: false, error: "unauthorized" }, 401, {
-        "www-authenticate": 'Basic realm="Reddoor fleet"',
-      }),
-    };
-  }
+  const auth = requireOperator(req, { wants: "json" });
+  if (!auth.ok) return { fail: denialResponse(auth.denial) };
   const token = process.env.RENOVATE_TOKEN?.trim() || process.env.GH_TOKEN?.trim();
   if (!token) return { fail: json({ ok: false, error: "not-configured" }, 503) };
   return { token };
