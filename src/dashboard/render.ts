@@ -11,6 +11,7 @@ import { escapeHtml, safeUrl } from "../util/html.js";
 import { FAVICON_LINK } from "./favicon.js";
 import { onboardingStatus, missingOnboarding } from "./onboarding.js";
 import { checklistFor, gatingFields, isHealthGateClear } from "../reports/checklist.js";
+import { rendersCommentary } from "../reports/render.js";
 import { approveBlockers, type PreflightFinding } from "../reports/preflight.js";
 import { parseAddresses, withGlobalCc } from "../reports/send/orchestrate.js";
 import {
@@ -249,6 +250,12 @@ function reportPreviewUrl(reportId: string): string {
  *  refuses once `sentAt` is set, and offering a box that can only be rejected is
  *  worse than offering none. */
 function commentaryEditor(r: ReportRow): string {
+  // Only where the template will actually use it. `buildAnnouncementMjml` and
+  // `buildLaunchMjml` never reference `commentary`, so offering a box on those
+  // types means the operator writes text, sees it save, previews it, and finds
+  // nothing — with no explanation. Same principle as not offering it on a report
+  // that has already been sent.
+  if (!rendersCommentary(r.reportType)) return "";
   const url = `/api/reports/${encodeURIComponent(r.id)}/commentary`;
   return `<div class="commentary"><label for="commentary-${escapeHtml(r.id)}">Commentary <span class="muted">(re-rendered into the email at send)</span></label><textarea id="commentary-${escapeHtml(r.id)}" data-commentary-for="${escapeHtml(r.id)}" data-commentary-url="${escapeHtml(url)}" rows="3">${escapeHtml(r.commentary ?? "")}</textarea><span class="commentary-saved" data-for="${escapeHtml(r.id)}"></span></div>`;
 }
