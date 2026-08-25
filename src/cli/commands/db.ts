@@ -129,7 +129,7 @@ export async function runDbCommand(
     };
 
     if (action === "import-airtable") {
-      const { importFleetState } = await import("../../db/import-airtable.js");
+      const { importFleetState, formatReapSummary } = await import("../../db/import-airtable.js");
       const summary = await importFleetState(db, {
         ...io,
         // Attachment bodies ride expiring signed URLs; a failed fetch imports the
@@ -153,6 +153,10 @@ export async function runDbCommand(
             `(fetch failed / URL expired): ${summary.renderedHtmlMisses.join(", ")}`,
         );
       }
+      // The import deletes rows Airtable no longer has, so this one-shot path
+      // reports the reap exactly as `db sync` does — same formatter, no second
+      // copy to fall out of step.
+      lines.push(...formatReapSummary(summary.reaped));
       return { output: lines.join("\n"), code: 0 };
     }
 

@@ -13,7 +13,12 @@
  *  — a persistent mismatch after the retry is real drift and must red the run.
  */
 import type { Db } from "./client.js";
-import { importFleetState, type ImportIo, type ImportSummary } from "./import-airtable.js";
+import {
+  importFleetState,
+  formatReapSummary,
+  type ImportIo,
+  type ImportSummary,
+} from "./import-airtable.js";
 import { checkFleetParity, formatParityResult, type ParityResult } from "./parity.js";
 
 export type SyncResult = {
@@ -46,6 +51,13 @@ export function formatSyncResult(r: SyncResult): string {
         `(fetch failed / URL expired): ${r.importSummary.renderedHtmlMisses.join(", ")}`,
     );
   }
+  // The reap is the only destructive step, so every removal is NAMED and every
+  // refusal is quoted in full. FLEET_REAP rides its own line rather than as new
+  // keys on FLEET_SYNC: the workflow gate greps `^FLEET_SYNC .* mismatches=0$`,
+  // anchored at the end, so extending that line is a contract change waiting to
+  // be got wrong. A separate always-emitted line costs nothing and, like
+  // FLEET_PARITY, means an absent line reads as "never ran", not as "clean".
+  lines.push(...formatReapSummary(r.importSummary.reaped));
   if (r.parity.mismatches.length > 0) {
     lines.push(formatParityResult(r.parity));
   }
