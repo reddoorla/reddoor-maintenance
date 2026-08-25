@@ -55,7 +55,7 @@ describe("renderFleetTableHtml — document + rows", () => {
     // `toContain("legacy")` is satisfied by the filter <option> alone — the
     // whole status COLUMN could render blank and still pass. Pin the cell.
     expect(html).toMatch(/<td>legacy<\/td>/); // raw value, no remap
-    expect(html).toMatch(/<td>maintenance<\/td>/);
+    expect(html).toMatch(/<td>maintained<\/td>/);
     // …and the null-status row's own status cell, not just a dash somewhere.
     expect(html).toMatch(
       /<td><a href="\/s\/untracked">Untracked<\/a><\/td>\s*<td>[\s\S]*?<\/td>\s*<td>—<\/td>/,
@@ -97,11 +97,11 @@ describe("renderFleetTableHtml — sort headers", () => {
     expect(html).toContain("▼"); // active desc indicator
   });
   it("preserves the active filters in every sort link", () => {
-    const html = render({ status: "maintenance", q: "acme" });
+    const html = render({ status: "maintained", q: "acme" });
     const sortLinks = html.match(/href="\/fleet\?[^"]*sort=[^"]*"/g) ?? [];
     expect(sortLinks.length).toBeGreaterThan(0);
     for (const link of sortLinks) {
-      expect(link).toContain("status=maintenance");
+      expect(link).toContain("status=maintained");
       expect(link).toContain("q=acme");
     }
   });
@@ -119,7 +119,7 @@ describe("renderFleetTableHtml — filter form", () => {
     expect(html).toContain('method="get"');
     expect(html).toContain('action="/fleet"');
     expect(html).toContain('<option value="legacy"');
-    expect(html).toContain('<option value="maintenance"');
+    expect(html).toContain('<option value="maintained"');
   });
   it("marks the active status selected and repopulates q", () => {
     // A QUERY filter, not a site status: the filter matches the RAW cell the

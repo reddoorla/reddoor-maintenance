@@ -279,23 +279,23 @@ describe("canonicalizeStatus", () => {
   });
 });
 
-describe("toAirtableStatus (stage 1: the Airtable single-select still holds OLD options)", () => {
-  it("is still switched to the OLD vocabulary — stage 2 flips this ONE constant", () => {
-    expect(AIRTABLE_USES_NEW_VOCABULARY).toBe(false);
+describe("toAirtableStatus (stage 2: the Airtable single-select now carries the NEW options)", () => {
+  it("is switched to the NEW vocabulary — stage 2 flipped this ONE constant", () => {
+    expect(AIRTABLE_USES_NEW_VOCABULARY).toBe(true);
   });
 
-  it("emits the OLD Airtable option for every canonical status", () => {
-    expect(toAirtableStatus("building")).toBe("in development");
-    expect(toAirtableStatus("launching")).toBe("launch period");
-    expect(toAirtableStatus("maintained")).toBe("maintenance");
-    expect(toAirtableStatus("hosted-only")).toBe("hosting");
-    expect(toAirtableStatus("external")).toBe("probably not our problem");
-    // Many-to-one: `legacy` AND `deprecated` both canonicalize to `archived`, so
-    // there is no reverse map. "deprecated" is the DELIBERATE choice — it is the
-    // archived option the dashboard status editor offers today, and site-details
-    // documents `legacy` as Airtable-only. Writing back what the editor offers
-    // keeps that dropdown byte-identical this stage.
-    expect(toAirtableStatus("archived")).toBe("deprecated");
+  it("emits the NEW Airtable option — the canonical name itself — for every status", () => {
+    expect(toAirtableStatus("building")).toBe("building");
+    expect(toAirtableStatus("launching")).toBe("launching");
+    expect(toAirtableStatus("maintained")).toBe("maintained");
+    expect(toAirtableStatus("hosted-only")).toBe("hosted-only");
+    expect(toAirtableStatus("external")).toBe("external");
+    // The many-to-one merge is RESOLVED by stage 2: `legacy` and `deprecated`
+    // both canonicalize to `archived`, and `archived` is now itself a real
+    // Airtable option, so the write no longer has to pick one of the two old
+    // names. AIRTABLE_OLD_NAMES still maps it to "deprecated", but that branch is
+    // now unreachable and stage 3 deletes it.
+    expect(toAirtableStatus("archived")).toBe("archived");
   });
 
   it("round-trips: every canonical status survives write-then-read", () => {
@@ -387,18 +387,20 @@ describe("the status sets are stated in the canonical vocabulary", () => {
     // nothing read it: reversing the array left the whole suite green while
     // silently reordering an operator-facing dropdown.
     //
-    // This matters more at stage 2 than now. `render.ts` preselects
-    // `site.statusRaw`, not `site.status`; today that mutation is caught only
-    // because the two vocabularies differ, and after the flip they will not.
-    // Pinning the option list keeps a check on the dropdown through exactly the
-    // window in which the other check goes blind.
+    // This matters MORE now that stage 2 has landed. `render.ts` preselects
+    // `site.statusRaw`, not `site.status`, and for the 44 live rows those two are
+    // now the same string — so that mutation is no longer caught by a vocabulary
+    // mismatch. It is still caught, but only by the one remaining case where raw
+    // and canonical differ (a `legacy` cell → the placeholder, pinned in
+    // tests/dashboard/render.test.ts). Pinning the option list keeps an
+    // independent check on the dropdown itself.
     expect([...SITE_STATUS_OPTIONS]).toEqual([
-      "in development",
-      "launch period",
-      "maintenance",
-      "hosting",
-      "probably not our problem",
-      "deprecated",
+      "building",
+      "launching",
+      "maintained",
+      "hosted-only",
+      "external",
+      "archived",
     ]);
   });
 });

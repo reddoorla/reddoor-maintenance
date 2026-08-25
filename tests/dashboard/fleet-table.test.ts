@@ -70,7 +70,7 @@ describe("parseFleetTableQuery", () => {
 const DEFAULT_QUERY = { sort: "name", dir: "asc", status: "", q: "" } as const;
 
 describe("buildFleetTableModel — inclusion", () => {
-  it("includes EVERY site — maintenance, legacy, deprecated, and null-status rows", () => {
+  it("includes EVERY site — maintained, legacy, deprecated, and null-status rows", () => {
     // This table replaces eyeballing the Airtable grid: nothing may be
     // status-filtered out by default, unlike the cockpit's isDashboardVisible.
     const sites = [
@@ -96,7 +96,7 @@ describe("buildFleetTableModel — inclusion", () => {
       makeWebsiteRow({ id: "r4", status: null }),
     ];
     const m = buildFleetTableModel(sites, DEFAULT_QUERY);
-    expect(m.statuses).toEqual(["legacy", "maintenance"]);
+    expect(m.statuses).toEqual(["legacy", "maintained"]);
   });
   it("orders the filter options by the SAME collation the rows use (codepoint, not locale)", () => {
     // One page must not hold two collations. `localeCompare` would fold "é" to
@@ -130,7 +130,7 @@ describe("buildFleetTableModel — filtering", () => {
     makeWebsiteRow({ id: "r4", name: "Untracked", status: null }),
   ];
   it("filters by exact raw status", () => {
-    const m = buildFleetTableModel(sites, { ...DEFAULT_QUERY, status: "maintenance" });
+    const m = buildFleetTableModel(sites, { ...DEFAULT_QUERY, status: "maintained" });
     expect(m.rows.map((r) => r.name)).toEqual(["Acme Co", "CalTex"]);
     expect(m.totalSites).toBe(4); // pre-filter fleet size still reported
   });
@@ -153,17 +153,17 @@ describe("buildFleetTableModel — filtering", () => {
     expect(m.rows.map((r) => r.name)).toEqual(["Acme Co"]);
   });
   it("matches the status EXACTLY, never as a substring", () => {
-    // "maintenance" is a prefix of "maintenance hold": a substring match would
+    // "maintained" is a prefix of "maintained hold": a substring match would
     // quietly widen every status filter as the vocabulary grows.
     const overlapping = [
       makeWebsiteRow({ id: "r1", name: "Acme Co", status: "maintained" }),
-      makeWebsiteRow({ id: "r2", name: "Beachfront", status: storedStatus("maintenance hold") }),
+      makeWebsiteRow({ id: "r2", name: "Beachfront", status: storedStatus("maintained hold") }),
     ];
-    const m = buildFleetTableModel(overlapping, { ...DEFAULT_QUERY, status: "maintenance" });
+    const m = buildFleetTableModel(overlapping, { ...DEFAULT_QUERY, status: "maintained" });
     expect(m.rows.map((r) => r.name)).toEqual(["Acme Co"]);
   });
   it("combines status and q filters", () => {
-    const m = buildFleetTableModel(sites, { ...DEFAULT_QUERY, status: "maintenance", q: "cal" });
+    const m = buildFleetTableModel(sites, { ...DEFAULT_QUERY, status: "maintained", q: "cal" });
     expect(m.rows.map((r) => r.name)).toEqual(["CalTex"]);
   });
 });
@@ -196,7 +196,7 @@ describe("buildFleetTableModel — the no-status filter", () => {
   });
   it("never appears as a fleet status, so the dropdown lists it separately", () => {
     const m = buildFleetTableModel(sites, DEFAULT_QUERY);
-    expect(m.statuses).toEqual(["maintenance"]);
+    expect(m.statuses).toEqual(["maintained"]);
   });
   it("does NOT swallow a site whose stored status is literally the sentinel — data wins", () => {
     // Status is free text upstream, so the sentinel COULD collide. When it does,

@@ -727,7 +727,7 @@ describe("sendApprovedReports", () => {
     expect(res.output).toContain("Site row not found for id=rec_orphan");
   });
 
-  it("flips Status → maintenance + stamps Launched at after a Launch report sends (M6b)", async () => {
+  it("flips Status → maintained + stamps Launched at after a Launch report sends (M6b)", async () => {
     const base = makeFakeBase({
       Reports: [reportRow({ "Report type": "Launch" })],
       Websites: [siteRow({ Status: "launch" })],
@@ -737,7 +737,7 @@ describe("sendApprovedReports", () => {
     const res = await sendApprovedReports({ resend: client });
     expect(res.code).toBe(0);
     expect(res.output).toContain("✓ sent:");
-    expect(res.output).toContain("flipped to maintenance");
+    expect(res.output).toContain("flipped to maintained");
 
     // The flip writes Status + Launched at to the Websites row (NOT the Reports row).
     const flip = base.__calls.find(
@@ -748,7 +748,7 @@ describe("sendApprovedReports", () => {
     );
     expect(flip).toBeDefined();
     expect(flip!.kind === "update" && flip!.records[0]!.id).toBe("rec_site_acme");
-    expect(flip!.kind === "update" && flip!.records[0]!.fields["Status"]).toBe("maintenance");
+    expect(flip!.kind === "update" && flip!.records[0]!.fields["Status"]).toBe("maintained");
     expect(flip!.kind === "update" && flip!.records[0]!.fields["Launched at"]).toBeDefined();
   });
 
@@ -812,7 +812,7 @@ describe("sendApprovedReports", () => {
     expect(stamp).toBeUndefined();
   });
 
-  it("self-heals a stranded Launch on the 409 path: the conflict-resolved send still flips Status → maintenance", async () => {
+  it("self-heals a stranded Launch on the 409 path: the conflict-resolved send still flips Status → maintained", async () => {
     const base = makeFakeBase({
       Reports: [reportRow({ "Report type": "Launch" })],
       Websites: [siteRow({ Status: "launch" })],
@@ -822,7 +822,7 @@ describe("sendApprovedReports", () => {
     const res = await sendApprovedReports({ resend: client });
 
     expect(res.code).toBe(0);
-    expect(res.output).toContain("flipped to maintenance");
+    expect(res.output).toContain("flipped to maintained");
 
     // The Launch flip runs after the (conflict-resolved) success, so a launch that
     // sent-but-never-flipped on the prior run reconciles here.
@@ -833,7 +833,7 @@ describe("sendApprovedReports", () => {
         c.records[0]!.fields["Status"] !== undefined,
     );
     expect(flip).toBeDefined();
-    expect(flip!.kind === "update" && flip!.records[0]!.fields["Status"]).toBe("maintenance");
+    expect(flip!.kind === "update" && flip!.records[0]!.fields["Status"]).toBe("maintained");
   });
 
   it("does not fail the already-sent email when the launch flip errors (M6b)", async () => {

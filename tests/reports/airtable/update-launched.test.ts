@@ -13,11 +13,11 @@ function fakeBase() {
 }
 
 describe("updateLaunched", () => {
-  it("writes Status=maintenance + Launched at", async () => {
+  it("writes Status=maintained + Launched at", async () => {
     const { base, calls } = fakeBase();
     await updateLaunched(base, "rec1", "2026-06-12T00:00:00Z");
     expect(calls[0]!.fields).toMatchObject({
-      Status: "maintenance",
+      Status: "maintained",
       "Launched at": "2026-06-12T00:00:00Z",
     });
   });
