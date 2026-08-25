@@ -234,7 +234,14 @@ describe("the site_schedule mirror", () => {
     );
   });
 
-  it("without a mirror the summary line carries no mirror keys", async () => {
+  it("without a mirror the line SAYS SO, and carries no mirror counters", async () => {
+    // A null mirror writes nothing and throws nothing, so before `mirror=absent`
+    // the only trace was the ABSENCE of a suffix — indistinguishable at a glance
+    // from a healthy run. That is precisely how the dual-write ran dead in
+    // production: the daily-reports draft step had no Turso credentials, and the
+    // hourly sync re-importing site_schedule from Airtable hid the consequence.
+    // Counters still stay off — reporting mirrored=0 for a mirror that never
+    // existed would claim a zero-result write that was never attempted.
     const log = quietLog();
     const base = makeFakeBase({ Websites: [] });
     await writeNextDueDates(
@@ -244,7 +251,7 @@ describe("the site_schedule mirror", () => {
       TODAY,
     );
     const line = log.mock.calls.flat().join("\n");
-    expect(line).toContain("NEXT_DUE_WRITE wrote=1 skipped=0 failed=0");
+    expect(line).toContain("NEXT_DUE_WRITE wrote=1 skipped=0 failed=0 mirror=absent");
     expect(line).not.toContain("mirrored=");
     expect(line).not.toContain("mirror_missed=");
   });

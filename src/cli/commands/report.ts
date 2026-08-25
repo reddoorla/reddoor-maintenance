@@ -217,9 +217,13 @@ export async function writeNextDueDates(
   // failed= keeps a write outage visible: without it wrote+skipped silently
   // undercounts, and a FULL outage prints wrote=0 skipped=0 — indistinguishable
   // from an empty fleet.
+  // A null mirror writes nothing and throws nothing, so its only trace used to
+  // be an ABSENT suffix — which reads exactly like a healthy run. `mirror=absent`
+  // states it instead. Counters stay off in that case deliberately: `mirrored=0`
+  // would claim a write that returned nothing, not one that was never attempted.
   const mirrorNote = scheduleMirror
     ? ` mirrored=${mirrored} mirror_failed=${mirrorFailed} mirror_missed=${mirrorMissed}`
-    : "";
+    : " mirror=absent";
   console.log(`NEXT_DUE_WRITE wrote=${wrote} skipped=${skipped} failed=${failed}${mirrorNote}`);
 }
 
