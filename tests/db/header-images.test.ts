@@ -117,6 +117,18 @@ describe("backfillHeaderImages", () => {
     );
   });
 
+  // REGRESSION (2026-08-24): Airtable's uploadAttachment APPENDS, so a stacked field's
+  // NEWEST file is the tail. Reading [0] served the oldest forever — how a pre-clean-plate
+  // header reached a live announcement (#574/#577). Must stay in step with the mapping in
+  // reports/airtable/websites.ts, or the Turso mirror and the send path disagree.
+  it("headerImageAttachment takes the NEWEST attachment, not the oldest", () => {
+    const stacked = [
+      { url: "https://airtable.example/signed/old", filename: "old.jpg", type: "image/jpeg" },
+      { url: "https://airtable.example/signed/new", filename: "new.jpg", type: "image/jpeg" },
+    ];
+    expect(headerImageAttachment(site("recX", "X", stacked))?.filename).toBe("new.jpg");
+  });
+
   it("headerImageAttachment tolerates malformed attachment cells", () => {
     expect(headerImageAttachment(site("recX", "X", "not an array"))).toBeNull();
     expect(headerImageAttachment(site("recX", "X", [{}]))).toBeNull();
