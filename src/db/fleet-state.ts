@@ -485,6 +485,22 @@ export async function mirrorReportPatch(
   await db.updateTable("reports").set(patch).where("id", "=", reportId).execute();
 }
 
+/**
+ * Store a freshly rendered report body, replacing whatever was there.
+ *
+ * Deliberately NOT part of `ReportMirrorPatch`: that patch is the request path's
+ * write-through (approve, override, delivery status), and a rendered body is
+ * produced by a batch job with sharp, never by a dashboard POST. Keeping it out
+ * means a handler cannot accidentally write megabytes of HTML from a request.
+ *
+ * It REPLACES unconditionally. The importer's `when-missing` mode skips a report
+ * that already has a body — correct for an import, wrong here: a refresh whose
+ * entire purpose is showing the newest commentary must overwrite.
+ */
+export async function storeRenderedHtml(db: Db, reportId: string, html: string): Promise<void> {
+  await db.updateTable("reports").set({ rendered_html: html }).where("id", "=", reportId).execute();
+}
+
 /** By rec id (the PK) — approve-report's read. */
 export async function getReportById(db: Db, id: string): Promise<ReportRow | null> {
   const r = await db.selectFrom("reports").selectAll().where("id", "=", id).executeTakeFirst();
