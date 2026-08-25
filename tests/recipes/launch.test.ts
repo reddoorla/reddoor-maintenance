@@ -89,6 +89,25 @@ describe("recipes/launch", () => {
     expect(fields["Lighthouse — SEO"]).toBe(95);
   });
 
+  it("hands the created row to deps.reportMirror (#539 Phase 5 create-side dual-write)", async () => {
+    const base = makeFakeBase(websitesSeed());
+    const seen: Array<{ id: string; fields: Record<string, unknown> }> = [];
+
+    await launch(siteOf(), {
+      ...deps(base),
+      reportMirror: {
+        created: async (rec: { id: string; fields: Record<string, unknown> }) => {
+          seen.push(rec);
+        },
+        body: async () => {},
+        patch: async () => {},
+      },
+    });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.fields["Report type"]).toBe("Launch");
+  });
+
   it("flips Draft ready=true so the launch draft enters the approve queue (BLOCKER)", async () => {
     const base = makeFakeBase(websitesSeed());
     await launch(siteOf(), deps(base));
@@ -135,6 +154,49 @@ describe("recipes/launch", () => {
         c.records[0]!.fields["Draft ready"] === true,
     );
     expect(draftReadyUpdate).toBeDefined();
+  });
+
+  it("mirrors the reused Launch row's refreshed scores (#539 Phase 5)", async () => {
+    const today = new Date();
+    const period = today.toISOString().slice(0, 7);
+    const base = makeFakeBase({
+      Websites: websitesSeed().Websites,
+      Reports: [
+        {
+          id: "rec_existing_launch",
+          fields: {
+            "Report ID": "Acme Co — Launch — existing",
+            Site: ["rec_site_acme"],
+            "Report type": "Launch",
+            Period: period,
+            "Lighthouse — Performance": 10,
+          },
+        },
+      ],
+    });
+    const patched: Array<{ id: string; patch: Record<string, unknown> }> = [];
+
+    await launch(siteOf(), {
+      ...deps(base),
+      reportMirror: {
+        created: async () => {},
+        body: async () => {},
+        patch: async (id: string, patch: Record<string, unknown>) => {
+          patched.push({ id, patch });
+        },
+      },
+    });
+
+    const scores = patched.find((p) => p.patch.lighthouse_performance !== undefined);
+    expect(scores).toMatchObject({
+      id: "rec_existing_launch",
+      patch: {
+        lighthouse_performance: 87,
+        lighthouse_accessibility: 91,
+        lighthouse_best_practices: 100,
+        lighthouse_seo: 95,
+      },
+    });
   });
 
   it("refreshes the reused Launch row's Lighthouse scores with the fresh audit (no stale email)", async () => {

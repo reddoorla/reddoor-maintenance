@@ -348,6 +348,15 @@ function scenarios(state: { createdId: string }): Scenario[] {
       run: (db) => fleetState.mirrorReportPatch(db, "recA", { approved_to_send: 1 }),
     },
     {
+      // The create-side mirror (#539 Phase 5). Its upsert resolves the conflict
+      // on `reports.id`, so the plan must land on the PK — an unindexed
+      // conflict target would scan the whole HTML-bearing table on every draft.
+      name: "mirrorReportInsert (create-side write-through)",
+      covers: ["mirrorReportInsert"],
+      run: (db) =>
+        fleetState.mirrorReportInsert(db, { id: "recA", fields: { "Report ID": "acme-2026-08" } }),
+    },
+    {
       // Writes a whole rendered body by PK. Gated like every other reports
       // write: an unindexed predicate here would scan a table whose rows carry
       // ~50–90 KB of HTML each.

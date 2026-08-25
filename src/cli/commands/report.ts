@@ -17,6 +17,7 @@ import {
 } from "../../alerts/analytics-health.js";
 import type { ReportType } from "../../reports/types.js";
 import type { ScheduleMirror } from "../../audits/health-mirror.js";
+import type { ReportMirror } from "../../reports/report-mirror.js";
 import { operatorEmail } from "../../util/operator.js";
 
 export type ReportCommandOptions = {
@@ -155,7 +156,17 @@ async function runDueDraft(): Promise<{ output: string; code: number }> {
   // Phase 3 dual-write (#539): mirror real next-due writes into site_schedule.
   // Null when libSQL creds are absent — the Airtable path is unchanged.
   const { makeScheduleMirrorBestEffort } = await import("../../audits/health-mirror.js");
-  const result = await draftDueReports(base, new Date(), await makeScheduleMirrorBestEffort());
+  // Phase 5 dual-write (#539): mirror this batch's report writes — the created
+  // rows, their bodies, and the queue flags. Unlike the schedule mirror this is
+  // never null — creds-absent is reported on the REPORT_MIRROR line rather than
+  // being indistinguishable from success, the failure mode that hid #585.
+  const { makeReportMirror } = await import("../../reports/report-mirror.js");
+  const result = await draftDueReports(
+    base,
+    new Date(),
+    await makeScheduleMirrorBestEffort(),
+    await makeReportMirror(),
+  );
   await alertOnFleetAnalyticsFailure(result.health);
   return { output: result.output, code: result.code };
 }
@@ -260,7 +271,13 @@ export async function draftDueReports(
   base: AirtableBase,
   today: Date,
   scheduleMirror: ScheduleMirror | null = null,
+  /** #539 Phase 5: Turso write-through for rows this batch CREATES. Forwarded
+   *  to every draftReportForSite call — the nightly batch is the only unattended
+   *  creator of report rows, so a dropped pass-through leaves each new draft
+   *  invisible to the Turso-backed console. */
+  reportMirror?: ReportMirror,
 ): Promise<{ output: string; code: number; health: AnalyticsRunHealth }> {
+  const mirrorOpt = reportMirror ? { reportMirror } : {};
   const websites = await listWebsites(base);
   // ONE unfiltered fetch for the whole fleet. Per-site queries can't be pushed to
   // Airtable anyway (linked-record fields aren't formula-filterable by record id),
@@ -345,6 +362,7 @@ export async function draftDueReports(
           period,
           completeRowId: existing.id,
           existingRow: existing,
+          ...mirrorOpt,
         });
         existing.draftReady = result.queued === true;
         lines.push(
@@ -396,7 +414,10 @@ export async function draftDueReports(
       // Pass the SAME key the guard searches by, so the stamped Period always
       // matches a future run's reportPeriodKey(dueDate) — even if this run lags
       // into a later month than the dueDate.
-      const result = await draftReportForSite(base, item.site, item.reportType, { period });
+      const result = await draftReportForSite(base, item.site, item.reportType, {
+        period,
+        ...mirrorOpt,
+      });
       lines.push(draftLine(result.reportRow?.reportId, result.queued, result.supersededIds));
       // Keep the in-memory snapshot current so the guard's `.some()` check on the
       // NEXT iteration of this same run catches a row we JUST created — rather than
@@ -447,11 +468,19 @@ async function runSingleSiteDraft(
   if (!site) {
     throw Object.assign(new Error(`No Websites row matched slug "${slug}"`), { exitCode: 2 });
   }
+  // Phase 5 dual-write (#539) — but only on the path that actually creates a
+  // row. A preview writes nothing to Airtable, so opening a libSQL handle for
+  // it would be pure cost (and `report --preview` is the one draft path that
+  // deliberately does no store IO at all).
+  const reportMirror = opts.previewOnly
+    ? null
+    : await (await import("../../reports/report-mirror.js")).makeReportMirror();
   const result = await draftReportForSite(opts.previewOnly ? null : base, site, opts.reportType, {
     previewOnly: opts.previewOnly,
     // Only forced on. Left undefined, draftReportForSite keeps its default
     // (enrich iff there is a base), so the real drafting path is untouched.
     ...(opts.enrich ? { enrich: true } : {}),
+    ...(reportMirror ? { reportMirror } : {}),
   });
   if (opts.previewOnly) {
     return { output: `Preview written to ${result.htmlPath}`, code: 0 };

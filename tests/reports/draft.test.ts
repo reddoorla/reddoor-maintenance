@@ -718,3 +718,82 @@ describe("draftReportForSite", () => {
     });
   });
 });
+
+/**
+ * #539 Phase 5: the create-side dual-write. `draftReportForSite` is the ONE
+ * place the nightly path creates a Reports row, so the mirror is threaded
+ * through its options and handed to `createDraft` — the mirror is deliberately
+ * NOT defaulted here, because a default would open a real libSQL handle from
+ * inside a unit suite whenever a developer happens to have TURSO_* exported.
+ * Wiring lives at the composition roots (report.ts), pinned by its own test.
+ */
+describe("draftReportForSite → the Turso create mirror", () => {
+  it("hands the created record to options.reportMirror", async () => {
+    const base = makeFakeBase({ Reports: [] });
+    const seen: Array<{ id: string; fields: Record<string, unknown> }> = [];
+
+    const result = await draftReportForSite(base, siteFixture(), "Maintenance", {
+      ...NO_HEADER,
+      reportMirror: {
+        created: async (rec: { id: string; fields: Record<string, unknown> }) => {
+          seen.push(rec);
+        },
+        body: async () => {},
+        patch: async () => {},
+      },
+    });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.id).toBe(result.reportRow!.id);
+    expect(seen[0]!.fields["Report type"]).toBe("Maintenance");
+  });
+
+  it("stores the rendered body in Turso, where the console preview reads it", async () => {
+    // The row alone is not enough: /api/reports/:id/preview serves
+    // `reports.rendered_html`, so a mirrored row with no body renders "No
+    // rendered body stored for this report." until the next hourly sync
+    // re-downloads the very attachment we just uploaded.
+    const base = makeFakeBase({ Reports: [] });
+    const bodies: Array<{ id: string; html: string }> = [];
+
+    const result = await draftReportForSite(base, siteFixture(), "Maintenance", {
+      ...NO_HEADER,
+      reportMirror: {
+        created: async () => {},
+        body: async (id, html) => {
+          bodies.push({ id, html });
+        },
+        patch: async () => {},
+      },
+    });
+
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]!.id).toBe(result.reportRow!.id);
+    expect(bodies[0]!.html).toBe(result.html);
+  });
+
+  it("mirrors the queue flag, so a fresh draft reads as queued in Turso", async () => {
+    const base = makeFakeBase({ Reports: [] });
+    const patched: Array<{ id: string; patch: Record<string, unknown> }> = [];
+
+    const result = await draftReportForSite(base, siteFixture(), "Maintenance", {
+      ...NO_HEADER,
+      reportMirror: {
+        created: async () => {},
+        body: async () => {},
+        patch: async (id, patch) => {
+          patched.push({ id, patch: patch as Record<string, unknown> });
+        },
+      },
+    });
+
+    expect(patched).toEqual([{ id: result.reportRow!.id, patch: { draft_ready: 1 } }]);
+  });
+
+  it("drafts exactly as before when no mirror is supplied", async () => {
+    const base = makeFakeBase({ Reports: [] });
+    await expect(
+      draftReportForSite(base, siteFixture(), "Maintenance", NO_HEADER),
+    ).resolves.toMatchObject({ queued: true });
+  });
+});

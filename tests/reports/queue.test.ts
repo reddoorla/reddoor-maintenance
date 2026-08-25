@@ -128,3 +128,71 @@ describe("queueDraft", () => {
     expect(out).toEqual({ queued: true, supersededIds: [] });
   });
 });
+
+/**
+ * #539 Phase 5. The mirror has to follow EVERY flag this function writes, not
+ * just the new draft's: un-queueing the superseded rows is the whole point of
+ * `queueDraft`, so a mirror covering only `report.id` would leave the console
+ * showing a site with two queued reports until the next hourly sync — the
+ * single-queue rule appearing broken while Airtable held it perfectly.
+ */
+describe("queueDraft → the Turso mirror", () => {
+  it("mirrors the superseded row's flag as well as the queued one", async () => {
+    const base = makeFakeBase({
+      Reports: [
+        rep("maint", "siteA", "Maintenance"),
+        rep("test", "siteA", "Testing", { "Draft ready": false }),
+      ],
+    });
+    const patched: Array<{ id: string; patch: Record<string, unknown> }> = [];
+
+    await queueDraft(
+      base,
+      { id: "test", siteId: "siteA", reportType: "Testing" },
+      {
+        created: async () => {},
+        body: async () => {},
+        patch: async (id, patch) => {
+          patched.push({ id, patch: patch as Record<string, unknown> });
+        },
+      },
+    );
+
+    expect(patched).toEqual([
+      { id: "maint", patch: { draft_ready: 0 } },
+      { id: "test", patch: { draft_ready: 1 } },
+    ]);
+  });
+
+  it("mirrors the stand-down too, so a blocked draft is not left queued in Turso", async () => {
+    const base = makeFakeBase({
+      Reports: [
+        rep("test", "siteA", "Testing"),
+        rep("maint", "siteA", "Maintenance", { "Draft ready": true }),
+      ],
+    });
+    const patched: Array<{ id: string; patch: Record<string, unknown> }> = [];
+
+    await queueDraft(
+      base,
+      { id: "maint", siteId: "siteA", reportType: "Maintenance" },
+      {
+        created: async () => {},
+        body: async () => {},
+        patch: async (id, patch) => {
+          patched.push({ id, patch: patch as Record<string, unknown> });
+        },
+      },
+    );
+
+    expect(patched).toEqual([{ id: "maint", patch: { draft_ready: 0 } }]);
+  });
+
+  it("queues exactly as before when no mirror is passed", async () => {
+    const base = makeFakeBase({
+      Reports: [rep("new", "siteA", "Maintenance", { "Draft ready": false })],
+    });
+    const out = await queueDraft(base, { id: "new", siteId: "siteA", reportType: "Maintenance" });
+    expect(out).toEqual({ queued: true, supersededIds: [] });
+  });
+});

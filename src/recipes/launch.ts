@@ -14,6 +14,7 @@ import {
   updateReportScores,
 } from "../reports/airtable/reports.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
+import type { ReportMirror } from "../reports/report-mirror.js";
 import { queueDraft } from "../reports/queue.js";
 import { uploadAttachment } from "../reports/airtable/attachments.js";
 import { renderReportHtml } from "../reports/render.js";
@@ -41,6 +42,12 @@ export type LaunchDeps = {
   audit?: (site: Site) => Promise<AuditResult[]>;
   /** Airtable handle. Defaults to opening the live base from credentials. */
   base?: AirtableBase;
+  /** #539 Phase 5: Turso write-through for everything this recipe writes — the
+   *  Launch row (or a re-run's refreshed scores), the rendered body, and the
+   *  queue flag. Wired at the CLI composition root, never defaulted here — the
+   *  unit suite calls `launch` with a fake base and must not open a real
+   *  libSQL handle. */
+  reportMirror?: ReportMirror;
 };
 
 /**
@@ -139,9 +146,21 @@ export async function launch(site: Site, deps: LaunchDeps = {}): Promise<LaunchR
       // otherwise the sent email (which reads the row) ships stale scores. The
       // create path already writes fresh scores via createDraft.
       await updateReportScores(base, existing.id, scores, today);
+      // Mirror the same refresh — see the announce reuse path for why.
+      await deps.reportMirror?.patch(existing.id, {
+        lighthouse_performance: scores.performance,
+        lighthouse_accessibility: scores.accessibility,
+        lighthouse_best_practices: scores.bestPractices,
+        lighthouse_seo: scores.seo,
+        completed_on: today.toISOString().slice(0, 10),
+      });
       report = existing;
     } else {
-      report = await createDraft(base, draftInputFor(target, scores, today, period));
+      report = await createDraft(
+        base,
+        draftInputFor(target, scores, today, period),
+        deps.reportMirror?.created,
+      );
     }
   } catch (err) {
     steps.push({ name: "draft", result: errorOf(err) });
@@ -174,6 +193,8 @@ export async function launch(site: Site, deps: LaunchDeps = {}): Promise<LaunchR
         `${slug}-${today.toISOString().slice(0, 10)}.html`,
         "text/html",
       );
+      // The console preview reads the body from Turso, not the attachment.
+      await deps.reportMirror?.body(report.id, html);
     } catch (uploadErr) {
       console.warn(
         `⚠ Launch preview upload skipped for ${target.name}: ${
@@ -184,7 +205,11 @@ export async function launch(site: Site, deps: LaunchDeps = {}): Promise<LaunchR
     // Critical: NOT wrapped — a failure here must surface as a failed launch. queueDraft
     // supersedes any lower-tier (Maintenance/Testing) drafts queued for this site; a Launch is
     // top tier so it only stands down if another Launch/Announcement is already queued.
-    await queueDraft(base, { id: report.id, siteId: target.id, reportType: "Launch" });
+    await queueDraft(
+      base,
+      { id: report.id, siteId: target.id, reportType: "Launch" },
+      deps.reportMirror,
+    );
   } catch (err) {
     steps.push({ name: "draft", result: errorOf(err) });
     return stop();

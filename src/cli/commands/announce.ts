@@ -27,7 +27,13 @@ export async function runAnnounceCommand(
   site: string | undefined,
   _opts: AnnounceCommandOptions,
 ): Promise<{ output: string; code: number }> {
-  const result = await announce(site ? { site } : {});
+  // #539 Phase 5: the create-side Turso dual-write is wired HERE rather than
+  // inside `announce`, so a unit suite calling the recipe with a fake base can
+  // never open a real libSQL handle (and, with TURSO_* exported locally, write
+  // into production).
+  const { makeReportMirror } = await import("../../reports/report-mirror.js");
+  const reportMirror = await makeReportMirror();
+  const result = await announce({ ...(site ? { site } : {}), reportMirror });
   const hadError = result.results.some((r) => r.status === "error");
   return { output: formatAnnounceResult(result), code: hadError ? 1 : 0 };
 }
