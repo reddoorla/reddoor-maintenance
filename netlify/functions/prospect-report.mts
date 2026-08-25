@@ -58,7 +58,12 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
       headers: {
         "content-type": "text/html; charset=utf-8",
         "x-robots-tag": "noindex, nofollow",
-        "cache-control": "public, max-age=300",
+        // `private`, not `public`: the token in the URL means a shared cache
+        // could never serve this to someone without it, so this isn't a leak
+        // — but the document names this specific business and enumerates its
+        // weaknesses, and `public` invites CDNs/corporate proxies along the
+        // path to retain a copy. Keep it in the recipient's own browser.
+        "cache-control": "private, max-age=300",
       },
     });
   } catch (err) {
