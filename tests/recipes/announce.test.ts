@@ -69,7 +69,7 @@ function analyticsHealthWrite(
 }
 
 describe("recipes/announce", () => {
-  it("processes only maintenance sites (skips launch-period and hosting)", async () => {
+  it("processes only maintained sites (skips launching and hosted-only)", async () => {
     const base = makeFakeBase({
       Websites: [
         {
@@ -77,7 +77,7 @@ describe("recipes/announce", () => {
           fields: {
             Name: "Acme Co",
             url: "https://acme.example.com",
-            Status: "maintenance",
+            Status: "maintained",
             "Report recipients (To)": "client@acme.example.com",
             ...scoredFields(),
           },
@@ -87,7 +87,7 @@ describe("recipes/announce", () => {
           fields: {
             Name: "Beta Co",
             url: "https://beta.example.com",
-            Status: "launch period",
+            Status: "launching",
             ...scoredFields(),
           },
         },
@@ -96,7 +96,7 @@ describe("recipes/announce", () => {
           fields: {
             Name: "Gamma Co",
             url: "https://gamma.example.com",
-            Status: "hosting",
+            Status: "hosted-only",
             ...scoredFields(),
           },
         },
@@ -117,7 +117,7 @@ describe("recipes/announce", () => {
           fields: {
             Name: "Acme Co",
             url: "https://acme.example.com",
-            Status: "maintenance",
+            Status: "maintained",
             ...scoredFields(),
           },
         },
@@ -126,7 +126,7 @@ describe("recipes/announce", () => {
           fields: {
             Name: "Delta Co",
             url: "https://delta.example.com",
-            Status: "maintenance",
+            Status: "maintained",
             ...scoredFields(),
           },
         },
@@ -139,7 +139,7 @@ describe("recipes/announce", () => {
     expect(result.results.map((r) => r.site)).toEqual(["Delta Co"]);
   });
 
-  it("skips a maintenance site missing any of the four scores (no create)", async () => {
+  it("skips a maintained site missing any of the four scores (no create)", async () => {
     const base = makeFakeBase({
       Websites: [
         {
@@ -147,7 +147,7 @@ describe("recipes/announce", () => {
           fields: {
             Name: "Acme Co",
             url: "https://acme.example.com",
-            Status: "maintenance",
+            Status: "maintained",
             // seoScore intentionally omitted → null → skip
             pScore: 87,
             rScore: 91,
@@ -173,7 +173,7 @@ describe("recipes/announce", () => {
           fields: {
             Name: "Acme Co",
             url: "https://acme.example.com",
-            Status: "maintenance",
+            Status: "maintained",
             "Report recipients (To)": "client@acme.example.com",
             ...scoredFields(),
           },
@@ -222,7 +222,7 @@ describe("recipes/announce", () => {
           fields: {
             Name: "Acme Co",
             url: "https://acme.example.com",
-            Status: "maintenance",
+            Status: "maintained",
             ...scoredFields(),
           },
         },
@@ -247,7 +247,7 @@ describe("recipes/announce", () => {
           fields: {
             Name: "Acme Co",
             url: "https://acme.example.com",
-            Status: "maintenance",
+            Status: "maintained",
             "Report recipients (To)": "client@acme.example.com",
             ...scoredFields(),
           },
@@ -314,7 +314,7 @@ describe("recipes/announce", () => {
           fields: {
             Name: "Acme Co",
             url: "https://acme.example.com",
-            Status: "maintenance",
+            Status: "maintained",
             "Report recipients (To)": "client@acme.example.com",
             ...scoredFields(),
           },
@@ -342,7 +342,7 @@ describe("recipes/announce", () => {
           fields: {
             Name: "Bad Co",
             url: "https://bad.example.com",
-            Status: "maintenance",
+            Status: "maintained",
             ...scoredFields(),
           },
         },
@@ -351,7 +351,7 @@ describe("recipes/announce", () => {
           fields: {
             Name: "Good Co",
             url: "https://good.example.com",
-            Status: "maintenance",
+            Status: "maintained",
             "Report recipients (To)": "client@good.example.com",
             ...scoredFields(),
           },
@@ -404,7 +404,7 @@ describe("recipes/announce", () => {
           fields: {
             Name: "Acme Co",
             url: "https://acme.example.com",
-            Status: "maintenance",
+            Status: "maintained",
             "GA4 property ID": "G-123",
             ...scoredFields(),
           },
@@ -431,7 +431,7 @@ describe("recipes/announce", () => {
           fields: {
             Name: "Acme Co",
             url: "https://acme.example.com",
-            Status: "maintenance",
+            Status: "maintained",
             "GA4 property ID": "G-123",
             ...scoredFields(),
           },
@@ -457,7 +457,7 @@ describe("recipes/announce", () => {
           fields: {
             Name: "Acme Co",
             url: "https://acme.example.com",
-            Status: "maintenance",
+            Status: "maintained",
             "GA4 property ID": "G-123",
             ...scoredFields(),
           },

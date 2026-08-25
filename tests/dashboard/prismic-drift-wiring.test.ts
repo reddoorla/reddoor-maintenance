@@ -37,7 +37,7 @@ const siteRecord = (over: Partial<FakeRecord["fields"]> = {}): FakeRecord => ({
   fields: {
     Name: "Espada",
     url: "https://espada.example.com",
-    Status: "maintenance",
+    Status: "maintained",
     "point of contact": "owner@espada.example.com",
     "Header image": [{ url: "https://x/h.png", filename: "h.png", type: "image/png" }],
     "Prismic Models": "fail",

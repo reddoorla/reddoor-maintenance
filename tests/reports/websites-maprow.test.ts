@@ -60,11 +60,19 @@ describe("mapRow frequency coercion", () => {
 });
 
 describe("mapRow status", () => {
-  it("reads Airtable's 'legacy' AND 'deprecated' cells as the single canonical 'archived'", () => {
-    expect(mapRow({ id: "r1", fields: { Status: "legacy" } }).status).toBe("archived");
-    expect(mapRow({ id: "r1", fields: { Status: "deprecated" } }).status).toBe("archived");
-    // ...while statusRaw still distinguishes which cell it actually was.
-    expect(mapRow({ id: "r1", fields: { Status: "legacy" } }).statusRaw).toBe("legacy");
+  it("reads an 'archived' cell as archived — the merge now lives in the DATA, not the map", () => {
+    // This test used to prove that 'legacy' and 'deprecated' BOTH read as
+    // 'archived'. That merge happened for real on 2026-08-24: all 12 archived
+    // cells were rewritten to 'archived' and, on 2026-08-25, the two old options
+    // were deleted from the Airtable field outright. With the alias map gone
+    // (stage 3), neither old name is translated any more — so the merge is no
+    // longer a mapping this seam performs, it is a fact about the stored data.
+    expect(mapRow({ id: "r1", fields: { Status: "archived" } }).status).toBe("archived");
+    expect(mapRow({ id: "r1", fields: { Status: "archived" } }).statusRaw).toBe("archived");
+    // A retired name is now an anomaly, not a synonym: it survives verbatim so
+    // the cockpit can surface it rather than absorbing it into 'archived'.
+    expect(mapRow({ id: "r1", fields: { Status: "legacy" } }).status).toBe("legacy");
+    expect(isArchivedStatus(mapRow({ id: "r1", fields: { Status: "legacy" } }).status)).toBe(false);
   });
 
   it("isArchivedStatus recognizes the archived state only", () => {
