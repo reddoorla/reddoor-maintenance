@@ -34,11 +34,12 @@ export const DUPLICATE_CHECK_LOOKBACK = 25;
 /** The workflow file dispatched when `PROSPECT_AUDIT_WORKFLOW_FILE` is unset. */
 export const DEFAULT_PROSPECT_AUDIT_WORKFLOW_FILE = "prospect-audit.yml";
 
-/** Named per the design doc's stated audience (Tucker, Tim, Erik) — the default
- *  shown in the trigger's success message when `PROSPECT_AUDIT_RECIPIENTS` is
- *  not mirrored into this cockpit's own env (recipients are configured on the
- *  PRIVATE dispatch repo's workflow, not here). */
-export const DEFAULT_PROSPECT_AUDIT_RECIPIENTS_LABEL = "Tucker, Tim and Erik";
+/** Shown in the success message when `PROSPECT_AUDIT_RECIPIENTS` is not mirrored
+ *  into this cockpit's env. The authoritative list lives in the PRIVATE dispatch
+ *  repo's workflow secrets, which this endpoint cannot read — so name no names.
+ *  A message that confidently lists the wrong people is worse than a vague one,
+ *  and it would drift silently the day someone is added. */
+export const DEFAULT_PROSPECT_AUDIT_RECIPIENTS_LABEL = "the configured recipients";
 
 /** Workflow inputs sent with the dispatch. All-string, matching GitHub Actions'
  *  `workflow_dispatch` input typing. */

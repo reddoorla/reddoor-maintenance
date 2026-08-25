@@ -366,3 +366,12 @@ describe("makeWorkflowDispatchDispatcher", () => {
     expect(result).toEqual({ ok: false, error: expect.stringContaining("network down") });
   });
 });
+
+describe("the default recipients label", () => {
+  it("names nobody, because this endpoint cannot read the real list", () => {
+    // The authoritative recipients live in the PRIVATE dispatch repo's workflow
+    // secrets. A message here that confidently lists people would drift silently
+    // the day someone is added, and be wrong with no way to notice.
+    expect(DEFAULT_PROSPECT_AUDIT_RECIPIENTS_LABEL).not.toMatch(/tucker|tim|erik|@/i);
+  });
+});
