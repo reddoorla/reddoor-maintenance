@@ -1593,3 +1593,40 @@ describe("report preview links point at the dashboard's own route", () => {
     expect(html).toContain("no preview yet");
   });
 });
+
+describe("the commentary editor is offered only where the template renders it", () => {
+  it("renders for a Maintenance report", () => {
+    const html = renderSiteDashboardHtml(siteRow({ name: "Acme" }), [
+      reportRow({
+        id: "recM",
+        reportType: "Maintenance",
+        draftReady: true,
+        approvedToSend: false,
+        sentAt: null,
+      }),
+    ]);
+    expect(html).toContain('data-commentary-for="recM"');
+  });
+
+  it("does NOT render for Announcement or Launch, whose templates ignore commentary", () => {
+    // `buildAnnouncementMjml` and `buildLaunchMjml` never reference the field —
+    // measured in tests/reports/renders-commentary.test.ts against the real MJML
+    // pipeline. Offering the box on those types means an operator writes
+    // commentary, sees it save, previews it, and finds nothing, with no
+    // explanation. Same principle as not offering it on a sent report.
+    for (const reportType of ["Announcement", "Launch"] as const) {
+      const html = renderSiteDashboardHtml(siteRow({ name: "Acme" }), [
+        reportRow({
+          id: "recX",
+          reportType,
+          draftReady: true,
+          approvedToSend: false,
+          sentAt: null,
+        }),
+      ]);
+      expect(html, `${reportType} must not offer a commentary box`).not.toContain(
+        'data-commentary-for="recX"',
+      );
+    }
+  });
+});
