@@ -6,7 +6,34 @@ import {
   getProspectAuditByToken,
   generateToken,
   isValidToken,
+  listRecentProspectAudits,
+  MAX_RECENT_PROSPECT_AUDITS,
 } from "../../src/db/prospect-audits.js";
+
+/** Insert a row with an EXPLICIT created_at, bypassing createProspectAudit's
+ *  own `new Date().toISOString()` — several rows created in a tight loop can
+ *  land on the same millisecond, which would make ordering assertions flaky.
+ *  Mirrors the direct-insert pattern the "rejects a duplicate token" test
+ *  above already uses. */
+async function insertAuditAt(
+  db: Db,
+  id: string,
+  createdAt: string,
+  over: { url?: string; business?: string | null; status?: string } = {},
+): Promise<void> {
+  await db
+    .insertInto("prospect_audits")
+    .values({
+      id,
+      token: generateToken(),
+      url: over.url ?? "https://example.com",
+      business: over.business ?? null,
+      created_at: createdAt,
+      status: over.status ?? "complete",
+      result_json: "{}",
+    })
+    .execute();
+}
 
 let db: Db;
 
@@ -120,5 +147,54 @@ describe("prospect_audits", () => {
     expect(isValidToken("A".repeat(23))).toBe(false);
     expect(isValidToken("has/slash_but_22_chars")).toBe(false);
     expect(isValidToken("")).toBe(false);
+  });
+});
+
+describe("listRecentProspectAudits", () => {
+  it("returns rows newest-first, selecting the listing columns (not result_json)", async () => {
+    await insertAuditAt(db, "pa_1", "2026-08-01T00:00:00.000Z", { business: "Oldest Co" });
+    await insertAuditAt(db, "pa_2", "2026-08-03T00:00:00.000Z", { business: "Middle Co" });
+    await insertAuditAt(db, "pa_3", "2026-08-02T00:00:00.000Z", { business: "In-between Co" });
+
+    const rows = await listRecentProspectAudits(db, 10);
+    expect(rows.map((r) => r.id)).toEqual(["pa_2", "pa_3", "pa_1"]);
+    expect(rows.map((r) => r.business)).toEqual(["Middle Co", "In-between Co", "Oldest Co"]);
+    for (const row of rows) {
+      expect(row).not.toHaveProperty("result_json");
+      expect(row).toHaveProperty("token");
+    }
+  });
+
+  it("caps at the requested limit when fewer rows exist than the cap", async () => {
+    await insertAuditAt(db, "pa_a", "2026-08-01T00:00:00.000Z");
+    await insertAuditAt(db, "pa_b", "2026-08-02T00:00:00.000Z");
+    await insertAuditAt(db, "pa_c", "2026-08-03T00:00:00.000Z");
+
+    const rows = await listRecentProspectAudits(db, 2);
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.id)).toEqual(["pa_c", "pa_b"]);
+  });
+
+  it("defensively caps at MAX_RECENT_PROSPECT_AUDITS even when a caller asks for far more", async () => {
+    const total = MAX_RECENT_PROSPECT_AUDITS + 5;
+    const base = Date.parse("2026-01-01T00:00:00.000Z");
+    for (let i = 0; i < total; i++) {
+      await insertAuditAt(db, `pa_bulk_${i}`, new Date(base + i * 1000).toISOString());
+    }
+    const rows = await listRecentProspectAudits(db, 10_000);
+    expect(rows).toHaveLength(MAX_RECENT_PROSPECT_AUDITS);
+    // Still newest-first: the last-inserted (highest i, latest created_at) row leads.
+    expect(rows[0]!.id).toBe(`pa_bulk_${total - 1}`);
+  });
+
+  it("clamps a non-positive or non-finite limit up to at least 1 row", async () => {
+    await insertAuditAt(db, "pa_only", "2026-08-01T00:00:00.000Z");
+    expect(await listRecentProspectAudits(db, 0)).toHaveLength(1);
+    expect(await listRecentProspectAudits(db, -5)).toHaveLength(1);
+    expect(await listRecentProspectAudits(db, Number.NaN)).toHaveLength(1);
+  });
+
+  it("returns [] against an empty table", async () => {
+    expect(await listRecentProspectAudits(db, 10)).toEqual([]);
   });
 });
