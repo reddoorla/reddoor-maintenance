@@ -238,6 +238,15 @@ function recipientsLine(site: WebsiteRow): string {
   return `<span class="recipients">To ${to.map(escapeHtml).join(", ")}${ccPart}</span>`;
 }
 
+/** Inline commentary editor for a report still awaiting send (#539 Phase 4).
+ *  Rendered only where the server would accept the write — `setReportCommentary`
+ *  refuses once `sentAt` is set, and offering a box that can only be rejected is
+ *  worse than offering none. */
+function commentaryEditor(r: ReportRow): string {
+  const url = `/api/reports/${encodeURIComponent(r.id)}/commentary`;
+  return `<div class="commentary"><label for="commentary-${escapeHtml(r.id)}">Commentary <span class="muted">(re-rendered into the email at send)</span></label><textarea id="commentary-${escapeHtml(r.id)}" data-commentary-for="${escapeHtml(r.id)}" data-commentary-url="${escapeHtml(url)}" rows="3">${escapeHtml(r.commentary ?? "")}</textarea><span class="commentary-saved" data-for="${escapeHtml(r.id)}"></span></div>`;
+}
+
 function pendingRow(r: ReportRow, site: WebsiteRow, now: Date): string {
   const type = escapeHtml(r.reportType);
   const period = r.period ? escapeHtml(r.period) : "—";
@@ -249,7 +258,7 @@ function pendingRow(r: ReportRow, site: WebsiteRow, now: Date): string {
     ? `<a href="${escapeHtml(safeUrl(r.renderedHtmlAttachment.url))}" rel="noopener noreferrer" title="rendered at draft time — Commentary/subject edits after drafting are not reflected">draft preview ▸</a>`
     : `<span class="muted">no preview yet</span>`;
   const sendLine = sendTimingLine(now);
-  return `<li><div class="pending-head"><strong>${type}</strong> <span class="muted">${period}</span> ${preflightChip(findings)} ${preview} ${approveButton(r, blocked)}</div><div class="pending-info">${recipientsLine(site)} ${sendLine}</div>${checklistBlock(r)}${overrideControl(r)}</li>`;
+  return `<li><div class="pending-head"><strong>${type}</strong> <span class="muted">${period}</span> ${preflightChip(findings)} ${preview} ${approveButton(r, blocked)}</div><div class="pending-info">${recipientsLine(site)} ${sendLine}</div>${checklistBlock(r)}${commentaryEditor(r)}${overrideControl(r)}</li>`;
 }
 
 function pendingSection(reports: ReportRow[], site: WebsiteRow, now: Date): string {
@@ -299,7 +308,17 @@ function reportRow(r: ReportRow, site: WebsiteRow): string {
         approveBlockers(site, r).some((f) => f.level === "fail"),
       )
     : "";
-  return `<tr><td>${date}</td><td>${type}</td><td><code>${id}</code></td><td>${ga}</td><td>${search}</td><td>${link}</td><td>${action}</td></tr>`;
+  // Commentary stays editable for the WHOLE unsent window, not just while a
+  // report is awaiting approval: approving schedules the send for the next 09:23
+  // UTC run, so there is a window of up to ~24h in which a typo is still
+  // fixable, and the server's lock is `sentAt`. A pending report already carries
+  // its editor in the pending list, so this covers the rest — approved-awaiting-
+  // send, and drafts not yet marked ready.
+  const commentary =
+    r.sentAt === null && !isPendingApproval(r)
+      ? `<tr class="commentary-row"><td colspan="7">${commentaryEditor(r)}</td></tr>`
+      : "";
+  return `<tr><td>${date}</td><td>${type}</td><td><code>${id}</code></td><td>${ga}</td><td>${search}</td><td>${link}</td><td>${action}</td></tr>${commentary}`;
 }
 
 const SUBMISSIONS_PER_SITE_CAP = 25;
@@ -968,6 +987,27 @@ export function renderSiteDashboardHtml(
     document.querySelectorAll("input:not([type=checkbox])[data-detail-field], textarea[data-detail-field]").forEach((i) => {
       i.addEventListener("blur", () => {
         if (i.value !== i.defaultValue) saveDetail(i);
+      });
+    });
+    // Report commentary: save on blur, only when it actually changed. Same
+    // shape as the site-details editor, but keyed on the REPORT id rather than a
+    // field name, so it posts { text } to the report's own endpoint.
+    document.querySelectorAll("textarea[data-commentary-for]").forEach((t) => {
+      t.addEventListener("blur", () => {
+        if (t.value === t.defaultValue) return;
+        const span = document.querySelector('.commentary-saved[data-for="' + t.dataset.commentaryFor + '"]');
+        fetch(t.dataset.commentaryUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text: t.value }),
+        })
+          .then((r) => {
+            if (span) span.textContent = r.ok ? " \u2713" : " \u2717";
+            if (r.ok) t.defaultValue = t.value;
+          })
+          .catch(() => {
+            if (span) span.textContent = " \u2717";
+          });
       });
     });
     ${SUBMISSION_STATUS_SCRIPT}

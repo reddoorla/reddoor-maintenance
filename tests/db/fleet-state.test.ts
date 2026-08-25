@@ -491,6 +491,35 @@ describe("mirrorReportPatch (approve/webhook write-through)", () => {
     const db = await importOf([RICH]);
     await expect(mirrorReportPatch(db, "recX", {})).resolves.toBeUndefined();
   });
+  it("carries COMMENTARY, so an edit shows on the next render not the next sync", async () => {
+    // #539 Phase 4: the console now edits report commentary, and the page
+    // re-renders straight after the write. Without commentary in the patch the
+    // operator would save, see the OLD text, and reasonably conclude the save
+    // had failed — up to an hour, until the sync caught up.
+    const db = await importOf([RICH]);
+    await db
+      .insertInto("reports")
+      .values({
+        id: "recRPT_C",
+        site_id: "recRICH",
+        report_id: "RC",
+        report_type: "Maintenance",
+        commentary: "before",
+        draft_ready: 1,
+        approved_to_send: 0,
+        send_override: 0,
+      })
+      .execute();
+
+    await mirrorReportPatch(db, "recRPT_C", { commentary: "after" });
+
+    const row = await db
+      .selectFrom("reports")
+      .select("commentary")
+      .where("id", "=", "recRPT_C")
+      .executeTakeFirst();
+    expect(row?.commentary).toBe("after");
+  });
 });
 
 /**
