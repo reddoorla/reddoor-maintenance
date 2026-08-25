@@ -89,10 +89,10 @@ export async function generateForTargets(
         ...(settleMs === undefined ? {} : { settleMs }),
       });
       if (opts.writeAirtable) {
-        // replace: the field must hold exactly the current header — see
+        // replaceIn: the field must hold exactly the current header — see
         // uploadAttachment, where appending left readers on a stale [0].
         await uploadAttachment(row.id, "Header image", gen.bytes, gen.filename, gen.contentType, {
-          replace: true,
+          replaceIn: "Websites",
         });
         let stored = "";
         if (opts.storeDb) {

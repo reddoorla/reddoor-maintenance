@@ -62,9 +62,14 @@ export async function fetchAttachmentBytes(
  * pre-clean-plate header reached a 2026-08-24 announcement and got a second
  * headline printed over its baked one.
  *
- * Pass `{ replace: true }` for a field that should hold exactly one current
- * file (the site header). Omit it where history is wanted (per-period report
- * previews, which are one row per period anyway).
+ * Pass `{ replaceIn: "<table>" }` for a field that should hold exactly one
+ * current file (the site header). Omit it where history is wanted (per-period
+ * report previews, which are one row per period anyway).
+ *
+ * The table is part of the option rather than a separate flag because the prune
+ * PATCHes `/v0/{baseId}/{table}/{recordId}` — an earlier version omitted the
+ * table segment entirely and 403'd on every call, so `replace` cannot be asked
+ * for without supplying it.
  */
 export async function uploadAttachment(
   recordId: string,
@@ -72,7 +77,7 @@ export async function uploadAttachment(
   body: Uint8Array | string,
   filename: string,
   contentType: string,
-  opts: { replace?: boolean } = {},
+  opts: { replaceIn?: string } = {},
 ): Promise<void> {
   const apiKey = process.env.AIRTABLE_PAT;
   const baseId = process.env.AIRTABLE_BASE_ID;
@@ -96,7 +101,7 @@ export async function uploadAttachment(
   if (!res.ok) {
     throw new Error(`Airtable upload failed: ${res.status} ${res.statusText} ${await res.text()}`);
   }
-  if (!opts.replace) return;
+  if (!opts.replaceIn) return;
 
   // The upload response carries the record with the field's full, post-append
   // attachment list. Keep only the last entry (the one just uploaded) by
@@ -108,10 +113,35 @@ export async function uploadAttachment(
     const body = (await res.json()) as {
       fields?: Record<string, Array<{ id?: string }> | undefined>;
     };
-    const list = body.fields?.[fieldName] ?? [];
+    // Airtable keys this response's `fields` by FIELD ID, not field name — verified
+    // live 2026-08-24: {"id":"rec…","createdTime":…,"fields":{"fldBUAW180p8MIpvh":[…]}}.
+    // Looking it up by NAME therefore yielded undefined, `list` was [], and the
+    // `length <= 1` guard returned silently — so `replace` never pruned anything on a
+    // real call, while a name-keyed test stub kept it green. Eleven site header fields
+    // stacked before the discrepancy surfaced. The endpoint writes exactly ONE field,
+    // so its response carries exactly one entry: take it whatever it is keyed by, and
+    // fall back to the name in case Airtable ever switches.
+    const lists = Object.values(body.fields ?? {}).filter((v) => Array.isArray(v));
+    const list = body.fields?.[fieldName] ?? (lists.length === 1 ? lists[0] : undefined);
+    if (!list) {
+      // Never return quietly here: silence is what let the no-op ship.
+      console.warn(
+        `⚠ attachment prune skipped for "${fieldName}": upload response carried no ` +
+          `attachment list (fields keys: ${Object.keys(body.fields ?? {}).join(", ") || "none"})`,
+      );
+      return;
+    }
+    if (list.length <= 1) return;
     const newest = list[list.length - 1]?.id;
-    if (!newest || list.length <= 1) return;
-    const patch = await fetch(`https://api.airtable.com/v0/${baseId}/${recordId}`, {
+    if (!newest) {
+      console.warn(`⚠ kept ${list.length} attachments in "${fieldName}": newest entry has no id`);
+      return;
+    }
+    // /v0/{baseId}/{table}/{recordId} — the table segment is REQUIRED. Without it
+    // Airtable answers 403 Forbidden (not 404), which reads like a token-scope
+    // problem and sent this in the wrong direction once already.
+    const patchUrl = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(opts.replaceIn)}/${recordId}`;
+    const patch = await fetch(patchUrl, {
       method: "PATCH",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({ fields: { [fieldName]: [{ id: newest }] } }),
