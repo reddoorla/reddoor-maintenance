@@ -559,6 +559,7 @@ describe("extractPage — a fully marked-up page", () => {
     expect(page.text).toContain("roof repair in Boise We repair flat commercial roofs");
     expect(page.text).not.toContain("should not appear in text");
     expect(page.text).not.toContain("Acme Roofing — Commercial");
+    expect(page.text).not.toContain("<!doctype");
   });
 });
 
@@ -590,11 +591,49 @@ Expected: FAIL — cannot resolve `../../src/prospect/extract.js`.
 import { parse, HTMLElement, NodeType } from "node-html-parser";
 import type { PageExtract } from "./types.js";
 
-/** Tags whose subtree text a human reader never sees. HEAD is included so the
- *  `<title>` doesn't leak into the body text the JS-dependence diff measures. */
-const NON_TEXT = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "SVG", "HEAD"]);
+/** Subtrees a browser never renders. Skipped WHOLE — including their headings,
+ *  images and schema blocks, which a <template> stamp would otherwise donate to
+ *  the page's real counts. */
+const OPAQUE = new Set(["STYLE", "NOSCRIPT", "TEMPLATE", "SVG"]);
+
+/** Elements that force a break in rendered text. Inline elements deliberately do
+ *  NOT: `<b>Acme</b>Corp` is one word on screen and must stay one word here,
+ *  because the raw-vs-rendered word diff is what the audit's headline number is
+ *  made of, and an invented word break biases it in only one direction. */
+const BLOCK = new Set([
+  "ADDRESS", "ARTICLE", "ASIDE", "BLOCKQUOTE", "BR", "DD", "DIV", "DL", "DT",
+  "FIELDSET", "FIGCAPTION", "FIGURE", "FOOTER", "FORM", "H1", "H2", "H3", "H4",
+  "H5", "H6", "HEADER", "HR", "LI", "MAIN", "NAV", "OL", "P", "PRE", "SECTION",
+  "TABLE", "TD", "TH", "TR", "UL",
+]);
 
 const collapse = (s: string): string => s.replace(/\s+/g, " ").trim();
+
+/** Rendered text of one element: text nodes concatenated with NO inserted
+ *  separator, a newline at each block boundary, whitespace collapsed last —
+ *  which is what a browser shows. TITLE and SCRIPT are dropped wherever they
+ *  appear, since a <title> misplaced in <body> is still invisible. */
+function textOf(el: HTMLElement): string {
+  const parts: string[] = [];
+  const walk = (node: HTMLElement): void => {
+    for (const child of node.childNodes) {
+      if (child.nodeType === NodeType.TEXT_NODE) {
+        parts.push(child.text);
+        continue;
+      }
+      if (child.nodeType !== NodeType.ELEMENT_NODE) continue;
+      const e = child as HTMLElement;
+      const tag = e.tagName;
+      if (OPAQUE.has(tag) || tag === "SCRIPT" || tag === "TITLE") continue;
+      const block = BLOCK.has(tag);
+      if (block) parts.push("\n");
+      walk(e);
+      if (block) parts.push("\n");
+    }
+  };
+  walk(el);
+  return collapse(parts.join(""));
+}
 
 type Collected = {
   metas: HTMLElement[];
@@ -603,21 +642,16 @@ type Collected = {
   images: HTMLElement[];
   headings: { level: number; text: string }[];
   title: string | null;
-  textParts: string[];
 };
 
-function collect(el: HTMLElement, out: Collected, inNonText: boolean): void {
+/** One ordered pass for the element-level signals. Document order matters: the
+ *  heading sequence drives a later level-skip check. */
+function collect(el: HTMLElement, out: Collected): void {
   for (const child of el.childNodes) {
-    if (child.nodeType === NodeType.TEXT_NODE) {
-      if (!inNonText) {
-        const t = collapse(child.text);
-        if (t) out.textParts.push(t);
-      }
-      continue;
-    }
     if (child.nodeType !== NodeType.ELEMENT_NODE) continue;
     const e = child as HTMLElement;
     const tag = e.tagName;
+    if (OPAQUE.has(tag)) continue;
     switch (tag) {
       case "META":
         out.metas.push(e);
@@ -635,25 +669,30 @@ function collect(el: HTMLElement, out: Collected, inNonText: boolean): void {
         if ((e.getAttribute("type") ?? "").toLowerCase().trim() === "application/ld+json") {
           out.jsonLd.push(e.text);
         }
-        break;
+        // Raw-text element — nothing inside to walk.
+        continue;
       case "H1":
       case "H2":
       case "H3":
       case "H4":
       case "H5":
       case "H6": {
-        const text = collapse(e.text);
+        const text = textOf(e);
         if (text) out.headings.push({ level: Number(tag.slice(1)), text });
         break;
       }
     }
-    collect(e, out, inNonText || NON_TEXT.has(tag));
+    collect(e, out);
   }
 }
 
 /** Parse one HTML document into the signals every downstream check reads.
  *  Pure — the same input always yields the same extract. */
 export function extractPage(html: string): PageExtract {
+  const root = parse(html);
+  // node-html-parser surfaces `<!doctype html>` as a TEXT node that is a SIBLING
+  // of <html>, not a doctype node, so the walk starts at <html> when there is one.
+  const documentEl = root.querySelector("html") ?? root;
   const out: Collected = {
     metas: [],
     links: [],
@@ -661,9 +700,8 @@ export function extractPage(html: string): PageExtract {
     images: [],
     headings: [],
     title: null,
-    textParts: [],
   };
-  collect(parse(html), out, false);
+  collect(documentEl, out);
 
   const social: Record<string, string> = {};
   let metaDescription: string | null = null;
@@ -693,7 +731,9 @@ export function extractPage(html: string): PageExtract {
       withAlt: out.images.filter((i) => (i.getAttribute("alt") ?? "").trim().length > 0).length,
     },
     hasViewportMeta,
-    text: out.textParts.join(" "),
+    // Body-scoped: <head> has no visible text, and scoping here rather than
+    // filtering keeps the rule obvious.
+    text: textOf(root.querySelector("body") ?? documentEl),
   };
 }
 ```
@@ -701,7 +741,18 @@ export function extractPage(html: string): PageExtract {
 - [ ] **Step 5: Run the test — must pass**
 
 Run: `pnpm vitest run tests/prospect/extract.test.ts`
-Expected: 9 passed.
+Expected: 9 passed, plus the parser-reality cases below.
+
+- [ ] **Step 5b: Pin the parser-reality cases**
+
+`node-html-parser` diverges from a browser in ways that quietly corrupt exactly the fields Task 6 measures. Add a second describe block with inline HTML strings (no new fixture files) covering each:
+
+- a `<template>` holding an `<h1>`, an `<img alt>` and a JSON-LD `<script>` contributes NOTHING to `headings`, `images` or `jsonLd`, while a real sibling `<h1>` still counts;
+- `<p>Welcome to <b>Acme</b>Corp today.</p>` → text contains `"AcmeCorp"`, one word;
+- `<p>Call <a href="tel:+12085550199">208-555-0199</a>. Now.</p>` → text contains `"208-555-0199."`, no space before the period;
+- `<p>alpha</p><p>beta</p>` with no whitespace between the tags → `"alpha beta"`, not `"alphabeta"`;
+- `<h1>Big Bold<br>Headline</h1>` → heading text `"Big Bold Headline"`;
+- a `<title>` inside `<body>` stays out of `text` but is still read into `title`.
 
 - [ ] **Step 6: Commit**
 
