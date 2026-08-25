@@ -58,6 +58,11 @@ function stubDeps(): PipelineDeps {
         businessName: "Acme Roofing",
         business: "A residential roofing company operating in Boise, Idaho.",
         entityClarity: { score: 50, missing: [] },
+        categoryQueries: [
+          "roof repair contractor Boise",
+          "roof replacement cost",
+          "flat roof repair Idaho",
+        ],
         buyerQuestions: [
           { question: "cost?", answered: "no", quotable: false, page: null, evidence: null },
           {

@@ -79,6 +79,7 @@ const analyze = (
   businessName: "Acme",
   business: "Acme",
   entityClarity: { score: 80, missing: [] },
+  categoryQueries: ["roof repair contractor Boise", "how much does a roof replacement cost"],
   buyerQuestions: answers.map((answered, i) => ({
     question: `q${i}`,
     answered,
