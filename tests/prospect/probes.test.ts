@@ -1,10 +1,14 @@
 import { describe, it, expect } from "vitest";
+import type Anthropic from "@anthropic-ai/sdk";
 import {
   buildQueries,
+  resolveBusinessName,
   domainOf,
   runVisibilityProbes,
   perplexityEngine,
+  claudeWebSearchEngine,
   type VisibilityEngine,
+  type ClaudeMessageCreate,
 } from "../../src/prospect/probes.js";
 
 const engine = (
@@ -28,9 +32,11 @@ describe("buildQueries", () => {
       ],
       competitors: [],
     });
-    expect(queries[0]).toBe("who is Acme Roofing");
-    expect(queries[1]).toBe("Acme Roofing reviews");
-    expect(queries).toContain("What does a roof repair cost?");
+    expect(queries[0]).toEqual({ query: "who is Acme Roofing", kind: "branded" });
+    expect(queries[1]).toEqual({ query: "Acme Roofing reviews", kind: "branded" });
+    const byQuery = queries.map((q) => q.query);
+    expect(byQuery).toContain("What does a roof repair cost?");
+    expect(queries.find((q) => q.query === "What does a roof repair cost?")!.kind).toBe("category");
     expect(queries.length).toBeLessThanOrEqual(8);
   });
 
@@ -41,8 +47,12 @@ describe("buildQueries", () => {
       buyerQuestions: [],
       competitors: ["bestroofs.example", "toproof.example"],
     });
-    expect(queries).toContain("Acme Roofing vs bestroofs.example");
-    expect(queries).toContain("Acme Roofing vs toproof.example");
+    const byQuery = queries.map((q) => q.query);
+    expect(byQuery).toContain("Acme Roofing vs bestroofs.example");
+    expect(byQuery).toContain("Acme Roofing vs toproof.example");
+    expect(queries.find((q) => q.query === "Acme Roofing vs bestroofs.example")!.kind).toBe(
+      "competitor",
+    );
   });
 
   it("falls back to the domain when there is no business name", () => {
@@ -52,7 +62,43 @@ describe("buildQueries", () => {
       buyerQuestions: [],
       competitors: [],
     });
-    expect(queries[0]).toBe("who is acme.example");
+    expect(queries[0]!.query).toBe("who is acme.example");
+  });
+
+  it("falls back to the domain when the business field is prose, not a name", () => {
+    // The regression: AnalyzeResult.business (now businessName) can still come
+    // back as a description if a model ignores the schema's field name — a
+    // sentence-length "name" is unsearchable and must not reach the query.
+    const queries = buildQueries({
+      business:
+        "A residential and commercial roofing contractor serving the Boise, Idaho metro area.",
+      url: "https://acme.example/",
+      buyerQuestions: [],
+      competitors: [],
+    });
+    expect(queries[0]!.query).toBe("who is acme.example");
+  });
+});
+
+describe("resolveBusinessName", () => {
+  it("keeps a short proper-noun name", () => {
+    expect(resolveBusinessName("Acme Roofing", "https://acme.example/")).toBe("Acme Roofing");
+  });
+
+  it("falls back to the domain for a long description", () => {
+    const description =
+      "A residential and commercial roofing contractor serving the Boise, Idaho metro area.";
+    expect(resolveBusinessName(description, "https://acme.example/")).toBe("acme.example");
+  });
+
+  it("falls back to the domain for a short multi-sentence description", () => {
+    expect(resolveBusinessName("Acme Roofing. We serve Boise.", "https://acme.example/")).toBe(
+      "acme.example",
+    );
+  });
+
+  it("falls back to the domain when the name is empty", () => {
+    expect(resolveBusinessName("", "https://acme.example/")).toBe("acme.example");
   });
 });
 
@@ -71,7 +117,7 @@ describe("runVisibilityProbes", () => {
     competitors: [],
   };
 
-  it("scores a citation or a brand mention as visible", async () => {
+  it("scores a category answer, but treats a branded echo as a different signal (brandedRecognized)", async () => {
     const engines = [
       engine("perplexity", (q) =>
         q.startsWith("who is")
@@ -79,12 +125,20 @@ describe("runVisibilityProbes", () => {
           : { answer: "Several contractors serve Boise.", citedDomains: ["bestroofs.example"] },
       ),
     ];
-    const result = await runVisibilityProbes(args, engines);
+    const result = await runVisibilityProbes(args, engines, { delayMs: 0 });
     expect(result.answers).toHaveLength(3);
     const branded = result.answers.find((a) => a.query === "who is Acme Roofing")!;
+    expect(branded.kind).toBe("branded");
     expect(branded.domainCited).toBe(true);
     expect(branded.brandMentioned).toBe(true);
-    expect(result.visibilityScore).toBe(33);
+    const category = result.answers.find((a) => a.kind === "category")!;
+    expect(category.domainCited).toBe(false);
+    expect(category.brandMentioned).toBe(false);
+    // The branded "who is" query got a real citation, but the one real buyer
+    // question got nothing back — the score reflects that. A name-echo-based
+    // score would have read 1-of-3 = 33% here.
+    expect(result.visibilityScore).toBe(0);
+    expect(result.brandedRecognized).toBe(true);
   });
 
   it("counts the competitors the engines cited instead", async () => {
@@ -94,12 +148,14 @@ describe("runVisibilityProbes", () => {
         citedDomains: ["bestroofs.example", "www.bestroofs.example", "toproof.example"],
       })),
     ];
-    const result = await runVisibilityProbes(args, engines);
+    const result = await runVisibilityProbes(args, engines, { delayMs: 0 });
     expect(result.competitorsSeen[0]).toEqual({ domain: "bestroofs.example", count: 6 });
     expect(result.visibilityScore).toBe(0);
+    expect(result.brandedRecognized).toBe(false);
   });
 
   it("keeps the answers of a working engine when another one fails", async () => {
+    const sleepCalls: number[] = [];
     const engines = [
       engine("perplexity", () => ({ answer: "Acme Roofing.", citedDomains: ["acme.example"] })),
       {
@@ -109,9 +165,17 @@ describe("runVisibilityProbes", () => {
         },
       },
     ];
-    const result = await runVisibilityProbes(args, engines);
+    const result = await runVisibilityProbes(args, engines, {
+      delayMs: 0,
+      sleep: async (ms) => {
+        sleepCalls.push(ms);
+      },
+    });
     expect(result.answers.every((a) => a.engine === "perplexity")).toBe(true);
     expect(result.visibilityScore).toBe(100);
+    expect(result.brandedRecognized).toBe(true);
+    // 401 is not a rate limit — it must not trigger the retry pause.
+    expect(sleepCalls).not.toContain(2000);
   });
 
   it("throws when every engine fails, so the stage degrades", async () => {
@@ -123,13 +187,117 @@ describe("runVisibilityProbes", () => {
         },
       },
     ];
-    await expect(runVisibilityProbes(args, engines)).rejects.toThrow(/no visibility engine/i);
+    await expect(runVisibilityProbes(args, engines, { delayMs: 0 })).rejects.toThrow(
+      /no visibility engine/i,
+    );
   });
 
-  it("truncates the receipt snippet", async () => {
+  it("truncates the receipt snippet and stamps when it was asked", async () => {
     const engines = [engine("perplexity", () => ({ answer: "z".repeat(900), citedDomains: [] }))];
-    const result = await runVisibilityProbes(args, engines);
+    const result = await runVisibilityProbes(args, engines, { delayMs: 0 });
     expect(result.answers[0]!.snippet.length).toBeLessThanOrEqual(300);
+    expect(result.answers[0]!.askedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+  });
+
+  it("treats the prospect's own apex as the same site when the crawl ran on www", async () => {
+    const wwwArgs = {
+      url: "https://www.acme.example/",
+      business: "Acme Roofing",
+      buyerQuestions: ["Do you offer emergency repairs?"],
+      competitors: [],
+    };
+    const engines = [
+      engine("perplexity", () => ({
+        answer: "Yes — see the emergency page.",
+        citedDomains: ["https://acme.example/emergency"],
+      })),
+    ];
+    const result = await runVisibilityProbes(wwwArgs, engines, { delayMs: 0 });
+    const category = result.answers.find((a) => a.kind === "category")!;
+    expect(category.domainCited).toBe(true);
+    expect(result.competitorsSeen).toHaveLength(0);
+  });
+
+  it("treats an engine-cited subdomain of the prospect as the prospect's own, not a competitor", async () => {
+    const engines = [
+      engine("perplexity", () => ({
+        answer: "Check their blog for pricing.",
+        citedDomains: ["https://blog.acme.example/pricing"],
+      })),
+    ];
+    const result = await runVisibilityProbes(args, engines, { delayMs: 0 });
+    const category = result.answers.find((a) => a.kind === "category")!;
+    expect(category.domainCited).toBe(true);
+    expect(result.competitorsSeen).toHaveLength(0);
+  });
+
+  it("treats a cited parent apex as the prospect's own when the crawl itself ran on a subdomain", async () => {
+    const subdomainArgs = {
+      url: "https://shop.acme.example/",
+      business: "Acme Roofing",
+      buyerQuestions: ["What does a roof repair cost?"],
+      competitors: [],
+    };
+    const engines = [
+      engine("perplexity", () => ({
+        answer: "Acme Roofing handles most repairs.",
+        citedDomains: ["https://acme.example/"],
+      })),
+    ];
+    const result = await runVisibilityProbes(subdomainArgs, engines, { delayMs: 0 });
+    const category = result.answers.find((a) => a.kind === "category")!;
+    expect(category.domainCited).toBe(true);
+    expect(result.competitorsSeen).toHaveLength(0);
+  });
+
+  it("paces successive asks to the same engine using the injected delay", async () => {
+    const sleepCalls: number[] = [];
+    const fakeSleep = async (ms: number) => {
+      sleepCalls.push(ms);
+    };
+    const engines = [engine("perplexity", () => ({ answer: "ok", citedDomains: [] }))];
+    // args has 3 queries (2 branded + 1 category) — 2 gaps between them.
+    await runVisibilityProbes(args, engines, { delayMs: 10, sleep: fakeSleep });
+    expect(sleepCalls.filter((ms) => ms === 10)).toHaveLength(2);
+  });
+
+  it("retries once after a longer pause on a 429, keeping the answer if the retry succeeds", async () => {
+    const sleepCalls: number[] = [];
+    const fakeSleep = async (ms: number) => {
+      sleepCalls.push(ms);
+    };
+    let attempt = 0;
+    const flaky: VisibilityEngine = {
+      name: "perplexity",
+      ask: async (q) => {
+        if (!q.startsWith("who is")) return { answer: "ok", citedDomains: [] };
+        attempt++;
+        if (attempt === 1) throw new Error("429 Too Many Requests");
+        return { answer: "Acme Roofing.", citedDomains: ["acme.example"] };
+      },
+    };
+    const result = await runVisibilityProbes(args, [flaky], { delayMs: 0, sleep: fakeSleep });
+    expect(sleepCalls).toContain(2000);
+    const branded = result.answers.find((a) => a.query === "who is Acme Roofing");
+    expect(branded).toBeDefined();
+    expect(branded!.domainCited).toBe(true);
+  });
+
+  it("does not retry, and records nothing, when the retry also fails", async () => {
+    const engines: VisibilityEngine[] = [
+      {
+        name: "perplexity",
+        ask: async (q) => {
+          if (q.startsWith("who is")) throw new Error("529 overloaded");
+          return { answer: "ok", citedDomains: [] };
+        },
+      },
+    ];
+    const result = await runVisibilityProbes(args, engines, {
+      delayMs: 0,
+      sleep: async () => {},
+    });
+    expect(result.answers.some((a) => a.query === "who is Acme Roofing")).toBe(false);
   });
 });
 
@@ -164,5 +332,125 @@ describe("perplexityEngine", () => {
   it("throws on a non-2xx so the engine degrades", async () => {
     const stub = async () => new Response("rate limited", { status: 429 });
     await expect(perplexityEngine("pk-test", stub).ask("q")).rejects.toThrow(/429/);
+  });
+});
+
+describe("claudeWebSearchEngine", () => {
+  const usage: Anthropic.Usage = {
+    cache_creation: null,
+    cache_creation_input_tokens: null,
+    cache_read_input_tokens: null,
+    inference_geo: null,
+    input_tokens: 10,
+    output_tokens: 10,
+    output_tokens_details: null,
+    server_tool_use: null,
+    service_tier: null,
+  };
+
+  function claudeMessage(
+    content: Anthropic.ContentBlock[],
+    stop_reason: Anthropic.StopReason,
+  ): Anthropic.Message {
+    return {
+      id: "msg_test",
+      container: null,
+      content,
+      model: "claude-opus-5",
+      role: "assistant",
+      stop_details: null,
+      stop_reason,
+      stop_sequence: null,
+      type: "message",
+      usage,
+    };
+  }
+
+  function textBlock(
+    text: string,
+    citations: Anthropic.TextCitation[] | null = null,
+  ): Anthropic.TextBlock {
+    return { type: "text", text, citations };
+  }
+
+  function searchResultBlock(url: string): Anthropic.WebSearchResultBlock {
+    return {
+      type: "web_search_result",
+      url,
+      title: "result",
+      encrypted_content: "x",
+      page_age: null,
+    };
+  }
+
+  function toolResultBlock(
+    content: Anthropic.WebSearchToolResultBlockContent,
+  ): Anthropic.WebSearchToolResultBlock {
+    return {
+      type: "web_search_tool_result",
+      tool_use_id: "tu_1",
+      caller: { type: "direct" },
+      content,
+    };
+  }
+
+  it("accumulates text across a pause_turn resume", async () => {
+    const callMessageCounts: number[] = [];
+    const createMessage: ClaudeMessageCreate = async (params) => {
+      callMessageCounts.push(params.messages.length);
+      return callMessageCounts.length === 1
+        ? claudeMessage([textBlock("Part one.")], "pause_turn")
+        : claudeMessage([textBlock("Part two.")], "end_turn");
+    };
+    const out = await claudeWebSearchEngine(createMessage).ask("who is Acme Roofing");
+    expect(out.answer).toBe("Part one.\nPart two.");
+    // First call carries just the user turn; the second carries the pushed-back
+    // assistant turn too — proof the pause was actually resumed, not dropped.
+    expect(callMessageCounts).toEqual([1, 2]);
+  });
+
+  it("collects citations from tool-result blocks and from text citations", async () => {
+    const citation: Anthropic.CitationsWebSearchResultLocation = {
+      type: "web_search_result_location",
+      url: "https://acme.example/",
+      title: "Acme",
+      cited_text: "Acme Roofing",
+      encrypted_index: "enc",
+    };
+    const createMessage: ClaudeMessageCreate = async () =>
+      claudeMessage(
+        [
+          textBlock("Acme Roofing is in Boise.", [citation]),
+          toolResultBlock([searchResultBlock("https://bestroofs.example/")]),
+        ],
+        "end_turn",
+      );
+    const out = await claudeWebSearchEngine(createMessage).ask("who is Acme Roofing");
+    expect([...out.citedDomains].sort()).toEqual(["acme.example", "bestroofs.example"]);
+  });
+
+  it("does not throw when a web-search tool result is the error variant", async () => {
+    const createMessage: ClaudeMessageCreate = async () =>
+      claudeMessage(
+        [
+          textBlock("No results found."),
+          toolResultBlock({ type: "web_search_tool_result_error", error_code: "unavailable" }),
+        ],
+        "end_turn",
+      );
+    const out = await claudeWebSearchEngine(createMessage).ask("who is Acme Roofing");
+    expect(out.citedDomains).toEqual([]);
+    expect(out.answer).toBe("No results found.");
+  });
+
+  it("stops at its turn bound when every turn pauses", async () => {
+    let calls = 0;
+    const createMessage: ClaudeMessageCreate = async () => {
+      calls++;
+      return claudeMessage([textBlock(`Turn ${calls}.`)], "pause_turn");
+    };
+    const out = await claudeWebSearchEngine(createMessage).ask("who is Acme Roofing");
+    expect(calls).toBe(4);
+    expect(out.answer.split("\n")).toHaveLength(4);
   });
 });

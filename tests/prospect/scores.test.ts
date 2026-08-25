@@ -74,6 +74,7 @@ const worstChecks: ChecksResult = {
 const analyze = (
   answers: AnalyzeResult["buyerQuestions"][number]["answered"][],
 ): AnalyzeResult => ({
+  businessName: "Acme",
   business: "Acme",
   entityClarity: { score: 80, missing: [] },
   buyerQuestions: answers.map((answered, i) => ({
@@ -87,7 +88,12 @@ const analyze = (
   narrative: { findability: "", readability: "", answers: "" },
 });
 
-const probes: ProbesResult = { answers: [], visibilityScore: 42, competitorsSeen: [] };
+const probes: ProbesResult = {
+  answers: [],
+  visibilityScore: 42,
+  brandedRecognized: true,
+  competitorsSeen: [],
+};
 
 describe("computeScores", () => {
   it("scores a perfect site at 100 across the deterministic tiers", () => {

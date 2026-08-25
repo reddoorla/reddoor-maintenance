@@ -33,6 +33,7 @@ function crawl(pageCount = 1): CrawlResult {
 // tests and as the source for the min/max boundary tests below (.slice(0, 3) for
 // the reject case, the full array for the accept-at-exactly-6 case).
 const validOutput = {
+  businessName: "Acme Roofing",
   business: "Acme Roofing — commercial roofing in Boise, Idaho",
   entityClarity: { score: 72, missing: ["service area"] },
   buyerQuestions: [

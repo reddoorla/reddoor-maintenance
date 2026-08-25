@@ -118,6 +118,11 @@ export type Fix = {
 };
 
 export type AnalyzeResult = {
+  /** The business's proper name, as a searchable proper noun — "Acme Roofing",
+   *  not a description of it. Empty string when the site never states one,
+   *  which is itself a finding. This is what the visibility probes query and
+   *  brand-match against; `business` below is prose and unsearchable. */
+  businessName: string;
   /** The model's read of what this company does, for whom, where. */
   business: string;
   entityClarity: { score: number; missing: string[] };
@@ -129,17 +134,37 @@ export type AnalyzeResult = {
 export type ProbeAnswer = {
   engine: string;
   query: string;
+  /** "branded" ("who is X" / "X reviews") always echoes the name back even when
+   *  an engine knows nothing real, so it cannot be trusted as a discoverability
+   *  signal. "category" is a real buyer question — the one the score is built
+   *  from. "competitor" is a head-to-head comparison query. */
+  kind: "branded" | "category" | "competitor";
   domainCited: boolean;
   brandMentioned: boolean;
   citedDomains: string[];
   /** First ~300 chars of the engine's answer — the report's receipt. */
   snippet: string;
+  /** ISO-8601, set when the answer came back — this stage's whole output is
+   *  quotable claims about a live third party, and answer engines' answers
+   *  drift, so a disputed line in a report needs a date attached. */
+  askedAt: string;
 };
 
 export type ProbesResult = {
   answers: ProbeAnswer[];
-  /** 0..100 — fraction of answers where the prospect was cited or mentioned. */
-  visibilityScore: number;
+  /** 0..100 — fraction of CATEGORY answers (real buyer questions) where the
+   *  prospect was cited or mentioned. Null — never 0 — when no category query
+   *  ran at all, e.g. the analyze stage failed and supplied no buyer questions.
+   *  Deliberately excludes branded answers: "who is X"/"X reviews" echo the name
+   *  back even when the engine knows nothing real, which would put a floor
+   *  under the score that has nothing to do with discoverability. */
+  visibilityScore: number | null;
+  /** Did any branded query produce a real citation of the prospect's own
+   *  domain — not merely an echo of the name in prose. Reported separately from
+   *  visibilityScore because it answers a different question ("does the engine
+   *  know this business exists at all") from the one the score answers ("would
+   *  it surface this business to someone who didn't already name it"). */
+  brandedRecognized: boolean;
   competitorsSeen: { domain: string; count: number }[];
 };
 

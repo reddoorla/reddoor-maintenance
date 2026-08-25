@@ -283,6 +283,8 @@ export function computeScores(input: {
     findability,
     readability,
     answers,
-    aiVisibility: probes ? pct(probes.visibilityScore) : null,
+    // visibilityScore is itself null (not 0) when no category query ran — pass
+    // that through rather than letting pct() coerce a missing measurement to 0.
+    aiVisibility: probes && probes.visibilityScore !== null ? pct(probes.visibilityScore) : null,
   };
 }
