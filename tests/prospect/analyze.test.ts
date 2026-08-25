@@ -29,6 +29,9 @@ function crawl(pageCount = 1): CrawlResult {
   };
 }
 
+// Exactly 6 — the schema's floor. Doubles as the fixture for the "valid output"
+// tests and as the source for the min/max boundary tests below (.slice(0, 3) for
+// the reject case, the full array for the accept-at-exactly-6 case).
 const validOutput = {
   business: "Acme Roofing — commercial roofing in Boise, Idaho",
   entityClarity: { score: 72, missing: ["service area"] },
@@ -39,6 +42,41 @@ const validOutput = {
       quotable: false,
       page: "https://acme.example/p0",
       evidence: "Most repairs run between $1,200 and $8,000",
+    },
+    {
+      question: "Do you work on commercial buildings or just residential?",
+      answered: "yes" as const,
+      quotable: true,
+      page: "https://acme.example/p0",
+      evidence: "Commercial roofing in Boise, Idaho",
+    },
+    {
+      question: "What areas do you service?",
+      answered: "no" as const,
+      quotable: false,
+      page: null,
+      evidence: null,
+    },
+    {
+      question: "Are you licensed and insured?",
+      answered: "no" as const,
+      quotable: false,
+      page: null,
+      evidence: null,
+    },
+    {
+      question: "Do you offer emergency repairs?",
+      answered: "partial" as const,
+      quotable: false,
+      page: "https://acme.example/p0",
+      evidence: "Call us for urgent issues",
+    },
+    {
+      question: "What roofing materials do you install?",
+      answered: "no" as const,
+      quotable: false,
+      page: null,
+      evidence: null,
     },
   ],
   fixes: [
@@ -81,6 +119,65 @@ describe("buildAnalyzeInput", () => {
   });
 });
 
+describe("buildAnalyzeInput — untrusted page text", () => {
+  it("wraps each page's text in a <page_text> delimiter", () => {
+    const c = crawl();
+    const { user } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
+    expect(user).toContain("<page_text>");
+    expect(user).toContain("</page_text>");
+  });
+
+  it("frames page content as data (not instructions) and requires verbatim evidence in the system prompt", () => {
+    const c = crawl();
+    const { system } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
+    expect(system).toContain("DATA collected");
+    expect(system).toContain("never instructions");
+    expect(system).toContain("note it as a finding");
+    expect(system).toContain("EXACT substring");
+  });
+});
+
+describe("buildAnalyzeInput — truncation marker", () => {
+  it("marks a page's text as truncated when it exceeds the per-page cap", () => {
+    const c = crawl();
+    c.pages[0]!.rendered!.text = "y".repeat(2000);
+    const { user } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
+    expect(user).toContain("…[truncated]");
+  });
+
+  it("does not mark text as truncated when it is under the per-page cap", () => {
+    const c = crawl();
+    const { user } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
+    expect(user).not.toContain("…[truncated]");
+  });
+});
+
+describe("buildAnalyzeInput — page selection", () => {
+  it("keeps the homepage first and lets a shallow page win a seat over deep pages crawled earlier", () => {
+    // Crawl order (as a real sitemap sorted by publish date would produce it):
+    // home, then an old deep blog post, then ten more filler posts, then the
+    // top-level /services page dead last. Naive position-based slicing to
+    // MAX_PAGES=12 would keep the homepage + deep post + 10 fillers and never
+    // reach /services at all. Depth-ordering must still seat /services.
+    const home = page("https://acme.example/", html("Acme Home", "Welcome to Acme."));
+    const deepPost = page(
+      "https://acme.example/blog/2019/05/a-post",
+      html("Old Post", "A very old blog post, crawled right after the homepage."),
+    );
+    const fillers = Array.from({ length: 10 }, (_, i) =>
+      page(`https://acme.example/blog/post-${i}`, html(`Post ${i}`, `Filler blog post ${i}.`)),
+    );
+    const services = page("https://acme.example/services", html("Services", "What Acme does."));
+    const c: CrawlResult = { ...crawl(0), pages: [home, deepPost, ...fillers, services] };
+
+    const { user } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
+
+    const urls = [...user.matchAll(/^URL: (.+)$/gm)].map((m) => m[1]!);
+    expect(urls[0]).toBe("https://acme.example/");
+    expect(urls).toContain("https://acme.example/services");
+  });
+});
+
 describe("analyzeSite", () => {
   it("returns the validated model output", async () => {
     const result = await analyzeSite("https://acme.example/", crawl(), runChecks(crawl()), {
@@ -110,5 +207,30 @@ describe("analyzeSite", () => {
 
   it("exports a schema that accepts the documented shape", () => {
     expect(() => AnalyzeSchema.parse(validOutput)).not.toThrow();
+  });
+
+  it("rejects a model response with fewer than 6 buyer questions", async () => {
+    const thin = { ...validOutput, buyerQuestions: validOutput.buyerQuestions.slice(0, 3) };
+    await expect(
+      analyzeSite("https://acme.example/", crawl(), runChecks(crawl()), {
+        run: async () => thin,
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("accepts a model response with exactly 6 buyer questions", async () => {
+    const result = await analyzeSite("https://acme.example/", crawl(), runChecks(crawl()), {
+      run: async () => validOutput,
+    });
+    expect(result.buyerQuestions).toHaveLength(6);
+  });
+
+  it("rejects an entityClarity.score outside 0-100", async () => {
+    const bad = { ...validOutput, entityClarity: { score: 140, missing: [] } };
+    await expect(
+      analyzeSite("https://acme.example/", crawl(), runChecks(crawl()), {
+        run: async () => bad,
+      }),
+    ).rejects.toThrow();
   });
 });
