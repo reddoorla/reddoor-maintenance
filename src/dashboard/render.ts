@@ -448,6 +448,13 @@ function inputRow(label: string, field: string, value: string | null, url: strin
   return `<div class="detail"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><input type="text" id="detail-${field}" data-detail-field="${field}" data-details-url="${url}" value="${escapeHtml(value ?? "")}" />${savedSpan(field)}</dd></div>`;
 }
 
+/** Editable `<input type="date">` row. The browser enforces YYYY-MM-DD before
+ *  the request is made; `normalizeFieldValue`'s `date` kind still validates it
+ *  server-side, because a hand-crafted POST never touches this widget. */
+function dateRow(label: string, field: string, value: string | null, url: string): string {
+  return `<div class="detail"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><input type="date" id="detail-${field}" data-detail-field="${field}" data-details-url="${url}" value="${escapeHtml(value ?? "")}" />${savedSpan(field)}</dd></div>`;
+}
+
 /** Editable multi-line `<textarea>` row for the copy override fields. */
 function textareaRow(label: string, field: string, value: string | null, url: string): string {
   return `<div class="detail wide"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><textarea id="detail-${field}" data-detail-field="${field}" data-details-url="${url}">${escapeHtml(value ?? "")}</textarea>${savedSpan(field)}</dd></div>`;
@@ -473,6 +480,18 @@ function siteDetailsSection(site: WebsiteRow): string {
     inputRow("GA4 property", "ga4PropertyId", site.ga4PropertyId, url),
     inputRow("Search query", "searchQuery", site.searchQuery, url),
     inputRow("Git repo", "gitRepo", site.gitRepo, url),
+    // #539 Phase 4 — the fields nothing rendered before. `Mailchimp API Key` is
+    // the one field in that group still absent, and deliberately: it is a live
+    // credential and every row here emits its stored value into the page.
+    inputRow("Netlify ID", "netlifyId", site.netlifyId, url),
+    inputRow("Search Console property", "searchConsoleProperty", site.searchConsoleProperty, url),
+    inputRow("Newsletter webhook", "newsletterWebhook", site.newsletterWebhook, url),
+    inputRow("Mailchimp audience ID", "mailchimpAudienceId", site.mailchimpAudienceId, url),
+    dateRow("Last maintenance day", "maintenanceDay", site.maintenanceDay, url),
+    dateRow("Last testing day", "testingDay", site.testingDay, url),
+    // Raw JSON, and shown as the raw cell rather than the parsed object: what the
+    // operator edits has to be the thing `parseNotifyRouting` will read back.
+    textareaRow("Notify routing (JSON)", "notifyRouting", site.notifyRoutingRaw, url),
     textareaRow("Copy — Intro", "copyIntro", site.copyIntro, url),
     textareaRow("Copy — Contact", "copyContact", site.copyContact, url),
     textareaRow("Copy — Footer", "copyFooter", site.copyFooter, url),

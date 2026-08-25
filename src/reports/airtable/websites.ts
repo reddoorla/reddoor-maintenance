@@ -274,6 +274,11 @@ export type WebsiteRow = {
    */
   prismicAckUntil: string | null;
   notifyRouting: NotifyRouting | null;
+  /** The RAW `Notify Routing` cell, verbatim. Same reason `statusRaw` exists: the
+   *  dashboard editor round-trips this JSON, and re-serializing the PARSED object
+   *  would drop any key the parser ignores and reformat what the operator typed —
+   *  a silent rewrite of a cell they only opened to look at. */
+  notifyRoutingRaw: string | null;
   /** Read-back of the code-owned next-due dates (date-only, written by the
    *  nightly `writeNextDueDates`). These exist so the writer can DIFF the
    *  freshly-computed dates against what the row already holds and skip the
@@ -529,6 +534,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     launchedAt: (f["Launched at"] as string | undefined) ?? null,
     newsletterWebhook: trimToNull(f["Newsletter Webhook"]),
     notifyRouting: parseNotifyRouting(f["Notify Routing"]),
+    notifyRoutingRaw: trimToNull(f["Notify Routing"]),
     mailchimpApiKey: trimToNull(f["Mailchimp API Key"]),
     mailchimpAudienceId: trimToNull(f["Mailchimp Audience ID"]),
     // Boolean guard like crossbrowserOk, but defaults FALSE (not null) when absent: an
