@@ -1453,3 +1453,85 @@ describe("renderSiteDashboardHtml — the write-only credential row", () => {
     expect(html).toContain("not set");
   });
 });
+
+describe("renderSiteDashboardHtml — report commentary editor (#539 Phase 4)", () => {
+  it("renders an editable commentary box on a pending report, carrying its text", () => {
+    const html = renderSiteDashboardHtml(siteRow({ name: "Acme" }), [
+      reportRow({
+        id: "recREP1",
+        reportType: "Maintenance",
+        draftReady: true,
+        approvedToSend: false,
+        sentAt: null,
+        commentary: "Traffic is up.",
+      }),
+    ]);
+    expect(html).toMatch(/<textarea[^>]*data-commentary-for="recREP1"/);
+    expect(html).toContain("Traffic is up.");
+  });
+
+  it("escapes commentary rather than interpolating it into the page", () => {
+    // Operator-authored free text that lands in a client email. Unescaped it
+    // would close the textarea and inject into the dashboard.
+    const html = renderSiteDashboardHtml(siteRow({ name: "Acme" }), [
+      reportRow({
+        id: "recREP1",
+        draftReady: true,
+        approvedToSend: false,
+        sentAt: null,
+        commentary: "</textarea><script>alert(1)</script>",
+      }),
+    ]);
+    expect(html).not.toContain("<script>alert(1)</script>");
+    expect(html).toContain("&lt;/textarea&gt;");
+  });
+
+  it("does NOT render the editor for a report that has been sent", () => {
+    // The server refuses the write once `sentAt` is set (the stored row is the
+    // record of what the client read); the UI must not offer a box that would
+    // only be rejected.
+    const html = renderSiteDashboardHtml(siteRow({ name: "Acme" }), [
+      reportRow({
+        id: "recREP1",
+        draftReady: true,
+        approvedToSend: true,
+        sentAt: "2026-08-20T09:00:00.000Z",
+        commentary: "already sent",
+      }),
+    ]);
+    expect(html).not.toContain('data-commentary-for="recREP1"');
+  });
+});
+
+describe("commentary stays editable for the whole unsent window", () => {
+  it("renders the editor for an APPROVED but not-yet-sent report", () => {
+    // Approval schedules the send for the next 09:23 UTC run, so there is a
+    // window of up to ~24h where the operator can still spot a typo. The server
+    // allows the edit (the lock is `sentAt`), so the UI has to offer it — an
+    // approved report is not in the pending list, it is in the history table.
+    const html = renderSiteDashboardHtml(siteRow({ name: "Acme" }), [
+      reportRow({
+        id: "recAPP",
+        draftReady: true,
+        approvedToSend: true,
+        sentAt: null,
+        commentary: "still fixable",
+      }),
+    ]);
+    expect(html).toContain('data-commentary-for="recAPP"');
+    expect(html).toContain("still fixable");
+  });
+
+  it("renders NO editor anywhere once the report is sent", () => {
+    const html = renderSiteDashboardHtml(siteRow({ name: "Acme" }), [
+      reportRow({
+        id: "recSENT",
+        draftReady: true,
+        approvedToSend: true,
+        sentAt: "2026-08-20T09:00:00.000Z",
+        commentary: "shipped",
+      }),
+    ]);
+    expect(html).not.toContain('data-commentary-for="recSENT"');
+  });
+});

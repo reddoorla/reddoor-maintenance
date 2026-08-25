@@ -33,6 +33,8 @@ export {
   SITE_STATUS_OPTIONS,
   FREQ_OPTIONS,
 } from "./site-details.js";
+export { setReportCommentary, COMMENTARY_MAX_LEN } from "./report-commentary.js";
+export type { ReportCommentaryDeps, ReportCommentaryResult } from "./report-commentary.js";
 export type { SiteDetailDeps, SiteDetailResult } from "./site-details.js";
 export { renderSubmissionsPageHtml } from "./submissions-page-render.js";
 export { renderFleetTableHtml } from "./fleet-table-render.js";

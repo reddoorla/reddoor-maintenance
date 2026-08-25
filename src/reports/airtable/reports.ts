@@ -297,6 +297,18 @@ export async function updateReportScores(
   await base(REPORTS_TABLE).update([{ id: recordId, fields }]);
 }
 
+/** Write one report's operator commentary (#539 Phase 4 report review). The
+ *  caller (`setReportCommentary`) has already validated the length and refused
+ *  the write for an already-sent report, so this stays a plain single-field
+ *  writer — the same division of labour as `updateSiteField`/`setSiteDetail`. */
+export async function updateReportCommentary(
+  base: AirtableBase,
+  recordId: string,
+  text: string,
+): Promise<void> {
+  await base(REPORTS_TABLE).update([{ id: recordId, fields: { Commentary: text } }]);
+}
+
 export async function listSendableReports(base: AirtableBase): Promise<ReportRow[]> {
   const out: ReportRow[] = [];
   await base(REPORTS_TABLE)
