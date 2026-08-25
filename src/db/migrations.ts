@@ -301,4 +301,22 @@ export const MIGRATIONS: Migration[] = [
         ON spam_screenouts (date);
     `,
   },
+  {
+    // Prospect audits (spec 2026-08-24): one row per `prospect-audit` CLI run.
+    // `token` is the unguessable public handle for GET /r/{token}; `result_json`
+    // is the full ProspectAuditResult, re-rendered on every request so report
+    // styling updates apply to already-shared links.
+    id: "0009_prospect_audits",
+    sql: `
+      CREATE TABLE IF NOT EXISTS prospect_audits (
+        id TEXT PRIMARY KEY,
+        token TEXT NOT NULL UNIQUE,
+        url TEXT NOT NULL,
+        business TEXT,
+        created_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'complete',
+        result_json TEXT NOT NULL
+      );
+    `,
+  },
 ];

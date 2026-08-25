@@ -185,6 +185,10 @@ const expectedSubcommands = [
   "github-signals",
   "db",
   "renovate-dispatch",
+  // prospect/pipeline.js's transitive chain (Anthropic SDK, Playwright,
+  // libSQL/kysely for the persist path) makes it exactly the kind of deep
+  // dynamic-import command this list exists to catch if bundling breaks it.
+  "prospect-audit",
 ];
 
 await check("CLI --help exits 0 and lists all expected commands", () => {
