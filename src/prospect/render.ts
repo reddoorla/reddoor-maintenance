@@ -1,0 +1,331 @@
+import { escapeHtml, safeUrl } from "../util/html.js";
+import { ANALYZE_SKIPPED, PROBES_SKIPPED } from "./pipeline.js";
+import type {
+  AnalyzeResult,
+  Fix,
+  ProbeAnswer,
+  ProbesResult,
+  ProspectAuditResult,
+  StageResult,
+} from "./types.js";
+
+const RED = "#d71920";
+const IMPACT_ORDER: Record<Fix["impact"], number> = { high: 0, medium: 1, low: 2 };
+const KIND_LABEL: Record<ProbeAnswer["kind"], string> = {
+  branded: "Branded — asked about the business by name",
+  category: "Category — the questions a buyer would actually type",
+  competitor: "Competitor — head-to-head comparisons",
+};
+
+const STYLES = `
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #faf8f5; color: #1a1a1a;
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 48px 24px 80px; }
+  h1, h2, h3 { font-family: Besley, Georgia, "Times New Roman", serif; font-weight: 600; line-height: 1.2; }
+  h1 { font-size: 40px; margin: 0 0 8px; }
+  h2 { font-size: 26px; margin: 48px 0 12px; border-top: 2px solid #e6e1da; padding-top: 24px; }
+  h3 { font-size: 18px; margin: 24px 0 8px; }
+  .lede { color: #57544f; margin: 0 0 8px; }
+  .scores { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 32px 0; }
+  .score { background: #fff; border: 1px solid #e6e1da; border-radius: 8px; padding: 16px; }
+  .score .n { font-family: Besley, Georgia, serif; font-size: 38px; line-height: 1; color: ${RED}; }
+  .score .n.na { font-size: 18px; color: #8a857e; }
+  .score .l { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: #57544f; margin-top: 8px; }
+  .score .hint { font-size: 12px; color: #8a857e; margin-top: 4px; }
+  .card { background: #fff; border: 1px solid #e6e1da; border-radius: 8px; padding: 16px; margin: 12px 0; }
+  .q { font-weight: 600; }
+  .tag { display: inline-block; font-size: 12px; letter-spacing: .06em; text-transform: uppercase;
+    border-radius: 999px; padding: 2px 10px; border: 1px solid currentColor; }
+  .yes { color: #14663c; } .partial { color: #8a6d00; } .no { color: ${RED}; }
+  ul { padding-left: 20px; } li { margin: 6px 0; }
+  .muted { color: #8a857e; }
+  .cta { margin-top: 56px; background: ${RED}; color: #fff; border-radius: 8px; padding: 24px 28px; }
+  .cta h2 { border: 0; padding: 0; margin: 0 0 8px; color: #fff; }
+  .cta a { color: #fff; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee; vertical-align: top; }
+  @media print { body { background: #fff; } .card, .score { break-inside: avoid; } }
+`;
+
+function scoreCard(label: string, value: number | null, hint?: string): string {
+  const n =
+    value === null ? `<div class="n na">Not measured</div>` : `<div class="n">${value}</div>`;
+  const hintHtml = hint ? `<div class="hint">${escapeHtml(hint)}</div>` : "";
+  return `<div class="score">${n}<div class="l">${escapeHtml(label)}</div>${hintHtml}</div>`;
+}
+
+/** Body for a stage that succeeded, or a uniform "Not measured" note when it didn't. */
+function stageBody<T>(stage: StageResult<T>, body: (data: T) => string): string {
+  return stage.ok ? body(stage.data) : notMeasuredNote(stage.error);
+}
+
+function notMeasuredNote(error: string): string {
+  return `<p class="muted">Not measured — ${escapeHtml(error)}</p>`;
+}
+
+/** A stage a human deliberately turned off (--no-probes, or analyze skipped
+ *  because checks failed upstream) must read as "you asked us to skip this" —
+ *  never as "we tried and could not", which is what a bare "Not measured —
+ *  {error}" would otherwise imply. Compares against the pipeline's exported
+ *  constants rather than a retyped string literal. */
+function skippableStageNote(error: string, skipConstant: string, skipMessage: string): string {
+  if (error === skipConstant) {
+    return `<p class="muted">${escapeHtml(skipMessage)}</p>`;
+  }
+  return notMeasuredNote(error);
+}
+
+function formatAskedAt(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+const KIND_ORDER: ProbeAnswer["kind"][] = ["category", "branded", "competitor"];
+
+export function renderProspectReport(result: ProspectAuditResult): string {
+  const host = (() => {
+    try {
+      return new URL(result.url).hostname;
+    } catch {
+      return result.url;
+    }
+  })();
+  // `business` is the searchable NAME (possibly ""), never the description.
+  // An empty/missing name is itself a finding — fall back to the hostname
+  // rather than printing nothing, or worse, printing "" as if it were a
+  // verified fact about the business.
+  const name = result.business && result.business.trim() ? result.business : host;
+  const date = new Date(result.generatedAt).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+
+  const buildProbesSection = (p: ProbesResult): string => {
+    const byKind = new Map<ProbeAnswer["kind"], ProbeAnswer[]>();
+    for (const a of p.answers) {
+      const bucket = byKind.get(a.kind) ?? [];
+      bucket.push(a);
+      byKind.set(a.kind, bucket);
+    }
+    const groups = KIND_ORDER.filter((k) => byKind.has(k))
+      .map((kind) => {
+        const answers = byKind.get(kind) ?? [];
+        const cards = answers
+          .map(
+            (a) => `<div class="card">
+            <div class="q">${escapeHtml(a.engine)} · “${escapeHtml(a.query)}”</div>
+            <p class="muted">Asked ${escapeHtml(formatAskedAt(a.askedAt))}</p>
+            <p>${escapeHtml(a.snippet)}${a.snippet.length >= 300 ? "…" : ""}</p>
+            <p class="muted">${
+              a.domainCited || a.brandMentioned
+                ? "You were named in this answer."
+                : "You were not named in this answer."
+            }${a.citedDomains.length ? ` Cited: ${escapeHtml(a.citedDomains.join(", "))}` : ""}</p>
+          </div>`,
+          )
+          .join("");
+        return `<h3>${escapeHtml(KIND_LABEL[kind])}</h3>${cards}`;
+      })
+      .join("");
+
+    const recognition = p.brandedRecognized
+      ? "<p>When the engines were asked about the business by name, they recognized it.</p>"
+      : "<p>When the engines were asked about the business by name, they did not recognize it — a real citation of the site never showed up, even with the name handed to them.</p>";
+
+    const competitors = p.competitorsSeen.length
+      ? `<h3>Who the engines cited instead</h3><ul>${p.competitorsSeen
+          .map(
+            (c) => `<li>${escapeHtml(c.domain)} — ${c.count} time${c.count === 1 ? "" : "s"}</li>`,
+          )
+          .join("")}</ul>`
+      : "";
+    return recognition + groups + competitors;
+  };
+
+  const findabilitySection = stageBody(result.checks, (c) => {
+    // crawlerAccessMeasured is false only when the robots.txt fetch itself
+    // failed, so the blocked/allowed lists are empty out of ignorance, not
+    // because we confirmed access. Saying "every crawler can reach the site"
+    // in that case would manufacture a finding from our own missing data.
+    const accessBlock = !c.crawlerAccessMeasured
+      ? `<p class="muted">Crawler access: not measured — ${escapeHtml(
+          result.crawl.data.sidecarErrors.robots ?? "the robots.txt fetch failed",
+        )}</p>`
+      : c.crawlerAccess.blockedAi.length
+        ? `<p><strong>Blocked AI crawlers:</strong> ${escapeHtml(c.crawlerAccess.blockedAi.join(", "))}</p>`
+        : `<p>Every AI crawler we checked can reach the site.</p>`;
+    const classical =
+      c.crawlerAccessMeasured && c.crawlerAccess.blockedClassical.length
+        ? `<p><strong>Blocked search crawlers:</strong> ${escapeHtml(
+            c.crawlerAccess.blockedClassical.join(", "),
+          )}</p>`
+        : "";
+    const lh = result.lighthouse.ok
+      ? `<p class="muted">Lighthouse — performance ${result.lighthouse.data.performance ?? "n/a"},
+         SEO ${result.lighthouse.data.seo ?? "n/a"}, accessibility ${
+           result.lighthouse.data.accessibility ?? "n/a"
+         }.</p>`
+      : `<p class="muted">Lighthouse not measured — ${escapeHtml(result.lighthouse.error)}</p>`;
+    return `${accessBlock}${classical}
+      <ul>
+        <li>sitemap.xml: ${c.sitemapPresent ? "present" : "missing"}</li>
+        <li>llms.txt: ${c.llmsTxtPresent ? "present" : "missing"}</li>
+        <li>Pages missing a meta description: ${c.meta.missingDescription} of ${c.meta.pageCount}</li>
+        <li>Pages missing a canonical URL: ${c.meta.missingCanonical} of ${c.meta.pageCount}</li>
+        <li>Pages missing share images/titles: ${c.meta.missingSocial} of ${c.meta.pageCount}</li>
+        <li>Security headers missing: ${
+          c.securityHeaders.missing.length
+            ? escapeHtml(c.securityHeaders.missing.join(", "))
+            : "none"
+        }</li>
+        ${
+          c.meta.pagesWithoutExtract > 0
+            ? `<li><strong>${c.meta.pagesWithoutExtract}</strong> additional page${
+                c.meta.pagesWithoutExtract === 1 ? "" : "s"
+              } produced no readable content at all and ${
+                c.meta.pagesWithoutExtract === 1 ? "is" : "are"
+              } not counted in the ${c.meta.pageCount} pages above.</li>`
+            : ""
+        }
+      </ul>${lh}`;
+  });
+
+  const readabilitySection = stageBody(result.checks, (c) => {
+    const jsLine =
+      c.jsDependence.avgMissing === null
+        ? `<p class="muted">JavaScript-dependence: not measured — no page produced a comparable raw/rendered pair.</p>`
+        : `<p><strong>${Math.round(c.jsDependence.avgMissing * 100)}%</strong> of the words a visitor reads only appear after JavaScript runs.
+      Most AI crawlers do not run JavaScript, so that share of your site is invisible to them.</p>`;
+    return `${jsLine}
+      <ul>
+        <li>Structured data found: ${c.schema.typesFound.length ? escapeHtml(c.schema.typesFound.join(", ")) : "none"}</li>
+        <li>Expected structured data missing: ${
+          c.schema.missingExpected.length ? escapeHtml(c.schema.missingExpected.join(", ")) : "none"
+        }</li>
+        <li>Pages without a top-level heading: ${c.headings.pagesWithoutH1} of ${c.meta.pageCount}</li>
+        ${
+          c.meta.pagesWithoutExtract > 0
+            ? `<li><strong>${c.meta.pagesWithoutExtract}</strong> page${
+                c.meta.pagesWithoutExtract === 1 ? "" : "s"
+              } produced no extract at all — excluded from every figure above, not counted as readable or unreadable.</li>`
+            : ""
+        }
+      </ul>`;
+  });
+
+  const buildAnswersSection = (a: AnalyzeResult): string => {
+    const rows = a.buyerQuestions
+      .map(
+        (q) => `<tr>
+          <td>${escapeHtml(q.question)}</td>
+          <td><span class="tag ${q.answered}">${q.answered}</span></td>
+          <td>${q.evidence ? escapeHtml(q.evidence) : '<span class="muted">no passage on the site</span>'}</td>
+        </tr>`,
+      )
+      .join("");
+    return `<p>${escapeHtml(a.narrative.answers)}</p>
+      <table><tr><th>What buyers ask</th><th>Answered</th><th>Evidence</th></tr>${rows}</table>`;
+  };
+
+  const fixes = result.analyze.ok
+    ? (() => {
+        const sorted = [...result.analyze.data.fixes].sort(
+          (x, y) => IMPACT_ORDER[x.impact] - IMPACT_ORDER[y.impact],
+        );
+        return `<ol>${sorted
+          .map(
+            (f) => `<li><strong>${escapeHtml(f.title)}</strong> — ${escapeHtml(f.why)}
+          <span class="muted">(${f.impact} impact, ${f.effort} effort)</span></li>`,
+          )
+          .join("")}</ol>`;
+      })()
+    : skippableStageNote(
+        result.analyze.error,
+        ANALYZE_SKIPPED,
+        "Skipped — the checks stage failed, so there was nothing to build fixes from.",
+      );
+
+  const probesSectionFinal = result.probes.ok
+    ? buildProbesSection(result.probes.data)
+    : skippableStageNote(
+        result.probes.error,
+        PROBES_SKIPPED,
+        "You asked us to skip the AI-visibility probes for this audit.",
+      );
+
+  const answersSectionFinal = result.analyze.ok
+    ? buildAnswersSection(result.analyze.data)
+    : skippableStageNote(
+        result.analyze.error,
+        ANALYZE_SKIPPED,
+        "Skipped — the checks stage failed, so there were no buyer questions to check.",
+      );
+
+  const description = result.analyze.ok ? result.analyze.data.business : null;
+  const narrative = result.analyze.ok
+    ? `<p class="lede">${escapeHtml(description ?? "")}</p>
+       <p class="lede">${escapeHtml(result.analyze.data.narrative.findability)}
+       ${escapeHtml(result.analyze.data.narrative.readability)}</p>`
+    : "";
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>Can AI find ${escapeHtml(name)}? — Reddoor audit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Besley:wght@400;600&display=swap" rel="stylesheet" />
+<style>${STYLES}</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Can AI and Google actually find ${escapeHtml(name)}?</h1>
+  <p class="lede"><a href="${safeUrl(result.url)}">${escapeHtml(result.url)}</a> · audited ${escapeHtml(date)} by Reddoor Creative</p>
+  ${narrative}
+
+  <div class="scores">
+    ${scoreCard("Findability", result.scores.findability)}
+    ${scoreCard("Readability", result.scores.readability)}
+    ${scoreCard("Answers", result.scores.answers)}
+    ${scoreCard("AI Visibility", result.scores.aiVisibility, "Based on buyer questions — not questions that name the business directly")}
+  </div>
+
+  <h2>What the AI engines said about you</h2>
+  ${probesSectionFinal}
+
+  <h2>What the crawlers can reach</h2>
+  ${findabilitySection}
+
+  <h2>What the crawlers can read</h2>
+  ${readabilitySection}
+
+  <h2>The questions your buyers ask</h2>
+  ${answersSectionFinal}
+
+  <h2>What to fix first</h2>
+  ${fixes}
+
+  <div class="cta">
+    <h2>Want this fixed?</h2>
+    <p>Reddoor Creative rebuilds sites so answer engines can read, quote and recommend them.
+    Reply to the email this link came from, or start at
+    <a href="https://reddoorla.com/">reddoorla.com</a>.</p>
+  </div>
+</div>
+</body>
+</html>`;
+}

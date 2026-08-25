@@ -1,0 +1,346 @@
+import { describe, it, expect } from "vitest";
+import { renderProspectReport } from "../../src/prospect/render.js";
+import { PROBES_SKIPPED, ANALYZE_SKIPPED } from "../../src/prospect/pipeline.js";
+import type { ProspectAuditResult } from "../../src/prospect/types.js";
+
+function result(over: Partial<ProspectAuditResult> = {}): ProspectAuditResult {
+  return {
+    url: "https://acme.example/",
+    business: "Acme Roofing",
+    generatedAt: "2026-08-25T17:00:00.000Z",
+    scores: { findability: 62, readability: 41, answers: 50, aiVisibility: 33 },
+    crawl: {
+      ok: true,
+      data: {
+        origin: "https://acme.example",
+        robotsTxt: "User-agent: GPTBot\nDisallow: /",
+        agentAccess: [
+          { agent: "GPTBot", allowed: false, matchedRule: "User-agent: GPTBot → Disallow: /" },
+        ],
+        sitemap: { present: true, urlCount: 12 },
+        llmsTxt: { present: false, firstLine: null },
+        sidecarErrors: { robots: null, llms: null, sitemap: null },
+        homeHeaders: {},
+        pages: [],
+      },
+    },
+    checks: {
+      ok: true,
+      data: {
+        crawlerAccessMeasured: true,
+        crawlerAccess: { blockedAi: ["GPTBot"], allowedAi: ["ClaudeBot"], blockedClassical: [] },
+        jsDependence: {
+          avgMissing: 0.82,
+          perPage: [{ url: "https://acme.example/", missing: 0.82, renderedWords: 420 }],
+        },
+        schema: { typesFound: ["LocalBusiness"], missingExpected: ["FAQPage"], invalidBlocks: 0 },
+        meta: {
+          pageCount: 4,
+          missingTitle: 0,
+          missingDescription: 2,
+          missingCanonical: 1,
+          missingSocial: 3,
+          pagesWithoutExtract: 0,
+        },
+        headings: { pagesWithoutH1: 1, pagesWithLevelSkips: 0 },
+        securityHeaders: { present: ["x-frame-options"], missing: ["content-security-policy"] },
+        sitemapPresent: true,
+        llmsTxtPresent: false,
+        viewportOk: true,
+      },
+    },
+    lighthouse: {
+      ok: true,
+      data: {
+        performance: 44,
+        accessibility: 88,
+        bestPractices: 75,
+        seo: 92,
+        summary: "lighthouse: 2 assertion(s) failed",
+        status: "warn",
+      },
+    },
+    analyze: {
+      ok: true,
+      data: {
+        businessName: "Acme Roofing",
+        business:
+          "A Boise-based roofing contractor offering repair, replacement, and inspection services for residential customers.",
+        entityClarity: { score: 55, missing: ["service area"] },
+        buyerQuestions: [
+          {
+            question: "What does a repair cost?",
+            answered: "partial",
+            quotable: false,
+            page: "https://acme.example/",
+            evidence: "$1,200-$8,000",
+          },
+          {
+            question: "Do you do flat roofs?",
+            answered: "no",
+            quotable: false,
+            page: null,
+            evidence: null,
+          },
+        ],
+        fixes: [
+          {
+            title: "Unblock GPTBot in robots.txt",
+            why: "It cannot read a single page today.",
+            impact: "high",
+            effort: "low",
+            tier: "crawl",
+          },
+          {
+            title: "Add FAQ schema",
+            why: "Answer engines quote FAQ blocks.",
+            impact: "medium",
+            effort: "medium",
+            tier: "content",
+          },
+        ],
+        narrative: {
+          findability: "Two of six AI crawlers are blocked.",
+          readability: "Most copy needs JavaScript.",
+          answers: "Half the buyer questions go unanswered.",
+        },
+      },
+    },
+    probes: {
+      ok: true,
+      data: {
+        answers: [
+          {
+            engine: "perplexity",
+            query: "who is Acme Roofing",
+            kind: "branded",
+            domainCited: true,
+            brandMentioned: true,
+            citedDomains: ["acme.example"],
+            snippet: "Acme Roofing is a Boise contractor.",
+            askedAt: "2026-08-25T16:00:00.000Z",
+          },
+          {
+            engine: "perplexity",
+            query: "best roofer in Boise",
+            kind: "category",
+            domainCited: false,
+            brandMentioned: false,
+            citedDomains: ["bestroofs.example"],
+            snippet: "BestRoofs is frequently recommended.",
+            askedAt: "2026-08-25T16:05:00.000Z",
+          },
+        ],
+        visibilityScore: 33,
+        brandedRecognized: true,
+        competitorsSeen: [{ domain: "bestroofs.example", count: 4 }],
+      },
+    },
+    ...over,
+  };
+}
+
+describe("renderProspectReport", () => {
+  const html = renderProspectReport(result());
+
+  it("is a self-contained, noindex HTML document", () => {
+    expect(html.startsWith("<!doctype html>")).toBe(true);
+    expect(html).toContain('name="robots" content="noindex"');
+    expect(html).not.toMatch(/<script\s+src=/);
+  });
+
+  it("names the business and the audited URL", () => {
+    expect(html).toContain("Acme Roofing");
+    expect(html).toContain("https://acme.example/");
+  });
+
+  it("shows all four scores", () => {
+    for (const label of ["Findability", "Readability", "Answers", "AI Visibility"]) {
+      expect(html).toContain(label);
+    }
+    expect(html).toContain("62");
+    expect(html).toContain("33");
+  });
+
+  it("leads with the probe receipts", () => {
+    expect(html).toContain("What the AI engines said about you");
+    expect(html).toContain("who is Acme Roofing");
+    expect(html).toContain("BestRoofs is frequently recommended.");
+    expect(html).toContain("bestroofs.example");
+    expect(html.indexOf("What the AI engines said about you")).toBeLessThan(
+      html.indexOf("What to fix first"),
+    );
+  });
+
+  it("renders the findings and the fix list in impact order", () => {
+    expect(html).toContain("GPTBot");
+    expect(html).toContain("82%");
+    expect(html).toContain("What does a repair cost?");
+    expect(html.indexOf("Unblock GPTBot in robots.txt")).toBeLessThan(
+      html.indexOf("Add FAQ schema"),
+    );
+  });
+
+  it("degrades a failed stage to 'Not measured' without throwing", () => {
+    const degraded = renderProspectReport(
+      result({
+        probes: { ok: false, error: "no visibility engine returned an answer" },
+        analyze: { ok: false, error: "529 overloaded" },
+        scores: { findability: 62, readability: 41, answers: null, aiVisibility: null },
+      }),
+    );
+    expect(degraded).toContain("Not measured");
+    expect(degraded).toContain("no visibility engine returned an answer");
+    expect(degraded).toContain("What the AI engines said about you");
+  });
+
+  it("escapes content that came from the prospect's site", () => {
+    const evil = renderProspectReport(result({ business: '<script>alert("x")</script>' }));
+    expect(evil).not.toContain('<script>alert("x")</script>');
+    expect(evil).toContain("&lt;script&gt;");
+  });
+
+  // --- Corrections 1-6 (plan predates these contract changes) ---
+
+  // Correction 1: business is a NAME (possibly empty), fall back to hostname,
+  // never present an empty name as a verified fact. The DESCRIPTION
+  // (analyze.data.business) is prose in the body, not the title.
+  it("falls back to the hostname when the business name is null or empty", () => {
+    const nullName = renderProspectReport(result({ business: null }));
+    expect(nullName).toContain("acme.example");
+
+    const emptyName = renderProspectReport(result({ business: "" }));
+    expect(emptyName).toContain("acme.example");
+  });
+
+  it("uses the analyze description as body prose, not as the report's name", () => {
+    const description =
+      "A Boise-based roofing contractor offering repair, replacement, and inspection services for residential customers.";
+    expect(html).toContain(description);
+    // The <h1> carries the NAME, not the (much longer) description sentence.
+    const h1 = /<h1>(.*?)<\/h1>/s.exec(html);
+    expect(h1).not.toBeNull();
+    expect(h1![1]).not.toContain(description);
+    expect(h1![1]).toContain("Acme Roofing");
+  });
+
+  // Correction 2: aiVisibility score is about buyer/category questions only;
+  // brandedRecognized is reported in words, never folded into the number.
+  it("labels AI Visibility as being about buyer questions, and reports brand recognition separately in words", () => {
+    expect(html).toMatch(/buyer question/i);
+    expect(html).toMatch(/recognized/i);
+  });
+
+  it("reports brandedRecognized as false in words when the engines never recognized the brand", () => {
+    const notRecognized = renderProspectReport(
+      result({
+        probes: {
+          ok: true,
+          data: {
+            answers: [
+              {
+                engine: "perplexity",
+                query: "who is Acme Roofing",
+                kind: "branded",
+                domainCited: false,
+                brandMentioned: false,
+                citedDomains: [],
+                snippet: "I don't have information about that business.",
+                askedAt: "2026-08-25T16:00:00.000Z",
+              },
+            ],
+            visibilityScore: null,
+            brandedRecognized: false,
+            competitorsSeen: [],
+          },
+        },
+      }),
+    );
+    expect(notRecognized).toMatch(/did not recognize|was not recognized|no recognition/i);
+  });
+
+  // Correction 3: group receipts by kind; state when each was asked.
+  it("groups probe receipts by kind and states when each was asked", () => {
+    expect(html).toMatch(/branded/i);
+    expect(html).toMatch(/category|buyer/i);
+    // askedAt (2026-08-25) must be rendered somewhere human-readable.
+    expect(html).toMatch(/August 25, 2026|2026-08-25/);
+  });
+
+  // Correction 4: crawlerAccessMeasured false → "not measured", never a
+  // universal-access claim manufactured from our own missing data.
+  it("says crawler access was not measured when the robots.txt fetch failed, and never claims universal access", () => {
+    const base = result();
+    if (!base.checks.ok) throw new Error("fixture checks must be ok");
+    const degraded = renderProspectReport(
+      result({
+        crawl: {
+          ok: true,
+          data: {
+            ...base.crawl.data,
+            sidecarErrors: { robots: "fetch failed: ECONNRESET", llms: null, sitemap: null },
+          },
+        },
+        checks: {
+          ok: true,
+          data: {
+            ...base.checks.data,
+            crawlerAccessMeasured: false,
+            crawlerAccess: { blockedAi: [], allowedAi: [], blockedClassical: [] },
+          },
+        },
+      }),
+    );
+    expect(degraded).toMatch(/not measured/i);
+    expect(degraded).not.toContain("Every AI crawler we checked can reach the site.");
+  });
+
+  // Correction 5: avgMissing null → "not measured", never "0%". Surface
+  // pagesWithoutExtract so a partial audit can't read as a complete one.
+  it("says readability is not measured (not 0%) when avgMissing is null", () => {
+    const base = result();
+    if (!base.checks.ok) throw new Error("fixture checks must be ok");
+    const degraded = renderProspectReport(
+      result({
+        checks: {
+          ok: true,
+          data: { ...base.checks.data, jsDependence: { avgMissing: null, perPage: [] } },
+        },
+      }),
+    );
+    expect(degraded).toMatch(/not measured/i);
+    expect(degraded).not.toContain("0% of the words");
+  });
+
+  it("surfaces pages that produced no extract at all", () => {
+    const base = result();
+    if (!base.checks.ok) throw new Error("fixture checks must be ok");
+    const withMissingPages = renderProspectReport(
+      result({
+        checks: {
+          ok: true,
+          data: { ...base.checks.data, meta: { ...base.checks.data.meta, pagesWithoutExtract: 2 } },
+        },
+      }),
+    );
+    expect(withMissingPages).toMatch(
+      /2[^%]*(pages?|page).{0,40}(no extract|failed|produced nothing)/i,
+    );
+  });
+
+  // Correction 6: a requested skip must read differently from an attempted
+  // failure — compared against the pipeline's exported constants, never a
+  // retyped string literal.
+  it("reads a requested probes skip differently from an attempted probes failure", () => {
+    const skipped = renderProspectReport(result({ probes: { ok: false, error: PROBES_SKIPPED } }));
+    expect(skipped).toMatch(/you asked|skipped by request|requested.*skip/i);
+    expect(skipped).not.toContain("Not measured");
+  });
+
+  it("reads a requested analyze skip differently from an attempted analyze failure", () => {
+    const skipped = renderProspectReport(
+      result({ analyze: { ok: false, error: ANALYZE_SKIPPED } }),
+    );
+    expect(skipped).toMatch(/checks stage failed|couldn't be analyzed|skipped/i);
+  });
+});
