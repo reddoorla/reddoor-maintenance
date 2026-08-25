@@ -87,6 +87,32 @@ describe("fleet-db-sync workflow gate", () => {
     expect(r.code).not.toBe(0);
   });
 
+  // Every case above feeds the gate a HAND-WRITTEN line, so all of them would
+  // keep passing if the CLI's real output stopped matching the grep. This one
+  // runs the actual formatter into the actual gate, which is the only version
+  // of the question the production run asks. It is what makes adding a key to
+  // FLEET_SYNC — anchored at `mismatches=N$` — fail here rather than at 01:57
+  // in the morning.
+  it("PASSES on the REAL formatSyncResult output, not a fixture of it", async () => {
+    const { openDb } = await import("../../src/db/client.js");
+    const { syncFleetState, formatSyncResult } = await import("../../src/db/sync.js");
+    const db = await openDb({ url: ":memory:" });
+    const real = formatSyncResult(
+      await syncFleetState(db, {
+        listWebsiteRecords: async () => [
+          { id: "recACME", fields: { Name: "Acme", url: "https://acme.example.com" } },
+        ],
+        listReportRecords: async () => [],
+        fetchAttachment: async () => null,
+        now: () => new Date("2026-08-25T12:00:00.000Z"),
+      }),
+    );
+    expect(real).toContain("mismatches=0");
+
+    const r = await runGate({ syncOut: `${real}\n` });
+    expect(r.code).toBe(0);
+  });
+
   it("runs hourly with a concurrency group (no overlapping syncs)", () => {
     expect(workflow).toContain('cron: "20 * * * *"');
     expect(workflow).toMatch(

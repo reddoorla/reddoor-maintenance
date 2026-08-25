@@ -181,6 +181,10 @@ describe("importFleetState + checkFleetParity", () => {
       renderedHtmlMisses: [],
       renderedHtmlFetched: 1,
       renderedHtmlSkipped: 0,
+      // The known-good pass reaps nothing: every stored row is one Airtable
+      // still has. A non-empty reap here would mean the import deleted rows on
+      // a run where the two stores already agreed.
+      reaped: { sites: [], reports: [], refusals: [] },
     });
 
     const parity = await checkFleetParity(db, io());

@@ -368,9 +368,73 @@ export function renderedHtmlUrl(rec: RawRecord): string | null {
   return typeof url === "string" && url.length > 0 ? url : null;
 }
 
+/** What the import removed because Airtable no longer has the record — and what
+ *  it declined to remove. `refusals` is non-empty only when the incoming read
+ *  looked untrustworthy; in that case NOTHING was deleted for that table. */
+export type ReapSummary = {
+  sites: string[];
+  reports: string[];
+  refusals: string[];
+};
+
+/** Reaping is the only destructive thing the importer does, and it acts on the
+ *  absence of evidence — so it is only ever as trustworthy as the read that
+ *  motivated it. A short read (a truncated page, a partial outage) is
+ *  indistinguishable from mass deletion by looking at the rows alone, so the
+ *  allowance is deliberately shaped like an operator tidying up rather than
+ *  like a bad page: at most 10% of what is stored, with a floor of 5 so a small
+ *  table stays workable. Over that, refuse the whole table and let parity red
+ *  the run — a wedged-red sync is recoverable, an emptied Turso is not. */
+const REAP_FLOOR = 5;
+const REAP_FRACTION = 0.1;
+
+export function reapAllowance(stored: number): number {
+  return Math.max(REAP_FLOOR, Math.ceil(stored * REAP_FRACTION));
+}
+
+/** Human lines plus the FLEET_REAP machine line, emitted on EVERY pass (nothing
+ *  reaped included) — an absent line must read as "the reap never ran", never as
+ *  "it ran clean", the same contract FLEET_PARITY and FLEET_SYNC hold. Shared by
+ *  `db sync` and the one-shot `db import-airtable`: both can delete, so a second
+ *  hand-rolled copy is how one of them ends up doing it quietly. */
+export function formatReapSummary(reaped: ReapSummary): string[] {
+  const lines: string[] = [];
+  for (const id of reaped.sites) {
+    lines.push(`✂ reaped sites ${id} (+ its health/schedule rows) — no longer in Airtable`);
+  }
+  for (const id of reaped.reports) {
+    lines.push(`✂ reaped reports ${id} — no longer in Airtable`);
+  }
+  for (const reason of reaped.refusals) lines.push(`⚠ ${reason}`);
+  lines.push(
+    `FLEET_REAP sites=${reaped.sites.length} reports=${reaped.reports.length} ` +
+      `refused=${reaped.refusals.length}`,
+  );
+  return lines;
+}
+
+/** Null when the reap may proceed, else the human reason it was refused. */
+export function reapRefusal(
+  table: string,
+  incoming: number,
+  stored: number,
+  toReap: number,
+): string | null {
+  if (incoming === 0 && stored > 0) {
+    return `${table}: REFUSED to reap — Airtable returned 0 rows while ${stored} are stored; that is a failed read, not an empty fleet. Nothing deleted.`;
+  }
+  const allowed = reapAllowance(stored);
+  if (toReap > allowed) {
+    return `${table}: REFUSED to reap — ${toReap} rows are missing from Airtable, over the ${allowed}-row allowance for ${stored} stored. Nothing deleted; re-run, and if the deletions are real, remove them in smaller batches.`;
+  }
+  return null;
+}
+
 export type ImportSummary = {
   sites: number;
   reports: number;
+  /** Rows removed (or refused) because their Airtable record is gone. */
+  reaped: ReapSummary;
   /** Reports whose Rendered HTML attachment could not be fetched (URL expired /
    *  network) — imported with rendered_html null, named so the run is honest. */
   renderedHtmlMisses: string[];
@@ -481,11 +545,48 @@ export async function importFleetState(
       .execute();
   }
 
+  const reaped: ReapSummary = { sites: [], reports: [], refusals: [] };
+
+  // Sites first. No foreign keys are declared, so the health and schedule rows
+  // must be removed explicitly — parity only reverse-checks `sites`, so an
+  // orphan left here would linger forever, unnoticed and still readable.
+  const liveSiteIds = new Set(mapped.map((m) => m.site.id));
+  const storedSites = (await db.selectFrom("sites").select("id").execute()).map((r) =>
+    String(r.id),
+  );
+  const staleSites = storedSites.filter((id) => !liveSiteIds.has(id)).sort();
+  const siteRefusal = reapRefusal("sites", websites.length, storedSites.length, staleSites.length);
+  if (siteRefusal) reaped.refusals.push(siteRefusal);
+  else if (staleSites.length > 0) {
+    await db.deleteFrom("site_health").where("site_id", "in", staleSites).execute();
+    await db.deleteFrom("site_schedule").where("site_id", "in", staleSites).execute();
+    await db.deleteFrom("sites").where("id", "in", staleSites).execute();
+    reaped.sites = staleSites;
+  }
+
+  const liveReportIds = new Set(reports.map((r) => r.id));
+  const storedReports = (await db.selectFrom("reports").select("id").execute()).map((r) =>
+    String(r.id),
+  );
+  const staleReports = storedReports.filter((id) => !liveReportIds.has(id)).sort();
+  const reportRefusal = reapRefusal(
+    "reports",
+    reports.length,
+    storedReports.length,
+    staleReports.length,
+  );
+  if (reportRefusal) reaped.refusals.push(reportRefusal);
+  else if (staleReports.length > 0) {
+    await db.deleteFrom("reports").where("id", "in", staleReports).execute();
+    reaped.reports = staleReports;
+  }
+
   return {
     sites: mapped.length,
     reports: reports.length,
     renderedHtmlMisses: misses,
     renderedHtmlFetched: fetched,
     renderedHtmlSkipped: skipped,
+    reaped,
   };
 }
