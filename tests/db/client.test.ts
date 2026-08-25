@@ -44,6 +44,7 @@ describe("openDb", () => {
       "0007_fleet_state",
       "0008_query_plan_indexes",
       "0009_prospect_audits",
+      "0010_prospect_audits_created_index",
     ]);
     await db.destroy();
   });

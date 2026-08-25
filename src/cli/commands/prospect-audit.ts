@@ -5,6 +5,7 @@ import { resolveDashboardBaseUrl } from "../../dashboard/handler-helpers.js";
 import type { ProspectAuditStatus } from "../../db/prospect-audits.js";
 import type { PipelineDeps, StageName } from "../../prospect/pipeline.js";
 import type { ProspectAuditResult } from "../../prospect/types.js";
+import type { SendAuditEmailResult } from "../../prospect/email.js";
 
 export type ProspectAuditCliOptions = {
   business?: string;
@@ -14,6 +15,15 @@ export type ProspectAuditCliOptions = {
   probes?: boolean;
   out?: string;
   json?: boolean;
+  /**
+   * Email the internal sheet (scores, what wasn't measured and why, top
+   * fixes, and the shareable link) to `PROSPECT_AUDIT_RECIPIENTS`, once the
+   * report is rendered and the `--out`/Turso delivery attempts finish. A
+   * missing/empty recipients var, or a Resend failure, is a warning — never a
+   * crash — because by the time this runs the audit is already delivered (or
+   * recovered) by the code above it.
+   */
+  email?: boolean;
   /** Test seam: injected pipeline deps. Never set from the CLI. */
   deps?: PipelineDeps;
 };
@@ -85,6 +95,7 @@ function summarize(
   file: string | null,
   warnings: string[],
   recovery: RecoveryWrite | null,
+  email: SendAuditEmailResult | null,
 ): string {
   const lines = [
     `Prospect audit — ${result.businessName ?? result.url}`,
@@ -104,6 +115,9 @@ function summarize(
   }
   if (file) lines.push("", `Report written to ${file}`);
   if (link) lines.push("", `Shareable link: ${link}`);
+  if (email?.sent) {
+    lines.push("", `Emailed to ${email.recipients.join(", ")} (${email.messageId})`);
+  }
   for (const w of warnings) lines.push("", `! ${w}`);
   if (recovery) {
     lines.push(
@@ -186,6 +200,7 @@ export async function runProspectAuditCommand(
 
   let link: string | null = null;
   let token: string | null = null;
+  let auditId: string | null = null;
   if (canPersist) {
     try {
       const { openDb, readDbConfig } = await import("../../db/client.js");
@@ -201,6 +216,7 @@ export async function runProspectAuditCommand(
         status: auditStatus(result),
         resultJson: JSON.stringify(result),
       });
+      auditId = created.id;
       token = created.token;
       link = `${resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL)}/r/${token}`;
     } catch (err) {
@@ -212,12 +228,38 @@ export async function runProspectAuditCommand(
   const recovery = delivered ? null : await writeRecoveryFiles(result, html);
   const code = delivered ? 0 : 1;
 
+  // The audit is already delivered (or recovered) above — an email failure
+  // must never take that away. Same independent try/catch shape as the
+  // --out write and the Turso persist: record a warning, keep going, never
+  // touch `code`. Dynamically imported for the same reason db/client.js and
+  // prospect/render.js are above: it reaches `resend` (a devDependency) and
+  // must stay out of bin.js's static import graph (see bin.ts's
+  // central-dep-blocker comment).
+  let email: SendAuditEmailResult | null = null;
+  if (opts.email) {
+    try {
+      const { sendAuditEmail, parseProspectAuditRecipients } =
+        await import("../../prospect/email.js");
+      const recipients = parseProspectAuditRecipients(process.env.PROSPECT_AUDIT_RECIPIENTS);
+      email = await sendAuditEmail(result, { link, recipients, auditId });
+      if (!email.sent) {
+        warnings.push(`Could not email the audit sheet: ${email.reason}`);
+      }
+    } catch (err) {
+      warnings.push(`Could not email the audit sheet: ${errorMessage(err)}`);
+    }
+  }
+
   if (opts.json) {
     return {
-      output: JSON.stringify({ result, out: file, link, token, recovery, warnings }, null, 2),
+      output: JSON.stringify(
+        { result, out: file, link, token, recovery, warnings, email },
+        null,
+        2,
+      ),
       code,
     };
   }
 
-  return { output: summarize(result, link, file, warnings, recovery), code };
+  return { output: summarize(result, link, file, warnings, recovery, email), code };
 }
