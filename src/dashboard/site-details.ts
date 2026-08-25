@@ -1,6 +1,7 @@
 import type { WebsiteRow } from "../reports/airtable/websites.js";
 import { parseNotifyRouting } from "../reports/airtable/websites.js";
 import { CANONICAL_STATUSES, toAirtableStatus } from "../reports/airtable/site-status.js";
+import type { AirtableCellValue } from "../reports/airtable/websites.js";
 import { isHttpUrl } from "../util/url.js";
 
 /**
@@ -22,8 +23,42 @@ import { isHttpUrl } from "../util/url.js";
 export const SITE_STATUS_OPTIONS: readonly string[] = CANONICAL_STATUSES.map(toAirtableStatus);
 export const FREQ_OPTIONS = ["None", "Monthly", "Quarterly", "Yearly"] as const;
 
+/**
+ * The options the live `Accepted Watch Conditions` multi-select carries, read
+ * off the base schema on 2026-08-25.
+ *
+ * Spelled out rather than derived, because the API CANNOT add an option to a
+ * select — a PATCH with new choices returns 422, proven during the status
+ * migration — so offering a value this field does not have would produce a write
+ * Airtable rejects. The records API would create one as a `typecast` side
+ * effect; that is the silent-option-creation hazard this codebase refuses
+ * everywhere, and it is why an unknown condition is rejected rather than sent.
+ *
+ * KNOWN GAP, operator-owned: `fleet-cockpit.ts` also supports a
+ * `turnstile-unverified` accept key, and this field has no option for it — so
+ * that one condition cannot be accepted from the console. Adding the option is a
+ * UI action in Airtable; nothing here can do it.
+ */
+export const WATCH_CONDITION_OPTIONS: readonly string[] = [
+  "Performance",
+  "Accessibility",
+  "Best Practices",
+  "SEO",
+  "stale repo",
+  "no custom domain",
+] as const;
+
 type FieldKind =
-  "text" | "email" | "emails" | "enum" | "gitrepo" | "url" | "date" | "notifyRouting";
+  | "text"
+  | "email"
+  | "emails"
+  | "enum"
+  | "gitrepo"
+  | "url"
+  | "date"
+  | "notifyRouting"
+  | "bool"
+  | "multiselect";
 export type EditableField = {
   column: string;
   kind: FieldKind;
@@ -68,6 +103,14 @@ export const EDITABLE_SITE_FIELDS: Record<string, EditableField> = {
   maintenanceDay: { column: "maintenance day", kind: "date" },
   testingDay: { column: "testing day", kind: "date" },
   notifyRouting: { column: "Notify Routing", kind: "notifyRouting" },
+  // The two non-text columns. They write a boolean and a string[] respectively,
+  // which is why `updateSiteField` and `mirrorSiteField` take AirtableCellValue.
+  requireTurnstile: { column: "Require Turnstile", kind: "bool" },
+  acceptedWatchConditions: {
+    column: "Accepted Watch Conditions",
+    kind: "multiselect",
+    options: WATCH_CONDITION_OPTIONS,
+  },
 };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -97,7 +140,7 @@ export const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
  * `null` when invalid. Empty (after trim) is allowed — it clears the cell — for
  * every kind EXCEPT `enum`, which must be one of its options.
  */
-export function normalizeFieldValue(f: EditableField, raw: string): string | null {
+export function normalizeFieldValue(f: EditableField, raw: string): AirtableCellValue | null {
   const v = raw.trim();
   // Hard upper bound across every kind (text additionally enforces its own
   // tighter maxLen below) — a single absurdly long value can't reach Airtable.
@@ -131,6 +174,20 @@ export function normalizeFieldValue(f: EditableField, raw: string): string | nul
       // routing" — which would look like a saved change while every form
       // notification kept going to the previous target.
       return v === "" ? "" : parseNotifyRouting(v) !== null ? v : null;
+    case "bool":
+      // A checkbox has no empty state, so "" is a malformed request rather than
+      // a clear. Exactly two accepted spellings — anything else is refused
+      // instead of guessed at, since guessing wrong here silently turns a site's
+      // spam protection off.
+      return v === "true" ? true : v === "false" ? false : null;
+    case "multiselect": {
+      if (v === "") return [];
+      const parts = v
+        .split(/[,\n]/)
+        .map((x) => x.trim())
+        .filter(Boolean);
+      return parts.every((p) => f.options!.includes(p)) ? parts : null;
+    }
     case "text":
       return v.length <= (f.maxLen ?? 500) ? v : null;
   }
@@ -139,7 +196,7 @@ export function normalizeFieldValue(f: EditableField, raw: string): string | nul
 /** Injected IO — the `.mts` binds these to a live Airtable base; tests bind fakes. */
 export type SiteDetailDeps = {
   getSite: (slug: string) => Promise<WebsiteRow | null>;
-  updateField: (recordId: string, column: string, value: string) => Promise<void>;
+  updateField: (recordId: string, column: string, value: AirtableCellValue) => Promise<void>;
 };
 
 export type SiteDetailResult =

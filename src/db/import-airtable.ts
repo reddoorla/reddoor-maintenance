@@ -87,7 +87,49 @@ export const SITE_FIELDS: Record<string, keyof SitesTable> = {
   "Notify Routing": "notify_routing",
   "Prismic Ack Until": "prismic_ack_until",
   "Launched at": "launched_at",
+  // Non-text columns. They live here so `mirrorSiteField` can resolve them like
+  // any other editor field; the coercion that makes them non-text is in
+  // `siteValueFor`, which BOTH this importer and that mirror go through.
+  "Require Turnstile": "require_turnstile",
+  "Accepted Watch Conditions": "accepted_watch_conditions",
 };
+
+/** Normalize an `Accepted Watch Conditions` cell (Airtable array, or a delimited
+ *  string) to the trimmed list both stores agree on. */
+function normalizeAwc(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return raw
+      .filter((x): x is string => typeof x === "string")
+      .map((x) => x.trim())
+      .filter(Boolean);
+  }
+  if (typeof raw === "string") {
+    return raw
+      .split(/[\n,]/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+/**
+ * Resolve one Airtable Websites cell to the value its `sites` column stores.
+ *
+ * The ONE shared path between `mapWebsiteRecord` (full-row import) and
+ * `fleet-state.mirrorSiteField` (the editor's write-through) — same contract and
+ * the same reason as `healthColumnFor`: a coercion that exists twice will
+ * eventually disagree, and here a disagreement is not subtle. Parity compares
+ * raw-to-raw, so a mirror storing `"true"` where the importer stores `1` reds
+ * every hourly run until the next import quietly papers over it.
+ */
+export function siteValueFor(column: keyof SitesTable, raw: unknown): string | number | null {
+  if (column === "require_turnstile") return b01(raw);
+  if (column === "accepted_watch_conditions") {
+    const awc = normalizeAwc(raw);
+    return awc.length > 0 ? JSON.stringify(awc) : null;
+  }
+  return s(raw);
+}
 
 /** Direct field→column map for `site_health` (nightly-cron-owned). Exported for
  *  the Phase 3 writer mirrors (fleet-state.mirrorHealthFields) and their
@@ -214,21 +256,6 @@ export function mapWebsiteRecord(rec: RawRecord, computedAt: string): MappedWebs
   const slug = siteSlug(name);
   if (!slug) throw new Error(`Websites ${rec.id}: Name "${name}" yields an empty slug`);
 
-  // Accepted Watch Conditions: array or delimited string in Airtable → one
-  // canonical JSON array here (same trimming mapRow applies at read time).
-  const awcRaw = f["Accepted Watch Conditions"];
-  const awc = Array.isArray(awcRaw)
-    ? awcRaw
-        .filter((x): x is string => typeof x === "string")
-        .map((x) => x.trim())
-        .filter(Boolean)
-    : typeof awcRaw === "string"
-      ? awcRaw
-          .split(/[\n,]/)
-          .map((x) => x.trim())
-          .filter(Boolean)
-      : [];
-
   const site: MappedWebsite["site"] = {
     id: rec.id,
     slug,
@@ -254,15 +281,19 @@ export function mapWebsiteRecord(rec: RawRecord, computedAt: string): MappedWebs
     mailchimp_api_key: null,
     mailchimp_audience_id: null,
     notify_routing: null,
-    require_turnstile: b01(f["Require Turnstile"]),
-    accepted_watch_conditions: awc.length > 0 ? JSON.stringify(awc) : null,
+    require_turnstile: 0,
+    accepted_watch_conditions: null,
     prismic_ack_until: null,
     launched_at: null,
     legacy: null,
   };
+  // Every mapped column goes through siteValueFor, so the non-text ones
+  // (require_turnstile, accepted_watch_conditions) get the SAME coercion the
+  // editor's write-through mirror applies. The literals above are placeholders
+  // this loop overwrites; they exist only to satisfy the row type.
   for (const [field, col] of Object.entries(SITE_FIELDS)) {
     if (col === "name") continue; // handled above (validated)
-    (site as unknown as Record<string, unknown>)[col] = s(f[field]);
+    (site as unknown as Record<string, unknown>)[col] = siteValueFor(col, f[field]);
   }
 
   const health = { site_id: rec.id } as SiteHealthTable;
@@ -283,8 +314,6 @@ export function mapWebsiteRecord(rec: RawRecord, computedAt: string): MappedWebs
   // Everything populated that no table claims and no exclusion bans → legacy.
   const claimed = new Set<string>([
     "Name",
-    "Require Turnstile",
-    "Accepted Watch Conditions",
     ...Object.keys(SITE_FIELDS),
     ...Object.keys(HEALTH_FIELDS),
     ...Object.keys(HEALTH_BOOLEAN),

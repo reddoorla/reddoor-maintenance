@@ -2,12 +2,14 @@ import { describe, it, expect } from "vitest";
 import {
   setSiteDetail,
   EDITABLE_SITE_FIELDS,
+  WATCH_CONDITION_OPTIONS,
   type SiteDetailDeps,
 } from "../../src/dashboard/site-details.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
+import type { AirtableCellValue } from "../../src/reports/airtable/websites.js";
 
 function harness(over: Partial<SiteDetailDeps> = {}) {
-  const writes: Array<{ id: string; column: string; value: string }> = [];
+  const writes: Array<{ id: string; column: string; value: AirtableCellValue }> = [];
   const deps: SiteDetailDeps = {
     getSite: async () => makeWebsiteRow({ id: "recA", name: "Acme" }),
     updateField: async (id, column, value) => {
@@ -207,5 +209,75 @@ describe("setSiteDetail — Phase 4 field coverage", () => {
     const { deps } = harness();
     expect(EDITABLE_SITE_FIELDS.mailchimpApiKey).toBeUndefined();
     expect((await setSiteDetail(deps, "acme", "mailchimpApiKey", "x")).status).toBe("bad-field");
+  });
+});
+
+/**
+ * The two editor fields Airtable will not accept as strings: `Require Turnstile`
+ * is a checkbox and `Accepted Watch Conditions` a multipleSelects. They travel
+ * as a boolean and a string[] rather than being stringified here and coerced
+ * back later (#539 Phase 4).
+ */
+describe("setSiteDetail — the non-text fields", () => {
+  it("writes Require Turnstile as a real boolean, never the string 'true'", async () => {
+    const { deps, writes } = harness();
+    expect((await setSiteDetail(deps, "acme", "requireTurnstile", "true")).status).toBe("updated");
+    expect(writes[0]).toMatchObject({ column: "Require Turnstile", value: true });
+    expect((await setSiteDetail(deps, "acme", "requireTurnstile", "false")).status).toBe("updated");
+    expect(writes[1]!.value).toBe(false);
+  });
+
+  it("Require Turnstile accepts only the two checkbox states", async () => {
+    // Not a free-text field: anything else is a malformed request, not a value
+    // to guess at. `""` is NOT treated as "clear" here — a checkbox has no empty.
+    const { deps } = harness();
+    for (const bad of ["", "yes", "1", "on", "TRUE "]) {
+      expect((await setSiteDetail(deps, "acme", "requireTurnstile", bad)).status).toBe("invalid");
+    }
+  });
+
+  it("writes Accepted Watch Conditions as an ARRAY of existing options", async () => {
+    const { deps, writes } = harness();
+    const r = await setSiteDetail(deps, "acme", "acceptedWatchConditions", "Performance, SEO");
+    expect(r.status).toBe("updated");
+    expect(writes[0]).toMatchObject({
+      column: "Accepted Watch Conditions",
+      value: ["Performance", "SEO"],
+    });
+  });
+
+  it("REFUSES a watch condition that is not an option in the field", async () => {
+    // `Accepted Watch Conditions` is a multipleSelects, and the Airtable API
+    // creates a missing option as a side effect only with `typecast` — the exact
+    // silent-option-creation hazard this codebase refuses everywhere. Writing an
+    // unknown value must fail here rather than mint a junk option.
+    const { deps, writes } = harness();
+    expect(
+      (await setSiteDetail(deps, "acme", "acceptedWatchConditions", "Performance, Nonsense"))
+        .status,
+    ).toBe("invalid");
+    expect(writes).toEqual([]);
+  });
+
+  it("clears Accepted Watch Conditions to an EMPTY ARRAY, not an empty string", async () => {
+    const { deps, writes } = harness();
+    expect((await setSiteDetail(deps, "acme", "acceptedWatchConditions", "  ")).status).toBe(
+      "updated",
+    );
+    expect(writes[0]!.value).toEqual([]);
+  });
+
+  it("offers exactly the options the live Airtable field carries", () => {
+    // Read off the base schema on 2026-08-25. The API cannot add options to a
+    // select (422 — proven during the status migration), so offering one that
+    // does not exist would produce a write Airtable rejects.
+    expect([...WATCH_CONDITION_OPTIONS]).toEqual([
+      "Performance",
+      "Accessibility",
+      "Best Practices",
+      "SEO",
+      "stale repo",
+      "no custom domain",
+    ]);
   });
 });

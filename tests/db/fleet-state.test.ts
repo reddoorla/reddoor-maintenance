@@ -492,3 +492,61 @@ describe("mirrorReportPatch (approve/webhook write-through)", () => {
     await expect(mirrorReportPatch(db, "recX", {})).resolves.toBeUndefined();
   });
 });
+
+/**
+ * #539 Phase 4: `Require Turnstile` (checkbox) and `Accepted Watch Conditions`
+ * (multipleSelects) are the two editor fields that CANNOT be written as strings.
+ * The mirror's whole risk is coercing them differently from the importer — the
+ * hourly parity check compares raw-to-raw, so a mirror that stores `"true"`
+ * where the importer stores `1` reds every run until the next import papers
+ * over it.
+ */
+describe("mirrorSiteField — the non-text editor columns", () => {
+  const storedOf = async (db: Awaited<ReturnType<typeof importOf>>) =>
+    (await db
+      .selectFrom("sites")
+      .select(["require_turnstile", "accepted_watch_conditions"])
+      .where("id", "=", "recRICH")
+      .executeTakeFirst())!;
+
+  it("stores a checkbox as the importer's 1/0, not a string", async () => {
+    const db = await importOf([RICH]);
+    await mirrorSiteField(db, "recRICH", "Require Turnstile", false);
+    expect((await storedOf(db)).require_turnstile).toBe(0);
+    await mirrorSiteField(db, "recRICH", "Require Turnstile", true);
+    expect((await storedOf(db)).require_turnstile).toBe(1);
+  });
+
+  it("stores a multi-select as the importer's trimmed JSON array", async () => {
+    const db = await importOf([RICH]);
+    await mirrorSiteField(db, "recRICH", "Accepted Watch Conditions", ["Performance", "  SEO  "]);
+    expect((await storedOf(db)).accepted_watch_conditions).toBe(
+      JSON.stringify(["Performance", "SEO"]),
+    );
+    // Cleared to nothing selected → null, matching the importer's `awc.length > 0`.
+    await mirrorSiteField(db, "recRICH", "Accepted Watch Conditions", []);
+    expect((await storedOf(db)).accepted_watch_conditions).toBeNull();
+  });
+
+  it("MATCHES the importer byte-for-byte — the property parity actually checks", async () => {
+    // The instrument that matters: mirror a value, then import a record whose
+    // Airtable cell holds that same value, and require the stored columns to be
+    // identical. Any divergence here is an hourly red run.
+    const mirrored = await importOf([RICH]);
+    await mirrorSiteField(mirrored, "recRICH", "Require Turnstile", false);
+    await mirrorSiteField(mirrored, "recRICH", "Accepted Watch Conditions", ["SEO", "stale repo"]);
+
+    const imported = await importOf([
+      {
+        ...RICH,
+        fields: {
+          ...RICH.fields,
+          "Require Turnstile": false,
+          "Accepted Watch Conditions": ["SEO", "stale repo"],
+        },
+      },
+    ]);
+
+    expect(await storedOf(mirrored)).toEqual(await storedOf(imported));
+  });
+});

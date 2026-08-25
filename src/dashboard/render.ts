@@ -19,7 +19,7 @@ import {
   SUBMISSION_STATUS_SCRIPT,
   isVisibleInStrip,
 } from "./submission-view.js";
-import { SITE_STATUS_OPTIONS, FREQ_OPTIONS } from "./site-details.js";
+import { SITE_STATUS_OPTIONS, FREQ_OPTIONS, WATCH_CONDITION_OPTIONS } from "./site-details.js";
 import type { SiteAlarmContext } from "./fleet-cockpit.js";
 
 const DASH = "—";
@@ -455,6 +455,32 @@ function dateRow(label: string, field: string, value: string | null, url: string
   return `<div class="detail"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><input type="date" id="detail-${field}" data-detail-field="${field}" data-details-url="${url}" value="${escapeHtml(value ?? "")}" />${savedSpan(field)}</dd></div>`;
 }
 
+/** Editable checkbox row. Posts the literal "true"/"false" the `bool` kind
+ *  accepts — a checkbox has no empty state, so there is nothing to clear. */
+function checkboxRow(label: string, field: string, checked: boolean, url: string): string {
+  return `<div class="detail"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><input type="checkbox" id="detail-${field}" data-detail-field="${field}" data-details-url="${url}"${checked ? " checked" : ""} />${savedSpan(field)}</dd></div>`;
+}
+
+/** Editable multi-select row. Options come from WATCH_CONDITION_OPTIONS — the
+ *  live Airtable choices — because the API cannot create a missing one, so an
+ *  option offered here that the field lacks would produce a rejected write. */
+function multiSelectRow(
+  label: string,
+  field: string,
+  options: readonly string[],
+  selected: readonly string[],
+  url: string,
+): string {
+  const sel = new Set(selected);
+  const opts = options
+    .map(
+      (o) =>
+        `<option value="${escapeHtml(o)}"${sel.has(o) ? " selected" : ""}>${escapeHtml(o)}</option>`,
+    )
+    .join("");
+  return `<div class="detail wide"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><select multiple id="detail-${field}" data-detail-field="${field}" data-details-url="${url}">${opts}</select>${savedSpan(field)}</dd></div>`;
+}
+
 /** Editable multi-line `<textarea>` row for the copy override fields. */
 function textareaRow(label: string, field: string, value: string | null, url: string): string {
   return `<div class="detail wide"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><textarea id="detail-${field}" data-detail-field="${field}" data-details-url="${url}">${escapeHtml(value ?? "")}</textarea>${savedSpan(field)}</dd></div>`;
@@ -492,6 +518,14 @@ function siteDetailsSection(site: WebsiteRow): string {
     // Raw JSON, and shown as the raw cell rather than the parsed object: what the
     // operator edits has to be the thing `parseNotifyRouting` will read back.
     textareaRow("Notify routing (JSON)", "notifyRouting", site.notifyRoutingRaw, url),
+    checkboxRow("Require Turnstile", "requireTurnstile", site.requireTurnstile, url),
+    multiSelectRow(
+      "Accepted watch conditions",
+      "acceptedWatchConditions",
+      WATCH_CONDITION_OPTIONS,
+      site.acceptedWatchConditions,
+      url,
+    ),
     textareaRow("Copy — Intro", "copyIntro", site.copyIntro, url),
     textareaRow("Copy — Contact", "copyContact", site.copyContact, url),
     textareaRow("Copy — Footer", "copyFooter", site.copyFooter, url),
