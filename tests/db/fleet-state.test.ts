@@ -41,7 +41,7 @@ const RICH: RawRecord = {
   fields: {
     Name: "Acme Gallery",
     url: "https://acme.example.com",
-    Status: "maintenance",
+    Status: "maintained",
     "point of contact": "owner@acme.example.com",
     "maintenence freq": "Monthly",
     "testing freq": "Quarterly",
@@ -184,16 +184,16 @@ describe("fleet-state read layer ≡ mapRow (the Phase 2 equivalence instrument)
   });
 
   // The status vocabulary (#539 Phase 4) is canonicalized on BOTH sides of this
-  // equivalence, so a one-sided change fails here. `legacy` and `deprecated` are
-  // the riskiest pair — they are the ONE many-to-one alias, both landing on
-  // `archived` while `statusRaw` keeps them apart.
-  it("archived record: BOTH old archived names pair identically through either reader", async () => {
-    for (const old of ["legacy", "deprecated"]) {
-      await expectEquivalent({
-        id: `recARCH-${old}`,
-        fields: { Name: `Archived ${old}`, Status: old },
-      });
-    }
+  // equivalence, so a one-sided change fails here. `archived` was the riskiest
+  // value while the alias map lived: it was the ONE many-to-one merge, with
+  // `legacy` and `deprecated` both landing on it while `statusRaw` kept them
+  // apart. Since stage 3 those two names cannot be entered in Airtable at all,
+  // so `archived` is the only archived fixture production can produce.
+  it("archived record: the archived status pairs identically through either reader", async () => {
+    await expectEquivalent({
+      id: "recARCH",
+      fields: { Name: "Archived Site", Status: "archived" },
+    });
   });
 
   it("getSiteBySlug returns null for an unknown slug", async () => {
@@ -236,14 +236,34 @@ describe("mirrorSiteField (the site-detail editor's Turso write-through)", () =>
     }
   });
 
-  it("mirrors an edit into sites immediately", async () => {
+  it("mirrors an edit into sites immediately, storing the cell VERBATIM", async () => {
     const db = await importOf([RICH]);
-    await mirrorSiteField(db, "recRICH", "Status", "legacy");
+    await mirrorSiteField(db, "recRICH", "Status", "archived");
     const mirrored = await getSiteBySlug(db, "acme-gallery");
     // Stored raw, canonicalized on read — the Turso half of the #539 Phase 4
     // status-vocabulary seam (mapRow does the same on the Airtable half).
+    //
+    // This used to mirror "legacy" and assert it read back as "archived", which
+    // demonstrated the seam by making the two halves DIFFER. Stage 3 deleted the
+    // alias map, so canonicalization is the identity and no input can make them
+    // differ any more. What is still worth pinning, and all that is claimed here,
+    // is the write-through itself: an editor save reaches `sites` immediately
+    // rather than waiting for the next hourly import, and it lands byte-for-byte.
+    expect(mirrored?.statusRaw).toBe("archived");
     expect(mirrored?.status).toBe("archived");
+  });
+
+  it("mirrors a value the code does NOT recognize, rather than normalizing it away", async () => {
+    // The half of the retired test that still bites. The write-through must not
+    // filter or coerce what it is given — a stale or hand-entered cell has to
+    // land verbatim so the cockpit can flag it, exactly as the Airtable reader
+    // does. `legacy` is the realistic instance: a retired option name that no
+    // longer exists in the field and must now read as an anomaly, not as archived.
+    const db = await importOf([RICH]);
+    await mirrorSiteField(db, "recRICH", "Status", "legacy");
+    const mirrored = await getSiteBySlug(db, "acme-gallery");
     expect(mirrored?.statusRaw).toBe("legacy");
+    expect(mirrored?.status).toBe("legacy");
   });
 
   it("an emptied value clears to null — the importer's empty-clears semantics", async () => {
@@ -470,5 +490,63 @@ describe("mirrorReportPatch (approve/webhook write-through)", () => {
   it("an empty patch is a no-op, not invalid SQL", async () => {
     const db = await importOf([RICH]);
     await expect(mirrorReportPatch(db, "recX", {})).resolves.toBeUndefined();
+  });
+});
+
+/**
+ * #539 Phase 4: `Require Turnstile` (checkbox) and `Accepted Watch Conditions`
+ * (multipleSelects) are the two editor fields that CANNOT be written as strings.
+ * The mirror's whole risk is coercing them differently from the importer — the
+ * hourly parity check compares raw-to-raw, so a mirror that stores `"true"`
+ * where the importer stores `1` reds every run until the next import papers
+ * over it.
+ */
+describe("mirrorSiteField — the non-text editor columns", () => {
+  const storedOf = async (db: Awaited<ReturnType<typeof importOf>>) =>
+    (await db
+      .selectFrom("sites")
+      .select(["require_turnstile", "accepted_watch_conditions"])
+      .where("id", "=", "recRICH")
+      .executeTakeFirst())!;
+
+  it("stores a checkbox as the importer's 1/0, not a string", async () => {
+    const db = await importOf([RICH]);
+    await mirrorSiteField(db, "recRICH", "Require Turnstile", false);
+    expect((await storedOf(db)).require_turnstile).toBe(0);
+    await mirrorSiteField(db, "recRICH", "Require Turnstile", true);
+    expect((await storedOf(db)).require_turnstile).toBe(1);
+  });
+
+  it("stores a multi-select as the importer's trimmed JSON array", async () => {
+    const db = await importOf([RICH]);
+    await mirrorSiteField(db, "recRICH", "Accepted Watch Conditions", ["Performance", "  SEO  "]);
+    expect((await storedOf(db)).accepted_watch_conditions).toBe(
+      JSON.stringify(["Performance", "SEO"]),
+    );
+    // Cleared to nothing selected → null, matching the importer's `awc.length > 0`.
+    await mirrorSiteField(db, "recRICH", "Accepted Watch Conditions", []);
+    expect((await storedOf(db)).accepted_watch_conditions).toBeNull();
+  });
+
+  it("MATCHES the importer byte-for-byte — the property parity actually checks", async () => {
+    // The instrument that matters: mirror a value, then import a record whose
+    // Airtable cell holds that same value, and require the stored columns to be
+    // identical. Any divergence here is an hourly red run.
+    const mirrored = await importOf([RICH]);
+    await mirrorSiteField(mirrored, "recRICH", "Require Turnstile", false);
+    await mirrorSiteField(mirrored, "recRICH", "Accepted Watch Conditions", ["SEO", "stale repo"]);
+
+    const imported = await importOf([
+      {
+        ...RICH,
+        fields: {
+          ...RICH.fields,
+          "Require Turnstile": false,
+          "Accepted Watch Conditions": ["SEO", "stale repo"],
+        },
+      },
+    ]);
+
+    expect(await storedOf(mirrored)).toEqual(await storedOf(imported));
   });
 });

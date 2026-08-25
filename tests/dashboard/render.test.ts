@@ -10,6 +10,7 @@ import {
   gatingFields,
 } from "../../src/reports/checklist.js";
 import { escapeHtml } from "../../src/util/html.js";
+import { EDITABLE_SITE_FIELDS } from "../../src/dashboard/site-details.js";
 import type { EvidenceRecord } from "../../src/reports/auto-tick.js";
 
 /** All 6 maintenance cells true → a complete Maintenance checklist. */
@@ -983,7 +984,14 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
       // Labels can contain "&" (e.g. "Domain, DNS & SSL"), escaped to &amp; in HTML.
       expect(html).toContain(escapeHtml(item.label));
     }
-    expect(html).not.toMatch(/type="checkbox"/);
+    // Scoped to the checklist ELEMENT, not the whole document: ticking is
+    // evidence-driven, so the checklist must render no manual checkbox — but the
+    // page legitimately carries one elsewhere (the site-details `Require
+    // Turnstile` editor), and asserting over the whole page made this a
+    // constraint on unrelated sections.
+    const checklist = /<ul class="checklist"[^>]*>.*?<\/ul>/s.exec(html)?.[0] ?? "";
+    expect(checklist).not.toBe("");
+    expect(checklist).not.toMatch(/type="checkbox"/);
     expect(html).not.toContain("checklist-checkbox");
     // The Approve button for THIS report starts disabled (server-rendered health gate).
     expect(html).toMatch(/<button class="approve"[^>]*data-report-id="recREP1"[^>]*disabled/);
@@ -1037,7 +1045,9 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
         sentAt: null,
       }),
     ]);
-    expect(html).not.toMatch(/type="checkbox"/);
+    // Stated directly — no checklist element at all — rather than inferred from
+    // the absence of checkbox markup anywhere on the page.
+    expect(html).not.toContain('class="checklist"');
     expect(html).not.toContain("data-checklist-for");
     // Launch/Announcement Approve is never gated → not disabled.
     expect(html).toContain("/api/reports/recREP1/approve");
@@ -1054,7 +1064,9 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
         sentAt: null,
       }),
     ]);
-    expect(html).not.toMatch(/type="checkbox"/);
+    // Stated directly — no checklist element at all — rather than inferred from
+    // the absence of checkbox markup anywhere on the page.
+    expect(html).not.toContain('class="checklist"');
     expect(html).not.toMatch(/<button class="approve"[^>]*data-report-id="recREP1"[^>]*disabled/);
   });
 
@@ -1124,6 +1136,61 @@ describe("renderSiteDashboardHtml — editable site details", () => {
     expect(html).toContain('<option value="maintained" selected');
     expect(html).toMatch(/data-detail-field="pointOfContact"/);
     expect(html).toContain('value="a@b.com"');
+  });
+
+  it("renders EVERY editable field — the allowlist and the form cannot drift apart", () => {
+    // The gate that makes "full field coverage" (#539 Phase 4) checkable rather
+    // than asserted. Before this, a field could be added to EDITABLE_SITE_FIELDS
+    // and be writable through the API while remaining invisible in the console —
+    // which is exactly the state the eight newly-covered fields were in. Driven
+    // off the allowlist itself so ADDING a field without rendering it fails here.
+    const html = renderSiteDashboardHtml(siteRow({ name: "Acme" }), []);
+    for (const field of Object.keys(EDITABLE_SITE_FIELDS)) {
+      expect(html, `no editor control rendered for '${field}'`).toContain(
+        `data-detail-field="${field}"`,
+      );
+    }
+  });
+
+  it("renders the newly-covered fields with their values, dates as date inputs", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow({
+        name: "Acme",
+        netlifyId: "nlf-abc",
+        searchConsoleProperty: "sc-domain:acme.com",
+        mailchimpAudienceId: "aud1",
+        newsletterWebhook: "https://hooks.example.com/x",
+        maintenanceDay: "2026-08-25",
+        testingDay: "2026-07-01",
+      }),
+      [],
+    );
+    expect(html).toContain('value="nlf-abc"');
+    expect(html).toContain('value="sc-domain:acme.com"');
+    expect(html).toContain('value="https://hooks.example.com/x"');
+    // `type="date"` so the browser enforces YYYY-MM-DD before the request is
+    // made; the server still validates it (a hand-crafted POST bypasses this).
+    expect(html).toMatch(/<input type="date"[^>]*data-detail-field="maintenanceDay"/);
+    expect(html).toMatch(/<input type="date"[^>]*data-detail-field="testingDay"/);
+    expect(html).toContain('value="2026-08-25"');
+  });
+
+  it("the credential control carries NO value attribute at all", () => {
+    // This began as "the key is not rendered as a field at all" — correct while
+    // no write-only kind existed. The `secret` kind changed that, so the guard is
+    // re-pointed to something STRUCTURAL rather than dropped: whatever the
+    // stored key happens to be, its control must emit no `value=`. That is
+    // stronger than checking one fixture string is absent (which the sibling
+    // test also does), because it fails for any secret, including one that
+    // happens not to match the needle.
+    const html = renderSiteDashboardHtml(
+      siteRow({ name: "Acme", mailchimpApiKey: "mc-super-secret-key" }),
+      [],
+    );
+    const control = /<input[^>]*data-detail-field="mailchimpApiKey"[^>]*>/.exec(html)?.[0] ?? "";
+    expect(control).not.toBe("");
+    expect(control).not.toMatch(/\svalue=/);
+    expect(control).toMatch(/type="password"/);
   });
 
   it("preselects the Status select from the RAW cell, so a 'legacy' site shows the placeholder", () => {
@@ -1363,5 +1430,26 @@ describe("renderSiteDashboardHtml — approve-card info (recipients / preview / 
       NOW,
     );
     expect(html).not.toContain("<img src=x");
+  });
+});
+
+describe("renderSiteDashboardHtml — the write-only credential row", () => {
+  it("renders a control for the key but NEVER its value", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow({ name: "Acme", mailchimpApiKey: "mc-super-secret-key" }),
+      [],
+    );
+    expect(html).toContain('data-detail-field="mailchimpApiKey"');
+    // The whole point: the field is editable, and the secret still never leaves
+    // the server. `inputRow` would have emitted value="mc-super-secret-key".
+    expect(html).not.toContain("mc-super-secret-key");
+    expect(html).toContain("(set — type to replace)");
+  });
+
+  it("says so when no key is stored, so 'blank' is not ambiguous", () => {
+    // Without this the operator cannot tell an unset key from one that is set
+    // but unrendered — and the input is deliberately blank in both cases.
+    const html = renderSiteDashboardHtml(siteRow({ name: "Acme", mailchimpApiKey: null }), []);
+    expect(html).toContain("not set");
   });
 });

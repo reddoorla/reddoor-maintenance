@@ -203,8 +203,8 @@ describe("collectAttention", () => {
       Reports: [],
       Websites: [
         signalSite({
-          // a maintenance Status makes the site cockpit-visible
-          Status: "maintenance",
+          // a maintained Status makes the site cockpit-visible
+          Status: "maintained",
           "Renovate Failing CIs": 2,
           "Default Branch CI": "failing",
         }),

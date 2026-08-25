@@ -3,10 +3,13 @@
  *
  * The fleet's lifecycle names were inherited from an Airtable single-select
  * written by hand years ago ("probably not our problem"). The operator approved
- * a canonical vocabulary; this module is the only place that knows BOTH, so the
- * rename could land in code without touching Airtable.
+ * a canonical vocabulary, and the migration is now COMPLETE in both stores:
+ * Airtable's "Status" single-select carries exactly the six canonical options
+ * and nothing else. This module no longer knows the old names at all.
  *
- *   old (Airtable today)        new (canonical)
+ * The retired mapping, kept as the record of what was merged into what:
+ *
+ *   old (retired 2026-08-25)    new (canonical)
  *   ─────────────────────────   ───────────────
  *   in development              building
  *   launch period               launching
@@ -26,9 +29,10 @@
  * canonical values decide BEHAVIOUR; anything DISPLAYING a Status cell, or
  * writing one back, uses the raw cell.
  *
- * The merge also means there is NO clean reverse map. Nothing here pretends
- * otherwise: `toAirtableStatus` picks one archived name deliberately and says
- * why, and no code path feeds operator-supplied text through it (see
+ * The merge had NO clean reverse map while both vocabularies coexisted, which
+ * is why `toAirtableStatus` had to pick one archived name deliberately. With the
+ * old names retired there is nothing left to pick between, and no code path
+ * feeds operator-supplied text through it anyway (see
  * `src/recipes/forms-notify-target.ts`, which writes `--restore` verbatim).
  *
  * THE SHAPE OF THE TRANSITION (three stages):
@@ -47,12 +51,26 @@
  *                   flipped to true. Writers now emit canonical names verbatim.
  *                   The alias map STAYS: the 7 old options still exist in the
  *                   field, so a human can still pick one in the Airtable UI.
- *   stage 3 (TODO)  delete the 7 old options from the Airtable "Status" field,
- *                   then delete — in this file — AIRTABLE_STATUS_ALIASES,
- *                   AIRTABLE_OLD_NAMES, and the now-dead
- *                   AIRTABLE_USES_NEW_VOCABULARY branch in `toAirtableStatus`
- *                   (which reduces to the identity). Only safe once no old value
- *                   can be entered, not merely once none is stored.
+ *   stage 3 (DONE)  the operator deleted the 7 old options from the Airtable
+ *                   "Status" field on 2026-08-25, which is what made this safe:
+ *                   the gate was always "no old value CAN BE ENTERED", not
+ *                   merely "none is stored". Verified against the live base
+ *                   before any code changed — the field carries exactly the six
+ *                   canonical choices, byte-exact, and all 44 cells still hold a
+ *                   canonical value with ZERO blanks (deleting a single-select
+ *                   option CLEARS the cells using it, so "no cell was blanked"
+ *                   was checked, not assumed). AIRTABLE_STATUS_ALIASES,
+ *                   AIRTABLE_OLD_NAMES and AIRTABLE_USES_NEW_VOCABULARY are
+ *                   gone; both functions reduce to the identity.
+ *
+ * WHAT CHANGED IN BEHAVIOUR AT STAGE 3, and it is the only thing that did: an
+ * old name is no longer translated. `canonicalizeStatus("maintenance")` used to
+ * yield `maintained`; it now yields `"maintenance"` verbatim, which
+ * `isUnrecognizedStatus` flags and the cockpit surfaces as a watch row. That is
+ * intended. The option cannot be selected any more, so a stored old value would
+ * mean something went wrong — a restored backup, a scripted write, an API
+ * caller with a stale constant — and the fleet should say so rather than absorb
+ * it into a status nobody chose.
  *
  * Canonicalization happens on READ, never at rest: `src/db/import-airtable.ts`
  * still stores the raw Airtable cell verbatim in `sites.status`, so the hourly
@@ -78,26 +96,6 @@ export const CANONICAL_STATUSES: readonly Status[] = [
   "archived",
 ] as const;
 
-/**
- * Old Airtable single-select value → canonical status. Lives only for the
- * transition window (deleted at stage 3). Many-to-one by design: `legacy` and
- * `deprecated` both land on `archived`.
- *
- * Still load-bearing AFTER the stage-2 migration. No stored cell uses these
- * names any more, but the 7 old options remain in the field until stage 3, so a
- * human can still select one in the Airtable UI — and reads must keep
- * tolerating that. Delete this only together with the options themselves.
- */
-export const AIRTABLE_STATUS_ALIASES: Readonly<Record<string, Status>> = {
-  "in development": "building",
-  "launch period": "launching",
-  maintenance: "maintained",
-  hosting: "hosted-only",
-  "probably not our problem": "external",
-  legacy: "archived",
-  deprecated: "archived",
-};
-
 const CANONICAL_SET: ReadonlySet<string> = new Set<string>(CANONICAL_STATUSES);
 
 /**
@@ -113,81 +111,48 @@ const CANONICAL_SET: ReadonlySet<string> = new Set<string>(CANONICAL_STATUSES);
  *    the row for scheduled client reports.
  *  - An unrecognized value is returned VERBATIM (blind-cast to Status, exactly as
  *    `mapRow` did before this module existed) so `isUnrecognizedStatus` still
- *    flags it and the cockpit still surfaces it as a watch row.
- *  - No trimming or case-folding. `"maintenance "` stays unrecognized, which is
+ *    flags it and the cockpit still surfaces it as a watch row. Since stage 3
+ *    that INCLUDES the seven retired names: `maintenance` is now as unrecognized
+ *    as `maintenence`, which is the point — it can no longer be entered, so its
+ *    reappearance is an anomaly to surface, not a spelling to absorb.
+ *  - No trimming or case-folding. `"maintained "` stays unrecognized, which is
  *    what `isUnrecognizedStatus` has always been documented to catch ("typo /
  *    renamed option / stray whitespace"). Normalizing here would silence it.
+ *
+ * With the alias map gone this is the identity on every string, so `status` and
+ * `statusRaw` now hold the same value for any present cell. The two fields are
+ * kept distinct deliberately — the read/display split is the architecture that
+ * made this migration survivable, and collapsing it would have to be undone the
+ * next time Airtable's vocabulary and the code's diverge.
  */
 export function canonicalizeStatus(raw: unknown): Status | null {
   if (typeof raw !== "string") return null;
-  const alias = AIRTABLE_STATUS_ALIASES[raw];
-  if (alias) return alias;
   // Canonical values pass through; so does anything else, unchanged — see above.
   return raw as Status;
 }
 
 /**
- * THE stage-2 switch, now FLIPPED. While it was false, every write emitted the
- * OLD Airtable option names, because the "Status" single-select did not yet carry
- * the new options — writing an unknown option would be rejected or (with typecast
- * on) silently create a duplicate option beside the real one.
- *
- * The new options were added and all 44 cells migrated before this flipped, so
- * every write now lands on an option that exists. Flipping it was the entire code
- * side of stage 2.
- *
- * Stage 3 deletes this constant along with the `false` branch it guards.
- */
-export const AIRTABLE_USES_NEW_VOCABULARY = true;
-
-/**
- * Canonical status → the OLD Airtable option name. Only consulted while
- * AIRTABLE_USES_NEW_VOCABULARY is false — which, since the stage-2 flip, is
- * never. This map is DEAD CODE kept only so the flip stays a one-line revert
- * while stage 3 is pending; stage 3 deletes it outright.
- *
- * The rationale below describes the stage-1 behaviour it used to drive, and is
- * retained because it explains why `archived` mapped to "deprecated" — the pick a
- * revert would resurrect.
- *
- * `archived` is the many-to-one case and needs a deliberate pick. It is
- * "deprecated" because that — not "legacy" — is the archived option the dashboard
- * status editor has always offered (`SITE_STATUS_OPTIONS`, whose own comment
- * notes that "legacy" is set directly in Airtable, never from the dashboard).
- * Writing back exactly what the editor offers keeps that dropdown, and the value
- * it POSTs, byte-identical this stage. It is the ONLY code path that can write an
- * archived status: `updateLaunched` writes `maintained`, `ensureSite` writes
- * `building`, and `forms-notify-target --set on` writes `launching`. Its
- * `--set off --restore <x>` path does NOT come through here — it writes the
- * operator's string verbatim, precisely so this many-to-one pick can never be
- * applied to a value a human typed.
- */
-const AIRTABLE_OLD_NAMES: Readonly<Record<Status, string>> = {
-  building: "in development",
-  launching: "launch period",
-  maintained: "maintenance",
-  "hosted-only": "hosting",
-  external: "probably not our problem",
-  archived: "deprecated",
-};
-
-/**
  * The string to WRITE into the Airtable "Status" cell for a canonical status.
  * Every writer of a CODE-OWNED status routes through here.
  *
- * It must NOT be handed operator free text. `archived` is many-to-one, so
- * `toAirtableStatus(canonicalizeStatus(x))` is not the identity — feeding it
- * "legacy" yields "deprecated", silently writing an option the operator never
- * asked for and which no `git revert` can undo. `forms-notify-target --restore`
- * is the one operator-text path and it writes verbatim instead (`restoreCell`).
+ * Since stage 3 this is the identity: Airtable's single-select carries exactly
+ * the six canonical options, so the canonical name IS the option name. It is
+ * kept as a named seam rather than inlined because it is the one place a future
+ * divergence between the code's vocabulary and Airtable's would be expressed,
+ * and because every writer already routes through it — inlining would scatter
+ * that decision across `ensureSite`, `updateLaunched`, `forms-notify-target`
+ * and the dashboard status save.
  *
- * An unknown blind-cast value still passes through verbatim, so a caller that
- * ignores the rule above degrades to "let Airtable reject it" rather than to a
- * substitution.
+ * The stage-1/2 hazard it used to carry is GONE: while a many-to-one map
+ * existed, `toAirtableStatus(canonicalizeStatus(x))` was not the identity —
+ * feeding it "legacy" yielded "deprecated", silently writing an option the
+ * operator never asked for. Both functions are now the identity, so that trap
+ * no longer exists. `forms-notify-target --restore` still writes operator text
+ * verbatim (`restoreCell`) rather than routing through here, which remains the
+ * right shape: operator free text is not a canonical status.
  */
 export function toAirtableStatus(s: Status): string {
-  if (AIRTABLE_USES_NEW_VOCABULARY) return s;
-  return AIRTABLE_OLD_NAMES[s] ?? (s as string);
+  return s;
 }
 
 /** True when `s` is one of the canonical statuses (not a blind-cast typo). */

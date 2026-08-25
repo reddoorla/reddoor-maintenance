@@ -319,4 +319,17 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    // Cockpit /audits listing page (spec 2026-08-25, Piece 5):
+    // listRecentProspectAudits orders by created_at DESC with no WHERE clause —
+    // without this index that's a raw SCAN of prospect_audits followed by a temp
+    // b-tree sort, which the EXPLAIN-query-plan gate (tests/db/query-plans.test.ts)
+    // fails the build on. DESC matches the query's own ORDER BY so SQLite can walk
+    // the index directly instead of sorting.
+    id: "0010_prospect_audits_created_index",
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_prospect_audits_created
+        ON prospect_audits (created_at DESC);
+    `,
+  },
 ];

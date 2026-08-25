@@ -1039,8 +1039,9 @@ describe("renderCockpitHtml — archived lane + status honesty", () => {
     const html = renderCockpitHtml(
       model([
         siteRow({ id: "a", name: "Acme" }),
-        // Airtable still holds "legacy"; the lane MIRRORS Airtable, so it shows
-        // "legacy" — not the canonical "archived" both archived cells share.
+        // Synthetic since stage 3 (no cell can diverge from its canonical value
+        // any more): the lane MIRRORS the raw Status cell, so a row whose raw
+        // cell says "legacy" must render "legacy", never the canonical value.
         siteRow({ id: "l", name: "Old & Legacy", status: "archived", statusRaw: "legacy" }),
       ]),
     );
@@ -1054,10 +1055,12 @@ describe("renderCockpitHtml — archived lane + status honesty", () => {
     expect(html).toContain("Fleet (1)");
   });
 
-  it("keeps legacy and deprecated apart in the Archived lane (the merge is behaviour-only)", () => {
-    // `legacy` and `deprecated` both canonicalize to `archived`. This lane is the
-    // operator's mirror of the Status column, so it must still show which cell
-    // each row actually holds — 12 live fleet rows depend on this being readable.
+  it("labels each archived row from its OWN raw cell, not from the shared canonical one", () => {
+    // A RENDERER contract test, and deliberately synthetic: since stage 3 no
+    // Airtable cell can produce `status !== statusRaw`, so these rows are built
+    // by hand rather than through mapRow. What it still catches is a renderer
+    // that starts labelling from `status` — the change that once relabelled all
+    // 12 live archived rows and was caught only on the combined tree.
     const html = renderCockpitHtml(
       model([
         siteRow({ id: "a", name: "Acme" }),
@@ -1071,24 +1074,42 @@ describe("renderCockpitHtml — archived lane + status honesty", () => {
   });
 
   it("labels the archived lane from a RAW Airtable cell driven through mapRow", () => {
-    // End-to-end through the real read seam: an Airtable record whose Status cell
-    // says "legacy" must still read "legacy" in the rendered lane. Building the
-    // fixture from mapRow (rather than hand-setting statusRaw) is the point —
-    // it pins the seam and the renderer together, so canonicalizing at EITHER
-    // end reds this test.
+    // End-to-end through the real read seam. This used to drive "legacy" and
+    // "deprecated" cells through mapRow and assert they rendered under their own
+    // names — which worked because the alias map made them archived while
+    // statusRaw kept them distinct. Stage 3 deleted that map and the operator
+    // deleted the two options from Airtable, so that fixture now describes a
+    // state the base cannot hold.
+    //
+    // What it pins now is the same seam in its post-migration shape: the lane is
+    // driven by real mapRow output, and the label still comes from the raw cell.
     const record = (id: string, name: string, status: string) =>
       mapRow({ id, fields: { Name: name, Status: status } });
     const html = renderCockpitHtml(
       model([
-        record("recL", "Old Legacy", "legacy"),
-        record("recD", "Dead Site", "deprecated"),
-        record("recM", "Acme", "maintenance"),
+        record("recL", "Old Site", "archived"),
+        record("recD", "Dead Site", "archived"),
+        record("recM", "Acme", "maintained"),
       ]),
     );
     expect(html).toContain("🗄 Archived (2)");
-    expect(html).toContain('<span class="muted">legacy</span>');
-    expect(html).toContain('<span class="muted">deprecated</span>');
-    expect(html).not.toContain('<span class="muted">archived</span>');
+    expect(html).toContain('<span class="muted">archived</span>');
+    expect(html).toContain("Fleet (1)");
+  });
+
+  it("a RETIRED cell is no longer archived — it surfaces instead of being absorbed", () => {
+    // The behaviour change stage 3 introduced, pinned at the surface an operator
+    // actually looks at. Before, a "legacy" cell was quietly folded into the
+    // Archived lane. Now nothing translates it, so it is an unrecognized status:
+    // it must NOT be counted as archived, because being counted there is exactly
+    // how a stale value would go unnoticed.
+    const record = (id: string, name: string, status: string) =>
+      mapRow({ id, fields: { Name: name, Status: status } });
+    const html = renderCockpitHtml(
+      model([record("recL", "Stale Site", "legacy"), record("recM", "Acme", "maintained")]),
+    );
+    expect(html).not.toContain("🗄 Archived");
+    expect(html).not.toContain("1 archived");
   });
 
   it("renders neither the archived term nor the lane when nothing is archived", () => {

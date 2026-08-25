@@ -19,7 +19,7 @@ import {
   SUBMISSION_STATUS_SCRIPT,
   isVisibleInStrip,
 } from "./submission-view.js";
-import { SITE_STATUS_OPTIONS, FREQ_OPTIONS } from "./site-details.js";
+import { SITE_STATUS_OPTIONS, FREQ_OPTIONS, WATCH_CONDITION_OPTIONS } from "./site-details.js";
 import type { SiteAlarmContext } from "./fleet-cockpit.js";
 
 const DASH = "—";
@@ -448,6 +448,49 @@ function inputRow(label: string, field: string, value: string | null, url: strin
   return `<div class="detail"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><input type="text" id="detail-${field}" data-detail-field="${field}" data-details-url="${url}" value="${escapeHtml(value ?? "")}" />${savedSpan(field)}</dd></div>`;
 }
 
+/** Editable `<input type="date">` row. The browser enforces YYYY-MM-DD before
+ *  the request is made; `normalizeFieldValue`'s `date` kind still validates it
+ *  server-side, because a hand-crafted POST never touches this widget. */
+function dateRow(label: string, field: string, value: string | null, url: string): string {
+  return `<div class="detail"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><input type="date" id="detail-${field}" data-detail-field="${field}" data-details-url="${url}" value="${escapeHtml(value ?? "")}" />${savedSpan(field)}</dd></div>`;
+}
+
+/** Editable checkbox row. Posts the literal "true"/"false" the `bool` kind
+ *  accepts — a checkbox has no empty state, so there is nothing to clear. */
+function checkboxRow(label: string, field: string, checked: boolean, url: string): string {
+  return `<div class="detail"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><input type="checkbox" id="detail-${field}" data-detail-field="${field}" data-details-url="${url}"${checked ? " checked" : ""} />${savedSpan(field)}</dd></div>`;
+}
+
+/** Editable multi-select row. Options come from WATCH_CONDITION_OPTIONS — the
+ *  live Airtable choices — because the API cannot create a missing one, so an
+ *  option offered here that the field lacks would produce a rejected write. */
+function multiSelectRow(
+  label: string,
+  field: string,
+  options: readonly string[],
+  selected: readonly string[],
+  url: string,
+): string {
+  const sel = new Set(selected);
+  const opts = options
+    .map(
+      (o) =>
+        `<option value="${escapeHtml(o)}"${sel.has(o) ? " selected" : ""}>${escapeHtml(o)}</option>`,
+    )
+    .join("");
+  return `<div class="detail wide"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><select multiple id="detail-${field}" data-detail-field="${field}" data-details-url="${url}">${opts}</select>${savedSpan(field)}</dd></div>`;
+}
+
+/** Write-only row for a credential. Emits NO `value`, so the stored secret never
+ *  reaches the browser; the placeholder reports only whether one is set. Saving
+ *  it blank is a no-op server-side (`setSiteDetail` returns "unchanged"), which
+ *  is what makes an always-blank input safe to render beside fields that clear
+ *  on empty. */
+function secretRow(label: string, field: string, isSet: boolean, url: string): string {
+  const ph = isSet ? "•••••••• (set — type to replace)" : "not set";
+  return `<div class="detail"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><input type="password" autocomplete="off" id="detail-${field}" data-detail-field="${field}" data-details-url="${url}" placeholder="${escapeHtml(ph)}" />${savedSpan(field)}</dd></div>`;
+}
+
 /** Editable multi-line `<textarea>` row for the copy override fields. */
 function textareaRow(label: string, field: string, value: string | null, url: string): string {
   return `<div class="detail wide"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><textarea id="detail-${field}" data-detail-field="${field}" data-details-url="${url}">${escapeHtml(value ?? "")}</textarea>${savedSpan(field)}</dd></div>`;
@@ -473,6 +516,27 @@ function siteDetailsSection(site: WebsiteRow): string {
     inputRow("GA4 property", "ga4PropertyId", site.ga4PropertyId, url),
     inputRow("Search query", "searchQuery", site.searchQuery, url),
     inputRow("Git repo", "gitRepo", site.gitRepo, url),
+    // #539 Phase 4 — the fields nothing rendered before. `Mailchimp API Key` is
+    // the one field in that group still absent, and deliberately: it is a live
+    // credential and every row here emits its stored value into the page.
+    inputRow("Netlify ID", "netlifyId", site.netlifyId, url),
+    inputRow("Search Console property", "searchConsoleProperty", site.searchConsoleProperty, url),
+    inputRow("Newsletter webhook", "newsletterWebhook", site.newsletterWebhook, url),
+    inputRow("Mailchimp audience ID", "mailchimpAudienceId", site.mailchimpAudienceId, url),
+    dateRow("Last maintenance day", "maintenanceDay", site.maintenanceDay, url),
+    dateRow("Last testing day", "testingDay", site.testingDay, url),
+    // Raw JSON, and shown as the raw cell rather than the parsed object: what the
+    // operator edits has to be the thing `parseNotifyRouting` will read back.
+    textareaRow("Notify routing (JSON)", "notifyRouting", site.notifyRoutingRaw, url),
+    checkboxRow("Require Turnstile", "requireTurnstile", site.requireTurnstile, url),
+    secretRow("Mailchimp API key", "mailchimpApiKey", site.mailchimpApiKey !== null, url),
+    multiSelectRow(
+      "Accepted watch conditions",
+      "acceptedWatchConditions",
+      WATCH_CONDITION_OPTIONS,
+      site.acceptedWatchConditions,
+      url,
+    ),
     textareaRow("Copy — Intro", "copyIntro", site.copyIntro, url),
     textareaRow("Copy — Contact", "copyContact", site.copyContact, url),
     textareaRow("Copy — Footer", "copyFooter", site.copyFooter, url),

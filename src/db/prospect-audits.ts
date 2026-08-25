@@ -78,3 +78,45 @@ export async function getProspectAuditByToken(
     .executeTakeFirst();
   return row ?? null;
 }
+
+/** The columns the cockpit's /audits listing page shows. Deliberately NOT
+ *  `result_json` — large, and useless to a list — but `token` IS selected:
+ *  the listing needs it to build each row's `/r/{token}` link, so it's
+ *  rendered only into an href, never displayed as a raw value. */
+export type ProspectAuditListItem = {
+  id: string;
+  token: string;
+  url: string;
+  business: string | null;
+  status: string;
+  created_at: string;
+};
+
+/** Ceiling on `listRecentProspectAudits`' `limit`, enforced defensively (a
+ *  caller passing 10_000 must not get 10_000 rows) — well past anything a
+ *  listing page would ever render on one screen. */
+export const MAX_RECENT_PROSPECT_AUDITS = 100;
+
+/** Clamp a caller-supplied limit into [1, MAX_RECENT_PROSPECT_AUDITS], with a
+ *  safe fallback of 1 for anything non-finite (NaN, ±Infinity) rather than
+ *  letting a bad input reach the query unclamped. */
+function clampLimit(limit: number): number {
+  const n = Number.isFinite(limit) ? Math.trunc(limit) : 1;
+  return Math.min(Math.max(n, 1), MAX_RECENT_PROSPECT_AUDITS);
+}
+
+/** Newest-first audits for the cockpit's /audits listing page, capped both
+ *  defensively (see clampLimit) and by an index (migration 0010) so the
+ *  ORDER BY never falls back to a raw scan + a temp b-tree sort — see the
+ *  EXPLAIN-query-plan gate, tests/db/query-plans.test.ts. */
+export async function listRecentProspectAudits(
+  db: Db,
+  limit: number,
+): Promise<ProspectAuditListItem[]> {
+  return db
+    .selectFrom("prospect_audits")
+    .select(["id", "token", "url", "business", "status", "created_at"])
+    .orderBy("created_at", "desc")
+    .limit(clampLimit(limit))
+    .execute();
+}

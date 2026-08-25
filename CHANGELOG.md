@@ -1,5 +1,440 @@
 # @reddoorla/maintenance
 
+## 0.86.0
+
+### Minor Changes
+
+- d6093a5: Announcement and Launch reports get their own header headlines ("Your website is
+  set up for ongoing care." / "Your website is live."), closing the blank band
+  those types have shown since headlines moved off the plate. All four report
+  types now stamp a headline.
+
+  Also generalises the alpha recovery for Figma MCP exports, which are always
+  flattened onto whatever sits behind the node — a white frame for
+  Maintenance/Testing, Figma's canvas grey for the two new ones. The backdrop is
+  now detected instead of assumed white, and the channel with the most ink/backdrop
+  separation is used (green separates the brand red from white by 221 levels but
+  from canvas grey by only 4). Re-verified against the known-good Maintenance
+  asset: unchanged at mean abs alpha diff 0.022.
+
+- 0d4454c: feat(db): header images land in Turso — design D5 completed (#539 Phase 2)
+
+  New `db backfill-header-images` copies every site's current Airtable "Header
+  image" attachment into `sites.header_image*` (idempotent — a populated BLOB is
+  never overwritten, so a re-run can't clobber a freshly generated image), and
+  the header-image CLI's `--write-airtable` now dual-writes: every upload also
+  lands the bytes in Turso, stamped with the generation time. This makes the
+  read layer's `headerImage` real, unblocking the cockpit and approve-report
+  repoints whose preflight reads it.
+
+- d59b525: feat(db): hourly Airtable → Turso sync — the Phase 2 backbone (#539)
+
+  New `db sync` action: one pass = import (attachment fetches only where the
+  stored report row lacks a body) + the parity check, with one internal retry to
+  absorb a write landing between the import's read and the parity check's read.
+  Emits `FLEET_SYNC … mismatches=0` on every clean run; exits 1 on persistent
+  mismatch. The new `fleet-db-sync` workflow runs it hourly at :20 with the
+  fleet-smoke-style tracking-issue alarm, keeping Turso fresh while Phase 2
+  readers move over and writers still write Airtable.
+
+- c1013f2: Phase 0 of the Airtable → Turso migration (#539): a lead whose site lookup fails
+  is dead-lettered, not lost.
+
+  `ingestSubmission` awaited `getWebsiteBySlug` — an Airtable read — before
+  anything was persisted, so a thrown lookup 502'd the visitor with the lead
+  recorded nowhere. The 2026-08-17 quota outage did exactly that, while the
+  submissions store (Turso) was healthy the whole time; it is why that outage's
+  lead loss was unmeasurable after the fact.
+
+  With the new `deadLetter` dep wired (the production handler wires it to the new
+  `submission_deadletter` table, migration 0006), a thrown lookup now writes the
+  raw payload, slug, error, and the Turnstile verification computed at receipt —
+  tokens expire in 300s, so replay reuses that answer — and the visitor gets an
+  honest "accepted". `reddoor-maint db replay-deadletters` then runs each captured
+  lead back through the normal ingest pipeline once the lookup recovers: real spam
+  classification, notify, and fan-out, oldest first. Replay outcomes that the
+  store actually answered (accepted, rejected, unknown-site) are terminal; a
+  lookup that throws again leaves the row for the next run — and the replay
+  strips any smuggled `deadLetter` dep so a retry can never mint a duplicate. A
+  stored `fail` verdict still escalates on a `requireTurnstile` site: replay does
+  not launder spam.
+
+  Three boundaries hold: a lookup that _resolves_ null is still `unknown-site`
+  (the store answered); a testMode probe still throws (the form-e2e audit must red
+  when central ingest is degraded, and a probe persists nothing worth saving); and
+  a failing dead-letter write propagates (both stores down — the 502 is honest).
+  Callers that never wired `deadLetter` are byte-for-byte unchanged.
+
+- 2b1f16e: feat(forms): form ingest's site lookup is now Turso-primary (#539 Phase 2)
+
+  The lead hot path no longer touches Airtable: `makeSiteLookup` reads the site
+  row from Turso's `sites` (kept fresh by the hourly sync), consulting Airtable
+  only for a slug Turso doesn't know — the new-site window between a launch and
+  the next sync. This retires the 2026-08-17 outage class where an Airtable
+  quota outage broke the site lookup while the lead store itself was healthy. An
+  Airtable failure during the rare fallback still lands the lead in the
+  dead-letter for replay.
+
+- 843543a: Skip all spam handling for sites whose status is `in development`.
+
+  Building a site means testing its form — from one address, across several
+  unrelated sites, minutes apart. That is exactly the cross-site repeat-sender
+  signature `ingestSubmission` is built to catch, so a site under construction
+  reliably auto-spammed its own builder's test submissions: the row landed
+  `spam_auto`, notify was skipped and the cockpit hid it, which is indistinguishable
+  from a broken form.
+
+  An `in development` site has no real visitors, so spam handling there protects
+  nothing. Content scoring, the required-Turnstile escalation, the cross-site
+  repeat-sender scan and the duplicate/spray scan are now all skipped for those
+  sites — including their retroactive re-bucketing of rows belonging to _other_
+  sites, which a test submission has no business triggering. Behaviour on every
+  other status is unchanged.
+
+- fbea2e3: feat(dashboard): the cockpit, site page, and approve gate read from Turso
+  (#539 Phase 2 — the last request-path repoints)
+
+  fleet-homepage and site-dashboard now read sites, health, and reports from
+  Turso as their core data (a Turso failure 502s cleanly rather than rendering a
+  misleading empty page); Airtable remains only for the digest NEW-badges.
+  approve-report's gate reads (report by id, site by id) come from Turso — kept
+  current within the same request by the #563 write mirrors — while its writes
+  stay on Airtable + mirror. With this, every dashboard and forms request path
+  reads fleet state from Turso; Airtable requests on the hot paths are down to
+  the editor's write, the approve/override write, the webhook's delivery-status
+  write, and the digest state.
+
+- 604d3c2: Add `prospect-audit <url>`: a three-tier AEO/SEO audit of an external prospect's
+  site (crawler access + JS-dependence checks, a Claude answerability pass, and
+  live AI-visibility probes across Perplexity and Claude web search), rendered as
+  a branded report and published at a public tokened link (`/r/:token`).
+- f32089b: feat(db): report-write mirrors + BLOB-free site reads (#539 Phase 2)
+
+  Approve/override and the resend-webhook's delivery status now mirror their
+  Airtable writes into Turso `reports` (same pattern as the editor's
+  write-through), so the page re-render after an action shows the new state
+  immediately instead of after the next hourly sync — the prerequisite for the
+  site-dashboard/cockpit repoints. And the fleet-state read layer now selects
+  explicit sites columns instead of selectAll: since the header-image backfill,
+  the BLOB column holds multi-MB JPEGs that would otherwise ride along on every
+  ingest lookup and 44× per fleet list. A schema-lockstep test keeps the column
+  list complete as migrations add columns.
+
+- 2d37c0b: Header images no longer bake "Your website maintenance is complete." into every
+  report type. The generator now composes on a CLEAN plate (no headline), and the
+  send path stamps the report type's headline onto the stored image: Maintenance
+  gets its headline overlay; Announcement, Launch, and (for now) Testing go out
+  clean. Testing's overlay is absent because its 2026-08-20 Figma export shipped
+  flattened onto an opaque red rectangle — re-export it transparent and register
+  it in HEADLINE_FILES to enable it. Stored pre-switch headers keep their baked
+  headline until the site's next draft regenerates them; drafting refreshes the
+  header, so this self-heals within one report cycle (or run
+  `header-image --all --force`).
+- 119a431: feat(db): the reports read layer + Turso-served report previews (#539 Phase 2)
+
+  `listAllReports` / `listReportsForSite` / `getReportHtml` read reports from
+  Turso in the exact `ReportRow` shape the Airtable module returns, pinned by the
+  same reader-equivalence instrument as sites. The stored stable-key checklist is
+  re-keyed back to the Airtable column names consumers expect. `renderedHtml`
+  links now point at the dashboard's own `/api/reports/:id/preview` route
+  (serving `rendered_html` straight from Turso, behind operator Basic auth)
+  instead of Airtable's expiring signed URLs — stale dashboard tabs no longer
+  404 their preview links. Also fixes the importer double-encoding the
+  `Checklist auto-evidence` long-text cell (a string of JSON was
+  JSON.stringify-ed again, which would have read back as null evidence); the
+  hourly sync converges existing rows on its first post-deploy pass.
+
+- c9a2575: feat(dashboard): submissions page, trigger-renovate, and the site-detail
+  editor read from Turso (#539 Phase 2)
+
+  Three more request-path surfaces repoint to the fleet-state read layer. The
+  submissions page and trigger-renovate no longer touch Airtable at all. The
+  site-detail editor reads from Turso, still writes Airtable (the Phase 2 source
+  of truth), and now MIRRORS each saved cell into `sites` immediately — so a
+  Turso-reading page shows the edit at once instead of after the next hourly
+  sync. The mirror reuses the importer's own column map (one truth), with a
+  lockstep test making an unmapped editor field a build failure.
+
+- 4506fda: Phase 1.5 of the Airtable → Turso migration (#539): nightly encrypted backups
+  with the restore rehearsed on every run — closing the no-backup gap open since
+  the 2026-08-02 architecture review.
+
+  `db dump` emits the whole database as plain SQL through the DATABASE-level
+  url+token the workflows already hold — `turso db dump` needs a browser-OAuth
+  platform login a workflow cannot do. Deterministic (stable table and row
+  order, so unchanged data dumps byte-identically), BLOB-safe (X'hex'), and
+  loadable by stock `sqlite3` — the engine a real disaster would replay it into.
+
+  `db verify-dump` is the rehearsal: load the dump into a fresh scratch engine
+  and compare restored row counts against the INSERT counts in the dump text
+  itself, emitting `DUMP_VERIFY … mismatches=N` on every run, clean included.
+  A dump that cannot restore is not a backup.
+
+  `fleet-db-backup.yml` runs both nightly, refuses a dump with no sites rows
+  (a broken dump path, not an empty fleet), refuses to upload plaintext when
+  BACKUP_PASSPHRASE is unset, gpg-encrypts, uploads with 30-day retention, and
+  files/auto-closes a tracking issue on failure — the fleet-smoke alarm plumbing.
+  The gate script is extracted from the YAML and executed under `bash -e` in
+  tests, clean case first.
+
+  Proven live before merge: a production dump (749 rows, 9 tables) verified
+  mismatch-free in the scratch engine AND restored into stock sqlite3 with all
+  44 sites, 337 submissions, and 13 reports intact.
+
+- 9dd6dbe: Phases 1.1–1.4 of the Airtable → Turso migration (#539): the writer map, the
+  fleet-state schema, the importer, and the parity harness.
+
+  The writer map (docs/superpowers/specs/2026-08-23-websites-writer-map.md) is
+  derived from the LIVE Airtable schema — the design's table split is no longer
+  provisional: every code-written column has exactly one writer, partitioning
+  exactly on the design's `sites` / `site_health` / `site_schedule` lines.
+
+  Migration 0007 creates those tables plus `reports`, PKs = Airtable rec ids
+  (design D1). Airtable's misspellings die at the boundary; the report checklist
+  re-keys from Airtable column names to the stable keys in checklist.ts;
+  `site_health.analytics_soft_fail_at` gives code the column no operator ever
+  created in Airtable. The 33 populated-but-unreferenced columns land in one
+  `sites.legacy` JSON object; the plaintext DNS/cms credential cells never
+  migrate at all (operator ruling 2026-08-23 — they live on only in the frozen
+  base), and the mapped output is tested to contain the secrets nowhere.
+
+  `db import-airtable` upserts idempotently: a re-run converges, never wipes a
+  regenerated header image (Airtable stopped being its source, D5), and keeps a
+  captured `rendered_html` when the attachment's signed URL has expired — misses
+  are named in the summary, never silent.
+
+  `db parity` diffs both stores field-by-field using the importer's own mapping
+  functions, so what parity expects is definitionally what the importer writes.
+  It emits `FLEET_PARITY … mismatches=N` on every run, count=0 included (an
+  absent line means "never ran", not "ran clean"), and its known-good pass —
+  green immediately after an import — is the first test in the file, per the
+  repo's prove-the-instrument rule.
+
+- 133ef64: feat(db): the Turso fleet-state read layer (#539 Phase 2)
+
+  `src/db/fleet-state.ts` — `getSiteBySlug` / `getSiteById` / `listSites` return
+  the exact `WebsiteRow` the Airtable module returns, so each Phase 2 repoint is
+  an import-only swap. Coercion reuses the Airtable module's own exported
+  coercers (one truth per field), pinned by a reader-equivalence instrument that
+  deep-equals `mapRow(record)` against the Turso read-back across rich, sparse,
+  and adversarial fixtures. `headerImage` deliberately reads from Turso's own
+  columns (design D5) — null until the Phase 3 header-image writer lands, so
+  approve-report keeps its Airtable reader until then. Also aligns the importer's
+  Accepted Watch Conditions array trimming with `mapRow` (whitespace-only entries
+  now dropped on both sides).
+
+### Patch Changes
+
+- 13c0602: Fix two client-facing strings in the announcement email.
+
+  The inbox preview line was hard-coded to "Your monthly report from Reddoor" —
+  wrong twice over: this email is the announcement, not a report, and it asserted
+  a monthly cadence that the body contradicts for every client on a quarterly or
+  yearly pace. It is now `Your ongoing site care for <site>`, interpolated like
+  the launch ("<site> is live") and maintenance ("Checked up on <site>")
+  templates already were.
+
+  The framework improvement callout now reads "our latest framework" rather than
+  "the latest framework".
+
+- 1d2ebd0: fix(airtable): make the attachment prune actually prune
+
+  `uploadAttachment`'s `replace` option never removed anything against the live API. Two
+  independent faults: the post-upload response keys `fields` by **field ID**, not field
+  name, so the lookup returned `undefined` and the empty list hit the `length <= 1` guard
+  and returned silently; and the prune PATCHed `/v0/{baseId}/{recordId}`, omitting the
+  table segment Airtable's update endpoint requires, which 403s.
+
+  `replace: true` is now `replaceIn: "<table>"` so the table cannot be omitted, an
+  unresolvable attachment list warns instead of returning quietly, and the PATCH path
+  shape is pinned by a test.
+
+- f8950b8: `db sync` / `db import-airtable`: mirror Airtable deletions into Turso.
+
+  The importer was upsert-only, so a record deleted in Airtable stayed in Turso
+  forever. Parity flags that (correctly — a Turso row Airtable no longer has is a
+  real divergence), which meant one routine operator deletion wedged the hourly
+  `fleet-db-sync` red permanently, with no self-healing path and a retry that
+  re-read Airtable only to reach the same verdict.
+
+  The import now reaps rows whose Airtable record is gone, including a deleted
+  site's `site_health` and `site_schedule` rows (no foreign keys are declared, and
+  parity only reverse-checks `sites`, so those would otherwise linger unnoticed).
+
+  Reaping is the only destructive thing the importer does, so it refuses to act on
+  a read it cannot trust: never when Airtable returns zero rows while rows are
+  stored, and never more than `max(5, 10%)` of a table in one pass. A refusal
+  deletes nothing and leaves the run red — a wedged sync is recoverable, an
+  emptied Turso is not. Every removal is named and every refusal quoted on the new
+  always-emitted `FLEET_REAP sites=N reports=N refused=N` line.
+
+- efb385a: Key the form-e2e `BUDGET_THIN` warning on the span the budget actually governs.
+
+  `INGEST_TIMEOUT_MS` aborts the site→central fetch — which lives inside the form
+  action's POST — and nothing else. The warning compared it against click→banner,
+  a span that also contains Turnstile's token round-trip and the browser's render
+  of the success banner. On 2026-08-17 vineyard-custom-homes warned at 16.9s
+  click→banner while its own function answered in 0.25s warm / 2.0s cold: the
+  check was reporting page-render time as abort risk.
+
+  The runner now stamps `postElapsedMs` (click → the action's POST response) as a
+  side-effect of the response capture it already performs, and the thin check
+  compares that. No POST observed → no claim: the check does not fall back to
+  click→banner, which would quietly reintroduce the over-warn for exactly the runs
+  where attribution is least knowable. A pre-click POST (an analytics beacon
+  matching the capture before the submit) leaves the timing unstamped rather than
+  computing an epoch-sized "elapsed" that would trip the warning it exists to fix.
+
+  A genuinely slow POST still warns — the 1836dig failure mode is unchanged.
+
+- 5a97866: Hide the report ANALYTICS box when the previous GA period is a literal 0: a zero
+  last period means the tag wasn't collecting for a full window (new property or
+  mid-window install), so the count/trend is partial-window noise. A search body
+  line still keeps the block alive (count suppressed); `previous === undefined`
+  (GA gave no prior window) is unchanged and still shows the count.
+- 417c1e2: fix(reports): read the newest header attachment, and refresh it in `announce`
+
+  Both header readers took `attachments[0]`, but Airtable's `uploadAttachment` appends, so
+  the newest file is the tail — a field that ever stacked served its oldest image forever.
+  `reports/airtable/websites.ts` and `db/header-images.ts` now take the tail, keeping the
+  send path and the Turso mirror in step.
+
+  `announce` never refreshed the header, so a site whose stored header predated a plate
+  change kept announcing with the old one until an unrelated Maintenance/Testing draft
+  healed it. It now refreshes like `draftReportForSite`, with the same `refreshHeader: false`
+  opt-out for unit suites.
+
+- 15aa9f2: `report --due`: say so when the `site_schedule` dual-write has no mirror.
+
+  `writeNextDueDates` mirrors each next-due write into `site_schedule` through a
+  best-effort mirror that resolves from `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN`.
+  Absent those, it returns null and the dual-write silently never runs — no
+  warning, no nonzero exit, only a missing `mirrored=` suffix that reads exactly
+  like a healthy run.
+
+  The `NEXT_DUE_WRITE` line now ends in `mirror=absent` in that case. Counters stay
+  off deliberately: `mirrored=0` would claim a write that returned nothing rather
+  than one that was never attempted.
+
+- 82a69fe: Never stamp a headline onto a header that already has one. A header built on the
+  old baked plate is canvas-sized, so nothing stopped it being stamped — the new
+  headline printed directly over the baked one and the two overprinted into
+  unreadable text, which shipped in a real announcement. The headline band is now
+  measured first: it is empty on a clean-plate header and holds ~62k red px on a
+  baked one, so such headers are sent as stored and self-heal on the next draft.
+
+  Also stops Airtable attachment fields from silently serving a stale file.
+  Airtable's uploadAttachment endpoint APPENDS, while readers take attachment [0]
+  — the oldest — so repeated header regeneration stacked four images and kept
+  sending the first. `uploadAttachment` takes `{ replace: true }`, used for the
+  site header, which prunes back to the file just uploaded.
+
+- 783d65f: Dashboard site editor: cover the fields nothing rendered (#539 Phase 4).
+
+  Seven of the eight fields the migration design lists as uncovered are now
+  editable and rendered — `Netlify ID`, `Search Console property`,
+  `Newsletter Webhook`, `Mailchimp Audience ID`, `maintenance day`, `testing day`
+  and `Notify Routing` — with three new field kinds: `url` (the same http(s)
+  allowlist the deployed-audit target uses), `date` (a real calendar day, so a
+  rolled-over `2026-02-31` cannot silently reschedule a site), and `notifyRouting`
+  (validated by `parseNotifyRouting` itself, so the editor cannot store a value the
+  reader would drop).
+
+  `WebsiteRow` gains `notifyRoutingRaw`, the verbatim cell behind the parsed
+  routing — the same reason `statusRaw` exists. Rendering the re-serialized object
+  would drop keys the parser ignores and reformat what the operator typed.
+
+  The eighth field, `Mailchimp API Key`, is deliberately still absent: it is a live
+  credential, and every editable field is rendered back into the page carrying its
+  stored value. It needs a write-only kind first, and a test now fails if it is
+  added without one.
+
+- 0f01895: Give the smoke audit a budget that fits the suites it runs, and make a timed-out
+  site impossible to mistake for a healthy one.
+
+  `reddoor` and `beachfront-dentistry` had been failing the nightly fleet smoke for
+  four consecutive nights while the workflow reported success every morning and
+  Airtable kept showing both green.
+
+  Three separate things had to line up for that:
+
+  1. The budget was 5m00s. reddoor-website's own `Smoke test` step takes **4m57s** on
+     a 2-core GitHub runner with chromium already installed and `node_modules` warm
+     (run 32413378638). The fleet path is strictly heavier — the site's `test:smoke`
+     is `playwright install chromium && playwright test`, so the browser install lands
+     _inside_ that budget, on a fresh clone. Three seconds of headroom in the best
+     case; the medtech release pushed both sites over. They were killed at 5m03s and
+     5m04s — the wall, not their suites. The budget is now 15 minutes, ~3x the
+     measured cost and still far inside the workflow's 90-minute step backstop.
+
+  2. A timeout rethrew into `runOneAudit`'s catch-all and became
+     `smoke: unexpected error — Error: spawn timeout…`: nominally a `fail`, carrying
+     no `details`. The Airtable writer keys on `details.checkedAt`, so it correctly
+     preserved the prior verdict rather than record a false fail — which is right, and
+     is also exactly why the row kept serving a stale green tick. Timeouts are now a
+     distinct outcome, `smoke: NOT MEASURED`, still detail-free so write-back behavior
+     is unchanged. `SpawnTimeoutError` makes the case identifiable instead of matched
+     by message text.
+
+  3. `fleet-smoke.yml` gated only on `FLEET_WRITE_SUMMARY`, which counts rows
+     **written**, not rows passing — and an unmeasured site still writes, because it
+     writes nothing new. The gate was structurally incapable of firing. The CLI now
+     emits `FLEET_SMOKE_UNMEASURED count=N sites=…` on every fleet smoke sweep,
+     count=0 included, and the workflow reds the run when N > 0 or the line is absent.
+
+  A suite that RAN and failed is still data, not an outage, and still exits 0 — only a
+  measurement that never happened reds the nightly.
+
+  The gate is executed, not asserted: `tests/build/fleet-smoke-workflow.test.ts`
+  extracts the step's shell out of the YAML and runs it under `bash -e` against a
+  stubbed CLI, with the clean-sweep case first so the alarm is proven to pass before
+  any failure it reports is believed.
+
+- 308fe87: perf(db): indexes for every hot-path query, enforced by an EXPLAIN-query-plan gate
+
+  Migration `0008_query_plan_indexes` adds the indexes the request-path queries
+  actually need — `submissions(submitted_at DESC)` (windowed reads and the
+  /submissions default page), a partial covering index on `spam_reason` (the facet
+  tally the gate caught full-scanning), `resend_message_id` (webhook bounce
+  lookup), `submission_id` (O(1) display numbers), and `spam_screenouts(date)`.
+
+  The new gate (tests/db/query-plans.test.ts) captures every statement the db
+  modules execute at the driver, runs each through EXPLAIN QUERY PLAN, and fails
+  the build on any raw full-table scan — with module- and export-completeness
+  checks so a new Phase 2 reader module or query function cannot dodge it, and a
+  vacuity check so a scenario that executed no SQL fails instead of passing.
+
+- 005d315: Testing reports now get their own header headline ("Your website maintenance &
+  testing is complete.") instead of shipping on the clean plate. The 2026-08-20
+  asset was unusable because a Figma MCP export arrives flattened onto opaque
+  white; the alpha is recovered arithmetically from the ink colour rather than
+  re-exported by hand, verified against the known-good Maintenance asset at mean
+  abs alpha diff 0.02. Announcement and Launch still ship clean — their copy has
+  to be typed in Figma desktop, where the licensed headline font lives.
+- d66b807: fix(selftest): apply the report-type headline to the preview header
+
+  `selftest email` downscaled the stored header directly, skipping the
+  `applyReportTypeHeadline` step `orchestrate.ts` performs. Since the stored header is
+  the clean plate, every preview shipped a header with an empty headline band — the
+  artifact meant to catch a bad header was itself wrong, and matched no real send.
+
+- 31b4ce8: Site-status vocabulary stage 3: the old Airtable names are gone from the code.
+
+  The operator deleted the seven retired options from the Airtable `Status`
+  single-select, so an old value can no longer be entered — which was always the
+  gate, rather than merely "none is stored". `AIRTABLE_STATUS_ALIASES`,
+  `AIRTABLE_OLD_NAMES` and `AIRTABLE_USES_NEW_VOCABULARY` are deleted, and both
+  `canonicalizeStatus` and `toAirtableStatus` reduce to the identity.
+
+  One behaviour changes, and it is intended: an old name is no longer translated.
+  `canonicalizeStatus("maintenance")` used to yield `maintained`; it now yields
+  `"maintenance"` verbatim, which `isUnrecognizedStatus` flags and the cockpit
+  surfaces as a watch row. A stored old value would now mean something went wrong
+  — a restored backup, a scripted write, a caller with a stale constant — and the
+  fleet should say so rather than absorb it into a status nobody chose.
+
+  Selection is unchanged: no fleet operation gains or loses a site.
+
 ## 0.85.2
 
 ### Patch Changes
