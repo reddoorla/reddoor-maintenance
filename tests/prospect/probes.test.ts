@@ -7,6 +7,7 @@ import {
   runVisibilityProbes,
   perplexityEngine,
   claudeWebSearchEngine,
+  PROBE_MODEL,
   type VisibilityEngine,
   type ClaudeMessageCreate,
 } from "../../src/prospect/probes.js";
@@ -373,7 +374,7 @@ describe("claudeWebSearchEngine", () => {
       id: "msg_test",
       container: null,
       content,
-      model: "claude-opus-5",
+      model: PROBE_MODEL,
       role: "assistant",
       stop_details: null,
       stop_reason,
@@ -410,6 +411,35 @@ describe("claudeWebSearchEngine", () => {
       content,
     };
   }
+
+  it("probes on Sonnet, not the analyze pass's Opus", async () => {
+    // Seven probe calls per audit against the analyze pass's one, so this model
+    // is roughly half the cost of an audit. The probe extracts citation domains
+    // mechanically and never needs Opus's judgement — a silent revert here
+    // would double the bill without changing a single number in the report.
+    const models: string[] = [];
+    const createMessage: ClaudeMessageCreate = async (params) => {
+      models.push(params.model);
+      return claudeMessage([textBlock("An answer.")], "end_turn");
+    };
+    await claudeWebSearchEngine(createMessage).ask("who is Acme Roofing");
+    expect(models).toEqual([PROBE_MODEL]);
+    expect(PROBE_MODEL).not.toBe("claude-opus-5");
+  });
+
+  it("still caps web search uses, which cost $10/1k regardless of model", async () => {
+    // The search-tool spend is model-independent, so it is the floor under any
+    // future model swap. Raising max_uses raises the floor for every probe.
+    const seen: Anthropic.ToolUnion[][] = [];
+    const createMessage: ClaudeMessageCreate = async (params) => {
+      seen.push((params.tools ?? []) as Anthropic.ToolUnion[]);
+      return claudeMessage([textBlock("An answer.")], "end_turn");
+    };
+    await claudeWebSearchEngine(createMessage).ask("who is Acme Roofing");
+    const tool = seen[0]?.[0] as { type?: string; max_uses?: number } | undefined;
+    expect(tool?.type).toBe("web_search_20260209");
+    expect(tool?.max_uses).toBe(4);
+  });
 
   it("accumulates text across a pause_turn resume", async () => {
     const callMessageCounts: number[] = [];
