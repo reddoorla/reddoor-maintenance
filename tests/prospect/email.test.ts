@@ -391,3 +391,16 @@ describe("sendAuditEmail", () => {
     ).rejects.toThrow("simulated resend outage");
   });
 });
+
+describe("buildAuditEmail — internal framing", () => {
+  it("labels the sheet as internal and points at the attachment", () => {
+    const { html } = buildAuditEmail(result(), {
+      link: "https://dash.test/r/AAAAAAAAAAAAAAAAAAAAAA",
+    });
+    // The body carries the real reasons a stage failed, which are useful to us
+    // and wrong in front of a prospect — so it must say which artefact is the
+    // shareable one, or the natural thing to do with a useful email is forward it.
+    expect(html).toMatch(/internal sheet/i);
+    expect(html).toMatch(/attached/i);
+  });
+});

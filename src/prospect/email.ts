@@ -190,6 +190,16 @@ function linkHtml(link: string | null): string {
   return `<p style="margin:24px 0 0;"><strong>Full report:</strong> <a href="${escapeHtml(safe)}">${escapeHtml(link)}</a></p>`;
 }
 
+/** This sheet is for us, and it says so. It carries the real reasons a stage did
+ *  not run — useful internally, wrong in front of a prospect — so it has to be
+ *  obvious that the shareable artefact is the attachment and the link, not this
+ *  body. Without the label, the natural thing to do with a useful email is
+ *  forward it. */
+const INTERNAL_NOTE = `<p style="margin:24px 0 0;padding:12px 14px;background:#f4f2ef;border-left:3px solid #d71920;color:#57544f;font-size:14px;">
+  Internal sheet — it names the reasons a section could not be measured. The
+  version to send a prospect is the linked report, also attached to this email.
+</p>`;
+
 /**
  * Build the internal sheet — a SHORT summary for Tucker/Tim/Erik, distinct
  * from the client-facing report render.ts builds. Pure: no IO, so it's safe
@@ -222,6 +232,7 @@ export function buildAuditEmail(
   <h2 style="font-size:16px;margin:24px 0 8px;">Top fixes</h2>
   ${fixesHtml(result.analyze)}
   ${linkHtml(opts.link)}
+  ${INTERNAL_NOTE}
 </body>
 </html>`;
 
