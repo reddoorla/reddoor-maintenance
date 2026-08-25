@@ -107,6 +107,45 @@ describe("fleet-db-backup — the gate cannot go green on a backup that would no
     expect(r.out).toContain("restore rehearsal FAILED");
   });
 
+  // Every case above hands the gate a CANNED dump and a CANNED DUMP_VERIFY, so
+  // all of them keep passing if the real CLI's output stops matching the real
+  // greps. The gate's rehearsal pattern is `^DUMP_VERIFY loaded=true .*
+  // mismatches=0$` — anchored at the end, so appending a key to that line breaks
+  // production while leaving every fixture case green. (Exactly that shape of
+  // gap was found in fleet-db-sync's gate on 2026-08-25.)
+  //
+  // This case closes it end to end: a real migrated database → the real `db
+  // dump` → the real `db verify-dump` → the real gate script.
+  it("PASSES on the REAL dump and REAL rehearsal output, not fixtures of them", async () => {
+    const { runDbCommand } = await import("../../src/cli/commands/db.js");
+    const { openDb } = await import("../../src/db/client.js");
+
+    // A file: url, not :memory: — each in-memory client is its own database, so
+    // the CLI would otherwise dump an empty one.
+    const dir = await mkdtemp(join(tmpdir(), "db-backup-real-"));
+    const url = `file:${join(dir, "fleet.db")}`;
+    const db = await openDb({ url });
+    await db
+      .insertInto("sites")
+      .values({ id: "recREAL", slug: "real-site", name: "Real Site", require_turnstile: 0 })
+      .execute();
+    await db.destroy();
+
+    const dumped = await runDbCommand("dump", { url });
+    expect(dumped.code).toBe(0);
+
+    const dumpFile = join(dir, "fleet.sql");
+    await writeFile(dumpFile, dumped.output, "utf-8");
+    const verified = await runDbCommand("verify-dump", { file: dumpFile });
+    expect(verified.code).toBe(0);
+
+    // Both halves are real: the gate greps the dump text for sites rows AND the
+    // rehearsal line for a clean restore.
+    const r = await runStep(gate, { dump: dumped.output, verify: verified.output });
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("::error::");
+  });
+
   it("Encrypt REFUSES to ship a plaintext dump when the passphrase secret is unset", async () => {
     const r = await runStep(encrypt, { env: { BACKUP_PASSPHRASE: "" } });
     expect(r.code).not.toBe(0);
