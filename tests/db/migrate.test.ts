@@ -15,6 +15,7 @@ describe("runMigrations", () => {
       "0006_submission_deadletter",
       "0007_fleet_state",
       "0008_query_plan_indexes",
+      "0009_prospect_audits",
     ]);
     const tables = await client.execute(
       "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
@@ -41,6 +42,7 @@ describe("runMigrations", () => {
       "0006_submission_deadletter",
       "0007_fleet_state",
       "0008_query_plan_indexes",
+      "0009_prospect_audits",
     ]);
   });
 
@@ -71,6 +73,7 @@ describe("runMigrations", () => {
       "0006_submission_deadletter",
       "0007_fleet_state",
       "0008_query_plan_indexes",
+      "0009_prospect_audits",
     ]);
   });
 
@@ -104,6 +107,7 @@ describe("runMigrations", () => {
       "0006_submission_deadletter",
       "0007_fleet_state",
       "0008_query_plan_indexes",
+      "0009_prospect_audits",
     ]);
   });
 });
