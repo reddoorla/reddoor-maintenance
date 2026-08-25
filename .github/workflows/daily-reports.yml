@@ -103,6 +103,14 @@ jobs:
           GA_SA_KEY_JSON: ${{ secrets.GA_SA_KEY_JSON }}
           GA_SA_KEY_PATH: ${{ runner.temp }}/ga-service-account.json
           PREVIEW_SITE: ${{ inputs.preview_site }}
+          # `report --due` is a Phase 3 dual-writer: writeNextDueDates mirrors
+          # each next-due write into site_schedule. The mirror is best-effort, so
+          # without these it returns null and the dual-write silently never runs —
+          # no warning, no nonzero exit, just an absent `mirrored=` suffix. That
+          # is what shipped, and the hourly sync re-importing site_schedule from
+          # Airtable is what hid it. Pinned by tests/build/daily-reports-workflow.
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
           if [ -n "$GA_SA_KEY_JSON" ]; then
             printf '%s' "$GA_SA_KEY_JSON" > "$GA_SA_KEY_PATH"
