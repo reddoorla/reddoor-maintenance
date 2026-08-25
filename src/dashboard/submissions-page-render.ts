@@ -1,4 +1,5 @@
 import { FAVICON_LINK } from "./favicon.js";
+import { renderAuthChrome } from "./auth/render.js";
 import { escapeHtml } from "../util/html.js";
 import {
   renderSubmissionRowInner,
@@ -171,7 +172,10 @@ function rowWithSite(r: SubmissionsPageModel["rows"][number]): string {
 }
 
 /** Render the full submissions fleet page as a standalone HTML document. */
-export function renderSubmissionsPageHtml(m: SubmissionsPageModel): string {
+export function renderSubmissionsPageHtml(
+  m: SubmissionsPageModel,
+  operatorEmail: string | null = null,
+): string {
   const maxPage = Math.max(1, Math.ceil(m.total / m.pageSize));
   // Facet line only when the operator is actually reviewing a spam bucket — on
   // mixed-status views the tally would mix delivered and screened rows.
@@ -201,6 +205,7 @@ export function renderSubmissionsPageHtml(m: SubmissionsPageModel): string {
   <style>${STYLES}${SUBMISSION_STYLES}</style>
 </head>
 <body>
+  ${renderAuthChrome(operatorEmail)}
   <a class="home" href="/">← Fleet home</a>
   <h1>Submissions</h1>
   ${filterForm(m)}

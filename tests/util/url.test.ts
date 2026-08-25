@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isHttpUrl, isNetlifyAppUrl, isPublicHttpsUrl } from "../../src/util/url.js";
+import { hostnameOf, isHttpUrl, isNetlifyAppUrl, isPublicHttpsUrl } from "../../src/util/url.js";
 
 describe("isHttpUrl", () => {
   it("accepts http and https URLs", () => {
@@ -20,6 +20,22 @@ describe("isHttpUrl", () => {
     expect(isHttpUrl("")).toBe(false);
     expect(isHttpUrl("   ")).toBe(false);
     expect(isHttpUrl("/relative/path")).toBe(false);
+  });
+});
+
+describe("hostnameOf", () => {
+  // Item 4: was duplicated as a private helper in both
+  // src/cli/commands/prospect-audit.ts (as `hostnameOf`) and
+  // src/prospect/render.ts (as an inline try/catch IIFE). Moved here — this
+  // module is the established home for this class of URL helper.
+  it("returns the hostname of a well-formed URL", () => {
+    expect(hostnameOf("https://acme.example/services?x=1")).toBe("acme.example");
+    expect(hostnameOf("http://sub.acme.example:8080/path")).toBe("sub.acme.example");
+  });
+
+  it("falls back to the raw string when it doesn't parse as a URL", () => {
+    expect(hostnameOf("not a url")).toBe("not a url");
+    expect(hostnameOf("")).toBe("");
   });
 });
 

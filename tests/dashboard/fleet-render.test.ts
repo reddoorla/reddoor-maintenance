@@ -1009,7 +1009,9 @@ describe("deploy badge", () => {
       ]),
     );
     expect(html).toContain("metric deploy ready");
-    expect(html).toContain('href="https://acme.netlify.app"');
+    // safeUrl returns the parsed URL's href, which normalizes a bare origin
+    // to carry a trailing slash — not the caller's raw string.
+    expect(html).toContain('href="https://acme.netlify.app/"');
     expect(html).toContain("ready");
   });
 

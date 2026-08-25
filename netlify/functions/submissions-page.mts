@@ -10,7 +10,8 @@ import {
 } from "../../src/db/submissions.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import {
-  verifyBasicAuth,
+  requireOperator,
+  denialResponse,
   renderSubmissionsPageHtml,
   parseSubmissionsQuery,
   buildSubmissionsPageModel,
@@ -46,19 +47,8 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   // Authenticate BEFORE the Airtable/Turso env guards so an unauthenticated probe
   // can't tell which backend env is unset (a differentiated 500 leaks config
   // state). Only the password check — unavoidable, since auth needs it — precedes.
-  const password = process.env.DASHBOARD_PASSWORD;
-  if (!password) {
-    console.error("[submissions-page] DASHBOARD_PASSWORD missing");
-    return plainText(
-      "Submissions page is unconfigured. Set DASHBOARD_PASSWORD in the Netlify site env.",
-      503,
-    );
-  }
-  if (!verifyBasicAuth(req.headers.get("authorization"), password)) {
-    return plainText("Authentication required.", 401, {
-      "www-authenticate": 'Basic realm="Reddoor fleet"',
-    });
-  }
+  const auth = requireOperator(req, { wants: "redirect" });
+  if (!auth.ok) return denialResponse(auth.denial);
   const apiKey = process.env.AIRTABLE_PAT;
   const baseId = process.env.AIRTABLE_BASE_ID;
   if (!apiKey || !baseId) {
@@ -135,7 +125,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       facetReasons,
       markableNewCount: filter.status === "new" ? total : newOnlyCount,
     });
-    return html(renderSubmissionsPageHtml(model), 200);
+    return html(renderSubmissionsPageHtml(model, auth.email), 200);
   } catch (err) {
     return handlerError("submissions-page", err);
   }

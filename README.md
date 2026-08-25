@@ -66,6 +66,14 @@ reddoor-maint upgrade svelte-4-to-5 [site]
 
 `[site]` defaults to `process.cwd()`. Add `--fleet path/to/inventory.json` (or `.mjs` / `.js`) to run across every site in an inventory instead. `--cwd <path>` overrides the working directory for any command.
 
+Standalone, outside the `[site]` loop above (it audits an external URL, not a fleet site):
+
+- `prospect-audit <url>` — AEO/SEO audit an external prospect's site and publish
+  a shareable report. Flags: `--business <name>`, `--competitors <list>`,
+  `--no-probes`, `--out <file>`, `--json`. Needs `ANTHROPIC_API_KEY` (or the
+  standard Anthropic auth chain) and, for tier 3, `PERPLEXITY_API_KEY`;
+  persistence and the shareable link need the Turso vars.
+
 ### Common flags
 
 - `--only <names>` — comma-separated subset. Validates against the known set; typos exit with code 2.
