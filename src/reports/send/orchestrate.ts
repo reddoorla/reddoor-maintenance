@@ -9,6 +9,7 @@ import { defaultResendClient, type ResendClient } from "./resend.js";
 import { isIdempotencyConflict } from "./idempotency.js";
 import { gatingHealth, isHealthGateClear, isSendOverridden } from "../checklist.js";
 import { recordFleetEventsBestEffort } from "../../audits/fleet-events-writer.js";
+import type { SiteMirror } from "../../db/site-mirror.js";
 
 const FROM_ADDRESS = "Reddoor Reports <reports@reddoorla.com>";
 const REPLY_TO = "info@reddoorla.com";
@@ -34,6 +35,10 @@ export function withGlobalCc(perSiteCc: string[] | null, to: string[]): string[]
 
 export type OrchestrateOptions = {
   resend?: ResendClient;
+  /** #539 Phase 5: Turso write-through for the Websites row a Launch send
+   *  updates. Injected rather than defaulted — this function is called directly
+   *  by tests, and a default would open a real libSQL handle inside the suite. */
+  siteMirror?: SiteMirror;
 };
 
 export async function sendApprovedReports(
@@ -84,7 +89,11 @@ export async function sendApprovedReports(
       }
       if (report.reportType === "Launch") {
         try {
-          await updateLaunched(base, site.id, new Date().toISOString());
+          const fields = await updateLaunched(base, site.id, new Date().toISOString());
+          // Status and `Launched at` travel together — mirroring them as two
+          // updates would open a window where Turso says a site is maintained
+          // but never launched.
+          await options.siteMirror?.site(site.id, fields);
           lines.push(`  ↳ launched: ${site.name} flipped to maintained`);
           await recordFleetEventsBestEffort(
             [

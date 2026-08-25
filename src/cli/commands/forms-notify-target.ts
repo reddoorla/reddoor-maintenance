@@ -74,7 +74,11 @@ export async function runFormsNotifyTargetCommand(
     return { output: `--set must be 'on' or 'off' (got '${opts.set}')`, code: 2 };
   }
   try {
+    // #539 Phase 5: the flip writes Status on the Websites row; mirror it so the
+    // console (which reads Turso) shows the new routing immediately.
+    const { makeSiteMirror } = await import("../../db/site-mirror.js");
     const result = await formsNotifyTarget({
+      siteMirror: await makeSiteMirror(),
       site: site.trim(),
       ...(set ? { set: set as "on" | "off" } : {}),
       ...(opts.restore ? { restore: opts.restore } : {}),

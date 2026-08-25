@@ -56,6 +56,9 @@ const EXEMPT_MODULES: Record<string, string> = {
   "dump.ts": "backup dump — full-table reads by design",
   "sync.ts": "orchestrates importer + parity (both exempt) — no queries of its own",
   "header-images.ts": "one-shot backfill + CLI dual-write — bulk by-PK writes, not request-path",
+  "site-mirror.ts":
+    "best-effort write-through wrapper — issues no SQL of its own, delegates to " +
+    "fleet-state's mirrorHealthFields/mirrorSiteFields, which are gated below",
 };
 
 /** Exported functions that never issue SQL (id minting, date math). */
@@ -341,6 +344,18 @@ function scenarios(state: { createdId: string }): Scenario[] {
       name: "mirrorSiteField (editor write-through)",
       covers: ["mirrorSiteField"],
       run: (db) => fleetState.mirrorSiteField(db, "recA", "Status", "maintenance"),
+    },
+    {
+      // The multi-column form (#539 Phase 5). Same by-PK predicate, but it is
+      // the one the one-off writers go through, so it is gated in its own right
+      // rather than inheriting mirrorSiteField's verdict.
+      name: "mirrorSiteFields (one-off writers' write-through)",
+      covers: ["mirrorSiteFields"],
+      run: (db) =>
+        fleetState.mirrorSiteFields(db, "recA", {
+          Status: "maintained",
+          "Launched at": "2026-08-25",
+        }),
     },
     {
       name: "mirrorReportPatch (approve/webhook write-through)",

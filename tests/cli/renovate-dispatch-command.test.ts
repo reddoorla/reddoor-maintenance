@@ -76,6 +76,43 @@ describe("runRenovateDispatchCommand — auto-fix counter bookkeeping", () => {
     ]);
   });
 
+  it("mirrors the auto-fix counter into Turso (#539 Phase 5)", async () => {
+    // This counter is written by the nightly Renovate dispatch, which was never
+    // part of the Phase 3 sweep — so it reached Turso only via the hourly sync.
+    // The cockpit's "auto-fix exhausted" chip reads it.
+    process.env.RENOVATE_TOKEN = "tok";
+    const base = makeFakeBase({
+      Websites: [
+        {
+          id: "recAlamo",
+          fields: {
+            Name: "Alamo",
+            Status: "maintenance",
+            url: "https://alamo.example.com",
+            "Git repo": "reddoorla/alamo",
+            "Security Vulns Critical": 0,
+            "Security Vulns High": 0,
+            "Security Auto-Fix Attempts": 7,
+          },
+        },
+      ],
+    });
+    const mirrored: Array<{ id: string; fields: Record<string, unknown> }> = [];
+
+    await runRenovateDispatchCommand({
+      fleet: true,
+      base,
+      siteMirror: {
+        health: async (id, fields) => {
+          mirrored.push({ id, fields });
+        },
+        site: async () => {},
+      },
+    });
+
+    expect(mirrored).toEqual([{ id: "recAlamo", fields: { "Security Auto-Fix Attempts": 0 } }]);
+  });
+
   it("makes no Airtable write when the counter is already 0 (or absent)", async () => {
     process.env.RENOVATE_TOKEN = "tok";
     const base = makeFakeBase({

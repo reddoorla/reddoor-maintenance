@@ -372,6 +372,14 @@ export async function runAuditCommand(
               const websites = await listWebsites(base);
               task.output = "writing scores…";
               writeSummary = await writeAuditsToAirtable({ base, websites, slug, results });
+              // #539 Phase 5: the FLEET path has mirrored since Phase 3, this
+              // single-site one never did — same write, same columns, reaching
+              // Turso only via the hourly sync. The summary already carries the
+              // exact FieldSet Airtable got, so no signature change is needed.
+              if (writeSummary.siteId && writeSummary.fields) {
+                const { makeSiteMirror } = await import("../../db/site-mirror.js");
+                await (await makeSiteMirror()).health(writeSummary.siteId, writeSummary.fields);
+              }
               task.title = `Wrote to Websites[${writeSummary.siteName}] (${writeSummary.writes.length} audit type${writeSummary.writes.length === 1 ? "" : "s"})`;
             },
           },
