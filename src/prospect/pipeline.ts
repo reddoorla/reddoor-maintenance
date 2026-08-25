@@ -137,7 +137,7 @@ export async function runProspectAudit(
         {
           url,
           business: businessName ?? "",
-          buyerQuestions: analyze.ok ? analyze.data.buyerQuestions.map((q) => q.question) : [],
+          categoryQueries: analyze.ok ? analyze.data.categoryQueries : [],
           competitors: opts.competitors ?? [],
         },
         deps.engines ?? defaultEngines(),

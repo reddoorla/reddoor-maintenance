@@ -23,9 +23,8 @@ export const AnalyzeSchema = z.object({
   businessName: z.string(),
   business: z.string(),
   entityClarity: z.object({ score: z.number().min(0).max(100), missing: z.array(z.string()) }),
-  // 6-10, not just "an array": this also seeds the live-search probes in the next
-  // stage, so a thin or empty response must fail loudly here rather than quietly
-  // starving that stage of questions to ask.
+  // 6-10, not just "an array": a thin or empty response must fail loudly here
+  // rather than quietly starving the report's Answers section.
   buyerQuestions: z
     .array(
       z.object({
@@ -38,6 +37,14 @@ export const AnalyzeSchema = z.object({
     )
     .min(6)
     .max(10),
+  // Seeds the live-search probes in the next stage. Deliberately NOT the same
+  // strings as buyerQuestions: those are written about THIS site and read
+  // correctly only beside it ("What services does this agency offer?"), so as
+  // standalone searches they are unanswerable — proved in production, where an
+  // engine handed one replied "I don't have any context about who 'they'
+  // refers to" and the category score collapsed to a measurement of our own
+  // malformed prompt. A probe query must stand alone with no antecedent.
+  categoryQueries: z.array(z.string()).min(3).max(5),
   // No documented floor (a clean site may legitimately need none), but an
   // unbounded array had no cost/context ceiling either — a report's fix list
   // is a prioritized top set, not an exhaustive audit, so it's bounded the
@@ -98,6 +105,14 @@ Return:
   the site answers it (yes/partial/no), whether there is a passage an AI could quote verbatim, the page
   it lives on, and the evidence quote. evidence must be an EXACT substring of that page's quoted text —
   copied verbatim, never paraphrased or invented — or null when no exact quote supports the answer.
+- categoryQueries: 3-5 searches a buyer types BEFORE they have heard of this company, chosen so that
+  this company deserves to appear in the results. Each one is sent verbatim to a live answer engine on
+  its own, with no other context, so it must stand alone: name the service and the place or the
+  qualifier a buyer would use ("packaging design agency Los Angeles", "how much does a rebrand cost").
+  Never refer to the company — not by name, and not as "this agency", "they", "them" or "you". A query
+  that names the company measures nothing (the engine just echoes the name back); a query that points
+  at it with a pronoun has no antecedent and the engine will answer that it does not know who is meant.
+  These are searches, not conversational questions, and they are not the buyerQuestions above.
 - fixes: prioritized, concrete, specific to this site. No generic SEO advice.
 - narrative: two or three plain sentences per report section, addressed to the business owner. No
   jargon, no hedging.`;

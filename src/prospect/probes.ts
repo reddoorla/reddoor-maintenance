@@ -75,7 +75,11 @@ export type ProbeInput = {
    *  (`AnalyzeResult.businessName`, typically). Guarded by `resolveBusinessName`
    *  against a model that returns prose anyway; empty falls back to the domain. */
   business: string;
-  buyerQuestions: string[];
+  /** Standalone category searches (`AnalyzeResult.categoryQueries`) — sent to
+   *  the engines verbatim, so each must make sense with no context beside it.
+   *  Not `buyerQuestions`: those are written about the prospect's own site and
+   *  as cold searches they have no antecedent. */
+  categoryQueries: string[];
   competitors: string[];
 };
 
@@ -90,7 +94,7 @@ export function buildQueries(input: ProbeInput): ProbeQuery[] {
   const candidates: ProbeQuery[] = [
     { query: `who is ${name}`, kind: "branded" },
     { query: `${name} reviews`, kind: "branded" },
-    ...input.buyerQuestions.slice(0, 3).map((query): ProbeQuery => ({ query, kind: "category" })),
+    ...input.categoryQueries.slice(0, 3).map((query): ProbeQuery => ({ query, kind: "category" })),
     ...input.competitors
       .slice(0, 2)
       .map((c): ProbeQuery => ({ query: `${name} vs ${c}`, kind: "competitor" })),
@@ -103,6 +107,40 @@ export function buildQueries(input: ProbeInput): ProbeQuery[] {
     deduped.push(c);
   }
   return deduped.slice(0, MAX_QUERIES);
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Does the answer name the brand as a WORD, rather than merely containing its
+ *  letters? A plain `includes()` scored "Ace" on every "surface", "placement"
+ *  and "spacer" in an engine's prose. Both sides are already lowercased by the
+ *  caller; the boundaries are explicit rather than `\b` because a domain
+ *  fallback ("acme.example") ends in a character class `\b` treats
+ *  inconsistently. */
+export function mentionsBrand(answer: string, brand: string): boolean {
+  if (!brand) return false;
+  return new RegExp(`(^|[^a-z0-9])${escapeRegExp(brand)}($|[^a-z0-9])`, "i").test(answer);
+}
+
+/** Is this name distinctive enough that an unprompted mention means anything on
+ *  its own?
+ *
+ *  A multi-word name ("Reddoor Creative") or a domain ("acme.example") cannot
+ *  turn up in an engine's prose by accident. A single bare word can: a prospect
+ *  called Summit, Apex, Bloom, Grove or Anchor is a common noun, and an answer
+ *  about their own industry will use it in the ordinary way. Word boundaries do
+ *  not help — "the summit of the roofline" is a clean word match.
+ *
+ *  So a single-token name is not scored on a mention alone; it needs the domain
+ *  citation to corroborate it. That under-credits a genuinely distinctive
+ *  one-word brand, which is the error worth making: this number goes in front
+ *  of the prospect, and "you were mentioned here" has to survive them reading
+ *  the snippet underneath it. `brandMentioned` is still recorded truthfully
+ *  either way — this governs only what the score counts. */
+export function isDistinctiveName(brand: string): boolean {
+  return /\s/.test(brand) || brand.includes(".");
 }
 
 /** A rate-limit response is worth one retry after a longer pause; anything else
@@ -160,7 +198,7 @@ export async function runVisibilityProbes(
         }
         const citedDomains = reply.citedDomains.map(domainOf);
         const domainCited = citedDomains.some((d) => isSameSite(d, prospect));
-        const brandMentioned = brand.length > 0 && reply.answer.toLowerCase().includes(brand);
+        const brandMentioned = mentionsBrand(reply.answer.toLowerCase(), brand);
         for (const d of citedDomains) {
           if (isSameSite(d, prospect)) continue;
           competitorCounts.set(d, (competitorCounts.get(d) ?? 0) + 1);
@@ -191,8 +229,16 @@ export async function runVisibilityProbes(
   // discoverability score — only a real domain citation on a branded query
   // counts toward brandedRecognized. The score is null, not 0, when no category
   // query ran at all.
+  //
+  // On a CATEGORY query the engine was never given the name, so mentioning it
+  // unprompted is real recall — stronger evidence than a citation, and it counts.
+  // But only for a name a mention can't be a coincidence for; see
+  // isDistinctiveName for why a one-word brand needs the citation too.
   const categoryAnswers = answers.filter((a) => a.kind === "category");
-  const visibleCategory = categoryAnswers.filter((a) => a.domainCited || a.brandMentioned).length;
+  const nameIsDistinctive = isDistinctiveName(brand);
+  const visibleCategory = categoryAnswers.filter(
+    (a) => a.domainCited || (a.brandMentioned && nameIsDistinctive),
+  ).length;
   const visibilityScore =
     categoryAnswers.length === 0
       ? null

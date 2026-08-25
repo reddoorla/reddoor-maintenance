@@ -37,6 +37,11 @@ const analyzeOutput = {
   businessName: "Acme Roofing",
   business: "Acme Roofing repairs and replaces commercial roofs in Boise, Idaho.",
   entityClarity: { score: 70, missing: [] },
+  categoryQueries: [
+    "commercial roofing contractor Boise",
+    "how much does a commercial roof replacement cost",
+    "flat roof repair Idaho",
+  ],
   buyerQuestions: [
     {
       question: "How much does a roof repair cost?",

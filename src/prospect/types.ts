@@ -136,6 +136,11 @@ export type AnalyzeResult = {
   business: string;
   entityClarity: { score: number; missing: string[] };
   buyerQuestions: BuyerQuestion[];
+  /** Standalone searches for the visibility probes — what a buyer types before
+   *  they know this company exists. Distinct from `buyerQuestions`, which are
+   *  phrased about this site and are unanswerable on their own; see the schema
+   *  comment in analyze.ts for what that cost us. Never mentions the business. */
+  categoryQueries: string[];
   fixes: Fix[];
   narrative: { findability: string; readability: string; answers: string };
 };

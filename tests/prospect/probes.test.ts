@@ -3,6 +3,8 @@ import type Anthropic from "@anthropic-ai/sdk";
 import {
   buildQueries,
   resolveBusinessName,
+  mentionsBrand,
+  isDistinctiveName,
   domainOf,
   runVisibilityProbes,
   perplexityEngine,
@@ -21,14 +23,14 @@ const engine = (
 });
 
 describe("buildQueries", () => {
-  it("asks the branded questions, then the buyer questions", () => {
+  it("asks the branded queries, then the category searches", () => {
     const queries = buildQueries({
       business: "Acme Roofing",
       url: "https://acme.example/",
-      buyerQuestions: [
-        "What does a roof repair cost?",
-        "Do you work on flat roofs?",
-        "How fast?",
+      categoryQueries: [
+        "how much does a roof repair cost",
+        "flat roof contractors Boise",
+        "emergency roof repair near me",
         "Extra",
       ],
       competitors: [],
@@ -36,16 +38,41 @@ describe("buildQueries", () => {
     expect(queries[0]).toEqual({ query: "who is Acme Roofing", kind: "branded" });
     expect(queries[1]).toEqual({ query: "Acme Roofing reviews", kind: "branded" });
     const byQuery = queries.map((q) => q.query);
-    expect(byQuery).toContain("What does a roof repair cost?");
-    expect(queries.find((q) => q.query === "What does a roof repair cost?")!.kind).toBe("category");
+    expect(byQuery).toContain("how much does a roof repair cost");
+    expect(queries.find((q) => q.query === "how much does a roof repair cost")!.kind).toBe(
+      "category",
+    );
     expect(queries.length).toBeLessThanOrEqual(8);
+  });
+
+  // The production regression this field exists to prevent. Before it, the
+  // category slots were fed AnalyzeResult.buyerQuestions verbatim — questions
+  // written about the prospect's own site, which carry a pronoun or a bare
+  // "this agency" and are meaningless as a standalone search. Two of the three
+  // category probes in the first real audit came back "I don't have any context
+  // about who 'they' refers to", scoring the prospect 0 on our own bad prompt.
+  // buildQueries passes these through untouched, so nothing downstream can
+  // repair a query that arrives broken: the guarantee has to hold here.
+  it("passes category searches through verbatim, so they must stand alone", () => {
+    const standalone = ["how much does a rebrand cost", "packaging design agency Los Angeles"];
+    const queries = buildQueries({
+      business: "Acme Roofing",
+      url: "https://acme.example/",
+      categoryQueries: standalone,
+      competitors: [],
+    });
+    const category = queries.filter((q) => q.kind === "category").map((q) => q.query);
+    expect(category).toEqual(standalone);
+    for (const q of category) {
+      expect(q).not.toMatch(/\b(they|them|this agency|this company|your|you)\b/i);
+    }
   });
 
   it("adds comparison queries for each competitor", () => {
     const queries = buildQueries({
       business: "Acme Roofing",
       url: "https://acme.example/",
-      buyerQuestions: [],
+      categoryQueries: [],
       competitors: ["bestroofs.example", "toproof.example"],
     });
     const byQuery = queries.map((q) => q.query);
@@ -60,7 +87,7 @@ describe("buildQueries", () => {
     const queries = buildQueries({
       business: "",
       url: "https://acme.example/",
-      buyerQuestions: [],
+      categoryQueries: [],
       competitors: [],
     });
     expect(queries[0]!.query).toBe("who is acme.example");
@@ -74,7 +101,7 @@ describe("buildQueries", () => {
       business:
         "A residential and commercial roofing contractor serving the Boise, Idaho metro area.",
       url: "https://acme.example/",
-      buyerQuestions: [],
+      categoryQueries: [],
       competitors: [],
     });
     expect(queries[0]!.query).toBe("who is acme.example");
@@ -110,11 +137,47 @@ describe("domainOf", () => {
   });
 });
 
+describe("mentionsBrand", () => {
+  it("matches the brand as a whole word", () => {
+    expect(mentionsBrand("we recommend acme roofing for this", "acme roofing")).toBe(true);
+    expect(mentionsBrand("acme roofing handles it.", "acme roofing")).toBe(true);
+    expect(mentionsBrand("(acme roofing)", "acme roofing")).toBe(true);
+  });
+
+  // The regression: a plain includes() scored these as a mention.
+  it("does not match the brand's letters inside a longer word", () => {
+    expect(mentionsBrand("check the surface and placement", "ace")).toBe(false);
+    expect(mentionsBrand("several spacers are needed", "ace")).toBe(false);
+    expect(mentionsBrand("summits across the region", "summit")).toBe(false);
+  });
+
+  it("matches a domain fallback, whose dot is not a wildcard", () => {
+    expect(mentionsBrand("see acme.example for details", "acme.example")).toBe(true);
+    expect(mentionsBrand("see acmeXexample for details", "acme.example")).toBe(false);
+  });
+
+  it("is false for an empty brand", () => {
+    expect(mentionsBrand("anything at all", "")).toBe(false);
+  });
+});
+
+describe("isDistinctiveName", () => {
+  it("treats a multi-word name or a domain as unmistakable", () => {
+    expect(isDistinctiveName("acme roofing")).toBe(true);
+    expect(isDistinctiveName("acme.example")).toBe(true);
+  });
+
+  it("treats a single bare word as something prose could say by accident", () => {
+    expect(isDistinctiveName("summit")).toBe(false);
+    expect(isDistinctiveName("bloom")).toBe(false);
+  });
+});
+
 describe("runVisibilityProbes", () => {
   const args = {
     url: "https://acme.example/",
     business: "Acme Roofing",
-    buyerQuestions: ["What does a roof repair cost?"],
+    categoryQueries: ["how much does a roof repair cost"],
     competitors: [],
   };
 
@@ -140,6 +203,52 @@ describe("runVisibilityProbes", () => {
     // score would have read 1-of-3 = 33% here.
     expect(result.visibilityScore).toBe(0);
     expect(result.brandedRecognized).toBe(true);
+  });
+
+  it("scores an unprompted mention of a distinctive name, with no citation", async () => {
+    // The engine was never given the name on a category query, so naming the
+    // business back is real recall and counts on its own.
+    const engines = [
+      engine("perplexity", () => ({
+        answer: "Acme Roofing is usually the cheapest option in Boise.",
+        citedDomains: ["bestroofs.example"],
+      })),
+    ];
+    const result = await runVisibilityProbes(args, engines, { delayMs: 0 });
+    const category = result.answers.find((a) => a.kind === "category")!;
+    expect(category.brandMentioned).toBe(true);
+    expect(category.domainCited).toBe(false);
+    expect(result.visibilityScore).toBe(100);
+  });
+
+  it("does NOT score a bare one-word name that prose could have said by accident", async () => {
+    // "Summit" is a common noun. An answer about roofing will use it in the
+    // ordinary way, and scoring that as recognition puts a claim in front of the
+    // prospect that dies the moment they read the snippet under it. The mention
+    // is still RECORDED — it just needs the citation to count.
+    const summitArgs = { ...args, business: "Summit" };
+    const engines = [
+      engine("perplexity", () => ({
+        answer: "Repair costs rise toward the summit of a steep roof.",
+        citedDomains: ["bestroofs.example"],
+      })),
+    ];
+    const result = await runVisibilityProbes(summitArgs, engines, { delayMs: 0 });
+    const category = result.answers.find((a) => a.kind === "category")!;
+    expect(category.brandMentioned).toBe(true);
+    expect(result.visibilityScore).toBe(0);
+  });
+
+  it("still scores a one-word name when a citation corroborates the mention", async () => {
+    const summitArgs = { ...args, business: "Summit" };
+    const engines = [
+      engine("perplexity", () => ({
+        answer: "Summit handles most repairs in the area.",
+        citedDomains: ["acme.example"],
+      })),
+    ];
+    const result = await runVisibilityProbes(summitArgs, engines, { delayMs: 0 });
+    expect(result.visibilityScore).toBe(100);
   });
 
   it("counts the competitors the engines cited instead", async () => {
@@ -221,7 +330,7 @@ describe("runVisibilityProbes", () => {
     const wwwArgs = {
       url: "https://www.acme.example/",
       business: "Acme Roofing",
-      buyerQuestions: ["Do you offer emergency repairs?"],
+      categoryQueries: ["emergency roof repair Boise"],
       competitors: [],
     };
     const engines = [
@@ -253,7 +362,7 @@ describe("runVisibilityProbes", () => {
     const subdomainArgs = {
       url: "https://shop.acme.example/",
       business: "Acme Roofing",
-      buyerQuestions: ["What does a roof repair cost?"],
+      categoryQueries: ["how much does a roof repair cost"],
       competitors: [],
     };
     const engines = [
