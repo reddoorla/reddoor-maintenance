@@ -167,8 +167,13 @@ describe("renderSiteDashboardHtml", () => {
     ]);
     expect(html).toContain("rep_001");
     expect(html).toContain("rep_002");
-    expect(html).toContain('href="https://airtable.example/attach/rep_001.html"');
-    expect(html).toContain('href="https://airtable.example/attach/rep_002.html"');
+    // The link is the dashboard's OWN preview route, keyed on the report's rec
+    // id. It used to be the Airtable attachment href — a signed URL that
+    // expires; the attachment's presence still gates whether a link renders at
+    // all, it just no longer supplies the destination.
+    expect(html).toContain('href="/api/reports/recREP1/preview"');
+    expect(html).toContain('href="/api/reports/recREP2/preview"');
+    expect(html).not.toContain("airtable.example/attach");
   });
 
   it("renders a placeholder when there are no reports", () => {
@@ -1367,7 +1372,10 @@ describe("renderSiteDashboardHtml — approve-card info (recipients / preview / 
       NOW,
     );
     const pending = html.slice(html.indexOf("Pending your yes"), html.indexOf("Lighthouse"));
-    expect(pending).toContain("https://dl.airtable.com/x.html");
+    // Was the signed Airtable URL; now the dashboard's own route, which does not
+    // expire out from under a tab left open.
+    expect(pending).toContain("/preview");
+    expect(pending).not.toContain("dl.airtable.com");
     expect(pending).toContain("draft preview");
     expect(pending).toContain("rendered at draft time");
   });
@@ -1533,5 +1541,55 @@ describe("commentary stays editable for the whole unsent window", () => {
       }),
     ]);
     expect(html).not.toContain('data-commentary-for="recSENT"');
+  });
+});
+
+describe("report preview links point at the dashboard's own route", () => {
+  const withAttachment = {
+    id: "recREP1",
+    draftReady: true,
+    approvedToSend: false,
+    sentAt: null,
+    renderedHtmlAttachment: {
+      url: "https://airtable.example/signed/abc?exp=123",
+      filename: "r.html",
+    },
+  } as const;
+
+  it("the pending row links to /api/reports/:id/preview, not the signed Airtable URL", () => {
+    // Airtable attachment URLs are SIGNED and expire, so a dashboard tab left
+    // open 404s — which is exactly why the Turso-backed preview route was built
+    // in Phase 2. It just was never linked to, so the expiring URL stayed in
+    // front of the operator.
+    const html = renderSiteDashboardHtml(siteRow({ name: "Acme" }), [reportRow(withAttachment)]);
+    expect(html).toContain("/api/reports/recREP1/preview");
+    expect(html).not.toContain("airtable.example/signed");
+  });
+
+  it("the history row links there too", () => {
+    const html = renderSiteDashboardHtml(siteRow({ name: "Acme" }), [
+      reportRow({
+        ...withAttachment,
+        id: "recOLD",
+        approvedToSend: true,
+        sentAt: "2026-08-01T09:00:00.000Z",
+      }),
+    ]);
+    expect(html).toContain("/api/reports/recOLD/preview");
+    expect(html).not.toContain("airtable.example/signed");
+  });
+
+  it("still says so when no rendered body exists", () => {
+    const html = renderSiteDashboardHtml(siteRow({ name: "Acme" }), [
+      reportRow({
+        id: "recNONE",
+        draftReady: true,
+        approvedToSend: false,
+        sentAt: null,
+        renderedHtmlAttachment: null,
+      }),
+    ]);
+    expect(html).not.toContain("/api/reports/recNONE/preview");
+    expect(html).toContain("no preview yet");
   });
 });

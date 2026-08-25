@@ -238,6 +238,12 @@ function recipientsLine(site: WebsiteRow): string {
   return `<span class="recipients">To ${to.map(escapeHtml).join(", ")}${ccPart}</span>`;
 }
 
+/** The dashboard's own preview route for a report body (served from Turso).
+ *  Never the Airtable attachment URL — that one is signed and expires. */
+function reportPreviewUrl(reportId: string): string {
+  return `/api/reports/${encodeURIComponent(reportId)}/preview`;
+}
+
 /** Inline commentary editor for a report still awaiting send (#539 Phase 4).
  *  Rendered only where the server would accept the write — `setReportCommentary`
  *  refuses once `sentAt` is set, and offering a box that can only be rejected is
@@ -254,8 +260,13 @@ function pendingRow(r: ReportRow, site: WebsiteRow, now: Date): string {
   const blocked = findings.some((f) => f.level === "fail");
   // Draft-time render: sendOne re-renders at send with current Commentary /
   // subject override, so this is the DRAFT preview, labeled as such.
+  // The dashboard's OWN route, not the Airtable attachment URL. Those are signed
+  // and expire, so a tab left open 404s — the reason `/api/reports/:id/preview`
+  // was built in Phase 2 to serve the body from Turso. It was never linked to,
+  // so the expiring URL stayed in front of the operator. `renderedHtmlAttachment`
+  // still gates the link: it is how we know a body was ever rendered at all.
   const preview = r.renderedHtmlAttachment
-    ? `<a href="${escapeHtml(safeUrl(r.renderedHtmlAttachment.url))}" rel="noopener noreferrer" title="rendered at draft time — Commentary/subject edits after drafting are not reflected">draft preview ▸</a>`
+    ? `<a href="${escapeHtml(reportPreviewUrl(r.id))}" rel="noopener noreferrer" title="rendered at draft time — Commentary/subject edits after drafting are not reflected">draft preview ▸</a>`
     : `<span class="muted">no preview yet</span>`;
   const sendLine = sendTimingLine(now);
   return `<li><div class="pending-head"><strong>${type}</strong> <span class="muted">${period}</span> ${preflightChip(findings)} ${preview} ${approveButton(r, blocked)}</div><div class="pending-info">${recipientsLine(site)} ${sendLine}</div>${checklistBlock(r)}${commentaryEditor(r)}${overrideControl(r)}</li>`;
@@ -298,7 +309,7 @@ function reportRow(r: ReportRow, site: WebsiteRow): string {
   const ga = gaUsersCell(r);
   const search = searchCell(r);
   const link = r.renderedHtmlAttachment
-    ? `<a href="${escapeHtml(safeUrl(r.renderedHtmlAttachment.url))}">view</a>`
+    ? `<a href="${escapeHtml(reportPreviewUrl(r.id))}">view</a>`
     : `<span class="muted">no attachment</span>`;
   // Same gate as the pending section: an approve action in the history table
   // must not be a side door around the send-blocker gate.
