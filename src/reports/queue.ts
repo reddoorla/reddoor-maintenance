@@ -1,6 +1,7 @@
 import type { ReportType } from "./types.js";
 import type { AirtableBase } from "./airtable/client.js";
 import { listReportsForSite, isPendingApproval, setDraftReady } from "./airtable/reports.js";
+import type { ReportMirror } from "./report-mirror.js";
 
 /**
  * Report tiers — a higher tier is a SUPERSET of the lower ones, so only the highest-tier
@@ -39,11 +40,21 @@ export type QueueOutcome = {
  *   report for the site (superseded, not deleted — the row is kept) and queue the new one.
  *
  * Returns what happened so the caller can surface it. PURE side effects are all `setDraftReady`.
+ *
+ * #539 Phase 5: each flag is mirrored into Turso. The SUPERSEDED rows matter as
+ * much as the new one — un-queueing them is the whole point of this function, so
+ * a mirror covering only `report.id` would leave the console showing a site with
+ * two queued reports until the next hourly sync.
  */
 export async function queueDraft(
   base: AirtableBase,
   report: { id: string; siteId: string; reportType: ReportType },
+  mirror?: ReportMirror,
 ): Promise<QueueOutcome> {
+  const setReady = async (id: string, ready: boolean): Promise<void> => {
+    await setDraftReady(base, id, ready);
+    await mirror?.patch(id, { draft_ready: ready ? 1 : 0 });
+  };
   const newTier = reportTier(report.reportType);
   const others = (await listReportsForSite(base, report.siteId))
     .filter(isPendingApproval)
@@ -53,16 +64,16 @@ export async function queueDraft(
   if (blocker) {
     // A queued report already covers this one. Make sure the new draft is NOT queued (the reuse
     // path may hand us a row that was Draft-ready from a prior run) and stand down.
-    await setDraftReady(base, report.id, false);
+    await setReady(report.id, false);
     return { queued: false, blockedBy: blocker.reportType, supersededIds: [] };
   }
 
   // The new report is strictly the highest-tier pending — supersede the rest (un-queue), keep it.
   const supersededIds: string[] = [];
   for (const r of others) {
-    await setDraftReady(base, r.id, false);
+    await setReady(r.id, false);
     supersededIds.push(r.id);
   }
-  await setDraftReady(base, report.id, true);
+  await setReady(report.id, true);
   return { queued: true, supersededIds };
 }

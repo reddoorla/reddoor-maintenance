@@ -109,7 +109,7 @@ describe("recipes/announce", () => {
     expect(result.results.map((r) => r.site)).toEqual(["Acme Co"]);
   });
 
-  it("hands the created row to deps.draftMirror (#539 Phase 5 create-side dual-write)", async () => {
+  it("hands the created row to deps.reportMirror (#539 Phase 5 create-side dual-write)", async () => {
     // announce is the second unattended creator of Reports rows. Without this
     // pass-through an announcement draft is invisible to the Turso-backed
     // console until the next hourly sync — the same defect Phase 4 closed for
@@ -135,8 +135,12 @@ describe("recipes/announce", () => {
       base,
       now: NOW,
       refreshHeader: false,
-      draftMirror: async (rec) => {
-        seen.push(rec);
+      reportMirror: {
+        created: async (rec: { id: string; fields: Record<string, unknown> }) => {
+          seen.push(rec);
+        },
+        body: async () => {},
+        patch: async () => {},
       },
     });
 
@@ -328,6 +332,63 @@ describe("recipes/announce", () => {
         c.records[0]!.fields["Draft ready"] === true,
     );
     expect(draftReadyUpdate).toBeDefined();
+  });
+
+  it("mirrors the reused row's refreshed scores (#539 Phase 5)", async () => {
+    // The reuse path exists so the eventually-sent email is not stale. The
+    // console reads the same numbers from Turso, so a mirror that covered only
+    // the CREATE path would leave a re-announced site showing last month's
+    // scores next to this month's email.
+    const base = makeFakeBase({
+      Websites: [
+        {
+          id: "rec_acme",
+          fields: {
+            Name: "Acme Co",
+            url: "https://acme.example.com",
+            Status: "maintained",
+            "Report recipients (To)": "client@acme.example.com",
+            ...scoredFields(),
+          },
+        },
+      ],
+      Reports: [
+        {
+          id: "rec_existing_announce",
+          fields: {
+            "Report ID": "Acme Co — Announcement — existing",
+            Site: ["rec_acme"],
+            "Report type": "Announcement",
+            Period: PERIOD,
+          },
+        },
+      ],
+    });
+    const patched: Array<{ id: string; patch: Record<string, unknown> }> = [];
+
+    await announce({
+      base,
+      now: NOW,
+      refreshHeader: false,
+      reportMirror: {
+        created: async () => {},
+        body: async () => {},
+        patch: async (id: string, patch: Record<string, unknown>) => {
+          patched.push({ id, patch });
+        },
+      },
+    });
+
+    const scores = patched.find((p) => p.patch.lighthouse_performance !== undefined);
+    expect(scores).toMatchObject({
+      id: "rec_existing_announce",
+      patch: {
+        lighthouse_performance: 87,
+        lighthouse_accessibility: 91,
+        lighthouse_best_practices: 100,
+        lighthouse_seo: 95,
+      },
+    });
   });
 
   it("stores GA visitors + search presence on the drafted row when enrichment returns data", async () => {

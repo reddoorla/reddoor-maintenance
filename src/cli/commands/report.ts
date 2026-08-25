@@ -17,7 +17,7 @@ import {
 } from "../../alerts/analytics-health.js";
 import type { ReportType } from "../../reports/types.js";
 import type { ScheduleMirror } from "../../audits/health-mirror.js";
-import type { CreatedDraftMirror } from "../../reports/airtable/reports.js";
+import type { ReportMirror } from "../../reports/report-mirror.js";
 import { operatorEmail } from "../../util/operator.js";
 
 export type ReportCommandOptions = {
@@ -156,16 +156,16 @@ async function runDueDraft(): Promise<{ output: string; code: number }> {
   // Phase 3 dual-write (#539): mirror real next-due writes into site_schedule.
   // Null when libSQL creds are absent — the Airtable path is unchanged.
   const { makeScheduleMirrorBestEffort } = await import("../../audits/health-mirror.js");
-  // Phase 5 dual-write (#539): mirror rows this batch CREATES into `reports`.
-  // Unlike the schedule mirror this is never null — creds-absent is reported on
-  // the DRAFT_MIRROR line rather than being indistinguishable from success,
-  // which is the failure mode that hid #585 for weeks.
-  const { makeDraftMirror } = await import("../../reports/draft-mirror.js");
+  // Phase 5 dual-write (#539): mirror this batch's report writes — the created
+  // rows, their bodies, and the queue flags. Unlike the schedule mirror this is
+  // never null — creds-absent is reported on the REPORT_MIRROR line rather than
+  // being indistinguishable from success, the failure mode that hid #585.
+  const { makeReportMirror } = await import("../../reports/report-mirror.js");
   const result = await draftDueReports(
     base,
     new Date(),
     await makeScheduleMirrorBestEffort(),
-    await makeDraftMirror(),
+    await makeReportMirror(),
   );
   await alertOnFleetAnalyticsFailure(result.health);
   return { output: result.output, code: result.code };
@@ -275,9 +275,9 @@ export async function draftDueReports(
    *  to every draftReportForSite call — the nightly batch is the only unattended
    *  creator of report rows, so a dropped pass-through leaves each new draft
    *  invisible to the Turso-backed console. */
-  draftMirror?: CreatedDraftMirror,
+  reportMirror?: ReportMirror,
 ): Promise<{ output: string; code: number; health: AnalyticsRunHealth }> {
-  const mirrorOpt = draftMirror ? { draftMirror } : {};
+  const mirrorOpt = reportMirror ? { reportMirror } : {};
   const websites = await listWebsites(base);
   // ONE unfiltered fetch for the whole fleet. Per-site queries can't be pushed to
   // Airtable anyway (linked-record fields aren't formula-filterable by record id),
@@ -472,15 +472,15 @@ async function runSingleSiteDraft(
   // row. A preview writes nothing to Airtable, so opening a libSQL handle for
   // it would be pure cost (and `report --preview` is the one draft path that
   // deliberately does no store IO at all).
-  const draftMirror = opts.previewOnly
+  const reportMirror = opts.previewOnly
     ? null
-    : await (await import("../../reports/draft-mirror.js")).makeDraftMirror();
+    : await (await import("../../reports/report-mirror.js")).makeReportMirror();
   const result = await draftReportForSite(opts.previewOnly ? null : base, site, opts.reportType, {
     previewOnly: opts.previewOnly,
     // Only forced on. Left undefined, draftReportForSite keeps its default
     // (enrich iff there is a base), so the real drafting path is untouched.
     ...(opts.enrich ? { enrich: true } : {}),
-    ...(draftMirror ? { draftMirror } : {}),
+    ...(reportMirror ? { reportMirror } : {}),
   });
   if (opts.previewOnly) {
     return { output: `Preview written to ${result.htmlPath}`, code: 0 };

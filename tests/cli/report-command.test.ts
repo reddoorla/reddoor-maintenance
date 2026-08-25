@@ -497,13 +497,17 @@ describe("draftDueReports next-due write-back", () => {
       supersededIds: [],
     } as unknown as Awaited<ReturnType<typeof draftReportForSite>>);
     const base = makeFakeBase({ Reports: [] });
-    const draftMirror = vi.fn(async () => {});
+    const reportMirror = {
+      created: vi.fn(async () => {}),
+      body: vi.fn(async () => {}),
+      patch: vi.fn(async () => {}),
+    };
 
-    await draftDueReports(base, TODAY, null, draftMirror);
+    await draftDueReports(base, TODAY, null, reportMirror);
 
     const calls = vi.mocked(draftReportForSite).mock.calls;
     expect(calls.length).toBeGreaterThan(0);
-    for (const call of calls) expect(call[3]?.draftMirror).toBe(draftMirror);
+    for (const call of calls) expect(call[3]?.reportMirror).toBe(reportMirror);
   });
 
   it("swallows a per-site write-back failure and still drafts the due report", async () => {

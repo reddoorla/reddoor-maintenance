@@ -451,11 +451,16 @@ export async function listReportsForSite(db: Db, siteId: string): Promise<Report
   return rows.map(reportRowFromDb);
 }
 
-/** Columns the REQUEST-PATH report writers mirror after their Airtable write
- *  (same pattern as mirrorSiteField): the approve/override flow and the
- *  resend-webhook's delivery status. Send-path columns (sent_at,
- *  resend_message_id, rendered_html) are deliberately absent — the send is a
- *  CLI batch whose writes reach Turso via the hourly sync until Phase 3. */
+/** Columns a report writer mirrors after its Airtable write (same pattern as
+ *  mirrorSiteField): the approve/override flow, the resend-webhook's delivery
+ *  status, and — since #539 Phase 5 — the drafting path's queue flag and a
+ *  re-run's refreshed scores.
+ *
+ *  `rendered_html` stays deliberately OUT even though the drafting path now
+ *  writes it: bodies go through `storeRenderedHtml`, so a request handler
+ *  holding a patch cannot accidentally write megabytes of HTML. `sent_at` and
+ *  `resend_message_id` stay out because nothing but the send batch writes them
+ *  and the hourly sync converges those. */
 export type ReportMirrorPatch = Partial<
   Pick<
     ReportsTable,
@@ -471,6 +476,21 @@ export type ReportMirrorPatch = Partial<
     // page immediately after the write, so the mirror has to carry it or the
     // operator sees their own save as a no-op until the next hourly sync.
     | "commentary"
+    // Phase 5 drafting path. `draft_ready` is the queue flag `queueDraft`
+    // writes — for the new draft AND for every row it supersedes, so without it
+    // the console shows a site with two queued reports until the next sync.
+    | "draft_ready"
+    // A re-run (announce/launch reuse) refreshes an existing row's scores so the
+    // eventually-sent email is not stale; the console reads the same numbers.
+    | "lighthouse_performance"
+    | "lighthouse_accessibility"
+    | "lighthouse_best_practices"
+    | "lighthouse_seo"
+    | "ga_users_current"
+    | "ga_users_previous"
+    | "search_found_page1"
+    | "search_position"
+    | "completed_on"
   >
 >;
 

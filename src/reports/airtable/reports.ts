@@ -269,7 +269,7 @@ export async function createDraft(
   // diffs Turso against the stored record, so mapping the input would diverge
   // the moment Airtable normalises a value. Injected rather than called
   // directly so this module keeps no db dependency; the injected
-  // implementation owns the never-throw policy (see reports/draft-mirror.ts).
+  // implementation owns the never-throw policy (see reports/report-mirror.ts).
   if (mirror) await mirror(raw);
   return mapRow(raw);
 }

@@ -47,7 +47,7 @@ export async function runLaunchCommand(
 
   // #539 Phase 5: create-side Turso dual-write, wired at the composition root
   // (see runAnnounceCommand for why it is not defaulted inside the recipe).
-  const { makeDraftMirror } = await import("../../reports/draft-mirror.js");
-  const result = await launch(target, { draftMirror: await makeDraftMirror() });
+  const { makeReportMirror } = await import("../../reports/report-mirror.js");
+  const result = await launch(target, { reportMirror: await makeReportMirror() });
   return { output: formatResult(result), code: result.complete ? 0 : 1 };
 }
