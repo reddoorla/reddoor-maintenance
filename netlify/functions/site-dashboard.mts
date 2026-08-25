@@ -3,7 +3,11 @@ import { getSiteBySlug, listReportsForSite } from "../../src/db/fleet-state.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import { listSubmissionsForSite, countNotifyBouncedBySite } from "../../src/db/submissions.js";
 import { listScreenOutsSince, screenOutsSince } from "../../src/db/screenouts.js";
-import { verifyBasicAuth, renderSiteDashboardHtml } from "../../src/dashboard/index.js";
+import {
+  requireOperator,
+  denialResponse,
+  renderSiteDashboardHtml,
+} from "../../src/dashboard/index.js";
 import {
   resolveSlug,
   handlerError,
@@ -72,19 +76,8 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   // unauthenticated probe can't fetch a site — and before the Airtable/Turso env
   // guards so a probe can't tell which backend env is unset (only the password
   // check, which auth itself needs, precedes).
-  const password = process.env.DASHBOARD_PASSWORD;
-  if (!password) {
-    console.error("[site-dashboard] DASHBOARD_PASSWORD missing");
-    return plainText(
-      "Site dashboard is unconfigured. Set DASHBOARD_PASSWORD in the Netlify site env.",
-      503,
-    );
-  }
-  if (!verifyBasicAuth(req.headers.get("authorization"), password)) {
-    return plainText("Authentication required.", 401, {
-      "www-authenticate": 'Basic realm="Reddoor fleet"',
-    });
-  }
+  const auth = requireOperator(req, { wants: "redirect" });
+  if (!auth.ok) return denialResponse(auth.denial);
 
   if (!process.env.TURSO_DATABASE_URL) {
     console.error("[site-dashboard] TURSO_DATABASE_URL missing");
@@ -152,7 +145,15 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     }
 
     return html(
-      renderSiteDashboardHtml(site, reports, submissions, spamTotals, new Date(), alarm),
+      renderSiteDashboardHtml(
+        site,
+        reports,
+        submissions,
+        spamTotals,
+        new Date(),
+        alarm,
+        auth.email,
+      ),
       200,
     );
   } catch (err) {

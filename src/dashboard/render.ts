@@ -1,3 +1,4 @@
+import { renderAuthChrome } from "./auth/render.js";
 import type { WebsiteRow, SecurityAdvisory } from "../reports/airtable/websites.js";
 import { SEVERITY_RANK, siteSlug } from "../reports/airtable/websites.js";
 import type { ReportRow } from "../reports/airtable/reports.js";
@@ -652,6 +653,7 @@ export function renderSiteDashboardHtml(
   spamTotals: ScreenOutTotals | null = null,
   now: Date = new Date(),
   alarm: SiteAlarmContext | null = null,
+  operatorEmail: string | null = null,
 ): string {
   const name = escapeHtml(site.name);
   const urlSafe = safeUrl(site.url);
@@ -709,6 +711,7 @@ export function renderSiteDashboardHtml(
   <style>${STYLES}${SUBMISSION_STYLES}</style>
 </head>
 <body>
+  ${renderAuthChrome(operatorEmail)}
   <a class="home" href="/">← Fleet home</a>
   <h1>${name}</h1>
   <div class="meta"><a href="${escapeHtml(urlSafe)}">${escapeHtml(site.url)}</a></div>

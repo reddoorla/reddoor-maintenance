@@ -3,7 +3,7 @@ import { openBase } from "../../src/reports/airtable/client.js";
 import { updateSiteField } from "../../src/reports/airtable/websites.js";
 import { getSiteBySlug, mirrorSiteField } from "../../src/db/fleet-state.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
-import { verifyBasicAuth, setSiteDetail } from "../../src/dashboard/index.js";
+import { requireOperator, denialResponse, setSiteDetail } from "../../src/dashboard/index.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
 
@@ -42,16 +42,8 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
 
   if (!isCsrfAllowed(req)) return json({ ok: false, error: "cross-site-rejected" }, 403);
 
-  const password = process.env.DASHBOARD_PASSWORD;
-  if (!password) {
-    console.error("[site-details] DASHBOARD_PASSWORD missing");
-    return json({ ok: false, error: "unconfigured" }, 503);
-  }
-  if (!verifyBasicAuth(req.headers.get("authorization"), password)) {
-    return json({ ok: false, error: "unauthorized" }, 401, {
-      "www-authenticate": 'Basic realm="Reddoor fleet"',
-    });
-  }
+  const auth = requireOperator(req, { wants: "json" });
+  if (!auth.ok) return denialResponse(auth.denial);
 
   const apiKey = process.env.AIRTABLE_PAT;
   const baseId = process.env.AIRTABLE_BASE_ID;

@@ -2,7 +2,8 @@ import type { Context, Config } from "@netlify/functions";
 import { listSites } from "../../src/db/fleet-state.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import {
-  verifyBasicAuth,
+  requireOperator,
+  denialResponse,
   renderFleetTableHtml,
   parseFleetTableQuery,
   buildFleetTableModel,
@@ -37,19 +38,8 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   // Authenticate BEFORE the Turso env guard so an unauthenticated probe can't
   // tell whether the backend env is set (a differentiated 500 leaks config
   // state). Only the password check — unavoidable, since auth needs it — precedes.
-  const password = process.env.DASHBOARD_PASSWORD;
-  if (!password) {
-    console.error("[fleet-table] DASHBOARD_PASSWORD missing");
-    return plainText(
-      "Fleet table is unconfigured. Set DASHBOARD_PASSWORD in the Netlify site env.",
-      503,
-    );
-  }
-  if (!verifyBasicAuth(req.headers.get("authorization"), password)) {
-    return plainText("Authentication required.", 401, {
-      "www-authenticate": 'Basic realm="Reddoor fleet"',
-    });
-  }
+  const auth = requireOperator(req, { wants: "redirect" });
+  if (!auth.ok) return denialResponse(auth.denial);
   if (!process.env.TURSO_DATABASE_URL) {
     console.error("[fleet-table] TURSO_DATABASE_URL missing");
     return plainText("Turso env missing", 500);
@@ -62,7 +52,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     const db = await openDb(readDbConfig());
     const query = parseFleetTableQuery(new URL(req.url).searchParams);
     const sites = await listSites(db);
-    return html(renderFleetTableHtml(buildFleetTableModel(sites, query)), 200);
+    return html(renderFleetTableHtml(buildFleetTableModel(sites, query), auth.email), 200);
   } catch (err) {
     return handlerError("fleet-table", err);
   }

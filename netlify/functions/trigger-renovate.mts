@@ -1,7 +1,11 @@
 import type { Context, Config } from "@netlify/functions";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import { getSiteBySlug } from "../../src/db/fleet-state.js";
-import { verifyBasicAuth, triggerRenovateForSite } from "../../src/dashboard/index.js";
+import {
+  requireOperator,
+  denialResponse,
+  triggerRenovateForSite,
+} from "../../src/dashboard/index.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
 import { makeGitHubRest } from "../../src/github/gh-rest.js";
@@ -48,16 +52,8 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   // CSRF defense before auth — same posture as the other state-changing endpoints.
   if (!isCsrfAllowed(req)) return json({ ok: false, error: "cross-site-rejected" }, 403);
 
-  const password = process.env.DASHBOARD_PASSWORD;
-  if (!password) {
-    console.error("[trigger-renovate] DASHBOARD_PASSWORD missing");
-    return json({ ok: false, error: "unconfigured" }, 503);
-  }
-  if (!verifyBasicAuth(req.headers.get("authorization"), password)) {
-    return json({ ok: false, error: "unauthorized" }, 401, {
-      "www-authenticate": 'Basic realm="Reddoor fleet"',
-    });
-  }
+  const auth = requireOperator(req, { wants: "json" });
+  if (!auth.ok) return denialResponse(auth.denial);
 
   // The dashboard's first request-path GitHub write needs a token with
   // actions:write. Absent → degrade cleanly (button shows "not configured").

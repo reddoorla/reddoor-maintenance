@@ -62,20 +62,25 @@ describe("site-dashboard adapter — slug resolution + env/auth gating", () => {
   });
 
   it("does NOT leak backend env state to an UNAUTHENTICATED slug request (auth precedes env guards)", async () => {
-    // Password set, no creds, Airtable/Turso unset → 401, not a differentiated 500.
+    // Password set, no creds, Airtable/Turso unset → the auth redirect, not a
+    // differentiated 500.
     process.env.DASHBOARD_PASSWORD = "s3cret";
     const res = await siteDashboard(get("https://dash.reddoor.test/s/acme"), ctx({ slug: "acme" }));
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(302);
   });
 
-  it("401s an unauthenticated slug request (gate fires before any Airtable read)", async () => {
+  it("redirects an unauthenticated slug request (gate fires before any Airtable read)", async () => {
     process.env.AIRTABLE_PAT = "pat";
     process.env.AIRTABLE_BASE_ID = "appX";
     process.env.TURSO_DATABASE_URL = "libsql://x";
     process.env.DASHBOARD_PASSWORD = "s3cret";
     const res = await siteDashboard(get("https://dash.reddoor.test/s/acme"), ctx({ slug: "acme" }));
-    expect(res.status).toBe(401);
-    expect(res.headers.get("www-authenticate")).toMatch(/Basic realm="Reddoor fleet"/);
+    expect(res.status).toBe(302);
+    // returnTo carries the slug, so signing in lands back on the same site page.
+    expect(res.headers.get("location")).toBe(
+      `/auth/login?returnTo=${encodeURIComponent("/s/acme")}`,
+    );
+    expect(res.headers.get("www-authenticate")).toBeNull();
   });
 
   it("resolves the slug from the ?slug= query param when no path param", async () => {
@@ -84,8 +89,8 @@ describe("site-dashboard adapter — slug resolution + env/auth gating", () => {
     process.env.TURSO_DATABASE_URL = "libsql://x";
     process.env.DASHBOARD_PASSWORD = "s3cret";
     // No ctx.params → slug comes from the query string → NOT the health check,
-    // so we reach the auth gate (401) rather than a 200 health response.
+    // so we reach the auth gate (302) rather than a 200 health response.
     const res = await siteDashboard(get("https://dash.reddoor.test/x?slug=acme"), ctx());
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(302);
   });
 });

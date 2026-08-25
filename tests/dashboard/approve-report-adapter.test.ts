@@ -137,7 +137,12 @@ describe("approve-report adapter — env + method gating", () => {
     // @ts-expect-error — minimal Context
     const res = await approveReportFn(post("recREP1"), { params: { id: "recREP1" } });
     expect(res.status).toBe(401);
-    expect(res.headers.get("www-authenticate")).toMatch(/Basic realm="Reddoor fleet"/);
+    // Fired by fetch() from the dashboard, so the refusal is JSON the page can
+    // act on — never a redirect (which fetch would follow to Google's HTML) and
+    // never a challenge header (which would pop a dialog mid-fetch).
+    expect(res.headers.get("content-type")).toMatch(/application\/json/);
+    expect(res.headers.get("www-authenticate")).toBeNull();
+    expect(await res.json()).toMatchObject({ error: "unauthenticated" });
     expect(approveMock).not.toHaveBeenCalled();
   });
 
