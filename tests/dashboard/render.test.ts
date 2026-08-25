@@ -1117,7 +1117,7 @@ describe("renderSiteDashboardHtml — editable site details", () => {
     expect(html).toMatch(
       /<select[^>]*data-detail-field="status"[^>]*data-details-url="\/api\/sites\/acme\/details"/,
     );
-    expect(html).toContain('<option value="maintenance" selected');
+    expect(html).toContain('<option value="maintained" selected');
     expect(html).toMatch(/data-detail-field="pointOfContact"/);
     expect(html).toContain('value="a@b.com"');
   });
@@ -1125,31 +1125,44 @@ describe("renderSiteDashboardHtml — editable site details", () => {
   it("preselects the Status select from the RAW cell, so a 'legacy' site shows the placeholder", () => {
     // The entire reason `WebsiteRow.statusRaw` exists. This select's options ARE
     // Airtable cell values, and "legacy" is not one of them — it canonicalizes to
-    // `archived`, which writes back as "deprecated". Preselecting `site.status`
-    // would silently show a legacy site as "deprecated" and POST that on the next
-    // save, rewriting a real cell nobody edited. The correct render is the
-    // disabled "— select —" placeholder: the operator must actively pick.
+    // `archived`. Preselecting `site.status` would silently show a legacy site as
+    // an option it does not hold and POST that on the next save, rewriting a real
+    // cell nobody edited. The correct render is the disabled "— select —"
+    // placeholder: the operator must actively pick.
+    //
+    // "legacy" stays a REAL case until stage 3 deletes the old options: a human
+    // can still pick it in the Airtable UI, so reads must keep tolerating it.
+    //
+    // Post-stage-2 the leaked value would be the CANONICAL name, not "deprecated"
+    // — `toAirtableStatus("archived")` is now "archived", which IS an offered
+    // option. So the assertion that bites is `archived`-selected, not
+    // `deprecated`-selected; the old "deprecated" assertions became unfalsifiable
+    // the moment that option left the dropdown and were replaced, not dropped.
     const html = renderSiteDashboardHtml(
       siteRow({ name: "Acme", status: "archived", statusRaw: "legacy" }),
       [],
     );
     const statusSelect = /<select id="detail-status"[^>]*>(.*?)<\/select>/s.exec(html)![1];
     expect(statusSelect).toContain('<option value="" disabled selected hidden>— select —</option>');
-    expect(statusSelect).not.toContain("selected>deprecated<");
-    expect(statusSelect).not.toMatch(/<option value="deprecated" selected/);
+    expect(statusSelect).not.toMatch(/<option value="archived" selected/);
   });
 
-  it("preselects the raw cell an archived-by-'deprecated' site actually holds", () => {
-    // The other half of the many-to-one merge: same canonical `archived`, but
-    // this cell IS an offered option, so it preselects rather than falling back
-    // to the placeholder. Both halves are needed — a render that always showed
-    // the placeholder would pass the test above for the wrong reason.
+  it("preselects the raw cell an archived site actually holds", () => {
+    // The positive control for the test above: a render that ALWAYS showed the
+    // placeholder would pass that one for the wrong reason, so this proves a raw
+    // cell that IS an offered option really does preselect.
+    //
+    // The fixture was "deprecated" through stage 1. Stage 2 migrated the live
+    // cells and that option is no longer offered, so the premise expired — it was
+    // re-pointed at "archived" rather than having its assertion inverted, because
+    // post-migration an archived site's raw cell genuinely IS "archived". The
+    // control still asserts the positive and is still falsifiable.
     const html = renderSiteDashboardHtml(
-      siteRow({ name: "Acme", status: "archived", statusRaw: "deprecated" }),
+      siteRow({ name: "Acme", status: "archived", statusRaw: "archived" }),
       [],
     );
     const statusSelect = /<select id="detail-status"[^>]*>(.*?)<\/select>/s.exec(html)![1];
-    expect(statusSelect).toContain('<option value="deprecated" selected');
+    expect(statusSelect).toContain('<option value="archived" selected');
     expect(statusSelect).not.toContain("— select —");
   });
 

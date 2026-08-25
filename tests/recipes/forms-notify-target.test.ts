@@ -92,10 +92,11 @@ describe("formsNotifyTarget", () => {
   it("flipping on writes the guard and confirms it by re-reading", async () => {
     setup("maintained");
     const r = await formsNotifyTarget({ base, site: "1836dig", set: "on" });
-    // A LITERAL, not `${VERIFY_STATUS}`: the cell written is Airtable's OLD
-    // option name while AIRTABLE_USES_NEW_VOCABULARY is false. Interpolating the
-    // canonical constant would follow the stage-2 flip and stop pinning anything.
-    expect(fake.updates).toEqual(["recSite.Status=launch period"]);
+    // A LITERAL, not `${VERIFY_STATUS}`: this pins the exact cell value the write
+    // puts in Airtable, which since the stage-2 flip is the NEW option name.
+    // Interpolating the canonical constant would track whatever the code emits and
+    // stop pinning anything — it must keep failing if the emitted value drifts.
+    expect(fake.updates).toEqual(["recSite.Status=launching"]);
     expect(r.flip).toMatchObject({ from: "maintained", to: VERIFY_STATUS, confirmed: true });
     expect(r.target.audience).toBe("operator");
   });

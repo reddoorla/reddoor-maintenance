@@ -39,9 +39,9 @@ describe("setSiteDetail", () => {
 
   it("writes an enum field to its exact Airtable column", async () => {
     const { deps, writes } = harness();
-    const r = await setSiteDetail(deps, "acme", "status", "hosting");
+    const r = await setSiteDetail(deps, "acme", "status", "hosted-only");
     expect(r.status).toBe("updated");
-    expect(writes).toEqual([{ id: "recA", column: "Status", value: "hosting" }]);
+    expect(writes).toEqual([{ id: "recA", column: "Status", value: "hosted-only" }]);
   });
 
   it("rejects an enum value not in the options (invalid, no write)", async () => {
@@ -96,7 +96,7 @@ describe("setSiteDetail", () => {
       { getSite: async () => null, updateField: async () => {} },
       "ghost",
       "status",
-      "hosting",
+      "hosted-only",
     );
     expect(r.status).toBe("not-found");
   });
