@@ -1,6 +1,6 @@
 # Prospect Audit — Design
 
-**Date:** 2026-08-24 · **Status:** approved (Tucker, in-session) · **Repo:** reddoor-maintenance
+**Date:** 2026-08-24 · **Status:** built — see docs/superpowers/plans/2026-08-24-prospect-audit.md · **Repo:** reddoor-maintenance
 
 ## What and why
 
@@ -21,12 +21,12 @@ orchestration.
 
 ## Decisions (made with Tucker, 2026-08-24)
 
-| Question | Decision |
-|---|---|
-| Trigger | CLI, run by Tucker/Tim (`maintenance prospect-audit <url>`); auto-on-inquiry and self-serve lead magnet are explicit non-goals for v1 |
-| Deliverable | Hosted shareable report link (public tokened route on the maintenance Netlify site) |
-| Depth | All three tiers in v1: deterministic checks + Claude answerability pass + live AI-visibility probes |
-| Placement | New `src/prospect/` module in reddoor-maintenance |
+| Question    | Decision                                                                                                                              |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Trigger     | CLI, run by Tucker/Tim (`maintenance prospect-audit <url>`); auto-on-inquiry and self-serve lead magnet are explicit non-goals for v1 |
+| Deliverable | Hosted shareable report link (public tokened route on the maintenance Netlify site)                                                   |
+| Depth       | All three tiers in v1: deterministic checks + Claude answerability pass + live AI-visibility probes                                   |
+| Placement   | New `src/prospect/` module in reddoor-maintenance                                                                                     |
 
 ## Pipeline
 
@@ -46,7 +46,7 @@ query set).
   ~20, same-origin only, polite (sequential with delay, honest custom UA
   naming Reddoor). We are auditing on the prospect's behalf; the crawl is
   small and identified, and robots.txt disallow rules for generic agents are
-  respected for page fetches (the audit *reports* AI-agent blocks; it does not
+  respected for page fetches (the audit _reports_ AI-agent blocks; it does not
   bypass them).
 - Per page, capture **both** the raw HTTP HTML and the Playwright-rendered
   DOM. Extract from each: text content, meta title/description, OG/Twitter
@@ -84,7 +84,7 @@ the crawled pages (bounded) plus the deterministic findings. Output schema:
 - `entityClarity`: score + what's missing (name/place/offer ambiguity).
 - `buyerQuestions[]` (6–10): the questions this site should answer; per
   question `{question, answered: yes|partial|no, quotable: bool, page,
-  evidence}`.
+evidence}`.
 - `fixes[]`: prioritized `{title, why, impact, effort, tier}` list.
 - `narrative`: short report-facing prose per section.
 
@@ -103,7 +103,7 @@ through the standard chain (`ANTHROPIC_API_KEY` → auth profile).
     `claude-opus-5`).
   - OpenAI/Gemini adapters are v1.1+ — the interface is the extension point.
 - Per query per engine, record: prospect domain cited? brand mentioned? who
-  *was* cited/recommended (the competitor receipts). Aggregate to an **AI
+  _was_ cited/recommended (the competitor receipts). Aggregate to an **AI
   Visibility score** + the "what the engines said about you" section.
 - Cost ≈ $0.10/audit.
 
@@ -117,12 +117,12 @@ through the standard chain (`ANTHROPIC_API_KEY` → auth profile).
   `noindex`). Used by both surfaces below so the file and the link never
   drift.
 - **CLI**: `maintenance prospect-audit <url> [--business "Name"]
-  [--competitors a.com,b.com] [--no-probes] [--out report.html]` — runs the
+[--competitors a.com,b.com] [--no-probes] [--out report.html]` — runs the
   pipeline with listr2 progress (matching the audit CLI's feel), prints the
   terminal summary + the shareable link.
 - **Hosted route**: public `GET /r/{token}` on the existing maintenance
   Netlify site, **outside** the dashboard's basic-auth, `X-Robots-Tag:
-  noindex`, rendered from Turso. Domain: works immediately at the
+noindex`, rendered from Turso. Domain: works immediately at the
   netlify.app URL; alias `audit.reddoorla.com` once the DNS record + Netlify
   domain alias are added (a deploy-time task, not code).
 
@@ -157,11 +157,11 @@ check / answer coverage / prioritized fix list.
 
 ## New environment
 
-| Var | Where | Purpose |
-|---|---|---|
-| `PERPLEXITY_API_KEY` | maintenance .env + Netlify env | Sonar probes |
-| (existing) Anthropic auth | already resolves | analyze + Claude probe |
-| (existing) Turso vars | already present | persistence |
+| Var                       | Where                          | Purpose                |
+| ------------------------- | ------------------------------ | ---------------------- |
+| `PERPLEXITY_API_KEY`      | maintenance .env + Netlify env | Sonar probes           |
+| (existing) Anthropic auth | already resolves               | analyze + Claude probe |
+| (existing) Turso vars     | already present                | persistence            |
 
 ## Non-goals (v1)
 

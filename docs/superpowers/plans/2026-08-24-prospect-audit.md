@@ -26,30 +26,31 @@
 
 ## File structure
 
-| File | Responsibility |
-|---|---|
-| `src/prospect/types.ts` | All shared types: `StageResult`, crawl/checks/analyze/probes shapes, `ProspectAuditResult` |
-| `src/prospect/extract.ts` | Pure HTML → `PageExtract` (title/meta/OG/headings/JSON-LD/alt/viewport/text) |
-| `src/prospect/crawl.ts` | robots parsing + AI-crawler matrix (pure) and `crawlSite` (injectable fetch/renderer) |
-| `src/prospect/checks.ts` | Pure scoring over `CrawlResult` + `computeScores` |
-| `src/prospect/analyze.ts` | Prompt builder (pure), JSON schema, injectable Claude call, shape validation |
-| `src/prospect/probes.ts` | `VisibilityEngine` interface, query builder (pure), Perplexity + Claude adapters, aggregation |
-| `src/prospect/pipeline.ts` | `runProspectAudit` orchestrator: stage isolation, lighthouse reuse, score assembly |
-| `src/prospect/render.ts` | `renderProspectReport(result): string` — one branded self-contained HTML page |
-| `src/db/migrations.ts` | + migration `0009_prospect_audits` |
-| `src/db/schema.ts` | + `ProspectAuditsTable` |
-| `src/db/prospect-audits.ts` | token generate/validate, insert, get-by-token |
-| `src/cli/commands/prospect-audit.ts` | CLI command: listr2 progress, persist, link/`--out` output |
-| `src/cli/bin.ts` | register `prospect-audit <url>` (lazy import) |
-| `netlify/functions/prospect-report.mts` | public `GET /r/:token` — no basic auth, noindex |
-| `tests/fixtures/prospect/*.html` | rich/bare page fixtures |
-| `tests/prospect/*.test.ts`, `tests/db/prospect-audits.test.ts`, `tests/cli/prospect-audit-command.test.ts` | coverage |
+| File                                                                                                       | Responsibility                                                                                |
+| ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `src/prospect/types.ts`                                                                                    | All shared types: `StageResult`, crawl/checks/analyze/probes shapes, `ProspectAuditResult`    |
+| `src/prospect/extract.ts`                                                                                  | Pure HTML → `PageExtract` (title/meta/OG/headings/JSON-LD/alt/viewport/text)                  |
+| `src/prospect/crawl.ts`                                                                                    | robots parsing + AI-crawler matrix (pure) and `crawlSite` (injectable fetch/renderer)         |
+| `src/prospect/checks.ts`                                                                                   | Pure scoring over `CrawlResult` + `computeScores`                                             |
+| `src/prospect/analyze.ts`                                                                                  | Prompt builder (pure), JSON schema, injectable Claude call, shape validation                  |
+| `src/prospect/probes.ts`                                                                                   | `VisibilityEngine` interface, query builder (pure), Perplexity + Claude adapters, aggregation |
+| `src/prospect/pipeline.ts`                                                                                 | `runProspectAudit` orchestrator: stage isolation, lighthouse reuse, score assembly            |
+| `src/prospect/render.ts`                                                                                   | `renderProspectReport(result): string` — one branded self-contained HTML page                 |
+| `src/db/migrations.ts`                                                                                     | + migration `0009_prospect_audits`                                                            |
+| `src/db/schema.ts`                                                                                         | + `ProspectAuditsTable`                                                                       |
+| `src/db/prospect-audits.ts`                                                                                | token generate/validate, insert, get-by-token                                                 |
+| `src/cli/commands/prospect-audit.ts`                                                                       | CLI command: listr2 progress, persist, link/`--out` output                                    |
+| `src/cli/bin.ts`                                                                                           | register `prospect-audit <url>` (lazy import)                                                 |
+| `netlify/functions/prospect-report.mts`                                                                    | public `GET /r/:token` — no basic auth, noindex                                               |
+| `tests/fixtures/prospect/*.html`                                                                           | rich/bare page fixtures                                                                       |
+| `tests/prospect/*.test.ts`, `tests/db/prospect-audits.test.ts`, `tests/cli/prospect-audit-command.test.ts` | coverage                                                                                      |
 
 ---
 
 ### Task 1: Types
 
 **Files:**
+
 - Create: `src/prospect/types.ts`
 
 Types-only module — no runtime code, so no test file (nothing to execute); `tsc` is the check. Everything later imports from here; later tasks MUST match these names exactly.
@@ -221,6 +222,7 @@ git commit -m "feat(prospect): shared types for the prospect audit pipeline"
 ### Task 2: Turso table + accessors
 
 **Files:**
+
 - Modify: `src/db/migrations.ts` (append after `0008_query_plan_indexes`)
 - Modify: `src/db/schema.ts` (new interface + `Database` entry)
 - Create: `src/db/prospect-audits.ts`
@@ -344,7 +346,7 @@ export interface ProspectAuditsTable {
 In `export interface Database { … }` add:
 
 ```ts
-  prospect_audits: ProspectAuditsTable;
+prospect_audits: ProspectAuditsTable;
 ```
 
 - [ ] **Step 5: Write `src/db/prospect-audits.ts`**
@@ -428,6 +430,7 @@ git commit -m "feat(prospect): prospect_audits table, token helpers, accessors (
 ### Task 3: HTML extraction + fixtures
 
 **Files:**
+
 - Create: `tests/fixtures/prospect/rich.html`
 - Create: `tests/fixtures/prospect/bare.html`
 - Create: `src/prospect/extract.ts`
@@ -474,7 +477,10 @@ git commit -m "feat(prospect): prospect_audits table, token helpers, accessors (
     </header>
     <main>
       <h1>Commercial <span>roof repair</span> in Boise</h1>
-      <p>We repair flat commercial roofs across the Treasure Valley, usually within two business days.</p>
+      <p>
+        We repair flat commercial roofs across the Treasure Valley, usually within two business
+        days.
+      </p>
       <h2>What it costs</h2>
       <p>Most repairs run between $1,200 and $8,000 depending on membrane type.</p>
       <img src="/roof.jpg" alt="A repaired flat roof" />
@@ -601,10 +607,40 @@ const OPAQUE = new Set(["STYLE", "NOSCRIPT", "TEMPLATE", "SVG"]);
  *  because the raw-vs-rendered word diff is what the audit's headline number is
  *  made of, and an invented word break biases it in only one direction. */
 const BLOCK = new Set([
-  "ADDRESS", "ARTICLE", "ASIDE", "BLOCKQUOTE", "BR", "DD", "DIV", "DL", "DT",
-  "FIELDSET", "FIGCAPTION", "FIGURE", "FOOTER", "FORM", "H1", "H2", "H3", "H4",
-  "H5", "H6", "HEADER", "HR", "LI", "MAIN", "NAV", "OL", "P", "PRE", "SECTION",
-  "TABLE", "TD", "TH", "TR", "UL",
+  "ADDRESS",
+  "ARTICLE",
+  "ASIDE",
+  "BLOCKQUOTE",
+  "BR",
+  "DD",
+  "DIV",
+  "DL",
+  "DT",
+  "FIELDSET",
+  "FIGCAPTION",
+  "FIGURE",
+  "FOOTER",
+  "FORM",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "H5",
+  "H6",
+  "HEADER",
+  "HR",
+  "LI",
+  "MAIN",
+  "NAV",
+  "OL",
+  "P",
+  "PRE",
+  "SECTION",
+  "TABLE",
+  "TD",
+  "TH",
+  "TR",
+  "UL",
 ]);
 
 const collapse = (s: string): string => s.replace(/\s+/g, " ").trim();
@@ -766,6 +802,7 @@ git commit -m "feat(prospect): HTML extraction of the AEO signals, with page fix
 ### Task 4: robots matrix, link and sitemap parsing (pure)
 
 **Files:**
+
 - Create: `src/prospect/crawl.ts` (pure half — the network half lands in Task 5)
 - Test: `tests/prospect/robots.test.ts`
 
@@ -981,7 +1018,11 @@ export function sameOriginLinks(html: string, baseUrl: string): string[] {
           } catch {
             u = null;
           }
-          if (u && u.origin === base.origin && (u.protocol === "http:" || u.protocol === "https:")) {
+          if (
+            u &&
+            u.origin === base.origin &&
+            (u.protocol === "http:" || u.protocol === "https:")
+          ) {
             u.hash = "";
             const norm = u.toString();
             if (!seen.has(norm)) {
@@ -999,7 +1040,9 @@ export function sameOriginLinks(html: string, baseUrl: string): string[] {
 }
 
 export function parseSitemapLocs(xml: string): string[] {
-  return [...xml.matchAll(/<loc>([\s\S]*?)<\/loc>/gi)].map((m) => (m[1] ?? "").trim()).filter(Boolean);
+  return [...xml.matchAll(/<loc>([\s\S]*?)<\/loc>/gi)]
+    .map((m) => (m[1] ?? "").trim())
+    .filter(Boolean);
 }
 
 export function isSitemapIndex(xml: string): boolean {
@@ -1024,6 +1067,7 @@ git commit -m "feat(prospect): AI-crawler robots matrix, link and sitemap parsin
 ### Task 5: the crawl itself
 
 **Files:**
+
 - Modify: `src/prospect/crawl.ts` (append the network half)
 - Test: `tests/prospect/crawl.test.ts`
 
@@ -1045,7 +1089,10 @@ const fixture = (name: string): string =>
   readFileSync(resolve(here, "../fixtures/prospect", name), "utf-8");
 
 /** URL-routed fetch stub: anything not in the map is a 404. */
-function stubDeps(routes: Record<string, Partial<FetchResponse>>, over: Partial<CrawlDeps> = {}): CrawlDeps {
+function stubDeps(
+  routes: Record<string, Partial<FetchResponse>>,
+  over: Partial<CrawlDeps> = {},
+): CrawlDeps {
   return {
     async fetchUrl(url) {
       const hit = routes[url];
@@ -1103,7 +1150,8 @@ describe("crawlSite", () => {
       [HOME]: { body: fixture("rich.html") },
       "https://acme.example/sitemap.xml": { body: `<urlset>${locs}</urlset>` },
     };
-    for (let i = 0; i < 5; i++) routes[`https://acme.example/p${i}`] = { body: fixture("rich.html") };
+    for (let i = 0; i < 5; i++)
+      routes[`https://acme.example/p${i}`] = { body: fixture("rich.html") };
     const result = await crawlSite(HOME, stubDeps(routes, { maxPages: 3 }));
 
     expect(result.sitemap).toEqual({ present: true, urlCount: 5 });
@@ -1189,9 +1237,9 @@ describe("crawlSite", () => {
   });
 
   it("throws when the homepage itself is unreachable", async () => {
-    await expect(
-      crawlSite(HOME, stubDeps({ [HOME]: { status: 503, body: "" } })),
-    ).rejects.toThrow(/503/);
+    await expect(crawlSite(HOME, stubDeps({ [HOME]: { status: 503, body: "" } }))).rejects.toThrow(
+      /503/,
+    );
   });
 
   it("survives a renderer that fails entirely", async () => {
@@ -1303,7 +1351,9 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
     home = await deps.fetchUrl(start.toString());
   } catch (err) {
     throw Object.assign(
-      new Error(`Could not reach ${start.toString()}: ${err instanceof Error ? err.message : String(err)}`),
+      new Error(
+        `Could not reach ${start.toString()}: ${err instanceof Error ? err.message : String(err)}`,
+      ),
       { exitCode: 1 },
     );
   }
@@ -1321,7 +1371,14 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
 
   const llmsRaw = textSidecar(await optional(deps, `${origin}/llms.txt`));
   const llmsTxt = llmsRaw
-    ? { present: true, firstLine: llmsRaw.split(/\r?\n/).find((l) => l.trim())?.trim() ?? null }
+    ? {
+        present: true,
+        firstLine:
+          llmsRaw
+            .split(/\r?\n/)
+            .find((l) => l.trim())
+            ?.trim() ?? null,
+      }
     : { present: false, firstLine: null };
 
   const sitemapRes = await optional(deps, `${origin}/sitemap.xml`);
@@ -1392,7 +1449,10 @@ export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
   return {
     async fetchUrl(url) {
       const res = await fetch(url, {
-        headers: { "user-agent": USER_AGENT, accept: "text/html,application/xhtml+xml,text/plain,*/*" },
+        headers: {
+          "user-agent": USER_AGENT,
+          accept: "text/html,application/xhtml+xml,text/plain,*/*",
+        },
         redirect: "follow",
         signal: AbortSignal.timeout(20_000),
       });
@@ -1446,6 +1506,7 @@ git commit -m "feat(prospect): polite raw+rendered crawl with sidecar discovery"
 ### Task 6: deterministic checks
 
 **Files:**
+
 - Create: `src/prospect/checks.ts`
 - Test: `tests/prospect/checks.test.ts`
 
@@ -1585,8 +1646,10 @@ describe("runChecks — meta, headings, technical", () => {
 
   it("flags a heading level skip", () => {
     const html = `<html><body><h1>A</h1><h3>B</h3></body></html>`;
-    expect(runChecks(crawl({ pages: [page("https://acme.example/", html)] })).headings)
-      .toEqual({ pagesWithoutH1: 0, pagesWithLevelSkips: 1 });
+    expect(runChecks(crawl({ pages: [page("https://acme.example/", html)] })).headings).toEqual({
+      pagesWithoutH1: 0,
+      pagesWithLevelSkips: 1,
+    });
   });
 
   it("reports present and missing security headers", () => {
@@ -1760,6 +1823,7 @@ git commit -m "feat(prospect): deterministic AEO checks over the crawl"
 ### Task 7: the four scores
 
 **Files:**
+
 - Modify: `src/prospect/checks.ts` (append `computeScores`)
 - Test: `tests/prospect/scores.test.ts`
 
@@ -1777,12 +1841,29 @@ import type { AnalyzeResult, ChecksResult, ProbesResult } from "../../src/prospe
 const perfectChecks: ChecksResult = {
   crawlerAccess: {
     blockedAi: [],
-    allowedAi: ["GPTBot", "OAI-SearchBot", "ClaudeBot", "PerplexityBot", "Google-Extended", "CCBot"],
+    allowedAi: [
+      "GPTBot",
+      "OAI-SearchBot",
+      "ClaudeBot",
+      "PerplexityBot",
+      "Google-Extended",
+      "CCBot",
+    ],
     blockedClassical: [],
   },
   jsDependence: { avgMissing: 0, perPage: [] },
-  schema: { typesFound: ["Organization", "Service", "FAQPage", "Article"], missingExpected: [], invalidBlocks: 0 },
-  meta: { pageCount: 2, missingTitle: 0, missingDescription: 0, missingCanonical: 0, missingSocial: 0 },
+  schema: {
+    typesFound: ["Organization", "Service", "FAQPage", "Article"],
+    missingExpected: [],
+    invalidBlocks: 0,
+  },
+  meta: {
+    pageCount: 2,
+    missingTitle: 0,
+    missingDescription: 0,
+    missingCanonical: 0,
+    missingSocial: 0,
+  },
   headings: { pagesWithoutH1: 0, pagesWithLevelSkips: 0 },
   securityHeaders: { present: [], missing: [] },
   sitemapPresent: true,
@@ -1793,20 +1874,39 @@ const perfectChecks: ChecksResult = {
 const worstChecks: ChecksResult = {
   ...perfectChecks,
   crawlerAccess: {
-    blockedAi: ["GPTBot", "OAI-SearchBot", "ClaudeBot", "PerplexityBot", "Google-Extended", "CCBot"],
+    blockedAi: [
+      "GPTBot",
+      "OAI-SearchBot",
+      "ClaudeBot",
+      "PerplexityBot",
+      "Google-Extended",
+      "CCBot",
+    ],
     allowedAi: [],
     blockedClassical: ["Googlebot"],
   },
   jsDependence: { avgMissing: 1, perPage: [] },
-  schema: { typesFound: [], missingExpected: ["Organization", "Service", "FAQPage", "Article"], invalidBlocks: 2 },
-  meta: { pageCount: 2, missingTitle: 2, missingDescription: 2, missingCanonical: 2, missingSocial: 2 },
+  schema: {
+    typesFound: [],
+    missingExpected: ["Organization", "Service", "FAQPage", "Article"],
+    invalidBlocks: 2,
+  },
+  meta: {
+    pageCount: 2,
+    missingTitle: 2,
+    missingDescription: 2,
+    missingCanonical: 2,
+    missingSocial: 2,
+  },
   headings: { pagesWithoutH1: 2, pagesWithLevelSkips: 2 },
   sitemapPresent: false,
   llmsTxtPresent: false,
   viewportOk: false,
 };
 
-const analyze = (answers: AnalyzeResult["buyerQuestions"][number]["answered"][]): AnalyzeResult => ({
+const analyze = (
+  answers: AnalyzeResult["buyerQuestions"][number]["answered"][],
+): AnalyzeResult => ({
   business: "Acme",
   entityClarity: { score: 80, missing: [] },
   buyerQuestions: answers.map((answered, i) => ({
@@ -1824,7 +1924,12 @@ const probes: ProbesResult = { answers: [], visibilityScore: 42, competitorsSeen
 
 describe("computeScores", () => {
   it("scores a perfect site at 100 across the deterministic tiers", () => {
-    const s = computeScores({ checks: perfectChecks, lighthouse: null, analyze: null, probes: null });
+    const s = computeScores({
+      checks: perfectChecks,
+      lighthouse: null,
+      analyze: null,
+      probes: null,
+    });
     expect(s.findability).toBe(100);
     expect(s.readability).toBe(100);
   });
@@ -1944,10 +2049,11 @@ export function computeScores(input: {
         : pct(base01 * 100);
 
     const structure =
-      1 -
-      (checks.headings.pagesWithoutH1 + checks.headings.pagesWithLevelSkips) / (pages * 2);
+      1 - (checks.headings.pagesWithoutH1 + checks.headings.pagesWithLevelSkips) / (pages * 2);
     const schemaCoverage =
-      1 - checks.schema.missingExpected.length / 4 - Math.min(0.25, checks.schema.invalidBlocks * 0.1);
+      1 -
+      checks.schema.missingExpected.length / 4 -
+      Math.min(0.25, checks.schema.invalidBlocks * 0.1);
     readability = pct(
       (1 - checks.jsDependence.avgMissing) * 60 +
         Math.max(0, structure) * 25 +
@@ -1988,6 +2094,7 @@ git commit -m "feat(prospect): the four report scores"
 ### Task 8: the Claude answerability pass
 
 **Files:**
+
 - Modify: `package.json` (add two devDependencies)
 - Create: `src/prospect/analyze.ts`
 - Test: `tests/prospect/analyze.test.ts`
@@ -2295,6 +2402,7 @@ git commit -m "feat(prospect): Claude answerability pass with a schema-constrain
 ### Task 9: live AI-visibility probes
 
 **Files:**
+
 - Create: `src/prospect/probes.ts`
 - Test: `tests/prospect/probes.test.ts`
 
@@ -2312,7 +2420,10 @@ import {
   type VisibilityEngine,
 } from "../../src/prospect/probes.js";
 
-const engine = (name: string, reply: (q: string) => { answer: string; citedDomains: string[] }): VisibilityEngine => ({
+const engine = (
+  name: string,
+  reply: (q: string) => { answer: string; citedDomains: string[] },
+): VisibilityEngine => ({
   name,
   ask: async (q) => reply(q),
 });
@@ -2322,7 +2433,12 @@ describe("buildQueries", () => {
     const queries = buildQueries({
       business: "Acme Roofing",
       url: "https://acme.example/",
-      buyerQuestions: ["What does a roof repair cost?", "Do you work on flat roofs?", "How fast?", "Extra"],
+      buyerQuestions: [
+        "What does a roof repair cost?",
+        "Do you work on flat roofs?",
+        "How fast?",
+        "Extra",
+      ],
       competitors: [],
     });
     expect(queries[0]).toBe("who is Acme Roofing");
@@ -2399,7 +2515,12 @@ describe("runVisibilityProbes", () => {
   it("keeps the answers of a working engine when another one fails", async () => {
     const engines = [
       engine("perplexity", () => ({ answer: "Acme Roofing.", citedDomains: ["acme.example"] })),
-      { name: "claude", ask: async () => { throw new Error("401 no key"); } },
+      {
+        name: "claude",
+        ask: async () => {
+          throw new Error("401 no key");
+        },
+      },
     ];
     const result = await runVisibilityProbes(args, engines);
     expect(result.answers.every((a) => a.engine === "perplexity")).toBe(true);
@@ -2407,7 +2528,14 @@ describe("runVisibilityProbes", () => {
   });
 
   it("throws when every engine fails, so the stage degrades", async () => {
-    const engines = [{ name: "claude", ask: async () => { throw new Error("401 no key"); } }];
+    const engines = [
+      {
+        name: "claude",
+        ask: async () => {
+          throw new Error("401 no key");
+        },
+      },
+    ];
     await expect(runVisibilityProbes(args, engines)).rejects.toThrow(/no visibility engine/i);
   });
 
@@ -2668,6 +2796,7 @@ git commit -m "feat(prospect): AI-visibility probes across Perplexity and Claude
 ### Task 10: the orchestrator
 
 **Files:**
+
 - Create: `src/prospect/pipeline.ts`
 - Test: `tests/prospect/pipeline.test.ts`
 
@@ -2728,7 +2857,10 @@ const deps = (over: Partial<PipelineDeps> = {}): PipelineDeps => ({
   crawl: crawlDeps(),
   analyze: { run: async () => analyzeOutput },
   engines: [
-    { name: "perplexity", ask: async () => ({ answer: "Acme Roofing", citedDomains: ["acme.example"] }) },
+    {
+      name: "perplexity",
+      ask: async () => ({ answer: "Acme Roofing", citedDomains: ["acme.example"] }),
+    },
   ],
   lighthouse: async () => ({
     performance: 80,
@@ -2820,14 +2952,20 @@ describe("runProspectAudit", () => {
       runProspectAudit(
         HOME,
         {},
-        deps({ crawl: crawlDeps({ fetchUrl: async () => ({ status: 500, body: "", headers: {} }) }) }),
+        deps({
+          crawl: crawlDeps({ fetchUrl: async () => ({ status: 500, body: "", headers: {} }) }),
+        }),
       ),
     ).rejects.toThrow(/500/);
   });
 
   it("reports stage progress to the caller", async () => {
     const seen: string[] = [];
-    await runProspectAudit(HOME, {}, { ...deps(), onStage: (name, status) => seen.push(`${name}:${status}`) });
+    await runProspectAudit(
+      HOME,
+      {},
+      { ...deps(), onStage: (name, status) => seen.push(`${name}:${status}`) },
+    );
     expect(seen).toContain("crawl:ok");
     expect(seen).toContain("probes:ok");
   });
@@ -2897,7 +3035,8 @@ async function defaultLighthouse(url: string): Promise<LighthouseScores> {
   const { lighthouseAudit } = await import("../audits/lighthouse.js");
   const site: Site = { path: "", name: new URL(url).hostname, deployedUrl: url };
   const result = await lighthouseAudit({ site });
-  const summary = (result.details as { summary?: Record<string, number> } | undefined)?.summary ?? {};
+  const summary =
+    (result.details as { summary?: Record<string, number> } | undefined)?.summary ?? {};
   const score = (key: string): number | null =>
     typeof summary[key] === "number" ? Math.round(summary[key] * 100) : null;
   return {
@@ -3002,6 +3141,7 @@ git commit -m "feat(prospect): pipeline orchestrator with per-stage isolation"
 ### Task 11: the report renderer
 
 **Files:**
+
 - Create: `src/prospect/render.ts`
 - Test: `tests/prospect/render.test.ts`
 
@@ -3027,7 +3167,9 @@ function result(over: Partial<ProspectAuditResult> = {}): ProspectAuditResult {
       data: {
         origin: "https://acme.example",
         robotsTxt: "User-agent: GPTBot\nDisallow: /",
-        agentAccess: [{ agent: "GPTBot", allowed: false, matchedRule: "User-agent: GPTBot → Disallow: /" }],
+        agentAccess: [
+          { agent: "GPTBot", allowed: false, matchedRule: "User-agent: GPTBot → Disallow: /" },
+        ],
         sitemap: { present: true, urlCount: 12 },
         llmsTxt: { present: false, firstLine: null },
         homeHeaders: {},
@@ -3038,9 +3180,18 @@ function result(over: Partial<ProspectAuditResult> = {}): ProspectAuditResult {
       ok: true,
       data: {
         crawlerAccess: { blockedAi: ["GPTBot"], allowedAi: ["ClaudeBot"], blockedClassical: [] },
-        jsDependence: { avgMissing: 0.82, perPage: [{ url: "https://acme.example/", missing: 0.82 }] },
+        jsDependence: {
+          avgMissing: 0.82,
+          perPage: [{ url: "https://acme.example/", missing: 0.82 }],
+        },
         schema: { typesFound: ["LocalBusiness"], missingExpected: ["FAQPage"], invalidBlocks: 0 },
-        meta: { pageCount: 4, missingTitle: 0, missingDescription: 2, missingCanonical: 1, missingSocial: 3 },
+        meta: {
+          pageCount: 4,
+          missingTitle: 0,
+          missingDescription: 2,
+          missingCanonical: 1,
+          missingSocial: 3,
+        },
         headings: { pagesWithoutH1: 1, pagesWithLevelSkips: 0 },
         securityHeaders: { present: ["x-frame-options"], missing: ["content-security-policy"] },
         sitemapPresent: true,
@@ -3050,7 +3201,14 @@ function result(over: Partial<ProspectAuditResult> = {}): ProspectAuditResult {
     },
     lighthouse: {
       ok: true,
-      data: { performance: 44, accessibility: 88, bestPractices: 75, seo: 92, summary: "lighthouse: 2 assertion(s) failed", status: "warn" },
+      data: {
+        performance: 44,
+        accessibility: 88,
+        bestPractices: 75,
+        seo: 92,
+        summary: "lighthouse: 2 assertion(s) failed",
+        status: "warn",
+      },
     },
     analyze: {
       ok: true,
@@ -3058,22 +3216,64 @@ function result(over: Partial<ProspectAuditResult> = {}): ProspectAuditResult {
         business: "Acme Roofing",
         entityClarity: { score: 55, missing: ["service area"] },
         buyerQuestions: [
-          { question: "What does a repair cost?", answered: "partial", quotable: false, page: "https://acme.example/", evidence: "$1,200-$8,000" },
-          { question: "Do you do flat roofs?", answered: "no", quotable: false, page: null, evidence: null },
+          {
+            question: "What does a repair cost?",
+            answered: "partial",
+            quotable: false,
+            page: "https://acme.example/",
+            evidence: "$1,200-$8,000",
+          },
+          {
+            question: "Do you do flat roofs?",
+            answered: "no",
+            quotable: false,
+            page: null,
+            evidence: null,
+          },
         ],
         fixes: [
-          { title: "Unblock GPTBot in robots.txt", why: "It cannot read a single page today.", impact: "high", effort: "low", tier: "crawl" },
-          { title: "Add FAQ schema", why: "Answer engines quote FAQ blocks.", impact: "medium", effort: "medium", tier: "content" },
+          {
+            title: "Unblock GPTBot in robots.txt",
+            why: "It cannot read a single page today.",
+            impact: "high",
+            effort: "low",
+            tier: "crawl",
+          },
+          {
+            title: "Add FAQ schema",
+            why: "Answer engines quote FAQ blocks.",
+            impact: "medium",
+            effort: "medium",
+            tier: "content",
+          },
         ],
-        narrative: { findability: "Two of six AI crawlers are blocked.", readability: "Most copy needs JavaScript.", answers: "Half the buyer questions go unanswered." },
+        narrative: {
+          findability: "Two of six AI crawlers are blocked.",
+          readability: "Most copy needs JavaScript.",
+          answers: "Half the buyer questions go unanswered.",
+        },
       },
     },
     probes: {
       ok: true,
       data: {
         answers: [
-          { engine: "perplexity", query: "who is Acme Roofing", domainCited: true, brandMentioned: true, citedDomains: ["acme.example"], snippet: "Acme Roofing is a Boise contractor." },
-          { engine: "perplexity", query: "best roofer in Boise", domainCited: false, brandMentioned: false, citedDomains: ["bestroofs.example"], snippet: "BestRoofs is frequently recommended." },
+          {
+            engine: "perplexity",
+            query: "who is Acme Roofing",
+            domainCited: true,
+            brandMentioned: true,
+            citedDomains: ["acme.example"],
+            snippet: "Acme Roofing is a Boise contractor.",
+          },
+          {
+            engine: "perplexity",
+            query: "best roofer in Boise",
+            domainCited: false,
+            brandMentioned: false,
+            citedDomains: ["bestroofs.example"],
+            snippet: "BestRoofs is frequently recommended.",
+          },
         ],
         visibilityScore: 33,
         competitorsSeen: [{ domain: "bestroofs.example", count: 4 }],
@@ -3119,7 +3319,9 @@ describe("renderProspectReport", () => {
     expect(html).toContain("GPTBot");
     expect(html).toContain("82%");
     expect(html).toContain("What does a repair cost?");
-    expect(html.indexOf("Unblock GPTBot in robots.txt")).toBeLessThan(html.indexOf("Add FAQ schema"));
+    expect(html.indexOf("Unblock GPTBot in robots.txt")).toBeLessThan(
+      html.indexOf("Add FAQ schema"),
+    );
   });
 
   it("degrades a failed stage to 'Not measured' without throwing", () => {
@@ -3190,9 +3392,7 @@ const STYLES = `
 
 function scoreCard(label: string, value: number | null): string {
   const n =
-    value === null
-      ? `<div class="n na">Not measured</div>`
-      : `<div class="n">${value}</div>`;
+    value === null ? `<div class="n na">Not measured</div>` : `<div class="n">${value}</div>`;
   return `<div class="score">${n}<div class="l">${escapeHtml(label)}</div></div>`;
 }
 
@@ -3229,15 +3429,15 @@ export function renderProspectReport(result: ProspectAuditResult): string {
           a.domainCited || a.brandMentioned
             ? "You were named in this answer."
             : "You were not named in this answer."
-        }${
-          a.citedDomains.length ? ` Cited: ${escapeHtml(a.citedDomains.join(", "))}` : ""
-        }</p>
+        }${a.citedDomains.length ? ` Cited: ${escapeHtml(a.citedDomains.join(", "))}` : ""}</p>
       </div>`,
       )
       .join("");
     const competitors = p.competitorsSeen.length
       ? `<h3>Who the engines cited instead</h3><ul>${p.competitorsSeen
-          .map((c) => `<li>${escapeHtml(c.domain)} — ${c.count} time${c.count === 1 ? "" : "s"}</li>`)
+          .map(
+            (c) => `<li>${escapeHtml(c.domain)} — ${c.count} time${c.count === 1 ? "" : "s"}</li>`,
+          )
           .join("")}</ul>`
       : "";
     return rows + competitors;
@@ -3266,7 +3466,9 @@ export function renderProspectReport(result: ProspectAuditResult): string {
         <li>Pages missing a canonical URL: ${c.meta.missingCanonical} of ${c.meta.pageCount}</li>
         <li>Pages missing share images/titles: ${c.meta.missingSocial} of ${c.meta.pageCount}</li>
         <li>Security headers missing: ${
-          c.securityHeaders.missing.length ? escapeHtml(c.securityHeaders.missing.join(", ")) : "none"
+          c.securityHeaders.missing.length
+            ? escapeHtml(c.securityHeaders.missing.join(", "))
+            : "none"
         }</li>
       </ul>${lh}`;
   });
@@ -3383,6 +3585,7 @@ git commit -m "feat(prospect): branded self-contained report renderer"
 ### Task 12: the CLI command
 
 **Files:**
+
 - Create: `src/cli/commands/prospect-audit.ts`
 - Modify: `src/cli/bin.ts`
 - Test: `tests/cli/prospect-audit-command.test.ts`
@@ -3449,7 +3652,11 @@ describe("prospect-audit CLI — writing a file", () => {
         crawl: {
           async fetchUrl(url: string) {
             if (url === "https://acme.example/")
-              return { status: 200, body: "<html><head><title>Acme</title></head><body><h1>Acme</h1><p>Roofing in Boise.</p></body></html>", headers: {} };
+              return {
+                status: 200,
+                body: "<html><head><title>Acme</title></head><body><h1>Acme</h1><p>Roofing in Boise.</p></body></html>",
+                headers: {},
+              };
             return { status: 404, body: "", headers: {} };
           },
           async renderPages() {
@@ -3462,7 +3669,9 @@ describe("prospect-audit CLI — writing a file", () => {
           run: async () => ({
             business: "Acme Roofing",
             entityClarity: { score: 50, missing: [] },
-            buyerQuestions: [{ question: "cost?", answered: "no", quotable: false, page: null, evidence: null }],
+            buyerQuestions: [
+              { question: "cost?", answered: "no", quotable: false, page: null, evidence: null },
+            ],
             fixes: [],
             narrative: { findability: "a", readability: "b", answers: "c" },
           }),
@@ -3570,7 +3779,12 @@ export async function runProspectAuditCommand(
     {
       ...(opts.business ? { business: opts.business } : {}),
       ...(opts.competitors
-        ? { competitors: opts.competitors.split(",").map((c) => c.trim()).filter(Boolean) }
+        ? {
+            competitors: opts.competitors
+              .split(",")
+              .map((c) => c.trim())
+              .filter(Boolean),
+          }
         : {}),
       ...(opts.probes === false ? { probes: false } : {}),
     },
@@ -3611,9 +3825,18 @@ Insert this block immediately before the `cli.command("report [site]", …)` reg
 
 ```ts
 cli
-  .command("prospect-audit <url>", "AEO/SEO audit an external prospect's site and publish the report.")
-  .option("--business <name>", "The prospect's business name (defaults to what the model reads off the site).")
-  .option("--competitors <list>", "Comma-separated competitor domains to add comparison probes for.")
+  .command(
+    "prospect-audit <url>",
+    "AEO/SEO audit an external prospect's site and publish the report.",
+  )
+  .option(
+    "--business <name>",
+    "The prospect's business name (defaults to what the model reads off the site).",
+  )
+  .option(
+    "--competitors <list>",
+    "Comma-separated competitor domains to add comparison probes for.",
+  )
   .option("--no-probes", "Skip the live AI-visibility probes (tier 3).")
   .option("--out <file>", "Also write the rendered report to this file.")
   .option("--json", "Print the raw result JSON instead of the report summary.")
@@ -3655,6 +3878,7 @@ git commit -m "feat(prospect): the prospect-audit CLI command"
 ### Task 13: the public hosted report
 
 **Files:**
+
 - Create: `netlify/functions/prospect-report.mts`
 - Test: `tests/dashboard/prospect-report.test.ts`
 
@@ -3799,6 +4023,7 @@ git commit -m "feat(prospect): public tokened report route at /r/:token"
 ### Task 14: full verification, changeset and handover
 
 **Files:**
+
 - Create: `.changeset/prospect-audit.md`
 - Modify: `README.md`
 - Modify: `docs/superpowers/specs/2026-08-24-prospect-audit-design.md` (status line only)
