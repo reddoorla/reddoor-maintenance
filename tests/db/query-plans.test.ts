@@ -412,6 +412,11 @@ function scenarios(state: { createdId: string }): Scenario[] {
       covers: ["getProspectAuditByToken"],
       run: (db) => prospectAudits.getProspectAuditByToken(db, prospectToken),
     },
+    {
+      name: "listRecentProspectAudits (cockpit /audits listing)",
+      covers: ["listRecentProspectAudits"],
+      run: (db) => prospectAudits.listRecentProspectAudits(db, 5),
+    },
   ];
 }
 
