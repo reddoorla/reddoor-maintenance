@@ -592,6 +592,42 @@ cli
   );
 
 cli
+  .command(
+    "prospect-audit <url>",
+    "AEO/SEO audit an external prospect's site and publish the report.",
+  )
+  .option(
+    "--business <name>",
+    "The prospect's business name (defaults to what the model reads off the site).",
+  )
+  .option(
+    "--competitors <list>",
+    "Comma-separated competitor domains to add comparison probes for.",
+  )
+  .option("--no-probes", "Skip the live AI-visibility probes (tier 3).")
+  .option("--out <file>", "Also write the rendered report to this file.")
+  .option("--json", "Print the raw result JSON instead of the report summary.")
+  .action(
+    async (
+      url: string,
+      opts: {
+        business?: string;
+        competitors?: string;
+        probes?: boolean;
+        out?: string;
+        json?: boolean;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () =>
+          (await import("./commands/prospect-audit.js")).runProspectAuditCommand(url, opts),
+        opts,
+      ),
+  );
+
+cli
   .command("report [site]", "Draft or send maintenance/testing reports.")
   .option("--due", "Scan all Websites and draft overdue reports.")
   .option("--type <type>", "Single-site draft report type: Maintenance (default) or Testing.")
