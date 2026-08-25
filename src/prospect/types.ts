@@ -47,6 +47,10 @@ export type CrawlResult = {
   agentAccess: RobotsAgentAccess[];
   sitemap: { present: boolean; urlCount: number };
   llmsTxt: { present: boolean; firstLine: string | null };
+  /** Per sidecar, the error that stopped us fetching it, or null. A fetch that
+   *  FAILED must never be reported as "the site has no robots.txt" — that would
+   *  claim the crawlers are unrestricted when we simply did not look. */
+  sidecarErrors: { robots: string | null; llms: string | null; sitemap: string | null };
   /** Lower-cased homepage response headers (security-header check input). */
   homeHeaders: Record<string, string>;
   pages: PageCapture[];

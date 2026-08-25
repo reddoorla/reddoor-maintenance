@@ -168,7 +168,13 @@ export function isSitemapIndex(xml: string): boolean {
   return /<(?:[\w-]+:)?sitemapindex[\s>]/i.test(xml);
 }
 
-export type FetchResponse = { status: number; body: string; headers: Record<string, string> };
+export type FetchResponse = {
+  status: number;
+  body: string;
+  headers: Record<string, string>;
+  /** The URL after redirects. Absent → the requested URL was final. */
+  url?: string;
+};
 
 export type CrawlDeps = {
   fetchUrl: (url: string) => Promise<FetchResponse>;
@@ -185,14 +191,46 @@ const ASSET_EXT = /\.(pdf|jpe?g|png|gif|webp|avif|svg|zip|mp4|mov|css|js|xml|jso
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-/** Never throws — a missing robots/sitemap/llms file is information, not a failure. */
-async function optional(deps: CrawlDeps, url: string): Promise<FetchResponse | null> {
+/** Runs `fn` once per item, waiting `delayMs` between calls but never before
+ *  the first — the same courtesy pacing the raw-fetch loop already applies to
+ *  a prospect's server, given here to the heavier half of the traffic (each
+ *  Playwright navigation pulls images, fonts and third-party scripts). A
+ *  standalone, dependency-free function so the pacing itself is unit-testable
+ *  without loading Playwright. */
+export async function pacedEach<T>(
+  items: T[],
+  delayMs: number,
+  fn: (item: T) => Promise<void>,
+  sleepFn: (ms: number) => Promise<void> = sleep,
+): Promise<void> {
+  for (let i = 0; i < items.length; i++) {
+    if (i > 0 && delayMs > 0) await sleepFn(delayMs);
+    await fn(items[i]!);
+  }
+}
+
+type SidecarFetch = { res: FetchResponse | null; error: string | null };
+
+/** A 4xx/404 is a genuinely absent file — `{res: null, error: null}`. A thrown
+ *  request means we do not know whether the file exists — `{res: null, error}`
+ *  — and that distinction must survive downstream: reporting "no robots.txt"
+ *  when the fetch itself failed would claim the site's crawlers are
+ *  unrestricted when we simply never looked. */
+async function optional(deps: CrawlDeps, url: string): Promise<SidecarFetch> {
   try {
     const res = await deps.fetchUrl(url);
-    return res.status >= 400 ? null : res;
-  } catch {
-    return null;
+    return res.status >= 400 ? { res: null, error: null } : { res, error: null };
+  } catch (err) {
+    return { res: null, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+/** robots.txt alone decides the whole crawler-access section of the report, so
+ *  a transient failure on it — and only it — is worth one extra request before
+ *  we give up and record the error. */
+async function optionalRobots(deps: CrawlDeps, url: string): Promise<SidecarFetch> {
+  const first = await optional(deps, url);
+  return first.error === null ? first : optional(deps, url);
 }
 
 /** A text sidecar that actually is text. Netlify/SPA catch-alls answer 200 with
@@ -203,6 +241,15 @@ function textSidecar(res: FetchResponse | null): string | null {
   const body = res.body.trim();
   if (!body || body.startsWith("<")) return null;
   return res.body;
+}
+
+/** Case-insensitive header lookup — `FetchResponse.headers` keys arrive in
+ *  whatever case the server (or a test stub) used. */
+function headerValue(headers: Record<string, string>, name: string): string | null {
+  for (const [k, v] of Object.entries(headers)) {
+    if (k.toLowerCase() === name) return v;
+  }
+  return null;
 }
 
 function normalizeCandidates(urls: string[], origin: string, max: number): string[] {
@@ -227,6 +274,64 @@ function normalizeCandidates(urls: string[], origin: string, max: number): strin
   return out;
 }
 
+type Sidecars = {
+  robotsTxt: string | null;
+  agentAccess: RobotsAgentAccess[];
+  llmsTxt: { present: boolean; firstLine: string | null };
+  sitemapUrls: string[];
+  sitemapPresent: boolean;
+  sidecarErrors: { robots: string | null; llms: string | null; sitemap: string | null };
+};
+
+/** robots.txt, llms.txt and sitemap.xml — every one degrades instead of
+ *  failing the crawl, but a transport failure must stay visible in the result
+ *  (see `optional`/`optionalRobots` above) rather than reading as "file
+ *  absent". */
+async function fetchSidecars(origin: string, deps: CrawlDeps): Promise<Sidecars> {
+  const robots = await optionalRobots(deps, `${origin}/robots.txt`);
+  const robotsTxt = textSidecar(robots.res);
+  const agentAccess = evaluateAgentAccess(
+    robotsTxt && /user-agent/i.test(robotsTxt) ? robotsTxt : null,
+  );
+
+  const llms = await optional(deps, `${origin}/llms.txt`);
+  const llmsRaw = textSidecar(llms.res);
+  const llmsTxt = llmsRaw
+    ? {
+        present: true,
+        firstLine:
+          llmsRaw
+            .split(/\r?\n/)
+            .find((l) => l.trim())
+            ?.trim() ?? null,
+      }
+    : { present: false, firstLine: null };
+
+  const sitemap = await optional(deps, `${origin}/sitemap.xml`);
+  let sitemapUrls: string[] = [];
+  let sitemapPresent = false;
+  if (sitemap.res && /<(urlset|sitemapindex)[\s>]/i.test(sitemap.res.body)) {
+    sitemapPresent = true;
+    if (isSitemapIndex(sitemap.res.body)) {
+      for (const child of parseSitemapLocs(sitemap.res.body).slice(0, 3)) {
+        const nested = await optional(deps, child);
+        if (nested.res) sitemapUrls.push(...parseSitemapLocs(nested.res.body));
+      }
+    } else {
+      sitemapUrls = parseSitemapLocs(sitemap.res.body);
+    }
+  }
+
+  return {
+    robotsTxt,
+    agentAccess,
+    llmsTxt,
+    sitemapUrls,
+    sitemapPresent,
+    sidecarErrors: { robots: robots.error, llms: llms.error, sitemap: sitemap.error },
+  };
+}
+
 /**
  * Fetch the prospect's site: robots/sitemap/llms sidecars, then up to
  * `maxPages` same-origin pages, each captured BOTH as raw HTTP HTML (what a
@@ -235,7 +340,10 @@ function normalizeCandidates(urls: string[], origin: string, max: number): strin
  */
 export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlResult> {
   const start = new URL(rawUrl);
-  const origin = start.origin;
+  // A fragment is never sent over the wire; keeping it here makes the
+  // homepage's own candidate (hash-stripped by normalizeCandidates below) fail
+  // to match `start.toString()` later and fetches the homepage a second time.
+  start.hash = "";
 
   let home: FetchResponse;
   try {
@@ -255,40 +363,24 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
     );
   }
 
-  const robotsTxt = textSidecar(await optional(deps, `${origin}/robots.txt`));
-  const agentAccess: RobotsAgentAccess[] = evaluateAgentAccess(
-    robotsTxt && /user-agent/i.test(robotsTxt) ? robotsTxt : null,
-  );
-
-  const llmsRaw = textSidecar(await optional(deps, `${origin}/llms.txt`));
-  const llmsTxt = llmsRaw
-    ? {
-        present: true,
-        firstLine:
-          llmsRaw
-            .split(/\r?\n/)
-            .find((l) => l.trim())
-            ?.trim() ?? null,
-      }
-    : { present: false, firstLine: null };
-
-  const sitemapRes = await optional(deps, `${origin}/sitemap.xml`);
-  let sitemapUrls: string[] = [];
-  let sitemapPresent = false;
-  if (sitemapRes && /<(urlset|sitemapindex)[\s>]/i.test(sitemapRes.body)) {
-    sitemapPresent = true;
-    if (isSitemapIndex(sitemapRes.body)) {
-      for (const child of parseSitemapLocs(sitemapRes.body).slice(0, 3)) {
-        const nested = await optional(deps, child);
-        if (nested) sitemapUrls.push(...parseSitemapLocs(nested.body));
-      }
-    } else {
-      sitemapUrls = parseSitemapLocs(sitemapRes.body);
-    }
+  // The homepage may have redirected to a different host — apex → www is the
+  // most common redirect in production hosting. Every sidecar URL, the link
+  // base, and the first page candidate must key off where the response
+  // actually landed, not the URL we requested, or the whole site's real pages
+  // get filtered out against a stale origin.
+  let resolved: URL;
+  try {
+    resolved = new URL(home.url ?? start.toString());
+  } catch {
+    resolved = start;
   }
+  const resolvedUrl = resolved.toString();
+  const origin = resolved.origin;
+
+  const sidecars = await fetchSidecars(origin, deps);
 
   const pageUrls = normalizeCandidates(
-    [start.toString(), ...sitemapUrls, ...sameOriginLinks(home.body, start.toString())],
+    [resolvedUrl, ...sidecars.sitemapUrls, ...sameOriginLinks(home.body, resolvedUrl)],
     origin,
     deps.maxPages,
   );
@@ -299,7 +391,7 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
   for (const url of pageUrls) {
     let res: FetchResponse | null = null;
     let error: string | null = null;
-    if (url === start.toString()) {
+    if (url === resolvedUrl) {
       res = home;
     } else {
       if (deps.delayMs > 0) await sleep(deps.delayMs);
@@ -310,13 +402,22 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
       }
     }
     const renderedHtml = rendered.get(url) ?? null;
-    const usable = res !== null && res.status < 400;
+    // A sitemap or nav link can point at a non-HTML resource (a linked PDF
+    // brochure, say). Decoding that as HTML produces raw/rendered divergence
+    // that has nothing to do with the prospect's JavaScript, so it must not
+    // read as "usable" — but a missing content-type header stays usable.
+    const contentType = res ? headerValue(res.headers, "content-type") : null;
+    const notHtmlReason =
+      contentType !== null && !contentType.toLowerCase().includes("html")
+        ? `not HTML (${contentType})`
+        : null;
+    const usable = res !== null && res.status < 400 && notHtmlReason === null;
     pages.push({
       url,
       status: res?.status ?? null,
       raw: usable ? extractPage(res!.body) : null,
       rendered: renderedHtml ? extractPage(renderedHtml) : null,
-      error: error ?? (res && res.status >= 400 ? `HTTP ${res.status}` : null),
+      error: error ?? (res && res.status >= 400 ? `HTTP ${res.status}` : notHtmlReason),
     });
   }
 
@@ -325,10 +426,11 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
 
   return {
     origin,
-    robotsTxt,
-    agentAccess,
-    sitemap: { present: sitemapPresent, urlCount: sitemapUrls.length },
-    llmsTxt,
+    robotsTxt: sidecars.robotsTxt,
+    agentAccess: sidecars.agentAccess,
+    sitemap: { present: sidecars.sitemapPresent, urlCount: sidecars.sitemapUrls.length },
+    llmsTxt: sidecars.llmsTxt,
+    sidecarErrors: sidecars.sidecarErrors,
     homeHeaders,
     pages,
   };
@@ -337,6 +439,10 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
 /** Real deps: identified sequential fetches + one shared Playwright chromium.
  *  Playwright is imported lazily so unit tests (which inject deps) never load it. */
 export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
+  // Resolved up front so the renderPages closure below paces itself on the
+  // SAME delay the caller configured, instead of silently ignoring it.
+  const maxPages = over.maxPages ?? 20;
+  const delayMs = over.delayMs ?? 500;
   return {
     async fetchUrl(url) {
       const res = await fetch(url, {
@@ -351,7 +457,7 @@ export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
       res.headers.forEach((v, k) => {
         headers[k] = v;
       });
-      return { status: res.status, body: await res.text(), headers };
+      return { status: res.status, body: await res.text(), headers, url: res.url };
     },
     async renderPages(urls) {
       const { chromium } = await import("@playwright/test");
@@ -360,21 +466,24 @@ export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
       try {
         const ctx = await browser.newContext({ userAgent: USER_AGENT });
         const page = await ctx.newPage();
-        for (const url of urls) {
+        // Playwright navigations are the heavier half of the traffic we put on
+        // a stranger's server (each pulls images, fonts, third-party scripts),
+        // so they get the same courtesy pacing as the raw fetches.
+        await pacedEach(urls, delayMs, async (url) => {
           try {
             await page.goto(url, { waitUntil: "networkidle", timeout: 30_000 });
             out.set(url, await page.content());
           } catch {
             // A page that won't render simply has no rendered extract.
           }
-        }
+        });
       } finally {
         await browser.close();
       }
       return out;
     },
-    maxPages: 20,
-    delayMs: 500,
+    maxPages,
+    delayMs,
     ...over,
   };
 }
