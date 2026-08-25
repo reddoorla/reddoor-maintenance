@@ -58,7 +58,8 @@ type FieldKind =
   | "date"
   | "notifyRouting"
   | "bool"
-  | "multiselect";
+  | "multiselect"
+  | "secret";
 export type EditableField = {
   column: string;
   kind: FieldKind;
@@ -111,6 +112,10 @@ export const EDITABLE_SITE_FIELDS: Record<string, EditableField> = {
     kind: "multiselect",
     options: WATCH_CONDITION_OPTIONS,
   },
+  // A live credential. `secret` is what makes it safe to list here at all: the
+  // renderer emits no value for it, and an empty submission leaves the stored
+  // key alone instead of clearing it.
+  mailchimpApiKey: { column: "Mailchimp API Key", kind: "secret", maxLen: 200 },
 };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -188,6 +193,13 @@ export function normalizeFieldValue(f: EditableField, raw: string): AirtableCell
         .filter(Boolean);
       return parts.every((p) => f.options!.includes(p)) ? parts : null;
     }
+    case "secret":
+      // NOTE the caller contract: `""` here means "leave unchanged", and
+      // `setSiteDetail` turns it into a no-op rather than a write. Every other
+      // kind clears on empty; this one must not, because the field renders blank
+      // on every page load (its value is never sent to the browser), so
+      // clear-on-empty would let any unrelated save destroy a working key.
+      return v.length <= (f.maxLen ?? 500) ? v : null;
     case "text":
       return v.length <= (f.maxLen ?? 500) ? v : null;
   }
@@ -201,6 +213,8 @@ export type SiteDetailDeps = {
 
 export type SiteDetailResult =
   | { status: "updated"; slug: string; field: string }
+  /** A `secret` field submitted empty: nothing was written, deliberately. */
+  | { status: "unchanged"; slug: string; field: string }
   | { status: "bad-field"; slug: string; field: string }
   | { status: "invalid"; slug: string; field: string }
   | { status: "not-found"; slug: string };
@@ -223,6 +237,10 @@ export async function setSiteDetail(
   if (!f) return { status: "bad-field", slug, field };
   const value = normalizeFieldValue(f, rawValue);
   if (value === null) return { status: "invalid", slug, field };
+  // A blank secret is "I did not change this", not "erase it" — the input is
+  // rendered without a value, so it is blank on every load. Returning before the
+  // read means an accidental save cannot even touch the record.
+  if (f.kind === "secret" && value === "") return { status: "unchanged", slug, field };
   const site = await deps.getSite(slug);
   if (!site) return { status: "not-found", slug };
   await deps.updateField(site.id, f.column, value);

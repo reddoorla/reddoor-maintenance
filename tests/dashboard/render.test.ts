@@ -1175,16 +1175,22 @@ describe("renderSiteDashboardHtml — editable site details", () => {
     expect(html).toContain('value="2026-08-25"');
   });
 
-  it("NEVER renders the Mailchimp API key, even though the row carries it", () => {
-    // The credential guard. `siteRow` puts a key on the row exactly as mapRow
-    // would, so this fails the moment someone adds it to the editor without a
-    // write-only kind.
+  it("the credential control carries NO value attribute at all", () => {
+    // This began as "the key is not rendered as a field at all" — correct while
+    // no write-only kind existed. The `secret` kind changed that, so the guard is
+    // re-pointed to something STRUCTURAL rather than dropped: whatever the
+    // stored key happens to be, its control must emit no `value=`. That is
+    // stronger than checking one fixture string is absent (which the sibling
+    // test also does), because it fails for any secret, including one that
+    // happens not to match the needle.
     const html = renderSiteDashboardHtml(
       siteRow({ name: "Acme", mailchimpApiKey: "mc-super-secret-key" }),
       [],
     );
-    expect(html).not.toContain("mc-super-secret-key");
-    expect(html).not.toContain('data-detail-field="mailchimpApiKey"');
+    const control = /<input[^>]*data-detail-field="mailchimpApiKey"[^>]*>/.exec(html)?.[0] ?? "";
+    expect(control).not.toBe("");
+    expect(control).not.toMatch(/\svalue=/);
+    expect(control).toMatch(/type="password"/);
   });
 
   it("preselects the Status select from the RAW cell, so a 'legacy' site shows the placeholder", () => {
@@ -1424,5 +1430,26 @@ describe("renderSiteDashboardHtml — approve-card info (recipients / preview / 
       NOW,
     );
     expect(html).not.toContain("<img src=x");
+  });
+});
+
+describe("renderSiteDashboardHtml — the write-only credential row", () => {
+  it("renders a control for the key but NEVER its value", () => {
+    const html = renderSiteDashboardHtml(
+      siteRow({ name: "Acme", mailchimpApiKey: "mc-super-secret-key" }),
+      [],
+    );
+    expect(html).toContain('data-detail-field="mailchimpApiKey"');
+    // The whole point: the field is editable, and the secret still never leaves
+    // the server. `inputRow` would have emitted value="mc-super-secret-key".
+    expect(html).not.toContain("mc-super-secret-key");
+    expect(html).toContain("(set — type to replace)");
+  });
+
+  it("says so when no key is stored, so 'blank' is not ambiguous", () => {
+    // Without this the operator cannot tell an unset key from one that is set
+    // but unrendered — and the input is deliberately blank in both cases.
+    const html = renderSiteDashboardHtml(siteRow({ name: "Acme", mailchimpApiKey: null }), []);
+    expect(html).toContain("not set");
   });
 });

@@ -203,12 +203,14 @@ describe("setSiteDetail — Phase 4 field coverage", () => {
     }
   });
 
-  it("does NOT expose the Mailchimp API key as an editable field", async () => {
-    // A live credential. Until a write-only kind exists, the allowlist must not
-    // carry it — every entry in the map is rendered back with its stored value.
-    const { deps } = harness();
-    expect(EDITABLE_SITE_FIELDS.mailchimpApiKey).toBeUndefined();
-    expect((await setSiteDetail(deps, "acme", "mailchimpApiKey", "x")).status).toBe("bad-field");
+  it("exposes the Mailchimp API key ONLY as a write-only secret", () => {
+    // This assertion used to be `toBeUndefined()` — the field was kept off the
+    // allowlist entirely because every entry is rendered back with its stored
+    // value. The `secret` kind is what changed that, so the guard is re-pointed
+    // rather than dropped: the credential may be listed, but ONLY as a kind the
+    // renderer refuses to emit a value for. Downgrading it to any other kind
+    // (`text`, say) fails here, and the render test fails alongside it.
+    expect(EDITABLE_SITE_FIELDS.mailchimpApiKey?.kind).toBe("secret");
   });
 });
 
@@ -279,5 +281,37 @@ describe("setSiteDetail — the non-text fields", () => {
       "stale repo",
       "no custom domain",
     ]);
+  });
+});
+
+/**
+ * `Mailchimp API Key` — the last of the design's eight, and the only one that is
+ * a live credential. Every other editable field is rendered back into the page
+ * carrying its stored value; this one must never be, which makes it a different
+ * KIND rather than another entry in the list (#539 Phase 4).
+ */
+describe("setSiteDetail — the write-only secret", () => {
+  it("writes a new key through to its Airtable column", async () => {
+    const { deps, writes } = harness();
+    const r = await setSiteDetail(deps, "acme", "mailchimpApiKey", "  abc123-us21  ");
+    expect(r.status).toBe("updated");
+    expect(writes[0]).toMatchObject({ column: "Mailchimp API Key", value: "abc123-us21" });
+  });
+
+  it("treats an EMPTY submission as 'leave unchanged', never as 'clear'", async () => {
+    // The difference that matters. Every other kind clears on empty, but this
+    // field renders no value — so the box is blank on every page load, and
+    // clearing-on-empty would mean any unrelated save silently destroyed a
+    // working API key. Nothing is written at all.
+    const { deps, writes } = harness();
+    const r = await setSiteDetail(deps, "acme", "mailchimpApiKey", "   ");
+    expect(r.status).toBe("unchanged");
+    expect(writes).toEqual([]);
+  });
+
+  it("is never READ back — the result names the field but not the value", async () => {
+    const { deps } = harness();
+    const r = await setSiteDetail(deps, "acme", "mailchimpApiKey", "super-secret");
+    expect(JSON.stringify(r)).not.toContain("super-secret");
   });
 });
