@@ -57,6 +57,10 @@ export type CrawlResult = {
 };
 
 export type ChecksResult = {
+  /** False when the robots.txt fetch itself failed, so "no AI crawler is
+   *  blocked" would be our silence rather than the site's answer. The report
+   *  must say "not measured" for crawler access when this is false. */
+  crawlerAccessMeasured: boolean;
   crawlerAccess: { blockedAi: string[]; allowedAi: string[]; blockedClassical: string[] };
   jsDependence: {
     /** 0..1 — fraction of rendered words absent from the raw HTML, averaged over pages. */
