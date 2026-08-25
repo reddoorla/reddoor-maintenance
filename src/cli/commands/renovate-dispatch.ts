@@ -1,4 +1,5 @@
 import { openBase, readAirtableConfig, type AirtableBase } from "../../reports/airtable/client.js";
+import type { SiteMirror } from "../../db/site-mirror.js";
 import { listWebsites, updateAutoFixAttempts } from "../../reports/airtable/websites.js";
 import { makeGitHub } from "../../github/gh.js";
 import {
@@ -28,6 +29,10 @@ export async function runRenovateDispatchCommand(opts: {
   fleet?: boolean | undefined;
   /** Inject a pre-opened Airtable base (tests). Defaults to env config. */
   base?: AirtableBase;
+  /** #539 Phase 5: Turso write-through for the auto-fix counter. Injected from
+   *  bin.ts rather than defaulted here — this function is called directly by
+   *  tests, and a default would open a real libSQL handle inside the suite. */
+  siteMirror?: SiteMirror;
 }): Promise<{ output: string; code: number }> {
   if (!opts.fleet) {
     return { output: "renovate-dispatch currently supports only --fleet", code: 2 };
@@ -78,9 +83,10 @@ export async function runRenovateDispatchCommand(opts: {
   // a failed write is tallied, never thrown. Uses the full `websites` list so
   // 0-vuln sites reset.
   const attemptUpdates = computeAutoFixAttemptUpdates(websites, result);
-  const attemptTally = await applyAutoFixAttemptUpdates(attemptUpdates, (id, attempts) =>
-    updateAutoFixAttempts(base, id, attempts),
-  );
+  const attemptTally = await applyAutoFixAttemptUpdates(attemptUpdates, async (id, attempts) => {
+    const fields = await updateAutoFixAttempts(base, id, attempts);
+    await opts.siteMirror?.health(id, fields);
+  });
 
   lines.push(formatRenovateDispatchSummary(result));
   lines.push(formatAutoFixAttemptsSummary(attemptTally));

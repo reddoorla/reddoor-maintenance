@@ -514,6 +514,45 @@ describe("recipes/announce", () => {
     expect(analyticsHealthWrite(base)?.["Analytics soft-fail at"]).toBe(NOW.toISOString());
   });
 
+  it("mirrors the analytics-health stamp into Turso (#539 Phase 5)", async () => {
+    // This lands on the SITE row, not the report — a different Turso table and a
+    // different mirror. The cockpit's per-site analytics-failure signal reads it.
+    process.env.GA_SUBJECT = "tucker@reddoorla.com";
+    vi.mocked(fetchGaUsers).mockResolvedValue({ value: null, softFailed: true });
+    const base = makeFakeBase({
+      Websites: [
+        {
+          id: "rec_acme",
+          fields: {
+            Name: "Acme Co",
+            url: "https://acme.example.com",
+            Status: "maintained",
+            "GA4 property ID": "G-123",
+            ...scoredFields(),
+          },
+        },
+      ],
+      Reports: [],
+    });
+    const mirrored: Array<{ id: string; fields: Record<string, unknown> }> = [];
+
+    await announce({
+      base,
+      now: NOW,
+      refreshHeader: false,
+      siteMirror: {
+        health: async (id: string, fields: Record<string, unknown>) => {
+          mirrored.push({ id, fields });
+        },
+        site: async () => {},
+      },
+    });
+
+    expect(mirrored).toEqual([
+      { id: "rec_acme", fields: { "Analytics soft-fail at": NOW.toISOString() } },
+    ]);
+  });
+
   it("clears the analytics soft-fail (null) on a clean enrichment so the signal self-heals", async () => {
     process.env.GA_SUBJECT = "tucker@reddoorla.com";
     vi.mocked(fetchGaUsers).mockResolvedValue({

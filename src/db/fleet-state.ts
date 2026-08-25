@@ -29,7 +29,7 @@
  */
 import type { Selectable, Updateable } from "kysely";
 import type { Db } from "./client.js";
-import type { ReportsTable, SiteHealthTable, SiteScheduleTable } from "./schema.js";
+import type { ReportsTable, SiteHealthTable, SiteScheduleTable, SitesTable } from "./schema.js";
 import {
   SITE_FIELDS,
   siteValueFor,
@@ -246,17 +246,43 @@ export async function mirrorSiteField(
   airtableColumn: string,
   value: AirtableCellValue,
 ): Promise<void> {
-  const col = SITE_FIELDS[airtableColumn];
-  if (!col)
-    throw new Error(`mirrorSiteField: importer claims no sites column for '${airtableColumn}'`);
-  // Empty text still clears to null (the importer's `s()` does the same); the
-  // non-text columns get their own coercion inside siteValueFor.
-  const stored = siteValueFor(col, value);
-  await db
+  await mirrorSiteFields(db, siteId, { [airtableColumn]: value });
+}
+
+/** The multi-column form, and where the work actually happens (#539 Phase 5).
+ *
+ *  `updateLaunched` is why it exists: it flips `Status` AND stamps `Launched at`
+ *  in one Airtable update, and mirroring those as two separate UPDATEs would
+ *  open a window where Turso says a site is maintained but never launched.
+ *
+ *  Same contract as {@link mirrorHealthFields}, deliberately — it takes the
+ *  EXACT FieldSet just written to Airtable (the writers return it, so the mirror
+ *  cannot carry a different payload), and returns whether a `sites` row matched:
+ *  a site the hourly sync hasn't imported yet updates 0 rows → false, so the
+ *  caller can count it honestly instead of claiming it mirrored. An empty
+ *  FieldSet runs no SQL and returns true — nothing to mirror is not a miss. */
+export async function mirrorSiteFields(
+  db: Db,
+  siteId: string,
+  fields: Record<string, unknown>,
+): Promise<boolean> {
+  const patch: Record<string, string | number | null> = {};
+  for (const [airtableColumn, value] of Object.entries(fields)) {
+    const col = SITE_FIELDS[airtableColumn];
+    if (!col)
+      throw new Error(`mirrorSiteFields: importer claims no sites column for '${airtableColumn}'`);
+    // Empty text still clears to null (the importer's `s()` does the same); the
+    // non-text columns get their own coercion inside siteValueFor.
+    patch[col] = siteValueFor(col, value);
+  }
+  if (Object.keys(patch).length === 0) return true;
+  const res = await db
     .updateTable("sites")
-    .set({ [col]: stored })
+    .set(patch as Updateable<SitesTable>)
     .where("id", "=", siteId)
-    .execute();
+    .executeTakeFirst();
+  // kysely/libSQL reports numUpdatedRows as a BigInt — compare in BigInt.
+  return res.numUpdatedRows > 0n;
 }
 
 /** Write-through mirror for the nightly health writers (#539 Phase 3). Takes

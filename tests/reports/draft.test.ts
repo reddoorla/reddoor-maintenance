@@ -790,6 +790,30 @@ describe("draftReportForSite → the Turso create mirror", () => {
     expect(patched).toEqual([{ id: result.reportRow!.id, patch: { draft_ready: 1 } }]);
   });
 
+  it("mirrors the analytics-health stamp onto the SITE row (#539 Phase 5)", async () => {
+    // A different Turso table from the report — drafting writes `Analytics
+    // soft-fail at` on the Websites row, which the cockpit's per-site
+    // analytics-failure signal reads.
+    process.env.GA_SUBJECT = "tucker@reddoorla.com";
+    vi.mocked(fetchPeriodUsers).mockRejectedValue(new Error("GA down"));
+    const base = makeFakeBase({ Reports: [] });
+    const mirrored: Array<{ id: string; fields: Record<string, unknown> }> = [];
+
+    await draftReportForSite(base, siteFixture({ ga4PropertyId: "G-123" }), "Maintenance", {
+      ...NO_HEADER,
+      siteMirror: {
+        health: async (id, fields) => {
+          mirrored.push({ id, fields });
+        },
+        site: async () => {},
+      },
+    });
+
+    expect(mirrored).toHaveLength(1);
+    expect(mirrored[0]!.id).toBe("rec_site_acme");
+    expect(mirrored[0]!.fields["Analytics soft-fail at"]).toEqual(expect.any(String));
+  });
+
   it("drafts exactly as before when no mirror is supplied", async () => {
     const base = makeFakeBase({ Reports: [] });
     await expect(

@@ -754,6 +754,8 @@ cli
       async () =>
         (await import("./commands/renovate-dispatch.js")).runRenovateDispatchCommand({
           fleet: opts.fleet,
+          // #539 Phase 5: mirror the auto-fix counter into site_health.
+          siteMirror: await (await import("../db/site-mirror.js")).makeSiteMirror(),
         }),
       opts,
     ),

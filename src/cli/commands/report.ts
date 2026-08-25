@@ -18,6 +18,7 @@ import {
 import type { ReportType } from "../../reports/types.js";
 import type { ScheduleMirror } from "../../audits/health-mirror.js";
 import type { ReportMirror } from "../../reports/report-mirror.js";
+import type { SiteMirror } from "../../db/site-mirror.js";
 import { operatorEmail } from "../../util/operator.js";
 
 export type ReportCommandOptions = {
@@ -95,7 +96,10 @@ export async function runReportCommand(
 
   if (opts.sendReady) {
     const { sendApprovedReports } = await import("../../reports/send/orchestrate.js");
-    return sendApprovedReports();
+    // #539 Phase 5: a Launch send flips Status + stamps `Launched at` on the
+    // Websites row; without this it reaches Turso only via the hourly sync.
+    const { makeSiteMirror } = await import("../../db/site-mirror.js");
+    return sendApprovedReports({ siteMirror: await makeSiteMirror() });
   }
 
   // Refresh ONE unsent report's stored body so the console preview reflects
@@ -161,11 +165,13 @@ async function runDueDraft(): Promise<{ output: string; code: number }> {
   // never null — creds-absent is reported on the REPORT_MIRROR line rather than
   // being indistinguishable from success, the failure mode that hid #585.
   const { makeReportMirror } = await import("../../reports/report-mirror.js");
+  const { makeSiteMirror } = await import("../../db/site-mirror.js");
   const result = await draftDueReports(
     base,
     new Date(),
     await makeScheduleMirrorBestEffort(),
     await makeReportMirror(),
+    await makeSiteMirror(),
   );
   await alertOnFleetAnalyticsFailure(result.health);
   return { output: result.output, code: result.code };
@@ -276,8 +282,14 @@ export async function draftDueReports(
    *  creator of report rows, so a dropped pass-through leaves each new draft
    *  invisible to the Turso-backed console. */
   reportMirror?: ReportMirror,
+  /** #539 Phase 5: the Websites-row twin — drafting stamps `Analytics soft-fail
+   *  at` on the SITE row, a different Turso table from the report. */
+  siteMirror?: SiteMirror,
 ): Promise<{ output: string; code: number; health: AnalyticsRunHealth }> {
-  const mirrorOpt = reportMirror ? { reportMirror } : {};
+  const mirrorOpt = {
+    ...(reportMirror ? { reportMirror } : {}),
+    ...(siteMirror ? { siteMirror } : {}),
+  };
   const websites = await listWebsites(base);
   // ONE unfiltered fetch for the whole fleet. Per-site queries can't be pushed to
   // Airtable anyway (linked-record fields aren't formula-filterable by record id),
@@ -475,12 +487,16 @@ async function runSingleSiteDraft(
   const reportMirror = opts.previewOnly
     ? null
     : await (await import("../../reports/report-mirror.js")).makeReportMirror();
+  const siteMirror = opts.previewOnly
+    ? null
+    : await (await import("../../db/site-mirror.js")).makeSiteMirror();
   const result = await draftReportForSite(opts.previewOnly ? null : base, site, opts.reportType, {
     previewOnly: opts.previewOnly,
     // Only forced on. Left undefined, draftReportForSite keeps its default
     // (enrich iff there is a base), so the real drafting path is untouched.
     ...(opts.enrich ? { enrich: true } : {}),
     ...(reportMirror ? { reportMirror } : {}),
+    ...(siteMirror ? { siteMirror } : {}),
   });
   if (opts.previewOnly) {
     return { output: `Preview written to ${result.htmlPath}`, code: 0 };

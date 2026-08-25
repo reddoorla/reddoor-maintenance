@@ -106,6 +106,29 @@ describe("formsNotifyTarget", () => {
     expect(r.target.audience).toBe("operator");
   });
 
+  it("mirrors the flipped Status into Turso (#539 Phase 5)", async () => {
+    // The console reads Status from Turso, so without this a site flipped into
+    // verify mode still reads as LIVE for up to an hour — on the one surface an
+    // operator would check to confirm the flip actually took.
+    setup("maintained");
+    const mirrored: Array<{ id: string; fields: Record<string, unknown> }> = [];
+
+    await formsNotifyTarget({
+      base,
+      site: "1836dig",
+      set: "on",
+      siteMirror: {
+        health: async () => {},
+        site: async (id, fields) => {
+          mirrored.push({ id, fields });
+        },
+      },
+    });
+
+    // The SAME cell the Airtable write got — parity compares raw-to-raw.
+    expect(mirrored).toEqual([{ id: "recSite", fields: { Status: "launching" } }]);
+  });
+
   it("REGRESSION: a flip that does NOT land is reported unconfirmed, never as success", async () => {
     // The exact 2026-08-03 failure: the write call returned, the field never
     // changed, and nothing said so. A returning write is not evidence.

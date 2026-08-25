@@ -89,6 +89,29 @@ describe("recipes/launch", () => {
     expect(fields["Lighthouse — SEO"]).toBe(95);
   });
 
+  it("mirrors the FIRST audit write-back onto the site row (#539 Phase 5)", async () => {
+    // Launch is the one path that writes a brand-new site's health. The FLEET
+    // sweep has mirrored since Phase 3; this single-site write never did, so the
+    // new site's row read empty in the console until the next hourly sync.
+    const base = makeFakeBase(websitesSeed());
+    const mirrored: Array<{ id: string; fields: Record<string, unknown> }> = [];
+
+    await launch(siteOf(), {
+      ...deps(base),
+      siteMirror: {
+        health: async (id: string, fields: Record<string, unknown>) => {
+          mirrored.push({ id, fields });
+        },
+        site: async () => {},
+      },
+    });
+
+    expect(mirrored).toHaveLength(1);
+    expect(mirrored[0]!.id).toBe("rec_site_acme");
+    // The EXACT FieldSet Airtable got — the audited Lighthouse scores.
+    expect(mirrored[0]!.fields).toMatchObject({ pScore: 87, seoScore: 95 });
+  });
+
   it("hands the created row to deps.reportMirror (#539 Phase 5 create-side dual-write)", async () => {
     const base = makeFakeBase(websitesSeed());
     const seen: Array<{ id: string; fields: Record<string, unknown> }> = [];
