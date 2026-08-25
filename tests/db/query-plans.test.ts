@@ -348,6 +348,14 @@ function scenarios(state: { createdId: string }): Scenario[] {
       run: (db) => fleetState.mirrorReportPatch(db, "recA", { approved_to_send: 1 }),
     },
     {
+      // Writes a whole rendered body by PK. Gated like every other reports
+      // write: an unindexed predicate here would scan a table whose rows carry
+      // ~50–90 KB of HTML each.
+      name: "storeRenderedHtml (on-demand preview refresh)",
+      covers: ["storeRenderedHtml"],
+      run: (db) => fleetState.storeRenderedHtml(db, "recA", "<html>x</html>"),
+    },
+    {
       name: "mirrorHealthFields (nightly audit write-through)",
       covers: ["mirrorHealthFields"],
       run: (db) => fleetState.mirrorHealthFields(db, "recA", { "Smoke OK": "pass" }),

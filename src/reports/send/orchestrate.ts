@@ -1,15 +1,10 @@
 import { openBase, readAirtableConfig } from "../airtable/client.js";
 import { listSendableReports, stampSent } from "../airtable/reports.js";
-import { listWebsites, siteSlug, updateLaunched } from "../airtable/websites.js";
+import { listWebsites, updateLaunched } from "../airtable/websites.js";
 import type { WebsiteRow } from "../airtable/websites.js";
 import type { ReportRow } from "../airtable/reports.js";
 import { fetchAttachmentBytes } from "../airtable/attachments.js";
-import { resolveCopy } from "../copy.js";
-import { announcementSiteExtras } from "../announcement-email/template.js";
-import { renderReportEmail } from "./render-email.js";
-import type { ReportData } from "../types.js";
-import { prepareHeaderImage } from "../maintenance-email/header-image.js";
-import { applyReportTypeHeadline } from "../header-image/index.js";
+import { renderReportFromRow, requireLighthouse } from "./render-from-row.js";
 import { defaultResendClient, type ResendClient } from "./resend.js";
 import { isIdempotencyConflict } from "./idempotency.js";
 import { gatingHealth, isHealthGateClear, isSendOverridden } from "../checklist.js";
@@ -35,15 +30,6 @@ export function withGlobalCc(perSiteCc: string[] | null, to: string[]): string[]
   const present = new Set([...cc, ...to].map((a) => a.toLowerCase()));
   if (!present.has(GLOBAL_REPORT_CC.toLowerCase())) cc.push(GLOBAL_REPORT_CC);
   return cc;
-}
-
-/** Whole days spanned by an ISO period window, or undefined when either bound is missing or the
- *  span isn't positive. Drives the analytics trend's "vs the previous N days" label. */
-function windowDays(start: string | null, end: string | null): number | undefined {
-  if (!start || !end) return undefined;
-  const ms = new Date(end).getTime() - new Date(start).getTime();
-  if (!Number.isFinite(ms) || ms <= 0) return undefined;
-  return Math.round(ms / (24 * 60 * 60 * 1000));
 }
 
 export type OrchestrateOptions = {
@@ -150,13 +136,9 @@ async function sendOne(
   if (!site.headerImage) {
     throw new Error(`Site '${site.name}' has no Header image set on the Websites row`);
   }
-  if (!report.lighthouse) {
-    throw new Error(
-      `Report ${report.reportId} has no Lighthouse scores — all four cells ` +
-        `(Lighthouse — Performance / Accessibility / Best Practices / SEO) must be numeric ` +
-        `on the Reports row; one non-numeric or blank cell nulls all four`,
-    );
-  }
+  // Fail fast, before the header fetch and the sharp downscale. Same rule and
+  // same message the renderer enforces — shared, not restated.
+  requireLighthouse(report);
 
   // Resolve + validate recipients BEFORE the expensive work (header fetch + sharp
   // downscale + full MJML render). A misconfigured-recipients site is a guaranteed
@@ -192,45 +174,10 @@ async function sendOne(
   }
 
   const original = await fetchAttachmentBytes(site.headerImage.url);
-  // The stored header is the CLEAN plate; stamp this report type's headline
-  // onto it (all four types are registered — see assets/index.ts HEADLINE_FILES),
-  // then downscale the (often multi-MB / 2400px+) result to email display
-  // size, getting back display dims + a placeholder color so the template can
-  // reserve the box.
-  const withHeadline = await applyReportTypeHeadline(original.bytes, report.reportType);
-  const header = await prepareHeaderImage(withHeadline);
-
-  const slug = siteSlug(site.name);
-  const cidName = `${slug}-header`;
-  const gaPeriodDays =
-    report.reportType === "Announcement" ? 30 : windowDays(report.periodStart, report.periodEnd);
-  const reportData: ReportData = {
-    siteName: site.name,
-    siteUrl: site.url,
-    reportType: report.reportType,
-    completedOn: report.completedOn ? new Date(report.completedOn) : new Date(),
-    lighthouse: report.lighthouse,
-    gaUsersCurrent: report.gaUsersCurrent ?? undefined,
-    gaUsersPrevious: report.gaUsersPrevious ?? undefined,
-    gaPeriodDays,
-    searchPosition:
-      report.searchFoundPage1 && report.searchPosition !== null ? report.searchPosition : undefined,
-    lastTestedDate: report.lastTestedDate ? new Date(report.lastTestedDate) : null,
-    commentary: report.commentary,
-    copy: resolveCopy(site),
-    headerImageCid: cidName,
-    headerWidth: header.displayWidth,
-    headerHeight: header.displayHeight,
-    headerBgColor: header.placeholderColor,
-    // Announcement-only: re-derive cadence + improvements from the site row so the SENT email
-    // keeps its cadence copy + improvement callouts (not stored on the Reports row).
-    ...(report.reportType === "Announcement" ? announcementSiteExtras(site) : {}),
-  };
-  const { html, attachments, subject } = await renderReportEmail(reportData, {
-    header,
-    cidName,
-    subjectOverride: report.subjectOverride ?? undefined,
-  });
+  // ONE render path, shared with the console's on-demand re-render — so a
+  // preview cannot drift from what the client actually receives. The assembly
+  // that used to live here moved into renderReportFromRow unchanged.
+  const { html, attachments, subject } = await renderReportFromRow(site, report, original.bytes);
 
   const payload: Parameters<ResendClient["send"]>[0] = {
     from: FROM_ADDRESS,

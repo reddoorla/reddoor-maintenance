@@ -21,6 +21,8 @@ import {
   mirrorHealthFields,
   mirrorScheduleFields,
   mirrorReportPatch,
+  storeRenderedHtml,
+  getReportHtml,
   listAllReports,
 } from "../../src/db/fleet-state.js";
 import { openCapturingDb } from "./query-plan-harness.js";
@@ -577,5 +579,43 @@ describe("mirrorSiteField — the non-text editor columns", () => {
     ]);
 
     expect(await storedOf(mirrored)).toEqual(await storedOf(imported));
+  });
+});
+
+/**
+ * The write half of the report-preview refresh (#539 Phase 4). `rendered_html`
+ * is deliberately NOT in `ReportMirrorPatch` — that patch is for request-path
+ * writers, and a rendered body is produced by a batch job, not a dashboard POST.
+ */
+describe("storeRenderedHtml", () => {
+  const insert = async (db: Awaited<ReturnType<typeof importOf>>, id: string) =>
+    db
+      .insertInto("reports")
+      .values({
+        id,
+        site_id: "recRICH",
+        report_id: "RH",
+        report_type: "Maintenance",
+        draft_ready: 1,
+        approved_to_send: 0,
+        send_override: 0,
+      })
+      .execute();
+
+  it("stores a freshly rendered body where the preview route reads it", async () => {
+    const db = await importOf([RICH]);
+    await insert(db, "recRPT_H");
+    await storeRenderedHtml(db, "recRPT_H", "<html>fresh</html>");
+    expect((await getReportHtml(db, "recRPT_H"))?.html).toBe("<html>fresh</html>");
+  });
+
+  it("REPLACES a previous body rather than appending or skipping", async () => {
+    // A refresh whose whole purpose is showing the newest commentary must
+    // overwrite; a when-missing style skip would silently serve the stale one.
+    const db = await importOf([RICH]);
+    await insert(db, "recRPT_H2");
+    await storeRenderedHtml(db, "recRPT_H2", "<html>old</html>");
+    await storeRenderedHtml(db, "recRPT_H2", "<html>new</html>");
+    expect((await getReportHtml(db, "recRPT_H2"))?.html).toBe("<html>new</html>");
   });
 });

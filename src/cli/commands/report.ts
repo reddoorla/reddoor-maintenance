@@ -25,6 +25,7 @@ export type ReportCommandOptions = {
   enrich?: boolean;
   sendReady?: boolean;
   digest?: boolean;
+  rerender?: string;
   type?: string;
   cwd?: string;
 };
@@ -94,6 +95,34 @@ export async function runReportCommand(
   if (opts.sendReady) {
     const { sendApprovedReports } = await import("../../reports/send/orchestrate.js");
     return sendApprovedReports();
+  }
+
+  // Refresh ONE unsent report's stored body so the console preview reflects
+  // commentary edited after drafting. Runs here rather than in a Netlify
+  // function because rendering needs sharp — see rerender.ts.
+  if (opts.rerender) {
+    const { rerenderReport, formatRerenderResult } = await import("../../reports/send/rerender.js");
+    const { renderReportFromRow } = await import("../../reports/send/render-from-row.js");
+    const { openDb, readDbConfig } = await import("../../db/client.js");
+    const { getReportById, getSiteById, storeRenderedHtml } =
+      await import("../../db/fleet-state.js");
+    const { loadHeaderImage } = await import("../../db/header-images.js");
+    const { fetchAttachmentBytes } = await import("../../reports/airtable/attachments.js");
+    const db = await openDb(readDbConfig());
+    const result = await rerenderReport(
+      {
+        getReport: (id) => getReportById(db, id),
+        getSite: (id) => getSiteById(db, id),
+        loadHeaderPlate: async (id) => (await loadHeaderImage(db, id))?.bytes ?? null,
+        fetchAirtableHeader: async (url) => (await fetchAttachmentBytes(url)).bytes,
+        render: (site, report, plate) => renderReportFromRow(site, report, plate),
+        store: (id, html) => storeRenderedHtml(db, id, html),
+      },
+      opts.rerender,
+    );
+    // Exit 1 on anything but a render, so a dispatched run that refused is RED
+    // rather than a green run that silently changed nothing.
+    return { output: formatRerenderResult(result), code: result.status === "rendered" ? 0 : 1 };
   }
 
   if (opts.due) {

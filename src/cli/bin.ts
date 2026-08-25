@@ -652,6 +652,10 @@ cli
     "--digest",
     "Email the operator one daily digest of reports ready for approval (skips when empty).",
   )
+  .option(
+    "--rerender <reportId>",
+    "Regenerate one UNSENT report's stored HTML from its current row, so the console preview shows edited commentary. Refuses a sent report.",
+  )
   .action(
     async (
       site,
@@ -662,6 +666,7 @@ cli
         enrich?: boolean;
         sendReady?: boolean;
         digest?: boolean;
+        rerender?: string;
         cwd?: string;
         verbose?: boolean;
       },
