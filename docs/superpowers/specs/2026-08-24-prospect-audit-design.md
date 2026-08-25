@@ -93,8 +93,36 @@ evidence}`.
 - `fixes[]`: prioritized `{title, why, impact, effort, tier}` list.
 - `narrative`: short report-facing prose per section.
 
-Cost ≈ $0.50/audit at Opus 5 rates. The Anthropic client resolves credentials
-through the standard chain (`ANTHROPIC_API_KEY` → auth profile).
+The Anthropic client resolves credentials through the standard chain
+(`ANTHROPIC_API_KEY` → auth profile).
+
+**The model split, and what an audit actually costs.** An earlier draft of this
+spec estimated ≈$0.50/audit and named Opus 5 for both model call sites. Both
+were wrong once the code existed: `buildQueries` yields ~7 probe queries and
+each is its own call, so an audit is ~8 model calls, not 2.
+
+At the current published rates — Opus 5 $5/$25 per MTok, Sonnet 5 $2/$10, web
+search $10/1K searches — the work divides cleanly:
+
+- **`analyze` stays on Opus 5.** One call, schema-constrained, evidence-verified,
+  and its output is the prose and fix list a human actually reads. ~11% of the
+  cost.
+- **`probes` run on Sonnet 5** (`PROBE_MODEL` in probes.ts). Seven calls, and the
+  number that reaches `visibilityScore` is extracted mechanically from citation
+  URLs — no schema, no judgement, and the citations come from the same search
+  index whichever model drives the tool.
+
+That puts an audit at roughly **$0.83** rather than ~$1.50 on Opus throughout.
+
+There is a floor worth knowing: web search is billed per search regardless of
+model, so ~21 searches/audit is ~$0.21 that no model change touches. With the
+analyze call that is ~$0.37/audit even at a free probe model — so Sonnet
+captures most of the available saving and going cheaper chases a shrinking
+remainder.
+
+The one field where probe model size could plausibly move a result is
+`brandedRecognized`, since a smaller model may hedge harder on an obscure
+business. Worth a side-by-side on a real prospect before trusting the number.
 
 ### 4. `probes.ts` — live AI-visibility
 
@@ -105,7 +133,7 @@ through the standard chain (`ANTHROPIC_API_KEY` → auth profile).
   - **Perplexity Sonar** (`sonar`, citations included, ~$1/Mtok) — needs new
     `PERPLEXITY_API_KEY`.
   - **Claude + web_search** (`web_search_20260209` server tool on
-    `claude-opus-5`).
+    `claude-sonnet-5` — see the model split below).
   - OpenAI/Gemini adapters are v1.1+ — the interface is the extension point.
 - Per query per engine, record: prospect domain cited? brand mentioned? who
   _was_ cited/recommended (the competitor receipts). Aggregate to an **AI
