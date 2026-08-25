@@ -29,6 +29,7 @@ import * as screenouts from "../../src/db/screenouts.js";
 import * as fleetEvents from "../../src/db/fleet-events.js";
 import * as deadletter from "../../src/db/deadletter.js";
 import * as fleetState from "../../src/db/fleet-state.js";
+import * as prospectAudits from "../../src/db/prospect-audits.js";
 import type { Db } from "../../src/db/client.js";
 
 const SRC_DB_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../src/db");
@@ -40,6 +41,7 @@ const GATED_MODULES: Record<string, Record<string, unknown>> = {
   "fleet-events.ts": fleetEvents,
   "deadletter.ts": deadletter,
   "fleet-state.ts": fleetState,
+  "prospect-audits.ts": prospectAudits,
 };
 
 /** Modules the gate deliberately does not plan-check. Every entry needs a reason
@@ -57,7 +59,13 @@ const EXEMPT_MODULES: Record<string, string> = {
 };
 
 /** Exported functions that never issue SQL (id minting, date math). */
-const PURE_EXPORTS = new Set(["newSubmissionId", "screenOutsSince", "newDeadLetterId"]);
+const PURE_EXPORTS = new Set([
+  "newSubmissionId",
+  "screenOutsSince",
+  "newDeadLetterId",
+  "generateToken",
+  "isValidToken",
+]);
 
 /** Raw scans accepted with a written justification. Empty today — the 0008
  *  indexes cover every hot path — but the mechanism stays so a future entry is
@@ -87,6 +95,7 @@ const SINCE_DATE = "2026-08-01";
 const SINCE_ISO = "2026-08-01T00:00:00.000Z";
 
 function scenarios(state: { createdId: string }): Scenario[] {
+  let prospectToken = "";
   return [
     {
       name: "createSubmission (seeds the db; display number = MAX+1 subquery)",
@@ -384,6 +393,23 @@ function scenarios(state: { createdId: string }): Scenario[] {
           new Date("2026-08-11T00:00:00.000Z"),
         );
       },
+    },
+    {
+      name: "createProspectAudit (prospect-audit CLI write)",
+      covers: ["createProspectAudit"],
+      run: async (db) => {
+        const { token } = await prospectAudits.createProspectAudit(db, {
+          url: "https://prospect.example.com",
+          business: "Prospect Co",
+          resultJson: "{}",
+        });
+        prospectToken = token;
+      },
+    },
+    {
+      name: "getProspectAuditByToken (public /r/{token} read)",
+      covers: ["getProspectAuditByToken"],
+      run: (db) => prospectAudits.getProspectAuditByToken(db, prospectToken),
     },
   ];
 }
