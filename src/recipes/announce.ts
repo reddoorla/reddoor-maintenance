@@ -13,7 +13,8 @@ import { queueDraft } from "../reports/queue.js";
 import { uploadAttachment } from "../reports/airtable/attachments.js";
 import { renderReportHtml } from "../reports/render.js";
 import { resolveCopy } from "../reports/copy.js";
-import { fetchGaUsers, fetchSearch } from "../reports/draft.js";
+import { fetchGaUsers, fetchSearch, refreshHeaderImage } from "../reports/draft.js";
+import type { RefreshHeaderDeps } from "../reports/draft.js";
 import { announcementSiteExtras } from "../reports/announcement-email/template.js";
 import type { LighthouseScores } from "../reports/types.js";
 import { defaultReportSubject } from "../reports/subject.js";
@@ -44,6 +45,14 @@ export type AnnounceDeps = {
   site?: string;
   /** Single timestamp driving the period key, render, draft, and preview filename. */
   now?: Date;
+  /**
+   * Header-image refresh, matching `draftReportForSite`'s opt-out shape: UNSET means
+   * refresh (the production default), `false` skips it so unit suites don't launch a
+   * browser. Announce previously never refreshed at all, so a site whose stored header
+   * predated a plate change kept announcing with the old one until its next
+   * Maintenance/Testing draft happened to heal it.
+   */
+  refreshHeader?: RefreshHeaderDeps | false;
 };
 
 /**
@@ -60,7 +69,7 @@ export async function announce(deps?: AnnounceDeps): Promise<AnnounceResult> {
   const now = deps?.now ?? new Date();
 
   const websites = await listWebsites(base);
-  let targets = websites.filter((w) => w.status === "maintenance");
+  let targets = websites.filter((w) => w.status === "maintained");
   if (deps?.site) {
     const wanted = siteSlug(deps.site);
     targets = targets.filter((w) => siteSlug(w.name) === wanted);
@@ -75,6 +84,14 @@ export async function announce(deps?: AnnounceDeps): Promise<AnnounceResult> {
       if (scores === null) {
         results.push({ site: w.name, status: "skipped-no-scores" });
         continue;
+      }
+
+      // Refresh BEFORE the render so a queued announcement always has a current header
+      // stored — the send re-reads the attachment, so a stale one here reaches the
+      // client. Best-effort by construction: refreshHeaderImage returns false and never
+      // throws, so a capture failure leaves the stored image and the draft continues.
+      if (deps?.refreshHeader !== false) {
+        await refreshHeaderImage(w, deps?.refreshHeader ?? {});
       }
 
       // Traffic + search snapshot over a ~30-day window ending now (fetchPeriodUsers derives

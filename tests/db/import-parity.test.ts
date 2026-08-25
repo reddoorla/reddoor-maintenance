@@ -86,6 +86,9 @@ describe("mapWebsiteRecord", () => {
       id: "recACME",
       slug: "acme-gallery",
       name: "Acme Gallery",
+      // RAW, not canonical: the importer stores the Airtable cell verbatim so the
+      // hourly parity check compares raw-to-raw. Canonicalization is a READ-side
+      // concern (mapRow / fleet-state), never at rest.
       status: "maintenance",
       maintenance_freq: "Monthly", // the misspelled source column dies at the boundary
       require_turnstile: 1,

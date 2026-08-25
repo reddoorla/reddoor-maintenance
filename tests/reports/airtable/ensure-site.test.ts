@@ -15,7 +15,7 @@ function existingSite(over: Partial<FakeRecord["fields"]> = {}): FakeRecord {
 }
 
 describe("ensureSite", () => {
-  it("creates a row with in-development defaults when the slug is unknown", async () => {
+  it("creates a row with building defaults when the slug is unknown", async () => {
     const base = makeFakeBase({ Websites: [] });
     const result = await ensureSite(base, {
       slug: "roalson",
@@ -29,7 +29,7 @@ describe("ensureSite", () => {
       .fields;
     expect(fields).toMatchObject({
       Name: "roalson",
-      Status: "in development",
+      Status: "building",
       url: "https://roalson.netlify.app",
       "point of contact": "owner@roalson.com",
       "Git repo": "reddoorla/roalson",
@@ -98,7 +98,7 @@ describe("ensureSite", () => {
       .fields;
     expect(fields).toEqual({
       Name: "roalson",
-      Status: "in development",
+      Status: "building",
       "Git repo": "reddoorla/roalson",
     });
   });

@@ -3,15 +3,18 @@ import type { ReportRow } from "./airtable/reports.js";
 import type { ReportType } from "./types.js";
 
 /** Statuses where recurring Maintenance/Testing reports are appropriate. Only
- * LIVE sites: "maintenance" (actively maintained) and "hosting". Pre-launch
- * stages ("in development" / "launch period") are excluded — a not-yet-live site
+ * LIVE sites: "maintained" and "hosted-only". Pre-launch
+ * stages ("building" / "launching") are excluded — a not-yet-live site
  * must not be drafted a recurring Maintenance/Testing report (that's what was
  * emailing/alarming pre-launch sites); it starts its report cadence when a Launch
- * report flips its Status to "maintenance". Launch reports themselves are a
- * separate manual flow (recipes/launch.ts), never scheduled here. "deprecated" /
- * "probably not our problem" are dropped too. Sites with status=null pass through
+ * report flips its Status to "maintained". Launch reports themselves are a
+ * separate manual flow (recipes/launch.ts), never scheduled here. "archived" /
+ * "external" are dropped too. Sites with status=null pass through
  * (partial data; better to surface than silently skip). */
-export const ELIGIBLE_STATUSES: ReadonlySet<Status> = new Set<Status>(["maintenance", "hosting"]);
+export const ELIGIBLE_STATUSES: ReadonlySet<Status> = new Set<Status>([
+  "maintained",
+  "hosted-only",
+]);
 
 export type DueItem = {
   site: WebsiteRow;
@@ -109,7 +112,7 @@ export function findDueReports(
   const todayStart = startOfDay(today);
 
   for (const site of websites) {
-    // Skip explicitly-non-active statuses (deprecated, "probably not our problem").
+    // Skip explicitly-non-active statuses ("archived", "external").
     // Null status is treated as active for backwards compat with rows that pre-date
     // the Status convention.
     if (site.status !== null && !ELIGIBLE_STATUSES.has(site.status)) continue;

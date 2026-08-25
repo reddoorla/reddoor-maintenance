@@ -15,8 +15,8 @@ function deps(over: Partial<IngestDeps> = {}): IngestDeps {
 }
 
 describe("ingestSubmission — spam handling is off for sites in development", () => {
-  const inDev = makeWebsiteRow({ id: "recSITE", status: "in development" });
-  const live = makeWebsiteRow({ id: "recSITE", status: "maintenance" });
+  const inDev = makeWebsiteRow({ id: "recSITE", status: "building" });
+  const live = makeWebsiteRow({ id: "recSITE", status: "maintained" });
   const priorOnAnotherSite = [
     { id: "recOTHER", siteId: "recDIFFERENT", email: "a@b.co", status: "new" as const },
   ];
@@ -93,7 +93,7 @@ describe("ingestSubmission — spam handling is off for sites in development", (
     const d = deps({
       getWebsiteBySlug: vi
         .fn()
-        .mockResolvedValue(makeWebsiteRow({ status: "in development", requireTurnstile: true })),
+        .mockResolvedValue(makeWebsiteRow({ status: "building", requireTurnstile: true })),
     });
     const r = await ingestSubmission(d, "acme", { email: "a@b.co", message: "hi" }, "absent");
     expect(d.createSubmission).toHaveBeenCalledWith(expect.objectContaining({ status: "new" }));
@@ -104,7 +104,7 @@ describe("ingestSubmission — spam handling is off for sites in development", (
     const d = deps({
       getWebsiteBySlug: vi
         .fn()
-        .mockResolvedValue(makeWebsiteRow({ status: "maintenance", requireTurnstile: true })),
+        .mockResolvedValue(makeWebsiteRow({ status: "maintained", requireTurnstile: true })),
     });
     await ingestSubmission(d, "acme", { email: "a@b.co", message: "hi" }, "absent");
     expect(d.createSubmission).toHaveBeenCalledWith(

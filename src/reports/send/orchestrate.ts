@@ -99,7 +99,7 @@ export async function sendApprovedReports(
       if (report.reportType === "Launch") {
         try {
           await updateLaunched(base, site.id, new Date().toISOString());
-          lines.push(`  ↳ launched: ${site.name} flipped to maintenance`);
+          lines.push(`  ↳ launched: ${site.name} flipped to maintained`);
           await recordFleetEventsBestEffort(
             [
               {
@@ -193,7 +193,7 @@ async function sendOne(
 
   const original = await fetchAttachmentBytes(site.headerImage.url);
   // The stored header is the CLEAN plate; stamp this report type's headline
-  // onto it (Maintenance only for now — see assets/index.ts HEADLINE_FILES),
+  // onto it (all four types are registered — see assets/index.ts HEADLINE_FILES),
   // then downscale the (often multi-MB / 2400px+) result to email display
   // size, getting back display dims + a placeholder color so the template can
   // reserve the box.

@@ -7,6 +7,7 @@ import { ELIGIBLE_STATUSES } from "../reports/due.js";
 import type { WebsiteRow } from "../reports/airtable/websites.js";
 import { fetchAttachmentBytes } from "../reports/airtable/attachments.js";
 import { prepareHeaderImage } from "../reports/maintenance-email/header-image.js";
+import { applyReportTypeHeadline } from "../reports/header-image/index.js";
 import { buildReportDataForSite, scoresFromRow } from "../reports/report-data.js";
 import { renderReportEmail } from "../reports/send/render-email.js";
 import { defaultResendClient, type ResendClient } from "../reports/send/resend.js";
@@ -72,7 +73,7 @@ export async function selftestEmail(deps: SelftestEmailDeps): Promise<SelftestEm
   const websites = await listWebsites(base);
   let targets: WebsiteRow[];
   if (deps.all) {
-    // The report-eligible set (maintenance + hosting), not a hard-coded "maintenance" —
+    // The report-eligible set (maintained + hosted-only), not a hard-coded "maintained" —
     // the latter silently excluded hosting sites and implied a type↔status coupling that
     // doesn't exist (the requested --type drives the rendered template; single-site mode
     // applies no status filter at all).
@@ -97,7 +98,12 @@ export async function selftestEmail(deps: SelftestEmailDeps): Promise<SelftestEm
         continue;
       }
       const original = await fetchAttachmentBytes(w.headerImage.url);
-      const header = await prepareHeaderImage(original.bytes);
+      // Mirror orchestrate.ts exactly: the stored header is the CLEAN plate, so the
+      // report type's headline has to be stamped on before downscaling. Omitting this
+      // step made every selftest preview ship a header with an EMPTY headline band —
+      // the one thing a preview exists to catch, silently wrong in the preview itself.
+      const withHeadline = await applyReportTypeHeadline(original.bytes, type);
+      const header = await prepareHeaderImage(withHeadline);
       const slug = siteSlug(w.name);
       const reportData = await buildReportDataForSite(w, type, now, { scores, header });
       const { html, attachments, subject } = await renderReportEmail(reportData, {

@@ -1,6 +1,7 @@
 import type { FieldSet, Records } from "airtable";
 import type { AirtableBase } from "./client.js";
 import { WEBSITES_TABLE, listWebsites, siteSlug } from "./websites.js";
+import { toAirtableStatus } from "./site-status.js";
 
 export type EnsureSiteInput = {
   /** Canonical slug — matches by siteSlug(Name); the Name on create when no displayName given. */
@@ -41,7 +42,8 @@ const COLS = {
  * Fill-blanks-only on the exists path: this command runs from a bootstrap skill
  * that may be re-run to resume — it must never clobber operator-edited cells.
  * Frequencies are deliberately NOT set (launch flips the lifecycle); Status is
- * only written on create ("in development").
+ * only written on create ("building" — Airtable's "in development" until the
+ * stage-2 vocabulary switch flips).
  */
 export async function ensureSite(
   base: AirtableBase,
@@ -59,7 +61,7 @@ export async function ensureSite(
   if (!existing) {
     const fields: FieldSet = {
       Name: input.displayName ?? slug,
-      Status: "in development",
+      Status: toAirtableStatus("building"),
       [COLS.gitRepo]: input.gitRepo ?? `reddoorla/${slug}`,
     };
     if (input.url) fields[COLS.url] = input.url;

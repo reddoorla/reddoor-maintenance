@@ -104,7 +104,7 @@ describe("recipes/announce", () => {
       Reports: [],
     });
 
-    const result = await announce({ base, now: NOW });
+    const result = await announce({ base, now: NOW, refreshHeader: false });
 
     expect(result.results.map((r) => r.site)).toEqual(["Acme Co"]);
   });
@@ -134,7 +134,7 @@ describe("recipes/announce", () => {
       Reports: [],
     });
 
-    const result = await announce({ base, site: "Delta Co", now: NOW });
+    const result = await announce({ base, site: "Delta Co", now: NOW, refreshHeader: false });
 
     expect(result.results.map((r) => r.site)).toEqual(["Delta Co"]);
   });
@@ -158,7 +158,7 @@ describe("recipes/announce", () => {
       Reports: [],
     });
 
-    const result = await announce({ base, now: NOW });
+    const result = await announce({ base, now: NOW, refreshHeader: false });
 
     expect(result.results).toEqual([{ site: "Acme Co", status: "skipped-no-scores" }]);
     const reportCreates = base.__calls.filter((c) => c.kind === "create" && c.table === "Reports");
@@ -182,7 +182,7 @@ describe("recipes/announce", () => {
       Reports: [],
     });
 
-    const result = await announce({ base, now: NOW });
+    const result = await announce({ base, now: NOW, refreshHeader: false });
 
     expect(result.results).toEqual([
       {
@@ -230,7 +230,7 @@ describe("recipes/announce", () => {
       Reports: [],
     });
 
-    const result = await announce({ base, now: NOW });
+    const result = await announce({ base, now: NOW, refreshHeader: false });
 
     expect(result.results[0]).toMatchObject({
       site: "Acme Co",
@@ -266,7 +266,7 @@ describe("recipes/announce", () => {
       ],
     });
 
-    const result = await announce({ base, now: NOW });
+    const result = await announce({ base, now: NOW, refreshHeader: false });
 
     expect(result.results[0]).toMatchObject({
       site: "Acme Co",
@@ -323,7 +323,7 @@ describe("recipes/announce", () => {
       Reports: [],
     });
 
-    await announce({ base, now: NOW });
+    await announce({ base, now: NOW, refreshHeader: false });
 
     const create = base.__calls.find((c) => c.kind === "create" && c.table === "Reports");
     if (!create || create.kind !== "create") throw new Error("expected a Reports create");
@@ -384,7 +384,7 @@ describe("recipes/announce", () => {
     (wrapped as unknown as { __calls: unknown }).__calls = base.__calls;
     (wrapped as unknown as { __records: unknown }).__records = base.__records;
 
-    const result = await announce({ base: wrapped, now: NOW });
+    const result = await announce({ base: wrapped, now: NOW, refreshHeader: false });
 
     const byName = new Map(result.results.map((r) => [r.site, r]));
     expect(byName.get("Bad Co")?.status).toBe("error");
@@ -413,7 +413,7 @@ describe("recipes/announce", () => {
       Reports: [],
     });
 
-    await announce({ base, now: NOW });
+    await announce({ base, now: NOW, refreshHeader: false });
 
     expect(analyticsHealthWrite(base)?.["Analytics soft-fail at"]).toBe(NOW.toISOString());
   });
@@ -440,7 +440,7 @@ describe("recipes/announce", () => {
       Reports: [],
     });
 
-    await announce({ base, now: NOW });
+    await announce({ base, now: NOW, refreshHeader: false });
 
     expect(analyticsHealthWrite(base)).toBeDefined();
     expect(analyticsHealthWrite(base)?.["Analytics soft-fail at"]).toBeNull();
@@ -466,7 +466,7 @@ describe("recipes/announce", () => {
       Reports: [],
     });
 
-    await announce({ base, now: NOW });
+    await announce({ base, now: NOW, refreshHeader: false });
 
     expect(analyticsHealthWrite(base)).toBeUndefined();
   });
