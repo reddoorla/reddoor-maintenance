@@ -1,6 +1,6 @@
 import { parse, HTMLElement, NodeType } from "node-html-parser";
-import type { RobotsAgentAccess } from "./types.js";
-import { UNRENDERED_TAGS } from "./extract.js";
+import type { CrawlResult, PageCapture, RobotsAgentAccess } from "./types.js";
+import { extractPage, UNRENDERED_TAGS } from "./extract.js";
 
 /** The answer-engine crawlers the report scores. */
 export const AI_AGENTS = [
@@ -166,4 +166,215 @@ export function parseSitemapLocs(xml: string): string[] {
 
 export function isSitemapIndex(xml: string): boolean {
   return /<(?:[\w-]+:)?sitemapindex[\s>]/i.test(xml);
+}
+
+export type FetchResponse = { status: number; body: string; headers: Record<string, string> };
+
+export type CrawlDeps = {
+  fetchUrl: (url: string) => Promise<FetchResponse>;
+  /** Rendered DOM per URL. A URL absent from the map has no rendered extract. */
+  renderPages: (urls: string[]) => Promise<Map<string, string>>;
+  maxPages: number;
+  delayMs: number;
+};
+
+/** Honest, identified UA — we audit on the prospect's behalf and say so. */
+export const USER_AGENT = "ReddoorAudit/1.0 (+https://reddoorla.com/; operator-run site audit)";
+
+const ASSET_EXT = /\.(pdf|jpe?g|png|gif|webp|avif|svg|zip|mp4|mov|css|js|xml|json)$/i;
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/** Never throws — a missing robots/sitemap/llms file is information, not a failure. */
+async function optional(deps: CrawlDeps, url: string): Promise<FetchResponse | null> {
+  try {
+    const res = await deps.fetchUrl(url);
+    return res.status >= 400 ? null : res;
+  } catch {
+    return null;
+  }
+}
+
+/** A text sidecar that actually is text. Netlify/SPA catch-alls answer 200 with
+ *  an HTML shell for /robots.txt and /llms.txt; reading that as a robots file
+ *  would invent rules the site never wrote. */
+function textSidecar(res: FetchResponse | null): string | null {
+  if (!res) return null;
+  const body = res.body.trim();
+  if (!body || body.startsWith("<")) return null;
+  return res.body;
+}
+
+function normalizeCandidates(urls: string[], origin: string, max: number): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of urls) {
+    let u: URL;
+    try {
+      u = new URL(raw);
+    } catch {
+      continue;
+    }
+    if (u.origin !== origin) continue;
+    if (ASSET_EXT.test(u.pathname)) continue;
+    u.hash = "";
+    const norm = u.toString();
+    if (seen.has(norm)) continue;
+    seen.add(norm);
+    out.push(norm);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/**
+ * Fetch the prospect's site: robots/sitemap/llms sidecars, then up to
+ * `maxPages` same-origin pages, each captured BOTH as raw HTTP HTML (what a
+ * non-JS crawler sees) and as rendered DOM (what a browser sees). Sequential
+ * and delayed — this is someone else's server.
+ */
+export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlResult> {
+  const start = new URL(rawUrl);
+  const origin = start.origin;
+
+  let home: FetchResponse;
+  try {
+    home = await deps.fetchUrl(start.toString());
+  } catch (err) {
+    throw Object.assign(
+      new Error(
+        `Could not reach ${start.toString()}: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+      { exitCode: 1 },
+    );
+  }
+  if (home.status >= 400) {
+    throw Object.assign(
+      new Error(`${start.toString()} returned HTTP ${home.status} — nothing to audit.`),
+      { exitCode: 1 },
+    );
+  }
+
+  const robotsTxt = textSidecar(await optional(deps, `${origin}/robots.txt`));
+  const agentAccess: RobotsAgentAccess[] = evaluateAgentAccess(
+    robotsTxt && /user-agent/i.test(robotsTxt) ? robotsTxt : null,
+  );
+
+  const llmsRaw = textSidecar(await optional(deps, `${origin}/llms.txt`));
+  const llmsTxt = llmsRaw
+    ? {
+        present: true,
+        firstLine:
+          llmsRaw
+            .split(/\r?\n/)
+            .find((l) => l.trim())
+            ?.trim() ?? null,
+      }
+    : { present: false, firstLine: null };
+
+  const sitemapRes = await optional(deps, `${origin}/sitemap.xml`);
+  let sitemapUrls: string[] = [];
+  let sitemapPresent = false;
+  if (sitemapRes && /<(urlset|sitemapindex)[\s>]/i.test(sitemapRes.body)) {
+    sitemapPresent = true;
+    if (isSitemapIndex(sitemapRes.body)) {
+      for (const child of parseSitemapLocs(sitemapRes.body).slice(0, 3)) {
+        const nested = await optional(deps, child);
+        if (nested) sitemapUrls.push(...parseSitemapLocs(nested.body));
+      }
+    } else {
+      sitemapUrls = parseSitemapLocs(sitemapRes.body);
+    }
+  }
+
+  const pageUrls = normalizeCandidates(
+    [start.toString(), ...sitemapUrls, ...sameOriginLinks(home.body, start.toString())],
+    origin,
+    deps.maxPages,
+  );
+
+  const rendered = await deps.renderPages(pageUrls).catch(() => new Map<string, string>());
+
+  const pages: PageCapture[] = [];
+  for (const url of pageUrls) {
+    let res: FetchResponse | null = null;
+    let error: string | null = null;
+    if (url === start.toString()) {
+      res = home;
+    } else {
+      if (deps.delayMs > 0) await sleep(deps.delayMs);
+      try {
+        res = await deps.fetchUrl(url);
+      } catch (err) {
+        error = err instanceof Error ? err.message : String(err);
+      }
+    }
+    const renderedHtml = rendered.get(url) ?? null;
+    const usable = res !== null && res.status < 400;
+    pages.push({
+      url,
+      status: res?.status ?? null,
+      raw: usable ? extractPage(res!.body) : null,
+      rendered: renderedHtml ? extractPage(renderedHtml) : null,
+      error: error ?? (res && res.status >= 400 ? `HTTP ${res.status}` : null),
+    });
+  }
+
+  const homeHeaders: Record<string, string> = {};
+  for (const [k, v] of Object.entries(home.headers)) homeHeaders[k.toLowerCase()] = v;
+
+  return {
+    origin,
+    robotsTxt,
+    agentAccess,
+    sitemap: { present: sitemapPresent, urlCount: sitemapUrls.length },
+    llmsTxt,
+    homeHeaders,
+    pages,
+  };
+}
+
+/** Real deps: identified sequential fetches + one shared Playwright chromium.
+ *  Playwright is imported lazily so unit tests (which inject deps) never load it. */
+export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
+  return {
+    async fetchUrl(url) {
+      const res = await fetch(url, {
+        headers: {
+          "user-agent": USER_AGENT,
+          accept: "text/html,application/xhtml+xml,text/plain,*/*",
+        },
+        redirect: "follow",
+        signal: AbortSignal.timeout(20_000),
+      });
+      const headers: Record<string, string> = {};
+      res.headers.forEach((v, k) => {
+        headers[k] = v;
+      });
+      return { status: res.status, body: await res.text(), headers };
+    },
+    async renderPages(urls) {
+      const { chromium } = await import("@playwright/test");
+      const out = new Map<string, string>();
+      const browser = await chromium.launch();
+      try {
+        const ctx = await browser.newContext({ userAgent: USER_AGENT });
+        const page = await ctx.newPage();
+        for (const url of urls) {
+          try {
+            await page.goto(url, { waitUntil: "networkidle", timeout: 30_000 });
+            out.set(url, await page.content());
+          } catch {
+            // A page that won't render simply has no rendered extract.
+          }
+        }
+      } finally {
+        await browser.close();
+      }
+      return out;
+    },
+    maxPages: 20,
+    delayMs: 500,
+    ...over,
+  };
 }
