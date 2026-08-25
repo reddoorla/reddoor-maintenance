@@ -984,7 +984,14 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
       // Labels can contain "&" (e.g. "Domain, DNS & SSL"), escaped to &amp; in HTML.
       expect(html).toContain(escapeHtml(item.label));
     }
-    expect(html).not.toMatch(/type="checkbox"/);
+    // Scoped to the checklist ELEMENT, not the whole document: ticking is
+    // evidence-driven, so the checklist must render no manual checkbox — but the
+    // page legitimately carries one elsewhere (the site-details `Require
+    // Turnstile` editor), and asserting over the whole page made this a
+    // constraint on unrelated sections.
+    const checklist = /<ul class="checklist"[^>]*>.*?<\/ul>/s.exec(html)?.[0] ?? "";
+    expect(checklist).not.toBe("");
+    expect(checklist).not.toMatch(/type="checkbox"/);
     expect(html).not.toContain("checklist-checkbox");
     // The Approve button for THIS report starts disabled (server-rendered health gate).
     expect(html).toMatch(/<button class="approve"[^>]*data-report-id="recREP1"[^>]*disabled/);
@@ -1038,7 +1045,9 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
         sentAt: null,
       }),
     ]);
-    expect(html).not.toMatch(/type="checkbox"/);
+    // Stated directly — no checklist element at all — rather than inferred from
+    // the absence of checkbox markup anywhere on the page.
+    expect(html).not.toContain('class="checklist"');
     expect(html).not.toContain("data-checklist-for");
     // Launch/Announcement Approve is never gated → not disabled.
     expect(html).toContain("/api/reports/recREP1/approve");
@@ -1055,7 +1064,9 @@ describe("renderSiteDashboardHtml — pending-your-yes list", () => {
         sentAt: null,
       }),
     ]);
-    expect(html).not.toMatch(/type="checkbox"/);
+    // Stated directly — no checklist element at all — rather than inferred from
+    // the absence of checkbox markup anywhere on the page.
+    expect(html).not.toContain('class="checklist"');
     expect(html).not.toMatch(/<button class="approve"[^>]*data-report-id="recREP1"[^>]*disabled/);
   });
 

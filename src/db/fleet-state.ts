@@ -24,7 +24,13 @@
 import type { Selectable, Updateable } from "kysely";
 import type { Db } from "./client.js";
 import type { ReportsTable, SiteHealthTable, SiteScheduleTable } from "./schema.js";
-import { SITE_FIELDS, healthColumnFor, scheduleColumnFor } from "./import-airtable.js";
+import {
+  SITE_FIELDS,
+  siteValueFor,
+  healthColumnFor,
+  scheduleColumnFor,
+} from "./import-airtable.js";
+import type { AirtableCellValue } from "../reports/airtable/websites.js";
 import {
   toReportType,
   parseAutoEvidence,
@@ -221,19 +227,23 @@ function joined(db: Db) {
  *  test makes that unreachable for the editor's allowlist); the caller treats
  *  a mirror failure as non-fatal — the hourly sync converges it.
  *
- *  Deliberately NOT applicable to `Require Turnstile` or other non-text
- *  columns: every editor field is plain text today, and the lockstep test
- *  pins that assumption. */
+ *  Handles the non-text columns too (`Require Turnstile` is a checkbox,
+ *  `Accepted Watch Conditions` a multi-select): the coercion is NOT repeated
+ *  here, it is delegated to the importer's own `siteValueFor`. That delegation
+ *  is the whole safety property — parity compares raw-to-raw, so a mirror that
+ *  stored `"true"` where the importer stores `1` would red every hourly run. */
 export async function mirrorSiteField(
   db: Db,
   siteId: string,
   airtableColumn: string,
-  value: string,
+  value: AirtableCellValue,
 ): Promise<void> {
   const col = SITE_FIELDS[airtableColumn];
   if (!col)
     throw new Error(`mirrorSiteField: importer claims no sites column for '${airtableColumn}'`);
-  const stored = value.trim() === "" ? null : value;
+  // Empty text still clears to null (the importer's `s()` does the same); the
+  // non-text columns get their own coercion inside siteValueFor.
+  const stored = siteValueFor(col, value);
   await db
     .updateTable("sites")
     .set({ [col]: stored })

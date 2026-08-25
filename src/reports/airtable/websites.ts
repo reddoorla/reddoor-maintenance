@@ -985,6 +985,12 @@ export async function updateNextDueDates(
   return fields as FieldSet;
 }
 
+/** The cell shapes the site editor can write. Airtable rejects a string written
+ *  to a checkbox or a multi-select, so `Require Turnstile` (boolean) and
+ *  `Accepted Watch Conditions` (string[]) travel as themselves rather than being
+ *  stringified at the boundary and coerced back later. */
+export type AirtableCellValue = string | boolean | string[];
+
 /** Generic single-field writer for the dashboard site-details editor. The caller
  *  (setSiteDetail) restricts `column` to the EDITABLE_SITE_FIELDS allowlist, so this
  *  never writes an arbitrary column from request input. */
@@ -992,7 +998,7 @@ export async function updateSiteField(
   base: AirtableBase,
   recordId: string,
   column: string,
-  value: string,
+  value: AirtableCellValue,
 ): Promise<void> {
   await base(WEBSITES_TABLE).update([{ id: recordId, fields: { [column]: value } }]);
 }
