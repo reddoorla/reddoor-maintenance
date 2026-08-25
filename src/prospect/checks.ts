@@ -197,7 +197,13 @@ export function runChecks(crawl: CrawlResult): ChecksResult {
     meta,
     headings,
     securityHeaders: { present, missing: SECURITY_HEADERS.filter((h) => !present.includes(h)) },
+    // A sidecar fetch that THREW (ENOTFOUND, timeout, ...) and a genuine 404
+    // both collapse to `present: false` above the sidecarErrors layer — the
+    // Measured flags are what let a consumer tell "confirmed absent" apart
+    // from "we never got an answer" without re-deriving it from crawl.
+    sitemapMeasured: crawl.sidecarErrors.sitemap === null,
     sitemapPresent: crawl.sitemap.present,
+    llmsTxtMeasured: crawl.sidecarErrors.llms === null,
     llmsTxtPresent: crawl.llmsTxt.present,
     viewportOk: views.length > 0 && views.every((v) => v.hasViewportMeta),
   };
@@ -237,10 +243,18 @@ export function computeScores(input: {
         1 -
         (checks.meta.missingTitle + checks.meta.missingDescription + checks.meta.missingCanonical) /
           (pages * 3);
-      const technical =
-        (checks.sitemapPresent ? 1 : 0) * 0.5 +
-        (checks.viewportOk ? 1 : 0) * 0.25 +
-        (checks.llmsTxtPresent ? 1 : 0) * 0.25;
+      // A sidecar we couldn't fetch is neither confirmed present (1) nor
+      // confirmed absent (0) — it's unknown. Scoring it as absent would
+      // penalize the technical component for our own transport failure, not
+      // for anything true about the prospect's site; scoring it as present
+      // would assert a positive claim we never verified. 0.5 does neither: it
+      // costs half the component's weight regardless of measurement, so an
+      // unmeasured sidecar never drags the score down the way a confirmed
+      // absence does, and never gets credited the way a confirmed presence
+      // does.
+      const sitemapScore = checks.sitemapMeasured ? (checks.sitemapPresent ? 1 : 0) : 0.5;
+      const llmsScore = checks.llmsTxtMeasured ? (checks.llmsTxtPresent ? 1 : 0) : 0.5;
+      const technical = sitemapScore * 0.5 + (checks.viewportOk ? 1 : 0) * 0.25 + llmsScore * 0.25;
 
       // Crawler access 40 / classical access 10 / metadata 15 / technical 15,
       // normalized to 0..1. Lighthouse SEO, when measured, takes the last 20

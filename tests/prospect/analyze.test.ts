@@ -92,6 +92,19 @@ const validOutput = {
   narrative: { findability: "…", readability: "…", answers: "…" },
 };
 
+/** N schema-shaped buyer questions with no page/evidence attached — for the
+ *  min/max boundary tests, where the count is what's under test, not the
+ *  content. */
+function makeQuestions(n: number): (typeof validOutput)["buyerQuestions"] {
+  return Array.from({ length: n }, (_, i) => ({
+    question: `Question ${i}?`,
+    answered: "no" as const,
+    quotable: false,
+    page: null,
+    evidence: null,
+  }));
+}
+
 describe("buildAnalyzeInput", () => {
   it("puts the deterministic findings and each page's content in the prompt", () => {
     const c = crawl();
@@ -121,11 +134,33 @@ describe("buildAnalyzeInput", () => {
 });
 
 describe("buildAnalyzeInput — untrusted page text", () => {
-  it("wraps each page's text in a <page_text> delimiter", () => {
+  it("wraps each page's text in a per-call random fence, not the static, guessable <page_text> tag", () => {
+    // A fence whose name a page can predict is a fence a page can close early
+    // (proved: a page whose own copy contains a literal "</page_text>" reopens
+    // itself as "instructions" past that point). A random per-run token closes
+    // that hole — nothing in the page content can know it in advance.
     const c = crawl();
-    const { user } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
-    expect(user).toContain("<page_text>");
-    expect(user).toContain("</page_text>");
+    const { system, user } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
+    expect(user).not.toContain("<page_text>");
+    expect(user).not.toContain("</page_text>");
+
+    const opening = user.match(/<([a-zA-Z0-9_]+)>/);
+    expect(opening).not.toBeNull();
+    const fence = opening![1]!;
+    expect(user).toContain(`</${fence}>`);
+    // The system prompt must reference the SAME fence it tells the model to
+    // trust as the DATA boundary — a stale static name in the explanation
+    // would point at a tag that no longer appears anywhere in the prompt.
+    expect(system).toContain(`<${fence}>`);
+  });
+
+  it("generates a different fence on every call, so a page can't reuse a name it learned from a prior run", () => {
+    const c = crawl();
+    const { user: user1 } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
+    const { user: user2 } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
+    const fence1 = user1.match(/<([a-zA-Z0-9_]+)>/)![1]!;
+    const fence2 = user2.match(/<([a-zA-Z0-9_]+)>/)![1]!;
+    expect(fence1).not.toBe(fence2);
   });
 
   it("frames page content as data (not instructions) and requires verbatim evidence in the system prompt", () => {
@@ -176,6 +211,59 @@ describe("buildAnalyzeInput — page selection", () => {
     const urls = [...user.matchAll(/^URL: (.+)$/gm)].map((m) => m[1]!);
     expect(urls[0]).toBe("https://acme.example/");
     expect(urls).toContain("https://acme.example/services");
+  });
+});
+
+describe("buildAnalyzeInput — unmeasured crawler access", () => {
+  it("never tells the model crawler access is open when the robots.txt fetch itself failed", () => {
+    const c = crawl();
+    c.sidecarErrors = { robots: "fetch failed: ECONNRESET", llms: null, sitemap: null };
+    const checks = runChecks(c);
+    expect(checks.crawlerAccessMeasured).toBe(false);
+
+    const { user } = buildAnalyzeInput("https://acme.example/", c, checks);
+
+    // The bug this guards against: crawlerAccessMeasured correctly gates
+    // computeScores, but summarizeFindings used to read the (empty,
+    // out-of-ignorance) crawlerAccess lists directly and print "none" — a
+    // positive claim about the prospect's site we never actually checked.
+    expect(user).not.toContain("Blocked AI crawlers: none");
+    expect(user).not.toContain("Blocked classical crawlers: none");
+    expect(user).toMatch(/Blocked AI crawlers:.*not measured/i);
+    expect(user).toMatch(/Blocked classical crawlers:.*not measured/i);
+  });
+
+  it("still reports the real blocked-crawler lists when the fetch succeeded", () => {
+    const c = crawl();
+    const { user } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
+    expect(user).toContain("Blocked AI crawlers: GPTBot");
+  });
+});
+
+describe("buildAnalyzeInput — unmeasured sidecars", () => {
+  it("distinguishes an unmeasured sitemap/llms.txt from a confirmed absence", () => {
+    const c = crawl();
+    c.sidecarErrors = {
+      robots: null,
+      llms: "fetch failed: ETIMEDOUT",
+      sitemap: "fetch failed: ENOTFOUND",
+    };
+    const checks = runChecks(c);
+    expect(checks.sitemapMeasured).toBe(false);
+    expect(checks.llmsTxtMeasured).toBe(false);
+
+    const { user } = buildAnalyzeInput("https://acme.example/", c, checks);
+    expect(user).not.toContain("sitemap.xml: missing");
+    expect(user).not.toContain("llms.txt: missing");
+    expect(user).toMatch(/sitemap\.xml: not measured/i);
+    expect(user).toMatch(/llms\.txt: not measured/i);
+  });
+
+  it("still reports present/missing for a sidecar that WAS measured", () => {
+    const c = crawl();
+    const { user } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
+    expect(user).toMatch(/sitemap\.xml: present/);
+    expect(user).toMatch(/llms\.txt: missing/);
   });
 });
 
@@ -233,5 +321,141 @@ describe("analyzeSite", () => {
         run: async () => bad,
       }),
     ).rejects.toThrow();
+  });
+
+  it("rejects a model response with 11 buyer questions", async () => {
+    const eleven = { ...validOutput, buyerQuestions: makeQuestions(11) };
+    await expect(
+      analyzeSite("https://acme.example/", crawl(), runChecks(crawl()), {
+        run: async () => eleven,
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("accepts a model response with exactly 10 buyer questions", async () => {
+    const ten = { ...validOutput, buyerQuestions: makeQuestions(10) };
+    const result = await analyzeSite("https://acme.example/", crawl(), runChecks(crawl()), {
+      run: async () => ten,
+    });
+    expect(result.buyerQuestions).toHaveLength(10);
+  });
+
+  it("rejects a model response with 11 fixes", async () => {
+    const tooManyFixes = {
+      ...validOutput,
+      fixes: Array.from({ length: 11 }, (_, i) => ({
+        ...validOutput.fixes[0]!,
+        title: `Fix ${i}`,
+      })),
+    };
+    await expect(
+      analyzeSite("https://acme.example/", crawl(), runChecks(crawl()), {
+        run: async () => tooManyFixes,
+      }),
+    ).rejects.toThrow();
+  });
+});
+
+describe("analyzeSite — evidence verification", () => {
+  it("keeps evidence that is a verbatim quote from the page it's attributed to", async () => {
+    const c = crawl(1);
+    const output = {
+      ...validOutput,
+      buyerQuestions: [
+        {
+          question: "What does the page say?",
+          answered: "yes" as const,
+          quotable: true,
+          page: "https://acme.example/p0",
+          evidence: "Body copy number 0.",
+        },
+        ...validOutput.buyerQuestions.slice(1),
+      ],
+    };
+    const result = await analyzeSite("https://acme.example/", c, runChecks(c), {
+      run: async () => output,
+    });
+    expect(result.buyerQuestions[0]!.evidence).toBe("Body copy number 0.");
+    expect(result.buyerQuestions[0]!.page).toBe("https://acme.example/p0");
+  });
+
+  it("nulls out evidence that is not an actual verbatim quote from the attributed page", async () => {
+    const c = crawl(1);
+    const output = {
+      ...validOutput,
+      buyerQuestions: [
+        {
+          question: "What does the page say?",
+          answered: "yes" as const,
+          quotable: true,
+          page: "https://acme.example/p0",
+          evidence: "This exact sentence was never written on the page.",
+        },
+        ...validOutput.buyerQuestions.slice(1),
+      ],
+    };
+    const result = await analyzeSite("https://acme.example/", c, runChecks(c), {
+      run: async () => output,
+    });
+    expect(result.buyerQuestions[0]!.evidence).toBeNull();
+    // The page citation itself was real — only the fabricated quote is
+    // discarded, not the whole finding.
+    expect(result.buyerQuestions[0]!.page).toBe("https://acme.example/p0");
+  });
+
+  it("nulls both page and evidence when the cited page was never actually crawled", async () => {
+    const c = crawl(1);
+    const output = {
+      ...validOutput,
+      buyerQuestions: [
+        {
+          question: "What does the page say?",
+          answered: "yes" as const,
+          quotable: true,
+          page: "https://acme.example/never-crawled",
+          evidence: "Body copy number 0.",
+        },
+        ...validOutput.buyerQuestions.slice(1),
+      ],
+    };
+    const result = await analyzeSite("https://acme.example/", c, runChecks(c), {
+      run: async () => output,
+    });
+    expect(result.buyerQuestions[0]!.page).toBeNull();
+    expect(result.buyerQuestions[0]!.evidence).toBeNull();
+  });
+
+  it("tolerates a harmless whitespace reflow between the quote and the page text", async () => {
+    const c = crawl(1);
+    const output = {
+      ...validOutput,
+      buyerQuestions: [
+        {
+          question: "What does the page say?",
+          answered: "yes" as const,
+          quotable: true,
+          page: "https://acme.example/p0",
+          evidence: "Body   copy\nnumber 0.",
+        },
+        ...validOutput.buyerQuestions.slice(1),
+      ],
+    };
+    const result = await analyzeSite("https://acme.example/", c, runChecks(c), {
+      run: async () => output,
+    });
+    expect(result.buyerQuestions[0]!.evidence).toBe("Body   copy\nnumber 0.");
+  });
+
+  it("leaves an already-null evidence/page pair untouched", async () => {
+    const c = crawl(1);
+    const result = await analyzeSite("https://acme.example/", c, runChecks(c), {
+      run: async () => validOutput,
+    });
+    // validOutput's 3rd/4th/6th questions carry page: null, evidence: null.
+    const untouched = result.buyerQuestions.find(
+      (q) => q.question === "What areas do you service?",
+    );
+    expect(untouched?.page).toBeNull();
+    expect(untouched?.evidence).toBeNull();
   });
 });

@@ -95,7 +95,16 @@ export type ChecksResult = {
   };
   headings: { pagesWithoutH1: number; pagesWithLevelSkips: number };
   securityHeaders: { present: string[]; missing: string[] };
+  /** False when the sitemap.xml fetch itself failed (crawl.sidecarErrors.sitemap
+   *  !== null), so `sitemapPresent: false` would otherwise read as "confirmed
+   *  absent" rather than "we never got an answer". The report must say "not
+   *  measured" for sitemap presence when this is false, and computeScores must
+   *  treat it as neutral rather than penalizing the technical component for a
+   *  fetch we could not complete. */
+  sitemapMeasured: boolean;
   sitemapPresent: boolean;
+  /** Same as sitemapMeasured, for the llms.txt fetch (crawl.sidecarErrors.llms). */
+  llmsTxtMeasured: boolean;
   llmsTxtPresent: boolean;
   viewportOk: boolean;
 };

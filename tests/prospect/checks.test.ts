@@ -128,6 +128,30 @@ describe("runChecks — JS dependence", () => {
   });
 });
 
+describe("runChecks — sidecar measurement", () => {
+  it("reports both sidecars measured on a normal crawl", () => {
+    const c = runChecks(crawl());
+    expect(c.sitemapMeasured).toBe(true);
+    expect(c.llmsTxtMeasured).toBe(true);
+  });
+
+  it("reports sitemapMeasured false when the sitemap.xml fetch itself failed, independent of llms.txt", () => {
+    const c = runChecks(
+      crawl({ sidecarErrors: { robots: null, llms: null, sitemap: "fetch failed: ENOTFOUND" } }),
+    );
+    expect(c.sitemapMeasured).toBe(false);
+    expect(c.llmsTxtMeasured).toBe(true);
+  });
+
+  it("reports llmsTxtMeasured false when the llms.txt fetch itself failed, independent of sitemap.xml", () => {
+    const c = runChecks(
+      crawl({ sidecarErrors: { robots: null, llms: "fetch failed: ETIMEDOUT", sitemap: null } }),
+    );
+    expect(c.llmsTxtMeasured).toBe(false);
+    expect(c.sitemapMeasured).toBe(true);
+  });
+});
+
 describe("runChecks — schema", () => {
   it("finds the declared types and names the missing ones", () => {
     const c = runChecks(crawl());
@@ -180,6 +204,8 @@ describe("runChecks — meta, headings, technical", () => {
     expect(c.viewportOk).toBe(true);
     expect(c.sitemapPresent).toBe(true);
     expect(c.llmsTxtPresent).toBe(false);
+    expect(c.sitemapMeasured).toBe(true);
+    expect(c.llmsTxtMeasured).toBe(true);
   });
 
   it("counts the gaps on a bare page", () => {
