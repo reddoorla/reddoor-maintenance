@@ -1,0 +1,113 @@
+name: prospect-audit
+
+# Runs one prospect audit and emails the sheet.
+#
+# This workflow lives in a PRIVATE repo on purpose. reddoor-maintenance is
+# public, and a public repo's Actions tab — including workflow_dispatch inputs
+# and every log line — is world-readable. Running prospect audits there would
+# publish the URL of every company we are about to pitch. The code stays public;
+# only the knowledge of who we are auditing stays private.
+#
+# It checks out the public reddoor-maintenance repo rather than installing the
+# published package, so an unreleased change on a branch can be audited against
+# by passing `ref`. A public checkout needs no token.
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: The prospect's site URL (https://…)
+        required: true
+        type: string
+      business:
+        description: Business name (optional — the model reads one off the site if blank)
+        required: false
+        type: string
+      requested_by:
+        description: Who pressed the button, for the audit log
+        required: false
+        type: string
+        default: cockpit
+      ref:
+        description: reddoor-maintenance ref to run from
+        required: false
+        type: string
+        default: main
+
+# One audit per URL at a time. A double-press in the cockpit (or a retry) queues
+# rather than running the same audit twice and double-emailing. The cockpit also
+# refuses a repeat within 10 minutes, so this is the second line of defence.
+concurrency:
+  group: prospect-audit-${{ inputs.url }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out reddoor-maintenance (public)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: reddoorla/reddoor-maintenance
+          ref: ${{ inputs.ref }}
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      # The crawl captures each page twice — raw HTTP and rendered DOM — and the
+      # rendered half is what the JS-dependence finding is measured from. Only
+      # chromium is needed; the fleet's cross-engine sweep is a different job.
+      - run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run the audit and email the sheet
+        # A cold prospect site can be slow, and Lighthouse runs three passes.
+        # Backstop a wedged Chrome so it cannot pin the runner.
+        timeout-minutes: 30
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          # Absent → the answerability and probe sections read "not measured".
+          # The audit still runs, still persists and still emails; it just says
+          # plainly which parts it could not measure.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          PROSPECT_AUDIT_RECIPIENTS: ${{ secrets.PROSPECT_AUDIT_RECIPIENTS }}
+          # Builds the /r/{token} link in the email.
+          DASHBOARD_BASE_URL: ${{ vars.DASHBOARD_BASE_URL }}
+          AUDIT_URL: ${{ inputs.url }}
+          AUDIT_BUSINESS: ${{ inputs.business }}
+          AUDIT_REQUESTED_BY: ${{ inputs.requested_by }}
+        run: |
+          set -o pipefail
+          echo "Requested by: ${AUDIT_REQUESTED_BY:-cockpit}"
+
+          # Pass --business only when one was actually supplied: an empty string
+          # would override the model's own read of the site with nothing.
+          if [ -n "$AUDIT_BUSINESS" ]; then
+            node dist/cli/bin.js prospect-audit "$AUDIT_URL" \
+              --business "$AUDIT_BUSINESS" --email
+          else
+            node dist/cli/bin.js prospect-audit "$AUDIT_URL" --email
+          fi
+
+      # The CLI writes a recovery copy when neither the database nor --out took
+      # the report. If that happened, the run already exited non-zero — keep the
+      # copy so the spend is not lost to a transient Turso failure.
+      - name: Keep the recovery copy if delivery failed
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: prospect-audit-recovery
+          path: reports/
+          if-no-files-found: ignore
+          retention-days: 7
