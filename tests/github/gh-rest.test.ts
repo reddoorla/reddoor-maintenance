@@ -108,6 +108,22 @@ describe("makeGitHubRest.dispatchWorkflow", () => {
     expect(JSON.parse(calls[0]!.body!)).toEqual({ ref: "main" });
   });
 
+  it("carries workflow inputs when given, and omits the key when not", async () => {
+    // The report re-render workflow takes a `report_id`; without inputs support
+    // the dispatch would start a run with no idea which report to render.
+    const { fn, calls } = fakeFetch([{ status: 204 }, { status: 204 }]);
+    const gh = makeGitHubRest({ token: "tok", fetch: fn });
+    await gh.dispatchWorkflow("reddoorla/acme", "report-rerender.yml", "main", {
+      report_id: "recREP",
+    });
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ ref: "main", inputs: { report_id: "recREP" } });
+
+    // Omitted entirely rather than sent as {} — a workflow with no declared
+    // inputs rejects an `inputs` key it did not ask for.
+    await gh.dispatchWorkflow("reddoorla/acme", "renovate.yml", "main");
+    expect(JSON.parse(calls[1]!.body!)).toEqual({ ref: "main" });
+  });
+
   it("resolves on 204 (No Content)", async () => {
     const { fn } = fakeFetch([{ status: 204 }]);
     const gh = makeGitHubRest({ token: "tok", fetch: fn });
