@@ -35,6 +35,8 @@ import {
   siteValueFor,
   healthColumnFor,
   scheduleColumnFor,
+  mapReportRecord,
+  type RawRecord,
 } from "./import-airtable.js";
 import type { AirtableCellValue } from "../reports/airtable/websites.js";
 import {
@@ -449,11 +451,16 @@ export async function listReportsForSite(db: Db, siteId: string): Promise<Report
   return rows.map(reportRowFromDb);
 }
 
-/** Columns the REQUEST-PATH report writers mirror after their Airtable write
- *  (same pattern as mirrorSiteField): the approve/override flow and the
- *  resend-webhook's delivery status. Send-path columns (sent_at,
- *  resend_message_id, rendered_html) are deliberately absent — the send is a
- *  CLI batch whose writes reach Turso via the hourly sync until Phase 3. */
+/** Columns a report writer mirrors after its Airtable write (same pattern as
+ *  mirrorSiteField): the approve/override flow, the resend-webhook's delivery
+ *  status, and — since #539 Phase 5 — the drafting path's queue flag and a
+ *  re-run's refreshed scores.
+ *
+ *  `rendered_html` stays deliberately OUT even though the drafting path now
+ *  writes it: bodies go through `storeRenderedHtml`, so a request handler
+ *  holding a patch cannot accidentally write megabytes of HTML. `sent_at` and
+ *  `resend_message_id` stay out because nothing but the send batch writes them
+ *  and the hourly sync converges those. */
 export type ReportMirrorPatch = Partial<
   Pick<
     ReportsTable,
@@ -469,6 +476,21 @@ export type ReportMirrorPatch = Partial<
     // page immediately after the write, so the mirror has to carry it or the
     // operator sees their own save as a no-op until the next hourly sync.
     | "commentary"
+    // Phase 5 drafting path. `draft_ready` is the queue flag `queueDraft`
+    // writes — for the new draft AND for every row it supersedes, so without it
+    // the console shows a site with two queued reports until the next sync.
+    | "draft_ready"
+    // A re-run (announce/launch reuse) refreshes an existing row's scores so the
+    // eventually-sent email is not stale; the console reads the same numbers.
+    | "lighthouse_performance"
+    | "lighthouse_accessibility"
+    | "lighthouse_best_practices"
+    | "lighthouse_seo"
+    | "ga_users_current"
+    | "ga_users_previous"
+    | "search_found_page1"
+    | "search_position"
+    | "completed_on"
   >
 >;
 
@@ -483,6 +505,31 @@ export async function mirrorReportPatch(
 ): Promise<void> {
   if (Object.keys(patch).length === 0) return;
   await db.updateTable("reports").set(patch).where("id", "=", reportId).execute();
+}
+
+/** Mirror a NEWLY CREATED Airtable Reports record into Turso (#539 Phase 5).
+ *
+ *  Every other report mirror is an UPDATE, which silently does nothing for a row
+ *  that does not exist yet — so a draft created at 09:05 was invisible to the
+ *  Turso-backed console until the 09:20 sync. Takes the raw record Airtable
+ *  echoed back from the create, and maps it with the IMPORTER's own
+ *  `mapReportRecord`: parity diffs Turso against exactly that function, so
+ *  delegating is what makes the mirrored row parity-clean by construction rather
+ *  than by a column list someone has to remember to extend.
+ *
+ *  Upsert, not insert, and the conflict branch drops `rendered_html` for the
+ *  same reason the importer's does: the body is written later by a separate
+ *  sharp-bearing step, so a re-mirror carrying null would blank a render that
+ *  had already succeeded. */
+export async function mirrorReportInsert(db: Db, rec: RawRecord): Promise<void> {
+  const row = mapReportRecord(rec, null);
+  const { rendered_html: _rh, ...rowSansHtml } = row;
+  void _rh;
+  await db
+    .insertInto("reports")
+    .values(row)
+    .onConflict((oc) => oc.column("id").doUpdateSet(rowSansHtml))
+    .execute();
 }
 
 /**

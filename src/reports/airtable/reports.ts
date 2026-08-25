@@ -216,7 +216,19 @@ export function escapeFormulaString(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-export async function createDraft(base: AirtableBase, input: DraftInput): Promise<ReportRow> {
+/** Called with the record Airtable echoed back from the create, before it is
+ *  mapped (#539 Phase 5). Structurally typed rather than importing the db
+ *  layer's `RawRecord`, so this module stays the leaf it has always been. */
+export type CreatedDraftMirror = (rec: {
+  id: string;
+  fields: Record<string, unknown>;
+}) => Promise<void>;
+
+export async function createDraft(
+  base: AirtableBase,
+  input: DraftInput,
+  mirror?: CreatedDraftMirror,
+): Promise<ReportRow> {
   // Set Delivery status to "pending" at creation time, NOT at send time. This
   // matters for H4: if stampSent wrote "pending" after the webhook had already
   // written "delivered" (race), the operator would see a regressed status.
@@ -252,7 +264,14 @@ export async function createDraft(base: AirtableBase, input: DraftInput): Promis
   const created = (await base(REPORTS_TABLE).create([{ fields }])) as Records<FieldSet>;
   const rec = created[0];
   if (!rec) throw new Error("Airtable create returned no records");
-  return mapRow({ id: rec.id, fields: rec.fields });
+  const raw = { id: rec.id, fields: rec.fields as Record<string, unknown> };
+  // The mirror gets what Airtable STORED, never the caller's DraftInput: parity
+  // diffs Turso against the stored record, so mapping the input would diverge
+  // the moment Airtable normalises a value. Injected rather than called
+  // directly so this module keeps no db dependency; the injected
+  // implementation owns the never-throw policy (see reports/report-mirror.ts).
+  if (mirror) await mirror(raw);
+  return mapRow(raw);
 }
 
 export async function setDraftReady(

@@ -9,6 +9,7 @@ import {
   updateReportScores,
   type ReportEnrichment,
 } from "../reports/airtable/reports.js";
+import type { ReportMirror } from "../reports/report-mirror.js";
 import { queueDraft } from "../reports/queue.js";
 import { uploadAttachment } from "../reports/airtable/attachments.js";
 import { renderReportHtml } from "../reports/render.js";
@@ -53,6 +54,12 @@ export type AnnounceDeps = {
    * Maintenance/Testing draft happened to heal it.
    */
   refreshHeader?: RefreshHeaderDeps | false;
+  /** #539 Phase 5: Turso write-through for everything this recipe writes — the
+   *  created row (or a reused row's refreshed scores), the rendered body, and
+   *  the queue flag. Not defaulted here — every unit test calls `announce` with
+   *  a fake base, and a default would open a real libSQL handle from inside the
+   *  suite. The CLI composition root wires it. */
+  reportMirror?: ReportMirror;
 };
 
 /**
@@ -139,10 +146,35 @@ export async function announce(deps?: AnnounceDeps): Promise<AnnounceResult> {
       const existing = await findReportByPeriod(base, w.id, "Announcement", period);
       if (existing) {
         await updateReportScores(base, existing.id, scores, now, enrichment);
+        // Mirror the SAME refresh: the reuse path exists so the eventually-sent
+        // email is not stale, and the console reads those numbers too.
+        await deps?.reportMirror?.patch(existing.id, {
+          lighthouse_performance: scores.performance,
+          lighthouse_accessibility: scores.accessibility,
+          lighthouse_best_practices: scores.bestPractices,
+          lighthouse_seo: scores.seo,
+          completed_on: now.toISOString().slice(0, 10),
+          ...(enrichment.gaUsersCurrent !== undefined
+            ? { ga_users_current: enrichment.gaUsersCurrent }
+            : {}),
+          ...(enrichment.gaUsersPrevious !== undefined
+            ? { ga_users_previous: enrichment.gaUsersPrevious }
+            : {}),
+          ...(enrichment.searchFoundPage1 !== undefined
+            ? { search_found_page1: enrichment.searchFoundPage1 ? 1 : 0 }
+            : {}),
+          ...(enrichment.searchPosition !== undefined
+            ? { search_position: enrichment.searchPosition }
+            : {}),
+        });
         report = existing;
         statusKind = "reused";
       } else {
-        report = await createDraft(base, draftInputFor(w, scores, now, period, enrichment));
+        report = await createDraft(
+          base,
+          draftInputFor(w, scores, now, period, enrichment),
+          deps?.reportMirror?.created,
+        );
         statusKind = "drafted";
       }
 
@@ -176,6 +208,9 @@ export async function announce(deps?: AnnounceDeps): Promise<AnnounceResult> {
           `${slug}-${now.toISOString().slice(0, 10)}.html`,
           "text/html",
         );
+        // Store the same body in Turso — the console's preview route reads it
+        // there, not from the Airtable attachment (whose URL expires).
+        await deps?.reportMirror?.body(report.id, html);
       } catch (uploadErr) {
         console.warn(
           `⚠ Announcement preview upload skipped for ${w.name}: ${
@@ -188,11 +223,11 @@ export async function announce(deps?: AnnounceDeps): Promise<AnnounceResult> {
       // so a failure here must surface as an error result for the site. queueDraft also
       // supersedes any lower-tier (Maintenance/Testing) drafts queued for this site, and
       // stands down if an equal-or-higher report is already queued (single-queue rule).
-      const queue = await queueDraft(base, {
-        id: report.id,
-        siteId: w.id,
-        reportType: "Announcement",
-      });
+      const queue = await queueDraft(
+        base,
+        { id: report.id, siteId: w.id, reportType: "Announcement" },
+        deps?.reportMirror,
+      );
 
       const recipientMissing = !(w.reportRecipientsTo && w.reportRecipientsTo.trim());
       results.push({

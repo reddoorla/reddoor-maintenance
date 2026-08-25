@@ -7,6 +7,7 @@ import { resolveCopy } from "./copy.js";
 import type { WebsiteRow } from "./airtable/websites.js";
 import type { ReportRow } from "./airtable/reports.js";
 import { createDraft, listReportsForSite } from "./airtable/reports.js";
+import type { ReportMirror } from "./report-mirror.js";
 import { queueDraft } from "./queue.js";
 import { autoTickChecklist } from "./auto-tick.js";
 import { uploadAttachment } from "./airtable/attachments.js";
@@ -95,6 +96,18 @@ export type DraftOptions = {
    *  entirely. Tests set `false` (or a stub) so a unit suite never launches a
    *  browser or resolves DNS. Production leaves it unset and gets the real thing. */
   refreshHeader?: RefreshHeaderDeps | false;
+  /** #539 Phase 5: Turso write-through for everything this function writes to
+   *  Airtable — the created row, the rendered body, and the queue flag — so a
+   *  fresh draft is fully readable in the Turso-backed console immediately
+   *  instead of after the next hourly sync.
+   *
+   *  Deliberately NOT defaulted here. Defaulting would open a real libSQL handle
+   *  from inside `draftReportForSite`, which every unit test calls — and on a
+   *  machine with TURSO_* exported that means a test suite writing rows into
+   *  production. The wiring lives at the composition roots (cli/commands/report.ts,
+   *  recipes) where it is pinned by test, the same division `runFleetWriteBack`
+   *  uses for the health mirror. */
+  reportMirror?: ReportMirror;
 };
 
 /** An enrichment fetch that *errored* (not one that was legitimately skipped
@@ -289,12 +302,12 @@ export async function draftReportForSite(
   // (scores, period, dates) were already written at create time; the only pieces a
   // crash drops are the attachment + the ready flag.
   if (options.completeRowId) {
-    await uploadDraftHtml(options.completeRowId, slug, periodEnd, html);
-    const outcome = await queueDraft(base, {
-      id: options.completeRowId,
-      siteId: siteRow.id,
-      reportType,
-    });
+    await uploadDraftHtml(options.completeRowId, slug, periodEnd, html, options.reportMirror);
+    const outcome = await queueDraft(
+      base,
+      { id: options.completeRowId, siteId: siteRow.id, reportType },
+      options.reportMirror,
+    );
     return {
       reportRow: options.existingRow ?? null,
       htmlPath: null,
@@ -318,31 +331,35 @@ export async function draftReportForSite(
   const autoEvidence = Object.fromEntries(evidence);
 
   const reportId = `${siteRow.name} — ${reportType} — ${periodEnd.toISOString().slice(0, 10)}`;
-  const created = await createDraft(base, {
-    reportId,
-    siteId: siteRow.id,
-    reportType,
-    period: options.period ?? periodEnd.toISOString().slice(0, 7),
-    periodStart,
-    periodEnd,
-    completedOn,
-    lighthouse: scores,
-    lastTestedDate,
-    ...(gaUsers ? { gaUsersCurrent: gaUsers.current, gaUsersPrevious: gaUsers.previous } : {}),
-    ...(search ? { searchFoundPage1: search.foundOnPage1 } : {}),
-    ...(search?.foundOnPage1 && search.position !== null
-      ? { searchPosition: search.position }
-      : {}),
-    checklistTicks,
-    autoEvidence,
-  });
+  const created = await createDraft(
+    base,
+    {
+      reportId,
+      siteId: siteRow.id,
+      reportType,
+      period: options.period ?? periodEnd.toISOString().slice(0, 7),
+      periodStart,
+      periodEnd,
+      completedOn,
+      lighthouse: scores,
+      lastTestedDate,
+      ...(gaUsers ? { gaUsersCurrent: gaUsers.current, gaUsersPrevious: gaUsers.previous } : {}),
+      ...(search ? { searchFoundPage1: search.foundOnPage1 } : {}),
+      ...(search?.foundOnPage1 && search.position !== null
+        ? { searchPosition: search.position }
+        : {}),
+      checklistTicks,
+      autoEvidence,
+    },
+    options.reportMirror?.created,
+  );
 
-  await uploadDraftHtml(created.id, slug, periodEnd, html);
-  const outcome = await queueDraft(base, {
-    id: created.id,
-    siteId: siteRow.id,
-    reportType,
-  });
+  await uploadDraftHtml(created.id, slug, periodEnd, html, options.reportMirror);
+  const outcome = await queueDraft(
+    base,
+    { id: created.id, siteId: siteRow.id, reportType },
+    options.reportMirror,
+  );
 
   return {
     reportRow: created,
@@ -358,15 +375,22 @@ export async function draftReportForSite(
 
 /** Attach the rendered HTML to a Reports row. Queueing (Draft ready + the single-queue
  *  reconciliation) is handled separately by queueDraft so both the create path and the
- *  "complete a half-made row" path share the identical, re-runnable upload step. */
+ *  "complete a half-made row" path share the identical, re-runnable upload step.
+ *
+ *  #539 Phase 5: the body is ALSO stored in Turso, because that is where the
+ *  console's preview route reads it. Storing the row without the body leaves a
+ *  visible draft whose preview answers "No rendered body stored" until the next
+ *  hourly sync re-downloads this very attachment. */
 async function uploadDraftHtml(
   rowId: string,
   slug: string,
   periodEnd: Date,
   html: string,
+  mirror?: ReportMirror,
 ): Promise<void> {
   const htmlFilename = `${slug}-${periodEnd.toISOString().slice(0, 10)}.html`;
   await uploadAttachment(rowId, "Rendered HTML", html, htmlFilename, "text/html");
+  await mirror?.body(rowId, html);
 }
 
 /** Result of an enrichment fetch: the value (null if unavailable) plus whether
