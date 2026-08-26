@@ -72,18 +72,40 @@ export async function explainQueryPlan(client: Client, stmt: CapturedStatement):
   return res.rows.map((r) => String(r.detail));
 }
 
-/** Tables a plan reads with a RAW full-table scan: a `SCAN <table>` line naming a
- *  real table with no `USING ... INDEX` clause. `SEARCH` lines and index-assisted
- *  scans (`SCAN t USING INDEX i`, `... USING COVERING INDEX i`) are fine — an
- *  index-ordered traversal under a LIMIT stops early; a raw scan decodes the
- *  whole table. */
-export function rawScanTables(details: string[], tables: Set<string>): string[] {
+/**
+ * Tables a plan reads in full.
+ *
+ * A `SCAN <table>` line means every row of that table is visited, whether or not
+ * an index supplies the order. The old rule skipped anything containing `USING`,
+ * justified as "an index-ordered traversal under a LIMIT stops early" — true for
+ * `listSubmissionsFiltered({})`, and false for the shapes that have no LIMIT to
+ * stop them: `countNotifyBouncedBySite` and `countSubmissionsFiltered({})` are
+ * aggregates that read the whole table through the index and were invisible here.
+ *
+ * **Turso meters row scans.** An index-ordered full traversal costs exactly as
+ * many scanned rows as a raw one; the skipped-because-`USING` rule imported a
+ * page-IO intuition into a per-row-billed store.
+ *
+ * So `SCAN t USING [COVERING] INDEX` now counts UNLESS the statement carries a
+ * LIMIT — the one case where the early stop is real. `SEARCH` lines are always
+ * fine: they seek, they do not traverse.
+ *
+ * The remaining known gap, deliberately not guessed at: a LIMITed statement whose
+ * filter has a residual predicate the index cannot serve (`listSubmissionsFiltered
+ * ({reason})`, a `LIKE` on an expression) still scans the whole table when few
+ * rows match, and EXPLAIN's output does not distinguish that from a clean early
+ * stop. Detecting it would need the residual predicate, which is not in the plan
+ * text.
+ */
+export function rawScanTables(details: string[], tables: Set<string>, sql?: string): string[] {
+  const limited = sql !== undefined && /\blimit\b/i.test(sql);
   const hits: string[] = [];
   for (const detail of details) {
     const table = /^SCAN (\S+)/.exec(detail)?.[1];
     if (table === undefined) continue;
     if (!tables.has(table)) continue;
-    if (detail.includes("USING")) continue;
+    // Index-ordered traversal: only excused when a LIMIT can actually stop it.
+    if (/\bUSING\b/.test(detail) && limited) continue;
     hits.push(table);
   }
   return hits;
