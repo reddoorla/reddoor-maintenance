@@ -27,7 +27,7 @@
  *  image calls `loadHeaderImage(db, siteId)` for the bytes; the send path still
  *  fetches the Airtable attachment, and moving it over is its own change.
  */
-import type { Selectable, Updateable } from "kysely";
+import { sql, type Selectable, type Updateable } from "kysely";
 import type { Db } from "./client.js";
 import type { ReportsTable, SiteHealthTable, SiteScheduleTable, SitesTable } from "./schema.js";
 import {
@@ -443,7 +443,17 @@ function checklistFromStored(raw: string | null): Record<string, boolean> {
   return out;
 }
 
-function reportRowFromDb(r: Selectable<ReportsTable>): ReportRow {
+/**
+ * `hasRenderedHtml` is passed separately rather than read off `r`, because the
+ * list read deliberately does not fetch the body (see REPORT_LIST_COLUMNS) and
+ * only ever needed its null-ness. Taking it as an argument means a list row and a
+ * full row are both honest inputs, and nothing here can start depending on body
+ * CONTENT without the type changing to say so.
+ */
+function reportRowFromDb(
+  r: Omit<Selectable<ReportsTable>, "rendered_html">,
+  hasRenderedHtml: boolean,
+): ReportRow {
   const p = r.lighthouse_performance;
   const a = r.lighthouse_accessibility;
   const b = r.lighthouse_best_practices;
@@ -481,10 +491,9 @@ function reportRowFromDb(r: Selectable<ReportsTable>): ReportRow {
     // The body lives IN the row (rendered_html) — the link points at the
     // dashboard's own preview route instead of an EXPIRING Airtable signed URL.
     // Strictly better for the operator: the old link 404'd once the URL aged out.
-    renderedHtmlAttachment:
-      r.rendered_html !== null
-        ? { url: `/api/reports/${r.id}/preview`, filename: `${r.report_id ?? r.id}.html` }
-        : null,
+    renderedHtmlAttachment: hasRenderedHtml
+      ? { url: `/api/reports/${r.id}/preview`, filename: `${r.report_id ?? r.id}.html` }
+      : null,
     resendMessageId: r.resend_message_id,
     checklist: checklistFromStored(r.checklist),
     autoEvidence: parseAutoEvidence(r.checklist_auto_evidence),
@@ -495,28 +504,77 @@ function reportRowFromDb(r: Selectable<ReportsTable>): ReportRow {
   };
 }
 
+/** Every reports column EXCEPT the rendered_html body — the exact hazard
+ *  SITE_COLUMNS guards against on `sites`, on the table where it currently costs
+ *  more. Live, all 16 reports carry a body: 1.17 MB total, avg 73 KB. A list read
+ *  wants the body only to know WHETHER there is one, so `has_rendered_html`
+ *  computes that in SQL and the bytes stay in the database. Kept in lockstep with
+ *  ReportsTable by the body-exclusion test. */
+export const REPORT_LIST_COLUMNS = [
+  "id",
+  "site_id",
+  "report_id",
+  "report_type",
+  "period",
+  "period_start",
+  "period_end",
+  "completed_on",
+  "lighthouse_performance",
+  "lighthouse_accessibility",
+  "lighthouse_best_practices",
+  "lighthouse_seo",
+  "ga_users_current",
+  "ga_users_previous",
+  "search_found_page1",
+  "search_position",
+  "last_tested_date",
+  "commentary",
+  "subject_override",
+  "draft_ready",
+  "approved_to_send",
+  "approved_at",
+  "approved_by",
+  "send_override",
+  "override_reason",
+  "override_by",
+  "override_at",
+  "sent_at",
+  "delivery_status",
+  "resend_message_id",
+  "checklist",
+  "checklist_auto_evidence",
+] as const;
+
+/** The one thing a list read still needs from the body: whether there IS one.
+ *  Computed in SQLite so the bytes never cross the wire. */
+const HAS_RENDERED_HTML = sql<number>`(rendered_html is not null)`.as("has_rendered_html");
+
 /** Same contract as the Airtable listAllReports. Newest-period-first (Airtable
  *  returned manual table order; every consumer filters/sorts itself). */
 export async function listAllReports(db: Db): Promise<ReportRow[]> {
   const rows = await db
     .selectFrom("reports")
-    .selectAll()
+    .select(REPORT_LIST_COLUMNS)
+    .select(HAS_RENDERED_HTML)
     .orderBy("period_start", "desc")
     .orderBy("id")
     .execute();
-  return rows.map(reportRowFromDb);
+  return rows.map((r) => reportRowFromDb(r, r.has_rendered_html !== 0));
 }
 
-/** Same contract as the Airtable listReportsForSite — served by idx_reports_site. */
+/** Same contract as the Airtable listReportsForSite — served by idx_reports_site.
+ *  Body-free for the same reason as listAllReports: the site-detail page renders
+ *  a link, never the HTML. */
 export async function listReportsForSite(db: Db, siteId: string): Promise<ReportRow[]> {
   const rows = await db
     .selectFrom("reports")
-    .selectAll()
+    .select(REPORT_LIST_COLUMNS)
+    .select(HAS_RENDERED_HTML)
     .where("site_id", "=", siteId)
     .orderBy("period_start", "desc")
     .orderBy("id")
     .execute();
-  return rows.map(reportRowFromDb);
+  return rows.map((r) => reportRowFromDb(r, r.has_rendered_html !== 0));
 }
 
 /** Columns a report writer mirrors after its Airtable write (same pattern as
@@ -619,7 +677,7 @@ export async function storeRenderedHtml(db: Db, reportId: string, html: string):
 /** By rec id (the PK) — approve-report's read. */
 export async function getReportById(db: Db, id: string): Promise<ReportRow | null> {
   const r = await db.selectFrom("reports").selectAll().where("id", "=", id).executeTakeFirst();
-  return r ? reportRowFromDb(r) : null;
+  return r ? reportRowFromDb(r, r.rendered_html !== null) : null;
 }
 
 /** The preview route's read: the stored rendered body, or null when the report

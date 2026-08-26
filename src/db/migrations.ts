@@ -351,4 +351,20 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    // form_type was the one SubmissionFilter key with an equality predicate and no
+    // index — countSubmissionsFiltered({formType}) raw-scanned `submissions`, twice
+    // per load of the submissions page. It shipped green because the EXPLAIN gate
+    // named its scenarios by hand and never wrote one for this shape; the gate is
+    // now driven by a filter matrix, which is what surfaced it.
+    //
+    // `submissions` is the one unbounded-growth table in the schema — append-only,
+    // one row per fleet lead forever — and Turso meters ROW SCANS, so this is the
+    // cost that grows without a ceiling.
+    id: "0012_submissions_form_type_index",
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_submissions_form_type
+        ON submissions (form_type);
+    `,
+  },
 ];
