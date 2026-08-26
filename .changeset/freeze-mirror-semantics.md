@@ -14,11 +14,11 @@ the freeze stops the import. After that nothing converges anything, and the same
 swallowed failure is permanent data loss announced only by a log line nobody
 greps. Three outcomes change meaning at the flip:
 
-| outcome | before | after |
-|---|---|---|
-| `mirrored=0` | the sync will fix it | that write is gone |
-| `mirrored=missed` | the site isn't imported yet | impossible, therefore a bug |
-| `mirrored=absent` | no creds; Airtable still has it | every write was discarded |
+| outcome           | before                          | after                       |
+| ----------------- | ------------------------------- | --------------------------- |
+| `mirrored=0`      | the sync will fix it            | that write is gone          |
+| `mirrored=missed` | the site isn't imported yet     | impossible, therefore a bug |
+| `mirrored=absent` | no creds; Airtable still has it | every write was discarded   |
 
 So the freeze is not a config change: it inverts which store is allowed to fail.
 `makeSiteMirror`, `makeReportMirror`, `makeHealthMirrorBestEffort` and
@@ -28,7 +28,7 @@ handing back a working-looking mirror that discards every write.
 
 A code constant rather than an env var, deliberately: the same artifact runs in
 Netlify functions and Actions runners, and an env var set in one but missed in
-the other would give a *partial* freeze — worse than either end.
+the other would give a _partial_ freeze — worse than either end.
 
 Consumers take it as a default parameter rather than reading it inline, so tests
 exercise both sides as fixtures with exactly one assertion on the shipped value.
