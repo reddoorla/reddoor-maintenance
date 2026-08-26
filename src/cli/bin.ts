@@ -715,9 +715,13 @@ cli
 cli
   .command(
     "db <action>",
-    "Operate the libSQL store (migrate | replay-deadletters | import-airtable | parity | sync | backfill-header-images | backfill-digest-state | dump | verify-dump | restore).",
+    "Operate the libSQL store (migrate | replay-deadletters | import-airtable | parity | sync | backfill-header-images | backfill-digest-state | dump | verify-dump | restore | usage).",
   )
   .option("--file <path>", "verify-dump / restore: the dump file to load")
+  .option(
+    "--org <slug>",
+    "usage: Turso org slug (default: TURSO_ORG, else discovered from the token). The token itself comes from TURSO_FLEET_USAGE — never a flag, since argv is readable from ps.",
+  )
   .option(
     "--url <url>",
     "restore: the TARGET database to load into. Required, never defaulted — a restore " +
@@ -727,7 +731,7 @@ cli
   .action(
     async (
       action: string,
-      opts: { file?: string; url?: string; cwd?: string; verbose?: boolean },
+      opts: { file?: string; url?: string; org?: string; cwd?: string; verbose?: boolean },
     ) => runOrExit(async () => (await import("./commands/db.js")).runDbCommand(action, opts), opts),
   );
 

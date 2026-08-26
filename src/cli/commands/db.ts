@@ -3,8 +3,22 @@ export type DbCommandOptions = {
   url?: string;
   /** verify-dump: path to the dump file to load into a scratch engine. */
   file?: string;
+  /** usage: org slug override; defaults to TURSO_ORG, else discovered. */
+  org?: string;
   cwd?: string;
   verbose?: boolean;
+};
+
+/** Injected seams — deliberately NOT part of DbCommandOptions, which is the set
+ *  of things a shell can type (a registration gate asserts exactly that). The
+ *  platform token lives here rather than on a flag because a secret passed on
+ *  argv is readable from `ps`. */
+export type DbCommandDeps = {
+  /** Tests pass "" to exercise the unconfigured path, so the implementation
+   *  must use `?? env` and never `|| env`. */
+  platformToken?: string;
+  fetchImpl?: (url: string, init?: RequestInit) => Promise<Response>;
+  now?: Date;
 };
 
 /** `db <action>` — migrate | replay-deadletters | import-airtable | parity | sync | dump | verify-dump. The db layer is imported
@@ -14,6 +28,7 @@ export type DbCommandOptions = {
 export async function runDbCommand(
   action: string,
   opts: DbCommandOptions,
+  deps: DbCommandDeps = {},
 ): Promise<{ output: string; code: number }> {
   if (action === "migrate") {
     const { readDbConfig } = await import("../../db/client.js");
@@ -338,6 +353,46 @@ export async function runDbCommand(
         `RESTORE loaded=true tables=${Object.keys(counts).length} rows=${rows} blob_bytes=${bytes} mismatches=${bad.length}`,
       ].join("\n"),
       code: bad.length > 0 ? 1 : 0,
+    };
+  }
+
+  // How much of the plan's quota the fleet has burned this billing cycle
+  // (#539 HIGH-10). The starter plan carries `overages: false`, so crossing a
+  // quota BLOCKS reads and writes rather than billing for them — and once the
+  // Airtable cutover lands, Turso is the only store there is. This is the one
+  // alarm that fires before a wall rather than after it.
+  //
+  // Needs a PLATFORM token, which is a different credential from the
+  // database-level TURSO_AUTH_TOKEN the rest of the fleet runs on: the database
+  // token cannot read quota state at all.
+  if (action === "usage") {
+    const token = deps.platformToken ?? process.env.TURSO_FLEET_USAGE ?? "";
+    // An unconfigured alarm must not read as a quiet, healthy one. The tell for
+    // "never ran" has to be a failure, not a missing line (#585).
+    if (!token) {
+      return {
+        output:
+          "FLEET_DB_USAGE verdict=no-token — set TURSO_FLEET_USAGE (turso auth api-tokens mint …). " +
+          "This is the PLATFORM token, not the database TURSO_AUTH_TOKEN.",
+        code: 1,
+      };
+    }
+    const { collectUsage, assessUsage } = await import("../../db/usage.js");
+    const input = await collectUsage({
+      token,
+      org: opts.org ?? process.env.TURSO_ORG,
+      fetchImpl: deps.fetchImpl,
+      now: deps.now ?? new Date(),
+    });
+    const r = assessUsage(input);
+    const window = `${input.cycleStart.toISOString().slice(0, 10)} → ${input.cycleEnd
+      .toISOString()
+      .slice(0, 10)}`;
+    return {
+      output: [`Turso plan=${input.plan}  billing cycle ${window}`, ...r.lines, "", r.marker].join(
+        "\n",
+      ),
+      code: r.code,
     };
   }
 
