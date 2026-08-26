@@ -288,6 +288,81 @@ describe("runVisibilityProbes", () => {
     expect(sleepCalls).not.toContain(2000);
   });
 
+  it("counts a live engine's failed probes in the denominator, so a flakier run cannot score higher", async () => {
+    // Five buyer questions asked; the engine answers two and fails three. One of
+    // the survivors names the business.
+    //
+    // Before this, the denominator was the survivors — 1 of 2 — and the report
+    // read "named in 1 of 2 searches" and scored 50. The truth is 1 of 5. The
+    // engine is demonstrably alive (it answered twice), so its three failures
+    // are real gaps in the measurement, not an outage of ours.
+    const categoryQueries = ["q one", "q two", "q three", "q four", "q five"];
+    const fiveQueries = { ...args, categoryQueries };
+    // Keyed on the query text, not on a guess at the branded prefixes — an
+    // earlier version of this fixture matched only "who is"/"reviews" and let
+    // the second branded query fall through and eat a category slot.
+    const engines = [
+      {
+        name: "perplexity",
+        ask: async (q: string) => {
+          if (!categoryQueries.includes(q)) {
+            return { answer: "Acme Roofing, a contractor.", citedDomains: [] };
+          }
+          // Two of the five category queries come back; three die.
+          if (q === "q one") return { answer: "Acme Roofing is the usual pick.", citedDomains: [] };
+          if (q === "q two")
+            return {
+              answer: "Several contractors serve Boise.",
+              citedDomains: ["bestroofs.example"],
+            };
+          throw new Error("503 upstream");
+        },
+      },
+    ];
+    const result = await runVisibilityProbes(fiveQueries, engines, { delayMs: 0 });
+
+    expect(result.categoryProbes).toEqual({ attempted: 5, answered: 2 });
+    // 1 visible of 5 asked = 20. The pre-fix behaviour was 1 of 2 = 50.
+    expect(result.visibilityScore).toBe(20);
+  });
+
+  it("excludes a wholly dead engine from the denominator, so a missing API key cannot halve the score", async () => {
+    // The companion test at "keeps the answers of a working engine" pins the
+    // score at 100 for exactly this shape. Counting a dead engine's silence as
+    // evidence would make an unset environment variable look like a finding
+    // about the prospect.
+    const engines = [
+      engine("perplexity", () => ({ answer: "Acme Roofing.", citedDomains: ["acme.example"] })),
+      {
+        name: "claude",
+        ask: async () => {
+          throw new Error("401 no key");
+        },
+      },
+    ];
+    const result = await runVisibilityProbes(args, engines, { delayMs: 0 });
+    expect(result.categoryProbes).toEqual({ attempted: 1, answered: 1 });
+    expect(result.visibilityScore).toBe(100);
+  });
+
+  it("reports null, not zero, when every category probe fails on a live engine", async () => {
+    // "The engines were asked and did not know you" and "we learned nothing" are
+    // different claims about someone else's business, and only one of them is
+    // ours to make.
+    const engines = [
+      {
+        name: "perplexity",
+        ask: async (q: string) => {
+          if (args.categoryQueries.includes(q)) throw new Error("503 upstream");
+          return { answer: "Acme Roofing exists.", citedDomains: [] };
+        },
+      },
+    ];
+    const result = await runVisibilityProbes(args, engines, { delayMs: 0 });
+    expect(result.categoryProbes).toEqual({ attempted: 1, answered: 0 });
+    expect(result.visibilityScore).toBeNull();
+  });
+
   it("throws when every engine fails, so the stage degrades", async () => {
     const engines = [
       {

@@ -345,12 +345,28 @@ export async function runVisibilityProbes(
   const nameIsDistinctive = isDistinctiveName(brand);
   const answers: ProbeAnswer[] = [];
   const competitorCounts = new Map<string, number>();
+  // Attempts and liveness, per engine.
+  //
+  // Counted at the point of ASKING, not of answering: everything below can drop
+  // a probe on the floor, and only this knows how many we meant to send.
+  //
+  // Per ENGINE rather than in one total because the two ways a probe goes
+  // missing are not the same claim about the prospect. An engine that answers
+  // nothing at all is a missing API key or a dead vendor — our outage, no
+  // evidence either way, and charging its silence against the prospect would let
+  // an unset environment variable halve somebody's score. An engine that answers
+  // some queries and fails others is demonstrably alive, so those failures are
+  // real gaps in the measurement and belong in the denominator.
+  const perEngine = new Map<string, { categoryAttempted: number; answeredAny: boolean }>();
 
   for (const engine of engines) {
+    const tally = { categoryAttempted: 0, answeredAny: false };
+    perEngine.set(engine.name, tally);
     await pacedEach(
       queries,
       delayMs,
       async ({ query, kind }) => {
+        if (kind === "category") tally.categoryAttempted += 1;
         let reply: { answer: string; citedDomains: string[] };
         try {
           reply = await engine.ask(query);
@@ -363,6 +379,9 @@ export async function runVisibilityProbes(
             return;
           }
         }
+        // Reached only when the engine actually replied, so it is the liveness
+        // signal the denominator is gated on.
+        tally.answeredAny = true;
         const citedDomains = reply.citedDomains.map(domainOf);
         const domainCited = citedDomains.some((d) => isSameSite(d, prospect));
         const brandMentioned = mentionsBrand(reply.answer.toLowerCase(), brand);
@@ -405,10 +424,31 @@ export async function runVisibilityProbes(
   // isDistinctiveName for why a one-word brand needs the citation too.
   const categoryAnswers = answers.filter((a) => a.kind === "category");
   const visibleCategory = categoryAnswers.filter((a) => a.countedAsVisible).length;
+  // Only engines that proved they were alive contribute to the denominator; see
+  // `perEngine` above for why a wholly dead engine is excluded rather than
+  // counted as five silent refusals.
+  const categoryAttempted = [...perEngine.values()]
+    .filter((t) => t.answeredAny)
+    .reduce((n, t) => n + t.categoryAttempted, 0);
+  // Divide by what we ASKED, not by what came back.
+  //
+  // The old divisor was `categoryAnswers.length`, i.e. the survivors, so every
+  // engine failure quietly shrank the denominator and inflated the score — a
+  // flakier run scored higher, and no two runs were comparable. Failures are now
+  // counted as "not visible", which is the conservative reading: we did not see
+  // the prospect named there. It can understate, and understating a number we
+  // hand a stranger is the safe direction — but the disclosure below exists so
+  // the reader is never left guessing which it was.
+  //
+  // Nothing answering at all is NOT a zero. A zero says the engines were asked
+  // and did not know you; every probe failing says we learned nothing. Those are
+  // different claims about someone else's business and only one of them is ours
+  // to make, so that case is null — the same "not measured" path a missing
+  // stage already takes.
   const visibilityScore =
-    categoryAnswers.length === 0
+    categoryAttempted === 0 || categoryAnswers.length === 0
       ? null
-      : Math.round((visibleCategory / categoryAnswers.length) * 100);
+      : Math.round((visibleCategory / categoryAttempted) * 100);
   const brandedRecognized = answers.some((a) => a.kind === "branded" && a.domainCited);
 
   return {
@@ -419,6 +459,7 @@ export async function runVisibilityProbes(
       .map(([domain, count]) => ({ domain, count }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 8),
+    categoryProbes: { attempted: categoryAttempted, answered: categoryAnswers.length },
   };
 }
 
