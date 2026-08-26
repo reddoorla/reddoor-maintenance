@@ -51,8 +51,11 @@ describe("approve button — approved state", () => {
     );
   });
 
-  it("is applied by the click handler on a successful approve", () => {
-    expect(script()).toContain('b.classList.add("is-approved")');
+  it("is applied by the click handler on a successful approve — to every twin", () => {
+    // One report id owns two Approve buttons (pending list + reports history), so
+    // the class goes on all of them, not just the clicked one.
+    expect(script()).toContain('t.classList.add("is-approved")');
+    expect(script()).not.toContain('b.classList.add("is-approved")');
   });
 });
 

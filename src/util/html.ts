@@ -19,6 +19,35 @@ export function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/**
+ * Embed a value inside a `<script>` body as a JavaScript literal.
+ *
+ * **`escapeHtml` is the wrong tool here and fails in a way that looks like it
+ * worked.** A `<script>` element's content is raw text: the HTML parser does not
+ * decode entities inside it, so `&quot;` reaching the browser stays the six
+ * characters `&quot;` — corrupting the JavaScript rather than escaping it. The
+ * house style on these pages is "escapeHtml everything", so the first person to
+ * interpolate into a script body will reach for it by reflex. This exists so
+ * there is a correct thing to reach for instead.
+ *
+ * `JSON.stringify` produces a valid JS literal (quotes included — do NOT wrap the
+ * result in quotes yourself). The extra replacements cover the two sequences JSON
+ * does not escape but the HTML tokenizer still acts on inside raw text:
+ *  - `</` would end the script element early, so `</script>` in a string closes
+ *    the tag and spills the rest of the value into the document as markup;
+ *  - `<!--` opens a comment-like state that can swallow the code after it.
+ *
+ * U+2028/U+2029 are escaped too: they are literal line terminators in JS source
+ * and JSON.stringify leaves them raw.
+ */
+export function scriptLiteral(value: unknown): string {
+  return JSON.stringify(value ?? null)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+
 /** Allow only http(s) URLs in an href context; everything else collapses to "#".
  *
  * Returns the PARSED, percent-encoded `u.href` — never the caller's raw string.

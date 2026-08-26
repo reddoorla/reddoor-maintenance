@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { hostnameOf, isHttpUrl } from "../../util/url.js";
+import { hostnameOf, isHttpUrl, isPrivateOrLoopbackHost } from "../../util/url.js";
 import { reportUrl, reportPrintUrl } from "../../prospect/report-url.js";
 import type { ProspectAuditStatus } from "../../db/prospect-audits.js";
 import type { PipelineDeps, StageName } from "../../prospect/pipeline.js";
@@ -150,6 +150,14 @@ export async function runProspectAuditCommand(
 ): Promise<{ output: string; code: number }> {
   if (!isHttpUrl(url)) {
     return fail(`"${url}" is not a URL. Pass the full address, e.g. https://example.com`);
+  }
+  // #612 review: this validated only the SHAPE. The sole private-address guard
+  // was in `triggerProspectAudit` — one layer at the far end of the chain — so
+  // anyone running the CLI directly, or any future second caller, had none.
+  // `crawlSite` now refuses too; this keeps the refusal a clean message instead
+  // of a thrown crawl error.
+  if (isPrivateOrLoopbackHost(new URL(url).hostname)) {
+    return fail(`"${url}" is a private or loopback address — refusing to audit it.`);
   }
   const canPersist = Boolean(process.env.TURSO_DATABASE_URL);
   if (!canPersist && !opts.out) {

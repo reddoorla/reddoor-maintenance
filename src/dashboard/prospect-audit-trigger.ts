@@ -31,6 +31,25 @@ export const PROSPECT_AUDIT_DUPLICATE_WINDOW_MS = 10 * 60 * 1000;
  *  MAX_RECENT_PROSPECT_AUDITS (src/db/prospect-audits.ts). */
 export const DUPLICATE_CHECK_LOOKBACK = 25;
 
+/** Most audits that may be dispatched in any rolling 24 hours (#612 review).
+ *
+ *  The duplicate window stops the SAME url being re-run; nothing stopped
+ *  DISTINCT urls. One authenticated session could dispatch ~30/minute against
+ *  30 hostnames indefinitely, and one audit is structurally an Opus call plus
+ *  up to 28 Sonnet calls with up to 112 billed web searches, a 20-page double
+ *  crawl, a 3-pass Lighthouse and a PDF render, inside a billed Actions job.
+ *
+ *  25/day is far above real use (this is one operator clicking a button) and far
+ *  below a number that could quietly cost hundreds. A cap that never binds in
+ *  normal operation is the point: it is a runaway brake, not a quota. */
+export const PROSPECT_AUDIT_DAILY_CAP = 25;
+
+/** Lookback for the daily cap. Must exceed the cap so the count can actually
+ *  reach it — a lookback at or below the cap would make the limit unreachable
+ *  and the brake permanently disengaged, which is exactly the kind of guard
+ *  that reads as working while doing nothing. */
+export const DAILY_CAP_LOOKBACK = PROSPECT_AUDIT_DAILY_CAP * 2;
+
 /** The workflow file dispatched when `PROSPECT_AUDIT_WORKFLOW_FILE` is unset. */
 export const DEFAULT_PROSPECT_AUDIT_WORKFLOW_FILE = "prospect-audit.yml";
 
@@ -151,6 +170,9 @@ export type ProspectAuditTriggerResult =
   | { status: "invalid-url" }
   | { status: "private-host" }
   | { status: "duplicate"; existing: ProspectAuditListItem }
+  /** The 24h runaway brake tripped (#612 review). Carries both numbers so the
+   *  operator sees a real limit rather than a bare refusal. */
+  | { status: "daily-cap"; count: number; cap: number }
   | { status: "dispatch-failed"; error: string }
   | { status: "dispatched" };
 
@@ -158,8 +180,9 @@ export type ProspectAuditTriggerResult =
  * Validate, de-duplicate, then dispatch. Order matches the design's threat
  * model: cheap shape checks first (no DB read, no dispatch) — malformed and
  * private-host input never reach the database or the dispatcher — THEN the
- * duplicate check (one DB read, still no dispatch on a hit) — THEN, only for a
- * genuinely new, safe, public URL, the actual dispatch that spends an audit.
+ * duplicate check (one DB read, still no dispatch on a hit) — THEN the 24h
+ * runaway brake — THEN, only for a genuinely new, safe, public URL under the
+ * cap, the actual dispatch that spends an audit.
  */
 export async function triggerProspectAudit(
   deps: ProspectAuditTriggerDeps,
@@ -176,9 +199,18 @@ export async function triggerProspectAudit(
 
   const now = (deps.now ?? (() => new Date()))();
   const cutoff = now.getTime() - PROSPECT_AUDIT_DUPLICATE_WINDOW_MS;
-  const recent = await deps.listRecent(DUPLICATE_CHECK_LOOKBACK);
+  const recent = await deps.listRecent(Math.max(DUPLICATE_CHECK_LOOKBACK, DAILY_CAP_LOOKBACK));
   const existing = recent.find((r) => r.url === url && Date.parse(r.created_at) >= cutoff);
   if (existing) return { status: "duplicate", existing };
+
+  // Runaway brake. Checked AFTER the duplicate check on purpose: a repeated
+  // click on one url should read as "duplicate", which is the truthful and more
+  // useful answer, and should not consume the day's budget.
+  const dayAgo = now.getTime() - 24 * 60 * 60 * 1000;
+  const today = recent.filter((r) => Date.parse(r.created_at) >= dayAgo).length;
+  if (today >= PROSPECT_AUDIT_DAILY_CAP) {
+    return { status: "daily-cap", count: today, cap: PROSPECT_AUDIT_DAILY_CAP };
+  }
 
   const business = input.business?.trim() || null;
   const result = await deps.dispatch({
@@ -253,6 +285,18 @@ export function respondToProspectAuditTrigger(
           error: "duplicate",
           message: `${hostnameOf(result.existing.url)} was already audited in the last 10 minutes — see the existing report instead of running another.`,
           reportUrl: `/r/${result.existing.token}`,
+        },
+      };
+    case "daily-cap":
+      return {
+        // 429, not 400: the request is well-formed and the caller is
+        // authorised — it is the rate that is refused, and it will succeed
+        // again later without any change on their part.
+        status: 429,
+        body: {
+          ok: false,
+          error: "daily-cap",
+          message: `${result.count} audits have run in the last 24 hours (cap ${result.cap}). This is a runaway brake — if the run is genuinely needed, raise PROSPECT_AUDIT_DAILY_CAP.`,
         },
       };
     case "dispatch-failed":
