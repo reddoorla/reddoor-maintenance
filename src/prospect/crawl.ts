@@ -435,7 +435,9 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
   // before the throw.
   if (isPrivateOrLoopbackHost(start.hostname)) {
     throw Object.assign(
-      new Error(`${start.toString()} is a private address (${start.hostname}) — refusing to crawl it.`),
+      new Error(
+        `${start.toString()} is a private address (${start.hostname}) — refusing to crawl it.`,
+      ),
       { exitCode: 1 },
     );
   }
