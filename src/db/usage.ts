@@ -100,12 +100,12 @@ export function assessUsage(input: UsageInput): UsageAssessment {
   const rows: string[] = [];
   /** Metrics whose quota the plan publishes — the denominator of the check. */
   let measured = 0;
-  let worst: { name: string; value: number } | null = null;
   const atCapacity: string[] = [];
-
-  const consider = (name: string, value: number) => {
-    if (!worst || value > worst.value) worst = { name, value };
-  };
+  /** Every metric eligible to drive the verdict, with the number it is judged
+   *  on — the projection for cumulative metrics, the raw level for storage.
+   *  Capacity metrics never land here. */
+  const candidates: Array<{ name: string; value: number }> = [];
+  const consider = (name: string, value: number) => candidates.push({ name, value });
 
   const all: Array<{ metric: UsageMetric; kind: "cumulative" | "level" | "capacity" }> = [
     ...CUMULATIVE_METRICS.map((m) => ({ metric: m as UsageMetric, kind: "cumulative" as const })),
@@ -152,7 +152,11 @@ export function assessUsage(input: UsageInput): UsageAssessment {
   }
 
   const blocked = input.blockedReads ? "reads" : input.blockedWrites ? "writes" : "none";
-  const worstLabel: string = worst ? `${worst.name}:${fmt(worst.value)}` : "none";
+  const worst = candidates.reduce<{ name: string; value: number } | null>(
+    (acc, c) => (acc === null || c.value > acc.value ? c : acc),
+    null,
+  );
+  const worstLabel = worst ? `${worst.name}:${fmt(worst.value)}` : "none";
 
   // Ordered by how bad the state actually is: already blocked beats a
   // projection, and a check that measured nothing beats both — a green
@@ -204,8 +208,8 @@ export type CollectDeps = {
    *  quota state at all. */
   token: string;
   /** Org slug; discovered from the token when omitted. */
-  org?: string;
-  fetchImpl?: FetchLike;
+  org?: string | undefined;
+  fetchImpl?: FetchLike | undefined;
   now: Date;
 };
 
