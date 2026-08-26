@@ -610,3 +610,72 @@ describe("claudeWebSearchEngine", () => {
     expect(out.answer.split("\n")).toHaveLength(4);
   });
 });
+
+describe("resolveBusinessName — abbreviations are names, not prose", () => {
+  // These were all silently degrading to the bare domain, which then sent the
+  // branded probes off to search for "stlouisroofing.com", killed the
+  // brand-mention path, and made the report claim the engines had been handed
+  // the name when they had been handed the domain.
+  it.each([
+    "St. Louis Roofing",
+    "Mt. Vernon Dental",
+    "Dr. Patel Orthodontics",
+    "Smith & Co. Design",
+    "R. J. Reynolds Studio",
+    "Jones Bros. Packaging",
+  ])("keeps %s", (name) => {
+    expect(resolveBusinessName(name, "https://acme.example/")).toBe(name);
+  });
+
+  // The guard's actual job, which must still work.
+  it.each([
+    "Acme Roofing. We serve Boise.",
+    "A roofing contractor. Serving Idaho.",
+    "Acme Roofing is a commercial roofer. Based in Boise.",
+  ])("still rejects prose: %s", (prose) => {
+    expect(resolveBusinessName(prose, "https://acme.example/")).toBe("acme.example");
+  });
+});
+
+describe("mentionsBrand — survives how engines actually write a name", () => {
+  it.each([
+    ["acme roofing llc", "…include acme roofing, a local contractor", "dropped legal suffix"],
+    ["smith & jones design", "try smith and jones design in austin", "& written as and"],
+    ["red-door creative", "red door creative is a los angeles studio", "hyphen as space"],
+    ["acme roofing", "…is acme\nroofing for flat roofs", "line break mid-name"],
+    ["acme roofing", "acme  roofing does commercial work", "double space"],
+    ["acme roofing", "we recommend **acme** roofing for this", "markdown mid-name"],
+  ])("matches %s (%s)", (brand, answer) => {
+    expect(mentionsBrand(answer, brand)).toBe(true);
+  });
+
+  // The false positives the word-boundary rule exists for.
+  it.each([
+    ["ace", "check the surface and placement"],
+    ["ace", "several spacers are needed"],
+    ["summit", "summits across the region"],
+  ])("does not match %s inside a longer word", (brand, answer) => {
+    expect(mentionsBrand(answer, brand)).toBe(false);
+  });
+});
+
+describe("isDistinctiveName — a category noun is not an identity", () => {
+  it.each(["acme roofing", "reddoor creative", "acme.example", "st louis roofing"])(
+    "%s is distinctive",
+    (n) => expect(isDistinctiveName(n)).toBe(true),
+  );
+
+  // The regression: these scored "visible" off prose that referenced nobody —
+  // "a boutique creative studio will give you more senior attention".
+  it.each([
+    "creative studio",
+    "the agency",
+    "design group",
+    "modern dentistry",
+    "family dental care",
+  ])("%s is NOT distinctive", (n) => expect(isDistinctiveName(n)).toBe(false));
+
+  it("a single word is still not distinctive", () => {
+    expect(isDistinctiveName("summit")).toBe(false);
+  });
+});

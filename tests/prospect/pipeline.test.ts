@@ -42,48 +42,53 @@ const analyzeOutput = {
     "how much does a commercial roof replacement cost",
     "flat roof repair Idaho",
   ],
+  // Evidence must be a REAL substring of rich.html, not a placeholder. It used
+  // to be "…", which verifyEvidence nulls — and now that an unsupported
+  // positive verdict is downgraded to `no`, a placeholder would score this
+  // "healthy run" at 0 instead of 100. The fixture was always dishonest; only
+  // now does it matter.
   buyerQuestions: [
     {
       question: "How much does a roof repair cost?",
       answered: "yes" as const,
       quotable: true,
       page: HOME,
-      evidence: "…",
+      evidence: "We repair flat commercial roofs across the Treasure Valley",
     },
     {
       question: "Do you offer free estimates?",
       answered: "yes" as const,
       quotable: true,
       page: HOME,
-      evidence: "…",
+      evidence: "We repair flat commercial roofs across the Treasure Valley",
     },
     {
       question: "What areas do you service?",
       answered: "yes" as const,
       quotable: true,
       page: HOME,
-      evidence: "…",
+      evidence: "We repair flat commercial roofs across the Treasure Valley",
     },
     {
       question: "Are you licensed and insured?",
       answered: "yes" as const,
       quotable: true,
       page: HOME,
-      evidence: "…",
+      evidence: "We repair flat commercial roofs across the Treasure Valley",
     },
     {
       question: "Do you handle emergency repairs?",
       answered: "yes" as const,
       quotable: true,
       page: HOME,
-      evidence: "…",
+      evidence: "We repair flat commercial roofs across the Treasure Valley",
     },
     {
       question: "What kind of warranty do you offer?",
       answered: "yes" as const,
       quotable: true,
       page: HOME,
-      evidence: "…",
+      evidence: "We repair flat commercial roofs across the Treasure Valley",
     },
   ],
   fixes: [

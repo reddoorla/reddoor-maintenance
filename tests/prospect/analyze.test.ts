@@ -278,7 +278,13 @@ describe("analyzeSite", () => {
       run: async () => validOutput,
     });
     expect(result.business).toContain("Acme Roofing");
-    expect(result.buyerQuestions[0]!.answered).toBe("partial");
+    // The fixture's first question is `partial` citing a price range that does
+    // not appear on the crawled page. Evidence verification nulls the quote,
+    // and an unsupported positive verdict is then downgraded — so `no`, not
+    // `partial`. This assertion used to read `partial`, which was the bug: a
+    // verdict survived the evidence that justified it being thrown away.
+    expect(result.buyerQuestions[0]!.evidence).toBeNull();
+    expect(result.buyerQuestions[0]!.answered).toBe("no");
   });
 
   it("rejects output that does not match the schema", async () => {
@@ -494,5 +500,82 @@ describe("analyzeSite — evidence verification", () => {
     );
     expect(untouched?.page).toBeNull();
     expect(untouched?.evidence).toBeNull();
+  });
+});
+
+// The regression this exists for, observed in production: the same site, the
+// same question, the same null evidence — graded `no` on 25 Aug and `partial`
+// on 26 Aug. checks.ts weights `partial` at 0.5, so two of those moved the
+// Answers score 10 points, and the report then scored pricing as answered while
+// its own fix list told the prospect to publish pricing.
+describe("verifyEvidence — a positive verdict must be supported", () => {
+  // Typed explicitly: inferring from validOutput yields a union that narrows
+  // `page` to `string`, and every case here is about a null one.
+  const ask = async (over: {
+    answered: "yes" | "partial" | "no";
+    page: string | null;
+    evidence: string | null;
+  }) => {
+    const c = crawl();
+    const result = await analyzeSite("https://acme.example/", c, runChecks(c), {
+      run: async () => ({
+        ...validOutput,
+        buyerQuestions: [{ ...validOutput.buyerQuestions[0]!, ...over }, ...makeQuestions(5)],
+      }),
+    });
+    return result.buyerQuestions[0]!;
+  };
+
+  it("downgrades a `partial` with no evidence to `no`", async () => {
+    const q = await ask({ answered: "partial", page: null, evidence: null });
+    expect(q.answered).toBe("no");
+  });
+
+  it("downgrades a `yes` with no evidence to `no`", async () => {
+    const q = await ask({ answered: "yes", page: null, evidence: null });
+    expect(q.answered).toBe("no");
+  });
+
+  // The evidence was nulled out because it wasn't a real quote — so the verdict
+  // it was supporting has to go too, or the fabrication just moves.
+  it("downgrades when the evidence is dropped for not being a verbatim quote", async () => {
+    const q = await ask({
+      answered: "yes",
+      page: "https://acme.example/p0",
+      evidence: "a sentence that appears nowhere on the page",
+    });
+    expect(q.evidence).toBeNull();
+    expect(q.answered).toBe("no");
+  });
+
+  it("downgrades when the cited page was never crawled", async () => {
+    const q = await ask({
+      answered: "partial",
+      page: "https://acme.example/never-crawled",
+      evidence: "Body copy number 0.",
+    });
+    expect(q.answered).toBe("no");
+  });
+
+  it("leaves a genuinely supported verdict alone", async () => {
+    const q = await ask({
+      answered: "yes",
+      page: "https://acme.example/p0",
+      evidence: "Body copy number 0.",
+    });
+    expect(q.answered).toBe("yes");
+    expect(q.evidence).toBe("Body copy number 0.");
+  });
+
+  // The question stays in the table — it just stops scoring. Dropping it would
+  // hide a gap the prospect should see.
+  it("keeps the question visible rather than removing it", async () => {
+    const q = await ask({ answered: "yes", page: null, evidence: null });
+    expect(q.question).toBe(validOutput.buyerQuestions[0]!.question);
+  });
+
+  it("leaves an already-`no` verdict untouched", async () => {
+    const q = await ask({ answered: "no", page: null, evidence: null });
+    expect(q.answered).toBe("no");
   });
 });

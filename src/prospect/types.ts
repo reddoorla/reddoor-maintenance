@@ -155,6 +155,20 @@ export type ProbeAnswer = {
   kind: "branded" | "category" | "competitor";
   domainCited: boolean;
   brandMentioned: boolean;
+  /**
+   * Did this answer count toward `visibilityScore`?
+   *
+   * Recorded here rather than re-derived by the renderer, because the gate is
+   * not simply `domainCited || brandMentioned` — a mention only counts when the
+   * name is distinctive enough for it to mean anything (see `isDistinctiveName`).
+   * The report used to re-derive it with the looser rule and printed "You were
+   * named in this answer" above a card contributing zero to the number beside it.
+   *
+   * Optional because reports persisted before this field existed still render;
+   * `render.ts` falls back to the old expression for those, which is what those
+   * documents already said.
+   */
+  countedAsVisible?: boolean;
   citedDomains: string[];
   /** First ~300 chars of the engine's answer — the report's receipt. */
   snippet: string;
