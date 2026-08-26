@@ -79,6 +79,12 @@ export function isPrivateOrLoopbackHost(hostname: string): boolean {
     // NAT64 (`64:ff9b::/96`) embed a v4 address the dotted-quad block below never
     // sees — refuse both wholesale (no legitimate target uses these forms).
     if (host.startsWith("::ffff:") || host.startsWith("64:ff9b:")) return true;
+    // The deprecated IPv4-COMPATIBLE form (`::a.b.c.d`) normalizes to a bare
+    // `::x:y` with no `ffff:` marker, so the branch above misses it. Not
+    // routable to loopback on Linux, but it costs one line to stop reasoning
+    // about which stacks honour it: anything in `::/96` other than the
+    // unspecified address embeds a v4 literal the dotted-quad block never sees.
+    if (/^::(?!$)(?!0*:?$)[0-9a-f]{0,4}:?[0-9a-f]{0,4}$/.test(host)) return true;
     return false;
   }
   // IPv4 dotted-quad: block the private/loopback/link-local/CGNAT ranges.

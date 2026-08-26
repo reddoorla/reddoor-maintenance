@@ -50,12 +50,24 @@ export type WorkflowRunState =
   | "cancelled"
   | "timed_out";
 
+/**
+ * `step` used to be here, always `null`. The cockpit's `rfPhase` mapped a raw
+ * GitHub step name onto a human phase line ("auditing the fleet…"), carefully
+ * ordered and commented — and nothing ever populated the field, so that line
+ * never rendered once. Both halves were untested.
+ *
+ * Removed rather than wired: the step name only comes from the per-run *jobs*
+ * endpoint, so filling it would add a GitHub API call per workflow per 10-second
+ * poll on a request path, to produce one line of prose that the elapsed/ETA line
+ * already covers. Half a feature that reads as finished is worse than neither
+ * half; if the phase line is wanted later, it comes back with the call that
+ * feeds it and a test on both ends.
+ */
 export type FleetRunStatus = {
   perWorkflow: {
     workflow: string;
     state: WorkflowRunState;
     url: string | null;
-    step: string | null;
   }[];
   allDone: boolean; // every workflow's newest run has completed
   anySuccess: boolean; // ≥1 completed with conclusion "success"
@@ -94,7 +106,7 @@ export function summarizeFleetRunStatus(
 ): FleetRunStatus {
   const perWorkflow = runsByWorkflow.map(({ workflow, runs }) => {
     const newest = runs[0];
-    return { workflow, state: runState(newest), url: newest?.htmlUrl ?? null, step: null };
+    return { workflow, state: runState(newest), url: newest?.htmlUrl ?? null };
   });
   return {
     perWorkflow,

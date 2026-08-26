@@ -10,6 +10,8 @@ import {
   type ProspectAuditTriggerDeps,
   type ProspectAuditDispatchResult,
   type ProspectAuditDispatchTarget,
+  PROSPECT_AUDIT_DAILY_CAP,
+  DAILY_CAP_LOOKBACK,
 } from "../../src/dashboard/prospect-audit-trigger.js";
 import type { ProspectAuditListItem } from "../../src/db/prospect-audits.js";
 
@@ -357,5 +359,87 @@ describe("the default recipients label", () => {
     // secrets. A message here that confidently lists people would drift silently
     // the day someone is added, and be wrong with no way to notice.
     expect(DEFAULT_PROSPECT_AUDIT_RECIPIENTS_LABEL).not.toMatch(/tucker|tim|erik|@/i);
+  });
+});
+
+/**
+ * #612 review: the duplicate window stops the SAME url being re-run; nothing
+ * stopped DISTINCT urls. One authenticated session could dispatch ~30/minute
+ * against 30 hostnames indefinitely, and one audit is structurally an Opus call
+ * plus up to 28 Sonnet calls with up to 112 billed web searches, a 20-page
+ * double crawl, a 3-pass Lighthouse and a PDF render in a billed Actions job.
+ *
+ * This is a runaway brake, not a quota — it should never bind in normal use.
+ */
+describe("the 24h daily cap", () => {
+  /** `n` distinct-url audits, all inside the last 24 hours. */
+  const recentRun = (n: number, at = "2026-08-25T09:00:00.000Z") =>
+    Array.from({ length: n }, (_, i) =>
+      recentItem({ url: `https://site-${i}.example/`, created_at: at }),
+    );
+
+  it("refuses once the cap is reached, and never dispatches", async () => {
+    let dispatched = 0;
+    const r = await triggerProspectAudit(
+      deps({
+        listRecent: async () => recentRun(PROSPECT_AUDIT_DAILY_CAP),
+        dispatch: async () => {
+          dispatched++;
+          return { ok: true };
+        },
+      }),
+      TARGET,
+      { url: "https://brand-new.example/", business: null, requestedBy: "op@reddoorla.com" },
+    );
+    expect(r.status).toBe("daily-cap");
+    expect(dispatched).toBe(0);
+  });
+
+  it("still dispatches one below the cap (positive control)", async () => {
+    // Without this, a cap that refused unconditionally would pass the test above.
+    const r = await triggerProspectAudit(
+      deps({ listRecent: async () => recentRun(PROSPECT_AUDIT_DAILY_CAP - 1) }),
+      TARGET,
+      { url: "https://brand-new.example/", business: null, requestedBy: "op@reddoorla.com" },
+    );
+    expect(r.status).toBe("dispatched");
+  });
+
+  it("ignores audits older than 24h — the window rolls", async () => {
+    const r = await triggerProspectAudit(
+      deps({
+        listRecent: async () => recentRun(PROSPECT_AUDIT_DAILY_CAP, "2026-08-23T09:00:00.000Z"),
+      }),
+      TARGET,
+      { url: "https://brand-new.example/", business: null, requestedBy: "op@reddoorla.com" },
+    );
+    expect(r.status).toBe("dispatched");
+  });
+
+  it("reports a repeat of the SAME url as duplicate, not as cap", async () => {
+    // Order matters: a second click on one url is truthfully a duplicate, and
+    // must not consume the day's budget or report a confusing limit.
+    const dup = recentItem({ url: "https://acme.example/" });
+    const r = await triggerProspectAudit(
+      deps({ listRecent: async () => [dup, ...recentRun(PROSPECT_AUDIT_DAILY_CAP)] }),
+      TARGET,
+      { url: "https://acme.example/", business: null, requestedBy: "op@reddoorla.com" },
+    );
+    expect(r.status).toBe("duplicate");
+  });
+
+  it("the lookback exceeds the cap, or the brake could never engage", () => {
+    // A lookback at or below the cap makes the limit unreachable — a guard that
+    // reads as working while doing nothing.
+    expect(DAILY_CAP_LOOKBACK).toBeGreaterThan(PROSPECT_AUDIT_DAILY_CAP);
+  });
+
+  it("answers 429 with both numbers, not a bare refusal", () => {
+    const out = respondToProspectAuditTrigger(
+      { status: "daily-cap", count: 25, cap: 25 },
+      { recipientsLabel: "the team" },
+    );
+    expect(out.status).toBe(429);
+    expect(String(out.body.message)).toContain("25");
   });
 });

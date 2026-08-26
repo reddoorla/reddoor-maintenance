@@ -987,13 +987,37 @@ describe("renderCockpitHtml — Audit fleet button + live status", () => {
     expect(html).toMatch(/localStorage/);
   });
 
-  it("the spinner client carries the phase/eta/run-link detail wiring", () => {
+  it("the spinner client carries the eta/run-link detail wiring", () => {
     const html = renderCockpitHtml(model([siteRow()]));
     expect(html).toContain("view run"); // run link shown while running
     expect(html).toContain("rf-sub"); // the detail sub-line class
-    expect(html).toContain("auditing the fleet"); // phase humanization
     expect(html).toContain("~48m"); // lighthouse ETA
     expect(html).toContain("~2m"); // security ETA
+  });
+
+  it("carries no phase humanization, because nothing ever populated the step", () => {
+    // `rfPhase` mapped a GitHub step name onto "auditing the fleet…" and was
+    // never reachable: `summarizeFleetRunStatus` returned `step: null`
+    // unconditionally, so the line never rendered once. This test used to assert
+    // the dead string was PRESENT. Both halves are gone; if the phase line comes
+    // back it comes back with the API call that feeds it.
+    const html = renderCockpitHtml(model([siteRow()]));
+    expect(html).not.toContain("auditing the fleet");
+    expect(html).not.toContain("rfPhase");
+    expect(html).not.toContain("w.step");
+  });
+
+  it("escapes interpolated values and refuses a run link that is not a GitHub URL", () => {
+    // The panel builds HTML from a REMOTE API response and assigns it via
+    // innerHTML. Values are server enums and GitHub html_urls today, but the
+    // house rule on these pages is that no server string reaches the browser as
+    // markup — so the sink is escaped and the href is prefix-gated.
+    const html = renderCockpitHtml(model([siteRow()]));
+    expect(html).toContain("function rfEsc(v)");
+    expect(html).toContain("function rfRunUrl(u)");
+    expect(html).toContain("u.indexOf('https://github.com/') === 0");
+    // The raw, unescaped interpolations the old code used must be gone.
+    expect(html).not.toContain("'<a href=\"'+w.url+'\"");
   });
 });
 

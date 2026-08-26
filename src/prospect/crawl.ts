@@ -375,15 +375,23 @@ async function fetchSidecars(origin: string, deps: CrawlDeps): Promise<Sidecars>
   if (sitemap.res && /<(urlset|sitemapindex)[\s>]/i.test(sitemap.res.body)) {
     sitemapPresent = true;
     if (isSitemapIndex(sitemap.res.body)) {
-      for (const child of parseSitemapLocs(sitemap.res.body).slice(0, 3)) {
-        // `child` is attacker-controlled: it comes out of the AUDITED site's
-        // sitemap, and the audited site is a prospect we have not met. Without
-        // this it reached fetch() unchecked — a hostile index could make the
-        // runner request 169.254.169.254, 127.0.0.1 or any internal host, from
-        // a GitHub Actions job holding TURSO_AUTH_TOKEN, RESEND_API_KEY and
-        // ANTHROPIC_API_KEY. The guard at the redirect check below exists for
-        // exactly this and this loop was not using it.
-        if (!isSafeNestedSitemap(child, origin)) continue;
+      // `child` is attacker-controlled: it comes out of the AUDITED site's
+      // sitemap, and the audited site is a prospect we have not met. Without
+      // isSafeNestedSitemap it reached fetch() unchecked — a hostile index could
+      // make the runner request 169.254.169.254, 127.0.0.1 or any internal host,
+      // from a GitHub Actions job holding TURSO_AUTH_TOKEN, RESEND_API_KEY and
+      // ANTHROPIC_API_KEY.
+      //
+      // Filter BEFORE the cap, not inside the loop after it. Taking the first
+      // three and then discarding the unsafe ones lets three hostile entries at
+      // the top of an index consume the entire budget and starve out the site's
+      // real sitemaps — the crawl then silently sees fewer pages, which is a
+      // quieter failure than the SSRF itself. Caught by the positive control in
+      // the SSRF test, not by reading the loop.
+      const children = parseSitemapLocs(sitemap.res.body)
+        .filter((child) => isSafeNestedSitemap(child, origin))
+        .slice(0, 3);
+      for (const child of children) {
         const nested = await optional(deps, child);
         if (nested.res) sitemapUrls.push(...parseSitemapLocs(nested.res.body));
       }
@@ -420,6 +428,19 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
   // anything downstream is derived from `start`.
   start.username = "";
   start.password = "";
+  // Check the ENTRY host before the first fetch. The redirect guard below has
+  // always covered where a hostile site can send us SECOND; nothing covered a
+  // caller pointing the crawler at an internal address to BEGIN with, and the
+  // CLI validates only `isHttpUrl` — so one fetch of 169.254.169.254 happened
+  // before the throw.
+  if (isPrivateOrLoopbackHost(start.hostname)) {
+    throw Object.assign(
+      new Error(
+        `${start.toString()} is a private address (${start.hostname}) — refusing to crawl it.`,
+      ),
+      { exitCode: 1 },
+    );
+  }
 
   let home: FetchResponse;
   try {

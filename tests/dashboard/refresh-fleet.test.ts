@@ -62,8 +62,8 @@ describe("summarizeFleetRunStatus", () => {
       { workflow: "fleet-lighthouse.yml", runs: [] },
     ]);
     expect(s.perWorkflow).toEqual([
-      { workflow: "fleet-security.yml", state: "starting", url: null, step: null },
-      { workflow: "fleet-lighthouse.yml", state: "starting", url: null, step: null },
+      { workflow: "fleet-security.yml", state: "starting", url: null },
+      { workflow: "fleet-lighthouse.yml", state: "starting", url: null },
     ]);
     expect(s.allDone).toBe(false);
   });
@@ -123,12 +123,19 @@ describe("summarizeFleetRunStatus", () => {
     }
   });
 
-  it("includes a step field (null) on every perWorkflow entry — endpoint fills it for in-progress runs", () => {
+  it("carries no step field — nothing ever populated it, and the consumer is gone", () => {
+    // This test used to assert `step` was present and null, with a title claiming
+    // "endpoint fills it for in-progress runs". It never did: the field was
+    // hard-coded null here, so the cockpit's `rfPhase` humanization never rendered
+    // once. Both halves are removed; the assertion now pins their absence.
     const s = summarizeFleetRunStatus([
       { workflow: "fleet-security.yml", runs: [run({})] },
       { workflow: "fleet-lighthouse.yml", runs: [] },
     ]);
-    expect(s.perWorkflow.every((w) => w.step === null)).toBe(true);
+    expect(s.perWorkflow).toHaveLength(2);
+    for (const w of s.perWorkflow) {
+      expect(Object.keys(w).sort()).toEqual(["state", "url", "workflow"]);
+    }
   });
 
   it("uses the newest (first) run and carries its url", () => {

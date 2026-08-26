@@ -349,41 +349,38 @@ const AUDIT_SCRIPT = `<script>
   function rfStop(){ try { localStorage.removeItem(RF_KEY); } catch(e){} }
   // Per-workflow ETA hint (the lighthouse fleet sweep runs ~48 min; security ~1-2 min).
   function rfEta(label){ return label === 'lighthouse' ? '~48m' : label === 'security' ? '~2m' : ''; }
-  // Map a raw GitHub step name to a coarse human phase. Order matters (the audit step
-  // name also contains 'browser'; 'playwright install' also contains 'install').
-  function rfPhase(step){
-    if (!step) return '';
-    var s = step.toLowerCase();
-    if (s.indexOf('audit') !== -1 || s.indexOf('lighthouse') !== -1) return 'auditing the fleet…';
-    if (s.indexOf('build') !== -1) return 'building…';
-    if (s.indexOf('playwright') !== -1 || s.indexOf('browser') !== -1) return 'installing browsers…';
-    if (s.indexOf('install') !== -1 || s.indexOf('depend') !== -1) return 'installing dependencies…';
-    if (s.indexOf('set up') !== -1 || s.indexOf('checkout') !== -1) return 'setting up…';
-    return step;
+  // Escape before interpolating. The values here are server-side enums and a
+  // GitHub html_url today, but this builds HTML from a REMOTE API response, and
+  // the house rule everywhere else on these pages is that no server string ever
+  // reaches the browser as markup. Cheaper to escape than to keep re-deciding.
+  function rfEsc(v){
+    return String(v == null ? '' : v)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   }
-  // Safe to build raw HTML: workflow/state/step are server-fixed (enums + GitHub step
-  // names) and url is GitHub's own html_url for our central repo — none are
-  // user-supplied. Don't interpolate untrusted fields here without escaping.
+  // A run link must be a GitHub run URL. Anything else is dropped rather than
+  // rendered, so a compromised or unexpected API response cannot place an
+  // arbitrary href (javascript:, data:, an attacker's host) in the panel.
+  function rfRunUrl(u){
+    return typeof u === 'string' && u.indexOf('https://github.com/') === 0 ? rfEsc(u) : '';
+  }
   function rfRender(status, startedAt){
     var failed = function(s){ return s === 'failure' || s === 'cancelled' || s === 'timed_out'; };
     var mins = Math.floor((Date.now() - startedAt) / 60000);
     var elapsed = mins < 1 ? '<1m' : mins + 'm';
     return status.perWorkflow.map(function(w){
-      var label = w.workflow.replace('.yml','').replace('fleet-','');
+      var label = String(w.workflow || '').replace('.yml','').replace('fleet-','');
       var done = w.state === 'success';
       var isFailed = failed(w.state);
       var icon = done ? '✓' : isFailed ? '✗' : '<span class="rf-spin"></span>';
-      var line = icon + ' ' + label + ' — ' + w.state.replace('_',' ');
+      var line = icon + ' ' + rfEsc(label) + ' — ' + rfEsc(String(w.state || '').replace('_',' '));
+      var url = rfRunUrl(w.url);
       if (!done && !isFailed){
-        var phase = rfPhase(w.step);
         var eta = rfEta(label);
-        var detail = [];
-        if (phase) detail.push(phase);
-        detail.push(elapsed + (eta ? ' / ' + eta : ''));
-        var link = w.url ? ' · <a href="'+w.url+'" target="_blank" rel="noopener">view run ↗</a>' : '';
-        line += '<div class="rf-sub">' + detail.join(' · ') + link + '</div>';
-      } else if (isFailed && w.url){
-        line += ' <a href="'+w.url+'" target="_blank" rel="noopener">run</a>';
+        var link = url ? ' · <a href="'+url+'" target="_blank" rel="noopener">view run ↗</a>' : '';
+        line += '<div class="rf-sub">' + elapsed + (eta ? ' / ' + eta : '') + link + '</div>';
+      } else if (isFailed && url){
+        line += ' <a href="'+url+'" target="_blank" rel="noopener">run</a>';
       }
       return '<div class="rf-row">' + line + '</div>';
     }).join('');
