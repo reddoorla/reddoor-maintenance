@@ -1,5 +1,320 @@
 # @reddoorla/maintenance
 
+## 0.87.0
+
+### Minor Changes
+
+- eeb76f8: Serve the audit report's data, so the report itself can become a page on reddoorla.com.
+
+  Two additions, both read-only and both in service of moving the prospect-facing
+  report off this app's domain and onto the marketing site, where it can be
+  rendered in Reddoor's own design language.
+
+  `GET /api/audit-report/:token` returns the stored `result_json` for a valid
+  token. It mirrors `prospect-report.mts` exactly on token handling — same
+  shape-check before the database, same 404 for anything else, same `private`
+  cache directive — and differs only in returning JSON rather than rendered HTML.
+  Like that route it is deliberately not operator-gated: the 128-bit token is the
+  credential. Keeping the two routes identical on token handling matters, because
+  a divergence there is a security difference rather than a stylistic one.
+
+  A new `./audit` package subpath exports `ProspectAuditResult` so a consuming
+  site can type the payload it fetches instead of hand-maintaining a copy of the
+  shape. The subpath is named for what a consumer receives; the source path keeps
+  this repo's own domain word, which is why `./audit` resolves to
+  `dist/prospect/types.js`.
+
+  That export is only safe because `src/prospect/types.ts` contains a single
+  `import type` and no runtime import — a runtime import there would pull the
+  Anthropic SDK and Playwright into a consuming site's bundle, which is exactly
+  what tsup's config comment warns about. Nothing enforced it before; a test does
+  now. The built entry is 33 bytes of JavaScript and 10.7 KB of types.
+
+  Turso credentials stay in this repo. The website only ever sees the JSON.
+
+### Patch Changes
+
+- 6132ac7: Fix: don't offer a commentary box on report types that ignore it.
+
+  #596 added a commentary editor to every unsent report. Only Maintenance and
+  Testing render commentary — `buildAnnouncementMjml` and `buildLaunchMjml` never
+  reference the field — so on those two types an operator could write commentary,
+  see it save, preview it, and find nothing, with no explanation.
+
+  `rendersCommentary(type)` now lives beside the template dispatch it mirrors, and
+  a test renders EVERY report type through the real MJML pipeline with a marker in
+  the commentary, asserting presence matches the predicate. A template that starts
+  or stops using commentary fails that test rather than quietly disagreeing.
+
+- 7378b0f: D5: read stored header images back out of Turso.
+
+  `storeHeaderImage` has been dual-writing since the header-image CLI landed, and
+  the one-shot backfill copied the rest — production carries a BLOB for 12 of the
+  13 maintained sites. But nothing could read the bytes back, so every consumer
+  still fetched Airtable's signed attachment URL and the columns were write-only in
+  practice.
+
+  `loadHeaderImage(db, siteId)` closes that. It is a separate query from the site
+  read on purpose: `getSiteBySlug` excludes the BLOB because it is 0.6–0.8 MB per
+  site, so reading the bytes has to be an explicit per-site act rather than a field
+  that arrives for free on every dashboard GET.
+
+  Also corrects two module comments that claimed these columns were empty
+  fleet-wide. That was true when written and has not been since.
+
+- 6184177: `ensure-site` now dual-writes a new site into Turso (#539 Phase 5).
+
+  Bootstrapping is the only path that CREATES a Websites row, and every site
+  mirror built so far is an UPDATE — which does nothing at all for a row that does
+  not exist yet. So a site bootstrapped at 09:05 stayed invisible to Turso until
+  the 09:20 sync, and every mirror the rest of the bootstrap fired afterwards
+  reported `mirrored=missed` because there was no row to update.
+
+  `mirrorSiteInsert` maps with the importer's own `mapWebsiteRecord` — the same
+  function parity diffs against — so the rows are parity-clean by construction
+  rather than by a column list someone has to remember to extend. Its test asserts
+  that directly: mirror one record, import the same record, demand identical rows.
+
+  All three rows go in, not just `sites`. Parity reverse-checks `site_health` and
+  `site_schedule` per site and reports a missing one as `(row) ABSENT`, and a later
+  `mirrorHealthFields` would return `missed` forever with no row to hit.
+
+  It upserts rather than inserts, because `ensure-site` is re-run to resume a
+  bootstrap. A stored header image survives that by construction:
+  `mapWebsiteRecord` does not carry the `header_image*` columns (Airtable stopped
+  being their source, design D5), so the conflict branch cannot blank a plate whose
+  bytes live in no other store.
+
+  The fill-blanks path is mirrored too — a resumed bootstrap that only filled a
+  blank `url` would otherwise leave Turso stale until the next sync.
+
+  Airtable stays authoritative; this is a dual-write, not a cutover.
+
+- f445f3d: Fix: the site editor's checkbox and multi-select could not save.
+
+  #591 added `Require Turnstile` (a checkbox) and `Accepted Watch Conditions` (a
+  multi-select) to the dashboard site editor. Both rendered correctly and neither
+  could actually save, because the inline script posted `el.value`:
+
+  - a checkbox's `.value` is its `value` content attribute (`"on"` by default),
+    never the checked state — and its listener was the text-input one, guarded by
+    `value !== defaultValue`, which for a checkbox compares `"on"` to `"on"`, so it
+    never fired at all;
+  - a `multiple` select's `.value` is the first selected option only, so all but
+    one accepted condition would have been silently dropped.
+
+  The serializer is now a named function exported as source, so tests execute the
+  exact text the page serves — the inline script is a template string and the suite
+  runs without a DOM, which is why nothing caught this. Checkboxes bind on `change`
+  and are excluded from the blur path.
+
+- b741af0: Fix: report preview links pointed at expiring Airtable URLs.
+
+  `/api/reports/:id/preview` was built in Phase 2 to serve a report's rendered body
+  from Turso, precisely because Airtable attachment URLs are signed and expire — a
+  dashboard tab left open 404s. Nothing ever linked to it, so the expiring URL
+  stayed in front of the operator.
+
+  Both the pending-approval "draft preview" link and the history table's "view"
+  link now point at the dashboard's own route. The attachment's presence still
+  gates whether a link renders at all; it just no longer supplies the destination.
+
+- 1e98a3d: Report review: edit commentary from the console (#539 Phase 4).
+
+  Commentary is the one part of a client report an operator writes by hand, and it
+  was editable only in Airtable. The dashboard now offers it inline on any report
+  that has not been sent.
+
+  The lock is `sentAt`, not approval: approving schedules the send for the next
+  09:23 UTC run, so a typo spotted in that window is still fixable, but once the
+  email is out the stored row must keep matching what the client actually read.
+  The editor renders for the whole unsent window — in the pending list, and as a
+  sub-row in the history table for approved-awaiting-send.
+
+  Writes go to Airtable and mirror into Turso (`ReportMirrorPatch` gains
+  `commentary`), so the page re-render right after a save shows the new text rather
+  than the old one until the next hourly sync.
+
+- 2131264: Dashboard site editor: the Mailchimp API key, as a write-only field (#539 Phase 4).
+
+  The last of the design's eight uncovered fields, and the only live credential
+  among them. A new `secret` kind makes it editable without ever sending the stored
+  value to the browser: the control renders with no `value` attribute, and its
+  placeholder reports only whether a key is set.
+
+  An empty submission means "leave unchanged", not "clear". Every other kind clears
+  on empty, but this input is blank on every page load by construction, so
+  clear-on-empty would let any unrelated save destroy a working key. `setSiteDetail`
+  returns a new `unchanged` status and never touches the record.
+
+  Known limitation: the console therefore cannot CLEAR a key, only replace it —
+  clearing is an Airtable action today. That needs revisiting at the Phase 5 freeze,
+  when Airtable stops being available as the fallback path.
+
+  This completes editor coverage for all eight fields the design named.
+
+- 00a63ec: Dashboard site editor: the two non-text fields (#539 Phase 4).
+
+  `Require Turnstile` (a checkbox) and `Accepted Watch Conditions` (a
+  multipleSelects) cannot be written as strings, so `updateSiteField` and
+  `mirrorSiteField` now take `AirtableCellValue` (`string | boolean | string[]`)
+  and the values travel as themselves.
+
+  The coercion to Turso's `1/0` and JSON-array storage is NOT repeated in the
+  mirror — it is delegated to the importer's own `siteValueFor`, newly extracted
+  and now used by both. Parity compares raw-to-raw, so a mirror storing `"true"`
+  where the importer stores `1` would red every hourly run; a test asserts the two
+  paths agree byte-for-byte.
+
+  An unknown watch condition is refused rather than sent. The records API would
+  create a missing select option as a `typecast` side effect — the
+  silent-option-creation hazard this codebase refuses everywhere.
+
+  Known gap, operator-owned: the cockpit supports a `turnstile-unverified` accept
+  key and the Airtable field has no option for it, so that one condition still
+  cannot be accepted from the console. Adding the option is a UI action; the API
+  cannot create select choices.
+
+- 2b81283: Prospect audit: ask the visibility engines a search, not a question about the site.
+
+  The first production audit scored its subject 0 on AI Visibility, and two of the
+  three category probes explain why. The probe stage was seeded with
+  `AnalyzeResult.buyerQuestions` verbatim — questions the analyze pass writes _about
+  the prospect's site_, where "What services does this agency actually offer?" and
+  "Where are they located?" read perfectly well beside it. Sent to a live engine on
+  their own, with no other context, they have no antecedent. One came back "I don't
+  have any context about who 'they' refers to"; the other opened by looking for an
+  uploaded file. Neither measured the prospect. The score measured our own prompt.
+
+  `AnalyzeResult` now carries a separate `categoryQueries`: 3-5 standalone searches
+  a buyer types _before_ they have heard of the company, which must never refer to
+  it — not by name (the engine just echoes the name back, measuring nothing) and not
+  by pronoun. `buyerQuestions` keeps its conversational phrasing, which is correct
+  for the report's Answers section and was never the problem.
+
+  The two uses had been sharing one field since the stage was written; the schema
+  comment noted the dual purpose but the prompt only ever described the first one.
+
+  `ProbeInput.buyerQuestions` is now `ProbeInput.categoryQueries`. `buildQueries`
+  passes these through untouched, so nothing downstream can repair a query that
+  arrives malformed — a test pins that guarantee at the boundary, and the schema
+  rejects a thin array rather than letting it silently starve the probe stage and
+  read out as a prospect who never surfaces.
+
+  Also tightens how a brand mention is detected, which had the mirror-image flaw.
+  `brandMentioned` was a bare `includes()`, so a prospect called Ace scored on every
+  "surface", "placement" and "spacer" in an engine's prose. It now matches on word
+  boundaries.
+
+  Word boundaries alone don't settle it, though: a prospect called Summit, Apex or
+  Bloom is a common noun, and "the summit of the roofline" is a clean word match. A
+  single-token name is therefore no longer scored on an unprompted mention alone —
+  it needs the domain citation to corroborate. Multi-word names and domain fallbacks
+  still count on their own, since prose can't produce those by accident. The mention
+  is recorded truthfully either way; this governs only what the score counts.
+
+  That under-credits a genuinely distinctive one-word brand, which is the error worth
+  making. The number goes in front of the prospect, and "you were mentioned here" has
+  to survive them reading the snippet underneath it.
+
+- 784d2a8: The drafting path now dual-writes its report state into Turso (#539 Phase 5).
+
+  Before this, the only report mirrors were UPDATEs on the request path (approve,
+  override, delivery status, commentary). Everything the DRAFTING path writes
+  reached Turso only via the hourly sync — and two of those gaps are visible to the
+  operator today: a fresh draft's row does not exist, and its preview route answers
+  "No rendered body stored for this report." for up to an hour.
+
+  `makeReportMirror` covers all four writes as one injected object:
+
+  - **created** — `mirrorReportInsert`, the first INSERT-capable report mirror. It
+    maps with the importer's own `mapReportRecord`, which is also what parity diffs
+    against, so the row is parity-clean by construction rather than by a column
+    list someone has to remember to extend.
+  - **body** — the rendered HTML, stored where the console preview reads it.
+  - **patch** — the queue flag, for the new draft AND every row it supersedes;
+    mirroring only the new one would show a site with two queued reports.
+  - **patch** — a re-run's refreshed scores on the announce/launch reuse paths.
+
+  Wired at the composition roots (the nightly `--due` batch, `announce`, `launch`)
+  rather than defaulted inside the recipes: a default would open a real libSQL
+  handle from inside `draftReportForSite`, which every unit test calls, and on a
+  machine with `TURSO_*` exported that means tests writing into production.
+
+  Unlike the Phase 3 mirrors this one never returns null. #585 is why: that helper
+  returned null without creds and the dual-write silently no-opped for weeks,
+  because a dead mirror and a healthy one produced identical output. Here
+  creds-absent is a state the mirror reports, so every write emits one
+  `REPORT_MIRROR` line and an absent line means the wiring is gone.
+
+- c9d44d7: `report --rerender <id>`: regenerate an unsent report's stored HTML.
+
+  The console preview serves the body stored at draft time, so commentary edited
+  afterwards never appeared. This regenerates it through the same renderer the send
+  uses, so the preview is what the client will actually receive.
+
+  The assembly that built `ReportData` inline inside `sendOne` is lifted into
+  `renderReportFromRow`, which both now go through — a preview whose only job is
+  fidelity is worthless if it renders through a second path that agrees with the
+  sender by coincidence.
+
+  Header bytes come from Turso (design D5) when stored, falling back to the
+  Airtable attachment. A SENT report is refused before any work: its stored body is
+  the record of what the client received.
+
+  Runs as a CLI rather than in a Netlify function because rendering needs sharp, a
+  native module no function bundles — and approximating the header geometry to
+  avoid it would trade away the exact fidelity a preview exists to provide.
+
+- 591f944: "Refresh preview" for a report, from the console.
+
+  Adds `report-rerender.yml` (dispatch-only) and a button beside the preview link
+  on any unsent report. Clicking it dispatches the workflow, which runs
+  `report --rerender` where sharp already works and stores the fresh body where the
+  preview route reads it.
+
+  `dispatchWorkflow` gains optional `workflow_dispatch` inputs, omitted from the
+  request body entirely when absent — a workflow that declares none rejects an
+  `inputs` key it did not ask for.
+
+  The sent-report guard is duplicated in the handler rather than left to the
+  workflow, so an operator gets an immediate refusal instead of a red run two
+  minutes later saying the same thing.
+
+- 22000ed: The one-off Websites writers now dual-write into Turso (#539 Phase 5).
+
+  Phase 3 mirrored the nightly sweep — the fleet audit write-back, github-signals
+  and the next-due dates. It did not touch the writers that run on their own
+  schedule or on demand, so each of these reached Turso only via the hourly sync,
+  which stops existing at the freeze:
+
+  - `updateAnalyticsHealth` (drafting and announce) — the per-site
+    analytics-failure signal the cockpit reads
+  - `updateAutoFixAttempts` (nightly Renovate dispatch) — the "auto-fix exhausted"
+    chip's counter
+  - `updatePrismicModels` — the model-drift verdict, checked-at and detail
+  - `updateLaunched` (a Launch send) — Status **and** `Launched at`
+  - `updateSiteField` (forms-notify-target) — the verify-mode Status flip
+  - the **single-site** audit write-back, from `audit --write-airtable` and
+    `launch`; only the fleet path ever passed a mirror
+
+  `makeSiteMirror` covers them with two ops, because a Websites row is split across
+  two Turso tables: `health` for `site_health` columns and `site` for `sites`. Each
+  takes the exact FieldSet the Airtable writer returned — the four writers that did
+  not return theirs now do — so the mirror cannot carry a different payload than
+  the write it shadows.
+
+  `mirrorSiteFields` is the new multi-column form of `mirrorSiteField`.
+  `updateLaunched` is why: it flips `Status` and stamps `Launched at` in one
+  Airtable update, and mirroring those separately would open a window where Turso
+  says a site is maintained but never launched.
+
+  Like `makeReportMirror` and unlike the Phase 3 factories, it never returns null.
+  Every write emits `SITE_MIRROR site=X op=health|site mirrored=1|missed|0|absent`,
+  so an absent line means the wiring is gone. `missed` is its own outcome: the
+  UPDATE matched no row because the sync has not imported that site yet, which is
+  neither a success nor a failure.
+
 ## 0.86.0
 
 ### Minor Changes
