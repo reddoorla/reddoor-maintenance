@@ -717,9 +717,18 @@ cli
     "db <action>",
     "Operate the libSQL store (migrate | replay-deadletters | import-airtable | parity | sync | backfill-header-images | backfill-digest-state | dump | verify-dump | restore).",
   )
-  .option("--file <path>", "verify-dump: the dump file to load into a scratch engine")
-  .action(async (action: string, opts: { file?: string; cwd?: string; verbose?: boolean }) =>
-    runOrExit(async () => (await import("./commands/db.js")).runDbCommand(action, opts), opts),
+  .option("--file <path>", "verify-dump / restore: the dump file to load")
+  .option(
+    "--url <url>",
+    "restore: the TARGET database to load into. Required, never defaulted — a restore " +
+      "that could fall back to the ambient TURSO_DATABASE_URL is one keystroke from " +
+      "overwriting production.",
+  )
+  .action(
+    async (
+      action: string,
+      opts: { file?: string; url?: string; cwd?: string; verbose?: boolean },
+    ) => runOrExit(async () => (await import("./commands/db.js")).runDbCommand(action, opts), opts),
   );
 
 cli
