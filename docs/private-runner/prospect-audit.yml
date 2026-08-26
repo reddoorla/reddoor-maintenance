@@ -27,11 +27,6 @@ on:
         required: false
         type: string
         default: cockpit
-      ref:
-        description: reddoor-maintenance ref to run from
-        required: false
-        type: string
-        default: main
 
 # One audit per URL at a time. A double-press in the cockpit (or a retry) queues
 # rather than running the same audit twice and double-emailing. The cockpit also
@@ -47,11 +42,24 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
+      # Pinned to `main`, deliberately, and NOT a workflow input.
+      #
+      # reddoor-maintenance is PUBLIC, so `refs/pull/N/merge` exists for any pull
+      # request anyone opens. A dispatch naming one would run a stranger's
+      # `pnpm build` + `node dist/cli/bin.js` in this job — which holds
+      # TURSO_AUTH_TOKEN, RESEND_API_KEY and ANTHROPIC_API_KEY. That needs
+      # `actions: write` here, so it was post-compromise amplification rather
+      # than initial access; but the dispatch token lives in the cockpit's
+      # Netlify env and is shared with the Renovate trigger, which made one leak
+      # considerably worse than it needed to be.
+      #
+      # Auditing against an unreleased branch is rare enough to be worth editing
+      # this line by hand for.
       - name: Check out reddoor-maintenance (public)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: reddoorla/reddoor-maintenance
-          ref: ${{ inputs.ref }}
+          ref: main
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 
