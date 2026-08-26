@@ -47,3 +47,45 @@
  *  running, a strict mirror would fail runs over rows the import was about to
  *  reconcile anyway. */
 export const TURSO_IS_AUTHORITATIVE = false;
+
+/**
+ * Run one Turso mirror write with the error semantics the current world calls
+ * for: swallowed while Airtable is authoritative, fatal once Turso is.
+ *
+ * The mirror FACTORIES (`makeSiteMirror`, `makeReportMirror`, the health mirrors)
+ * already do this internally. The Netlify request handlers do not use those
+ * factories — `approve-report`, `report-commentary`, `resend-webhook` and
+ * `site-details` each call `mirrorReportPatch` / `mirrorSiteField` directly,
+ * wrapped in a hand-rolled `try { … } catch { console.error }`. Four independent
+ * copies of the swallow, none of which consulted the switch, each carrying a
+ * comment saying "the sync converges it".
+ *
+ * **That comment stops being true at the freeze.** With the hourly import
+ * stopped, a swallowed mirror failure on an approve, a commentary edit, a
+ * delivery-status webhook or a site-detail edit is permanent data loss whose only
+ * trace is a log line nobody greps — and the Airtable write it shadows will have
+ * already succeeded, so the two stores diverge silently.
+ *
+ * Under `strict` the failure is raised instead. The caller's own error handling
+ * decides what that means for the response; what it must not mean is "logged and
+ * forgotten". `strict` is a parameter with the constant as its default so tests
+ * exercise both worlds as fixtures rather than only the shipped one.
+ */
+export async function mirrorWrite(
+  label: string,
+  run: () => Promise<void>,
+  strict: boolean = TURSO_IS_AUTHORITATIVE,
+): Promise<void> {
+  try {
+    await run();
+  } catch (err) {
+    if (strict) {
+      throw new Error(
+        `[${label}] Turso mirror failed and Turso is authoritative — ` +
+          `the write is NOT recoverable by the hourly sync: ${String(err)}`,
+        { cause: err },
+      );
+    }
+    console.error(`[${label}] Turso mirror failed (sync will converge it): ${String(err)}`);
+  }
+}

@@ -3,6 +3,7 @@ import { openBase } from "../../src/reports/airtable/client.js";
 import { updateSiteField } from "../../src/reports/airtable/websites.js";
 import { getSiteBySlug, mirrorSiteField } from "../../src/db/fleet-state.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
+import { mirrorWrite } from "../../src/db/freeze.js";
 import { requireOperator, denialResponse, setSiteDetail } from "../../src/dashboard/index.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
@@ -77,11 +78,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
         getSite: (s) => getSiteBySlug(db, s),
         updateField: async (id, col, val) => {
           await updateSiteField(base, id, col, val);
-          try {
-            await mirrorSiteField(db, id, col, val);
-          } catch (err) {
-            console.error(`[site-details] Turso mirror failed for ${col}: ${String(err)}`);
-          }
+          await mirrorWrite(`site-details ${col}`, () => mirrorSiteField(db, id, col, val));
         },
       },
       slug,
