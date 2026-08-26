@@ -28,6 +28,13 @@ export default defineConfig({
   entry: [
     "src/index.ts",
     "src/forms/index.ts",
+    // Types only, and deliberately so — reddoor-website imports this as
+    // `@reddoorla/maintenance/audit` to type the report it fetches. The subpath
+    // is named for what a consumer gets (an audit result); the source path keeps
+    // this repo's own domain word. A test pins that this file stays free of
+    // runtime imports, since one would pull the Anthropic SDK and Playwright
+    // into a consuming site's bundle.
+    "src/prospect/types.ts",
     "src/client/index.ts",
     "src/cli/bin.ts",
     "src/cli/commands/audit.ts",
