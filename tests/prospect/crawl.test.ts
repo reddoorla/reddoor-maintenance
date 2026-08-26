@@ -489,30 +489,104 @@ describe("pacedEach", () => {
   });
 });
 
+describe("crawlSite — a hostile sitemap index must not become an SSRF", () => {
+  /** Records every URL the crawler asks for, so we can assert on where it went. */
+  function recordingDeps(routes: Record<string, Partial<FetchResponse>>) {
+    const asked: string[] = [];
+    const base = stubDeps(routes);
+    return {
+      asked,
+      deps: {
+        ...base,
+        async fetchUrl(url: string) {
+          asked.push(url);
+          return base.fetchUrl(url);
+        },
+      } as CrawlDeps,
+    };
+  }
+
+  const INDEX = (locs: string[]) =>
+    `<?xml version="1.0"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${locs
+      .map((l) => `<sitemap><loc>${l}</loc></sitemap>`)
+      .join("")}</sitemapindex>`;
+
+  // The threat model is the point: this tool audits sites Reddoor wants to
+  // pitch, so the audited site is UNTRUSTED input, and the runner is a GitHub
+  // Actions job holding TURSO_AUTH_TOKEN, RESEND_API_KEY and ANTHROPIC_API_KEY.
+  it("does not fetch internal addresses a nested <loc> points at", async () => {
+    const internal = [
+      "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+      "http://127.0.0.1:8080/admin",
+      "http://[::1]/",
+      "http://localhost/secret",
+    ];
+    const { asked, deps } = recordingDeps({
+      [HOME]: { body: fixture("bare.html") },
+      "https://acme.example/sitemap.xml": { body: INDEX(internal) },
+    });
+
+    await crawlSite(HOME, deps);
+
+    const reached = asked.filter((u) =>
+      internal.some((i) => u.startsWith(i.split("/").slice(0, 3).join("/"))),
+    );
+    expect(reached).toEqual([]);
+  });
+
+  // Off-origin is refused even when the host is perfectly public: a sitemap
+  // index legitimately only ever points at sitemaps on its own site, so
+  // anything else is either a mistake or an attempt.
+  it("does not follow a nested <loc> onto another origin", async () => {
+    const { asked, deps } = recordingDeps({
+      [HOME]: { body: fixture("bare.html") },
+      "https://acme.example/sitemap.xml": { body: INDEX(["https://evil.example/sitemap.xml"]) },
+    });
+
+    await crawlSite(HOME, deps);
+    expect(asked.filter((u) => u.includes("evil.example"))).toEqual([]);
+  });
+
+  // The control: a well-formed same-origin index must still work, or the fix
+  // would have closed the hole by breaking the feature.
+  it("still follows a same-origin nested sitemap", async () => {
+    const { asked, deps } = recordingDeps({
+      [HOME]: { body: fixture("bare.html") },
+      "https://acme.example/sitemap.xml": {
+        body: INDEX(["https://acme.example/sitemap-pages.xml"]),
+      },
+      "https://acme.example/sitemap-pages.xml": {
+        body: `<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://acme.example/a</loc></url></urlset>`,
+      },
+    });
+
+    const result = await crawlSite(HOME, deps);
+    expect(asked).toContain("https://acme.example/sitemap-pages.xml");
+    expect(result.sitemap.urlCount).toBeGreaterThan(0);
+  });
+});
+
 /**
- * #612 review: a sitemap INDEX names child sitemaps, and the PROSPECT writes
- * it — so those are attacker-chosen URLs that previously reached `fetch()` with
- * no validation at all. The redirect guard 80 lines below existed for exactly
- * this threat and its comment said so; this path simply had no equivalent.
+ * #619 added `isSafeNestedSitemap` and applied it INSIDE the loop, after
+ * `.slice(0, 3)`. That closes the SSRF, but leaves a quieter failure: three
+ * hostile entries at the top of an index consume the whole budget, so the site's
+ * real child sitemaps are never fetched and the crawl silently sees fewer pages.
  *
- * The runner is a GitHub Actions job holding TURSO_AUTH_TOKEN, RESEND_API_KEY
- * and ANTHROPIC_API_KEY, so "blind SSRF from a hostile prospect site" is a real
- * threat model, not a theoretical one.
+ * Found by a positive control, not by reading the loop.
  */
-describe("sitemap-index children are not fetched blindly (SSRF)", () => {
-  const SITEMAP_INDEX = `<?xml version="1.0"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-    <sitemap><loc>http://169.254.169.254/latest/meta-data/iam/security-credentials/</loc></sitemap>
+describe("a hostile sitemap index cannot starve out the real children", () => {
+  const INDEX = `<?xml version="1.0"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <sitemap><loc>http://169.254.169.254/latest/meta-data/</loc></sitemap>
     <sitemap><loc>http://127.0.0.1:8080/admin</loc></sitemap>
     <sitemap><loc>https://evil.example/steal</loc></sitemap>
     <sitemap><loc>https://acme.example/sitemap-pages.xml</loc></sitemap>
   </sitemapindex>`;
 
-  /** The file's own routed stub, wrapped to RECORD every URL requested. */
   function trackingDeps() {
     const fetched: string[] = [];
     const base = stubDeps({
       "https://acme.example/": { body: "<html><body>hi</body></html>" },
-      "https://acme.example/sitemap.xml": { body: SITEMAP_INDEX },
+      "https://acme.example/sitemap.xml": { body: INDEX },
       "https://acme.example/sitemap-pages.xml": {
         body: `<?xml version="1.0"?><urlset><url><loc>https://acme.example/about</loc></url></urlset>`,
       },
@@ -527,29 +601,19 @@ describe("sitemap-index children are not fetched blindly (SSRF)", () => {
     return { fetched, deps };
   }
 
-  it("never fetches an off-origin or private-address child sitemap", async () => {
-    const { fetched, deps } = trackingDeps();
-    await crawlSite("https://acme.example/", deps);
-
-    const offOrigin = fetched.filter((u) => !u.startsWith("https://acme.example"));
-    expect(offOrigin).toEqual([]);
-    expect(fetched.some((u) => u.includes("169.254.169.254"))).toBe(false);
-    expect(fetched.some((u) => u.includes("127.0.0.1"))).toBe(false);
-    expect(fetched.some((u) => u.includes("evil.example"))).toBe(false);
-  });
-
-  it("STILL follows a legitimate same-origin child sitemap (positive control)", async () => {
-    // Without this, the assertions above would pass on a crawler that had simply
-    // stopped following sitemap indexes at all.
+  it("still fetches the legitimate child sitemap sitting behind three hostile ones", async () => {
     const { fetched, deps } = trackingDeps();
     await crawlSite("https://acme.example/", deps);
     expect(fetched).toContain("https://acme.example/sitemap-pages.xml");
   });
 
-  it("refuses a private ENTRY url BEFORE any fetch", async () => {
-    // The redirect guard has always caught where a hostile site sends us
-    // second; nothing caught a caller pointing us at an internal address first,
-    // and the CLI validates only isHttpUrl.
+  it("and still fetches none of the hostile ones", async () => {
+    const { fetched, deps } = trackingDeps();
+    await crawlSite("https://acme.example/", deps);
+    expect(fetched.filter((u) => !u.startsWith("https://acme.example"))).toEqual([]);
+  });
+
+  it("refuses a private ENTRY url before any fetch at all", async () => {
     const { fetched, deps } = trackingDeps();
     await expect(crawlSite("http://169.254.169.254/latest/meta-data/", deps)).rejects.toThrow(
       /private address/,

@@ -1,6 +1,7 @@
 import { escapeHtml, safeUrl } from "../util/html.js";
 import { hostnameOf } from "../util/url.js";
 import { ANALYZE_SKIPPED, PROBES_SKIPPED } from "./pipeline.js";
+import { resolveBusinessName } from "./probes.js";
 import type {
   AnalyzeResult,
   ChecksResult,
@@ -138,11 +139,14 @@ function formatIsoDate(iso: string): string {
  *  positive discoverability finding on its own — an engine echoing a name
  *  it was just handed proves nothing about whether a buyer who never named
  *  the business would find it. */
-/** `businessNameUsed` is whether a real business name was ever resolved and
- *  handed to any engine (ProspectAuditResult.businessName, the same value
- *  the pipeline actually queried with) — never the raw ProbesResult, which
- *  has no way to say "no name was available". Without this gate, "even with
- *  the name handed to them" is a false claim whenever businessName was empty. */
+/** `businessNameUsed` is whether the engines were actually queried with the
+ *  business NAME — not merely whether one existed. `resolveBusinessName` falls
+ *  back to the bare domain for anything it cannot use, so a name can be present
+ *  and still never reach a query. Without this gate, "even with the name handed
+ *  to them" is a false claim: whenever businessName was empty, and (until the
+ *  caller was fixed) whenever the name was rejected and the probes searched for
+ *  the domain instead. Never derived from the raw ProbesResult, which has no
+ *  way to say "no name was available". */
 function buildProbesSection(p: ProbesResult, businessNameUsed: boolean): string {
   const byKind = new Map<ProbeAnswer["kind"], ProbeAnswer[]>();
   for (const a of p.answers) {
@@ -171,10 +175,15 @@ function buildProbesSection(p: ProbesResult, businessNameUsed: boolean): string 
           <p class="muted">Asked ${escapeHtml(formatIsoDate(a.askedAt))}</p>
           <p>${escapeHtml(a.snippet)}${a.truncated ? "…" : ""}</p>
           <p class="muted">${
-            a.domainCited || a.brandMentioned
+            // The scorer's own decision, recorded on the answer — NOT
+            // `domainCited || brandMentioned`, which is a looser rule. Using the
+            // loose one printed "You were named in this answer" above a card
+            // contributing zero to the score beside it. Reports persisted before
+            // the field existed fall back to what they already said.
+            (a.countedAsVisible ?? (a.domainCited || a.brandMentioned))
               ? "You were named in this answer."
               : "You were not named in this answer."
-          }${a.citedDomains.length ? ` Cited: ${escapeHtml(a.citedDomains.join(", "))}` : ""}</p>
+          }${a.citedDomains.length ? ` Sources the engine retrieved: ${escapeHtml(a.citedDomains.join(", "))}` : ""}</p>
         </div>`,
         )
         .join("");
@@ -327,7 +336,17 @@ export function renderProspectReport(result: ProspectAuditResult): string {
   // `result.businessName` is non-empty — the same value the pipeline
   // actually queried with (see pipeline.ts). Used to gate the probes
   // section's "even with the name handed to them" phrasing (Fix 6).
-  const businessNameUsed = Boolean(result.businessName && result.businessName.trim());
+  // Whether the engines were actually queried with the NAME, which is not the
+  // same as whether a name existed. resolveBusinessName falls back to the bare
+  // domain for anything it cannot use, and this line used to read the
+  // un-resolved value — so a report could claim the engines were given the name
+  // "even with the name handed to them" while the probes had in fact searched
+  // for "stlouisroofing.com". Resolve it the same way probes.ts does.
+  const businessNameUsed = Boolean(
+    result.businessName &&
+    result.businessName.trim() &&
+    resolveBusinessName(result.businessName, result.url) === result.businessName.trim(),
+  );
 
   const fixes = result.analyze.ok
     ? (() => {

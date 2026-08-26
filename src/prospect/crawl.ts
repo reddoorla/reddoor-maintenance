@@ -173,6 +173,33 @@ export function parseSitemapLocs(xml: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * May we fetch this nested sitemap?
+ *
+ * A `<loc>` inside a sitemap index is attacker-controlled input — it comes from
+ * the site being audited, which by definition is a stranger's. Same-origin is
+ * the binding constraint: a sitemap index legitimately only ever points at
+ * sitemaps on its own site, so anything else is a mistake or an attempt, and
+ * refusing costs nothing real.
+ *
+ * The private-host check is defence in depth behind that. It is redundant while
+ * `origin` is a public site — which the dispatch path already enforces — but
+ * this function should not depend on a guarantee made three files away.
+ */
+export function isSafeNestedSitemap(child: string, origin: string): boolean {
+  let url: URL;
+  try {
+    // Resolved against `origin` so a relative <loc> is judged on where it
+    // actually lands, not on the string.
+    url = new URL(child, origin);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+  if (url.origin !== origin) return false;
+  return !isPrivateOrLoopbackHost(url.hostname);
+}
+
 export function isSitemapIndex(xml: string): boolean {
   return /<(?:[\w-]+:)?sitemapindex[\s>]/i.test(xml);
 }
@@ -348,19 +375,21 @@ async function fetchSidecars(origin: string, deps: CrawlDeps): Promise<Sidecars>
   if (sitemap.res && /<(urlset|sitemapindex)[\s>]/i.test(sitemap.res.body)) {
     sitemapPresent = true;
     if (isSitemapIndex(sitemap.res.body)) {
-      // A sitemap INDEX names child sitemaps, and the prospect writes it — so
-      // these are attacker-chosen URLs reaching fetch(). Same reasoning as the
-      // redirect guard below, which is the only reason that one exists: without
-      // this, a hostile sitemap index sends the crawler at cloud metadata or the
-      // runner's own localhost, in a job holding Turso/Resend/Anthropic secrets.
-      // Same-origin is the tighter and more honest bound here — a child sitemap
-      // on a different host cannot describe THIS site's pages anyway.
-      // Filter BEFORE the cap, not after: three hostile entries at the top of
-      // the index would otherwise consume the whole budget and starve out the
-      // site's real child sitemaps. (Caught by the positive control in the SSRF
-      // test — the filter alone left the legitimate child unreachable.)
+      // `child` is attacker-controlled: it comes out of the AUDITED site's
+      // sitemap, and the audited site is a prospect we have not met. Without
+      // isSafeNestedSitemap it reached fetch() unchecked — a hostile index could
+      // make the runner request 169.254.169.254, 127.0.0.1 or any internal host,
+      // from a GitHub Actions job holding TURSO_AUTH_TOKEN, RESEND_API_KEY and
+      // ANTHROPIC_API_KEY.
+      //
+      // Filter BEFORE the cap, not inside the loop after it. Taking the first
+      // three and then discarding the unsafe ones lets three hostile entries at
+      // the top of an index consume the entire budget and starve out the site's
+      // real sitemaps — the crawl then silently sees fewer pages, which is a
+      // quieter failure than the SSRF itself. Caught by the positive control in
+      // the SSRF test, not by reading the loop.
       const children = parseSitemapLocs(sitemap.res.body)
-        .filter((child) => isSameOriginPublicUrl(child, origin))
+        .filter((child) => isSafeNestedSitemap(child, origin))
         .slice(0, 3);
       for (const child of children) {
         const nested = await optional(deps, child);
@@ -381,35 +410,6 @@ async function fetchSidecars(origin: string, deps: CrawlDeps): Promise<Sidecars>
   };
 }
 
-/** Refuse a URL whose host is a private/loopback address literal. Shared by the
- *  entry check and the redirect check so the two can never drift — they are the
- *  same rule applied at two moments, and previously only the second existed. */
-function refusePrivateHost(u: URL, what: string): void {
-  if (!isPrivateOrLoopbackHost(u.hostname)) return;
-  throw Object.assign(new Error(`${what} (${u.hostname}) — refusing to crawl it.`), {
-    exitCode: 1,
-  });
-}
-
-/** Is `raw` an http(s) URL on `origin`, and not a private address literal?
- *
- *  Used to filter the child URLs a prospect's sitemap INDEX names. Same-origin
- *  is checked against the crawl's own origin rather than merely "is it public",
- *  because a child sitemap on another host cannot describe this site's pages —
- *  so the tight bound costs nothing real and closes the whole class rather than
- *  the addresses we happened to think of. */
-export function isSameOriginPublicUrl(raw: string, origin: string): boolean {
-  let u: URL;
-  try {
-    u = new URL(raw);
-  } catch {
-    return false;
-  }
-  if (u.protocol !== "http:" && u.protocol !== "https:") return false;
-  if (u.origin !== origin) return false;
-  return !isPrivateOrLoopbackHost(u.hostname);
-}
-
 /**
  * Fetch the prospect's site: robots/sitemap/llms sidecars, then up to
  * `maxPages` same-origin pages, each captured BOTH as raw HTTP HTML (what a
@@ -428,13 +428,17 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
   // anything downstream is derived from `start`.
   start.username = "";
   start.password = "";
-  // Check the ENTRY host before the first fetch, not only the redirect target
-  // (#612 review). The redirect guard below has always been correct about where
-  // a hostile site can send us SECOND; it said nothing about a caller pointing
-  // us at an internal address to begin with, and the CLI validates only
-  // `isHttpUrl`. One fetch of `169.254.169.254` before the throw was one too
-  // many.
-  refusePrivateHost(start, `${start.toString()} is a private address`);
+  // Check the ENTRY host before the first fetch. The redirect guard below has
+  // always covered where a hostile site can send us SECOND; nothing covered a
+  // caller pointing the crawler at an internal address to BEGIN with, and the
+  // CLI validates only `isHttpUrl` — so one fetch of 169.254.169.254 happened
+  // before the throw.
+  if (isPrivateOrLoopbackHost(start.hostname)) {
+    throw Object.assign(
+      new Error(`${start.toString()} is a private address (${start.hostname}) — refusing to crawl it.`),
+      { exitCode: 1 },
+    );
+  }
 
   let home: FetchResponse;
   try {
