@@ -488,3 +488,80 @@ describe("pacedEach", () => {
     expect(sleeps).toEqual([]);
   });
 });
+
+describe("crawlSite — a hostile sitemap index must not become an SSRF", () => {
+  /** Records every URL the crawler asks for, so we can assert on where it went. */
+  function recordingDeps(routes: Record<string, Partial<FetchResponse>>) {
+    const asked: string[] = [];
+    const base = stubDeps(routes);
+    return {
+      asked,
+      deps: {
+        ...base,
+        async fetchUrl(url: string) {
+          asked.push(url);
+          return base.fetchUrl(url);
+        },
+      } as CrawlDeps,
+    };
+  }
+
+  const INDEX = (locs: string[]) =>
+    `<?xml version="1.0"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${locs
+      .map((l) => `<sitemap><loc>${l}</loc></sitemap>`)
+      .join("")}</sitemapindex>`;
+
+  // The threat model is the point: this tool audits sites Reddoor wants to
+  // pitch, so the audited site is UNTRUSTED input, and the runner is a GitHub
+  // Actions job holding TURSO_AUTH_TOKEN, RESEND_API_KEY and ANTHROPIC_API_KEY.
+  it("does not fetch internal addresses a nested <loc> points at", async () => {
+    const internal = [
+      "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+      "http://127.0.0.1:8080/admin",
+      "http://[::1]/",
+      "http://localhost/secret",
+    ];
+    const { asked, deps } = recordingDeps({
+      [HOME]: { body: fixture("bare.html") },
+      "https://acme.example/sitemap.xml": { body: INDEX(internal) },
+    });
+
+    await crawlSite(HOME, deps);
+
+    const reached = asked.filter((u) =>
+      internal.some((i) => u.startsWith(i.split("/").slice(0, 3).join("/"))),
+    );
+    expect(reached).toEqual([]);
+  });
+
+  // Off-origin is refused even when the host is perfectly public: a sitemap
+  // index legitimately only ever points at sitemaps on its own site, so
+  // anything else is either a mistake or an attempt.
+  it("does not follow a nested <loc> onto another origin", async () => {
+    const { asked, deps } = recordingDeps({
+      [HOME]: { body: fixture("bare.html") },
+      "https://acme.example/sitemap.xml": { body: INDEX(["https://evil.example/sitemap.xml"]) },
+    });
+
+    await crawlSite(HOME, deps);
+    expect(asked.filter((u) => u.includes("evil.example"))).toEqual([]);
+  });
+
+  // The control: a well-formed same-origin index must still work, or the fix
+  // would have closed the hole by breaking the feature.
+  it("still follows a same-origin nested sitemap", async () => {
+    const { asked, deps } = recordingDeps({
+      [HOME]: { body: fixture("bare.html") },
+      "https://acme.example/sitemap.xml": {
+        body: INDEX(["https://acme.example/sitemap-pages.xml"]),
+      },
+      "https://acme.example/sitemap-pages.xml": {
+        body: `<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://acme.example/a</loc></url></urlset>`,
+      },
+    });
+
+    const result = await crawlSite(HOME, deps);
+    expect(asked).toContain("https://acme.example/sitemap-pages.xml");
+    expect(result.sitemap.urlCount).toBeGreaterThan(0);
+  });
+});

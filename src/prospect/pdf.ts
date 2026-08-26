@@ -42,7 +42,21 @@ export async function renderReportPdf(printUrl: string, deps: RenderPdfDeps = {}
     // `networkidle` rather than `load`: webfonts must settle before we print.
     // A fallback face baked into a client-facing PDF cannot be corrected after
     // the fact — the file is already in somebody's inbox.
-    await page.goto(printUrl, { waitUntil: "networkidle", timeout: NAVIGATION_TIMEOUT_MS });
+    const res = await page.goto(printUrl, {
+      waitUntil: "networkidle",
+      timeout: NAVIGATION_TIMEOUT_MS,
+    });
+    // `page.goto` resolves for ANY status, and dropping its result meant a 404
+    // rendered as a perfectly valid PDF of the marketing site's "Page not
+    // found" — attached to the email and sent to the prospect. Nothing threw,
+    // so no warning was recorded either: a hard failure became silently wrong
+    // client-facing content. Throwing here lets the caller's existing catch turn
+    // it into the warning it should always have been.
+    if (!res || !res.ok()) {
+      throw new Error(
+        `renderReportPdf: ${printUrl} responded ${res ? res.status() : "no response"}`,
+      );
+    }
     return await page.pdf({
       // The print route declares `@page { size: A4 }`. Honour it rather than
       // restating the size here, so the document's own stylesheet stays the one

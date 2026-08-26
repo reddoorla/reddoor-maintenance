@@ -8,7 +8,12 @@ export type VisibilityEngine = {
   ask: (query: string) => Promise<{ answer: string; citedDomains: string[] }>;
 };
 
-const MAX_QUERIES = 8;
+/** Ceiling on queries per engine per audit. Sized to fit everything the stage
+ *  actually asks for — 2 branded + 5 category + 2 competitor — so nothing is
+ *  silently dropped at the end. It was 8 while category was capped at 3; raising
+ *  category to 5 without raising this would have quietly discarded a competitor
+ *  query, which is the same bug in a different place. */
+const MAX_QUERIES = 9;
 const SNIPPET_CHARS = 300;
 
 /**
@@ -55,17 +60,40 @@ function isSameSite(cited: string, prospect: string): boolean {
 
 const MAX_NAME_CHARS = 60;
 
+/** Abbreviations that end in a period and are ordinary inside a business name.
+ *  A single "X. " is not evidence of prose — "St. Louis Roofing", "Dr. Patel
+ *  Orthodontics" and "Smith & Co. Design" are all real names, and the old
+ *  single-`". "` test threw every one of them away. */
+const NAME_ABBREVIATIONS =
+  /\b(st|mt|ft|dr|mr|mrs|ms|jr|sr|co|inc|ltd|llc|corp|assoc|bros|dept|ave|blvd|rd)\.\s/gi;
+
+/** A single initial, as in "R. J. Reynolds Studio". */
+const INITIALS = /\b[a-z]\.\s/gi;
+
 /** A defensive floor under a model that still returns prose despite the schema
  *  asking for a bare name (`AnalyzeResult.businessName`): a real business name
  *  is short and is not a multi-sentence description. Anything longer than a
- *  name has any business being, or that contains a sentence break, is treated
- *  as unusable — we fall back to the domain rather than querying, or
+ *  name has any business being, or that contains a genuine sentence break, is
+ *  treated as unusable — we fall back to the domain rather than querying, or
  *  brand-matching against, a paragraph. */
 export function resolveBusinessName(business: string, url: string): string {
   const trimmed = business.trim();
-  if (!trimmed || trimmed.length > MAX_NAME_CHARS || /\.\s/.test(trimmed)) {
-    return domainOf(url);
-  }
+  if (!trimmed || trimmed.length > MAX_NAME_CHARS) return domainOf(url);
+
+  // Prose detection, minus the false positives. The guard exists to catch a
+  // model returning a description instead of a name, and a sentence break is
+  // the signal for that — but abbreviations and initials produce the same
+  // character sequence, and they are common in exactly the businesses this
+  // tool audits: every practice fronted by a doctor's name, every "St."/"Mt."
+  // place name. Those were silently degrading to the bare domain, which then
+  // sent the branded probes off to search for "stlouisroofing.com", killed the
+  // brand-mention path entirely, and made the report claim the engines were
+  // given the name when they were given the domain.
+  //
+  // So strip the innocent cases first, then look for a real sentence break.
+  const withoutAbbreviations = trimmed.replace(NAME_ABBREVIATIONS, "").replace(INITIALS, "");
+  if (/\.\s/.test(withoutAbbreviations)) return domainOf(url);
+
   return trimmed;
 }
 
@@ -94,7 +122,11 @@ export function buildQueries(input: ProbeInput): ProbeQuery[] {
   const candidates: ProbeQuery[] = [
     { query: `who is ${name}`, kind: "branded" },
     { query: `${name} reviews`, kind: "branded" },
-    ...input.categoryQueries.slice(0, 3).map((query): ProbeQuery => ({ query, kind: "category" })),
+    // All five, not three. The schema asks the model for up to five and we were
+    // paying to generate them, then discarding two — which also pinned the
+    // denominator at 3, making visibilityScore a four-valued {0,33,67,100}
+    // rendered on a 0-100 card. Five halves the step to 20 points.
+    ...input.categoryQueries.slice(0, 5).map((query): ProbeQuery => ({ query, kind: "category" })),
     ...input.competitors
       .slice(0, 2)
       .map((c): ProbeQuery => ({ query: `${name} vs ${c}`, kind: "competitor" })),
@@ -113,15 +145,40 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** Legal suffixes engines routinely drop. The analyze prompt lets a site's own
+ *  branding carry one into `businessName` ("no legal suffix unless the site
+ *  itself uses one"), so requiring it to reappear verbatim guaranteed a miss. */
+const LEGAL_SUFFIX = /\b(llc|inc|incorporated|ltd|limited|corp|corporation|plc|llp|lp|pllc|pc)\b/g;
+
+/**
+ * Reduce a string to lowercase alphanumeric words separated by single spaces.
+ *
+ * This is what makes the match survive the ways an engine legitimately renders
+ * a name differently from the site: `&` written as "and", a hyphen written as a
+ * space, a legal suffix dropped, a line break or double space landing
+ * mid-name, or markdown emphasis around part of it. Each of those was a silent
+ * miss, and a miss reads to the prospect as "you were not named".
+ */
+function normalizeForMatch(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[‐-―]/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(LEGAL_SUFFIX, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** Does the answer name the brand as a WORD, rather than merely containing its
  *  letters? A plain `includes()` scored "Ace" on every "surface", "placement"
- *  and "spacer" in an engine's prose. Both sides are already lowercased by the
- *  caller; the boundaries are explicit rather than `\b` because a domain
- *  fallback ("acme.example") ends in a character class `\b` treats
- *  inconsistently. */
+ *  and "spacer" in an engine's prose. Both sides are normalised first, so the
+ *  boundaries below are plain spaces — which also means a domain fallback
+ *  ("acme.example" → "acme example") matches on the same path. */
 export function mentionsBrand(answer: string, brand: string): boolean {
-  if (!brand) return false;
-  return new RegExp(`(^|[^a-z0-9])${escapeRegExp(brand)}($|[^a-z0-9])`, "i").test(answer);
+  const needle = normalizeForMatch(brand);
+  if (!needle) return false;
+  return new RegExp(`(^| )${escapeRegExp(needle)}( |$)`).test(normalizeForMatch(answer));
 }
 
 /** Is this name distinctive enough that an unprompted mention means anything on
@@ -139,8 +196,115 @@ export function mentionsBrand(answer: string, brand: string): boolean {
  *  of the prospect, and "you were mentioned here" has to survive them reading
  *  the snippet underneath it. `brandMentioned` is still recorded truthfully
  *  either way — this governs only what the score counts. */
+/** Words that describe a category rather than identify a company. A name built
+ *  only from these ("Creative Studio", "The Agency", "Modern Dentistry") is a
+ *  common noun phrase, and an engine writing it in ordinary prose is not
+ *  naming anybody. */
+const CATEGORY_WORDS = new Set([
+  // articles and joiners
+  "the",
+  "a",
+  "an",
+  "and",
+  "of",
+  "for",
+  "at",
+  "by",
+  // company words
+  "co",
+  "company",
+  "group",
+  "collective",
+  "partners",
+  "associates",
+  "works",
+  "lab",
+  "labs",
+  "studio",
+  "studios",
+  "agency",
+  "agencies",
+  "firm",
+  "practice",
+  "shop",
+  "house",
+  "office",
+  // sector words
+  "design",
+  "designs",
+  "creative",
+  "creatives",
+  "brand",
+  "branding",
+  "marketing",
+  "media",
+  "digital",
+  "solutions",
+  "services",
+  "consulting",
+  "consultants",
+  "advisors",
+  "strategy",
+  "dental",
+  "dentistry",
+  "orthodontics",
+  "law",
+  "legal",
+  "clinic",
+  "care",
+  "health",
+  "medical",
+  "roofing",
+  "construction",
+  "builders",
+  "contracting",
+  "plumbing",
+  "electric",
+  "landscaping",
+  "interiors",
+  "architects",
+  "photography",
+  "films",
+  "productions",
+  "printing",
+  "packaging",
+  // adjectives that market rather than identify
+  "modern",
+  "premier",
+  "elite",
+  "first",
+  "best",
+  "local",
+  "family",
+  "advanced",
+  "complete",
+  "quality",
+  "professional",
+  "trusted",
+  "expert",
+  "affordable",
+  "custom",
+  "creative",
+]);
+
+/**
+ * Is this name distinctive enough that an unprompted mention means anything?
+ *
+ * A domain ("acme.example") cannot appear by accident. Otherwise the name needs
+ * at least two words AND at least one word that is not a category term.
+ *
+ * The two-word rule alone was not enough: a business called Creative Studio or
+ * The Agency scored "visible" off an engine writing "a boutique creative studio
+ * will give you more senior attention" — prose that references nobody. The doc
+ * on this function has always said under-crediting is the error worth making,
+ * because "you were mentioned here" has to survive the prospect reading the
+ * snippet underneath it. A generic two-word name failed exactly that test.
+ */
 export function isDistinctiveName(brand: string): boolean {
-  return /\s/.test(brand) || brand.includes(".");
+  if (brand.includes(".")) return true;
+  const tokens = normalizeForMatch(brand).split(" ").filter(Boolean);
+  if (tokens.length < 2) return false;
+  return tokens.some((t) => !CATEGORY_WORDS.has(t));
 }
 
 /** A rate-limit response is worth one retry after a longer pause; anything else
@@ -176,6 +340,9 @@ export async function runVisibilityProbes(
   const queries = buildQueries(input);
   const prospect = domainOf(input.url);
   const brand = resolveBusinessName(input.business, input.url).toLowerCase();
+  // Decided once, up here, so every answer can record whether it counted —
+  // the renderer must not have to re-derive this gate and get it wrong.
+  const nameIsDistinctive = isDistinctiveName(brand);
   const answers: ProbeAnswer[] = [];
   const competitorCounts = new Map<string, number>();
 
@@ -209,6 +376,8 @@ export async function runVisibilityProbes(
           kind,
           domainCited,
           brandMentioned,
+          // The same expression the score uses below — written once, read twice.
+          countedAsVisible: domainCited || (brandMentioned && nameIsDistinctive),
           citedDomains,
           snippet: reply.answer.slice(0, SNIPPET_CHARS),
           truncated: reply.answer.length > SNIPPET_CHARS,
@@ -235,10 +404,7 @@ export async function runVisibilityProbes(
   // But only for a name a mention can't be a coincidence for; see
   // isDistinctiveName for why a one-word brand needs the citation too.
   const categoryAnswers = answers.filter((a) => a.kind === "category");
-  const nameIsDistinctive = isDistinctiveName(brand);
-  const visibleCategory = categoryAnswers.filter(
-    (a) => a.domainCited || (a.brandMentioned && nameIsDistinctive),
-  ).length;
+  const visibleCategory = categoryAnswers.filter((a) => a.countedAsVisible).length;
   const visibilityScore =
     categoryAnswers.length === 0
       ? null
