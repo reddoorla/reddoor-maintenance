@@ -1451,7 +1451,17 @@ describe("renderSiteDashboardHtml — the write-only credential row", () => {
     // The whole point: the field is editable, and the secret still never leaves
     // the server. `inputRow` would have emitted value="mc-super-secret-key".
     expect(html).not.toContain("mc-super-secret-key");
-    expect(html).toContain("(set — type to replace)");
+    expect(html).toContain("type to replace");
+    // #612: the placeholder is the ONLY place the clear gesture is
+    // discoverable, so it has to name the sentinel verbatim. Without the key
+    // itself in the markup, an operator has no other way to learn it exists.
+    expect(html).toContain("__clear__ to erase");
+  });
+
+  it("does NOT offer the clear gesture when no key is stored", () => {
+    // Offering "erase" on an empty field is noise, and implies a value is there.
+    const html = renderSiteDashboardHtml(siteRow({ name: "Acme", mailchimpApiKey: null }), []);
+    expect(html).not.toContain("__clear__");
   });
 
   it("says so when no key is stored, so 'blank' is not ambiguous", () => {

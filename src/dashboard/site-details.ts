@@ -211,8 +211,21 @@ export type SiteDetailDeps = {
   updateField: (recordId: string, column: string, value: AirtableCellValue) => Promise<void>;
 };
 
+/** Typed into a `secret` field to ERASE it. A sentinel rather than a new
+ *  control, because the secret input already fires its save listener on any
+ *  keystroke — so clearing needs no change to the inline dashboard script, the
+ *  one part of this page no test has ever executed (#591 shipped broken there).
+ *
+ *  Underscore-wrapped and lowercase so it cannot collide with a real key: every
+ *  credential this field holds is a provider-issued token. */
+export const CLEAR_SECRET = "__clear__";
+
 export type SiteDetailResult =
   | { status: "updated"; slug: string; field: string }
+  /** A `secret` field explicitly erased via the CLEAR_SECRET sentinel. Distinct
+   *  from `updated` so the console can say "cleared" rather than implying a new
+   *  value was stored. */
+  | { status: "cleared"; slug: string; field: string }
   /** A `secret` field submitted empty: nothing was written, deliberately. */
   | { status: "unchanged"; slug: string; field: string }
   | { status: "bad-field"; slug: string; field: string }
@@ -241,6 +254,18 @@ export async function setSiteDetail(
   // rendered without a value, so it is blank on every load. Returning before the
   // read means an accidental save cannot even touch the record.
   if (f.kind === "secret" && value === "") return { status: "unchanged", slug, field };
+  // ...which left NO way to clear one from the console. Airtable was the escape
+  // hatch, and the freeze removes it (#612), so clearing needs its own explicit
+  // gesture. A typed sentinel rather than a new control: the secret input is the
+  // one field whose blur listener already fires on any keystroke (it renders
+  // with no value, so anything typed differs from its default), so this needs no
+  // change to the inline dashboard script — which no test executes.
+  if (f.kind === "secret" && value === CLEAR_SECRET) {
+    const target = await deps.getSite(slug);
+    if (!target) return { status: "not-found", slug };
+    await deps.updateField(target.id, f.column, "");
+    return { status: "cleared", slug, field };
+  }
   const site = await deps.getSite(slug);
   if (!site) return { status: "not-found", slug };
   await deps.updateField(site.id, f.column, value);

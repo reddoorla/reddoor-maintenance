@@ -20,7 +20,12 @@ import {
   SUBMISSION_STATUS_SCRIPT,
   isVisibleInStrip,
 } from "./submission-view.js";
-import { SITE_STATUS_OPTIONS, FREQ_OPTIONS, WATCH_CONDITION_OPTIONS } from "./site-details.js";
+import {
+  SITE_STATUS_OPTIONS,
+  FREQ_OPTIONS,
+  WATCH_CONDITION_OPTIONS,
+  CLEAR_SECRET,
+} from "./site-details.js";
 import type { SiteAlarmContext } from "./fleet-cockpit.js";
 
 const DASH = "—";
@@ -554,7 +559,10 @@ function multiSelectRow(
  *  is what makes an always-blank input safe to render beside fields that clear
  *  on empty. */
 function secretRow(label: string, field: string, isSet: boolean, url: string): string {
-  const ph = isSet ? "•••••••• (set — type to replace)" : "not set";
+  // The placeholder is the ONLY place the clear gesture is discoverable, so it
+  // names the sentinel verbatim. Shown only when a key is actually set —
+  // offering "clear" on an empty field is noise.
+  const ph = isSet ? `•••••••• (type to replace, or ${CLEAR_SECRET} to erase)` : "not set";
   return `<div class="detail"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><input type="password" autocomplete="off" id="detail-${field}" data-detail-field="${field}" data-details-url="${url}" placeholder="${escapeHtml(ph)}" />${savedSpan(field)}</dd></div>`;
 }
 

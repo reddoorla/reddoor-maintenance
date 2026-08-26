@@ -17,16 +17,33 @@
  *    the lookup recovers.
  */
 import type { WebsiteRow } from "../reports/airtable/websites.js";
+import { TURSO_IS_AUTHORITATIVE } from "../db/freeze.js";
 
 export type SiteLookupDeps = {
   fromDb: (slug: string) => Promise<WebsiteRow | null>;
   fromAirtable: (slug: string) => Promise<WebsiteRow | null>;
 };
 
-export function makeSiteLookup(deps: SiteLookupDeps): (slug: string) => Promise<WebsiteRow | null> {
+export function makeSiteLookup(
+  deps: SiteLookupDeps,
+  /** #612. `true` = post-freeze: the Airtable fallback is not consulted at all,
+   *  so form ingest touches one store. Injected so both sides stay proven and
+   *  the freeze commit stays a one-line change. */
+  strict: boolean = TURSO_IS_AUTHORITATIVE,
+): (slug: string) => Promise<WebsiteRow | null> {
   return async (slug) => {
     const hit = await deps.fromDb(slug);
     if (hit) return hit;
+    // Post-freeze the fallback is not just unnecessary, it is WRONG: Airtable is
+    // frozen, so a row it still holds and Turso does not is stale by definition,
+    // and resolving a lead against it would attach that lead to a site the
+    // system no longer believes in. A miss is an unknown slug, full stop.
+    //
+    // What made the fallback load-bearing was a site created directly in the
+    // Airtable UI, before the next hourly import. Nothing hand-creates rows
+    // after the freeze, and `ensure-site` inserts straight into Turso (#608),
+    // so the window it covered no longer exists either.
+    if (strict) return null;
     return deps.fromAirtable(slug);
   };
 }
