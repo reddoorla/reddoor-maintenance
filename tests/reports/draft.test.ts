@@ -802,6 +802,7 @@ describe("draftReportForSite → the Turso create mirror", () => {
     await draftReportForSite(base, siteFixture({ ga4PropertyId: "G-123" }), "Maintenance", {
       ...NO_HEADER,
       siteMirror: {
+        created: async () => {},
         health: async (id, fields) => {
           mirrored.push({ id, fields });
         },

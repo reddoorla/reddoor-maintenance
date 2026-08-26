@@ -149,3 +149,73 @@ describe("ensureSite", () => {
     await expect(ensureSite(base, { slug: "  " })).rejects.toThrow(/slug/i);
   });
 });
+
+/**
+ * #539 Phase 5. `ensure-site` is the only path that CREATES a Websites row, and
+ * every other site mirror is an UPDATE — which does nothing at all for a row
+ * that does not exist yet. Without the create hook a bootstrapped site is
+ * invisible to Turso until the next hourly sync, and every mirror the rest of
+ * the bootstrap fires reports `mirrored=missed` with no row to update.
+ */
+describe("ensureSite → the Turso mirror", () => {
+  const stub = () => {
+    const created: Array<{ id: string; fields: Record<string, unknown> }> = [];
+    const updated: Array<{ id: string; fields: Record<string, unknown> }> = [];
+    return {
+      created,
+      updated,
+      mirror: {
+        created: async (rec: { id: string; fields: Record<string, unknown> }) => {
+          created.push(rec);
+        },
+        site: async (id: string, fields: Record<string, unknown>) => {
+          updated.push({ id, fields });
+        },
+      },
+    };
+  };
+
+  it("hands the created record — as Airtable echoed it — to mirror.created", async () => {
+    // What Airtable STORED, not the payload we sent: parity diffs against the
+    // stored record, so mapping our own fields would diverge the moment
+    // Airtable normalised a value.
+    const base = makeFakeBase({ Websites: [] });
+    const s = stub();
+
+    const result = await ensureSite(base, { slug: "roalson" }, s.mirror);
+
+    expect(s.created).toHaveLength(1);
+    expect(s.created[0]!.id).toBe(result.siteId);
+    expect(s.created[0]!.fields).toMatchObject({ Name: "roalson", Status: "building" });
+    expect(s.updated).toHaveLength(0);
+  });
+
+  it("mirrors the fill-blanks path too", async () => {
+    const base = makeFakeBase({
+      Websites: [existingSite({ url: undefined })],
+    });
+    const s = stub();
+
+    await ensureSite(base, { slug: "acme-co", url: "https://acme.example.com" }, s.mirror);
+
+    expect(s.created).toHaveLength(0);
+    expect(s.updated).toEqual([{ id: "recEXIST", fields: { url: "https://acme.example.com" } }]);
+  });
+
+  it("writes nothing to the mirror when nothing was written to Airtable", async () => {
+    const base = makeFakeBase({ Websites: [existingSite()] });
+    const s = stub();
+
+    await ensureSite(base, { slug: "acme-co" }, s.mirror);
+
+    expect(s.created).toHaveLength(0);
+    expect(s.updated).toHaveLength(0);
+  });
+
+  it("still works with no mirror injected (the pre-Phase-5 callers)", async () => {
+    const base = makeFakeBase({ Websites: [] });
+    await expect(ensureSite(base, { slug: "roalson" })).resolves.toMatchObject({
+      status: "created",
+    });
+  });
+});

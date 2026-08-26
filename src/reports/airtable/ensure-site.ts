@@ -17,6 +17,16 @@ export type EnsureSiteInput = {
   gitRepo?: string;
 };
 
+/** #539 Phase 5. Structurally typed rather than importing the db layer's
+ *  `SiteMirror`, so this module stays the leaf it has always been — a real
+ *  `SiteMirror` satisfies it. Two ops because `ensureSite` has two write paths,
+ *  and the create one is the reason this exists: every other site mirror is an
+ *  UPDATE, which does nothing for a row that does not exist yet. */
+export type EnsureSiteMirror = {
+  created: (rec: { id: string; fields: Record<string, unknown> }) => Promise<void>;
+  site: (siteId: string, fields: Record<string, unknown>) => Promise<void>;
+};
+
 export type EnsureSiteResult = {
   status: "created" | "exists";
   siteId: string;
@@ -48,6 +58,7 @@ const COLS = {
 export async function ensureSite(
   base: AirtableBase,
   input: EnsureSiteInput,
+  mirror?: EnsureSiteMirror,
 ): Promise<EnsureSiteResult> {
   const slug = siteSlug(input.slug);
   if (!slug) throw new Error(`ensure-site: '${input.slug}' does not slugify to a usable slug`);
@@ -67,9 +78,14 @@ export async function ensureSite(
     if (input.url) fields[COLS.url] = input.url;
     if (input.pointOfContact) fields[COLS.pointOfContact] = input.pointOfContact;
     const created = (await base(WEBSITES_TABLE).create([{ fields }])) as Records<FieldSet>;
+    const rec = created[0]!;
+    // The mirror gets what Airtable STORED, never the `fields` we sent: parity
+    // diffs Turso against the stored record, so mapping our own payload would
+    // diverge the moment Airtable normalises a value.
+    await mirror?.created({ id: rec.id, fields: rec.fields as Record<string, unknown> });
     return {
       status: "created",
-      siteId: created[0]!.id,
+      siteId: rec.id,
       updatedFields: [],
       skippedMismatches: [],
     };
@@ -90,6 +106,9 @@ export async function ensureSite(
   const updatedFields = Object.keys(updates);
   if (updatedFields.length > 0) {
     await base(WEBSITES_TABLE).update([{ id: existing.id, fields: updates }]);
+    // The fill-blanks path writes real cells too — a resumed bootstrap that only
+    // filled a blank `url` would otherwise leave Turso stale until the sync.
+    await mirror?.site(existing.id, updates);
   }
   return { status: "exists", siteId: existing.id, updatedFields, skippedMismatches };
 }

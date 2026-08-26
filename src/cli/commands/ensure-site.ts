@@ -20,13 +20,20 @@ export async function runEnsureSiteCommand(
   if (!slug) return { output: "Provide a <slug> (e.g. `ensure-site roalson`).", code: 2 };
   try {
     const base = openBase(readAirtableConfig());
-    const result = await ensureSite(base, {
-      slug,
-      ...(opts.name ? { displayName: opts.name } : {}),
-      ...(opts.url ? { url: opts.url } : {}),
-      ...(opts.contact ? { pointOfContact: opts.contact } : {}),
-      ...(opts.gitRepo ? { gitRepo: opts.gitRepo } : {}),
-    });
+    // #539 Phase 5: bootstrapping a site CREATES the Websites row, so this is
+    // the one site path that needs an INSERT mirror — every other one updates.
+    const { makeSiteMirror } = await import("../../db/site-mirror.js");
+    const result = await ensureSite(
+      base,
+      {
+        slug,
+        ...(opts.name ? { displayName: opts.name } : {}),
+        ...(opts.url ? { url: opts.url } : {}),
+        ...(opts.contact ? { pointOfContact: opts.contact } : {}),
+        ...(opts.gitRepo ? { gitRepo: opts.gitRepo } : {}),
+      },
+      await makeSiteMirror(),
+    );
     const filled =
       result.updatedFields.length > 0
         ? ` — filled blank field(s): ${result.updatedFields.join(", ")}`

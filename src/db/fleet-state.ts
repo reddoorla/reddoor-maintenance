@@ -36,6 +36,7 @@ import {
   healthColumnFor,
   scheduleColumnFor,
   mapReportRecord,
+  mapWebsiteRecord,
   type RawRecord,
 } from "./import-airtable.js";
 import type { AirtableCellValue } from "../reports/airtable/websites.js";
@@ -283,6 +284,47 @@ export async function mirrorSiteFields(
     .executeTakeFirst();
   // kysely/libSQL reports numUpdatedRows as a BigInt — compare in BigInt.
   return res.numUpdatedRows > 0n;
+}
+
+/** Mirror a NEWLY CREATED Airtable Websites record into Turso (#539 Phase 5).
+ *
+ *  `ensure-site` CREATES a row, and every other site mirror is an UPDATE, which
+ *  does nothing at all for a row that does not exist yet — so a site
+ *  bootstrapped at 09:05 was invisible until the 09:20 sync, and every mirror
+ *  the rest of the bootstrap fired reported `mirrored=missed` with nothing to
+ *  update.
+ *
+ *  Maps with the IMPORTER's own `mapWebsiteRecord`, which is also exactly what
+ *  parity diffs against: that delegation is what makes the mirrored rows
+ *  parity-clean by construction rather than by a column list someone has to
+ *  remember to extend.
+ *
+ *  All THREE rows, not just `sites`. Parity reverse-checks `site_health` and
+ *  `site_schedule` per site and reports a missing one as `(row) ABSENT`, and a
+ *  later `mirrorHealthFields` would return `missed` forever with no row to hit.
+ *
+ *  Upserts rather than inserts because `ensure-site` is re-run to RESUME a
+ *  bootstrap. The header_image* columns survive that by construction —
+ *  `mapWebsiteRecord` does not carry them (Airtable stopped being their source,
+ *  design D5), so the conflict branch cannot blank a stored plate whose bytes
+ *  live in no other store. */
+export async function mirrorSiteInsert(db: Db, rec: RawRecord, computedAt: string): Promise<void> {
+  const { site, health, schedule } = mapWebsiteRecord(rec, computedAt);
+  await db
+    .insertInto("sites")
+    .values(site)
+    .onConflict((oc) => oc.column("id").doUpdateSet(site))
+    .execute();
+  await db
+    .insertInto("site_health")
+    .values(health)
+    .onConflict((oc) => oc.column("site_id").doUpdateSet(health))
+    .execute();
+  await db
+    .insertInto("site_schedule")
+    .values(schedule)
+    .onConflict((oc) => oc.column("site_id").doUpdateSet(schedule))
+    .execute();
 }
 
 /** Write-through mirror for the nightly health writers (#539 Phase 3). Takes

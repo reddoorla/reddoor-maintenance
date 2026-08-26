@@ -767,6 +767,7 @@ describe("sendApprovedReports", () => {
     await sendApprovedReports({
       resend: client,
       siteMirror: {
+        created: async () => {},
         health: async () => {},
         site: async (id, fields) => {
           mirrored.push({ id, fields });

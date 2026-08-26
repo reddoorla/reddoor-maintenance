@@ -99,6 +99,7 @@ describe("recipes/launch", () => {
     await launch(siteOf(), {
       ...deps(base),
       siteMirror: {
+        created: async () => {},
         health: async (id: string, fields: Record<string, unknown>) => {
           mirrored.push({ id, fields });
         },
