@@ -367,7 +367,9 @@ export type CockpitModel = {
   /** NEW submissions across the fleet, newest-first (optional for back-compat). */
   submissions?: SubmissionEntry[];
   /** Fleet spam totals over the window (optional; populated by buildCockpitModel). */
-  spam?: { caught: number; through: number } | null;
+  /** `computedAt` present ⇒ these came from the nightly roll-up and are up to
+   *  24h old; the strip labels them so a stale number is never read as live. */
+  spam?: { caught: number; through: number; computedAt?: string } | null;
   /** Recent fleet-activity events for the "Recently" lane (optional for back-compat). */
   recent?: RecentEntry[];
   /** Fleet-wide count of submissions auto-filtered as spam in the affordance window
@@ -611,7 +613,14 @@ export function buildCockpitModel(
   baseUrl: string,
   now: Date,
   newSubmissions: SubmissionRow[] = [],
-  spamTotals: { honeypot: number; tooFast: number; markedSpam: number } | null = null,
+  spamTotals: {
+    honeypot: number;
+    tooFast: number;
+    markedSpam: number;
+    /** When the nightly digest computed these. The figures are up to 24h
+     *  old by construction, so the strip says so rather than reading live. */
+    computedAt?: string;
+  } | null = null,
   recentEvents: FleetEvent[] = [],
   autoFilteredCount = 0,
   // Per-site bounced-lead-notification counts (countNotifyBouncedBySite, last
@@ -803,7 +812,11 @@ export function buildCockpitModel(
     pending,
     submissions,
     spam: spamTotals
-      ? { caught: spamTotals.honeypot + spamTotals.tooFast, through: spamTotals.markedSpam }
+      ? {
+          caught: spamTotals.honeypot + spamTotals.tooFast,
+          through: spamTotals.markedSpam,
+          ...(spamTotals.computedAt !== undefined ? { computedAt: spamTotals.computedAt } : {}),
+        }
       : null,
     recent,
     autoFiltered: autoFilteredCount,

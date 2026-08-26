@@ -748,6 +748,58 @@ describe("runDigest", () => {
     log.mockRestore();
   });
 
+  it("writes the cockpit roll-up and says so (MED-16)", async () => {
+    // The roll-up is what lets the fleet homepage stop aggregating over
+    // `submissions` per request. If this write silently stops, the cockpit's
+    // spam and bounce strips go ABSENT — which is the honest failure, but only
+    // if someone notices, hence the counter on the line.
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const base = makeFakeBase({ Reports: [bouncedReport()], Websites: [vulnSiteRow()] });
+    const { client } = captureClient();
+    const seen: Date[] = [];
+
+    await runDigest({
+      digestState: memoryDigestState(),
+      cockpitRollup: {
+        write: async (now) => {
+          seen.push(now);
+        },
+      },
+      base,
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
+
+    expect(seen).toHaveLength(1);
+    expect((log.mock.calls as unknown[][]).flat().join("\n")).toContain("rollup=1");
+    log.mockRestore();
+  });
+
+  it("reports rollup=0 when the roll-up write fails, and still sends", async () => {
+    // Same contract as the turso half: a dead writer must be visibly dead. The
+    // digest has already gone out by this point, so it must not turn the run red.
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const base = makeFakeBase({ Reports: [bouncedReport()], Websites: [vulnSiteRow()] });
+    const { client, captured } = captureClient();
+
+    const result = await runDigest({
+      digestState: memoryDigestState(),
+      cockpitRollup: {
+        write: () => Promise.reject(new Error("turso down")),
+      },
+      base,
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
+
+    expect(result.code).toBe(0); // the email already went out
+    expect(captured).toHaveLength(1);
+    expect((log.mock.calls as unknown[][]).flat().join("\n")).toContain("rollup=0");
+    log.mockRestore();
+    warn.mockRestore();
+  });
+
   it("reports turso=0 when only the Turso half fails, and still sends (#609)", async () => {
     // A half-dead dual-write must be visibly half-dead. Counting it as a plain
     // success is the exact shape that hid #585 for weeks.
