@@ -1,4 +1,4 @@
-import { crawlSite, defaultCrawlDeps, type CrawlDeps } from "./crawl.js";
+import { crawlSite, defaultCrawlDeps, USER_AGENT, type CrawlDeps } from "./crawl.js";
 import { computeScores, runChecks } from "./checks.js";
 import { analyzeSite, defaultAnalyzeDeps, type AnalyzeDeps } from "./analyze.js";
 import {
@@ -8,6 +8,7 @@ import {
   type VisibilityEngine,
 } from "./probes.js";
 import { runLighthouse } from "./lighthouse.js";
+import { checkAssets, type AssetCheck, type AssetCheckDeps } from "./assets.js";
 import type {
   AnalyzeResult,
   ChecksResult,
@@ -18,7 +19,7 @@ import type {
   StageResult,
 } from "./types.js";
 
-export type StageName = "crawl" | "checks" | "lighthouse" | "analyze" | "probes";
+export type StageName = "crawl" | "checks" | "lighthouse" | "analyze" | "probes" | "assets";
 
 /** `opts.probes === false` (the CLI's `--no-probes`) and an attempted probe
  *  run that failed are both `{ok:false, error}` — only the message tells
@@ -31,6 +32,46 @@ export const PROBES_SKIPPED = "skipped (--no-probes)";
  *  for the same reason as PROBES_SKIPPED. */
 export const ANALYZE_SKIPPED = "skipped — the checks stage failed";
 
+/** The asset check reads the same page extracts the checks stage does, so it
+ *  has nothing to work from when that stage failed. Exported for the same
+ *  reason as the constants above: consumers compare, they do not retype. */
+export const ASSETS_SKIPPED = "skipped — the checks stage failed";
+
+/** HEAD first, GET on anything that refuses it.
+ *
+ *  Plenty of servers answer HEAD with 405 or 501 while serving the same URL
+ *  perfectly well over GET, and reporting those as broken links would fill a
+ *  prospect's report with defects that do not exist. The GET is made with a
+ *  Range header asking for the first byte, so a heavy asset is not pulled in
+ *  whole just to learn its status. */
+async function defaultAssetProbe(
+  url: string,
+): Promise<{ status: number; headers: Record<string, string> }> {
+  const headersOf = (res: Response): Record<string, string> =>
+    Object.fromEntries([...res.headers].map(([k, v]) => [k.toLowerCase(), v]));
+
+  const head = await fetch(url, {
+    method: "HEAD",
+    headers: { "user-agent": USER_AGENT },
+    redirect: "follow",
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (head.status !== 405 && head.status !== 501) {
+    return { status: head.status, headers: headersOf(head) };
+  }
+
+  const get = await fetch(url, {
+    method: "GET",
+    headers: { "user-agent": USER_AGENT, range: "bytes=0-0" },
+    redirect: "follow",
+    signal: AbortSignal.timeout(15_000),
+  });
+  // Release the socket: nothing here reads the body, and an unconsumed one
+  // keeps the connection alive until GC.
+  await get.body?.cancel();
+  return { status: get.status, headers: headersOf(get) };
+}
+
 export type PipelineDeps = {
   crawl?: CrawlDeps;
   /** Overrides runChecks (checks.ts) — pure and synchronous like the real
@@ -40,6 +81,11 @@ export type PipelineDeps = {
   analyze?: AnalyzeDeps;
   engines?: VisibilityEngine[];
   lighthouse?: (url: string) => Promise<LighthouseScores>;
+  /** Overrides the asset check's request budget and pacing. The defaults are
+   *  deliberately modest: this is the only stage that fans out to many URLs on
+   *  someone else's server, and a courteous audit is worth more than an
+   *  exhaustive one. A test passes its own `probe` to avoid a network. */
+  assets?: Partial<AssetCheckDeps>;
   /** Forwarded to probes.ts's ProbeRunOptions.delayMs — production runs want
    *  the real between-query pacing (a metered, rate-limited API); an offline
    *  test suite wants 0 so it never genuinely sleeps for it. */
@@ -105,6 +151,22 @@ export async function runProspectAudit(
     checksFn(crawlData),
   );
 
+  // Runs off the crawl, so it is independent of everything below and can fail
+  // without touching them. Skipped entirely when checks failed: without an
+  // extract there are no links or images to probe, and firing requests at a
+  // prospect's server to discover that would be rude as well as pointless.
+  const assets: StageResult<AssetCheck> = checks.ok
+    ? await stage("assets", deps, async () =>
+        checkAssets(crawlData.pages, crawlData.origin, {
+          probe: defaultAssetProbe,
+          maxLinks: 60,
+          maxImages: 40,
+          delayMs: 150,
+          ...deps.assets,
+        }),
+      )
+    : { ok: false, error: ASSETS_SKIPPED };
+
   const lighthouse: StageResult<LighthouseScores> = await stage("lighthouse", deps, async () =>
     (deps.lighthouse ?? runLighthouse)(url),
   );
@@ -161,5 +223,6 @@ export async function runProspectAudit(
     lighthouse,
     analyze,
     probes,
+    assets,
   };
 }

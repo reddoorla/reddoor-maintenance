@@ -1,10 +1,16 @@
 import type { AuditResult } from "../types.js";
 import type { AnswerSpace } from "./answer-space.js";
+import type { AssetCheck } from "./assets.js";
+import type { ConsistencyResult } from "./consistency.js";
+import type { JourneyMap } from "./journey.js";
 
 // Re-exported so a consumer reading `probes.answerSpace` off the `./audit`
 // entry can name its type, rather than only matching it structurally. The
 // report renderer in reddoor-website is the consumer this is for.
 export type { AnswerSpace, SourceCount } from "./answer-space.js";
+export type { AssetCheck, ProbedUrl } from "./assets.js";
+export type { ConsistencyResult, ContactVariant } from "./consistency.js";
+export type { ContactAffordance, JourneyMap, PageJourney } from "./journey.js";
 
 /** Every pipeline stage resolves to this. A failed stage degrades its report
  *  section to "not measured" — it never kills the run (spec: error handling). */
@@ -180,6 +186,12 @@ export type ChecksResult = {
   llmsTxtMeasured: boolean;
   llmsTxtPresent: boolean;
   viewportOk: boolean;
+  /** Can a visitor get from where they landed to a way of contacting you?
+   *  Optional: reports stored before this was measured lack it, and a reader
+   *  must say "not measured" rather than "no path". See journey.ts. */
+  journey?: JourneyMap;
+  /** Does the site tell the same story on every page? See consistency.ts. */
+  consistency?: ConsistencyResult;
 };
 
 export type BuyerQuestion = {
@@ -354,4 +366,9 @@ export type ProspectAuditResult = {
   lighthouse: StageResult<LighthouseScores>;
   analyze: StageResult<AnalyzeResult>;
   probes: StageResult<ProbesResult>;
+  /** Broken links, broken images and image weight. Its own stage rather than
+   *  part of `checks` because it is the only site check that makes requests —
+   *  `runChecks` is pure and synchronous over the crawl, and it is worth
+   *  keeping it that way. Optional for reports stored before it existed. */
+  assets?: StageResult<AssetCheck>;
 };

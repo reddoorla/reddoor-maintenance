@@ -233,6 +233,15 @@ const ASSET_EXT = /\.(pdf|jpe?g|png|gif|webp|avif|svg|zip|mp4|mov|css|js|xml|jso
  *  test can assert against it directly. */
 export const MAX_RESPONSE_BYTES = 5_000_000;
 
+/** How long to let a page settle after `load` before capturing its DOM.
+ *
+ *  The rendered extract exists to be compared against the raw HTML, and the
+ *  difference is what a client-side framework painted — so the capture has to
+ *  happen after hydration or it measures nothing. Long enough for that,
+ *  nowhere near long enough to wait out a polling widget. Exported so a test
+ *  can assert the budget rather than rediscover it. */
+export const RENDER_SETTLE_MS = 1_500;
+
 /** Thrown by `defaultCrawlDeps().fetchUrl` when a body exceeds
  *  `MAX_RESPONSE_BYTES` — either the declared `content-length` refuses the
  *  request early, or the actual byte count catches a missing or lying header
@@ -616,7 +625,27 @@ export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
         // so they get the same courtesy pacing as the raw fetches.
         await pacedEach(urls, delayMs, async (url) => {
           try {
-            await page.goto(url, { waitUntil: "networkidle", timeout: 30_000 });
+            // `load`, NOT `networkidle`.
+            //
+            // `networkidle` waits for 500ms with no network activity, and a
+            // great many real business sites never go quiet: a chat widget, an
+            // analytics heartbeat or any polling script keeps the connection
+            // busy forever. Every such page burned the full 30s timeout and
+            // then threw, so at the production page budget a single chat
+            // widget cost the audit ten minutes of nothing.
+            //
+            // Worse, the catch below turned that into a MISSING rendered
+            // extract, so no page produced a raw/rendered pair, `jsDependence`
+            // came back null, and the whole Readability score reported "not
+            // measured" — the open Beachfront readability-null bug, which is
+            // this and not a scoring fault at all.
+            //
+            // Playwright's own docs discourage `networkidle` for exactly this
+            // reason. `load` fires once resources are in; the settle below
+            // gives client-side frameworks room to hydrate, which is what the
+            // rendered extract is actually for.
+            await page.goto(url, { waitUntil: "load", timeout: 20_000 });
+            await page.waitForTimeout(RENDER_SETTLE_MS);
             out.set(url, await page.content());
           } catch {
             // A page that won't render simply has no rendered extract.

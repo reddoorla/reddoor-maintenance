@@ -60,6 +60,29 @@ describe("checkConsistency", () => {
     expect(result.phones[0]?.pages).toHaveLength(3);
   });
 
+  // The exact text from beachfrontdentistry.com, which broke the first
+  // version. A greedy digit run swallowed the suite number and reported one
+  // number as two — 3103789241 AND 31037892411706 — which is the invented
+  // inconsistency this whole module is supposed to avoid. Found by running it
+  // against a live site, not in review.
+  it("does not swallow the number sitting next to a phone number", () => {
+    const result = checkConsistency([
+      page("https://x.example/", {
+        anchors: [link("tel:+13103789241")],
+        text: "Call (310) 378-9241 1706 South Catalina Avenue, Redondo Beach",
+      }),
+    ]);
+    expect(result.phones).toHaveLength(1);
+    expect(result.phones[0]?.normalized).toBe("3103789241");
+  });
+
+  it("does not pick a phone number out of a longer digit run", () => {
+    const result = checkConsistency([
+      page("https://x.example/", { text: "Order 993103789241557 shipped" }),
+    ]);
+    expect(result.phones).toEqual([]);
+  });
+
   it("reports genuinely different numbers separately", () => {
     const result = checkConsistency([
       page("https://x.example/", { anchors: [link("tel:+13103413571")] }),

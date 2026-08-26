@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import {
   runProspectAudit,
+  ASSETS_SKIPPED,
   PROBES_SKIPPED,
   ANALYZE_SKIPPED,
   type PipelineDeps,
@@ -120,6 +121,17 @@ const deps = (over: Partial<PipelineDeps> = {}): PipelineDeps => ({
     summary: "lighthouse: all categories passing",
     status: "pass" as const,
   }),
+  // The assets stage is the one check that fans out to real URLs. Stubbed here
+  // with a probe that throws, so any test whose fixture grows an <a href> or an
+  // <img src> cannot start quietly making network calls from the suite — it
+  // records a transport failure instead, which the stage already handles.
+  assets: {
+    probe: async () => {
+      throw new Error("network disabled in tests");
+    },
+    delayMs: 0,
+    sleep: async () => {},
+  },
   // Real ProbeRunOptions pacing (probes.ts's pacedEach) genuinely sleeps
   // between queries — 0 keeps this offline suite from spending seconds on it.
   probeDelayMs: 0,
@@ -183,6 +195,52 @@ describe("runProspectAudit", () => {
     const result = await runProspectAudit(HOME, { probes: false }, deps());
     expect(result.probes).toEqual({ ok: false, error: PROBES_SKIPPED });
     expect(result.scores.aiVisibility).toBeNull();
+  });
+
+  it("runs the asset check off the crawl and reports what it probed", async () => {
+    const asked: string[] = [];
+    const result = await runProspectAudit(
+      HOME,
+      { probes: false },
+      deps({
+        assets: {
+          delayMs: 0,
+          sleep: async () => {},
+          probe: async (url) => {
+            asked.push(url);
+            return { status: 404, headers: {} };
+          },
+        },
+      }),
+    );
+    expect(result.assets?.ok).toBe(true);
+    if (result.assets?.ok) {
+      // Whatever the fixture links to, the stage reported on it rather than
+      // silently doing nothing — the failure mode that would make this check
+      // look green on every site forever. Links AND images: one probe budget
+      // covers both, and `asked` counts every request the stage made.
+      const { linksChecked, imagesChecked, brokenLinks } = result.assets.data;
+      expect(linksChecked + imagesChecked).toBe(asked.length);
+      expect(linksChecked).toBeGreaterThan(0);
+      // Everything answered 404, so every link probed is reported broken.
+      expect(brokenLinks).toHaveLength(linksChecked);
+    }
+  });
+
+  // Without an extract there are no links or images to probe, and firing
+  // requests at a stranger's server to discover that would be rude as well as
+  // pointless.
+  it("skips the asset check when the checks stage failed", async () => {
+    const result = await runProspectAudit(
+      HOME,
+      { probes: false },
+      deps({
+        checks: () => {
+          throw new Error("checks exploded");
+        },
+      }),
+    );
+    expect(result.assets).toEqual({ ok: false, error: ASSETS_SKIPPED });
   });
 
   it("still runs probes when the analyze stage failed", async () => {

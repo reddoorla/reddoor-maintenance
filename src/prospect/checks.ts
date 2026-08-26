@@ -1,4 +1,6 @@
 import { AI_AGENTS, CLASSICAL_AGENTS } from "./crawl.js";
+import { checkConsistency } from "./consistency.js";
+import { buildJourney } from "./journey.js";
 import type {
   AnalyzeResult,
   ChecksResult,
@@ -206,6 +208,11 @@ export function runChecks(crawl: CrawlResult): ChecksResult {
     llmsTxtMeasured: crawl.sidecarErrors.llms === null,
     llmsTxtPresent: crawl.llmsTxt.present,
     viewportOk: views.length > 0 && views.every((v) => v.hasViewportMeta),
+    // Both are pure reads of the crawl, like everything else here — they make
+    // no requests, so they belong in this stage rather than costing the audit
+    // another round trip to the prospect's server.
+    journey: buildJourney(crawl.pages),
+    consistency: checkConsistency(crawl.pages),
   };
 }
 

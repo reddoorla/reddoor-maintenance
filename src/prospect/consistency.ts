@@ -52,10 +52,28 @@ export type ConsistencyResult = {
   pagesExamined: number;
 };
 
-/** North American and international shapes, deliberately loose: this finds
- *  candidates in text, and everything is normalized to digits before anything
- *  is compared or reported. */
-const PHONE_IN_TEXT = /(\+?\d[\d\s().-]{8,}\d)/g;
+/**
+ * A phone number in prose, matched on SHAPE rather than as a run of digits.
+ *
+ * The first version was a loose digit run — `\+?\d[\d\s().-]{8,}\d` — and it
+ * was greedy across whitespace, so on beachfrontdentistry.com it swallowed the
+ * suite number sitting next to the phone and produced:
+ *
+ *     3103789241        from "+13103789241"
+ *     31037892411706    from "310) 378-9241 1706"
+ *
+ * One number reported as two, which is precisely the invented inconsistency
+ * this module's own comments warn against. The digit cap in `normalizePhone`
+ * did not catch it either: 14 digits is under the 15 it allows.
+ *
+ * So: an explicit North American shape, with `(?<!\d)`/`(?!\d)` fencing it out
+ * of any longer digit run. The trade-off is real and deliberate — an
+ * international number in prose is missed. A missed number costs a finding we
+ * would have liked; a false one costs the reader's trust in every other finding
+ * on the page, and numbers written as links are caught by `tel:` regardless of
+ * format.
+ */
+const PHONE_IN_TEXT = /(?<!\d)(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?!\d)/g;
 const COPYRIGHT_YEAR = /(?:©|&copy;|copyright)\s*(?:\d{4}\s*[-–—]\s*)?(\d{4})/gi;
 
 /** Digits only, with a leading US country code dropped so `+1 310 341 3571` and
@@ -126,7 +144,7 @@ export function checkConsistency(pages: PageCapture[]): ConsistencyResult {
     // that appears only as text is both a consistency risk and a tap target
     // nobody on a phone can use.
     for (const match of extract.text.matchAll(PHONE_IN_TEXT)) {
-      const raw = match[1];
+      const raw = match[0];
       if (!raw) continue;
       const normalized = normalizePhone(raw);
       if (normalized) record(phones, normalized, raw.trim(), page.url);
