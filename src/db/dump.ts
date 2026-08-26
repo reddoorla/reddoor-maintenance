@@ -37,10 +37,22 @@ export function sqlLiteral(v: unknown): string {
     for (const b of bytes) hex += b.toString(16).padStart(2, "0");
     return `X'${hex}'`;
   }
-  // Strings: standard SQL escaping — double the single quotes. NUL bytes cannot
-  // ride a SQL literal; strip them (they cannot legitimately appear in this
-  // schema's TEXT columns).
-  return `'${String(v).replaceAll("\u0000", "").replaceAll("'", "''")}'`;
+  const str = String(v);
+  // A NUL cannot ride a single-quoted SQL literal. This used to strip them,
+  // justified as "they cannot legitimately appear in this schema's TEXT
+  // columns" — but `submissions` free text is attacker-supplied and SQLite
+  // stores NUL inside TEXT quite happily, so the backup would have silently
+  // differed from the origin with no signal. Emit the whole value as a hex blob
+  // cast back to text instead: lossless, and it round-trips through the
+  // rehearsal like any other literal.
+  if (str.includes("\u0000")) {
+    const bytes = new TextEncoder().encode(str);
+    let hex = "";
+    for (const b of bytes) hex += b.toString(16).padStart(2, "0");
+    return `CAST(X'${hex}' AS TEXT)`;
+  }
+  // Strings: standard SQL escaping — double the single quotes.
+  return `'${str.replaceAll("'", "''")}'`;
 }
 
 /**
@@ -49,8 +61,21 @@ export function sqlLiteral(v: unknown): string {
  * fails atomically instead of leaving a half-restored scratch that could be
  * mistaken for a good one.
  */
-export async function dumpDatabase(db: SqlExecutor): Promise<string> {
-  const out: string[] = ["PRAGMA foreign_keys=OFF;", "BEGIN TRANSACTION;"];
+export async function dumpDatabase(db: SqlExecutor, generatedAt: string): Promise<string> {
+  // Read the ORIGIN's own numbers BEFORE serialising anything. This is the
+  // whole point: it is the only measurement that does not come from the dump,
+  // so it is the only one that can notice the dump is short.
+  const manifest: DumpManifest = {
+    tables: await tableCounts(db),
+    blobBytes: await headerImageBytes(db),
+    generatedAt,
+  };
+  const out: string[] = [
+    // First line, so a truncated dump still carries what it CLAIMED to hold.
+    `${MANIFEST_PREFIX}${JSON.stringify(manifest)}`,
+    "PRAGMA foreign_keys=OFF;",
+    "BEGIN TRANSACTION;",
+  ];
 
   const schema = await db.execute(
     "SELECT name, type, sql FROM sqlite_master " +
@@ -78,18 +103,45 @@ export async function dumpDatabase(db: SqlExecutor): Promise<string> {
   return out.join("\n") + "\n";
 }
 
-/** Expected per-table row counts, read from the dump TEXT itself (one INSERT
- *  per row, by construction). Lets the restore rehearsal verify without a
- *  second network read of the origin — the dump is compared against itself. */
-export function countInsertsInDump(sql: string): Record<string, number> {
-  const counts: Record<string, number> = {};
-  const re = /^INSERT INTO ("(?:[^"]|"")+"|[A-Za-z_][A-Za-z0-9_]*) /gm;
-  for (const m of sql.matchAll(re)) {
-    const raw = m[1] as string;
-    const name = raw.startsWith('"') ? raw.slice(1, -1).replaceAll('""', '"') : raw;
-    counts[name] = (counts[name] ?? 0) + 1;
+/** Marker for the origin manifest line, first line of every dump. */
+export const MANIFEST_PREFIX = "-- REDDOOR_DUMP_MANIFEST ";
+
+/** What the ORIGIN database held at dump time.
+ *
+ *  This exists because the restore rehearsal used to compare the dump against
+ *  ITSELF: expected counts were parsed out of the dump text, and actual counts
+ *  came from loading that same text. Both sides moved together, so a dump that
+ *  collected 5 of 44 sites verified clean. A manifest read from the LIVE
+ *  database before any rows are serialised is the only thing that can catch
+ *  under-dumping.
+ *
+ *  `blobBytes` is the cheap content check. Row counts alone pass a dump in
+ *  which every `header_image` came back NULL — and those bytes exist in no
+ *  other store once Airtable is frozen. */
+export type DumpManifest = {
+  tables: Record<string, number>;
+  blobBytes: number;
+  generatedAt: string;
+};
+
+/** Total stored header-image bytes, the one content signal cheap enough to
+ *  check on every nightly run. */
+export async function headerImageBytes(db: SqlExecutor): Promise<number> {
+  const r = await db.execute(
+    "SELECT COALESCE(SUM(LENGTH(header_image)), 0) AS n FROM sites WHERE header_image IS NOT NULL",
+  );
+  return Number(r.rows[0]?.n ?? 0);
+}
+
+/** Parse the manifest line from a dump, or null when the dump predates it. */
+export function parseDumpManifest(sql: string): DumpManifest | null {
+  const line = sql.split("\n").find((l) => l.startsWith(MANIFEST_PREFIX));
+  if (!line) return null;
+  try {
+    return JSON.parse(line.slice(MANIFEST_PREFIX.length)) as DumpManifest;
+  } catch {
+    return null;
   }
-  return counts;
 }
 
 /** Per-table row counts — the cheap integrity check the restore rehearsal
