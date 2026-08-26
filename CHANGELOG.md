@@ -1,5 +1,331 @@
 # @reddoorla/maintenance
 
+## 0.88.2
+
+### Patch Changes
+
+- 5c682c2: The backup now verifies against the origin, not against itself (2026-08-26 review).
+
+  The restore rehearsal parsed its expected row counts **out of the dump text**, and
+  got its actual counts from **loading that same text**. Both sides derived from one
+  artifact, so a dump that collected 5 of 44 sites shrank both numbers together and
+  verified clean. With the freeze making Turso the only store, that dump is the
+  entire rollback story.
+
+  Every dump now carries an **origin manifest** on its first line — per-table row
+  counts and total `header_image` bytes, read from the live database before any row
+  is serialised. `verify-dump` compares against that. A dump with no manifest is
+  refused rather than falling back to self-comparison, which would silently
+  re-enable the blind spot on the one artifact nobody watches.
+
+  **Table coverage is asserted.** `tables=N` was printed and never checked, so a
+  table a migration failed to create rode green forever — `digest_state` and
+  `prospect_audits` were in no artifact at all the night this was found. A runtime
+  `DATABASE_TABLES` list, with a compile-time check that names any table missing
+  from it, is now compared against what restored.
+
+  **The encrypted artifact is verified.** Everything used to check `dump.sql`,
+  which is then deleted — nothing ever decrypted the `.gpg` that actually gets
+  uploaded, so a corrupt encryption would have shipped green. The workflow now
+  decrypts it back and re-runs the same gate on the round-tripped copy.
+
+  **New `db restore --url <target> --file <dump>`.** The nightly rehearsal loads
+  into `:memory:`, which proves the SQL parses — not that you can get the data back
+  into a real libSQL target, the operation an actual recovery needs and one that
+  had never been performed. It refuses a non-empty target and a manifest-less dump,
+  and verifies the restored result against the origin manifest.
+
+  **NUL bytes round-trip instead of being silently stripped.** The old justification
+  was that they cannot appear in this schema's TEXT columns — but `submissions`
+  free text is attacker-supplied and SQLite stores NUL happily, so the backup would
+  have quietly differed from the origin with no signal.
+
+  `countInsertsInDump` is removed. Its line-anchored regex was also inflatable by a
+  submitted message containing a line starting `INSERT INTO sites `, which would
+  have redded the backup; the manifest removes that class entirely.
+
+- 745975a: Fix four defects in the dashboard's browser script (2026-08-26 review).
+
+  All four live in code no test had ever executed — the page's interactivity ships
+  as one inline `<script>` built from a template literal, and the suite runs
+  `environment: "node"`. That is the same blind spot that shipped #595 (a checkbox
+  and a multi-select that rendered perfectly and could not save).
+
+  **A saved field re-POSTed on every later blur, forever.** The blur listener fires
+  on `value !== defaultValue`, and `saveDetail` never touched `defaultValue` — so
+  after one successful edit the two stayed different until the page was reloaded,
+  and every subsequent focus+blur wrote to Airtable again. The commentary handler 40
+  lines below always did resync, which is what marks this as an oversight. The worst
+  case was the `secret` kind: it deliberately emits no `value` attribute so a
+  credential is never echoed into the HTML, pinning `defaultValue` at `""` — so
+  every blur after typing re-sent the credential. One Airtable quota exhaustion has
+  already reddened six workflows fleet-wide, so tabbing through this form was a
+  cheap way to burn the write budget. `saveDetail` is now exported as source and
+  executed against stubs, including a control proving a FAILED save stays dirty so
+  the next blur retries.
+
+  **Approve state reached only one of two buttons.** The same pending report renders
+  twice — pending list and reports history — so one report id owns two Approve
+  buttons. The click handler updated the clicked one; the override handler used
+  `document.querySelector`, singular. After Approve or Override the twin still read
+  "Approve" and, with the gate clear, was still enabled. All four state paths
+  (initial disable, success, `!res.ok`, network rejection) now map over every twin —
+  including the failure paths, since leaving a twin disabled strands it unusable.
+
+  **A datetime in a date cell could silently clear the schedule with no user edit.**
+  `<input type="date">` accepts only `YYYY-MM-DD`; handed an ISO datetime the
+  browser sanitizes `.value` to `""` while `.defaultValue` keeps the raw string, so
+  the blur guard fires on an untouched tab-through and the server accepts `""` as a
+  deliberate clear. `maintenanceDay` / `testingDay` drive the code-owned next-due
+  schedule. Dormant while those Airtable columns stay date-only — it goes live the
+  instant anyone ticks "include time". Closed at both ends: the renderer truncates
+  to the date part, and a save now requires a real `input` gesture as well as a
+  changed value, which kills the whole class rather than this one instance.
+
+  **`rfPhase` was dead on both ends.** It mapped a GitHub step name onto a human
+  phase line, carefully ordered and commented, and `summarizeFleetRunStatus`
+  returned `step: null` unconditionally — so the line never rendered once. Removed
+  rather than wired: the step name only comes from the per-run _jobs_ endpoint, so
+  filling it would add a GitHub call per workflow per 10-second poll on a request
+  path, for one line the elapsed/ETA line already covers. Its test asserted the dead
+  string was _present_, and another claimed "endpoint fills it for in-progress runs";
+  both now pin the absence.
+
+  Also: the cockpit's one `innerHTML` sink escapes its interpolations and gates the
+  run link on an `https://github.com/` prefix. The values are server enums and
+  GitHub `html_url`s, but it builds markup from a remote response, and everywhere
+  else on these pages the rule is that no server string becomes HTML.
+
+  And the prospect-audits page joins the inline-script parse gate. Its 50-line
+  `RUN_SCRIPT` cites the exact build-time-`\n` incident the gate exists to catch,
+  and it was the one dashboard page the gate never covered.
+
+  Four smaller items in the same area:
+
+  - The **parse gate had two blind spots**. It matched only `<script>` with no
+    attributes, so a future `<script type="module">` or a nonce would be skipped in
+    silence — a gate that stops looking still reports green. And it could not see
+    inline handler attributes (`onsubmit=`), which are JavaScript too and fail more
+    quietly, for one control rather than the page. Both are covered now, with
+    self-tests that fail a broken attributed tag and a broken handler, and a positive
+    control so the gate is not merely throwing on everything.
+  - **`scriptLiteral`** joins `escapeHtml` in `src/util/html.ts`. A `<script>`
+    element's content is raw text — the HTML parser does not decode entities inside
+    it — so `escapeHtml` reaching a script body corrupts the JavaScript instead of
+    escaping it, while looking like the house style. There was no correct tool to
+    reach for; now there is, and its test compiles the emitted literal to prove
+    `</script>` and `<!--` round-trip as data.
+  - **The multi-select comma invariant is asserted.** The value is comma-joined
+    client-side and split on `/[,\n]/` server-side, which round-trips only while no
+    option contains a comma. An option like "Deploy failed, retried" would have
+    silently arrived as two conditions.
+  - **The override toggle no longer depends on `nextElementSibling`.** Adjacency is a
+    markup accident; anything inserted between the toggle and its form would kill
+    "Send anyway…" silently. It uses the `.override` wrapper the markup already
+    provides — the same `closest()` contract the submit handler six lines below uses.
+
+- e6cf00d: Make the request-path mirrors freeze-aware, and gate that they stay so
+  (2026-08-26 review, MED-9 / MED-13 / LOW-1).
+
+  The review asked whether anything enforces that a new mirror factory honours the
+  freeze switch. Answering it turned up something better: **four writers had already
+  skipped it, and none of them was a factory.**
+
+  `approve-report`, `report-commentary`, `resend-webhook` and `site-details` do not
+  use the mirror factories at all. Each calls `mirrorReportPatch` / `mirrorSiteField`
+  directly, inside its own hand-rolled `try { … } catch { console.error }` — four
+  independent copies of the swallow, each carrying a comment saying the hourly sync
+  converges it. Searching for `TURSO_IS_AUTHORITATIVE` could never find them,
+  because the defect is precisely that they never mention it.
+
+  **That comment stops being true at the freeze.** With the import stopped, a
+  swallowed mirror failure on an approve, a commentary edit, a delivery-status
+  webhook or a site-detail edit is permanent divergence: the Airtable write it
+  shadows has already succeeded, and the only trace is a log line nobody greps.
+
+  `mirrorWrite(label, run, strict = TURSO_IS_AUTHORITATIVE)` now owns that decision
+  in one place, and all four route through it. Under `strict` the failure is raised
+  with the label of the write that was lost, rather than logged and forgotten.
+
+  **The lockstep gate** discovers every file calling a `mirror*` writer and requires
+  it to use `mirrorWrite` or be listed as exempt with a reason — the same shape as
+  the query-plan classification gate. Exemptions are checked for staleness (a dead
+  entry silently re-excuses a future writer) and the discovery itself has a vacuity
+  guard, so the gate cannot pass by finding nothing.
+
+  **Ingest rate limiting: measured, not changed.** Three consecutive reviews flagged
+  that `aggregateBy: ["ip"]` cannot throttle an abusive visitor, and none recorded a
+  number. Traffic is server-to-server, so per-IP genuinely buys nothing against a
+  visitor — but the standing worry was the other direction, that a legitimate burst
+  trips 120/min and a real lead 429s. Against live data that is not close: across
+  the whole fleet since ingest went live (356 submissions, 2026-06-15 → 08-26) the
+  **busiest single minute ever is 4**, and the busiest day is 25. Netlify's
+  `rateLimit` still cannot key on a path param, so per-slug means an
+  application-level counter — a read on the one path where latency and failure modes
+  cost actual leads. Not worth it for a bound nothing has approached. The
+  measurement and an explicit revisit trigger (~40/min) are now in the code, so the
+  fourth review does not re-derive it.
+
+  **`.worktrees/` is gitignored.** The concurrent-session rule makes a worktree per
+  branch the norm here, so it is permanent furniture — and while untracked it was
+  the only entry in `git status`, which trains the eye to ignore a dirty tree.
+
+- 2c217e0: Harden the prospect audit's entry point and cap its spend (2026-08-26 review).
+
+  #619 closed the nested-sitemap SSRF while this was in flight. Two things it did
+  not cover remain, and both are here.
+
+  **A hostile index can no longer starve out the real children.** The guard was
+  applied inside the loop, after `.slice(0, 3)` — so three hostile entries at the
+  top of a sitemap index consumed the whole budget and the site's genuine child
+  sitemaps were never fetched. The crawl then silently sees fewer pages, which is a
+  quieter failure than the SSRF itself. Filtering now happens before the cap.
+
+  **The entry host is checked before the first fetch.** The redirect guard has
+  always covered where a hostile site can send us _second_; nothing covered a
+  caller pointing the crawler at an internal address to begin with, and the CLI
+  validated only `isHttpUrl` — so one fetch of `169.254.169.254` happened before
+  the throw. Both `crawlSite` and the CLI now refuse.
+
+  **A 24-hour cap on dispatches.** The duplicate window stopped the same URL being
+  re-run; nothing stopped distinct URLs, so one session could dispatch ~30/minute
+  against 30 hostnames indefinitely — and one audit is structurally an Opus call
+  plus up to 28 Sonnet calls with up to 112 billed web searches, a 20-page double
+  crawl, a 3-pass Lighthouse and a PDF render in a billed Actions job. It is a
+  runaway brake, not a quota: far above real use, answering 429 with both numbers.
+  A repeat of the same URL still reports `duplicate`, so it neither consumes the
+  budget nor gives a confusing answer.
+
+  **The private runner no longer takes a `ref` input.** `reddoor-maintenance` is
+  public, so `refs/pull/N/merge` exists for any PR anyone opens; a dispatch naming
+  one would run a stranger's build in a job holding Turso, Resend and Anthropic
+  secrets.
+
+  **The health check is behind the operator gate.** It leaked no values, but
+  `DASHBOARD_PASSWORD: true` is the reconnaissance step for using that fallback.
+
+  Also closes the deprecated `::a.b.c.d` IPv6 form in `isPrivateOrLoopbackHost`.
+
+- d05bdd7: Close the query-plan gate's blind spot, and stop shipping report bodies to
+  compute booleans (2026-08-26 review).
+
+  **The gate tested function names, not predicate shapes.** It reported
+  `raw_scans=0` while three request-path raw scans of `submissions` shipped, because
+  `countSubmissionsFiltered` had exactly two hand-written scenarios — `{}` and
+  `{siteId}` — and both happen to land on an index. Its `formType`, `search` and
+  `reason` shapes were never planned at all. The `listSubmissionsFiltered` sibling —
+  same filter, same request — did get an "every WHERE shape" scenario; the count
+  running beside it never did, and the export-completeness check was satisfied
+  because it matches names.
+
+  Both functions are now driven off one `FILTER_CASES` record, `satisfies
+Record<keyof SubmissionFilter, …>`, so a new filter key fails to compile until it
+  is added and then gets planned against every filtered function automatically. That
+  took the gate from 52 scenarios to 64 and immediately turned it red on exactly the
+  three predicted scans — which is the point of adding the scenarios before the fix.
+
+  **`form_type` had no index at all** (migration `0012`), so
+  `countSubmissionsFiltered({formType})` scanned the whole table twice per load of
+  the submissions page. `submissions` is the one unbounded-growth table in the schema
+  and Turso meters row scans, so that cost rises forever. Adding the index took the
+  count 3 → 2, measured as a delta rather than asserted.
+
+  **`search` and `reason` are genuinely unindexable** — leading-wildcard `LIKE`, one
+  of them over a concatenation expression — so they are now named allowlist entries
+  with the reason they are accepted (operator-only page, bounded by one person's
+  typing) and the condition to revisit (~10k rows, or the page becoming client-facing).
+
+  **Allowlist entries can no longer go stale.** An entry that no longer matches a
+  real scan is dead permission: it keeps a name exempted after a rename or a new
+  index, and silently re-permits a regression that reuses the name. Every entry must
+  still describe an observed scan. This caught one immediately — an entry added in
+  this very change that turned out not to be needed.
+
+  **The cockpit shipped 1.17 MB of report HTML per page load to compute 16
+  booleans.** `listAllReports` used `.selectAll()`, and `fleet-homepage.mts` owns
+  `path: ["/"]`. The column was read only to be tested for null. The identical
+  hazard was already solved for `sites` 320 lines up in the same file —
+  `SITE_COLUMNS` omits the header-image BLOB with a comment about Turso billing the
+  bytes, and a lockstep test keeps it honest — so `reports.rendered_html` now has
+  `REPORT_LIST_COLUMNS` and the same test. `listReportsForSite` had it too.
+
+  `reportRowFromDb` takes the body's presence as an argument now rather than reading
+  the column, so a list row and a full row are both honest inputs and nothing can
+  start depending on body _content_ without the type saying so.
+
+  **Hourly parity pulled the same 1.17 MB, 24×/day, to discard it** —
+  `rendered_html` was already a parity `SKIP_COLUMN`, but the read was still
+  `selectAll()`. It shares the projection now.
+
+  **The detector's "`USING` ⇒ fine" rule was wrong for a row-scan-metered store.**
+  It skipped any plan line containing `USING`, justified as "an index-ordered
+  traversal under a LIMIT stops early". True — but only when there IS a limit. An
+  aggregate has none and reads every row through the index, which costs exactly what
+  a raw scan does when the store bills rows rather than pages. `SCAN t USING
+[COVERING] INDEX` now counts unless the statement carries a LIMIT.
+
+  That made **four** full traversals visible that the gate had never reported (the
+  review predicted three): `countSubmissionsFiltered({})`, `countNotifyBouncedBySite`
+  and `listScreenOutsSince`'s group-by on the cockpit request path, plus the digest
+  cron's `countSubmissionsSinceBySite`. Each is now a named allowlist entry with its
+  justification, not an invisible pass.
+
+  Three of them are **accepted, not fixed**. The real answer is to fold those
+  slow-moving "since a window" numbers into the nightly `digest_state` singleton the
+  homepage already reads by primary key — but that makes the figures up to 24 hours
+  stale, which is an operator's call rather than mine, so it is flagged rather than
+  taken.
+
+  One known gap is left explicit rather than guessed at: a LIMITed statement whose
+  filter carries a residual predicate the index cannot serve still scans the whole
+  table when few rows match, and EXPLAIN's output does not distinguish that from a
+  clean early stop.
+
+- 0c4a822: Add a blocked-sender-domain tier to the spam classifier.
+
+  `jmailservice.com` sent 17 submissions across four unrelated client sites between
+  2026-06-17 and 2026-08-25. Every one was spam. **Ten of them were emailed to the
+  operator**, including the two most recent, which scored 30 and 0.
+
+  They dodged all three existing defences at once. The content scorer sees varying
+  bodies that mostly sum under 60. The cross-site `repeat-sender` signal is keyed on
+  the exact email address, and the sender rotates a plausible `firstname.lastname@`
+  local part — 11 distinct addresses over those 17 sends — so it almost never saw a
+  repeat. And the existing disposable-domain list scores +45, which needs
+  corroboration: even with the domain listed there it would have bucketed only the
+  five sends that already carried another signal, and **none of the ten that reached
+  the inbox**. The identity changes every time; the domain does not.
+
+  `BLOCKED_EMAIL_DOMAINS` is a second, stricter tier for domains where every
+  submission the fleet has ever received was spam, so it buckets alone. It is scored
+  as `SPAM_THRESHOLD` rather than a literal, because the signal is defined as "enough
+  on its own" rather than as a number that a later threshold change could strand.
+  Matching covers subdomains (`mail.<domain>`) but stops at a label boundary, so a
+  look-alike registration like `notjmailservice.com` is unaffected. Nothing is
+  dropped: a blocked submission is still stored, still visible in the cockpit, and
+  still recoverable — it just lands `spam_auto`, which suppresses the notification.
+
+  **Auditing the rest of the live traffic added seven more.** The MAVIS
+  virtual-assistant flood — whose body invariants are already in `SPAM_KEYWORDS` —
+  turns out to run from seven sender domains sharing the same rotate-the-first-name
+  pattern: 35 submissions, all pitches, 12 of them emailed to the operator.
+
+  The tier ships with a deliberately high entry bar, because it is the only signal
+  with no corroboration requirement, and two entries were **rejected** while applying
+  it — both of which a naive "100% of its submissions are spam" query would have
+  added:
+
+  - `lemos.com`, 10 for 10 "spam", is the operator's own landing-page test traffic
+    from `tucker@lemos.com`. Listing it would have bucketed his own testing.
+  - `melottogroup.com`, 3 for 3 genuine cold outreach, uses one fixed address with no
+    rotation, which `repeat-sender` already catches.
+
+  Hence rule 1 of the entry bar: read every row, not the ratio. A regression test
+  pins the rule that matters most — no shared mailbox provider (gmail, outlook,
+  icloud, the ISP domains) may ever appear on this list, since a single such entry
+  would silently bucket every real lead using it and no other signal would be needed
+  to do it.
+
 ## 0.88.1
 
 ### Patch Changes
