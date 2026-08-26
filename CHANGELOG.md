@@ -1,5 +1,119 @@
 # @reddoorla/maintenance
 
+## 0.88.3
+
+### Patch Changes
+
+- 085b587: Move the cockpit's two fleet-wide aggregates to the nightly digest (MED-16).
+
+  The fleet homepage recomputed both of its "since a window" numbers on **every page
+  load** — the 30-day spam roll-up and the 14-day notify-bounce counts. Both are
+  aggregates over the whole `submissions` table, which is the one unbounded-growth
+  table in the schema (append-only, one row per fleet lead forever), on the
+  operator's most-loaded page, against a store that meters **row scans**.
+
+  They now come from one row read by primary key, computed once by the nightly
+  digest and stored beside the digest snapshot under its own key.
+
+  **The trade is that the figures are up to 24h old, and the design pays for that
+  twice.** The strip is labelled with when it was taken (`· as of 2026-08-26 03:00
+UTC`), because a stale number rendered as though it were live is worse than the
+  per-request cost it replaced. And an absent roll-up reads as **null, not zeros**:
+  every one of these numbers has a legitimate zero, so a reader handed
+  `{honeypot: 0, …}` cannot tell "nothing was screened out" from "the digest has
+  never run". The cockpit renders the strip as absent instead, the same distinction
+  `FLEET_SMOKE_UNMEASURED` exists to preserve. A malformed or older-shaped payload
+  reads as null too, since a different process writes it on a different schedule.
+
+  `DIGEST_STATE_WRITE` gains a **three-state** `rollup=1|0|absent` counter rather
+  than a boolean. `absent` means no Turso is configured, which is what every unit
+  test looks like — reporting that as `rollup=0` would train the eye to ignore the
+  one number that is supposed to catch a dead writer, which is exactly how #585 hid
+  for weeks. The writer is injectable for the same reason `digestState` is: without
+  a seam it would report `rollup=absent` forever in tests while looking healthy.
+
+  The two query-plan allowlist entries for these aggregates are re-justified rather
+  than removed — the functions still exist and still scan, they are simply **batch
+  only** now.
+
+- 02d7220: Register `db restore --url`, which was never wired — and rehearse the rollback.
+
+  **`db restore` shipped unrunnable.** `DbCommandOptions` declared `url?`,
+  `runDbCommand` read `opts.url` to pick the restore target, and `bin.ts` registered
+  only `--file`. So `--url` was a cac hard-error at parse time and the command's only
+  reachable outcome was its own usage message. Every unit test passed, because they
+  call `runDbCommand` directly and never go through the CLI.
+
+  It was found the only way it could be: by trying to use it. A restore path that
+  cannot be invoked is the worst thing to discover during a recovery, and after the
+  freeze that dump is the entire rollback story.
+
+  **The rollback has now been rehearsed end to end**, against a real libSQL server
+  rather than the nightly `:memory:` load:
+
+  ```
+  dump    17 MB, 11 tables, manifest on line 1
+  target  turso dev (sqld, Hrana over HTTP) — a real server, empty
+  RESTORE loaded=true tables=11 rows=755 blob_bytes=7777769 mismatches=0
+  ```
+
+  Row counts and total blob bytes were compared against the dump's **origin
+  manifest**, not against the dump text. Then content was compared directly between
+  production and the restored copy — the newest submission, the largest header image
+  (808,289 bytes, JPEG magic intact), the largest rendered report body, the
+  `digest_state` row and the full migration list all matched exactly.
+
+  All three refusals were exercised and each exits non-zero: `target-not-empty`,
+  `manifest-absent`, and a missing `--url` (which must never default, or a restore is
+  one keystroke from overwriting production).
+
+  **What this does NOT prove:** the target was a local sqld, not a hosted Turso
+  database, because creating one needs a browser-OAuth platform login. The dump path,
+  the statement set, the client, the manifest verification and the guards are all
+  proven; Turso's hosted control plane is not.
+
+  A registration test now derives the required flags **from the source** — every
+  `opts.foo` read in `db.ts` must have a `--foo` on the db command — plus a
+  behavioural check that spawns the CLI and asserts cac accepts both flags. The
+  lookup is scoped to the db command's own block, so a `--url` belonging to another
+  command cannot satisfy it.
+
+- bb7ee2c: Divide the AI-visibility score by the probes we sent, not by the ones that came
+  back.
+
+  Every failure path in the probe loop was a bare `return`: a probe that errored,
+  or that errored again after its rate-limit retry, was dropped without a trace.
+  The score then divided by `categoryAnswers.length` — the survivors. So the
+  denominator shrank silently whenever the network did, and **a flakier run scored
+  higher**. Ask five buyer questions, have three fail, and have one of the two
+  survivors name the business, and the report read "named in 1 of 2 searches" and
+  scored 50. The truth was 1 of 5, which is 20. Nothing anywhere recorded that
+  three probes had died, and no two runs were comparable — neither between dates
+  for one prospect nor between prospects.
+
+  `attempted` is now the divisor, so a probe that never came back counts as "not
+  found". That is the conservative reading and it can understate, which is the
+  right direction for a number handed to a stranger — but only if they are told,
+  so the report now says how many searches failed and that the figure is a floor.
+
+  **A wholly dead engine is excluded rather than counted as silent refusals.** The
+  two ways a probe goes missing are not the same claim about the prospect: an
+  engine that answers nothing at all is a missing API key or a dead vendor — our
+  outage, no evidence either way — while an engine that answers some queries and
+  fails others is demonstrably alive, so those failures are real gaps in the
+  measurement. Attempts are tracked per engine and only live engines contribute to
+  the denominator. Without this split an unset environment variable would have
+  halved somebody's score.
+
+  **Nothing answering at all is now null, not zero.** "The engines were asked and
+  did not know you" and "we learned nothing" are different claims about someone
+  else's business, and only one of them is ours to make. That case takes the same
+  "not measured" path a missing stage already does.
+
+  `ProbesResult.categoryProbes` reports `{ attempted, answered }`. It is optional
+  because the type also describes runs deserialized from
+  `prospect_audits.result_json`, and reports stored before this field lack it.
+
 ## 0.88.2
 
 ### Patch Changes
