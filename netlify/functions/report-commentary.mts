@@ -3,6 +3,7 @@ import { openBase } from "../../src/reports/airtable/client.js";
 import { updateReportCommentary } from "../../src/reports/airtable/reports.js";
 import { getReportById, mirrorReportPatch } from "../../src/db/fleet-state.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
+import { mirrorWrite } from "../../src/db/freeze.js";
 import { requireOperator, denialResponse, setReportCommentary } from "../../src/dashboard/index.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
@@ -64,11 +65,9 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
         getReportById: (rid) => getReportById(db, rid),
         updateCommentary: async (rid, value) => {
           await updateReportCommentary(base, rid, value);
-          try {
-            await mirrorReportPatch(db, rid, { commentary: value === "" ? null : value });
-          } catch (err) {
-            console.error(`[report-commentary] Turso mirror failed for ${rid}: ${String(err)}`);
-          }
+          await mirrorWrite(`report-commentary ${rid}`, () =>
+            mirrorReportPatch(db, rid, { commentary: value === "" ? null : value }),
+          );
         },
       },
       id,

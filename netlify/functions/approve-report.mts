@@ -5,6 +5,7 @@ import { approveReport, requireOperator, denialResponse } from "../../src/dashbo
 
 import { approveBlockers, formatBlockers } from "../../src/reports/preflight.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
+import { mirrorWrite } from "../../src/db/freeze.js";
 import { mirrorReportPatch, getReportById, getSiteById } from "../../src/db/fleet-state.js";
 import { isCsrfAllowed } from "../../src/dashboard/csrf.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
@@ -112,18 +113,16 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     // — the gate must see current state); the approve/override WRITES stay on
     // Airtable and are mirrored back below.
     const db2 = await openDb(readDbConfig());
-    // Each Airtable write is mirrored into Turso reports so the
-    // page re-render shows the approval immediately, not after the next hourly
-    // sync. Everything — opening the db included — is inside the catch: a
-    // mirror failure (or absent Turso env) is non-fatal, the sync converges it.
-    const mirror = async (rid: string, patch: Parameters<typeof mirrorReportPatch>[2]) => {
-      try {
+    // Each Airtable write is mirrored into Turso reports so the page re-render
+    // shows the approval immediately, not after the next hourly sync. Everything
+    // — opening the db included — is inside mirrorWrite, which decides what a
+    // failure MEANS: non-fatal today because the sync converges it, fatal once
+    // the freeze makes Turso authoritative and there is no sync to converge it.
+    const mirror = async (rid: string, patch: Parameters<typeof mirrorReportPatch>[2]) =>
+      mirrorWrite(`approve-report ${rid}`, async () => {
         const db = await openDb(readDbConfig());
         await mirrorReportPatch(db, rid, patch);
-      } catch (err) {
-        console.error(`[approve-report] Turso mirror failed for ${rid}: ${String(err)}`);
-      }
-    };
+      });
     const deps = {
       // Phase 2 (#539): reads from Turso (mirrored writes keep it current
       // within this very request); writes stay on Airtable + mirror below.
