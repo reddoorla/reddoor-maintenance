@@ -287,6 +287,15 @@ export type SendAuditEmailOptions = {
    * entire pipeline rerun, which mints genuinely new content anyway.
    */
   auditId?: string | null;
+  /**
+   * The print-designed PDF leave-behind, when one was rendered.
+   *
+   * Optional on purpose: rendering it needs a live page and a headless browser,
+   * and neither is worth losing a delivered report over. Absent, the email goes
+   * exactly as it did before — the HTML sheet and the link — and the caller has
+   * already recorded a warning saying why.
+   */
+  pdf?: Buffer | null;
   /** Defaults to `defaultResendClient()`. */
   client?: ResendClient;
   /** Test seam for the ATTACHMENT content only (production omits it and gets
@@ -335,6 +344,18 @@ export async function sendAuditEmail(
         content: Buffer.from(attachmentHtml, "utf-8").toString("base64"),
         contentType: "text/html",
       },
+      // The PDF goes second so the HTML sheet stays the first attachment it has
+      // always been, and appears only when one was actually rendered — an empty
+      // or broken attachment is worse than none.
+      ...(opts.pdf
+        ? [
+            {
+              filename: filename.replace(/\.html$/, ".pdf"),
+              content: opts.pdf.toString("base64"),
+              contentType: "application/pdf",
+            },
+          ]
+        : []),
     ],
     idempotencyKey,
   });
