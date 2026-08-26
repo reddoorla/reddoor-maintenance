@@ -19,12 +19,17 @@
  *  REPORTS, so a missing SITE_MIRROR line means the wiring is gone.
  */
 import { openDb, readDbConfig, type Db } from "./client.js";
-import { mirrorHealthFields, mirrorSiteFields } from "./fleet-state.js";
+import { mirrorHealthFields, mirrorSiteFields, mirrorSiteInsert } from "./fleet-state.js";
 
 /** Two ops because the Websites row is split across two Turso tables. Callers
  *  pass the EXACT FieldSet the Airtable writer returned, so the mirror can never
  *  carry a different payload than the write it shadows. */
 export type SiteMirror = {
+  /** A row Airtable just CREATED, as Airtable echoed it back (`ensure-site`).
+   *  Every other op is an UPDATE, which does nothing for a row that does not
+   *  exist yet — so without this a bootstrapped site is invisible to Turso and
+   *  every mirror the rest of the bootstrap fires reports `mirrored=missed`. */
+  created: (rec: { id: string; fields: Record<string, unknown> }) => Promise<void>;
   /** Columns that live in `site_health`. */
   health: (siteId: string, fields: Record<string, unknown>) => Promise<void>;
   /** Columns that live in `sites`. */
@@ -63,6 +68,13 @@ export async function makeSiteMirror(
   };
 
   return {
+    // An INSERT always lands, so it reports 1 rather than routing a row count
+    // through `missed` — there was nothing to match in the first place.
+    created: (rec) =>
+      run(rec.id, "created", async (d) => {
+        await mirrorSiteInsert(d, rec, new Date().toISOString());
+        return true;
+      }),
     health: (siteId, fields) => run(siteId, "health", (d) => mirrorHealthFields(d, siteId, fields)),
     site: (siteId, fields) => run(siteId, "site", (d) => mirrorSiteFields(d, siteId, fields)),
   };

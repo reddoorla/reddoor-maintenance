@@ -541,6 +541,7 @@ describe("recipes/announce", () => {
       now: NOW,
       refreshHeader: false,
       siteMirror: {
+        created: async () => {},
         health: async (id: string, fields: Record<string, unknown>) => {
           mirrored.push({ id, fields });
         },

@@ -346,6 +346,19 @@ function scenarios(state: { createdId: string }): Scenario[] {
       run: (db) => fleetState.mirrorSiteField(db, "recA", "Status", "maintenance"),
     },
     {
+      // The site-create mirror (#539 Phase 5). Three upserts, each resolving its
+      // conflict on a PK — an unindexed conflict target would scan `sites` on
+      // every bootstrap, and that table carries the header-image BLOBs.
+      name: "mirrorSiteInsert (ensure-site write-through)",
+      covers: ["mirrorSiteInsert"],
+      run: (db) =>
+        fleetState.mirrorSiteInsert(
+          db,
+          { id: "recA", fields: { Name: "Acme Gallery" } },
+          "2026-08-25T12:00:00.000Z",
+        ),
+    },
+    {
       // The multi-column form (#539 Phase 5). Same by-PK predicate, but it is
       // the one the one-off writers go through, so it is gated in its own right
       // rather than inheriting mirrorSiteField's verdict.

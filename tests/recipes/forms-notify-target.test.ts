@@ -118,6 +118,7 @@ describe("formsNotifyTarget", () => {
       site: "1836dig",
       set: "on",
       siteMirror: {
+        created: async () => {},
         health: async () => {},
         site: async (id, fields) => {
           mirrored.push({ id, fields });

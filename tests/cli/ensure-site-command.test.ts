@@ -39,6 +39,12 @@ describe("runEnsureSiteCommand", () => {
         pointOfContact: "owner@roalson.com",
         gitRepo: "reddoorla/custom",
       }),
+      // #539 Phase 5: the third argument is the Turso mirror, built HERE — this
+      // command file is the composition root. Asserted rather than loosened
+      // away: bootstrapping is the one site path that CREATES a row, so a
+      // dropped mirror leaves the new site invisible to Turso until the next
+      // hourly sync, with every later bootstrap mirror reporting `missed`.
+      expect.objectContaining({ created: expect.any(Function), site: expect.any(Function) }),
     );
   });
 

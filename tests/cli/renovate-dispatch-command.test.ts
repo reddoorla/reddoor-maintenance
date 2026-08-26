@@ -103,6 +103,7 @@ describe("runRenovateDispatchCommand — auto-fix counter bookkeeping", () => {
       fleet: true,
       base,
       siteMirror: {
+        created: async () => {},
         health: async (id, fields) => {
           mirrored.push({ id, fields });
         },
