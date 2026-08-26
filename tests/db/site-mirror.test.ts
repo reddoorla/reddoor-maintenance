@@ -47,7 +47,7 @@ describe("makeSiteMirror (best-effort, always observable)", () => {
     const db = await dbWithSite();
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const mirror = await makeSiteMirror(async () => db);
+    const mirror = await makeSiteMirror(async () => db, false);
     await mirror.site("recSITE", { Status: "maintained", "Launched at": "2026-08-25" });
 
     const row = await db
@@ -63,7 +63,7 @@ describe("makeSiteMirror (best-effort, always observable)", () => {
     const db = await dbWithSite();
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const mirror = await makeSiteMirror(async () => db);
+    const mirror = await makeSiteMirror(async () => db, false);
     await mirror.health("recSITE", { "Analytics soft-fail at": "2026-08-25T00:00:00.000Z" });
 
     const row = await db
@@ -81,7 +81,7 @@ describe("makeSiteMirror (best-effort, always observable)", () => {
     const db = await dbWithSite();
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const mirror = await makeSiteMirror(async () => db);
+    const mirror = await makeSiteMirror(async () => db, false);
     await mirror.site("recBRANDNEW", { Status: "maintained" });
 
     expect(logged(log)).toContain("SITE_MIRROR site=recBRANDNEW op=site mirrored=missed");
@@ -92,7 +92,7 @@ describe("makeSiteMirror (best-effort, always observable)", () => {
 
     const mirror = await makeSiteMirror(async () => {
       throw new Error("no TURSO_DATABASE_URL");
-    });
+    }, false);
     await expect(mirror.site("recSITE", { Status: "maintained" })).resolves.toBeUndefined();
     await expect(mirror.health("recSITE", { "Smoke OK": "pass" })).resolves.toBeUndefined();
 
@@ -109,7 +109,7 @@ describe("makeSiteMirror (best-effort, always observable)", () => {
     } as unknown as Awaited<ReturnType<typeof openDb>>;
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const mirror = await makeSiteMirror(async () => db);
+    const mirror = await makeSiteMirror(async () => db, false);
     await expect(mirror.site("recSITE", { Status: "maintained" })).resolves.toBeUndefined();
 
     expect(logged(log)).toContain("SITE_MIRROR site=recSITE op=site mirrored=0 error=SQLITE_BUSY");
@@ -119,7 +119,7 @@ describe("makeSiteMirror (best-effort, always observable)", () => {
     const db = await dbWithSite();
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const mirror = await makeSiteMirror(async () => db);
+    const mirror = await makeSiteMirror(async () => db, false);
     await mirror.site("recSITE", { "Not A Column": "x" });
 
     expect(logged(log)).toContain("SITE_MIRROR site=recSITE op=site mirrored=0");

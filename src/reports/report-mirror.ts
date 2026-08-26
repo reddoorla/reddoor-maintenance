@@ -24,6 +24,7 @@ import {
   type ReportMirrorPatch,
 } from "../db/fleet-state.js";
 import type { CreatedDraftMirror } from "./airtable/reports.js";
+import { TURSO_IS_AUTHORITATIVE } from "../db/freeze.js";
 
 /** The three shapes a report write takes. Injected as ONE object rather than
  *  three parameters because they share a db handle and always travel together:
@@ -44,6 +45,10 @@ export type ReportMirror = {
  *  whatever this misses. `open` is injectable for tests. */
 export async function makeReportMirror(
   open: () => Promise<Db> = () => openDb(readDbConfig()),
+  /** #612. `true` = Turso is the store that must succeed, so every failure
+   *  throws instead of being logged and swallowed. Defaulted from the shipped
+   *  constant and injected by tests, so both sides stay proven. */
+  strict: boolean = TURSO_IS_AUTHORITATIVE,
 ): Promise<ReportMirror> {
   let db: Db | null = null;
   let why = "";
@@ -52,6 +57,9 @@ export async function makeReportMirror(
   } catch (e) {
     why = (e as Error).message;
   }
+  // Frozen: refuse to hand back a mirror that cannot write — see makeSiteMirror
+  // for why this fails at construction rather than per write.
+  if (strict && !db) throw new Error(`REPORT_MIRROR unavailable: ${why}`);
 
   const run = async (reportId: string, op: string, work: (db: Db) => Promise<void>) => {
     if (!db) {
@@ -60,12 +68,14 @@ export async function makeReportMirror(
     }
     try {
       await work(db);
-      console.log(`REPORT_MIRROR report=${reportId} op=${op} mirrored=1`);
     } catch (e) {
       console.log(
         `REPORT_MIRROR report=${reportId} op=${op} mirrored=0 error=${(e as Error).message}`,
       );
+      if (strict) throw e;
+      return;
     }
+    console.log(`REPORT_MIRROR report=${reportId} op=${op} mirrored=1`);
   };
 
   return {

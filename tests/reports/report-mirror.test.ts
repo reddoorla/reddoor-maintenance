@@ -64,7 +64,7 @@ describe("makeReportMirror (best-effort, always observable)", () => {
     const db = await openDb({ url: ":memory:" });
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const mirror = await makeReportMirror(async () => db);
+    const mirror = await makeReportMirror(async () => db, false);
     await mirror.created({ id: "recNEW", fields: { "Report ID": "acme-2026-08" } });
 
     const stored = await db
@@ -83,7 +83,7 @@ describe("makeReportMirror (best-effort, always observable)", () => {
     const db = await openDb({ url: ":memory:" });
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const mirror = await makeReportMirror(async () => db);
+    const mirror = await makeReportMirror(async () => db, false);
     await mirror.created({ id: "recNEW", fields: {} });
     await mirror.body("recNEW", "<p>the report</p>");
 
@@ -100,7 +100,7 @@ describe("makeReportMirror (best-effort, always observable)", () => {
     const db = await openDb({ url: ":memory:" });
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const mirror = await makeReportMirror(async () => db);
+    const mirror = await makeReportMirror(async () => db, false);
     await mirror.created({ id: "recNEW", fields: { "Draft ready": true } });
     await mirror.patch("recNEW", { draft_ready: 0, lighthouse_seo: 71 });
 
@@ -119,7 +119,7 @@ describe("makeReportMirror (best-effort, always observable)", () => {
 
     const mirror = await makeReportMirror(async () => {
       throw new Error("no TURSO_DATABASE_URL");
-    });
+    }, false);
     await expect(mirror.created({ id: "recNEW", fields: {} })).resolves.toBeUndefined();
     await expect(mirror.body("recNEW", "<p>x</p>")).resolves.toBeUndefined();
     await expect(mirror.patch("recNEW", { draft_ready: 1 })).resolves.toBeUndefined();
@@ -143,7 +143,7 @@ describe("makeReportMirror (best-effort, always observable)", () => {
     >;
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const mirror = await makeReportMirror(async () => db);
+    const mirror = await makeReportMirror(async () => db, false);
     await expect(mirror.created({ id: "recNEW", fields: {} })).resolves.toBeUndefined();
     await expect(mirror.body("recNEW", "<p>x</p>")).resolves.toBeUndefined();
     await expect(mirror.patch("recNEW", { draft_ready: 1 })).resolves.toBeUndefined();
