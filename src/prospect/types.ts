@@ -25,11 +25,31 @@ export type RobotsAgentAccess = {
  *  site hardcodes a staging host. */
 export type PageAnchor = { href: string; text: string; rel: string };
 
-/** One `<form>`, in enough detail to tell a contact form from a search box.
- *  That distinction is the whole point: a site with a search box and no way to
- *  reach a human has no conversion path, and counting forms alone would call
- *  that a pass. */
+/**
+ * What a form is FOR, inferred from its shape.
+ *
+ * - `enquiry`   asks for a way to reply AND for something else — a name, a
+ *               message, a budget. This is the one that reaches a human.
+ * - `subscribe` asks for a way to reply and nothing else: a lone email box.
+ *               A newsletter signup is a conversion, but it is not a way to
+ *               get an answer, and a visitor with a question is not served by
+ *               one.
+ * - `other`     everything else — search, filters, logins, calculators. No
+ *               attempt is made to tell those apart; the shapes overlap too
+ *               much to do it honestly from markup.
+ *
+ * The distinction earns its keep on real data. Icovy carries a one-field email
+ * box in the footer of every page. Counting that as a contact route put the
+ * whole site at zero clicks from "reaching them", when in fact the only form
+ * that reaches a person is the nine-field one on `/contact-us`.
+ */
+export type FormKind = "enquiry" | "subscribe" | "other";
+
+/** One `<form>`, in enough detail to tell an enquiry form from a newsletter box
+ *  or a search field. That distinction is the whole point: a site nobody can
+ *  actually reach must not score as though it has a conversion path. */
 export type FormShape = {
+  kind: FormKind;
   /** As authored, or null for a form that posts to its own URL. */
   action: string | null;
   /** Lower-cased; defaults to "get", which is what a browser does. */

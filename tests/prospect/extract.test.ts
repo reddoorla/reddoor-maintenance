@@ -182,3 +182,87 @@ describe("extractPage — pathological nesting", () => {
     expect(page.headings.some((h) => h.text === "Buried heading")).toBe(false);
   });
 });
+
+describe("extractPage — anchors, images and forms", () => {
+  it("collects hrefs as authored, and counts them truthfully", () => {
+    // Kept as authored on purpose: resolving here would erase the difference
+    // between a relative link and one that hardcodes an absolute host, which is
+    // itself a finding when a site ships a staging URL to production.
+    const page = extractPage(`<html><body>
+      <a href="/about">About</a>
+      <a href="https://elsewhere.example/x">Away</a>
+      <a href="tel:+15550100">Call</a>
+      <a>no href</a>
+      <a href="  ">blank href</a>
+    </body></html>`);
+    expect(page.anchors?.map((a) => a.href)).toEqual([
+      "/about",
+      "https://elsewhere.example/x",
+      "tel:+15550100",
+    ]);
+    expect(page.anchorCount).toBe(3);
+  });
+
+  it("reads an anchor's visible label, not its markup", () => {
+    const page = extractPage(
+      `<html><body><a href="/x"><svg><title>icon</title></svg><span>Contact us</span></a></body></html>`,
+    );
+    expect(page.anchors?.[0]?.text).toBe("Contact us");
+  });
+
+  it("collects image sources and drops empty ones", () => {
+    const page = extractPage(
+      `<html><body><img src="/a.jpg" alt="a"><img src=""><img alt="no src"></body></html>`,
+    );
+    expect(page.imageSrcs).toEqual(["/a.jpg"]);
+  });
+
+  it("classifies a multi-field form that asks for a reply as an enquiry", () => {
+    const page = extractPage(`<html><body><form method="POST" action="/send">
+      <input name="name"><input type="email" name="email"><textarea name="message"></textarea>
+      <input type="hidden" name="csrf"><input type="submit" value="Send">
+    </form></body></html>`);
+    const form = page.forms?.[0];
+    expect(form?.kind).toBe("enquiry");
+    // Hidden and submit are not questions asked of the visitor.
+    expect(form?.fieldCount).toBe(3);
+    expect(form?.method).toBe("post");
+    expect(form?.action).toBe("/send");
+    expect(form?.hasSubmit).toBe(true);
+  });
+
+  // The Icovy case: a lone email box in the footer of every page. Counting it
+  // as a way to reach a human put that whole site at zero clicks from contact.
+  it("classifies a lone email box as subscribe, not enquiry", () => {
+    const page = extractPage(
+      `<html><body><form action="/subscribe"><input type="email" name="email"><button>Join</button></form></body></html>`,
+    );
+    expect(page.forms?.[0]?.kind).toBe("subscribe");
+    expect(page.forms?.[0]?.hasContactField).toBe(true);
+  });
+
+  it("classifies a search box as other, and defaults its method to get", () => {
+    const page = extractPage(
+      `<html><body><form><input type="text" name="q" placeholder="Search"><button>Go</button></form></body></html>`,
+    );
+    expect(page.forms?.[0]?.kind).toBe("other");
+    expect(page.forms?.[0]?.method).toBe("get");
+  });
+
+  it("recognises a contact field from any attribute an author might use", () => {
+    for (const control of [
+      `<input type="tel" name="x">`,
+      `<input name="user_phone">`,
+      `<input id="contact-field">`,
+      `<input name="contact_email">`,
+      `<input name="yourPhone">`,
+      `<input placeholder="Your email">`,
+      `<input aria-label="Phone number">`,
+    ]) {
+      const page = extractPage(
+        `<html><body><form><input name="name">${control}</form></body></html>`,
+      );
+      expect(page.forms?.[0]?.kind, control).toBe("enquiry");
+    }
+  });
+});

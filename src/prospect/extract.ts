@@ -16,6 +16,23 @@ const NON_FIELD_INPUTS = new Set(["hidden", "submit", "button", "image", "reset"
  *  path would pass a site that cannot be reached by anyone. */
 const CONTACT_FIELD = /\b(e-?mail|phone|tel|mobile|contact)\b/i;
 
+/**
+ * Break a field's attributes into words the way a human reads them.
+ *
+ * `CONTACT_FIELD` is anchored on `\b`, and neither of the two conventions that
+ * dominate real form markup puts a word boundary where one is needed:
+ *
+ *   snake_case  `user_phone`  — `_` is a WORD character, so `\bphone\b` misses
+ *   camelCase   `yourPhone`   — `r` to `P` is not a boundary either
+ *
+ * Left unhandled, both read a working enquiry form as "other", which reports a
+ * site with a perfectly good contact form as having no way to reach anyone —
+ * a false alarm in the direction that costs a prospect's trust in the whole
+ * audit. Caught by a test, not by review.
+ */
+const toWords = (s: string): string =>
+  s.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_\-.]+/g, " ");
+
 /** Subtrees a browser never renders. Skipped WHOLE — including their headings,
  *  images and schema blocks, which a <template> stamp would otherwise donate to
  *  the page's real counts. */
@@ -185,20 +202,27 @@ export function formShape(form: HTMLElement): FormShape {
     // Any of the attributes an author might carry the meaning in. Checked
     // together rather than in priority order: a field is a contact field if
     // ANY of them says so, and sites disagree about which one to use.
-    const signature = [
-      type,
-      control.getAttribute("name") ?? "",
-      control.getAttribute("id") ?? "",
-      control.getAttribute("placeholder") ?? "",
-      control.getAttribute("autocomplete") ?? "",
-      control.getAttribute("aria-label") ?? "",
-    ].join(" ");
+    const signature = toWords(
+      [
+        type,
+        control.getAttribute("name") ?? "",
+        control.getAttribute("id") ?? "",
+        control.getAttribute("placeholder") ?? "",
+        control.getAttribute("autocomplete") ?? "",
+        control.getAttribute("aria-label") ?? "",
+      ].join(" "),
+    );
     if (type === "email" || type === "tel" || CONTACT_FIELD.test(signature)) {
       hasContactField = true;
     }
   }
 
   return {
+    // A lone contact field is a newsletter box, not an enquiry form. See
+    // `FormKind`: Icovy's footer email box put every page of that site at zero
+    // clicks from "reaching them" when the only form that reaches a person is
+    // the nine-field one on /contact-us.
+    kind: !hasContactField ? "other" : fieldCount >= 2 ? "enquiry" : "subscribe",
     action: form.getAttribute("action")?.trim() || null,
     method: (form.getAttribute("method") ?? "get").toLowerCase().trim() || "get",
     fieldCount,

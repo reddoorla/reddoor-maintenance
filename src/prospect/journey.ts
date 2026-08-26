@@ -121,11 +121,13 @@ export function affordancesOn(page: PageCapture): ContactAffordance[] {
   }
 
   for (const form of extract.forms ?? []) {
-    // A form only counts when it asks for a way to reply. A search box and a
-    // filter are forms too, and counting them would report a site nobody can
-    // reach as having a conversion path — the exact failure this check exists
-    // to catch.
-    if (!form.hasContactField) continue;
+    // Only an enquiry form. A search box, a filter and a lone newsletter email
+    // box are all forms too, and counting any of them would report a site
+    // nobody can actually reach as having a conversion path — the exact
+    // failure this check exists to catch. See `FormKind` for why the
+    // one-field case had to be split out: Icovy's footer email box otherwise
+    // put every page of that site at zero clicks from reaching a person.
+    if (form.kind !== "enquiry") continue;
     found.push({ kind: "form", page: page.url, detail: form.action ?? page.url });
   }
 

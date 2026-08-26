@@ -33,6 +33,7 @@ function page(url: string, over: Partial<PageExtract> = {}): PageCapture {
 const link = (href: string): PageAnchor => ({ href, text: href, rel: "" });
 
 const contactForm = (over: Partial<FormShape> = {}): FormShape => ({
+  kind: "enquiry",
   action: "/submit",
   method: "post",
   fieldCount: 3,
@@ -96,7 +97,9 @@ describe("affordancesOn", () => {
   it("ignores a form that asks for no way to reply", () => {
     const found = affordancesOn(
       page("https://example.com/", {
-        forms: [contactForm({ hasContactField: false, fieldCount: 1, action: "/search" })],
+        forms: [
+          contactForm({ kind: "other", hasContactField: false, fieldCount: 1, action: "/search" }),
+        ],
       }),
     );
     expect(found).toEqual([]);
@@ -105,6 +108,34 @@ describe("affordancesOn", () => {
   it("counts a form that does ask for one", () => {
     const found = affordancesOn(page("https://example.com/", { forms: [contactForm()] }));
     expect(found).toEqual([{ kind: "form", page: "https://example.com/", detail: "/submit" }]);
+  });
+
+  // Caught on real data, not in review. Icovy carries a one-field email box in
+  // the footer of every page; before `FormKind` split subscribe from enquiry it
+  // counted as a way to reach a human, and the whole site read as zero clicks
+  // from contact when the only form that reaches a person is the nine-field one
+  // on /contact-us.
+  it("does not treat a lone newsletter email box as a way to reach a human", () => {
+    const found = affordancesOn(
+      page("https://example.com/blog", {
+        forms: [contactForm({ kind: "subscribe", fieldCount: 1, action: "/subscribe" })],
+      }),
+    );
+    expect(found).toEqual([]);
+  });
+
+  it("still finds the real enquiry form on a page that also has a newsletter box", () => {
+    const found = affordancesOn(
+      page("https://example.com/contact", {
+        forms: [
+          contactForm({ kind: "enquiry", fieldCount: 9, action: "/enquiry" }),
+          contactForm({ kind: "subscribe", fieldCount: 1, action: "/subscribe" }),
+        ],
+      }),
+    );
+    expect(found).toEqual([
+      { kind: "form", page: "https://example.com/contact", detail: "/enquiry" },
+    ]);
   });
 
   it("returns nothing for a page that produced no extract", () => {
