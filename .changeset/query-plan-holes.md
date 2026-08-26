@@ -52,3 +52,27 @@ start depending on body _content_ without the type saying so.
 **Hourly parity pulled the same 1.17 MB, 24×/day, to discard it** —
 `rendered_html` was already a parity `SKIP_COLUMN`, but the read was still
 `selectAll()`. It shares the projection now.
+
+**The detector's "`USING` ⇒ fine" rule was wrong for a row-scan-metered store.**
+It skipped any plan line containing `USING`, justified as "an index-ordered
+traversal under a LIMIT stops early". True — but only when there IS a limit. An
+aggregate has none and reads every row through the index, which costs exactly what
+a raw scan does when the store bills rows rather than pages. `SCAN t USING
+[COVERING] INDEX` now counts unless the statement carries a LIMIT.
+
+That made **four** full traversals visible that the gate had never reported (the
+review predicted three): `countSubmissionsFiltered({})`, `countNotifyBouncedBySite`
+and `listScreenOutsSince`'s group-by on the cockpit request path, plus the digest
+cron's `countSubmissionsSinceBySite`. Each is now a named allowlist entry with its
+justification, not an invisible pass.
+
+Three of them are **accepted, not fixed**. The real answer is to fold those
+slow-moving "since a window" numbers into the nightly `digest_state` singleton the
+homepage already reads by primary key — but that makes the figures up to 24 hours
+stale, which is an operator's call rather than mine, so it is flagged rather than
+taken.
+
+One known gap is left explicit rather than guessed at: a LIMITed statement whose
+filter carries a residual predicate the index cannot serve still scans the whole
+table when few rows match, and EXPLAIN's output does not distinguish that from a
+clean early stop.

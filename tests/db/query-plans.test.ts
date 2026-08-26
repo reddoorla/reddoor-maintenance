@@ -115,6 +115,35 @@ const ALLOWED_RAW_SCANS: Array<{ scenario: string; table: string; why: string }>
     table: "submissions",
     why: "comma-boundary LIKE on a concatenation expression — no index can serve it; operator-only page, revisit at ~10k rows",
   },
+  // Unindexable-by-shape aggregates, made VISIBLE by tightening the detector (an
+  // index-ordered SCAN with no LIMIT reads every row, and Turso bills rows). All
+  // four were invisible under the old "any USING is fine" rule.
+  //
+  // These are not "fine" — they are accepted for now and named so a reviewer can
+  // veto them. The real fix is MED-16 of the 2026-08-26 review: these cockpit
+  // strips are slow-moving "since a window" numbers that belong in the nightly
+  // digest_state singleton the homepage already reads by primary key. That trade
+  // makes the figures up to 24h stale, which is an operator call, not mine.
+  {
+    scenario: "countSubmissionsFiltered: no filters",
+    table: "submissions",
+    why: "COUNT(*) with no WHERE and no LIMIT — an unfiltered total cannot be anything but a full read; request path (submissions page), 354 rows today",
+  },
+  {
+    scenario: "countNotifyBouncedBySite",
+    table: "submissions",
+    why: "aggregate over the whole table on the cockpit request path — MED-16: fold into the nightly digest_state",
+  },
+  {
+    scenario: "listScreenOutsSince (window on date + marked-spam count)",
+    table: "spam_screenouts",
+    why: "group-by over the whole screen-out table on the cockpit request path; bounded by sites × days, not by lead volume — MED-16: fold into the nightly digest_state",
+  },
+  {
+    scenario: "countSubmissionsSinceBySite (digest telemetry)",
+    table: "submissions",
+    why: "batch only — the digest cron, once a day; a full read is the correct shape for a per-site tally",
+  },
 ];
 
 type Scenario = { name: string; covers: string[]; run: (db: Db) => Promise<unknown> };
@@ -592,7 +621,7 @@ describe("EXPLAIN-query-plan gate", () => {
       for (const stmt of stmts) {
         statementCount++;
         const details = await explainQueryPlan(h.client, stmt);
-        for (const table of rawScanTables(details, tables)) {
+        for (const table of rawScanTables(details, tables, stmt.sql)) {
           observed.add(`${scenario.name}|${table}`);
           const allowed = ALLOWED_RAW_SCANS.some(
             (a) => a.scenario === scenario.name && a.table === table,
@@ -636,14 +665,38 @@ describe("EXPLAIN-query-plan gate", () => {
     expect(
       rawScanTables(
         [
-          "SCAN submissions USING INDEX idx_submissions_submitted",
-          "SCAN submissions USING COVERING INDEX idx_submissions_status",
           "SEARCH submissions USING INDEX idx_submissions_site_submitted (site_id=?)",
           "SCAN 2 CONSTANT ROWS",
           "SCAN (subquery-1)",
           "USE TEMP B-TREE FOR ORDER BY",
         ],
         tables,
+      ),
+    ).toEqual([]);
+  });
+
+  it("detector unit: an index-ordered SCAN counts unless a LIMIT can stop it", () => {
+    // The old rule skipped anything containing `USING`, on the reasoning that an
+    // index-ordered traversal under a LIMIT stops early. True — but only when
+    // there IS a limit. An aggregate has none and reads every row through the
+    // index, which on a row-scan-metered store costs exactly what a raw scan does.
+    const tables = new Set(["submissions"]);
+    const indexScan = ["SCAN submissions USING COVERING INDEX idx_submissions_status"];
+
+    // Both states, so this cannot pass by always answering the same way.
+    expect(rawScanTables(indexScan, tables, "select count(*) from submissions")).toEqual([
+      "submissions",
+    ]);
+    expect(rawScanTables(indexScan, tables, "select * from submissions limit 50")).toEqual([]);
+
+    // With no SQL supplied the detector cannot know, and must not silently excuse.
+    expect(rawScanTables(indexScan, tables)).toEqual(["submissions"]);
+    // A SEARCH is a seek, not a traversal — never flagged, limit or no limit.
+    expect(
+      rawScanTables(
+        ["SEARCH submissions USING INDEX idx_submissions_status (status=?)"],
+        tables,
+        "select count(*) from submissions where status = ?",
       ),
     ).toEqual([]);
   });
