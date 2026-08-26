@@ -18,11 +18,16 @@ import { requiresAuthToken } from "../../src/db/dump.js";
 import { runDbCommand } from "../../src/cli/commands/db.js";
 
 describe("requiresAuthToken", () => {
+  // Placeholder hostnames on purpose. An earlier draft used the fleet's real
+  // database hostname, which is the literal value of the TURSO_DATABASE_URL
+  // environment variable — Netlify's secrets scanning reads the repo for the
+  // values of a site's env vars and failed every deploy until it was removed.
+  // Never put a real endpoint in a fixture when a fake one proves the same rule.
   it("requires a token for hosted targets", () => {
     for (const url of [
-      "libsql://reddoor-fleet-tucksravin.aws-us-west-2.turso.io",
-      "https://reddoor-fleet-tucksravin.aws-us-west-2.turso.io",
-      "wss://reddoor-fleet-tucksravin.aws-us-west-2.turso.io",
+      "libsql://example-db-placeholder.aws-us-west-2.turso.io",
+      "https://example-db-placeholder.aws-us-west-2.turso.io",
+      "wss://example-db-placeholder.aws-us-west-2.turso.io",
     ]) {
       expect(requiresAuthToken(url), url).toBe(true);
     }
