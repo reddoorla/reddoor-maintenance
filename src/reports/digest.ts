@@ -18,7 +18,11 @@ import {
   collectPrismicDriftAlerts,
   NOTIFY_BOUNCE_WINDOW_DAYS,
 } from "../alerts/digest-collectors.js";
-import { diffAttention, readDigestState, writeDigestState } from "../alerts/digest-state.js";
+import { diffAttention } from "../alerts/digest-state.js";
+import {
+  writeDigestState as writeAirtableDigestState,
+  type DigestSnapshot,
+} from "../alerts/digest-state.js";
 import { escapeHtml as esc } from "../util/html.js";
 import { operatorEmail } from "../util/operator.js";
 import type {
@@ -231,6 +235,65 @@ async function fetchNotifyBounceCounts(now: Date): Promise<ReadonlyMap<string, n
   }
 }
 
+/** The prior snapshot, from Turso (#609). Dynamically imported for the same
+ *  reason as fetchNotifyBounceCounts: kysely/libsql are devDependencies that
+ *  consuming fleet sites do not install, so a static import would crash their
+ *  CLI at require time.
+ *
+ *  NOT defensive, deliberately — the Airtable read it replaces was not either.
+ *  Swallowing a failure here would silently badge every item NEW, which reads
+ *  as "the whole fleet degraded overnight" in the operator's inbox. A thrown
+ *  error is the honest outcome. */
+async function readDigestStateFromDb(): Promise<DigestSnapshot> {
+  const [{ openDb, readDbConfig }, { readDigestState }] = await Promise.all([
+    import("../db/client.js"),
+    import("../db/digest-state.js"),
+  ]);
+  return readDigestState(await openDb(readDbConfig()));
+}
+
+/** The write half of {@link readDigestStateFromDb}, same lazy-import rule. */
+async function writeDigestStateToDb(next: DigestSnapshot): Promise<void> {
+  const [{ openDb, readDbConfig }, { writeDigestState }] = await Promise.all([
+    import("../db/client.js"),
+    import("../db/digest-state.js"),
+  ]);
+  await writeDigestState(await openDb(readDbConfig()), next);
+}
+
+/** Persist the next snapshot to BOTH stores (#609 dual-write).
+ *
+ *  Turso is the read side, so a failure there is the one that actually costs
+ *  correct NEW badges tomorrow — but Airtable keeps being written so the move
+ *  stays reversible while Phase 5 is in flight. Both are best-effort: the
+ *  digest has already been sent (or deliberately skipped) by the time this
+ *  runs, and a snapshot write failure re-news at worst.
+ *
+ *  The DIGEST_STATE_WRITE line exists because of #585: a dual-write that
+ *  silently stopped running looked identical to a healthy one for weeks. One
+ *  line, always emitted, naming both halves. */
+async function persistDigestState(
+  base: AirtableBase,
+  next: DigestSnapshot,
+  writeState?: (snap: DigestSnapshot) => Promise<void>,
+): Promise<void> {
+  let turso = 0;
+  let airtable = 0;
+  try {
+    await (writeState ?? writeDigestStateToDb)(next);
+    turso = 1;
+  } catch (e) {
+    console.warn(`⚠ digest state write failed (turso): ${(e as Error).message}`);
+  }
+  try {
+    await writeAirtableDigestState(base, next);
+    airtable = 1;
+  } catch (e) {
+    console.warn(`⚠ digest state write failed (airtable): ${(e as Error).message}`);
+  }
+  console.log(`DIGEST_STATE_WRITE turso=${turso} airtable=${airtable}`);
+}
+
 /** The "Submissions (24h)" telemetry window — a precise 24h ISO-timestamp compare
  *  (unlike screenOutsSince's date-only strings). */
 const SUBMISSIONS_DIGEST_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -359,6 +422,19 @@ export type DigestRunOptions = {
    *  injected (tests). */
   submissionCounts?: ReadonlyMap<string, SiteSubmissionCounts> | null;
   /**
+   * The prior-run snapshot store (#609). Production omits it and gets Turso.
+   *
+   * Injectable because the read is deliberately NOT defensive: swallowing a
+   * failure would badge every item NEW, which lands in the operator's inbox
+   * reading as "the whole fleet degraded overnight". That makes Turso a hard
+   * requirement of a real run — so tests, which have no libSQL, need a seam
+   * rather than an env var.
+   */
+  digestState?: {
+    read: () => Promise<DigestSnapshot>;
+    write: (snap: DigestSnapshot) => Promise<void>;
+  };
+  /**
    * The run clock. Production omits it and gets `new Date()`.
    *
    * Injectable because several collectors this run feeds are AGE-SENSITIVE —
@@ -416,7 +492,10 @@ export async function runDigest(
       reports,
       now: today,
     });
-    const prior = await readDigestState(base);
+    // #609: Turso is the read side now. Airtable keeps being WRITTEN below
+    // (dual-write, Phase 5's pattern everywhere else) so the move stays
+    // reversible, but nothing reads it any more.
+    const prior = await (options.digestState?.read ?? readDigestStateFromDb)();
     const { tagged, next } = diffAttention(collected, prior, digestDateKey(today));
     // The operator only HEARS about a vuln once Renovate's auto-fix is exhausted
     // (tried and failed a couple of nightly cycles) — before that the fleet is
@@ -435,11 +514,7 @@ export async function runDigest(
       // with muted pre-exhaustion vulns collected — their keys keep snapshotting so
       // the eventual exhausted-flip diffs as WORSE. Wrapped: a write failure can't
       // fail the skip.
-      try {
-        await writeDigestState(base, next);
-      } catch (e) {
-        console.warn(`⚠ digest state write failed: ${(e as Error).message}`);
-      }
+      await persistDigestState(base, next, options.digestState?.write);
       return { output: "Digest skipped (nothing ready, nothing needs attention).", code: 0 };
     }
 
@@ -495,11 +570,7 @@ export async function runDigest(
     // logged: the digest already went out, tomorrow re-news at worst. (The send-FAILURE
     // path never reaches here — the outer catch returns code 1 with no write, preserving
     // the NEW badge for the retry.)
-    try {
-      await writeDigestState(base, next);
-    } catch (e) {
-      console.warn(`⚠ digest state write failed: ${(e as Error).message}`);
-    }
+    await persistDigestState(base, next, options.digestState?.write);
     return { output: `Digest sent to ${to.join(", ")} (${result.messageId})`, code: 0 };
   } catch (err) {
     // Re-throw config errors (exitCode=2: missing env vars, bad config) so runOrExit

@@ -29,6 +29,7 @@ import * as screenouts from "../../src/db/screenouts.js";
 import * as fleetEvents from "../../src/db/fleet-events.js";
 import * as deadletter from "../../src/db/deadletter.js";
 import * as fleetState from "../../src/db/fleet-state.js";
+import * as digestState from "../../src/db/digest-state.js";
 import * as prospectAudits from "../../src/db/prospect-audits.js";
 import type { Db } from "../../src/db/client.js";
 
@@ -42,6 +43,7 @@ const GATED_MODULES: Record<string, Record<string, unknown>> = {
   "deadletter.ts": deadletter,
   "fleet-state.ts": fleetState,
   "prospect-audits.ts": prospectAudits,
+  "digest-state.ts": digestState,
 };
 
 /** Modules the gate deliberately does not plan-check. Every entry needs a reason
@@ -344,6 +346,19 @@ function scenarios(state: { createdId: string }): Scenario[] {
       name: "mirrorSiteField (editor write-through)",
       covers: ["mirrorSiteField"],
       run: (db) => fleetState.mirrorSiteField(db, "recA", "Status", "maintenance"),
+    },
+    {
+      // #609. Both readers need the WHOLE snapshot, which is exactly why it is
+      // one JSON row rather than a keyed table: this stays a primary-key lookup
+      // instead of the raw scan a "give me every key" query would be.
+      name: "readDigestState (digest diff + fleet-homepage NEW badges)",
+      covers: ["readDigestState"],
+      run: (db) => digestState.readDigestState(db),
+    },
+    {
+      name: "writeDigestState (singleton upsert)",
+      covers: ["writeDigestState"],
+      run: (db) => digestState.writeDigestState(db, {}, "2026-08-26T00:00:00.000Z"),
     },
     {
       // The site-create mirror (#539 Phase 5). Three upserts, each resolving its

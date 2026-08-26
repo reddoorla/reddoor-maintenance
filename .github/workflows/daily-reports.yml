@@ -194,7 +194,13 @@ jobs:
           AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          # Turso creds: the digest reads notify-bounce counts + submissions telemetry from libSQL.
+          # Turso creds: REQUIRED since #609. The digest reads notify-bounce
+          # counts + submissions telemetry from libSQL (both degrade gracefully),
+          # but it also now reads its own PRIOR-RUN SNAPSHOT there, and that read
+          # is deliberately not defensive — without it every item would badge NEW,
+          # which reads as "the whole fleet degraded overnight" in the operator's
+          # inbox. Missing creds fail this step instead. Pinned by
+          # tests/build/daily-reports-workflow.
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           # The digest's Renovate/CI signals now come from the nightly-persisted

@@ -10,6 +10,25 @@ import type { ResendClient, ResendSendInput } from "../../src/reports/send/resen
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import { makeFakeBase, type FakeRecord } from "../reports/_helpers/fake-airtable-base.js";
 
+/** #609: the digest reads its prior snapshot from Turso, and the read is
+ *  deliberately NOT defensive — swallowing a failure would badge every item NEW.
+ *  That makes libSQL a hard requirement of a real run, so the suite injects an
+ *  in-memory store instead of pretending one exists. Fresh per call, so a test
+ *  that does not seed it sees the empty-snapshot case (everything NEW), which is
+ *  what these tests asserted against Airtable before.
+ */
+function memoryDigestState(
+  seed: Record<string, { metric: number; firstFlaggedAt: string; exhausted?: boolean }> = {},
+) {
+  let snap = seed;
+  return {
+    read: async () => snap,
+    write: async (next: typeof snap) => {
+      snap = next;
+    },
+  };
+}
+
 const NOW = new Date("2026-08-12T09:00:00.000Z");
 const BASE_URL = "https://reddoor-maintenance.netlify.app";
 const FRESH = "2026-08-12T06:00:00.000Z";
@@ -202,6 +221,7 @@ describe("prismic drift wiring — the digest", () => {
     const base = makeFakeBase({ Reports: [], Websites: [siteRecord()] });
     const { client, captured } = captureClient();
     const result = await runDigest({
+      digestState: memoryDigestState(),
       base,
       resend: client,
       baseUrl: BASE_URL,
@@ -225,7 +245,14 @@ describe("prismic drift wiring — the digest", () => {
       ],
     });
     const { client, captured } = captureClient();
-    await runDigest({ base, resend: client, baseUrl: BASE_URL, submissionCounts: null, now: NOW });
+    await runDigest({
+      digestState: memoryDigestState(),
+      base,
+      resend: client,
+      baseUrl: BASE_URL,
+      submissionCounts: null,
+      now: NOW,
+    });
     const html = captured[0]!.html;
     expect(html).toContain("Prismic model check could not run");
     expect(html).toContain("write token rejected (403)");
@@ -244,6 +271,7 @@ describe("prismic drift wiring — the digest", () => {
     // one test against the real clock, so it passed until 2026-08-19T06:00Z and has failed
     // every run since — a time bomb, not a flake. Every sibling test here already freezes it.
     const result = await runDigest({
+      digestState: memoryDigestState(),
       base,
       resend: client,
       baseUrl: BASE_URL,

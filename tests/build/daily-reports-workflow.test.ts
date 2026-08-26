@@ -22,6 +22,7 @@ import { stepEnv, workflowPath } from "./_helpers/workflow-source.js";
  */
 
 const DRAFT_STEP = "Draft due reports";
+const DIGEST_STEP = "Email the operator digest";
 
 let workflow: string;
 
@@ -43,6 +44,29 @@ describe("daily-reports workflow", () => {
     const env = stepEnv(workflow, DRAFT_STEP);
     expect(Object.keys(env)).toEqual(
       expect.arrayContaining(["AIRTABLE_PAT", "AIRTABLE_BASE_ID", "GA_SA_KEY_JSON"]),
+    );
+  });
+
+  /**
+   * #609 changed what a missing Turso credential COSTS this step. It used to be
+   * optional here — notify-bounce counts and submissions telemetry each degrade
+   * to an absent section. The digest now reads its own prior-run snapshot from
+   * Turso, and that read is deliberately not defensive, so the step fails loudly
+   * instead of emailing a digest with every item spuriously badged NEW.
+   *
+   * Loud beats silent, but only if the credentials are actually there.
+   */
+  it("gives the digest step the Turso credentials it now REQUIRES", () => {
+    const env = stepEnv(workflow, DIGEST_STEP);
+    expect(Object.keys(env)).toEqual(
+      expect.arrayContaining(["TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN"]),
+    );
+  });
+
+  it("still gives the digest step Airtable and Resend (positive control)", () => {
+    const env = stepEnv(workflow, DIGEST_STEP);
+    expect(Object.keys(env)).toEqual(
+      expect.arrayContaining(["AIRTABLE_PAT", "AIRTABLE_BASE_ID", "RESEND_API_KEY"]),
     );
   });
 });

@@ -219,6 +219,14 @@ export interface ProspectAuditsTable {
   result_json: string;
 }
 
+/** The digest's prior-run snapshot (migration 0011). One row, `id` = the
+ *  constant singleton key; `snapshot` is the whole DigestSnapshot as JSON. */
+export interface DigestStateTable {
+  id: string;
+  snapshot: string;
+  updated_at: string | null;
+}
+
 export interface Database {
   submissions: SubmissionsTable;
   spam_screenouts: SpamScreenoutsTable;
@@ -230,4 +238,5 @@ export interface Database {
   site_schedule: SiteScheduleTable;
   reports: ReportsTable;
   prospect_audits: ProspectAuditsTable;
+  digest_state: DigestStateTable;
 }
