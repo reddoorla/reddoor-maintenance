@@ -7,6 +7,7 @@ import { makeWebsiteRow } from "../_helpers/website-row.js";
 import { gatingFields } from "../../src/reports/checklist.js";
 import type { ReportRow } from "../../src/reports/airtable/reports.js";
 import type { SubmissionsPageModel } from "../../src/dashboard/submissions-page.js";
+import { renderProspectAuditsPageHtml } from "../../src/dashboard/prospect-audits-render.js";
 
 /**
  * Every dashboard page ships its interactivity as ONE inline <script> block. A single
@@ -143,5 +144,37 @@ describe("dashboard inline <script> blocks parse", () => {
 
   it("submissions page", () => {
     expectAllScriptsParse(renderSubmissionsPageHtml(submissionsModel), "submissions page");
+  });
+
+  // The prospect-audits page ships a 50-line RUN_SCRIPT whose own header comment
+  // cites the build-time-`\n` incident this gate exists to catch — and it was the
+  // one dashboard page the gate never covered.
+  it("prospect audits page — empty", () => {
+    expectAllScriptsParse(
+      renderProspectAuditsPageHtml({ audits: [], now: NOW }),
+      "prospect audits (empty)",
+    );
+  });
+
+  it("prospect audits page — with a listed audit", () => {
+    // A populated list interpolates operator-supplied strings (business name, URL)
+    // into the markup around the script; the empty case never exercises that.
+    expectAllScriptsParse(
+      renderProspectAuditsPageHtml({
+        audits: [
+          {
+            id: "pa_1",
+            token: "tok_abc",
+            url: "https://example.com/a'b",
+            business: `O'Brien & Sons "Ltd"`,
+            created_at: "2026-08-25T10:00:00.000Z",
+            status: "complete",
+          },
+        ],
+        now: NOW,
+        operatorEmail: "contact@tuckerlemos.com",
+      }),
+      "prospect audits (populated)",
+    );
   });
 });

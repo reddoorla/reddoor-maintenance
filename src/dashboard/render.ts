@@ -520,11 +520,69 @@ export const DETAIL_VALUE_FN = `function detailValue(el) {
       return el.value;
     }`;
 
+/**
+ * The site-details save, exported as SOURCE for the same reason as
+ * DETAIL_VALUE_FN: it is served inside a template literal, so executing the real
+ * text is the only way a test can see it work. `root` is passed in rather than
+ * closed over so the test can hand it a stub instead of a document.
+ *
+ * **The resync on line `el.defaultValue = el.value` is load-bearing.** The blur
+ * listener fires on `value !== defaultValue`, and this function used not to touch
+ * `defaultValue` at all — so after one successful edit the two stayed different
+ * forever and every later focus+blur of that field posted another Airtable write,
+ * until the page was reloaded. The commentary handler 40 lines below always did
+ * this correctly, which is what marks the omission as an oversight rather than a
+ * decision.
+ *
+ * The worst case is the `secret` kind, which deliberately emits no `value`
+ * attribute so an existing credential is never echoed into the HTML: its
+ * `defaultValue` is permanently `""`, so every blur after typing re-POSTed the
+ * credential. And one Airtable quota exhaustion has already reddened six
+ * workflows fleet-wide (2026-08-17), so a tab-through of this form was a cheap
+ * way to burn the fleet's write budget.
+ *
+ * Only on `r.ok`: a failed save must stay dirty so the next blur retries it.
+ * Guarded by an `in` check because `select` elements have no `defaultValue`.
+ */
+export const SAVE_DETAIL_FN = `function saveDetail(el, root) {
+      const span = root.querySelector('.detail-saved[data-for="' + el.dataset.detailField + '"]');
+      return fetch(el.dataset.detailsUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ field: el.dataset.detailField, value: detailValue(el) }),
+      })
+        .then((r) => {
+          if (span) span.textContent = r.ok ? " \\u2713" : " \\u2717";
+          if (r.ok && "defaultValue" in el) el.defaultValue = el.value;
+        })
+        .catch(() => {
+          if (span) span.textContent = " \\u2717";
+        });
+    }`;
+
+/**
+ * `<input type="date">` accepts ONLY `YYYY-MM-DD`. Handed anything else — an ISO
+ * datetime such as `2026-08-01T00:00:00.000Z` — the browser sanitizes `.value` to
+ * `""` while `.defaultValue` keeps the raw string. That difference is what the
+ * blur guard used to read as "the operator edited this field", so an untouched
+ * tab-through would post an empty value and the server would accept it as a
+ * deliberate clear. `maintenance day` / `testing day` drive the code-owned
+ * next-due schedule, so the site would silently reschedule.
+ *
+ * Dormant while those Airtable columns stay date-only; it goes live the moment
+ * anyone ticks "include time" on the field. Truncating to the date part here
+ * removes the mismatch at the source (the script's gesture guard is the second
+ * line of defence).
+ */
+function toDateInputValue(value: string | null): string {
+  return (value ?? "").slice(0, 10);
+}
+
 /** Editable `<input type="date">` row. The browser enforces YYYY-MM-DD before
  *  the request is made; `normalizeFieldValue`'s `date` kind still validates it
  *  server-side, because a hand-crafted POST never touches this widget. */
 function dateRow(label: string, field: string, value: string | null, url: string): string {
-  return `<div class="detail"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><input type="date" id="detail-${field}" data-detail-field="${field}" data-details-url="${url}" value="${escapeHtml(value ?? "")}" />${savedSpan(field)}</dd></div>`;
+  return `<div class="detail"><dt><label for="detail-${field}">${escapeHtml(label)}</label></dt><dd><input type="date" id="detail-${field}" data-detail-field="${field}" data-details-url="${url}" value="${escapeHtml(toDateInputValue(value))}" />${savedSpan(field)}</dd></div>`;
 }
 
 /** Editable checkbox row. Posts the literal "true"/"false" the `bool` kind
@@ -880,9 +938,18 @@ export function renderSiteDashboardHtml(
   ${spamScreenSection(spamTotals, submissions, now)}
   ${submissionsSection(submissions, site)}
   <script>
+    // The SAME pending report is rendered twice — once in the pending list, once
+    // in the reports history — so one report id owns two Approve buttons. Every
+    // state change has to reach both, or the two places you look disagree: one
+    // says "Approved", the other still says "Approve" and (with the gate clear)
+    // is still enabled.
+    function approveButtonsFor(id) {
+      return Array.from(document.querySelectorAll('button.approve[data-report-id="' + id + '"]'));
+    }
     document.querySelectorAll("button.approve").forEach((b) => {
       b.addEventListener("click", async () => {
-        b.disabled = true;
+        const twins = approveButtonsFor(b.dataset.reportId);
+        twins.forEach((t) => { t.disabled = true; });
         // is-loading swaps the label for a spinner; aria-busy is the same news for a
         // screen reader, which cannot see it. Both are cleared in the finally below so
         // no exit path can strand the button spinning forever.
@@ -891,30 +958,41 @@ export function renderSiteDashboardHtml(
         try {
           const res = await fetch(b.dataset.approveUrl, { method: "POST" });
           if (res.ok) {
-            b.textContent = "Approved";
-            // Terminal success: darker green, and it stays disabled (approving twice is
-            // a no-op server-side, but the button should not invite the second click).
-            b.classList.add("is-approved");
+            // Terminal success: darker green, and they stay disabled (approving twice
+            // is a no-op server-side, but the button should not invite the second
+            // click). Applied to every twin, not just the one that was clicked.
+            twins.forEach((t) => {
+              t.textContent = "Approved";
+              t.classList.add("is-approved");
+            });
           } else {
             // A 409 carries { reason, blockers } — surface WHY instead of a bare
             // "Failed" next to a possibly-stale green chip. textContent/title
             // assignment only (no innerHTML), so server strings stay inert.
             const data = await res.json().catch(() => null);
-            b.textContent = data && data.reason === "send-blocked" ? "Blocked" : "Failed";
+            const label = data && data.reason === "send-blocked" ? "Blocked" : "Failed";
             // Double-backslash, NOT single: this whole block lives inside the renderer's
             // template literal, so a single-backslash escape is consumed HERE at build
             // time and emits a real newline into the served HTML — an unterminated string
             // literal that kills the parse of the entire script element, taking every
             // handler on the page with it (exactly how approve/override/renovate went
             // dead). Note this comment must also avoid backticks for the same reason.
-            if (data && Array.isArray(data.blockers)) b.title = data.blockers.join("\\n");
-            b.disabled = false;
+            const title = data && Array.isArray(data.blockers) ? data.blockers.join("\\n") : null;
+            // Re-enable EVERY twin, not just the clicked one — leaving the other
+            // disabled would strand it reading "Approve" and unusable.
+            twins.forEach((t) => {
+              t.textContent = label;
+              if (title !== null) t.title = title;
+              t.disabled = false;
+            });
           }
         } catch {
           // Network rejection (offline, DNS, abort): mirror the !res.ok path so
-          // the button doesn't sit permanently disabled reading "Approve".
-          b.textContent = "Failed";
-          b.disabled = false;
+          // the buttons don't sit permanently disabled reading "Approve".
+          twins.forEach((t) => {
+            t.textContent = "Failed";
+            t.disabled = false;
+          });
         } finally {
           b.classList.remove("is-loading");
           b.removeAttribute("aria-busy");
@@ -952,13 +1030,14 @@ export function renderSiteDashboardHtml(
           if (res.ok) {
             if (status) status.textContent = "Overridden ✓";
             if (input) input.disabled = true;
-            // Reflect the send-anyway state on the row's own Approve button too —
-            // it stays server-gated disabled, but the label should stop implying
-            // "waiting on you" once an override has gone through.
-            const approveBtn = document.querySelector(
-              'button.approve[data-report-id="' + b.dataset.reportId + '"]',
-            );
-            if (approveBtn) approveBtn.textContent = "Overridden";
+            // Reflect the send-anyway state on the row's own Approve buttons too —
+            // they stay server-gated disabled, but the label should stop implying
+            // "waiting on you" once an override has gone through. ALL of them: the
+            // same report is rendered in both the pending list and the history, so
+            // a singular querySelector updated the first and left the second lying.
+            approveButtonsFor(b.dataset.reportId).forEach((t) => {
+              t.textContent = "Overridden";
+            });
           } else {
             // A 409 carries { reason, blockers } — surface WHY (textContent only,
             // never innerHTML, so server strings stay inert).
@@ -997,32 +1076,27 @@ export function renderSiteDashboardHtml(
     // Site-details editor: save on change (selects) / blur (inputs+textareas, only
     // when the value actually changed). The per-field span shows ✓ / ✗.
     ${DETAIL_VALUE_FN}
-    function saveDetail(el) {
-      const span = document.querySelector('.detail-saved[data-for="' + el.dataset.detailField + '"]');
-      fetch(el.dataset.detailsUrl, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ field: el.dataset.detailField, value: detailValue(el) }),
-      })
-        .then((r) => {
-          if (span) span.textContent = r.ok ? " ✓" : " ✗";
-        })
-        .catch(() => {
-          if (span) span.textContent = " ✗";
-        });
-    }
+    ${SAVE_DETAIL_FN}
     document.querySelectorAll("select[data-detail-field]").forEach((s) => {
-      s.addEventListener("change", () => saveDetail(s));
+      s.addEventListener("change", () => saveDetail(s, document));
     });
     // Checkboxes save on CHANGE. They cannot use the blur path below: that path
     // only fires when \`value !== defaultValue\`, and for a checkbox both are the
     // "on" content attribute, so it would never save at all.
     document.querySelectorAll("input[type=checkbox][data-detail-field]").forEach((c) => {
-      c.addEventListener("change", () => saveDetail(c));
+      c.addEventListener("change", () => saveDetail(c, document));
     });
     document.querySelectorAll("input:not([type=checkbox])[data-detail-field], textarea[data-detail-field]").forEach((i) => {
+      // A save needs BOTH a real edit gesture and a changed value. \`value !==
+      // defaultValue\` alone is not evidence of an edit: the browser rewrites
+      // \`.value\` on its own when a control is handed a value it cannot represent
+      // (an ISO datetime in a date input sanitizes to ""), and the blur that
+      // follows an untouched tab-through then posts that empty string as if the
+      // operator had cleared the field. Requiring an \`input\` event first means
+      // only a human keystroke or picker choice can arm the save.
+      i.addEventListener("input", () => { i.dataset.edited = "1"; });
       i.addEventListener("blur", () => {
-        if (i.value !== i.defaultValue) saveDetail(i);
+        if (i.dataset.edited === "1" && i.value !== i.defaultValue) saveDetail(i, document);
       });
     });
     // Refresh preview: dispatch the re-render workflow, then tell the operator to
