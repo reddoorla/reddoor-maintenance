@@ -1,5 +1,6 @@
 import type { Db } from "./client.js";
 import { mapWebsiteRecord, mapReportRecord, type RawRecord } from "./import-airtable.js";
+import { REPORT_LIST_COLUMNS } from "./fleet-state.js";
 
 /**
  * Phase 1.4 of #539: the instrument the cutover depends on. Reads BOTH stores
@@ -131,8 +132,14 @@ export async function checkFleetParity(db: Db, io: ParityIo): Promise<ParityResu
   }
 
   const reports = await io.listReportRecords();
+  // Every reports column EXCEPT rendered_html, which `SKIP_COLUMNS` discards
+  // anyway — a selectAll pulled all 16 stored bodies (1.17 MB live) across the
+  // wire on every hourly run, 24×/day, purely to throw them away. Same list the
+  // read layer uses, so the lockstep test covers this too.
   const reportRows = byId(
-    (await db.selectFrom("reports").selectAll().execute()) as Array<Record<string, unknown>>,
+    (await db.selectFrom("reports").select(REPORT_LIST_COLUMNS).execute()) as Array<
+      Record<string, unknown>
+    >,
     "id",
   );
   for (const rec of reports) {
