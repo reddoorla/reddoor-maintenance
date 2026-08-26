@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { hostnameOf, isHttpUrl, isNetlifyAppUrl, isPublicHttpsUrl } from "../../src/util/url.js";
+import {
+  hostnameOf,
+  isHttpUrl,
+  isNetlifyAppUrl,
+  isPublicHttpsUrl,
+  isPrivateOrLoopbackHost,
+} from "../../src/util/url.js";
 
 describe("isHttpUrl", () => {
   it("accepts http and https URLs", () => {
@@ -118,5 +124,22 @@ describe("isPublicHttpsUrl", () => {
     expect(isPublicHttpsUrl("")).toBe(false);
     expect(isPublicHttpsUrl("   ")).toBe(false);
     expect(isPublicHttpsUrl("notaurl")).toBe(false);
+  });
+});
+
+describe("isPrivateOrLoopbackHost — the IPv4-compatible IPv6 form (#612 review)", () => {
+  // `[::127.0.0.1]` normalizes to `::7f00:1`, which carries no `::ffff:` marker,
+  // so the IPv4-mapped branch never saw it and the dotted-quad branch never runs
+  // on an IPv6 literal. Theoretical (not routable to loopback on Linux) — closed
+  // so nobody has to reason about which stacks honour it.
+  it("blocks the deprecated ::a.b.c.d form", () => {
+    expect(isPrivateOrLoopbackHost(new URL("http://[::127.0.0.1]/").hostname)).toBe(true);
+    expect(isPrivateOrLoopbackHost("::7f00:1")).toBe(true);
+  });
+
+  it("still allows a real public IPv6 address (positive control)", () => {
+    // Without this the rule above could be "block every IPv6 address" and pass.
+    expect(isPrivateOrLoopbackHost("2606:4700:4700::1111")).toBe(false);
+    expect(isPrivateOrLoopbackHost(new URL("http://[2606:4700::1111]/").hostname)).toBe(false);
   });
 });

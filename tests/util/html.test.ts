@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { escapeHtml, safeUrl } from "../../src/util/html.js";
+import { escapeHtml, safeUrl, scriptLiteral } from "../../src/util/html.js";
 
 describe("escapeHtml", () => {
   it("escapes the strict-XML set: & < > \" '", () => {
@@ -75,5 +75,52 @@ describe("safeUrl", () => {
     const safe = safeUrl(evil);
     expect(safe).not.toContain('"');
     expect(safe).not.toContain("<img");
+  });
+});
+
+describe("scriptLiteral", () => {
+  /** Compile the emitted `<script>` body and hand back the value it produced —
+   *  the only honest check that the literal round-trips as JavaScript. */
+  function roundTrip(value: unknown): unknown {
+    return new Function(`return ${scriptLiteral(value)};`)() as unknown;
+  }
+
+  it("round-trips strings, objects and null through a script body", () => {
+    expect(roundTrip("plain")).toBe("plain");
+    expect(roundTrip(`quotes " and ' and \\ backslash`)).toBe(`quotes " and ' and \\ backslash`);
+    expect(roundTrip({ a: 1, b: ["x", null] })).toEqual({ a: 1, b: ["x", null] });
+    expect(roundTrip(undefined)).toBe(null);
+  });
+
+  it("neutralises a closing script tag instead of ending the element", () => {
+    // The whole point: `</script>` inside a string would terminate the element,
+    // spilling the rest of the value into the document as markup.
+    const out = scriptLiteral("</script><img src=x onerror=alert(1)>");
+    expect(out).not.toContain("</script>");
+    expect(out).not.toContain("<");
+    expect(out).not.toContain(">");
+    expect(roundTrip("</script><img src=x onerror=alert(1)>")).toBe(
+      "</script><img src=x onerror=alert(1)>",
+    );
+  });
+
+  it("neutralises a comment opener", () => {
+    expect(scriptLiteral("<!--")).not.toContain("<!--");
+    expect(roundTrip("<!--")).toBe("<!--");
+  });
+
+  it("escapes the JS line terminators JSON leaves raw", () => {
+    expect(scriptLiteral("a\u2028b")).toBe('"a\\u2028b"');
+    expect(roundTrip("a\u2028b")).toBe("a\u2028b");
+  });
+
+  it("escapeHtml is NOT a substitute — this is why the helper exists", () => {
+    // A script element's content is raw text: the HTML parser does not decode
+    // entities inside it, so escapeHtml's output arrives at the browser literally
+    // and corrupts the JavaScript rather than escaping it.
+    expect(escapeHtml('say "hi"')).toBe("say &quot;hi&quot;");
+    expect(new Function(`return "${escapeHtml('say "hi"')}";`)()).toBe("say &quot;hi&quot;");
+    // The correct tool gives the value back intact.
+    expect(roundTrip('say "hi"')).toBe('say "hi"');
   });
 });

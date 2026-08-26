@@ -565,3 +565,59 @@ describe("crawlSite — a hostile sitemap index must not become an SSRF", () => 
     expect(result.sitemap.urlCount).toBeGreaterThan(0);
   });
 });
+
+/**
+ * #619 added `isSafeNestedSitemap` and applied it INSIDE the loop, after
+ * `.slice(0, 3)`. That closes the SSRF, but leaves a quieter failure: three
+ * hostile entries at the top of an index consume the whole budget, so the site's
+ * real child sitemaps are never fetched and the crawl silently sees fewer pages.
+ *
+ * Found by a positive control, not by reading the loop.
+ */
+describe("a hostile sitemap index cannot starve out the real children", () => {
+  const INDEX = `<?xml version="1.0"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <sitemap><loc>http://169.254.169.254/latest/meta-data/</loc></sitemap>
+    <sitemap><loc>http://127.0.0.1:8080/admin</loc></sitemap>
+    <sitemap><loc>https://evil.example/steal</loc></sitemap>
+    <sitemap><loc>https://acme.example/sitemap-pages.xml</loc></sitemap>
+  </sitemapindex>`;
+
+  function trackingDeps() {
+    const fetched: string[] = [];
+    const base = stubDeps({
+      "https://acme.example/": { body: "<html><body>hi</body></html>" },
+      "https://acme.example/sitemap.xml": { body: INDEX },
+      "https://acme.example/sitemap-pages.xml": {
+        body: `<?xml version="1.0"?><urlset><url><loc>https://acme.example/about</loc></url></urlset>`,
+      },
+    });
+    const deps: CrawlDeps = {
+      ...base,
+      async fetchUrl(url) {
+        fetched.push(url);
+        return base.fetchUrl(url);
+      },
+    };
+    return { fetched, deps };
+  }
+
+  it("still fetches the legitimate child sitemap sitting behind three hostile ones", async () => {
+    const { fetched, deps } = trackingDeps();
+    await crawlSite("https://acme.example/", deps);
+    expect(fetched).toContain("https://acme.example/sitemap-pages.xml");
+  });
+
+  it("and still fetches none of the hostile ones", async () => {
+    const { fetched, deps } = trackingDeps();
+    await crawlSite("https://acme.example/", deps);
+    expect(fetched.filter((u) => !u.startsWith("https://acme.example"))).toEqual([]);
+  });
+
+  it("refuses a private ENTRY url before any fetch at all", async () => {
+    const { fetched, deps } = trackingDeps();
+    await expect(crawlSite("http://169.254.169.254/latest/meta-data/", deps)).rejects.toThrow(
+      /private address/,
+    );
+    expect(fetched).toEqual([]);
+  });
+});
