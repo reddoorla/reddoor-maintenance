@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { ingestSubmission, type IngestDeps } from "../../src/forms/ingest.js";
+import { classifySpam } from "../../src/forms/spam-classifier.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import { makeSubmissionRow } from "../_helpers/submission-row.js";
 
@@ -369,6 +370,77 @@ describe("ingestSubmission — spam decision", () => {
     expect(d.notify).not.toHaveBeenCalled();
     expect(d.stampNotified).toHaveBeenCalledWith("recSUB", "skipped", null);
     expect(forwardNewsletter).not.toHaveBeenCalled();
+  });
+
+  // Wired to the REAL classifier, not a stub verdict. Every other test in this
+  // block injects the score it wants, so none of them can show that a given
+  // ADDRESS reaches spam_auto — which is the whole claim of the blocked-domain
+  // tier, and the reason 10 of these messages were emailed to the operator.
+  it("a blocked sender domain reaches spam_auto through the real classifier, with notify suppressed", async () => {
+    const d = deps({
+      // Echo the status back, the way the real writer does. The default mock
+      // returns a fixed `new` row, and ingest reads `isSpam` off what was
+      // RETURNED — so a fixed mock reports notify=sent no matter the verdict.
+      createSubmission: vi.fn((input) =>
+        Promise.resolve(makeSubmissionRow({ ...input, id: "recSUB" })),
+      ),
+      classifySpam: (n, turnstile) =>
+        classifySpam({
+          name: n.name,
+          email: n.email,
+          ...(n.message !== undefined ? { message: n.message } : {}),
+          formType: n.formType,
+          extraFields: n.extraFields,
+          turnstile,
+        }),
+    });
+    const r = await ingestSubmission(
+      d,
+      "acme",
+      // A message with NO spam signal of its own — the domain is doing all the work.
+      { email: "raymond.abbott@jmailservice.com", name: "Raymond Abbott", message: "Hello there." },
+      "unverifiable",
+    );
+    expect(r.status).toBe("accepted");
+    if (r.status === "accepted") expect(r.notifyStatus).toBe("skipped");
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "spam_auto", spamReason: "blocked-domain" }),
+    );
+    expect(d.notify).not.toHaveBeenCalled();
+  });
+
+  it("the same message from an unlisted domain is delivered — the domain is the only difference", async () => {
+    // Positive control for the test above. Without it, that assertion would pass
+    // just as well if the real classifier had started bucketing everything.
+    const d = deps({
+      // Echo the status back, the way the real writer does. The default mock
+      // returns a fixed `new` row, and ingest reads `isSpam` off what was
+      // RETURNED — so a fixed mock reports notify=sent no matter the verdict.
+      createSubmission: vi.fn((input) =>
+        Promise.resolve(makeSubmissionRow({ ...input, id: "recSUB" })),
+      ),
+      classifySpam: (n, turnstile) =>
+        classifySpam({
+          name: n.name,
+          email: n.email,
+          ...(n.message !== undefined ? { message: n.message } : {}),
+          formType: n.formType,
+          extraFields: n.extraFields,
+          turnstile,
+        }),
+    });
+    const r = await ingestSubmission(
+      d,
+      "acme",
+      { email: "raymond.abbott@example.com", name: "Raymond Abbott", message: "Hello there." },
+      "unverifiable",
+    );
+    expect(r.status).toBe("accepted");
+    if (r.status === "accepted") expect(r.notifyStatus).toBe("sent");
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "new", spamScore: 0 }),
+    );
+    expect(d.notify).toHaveBeenCalledTimes(1);
   });
 
   it("takes the normal notify + stamp path on a clean verdict", async () => {
