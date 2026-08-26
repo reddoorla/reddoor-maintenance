@@ -1,5 +1,20 @@
 import { parse, HTMLElement, NodeType } from "node-html-parser";
-import type { PageExtract } from "./types.js";
+import type { FormShape, PageAnchor, PageExtract } from "./types.js";
+
+/** See `PageExtract.anchors`: the extract is persisted once per page per audit,
+ *  and a navigation-heavy page can carry several hundred anchors. Generous
+ *  enough that no ordinary page reaches it; `anchorCount` always reports the
+ *  true total so a capped list is never mistaken for a complete one. */
+export const MAX_ANCHORS = 300;
+
+/** Input types that are not a field a visitor fills in. `hidden` carries CSRF
+ *  tokens and form ids; the button types are the control, not the question. */
+const NON_FIELD_INPUTS = new Set(["hidden", "submit", "button", "image", "reset"]);
+
+/** Names, types and labels that mean "we can contact you back". A form with
+ *  none of these is a search box or a filter, and calling that a conversion
+ *  path would pass a site that cannot be reached by anyone. */
+const CONTACT_FIELD = /\b(e-?mail|phone|tel|mobile|contact)\b/i;
 
 /** Subtrees a browser never renders. Skipped WHOLE — including their headings,
  *  images and schema blocks, which a <template> stamp would otherwise donate to
@@ -87,11 +102,15 @@ function textOf(el: HTMLElement): string {
 
 type Collected = {
   metas: HTMLElement[];
+  /** `<link>` elements — canonical and friends. NOT anchors; see `anchors`. */
   links: HTMLElement[];
   jsonLd: string[];
   images: HTMLElement[];
   headings: { level: number; text: string }[];
   title: string | null;
+  /** `<a href>` elements, in document order. */
+  anchors: HTMLElement[];
+  forms: HTMLElement[];
 };
 
 /** One ordered pass for the element-level signals. Document order matters: the
@@ -113,6 +132,15 @@ function collect(el: HTMLElement, out: Collected, depth = 0): void {
         break;
       case "IMG":
         out.images.push(e);
+        break;
+      case "A":
+        // Only anchors that actually go somewhere. `<a>` without href is a
+        // named target or a styling hook, and counting it as a link would
+        // inflate every navigation measure below.
+        if ((e.getAttribute("href") ?? "").trim()) out.anchors.push(e);
+        break;
+      case "FORM":
+        out.forms.push(e);
         break;
       case "TITLE":
         if (out.title === null) out.title = collapse(e.text) || null;
@@ -138,6 +166,47 @@ function collect(el: HTMLElement, out: Collected, depth = 0): void {
   }
 }
 
+/** One `<form>`'s shape. Exported for its own tests: telling a contact form
+ *  from a search box is the judgement the conversion check rests on, and it is
+ *  worth being able to exercise it directly. */
+export function formShape(form: HTMLElement): FormShape {
+  const controls = form.querySelectorAll("input, textarea, select");
+  let fieldCount = 0;
+  let hasContactField = false;
+  let hasSubmit = form.querySelectorAll("button").length > 0;
+
+  for (const control of controls) {
+    const type = (control.getAttribute("type") ?? "").toLowerCase().trim();
+    if (control.tagName === "INPUT" && NON_FIELD_INPUTS.has(type)) {
+      if (type === "submit" || type === "image") hasSubmit = true;
+      continue;
+    }
+    fieldCount += 1;
+    // Any of the attributes an author might carry the meaning in. Checked
+    // together rather than in priority order: a field is a contact field if
+    // ANY of them says so, and sites disagree about which one to use.
+    const signature = [
+      type,
+      control.getAttribute("name") ?? "",
+      control.getAttribute("id") ?? "",
+      control.getAttribute("placeholder") ?? "",
+      control.getAttribute("autocomplete") ?? "",
+      control.getAttribute("aria-label") ?? "",
+    ].join(" ");
+    if (type === "email" || type === "tel" || CONTACT_FIELD.test(signature)) {
+      hasContactField = true;
+    }
+  }
+
+  return {
+    action: form.getAttribute("action")?.trim() || null,
+    method: (form.getAttribute("method") ?? "get").toLowerCase().trim() || "get",
+    fieldCount,
+    hasContactField,
+    hasSubmit,
+  };
+}
+
 /** Parse one HTML document into the signals every downstream check reads.
  *  Pure — the same input always yields the same extract. */
 export function extractPage(html: string): PageExtract {
@@ -152,6 +221,8 @@ export function extractPage(html: string): PageExtract {
     images: [],
     headings: [],
     title: null,
+    anchors: [],
+    forms: [],
   };
   collect(documentEl, out);
 
@@ -186,5 +257,19 @@ export function extractPage(html: string): PageExtract {
     // Body-scoped: <head> has no visible text, and scoping here rather than
     // filtering keeps the rule obvious.
     text: textOf(root.querySelector("body") ?? documentEl),
+    anchors: out.anchors.slice(0, MAX_ANCHORS).map((a): PageAnchor => ({
+      href: (a.getAttribute("href") ?? "").trim(),
+      // The visible label, not the raw text: an anchor wrapping an icon and a
+      // span should read as its span. `textOf` already drops the unrendered
+      // subtrees an icon sprite lives in.
+      text: textOf(a).slice(0, 120),
+      rel: (a.getAttribute("rel") ?? "").toLowerCase().trim(),
+    })),
+    // The TRUE total, so a capped list is never mistaken for a complete one.
+    anchorCount: out.anchors.length,
+    imageSrcs: out.images
+      .map((i) => (i.getAttribute("src") ?? "").trim())
+      .filter((src) => src.length > 0),
+    forms: out.forms.map(formShape),
   };
 }

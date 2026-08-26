@@ -18,6 +18,31 @@ export type RobotsAgentAccess = {
   matchedRule: string | null;
 };
 
+/** One `<a href>`. `href` is exactly as authored — relative, absolute, `tel:`,
+ *  `mailto:`, `#anchor` — and is resolved against the page URL by whoever needs
+ *  an absolute one. Resolving here would discard the distinction between a
+ *  genuinely absolute link and a relative one, which is itself a finding when a
+ *  site hardcodes a staging host. */
+export type PageAnchor = { href: string; text: string; rel: string };
+
+/** One `<form>`, in enough detail to tell a contact form from a search box.
+ *  That distinction is the whole point: a site with a search box and no way to
+ *  reach a human has no conversion path, and counting forms alone would call
+ *  that a pass. */
+export type FormShape = {
+  /** As authored, or null for a form that posts to its own URL. */
+  action: string | null;
+  /** Lower-cased; defaults to "get", which is what a browser does. */
+  method: string;
+  /** Visible, named controls — hidden inputs, submits and buttons excluded, so
+   *  a one-field newsletter box does not read the same as a real enquiry form. */
+  fieldCount: number;
+  /** Does it ask for an email address or a phone number? A search box does not,
+   *  and this is what separates "can be contacted" from "can be searched". */
+  hasContactField: boolean;
+  hasSubmit: boolean;
+};
+
 export type PageExtract = {
   title: string | null;
   metaDescription: string | null;
@@ -32,6 +57,28 @@ export type PageExtract = {
   hasViewportMeta: boolean;
   /** Visible text, whitespace-collapsed. */
   text: string;
+  /**
+   * Anchors in document order, CAPPED — see `anchorCount` for the true total.
+   *
+   * Capped because this whole extract is persisted into
+   * `prospect_audits.result_json`, once per page per audit, and a navigation-
+   * heavy page can carry several hundred anchors. The cap is generous enough
+   * that no ordinary page reaches it.
+   *
+   * The count is reported separately rather than left implicit, because a
+   * truncated list that looks complete is exactly the kind of quiet lie this
+   * audit is built not to tell: "we checked every link" and "we checked the
+   * first 300" are different claims.
+   *
+   * Optional: reports stored before this existed lack it, and a reader must
+   * treat its absence as "not measured" rather than "no links".
+   */
+  anchors?: PageAnchor[];
+  /** True number of `<a href>` on the page, before `anchors` was capped. */
+  anchorCount?: number;
+  /** `src` of each `<img>`, as authored. Same resolution note as `anchors`. */
+  imageSrcs?: string[];
+  forms?: FormShape[];
 };
 
 export type PageCapture = {
