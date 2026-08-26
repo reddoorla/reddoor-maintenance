@@ -97,6 +97,26 @@ describe("renderCockpitHtml — submissions", () => {
     expect(inboxIdx).toBeLessThan(spamIdx); // spam line lives inside the inbox lane
   });
 
+  it("labels the spam roll-up with WHEN it was computed", () => {
+    // The numbers come from the nightly digest, not a live aggregate, so they are
+    // up to 24h old. A stale figure rendered as though it were live is the exact
+    // cost of moving this off the request path — the label is what pays it back.
+    const m = oneSubmissionModel();
+    const html = renderCockpitHtml({
+      ...m,
+      spam: { caught: 5, through: 1, computedAt: "2026-08-26T03:00:00.000Z" },
+    } as never);
+    expect(html).toContain("as of 2026-08-26 03:00 UTC");
+  });
+
+  it("omits the as-of label when the model carries no timestamp", () => {
+    // Positive control: an un-timestamped model must not grow a fabricated "as
+    // of", which would be a worse lie than no label at all.
+    const html = renderCockpitHtml(oneSubmissionModel());
+    expect(html).toContain("🛡 Spam (30d)");
+    expect(html).not.toContain("as of");
+  });
+
   it("links the inbox lane to /submissions", () => {
     const html = renderCockpitHtml(
       model({
