@@ -199,6 +199,22 @@ export type ProbesResult = {
    *  it surface this business to someone who didn't already name it"). */
   brandedRecognized: boolean;
   competitorsSeen: { domain: string; count: number }[];
+  /** How many CATEGORY probes were sent versus how many came back.
+   *
+   *  These differ whenever an engine errors: a probe that fails after its retry
+   *  is skipped, and before this existed it vanished from the denominator too —
+   *  so the score was computed over the survivors. Ask five, have three fail,
+   *  and one of the two survivors names you, and the report read "named in 1 of
+   *  2 searches" and scored 50 where the truth was 1 of 5. A flakier run scored
+   *  HIGHER, nothing recorded that three probes died, and no two runs were
+   *  comparable. `attempted` is now the divisor and both numbers are reported so
+   *  a degraded run can say so.
+   *
+   *  Optional because this type also describes runs deserialized from
+   *  `prospect_audits.result_json`, and every report stored before this field
+   *  existed lacks it. `runVisibilityProbes` always sets it; readers must still
+   *  handle its absence rather than assume a stored report has it. */
+  categoryProbes?: { attempted: number; answered: number };
 };
 
 export type LighthouseScores = {

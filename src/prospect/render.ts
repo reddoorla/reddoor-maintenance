@@ -165,6 +165,20 @@ function buildProbesSection(p: ProbesResult, businessNameUsed: boolean): string 
     ? ""
     : `<p class="muted"><strong>No buyer-question (category) query was tested here</strong> — only name-recognition. An engine echoing back a name it was just given says nothing about whether a buyer who had never heard of the business would be shown it; treat the line above as a floor, not a visibility signal.</p>`;
 
+  // A degraded run says so. The score now divides by what was ASKED, so failed
+  // probes push it DOWN rather than silently inflating it — which is the safe
+  // direction, but only if the reader is told the run was incomplete. Silence
+  // here would trade one misleading number for another.
+  // Bound to a local so the narrowing survives into the template — `missing > 0`
+  // says nothing to the compiler about `p.categoryProbes` itself, and a stored
+  // report from before the field existed genuinely does not have it.
+  const tally = p.categoryProbes;
+  const missing = tally ? tally.attempted - tally.answered : 0;
+  const degradedNotice =
+    tally && missing > 0
+      ? `<p class="muted"><strong>${missing} of ${tally.attempted} buyer-question searches did not come back</strong> — the engine errored on them. They are counted as "not found", so the visibility figure above is a floor: the real number could be higher, not lower. Worth re-running before drawing a conclusion from it.</p>`
+      : "";
+
   const groups = KIND_ORDER.filter((k) => byKind.has(k))
     .map((kind) => {
       const answers = byKind.get(kind) ?? [];
@@ -197,7 +211,7 @@ function buildProbesSection(p: ProbesResult, businessNameUsed: boolean): string 
         .join("")}</ul>`
     : "";
 
-  return recognition + categoryCaveat + groups + competitors;
+  return recognition + categoryCaveat + degradedNotice + groups + competitors;
 }
 
 /** crawlerAccessMeasured is false only when the robots.txt fetch itself
