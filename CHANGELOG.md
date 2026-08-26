@@ -1,5 +1,181 @@
 # @reddoorla/maintenance
 
+## 0.88.0
+
+### Minor Changes
+
+- 445dd23: Attach a print-designed PDF to the audit email.
+
+  The audit now renders `reddoorla.com/audit/{token}/print` to a PDF and attaches
+  it alongside the HTML sheet. That route is a document built for paper — flat,
+  with every section visible — rather than the interactive report, whose evidence
+  sits behind disclosures. Printing the interactive page would have produced a
+  leave-behind with half its content folded away, which is worse on paper than the
+  long version it replaced.
+
+  It waits for the network to settle before printing, so webfonts are loaded: a
+  fallback face baked into a client-facing PDF cannot be corrected after the fact,
+  because the file is already in somebody's inbox. Page geometry comes from the
+  document's own `@page` rule via `preferCSSPageSize`, so the stylesheet stays the
+  one place that decides it.
+
+  Best-effort by design. Rendering needs a live page and a headless browser, and
+  an attachment is not worth losing a delivered report over — every other stage in
+  this pipeline degrades rather than throwing, and this one matches. If the render
+  fails the email still goes with the link, and a warning records why. It also
+  needs a persisted token: with no stored report there is no page to print. The
+  browser is closed in a `finally`, so a wedged render cannot strand a chromium
+  process on the runner.
+
+  No new toolchain: the runner already installs Playwright's chromium for the
+  crawl, and this uses the same `@playwright/test` the crawl imports.
+
+- 916ca37: Point the prospect audit's link at reddoorla.com, and redirect the old one.
+
+  The report now lives at `reddoorla.com/audit/{token}` — a real, branded page on
+  our own domain rather than generated HTML on the ops app's. The audit email
+  links there.
+
+  `/r/:token` stays as a permanent redirect and is deliberately not deleted.
+  Links already sent are sitting in prospects' inboxes and will be opened months
+  from now; keeping them working is the entire point of a 301. The redirect is
+  built from the same token, so the destination is the same document and nobody
+  following an old link can tell anything moved.
+
+  It validates the token shape before redirecting. Without that check the route
+  would happily bounce an arbitrary path segment onto reddoorla.com — an open
+  redirect wearing our own domain.
+
+  The redirect no longer opens the database, and no longer resolves whether the
+  report exists. That is deliberate: the destination is the source of truth for
+  that, and checking in both places would let the two disagree. A dead token now
+  redirects and 404s at the website.
+
+  The report origin is its own `REPORT_BASE_URL` rather than reusing
+  `DASHBOARD_BASE_URL`. The dashboard addresses operators on the ops app; this
+  addresses a prospect on the marketing site. They are different audiences on
+  different domains, and sharing one variable would mean either silently moving
+  the day the other is repointed. Unset, it defaults to `https://reddoorla.com`.
+
+### Patch Changes
+
+- ad6f55b: Digest state moves to Turso, and the fleet homepage stops touching Airtable (#609).
+
+  Unlike the rest of #539 Phase 5 this is a migration, not a mirror — there was no
+  Turso table to dual-write into. New `digest_state` table (migration 0011), one
+  row holding the whole snapshot as JSON: both readers need the entire map, so a
+  keyed table would buy nothing on reads and its "give me every key" query would be
+  a raw scan needing a justified entry in the EXPLAIN gate's allowlist.
+
+  **The fleet homepage no longer touches Airtable at all.** Its digest NEW-badge
+  read was the last call, and it was an Airtable call on a request path — a Phase 2
+  leftover, since digest state was never in that phase's scope. The
+  `AIRTABLE_PAT`/`AIRTABLE_BASE_ID` gate that guarded the handler is gone with it,
+  so an Airtable outage can no longer degrade the page.
+
+  `runDigest` reads from Turso and writes to **both** stores, so the move stays
+  reversible while Phase 5 is in flight. It emits
+  `DIGEST_STATE_WRITE turso=<0|1> airtable=<0|1>` — one line, always, naming both
+  halves, because a dual-write that silently stopped running looked identical to a
+  healthy one for weeks in #585.
+
+  The snapshot read is deliberately **not** defensive: swallowing a failure would
+  badge every item NEW, which lands in the operator's inbox reading as "the whole
+  fleet degraded overnight". That makes Turso a hard requirement of the digest
+  step, which is now pinned by a workflow test.
+
+  `diffAttention` — the pure core — is untouched.
+
+  New `db backfill-digest-state` copies the existing Airtable row across, refusing
+  to overwrite a snapshot Turso already holds and reading back what it wrote.
+
+- 1515884: The freeze switch, and the inverted mirror semantics behind it (#612).
+
+  Ships **off**: no behaviour changes today. `TURSO_IS_AUTHORITATIVE` in
+  `src/db/freeze.ts` is `false`, and flipping it to `true` is the freeze.
+
+  Through Phase 5 the mirrors are best-effort by design — Airtable is
+  authoritative, so a Turso write that fails is caught, logged and swallowed, and
+  the hourly import converges whatever it missed. That is correct right up until
+  the freeze stops the import. After that nothing converges anything, and the same
+  swallowed failure is permanent data loss announced only by a log line nobody
+  greps. Three outcomes change meaning at the flip:
+
+  | outcome           | before                          | after                       |
+  | ----------------- | ------------------------------- | --------------------------- |
+  | `mirrored=0`      | the sync will fix it            | that write is gone          |
+  | `mirrored=missed` | the site isn't imported yet     | impossible, therefore a bug |
+  | `mirrored=absent` | no creds; Airtable still has it | every write was discarded   |
+
+  So the freeze is not a config change: it inverts which store is allowed to fail.
+  `makeSiteMirror`, `makeReportMirror`, `makeHealthMirrorBestEffort` and
+  `makeScheduleMirrorBestEffort` all gain a `strict` mode that throws where they
+  used to swallow, and refuses to build at all without credentials rather than
+  handing back a working-looking mirror that discards every write.
+
+  A code constant rather than an env var, deliberately: the same artifact runs in
+  Netlify functions and Actions runners, and an env var set in one but missed in
+  the other would give a _partial_ freeze — worse than either end.
+
+  Consumers take it as a default parameter rather than reading it inline, so tests
+  exercise both sides as fixtures with exactly one assertion on the shipped value.
+  Several older tests that read the shipped constant now pin `false` explicitly,
+  and the composition roots' suites mock the mirror factories.
+
+  Verified by flipping the constant and running the whole suite: **exactly one test
+  fails, the one that asserts its value.** The freeze is a one-line change.
+
+- af748d6: Three more freeze pre-flight gaps, all gated off the same switch (#612).
+
+  **The fleet sweep's mirror outcomes now reach the exit code.**
+  `writeFleetAuditsToAirtable` catches a per-site mirror failure and counts it —
+  right, since one bad site must not abort a 44-site sweep — but the counts only
+  reached the `FLEET_WRITE_SUMMARY` line and no workflow gated on them. Post-freeze
+  a sweep that wrote the fleet's health into nothing would have finished green on a
+  line reading `wrote=44 failed=0`. New `fleetWriteFailed` makes a mirror failure,
+  a missed row, and an absent mirror each fatal once frozen. It gates the run, not
+  the loop: per-site isolation is unchanged.
+
+  **Form ingest stops consulting Airtable.** `makeSiteLookup`'s fallback existed
+  for a site created in the Airtable UI before the next hourly import. Nothing
+  hand-creates rows after the freeze and `ensure-site` inserts straight into Turso,
+  so the window is gone — and consulting a frozen base would resolve a lead against
+  a row the system no longer believes in.
+
+  **The console can clear a secret.** It could replace one but never erase one:
+  empty means "leave unchanged", deliberately, so an unrelated save cannot destroy
+  a key that is blank on every page load. Airtable was the escape hatch and the
+  freeze removes it. Typing `__clear__` now erases the cell and reports `cleared`.
+
+  A sentinel rather than a new control, deliberately: the secret input is the one
+  field whose save listener already fires on any keystroke, so this needs no change
+  to the inline dashboard script — the part of the page no test executes, and the
+  part that shipped broken once already.
+
+  All three ship inert. Flipping the constant and running the whole suite still
+  fails exactly one test: the one that asserts its value.
+
+- 421d165: Fix the shared Playwright config handing every worker a different port.
+
+  Since the free-port allocation landed, `playwright-a11y` resolved its port at
+  module scope with `smokePort || allocateFreePortSync() || "5173"`. Playwright
+  re-evaluates the config file in **every worker process**, not only the main one,
+  so each evaluation allocated a _different_ free port. The main process started
+  the dev server on one; every worker aimed `baseURL` at another. The run then
+  died with `ERR_CONNECTION_REFUSED` against a handful of ports nothing was ever
+  serving, and the site's route warmup reported `fetch failed` for every route
+  before a single test ran.
+
+  The allocation is now pinned back into `REDDOOR_SMOKE_PORT`. Workers are forked
+  and inherit the environment, so every later evaluation agrees on the port the
+  server is actually bound to. An externally supplied port still wins, unchanged.
+
+  This reached every fleet site consuming the base without `REDDOOR_SMOKE_PORT`
+  already set — which is why `reddoor-website` could not take 0.84 or later. It
+  did **not** reach `audit --only a11y`, which writes its own config and never
+  loads this file, so the package's own suite passed throughout and nothing here
+  caught it. There are tests now, and they fail without the fix.
+
 ## 0.87.0
 
 ### Minor Changes
