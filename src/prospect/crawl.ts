@@ -173,6 +173,33 @@ export function parseSitemapLocs(xml: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * May we fetch this nested sitemap?
+ *
+ * A `<loc>` inside a sitemap index is attacker-controlled input — it comes from
+ * the site being audited, which by definition is a stranger's. Same-origin is
+ * the binding constraint: a sitemap index legitimately only ever points at
+ * sitemaps on its own site, so anything else is a mistake or an attempt, and
+ * refusing costs nothing real.
+ *
+ * The private-host check is defence in depth behind that. It is redundant while
+ * `origin` is a public site — which the dispatch path already enforces — but
+ * this function should not depend on a guarantee made three files away.
+ */
+export function isSafeNestedSitemap(child: string, origin: string): boolean {
+  let url: URL;
+  try {
+    // Resolved against `origin` so a relative <loc> is judged on where it
+    // actually lands, not on the string.
+    url = new URL(child, origin);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+  if (url.origin !== origin) return false;
+  return !isPrivateOrLoopbackHost(url.hostname);
+}
+
 export function isSitemapIndex(xml: string): boolean {
   return /<(?:[\w-]+:)?sitemapindex[\s>]/i.test(xml);
 }
@@ -349,6 +376,14 @@ async function fetchSidecars(origin: string, deps: CrawlDeps): Promise<Sidecars>
     sitemapPresent = true;
     if (isSitemapIndex(sitemap.res.body)) {
       for (const child of parseSitemapLocs(sitemap.res.body).slice(0, 3)) {
+        // `child` is attacker-controlled: it comes out of the AUDITED site's
+        // sitemap, and the audited site is a prospect we have not met. Without
+        // this it reached fetch() unchecked — a hostile index could make the
+        // runner request 169.254.169.254, 127.0.0.1 or any internal host, from
+        // a GitHub Actions job holding TURSO_AUTH_TOKEN, RESEND_API_KEY and
+        // ANTHROPIC_API_KEY. The guard at the redirect check below exists for
+        // exactly this and this loop was not using it.
+        if (!isSafeNestedSitemap(child, origin)) continue;
         const nested = await optional(deps, child);
         if (nested.res) sitemapUrls.push(...parseSitemapLocs(nested.res.body));
       }

@@ -13,7 +13,7 @@ type Recorded = {
 /** A browser stub that records what the renderer asked it to do. */
 function fakeBrowser(over: { goto?: () => Promise<unknown>; pdf?: () => Promise<Buffer> } = {}) {
   const rec: Recorded = {
-    goto: vi.fn(over.goto ?? (async () => null)),
+    goto: vi.fn(over.goto ?? (async () => ({ ok: () => true, status: () => 200 }))),
     pdf: vi.fn(over.pdf ?? (async () => PDF)),
     close: vi.fn(async () => undefined),
   };
@@ -89,5 +89,35 @@ describe("renderReportPdf — cleanup", () => {
       renderReportPdf("https://x.test/print", { launch: async () => browser }),
     ).rejects.toThrow(/render exploded/);
     expect(rec.close).toHaveBeenCalledTimes(1);
+  });
+});
+
+// A 404 print route must NOT become a valid PDF of the "Page not found" page,
+// attached to the email and sent to the prospect. page.goto resolves for any
+// status, so the status has to be checked explicitly.
+describe("renderReportPdf — refuses to print an error page", () => {
+  it.each([404, 500, 502])("throws on HTTP %i rather than rendering it", async (status) => {
+    const { browser, rec } = fakeBrowser({
+      goto: async () => ({ ok: () => false, status: () => status }),
+    });
+    await expect(
+      renderReportPdf("https://x.test/print", { launch: async () => browser }),
+    ).rejects.toThrow(new RegExp(String(status)));
+    expect(rec.pdf).not.toHaveBeenCalled();
+    expect(rec.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws when there is no response at all", async () => {
+    const { browser, rec } = fakeBrowser({ goto: async () => null });
+    await expect(
+      renderReportPdf("https://x.test/print", { launch: async () => browser }),
+    ).rejects.toThrow(/no response/);
+    expect(rec.pdf).not.toHaveBeenCalled();
+  });
+
+  it("still prints a healthy page", async () => {
+    const { browser, rec } = fakeBrowser();
+    await renderReportPdf("https://x.test/print", { launch: async () => browser });
+    expect(rec.pdf).toHaveBeenCalledTimes(1);
   });
 });

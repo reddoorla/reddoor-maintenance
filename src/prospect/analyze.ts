@@ -105,10 +105,16 @@ Return:
   the site answers it (yes/partial/no), whether there is a passage an AI could quote verbatim, the page
   it lives on, and the evidence quote. evidence must be an EXACT substring of that page's quoted text —
   copied verbatim, never paraphrased or invented — or null when no exact quote supports the answer.
-- categoryQueries: 3-5 searches a buyer types BEFORE they have heard of this company, chosen so that
-  this company deserves to appear in the results. Each one is sent verbatim to a live answer engine on
-  its own, with no other context, so it must stand alone: name the service and the place or the
-  qualifier a buyer would use ("packaging design agency Los Angeles", "how much does a rebrand cost").
+- categoryQueries: 5 searches a buyer types BEFORE they have heard of this company, chosen so that this
+  company could PLAUSIBLY RANK for them today — not ones it arguably deserves. A broad head term
+  ("branding agency Los Angeles") returns directories and listicles, which is where small firms are
+  aggregated rather than surfaced, so a query like that measures nothing about this company. Give a
+  spread: at most ONE head term, and at least THREE that are long-tail — a specific service, a
+  narrower niche or industry, a smaller locality, or a question phrased the way a buyer types it.
+  Prefer the specific over the impressive. Each one is sent verbatim to a live answer engine on its
+  own, with no other context, so it must stand alone: name the service and the place or the qualifier
+  a buyer would use ("trade show booth design for medical device companies", "how much does a rebrand
+  cost for a B2B company", "packaging design studio San Antonio").
   Never refer to the company — not by name, and not as "this agency", "they", "them" or "you". A query
   that names the company measures nothing (the engine just echoes the name back); a query that points
   at it with a pronoun has no antecedent and the engine will answer that it does not know who is meant.
@@ -305,16 +311,38 @@ function verifyEvidence(result: AnalyzeResult, crawl: CrawlResult): AnalyzeResul
   }
 
   const buyerQuestions: BuyerQuestion[] = result.buyerQuestions.map((q) => {
-    if (q.page === null) {
-      return q.evidence === null ? q : { ...q, evidence: null };
-    }
-    if (!crawledUrls.has(q.page)) {
-      return { ...q, page: null, evidence: null };
-    }
-    if (q.evidence === null) return q;
-    const pageText = textByUrl.get(q.page) ?? "";
-    const verified = normalizeWhitespace(pageText).includes(normalizeWhitespace(q.evidence));
-    return verified ? q : { ...q, evidence: null };
+    const verified = ((): BuyerQuestion => {
+      if (q.page === null) {
+        return q.evidence === null ? q : { ...q, evidence: null };
+      }
+      if (!crawledUrls.has(q.page)) {
+        return { ...q, page: null, evidence: null };
+      }
+      if (q.evidence === null) return q;
+      const pageText = textByUrl.get(q.page) ?? "";
+      const quoted = normalizeWhitespace(pageText).includes(normalizeWhitespace(q.evidence));
+      return quoted ? q : { ...q, evidence: null };
+    })();
+
+    // A verdict we cannot point at a passage for is not a positive verdict.
+    //
+    // Everything above answers "is this quote real?" — it was written to catch
+    // a model inventing evidence. It never asked the opposite question, so a
+    // `yes`/`partial` with no evidence at all passed straight through. Two of
+    // those in one run moved the Answers score 10 points (checks.ts weights
+    // `partial` at 0.5), and produced a report that scored pricing as answered
+    // while its own fix list told the prospect to publish pricing.
+    //
+    // Observed, not hypothesised: the same site, the same question, the same
+    // null evidence — graded `no` on 25 Aug and `partial` on 26 Aug.
+    //
+    // Downgrading rather than dropping keeps the question visible in the table;
+    // it just stops it scoring. If a question is ever legitimately answered by
+    // page structure rather than a quotable line, that needs its own field —
+    // silence is not the way to express it.
+    return verified.evidence === null && verified.answered !== "no"
+      ? { ...verified, answered: "no" as const }
+      : verified;
   });
 
   return { ...result, buyerQuestions };
