@@ -26,11 +26,32 @@ import { defaultResendClient, type ResendClient } from "../../src/reports/send/r
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
 
 // Public, token-gated ingest. Path-routed on the function (same reason as
-// approve-report.mts: a netlify.toml rewrite would hide ctx.params). Server-to-
-// server only — the caller is a fleet site's Netlify egress, so per-IP limiting
-// is a coarse abuse backstop; real protection is the token + the site-side
-// honeypot/timing. (Per-slug limiting is a future enhancement — Netlify's
-// rateLimit can't key on a path param.)
+// approve-report.mts: a netlify.toml rewrite would hide ctx.params).
+//
+// RATE LIMITING — measured 2026-08-26, after three consecutive reviews flagged
+// this and none recorded a number.
+//
+// Traffic is server-to-server: the caller is a fleet site's Netlify egress, not
+// the visitor. So per-IP CANNOT throttle an abusive visitor — that is what the
+// token, the site-side honeypot/timing and the spam classifier are for. What it
+// does buy is a backstop against a leaked token being hammered from one host.
+//
+// The standing worry has been the other direction: that a legitimate burst trips
+// 120/min and a real lead 429s. Against the live data that is not close. Across
+// the WHOLE fleet since ingest went live (356 submissions, 2026-06-15 → 08-26):
+//
+//   busiest single minute ever ...... 4
+//   busiest single day ever ......... 25
+//
+// 30× headroom on the all-time peak, and that peak is fleet-wide rather than
+// per-site. Netlify's `rateLimit` still cannot key on a path param, so per-slug
+// limiting means an application-level counter — i.e. a read on the lead path,
+// which is the one path where added latency and added failure modes cost actual
+// leads. Not worth it for a bound nothing has approached.
+//
+// REVISIT when a single minute clears ~40 (a third of the limit), or if the
+// endpoint ever takes browser-direct traffic, at which point per-IP starts
+// meaning something and per-slug becomes worth its cost.
 export const config: Config = {
   path: ["/api/forms/:slug", "/.netlify/functions/form-ingest"],
   rateLimit: {

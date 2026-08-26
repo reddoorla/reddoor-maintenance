@@ -23,3 +23,9 @@ secrets/
 
 # superpowers visual brainstorm companion (local mockups)
 .superpowers/
+
+# Agent/session git worktrees. The concurrent-session rule in CLAUDE.md makes a
+# worktree per branch the norm here, so this directory is permanent furniture —
+# and while untracked it was the ONLY entry in `git status`, which trains the eye
+# to ignore a dirty tree.
+.worktrees/
