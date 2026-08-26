@@ -24,6 +24,25 @@ vi.mock("../../src/reports/airtable/client.js", async () => {
 
 import { openBase } from "../../src/reports/airtable/client.js";
 
+/** #609: the digest reads its prior snapshot from Turso, and the read is
+ *  deliberately NOT defensive — swallowing a failure would badge every item NEW.
+ *  That makes libSQL a hard requirement of a real run, so the suite injects an
+ *  in-memory store instead of pretending one exists. Fresh per call, so a test
+ *  that does not seed it sees the empty-snapshot case (everything NEW), which is
+ *  what these tests asserted against Airtable before.
+ */
+function memoryDigestState(
+  seed: Record<string, { metric: number; firstFlaggedAt: string; exhausted?: boolean }> = {},
+) {
+  let snap = seed;
+  return {
+    read: async () => snap,
+    write: async (next: typeof snap) => {
+      snap = next;
+    },
+  };
+}
+
 beforeEach(() => {
   process.env.AIRTABLE_PAT = "pat_test";
   process.env.AIRTABLE_BASE_ID = "app_test";
@@ -262,7 +281,10 @@ describe("runDigest", () => {
     const fakeBase = makeFakeBase({ Reports: [], Websites: [] });
     vi.mocked(openBase).mockReturnValue(fakeBase);
     // Call without the `base` option — must reach the env-config branch
-    const result = await runDigest({ baseUrl: "https://reddoor-maintenance.netlify.app" });
+    const result = await runDigest({
+      digestState: memoryDigestState(),
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
     expect(vi.mocked(openBase)).toHaveBeenCalled();
     expect(result.code).toBe(0);
   });
@@ -271,7 +293,11 @@ describe("runDigest", () => {
 
   it("skips when there is nothing pending and nothing needing attention", async () => {
     const base = makeFakeBase({ Reports: [], Websites: [] });
-    const result = await runDigest({ base, baseUrl: "https://reddoor-maintenance.netlify.app" });
+    const result = await runDigest({
+      digestState: memoryDigestState(),
+      base,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
     expect(result.code).toBe(0);
     expect(result.output).toContain("skipped");
   });
@@ -281,7 +307,11 @@ describe("runDigest", () => {
       Reports: [approvedReport(), sentReport(), unreadyReport()],
       Websites: [siteRow()],
     });
-    const result = await runDigest({ base, baseUrl: "https://reddoor-maintenance.netlify.app" });
+    const result = await runDigest({
+      digestState: memoryDigestState(),
+      base,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
     expect(result.code).toBe(0);
     expect(result.output).toContain("skipped");
   });
@@ -293,6 +323,7 @@ describe("runDigest", () => {
     });
     const { client, captured } = captureClient();
     const result = await runDigest({
+      digestState: memoryDigestState(),
       base,
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
@@ -307,6 +338,7 @@ describe("runDigest", () => {
     const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
     const { client, captured } = captureClient();
     const result = await runDigest({
+      digestState: memoryDigestState(),
       base,
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
@@ -329,6 +361,7 @@ describe("runDigest", () => {
     });
     const { client, captured } = captureClient();
     await runDigest({
+      digestState: memoryDigestState(),
       base,
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
@@ -342,6 +375,7 @@ describe("runDigest", () => {
     const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
     const { client, captured } = captureClient();
     await runDigest({
+      digestState: memoryDigestState(),
       base,
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
@@ -370,6 +404,7 @@ describe("runDigest", () => {
     });
     const { client, captured } = captureClient();
     await runDigest({
+      digestState: memoryDigestState(),
       base,
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
@@ -384,6 +419,7 @@ describe("runDigest", () => {
     const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
     const { client, captured } = captureClient();
     await runDigest({
+      digestState: memoryDigestState(),
       base,
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
@@ -395,6 +431,7 @@ describe("runDigest", () => {
     const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
     const { client, captured } = captureClient();
     await runDigest({
+      digestState: memoryDigestState(),
       base,
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app/",
@@ -411,6 +448,7 @@ describe("runDigest", () => {
     const base = makeFakeBase({ Reports: [readyReport()], Websites: [] });
     const { client, captured } = captureClient();
     const result = await runDigest({
+      digestState: memoryDigestState(),
       base,
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
@@ -425,6 +463,7 @@ describe("runDigest", () => {
     const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
     const { client } = captureClient();
     const result = await runDigest({
+      digestState: memoryDigestState(),
       base,
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
@@ -436,7 +475,12 @@ describe("runDigest", () => {
     delete process.env.OPERATOR_EMAIL;
     const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
     const { client, captured } = captureClient();
-    await runDigest({ base, resend: client, baseUrl: "https://reddoor-maintenance.netlify.app" });
+    await runDigest({
+      digestState: memoryDigestState(),
+      base,
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
     expect(captured[0]!.to).toEqual([OPERATOR_FALLBACK]);
   });
 
@@ -445,6 +489,7 @@ describe("runDigest", () => {
   it("returns code 1 and a tidy message when resend.send rejects", async () => {
     const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
     const result = await runDigest({
+      digestState: memoryDigestState(),
       base,
       resend: rejectClient("network error"),
       baseUrl: "https://reddoor-maintenance.netlify.app",
@@ -461,6 +506,7 @@ describe("runDigest", () => {
     // first send; re-sending a changed body would just be a duplicate, so skip.
     const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
     const result = await runDigest({
+      digestState: memoryDigestState(),
       base,
       resend: idempotencyConflictClient(),
       baseUrl: "https://reddoor-maintenance.netlify.app",
@@ -474,6 +520,7 @@ describe("runDigest", () => {
     // diff against the first run's snapshot and mis-badge. No state write must occur.
     const base = makeFakeBase({ Reports: [bouncedReport()], Websites: [vulnSiteRow()] });
     const result = await runDigest({
+      digestState: memoryDigestState(),
       base,
       resend: idempotencyConflictClient(),
       baseUrl: "https://reddoor-maintenance.netlify.app",
@@ -490,6 +537,7 @@ describe("runDigest", () => {
     // as a skip — it still falls through to the outer catch → {code:1}.
     const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
     const result = await runDigest({
+      digestState: memoryDigestState(),
       base,
       resend: rejectClient("Resend 500"),
       baseUrl: "https://reddoor-maintenance.netlify.app",
@@ -509,13 +557,19 @@ describe("runDigest", () => {
       },
     };
     await expect(
-      runDigest({ base, resend: badClient, baseUrl: "https://reddoor-maintenance.netlify.app" }),
+      runDigest({
+        digestState: memoryDigestState(),
+        base,
+        resend: badClient,
+        baseUrl: "https://reddoor-maintenance.netlify.app",
+      }),
     ).rejects.toThrow("missing RESEND_API_KEY");
   });
 
   it("returns {code:1} for a plain Error with no exitCode (runtime errors are swallowed)", async () => {
     const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
     const result = await runDigest({
+      digestState: memoryDigestState(),
       base,
       resend: rejectClient("network error"),
       baseUrl: "https://reddoor-maintenance.netlify.app",
@@ -547,6 +601,7 @@ describe("runDigest", () => {
     });
     const { client } = captureClient();
     const result = await runDigest({
+      digestState: memoryDigestState(),
       base: poisonedBase as unknown as typeof goodBase,
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
@@ -563,7 +618,12 @@ describe("runDigest", () => {
     // exactly once across the entire run.
     const base = makeFakeBase({ Reports: [readyReport()], Websites: [vulnSiteRow()] });
     const { client } = captureClient();
-    await runDigest({ base, resend: client, baseUrl: "https://reddoor-maintenance.netlify.app" });
+    await runDigest({
+      digestState: memoryDigestState(),
+      base,
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
 
     const websiteSelects = base.__calls.filter(
       (c) => c.kind === "select" && c.table === "Websites",
@@ -583,6 +643,7 @@ describe("runDigest", () => {
     });
     const { client, captured } = captureClient();
     const result = await runDigest({
+      digestState: memoryDigestState(),
       base,
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
@@ -602,6 +663,7 @@ describe("runDigest", () => {
     const base = makeFakeBase({ Reports: [], Websites: [vulnSiteRow()] });
     const { client, captured } = captureClient();
     const result = await runDigest({
+      digestState: memoryDigestState(),
       base,
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
@@ -614,7 +676,12 @@ describe("runDigest", () => {
   it("writes the next snapshot to Digest State after sending", async () => {
     const base = makeFakeBase({ Reports: [bouncedReport()], Websites: [vulnSiteRow()] });
     const { client } = captureClient();
-    await runDigest({ base, resend: client, baseUrl: "https://reddoor-maintenance.netlify.app" });
+    await runDigest({
+      digestState: memoryDigestState(),
+      base,
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
     // A create OR update against "Digest State" must have happened (singleton get-or-create).
     const stateWrites = base.__calls.filter(
       (c) => c.table === "Digest State" && (c.kind === "create" || c.kind === "update"),
@@ -639,11 +706,75 @@ describe("runDigest", () => {
       "Digest State": [{ id: "rec_state", fields: { Snapshot: prior } }],
     });
     const { client, captured } = captureClient();
-    await runDigest({ base, resend: client, baseUrl: "https://reddoor-maintenance.netlify.app" });
+    await runDigest({
+      digestState: memoryDigestState(JSON.parse(prior)),
+      base,
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
     const html = captured[0]!.html;
     expect(html).toContain("Acme Co"); // standing problem still rendered
     expect(html).not.toMatch(/\bNEW\b/);
     expect(html).not.toMatch(/\bWORSE\b/);
+  });
+
+  it("dual-writes the snapshot to BOTH stores and says so (#609)", async () => {
+    // Turso is the read side; Airtable keeps being written so the move stays
+    // reversible while Phase 5 is in flight. The DIGEST_STATE_WRITE line exists
+    // because of #585 — a dual-write that silently stopped running looked
+    // identical to a healthy one for weeks.
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const base = makeFakeBase({ Reports: [bouncedReport()], Websites: [vulnSiteRow()] });
+    const { client } = captureClient();
+    const store = memoryDigestState();
+
+    await runDigest({
+      digestState: store,
+      base,
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
+
+    // Turso got it...
+    expect(Object.keys(await store.read()).length).toBeGreaterThan(0);
+    // ...and so did Airtable.
+    const airtableWrite = base.__calls.find(
+      (c) => c.table === "Digest State" && (c.kind === "create" || c.kind === "update"),
+    );
+    expect(airtableWrite).toBeDefined();
+    expect((log.mock.calls as unknown[][]).flat().join("\n")).toContain(
+      "DIGEST_STATE_WRITE turso=1 airtable=1",
+    );
+    log.mockRestore();
+  });
+
+  it("reports turso=0 when only the Turso half fails, and still sends (#609)", async () => {
+    // A half-dead dual-write must be visibly half-dead. Counting it as a plain
+    // success is the exact shape that hid #585 for weeks.
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const base = makeFakeBase({ Reports: [bouncedReport()], Websites: [vulnSiteRow()] });
+    const { client, captured } = captureClient();
+
+    const result = await runDigest({
+      digestState: {
+        read: async () => ({}),
+        write: async () => {
+          throw new Error("turso down");
+        },
+      },
+      base,
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
+
+    expect(result.code).toBe(0); // the email already went out
+    expect(captured).toHaveLength(1);
+    expect((log.mock.calls as unknown[][]).flat().join("\n")).toContain(
+      "DIGEST_STATE_WRITE turso=0 airtable=1",
+    );
+    log.mockRestore();
+    warn.mockRestore();
   });
 
   it("a state write failure is caught and logged; the run still reports success", async () => {
@@ -669,6 +800,7 @@ describe("runDigest", () => {
     });
     const { client, captured } = captureClient();
     const result = await runDigest({
+      digestState: memoryDigestState(),
       base: poisoned as unknown as typeof good,
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
@@ -691,7 +823,12 @@ describe("runDigest", () => {
       "Digest State": [{ id: "rec_state", fields: { Snapshot: prior } }],
     });
     const { client, captured } = captureClient();
-    await runDigest({ base, resend: client, baseUrl: "https://reddoor-maintenance.netlify.app" });
+    await runDigest({
+      digestState: memoryDigestState(JSON.parse(prior)),
+      base,
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
     expect(captured).toHaveLength(1);
     const html = captured[0]!.html;
     expect(html).toContain("Acme Co");
@@ -710,6 +847,7 @@ describe("runDigest", () => {
     });
     const { client, captured } = captureClient();
     const result = await runDigest({
+      digestState: memoryDigestState(),
       base,
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
@@ -728,7 +866,12 @@ describe("runDigest", () => {
       Websites: [vulnSiteRow({ "Security Auto-Fix Attempts": 0 })],
     });
     const { client, captured } = captureClient();
-    await runDigest({ base, resend: client, baseUrl: "https://reddoor-maintenance.netlify.app" });
+    await runDigest({
+      digestState: memoryDigestState(),
+      base,
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
     expect(captured).toHaveLength(1); // delivery failure still sends
     expect(captured[0]!.html).not.toMatch(/critical\/high vuln/);
   });
@@ -745,7 +888,12 @@ describe("runDigest", () => {
       "Digest State": [{ id: "rec_state", fields: { Snapshot: prior } }],
     });
     const { client, captured } = captureClient();
-    await runDigest({ base, resend: client, baseUrl: "https://reddoor-maintenance.netlify.app" });
+    await runDigest({
+      digestState: memoryDigestState(JSON.parse(prior)),
+      base,
+      resend: client,
+      baseUrl: "https://reddoor-maintenance.netlify.app",
+    });
     expect(captured).toHaveLength(1);
     const html = captured[0]!.html;
     expect(html).toContain("auto-fix failed");
@@ -765,6 +913,7 @@ describe("runDigest", () => {
     });
     const { client, captured } = captureClient();
     const result = await runDigest({
+      digestState: memoryDigestState(JSON.parse(prior)),
       base,
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
@@ -784,6 +933,7 @@ describe("runDigest", () => {
       ["rec_site_acme", { leads: 2, signups: 1, spamAuto: 3 }],
     ]);
     const result = await runDigest({
+      digestState: memoryDigestState(),
       base,
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
@@ -800,6 +950,7 @@ describe("runDigest", () => {
     const base = makeFakeBase({ Reports: [readyReport()], Websites: [siteRow()] });
     const { client, captured } = captureClient();
     const result = await runDigest({
+      digestState: memoryDigestState(),
       base,
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",
@@ -816,6 +967,7 @@ describe("runDigest", () => {
     const base = makeFakeBase({ Reports: [], Websites: [cleanSiteRow()] });
     const { client, captured } = captureClient();
     const result = await runDigest({
+      digestState: memoryDigestState(),
       base,
       resend: client,
       baseUrl: "https://reddoor-maintenance.netlify.app",

@@ -217,6 +217,50 @@ export async function runDbCommand(
     return { output: formatBackfillResult(result), code: result.failed.length > 0 ? 1 : 0 };
   }
 
+  // #609: one-shot copy of the single Airtable "Digest State" row into Turso,
+  // so the first digest run after the read repoint sees yesterday's snapshot
+  // instead of an empty one. An empty read is not a crash — it badges EVERY
+  // item NEW, which lands in the operator's inbox reading as "the whole fleet
+  // degraded overnight". REFUSES to overwrite a snapshot Turso already holds:
+  // a re-run must never replace a fresher snapshot with a stale Airtable copy.
+  if (action === "backfill-digest-state") {
+    const { readDbConfig, openDb } = await import("../../db/client.js");
+    const db = await openDb(opts.url ? { url: opts.url } : readDbConfig());
+    const { readDigestState: readTurso, writeDigestState: writeTurso } =
+      await import("../../db/digest-state.js");
+    const existing = await readTurso(db);
+    if (Object.keys(existing).length > 0) {
+      return {
+        output: `DIGEST_BACKFILL skipped=1 reason=turso-already-populated keys=${Object.keys(existing).length}`,
+        code: 0,
+      };
+    }
+    const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
+    const base = openBase(readAirtableConfig());
+    const { readDigestState: readAirtable, DIGEST_STATE_TABLE } =
+      await import("../../alerts/digest-state.js");
+    // `source` separates "Airtable has no row" from "Airtable has a row holding
+    // an empty snapshot" — the reader collapses BOTH to {}, so copied=0 alone
+    // cannot tell a quiet fleet from a failed read. Learned by running this: the
+    // first real run printed copied=0 and only a hand probe showed the row was
+    // there and genuinely empty.
+    const rows = await base(DIGEST_STATE_TABLE).select({ maxRecords: 1, pageSize: 1 }).all();
+    const snap = await readAirtable(base);
+    const keys = Object.keys(snap).length;
+    await writeTurso(db, snap);
+    // Read it BACK. A returning write is not evidence the row landed — the same
+    // rule forms-notify-target learned on 2026-08-03. `stored` counts the ROW,
+    // not its keys, so an empty-but-present snapshot verifies as written.
+    const stored = (await db.selectFrom("digest_state").selectAll().execute()).length;
+    const after = Object.keys(await readTurso(db)).length;
+    return {
+      output:
+        `DIGEST_BACKFILL source=${rows.length > 0 ? "row" : "absent"} ` +
+        `copied=${keys} verified=${after} rows=${stored}`,
+      code: after === keys && stored === 1 ? 0 : 1,
+    };
+  }
+
   // Phase 1.5 of #539: platform-auth-free SQL dump to stdout-adjacent output.
   // The nightly backup workflow redirects this to a file, encrypts, uploads;
   // the rehearsed restore loads it into stock sqlite3 and compares row counts.
@@ -275,7 +319,7 @@ export async function runDbCommand(
   }
 
   return {
-    output: `unknown db action '${action}'. Use: migrate, replay-deadletters, import-airtable, parity, sync, backfill-header-images, dump, verify-dump.`,
+    output: `unknown db action '${action}'. Use: migrate, replay-deadletters, import-airtable, parity, sync, backfill-header-images, backfill-digest-state, dump, verify-dump.`,
     code: 1,
   };
 }

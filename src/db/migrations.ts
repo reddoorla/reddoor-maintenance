@@ -332,4 +332,23 @@ export const MIGRATIONS: Migration[] = [
         ON prospect_audits (created_at DESC);
     `,
   },
+  {
+    // #609 (#539 Phase 5): the digest's prior-run snapshot moves off Airtable.
+    // Unlike the rest of Phase 5 this is a MIGRATION, not a dual-write — there
+    // is no Airtable counterpart left afterwards, so parity does not cover it.
+    //
+    // A single row holding the whole snapshot as JSON, keyed by a constant id.
+    // Both readers (runDigest's diff and the fleet homepage's NEW badges) need
+    // the ENTIRE map, so a keyed table would buy nothing on reads and its
+    // "give me everything" query would be a raw scan needing a justified entry
+    // in the EXPLAIN gate's allowlist. One row by primary key needs neither.
+    id: "0011_digest_state",
+    sql: `
+      CREATE TABLE IF NOT EXISTS digest_state (
+        id TEXT PRIMARY KEY,
+        snapshot TEXT NOT NULL,
+        updated_at TEXT
+      );
+    `,
+  },
 ];

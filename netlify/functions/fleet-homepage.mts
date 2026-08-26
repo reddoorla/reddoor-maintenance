@@ -1,5 +1,4 @@
 import type { Context, Config } from "@netlify/functions";
-import { openBase } from "../../src/reports/airtable/client.js";
 import { listSites, listAllReports } from "../../src/db/fleet-state.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import {
@@ -10,7 +9,7 @@ import {
 import { NOTIFY_BOUNCE_WINDOW_DAYS } from "../../src/alerts/digest-collectors.js";
 import { listFleetEvents } from "../../src/db/fleet-events.js";
 import { listScreenOutsSince, screenOutsSince } from "../../src/db/screenouts.js";
-import { readDigestState } from "../../src/alerts/digest-state.js";
+import { readDigestState } from "../../src/db/digest-state.js";
 import { requireOperator, denialResponse, renderCockpitHtml } from "../../src/dashboard/index.js";
 import { buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
 import { resolveDashboardBaseUrl, handlerError } from "../../src/dashboard/handler-helpers.js";
@@ -51,24 +50,21 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   const auth = requireOperator(req, { wants: "redirect" });
   if (!auth.ok) return denialResponse(auth.denial);
 
-  const apiKey = process.env.AIRTABLE_PAT;
-  const baseId = process.env.AIRTABLE_BASE_ID;
-  if (!apiKey || !baseId) {
-    console.error("[fleet-homepage] AIRTABLE_PAT or AIRTABLE_BASE_ID missing");
-    return plainText("Airtable env missing", 500);
-  }
-
+  // #609: this page no longer touches Airtable at all. The last call was the
+  // digest NEW-badge read, which was an AIRTABLE CALL ON A REQUEST PATH — a
+  // Phase 2 leftover, since digest state was never in that phase's scope. With
+  // it on Turso the AIRTABLE_PAT/AIRTABLE_BASE_ID gate that used to guard this
+  // handler is gone too: the page cannot be degraded by an Airtable outage.
   if (!process.env.TURSO_DATABASE_URL) {
     console.error("[fleet-homepage] TURSO_DATABASE_URL missing");
     return plainText("Turso env missing", 500);
   }
 
   try {
-    const base = openBase({ apiKey, baseId });
     // Phase 2 (#539): Turso IS the cockpit's core data now (sites + reports +
     // submissions), so open it non-defensively — a failure 502s rather than
-    // rendering a misleading "0 sites" page. Airtable remains only for the
-    // digest NEW-badges (readDigestState below, defensive).
+    // rendering a misleading "0 sites" page. As of #609 it is the ONLY store
+    // this handler reads.
     const db = await openDb(readDbConfig());
     // Fetch the three inputs once. reports + digest are each defensive so one
     // hiccup can't blank the page; sites is the cockpit's core data, so a
@@ -83,7 +79,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
     }
     let prior: Awaited<ReturnType<typeof readDigestState>> = {};
     try {
-      prior = await readDigestState(base);
+      prior = await readDigestState(db);
     } catch {
       // everything badges as not-NEW (the {} initial); never crashes the page
     }
