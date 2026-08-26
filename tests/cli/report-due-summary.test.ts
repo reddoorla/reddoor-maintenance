@@ -3,6 +3,29 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // runDueDraft wires together Airtable reads + per-site drafting. Mock the whole
 // data layer so we can drive the *summary* behavior: a fleet-wide GA/Search
 // outage must be visible in the batch summary, not buried in per-site warnings.
+// #612: the composition roots build real mirror factories, which under the
+// freeze constant REFUSE to build without libSQL creds. Mocked here so this
+// suite asserts what it claims to (the summary behaviour) rather than tracking
+// which side of the freeze the constant currently points at — the flip must be
+// a one-line change, not a change plus eleven test files.
+vi.mock("../../src/audits/health-mirror.js", () => ({
+  makeHealthMirrorBestEffort: async () => null,
+  makeScheduleMirrorBestEffort: async () => null,
+}));
+vi.mock("../../src/db/site-mirror.js", () => ({
+  makeSiteMirror: async () => ({
+    created: async () => {},
+    health: async () => {},
+    site: async () => {},
+  }),
+}));
+vi.mock("../../src/reports/report-mirror.js", () => ({
+  makeReportMirror: async () => ({
+    created: async () => {},
+    body: async () => {},
+    patch: async () => {},
+  }),
+}));
 vi.mock("../../src/reports/airtable/client.js", () => ({
   readAirtableConfig: () => ({ pat: "pat", baseId: "base" }),
   openBase: () => ({}),

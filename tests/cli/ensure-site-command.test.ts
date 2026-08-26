@@ -1,6 +1,17 @@
 import { describe, it, expect, vi } from "vitest";
 
 vi.mock("../../src/reports/airtable/ensure-site.js", () => ({ ensureSite: vi.fn() }));
+// #612: runEnsureSiteCommand builds a real makeSiteMirror, which under the
+// freeze constant refuses to build without libSQL creds. Mocked so the flip
+// stays a one-line change. The wiring assertion below still proves the mirror
+// is PASSED — that is what this suite is pinning.
+vi.mock("../../src/db/site-mirror.js", () => ({
+  makeSiteMirror: async () => ({
+    created: async () => {},
+    health: async () => {},
+    site: async () => {},
+  }),
+}));
 vi.mock("../../src/reports/airtable/client.js", () => ({
   openBase: vi.fn(() => "FAKE_BASE"),
   readAirtableConfig: vi.fn(() => ({ apiKey: "k", baseId: "b" })),

@@ -7,6 +7,25 @@ vi.mock("../../src/reports/airtable/websites.js", async (orig) => ({
   ...(await orig<typeof import("../../src/reports/airtable/websites.js")>()),
   listWebsites: vi.fn(),
 }));
+// #612: the composition roots build real mirror factories, which under the
+// freeze constant REFUSE to build without libSQL creds. Mocked here so this
+// suite asserts what it claims to (the summary behaviour) rather than tracking
+// which side of the freeze the constant currently points at — the flip must be
+// a one-line change, not a change plus eleven test files.
+vi.mock("../../src/db/site-mirror.js", () => ({
+  makeSiteMirror: async () => ({
+    created: async () => {},
+    health: async () => {},
+    site: async () => {},
+  }),
+}));
+vi.mock("../../src/reports/report-mirror.js", () => ({
+  makeReportMirror: async () => ({
+    created: async () => {},
+    body: async () => {},
+    patch: async () => {},
+  }),
+}));
 vi.mock("../../src/reports/draft.js", () => ({ draftReportForSite: vi.fn() }));
 import { listWebsites } from "../../src/reports/airtable/websites.js";
 import { draftReportForSite } from "../../src/reports/draft.js";
