@@ -25,6 +25,16 @@ const fake = vi.hoisted(() => ({
   substituteWrite: null as string | null,
 }));
 
+// #612: the CLI composition root builds a real makeSiteMirror, which under the
+// freeze constant refuses to build without libSQL creds. Mocked so the flip
+// stays a one-line change rather than a change plus a sweep of test files.
+vi.mock("../../src/db/site-mirror.js", () => ({
+  makeSiteMirror: async () => ({
+    created: async () => {},
+    health: async () => {},
+    site: async () => {},
+  }),
+}));
 vi.mock("../../src/reports/airtable/client.js", async (orig) => {
   const actual = await orig<typeof import("../../src/reports/airtable/client.js")>();
   return { ...actual, readAirtableConfig: () => ({}), openBase: () => ({}) };

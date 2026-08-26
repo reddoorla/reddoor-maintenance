@@ -1,5 +1,6 @@
 import { openDb, readDbConfig, type Db } from "../db/client.js";
 import { mirrorHealthFields, mirrorScheduleFields } from "../db/fleet-state.js";
+import { TURSO_IS_AUTHORITATIVE } from "../db/freeze.js";
 
 /** One site's just-written Airtable FieldSet, mirrored into site_health.
  *  Resolves true when a site_health row matched; false when the UPDATE touched
@@ -26,11 +27,17 @@ export type ScheduleMirror = (
  *  missed). `open` is injectable for tests. */
 export async function makeHealthMirrorBestEffort(
   open: () => Promise<Db> = () => openDb(readDbConfig()),
+  /** #612. `true` = Turso is the only store, so "mirroring disabled" is no
+   *  longer a survivable state: returning null would discard every write in the
+   *  sweep with nothing to converge it. Throws instead. Injected by tests so
+   *  both sides stay proven. */
+  strict: boolean = TURSO_IS_AUTHORITATIVE,
 ): Promise<HealthMirror | null> {
   let db: Db;
   try {
     db = await open();
   } catch (e) {
+    if (strict) throw new Error(`health-mirror unavailable: ${String(e)}`, { cause: e });
     console.error(`[health-mirror] mirroring disabled: no libSQL (${String(e)})`);
     return null;
   }
@@ -41,11 +48,14 @@ export async function makeHealthMirrorBestEffort(
  *  contract, for `writeNextDueDates`' site_schedule write-through. */
 export async function makeScheduleMirrorBestEffort(
   open: () => Promise<Db> = () => openDb(readDbConfig()),
+  /** #612 — same contract as {@link makeHealthMirrorBestEffort}'s. */
+  strict: boolean = TURSO_IS_AUTHORITATIVE,
 ): Promise<ScheduleMirror | null> {
   let db: Db;
   try {
     db = await open();
   } catch (e) {
+    if (strict) throw new Error(`schedule-mirror unavailable: ${String(e)}`, { cause: e });
     console.error(`[schedule-mirror] mirroring disabled: no libSQL (${String(e)})`);
     return null;
   }

@@ -61,6 +61,7 @@ const EXEMPT_MODULES: Record<string, string> = {
   "site-mirror.ts":
     "best-effort write-through wrapper — issues no SQL of its own, delegates to " +
     "fleet-state's mirrorHealthFields/mirrorSiteFields, which are gated below",
+  "freeze.ts": "a single exported constant — no queries, no runtime behaviour of its own",
 };
 
 /** Exported functions that never issue SQL (id minting, date math). */

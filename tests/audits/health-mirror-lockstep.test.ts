@@ -95,9 +95,12 @@ describe("every audit-writer column is importer-claimed (dual-write lockstep)", 
 
 describe("makeHealthMirrorBestEffort", () => {
   it("returns null (and does not throw) when libSQL cannot open", async () => {
+    // `false` pinned explicitly, not inherited from the shipped constant:
+    // these assert the PRE-freeze contract, so the freeze commit must not turn
+    // them red for a reason unrelated to what they claim (#612).
     const mirror = await makeHealthMirrorBestEffort(async () => {
       throw new Error("no creds");
-    });
+    }, false);
     expect(mirror).toBeNull();
   });
 
@@ -125,7 +128,7 @@ describe("makeHealthMirrorBestEffort", () => {
     expect(
       await makeScheduleMirrorBestEffort(async () => {
         throw new Error("no creds");
-      }),
+      }, false),
     ).toBeNull();
     const db = await openDb({ url: ":memory:" });
     const io: ImportIo = {
