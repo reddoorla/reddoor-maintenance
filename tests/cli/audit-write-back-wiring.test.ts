@@ -41,6 +41,7 @@ describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
         recordEvents: async (ev) => {
           events.push(...ev);
         },
+        strict: false,
       },
     });
     // Channel 1: the mirror saw exactly what the sweep wrote to Airtable.
@@ -67,11 +68,68 @@ describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
         openBase: () => base,
         makeMirror: async () => null,
         recordEvents: async () => {},
+        strict: false,
       },
     });
     expect(res.anyFailed).toBe(false);
     expect(res.summary).toContain("FLEET_WRITE_SUMMARY wrote=1 failed=0 total=1");
     expect(res.summary).not.toContain("mirrored=");
+  });
+
+  it("post-freeze: a null mirror flips anyFailed — the sweep wrote to nothing (#612)", async () => {
+    // Pre-freeze this exact case is GREEN (the test above), because the hourly
+    // import converges what the missing mirror skipped. Post-freeze there is no
+    // import, so a sweep with no mirror wired wrote the fleet's health into the
+    // one store that no longer exists to be reconciled — and it would have
+    // finished green on a line reading `wrote=1 failed=0`.
+    const base = makeFakeBase({ Websites: websites });
+    const res = await runFleetWriteBack({
+      results: [lhResult("acme-co")],
+      which: ["lighthouse"],
+      deps: {
+        openBase: () => base,
+        makeMirror: async () => null,
+        recordEvents: async () => {},
+        strict: true,
+      },
+    });
+    expect(res.anyFailed).toBe(true);
+    // The Airtable write still happened and still reports honestly — this gates
+    // the RUN, it does not abort the loop.
+    expect(res.summary).toContain("FLEET_WRITE_SUMMARY wrote=1 failed=0 total=1");
+  });
+
+  it("post-freeze: a wired mirror that landed everything still passes (positive control)", async () => {
+    const base = makeFakeBase({ Websites: websites });
+    const res = await runFleetWriteBack({
+      results: [lhResult("acme-co")],
+      which: ["lighthouse"],
+      deps: {
+        openBase: () => base,
+        makeMirror: async () => async () => true,
+        recordEvents: async () => {},
+        strict: true,
+      },
+    });
+    expect(res.anyFailed).toBe(false);
+  });
+
+  it("post-freeze: a per-site mirror FAILURE flips anyFailed without aborting the sweep", async () => {
+    const base = makeFakeBase({ Websites: websites });
+    const res = await runFleetWriteBack({
+      results: [lhResult("acme-co")],
+      which: ["lighthouse"],
+      deps: {
+        openBase: () => base,
+        makeMirror: async () => async () => {
+          throw new Error("turso down");
+        },
+        recordEvents: async () => {},
+        strict: true,
+      },
+    });
+    expect(res.anyFailed).toBe(true);
+    expect(res.summary).toContain("mirror_failed=1");
   });
 
   it("a per-site write failure flips anyFailed without aborting the step", async () => {
@@ -83,6 +141,7 @@ describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
         openBase: () => base,
         makeMirror: async () => null,
         recordEvents: async () => {},
+        strict: false,
       },
     });
     expect(res.anyFailed).toBe(true);

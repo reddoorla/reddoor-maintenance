@@ -2,6 +2,7 @@ import type { FieldSet } from "airtable";
 import type { AuditResult } from "../types.js";
 import type { AirtableBase } from "../reports/airtable/client.js";
 import type { HealthMirror } from "./health-mirror.js";
+import { TURSO_IS_AUTHORITATIVE } from "../db/freeze.js";
 import { type WebsiteRow, siteSlug, updateAuditFields } from "../reports/airtable/websites.js";
 import type {
   A11yCounts,
@@ -261,6 +262,31 @@ export type FleetWriteResult = {
  *  greps to decide pass/fail. Keying CI on this line (not the prose, and not a
  *  "wrote ≥ 1" heuristic) lets the gate tolerate a single known flake while
  *  still reding on a total or mass write-back failure. */
+/** Did this sweep fail, for exit-code purposes (#612)?
+ *
+ *  Pre-freeze, only an Airtable write failure counts. Mirror failures and missed
+ *  rows are real but survivable: the hourly import converges them, and going red
+ *  over a transient the system already handles would train the alarm to be
+ *  ignored.
+ *
+ *  Post-freeze there is no import to converge anything, so all three become
+ *  fatal — including an ABSENT mirror, which is the worst of the three and the
+ *  easiest to misread as success: no counters at all means no libSQL creds,
+ *  which means the sweep wrote nothing to the only store there is.
+ *
+ *  Note what this deliberately does NOT change: `writeFleetAuditsToAirtable`
+ *  still catches per-site mirror failures rather than throwing. One bad site
+ *  must not abort a 44-site sweep. This gates the RUN, not the loop. */
+export function fleetWriteFailed(
+  result: FleetWriteResult,
+  strict: boolean = TURSO_IS_AUTHORITATIVE,
+): boolean {
+  if (result.failed.length > 0) return true;
+  if (!strict) return false;
+  if (result.mirrored === undefined) return true; // no mirror was wired at all
+  return (result.mirrorFailed ?? 0) > 0 || (result.mirrorMissed ?? 0) > 0;
+}
+
 export function formatFleetWriteSummary(result: FleetWriteResult): string {
   const wrote = result.written.length;
   const failed = result.failed.length;

@@ -3,6 +3,7 @@ import {
   setSiteDetail,
   EDITABLE_SITE_FIELDS,
   WATCH_CONDITION_OPTIONS,
+  CLEAR_SECRET,
   type SiteDetailDeps,
 } from "../../src/dashboard/site-details.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
@@ -313,5 +314,65 @@ describe("setSiteDetail — the write-only secret", () => {
     const { deps } = harness();
     const r = await setSiteDetail(deps, "acme", "mailchimpApiKey", "super-secret");
     expect(JSON.stringify(r)).not.toContain("super-secret");
+  });
+});
+
+/**
+ * #612: the console could REPLACE a secret but never CLEAR one — empty means
+ * "leave unchanged", deliberately, so an unrelated save cannot destroy a key
+ * that is blank on every page load. Airtable was the escape hatch, and the
+ * freeze removes it.
+ *
+ * A typed sentinel rather than a new control: the secret input is the one field
+ * whose save listener already fires on any keystroke, so this needs no change to
+ * the inline dashboard script — the part of the page no test executes, and the
+ * part that shipped broken in #591.
+ */
+describe("clearing a secret", () => {
+  const site = makeWebsiteRow({ id: "recA", name: "Acme Co", mailchimpApiKey: "mc-live-key" });
+
+  const deps = () => {
+    const writes: Array<{ column: string; value: unknown }> = [];
+    return {
+      writes,
+      dep: {
+        getSite: async () => site,
+        updateField: async (_id: string, column: string, value: unknown) => {
+          writes.push({ column, value });
+        },
+      },
+    };
+  };
+
+  it("the sentinel erases the cell and reports `cleared`", async () => {
+    const { writes, dep } = deps();
+    const res = await setSiteDetail(dep, "acme-co", "mailchimpApiKey", CLEAR_SECRET);
+    expect(res.status).toBe("cleared");
+    // Written as empty, which the importer's own coercion stores as NULL — so
+    // the mirror and the import agree, and parity stays raw-to-raw.
+    expect(writes).toEqual([{ column: "Mailchimp API Key", value: "" }]);
+  });
+
+  it("an empty submission is STILL `unchanged` — clearing stays explicit", async () => {
+    const { writes, dep } = deps();
+    const res = await setSiteDetail(dep, "acme-co", "mailchimpApiKey", "");
+    expect(res.status).toBe("unchanged");
+    expect(writes).toEqual([]);
+  });
+
+  it("a real key that merely looks unusual is stored, not treated as a clear", async () => {
+    const { writes, dep } = deps();
+    const res = await setSiteDetail(dep, "acme-co", "mailchimpApiKey", "__clear__extra");
+    expect(res.status).toBe("updated");
+    expect(writes).toEqual([{ column: "Mailchimp API Key", value: "__clear__extra" }]);
+  });
+
+  it("the sentinel is NOT special on a non-secret field", async () => {
+    // Only `secret` renders blank on every load, so only `secret` needs the
+    // gesture. Anywhere else the operator can just select the text and delete it.
+    const { writes, dep } = deps();
+    const res = await setSiteDetail(dep, "acme-co", "searchQuery", CLEAR_SECRET);
+    expect(res.status).toBe("updated");
+    expect(writes).toEqual([{ column: "Search query", value: CLEAR_SECRET }]);
   });
 });

@@ -416,10 +416,14 @@ export async function runFleetWriteBack(args: {
     openBase?: () => AirtableBase;
     makeMirror?: () => Promise<HealthMirror | null>;
     recordEvents?: (events: FleetEvent[], now: Date) => Promise<void>;
+    /** #612. `true` = post-freeze, where a mirror failure, a missed row or an
+     *  absent mirror are each fatal. Injected so both sides stay proven and the
+     *  freeze commit stays a one-line change. */
+    strict?: boolean;
   };
 }): Promise<{ summary: string; anyFailed: boolean }> {
   const { results, which, deps = {} } = args;
-  const { writeFleetAuditsToAirtable, formatFleetWriteSummary } =
+  const { writeFleetAuditsToAirtable, formatFleetWriteSummary, fleetWriteFailed } =
     await import("../../audits/write-audits-to-airtable.js");
   let base: AirtableBase;
   if (deps.openBase) {
@@ -455,5 +459,14 @@ export async function runFleetWriteBack(args: {
     [...auditEvents, fleetSweptEvent(sweep, fleetWrite.written.length, now.toISOString())],
     now,
   );
-  return { summary: formatFleetWriteSummary(fleetWrite), anyFailed: fleetWrite.failed.length > 0 };
+  // #612: post-freeze a mirror failure, a missed row, or an absent mirror all
+  // become fatal — there is no hourly import left to converge them, so a sweep
+  // that wrote nothing into the only store would otherwise finish green.
+  return {
+    summary: formatFleetWriteSummary(fleetWrite),
+    anyFailed:
+      deps.strict === undefined
+        ? fleetWriteFailed(fleetWrite)
+        : fleetWriteFailed(fleetWrite, deps.strict),
+  };
 }
