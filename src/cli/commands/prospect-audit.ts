@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { hostnameOf, isHttpUrl } from "../../util/url.js";
-import { reportUrl } from "../../prospect/report-url.js";
+import { reportUrl, reportPrintUrl } from "../../prospect/report-url.js";
 import type { ProspectAuditStatus } from "../../db/prospect-audits.js";
 import type { PipelineDeps, StageName } from "../../prospect/pipeline.js";
 import type { ProspectAuditResult } from "../../prospect/types.js";
@@ -235,13 +235,32 @@ export async function runProspectAuditCommand(
   // prospect/render.js are above: it reaches `resend` (a devDependency) and
   // must stay out of bin.js's static import graph (see bin.ts's
   // central-dep-blocker comment).
+  // The PDF leave-behind, printed from the website's print route — a document
+  // designed for paper, not the interactive report with its evidence folded
+  // away behind disclosures.
+  //
+  // Best-effort by design. Every other stage in this pipeline degrades rather
+  // than throwing, and an attachment is not worth losing a delivered report
+  // over: if this fails the email still goes, with the link, and a warning says
+  // the PDF is missing. It also needs a token — with no persisted report there
+  // is no page to print.
+  let pdf: Buffer | null = null;
+  if (opts.email && token) {
+    try {
+      const { renderReportPdf } = await import("../../prospect/pdf.js");
+      pdf = await renderReportPdf(reportPrintUrl(token));
+    } catch (err) {
+      warnings.push(`Could not attach the PDF: ${errorMessage(err)}`);
+    }
+  }
+
   let email: SendAuditEmailResult | null = null;
   if (opts.email) {
     try {
       const { sendAuditEmail, parseProspectAuditRecipients } =
         await import("../../prospect/email.js");
       const recipients = parseProspectAuditRecipients(process.env.PROSPECT_AUDIT_RECIPIENTS);
-      email = await sendAuditEmail(result, { link, recipients, auditId });
+      email = await sendAuditEmail(result, { link, recipients, auditId, pdf });
       if (!email.sent) {
         warnings.push(`Could not email the audit sheet: ${email.reason}`);
       }
