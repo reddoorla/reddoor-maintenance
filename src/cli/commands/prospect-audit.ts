@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { hostnameOf, isHttpUrl } from "../../util/url.js";
-import { resolveDashboardBaseUrl } from "../../dashboard/handler-helpers.js";
+import { reportUrl } from "../../prospect/report-url.js";
 import type { ProspectAuditStatus } from "../../db/prospect-audits.js";
 import type { PipelineDeps, StageName } from "../../prospect/pipeline.js";
 import type { ProspectAuditResult } from "../../prospect/types.js";
@@ -218,7 +218,7 @@ export async function runProspectAuditCommand(
       });
       auditId = created.id;
       token = created.token;
-      link = `${resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL)}/r/${token}`;
+      link = reportUrl(token);
     } catch (err) {
       warnings.push(`Could not save to the database: ${errorMessage(err)}`);
     }

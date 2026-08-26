@@ -112,7 +112,7 @@ describe("prospect-audit CLI — --email", () => {
       warnings: string[];
       email: SendAuditEmailResult | null;
     };
-    expect(payload.link).toMatch(/\/r\/[A-Za-z0-9_-]{22}$/);
+    expect(payload.link).toMatch(/\/audit\/[A-Za-z0-9_-]{22}$/);
     expect(payload.email).toEqual({
       sent: false,
       reason: "no recipients configured (PROSPECT_AUDIT_RECIPIENTS is unset or empty)",
@@ -137,7 +137,7 @@ describe("prospect-audit CLI — --email", () => {
       email: SendAuditEmailResult | null;
     };
     // The audit is still persisted (a real link) despite the email failure.
-    expect(payload.link).toMatch(/\/r\/[A-Za-z0-9_-]{22}$/);
+    expect(payload.link).toMatch(/\/audit\/[A-Za-z0-9_-]{22}$/);
     expect(payload.email).toBeNull();
     expect(
       payload.warnings.some((w) => /email/i.test(w) && /simulated resend outage/.test(w)),
@@ -190,7 +190,7 @@ describe("prospect-audit CLI — --email", () => {
       link: string | null;
       email: SendAuditEmailResult | null;
     };
-    expect(payload.link).toMatch(/\/r\/[A-Za-z0-9_-]{22}$/);
+    expect(payload.link).toMatch(/\/audit\/[A-Za-z0-9_-]{22}$/);
     expect(payload.email).toEqual(emailOverride);
   });
 });

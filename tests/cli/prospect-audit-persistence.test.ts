@@ -118,14 +118,14 @@ afterEach(() => {
 });
 
 describe("prospect-audit CLI — Turso persistence", () => {
-  it("a successful run with Turso configured returns a real /r/:token link", async () => {
+  it("a successful run with Turso configured returns a real reddoorla.com/audit/{token} link", async () => {
     process.env.TURSO_DATABASE_URL = ":memory:";
     const { output, code } = await runProspectAuditCommand("https://acme.example/", {
       probes: false,
       deps: stubDeps(),
     });
     expect(code).toBe(0);
-    expect(output).toMatch(/\/r\/[A-Za-z0-9_-]{22}$/);
+    expect(output).toMatch(/\/audit\/[A-Za-z0-9_-]{22}$/);
   });
 
   it("--json still persists to Turso and includes the link in the JSON payload", async () => {
@@ -137,7 +137,7 @@ describe("prospect-audit CLI — Turso persistence", () => {
     });
     expect(code).toBe(0);
     const payload = JSON.parse(output) as { link: string | null; token: string | null };
-    expect(payload.link).toMatch(/\/r\/[A-Za-z0-9_-]{22}$/);
+    expect(payload.link).toMatch(/\/audit\/[A-Za-z0-9_-]{22}$/);
     expect(payload.token).toMatch(/^[A-Za-z0-9_-]{22}$/);
   });
 
@@ -183,7 +183,7 @@ describe("prospect-audit CLI — Turso persistence", () => {
     // The persist succeeded — a working link — despite the bad --out path.
     // (Not anchored with `$`: the --out warning prints after the link line.)
     expect(code).toBe(0);
-    expect(output).toMatch(/\/r\/[A-Za-z0-9_-]{22}/);
+    expect(output).toMatch(/\/audit\/[A-Za-z0-9_-]{22}/);
     expect(output).toMatch(/could not write --out/i);
     // Nothing failed to land anywhere overall, so no recovery copy either.
     expect(output).not.toMatch(/recovery copy/i);
