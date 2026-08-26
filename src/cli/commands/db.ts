@@ -19,6 +19,11 @@ export type DbCommandDeps = {
   platformToken?: string;
   fetchImpl?: (url: string, init?: RequestInit) => Promise<Response>;
   now?: Date;
+  /** restore: auth token for the TARGET database; defaults to
+   *  TURSO_RESTORE_AUTH_TOKEN. Deliberately does NOT fall back to the ambient
+   *  TURSO_AUTH_TOKEN — that one belongs to production, and inheriting it would
+   *  undo the whole point of making --url explicit. */
+  restoreAuthToken?: string;
 };
 
 /** `db <action>` — migrate | replay-deadletters | import-airtable | parity | sync | dump | verify-dump. The db layer is imported
@@ -315,13 +320,23 @@ export async function runDbCommand(
         code: 1,
       };
     }
+    // Classify the target BEFORE reading the dump, so a missing token names
+    // itself instead of arriving as an opaque 401 (or, worse, as an ENOENT that
+    // sends you hunting for the dump file). This command built its client from
+    // a url alone until 2026-08-26, which worked against every target the tests
+    // and rehearsals used — `:memory:` and a local `turso dev` — and failed
+    // against every target an actual recovery has.
+    const { parseDumpManifest, requiresAuthToken } = await import("../../db/dump.js");
+    const authToken = deps.restoreAuthToken ?? process.env.TURSO_RESTORE_AUTH_TOKEN ?? "";
+    if (requiresAuthToken(opts.url) && !authToken) {
+      return { output: "RESTORE refused=auth-token-absent", code: 1 };
+    }
     const { readFile } = await import("node:fs/promises");
     const sql = await readFile(file, "utf-8");
-    const { parseDumpManifest } = await import("../../db/dump.js");
     const manifest = parseDumpManifest(sql);
     if (!manifest) return { output: "RESTORE refused=manifest-absent", code: 1 };
     const { createClient } = await import("@libsql/client");
-    const target = createClient({ url: opts.url });
+    const target = createClient(authToken ? { url: opts.url, authToken } : { url: opts.url });
     const existing = await target.execute(
       "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
     );
