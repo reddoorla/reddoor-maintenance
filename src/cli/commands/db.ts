@@ -270,20 +270,89 @@ export async function runDbCommand(
     const { createClient } = await import("@libsql/client");
     const client = createClient(cfg.url === ":memory:" ? { url: ":memory:" } : cfg);
     const { dumpDatabase } = await import("../../db/dump.js");
-    const sql = await dumpDatabase({
-      execute: async (q) => {
-        const r = await client.execute(q);
-        return { columns: r.columns, rows: r.rows as Array<Record<string, unknown>> };
+    const sql = await dumpDatabase(
+      {
+        execute: async (q) => {
+          const r = await client.execute(q);
+          return { columns: r.columns, rows: r.rows as Array<Record<string, unknown>> };
+        },
       },
-    });
+      new Date().toISOString(),
+    );
     return { output: sql, code: 0 };
   }
 
+  // Load a dump back into a REAL libSQL target (#612 review). The nightly
+  // rehearsal loads into `:memory:`, which proves the SQL parses — it does not
+  // prove you can get the data back into Turso, and that is the operation an
+  // actual recovery needs. Replaying ~17 MB of SQL with megabytes of inline hex
+  // over HTTP is materially different from an in-process load, and it had never
+  // been done. Refuses to touch a database that already holds rows: a restore
+  // is for an EMPTY target, and pointing this at production by mistake should
+  // cost nothing.
+  if (action === "restore") {
+    const file = opts.file;
+    if (!file) return { output: "restore: pass the dump path via --file", code: 1 };
+    if (!opts.url) {
+      return {
+        output:
+          "restore: pass the TARGET database via --url (never defaults, to keep production out of reach)",
+        code: 1,
+      };
+    }
+    const { readFile } = await import("node:fs/promises");
+    const sql = await readFile(file, "utf-8");
+    const { parseDumpManifest } = await import("../../db/dump.js");
+    const manifest = parseDumpManifest(sql);
+    if (!manifest) return { output: "RESTORE refused=manifest-absent", code: 1 };
+    const { createClient } = await import("@libsql/client");
+    const target = createClient({ url: opts.url });
+    const existing = await target.execute(
+      "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+    );
+    if (Number(existing.rows[0]?.n ?? 0) > 0) {
+      return { output: "RESTORE refused=target-not-empty", code: 1 };
+    }
+    await target.executeMultiple(sql);
+    const { tableCounts, headerImageBytes } = await import("../../db/dump.js");
+    const exec = {
+      execute: async (q: string) => {
+        const r = await target.execute(q);
+        return { columns: r.columns, rows: r.rows as Array<Record<string, unknown>> };
+      },
+    };
+    const counts = await tableCounts(exec);
+    const bytes = await headerImageBytes(exec);
+    // Same origin-anchored comparison as verify-dump: a restore that "succeeded"
+    // with fewer rows than the origin held is not a restore.
+    const bad: string[] = [];
+    for (const [t, want] of Object.entries(manifest.tables)) {
+      if ((counts[t] ?? 0) !== want) bad.push(`${t}: origin=${want} restored=${counts[t] ?? 0}`);
+    }
+    if (bytes !== manifest.blobBytes)
+      bad.push(`header_image bytes: origin=${manifest.blobBytes} restored=${bytes}`);
+    const rows = Object.values(counts).reduce((a, b) => a + b, 0);
+    return {
+      output: [
+        ...bad.map((b) => `✗ ${b}`),
+        `RESTORE loaded=true tables=${Object.keys(counts).length} rows=${rows} blob_bytes=${bytes} mismatches=${bad.length}`,
+      ].join("\n"),
+      code: bad.length > 0 ? 1 : 0,
+    };
+  }
+
   // The restore rehearsal (Phase 1.5's hard gate), runnable every night: load
-  // the dump into a FRESH in-memory engine and compare restored row counts
-  // against the INSERT counts in the dump text itself. A dump that cannot
-  // restore is not a backup — and per the repo's instrument rule the check
-  // emits its machine line on every run, clean included.
+  // the dump into a FRESH in-memory engine and compare what came back against
+  // the ORIGIN MANIFEST the dump carries.
+  //
+  // It used to compare against INSERT counts parsed out of the dump text — i.e.
+  // the dump against itself. Both sides derived from one artifact, so a dump
+  // that collected 5 of 44 sites shrank both numbers together and verified
+  // clean. The manifest is read from the live database before any row is
+  // serialised, which is the only measurement that can notice a short dump.
+  //
+  // A dump that cannot restore is not a backup — and per the repo's instrument
+  // rule the check emits its machine line on every run, clean included.
   if (action === "verify-dump") {
     const file = opts.file;
     if (!file) return { output: "verify-dump: pass the dump path via --file", code: 1 };
@@ -296,30 +365,60 @@ export async function runDbCommand(
     } catch (err) {
       return { output: `DUMP_VERIFY loaded=false error=${String(err)}`, code: 1 };
     }
-    const { tableCounts, countInsertsInDump } = await import("../../db/dump.js");
-    const restored = await tableCounts({
-      execute: async (q) => {
+    const { tableCounts, headerImageBytes, parseDumpManifest } = await import("../../db/dump.js");
+    const manifest = parseDumpManifest(sql);
+    if (!manifest) {
+      // Refuse rather than fall back to self-comparison. Falling back would
+      // re-enable exactly the blind spot the manifest exists to close, and it
+      // would do so silently on the one artifact nobody was watching.
+      return {
+        output: "DUMP_VERIFY loaded=true manifest=absent — dump predates the origin manifest",
+        code: 1,
+      };
+    }
+    const exec = {
+      execute: async (q: string) => {
         const r = await scratch.execute(q);
         return { columns: r.columns, rows: r.rows as Array<Record<string, unknown>> };
       },
-    });
-    const expected = countInsertsInDump(sql);
+    };
+    const restored = await tableCounts(exec);
+    const restoredBlobBytes = await headerImageBytes(exec);
     const mismatches: string[] = [];
-    for (const [table, want] of Object.entries(expected)) {
+    for (const [table, want] of Object.entries(manifest.tables)) {
       if ((restored[table] ?? 0) !== want) {
-        mismatches.push(`${table}: dump=${want} restored=${restored[table] ?? 0}`);
+        mismatches.push(`${table}: origin=${want} restored=${restored[table] ?? 0}`);
       }
+    }
+    // A table the origin held and the dump never mentioned would otherwise be
+    // invisible: absent from `restored` AND absent from the loop above.
+    for (const table of Object.keys(restored)) {
+      if (!(table in manifest.tables)) mismatches.push(`${table}: not in origin manifest`);
+    }
+    // Coverage: every table the APP owns must be present. `tables=N` used to be
+    // printed and never asserted, so a table a migration failed to create — or
+    // that the dump lost — rode green forever. `digest_state` and
+    // `prospect_audits` were both absent from every artifact the night this was
+    // found, purely because they postdated the last run.
+    const { DATABASE_TABLES } = await import("../../db/schema.js");
+    for (const table of DATABASE_TABLES) {
+      if (!(table in restored)) mismatches.push(`${table}: MISSING from the backup entirely`);
+    }
+    if (restoredBlobBytes !== manifest.blobBytes) {
+      mismatches.push(
+        `header_image bytes: origin=${manifest.blobBytes} restored=${restoredBlobBytes}`,
+      );
     }
     const total = Object.values(restored).reduce((a, b) => a + b, 0);
     const lines = [
       ...mismatches.map((m) => `✗ ${m}`),
-      `DUMP_VERIFY loaded=true tables=${Object.keys(restored).length} rows=${total} mismatches=${mismatches.length}`,
+      `DUMP_VERIFY loaded=true tables=${Object.keys(restored).length} rows=${total} blob_bytes=${restoredBlobBytes} mismatches=${mismatches.length}`,
     ];
     return { output: lines.join("\n"), code: mismatches.length > 0 ? 1 : 0 };
   }
 
   return {
-    output: `unknown db action '${action}'. Use: migrate, replay-deadletters, import-airtable, parity, sync, backfill-header-images, backfill-digest-state, dump, verify-dump.`,
+    output: `unknown db action '${action}'. Use: migrate, replay-deadletters, import-airtable, parity, sync, backfill-header-images, backfill-digest-state, dump, verify-dump, restore.`,
     code: 1,
   };
 }

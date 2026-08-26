@@ -63,8 +63,14 @@ jobs:
             exit 1
           fi
 
-          # Rehearse: load into a scratch engine, compare restored counts to the
-          # dump's own INSERT counts. Absent line = never ran; mismatches red.
+          # Rehearse: load into a scratch engine and compare what came back
+          # against the ORIGIN MANIFEST the dump carries — row counts per table,
+          # every table the app owns, and the total header-image BLOB bytes.
+          #
+          # This used to compare the dump against ITSELF (expected counts parsed
+          # out of the dump text, actual counts from loading that same text), so
+          # a dump that collected 5 of 44 sites shrank both numbers together and
+          # verified clean. Absent line = never ran; mismatches red.
           node dist/cli/bin.js db verify-dump --file "$out/dump.sql" | tee "$out/verify.out"
           grep -qE '^DUMP_VERIFY loaded=true .* mismatches=0$' "$out/verify.out" || {
             echo "::error::db backup: restore rehearsal FAILED — see DUMP_VERIFY above."
@@ -83,7 +89,23 @@ jobs:
           gpg --batch --symmetric --cipher-algo AES256 \
             --passphrase "$BACKUP_PASSPHRASE" \
             --output "$out/dump.sql.gpg" "$out/dump.sql"
-          rm "$out/dump.sql"
+
+          # Verify what we KEEP, not only what we made. Everything above this
+          # line checked `dump.sql`, which is then deleted — nothing had ever
+          # decrypted the .gpg that actually gets uploaded, so a corrupt or
+          # truncated encryption would have shipped green (`if-no-files-found`
+          # only catches a MISSING file). Decrypt it back and re-run the same
+          # gate on the round-tripped copy.
+          gpg --batch --quiet --decrypt \
+            --passphrase "$BACKUP_PASSPHRASE" \
+            --output "$out/dump.check.sql" "$out/dump.sql.gpg"
+          node dist/cli/bin.js db verify-dump --file "$out/dump.check.sql" | tee "$out/verify.enc.out"
+          grep -qE '^DUMP_VERIFY loaded=true .* mismatches=0$' "$out/verify.enc.out" || {
+            echo "::error::db backup: the ENCRYPTED artifact does not round-trip — refusing to upload it."
+            exit 1
+          }
+
+          rm "$out/dump.sql" "$out/dump.check.sql"
 
       - name: Upload encrypted dump
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v6
