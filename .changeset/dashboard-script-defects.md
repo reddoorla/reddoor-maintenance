@@ -57,3 +57,27 @@ else on these pages the rule is that no server string becomes HTML.
 And the prospect-audits page joins the inline-script parse gate. Its 50-line
 `RUN_SCRIPT` cites the exact build-time-`\n` incident the gate exists to catch,
 and it was the one dashboard page the gate never covered.
+
+Four smaller items in the same area:
+
+- The **parse gate had two blind spots**. It matched only `<script>` with no
+  attributes, so a future `<script type="module">` or a nonce would be skipped in
+  silence — a gate that stops looking still reports green. And it could not see
+  inline handler attributes (`onsubmit=`), which are JavaScript too and fail more
+  quietly, for one control rather than the page. Both are covered now, with
+  self-tests that fail a broken attributed tag and a broken handler, and a positive
+  control so the gate is not merely throwing on everything.
+- **`scriptLiteral`** joins `escapeHtml` in `src/util/html.ts`. A `<script>`
+  element's content is raw text — the HTML parser does not decode entities inside
+  it — so `escapeHtml` reaching a script body corrupts the JavaScript instead of
+  escaping it, while looking like the house style. There was no correct tool to
+  reach for; now there is, and its test compiles the emitted literal to prove
+  `</script>` and `<!--` round-trip as data.
+- **The multi-select comma invariant is asserted.** The value is comma-joined
+  client-side and split on `/[,\n]/` server-side, which round-trips only while no
+  option contains a comma. An option like "Deploy failed, retried" would have
+  silently arrived as two conditions.
+- **The override toggle no longer depends on `nextElementSibling`.** Adjacency is a
+  markup accident; anything inserted between the toggle and its form would kill
+  "Send anyway…" silently. It uses the `.override` wrapper the markup already
+  provides — the same `closest()` contract the submit handler six lines below uses.

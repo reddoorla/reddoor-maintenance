@@ -1005,7 +1005,12 @@ export function renderSiteDashboardHtml(
     // refused client-side AND server-side).
     document.querySelectorAll("button.override-toggle").forEach((b) => {
       b.addEventListener("click", () => {
-        const form = b.nextElementSibling;
+        // Scoped lookup, not nextElementSibling: adjacency is a markup accident,
+        // and anything inserted between the toggle and its form would kill "Send
+        // anyway…" silently. The submit handler six lines down already uses
+        // closest(); this is the same contract from the other end.
+        const wrap = b.closest(".override");
+        const form = wrap ? wrap.querySelector(".override-form") : null;
         if (form) form.hidden = !form.hidden;
       });
     });

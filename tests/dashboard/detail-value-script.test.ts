@@ -5,6 +5,7 @@ import {
   renderSiteDashboardHtml,
 } from "../../src/dashboard/render.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
+import { WATCH_CONDITION_OPTIONS } from "../../src/dashboard/site-details.js";
 
 /**
  * The dashboard's inline script is a template string, so nothing in this suite
@@ -52,6 +53,17 @@ describe("detailValue — the served serializer, executed", () => {
       selectedOptions: [{ value: "Performance" }, { value: "SEO" }],
     };
     expect(detailValue(el)).toBe("Performance,SEO");
+  });
+
+  it("no selectable option contains the separator it is joined on", () => {
+    // The wire format for a multi-select is comma-joined here and split on
+    // `/[,\n]/` server-side. That round-trips only while no option value contains
+    // a comma or a newline — true today, and asserted nowhere until now, so an
+    // innocuous new option like "Deploy failed, retried" would silently arrive as
+    // two conditions with no error anywhere.
+    for (const opt of WATCH_CONDITION_OPTIONS) {
+      expect(opt, `watch condition "${opt}" would split into two on the wire`).not.toMatch(/[,\n]/);
+    }
   });
 
   it("sends an empty string when a multi-select has nothing selected", () => {
