@@ -227,6 +227,29 @@ export interface DigestStateTable {
   updated_at: string | null;
 }
 
+/** Every table the app owns, as a RUNTIME value (#612 review).
+ *
+ *  The `Database` interface below is types-only, so nothing could assert that a
+ *  backup actually covered it — `tables=N` was printed by the verifier and never
+ *  checked, meaning a table a migration failed to create would ride green
+ *  forever. The compile-time check under this list makes forgetting an entry a
+ *  build error naming the missing table. */
+export const DATABASE_TABLES = [
+  "submissions",
+  "spam_screenouts",
+  "fleet_events",
+  "_migrations",
+  "submission_deadletter",
+  "sites",
+  "site_health",
+  "site_schedule",
+  "reports",
+  "prospect_audits",
+  "digest_state",
+] as const;
+
+export type DatabaseTable = (typeof DATABASE_TABLES)[number];
+
 export interface Database {
   submissions: SubmissionsTable;
   spam_screenouts: SpamScreenoutsTable;
@@ -240,3 +263,11 @@ export interface Database {
   prospect_audits: ProspectAuditsTable;
   digest_state: DigestStateTable;
 }
+
+/** Compile-time exhaustiveness: if a table is added to `Database` and not to
+ *  `DATABASE_TABLES`, this errors and NAMES it. */
+type MissingFromDatabaseTables = Exclude<keyof Database, DatabaseTable>;
+const _everyTableIsListed: MissingFromDatabaseTables extends never
+  ? true
+  : MissingFromDatabaseTables = true;
+void _everyTableIsListed;
