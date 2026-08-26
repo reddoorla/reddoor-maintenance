@@ -71,3 +71,85 @@ export async function writeDigestState(
     .onConflict((oc) => oc.column("id").doUpdateSet(row))
     .execute();
 }
+
+/**
+ * A SECOND row in the same table, holding the cockpit's "since a window"
+ * roll-ups. Keyed separately rather than folded into the snapshot: the snapshot
+ * is the digest's own diff state and has one writer and one meaning; conflating
+ * two unrelated payloads in one blob makes a partial write of either look like a
+ * corruption of both.
+ */
+export const COCKPIT_ROLLUP_ID = "cockpit_rollup";
+
+/**
+ * Fleet-wide counts the cockpit renders, computed once by the nightly digest
+ * instead of aggregated on every page load.
+ *
+ * `computedAt` is not decoration. These figures are up to 24h old by
+ * construction, and a stale number rendered as though it were live is worse than
+ * no number — so the cockpit shows when it was taken.
+ */
+export type CockpitRollup = {
+  spamTotals: { honeypot: number; tooFast: number; markedSpam: number };
+  /** site id → notify=bounced count inside the bounce window. */
+  notifyBounces: Record<string, number>;
+  /** The windows these were computed over, so a changed constant is visible
+   *  rather than silently re-labelling old numbers. */
+  windowDays: { screenOuts: number; bounces: number };
+  computedAt: string;
+};
+
+/**
+ * The stored roll-up, or **null** when there is none.
+ *
+ * Null rather than zeros, deliberately. Every one of these numbers has a
+ * legitimate zero, so a reader given `{honeypot: 0, …}` cannot tell "nothing was
+ * screened out" from "the digest has never run". That is the same distinction
+ * `FLEET_SMOKE_UNMEASURED` exists to preserve, and the cockpit renders the strip
+ * as ABSENT for null rather than drawing a row of zeros.
+ *
+ * A malformed blob is also null: same reasoning, and it must never throw on a
+ * request path.
+ */
+export async function readCockpitRollup(db: Db): Promise<CockpitRollup | null> {
+  const row = await db
+    .selectFrom("digest_state")
+    .select("snapshot")
+    .where("id", "=", COCKPIT_ROLLUP_ID)
+    .executeTakeFirst();
+  if (!row) return null;
+  try {
+    const parsed = JSON.parse(row.snapshot) as Partial<CockpitRollup>;
+    // Shape-check rather than trust: this blob is written by a different process
+    // on a different schedule, so an older writer's payload can outlive a type
+    // change here. Anything unrecognized reads as "not measured".
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      typeof parsed.computedAt !== "string" ||
+      typeof parsed.spamTotals !== "object" ||
+      parsed.spamTotals === null ||
+      typeof parsed.notifyBounces !== "object" ||
+      parsed.notifyBounces === null
+    ) {
+      return null;
+    }
+    return parsed as CockpitRollup;
+  } catch {
+    return null;
+  }
+}
+
+/** Upsert the roll-up, same singleton-by-PK shape as the snapshot. */
+export async function writeCockpitRollup(db: Db, rollup: CockpitRollup): Promise<void> {
+  const row = {
+    id: COCKPIT_ROLLUP_ID,
+    snapshot: JSON.stringify(rollup),
+    updated_at: rollup.computedAt,
+  };
+  await db
+    .insertInto("digest_state")
+    .values(row)
+    .onConflict((oc) => oc.column("id").doUpdateSet(row))
+    .execute();
+}

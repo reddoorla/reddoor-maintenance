@@ -1,15 +1,10 @@
 import type { Context, Config } from "@netlify/functions";
 import { listSites, listAllReports } from "../../src/db/fleet-state.js";
 import { openDb, readDbConfig } from "../../src/db/client.js";
-import {
-  listNewSubmissions,
-  countAutoSpamSince,
-  countNotifyBouncedBySite,
-} from "../../src/db/submissions.js";
-import { NOTIFY_BOUNCE_WINDOW_DAYS } from "../../src/alerts/digest-collectors.js";
+import { listNewSubmissions, countAutoSpamSince } from "../../src/db/submissions.js";
 import { listFleetEvents } from "../../src/db/fleet-events.js";
-import { listScreenOutsSince, screenOutsSince } from "../../src/db/screenouts.js";
-import { readDigestState } from "../../src/db/digest-state.js";
+import { screenOutsSince } from "../../src/db/screenouts.js";
+import { readDigestState, readCockpitRollup } from "../../src/db/digest-state.js";
 import { requireOperator, denialResponse, renderCockpitHtml } from "../../src/dashboard/index.js";
 import { buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
 import { resolveDashboardBaseUrl, handlerError } from "../../src/dashboard/handler-helpers.js";
@@ -91,21 +86,26 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
         // submissions strip simply absent — triage still renders
       }
     }
-    let spamTotals: { honeypot: number; tooFast: number; markedSpam: number } | null = null;
+    // Both of the fleet-wide "since a window" numbers now come from ONE row read
+    // by primary key, computed by the nightly digest (MED-16). They used to be
+    // recomputed here on every page load — aggregates over the whole
+    // `submissions` table, which is the one unbounded-growth table in the schema,
+    // on the operator's most-loaded page, against a store that meters row scans.
+    //
+    // They are consequently up to 24h old. `null` when the digest has not written
+    // one yet, which the cockpit renders as ABSENT rather than as zeros: every
+    // one of these numbers has a legitimate zero, so a confident 0 for an
+    // unmeasured window is a lie the strip cannot walk back.
+    let rollup: Awaited<ReturnType<typeof readCockpitRollup>> = null;
     {
       try {
-        const since = screenOutsSince(new Date(), 30);
-        const map = await listScreenOutsSince(db, since);
-        spamTotals = { honeypot: 0, tooFast: 0, markedSpam: 0 };
-        for (const t of map.values()) {
-          spamTotals.honeypot += t.honeypot;
-          spamTotals.tooFast += t.tooFast;
-          spamTotals.markedSpam += t.markedSpam;
-        }
+        rollup = await readCockpitRollup(db);
       } catch {
-        // roll-up simply absent — never blank the cockpit
+        // strip simply absent — never blank the cockpit
       }
     }
+    const spamTotals =
+      rollup !== null ? { ...rollup.spamTotals, computedAt: rollup.computedAt } : null;
     let recentEvents: Awaited<ReturnType<typeof listFleetEvents>> = [];
     {
       try {
@@ -124,15 +124,9 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
         // affordance simply absent — never blank the cockpit
       }
     }
-    let notifyBounces: ReadonlyMap<string, number> = new Map();
-    {
-      try {
-        const since = screenOutsSince(new Date(), NOTIFY_BOUNCE_WINDOW_DAYS);
-        notifyBounces = await countNotifyBouncedBySite(db, since);
-      } catch {
-        // bounce alarm simply absent — never blank the cockpit
-      }
-    }
+    const notifyBounces: ReadonlyMap<string, number> = new Map(
+      Object.entries(rollup?.notifyBounces ?? {}),
+    );
     const baseUrl = resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL);
     const model = buildCockpitModel(
       websites,

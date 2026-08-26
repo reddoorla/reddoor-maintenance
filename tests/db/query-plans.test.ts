@@ -132,12 +132,12 @@ const ALLOWED_RAW_SCANS: Array<{ scenario: string; table: string; why: string }>
   {
     scenario: "countNotifyBouncedBySite",
     table: "submissions",
-    why: "aggregate over the whole table on the cockpit request path — MED-16: fold into the nightly digest_state",
+    why: "BATCH ONLY since MED-16 — the nightly digest computes it into the cockpit roll-up; the fleet homepage reads that row by primary key and no longer aggregates per request",
   },
   {
     scenario: "listScreenOutsSince (window on date + marked-spam count)",
     table: "spam_screenouts",
-    why: "group-by over the whole screen-out table on the cockpit request path; bounded by sites × days, not by lead volume — MED-16: fold into the nightly digest_state",
+    why: "BATCH ONLY since MED-16 — same roll-up. Bounded by sites × days regardless, but it no longer runs on a request path",
   },
   {
     scenario: "countSubmissionsSinceBySite (digest telemetry)",
@@ -430,6 +430,25 @@ function scenarios(state: { createdId: string }): Scenario[] {
       name: "writeDigestState (singleton upsert)",
       covers: ["writeDigestState"],
       run: (db) => digestState.writeDigestState(db, {}, "2026-08-26T00:00:00.000Z"),
+    },
+    {
+      // The cockpit roll-up (MED-16). It exists precisely so the fleet homepage
+      // stops aggregating over `submissions` per request — so this read landing
+      // on anything but a primary-key lookup would defeat its own purpose.
+      name: "readCockpitRollup (fleet-homepage spam + bounce strips)",
+      covers: ["readCockpitRollup"],
+      run: (db) => digestState.readCockpitRollup(db),
+    },
+    {
+      name: "writeCockpitRollup (nightly digest upsert)",
+      covers: ["writeCockpitRollup"],
+      run: (db) =>
+        digestState.writeCockpitRollup(db, {
+          spamTotals: { honeypot: 0, tooFast: 0, markedSpam: 0 },
+          notifyBounces: {},
+          windowDays: { screenOuts: 30, bounces: 14 },
+          computedAt: "2026-08-26T00:00:00.000Z",
+        }),
     },
     {
       // The site-create mirror (#539 Phase 5). Three upserts, each resolving its

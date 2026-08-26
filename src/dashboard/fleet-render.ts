@@ -316,8 +316,15 @@ function renderInboxLane(model: CockpitModel): string {
     overflow > 0
       ? `<div class="approve-row subm-more muted"><a href="/submissions">+${overflow} more — view all submissions</a></div>`
       : `<div class="approve-row subm-more muted"><a href="/submissions">View all submissions →</a></div>`;
+  // These come from the nightly roll-up, not from a live aggregate, so they are
+  // up to 24h old. Saying when they were taken is the difference between a
+  // number the operator can trust and one that quietly lies on a busy morning.
+  const spamAsOf =
+    spam?.computedAt !== undefined
+      ? ` · as of ${escapeHtml(spam.computedAt.slice(0, 16).replace("T", " "))} UTC`
+      : "";
   const spamLine = hasSpam
-    ? `<div class="spam-rollup muted">🛡 Spam (30d) — caught ${spam!.caught} · through ${spam!.through}</div>`
+    ? `<div class="spam-rollup muted">🛡 Spam (30d) — caught ${spam!.caught} · through ${spam!.through}${spamAsOf}</div>`
     : "";
   const spamInSummary = hasSpam ? " · 🛡 Spam (30d)" : "";
   const autoFilteredLine = hasAutoFiltered

@@ -252,6 +252,19 @@ async function readDigestStateFromDb(): Promise<DigestSnapshot> {
   return readDigestState(await openDb(readDbConfig()));
 }
 
+/** Bridge the injectable seam (returns void) onto the three-state contract the
+ *  log line reports. An injected writer that resolves is a real write. */
+async function writeRollupOnce(
+  options: DigestRunOptions,
+  now: Date,
+): Promise<"written" | "absent"> {
+  if (options.cockpitRollup) {
+    await options.cockpitRollup.write(now);
+    return "written";
+  }
+  return writeCockpitRollupToDb(now);
+}
+
 /** The write half of {@link readDigestStateFromDb}, same lazy-import rule. */
 async function writeDigestStateToDb(next: DigestSnapshot): Promise<void> {
   const [{ openDb, readDbConfig }, { writeDigestState }] = await Promise.all([
@@ -259,6 +272,63 @@ async function writeDigestStateToDb(next: DigestSnapshot): Promise<void> {
     import("../db/digest-state.js"),
   ]);
   await writeDigestState(await openDb(readDbConfig()), next);
+}
+
+/**
+ * Compute the cockpit's "since a window" roll-ups once, here, instead of on
+ * every page load (MED-16 of the 2026-08-26 review).
+ *
+ * Both aggregates read the whole `submissions` table — the one unbounded-growth
+ * table in the schema — and the cockpit root is the operator's most-loaded page.
+ * Turso meters row scans, so recomputing them per request is a cost that grows
+ * forever against numbers that move once a day.
+ *
+ * The trade is explicit: the figures become up to 24h old. That is why the
+ * payload carries `computedAt` and the windows it used, and why an absent
+ * roll-up reads as null rather than zero — a stale or unmeasured number
+ * presented as live is worse than no number.
+ *
+ * Best-effort, like the snapshot write beside it: the digest has already been
+ * sent by the time this runs, and a failed roll-up costs one strip on one page
+ * until tomorrow, never the digest.
+ */
+async function writeCockpitRollupToDb(now: Date): Promise<"written" | "absent"> {
+  // No Turso configured is a THIRD state, not a failure: it is what every unit
+  // test looks like, and reporting it as `rollup=0` would train the eye to
+  // ignore the number that is supposed to catch a dead writer. Same three-state
+  // vocabulary the site mirrors already use (`mirrored=1|0|absent`).
+  if (!process.env.TURSO_DATABASE_URL) return "absent";
+  const [{ openDb, readDbConfig }, { writeCockpitRollup }, screenouts, submissions, collectors] =
+    await Promise.all([
+      import("../db/client.js"),
+      import("../db/digest-state.js"),
+      import("../db/screenouts.js"),
+      import("../db/submissions.js"),
+      import("../alerts/digest-collectors.js"),
+    ]);
+  const db = await openDb(readDbConfig());
+  const SCREEN_OUT_WINDOW_DAYS = 30;
+  const screenOutSince = screenouts.screenOutsSince(now, SCREEN_OUT_WINDOW_DAYS);
+  const bounceSince = screenouts.screenOutsSince(now, collectors.NOTIFY_BOUNCE_WINDOW_DAYS);
+
+  const totals = { honeypot: 0, tooFast: 0, markedSpam: 0 };
+  for (const t of (await screenouts.listScreenOutsSince(db, screenOutSince)).values()) {
+    totals.honeypot += t.honeypot;
+    totals.tooFast += t.tooFast;
+    totals.markedSpam += t.markedSpam;
+  }
+  const bounces = await submissions.countNotifyBouncedBySite(db, bounceSince);
+
+  await writeCockpitRollup(db, {
+    spamTotals: totals,
+    notifyBounces: Object.fromEntries(bounces),
+    windowDays: {
+      screenOuts: SCREEN_OUT_WINDOW_DAYS,
+      bounces: collectors.NOTIFY_BOUNCE_WINDOW_DAYS,
+    },
+    computedAt: now.toISOString(),
+  });
+  return "written";
 }
 
 /** Persist the next snapshot to BOTH stores (#609 dual-write).
@@ -276,9 +346,11 @@ async function persistDigestState(
   base: AirtableBase,
   next: DigestSnapshot,
   writeState?: (snap: DigestSnapshot) => Promise<void>,
+  writeRollup?: () => Promise<"written" | "absent">,
 ): Promise<void> {
   let turso = 0;
   let airtable = 0;
+  let rollup: "1" | "0" | "absent" = "0";
   try {
     await (writeState ?? writeDigestStateToDb)(next);
     turso = 1;
@@ -291,7 +363,19 @@ async function persistDigestState(
   } catch (e) {
     console.warn(`⚠ digest state write failed (airtable): ${(e as Error).message}`);
   }
-  console.log(`DIGEST_STATE_WRITE turso=${turso} airtable=${airtable}`);
+  // The cockpit roll-up rides the same "already sent, best-effort" contract, and
+  // gets its own counter on the line for the #585 reason: a dual-write that
+  // silently stopped running looked identical to a healthy one for weeks. An
+  // ABSENT `rollup=` is a different failure from `rollup=0`.
+  if (writeRollup) {
+    try {
+      rollup = (await writeRollup()) === "absent" ? "absent" : "1";
+    } catch (e) {
+      rollup = "0";
+      console.warn(`⚠ cockpit rollup write failed: ${(e as Error).message}`);
+    }
+  }
+  console.log(`DIGEST_STATE_WRITE turso=${turso} airtable=${airtable} rollup=${rollup}`);
 }
 
 /** The "Submissions (24h)" telemetry window — a precise 24h ISO-timestamp compare
@@ -435,6 +519,16 @@ export type DigestRunOptions = {
     write: (snap: DigestSnapshot) => Promise<void>;
   };
   /**
+   * The cockpit roll-up writer (MED-16). Same seam and same reason as
+   * `digestState`: production omits it and gets Turso, tests inject.
+   *
+   * Without a seam this would be untestable in exactly the way that matters —
+   * `writeCockpitRollupToDb` opens a db from env, so in a test it throws and is
+   * caught, and the run reports `rollup=0` forever while looking healthy. That
+   * is the #585 shape the counter on the log line exists to expose.
+   */
+  cockpitRollup?: { write: (now: Date) => Promise<void> };
+  /**
    * The run clock. Production omits it and gets `new Date()`.
    *
    * Injectable because several collectors this run feeds are AGE-SENSITIVE —
@@ -514,7 +608,9 @@ export async function runDigest(
       // with muted pre-exhaustion vulns collected — their keys keep snapshotting so
       // the eventual exhausted-flip diffs as WORSE. Wrapped: a write failure can't
       // fail the skip.
-      await persistDigestState(base, next, options.digestState?.write);
+      await persistDigestState(base, next, options.digestState?.write, () =>
+        writeRollupOnce(options, today),
+      );
       return { output: "Digest skipped (nothing ready, nothing needs attention).", code: 0 };
     }
 
@@ -570,7 +666,9 @@ export async function runDigest(
     // logged: the digest already went out, tomorrow re-news at worst. (The send-FAILURE
     // path never reaches here — the outer catch returns code 1 with no write, preserving
     // the NEW badge for the retry.)
-    await persistDigestState(base, next, options.digestState?.write);
+    await persistDigestState(base, next, options.digestState?.write, () =>
+      writeRollupOnce(options, today),
+    );
     return { output: `Digest sent to ${to.join(", ")} (${result.messageId})`, code: 0 };
   } catch (err) {
     // Re-throw config errors (exitCode=2: missing env vars, bad config) so runOrExit
