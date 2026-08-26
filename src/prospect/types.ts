@@ -1,4 +1,10 @@
 import type { AuditResult } from "../types.js";
+import type { AnswerSpace } from "./answer-space.js";
+
+// Re-exported so a consumer reading `probes.answerSpace` off the `./audit`
+// entry can name its type, rather than only matching it structurally. The
+// report renderer in reddoor-website is the consumer this is for.
+export type { AnswerSpace, SourceCount } from "./answer-space.js";
 
 /** Every pipeline stage resolves to this. A failed stage degrades its report
  *  section to "not measured" — it never kills the run (spec: error handling). */
@@ -215,6 +221,31 @@ export type ProbesResult = {
    *  existed lacks it. `runVisibilityProbes` always sets it; readers must still
    *  handle its absence rather than assume a stored report has it. */
   categoryProbes?: { attempted: number; answered: number };
+  /**
+   * The shape of the answer the prospect is absent from — see answer-space.ts.
+   *
+   * `visibilityScore` cannot carry a report on its own: across the 12 audits
+   * stored to date it is 0 for eight of them and takes four distinct values in
+   * total, so it cannot rank most prospects against each other at all — and a
+   * bare 0 invites the one question we cannot honestly answer, "how do we make
+   * it go up?". Two zeros can mean opposite things: a category answered by
+   * Stryker, Arthrex and the FDA (no website work reaches that answer — the
+   * honest counsel is not to buy AEO) versus one answered by five local
+   * practices exactly the prospect's size (plainly reachable, and they simply
+   * are not there). This is the evidence that tells those apart.
+   *
+   * Related to `competitorsSeen` but not a replacement for it: that field
+   * predates this one and is what stored reports and the current renderer read,
+   * so it stays. What is new here is the denominator — how many distinct
+   * sources the engine drew on, how many of them it takes to cover half the
+   * citations, and where the prospect's own domain ranks among them.
+   *
+   * Optional because this type also describes runs deserialized from
+   * `prospect_audits.result_json`, and every report stored before this field
+   * existed lacks it. `runVisibilityProbes` always sets it; readers must still
+   * handle its absence rather than assume a stored report has it.
+   */
+  answerSpace?: AnswerSpace;
 };
 
 export type LighthouseScores = {

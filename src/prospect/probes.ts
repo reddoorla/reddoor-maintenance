@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { pacedEach, sleep } from "./crawl.js";
+import { analyzeAnswerSpace } from "./answer-space.js";
 import type { ProbeAnswer, ProbesResult } from "./types.js";
 
 /** One answer engine. Adding OpenAI or Gemini later means one more of these. */
@@ -460,6 +461,11 @@ export async function runVisibilityProbes(
       .sort((a, b) => b.count - a.count)
       .slice(0, 8),
     categoryProbes: { attempted: categoryAttempted, answered: categoryAnswers.length },
+    // Derived from `answers` above rather than accumulated during the run: it is
+    // a pure read of citations already recorded, so computing it here keeps the
+    // ask loop to one job and lets the same function be re-run over a stored
+    // report if we ever backfill.
+    answerSpace: analyzeAnswerSpace(answers, input.url),
   };
 }
 
