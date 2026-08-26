@@ -158,3 +158,31 @@ export async function tableCounts(db: SqlExecutor): Promise<Record<string, numbe
   }
   return counts;
 }
+
+/** Hosts that serve libSQL without authentication: `turso dev`, a local file,
+ *  and the in-process scratch engine the nightly rehearsal loads into. */
+// `[::1]` keeps its brackets: WHATWG URL reports an IPv6 hostname bracketed,
+// so the bare form alone would classify a local IPv6 target as hosted.
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+
+/** Does this restore target need an auth token?
+ *
+ *  `db restore` used to build its client from a url alone, which works against
+ *  every target the tests and rehearsals had ever used — `:memory:` and a local
+ *  `turso dev` — and 401s against every target a real recovery would have.
+ *  Classifying the url lets the command refuse with a named reason before the
+ *  network instead of surfacing an opaque SERVER_ERROR.
+ *
+ *  Fails CLOSED: a url we cannot parse is treated as needing a token, because
+ *  the alternative is silently skipping auth and getting the 401 anyway. */
+export function requiresAuthToken(url: string): boolean {
+  if (url === ":memory:") return false;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return true;
+  }
+  if (parsed.protocol === "file:") return false;
+  return !LOCAL_HOSTS.has(parsed.hostname);
+}
