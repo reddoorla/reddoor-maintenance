@@ -108,6 +108,77 @@ export const SPAM_KEYWORDS: readonly string[] = [
  */
 export const BUYER_KEYWORDS: readonly string[] = ["within 24 hours", "free consultation"];
 
+/**
+ * Sender domains where EVERY submission the fleet has ever received was spam.
+ *
+ * A second, stricter tier than DISPOSABLE_EMAIL_DOMAINS. The disposable list says
+ * "a throwaway provider — be suspicious", so it scores a corroborating +45 and
+ * cannot bucket alone. This list says "we have looked at the traffic from this
+ * domain and there is no legitimate traffic", so it buckets on its own.
+ *
+ * Why the weaker tier was not enough (the case that created this list): 17
+ * submissions arrived from `jmailservice.com` between 2026-06-17 and 2026-08-25
+ * across FOUR unrelated client sites, none legitimate — and 10 of them were
+ * emailed to the operator. They dodged every existing signal in turn:
+ *
+ * - the content scorer, because the bodies vary and most sum under 60 (the last
+ *   two scored 30 and 0);
+ * - the cross-site `repeat-sender` signal, because the sender rotates a plausible
+ *   `firstname.lastname@` local part — 11 distinct addresses across 17 sends, so
+ *   the email-exact lookup almost never saw a repeat;
+ * - and the disposable list's +45, which even if the domain were listed there
+ *   would have bucketed only the 5 sends that already carried a corroborating
+ *   signal, and none of the ones that reached the inbox.
+ *
+ * The rotation is the point: the identity changes every time, the DOMAIN does not.
+ *
+ * ENTRY BAR — this list is deliberately hard to add to, because it is the only
+ * signal with no corroboration requirement:
+ *
+ * 1. Query the live traffic for the domain and read EVERY row. Not a sample.
+ * 2. Every one must be spam. One genuine lead disqualifies the domain — put it on
+ *    the disposable list instead, where it needs corroboration.
+ * 3. Never list a shared mailbox provider (gmail.com, outlook.com, a webmail host,
+ *    an ISP domain). Those carry real leads by definition, and a single entry here
+ *    would silently bucket every genuine lead using it.
+ *
+ * Matching is by registrable domain OR any subdomain of it, so a move to
+ * `mail.<domain>` does not reopen the hole. Entries must be bare lowercase
+ * domains; `spam-classifier.test.ts` enforces the shape and that no domain
+ * appears on both lists.
+ */
+export const BLOCKED_EMAIL_DOMAINS: readonly string[] = [
+  // 17/17 spam, 2026-06-17 → 2026-08-25, across four unrelated sites: MSOT (5),
+  // Reddoor's own site (5), Vineyard Custom Homes (4), Espada (3). Rotating
+  // `firstname.lastname@` sender identities — 11 addresses over those 17 sends.
+  "jmailservice.com",
+
+  // The MAVIS virtual-assistant flood, whose body invariants already sit in
+  // SPAM_KEYWORDS ("mavis", "virtual intelligent system", "tried emailing you").
+  // Seven sender domains, 35 submissions, 2026-06-17 → 2026-08-25, every one a VA
+  // pitch and 12 of them emailed to the operator. Each domain rotates first-name
+  // identities across unrelated client sites exactly as jmailservice.com does, so
+  // the email-exact repeat-sender signal cannot see the pattern. Counts are
+  // sends/addresses at the time of listing.
+  "trustedvirtualteam.com", // 9 / 5
+  "toptalentvas.com", // 7 / 4
+  "virtualhandsupport.com", // 5 / 4
+  "vas4hire.com", // 4 / 2
+  "vettedvas.com", // 4 / 3
+  "thevirtualassistanthub.net", // 3 / 2
+  "yourvachoice.com", // 3 / 1
+
+  // DELIBERATELY NOT LISTED, checked 2026-08-26 — both would pass a naive
+  // "100% of its submissions are spam" query, which is why rule 1 says read the
+  // rows rather than trust the ratio:
+  //
+  // - lemos.com — 10/10 "spam", and all ten are the OPERATOR's own landing-page
+  //   test submissions from tucker@lemos.com. Blocking it would bucket his own
+  //   testing.
+  // - melottogroup.com — 3/3 genuine cold outreach, but one fixed address with no
+  //   rotation, which repeat-sender already catches. Nothing to add.
+];
+
 /** Maintained disposable / throwaway email domains. */
 export const DISPOSABLE_EMAIL_DOMAINS: readonly string[] = [
   "mailinator.com",
@@ -183,6 +254,18 @@ function emailDomain(email: string): string {
         .slice(at + 1)
         .trim()
         .toLowerCase();
+}
+
+/**
+ * True when `domain` is a blocked sender domain or any subdomain of one.
+ *
+ * Suffix-matched on a label boundary, so `mail.jmailservice.com` is blocked while
+ * `notjmailservice.com` (an unrelated registration that merely ends in the same
+ * letters) is not. `domain` is already lowercased by emailDomain().
+ */
+function isBlockedDomain(domain: string): boolean {
+  if (domain === "") return false;
+  return BLOCKED_EMAIL_DOMAINS.some((b) => domain === b || domain.endsWith(`.${b}`));
 }
 
 /** len > 20 and > 70% of its letters uppercase. */
@@ -342,7 +425,19 @@ export function classifySpam(input: {
     reasons.push("gibberish-name");
   }
 
-  if (DISPOSABLE_EMAIL_DOMAINS.includes(emailDomain(email))) {
+  const domain = emailDomain(email);
+
+  // A domain proven to send only spam buckets ALONE. Scored as SPAM_THRESHOLD
+  // rather than a literal so the property survives a future threshold change:
+  // this signal is defined as "enough on its own", not as "worth 60 points".
+  // See the BLOCKED_EMAIL_DOMAINS docstring for the (deliberately high) bar an
+  // entry has to clear.
+  if (isBlockedDomain(domain)) {
+    score += SPAM_THRESHOLD;
+    reasons.push("blocked-domain");
+  }
+
+  if (DISPOSABLE_EMAIL_DOMAINS.includes(domain)) {
     score += 45;
     reasons.push("disposable-email");
   }

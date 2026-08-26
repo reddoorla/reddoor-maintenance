@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { classifySpam, SPAM_THRESHOLD } from "../../src/forms/spam-classifier.js";
+import {
+  classifySpam,
+  SPAM_THRESHOLD,
+  BLOCKED_EMAIL_DOMAINS,
+  DISPOSABLE_EMAIL_DOMAINS,
+} from "../../src/forms/spam-classifier.js";
 import type { FormType } from "../../src/forms/types.js";
 import type { TurnstileOutcome } from "../../src/forms/turnstile.js";
 
@@ -234,6 +239,73 @@ describe("classifySpam", () => {
       score: 45,
       reasons: ["disposable-email"],
     });
+  });
+
+  it("a BLOCKED sender domain buckets on its own, with no other signal present", () => {
+    // The distinguishing property vs disposable-email (+45, needs corroboration):
+    // this list is only ever added to from observed live traffic where every
+    // submission was spam, so it is allowed to bucket alone.
+    const v = clean({ email: "raymond.abbott@jmailservice.com" });
+    expect(v).toEqual({ score: SPAM_THRESHOLD, reasons: ["blocked-domain"] });
+    expect(v.score >= SPAM_THRESHOLD).toBe(true);
+
+    // Positive control: the SAME otherwise-clean submission from an unlisted
+    // domain still scores 0. Without this the assertion above would pass just as
+    // happily if `clean()` had started scoring everything.
+    expect(clean({ email: "raymond.abbott@example.com" })).toEqual({ score: 0, reasons: [] });
+  });
+
+  it("blocked domains match subdomains, and never a suffix look-alike", () => {
+    expect(clean({ email: "x@mail.jmailservice.com" }).reasons).toEqual(["blocked-domain"]);
+    expect(clean({ email: "x@JMailService.COM" }).reasons).toEqual(["blocked-domain"]);
+    // must END at the blocked domain — `notjmailservice.com` and a domain merely
+    // CONTAINING it as a prefix are unrelated registrations.
+    expect(clean({ email: "x@notjmailservice.com" })).toEqual({ score: 0, reasons: [] });
+    expect(clean({ email: "x@jmailservice.com.evil.net" })).toEqual({ score: 0, reasons: [] });
+  });
+
+  it("the blocked and disposable lists are disjoint, so no domain can double-score", () => {
+    const overlap = BLOCKED_EMAIL_DOMAINS.filter((d) => DISPOSABLE_EMAIL_DOMAINS.includes(d));
+    expect(overlap).toEqual([]);
+  });
+
+  it("no shared mailbox provider is ever on the blocked list", () => {
+    // The one failure mode with no recovery path: blocking a provider real leads
+    // use would silently bucket every one of them, and the tier scores high enough
+    // that no other signal is needed. 34 of gmail.com's 156 live submissions are
+    // spam — a ratio that tempts exactly this mistake.
+    for (const provider of [
+      "gmail.com",
+      "googlemail.com",
+      "yahoo.com",
+      "hotmail.com",
+      "outlook.com",
+      "live.com",
+      "msn.com",
+      "icloud.com",
+      "me.com",
+      "aol.com",
+      "proton.me",
+      "protonmail.com",
+      "gmx.com",
+      "mail.com",
+      "zoho.com",
+      "yandex.com",
+      "comcast.net",
+      "verizon.net",
+      "att.net",
+      "sbcglobal.net",
+      "cox.net",
+    ]) {
+      expect(clean({ email: `someone@${provider}` }), provider).toEqual({ score: 0, reasons: [] });
+    }
+  });
+
+  it("every blocked entry is a bare registrable domain (no scheme, @, or leading dot)", () => {
+    for (const d of BLOCKED_EMAIL_DOMAINS) {
+      expect(d, d).toBe(d.toLowerCase().trim());
+      expect(d, d).toMatch(/^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/);
+    }
   });
 
   it("flags a URL in the name field at 45 (url-in-name)", () => {

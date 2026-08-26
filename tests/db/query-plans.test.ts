@@ -32,6 +32,7 @@ import * as fleetState from "../../src/db/fleet-state.js";
 import * as digestState from "../../src/db/digest-state.js";
 import * as prospectAudits from "../../src/db/prospect-audits.js";
 import type { Db } from "../../src/db/client.js";
+import type { SubmissionFilter } from "../../src/db/submissions.js";
 
 const SRC_DB_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../src/db");
 
@@ -88,18 +89,129 @@ const ALLOWED_RAW_SCANS: Array<{ scenario: string; table: string; why: string }>
     table: "reports",
     why: "the cockpit reads every report today (13 rows, ~44/month growth) — window it before Phase 4's report review adds volume",
   },
+  // The two SubmissionFilter shapes that cannot be served by any B-tree index.
+  // Both are `LIKE '%…%'` with a LEADING wildcard — `search` ORs it across four
+  // columns, `reason` applies it to a `',' || spam_reason || ','` expression — and
+  // SQLite has no index form for either. The count sibling has no LIMIT to stop it
+  // early, so it decodes the whole table.
+  //
+  // Accepted rather than fixed, on two grounds: /submissions is operator-only
+  // (behind the dashboard gate), so the frequency is bounded by one person's
+  // typing rather than by fleet traffic; and the alternative is an FTS5 virtual
+  // table plus triggers, which is a real feature, not a tweak.
+  //
+  // NOT accepted forever. `submissions` is the one unbounded-growth table (354
+  // rows today, append-only, one per fleet lead) and Turso meters row scans, so
+  // the cost of one search rises linearly and never falls. Revisit at ~10k rows,
+  // or sooner if the submissions page ever becomes client-facing — at which point
+  // the answer is FTS5 for `search` and a normalised reason table for `reason`.
+  {
+    scenario: "countSubmissionsFiltered: search",
+    table: "submissions",
+    why: "LIKE '%term%' across name/email/message/phone — unindexable in SQLite without FTS5; operator-only page, revisit at ~10k rows",
+  },
+  {
+    scenario: "countSubmissionsFiltered: reason",
+    table: "submissions",
+    why: "comma-boundary LIKE on a concatenation expression — no index can serve it; operator-only page, revisit at ~10k rows",
+  },
+  // Unindexable-by-shape aggregates, made VISIBLE by tightening the detector (an
+  // index-ordered SCAN with no LIMIT reads every row, and Turso bills rows). All
+  // four were invisible under the old "any USING is fine" rule.
+  //
+  // These are not "fine" — they are accepted for now and named so a reviewer can
+  // veto them. The real fix is MED-16 of the 2026-08-26 review: these cockpit
+  // strips are slow-moving "since a window" numbers that belong in the nightly
+  // digest_state singleton the homepage already reads by primary key. That trade
+  // makes the figures up to 24h stale, which is an operator call, not mine.
+  {
+    scenario: "countSubmissionsFiltered: no filters",
+    table: "submissions",
+    why: "COUNT(*) with no WHERE and no LIMIT — an unfiltered total cannot be anything but a full read; request path (submissions page), 354 rows today",
+  },
+  {
+    scenario: "countNotifyBouncedBySite",
+    table: "submissions",
+    why: "aggregate over the whole table on the cockpit request path — MED-16: fold into the nightly digest_state",
+  },
+  {
+    scenario: "listScreenOutsSince (window on date + marked-spam count)",
+    table: "spam_screenouts",
+    why: "group-by over the whole screen-out table on the cockpit request path; bounded by sites × days, not by lead volume — MED-16: fold into the nightly digest_state",
+  },
+  {
+    scenario: "countSubmissionsSinceBySite (digest telemetry)",
+    table: "submissions",
+    why: "batch only — the digest cron, once a day; a full read is the correct shape for a per-site tally",
+  },
 ];
 
 type Scenario = { name: string; covers: string[]; run: (db: Db) => Promise<unknown> };
+
+const SINCE_DATE = "2026-08-01";
+const SINCE_ISO = "2026-08-01T00:00:00.000Z";
+
+/**
+ * One representative value per `SubmissionFilter` key.
+ *
+ * The gate used to name its scenarios by hand, and that is how three request-path
+ * raw scans shipped green: `countSubmissionsFiltered` had exactly two scenarios
+ * (`{}` and `{siteId}`), both of which happen to land on an index, while its
+ * `search` / `reason` / `formType` shapes were never planned at all. Its
+ * `listSubmissionsFiltered` sibling — same filter, same request — did get an
+ * "every WHERE shape" scenario, and the export-completeness check passed because
+ * it matches function NAMES, not predicate shapes.
+ *
+ * Driving both functions off this one record fixes the class rather than the three
+ * instances: adding a key to `SubmissionFilter` without adding it here fails
+ * `covers every SubmissionFilter key`, and every key that IS here gets planned
+ * against every filtered function automatically.
+ */
+const FILTER_CASES = {
+  siteId: { siteId: "recA" },
+  formType: { formType: "contact" as const },
+  status: { status: "new" as const },
+  search: { search: "ada" },
+  from: { from: SINCE_ISO },
+  to: { to: "2026-08-31T23:59:59.000Z" },
+  reason: { reason: "keywords" },
+} satisfies Record<keyof SubmissionFilter, SubmissionFilter>;
+
+/** Every filter shape × every function that takes a `SubmissionFilter`, plus the
+ *  unfiltered case each runs on a bare page load. */
+function submissionFilterMatrix(): Scenario[] {
+  const filtered: Array<{
+    fn: string;
+    run: (db: Db, f: SubmissionFilter) => Promise<unknown>;
+  }> = [
+    {
+      fn: "listSubmissionsFiltered",
+      run: (db, f) => submissions.listSubmissionsFiltered(db, f, { limit: 50, offset: 0 }),
+    },
+    { fn: "countSubmissionsFiltered", run: (db, f) => submissions.countSubmissionsFiltered(db, f) },
+  ];
+  const out: Scenario[] = [];
+  for (const { fn, run } of filtered) {
+    out.push({ name: `${fn}: no filters`, covers: [fn], run: (db) => run(db, {}) });
+    for (const [key, filter] of Object.entries(FILTER_CASES)) {
+      out.push({ name: `${fn}: ${key}`, covers: [fn], run: (db) => run(db, filter) });
+    }
+    // Everything at once — the shape the submissions page sends when the operator
+    // has filled in the whole filter bar.
+    out.push({
+      name: `${fn}: every filter at once`,
+      covers: [fn],
+      run: (db) => run(db, Object.assign({}, ...Object.values(FILTER_CASES)) as SubmissionFilter),
+    });
+  }
+  return out;
+}
 
 /** ≥ MIN_DUP_BODY_LEN chars and ≥ MIN_SIMILAR_TOKENS distinct tokens, so the
  *  duplicate scan passes BOTH eligibility gates and actually queries. */
 const LONG_MESSAGE =
   "alpha bravo charlie delta echo foxtrot golf hotel india juliett kilo lima mike " +
   "november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu";
-
-const SINCE_DATE = "2026-08-01";
-const SINCE_ISO = "2026-08-01T00:00:00.000Z";
 
 function scenarios(state: { createdId: string }): Scenario[] {
   let prospectToken = "";
@@ -144,49 +256,7 @@ function scenarios(state: { createdId: string }): Scenario[] {
       covers: ["stampFanout"],
       run: (db) => submissions.stampFanout(db, state.createdId, "crm:ok"),
     },
-    {
-      name: "listSubmissionsFiltered: default page (no filters — the /submissions landing view)",
-      covers: ["listSubmissionsFiltered"],
-      run: (db) => submissions.listSubmissionsFiltered(db, {}, { limit: 50, offset: 0 }),
-    },
-    {
-      name: "listSubmissionsFiltered: by site",
-      covers: ["listSubmissionsFiltered"],
-      run: (db) =>
-        submissions.listSubmissionsFiltered(db, { siteId: "recA" }, { limit: 50, offset: 0 }),
-    },
-    {
-      name: "listSubmissionsFiltered: by status",
-      covers: ["listSubmissionsFiltered"],
-      run: (db) =>
-        submissions.listSubmissionsFiltered(db, { status: "new" }, { limit: 50, offset: 0 }),
-    },
-    {
-      name: "listSubmissionsFiltered: search + form type + window + reason (every WHERE shape)",
-      covers: ["listSubmissionsFiltered"],
-      run: (db) =>
-        submissions.listSubmissionsFiltered(
-          db,
-          {
-            formType: "contact",
-            search: "ada",
-            from: SINCE_ISO,
-            to: "2026-08-31T23:59:59.000Z",
-            reason: "keywords",
-          },
-          { limit: 50, offset: 0 },
-        ),
-    },
-    {
-      name: "countSubmissionsFiltered: no filters (page total)",
-      covers: ["countSubmissionsFiltered"],
-      run: (db) => submissions.countSubmissionsFiltered(db, {}),
-    },
-    {
-      name: "countSubmissionsFiltered: by site",
-      covers: ["countSubmissionsFiltered"],
-      run: (db) => submissions.countSubmissionsFiltered(db, { siteId: "recA" }),
-    },
+    ...submissionFilterMatrix(),
     {
       name: "countAutoSpamSince",
       covers: ["countAutoSpamSince"],
@@ -516,11 +586,26 @@ describe("EXPLAIN-query-plan gate", () => {
     expect(phantom, "scenario covers a function that is not exported").toEqual([]);
   });
 
+  it("the filter matrix plans every SubmissionFilter key against every filtered function", () => {
+    // `FILTER_CASES` is `satisfies Record<keyof SubmissionFilter, …>`, so a new
+    // filter key fails to compile until it is added — this asserts the other
+    // direction at runtime, and that both functions really are driven off it.
+    const names = submissionFilterMatrix().map((s) => s.name);
+    for (const fn of ["listSubmissionsFiltered", "countSubmissionsFiltered"]) {
+      for (const key of Object.keys(FILTER_CASES)) {
+        expect(names, `${fn} has no scenario for the ${key} filter`).toContain(`${fn}: ${key}`);
+      }
+      expect(names).toContain(`${fn}: no filters`);
+      expect(names).toContain(`${fn}: every filter at once`);
+    }
+  });
+
   it("no query a gated module executes raw-scans a table", async () => {
     const h = await openCapturingDb();
     const tables = await schemaTables(h.client);
     const state = { createdId: "" };
     const violations: Array<{ scenario: string; table: string; detail: string; sql: string }> = [];
+    const observed = new Set<string>();
     let statementCount = 0;
     let scenarioCount = 0;
 
@@ -536,7 +621,8 @@ describe("EXPLAIN-query-plan gate", () => {
       for (const stmt of stmts) {
         statementCount++;
         const details = await explainQueryPlan(h.client, stmt);
-        for (const table of rawScanTables(details, tables)) {
+        for (const table of rawScanTables(details, tables, stmt.sql)) {
+          observed.add(`${scenario.name}|${table}`);
           const allowed = ALLOWED_RAW_SCANS.some(
             (a) => a.scenario === scenario.name && a.table === table,
           );
@@ -558,6 +644,17 @@ describe("EXPLAIN-query-plan gate", () => {
     expect(violations, "raw full-table scan — add an index or an ALLOWED_RAW_SCANS entry").toEqual(
       [],
     );
+
+    // An allowlist entry that no longer describes a real scan is dead permission:
+    // it keeps a name exempted after the scenario is renamed or an index makes it
+    // unnecessary, and silently re-permits a future regression that happens to
+    // reuse the name. Every entry must still be earning its place.
+    const stale = ALLOWED_RAW_SCANS.filter((a) => !observed.has(`${a.scenario}|${a.table}`)).map(
+      (a) => `${a.scenario} -> ${a.table}`,
+    );
+    expect(stale, "ALLOWED_RAW_SCANS entry no longer matches a real raw scan — delete it").toEqual(
+      [],
+    );
   });
 
   // ————— Prove the instrument (both directions) before trusting its verdict —————
@@ -568,14 +665,38 @@ describe("EXPLAIN-query-plan gate", () => {
     expect(
       rawScanTables(
         [
-          "SCAN submissions USING INDEX idx_submissions_submitted",
-          "SCAN submissions USING COVERING INDEX idx_submissions_status",
           "SEARCH submissions USING INDEX idx_submissions_site_submitted (site_id=?)",
           "SCAN 2 CONSTANT ROWS",
           "SCAN (subquery-1)",
           "USE TEMP B-TREE FOR ORDER BY",
         ],
         tables,
+      ),
+    ).toEqual([]);
+  });
+
+  it("detector unit: an index-ordered SCAN counts unless a LIMIT can stop it", () => {
+    // The old rule skipped anything containing `USING`, on the reasoning that an
+    // index-ordered traversal under a LIMIT stops early. True — but only when
+    // there IS a limit. An aggregate has none and reads every row through the
+    // index, which on a row-scan-metered store costs exactly what a raw scan does.
+    const tables = new Set(["submissions"]);
+    const indexScan = ["SCAN submissions USING COVERING INDEX idx_submissions_status"];
+
+    // Both states, so this cannot pass by always answering the same way.
+    expect(rawScanTables(indexScan, tables, "select count(*) from submissions")).toEqual([
+      "submissions",
+    ]);
+    expect(rawScanTables(indexScan, tables, "select * from submissions limit 50")).toEqual([]);
+
+    // With no SQL supplied the detector cannot know, and must not silently excuse.
+    expect(rawScanTables(indexScan, tables)).toEqual(["submissions"]);
+    // A SEARCH is a seek, not a traversal — never flagged, limit or no limit.
+    expect(
+      rawScanTables(
+        ["SEARCH submissions USING INDEX idx_submissions_status (status=?)"],
+        tables,
+        "select count(*) from submissions where status = ?",
       ),
     ).toEqual([]);
   });
