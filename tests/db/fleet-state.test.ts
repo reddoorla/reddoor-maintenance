@@ -438,6 +438,54 @@ describe("site reads never haul the header-image BLOB", () => {
   });
 });
 
+describe("report LIST reads never haul the rendered_html body", () => {
+  // The exact hazard SITE_COLUMNS already guards for sites, on the table where it
+  // is currently worse: live, all 16 reports carry a body totalling 1.17 MB, and
+  // listAllReports is called by the cockpit root — every operator page load — to
+  // do nothing with the column but test it for null.
+  it("listAllReports selects the metadata columns but NOT rendered_html — and misses no other reports column", async () => {
+    const h = await openCapturingDb();
+    await listAllReports(h.db);
+    const sql = h.captured.map((c) => c.sql).join("\n");
+    expect(sql).not.toMatch(/"reports"\."rendered_html"|select\s+\*/i);
+    // The null-ness is still needed (it drives renderedHtmlAttachment), so it must
+    // be computed in SQL rather than by shipping the body.
+    expect(sql).toMatch(/rendered_html is not null/i);
+    // Schema lockstep, same contract as the sites guard: a new reports column that
+    // never reaches REPORT_LIST_COLUMNS fails here rather than going silently
+    // missing from the cockpit.
+    const pragma = await h.client.execute("SELECT name FROM pragma_table_info('reports')");
+    for (const row of pragma.rows) {
+      const col = String(row.name);
+      if (col === "rendered_html") continue;
+      expect(sql, `reports column '${col}' missing from the list read's select`).toContain(
+        `"${col}"`,
+      );
+    }
+  });
+
+  it("still reports whether a body exists, in both states", async () => {
+    // A guard that only ever saw one state would pass while returning a constant.
+    const db = await importOf([RICH]);
+    await db
+      .insertInto("reports")
+      .values({
+        id: "recRHTML",
+        site_id: RICH.id,
+        rendered_html: "<html>body</html>",
+      } as never)
+      .execute();
+    await db
+      .insertInto("reports")
+      .values({ id: "recNOHTML", site_id: RICH.id, rendered_html: null } as never)
+      .execute();
+
+    const byId = new Map((await listAllReports(db)).map((r) => [r.id, r]));
+    expect(byId.get("recRHTML")?.renderedHtmlAttachment).not.toBeNull();
+    expect(byId.get("recNOHTML")?.renderedHtmlAttachment).toBeNull();
+  });
+});
+
 describe("mirrorReportPatch (approve/webhook write-through)", () => {
   it("an approve patch is visible on the very next read", async () => {
     const db = await importOf([RICH]);
