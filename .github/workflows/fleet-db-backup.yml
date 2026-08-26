@@ -146,3 +146,83 @@ jobs:
             --jq "map(select(.title==\"$title\")) | .[].number" || true); do
             gh issue close "$n" --comment "Recovered — the nightly Turso backup is green again." && echo "closed #$n"
           done
+
+  # How much of the plan's quota the fleet has burned this billing cycle.
+  #
+  # A SEPARATE job, deliberately: a quota alarm must never stop the backup from
+  # being taken and kept, and the two failures want different tracking issues —
+  # "the backup is broken" and "you are approaching a wall" are not the same
+  # page to open at 9am.
+  #
+  # Why this alarm exists at all: the org runs on the starter plan with
+  # `"overages": false`, which means crossing a quota BLOCKS reads and writes
+  # rather than billing for them. After the Airtable cutover, Turso is the only
+  # store the fleet has, so quota exhaustion is a total outage with no warning
+  # shot. As of 2026-08-26 the worst metric sits at 0.36% of its ceiling, so this
+  # is a smoke detector, not a running concern.
+  #
+  # Needs TURSO_FLEET_USAGE — a PLATFORM API token (`turso auth api-tokens mint`),
+  # which is a different and more privileged credential than the database-level
+  # TURSO_AUTH_TOKEN above. The database token cannot read quota state at all.
+  quota:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - name: Check plan-quota headroom
+        timeout-minutes: 5
+        env:
+          TURSO_FLEET_USAGE: ${{ secrets.TURSO_FLEET_USAGE }}
+        run: |
+          set -o pipefail
+          out="${RUNNER_TEMP:-/tmp}"
+          node dist/cli/bin.js db usage | tee "$out/usage.out"
+
+          # Gate on the MARKER, not only on the exit code. A step that printed
+          # nothing and exited 0 is the "absent success marker" shape (#585):
+          # it reads as a clean run and proves nothing. An unset secret lands
+          # here as verdict=no-token and reds the job on purpose — an alarm
+          # nobody configured is not a quiet alarm, it is no alarm.
+          grep -qE '^FLEET_DB_USAGE .* verdict=ok$' "$out/usage.out" || {
+            echo "::error::Turso quota check did not return verdict=ok — see FLEET_DB_USAGE above."
+            exit 1
+          }
+
+      - name: Open/update the quota tracking issue
+        if: failure()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Turso plan quota needs attention"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body=$(printf 'The nightly Turso **quota check** did not return `verdict=ok`.\n\nThe org is on a plan with `overages: false`, so a crossed quota BLOCKS reads and writes rather than billing for them.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          existing=$(gh issue list --state open --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[0].number // empty" || true)
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body" && echo "commented on existing #$existing"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Close the quota issue on recovery
+        if: success()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Turso plan quota needs attention"
+          for n in $(gh issue list --state open --json number,title \
+            --jq "map(select(.title==\"$title\")) | .[].number" || true); do
+            gh issue close "$n" --comment "Recovered — Turso quota headroom is back within threshold." && echo "closed #$n"
+          done
