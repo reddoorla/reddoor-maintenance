@@ -294,15 +294,32 @@ describe("prospect-audit-run adapter — a good request", () => {
 
 describe("prospect-audit-run adapter — health check + routing", () => {
   it("GET returns a presence-only health check that never leaks the password value", async () => {
+    configureEnv();
     process.env.DASHBOARD_PASSWORD = "should_not_leak";
     const res = await prospectAuditRun(
-      new Request("https://dash.reddoor.test/api/prospect-audit/run", { method: "GET" }),
+      new Request("https://dash.reddoor.test/api/prospect-audit/run", {
+        method: "GET",
+        headers: authHeader("tucker", "should_not_leak"),
+      }),
       ctx,
     );
     expect(res.status).toBe(200);
     const raw = await res.text();
     expect(raw).not.toContain("should_not_leak");
     expect(dispatchCalls).toHaveLength(0);
+  });
+
+  it("GET is behind the operator gate — it told strangers the password fallback was live", async () => {
+    // #612 review. The body leaks no VALUES, but `DASHBOARD_PASSWORD: true` is
+    // exactly the reconnaissance step for using that fallback. A health check
+    // whose entire audience is the operator has no reason to answer anyone else.
+    process.env.DASHBOARD_PASSWORD = "should_not_leak";
+    const res = await prospectAuditRun(
+      new Request("https://dash.reddoor.test/api/prospect-audit/run", { method: "GET" }),
+      ctx,
+    );
+    expect(res.status).toBe(401);
+    expect(await res.text()).not.toContain("DASHBOARD_PASSWORD");
   });
 
   it("claims /api/prospect-audit/run as well as the raw function path", () => {

@@ -33,7 +33,14 @@ function json(body: unknown, status: number, extra: Record<string, string> = {})
 
 export default async (req: Request, _ctx: Context): Promise<Response> => {
   // GET health check — presence-only, mirrors trigger-renovate.mts.
+  //
+  // Behind the operator gate since the #612 review. It leaks no VALUES, but it
+  // told an anonymous caller whether the shared-password fallback is live —
+  // which is precisely the reconnaissance step for using it. A health check
+  // whose whole audience is the operator has no reason to answer strangers.
   if (req.method === "GET") {
+    const health = requireOperator(req, { wants: "json" });
+    if (!health.ok) return denialResponse(health.denial);
     return Response.json(
       {
         status: "ok",
