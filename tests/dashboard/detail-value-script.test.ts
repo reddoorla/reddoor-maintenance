@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { DETAIL_VALUE_FN, renderSiteDashboardHtml } from "../../src/dashboard/render.js";
+import {
+  DETAIL_VALUE_FN,
+  SAVE_DETAIL_FN,
+  renderSiteDashboardHtml,
+} from "../../src/dashboard/render.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
+import { WATCH_CONDITION_OPTIONS } from "../../src/dashboard/site-details.js";
 
 /**
  * The dashboard's inline script is a template string, so nothing in this suite
@@ -50,6 +55,17 @@ describe("detailValue — the served serializer, executed", () => {
     expect(detailValue(el)).toBe("Performance,SEO");
   });
 
+  it("no selectable option contains the separator it is joined on", () => {
+    // The wire format for a multi-select is comma-joined here and split on
+    // `/[,\n]/` server-side. That round-trips only while no option value contains
+    // a comma or a newline — true today, and asserted nowhere until now, so an
+    // innocuous new option like "Deploy failed, retried" would silently arrive as
+    // two conditions with no error anywhere.
+    for (const opt of WATCH_CONDITION_OPTIONS) {
+      expect(opt, `watch condition "${opt}" would split into two on the wire`).not.toMatch(/[,\n]/);
+    }
+  });
+
   it("sends an empty string when a multi-select has nothing selected", () => {
     // The `multiselect` kind maps "" to [], which is how the field is cleared.
     expect(detailValue({ multiple: true, value: "", selectedOptions: [] })).toBe("");
@@ -62,6 +78,79 @@ describe("detailValue — the served serializer, executed", () => {
     // A SINGLE select is not a multi-select: `.value` is already correct there,
     // and treating it as one would depend on selectedOptions it may not stub.
     expect(detailValue({ multiple: false, value: "maintained" })).toBe("maintained");
+  });
+});
+
+/** Evaluate the ACTUAL served saveDetail source, with fetch injected. */
+function loadSaveDetail(fetchImpl: (url: string, init: unknown) => Promise<{ ok: boolean }>) {
+  return new Function("fetch", `${DETAIL_VALUE_FN}\n${SAVE_DETAIL_FN}\nreturn saveDetail;`)(
+    fetchImpl,
+  ) as (el: Stub, root: { querySelector: (s: string) => Stub | null }) => Promise<void>;
+}
+
+const NO_SPAN = { querySelector: () => null };
+
+describe("saveDetail — the served save, executed", () => {
+  function textInput(over: Stub = {}): Stub {
+    return {
+      value: "new",
+      defaultValue: "old",
+      dataset: { detailField: "name", detailsUrl: "/x" },
+      ...over,
+    };
+  }
+
+  it("resyncs defaultValue after a successful save, so the next blur is a no-op", async () => {
+    // Without this the blur guard (`value !== defaultValue`) stays true forever and
+    // every later focus+blur re-POSTs the field until the page is reloaded.
+    const el = textInput();
+    await loadSaveDetail(() => Promise.resolve({ ok: true }))(el, NO_SPAN);
+    expect(el.defaultValue).toBe("new");
+    expect(el.defaultValue).toBe(el.value);
+  });
+
+  it("leaves defaultValue DIRTY when the save fails, so the next blur retries", async () => {
+    // The positive control for the test above: if resync were unconditional this
+    // would also read "new", and a failed write would look saved.
+    const el = textInput();
+    await loadSaveDetail(() => Promise.resolve({ ok: false }))(el, NO_SPAN);
+    expect(el.defaultValue).toBe("old");
+  });
+
+  it("leaves defaultValue dirty when the request rejects outright", async () => {
+    const el = textInput();
+    await loadSaveDetail(() => Promise.reject(new Error("offline")))(el, NO_SPAN);
+    expect(el.defaultValue).toBe("old");
+  });
+
+  it("the secret row's empty defaultValue is resynced too — the credential re-POST case", async () => {
+    // The `secret` kind deliberately emits no `value` attribute so an existing
+    // credential is never echoed into the HTML, which pins defaultValue at "".
+    // That made it the worst instance: every blur after typing re-sent the secret.
+    const el = textInput({ value: "sk_live_xyz", defaultValue: "" });
+    await loadSaveDetail(() => Promise.resolve({ ok: true }))(el, NO_SPAN);
+    expect(el.defaultValue).toBe("sk_live_xyz");
+  });
+
+  it("does not choke on a select, which has no defaultValue at all", async () => {
+    const el = {
+      multiple: true,
+      value: "a",
+      selectedOptions: [{ value: "a" }],
+      dataset: { detailField: "acceptedWatchConditions", detailsUrl: "/x" },
+    };
+    await loadSaveDetail(() => Promise.resolve({ ok: true }))(el, NO_SPAN);
+    expect("defaultValue" in el).toBe(false);
+  });
+
+  it("posts the field name and the serialized value", async () => {
+    let body: unknown = null;
+    const el = textInput();
+    await loadSaveDetail((_u, init) => {
+      body = JSON.parse((init as { body: string }).body);
+      return Promise.resolve({ ok: true });
+    })(el, NO_SPAN);
+    expect(body).toEqual({ field: "name", value: "new" });
   });
 });
 
