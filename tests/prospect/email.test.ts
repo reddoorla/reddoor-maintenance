@@ -405,3 +405,45 @@ describe("buildAuditEmail — internal framing", () => {
     expect(html).toMatch(/attached/i);
   });
 });
+
+describe("sendAuditEmail — the PDF leave-behind", () => {
+  const opts = { link: "https://reddoorla.com/audit/abc", recipients: ["tucker@reddoorla.com"] };
+
+  it("attaches the PDF alongside the HTML sheet when one was rendered", async () => {
+    const { client, sent } = captureResend();
+    const pdf = Buffer.from("%PDF-1.4 fake");
+    await sendAuditEmail(result(), { ...opts, pdf, client });
+
+    const attachments = sent[0]!.attachments!;
+    expect(attachments).toHaveLength(2);
+    // The HTML sheet stays first — it is the attachment recipients already know.
+    expect(attachments[0]!.contentType).toBe("text/html");
+    expect(attachments[1]!.contentType).toBe("application/pdf");
+    expect(attachments[1]!.filename).toMatch(/\.pdf$/);
+    expect(attachments[1]!.content).toBe(pdf.toString("base64"));
+  });
+
+  it("names the PDF after the same host as the sheet", async () => {
+    const { client, sent } = captureResend();
+    await sendAuditEmail(result(), { ...opts, pdf: Buffer.from("x"), client });
+    const [html, pdf] = sent[0]!.attachments!;
+    expect(pdf!.filename).toBe(html!.filename.replace(/\.html$/, ".pdf"));
+  });
+
+  // Rendering needs a live page and a headless browser. When either is
+  // unavailable the email still has to go — an attachment is not worth losing a
+  // delivered report over.
+  it("sends the email unchanged when no PDF was rendered", async () => {
+    const { client, sent } = captureResend();
+    await sendAuditEmail(result(), { ...opts, pdf: null, client });
+    const attachments = sent[0]!.attachments!;
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0]!.contentType).toBe("text/html");
+  });
+
+  it("treats an omitted pdf the same as a null one", async () => {
+    const { client, sent } = captureResend();
+    await sendAuditEmail(result(), { ...opts, client });
+    expect(sent[0]!.attachments!).toHaveLength(1);
+  });
+});
