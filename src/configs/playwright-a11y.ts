@@ -60,11 +60,34 @@ function allocateFreePortSync(): string | null {
   }
 }
 
-// REDDOOR_SMOKE_PORT (the central audit already allocated one) wins; otherwise
-// this run allocates its own. The old fallback was the fixed 5173 — the same
-// port a dev server sits on, which is what let `reuseExistingServer` silently
-// hijack local runs (#524).
-const port = smokePort || allocateFreePortSync() || "5173";
+/**
+ * Resolve the port this run binds to, ONCE per run rather than once per
+ * evaluation of this file.
+ *
+ * REDDOOR_SMOKE_PORT (the central audit already allocated one) wins; otherwise
+ * this run allocates its own. The old fallback was the fixed 5173 — the same
+ * port a dev server sits on, which is what let `reuseExistingServer` silently
+ * hijack local runs (#524).
+ *
+ * The allocation is pinned back into the environment, and that is the whole
+ * point. Playwright re-evaluates the config file in EVERY worker process, not
+ * just the main one. Allocating per evaluation gave each worker a different
+ * port: the main process started the dev server on one, every worker aimed
+ * `baseURL` at another, and the run died with ERR_CONNECTION_REFUSED against a
+ * handful of ports nothing was ever serving. Workers are forked and inherit
+ * this environment, so writing it back makes every later evaluation agree.
+ *
+ * It broke on the site suites and not on `audit --only a11y`, which writes its
+ * own config and never reads this file — so nothing here caught it.
+ */
+function resolvePort(): string {
+  if (smokePort) return smokePort;
+  const allocated = allocateFreePortSync() || "5173";
+  process.env.REDDOOR_SMOKE_PORT = allocated;
+  return allocated;
+}
+
+const port = resolvePort();
 
 // NOTE: default export only — sites consume this as `import base from
 // "@reddoorla/maintenance/configs/playwright-a11y"` (or re-export the default).
