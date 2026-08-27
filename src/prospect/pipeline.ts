@@ -83,9 +83,9 @@ async function defaultAssetProbe(
 /** Three requests, and every one of them wants the body — a HEAD tells us
  *  nothing about whether a 404 page has a way back into the site. Redirects are
  *  followed because the whole point of two of these checks is where you land. */
-async function defaultBasicsProbe(url: string): Promise<BasicsProbe> {
+async function defaultBasicsProbe(url: string, userAgent = USER_AGENT): Promise<BasicsProbe> {
   const res = await fetch(url, {
-    headers: { "user-agent": USER_AGENT, accept: "text/html,*/*" },
+    headers: { "user-agent": userAgent, accept: "text/html,*/*" },
     redirect: "follow",
     signal: AbortSignal.timeout(15_000),
   });
@@ -195,7 +195,11 @@ export async function runProspectAudit(
   // point: "does the address work, and what happens on a missing page" is
   // answerable about a site whose markup defeated everything else.
   const basics: StageResult<BasicsCheck> = await stage("basics", deps, async () =>
-    checkBasics(crawlData, { probe: defaultBasicsProbe, ...deps.basics }),
+    checkBasics(crawlData, {
+      probe: defaultBasicsProbe,
+      probeAs: defaultBasicsProbe,
+      ...deps.basics,
+    }),
   );
 
   const lighthouse: StageResult<LighthouseScores> = await stage("lighthouse", deps, async () =>

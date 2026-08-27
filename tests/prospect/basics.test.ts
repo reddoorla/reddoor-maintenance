@@ -3,6 +3,7 @@ import {
   checkBasics,
   counterpartHost,
   hasSiteLink,
+  CRAWLER_AGENTS,
   MISSING_PATH,
   type BasicsDeps,
   type BasicsProbe,
@@ -286,5 +287,75 @@ describe("checkBasics — derived from the crawl", () => {
     );
     expect(result.altText.pagesExamined).toBe(1);
     expect(result.duplicateTitles).toEqual([]);
+  });
+});
+
+describe("checkBasics — what the crawlers are actually served", () => {
+  /** A UA-aware probe: everything 200 unless the table says otherwise. */
+  const uaProbe =
+    (blocked: Record<string, number | "throw"> = {}) =>
+    async (url: string, ua: string): Promise<BasicsProbe> => {
+      for (const [needle, outcome] of Object.entries(blocked)) {
+        if (ua.includes(needle)) {
+          if (outcome === "throw") throw new Error("ECONNRESET");
+          return { status: outcome, finalUrl: url, body: "" };
+        }
+      }
+      return { status: 200, finalUrl: url, body: "<html></html>" };
+    };
+
+  it("finds a crawler served something a browser is not", async () => {
+    // The live case this was built for: robots.txt permits everything and the
+    // CDN 403s one bot anyway.
+    const result = await checkBasics(crawl(), {
+      ...stubProbe(HEALTHY),
+      probeAs: uaProbe({ ClaudeBot: 403 }),
+    });
+    const reach = result.crawlerReachability;
+    expect(reach?.measured).toBe(true);
+    expect(reach?.blocked).toEqual(["ClaudeBot"]);
+    expect(reach?.agents.find((a) => a.agent === "GPTBot")?.blocked).toBe(false);
+  });
+
+  it("reports nothing blocked when every agent gets what a browser gets", async () => {
+    const result = await checkBasics(crawl(), { ...stubProbe(HEALTHY), probeAs: uaProbe() });
+    expect(result.crawlerReachability?.blocked).toEqual([]);
+    expect(result.crawlerReachability?.measured).toBe(true);
+  });
+
+  it("never calls a site-wide outage a crawler block", async () => {
+    // 503 to everyone, browser included. That is an outage, and attributing it
+    // to crawler policy would invent a finding out of a bad afternoon.
+    const result = await checkBasics(crawl(), {
+      ...stubProbe(HEALTHY),
+      probeAs: async (url) => ({ status: 503, finalUrl: url, body: "" }),
+    });
+    expect(result.crawlerReachability?.measured).toBe(false);
+    expect(result.crawlerReachability?.blocked).toEqual([]);
+  });
+
+  it("treats a thrown request as ours, not as a block", async () => {
+    const result = await checkBasics(crawl(), {
+      ...stubProbe(HEALTHY),
+      probeAs: uaProbe({ CCBot: "throw" }),
+    });
+    const ccbot = result.crawlerReachability?.agents.find((a) => a.agent === "CCBot");
+    expect(ccbot?.blocked).toBe(false);
+    expect(ccbot?.error).toBe("ECONNRESET");
+    expect(result.crawlerReachability?.blocked).toEqual([]);
+  });
+
+  it("does not run at all without a UA-capable probe", async () => {
+    const result = await checkBasics(crawl(), stubProbe(HEALTHY));
+    // Absent, not empty — "not measured" and "nothing blocked" are opposite claims.
+    expect(result.crawlerReachability).toBeUndefined();
+  });
+
+  it("never probes an invented Google-Extended user agent", async () => {
+    // Google publishes no such UA — it is a robots.txt control token and the
+    // fetching is Googlebot's. Probing an invented string would measure the
+    // CDN's opinion of our invention, not its policy.
+    expect(CRAWLER_AGENTS.map((a) => a.agent)).not.toContain("Google-Extended");
+    for (const { ua } of CRAWLER_AGENTS) expect(ua).not.toMatch(/Google-Extended/);
   });
 });

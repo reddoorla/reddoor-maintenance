@@ -34,6 +34,52 @@ import type { CrawlResult, PageCapture, PageExtract } from "./types.js";
  *  disputes the finding can request the same URL and see the same answer. */
 export const MISSING_PATH = "/reddoor-audit-page-that-does-not-exist";
 
+/**
+ * The user-agent strings AI crawlers actually send, and a browser to compare
+ * against.
+ *
+ * Reading robots.txt is not enough, and believing otherwise produced a
+ * confidently wrong answer on the check that matters most. ludlowkingsley.com
+ * publishes a robots.txt that blocks nothing relevant, and returns **403 to
+ * ClaudeBot on every request** at the Cloudflare edge — 8 of 8, while a browser,
+ * GPTBot, PerplexityBot and our own audit agent all get 200. The audit told them
+ * "every AI crawler we checked can reach the site" while probing their
+ * visibility with the one engine their CDN turns away.
+ *
+ * The exact strings matter. A first pass used a bare `GPTBot/1.2 (+…)` and drew
+ * a 403 that vanished with the real Mozilla-prefixed string — bot management
+ * matches on the whole header, so an invented UA measures the CDN's opinion of
+ * our invention rather than its policy on the crawler. These are the strings the
+ * vendors document.
+ *
+ * `Google-Extended` is deliberately absent: Google publishes no such user agent.
+ * It is a robots.txt control token, and the fetching is done by Googlebot — so
+ * there is nothing to probe, and probing an invented "Google-Extended" UA would
+ * manufacture a finding.
+ */
+export const CRAWLER_AGENTS: { agent: string; ua: string }[] = [
+  {
+    agent: "GPTBot",
+    ua: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; GPTBot/1.2; +https://openai.com/gptbot",
+  },
+  {
+    agent: "OAI-SearchBot",
+    ua: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; OAI-SearchBot/1.0; +https://openai.com/searchbot",
+  },
+  { agent: "ClaudeBot", ua: "Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)" },
+  {
+    agent: "PerplexityBot",
+    ua: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36; compatible; PerplexityBot/1.0; +https://perplexity.ai/perplexitybot",
+  },
+  { agent: "CCBot", ua: "CCBot/2.0 (https://commoncrawl.org/faq/)" },
+];
+
+/** The control. Every verdict below is a comparison against this, never against
+ *  an absolute status — a site that is down answers everyone badly, and that is
+ *  an outage, not a crawler policy. */
+export const BROWSER_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
+
 export type BasicsProbe = {
   /** Final status after redirects; the request throwing is an error, not a status. */
   status: number;
@@ -45,6 +91,29 @@ export type BasicsProbe = {
 
 export type BasicsDeps = {
   probe: (url: string) => Promise<BasicsProbe>;
+  /** Same fetch, with a chosen user-agent. Separate from `probe` because these
+   *  requests are about the HEADER, not the URL. */
+  probeAs?: (url: string, userAgent: string) => Promise<BasicsProbe>;
+};
+
+/** What one AI crawler gets when it asks for the homepage, next to what a
+ *  browser gets. `blocked` is always a COMPARISON — a site that is down answers
+ *  everyone badly, and that is an outage, not a crawler policy. */
+export type CrawlerReach = {
+  agent: string;
+  status: number | null;
+  blocked: boolean;
+  error: string | null;
+};
+
+export type CrawlerReachability = {
+  /** False when the browser control itself failed, so nothing below can be
+   *  attributed to crawler policy and the report must say "not measured". */
+  measured: boolean;
+  browserStatus: number | null;
+  agents: CrawlerReach[];
+  /** Agents served something a browser is not. The finding. */
+  blocked: string[];
 };
 
 /** One reachability answer. `measured: false` means the request failed for a
@@ -100,6 +169,20 @@ export type BasicsCheck = {
    *  search result all show this text, and repeating it makes them
    *  indistinguishable. */
   duplicateTitles: { title: string; pages: string[] }[];
+  /**
+   * What each AI crawler is actually served, as opposed to what robots.txt says
+   * it may have.
+   *
+   * These are different questions and the audit used to answer only the first
+   * while reporting the second. robots.txt is a request the site publishes; a
+   * CDN's bot management is an answer it enforces, and the second can contradict
+   * the first without the owner knowing. Verified on a live prospect: see the
+   * note on CRAWLER_AGENTS.
+   *
+   * Undefined on reports stored before this existed — absence is "not measured",
+   * never "nothing blocked".
+   */
+  crawlerReachability?: CrawlerReachability;
 };
 
 function extractOf(page: PageCapture): PageExtract | null {
@@ -174,6 +257,55 @@ export function hasSiteLink(html: string, origin: string): boolean {
     }
   }
   return false;
+}
+
+/**
+ * Ask for the homepage as each AI crawler, and as a browser, and compare.
+ *
+ * Only a DIFFERENCE is reportable. An absolute status cannot distinguish "this
+ * CDN turns ClaudeBot away" from "this site is down", and only the first is a
+ * finding about the prospect. A crawler that gets the same answer as a browser
+ * is recorded as not blocked — which is a statement about this moment, not a
+ * guarantee: bot management also keys on IP reputation, geography and rate, none
+ * of which one request from us can characterise.
+ */
+async function checkCrawlerReach(
+  origin: string,
+  probeAs: (url: string, ua: string) => Promise<BasicsProbe>,
+): Promise<CrawlerReachability> {
+  const url = `${origin}/`;
+  let browserStatus: number;
+  try {
+    browserStatus = (await probeAs(url, BROWSER_UA)).status;
+  } catch {
+    // No control, no comparison. Everything below would be unattributable.
+    return { measured: false, browserStatus: null, agents: [], blocked: [] };
+  }
+
+  const agents: CrawlerReach[] = [];
+  for (const { agent, ua } of CRAWLER_AGENTS) {
+    try {
+      const { status } = await probeAs(url, ua);
+      agents.push({ agent, status, blocked: status !== browserStatus, error: null });
+    } catch (err) {
+      // A thrown request is ours or the network's — never reported as a block.
+      agents.push({
+        agent,
+        status: null,
+        blocked: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return {
+    // A browser control that itself failed to load leaves nothing to compare
+    // against, and a site erroring for everyone is an outage, not a policy.
+    measured: browserStatus < 400,
+    browserStatus,
+    agents,
+    blocked: agents.filter((a) => a.blocked).map((a) => a.agent),
+  };
 }
 
 export async function checkBasics(crawl: CrawlResult, deps: BasicsDeps): Promise<BasicsCheck> {
@@ -282,5 +414,10 @@ export async function checkBasics(crawl: CrawlResult, deps: BasicsDeps): Promise
       .filter(([, pages]) => pages.length > 1)
       .map(([title, pages]) => ({ title, pages }))
       .sort((a, b) => b.pages.length - a.pages.length),
+    // Optional dependency: without a UA-capable probe this check simply does not
+    // run, and its absence reads as "not measured" rather than "nothing blocked".
+    ...(deps.probeAs
+      ? { crawlerReachability: await checkCrawlerReach(crawl.origin, deps.probeAs) }
+      : {}),
   };
 }

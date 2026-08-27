@@ -1,0 +1,457 @@
+# AEO evidence base
+
+What the published research supports about getting cited by AI answer engines —
+and, for each finding, what our audit does about it.
+
+**Compiled 2026-08-26.** Every claim carries a source and a date. Nothing here is
+derived from our own `prospect_audits` table; see the last section for why.
+
+**This document has been through an adversarial review.** Four independent
+fact-checkers were asked to refute it, not confirm it. They refuted a great deal
+— including two statistics that turned out not to exist, a headline figure read
+backwards, and a table of mine that silently dropped nine of twenty-three rows,
+three of them inconvenient. What follows is the corrected version. The section
+"Claims that do not survive tracing" is the most useful part of it.
+
+---
+
+## How to use this
+
+1. **Almost all of this is correlation, and much of it is one practitioner's
+   judgement.** Where a genuinely causal design exists — a matched before/after
+   — it is labelled CAUSAL and outranks any correlation.
+2. **Age matters more here than in most fields.** Engine behaviour changes in
+   weeks. Anything over a year old needs a re-check before a client sees it.
+3. **Prefer the study that measured the thing over the blog that summarised it.**
+   I broke this rule twice in the first draft and it cost me both times. If a
+   number reached us through a summary, say so.
+4. **Never quote a figure you have not traced to a primary.** Most published AEO
+   statistics are laundered. See the tracing section.
+
+---
+
+## Settled — safe to say to a client
+
+### AI crawlers do not execute JavaScript
+
+The most actionable finding here, and the only one that directly underwrites a
+heavy weight in our scoring.
+
+- Vercel + MERJ, **17 Dec 2024**: **none** of GPTBot, OAI-SearchBot,
+  ChatGPT-User, ClaudeBot, Meta-ExternalAgent, Bytespider, PerplexityBot or CCBot
+  render JavaScript. On `nextjs.org` they _fetch_ JS files — 11.50% of ChatGPT's
+  fetches, 23.84% of Claude's — and never execute them.
+- **Google renders.** Gemini and Search share Googlebot's crawl; Google confirms
+  `Google-Extended` has no separate user agent and governs grounding as well as
+  training. Vercel could not measure Gemini separately (it counts "Googlebot: 4.5
+  billion fetches across Gemini and Search"), so this is an infrastructure
+  inference, not an observation. **AppleBot** renders too ("may render the
+  content of your website within a browser" — Apple's own docs).
+- **Not re-tested since.** As of Aug 2026 this is still the _only_ published
+  measurement. Every 2025–26 write-up restates it rather than re-running it — one
+  says so outright: _"we're summarizing published third-party tests… not a study
+  of our own."_ No vendor (OpenAI, Anthropic, Perplexity) documents rendering
+  behaviour **in either direction**, so "nobody has announced JS rendering" is an
+  absence of documentation, not a confirmation. Treat the finding as 20 months
+  old and unrefreshed.
+  - _An earlier draft of this document claimed it had been "independently
+    re-confirmed mid-2026". That was false, and the phrasing was lifted from an
+    uncited agency blog. It is the exact failure Rule 3 exists to prevent._
+- **Limits Vercel does not lead with:** measured on `nextjs.org` plus two job
+  boards (one Next.js, one custom), all on Vercel's own CDN, by a vendor whose
+  recommended fix is server-side rendering — which Vercel sells. Microsoft Copilot
+  was excluded for lacking a unique user agent. Data window ≈ Nov–Dec 2024.
+- **Caveat that survives:** content in the _initial HTML response_ — inline JSON,
+  streamed React Server Components — can still be read. "Uses React" is not the
+  finding; "the text only exists after hydration" is.
+- **The growing exception:** agentic browsers _do_ render. ChatGPT Atlas,
+  Operator and Claude's built-in browser are real Chromium instances. They are
+  user-driven, not indexing crawlers, so they don't change the citation argument
+  — but "AI can't run your JavaScript" is false if a client tests it in one.
+
+**Our audit:** the `jsDependence` check, **60 of 100 readability points**. The
+finding is externally supported; **the 60-point weight is our judgement and is
+not.** Zyppy's nearest analogue (#14 Content Visibility, 7.6, attested by 14 of
+54 sources) is supporting evidence for it.
+
+### A crawler's robots.txt access is not the same as its actual access
+
+Not from the literature — measured directly, and it found a defect in our own
+product.
+
+`ludlowkingsley.com` publishes a robots.txt blocking nothing relevant, and
+returns **403 to ClaudeBot on 8 of 8 requests** at the Cloudflare edge, while
+serving a browser, GPTBot, PerplexityBot and our own audit agent 200. Our report
+said "every AI crawler we checked can reach the site" — while probing their
+visibility with the one engine their CDN turns away.
+
+Context: Cloudflare proxies roughly a quarter of the web, has a one-click
+"block AI bots" toggle, and can prepend its own directives to a site's
+robots.txt — so the file you fetch may not be the file the owner wrote.
+
+**Our audit:** fixed. `basics.ts` now fetches the homepage as each documented
+crawler UA and compares against a browser control; the emailed report says
+"nothing in your robots.txt blocks the AI crawlers we checked" rather than
+claiming they can reach it. Two implementation notes that cost real time:
+**use the vendors' exact UA strings** (an invented `GPTBot/1.2 (+…)` drew a 403
+that vanished with the real Mozilla-prefixed string — bot management matches the
+whole header), and **never probe `Google-Extended`**, which is a robots.txt
+control token with no user agent at all.
+
+### AI crawlers waste a large share of their fetches on missing URLs
+
+Vercel/MERJ, same study: ChatGPT **34.82%** of fetches on 404s, Claude
+**34.16%**, ChatGPT a further **14.36%** on redirects — against Googlebot's
+**8.22%** and **1.49%**. Roughly four times Googlebot's rate.
+
+**Read the cause before using it.** Vercel attributes the bulk to `robots.txt`
+probes and _"outdated assets from the `/static/` folder"_ — stale hashed build
+files on a Next.js site, not missing content pages — and its own recommended fix
+is sitemaps, redirects and consistent URL patterns, not status codes. Soft-404s
+are never mentioned in the study.
+
+**Our audit:** the `notFound` probe stays, on its original argument — a dead end
+loses a visitor, and a soft-404 returning `200` puts a "not found" page into any
+index that fetches it. _An earlier draft called Vercel's 34% "a second, stronger
+reason" for that check. It is not: it measures a different failure._
+
+---
+
+## Genuinely uncertain — useful for calibration, not for claims
+
+### The citation "ranking factors" list
+
+Cyrus Shepard / Zyppy, **May 2026**. Widely cited, including by me, as a
+"meta-analysis of 54 studies". It is not one, and the adversarial review audited
+his public scoring sheet to show it.
+
+**What it actually is:** a hand-scored review of 54 hand-picked sources — 10
+preprints/papers, 3 patents, 2 Google docs pages, and **39 commercial SEO-vendor
+blog posts**, several by the same authors (one consultant appears six times, and
+his first criterion is "repeatability across different studies"). Shepard assigns
+each factor a 0–10 score by hand, "using AI to help adjust the final numbers",
+and says so twice. His published scores correlate only **ρ≈0.4** with his own
+tabulated evidence — under a quarter of the ordering is explained by the data.
+
+**Read the scores as one experienced practitioner's confidence ranking. Never as
+an effect size, and never as a justification for a weight in our scoring.**
+
+His top of list: URL accessibility 9.5, search rank 9.4, fan-out rank 9.3,
+preview control 9.2, query-answer match 9.2, intent-format match 9.0, topic
+cluster rank 8.9, answer near the top 8.8, AI-ready structure 8.6 — then
+factually specific 8.3, explicit phrasing 8.1, cites sources 8, self-contained
+passages 8, content visibility 7.6, freshness 7, brand/entity trust 6.8, length
+6.7, language 6.3, entity consistency 5.8, structured data 5.6, known source 5.4,
+domain authority 5, **llms.txt 2**.
+
+_An earlier draft printed 14 of these 23 as a clean table with no note that it was
+a subset. The nine dropped included #16 brand/entity trust — which contradicts the
+next subsection and is among his best-attested factors, scored by 27 of 54 sources
+— and #14 content visibility, which would have supported our own heaviest weight.
+Curation by omission, in both directions._
+
+Two scores that look strong and are not: **URL accessibility (9.5)** is close to
+a tautology and is his _worst_-attested leader (13 of 54 sources). **Preview
+control (9.2)** rests on **exactly one source** — Google's own documentation page.
+Both are measuring official support, not measured effect.
+
+### Does classical search rank drive AI citations?
+
+Weakly, and less than it used to. This is where the first draft was most wrong.
+
+Ahrefs, **2 Mar 2026** (863K SERPs, 4M AI Overview URLs): **38%** of AIO
+citations come from the top 10 — **down from ~76% in July 2025**. The article
+exists to report that collapse. Its own conclusion: _"AI Overviews have shifted,
+and ranking for the user's exact query is no longer a guarantee of visibility."_
+On blue links only, a cited page is as likely to rank **nowhere in the top 100
+(36.7%)** as in the top 10 (37.1%). Ahrefs attributes the shift to fan-out.
+
+Top-10 rank is still ~3.8× enriched over base rate, so it is genuinely
+associated. It is neither necessary nor sufficient, and the trend is against it.
+
+_An earlier draft cited "38% from the top 10, rising further beyond the top 10"
+as support for rank being the second-strongest signal. That gloss is Shepard's,
+not Ahrefs' — it is a cumulative-sum artifact (10 positions hold 38%, the next 90
+hold 31%) — and the figure reached us through his summary while being presented as
+a direct Ahrefs finding._
+
+**For the pitch:** most of what earns AI citations is the same work that earns
+rankings, and Shepard's own summary is _"win SEO, win AI citations (most of the
+time, with extra steps)"_. A client already investing in SEO is not starting from
+zero, and anyone selling AEO as a wholly separate discipline is overselling. Do
+not invert this into "AEO _is_ SEO" — the same evidence puts fan-out above
+exact-query rank, and the section below puts the largest predictors off-site.
+
+### Off-site brand signals correlate more strongly than link metrics
+
+Ahrefs, **26 May 2025** — 75,000 brands, **DR>40**, Google **AI Overviews only**.
+Spearman correlation with **the count of brand-name mentions inside AI responses**
+(measured with Ahrefs' own Brand Radar) — _not_ citations of the brand's website,
+which is what our audit scores.
+
+| Signal               | ρ     |
+| -------------------- | ----- |
+| Branded web mentions | 0.664 |
+| Branded anchors      | 0.527 |
+| Brand search volume  | 0.392 |
+| Domain Rating        | 0.326 |
+| Referring domains    | 0.295 |
+| Backlinks            | 0.218 |
+
+A **12 Dec 2025** follow-up across ChatGPT + AI Mode + AIO adds YouTube mentions
+at **~0.737** — an approximate cross-platform figure over two different question
+pools, not comparable row-for-row with the above.
+
+**Do not express these as a multiple.** Correlation coefficients are not on a
+ratio scale; "beats backlinks by 3×" becomes 9.3× under variance-explained and
+3.6× under Fisher's z. Ahrefs' own characterisation of the whole set: _"moderate
+to very weak correlations on the Spearman scale."_
+
+**And do not conclude backlinks are weak.** The sample was filtered to DR>40 —
+range restriction on the very variable reported as weakest — and the least-visible
+26% of brands were dropped. Every predictor is a proxy for brand size; there are
+no controls and no multivariate model, so these cannot be ranked as independent
+signals.
+
+_An earlier draft titled this "off-site brand signals beat on-site work",
+presented both studies as one table, and claimed "every brand signal beats
+backlinks by 2–3×". The study contains **no on-site variables at all**, so it
+cannot make that comparison; the table spliced two studies seven months apart on
+different platforms; and two of the four ratios fall outside 2–3× anyway._
+
+**Reconciling this with Shepard:** he ranks brand/entity trust 16th of 23 and
+link-based domain authority 22nd — apparently the opposite. They measure
+different outcomes on different populations (which _page_ gets cited, vs. whether
+a _brand_ is mentioned at all among DR>40 brands). Both can be true. Neither
+settles the other.
+
+**The ceiling argument, honestly stated.** The conclusion that a site audit
+cannot promise a visibility number is right. This table is not what establishes
+it. Its sampling frame — DR>40 with a branded keyword above 800 searches/month —
+excludes essentially every prospect we have. Use it as directional about _what
+kind_ of thing drives visibility, never as a measured ceiling for a small
+business.
+
+### A small number of domains take most citations
+
+Reddit, Wikipedia, YouTube, LinkedIn and Forbes plus ten more capture roughly
+**68% of citations** across the major engines (AI Platform Citation Source Index
+2026, synthesising six studies, 680M+ citations, Aug 2024 – Apr 2026). Treat the
+individual percentages as soft — synthesised across studies with different
+methods, and the index says rankings shift within weeks. The _shape_ is reliable:
+a heavy head of aggregators and UGC, and a long tail where a small business sits.
+
+---
+
+## Contested — do not present as settled
+
+### Does schema markup help?
+
+- **Against (CAUSAL, best design):** Ahrefs tracked **1,885 pages** that added
+  JSON-LD between Aug 2025 and Mar 2026 against **4,000 matched controls** (3 per
+  treated URL, different domains, similar pre-period citation levels),
+  difference-in-differences. Google AI Overviews **−4.6%** ("small but
+  statistically significant decline"); AI Mode **+2.4%** and ChatGPT **+2.2%**,
+  both "statistically indistinguishable from zero".
+- **Ahrefs' own caveat, verbatim:** _"we studied pages that were already being
+  cited heavily by AI. Every page in the dataset had 100+ AI Overview citations in
+  February 2025, before any schema was added"_ — and they conclude that for pages
+  not being seen at all, _"schema markup might still play a role."_ That is the
+  situation every one of our prospects is in.
+- **Mechanism evidence against:** a searchVIU experiment found that when five
+  major AI systems fetched pages in real time, **none used the markup** — they
+  extracted visible HTML and ignored JSON-LD, Microdata and RDFa. Google's own
+  docs now say there is _"no special schema.org structured data that you need to
+  add"_ for AI features, and FAQ rich results were retired in May 2026.
+- **For:** Shepard scores it 5.6 and notes _"practically every study that looks at
+  schema and AI citations finds a positive relationship. The effect is typically
+  small, but it's amazingly consistent."_ Ahrefs explains that consistency as
+  adopter characteristics: sites that add schema also invest in technical SEO,
+  publish authoritative content, build links and rank well.
+
+**Honest position:** small, consistent, and **confounded** — the consistency is
+explained by who adopts it, not established as causal.
+
+**For local businesses specifically:** no study measures LocalBusiness schema
+against AI citations. Circulating local figures ("2.7× more likely in the local
+pack", "3.2× in AI Overviews") trace to no primary source and must not be used.
+The defensible argument is _entity resolution_, not citation lift: Google treats
+Google Business Profile as the authoritative local entity and on-site
+LocalBusiness/Organization markup corroborates it. That supports scoring **whether
+the site's stated identity matches the business's public profiles**, and supports
+_not_ scoring **breadth of schema types**.
+
+**Our audit:** schema is **15 of 100 readability points**. Against a confounded
+positive, a null causal result, and evidence that engines don't read it at fetch
+time, that is too much. Recommend splitting: identity (Organization /
+LocalBusiness present and correct) scores; breadth of types does not.
+
+---
+
+## Unsupported — do not recommend
+
+### llms.txt
+
+**The strongest evidence is behavioural, not correlational.** Ahrefs, **15 June
+2026**: of **137,210** domains with traffic, checked against server logs —
+
+- **97% of published llms.txt files received zero requests** in May 2026.
+- Of the 3% that got any, **77% of the requesting bots aren't AI tools** — SEO
+  audit tools 21.7%, unidentified 14.9%, general crawlers 13.1%.
+- Named AI bots were **19.5%** of requests, and the split inverts the sales
+  pitch: agents 10.5%, training crawlers 5.3%, assistants 2.5%, **retrieval bots
+  1.1%**. GPTBot 4.51%, ClaudeBot 0.80%.
+- **"Zero AI bots go looking for llms.txt files that don't exist."** Not having
+  one costs nothing.
+- Ahrefs' own ceiling caveat: _"'fetched' doesn't mean 'read'."_
+
+Corroborating:
+
+- **SE Ranking, ~300,000 domains:** no citation lift; their XGBoost model of
+  citation frequency _improved_ when llms.txt was dropped as a variable. Their own
+  caveat applies — feature-drop improving held-out accuracy is the expected
+  behaviour of a near-zero-signal variable, so this is weak evidence, not a clean
+  refutation. _(This and "a 300,000-domain study" are the same study; an earlier
+  draft listed them as two independent corroborations.)_
+- **Google.** John Mueller, **20 Jan 2026**, asked whether llms.txt on a Google
+  domain was an endorsement: _"I'm tempted to say something snarky since this has
+  come up so often, but to be direct, no."_ And **June 2026**: _"it's purely
+  speculative for now (the file has existed for years, yet none of the AI systems
+  use it)."_
+- **Shepard ranks it last of 23, score 2** — while conceding _"I'm not certain
+  many of these studies even considered the influence of LLMs.txt files."_ It is
+  partly absence of evidence; the Ahrefs log study is what supplies the positive
+  finding.
+- **Adoption estimates disagree:** 2.13% of sites (HTTP Archive Web Almanac
+  2025), 10.13% of domains (SE Ranking), 28% of traffic-receiving domains (Ahrefs,
+  explicitly "an upper bound"). Of the files the Web Almanac found, **39.6% are
+  All in One SEO plugin defaults** and 3.6% Yoast — auto-generated, not authored.
+  _(An earlier draft spliced the 39.6% onto SE Ranking's 10.13% base. Different
+  studies, incompatible denominators.)_
+
+**The best honest case for it** is upstream: training crawlers fetch it ~5× more
+than retrieval bots, so any effect would be on future training corpora, not on
+today's citations. Unmeasurable on a client timescale.
+
+**The myth to expect:** vendors claim Anthropic and Perplexity "confirmed
+support" in 2026. No such statement exists in either vendor's crawler
+documentation. The conflation is that Anthropic, Perplexity and Cloudflare
+_publish_ llms.txt for their developer docs — which coding agents consume — and
+that is not the same as _reading_ it during retrieval.
+
+**Our audit:** removed from scoring, removed from the model prompt that writes
+the fix list, demoted to an explicit footnote in both report surfaces.
+
+---
+
+## Claims that do not survive tracing
+
+Do not repeat these. Two of them were in this document's first draft.
+
+| Claim                                                                            | Status                                                                                                                                                                                                                                                                                                                                            |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **"BrightEdge: +44% AI citations from schema/FAQ markup"**                       | **Does not exist.** BrightEdge's real 44% is that Google's AI Overviews are 44% more likely to criticise brands than ChatGPT. The number was lifted from one claim and attached to another.                                                                                                                                                       |
+| **"Princeton GEO study: +40% from structured data"**                             | **Misattributed.** The paper (arXiv 2311.09735, KDD 2024) is real and causal, but its nine tested methods are all **visible-text** edits — it never tested markup. Reuse it correctly: adding statistics (+37%), inline source citations (+40%) and named expert quotations (+22%) is the best-evidenced _content_ intervention in this document. |
+| "Local businesses with LocalBusiness schema are 2.7×/3.2× more likely to appear" | Untraceable. Agency blogs citing "a 2025 analysis" that is never named.                                                                                                                                                                                                                                                                           |
+| "ChatGPT sources >70% of local results from Foursquare"                          | Directionally corroborated, numerically untraceable — agency aggregators citing unnamed "independent analyses". The _shape_ (local answers come from place APIs and review platforms, not the business's own site) is independently supported; the percentage is not.                                                                             |
+| "Vercel analysed 500 million GPTBot fetches and found zero JS execution"         | Mangled. Vercel reported 569M GPTBot **requests in a month**; the rendering finding is a separate, smaller analysis.                                                                                                                                                                                                                              |
+| "86.7% of Claude's citations rank in Brave's top 10"                             | n=15 results across 3 queries, one vendor post. The defensible figure is **79.2%** (MERJ, Jul 2026, ~35K citations / 400 queries, replicated by Profound).                                                                                                                                                                                        |
+
+---
+
+## What our audit gets right, and what it misses
+
+### Well-supported, keep
+
+| Check                                | Weight             | Evidence                                                 |
+| ------------------------------------ | ------------------ | -------------------------------------------------------- |
+| JS dependence (raw vs rendered text) | 60/100 readability | Vercel/MERJ — finding supported, weight is our judgement |
+| Crawler access, now probed by UA     | 40/100 findability | Measured directly; robots.txt alone gave a false pass    |
+| 404 / soft-404 handling              | finding, unscored  | Its own argument, not Vercel's 34%                       |
+
+### Gaps worth closing
+
+1. **Content-level extractability** — the _best-evidenced content intervention in
+   this document_ and we measure none of it. The Princeton GEO paper is causal and
+   peer-reviewed: statistics +37%, inline source citations +40%, named expert
+   quotations +22%. Shepard's #8 (answer near the top, 8.8), #10 (factually
+   specific, 8.3), #12 (cites sources, 8) and #13 (self-contained passages, 8) all
+   point the same way. We already extract heading trees and full text.
+2. **Preview control** — `nosnippet`, `data-nosnippet`, `max-snippet`. Trivially
+   checkable from markup we already have. Worth adding on the strength of Google's
+   documentation that it suppresses snippets — **not** on Shepard's 9.2, which
+   rests on that same single page.
+3. **Freshness** — Shepard 7.0, and AI-cited content runs measurably fresher than
+   classic organic. We crawl the pages already; a last-substantive-change signal
+   is in reach.
+4. **Search rank / fan-out rank** — his #2 and #3. Needs a rank-data source, so
+   not free. Note the Ahrefs collapse above before weighting it heavily.
+
+### Probably overweighted
+
+- **Schema, 15/100 readability.** See above — split identity from breadth.
+- **Viewport, ⅓ of the technical component of findability.** A human-visitor
+  factor sitting inside a score about being _found_. It already appears as a
+  "Does it work" finding; consider removing it from findability.
+
+### Open questions the review raised that this document cannot answer
+
+Flagged rather than resolved, because each would change what we tell a client and
+none is settled by evidence I have verified:
+
+- **Local queries may not read the site at all.** If ChatGPT answers "dentist
+  near me" from place APIs and review platforms, our crawl measures an input the
+  engine never reads for that query class. The shape is corroborated; the
+  numbers circulating are not.
+- **Branded-answer accuracy may be the real product.** One study reports that
+  half of small businesses have at least one outright fabricated fact in AI
+  answers about them, against a third of large companies — the stated cause being
+  a thin digital footprint. If it holds, "find the wrong facts an engine is
+  telling people about you" is a better premise than crawlability. **Not yet
+  verified against its primary.**
+- **Our engine choice may not generalise.** Claude's web search is Brave-backed,
+  and ~79% of the URLs it cites rank in Brave's top 10 versus ~34% for Google's.
+  A "Claude didn't name you" finding may substantially be "you don't rank in
+  Brave". At minimum the report should name the engine; ideally we run a second.
+- **Whether any of this converts.** AI referral traffic is on the order of 1% of
+  sessions, and professional services shows the lowest citation rate of any
+  measured segment. The defensible value is credibility and factual correctness,
+  not traffic. The report must never imply a traffic lift.
+
+---
+
+## Why our own data is not in here
+
+`prospect_audits` holds 13 rows over **9 distinct sites**, four of them repeat
+runs of reddoorla.com, in a two-day window, against a **single engine** (Claude —
+Perplexity has never run). Every site was hand-picked as a prospect.
+
+That is a convenience sample. Useful for _checking_ a claim from this document
+against sites we know — it is how the ladder hypothesis got killed and how the
+ClaudeBot block was found. It is not evidence, it cannot support "all N" or
+"universal", and its aggregate counts are contaminated by the repeats. Keep it
+out of anything a client reads.
+
+---
+
+## Sources
+
+**Primary, read directly:**
+
+- Vercel + MERJ, [The rise of the AI crawler](https://vercel.com/blog/the-rise-of-the-ai-crawler) — 17 Dec 2024
+- Ahrefs, [We Analyzed 137K Sites: 97% of llms.txt Files Never Get Read](https://ahrefs.com/blog/llmstxt-study/) — 15 Jun 2026
+- Ahrefs, [We Tracked 1,885 Pages Adding Schema](https://ahrefs.com/blog/schema-ai-citations/) — 2026, causal, matched controls
+- Ahrefs, [38% of AI Overview Citations Pull From The Top 10](https://ahrefs.com/blog/ai-overview-citations-top-10/) — 2 Mar 2026
+- Ahrefs, [An Analysis of AI Overview Brand Visibility Factors](https://ahrefs.com/blog/ai-overview-brand-correlation/) — 26 May 2025
+- Ahrefs, [Top Brand Visibility Factors in ChatGPT, AI Mode, and AI Overviews](https://ahrefs.com/blog/ai-brand-visibility-correlations) — 12 Dec 2025
+- SE Ranking, [Does LLMs.txt impact your AI visibility and citations?](https://seranking.com/blog/llms-txt/) — ~300K domains
+- Cyrus Shepard / Zyppy, [AI Citation Ranking Factors Analysis](https://signal.zyppy.com/p/ai-citation-ranking-factors) + [his scoring sheet](https://docs.google.com/spreadsheets/d/1LdIp1_34yeHM6M0m4Y4LoxM2_j-Q6QXmkiwGGUc-NGg/) — May 2026
+- [HTTP Archive Web Almanac 2025, SEO chapter](https://almanac.httparchive.org/en/2025/seo)
+- Google, [crawlers and user agents](https://developers.google.com/search/docs/crawling-indexing/google-common-crawlers) · Apple, [Applebot](https://support.apple.com/en-us/119829) · [OpenAI bots](https://developers.openai.com/api/docs/bots) · [Anthropic crawlers](https://support.anthropic.com/en/articles/8896518-does-anthropic-crawl-data-from-the-web-and-how-can-site-owners-block-the-crawler) · [Perplexity bots](https://docs.perplexity.ai/guides/bots)
+- Daniel Cheung, [schema → AI citations: an evidence review](https://www.danielkcheung.com/musings/schema-ai-citations-evidence-review) — the systematic review that traced the phantom statistics
+- Search Engine Roundtable, [Google does not endorse llms.txt](https://www.seroundtable.com/google-does-not-endorse-llms-txt-40789.html) — 20 Jan 2026
+
+**Reached us through summaries — treat as unverified until read:** the AI
+Platform Citation Source Index 2026, the searchVIU schema-fetch experiment, the
+MERJ Claude/Brave figure, the small-business hallucination study, and every
+local-search sourcing claim.
