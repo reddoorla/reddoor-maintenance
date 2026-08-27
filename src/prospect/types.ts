@@ -3,6 +3,7 @@ import type { AnswerSpace } from "./answer-space.js";
 import type { AssetCheck } from "./assets.js";
 import type { BasicsCheck } from "./basics.js";
 import type { ConsistencyResult } from "./consistency.js";
+import type { GoalFit, SiteGoal } from "./goals.js";
 import type { JourneyMap } from "./journey.js";
 
 // Re-exported so a consumer reading `probes.answerSpace` off the `./audit`
@@ -12,6 +13,8 @@ export type { AnswerSpace, SourceCount } from "./answer-space.js";
 export type { AssetCheck, ProbedUrl } from "./assets.js";
 export type { BasicsCheck, Reachability } from "./basics.js";
 export type { ConsistencyResult, ContactVariant } from "./consistency.js";
+export type { GoalFit, GoalRequirement, Scope, SiteGoal } from "./goals.js";
+export { GOAL_LABELS, orderRequirements } from "./goals.js";
 export type { ContactAffordance, JourneyMap, PageJourney } from "./journey.js";
 
 /** Every pipeline stage resolves to this. A failed stage degrades its report
@@ -222,6 +225,10 @@ export type AnalyzeResult = {
   /** The model's read of what this company does, for whom, where. */
   business: string;
   entityClarity: { score: number; missing: string[] };
+  /** The one action this site is built to produce — the lens goals.ts reads
+   *  every requirement through. Optional for reports stored before it existed;
+   *  absence means the goal section reads "not measured". */
+  primaryGoal?: SiteGoal;
   buyerQuestions: BuyerQuestion[];
   /** Standalone searches for the visibility probes — what a buyer types before
    *  they know this company exists. Distinct from `buyerQuestions`, which are
@@ -378,4 +385,8 @@ export type ProspectAuditResult = {
    *  crawl already has the evidence for. See basics.ts. Optional for reports
    *  stored before it existed. */
   basics?: StageResult<BasicsCheck>;
+  /** Can a visitor do the one thing this site needs them to do? Read against a
+   *  single named goal rather than a generic template — see goals.ts. Optional
+   *  for reports stored before it existed. */
+  goalFit?: StageResult<GoalFit>;
 };

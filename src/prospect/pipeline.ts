@@ -10,6 +10,7 @@ import {
 import { runLighthouse } from "./lighthouse.js";
 import { checkAssets, type AssetCheck, type AssetCheckDeps } from "./assets.js";
 import { checkBasics, type BasicsCheck, type BasicsDeps, type BasicsProbe } from "./basics.js";
+import { checkGoal, type GoalFit, type SiteGoal } from "./goals.js";
 import type {
   AnalyzeResult,
   ChecksResult,
@@ -44,6 +45,12 @@ export const ANALYZE_SKIPPED = "skipped — the checks stage failed";
  *  has nothing to work from when that stage failed. Exported for the same
  *  reason as the constants above: consumers compare, they do not retype. */
 export const ASSETS_SKIPPED = "skipped — the checks stage failed";
+
+/** No goal was supplied and the analyze stage did not infer one — so the goal
+ *  section reads "not measured". Distinct from a goal of `unknown`, which IS a
+ *  measurement: it means we looked and the site does not push toward any single
+ *  action, which is a finding about the site rather than a gap in the audit. */
+export const GOAL_UNRESOLVED = "no goal supplied and none could be inferred";
 
 /** HEAD first, GET on anything that refuses it.
  *
@@ -124,6 +131,10 @@ export type ProspectAuditOptions = {
   competitors?: string[];
   /** false → tier 3 is skipped deliberately (`--no-probes`). */
   probes?: boolean;
+  /** What this site is for, when we already know. Overrides the analyze stage's
+   *  inference — supply it when the prospect has told us, leave it out for a
+   *  cold audit and let the site speak for itself. */
+  goal?: SiteGoal;
 };
 
 async function stage<T>(
@@ -243,6 +254,28 @@ export async function runProspectAudit(
     );
   }
 
+  // Pure and synchronous over data already gathered, so it cannot fail in a way
+  // worth isolating — but it is still a StageResult, because a report stored
+  // before this existed must read as "not measured" rather than as an empty
+  // checklist, and only the wrapper carries that distinction.
+  //
+  // The operator's goal wins over the model's. `unknown` from the model is a
+  // real answer and is left alone: see the schema note in analyze.ts.
+  const resolvedGoal: SiteGoal | null =
+    opts.goal ?? (analyze.ok ? (analyze.data.primaryGoal ?? null) : null);
+  const goalFit: StageResult<GoalFit> =
+    resolvedGoal === null
+      ? { ok: false, error: GOAL_UNRESOLVED }
+      : {
+          ok: true,
+          data: checkGoal(
+            resolvedGoal,
+            opts.goal ? "operator" : "inferred",
+            crawlData,
+            checks.ok ? checks.data : null,
+          ),
+        };
+
   return {
     url,
     businessName,
@@ -260,5 +293,6 @@ export async function runProspectAudit(
     probes,
     assets,
     basics,
+    goalFit,
   };
 }

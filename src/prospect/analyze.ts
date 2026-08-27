@@ -23,6 +23,25 @@ export const AnalyzeSchema = z.object({
   businessName: z.string(),
   business: z.string(),
   entityClarity: z.object({ score: z.number().min(0).max(100), missing: z.array(z.string()) }),
+  /**
+   * The ONE thing this site needs a visitor to do — the lens every goal check
+   * is read through (goals.ts). Inferred here because the audit is usually cold
+   * and nobody has asked the prospect; the operator can override it at dispatch.
+   *
+   * `unknown` is a real answer and must stay available. Forcing a choice would
+   * make the model pick the least-bad option and we would then grade the site
+   * against our own guess and report the result as their failing. If a model
+   * that has just read twenty pages cannot tell what the site is for, that is
+   * the finding.
+   */
+  primaryGoal: z
+    .enum(["book", "enquire", "call", "visit", "buy", "demo", "partner", "unknown"])
+    // Defaulted rather than required. A model that omits one field would
+    // otherwise fail the whole analyze stage — losing the buyer questions, the
+    // fix list and the category queries with it — and no single field is worth
+    // that. The default is the same value the model would give when it cannot
+    // tell, and the goal section already degrades gracefully on it.
+    .default("unknown"),
   // 6-10, not just "an array": a thin or empty response must fail loudly here
   // rather than quietly starving the report's Answers section.
   buyerQuestions: z
@@ -101,6 +120,16 @@ Return:
 - business: what this company does, for whom, and where, in one or two sentences.
 - entityClarity: 0-100 for how unambiguously the site establishes who/where/what it offers, plus the
   specific things missing.
+- primaryGoal: the ONE action this site is built to produce from a visitor. Pick from:
+  book (schedule an appointment), enquire (start a project or request a quote), call (phone them),
+  visit (come to a physical place), buy (purchase online), demo (talk to a sales team),
+  partner (distribution or partnership enquiry), unknown.
+  Judge it from what the site actually pushes toward — the primary calls to action, what the
+  navigation leads to, what the forms ask for — NOT from what a business of this type usually wants.
+  A dental practice whose site has no booking link and one phone number in the footer is "call",
+  not "book".
+  Answer "unknown" when the site genuinely does not push toward any single action. That is a real
+  answer and a useful one: do not pick the least-bad option to avoid it.
 - buyerQuestions: 6-10 questions a real buyer in this category asks before hiring. For each, whether
   the site answers it (yes/partial/no), whether there is a passage an AI could quote verbatim, the page
   it lives on, and the evidence quote. evidence must be an EXACT substring of that page's quoted text —
