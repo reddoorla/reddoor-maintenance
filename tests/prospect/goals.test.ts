@@ -23,10 +23,13 @@ function extract(over: Partial<PageExtract> = {}): PageExtract {
   };
 }
 
+// `forms` defaults to undefined, not [], because that is what a report stored
+// before form extraction shipped actually looks like — and the difference
+// between "no form" and "we never looked" is the whole point of the tri-state.
 function crawl(
   text: string,
   anchors: PageAnchor[] = [],
-  forms: PageExtract["forms"] = [],
+  forms: PageExtract["forms"] = undefined,
 ): CrawlResult {
   const page: PageCapture = {
     url: "https://example.com/",
@@ -256,6 +259,56 @@ describe("checkGoal — provenance", () => {
   });
 });
 
+describe("content checks match an answer, never a topic", () => {
+  // Both false positives this section has shipped were the same bug wearing a
+  // different noun, so the guard is written against the CLASS rather than the
+  // two instances we happened to catch. Every sentence below mentions a topic
+  // one of the checks looks for, and answers none of them — the way a real site
+  // mentions them in passing. Nothing may fire.
+  //
+  // When a check is loosened, this corpus is where it has to stay quiet. If a
+  // new pattern needs a line removed from here to pass, the pattern is wrong.
+  const DECOYS = [
+    "Building relationships with our new patients is what Michelle likes best about working here.",
+    "Returning patients can skip this step, and please return to reception afterwards.",
+    "We opened on the same day the pier reopened, back in 1994.",
+    "Our office is a short walk from the park in the centre of town.",
+    "We take real pride in the delivery of care and the volume of work we handle.",
+    "Requirements for your first visit are listed below.",
+    "Dr. Alvarez holds credentials from three separate boards.",
+    "We photographed each package at our studio over two afternoons.",
+    "That campaign eventually delivered $2.4M in new revenue for the client.",
+  ].join(" ");
+
+  const GOALS: SiteGoal[] = ["book", "enquire", "call", "visit", "buy", "demo", "partner"];
+
+  it.each(GOALS)("stays silent on the decoy corpus for goal %s", (goal) => {
+    const fit = checkGoal(goal, "inferred", crawl(DECOYS), null);
+    const wrong = fit.requirements
+      .filter((r) => r.scope === "content" && r.status === "met")
+      .map((r) => `${r.key} matched: ${r.evidence}`);
+    expect(wrong).toEqual([]);
+  });
+
+  it("the corpus is not silent by accident — real answers still register", () => {
+    // Guards the guard. A corpus that no longer reaches the checks at all would
+    // pass the test above forever while measuring nothing.
+    const real =
+      "We are accepting new patients. Free parking is behind the building. " +
+      "Shipping is free over $50 and our returns policy runs 30 days. " +
+      "Book a free consultation with no obligation.";
+    const book = checkGoal("book", "inferred", crawl(real), null);
+    expect(met(book, "new-clients")).toBe(true);
+    const visit = checkGoal("visit", "inferred", crawl(real), null);
+    expect(met(visit, "getting-there")).toBe(true);
+    const buy = checkGoal("buy", "inferred", crawl(real), null);
+    expect(met(buy, "shipping")).toBe(true);
+    expect(met(buy, "returns")).toBe(true);
+    const call = checkGoal("call", "inferred", crawl(real), null);
+    expect(met(call, "what-to-expect")).toBe(true);
+  });
+});
+
 describe("orderRequirements", () => {
   it("puts unmet first, then cheapest to fix first", () => {
     // The commercial ladder, and the only place it appears: a reader meets the
@@ -291,6 +344,34 @@ describe("checkGoal — never converts our own missing data into their defect", 
     expect(status(fit, "tappable-phone")).toBe("unmeasured");
   });
 
+  it("does not score OUR OWN case-study numbers as a published price", () => {
+    // Found by replaying the check over the stored audits: reddoorla.com scored
+    // a published price off its own results copy. Both the price word and the
+    // amount are in one sentence, so only the subject of the sentence separates
+    // a rate card from a growth chart.
+    const results =
+      "We helped them double sales year over year for five straight years, from $1M to $16M.";
+    expect(met(checkGoal("enquire", "inferred", crawl(results), null), "price-signal")).toBe(false);
+
+    // The counter-case, from a real prospect: a pricing comparison table. It
+    // must survive, or the check measures nothing.
+    const table = "Avg Monthly Cost $20k+/mo with a retainer. Up to 2-Week Trial.";
+    expect(met(checkGoal("enquire", "inferred", crawl(table), null), "price-signal")).toBe(true);
+  });
+
+  it("marks the form check unmeasured when the crawl never extracted forms", () => {
+    // `forms` is optional on PageExtract, so every report stored before form
+    // extraction shipped carries `undefined` — which counted as zero fields and
+    // told six real sites they had no usable enquiry form. Same error as the
+    // phone and reachability checks, in a field added later.
+    const noExtraction = checkGoal("enquire", "inferred", crawl("", [], undefined), null);
+    expect(status(noExtraction, "qualifying-form")).toBe("unmeasured");
+
+    // An empty array is a real measurement: we looked, there was no form.
+    const looked = checkGoal("enquire", "inferred", crawl("", [], []), null);
+    expect(status(looked, "qualifying-form")).toBe("missing");
+  });
+
   it("keeps unmeasured checks out of the denominator", () => {
     // "3 of 4" must never count something we did not look at.
     const fit = checkGoal("enquire", "inferred", crawl(""), checks());
@@ -299,15 +380,59 @@ describe("checkGoal — never converts our own missing data into their defect", 
     expect(fit.total).toBeLessThan(fit.requirements.length);
   });
 
-  it("does not read a price signal from a dollar sign and the word 'packages' on different pages", () => {
+  it("does not credit 'taking new clients' to a staff bio that merely says 'new patients'", () => {
+    // Found on the live Beachfront run, and the same class as the Ludlow price
+    // bug: every dental site on earth contains the words "new patients", so
+    // matching them measures that the site is about dentistry and nothing else.
+    const bio = "Building relationships with our new patients is what Michelle likes best.";
+    expect(met(checkGoal("book", "inferred", crawl(bio), null), "new-clients")).toBe(false);
+
+    const answer = "We are currently accepting new patients at both locations.";
+    expect(met(checkGoal("book", "inferred", crawl(answer), null), "new-clients")).toBe(true);
+  });
+
+  it("counts a NEGATIVE answer as an answer", () => {
+    // The requirement is that the site says, not that the answer is yes. A
+    // practice at capacity that says so has done the visitor the service; the
+    // failure is silence.
+    const full = "We are not accepting new patients until the spring.";
+    expect(met(checkGoal("book", "inferred", crawl(full), null), "new-clients")).toBe(true);
+  });
+
+  it("quotes evidence in the case the site wrote it", () => {
+    // The quote is shown to the client as the receipt. Lower-casing the site's
+    // own copy makes it read as though we mangled it.
+    const fit = checkGoal(
+      "book",
+      "inferred",
+      crawl("Dr. Michelle Alvarez is accepting new patients in Hermosa Beach."),
+      null,
+    );
+    const evidence = fit.requirements.find((r) => r.key === "new-clients")?.evidence ?? "";
+    expect(evidence).toContain("Michelle Alvarez");
+    expect(evidence).not.toContain("michelle alvarez");
+  });
+
+  it("does not read a price signal from a case-study figure in the next sentence", () => {
     // Ludlow Kingsley scored a price signal off "shooting lovely portraits of
     // each package", with the dollar amount coming from an unrelated case study.
-    const scattered =
-      "We photographed each package at our office. " +
-      "x".repeat(400) +
-      " That campaign delivered $2.4M in new revenue.";
-    expect(met(checkGoal("enquire", "inferred", crawl(scattered), null), "price-signal")).toBe(
-      false,
-    );
+    //
+    // This test used to pad the gap to 400 characters, which made it pass
+    // against a proximity rule that did not actually work — the decoy corpus
+    // caught that. At the distance these two really occur, only the sentence
+    // boundary separates them, so that is what the check has to read.
+    const adjacent =
+      "We photographed each package at our studio. That campaign delivered $2.4M in new revenue.";
+    expect(met(checkGoal("enquire", "inferred", crawl(adjacent), null), "price-signal")).toBe(false);
+  });
+
+  it("still reads a real price out of the sentence that quotes it", () => {
+    for (const real of [
+      "Branding packages starting at $12,000.",
+      "Our rates begin at $200 per hour.",
+      "Retainers from $4,500 per month.",
+    ]) {
+      expect(met(checkGoal("enquire", "inferred", crawl(real), null), "price-signal")).toBe(true);
+    }
   });
 });

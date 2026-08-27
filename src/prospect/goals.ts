@@ -121,16 +121,79 @@ const MONEY = /[$£€]\s?\d[\d,]*(?:\.\d{2})?(?:\s?[kKmM]\b)?/;
 const PRICE_WORDS =
   /\b(pricing|price list|starting at|starts at|from \$|per project|per month|retainer|packages?|rates?|fees?|budget starts)\b/i;
 
+/**
+ * Content checks match an ANSWER, never a topic.
+ *
+ * The distinction is the whole reliability of this section, and live data has
+ * now caught it twice. Ludlow Kingsley scored a published price off the word
+ * "package" in a sentence about photographing packaging. Beachfront Dentistry
+ * scored "taking new clients" off a staff bio — "building relationships with our
+ * new patients is what Michelle likes best" — which mentions new patients and
+ * says nothing whatever about whether they can become one.
+ *
+ * A bare topic noun is the failure mode: every dental site on earth contains the
+ * words "new patients", so matching them measures nothing except that the site
+ * is about dentistry. Each pattern below therefore requires language that could
+ * only appear in an actual answer — a verb of availability beside the noun, a
+ * policy beside the topic, a number beside the term.
+ *
+ * This matters more here than anywhere else in the audit, because these findings
+ * are the ones that quote the site back to its owner. A "No" we got wrong is a
+ * conversation. A "Yes" quoting a sentence that plainly does not support it
+ * tells the reader our checks do not mean what they say, and they would be
+ * right. `tests/prospect/goals.test.ts` holds a decoy corpus of sentences that
+ * mention every one of these topics without answering any of them; nothing here
+ * may fire on it.
+ */
+const ANSWERS = {
+  /** A verb of availability beside the noun. "not accepting new patients" is a
+   *  perfectly good answer and matches too — the requirement is that the site
+   *  says, not that the answer is yes. */
+  acceptingClients:
+    /\b(?:accepting|welcoming|taking(?:\s+on)?|seeing|onboarding)\s+(?:any\s+)?new\s+(?:patients|clients|customers|members|students)\b|\bnew\s+(?:patients|clients|customers|members)\s+(?:are\s+)?(?:welcome|accepted)\b/i,
+
+  /** "same day" alone matched anniversaries and opening dates; it has to be the
+   *  same day as something a caller would want. */
+  whatToExpect:
+    /\b(?:free consultation|no obligation|no cost consultation|what to expect|we(?:'ll| will) call you back|same[- ]day (?:appointments?|service|visit|care|callback|response))\b/i,
+
+  /** "garage" on its own matched an auto shop describing itself. */
+  gettingThere:
+    /\b(?:parking|valet|bus stop|subway|light rail|metro station|public transit|nearest station)\b/i,
+
+  /** Bare "delivery" matched "delivery of care" and "delivery of the project". */
+  shipping:
+    /\b(?:shipping|free delivery|delivery (?:times?|options|charges?|fees?)|delivered within|ships? (?:within|in)|dispatch(?:ed)? within)\b/i,
+
+  /** Bare "return" matched "return to our office" and "returning patients" —
+   *  the latter on exactly the kind of site this check runs against. */
+  returns:
+    /\b(?:returns? policy|returns? and exchanges|refunds?|money[- ]back|exchange policy|\d+[- ]day returns?|free returns?)\b/i,
+
+  partnerRoute:
+    /\b(?:distributor|distribution|become a partner|reseller|partnership enquir|wholesale)\b/i,
+
+  /** Bare "requirements" matched "requirements for your first visit", and bare
+   *  "volume" matched "volume of work". */
+  partnerTerms:
+    /\b(?:territor(?:y|ies)|minimum order|minimum volume|volume commitment|(?:partner|dealer|reseller|distributor) requirements|qualif(?:ication|ying) criteria|licens(?:e|ing) requirements?)\b/i,
+} as const;
+
 function extractOf(page: PageCapture): PageExtract | null {
   return page.rendered ?? page.raw;
 }
 
-/** All visible text across every readable page, lower-cased once. */
+/**
+ * All visible text across every readable page, in the case the site wrote it.
+ *
+ * It used to be lower-cased once here, which was free for matching — every
+ * pattern below is `/i` — but the quotes are pulled out of this same string and
+ * shown to the client as the receipt. A site that says "what Michelle likes
+ * best" came back quoted as "what michelle likes best", which reads as though we
+ * mangled their copy. Evidence has to look like evidence.
+ */
 function siteText(pages: PageCapture[]): string {
-  return pages
-    .map((p) => extractOf(p)?.text ?? "")
-    .join(" ")
-    .toLowerCase();
+  return pages.map((p) => extractOf(p)?.text ?? "").join(" ");
 }
 
 function allAnchors(pages: PageCapture[]): { href: string; text: string }[] {
@@ -158,6 +221,10 @@ type Signals = {
   schemaTypes: string[];
   /** Best enquiry form on the site, by field count. */
   bestEnquiryFields: number;
+  /** False when no page carried a `forms` array at all — the field is optional
+   *  on reports stored before form extraction existed, and there a count of
+   *  zero means we never looked, not that the site has no form. */
+  formsMeasured: boolean;
   /** Any phone written as a `tel:` link anywhere. */
   hasTappablePhone: boolean;
   /** False when there is no phone number at all, or when the report predates
@@ -168,30 +235,68 @@ type Signals = {
 };
 
 /**
- * A price word with actual money beside it.
+ * A price word and an actual amount, in the same breath.
  *
- * Both patterns matched anywhere on the site was not enough, and live data
- * showed why: Ludlow Kingsley scored a price signal off the word "package" in a
- * sentence about photographing product packaging, with the `$` coming from an
- * unrelated case study on another page. Requiring the two within a window of
- * each other is the difference between "we charge from $12,000" and a portfolio
- * that happens to contain both a dollar sign and the word "packages".
+ * Ludlow Kingsley scored a published price off the word "package" in a sentence
+ * about photographing product packaging, with the `$` coming from a case study.
+ * The first fix required the two within 120 characters of each other, and the
+ * decoy corpus then caught that this had not fixed anything — it passed only
+ * because the fixture happened to put 400 characters between them. At the
+ * distance the two actually occur on a portfolio site, a case-study figure still
+ * scored as a price.
+ *
+ * Proximity was the wrong rule. What separates "packages starting at $12,000"
+ * from "we photographed each package. That campaign delivered $2.4M" is not
+ * distance — it is that the second pair spans a sentence boundary. A price and
+ * the word introducing it are always in one clause; a coincidence usually is
+ * not. So the two must share a sentence AND sit close within it, which also
+ * degrades safely: extracted page text is often headings and table cells joined
+ * with no punctuation at all, and there the proximity rule still applies.
  */
-const PRICE_WINDOW = 120;
+const PRICE_WINDOW = 60;
+
+/** Sentence-ish. A false split (on "Dr." or "Inc.") can only make this check
+ *  stricter, never more permissive, so a naive rule is the safe one. */
+const SENTENCE_SPLIT = /(?<=[.!?])\s+/;
+
+/**
+ * Money in a sentence about results is a result, not a price.
+ *
+ * Caught by replaying this check across the stored audits: our OWN site scored a
+ * published price off "double sales year over year for five straight years, from
+ * $1M to $16M". The amount is in the same sentence as the price word ("from $"),
+ * so neither proximity nor the sentence rule saves it — the sentence is simply
+ * about an outcome. Every agency and B2B site on the prospect list leads with
+ * numbers like this, which makes it the single most likely way for this check to
+ * embarrass us in front of the person who wrote the sentence.
+ *
+ * Deliberately excluded: "save"/"savings", which belong to real offers ("save
+ * $50 on your first order"), and "delivered", which collides with shipping.
+ */
+const OUTCOME_CONTEXT =
+  /\b(revenue|sales|raised|funding|valuation|arr|mrr|grew|growth|profit|roi|year[- ]over[- ]year|yoy|increased|lift(?:ed)?|generated|worth|acquisition)\b/i;
 
 function priceSignal(text: string): string | null {
-  const words = new RegExp(PRICE_WORDS.source, "gi");
-  for (let m = words.exec(text); m !== null; m = words.exec(text)) {
-    const from = Math.max(0, m.index - PRICE_WINDOW);
-    const window = text.slice(from, m.index + m[0].length + PRICE_WINDOW);
-    const money = MONEY.exec(window);
-    if (!money || money.index === undefined) continue;
-    // Centre the receipt on the AMOUNT, not on the word that led us to it. The
-    // client reads this quote as the proof, and a quote containing "packages"
-    // but no number does not look like evidence of a price.
-    const at = from + money.index;
-    const quoted = text.slice(Math.max(0, at - 70), at + money[0].length + 70);
-    return `…${quoted.replace(/\s+/g, " ").trim()}…`;
+  let offset = 0;
+  for (const sentence of text.split(SENTENCE_SPLIT)) {
+    const base = offset;
+    offset += sentence.length + 1;
+    if (OUTCOME_CONTEXT.test(sentence)) continue;
+
+    const words = new RegExp(PRICE_WORDS.source, "gi");
+    for (let m = words.exec(sentence); m !== null; m = words.exec(sentence)) {
+      const from = Math.max(0, m.index - PRICE_WINDOW);
+      const window = sentence.slice(from, m.index + m[0].length + PRICE_WINDOW);
+      const money = MONEY.exec(window);
+      if (!money || money.index === undefined) continue;
+      // Centre the receipt on the AMOUNT, not on the word that led us to it. The
+      // client reads this quote as the proof, and a quote containing "packages"
+      // but no number does not look like evidence of a price. Quoted from the
+      // full text so the sentence split does not clip the receipt.
+      const at = base + from + money.index;
+      const quoted = text.slice(Math.max(0, at - 70), at + money[0].length + 70);
+      return `…${quoted.replace(/\s+/g, " ").trim()}…`;
+    }
   }
   return null;
 }
@@ -200,8 +305,12 @@ function gather(crawl: CrawlResult, checks: ChecksResult | null): Signals {
   const text = siteText(crawl.pages);
   const phones = checks?.consistency?.phones ?? [];
   let bestEnquiryFields = 0;
+  let formsMeasured = false;
   for (const page of crawl.pages) {
-    for (const form of extractOf(page)?.forms ?? []) {
+    const forms = extractOf(page)?.forms;
+    if (forms === undefined) continue;
+    formsMeasured = true;
+    for (const form of forms) {
       if (form.kind === "enquiry") bestEnquiryFields = Math.max(bestEnquiryFields, form.fieldCount);
     }
   }
@@ -210,6 +319,7 @@ function gather(crawl: CrawlResult, checks: ChecksResult | null): Signals {
     anchors: allAnchors(crawl.pages),
     schemaTypes: checks?.schema.typesFound ?? [],
     bestEnquiryFields,
+    formsMeasured,
     // `linked` is optional on reports stored before it existed; only an explicit
     // true counts as tappable, and only an explicit false makes the question
     // answerable at all.
@@ -319,6 +429,7 @@ export function checkGoal(
     "A name-and-email box produces enquiries you have to qualify by hand. Three or four more fields turn a lead into a briefed conversation.",
     "content",
     s.bestEnquiryFields >= 4 ? `enquiry form with ${s.bestEnquiryFields} fields` : null,
+    s.formsMeasured,
   );
 
   switch (goal) {
@@ -338,7 +449,7 @@ export function checkGoal(
           "Whether you are taking new clients",
           "Nobody wants to fill in a form to find out you are full.",
           "content",
-          has(s, /\b(accepting new|new patients|now accepting|taking on new|new clients)\b/i),
+          has(s, ANSWERS.acceptingClients),
         ),
         address,
       ];
@@ -357,10 +468,7 @@ export function checkGoal(
           "What happens when they call",
           "A first call is easier to make when the visitor knows who picks up and what it costs them.",
           "content",
-          has(
-            s,
-            /\b(free consultation|no obligation|we will call you back|same day|what to expect)\b/i,
-          ),
+          has(s, ANSWERS.whatToExpect),
         ),
       ];
       break;
@@ -375,7 +483,7 @@ export function checkGoal(
           "Parking or transit",
           "The last hundred metres are where a visit gets abandoned.",
           "content",
-          has(s, /\b(parking|park in|valet|metro|subway|bus stop|transit|garage)\b/i),
+          has(s, ANSWERS.gettingThere),
         ),
       ];
       break;
@@ -387,14 +495,14 @@ export function checkGoal(
           "Shipping cost and timing",
           "Unexpected shipping cost is the single most common reason a cart is abandoned.",
           "content",
-          has(s, /\b(shipping|delivery)\b/i),
+          has(s, ANSWERS.shipping),
         ),
         req(
           "returns",
           "A returns policy",
           "Buyers look for it before their first order from a company they do not know.",
           "content",
-          has(s, /\b(returns?|refund|exchange policy|money back)\b/i),
+          has(s, ANSWERS.returns),
         ),
         price,
         ...contactBasics(s),
@@ -428,17 +536,14 @@ export function checkGoal(
           "A named route for partners, separate from customers",
           "A distributor who lands on a customer contact form usually leaves.",
           "content",
-          has(
-            s,
-            /\b(distributor|distribution|become a partner|reseller|partnership enquir|wholesale)\b/i,
-          ),
+          has(s, ANSWERS.partnerRoute),
         ),
         req(
           "requirements",
           "What you are looking for in a partner",
           "Territory, volume or credentials — enough for someone to tell whether it is worth writing to you.",
           "content",
-          has(s, /\b(territor|minimum order|requirements|qualification|credential|volume)\b/i),
+          has(s, ANSWERS.partnerTerms),
         ),
         ...contactBasics(s),
       ];
