@@ -394,29 +394,116 @@ Do not repeat these. Two of them were in this document's first draft.
   factor sitting inside a score about being _found_. It already appears as a
   "Does it work" finding; consider removing it from findability.
 
-### Open questions the review raised that this document cannot answer
+### Where local answers actually come from
 
-Flagged rather than resolved, because each would change what we tell a client and
-none is settled by evidence I have verified:
+Checked against primaries, and the answer changed twice while we were looking —
+which is itself the most important thing in this section.
 
-- **Local queries may not read the site at all.** If ChatGPT answers "dentist
-  near me" from place APIs and review platforms, our crawl measures an input the
-  engine never reads for that query class. The shape is corroborated; the
-  numbers circulating are not.
-- **Branded-answer accuracy may be the real product.** One study reports that
-  half of small businesses have at least one outright fabricated fact in AI
-  answers about them, against a third of large companies — the stated cause being
-  a thin digital footprint. If it holds, "find the wrong facts an engine is
-  telling people about you" is a better premise than crawlability. **Not yet
-  verified against its primary.**
-- **Our engine choice may not generalise.** Claude's web search is Brave-backed,
-  and ~79% of the URLs it cites rank in Brave's top 10 versus ~34% for Google's.
-  A "Claude didn't name you" finding may substantially be "you don't rank in
-  Brave". At minimum the report should name the engine; ideally we run a second.
-- **Whether any of this converts.** AI referral traffic is on the order of 1% of
-  sessions, and professional services shows the lowest citation rate of any
-  measured segment. The defensible value is credibility and factual correctness,
-  not traffic. The report must never imply a traffic lift.
+- **Gemini is Maps-grounded.** Google documents "Grounding with Google Maps" for
+  the Gemini API, over 250M places, returning addresses, hours, reviews. Note the
+  scope: it is a developer tool, off by default. Google publishes no equivalent
+  statement about the consumer app, so applying it there is inference.
+- **ChatGPT's local grounding runs through Yelp, and did not until recently.**
+  OpenAI signed a non-exclusive data-licensing deal with **Yelp on 23 July 2026**.
+  In the largest current sample (Steady Demand, 2,879 runs, 12 verticals × 12 US
+  markets, Aug 2026), Yelp occupies **95.83% of business-card grounding**;
+  TripAdvisor leads _cited_ sources at 13.55%; Google is negligible (0.07% cited).
+- **The "ChatGPT gets >70% of local results from Foursquare" claim is dead.** See
+  the tracing table.
+
+**What this means for us:** for a "near me" query, the engine is assembling an
+answer out of place data and review platforms. A website audit does not touch
+that. It also means the shelf life of any claim in this paragraph is about a
+month — the grounding picture inverted inside four weeks of the Yelp deal. Date
+every claim of this kind or do not make it.
+
+### Whether Claude's answers generalise — our engine choice
+
+**Weaker than it looked, and we should stop leaning on it.**
+
+The "Claude's citations track Brave's rankings" thesis rests on **a single
+vendor**, Profound, which produced both circulating figures — the launch-day
+86.7% (n=15 across 3 commercial queries) and the 79.2% (~35K citations / 400
+queries, presented at a conference, **never published with a method**). There is
+**no independent replication by anyone**. An earlier draft of this document
+credited the 79.2% to MERJ "replicated by Profound"; that is backwards, and
+chronologically impossible.
+
+**Anthropic has never confirmed a search provider.** The Brave inference comes
+from a subprocessor listing, a `BraveSearchParams` object in the tool schema, and
+_Google's_ documentation of Anthropic partner models — not from Anthropic. And
+the stack demonstrably changed: Anthropic runs its own crawler
+(`Claude-SearchBot`), and a second search subprocessor (**turbopuffer**) was added
+in **May 2026** with no public description of its role.
+
+**So:** do not tell a client "Claude runs on Brave, so we will optimise for
+Brave." Do name the engine in the report, and treat a single-engine result as
+what it is.
+
+### Nobody has measured businesses our clients' size
+
+The three studies this document leans on for the local and branded picture all
+sample somebody else:
+
+- **SOCi Local Visibility Index** (28 Jan 2026): ~350,000 locations across 2,751
+  brands — an average of **127 locations per brand**. National and regional
+  chains. ChatGPT recommends 1.2% of locations vs 35.9% appearing in Google's
+  local 3-pack. Method is gated; the prompt set and the definition of
+  "recommended" are not published.
+- **Omniscient Digital** (8 Jan 2026, 240 prompts → 23,387 citations): on branded
+  queries, owned brand content is **23%** of citations, earned media 48%. Sampled
+  HubSpot, Salesforce, Chase, Bain — national brands with real editorial
+  footprints. **Claude is not among the engines tested.**
+- **Profound**: commercial "best X" queries.
+
+**The extrapolation "if chains only get 1.2%, independents get less" is intuitive
+and completely unmeasured.** A chain has national press and Wikipedia entries a
+local dentist does not; it also has 127 locations competing for one slot. The
+direction of the error is genuinely unknown. Do not present it as data.
+
+### Whether any of this converts
+
+AI referral traffic is on the order of 1% of sessions, and professional services
+shows the lowest citation rate of any measured segment. The defensible value is
+credibility and factual correctness, not traffic. **The report must never imply a
+traffic lift.**
+
+---
+
+## What we measured ourselves
+
+Not a study — nine hand-picked prospects, one engine, one window, adjudicated by
+reading. A pilot that tells us what to build. It is here because it converged
+with the literature from a completely different direction.
+
+For each of nine audited businesses we took the stored branded answers and
+checked every factual assertion against that business's own crawled text.
+
+| Site                             | Outcome                                                                                                                                                                                                                                                                                                                  |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Beachfront Dentistry             | Engine named "Drs. Michael Hopkins, Barbara Kane, Jon Monette". The practice's own `/our-team` page lists **Hopkins and Quan**. Kane and Monette are real and appear across WebMD, Zocdoc, Healthgrades, Yelp and patientconnect365 in identical boilerplate — **stale directory roster, and Dr. Quan omitted entirely** |
+| Reddoor Creative (us)            | **Misidentified** — engine's "most prominent" match is a Virginia photography company. "Virginia", "Hampton Roads", "Portsmouth" appear nowhere on our site                                                                                                                                                              |
+| Caltex Medical                   | **Unresolved** — "there isn't one single Caltex Medical"                                                                                                                                                                                                                                                                 |
+| Revogen                          | **Unresolved** — engine offered _Revivogen_, a hair-loss shampoo, and asked which was meant                                                                                                                                                                                                                              |
+| Icovy                            | 3 of 4 asserted locations on site; "Tucson" is not                                                                                                                                                                                                                                                                       |
+| Ludlow Kingsley                  | "over the past 15 years" — absent from the site                                                                                                                                                                                                                                                                          |
+| Espada / ParkerWhite / Designity | Accurate                                                                                                                                                                                                                                                                                                                 |
+
+**The failure mode is identity, not hallucination.** Nothing was invented. Four
+of nine could not be correctly resolved or described, and the mechanism is the
+one the literature describes: the engine assembles the business from third-party
+profiles, and where the site is silent, thin or ambiguous, the profiles win. The
+Beachfront case is the mechanism made concrete — Yelp is 95.83% of ChatGPT's
+business-card grounding, and Yelp carries the stale roster.
+
+**This is the product.** Not "we will raise your visibility" — three independent
+lines of evidence now say we cannot. Instead: _is what an AI tells people about
+you actually true, and where did it get it?_ Extract the assertions from a
+branded answer, diff them against the client's own site, and sort into
+site-confirms / **site-contradicts** / site-never-says-it-so-someone-else-is-the-
+source. Every part is buildable from data the audit already collects, it has a
+before and an after, and the remedy is real work: state your team, locations and
+services unambiguously, and fix the directories currently speaking for you.
 
 ---
 
