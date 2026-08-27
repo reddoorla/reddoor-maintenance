@@ -6,9 +6,37 @@ import type { ProspectAuditStatus } from "../../db/prospect-audits.js";
 import type { PipelineDeps, StageName } from "../../prospect/pipeline.js";
 import type { ProspectAuditResult } from "../../prospect/types.js";
 import type { SendAuditEmailResult } from "../../prospect/email.js";
+import type { SiteGoal } from "../../prospect/goals.js";
+
+/** The operator-selectable goals, in the order the dispatch dropdown lists
+ *  them. `unknown` is deliberately absent: it is a finding the audit can reach
+ *  on its own, never something an operator would choose. */
+export const GOALS = [
+  "book",
+  "enquire",
+  "call",
+  "visit",
+  "buy",
+  "demo",
+  "partner",
+] as const satisfies readonly SiteGoal[];
+
+function isSiteGoal(value: string): value is SiteGoal {
+  return (GOALS as readonly string[]).includes(value);
+}
 
 export type ProspectAuditCliOptions = {
   business?: string;
+  /**
+   * The one action the site should produce from a visitor, chosen by the
+   * operator instead of inferred from the site.
+   *
+   * Worth overriding because the operator knows things the site does not say.
+   * A practice that wants online bookings but has never built one reads as
+   * "call" from its own pages, and grading it as "call" would score it well for
+   * doing the thing they are trying to stop doing.
+   */
+  goal?: string;
   /** Comma-separated competitor domains. */
   competitors?: string;
   /** cac sets this false for `--no-probes`. */
@@ -174,10 +202,19 @@ export async function runProspectAuditCommand(
   };
 
   const business = opts.business?.trim();
+  const goal = opts.goal?.trim();
+  if (goal !== undefined && goal !== "" && !isSiteGoal(goal)) {
+    return fail(`--goal must be one of: ${GOALS.join(", ")}`);
+  }
+
   const result = await runProspectAudit(
     url,
     {
       ...(business ? { business } : {}),
+      // An empty string is what a blank dispatch field sends; it must read as
+      // "not supplied" so the model's own inference still runs, rather than
+      // overriding it with nothing.
+      ...(goal ? { goal } : {}),
       ...(opts.competitors
         ? {
             competitors: opts.competitors

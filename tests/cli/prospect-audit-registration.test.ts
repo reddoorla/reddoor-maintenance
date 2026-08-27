@@ -45,6 +45,7 @@ const binSource = readFileSync(join(repoRoot, "src/cli/bin.ts"), "utf-8");
  *  nothing. */
 const FLAGS = {
   "--business": "business",
+  "--goal": "goal",
   "--competitors": "competitors",
   "--no-probes": "probes",
   "--out": "out",
