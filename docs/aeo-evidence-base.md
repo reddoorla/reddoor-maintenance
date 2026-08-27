@@ -471,11 +471,104 @@ traffic lift.**
 
 ---
 
+## How accurate are AI answers about a business?
+
+The mechanism is one of the better-replicated findings in the LLM factuality
+literature. The number everyone quotes for it is an arithmetic artifact sold by
+a vendor. Both halves matter.
+
+### The mechanism is real — cite the academics, never the vendor
+
+Accuracy falls as an entity's footprint on the web shrinks. Independently
+established, replicated, with large effects:
+
+- **Mallen et al., ACL 2023 (PopQA)** — accuracy tracks entity popularity across
+  nearly all relation types; scaling helps only popular entities.
+- **Kandpal et al., ICML 2023** — TriviaQA accuracy rises 25% → >55% as relevant
+  pretraining documents go from 10¹ to 10⁴. Correlational _and_ causal.
+- **Min et al., EMNLP 2023 (FActScore)** — ChatGPT atomic-fact precision falls
+  **80% → 16%** from frequent to very-rare entities.
+- **Sun et al., NAACL 2024 (Head-to-Tail)** — monotonic head → torso → tail
+  decline. GPT-4: 30.9% accurate, 19.7% hallucinated, **~49% missing**.
+- **Zhao et al., COLM 2024 (WildHallucinations)** — 52% of entities real users
+  ask about have no Wikipedia page, and models hallucinate more on those. The
+  closest published analogue to "small business".
+- **Kalai et al. (OpenAI), 2025** — hallucination rate is lower-bounded by the
+  singleton rate. Rare-fact error is provably hard.
+
+### The "93% of small businesses" figure is 9% restated
+
+Reported as: 13,000+ prompts, three engines, London companies graded against
+Companies House; 93% with at least one wrong or missing fact; 50% of SMEs with a
+fabricated fact vs 32% of large firms.
+
+**Do not use it.**
+
+- **The source is an AEO vendor** — Searchable, $14M seed at an $85M valuation,
+  selling subscriptions at $125–400/month to fix the problem it measured. Its
+  entire 163-URL sitemap contains no report for this study: no methodology, no
+  data, no prompt set, no model versions, no n per group. It is a syndicated
+  press release, re-cut regionally (London, UK high street, Birmingham, Leeds)
+  across a dozen outlets that reuse identical phrasing.
+- **The headline is arithmetic.** 13,365 prompts ÷ 3 engines ÷ 165 companies =
+  exactly **27 facts per company per engine**. At the vendor's own published
+  fact-level error rate of 9.2%: `1 − 0.908²⁷ = 92.6%`. "At least one error per
+  entity" is a function of how many facts you probe, not of model quality — 3
+  probes gives 25%, 20 gives 85%, 50 gives 99%. The number is manufacturable to
+  order, and anyone who does the division reproduces it in one line.
+- **Their own methodology-bearing report says something else**: 75% (not 93%),
+  9.4% vs 6.3% at fact level (not 50% vs 32%), "large" defined as 250+ (not
+  500+). It also explicitly reserves the word _hallucination_ for fabrications,
+  as against "outdated but once-true" and "mistaken identity" — the exact
+  distinction the press release collapses.
+- **Two findings cut against the pitch.** Retrieval helps _most_ on small
+  entities (Mallen), and all the tested products browse by default. And large
+  companies are not fine either — Head-to-Tail puts GPT-4 at 46–48% on the _most_
+  popular entities.
+- **Error rates are falling fast.** GPT-5 claim-level hallucination is ~26% below
+  GPT-4o; Gemini went 55.6% → 72.1% on SimpleQA Verified inside a year. A July
+  2026 snapshot has a short half-life.
+
+### And nobody has measured US local businesses at all
+
+OpenAlex and Semantic Scholar sweeps return **zero peer-reviewed studies**
+measuring AI accuracy on individual business facts. The entire commercial
+evidence base is vendor marketing.
+
+The UK study does not port, for four structural reasons:
+
+- **There is no US ground truth.** Companies House is one free national register.
+  The US has 51 fragmented state registers, FinCEN BOI exempted domestic entities
+  in March 2025, and **29.8M nonemployer businesses (~68% sole proprietors
+  without an EIN) appear in no register at all.** For a solo dentist, "founding
+  year" and "employee count" are not merely irrelevant — they are not gradeable.
+- **Different retrieval path.** Those were company-research questions. A US local
+  query fires place grounding: Yelp for ChatGPT, Maps for Gemini. SOCi measures
+  profile accuracy there at **68% / 68% / 100%** — not 7%.
+- **The fact mix inverts.** Of the five weak fields, two transfer (phone,
+  services), two are unverifiable for a sole proprietor. The high-stakes US local
+  fields — hours, insurance accepted, licence status, accepting new patients —
+  were never tested.
+- **The one US datapoint** is Seer Interactive (n=178 branded queries, 7 models,
+  Dec 2025): a phone number was supplied 91% of the time, matched the brand's own
+  site 64%, and **matched their Google Business Profile only 27%**. National
+  brands, not small businesses.
+
+**What is defensible to say, and it is enough:** independent academic research
+consistently finds AI gets facts wrong more often for businesses with a smaller
+online footprint; industry testing puts roughly one stated fact in eleven wrong;
+**nobody has measured this properly for US local businesses — so we measure
+yours.** That claim survives someone checking our homework. The 93% does not.
+
+---
+
 ## What we measured ourselves
 
 Not a study — nine hand-picked prospects, one engine, one window, adjudicated by
 reading. A pilot that tells us what to build. It is here because it converged
-with the literature from a completely different direction.
+with the literature from a completely different direction — and because, per the
+section above, there is no published measurement of this for businesses like our
+clients', which makes even a nine-site pilot the best data anyone has offered us.
 
 For each of nine audited businesses we took the stored branded answers and
 checked every factual assertion against that business's own crawled text.
@@ -524,7 +617,17 @@ out of anything a client reads.
 
 ## Sources
 
-**Primary, read directly:**
+**Peer-reviewed — the only sources here that are not commercial.** These carry
+the entity-popularity finding, and they should be what we cite for it:
+
+- Mallen et al., [When Not to Trust Language Models (PopQA)](https://arxiv.org/abs/2212.10511) — ACL 2023
+- Kandpal et al., [Large Language Models Struggle to Learn Long-Tail Knowledge](https://arxiv.org/abs/2211.08411) — ICML 2023
+- Min et al., [FActScore](https://arxiv.org/abs/2305.14251) — EMNLP 2023
+- Sun et al., [Head-to-Tail](https://arxiv.org/abs/2308.10168) — NAACL 2024
+- Zhao et al., [WildHallucinations](https://arxiv.org/abs/2407.17468) — COLM 2024
+- Kalai et al. (OpenAI), [Why Language Models Hallucinate](https://arxiv.org/abs/2509.04664) — 2025
+
+**Commercial, read directly:**
 
 - Vercel + MERJ, [The rise of the AI crawler](https://vercel.com/blog/the-rise-of-the-ai-crawler) — 17 Dec 2024
 - Ahrefs, [We Analyzed 137K Sites: 97% of llms.txt Files Never Get Read](https://ahrefs.com/blog/llmstxt-study/) — 15 Jun 2026
@@ -541,5 +644,5 @@ out of anything a client reads.
 
 **Reached us through summaries — treat as unverified until read:** the AI
 Platform Citation Source Index 2026, the searchVIU schema-fetch experiment, the
-MERJ Claude/Brave figure, the small-business hallucination study, and every
+MERJ Claude/Brave figure and every
 local-search sourcing claim.
