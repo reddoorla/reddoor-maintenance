@@ -139,7 +139,16 @@ function exemplaryChecks(): ChecksResult {
       sharedNavLinks: 6,
       pagesExamined: 1,
     },
-    journey: { worstClicksToContact: 1, deadEnds: [] },
+    journey: {
+      affordances: [
+        { kind: "tel", page: "https://exemplary.example/", detail: "+13105550142" },
+        { kind: "form", page: "https://exemplary.example/", detail: "/enquiry" },
+      ],
+      pages: [{ url: "https://exemplary.example/", clicksToContact: 1, internalLinks: 6 }],
+      deadEnds: [],
+      worstClicksToContact: 1,
+      pagesExamined: 1,
+    },
   };
 }
 

@@ -57,21 +57,75 @@ export const MISSING_PATH = "/reddoor-audit-page-that-does-not-exist";
  * there is nothing to probe, and probing an invented "Google-Extended" UA would
  * manufacture a finding.
  */
-export const CRAWLER_AGENTS: { agent: string; ua: string }[] = [
+/**
+ * The agents to ask, and what each one being turned away actually costs.
+ *
+ * The role matters more than the block, and diagnosing a real one proved it.
+ * `ludlowkingsley.com` returns 403 to ClaudeBot and 200 to Claude-SearchBot and
+ * Claude-User from the same origin. Reported as "Claude is blocked" that reads
+ * as "you are invisible to Claude", which is false — Claude cites them today.
+ * What they have actually lost is training and index coverage, while live
+ * answers still reach them. Different sentence, different urgency, different
+ * fix.
+ *
+ * The three roles:
+ *   training  the corpus crawler. Being turned away costs long-term familiarity,
+ *             not today's answer.
+ *   search    the index behind live answers. This is the one that costs
+ *             citations.
+ *   user      fetched when a person asks the assistant to go and look. Blocking
+ *             it breaks the moment a real buyer pastes the URL in.
+ *
+ * UA strings must be the vendors' exact published ones. An invented
+ * `GPTBot/1.2 (+…)` drew a 403 that vanished with the real Mozilla-prefixed
+ * string — bot management matches the whole header, so a paraphrase measures our
+ * own typo. `Google-Extended` is deliberately absent: it is a robots.txt control
+ * token with no user agent at all, so there is nothing to send.
+ */
+export type CrawlerRole = "training" | "search" | "user";
+
+export const CRAWLER_AGENTS: { agent: string; ua: string; role: CrawlerRole }[] = [
   {
     agent: "GPTBot",
+    role: "training",
     ua: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; GPTBot/1.2; +https://openai.com/gptbot",
   },
   {
     agent: "OAI-SearchBot",
+    role: "search",
     ua: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; OAI-SearchBot/1.0; +https://openai.com/searchbot",
   },
-  { agent: "ClaudeBot", ua: "Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)" },
+  {
+    agent: "ChatGPT-User",
+    role: "user",
+    ua: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot",
+  },
+  {
+    agent: "ClaudeBot",
+    role: "training",
+    ua: "Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)",
+  },
+  {
+    agent: "Claude-SearchBot",
+    role: "search",
+    ua: "Mozilla/5.0 (compatible; Claude-SearchBot/1.0; +Claude-SearchBot@anthropic.com)",
+  },
+  {
+    agent: "Claude-User",
+    role: "user",
+    ua: "Mozilla/5.0 (compatible; Claude-User/1.0; +Claude-User@anthropic.com)",
+  },
   {
     agent: "PerplexityBot",
+    role: "search",
     ua: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36; compatible; PerplexityBot/1.0; +https://perplexity.ai/perplexitybot",
   },
-  { agent: "CCBot", ua: "CCBot/2.0 (https://commoncrawl.org/faq/)" },
+  {
+    agent: "Perplexity-User",
+    role: "user",
+    ua: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36; compatible; Perplexity-User/1.0; +https://perplexity.ai/perplexity-user",
+  },
+  { agent: "CCBot", role: "training", ua: "CCBot/2.0 (https://commoncrawl.org/faq/)" },
 ];
 
 /** The control. Every verdict below is a comparison against this, never against
@@ -344,8 +398,19 @@ export async function checkBasics(crawl: CrawlResult, deps: BasicsDeps): Promise
         }
       : await (async () => {
           const url = `${origin.protocol}//${otherHost}/`;
-          const r = await reach(url, deps, (p) => p.status < 400 && sameSite(p.finalUrl, origin.href));
-          return { measured: r.measured, url, host: otherHost, ok: r.ok, landedOn: r.landedOn, error: r.error };
+          const r = await reach(
+            url,
+            deps,
+            (p) => p.status < 400 && sameSite(p.finalUrl, origin.href),
+          );
+          return {
+            measured: r.measured,
+            url,
+            host: otherHost,
+            ok: r.ok,
+            landedOn: r.landedOn,
+            error: r.error,
+          };
         })();
 
   const missing = await reach(`${crawl.origin}${MISSING_PATH}`, deps, (p) => p.status === 404);
