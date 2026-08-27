@@ -562,6 +562,62 @@ yours.** That claim survives someone checking our homework. The 93% does not.
 
 ---
 
+## Can each check ever come back clean?
+
+A check no real site can pass is not a measurement, it is a complaint — and a
+report full of them reads as a sales document rather than an audit, which is the
+one thing this product cannot afford to be. So the checks get audited too.
+
+Two guards, doing different jobs:
+
+**Structural (in CI).** `tests/prospect/greenable.test.ts` holds an exemplary
+site — an ordinary good one, in the plain sentences a real business would write
+— and every requirement of all seven goals must come back met on it. Its mirror
+is the decoy corpus in `goals.test.ts`, which nothing may fire on. Between them
+a check has to be able to say both "yes" and "no". If a check needs something
+stranger than the fixture to go green, the bar is wrong and the fixture is not
+the thing to change.
+
+**Empirical (by hand, on the stored audits).** Structural greenability is not
+enough: a check can be passable in principle and still be one no real site
+passes. Run across the eleven stored audits on 2026-08-26 — a check on our own
+instrument, NOT a claim about the world, and eleven hand-picked sites cannot
+settle what the market looks like:
+
+| Score | min | median | max | reading |
+|---|---|---|---|---|
+| findability | 68 | 91 | 98 | healthy — wide spread, reaches near-100 |
+| readability | 32 | 81 | 89 | healthy spread, has never cleared 90 |
+| answers | 35 | 60 | **65** | no site has ever scored above 65 |
+| aiVisibility | 0 | **0** | 80 | six of eleven score zero |
+
+Two of those need watching, and one is settled:
+
+- **`answers` has never exceeded 65.** Not a code cap — 5 yes + 3 partial + 2 no
+  is exactly 65, and a site answering all ten would score 100. It is low because
+  the model writes its own question list and always includes the hard commercial
+  ones (price, availability, financing), which almost nobody answers. Checked
+  against Beachfront by hand: both its "no" verdicts are correct — "financing"
+  and "payment plan" have zero occurrences in all 65,578 characters of its site,
+  and every "emergency" hit is generic blog advice rather than "we can see you
+  today". The instrument is honest. Whether a metric nobody scores well on is
+  the right thing to put a number on is a product question, not a bug.
+- **`aiVisibility` is zero for the majority.** It is the check least able to come
+  back clean, and it is measuring the thing the operator has already argued is
+  the wrong goal for a small local business — being surfaced for a generic
+  category query it was never going to win. Consider reporting it without a
+  score, or scoping it to queries the business could plausibly rank for.
+- **`viewport` passes 11 out of 11 and has never failed.** The opposite fault: a
+  check that cannot discriminate is padding in the "also checked, nothing wrong"
+  list, and padding costs the reader's trust in the rest of that list.
+
+Related, not yet a problem: the analyze stage shows the model roughly **27% of a
+site** (12 pages × 1,500 characters — 17,946 of Beachfront's 65,559). A buyer
+question genuinely answered in the other 73% would be scored "no". It has not
+bitten on any site checked so far, and both of Beachfront's "no" verdicts survive
+a full-text search, but it is the same class as the bug the accuracy stage is
+built to avoid, and it is why that stage does not truncate page text at all.
+
 ## What we measured ourselves
 
 Not a study — nine hand-picked prospects, one engine, one window, adjudicated by
