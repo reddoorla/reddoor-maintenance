@@ -132,6 +132,14 @@ const deps = (over: Partial<PipelineDeps> = {}): PipelineDeps => ({
     delayMs: 0,
     sleep: async () => {},
   },
+  // Same reason, for the other stage that makes its own requests. Without this
+  // the suite fires three real fetches per run at whatever hostname the fixture
+  // happens to use, which is both slow and rude.
+  basics: {
+    probe: async () => {
+      throw new Error("network disabled in tests");
+    },
+  },
   // Real ProbeRunOptions pacing (probes.ts's pacedEach) genuinely sleeps
   // between queries — 0 keeps this offline suite from spending seconds on it.
   probeDelayMs: 0,

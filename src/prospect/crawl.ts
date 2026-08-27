@@ -560,8 +560,12 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
  *  actual byte count as it streams, so a missing OR a lying header can't get
  *  a huge body past the check either. `Body.text()` always decodes as UTF-8
  *  per the Fetch spec, so decoding the accumulated bytes the same way here
- *  reproduces `res.text()` exactly for anything under the cap. */
-async function readCapped(res: Response, url: string): Promise<string> {
+ *  reproduces `res.text()` exactly for anything under the cap.
+ *
+ *  Exported because every stage that reads a body off a stranger's server needs
+ *  this same guard, and a second copy of it is a second place for the limit to
+ *  drift out of step with the one that has tests. */
+export async function readCapped(res: Response, url: string): Promise<string> {
   const declared = res.headers.get("content-length");
   if (declared !== null && Number(declared) > MAX_RESPONSE_BYTES) {
     throw new ResponseTooLargeError(url);

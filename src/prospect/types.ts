@@ -1,6 +1,7 @@
 import type { AuditResult } from "../types.js";
 import type { AnswerSpace } from "./answer-space.js";
 import type { AssetCheck } from "./assets.js";
+import type { BasicsCheck } from "./basics.js";
 import type { ConsistencyResult } from "./consistency.js";
 import type { JourneyMap } from "./journey.js";
 
@@ -9,6 +10,7 @@ import type { JourneyMap } from "./journey.js";
 // report renderer in reddoor-website is the consumer this is for.
 export type { AnswerSpace, SourceCount } from "./answer-space.js";
 export type { AssetCheck, ProbedUrl } from "./assets.js";
+export type { BasicsCheck, Reachability } from "./basics.js";
 export type { ConsistencyResult, ContactVariant } from "./consistency.js";
 export type { ContactAffordance, JourneyMap, PageJourney } from "./journey.js";
 
@@ -371,4 +373,9 @@ export type ProspectAuditResult = {
    *  `runChecks` is pure and synchronous over the crawl, and it is worth
    *  keeping it that way. Optional for reports stored before it existed. */
   assets?: StageResult<AssetCheck>;
+  /** The things a stranger checks first — whether the address works typed the
+   *  ordinary ways, what a missing page does, and the handful of basics the
+   *  crawl already has the evidence for. See basics.ts. Optional for reports
+   *  stored before it existed. */
+  basics?: StageResult<BasicsCheck>;
 };

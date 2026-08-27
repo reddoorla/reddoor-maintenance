@@ -32,6 +32,19 @@ export type ContactVariant = {
    *  than asserting a mismatch the reader cannot check. */
   seenAs: string[];
   pages: string[];
+  /**
+   * Was it ever written as a `tel:` / `mailto:` link, anywhere on the site?
+   *
+   * False means the number exists only as prose. On a phone — which is where
+   * most people read a number and where the intent to call is highest — that is
+   * a piece of text you cannot tap, and the visitor has to memorise it and
+   * switch apps. It is a one-attribute fix, and it is invisible from a desktop,
+   * which is exactly where nobody looks.
+   *
+   * Optional: reports stored before this was recorded lack it, and a reader must
+   * treat its absence as "not measured" rather than as "not a link".
+   */
+  linked?: boolean;
 };
 
 export type ConsistencyResult = {
@@ -92,20 +105,26 @@ function extractOf(page: PageCapture): PageExtract | null {
   return page.rendered ?? page.raw;
 }
 
-/** Merge one sighting into the variant list, keyed on the normalized form. */
+/** Merge one sighting into the variant list, keyed on the normalized form.
+ *
+ *  `linked` accumulates with OR, not last-write-wins: a number written as prose
+ *  in the body and as a `tel:` link in the footer is tappable, and the order the
+ *  two sightings happen to be visited in must not decide the finding. */
 function record(
   into: Map<string, ContactVariant>,
   normalized: string,
   seenAs: string,
   page: string,
+  linked: boolean,
 ): void {
   const existing = into.get(normalized);
   if (!existing) {
-    into.set(normalized, { normalized, seenAs: [seenAs], pages: [page] });
+    into.set(normalized, { normalized, seenAs: [seenAs], pages: [page], linked });
     return;
   }
   if (!existing.seenAs.includes(seenAs)) existing.seenAs.push(seenAs);
   if (!existing.pages.includes(page)) existing.pages.push(page);
+  existing.linked = existing.linked === true || linked;
 }
 
 export function checkConsistency(pages: PageCapture[]): ConsistencyResult {
@@ -127,13 +146,13 @@ export function checkConsistency(pages: PageCapture[]): ConsistencyResult {
       const tel = /^tel:(.+)$/i.exec(href);
       if (tel?.[1]) {
         const normalized = normalizePhone(tel[1]);
-        if (normalized) record(phones, normalized, tel[1].trim(), page.url);
+        if (normalized) record(phones, normalized, tel[1].trim(), page.url, true);
         continue;
       }
       const mail = /^mailto:([^?]+)/i.exec(href);
       if (mail?.[1]) {
         const address = mail[1].trim();
-        record(emails, address.toLowerCase(), address, page.url);
+        record(emails, address.toLowerCase(), address, page.url, true);
         continue;
       }
       hrefs.add(href);
@@ -147,7 +166,7 @@ export function checkConsistency(pages: PageCapture[]): ConsistencyResult {
       const raw = match[0];
       if (!raw) continue;
       const normalized = normalizePhone(raw);
-      if (normalized) record(phones, normalized, raw.trim(), page.url);
+      if (normalized) record(phones, normalized, raw.trim(), page.url, false);
     }
 
     for (const match of extract.text.matchAll(COPYRIGHT_YEAR)) {

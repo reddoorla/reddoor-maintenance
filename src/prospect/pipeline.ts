@@ -1,4 +1,4 @@
-import { crawlSite, defaultCrawlDeps, USER_AGENT, type CrawlDeps } from "./crawl.js";
+import { crawlSite, defaultCrawlDeps, readCapped, USER_AGENT, type CrawlDeps } from "./crawl.js";
 import { computeScores, runChecks } from "./checks.js";
 import { analyzeSite, defaultAnalyzeDeps, type AnalyzeDeps } from "./analyze.js";
 import {
@@ -9,6 +9,7 @@ import {
 } from "./probes.js";
 import { runLighthouse } from "./lighthouse.js";
 import { checkAssets, type AssetCheck, type AssetCheckDeps } from "./assets.js";
+import { checkBasics, type BasicsCheck, type BasicsDeps, type BasicsProbe } from "./basics.js";
 import type {
   AnalyzeResult,
   ChecksResult,
@@ -19,7 +20,14 @@ import type {
   StageResult,
 } from "./types.js";
 
-export type StageName = "crawl" | "checks" | "lighthouse" | "analyze" | "probes" | "assets";
+export type StageName =
+  | "crawl"
+  | "checks"
+  | "lighthouse"
+  | "analyze"
+  | "probes"
+  | "assets"
+  | "basics";
 
 /** `opts.probes === false` (the CLI's `--no-probes`) and an attempted probe
  *  run that failed are both `{ok:false, error}` — only the message tells
@@ -72,6 +80,18 @@ async function defaultAssetProbe(
   return { status: get.status, headers: headersOf(get) };
 }
 
+/** Three requests, and every one of them wants the body — a HEAD tells us
+ *  nothing about whether a 404 page has a way back into the site. Redirects are
+ *  followed because the whole point of two of these checks is where you land. */
+async function defaultBasicsProbe(url: string): Promise<BasicsProbe> {
+  const res = await fetch(url, {
+    headers: { "user-agent": USER_AGENT, accept: "text/html,*/*" },
+    redirect: "follow",
+    signal: AbortSignal.timeout(15_000),
+  });
+  return { status: res.status, finalUrl: res.url || url, body: await readCapped(res, url) };
+}
+
 export type PipelineDeps = {
   crawl?: CrawlDeps;
   /** Overrides runChecks (checks.ts) — pure and synchronous like the real
@@ -86,6 +106,9 @@ export type PipelineDeps = {
    *  someone else's server, and a courteous audit is worth more than an
    *  exhaustive one. A test passes its own `probe` to avoid a network. */
   assets?: Partial<AssetCheckDeps>;
+  /** Overrides the reachability probe. A test passes its own to avoid a network;
+   *  production makes exactly three requests through the default. */
+  basics?: Partial<BasicsDeps>;
   /** Forwarded to probes.ts's ProbeRunOptions.delayMs — production runs want
    *  the real between-query pacing (a metered, rate-limited API); an offline
    *  test suite wants 0 so it never genuinely sleeps for it. */
@@ -167,6 +190,14 @@ export async function runProspectAudit(
       )
     : { ok: false, error: ASSETS_SKIPPED };
 
+  // Unlike every other stage below, this one reads only `crawl` — never
+  // `checks` — so it still runs when the checks stage failed. That is the
+  // point: "does the address work, and what happens on a missing page" is
+  // answerable about a site whose markup defeated everything else.
+  const basics: StageResult<BasicsCheck> = await stage("basics", deps, async () =>
+    checkBasics(crawlData, { probe: defaultBasicsProbe, ...deps.basics }),
+  );
+
   const lighthouse: StageResult<LighthouseScores> = await stage("lighthouse", deps, async () =>
     (deps.lighthouse ?? runLighthouse)(url),
   );
@@ -224,5 +255,6 @@ export async function runProspectAudit(
     analyze,
     probes,
     assets,
+    basics,
   };
 }
