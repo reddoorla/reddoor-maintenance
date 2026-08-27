@@ -155,15 +155,15 @@ function summarizeFindings(checks: ChecksResult): string {
     // Same "fetch failed" vs "confirmed absent" distinction as crawler access
     // above, per sidecar: a transient sitemap.xml fetch error must not read
     // the same as a genuine 404.
+    // llms.txt is deliberately NOT given to the model. It was here, and a model
+    // told that a file is "missing" will helpfully propose adding it — which
+    // put a fix on prospects' to-do lists for a proposal no answer engine has
+    // committed to reading. Removing it from the scoring (see checks.ts) but
+    // leaving it in the prompt would have kept generating the recommendation
+    // the scoring change exists to stop making.
     `sitemap.xml: ${
       checks.sitemapMeasured
         ? checks.sitemapPresent
-          ? "present"
-          : "missing"
-        : "not measured (fetch failed)"
-    } · llms.txt: ${
-      checks.llmsTxtMeasured
-        ? checks.llmsTxtPresent
           ? "present"
           : "missing"
         : "not measured (fetch failed)"

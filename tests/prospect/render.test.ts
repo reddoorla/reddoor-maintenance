@@ -560,7 +560,7 @@ describe("renderProspectReport", () => {
   // about the prospect's site we have not earned). Mirrors how the
   // crawler-access block already handles crawlerAccessMeasured.
   describe("Fix 2: unmeasured sidecars read as 'not measured', never 'missing'", () => {
-    it("says sitemap.xml and llms.txt were not checked when their fetch failed", () => {
+    it("says sitemap.xml was not checked when its fetch failed", () => {
       const degraded = renderProspectReport(
         result({
           crawl: {
@@ -580,16 +580,61 @@ describe("renderProspectReport", () => {
         }),
       );
       expect(degraded).toMatch(/sitemap\.xml.*not measured/i);
-      expect(degraded).toMatch(/llms\.txt.*not measured/i);
       expect(degraded).not.toContain("sitemap.xml: missing");
-      expect(degraded).not.toContain("llms.txt: missing");
     });
 
     it("still reports a confirmed absence as 'missing' when the fetch succeeded", () => {
-      // sitemapMeasured/llmsTxtMeasured true (the default fixture) plus
-      // llmsTxtPresent false must still say "missing" — Fix 2 only changes
-      // the unmeasured case, not a real, confirmed absence.
-      expect(html).toContain("llms.txt: missing");
+      // sitemapMeasured true (the default fixture) plus sitemapPresent false
+      // must still say "missing" — Fix 2 only changes the unmeasured case, not
+      // a real, confirmed absence.
+      const absent = renderProspectReport(
+        result({ checks: { ok: true, data: checksData({ sitemapPresent: false }) } }),
+      );
+      expect(absent).toContain("sitemap.xml: missing");
+    });
+  });
+
+  // llms.txt is deliberately not a finding any more. It was a `<li>` beside
+  // sitemap.xml, which put a 2024 proposal no answer engine has committed to
+  // reading on the same footing as a file search crawlers demonstrably consume
+  // — and "missing" in a checklist reads as a job. It survives only as a
+  // footnote that says outright we do not score it and will not recommend it.
+  describe("llms.txt is a footnote, not a finding", () => {
+    const withLlms = (over = {}) =>
+      renderProspectReport(result({ checks: { ok: true, data: checksData(over) } }));
+
+    it("never lists llms.txt as missing", () => {
+      expect(withLlms({ llmsTxtPresent: false })).not.toContain("llms.txt: missing");
+    });
+
+    it("never tells a prospect to add one, in any state", () => {
+      for (const state of [
+        { llmsTxtMeasured: true, llmsTxtPresent: true },
+        { llmsTxtMeasured: true, llmsTxtPresent: false },
+        { llmsTxtMeasured: false, llmsTxtPresent: false },
+      ]) {
+        const out = withLlms(state);
+        expect(out).toContain("A note on llms.txt");
+        expect(out).toContain("we do not score it");
+        // The whole point of the footnote: no version of it is a recommendation.
+        expect(out).not.toMatch(/add (an|a) llms\.txt/i);
+      }
+    });
+
+    it("keeps the footnote free of raw fetch errors when the check could not run", () => {
+      const degraded = renderProspectReport(
+        result({
+          crawl: {
+            ok: true,
+            data: crawlData({
+              sidecarErrors: { robots: null, llms: "fetch failed: ETIMEDOUT", sitemap: null },
+            }),
+          },
+          checks: { ok: true, data: checksData({ llmsTxtMeasured: false }) },
+        }),
+      );
+      expect(degraded).toContain("could not be checked");
+      expect(degraded).not.toContain("ETIMEDOUT");
     });
   });
 
@@ -619,7 +664,6 @@ describe("renderProspectReport", () => {
         }),
       );
       expect(degraded).toMatch(/sitemap\.xml.*not measured/i);
-      expect(degraded).toMatch(/llms\.txt.*not measured/i);
       expect(degraded).not.toContain("503 Service Unavailable");
       expect(degraded).not.toContain("ETIMEDOUT");
       expect(degraded).not.toContain("fetch failed");

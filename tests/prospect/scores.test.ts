@@ -232,12 +232,12 @@ describe("computeScores", () => {
       probes: null,
     });
 
-    // technical = neutral(0.5)*0.5 + viewportOk(1)*0.25 + llms(1)*0.25 = 0.75
-    // base01 = (40 + 10 + 15 + 0.75*15) / 80 = 76.25/80 = 0.953125 → 95
-    expect(unmeasured.findability).toBe(95);
-    // technical = absent(0)*0.5 + viewportOk(1)*0.25 + llms(1)*0.25 = 0.5
-    // base01 = (40 + 10 + 15 + 0.5*15) / 80 = 72.5/80 = 0.90625 → 91
-    expect(absent.findability).toBe(91);
+    // technical = neutral(0.5)*(2/3) + viewportOk(1)*(1/3) = 2/3
+    // base01 = (40 + 10 + 15 + (2/3)*15) / 80 = 75/80 = 0.9375 → 94
+    expect(unmeasured.findability).toBe(94);
+    // technical = absent(0)*(2/3) + viewportOk(1)*(1/3) = 1/3
+    // base01 = (40 + 10 + 15 + (1/3)*15) / 80 = 70/80 = 0.875 → 88
+    expect(absent.findability).toBe(88);
     // The unmeasured case must score strictly higher than the confirmed-absent
     // case — "we didn't check" must never be graded as harshly as "we checked
     // and it's missing".
@@ -246,17 +246,34 @@ describe("computeScores", () => {
     expect(unmeasured.findability!).toBeLessThan(100);
   });
 
-  it("scores an unmeasured llms.txt fetch as neutral, not as a confirmed absence", () => {
-    const llmsUnmeasured: ChecksResult = { ...perfectChecks, llmsTxtMeasured: false };
-    const s = computeScores({
-      checks: llmsUnmeasured,
-      lighthouse: null,
-      analyze: null,
-      probes: null,
-    });
-    // technical = sitemap(1)*0.5 + viewportOk(1)*0.25 + neutral(0.5)*0.25 = 0.875
-    // base01 = (40 + 10 + 15 + 0.875*15) / 80 = 78.125/80 = 0.9765625 → 98
-    expect(s.findability).toBe(98);
+  // llms.txt used to be a quarter of the technical component — ~4.7 points of
+  // findability — graded with the same confidence as sitemap.xml. Search
+  // crawlers demonstrably consume a sitemap; no answer engine has documented
+  // consuming llms.txt to build an answer. Marking a prospect down over a
+  // proposal nobody has committed to reading was the one place this audit
+  // asserted more than it knew, so the field is measured, reported as a
+  // footnote, and scored nowhere.
+  //
+  // This asserts the invariant directly rather than pinning a number: every
+  // combination of the two llms fields must produce an identical score.
+  it("gives llms.txt no weight in any score, in any state", () => {
+    const states: Pick<ChecksResult, "llmsTxtMeasured" | "llmsTxtPresent">[] = [
+      { llmsTxtMeasured: true, llmsTxtPresent: true },
+      { llmsTxtMeasured: true, llmsTxtPresent: false },
+      { llmsTxtMeasured: false, llmsTxtPresent: false },
+    ];
+    const scored = states.map((s) =>
+      computeScores({
+        checks: { ...perfectChecks, ...s },
+        lighthouse: null,
+        analyze: null,
+        probes: null,
+      }),
+    );
+    for (const s of scored) expect(s).toEqual(scored[0]);
+    // And a perfect site is now a clean 100 — it used to be gated at 98 unless
+    // it happened to publish a file nobody reads.
+    expect(scored[0]!.findability).toBe(100);
   });
 
   it("pins the exact score from a mixed ChecksResult, catching a swapped weight", () => {
@@ -272,10 +289,10 @@ describe("computeScores", () => {
     //   classicalOpen = 0 (Bingbot blocked)
     //   metaComplete = 1 - (missingTitle 1 + missingDescription 2 + missingCanonical 0) / (pageCount 4 * 3)
     //                = 1 - 3/12 = 0.75
-    //   technical = sitemapPresent(1)*0.5 + viewportOk(0)*0.25 + llmsTxtPresent(0)*0.25 = 0.5
-    //   base01 = (1/3*40 + 0*10 + 0.75*15 + 0.5*15) / 80
-    //          = (13.3333... + 0 + 11.25 + 7.5) / 80 = 32.0833.../80 = 0.4010416...
-    //   findability = round(0.4010416... * 100) = round(40.10416...) = 40
+    //   technical = sitemapPresent(1)*(2/3) + viewportOk(0)*(1/3) = 2/3
+    //   base01 = (1/3*40 + 0*10 + 0.75*15 + (2/3)*15) / 80
+    //          = (13.3333... + 0 + 11.25 + 10) / 80 = 34.5833.../80 = 0.4322916...
+    //   findability = round(0.4322916... * 100) = round(43.22916...) = 43
     //
     // Readability:
     //   jsTerm = (1 - avgMissing 0.4) * 60 = 0.6 * 60 = 36
@@ -315,7 +332,7 @@ describe("computeScores", () => {
     };
 
     const s = computeScores({ checks: mixed, lighthouse: null, analyze: null, probes: null });
-    expect(s.findability).toBe(40);
+    expect(s.findability).toBe(43);
     expect(s.readability).toBe(61);
   });
 });
