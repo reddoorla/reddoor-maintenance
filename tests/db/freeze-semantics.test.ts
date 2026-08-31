@@ -63,11 +63,11 @@ afterEach(() => {
 });
 
 describe("the shipped switch", () => {
-  it("is OFF — Airtable is still authoritative until the freeze flips it", () => {
-    // The ONE assertion on the shipped value. Flipping this constant IS the
+  it("is ON — the freeze flipped it 2026-08-31; Turso is authoritative", () => {
+    // The ONE assertion on the shipped value. Flipping this constant WAS the
     // freeze; every behavioural assertion below injects `strict` instead, so
     // both sides stay proven whichever way the constant currently points.
-    expect(TURSO_IS_AUTHORITATIVE).toBe(false);
+    expect(TURSO_IS_AUTHORITATIVE).toBe(true);
   });
 });
 
