@@ -110,7 +110,7 @@
     "@prismicio/client": "^7.21.8",
     "@prismicio/migrate": "^0.0.2",
     "@sveltejs/kit": "^2.70.1",
-    "@types/mjml": "^4.7.4",
+    "@types/mjml": "^5.0.0",
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^4.1.8",
     "airtable": "^0.12.2",
