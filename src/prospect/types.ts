@@ -245,6 +245,14 @@ export type ProspectAuditResult = {
    *  database's `business` COLUMN (kept as-is; a rename there would need its
    *  own migration for no benefit) — map at that one boundary, not here. */
   businessName: string | null;
+  /** Which credential — which INSTRUMENT — produced the model stages: "api"
+   *  is the metered Anthropic API (production), "subscription" is the
+   *  claude -p path (dev, see claude-code.ts). A Claude Code harness is not
+   *  the same instrument as a bare API call, so runs must be distinguishable
+   *  after the fact even when probes were skipped and no engine name was
+   *  recorded. Absent on rows persisted before 2026-08-31 — unknown, not
+   *  "api". */
+  llmAuth: "api" | "subscription";
   generatedAt: string;
   scores: Scores;
   /** The crawl is the one fatal stage (see pipeline.ts): a crawl failure
