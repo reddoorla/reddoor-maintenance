@@ -177,12 +177,16 @@ describe("renderProspectReport", () => {
     expect(html).toContain("https://acme.example/");
   });
 
-  it("shows all four scores", () => {
-    for (const label of ["Findability", "Readability", "Answers", "AI Visibility"]) {
+  it("shows the three site scores, and never an AI Visibility score card", () => {
+    for (const label of ["Findability", "Readability", "Answers"]) {
       expect(html).toContain(label);
     }
     expect(html).toContain("62");
-    expect(html).toContain("33");
+    // The fourth card was removed on purpose (mirroring the web report's
+    // control split): visibility is measured and reported with receipts in
+    // "What the AI engines said about you", never presented as a score that
+    // reads like ours to move.
+    expect(html).not.toContain("AI Visibility");
   });
 
   it("leads with the probe receipts", () => {
@@ -281,9 +285,10 @@ describe("renderProspectReport", () => {
     expect(h1![1]).toContain("Acme Roofing");
   });
 
-  // Correction 2: aiVisibility score is about buyer/category questions only;
-  // brandedRecognized is reported in words, never folded into the number.
-  it("labels AI Visibility as being about buyer questions, and reports brand recognition separately in words", () => {
+  // Correction 2 (amended by the score removal): the receipts section still
+  // frames visibility around buyer/category questions, and brandedRecognized
+  // is still reported in words — just no longer next to a score card.
+  it("keeps buyer-question framing and worded brand recognition in the receipts", () => {
     expect(html).toMatch(/buyer question/i);
     expect(html).toMatch(/recognized/i);
   });
@@ -698,25 +703,21 @@ describe("renderProspectReport", () => {
     });
   });
 
-  // Fix 5: only Answers/AI Visibility got a hint; nothing stated the 0-100
-  // scale, so "47" under Readability reads as an unlabeled number.
+  // Fix 5 (amended by the score removal): three cards now, each hinted, on a
+  // stated 0-100 scale.
   describe("Fix 5: every score card states what it measures, on a stated 0-100 scale", () => {
-    it("gives all four score cards a hint", () => {
+    it("gives all three score cards a hint", () => {
       const hints = html.match(/class="hint"/g) ?? [];
-      expect(hints.length).toBe(4);
+      expect(hints.length).toBe(3);
     });
 
     it("states the scale is 0-100, not a percentage", () => {
       expect(html).toMatch(/0[–-]100/);
     });
 
-    it("keeps the Answers hint distinct from the AI Visibility hint", () => {
-      // AI Visibility's existing meaning (buyer questions, not name-echo
-      // queries) must survive unchanged.
-      expect(html).toMatch(/not questions that name the business directly/i);
-      // The Answers hint must be about the SITE's own content, not what the
-      // engines say — worded distinctly enough that a reader would not
-      // mistake it for the same measurement as AI Visibility.
+    it("keeps the Answers hint about the site's own content, not what engines say", () => {
+      // Worded so a reader cannot mistake the on-page Answers measurement for
+      // the engine-side visibility receipts below it.
       expect(html).toMatch(/site.{0,20}own (content|pages)/i);
     });
   });

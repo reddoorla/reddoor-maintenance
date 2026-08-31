@@ -175,11 +175,14 @@ describe("buildAuditEmail", () => {
     expect(html).toContain("acme.example");
   });
 
-  it("shows all four scores with their labels", () => {
+  it("shows the three site scores, and never an AI Visibility score", () => {
     const { html } = buildAuditEmail(result(), { link: null });
-    for (const label of ["Findability", "Readability", "Answers", "AI Visibility"]) {
+    for (const label of ["Findability", "Readability", "Answers"]) {
       expect(html).toContain(label);
     }
+    // Removed on purpose, mirroring the report: visibility is receipts, not a
+    // score presented as ours to move.
+    expect(html).not.toContain("AI Visibility");
     expect(html).toContain("80");
     expect(html).toContain("70");
   });
@@ -195,7 +198,9 @@ describe("buildAuditEmail", () => {
     // The section names WHICH scores and why, in plain words — not just a bare count.
     expect(html).toContain("Answers");
     expect(html).toContain(ANALYZE_SKIPPED);
-    expect(html).toContain("AI Visibility");
+    // The probes stage's absence is still explained — under the name of what
+    // it actually measures, not a score label that no longer exists.
+    expect(html).toContain("AI engine answers");
     expect(html).toContain(PROBES_SKIPPED);
   });
 
