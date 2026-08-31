@@ -71,7 +71,7 @@ describe("the shipped switch", () => {
   });
 });
 
-describe("makeSiteMirror — pre-freeze (strict=false), the shipped behaviour", () => {
+describe("makeSiteMirror — pre-freeze (strict=false), kept provable for the rollback window", () => {
   it("swallows a write failure and reports mirrored=0", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const mirror = await makeSiteMirror(async () => brokenDb(), false);

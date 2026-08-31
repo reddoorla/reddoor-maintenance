@@ -728,10 +728,23 @@ cli
       "that could fall back to the ambient TURSO_DATABASE_URL is one keystroke from " +
       "overwriting production.",
   )
+  .option(
+    "--force",
+    "import-airtable / sync: run despite the freeze (#643) — a deliberate rollback-window " +
+      "converge from the frozen Airtable shadow. Without it both refuse while Turso is " +
+      "authoritative, because an import overwrites authoritative rows.",
+  )
   .action(
     async (
       action: string,
-      opts: { file?: string; url?: string; org?: string; cwd?: string; verbose?: boolean },
+      opts: {
+        file?: string;
+        url?: string;
+        org?: string;
+        force?: boolean;
+        cwd?: string;
+        verbose?: boolean;
+      },
     ) => runOrExit(async () => (await import("./commands/db.js")).runDbCommand(action, opts), opts),
   );
 

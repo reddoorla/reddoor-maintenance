@@ -584,9 +584,7 @@ export async function listReportsForSite(db: Db, siteId: string): Promise<Report
  *
  *  `rendered_html` stays deliberately OUT even though the drafting path now
  *  writes it: bodies go through `storeRenderedHtml`, so a request handler
- *  holding a patch cannot accidentally write megabytes of HTML. `sent_at` and
- *  `resend_message_id` stay out because nothing but the send batch writes them
- *  and the hourly sync converges those. */
+ *  holding a patch cannot accidentally write megabytes of HTML. */
 export type ReportMirrorPatch = Partial<
   Pick<
     ReportsTable,
@@ -617,13 +615,20 @@ export type ReportMirrorPatch = Partial<
     | "search_found_page1"
     | "search_position"
     | "completed_on"
+    // #643 (the freeze): the send batch mirrors its own `Sent at` stamp. These
+    // used to stay out because the hourly sync converged them; that sync is
+    // retired, and the console's already-sent guards (approve, the commentary
+    // lock, re-render) read `sent_at` from Turso — an unmirrored stamp would
+    // disarm all three for every post-flip send.
+    | "sent_at"
+    | "resend_message_id"
   >
 >;
 
 /** Mirror an Airtable report write into Turso so the page re-render after an
- *  approve/override/bounce shows the new state immediately instead of after
- *  the next hourly sync. Callers treat a failure as non-fatal (the sync
- *  converges it); an empty patch is a no-op, never invalid SQL. */
+ *  approve/override/bounce shows the new state immediately. Callers route
+ *  failures through `mirrorWrite`, which decides fatal vs swallowed by the
+ *  freeze switch; an empty patch is a no-op, never invalid SQL. */
 export async function mirrorReportPatch(
   db: Db,
   reportId: string,

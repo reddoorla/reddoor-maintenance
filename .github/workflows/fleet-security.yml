@@ -159,6 +159,12 @@ jobs:
         env:
           AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+          # #643 (the freeze): bin.ts builds this command's site mirror EAGERLY,
+          # and post-flip the factory throws without Turso creds. This step's
+          # `|| true` masks the exit code by design, so a creds gap here isn't a
+          # red run — it's Renovate silently never dispatching again.
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           RENOVATE_TOKEN: ${{ steps.app-token-late.outputs.token }}
         run: |
           node dist/cli/bin.js renovate-dispatch --fleet | tee /tmp/dispatch.out || true

@@ -421,4 +421,22 @@ describe("fleet-prismic-drift — a red night is durably visible", () => {
     expect(steps.length).toBe(2);
     for (const s of steps) expect(s).toContain("continue-on-error: true");
   });
+
+  // #643 (the freeze): `openVerdictSink` builds a site mirror, and post-flip the
+  // factory REFUSES TO BUILD without Turso creds — the whole sweep would exit 1
+  // as an outage before checking a single site. The creds are load-bearing in a
+  // way the gate script above cannot prove, so they get their own assertion.
+  it("gives the sweep step the Turso credentials its verdict sink now REQUIRES", () => {
+    const env = stepEnv(wf, SWEEP_STEP);
+    expect(Object.keys(env)).toEqual(
+      expect.arrayContaining(["TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN"]),
+    );
+  });
+
+  it("still gives the sweep step its Airtable credentials (positive control)", () => {
+    // Proves stepEnv is reading the real block, so the assertion above cannot
+    // be passing against an empty or mis-parsed map.
+    const env = stepEnv(wf, SWEEP_STEP);
+    expect(Object.keys(env)).toEqual(expect.arrayContaining(["AIRTABLE_PAT", "AIRTABLE_BASE_ID"]));
+  });
 });

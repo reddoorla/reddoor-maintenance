@@ -5,6 +5,9 @@ export type DbCommandOptions = {
   file?: string;
   /** usage: org slug override; defaults to TURSO_ORG, else discovered. */
   org?: string;
+  /** import-airtable / sync: run despite the freeze — a deliberate
+   *  rollback-window converge from the frozen Airtable shadow. */
+  force?: boolean;
   cwd?: string;
   verbose?: boolean;
 };
@@ -25,6 +28,33 @@ export type DbCommandDeps = {
    *  undo the whole point of making --url explicit. */
   restoreAuthToken?: string;
 };
+
+/** #643 (the freeze): the scheduled import retired with the flip, but the
+ *  MANUAL import survives as the rollback-window converge tool — and run out of
+ *  habit it would overwrite authoritative Turso rows with the frozen Airtable
+ *  archive, including any post-flip write whose best-effort shadow was
+ *  swallowed. So the writing actions refuse under the freeze unless the
+ *  operator says `--force`. `parity` stays unguarded: it only compares, and
+ *  "did the shadow drift?" is exactly the rollback-window question.
+ *
+ *  Pure and exported so the test injects BOTH switch states; `runDbCommand`
+ *  passes the shipped constant. Returns the refusal, or null to proceed. */
+export function freezeGuardsDbWrite(
+  action: string,
+  force: boolean,
+  authoritative: boolean,
+): { output: string; code: number } | null {
+  if (!authoritative) return null;
+  if (action !== "import-airtable" && action !== "sync") return null;
+  if (force) return null;
+  return {
+    output:
+      `db ${action} refused: TURSO_IS_AUTHORITATIVE is on (the freeze, 2026-08-31). ` +
+      `An import now OVERWRITES authoritative Turso rows with the frozen Airtable ` +
+      `archive. Pass --force only for a deliberate rollback-window converge.`,
+    code: 1,
+  };
+}
 
 /** `db <action>` — migrate | replay-deadletters | import-airtable | parity | sync | dump | verify-dump. The db layer is imported
  *  dynamically so a non-db CLI invocation (and `--help`) never loads
@@ -133,6 +163,9 @@ export async function runDbCommand(
   // share that mapping, so parity is definitionally checked against what the
   // importer writes.
   if (action === "import-airtable" || action === "parity" || action === "sync") {
+    const { TURSO_IS_AUTHORITATIVE } = await import("../../db/freeze.js");
+    const refused = freezeGuardsDbWrite(action, opts.force === true, TURSO_IS_AUTHORITATIVE);
+    if (refused) return refused;
     const { readDbConfig, openDb } = await import("../../db/client.js");
     const db = await openDb(opts.url ? { url: opts.url } : readDbConfig());
     const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");

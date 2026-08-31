@@ -37,6 +37,7 @@ function dbCommandBlock(): string {
 const FLAGS = {
   "--file": "file",
   "--url": "url",
+  "--force": "force",
 } satisfies Record<string, keyof DbCommandOptions>;
 
 describe("db command — CLI registration", () => {
@@ -51,8 +52,10 @@ describe("db command — CLI registration", () => {
     read.delete("verbose");
 
     const block = dbCommandBlock();
+    // `[ <"]`: a value-taking flag continues with ` <placeholder>`; a boolean
+    // flag (--force) ends the string right after its name.
     const missing = [...read].filter(
-      (key) => !new RegExp(`\\.option\\(\\s*\\n?\\s*"--${key}[ <]`).test(block),
+      (key) => !new RegExp(`\\.option\\(\\s*\\n?\\s*"--${key}[ <"]`).test(block),
     );
     expect(
       missing.sort(),
@@ -67,7 +70,7 @@ describe("db command — CLI registration", () => {
     const block = dbCommandBlock();
     for (const flag of Object.keys(FLAGS)) {
       expect(block, `${flag} is not registered on the db command`).toMatch(
-        new RegExp(`\\.option\\(\\s*\\n?\\s*"${flag}[ <]`),
+        new RegExp(`\\.option\\(\\s*\\n?\\s*"${flag}[ <"]`),
       );
     }
   });

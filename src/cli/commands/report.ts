@@ -97,9 +97,27 @@ export async function runReportCommand(
   if (opts.sendReady) {
     const { sendApprovedReports } = await import("../../reports/send/orchestrate.js");
     // #539 Phase 5: a Launch send flips Status + stamps `Launched at` on the
-    // Websites row; without this it reaches Turso only via the hourly sync.
+    // Websites row; #643 retired the hourly sync, so these mirrors are the ONLY
+    // way either write reaches Turso.
     const { makeSiteMirror } = await import("../../db/site-mirror.js");
-    return sendApprovedReports({ siteMirror: await makeSiteMirror() });
+    const { mirrorWrite } = await import("../../db/freeze.js");
+    const { openDb, readDbConfig } = await import("../../db/client.js");
+    const { mirrorReportPatch } = await import("../../db/fleet-state.js");
+    return sendApprovedReports({
+      siteMirror: await makeSiteMirror(),
+      // stampSent's Turso shadow, routed through mirrorWrite so the freeze
+      // switch owns the semantics: strict rethrows and the send loop reds the
+      // run. Mirrors stampSent exactly — the 409 replay path leaves Airtable's
+      // `Resend message ID` untouched, so the shadow omits it there too.
+      reportSentMirror: (reportId, sentAt, messageId) =>
+        mirrorWrite(`stamp-sent ${reportId}`, async () => {
+          const db = await openDb(readDbConfig());
+          await mirrorReportPatch(db, reportId, {
+            sent_at: sentAt.toISOString(),
+            ...(messageId !== null ? { resend_message_id: messageId } : {}),
+          });
+        }),
+    });
   }
 
   // Refresh ONE unsent report's stored body so the console preview reflects
