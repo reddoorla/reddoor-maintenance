@@ -123,20 +123,25 @@ function notMeasuredLines(result: ProspectAuditResult): NotMeasuredLine[] {
     lines.push({ label: "Answers", reason: "the model found no buyer questions to check" });
   }
 
+  // Named for what the stage measures (the receipts section), not for the
+  // removed score label — the email no longer presents an AI Visibility score.
   if (!result.probes.ok) {
-    lines.push({ label: "AI Visibility", reason: result.probes.error });
+    lines.push({ label: "AI engine answers", reason: result.probes.error });
   } else if (result.scores.aiVisibility === null) {
-    lines.push({ label: "AI Visibility", reason: "no category (buyer-question) query ran" });
+    lines.push({ label: "AI engine answers", reason: "no category (buyer-question) query ran" });
   }
 
   return lines;
 }
 
+/** The three SITE scores. aiVisibility is deliberately absent — the report
+ *  reorganised around what the client controls, and a visibility number in a
+ *  score row reads as ours to move. It stays computed and stored; the report
+ *  page presents the receipts. */
 const SCORE_FIELDS: { key: keyof ProspectAuditResult["scores"]; label: string }[] = [
   { key: "findability", label: "Findability" },
   { key: "readability", label: "Readability" },
   { key: "answers", label: "Answers" },
-  { key: "aiVisibility", label: "AI Visibility" },
 ];
 
 function scoresTableHtml(scores: ProspectAuditResult["scores"]): string {
