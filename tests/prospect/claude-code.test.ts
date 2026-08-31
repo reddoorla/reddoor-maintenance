@@ -4,6 +4,7 @@ import {
   claudeCodeAnalyzeDeps,
   claudeCodeEngine,
   llmAuthMode,
+  makeClaudeCodeRun,
   type ClaudeCodeRun,
 } from "../../src/prospect/claude-code.js";
 import { envAnalyzeDeps, envEngines } from "../../src/prospect/pipeline.js";
@@ -72,6 +73,17 @@ describe("childEnv", () => {
     expect(env.PATH).toBe("/usr/bin");
   });
 
+  it("strips the third-party billing routes, not just the API key", () => {
+    const env = childEnv({
+      CLAUDE_CODE_USE_BEDROCK: "1",
+      CLAUDE_CODE_USE_VERTEX: "1",
+      ANTHROPIC_BASE_URL: "https://proxy.example",
+    });
+    expect(env.CLAUDE_CODE_USE_BEDROCK).toBeUndefined();
+    expect(env.CLAUDE_CODE_USE_VERTEX).toBeUndefined();
+    expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
+  });
+
   it("maps CLAUDE_OAUTH into the variable the claude CLI actually reads", () => {
     const env = childEnv({ CLAUDE_OAUTH: "oauth-tok" });
     expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("oauth-tok");
@@ -100,9 +112,24 @@ describe("claudeCodeAnalyzeDeps", () => {
     // The analyze pass must not touch the machine or the web — it judges only
     // the text we hand it, same as the API path.
     const disallowed = argAfter(args, "--disallowedTools") ?? "";
-    for (const tool of ["Bash", "Edit", "Write", "WebSearch", "WebFetch"]) {
+    for (const tool of [
+      "Bash",
+      "Edit",
+      "Write",
+      "WebSearch",
+      "WebFetch",
+      "Skill",
+      "SlashCommand",
+    ]) {
       expect(disallowed).toContain(tool);
     }
+    // The subprocess must not inherit the developer's Claude Code config —
+    // user hooks, plugins, and MCP servers have no place inside an audit.
+    // "project" sources + a temp-dir cwd resolve to nothing at all.
+    expect(argAfter(args, "--setting-sources")).toBe("project");
+    expect(args).toContain("--strict-mcp-config");
+    // A runaway loop is bounded by computed spend, not just the wall clock.
+    expect(argAfter(args, "--max-budget-usd")).toBe("5");
     // The schema is the real AnalyzeSchema, not a hand-copied twin.
     const schema = JSON.parse(argAfter(args, "--json-schema") ?? "{}");
     expect(schema.properties).toHaveProperty("businessName");
@@ -211,6 +238,50 @@ const STREAM_LINES = [
       ],
     },
   },
+  // A failed second search: its error prose carries a URL that must NOT be
+  // mined (the API engine's typed narrowing can't make this mistake; ours has
+  // to check is_error explicitly).
+  {
+    type: "assistant",
+    message: {
+      content: [
+        { type: "tool_use", id: "t3", name: "WebSearch", input: { query: "second search" } },
+      ],
+    },
+  },
+  {
+    type: "user",
+    message: {
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "t3",
+          is_error: true,
+          content: "Error: rate limited — see https://support.claude.com/rate-limits for details",
+        },
+      ],
+    },
+  },
+  // A non-WebSearch tool's string result: whatever URLs it carries are not
+  // search retrievals and must not become citations.
+  {
+    type: "assistant",
+    message: {
+      content: [{ type: "tool_use", id: "t4", name: "SomethingElse", input: {} }],
+    },
+  },
+  {
+    type: "user",
+    message: {
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "t4",
+          content: "docs at https://not-a-citation.example/page",
+        },
+      ],
+    },
+  },
   { type: "assistant", message: { content: [{ type: "text", text: "Here are some agencies." }] } },
   { type: "rate_limit_event", info: { unified_rate_limit: "ok" } },
   {
@@ -246,15 +317,21 @@ describe("claudeCodeEngine", () => {
     // A minimal replacement system prompt: the default one makes the probe a
     // coding assistant, which is even further from "an answer engine".
     expect(argAfter(args, "--system-prompt")).toMatch(/answer engine/i);
+    expect(argAfter(args, "--setting-sources")).toBe("project");
+    expect(args).toContain("--strict-mcp-config");
+    expect(argAfter(args, "--max-budget-usd")).toBe("2");
   });
 
-  it("returns the final answer and the domains the search actually retrieved", async () => {
+  it("returns the final answer and ONLY the domains a successful WebSearch retrieved", async () => {
     const { run } = fakeRun({ stdout: streamStdout(STREAM_LINES) });
     const reply = await claudeCodeEngine(run).ask("q");
 
     expect(reply.answer).toBe(
       "Here are some agencies: WANT Branding and The Digital Elevator's picks.",
     );
+    // The fixture also carries an is_error WebSearch result (support.claude.com
+    // in its prose) and a non-WebSearch tool result with a URL — neither may
+    // appear here, or the report's competitor table lists our own error pages.
     expect(reply.citedDomains).toEqual(["thedigitalelevator.com", "wantbranding.com"]);
   });
 
@@ -296,6 +373,47 @@ describe("claudeCodeEngine", () => {
   it("throws when no result event ever arrives — silence is not an answer", async () => {
     const { run } = fakeRun({ stdout: streamStdout(STREAM_LINES.slice(0, 3)) });
     await expect(claudeCodeEngine(run).ask("q")).rejects.toThrow(/result/);
+  });
+});
+
+describe("makeClaudeCodeRun (the real subprocess)", () => {
+  const PATH_ONLY = { PATH: process.env.PATH };
+
+  it("settles instead of crashing when the child exits without reading a large stdin", async () => {
+    // `false` exits immediately, never reading stdin. A 300KB payload does not
+    // fit the ~64KB pipe buffer, so the pending write EPIPEs after exit — with
+    // no stdin error listener that is an uncaught exception that killed the
+    // WHOLE audit process (reproduced live, Node 24). The analyze stdin
+    // realistically exceeds 64KB on heading-heavy sites.
+    const run = makeClaudeCodeRun("false");
+    const res = await run({
+      args: [],
+      stdin: "x".repeat(300_000),
+      env: PATH_ONLY,
+      timeoutMs: 30_000,
+    });
+    expect(res.code).not.toBe(0);
+  });
+
+  it("rejects cleanly when the binary does not exist", async () => {
+    const run = makeClaudeCodeRun("definitely-not-a-real-binary-9x7");
+    await expect(
+      run({ args: [], stdin: "x".repeat(300_000), env: PATH_ONLY, timeoutMs: 30_000 }),
+    ).rejects.toThrow(/ENOENT/);
+  });
+
+  it("does not corrupt a multibyte character split across pipe chunks", async () => {
+    // 65535 ASCII bytes push the following em dash (3 bytes) across the 64KB
+    // pipe-chunk boundary; per-chunk Buffer.toString would decode both halves
+    // to U+FFFD. (A platform with different chunking passes vacuously — on the
+    // 64KB-pipe platforms this suite runs on, it is a real regression canary.)
+    const run = makeClaudeCodeRun("node");
+    const script =
+      "process.stdout.write(Buffer.concat([Buffer.alloc(65535, 97), Buffer.from([0xe2, 0x80, 0x94])]))";
+    const res = await run({ args: ["-e", script], stdin: "", env: PATH_ONLY, timeoutMs: 30_000 });
+    expect(res.code).toBe(0);
+    expect(res.stdout).not.toContain("�");
+    expect(res.stdout.endsWith("—")).toBe(true);
   });
 });
 

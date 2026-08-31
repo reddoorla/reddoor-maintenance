@@ -108,6 +108,11 @@ export async function runProspectAudit(
   opts: ProspectAuditOptions,
   deps: PipelineDeps = {},
 ): Promise<ProspectAuditResult> {
+  // Resolved once, up front, for two reasons: a typo'd PROSPECT_LLM_AUTH must
+  // fail HERE — before crawl and Lighthouse spend, and before a hollow report
+  // could persist and email — and the mode is stamped on the result below,
+  // because which instrument produced an audit is part of the measurement.
+  const llmAuth = llmAuthMode();
   const crawlDeps = deps.crawl ?? defaultCrawlDeps();
   deps.onStage?.("crawl", "start");
   let crawlData: CrawlResult;
@@ -172,6 +177,7 @@ export async function runProspectAudit(
   return {
     url,
     businessName,
+    llmAuth,
     generatedAt: new Date().toISOString(),
     scores: computeScores({
       checks: checks.ok ? checks.data : null,

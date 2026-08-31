@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import os from "node:os";
+import { StringDecoder } from "node:string_decoder";
 import { z } from "zod";
 import { AnalyzeSchema, type AnalyzeDeps } from "./analyze.js";
 import { domainOf, PROBE_MODEL, type VisibilityEngine } from "./probes.js";
@@ -51,6 +52,13 @@ export function childEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEn
   const out: NodeJS.ProcessEnv = { ...env };
   delete out.ANTHROPIC_API_KEY;
   delete out.ANTHROPIC_AUTH_TOKEN;
+  // The CLI can also be routed to metered billers that are not the Anthropic
+  // API key: Bedrock/Vertex switches and a base-URL override. A dev shell
+  // exporting CLAUDE_CODE_USE_BEDROCK=1 for another project must not turn
+  // "subscription mode" into silent AWS billing.
+  delete out.CLAUDE_CODE_USE_BEDROCK;
+  delete out.CLAUDE_CODE_USE_VERTEX;
+  delete out.ANTHROPIC_BASE_URL;
   if (!out.CLAUDE_CODE_OAUTH_TOKEN && env.CLAUDE_OAUTH) {
     out.CLAUDE_CODE_OAUTH_TOKEN = env.CLAUDE_OAUTH;
   }
@@ -60,8 +68,16 @@ export function childEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEn
 /** Tools the subprocess must never reach for. The audit judges text we hand
  *  it; a probe searches the web and nothing else. Everything filesystem- or
  *  shell-shaped is off the table in both modes. */
-const BASE_DISALLOWED = "Bash,Edit,Write,Read,Glob,Grep,Task,TodoWrite,NotebookEdit,WebFetch";
+const BASE_DISALLOWED =
+  "Bash,Edit,Write,Read,Glob,Grep,Task,TodoWrite,NotebookEdit,WebFetch,Skill,SlashCommand";
 const ANALYZE_DISALLOWED = `${BASE_DISALLOWED},WebSearch`;
+
+/** The subprocess must not inherit this machine's Claude Code config: user
+ *  hooks are arbitrary shell commands that would fire on every audit call,
+ *  plugins and MCP servers add tools no deny-list can enumerate, and a user
+ *  CLAUDE.md folds somebody's project instructions into an audit prompt.
+ *  "project" sources plus the temp-dir cwd resolve to no settings at all. */
+const ISOLATION_ARGS = ["--setting-sources", "project", "--strict-mcp-config"];
 
 /** An answer-engine probe should not introduce itself as a coding assistant.
  *  Replacing the harness system prompt narrows (never closes) the gap between
@@ -82,48 +98,65 @@ const PROBE_TIMEOUT_MS = 4 * 60_000;
  *  should meet. */
 const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 
-const defaultClaudeCodeRun: ClaudeCodeRun = ({ args, stdin, env, timeoutMs }) =>
-  new Promise((resolve, reject) => {
-    // cwd is the OS temp dir so the CLI cannot pick up a repo's CLAUDE.md and
-    // fold somebody's project instructions into an audit prompt.
-    const child = spawn("claude", args, { env, cwd: os.tmpdir(), stdio: ["pipe", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    const timer = setTimeout(() => {
-      settled = true;
-      child.kill("SIGKILL");
-      reject(new Error(`claude -p timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-    const guard = () => {
-      if (stdout.length + stderr.length <= MAX_OUTPUT_BYTES) return;
-      settled = true;
-      clearTimeout(timer);
-      child.kill("SIGKILL");
-      reject(new Error("claude -p produced more output than any real run should"));
-    };
-    child.stdout.on("data", (d: Buffer) => {
-      stdout += d.toString("utf8");
-      guard();
+/** The real runner, parameterized on the binary only so tests can prove the
+ *  subprocess plumbing against real processes without needing `claude`. */
+export function makeClaudeCodeRun(binary = "claude"): ClaudeCodeRun {
+  return ({ args, stdin, env, timeoutMs }) =>
+    new Promise((resolve, reject) => {
+      // cwd is the OS temp dir so the CLI cannot pick up a repo's CLAUDE.md and
+      // fold somebody's project instructions into an audit prompt.
+      const child = spawn(binary, args, { env, cwd: os.tmpdir(), stdio: ["pipe", "pipe", "pipe"] });
+      // Per-chunk Buffer.toString would decode a multibyte character split
+      // across pipe chunks into two U+FFFDs; the decoders carry the partial
+      // sequence across chunks.
+      const outDecoder = new StringDecoder("utf8");
+      const errDecoder = new StringDecoder("utf8");
+      let stdout = "";
+      let stderr = "";
+      let settled = false;
+      const timer = setTimeout(() => {
+        settled = true;
+        child.kill("SIGKILL");
+        reject(new Error(`claude -p timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+      const guard = () => {
+        if (stdout.length + stderr.length <= MAX_OUTPUT_BYTES) return;
+        settled = true;
+        clearTimeout(timer);
+        child.kill("SIGKILL");
+        reject(new Error("claude -p produced more output than any real run should"));
+      };
+      child.stdout.on("data", (d: Buffer) => {
+        stdout += outDecoder.write(d);
+        guard();
+      });
+      child.stderr.on("data", (d: Buffer) => {
+        stderr += errDecoder.write(d);
+        guard();
+      });
+      // A child that dies before draining stdin (bad flag after a CLI update,
+      // instant auth failure, our own SIGKILL) EPIPEs the pending write; with
+      // no listener that is an UNCAUGHT exception that kills the whole audit
+      // process, bypassing the pipeline's stage containment (reproduced live).
+      // The exit code from 'close' is the truth about the run — swallow here.
+      child.stdin.on("error", () => {});
+      child.on("error", (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(err);
+      });
+      child.on("close", (code) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve({ stdout: stdout + outDecoder.end(), stderr: stderr + errDecoder.end(), code });
+      });
+      child.stdin.end(stdin);
     });
-    child.stderr.on("data", (d: Buffer) => {
-      stderr += d.toString("utf8");
-      guard();
-    });
-    child.on("error", (err) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      reject(err);
-    });
-    child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve({ stdout, stderr, code });
-    });
-    child.stdin.end(stdin);
-  });
+}
+
+const defaultClaudeCodeRun: ClaudeCodeRun = makeClaudeCodeRun();
 
 /** The single-JSON envelope `--output-format json` prints. Only the fields
  *  this module reads; the CLI emits many more. */
@@ -175,6 +208,11 @@ export function claudeCodeAnalyzeDeps(run: ClaudeCodeRun = defaultClaudeCodeRun)
         "--no-session-persistence",
         "--disallowedTools",
         ANALYZE_DISALLOWED,
+        ...ISOLATION_ARGS,
+        // Spend bound: a real analyze measured ~$0.20-equivalent; this is a
+        // runaway backstop, not a working ceiling.
+        "--max-budget-usd",
+        "5",
       ];
       const res = await run({ args, stdin: user, env: childEnv(), timeoutMs: ANALYZE_TIMEOUT_MS });
       if (res.code !== 0) {
@@ -278,6 +316,12 @@ export function claudeCodeEngine(run: ClaudeCodeRun = defaultClaudeCodeRun): Vis
         "--no-session-persistence",
         "--system-prompt",
         PROBE_SYSTEM_PROMPT,
+        ...ISOLATION_ARGS,
+        // The API engine bounds its loop (4 turns, 4 searches); the CLI has no
+        // turn flag on this build, so bound by computed spend instead — a real
+        // probe measured ~$0.40-equivalent.
+        "--max-budget-usd",
+        "2",
       ];
       const res = await run({ args, stdin: query, env: childEnv(), timeoutMs: PROBE_TIMEOUT_MS });
       if (res.code !== 0) {
@@ -296,11 +340,24 @@ export function claudeCodeEngine(run: ClaudeCodeRun = defaultClaudeCodeRun): Vis
           }
         });
 
+      // Only results of actual WebSearch calls count, and only successful
+      // ones: a failed search's error prose can carry URLs (support pages,
+      // docs links), and other tools' string results are not retrievals —
+      // mining either would put our own plumbing into the competitor table.
+      // The API engine gets this for free from typed block narrowing.
+      const searchIds = new Set<unknown>();
+      for (const ev of events) {
+        if (ev.type !== "assistant") continue;
+        for (const block of contentBlocks(ev)) {
+          if (block.type === "tool_use" && block.name === "WebSearch") searchIds.add(block.id);
+        }
+      }
       const citedDomains: string[] = [];
       for (const ev of events) {
         if (ev.type !== "user") continue;
         for (const block of contentBlocks(ev)) {
           if (block.type !== "tool_result" || typeof block.content !== "string") continue;
+          if (!searchIds.has(block.tool_use_id) || block.is_error === true) continue;
           citedDomains.push(...urlsFromSearchResult(block.content).map(domainOf));
         }
       }
