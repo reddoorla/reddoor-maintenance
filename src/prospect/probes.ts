@@ -568,11 +568,16 @@ export function claudeWebSearchEngine(createMessage?: ClaudeMessageCreate): Visi
 }
 
 /** Engines available from the current environment. Perplexity needs its key;
- *  Claude rides the same credential chain the analyze pass uses. */
-export function defaultEngines(): VisibilityEngine[] {
+ *  Claude rides the same credential chain the analyze pass uses. The `claude`
+ *  parameter lets pipeline.ts swap in the subscription-auth engine
+ *  (claude-code.ts) without duplicating the Perplexity gate — this module
+ *  cannot import claude-code.ts itself without a cycle. */
+export function defaultEngines(
+  claude: VisibilityEngine = claudeWebSearchEngine(),
+): VisibilityEngine[] {
   const engines: VisibilityEngine[] = [];
   const key = process.env.PERPLEXITY_API_KEY?.trim();
   if (key) engines.push(perplexityEngine(key));
-  engines.push(claudeWebSearchEngine());
+  engines.push(claude);
   return engines;
 }

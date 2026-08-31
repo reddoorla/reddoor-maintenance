@@ -1,6 +1,7 @@
 import { crawlSite, defaultCrawlDeps, type CrawlDeps } from "./crawl.js";
 import { computeScores, runChecks } from "./checks.js";
 import { analyzeSite, defaultAnalyzeDeps, type AnalyzeDeps } from "./analyze.js";
+import { claudeCodeAnalyzeDeps, claudeCodeEngine, llmAuthMode } from "./claude-code.js";
 import {
   defaultEngines,
   runVisibilityProbes,
@@ -19,6 +20,28 @@ import type {
 } from "./types.js";
 
 export type StageName = "crawl" | "checks" | "lighthouse" | "analyze" | "probes";
+
+/** The two ways an audit can pay for its model calls. Which one runs is
+ *  decided here, once, off PROSPECT_LLM_AUTH (see claude-code.ts) — the
+ *  production runner sets nothing and gets the metered API; a dev machine
+ *  sets `subscription` and rides the Claude plan. Factories are injectable so
+ *  a test can watch the selection without spawning anything. */
+export function envAnalyzeDeps(
+  factories: { api: () => AnalyzeDeps; subscription: () => AnalyzeDeps } = {
+    api: defaultAnalyzeDeps,
+    subscription: claudeCodeAnalyzeDeps,
+  },
+): AnalyzeDeps {
+  return llmAuthMode() === "subscription" ? factories.subscription() : factories.api();
+}
+
+/** Same selection for the probe engines. In subscription mode the claude-code
+ *  engine replaces the API's claude engine (its rows carry their own engine
+ *  name — the two are different instruments); the Perplexity gate inside
+ *  defaultEngines applies either way. */
+export function envEngines(): VisibilityEngine[] {
+  return llmAuthMode() === "subscription" ? defaultEngines(claudeCodeEngine()) : defaultEngines();
+}
 
 /** `opts.probes === false` (the CLI's `--no-probes`) and an attempted probe
  *  run that failed are both `{ok:false, error}` — only the message tells
@@ -111,7 +134,7 @@ export async function runProspectAudit(
 
   const analyze: StageResult<AnalyzeResult> = checks.ok
     ? await stage("analyze", deps, async () =>
-        analyzeSite(url, crawlData, checks.data, deps.analyze ?? defaultAnalyzeDeps()),
+        analyzeSite(url, crawlData, checks.data, deps.analyze ?? envAnalyzeDeps()),
       )
     : { ok: false, error: ANALYZE_SKIPPED };
 
@@ -140,7 +163,7 @@ export async function runProspectAudit(
           categoryQueries: analyze.ok ? analyze.data.categoryQueries : [],
           competitors: opts.competitors ?? [],
         },
-        deps.engines ?? defaultEngines(),
+        deps.engines ?? envEngines(),
         probeOpts,
       ),
     );
