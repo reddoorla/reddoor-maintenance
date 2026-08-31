@@ -497,11 +497,13 @@ export async function defaultFormRunner(): Promise<FormRunner> {
         // POST 200") pointed at a Turnstile telemetry POST instead. The race is
         // widest on slow runners (hydration lands late), which is exactly where
         // the nightly runs.
-        const expected = [
-          ...filled,
-          { selector: 'input[name="testMode"]', value: "true" },
-          { selector: 'input[name="cf-turnstile-response"]', value: tokenValue },
-        ];
+        // `cf-turnstile-response` is deliberately NOT verified: the Turnstile
+        // widget inserts its OWN input with that name while it renders (an
+        // erroring widget included), and a first-match lookup then reads the
+        // widget's value — the 2026-08-31 live check false-positived "wiped" on
+        // every run because of it. `testMode` only ever exists because this
+        // probe added it, so it is the sound canary for a re-render wipe.
+        const expected = [...filled, { selector: 'input[name="testMode"]', value: "true" }];
         const wipedCount = (await page
           .evaluate(
             `
