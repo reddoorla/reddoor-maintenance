@@ -3,6 +3,8 @@ import {
   formE2eAudit,
   declaresTestModeForwarding,
   findFormPath,
+  isSameSitePost,
+  noBannerDetail,
   CONTACT_PATHS,
   BUDGET_WARN_RATIO,
   TESTMODE_SKIPPED_WORK_MS,
@@ -334,5 +336,129 @@ describe("audits/form-e2e ingest budget headroom", () => {
     // budget is thin; against the 20s budget that replaced it, it is not.
     expect(isIngestBudgetThin(5_000, 8_000)).toBe(true);
     expect(isIngestBudgetThin(5_000, 20_000)).toBe(false);
+  });
+});
+
+describe("audits/form-e2e isSameSitePost", () => {
+  const base = "https://acme.example.com";
+
+  it("rejects the two third-party POSTs that polluted the 2026-08-31 warn lines", () => {
+    // The nightly reported "POST 204" (Google Analytics' collect beacon) and
+    // "POST 200" (Cloudflare Turnstile telemetry) as if they were the form
+    // action's response — both must never be mistaken for the site's own POST.
+    expect(isSameSitePost("https://www.google-analytics.com/g/collect?v=2", base)).toBe(false);
+    expect(
+      isSameSitePost("https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/fo/x", base),
+    ).toBe(false);
+  });
+
+  it("accepts the site's own action POST", () => {
+    expect(isSameSitePost("https://acme.example.com/contact?/default", base)).toBe(true);
+  });
+
+  it("treats www and apex as the same site, in both directions", () => {
+    // beachfront-dentistry is probed at www. but its action lands on the apex.
+    expect(
+      isSameSitePost(
+        "https://beachfrontdentistry.com/contact-us",
+        "https://www.beachfrontdentistry.com/",
+      ),
+    ).toBe(true);
+    expect(isSameSitePost("https://www.acme.example.com/contact", base)).toBe(true);
+  });
+
+  it("rejects a sibling subdomain — that is not the form action", () => {
+    expect(isSameSitePost("https://api.acme.example.com/collect", base)).toBe(false);
+  });
+
+  it("false on an unparseable URL", () => {
+    expect(isSameSitePost("not a url", base)).toBe(false);
+  });
+});
+
+describe("audits/form-e2e noBannerDetail", () => {
+  const clean = {
+    post: null,
+    alertText: null,
+    formState: null,
+    hydrationMismatch: false,
+    refilled: false,
+  };
+
+  it("names a submission that never left the page — the 2026-08-31 reddoor signature", () => {
+    const d = noBannerDetail({
+      ...clean,
+      formState: { formPresent: true, checkValidity: false, emptyRequired: ["name", "email"] },
+      hydrationMismatch: true,
+    });
+    expect(d).toMatch(/^no success banner after submit — /);
+    expect(d).toMatch(/no same-site POST/);
+    expect(d).toMatch(/never left the page/);
+    expect(d).toMatch(/empty required: name, email/);
+    expect(d).toMatch(/hydration mismatch/);
+  });
+
+  it("reports the same-site POST status when one WAS observed", () => {
+    const d = noBannerDetail({ ...clean, post: { status: 200 } });
+    expect(d).toContain("POST 200");
+    expect(d).not.toMatch(/never left the page/);
+  });
+
+  it("appends the response body only on an error status", () => {
+    expect(noBannerDetail({ ...clean, post: { status: 502, bodyBit: "upstream sad" } })).toContain(
+      "POST 502 upstream sad",
+    );
+    // A 2xx body says nothing about why the banner is missing — keep the line short.
+    expect(noBannerDetail({ ...clean, post: { status: 200, bodyBit: "ignored" } })).not.toContain(
+      "ignored",
+    );
+  });
+
+  it("includes the visible alert text when the site rendered an error", () => {
+    const d = noBannerDetail({ ...clean, post: { status: 200 }, alertText: "  Something broke  " });
+    expect(d).toContain("alert: Something broke");
+  });
+
+  it("says so when the form itself is gone (a navigation or teardown ate it)", () => {
+    const d = noBannerDetail({
+      ...clean,
+      formState: { formPresent: false, checkValidity: null, emptyRequired: [] },
+    });
+    expect(d).toMatch(/form is gone/);
+  });
+
+  it("flags a validation failure even when no required field is empty (pattern mismatch)", () => {
+    const d = noBannerDetail({
+      ...clean,
+      post: null,
+      formState: { formPresent: true, checkValidity: false, emptyRequired: [] },
+    });
+    expect(d).toMatch(/fails validation/);
+  });
+
+  it("notes a refill that happened but still did not save the run", () => {
+    const d = noBannerDetail({ ...clean, refilled: true });
+    expect(d).toMatch(/re-filled/);
+  });
+});
+
+describe("audits/form-e2e refill surfacing", () => {
+  it("appends the wipe evidence to a PASSING summary — production proof the race exists", async () => {
+    const r = await formE2eAudit({
+      site,
+      now: NOW,
+      formRunner: runner({
+        submit: async () => ({ formPresent: true, success: true, refilled: true }),
+      }),
+    });
+    expect(r.status).toBe("pass");
+    expect(r.summary).toMatch(/re-filled/);
+    // The verdict and persisted details stay a clean pass — the form works.
+    expect(r.details).toEqual({ ok: "pass", formPresent: true, checkedAt: NOW.toISOString() });
+  });
+
+  it("keeps a plain pass summary when nothing was wiped", async () => {
+    const r = await formE2eAudit({ site, now: NOW, formRunner: runner() });
+    expect(r.summary).not.toMatch(/re-filled/);
   });
 });

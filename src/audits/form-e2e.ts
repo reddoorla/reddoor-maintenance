@@ -48,6 +48,13 @@ export type FormSubmitOutcome =
        *  `elapsedMs` — is what the budget check must compare against. Undefined
        *  when no POST was observed. */
       postElapsedMs?: number;
+      /** The probe's filled values were wiped by a client re-render (2026-08-31:
+       *  a hydration mismatch on reddoor's /contact recreated the form subtree,
+       *  discarding the fills AND the injected hidden fields, so the click hit an
+       *  empty form and native `required` validation blocked the submit) and were
+       *  re-filled once before the click. On a pass this is production proof the
+       *  wipe happens; on a failure it says one refill wasn't enough. */
+      refilled?: boolean;
     }
   | { testModeUndeclared: true };
 
@@ -229,13 +236,19 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
       typeof outcome.postElapsedMs === "number" && isIngestBudgetThin(outcome.postElapsedMs)
         ? budgetThinSummary(outcome.postElapsedMs)
         : null;
+    // Surfaced on a PASS too: a wiped-then-refilled run is the production
+    // evidence that the re-render race exists on this site, and the nightly log
+    // is where that evidence has to land for anyone to see it.
+    const refillNote = outcome.refilled
+      ? " — fields were wiped by a client re-render and re-filled once"
+      : "";
     return {
       audit: "form-e2e",
       site: label,
       status: thin ? "warn" : "pass",
       summary: thin
-        ? `form-e2e: synthetic submission succeeded — ${thin}`
-        : "form-e2e: synthetic submission succeeded",
+        ? `form-e2e: synthetic submission succeeded — ${thin}${refillNote}`
+        : `form-e2e: synthetic submission succeeded${refillNote}`,
       details,
     };
   } finally {
@@ -323,6 +336,69 @@ export async function declaresTestModeForwarding(baseUrl: string): Promise<boole
 }
 
 /**
+ * Whether a POST landed on the SITE's own host (the form action, or the apex/www
+ * twin it redirects to) rather than a third party. PURE. The runner's failure
+ * lines used to name whatever POST happened first: on 2026-08-31 that was
+ * Google Analytics' collect beacon ("POST 204") and Cloudflare Turnstile
+ * telemetry ("POST 200"), and both warn lines sent triage chasing the wrong
+ * component while the real story was "the submission never left the page".
+ * `www.` is stripped because at least one site (beachfront-dentistry) is probed
+ * at `www.` while its action lands on the apex.
+ */
+export function isSameSitePost(postUrl: string, baseUrl: string): boolean {
+  try {
+    const host = (u: string) => new URL(u).hostname.replace(/^www\./, "");
+    return host(postUrl) === host(baseUrl);
+  } catch {
+    return false;
+  }
+}
+
+/** What the probe could still see about the form once the banner failed to show. */
+export type NoBannerFormState = {
+  formPresent: boolean;
+  /** null when the form is gone (nothing left to validate). */
+  checkValidity: boolean | null;
+  /** Names of `required` fields that were empty at inspection time — empty
+   *  required fields mean native validation blocked the submit client-side. */
+  emptyRequired: string[];
+};
+
+/** Evidence gathered when the success banner never appeared. */
+export type NoBannerEvidence = {
+  /** The same-site action POST, if one happened. null ⇒ the submission never
+   *  left the page — the failure is client-side, before the network. */
+  post: { status: number; bodyBit?: string } | null;
+  alertText: string | null;
+  formState: NoBannerFormState | null;
+  /** A Svelte hydration-mismatch warning was logged — the tell that the
+   *  framework recreated the DOM under the probe's feet. */
+  hydrationMismatch: boolean;
+  refilled: boolean;
+};
+
+/** Compose the failure detail line. PURE — the line must say WHY nothing
+ *  happened, not just that it didn't; "no success banner — POST 204" cost the
+ *  2026-08-31 triage a detour through two components that weren't involved. */
+export function noBannerDetail(e: NoBannerEvidence): string {
+  const bits: string[] = [
+    e.post
+      ? `POST ${e.post.status}${e.post.status >= 400 && e.post.bodyBit ? ` ${e.post.bodyBit}` : ""}`
+      : "no same-site POST: the submission never left the page",
+  ];
+  if (e.alertText?.trim()) bits.push(`alert: ${e.alertText.trim().slice(0, 80)}`);
+  if (e.formState) {
+    if (!e.formState.formPresent) bits.push("the form is gone from the page");
+    else if (e.formState.emptyRequired.length > 0)
+      bits.push(`empty required: ${e.formState.emptyRequired.join(", ")}`);
+    else if (e.formState.checkValidity === false) bits.push("form fails validation");
+  }
+  if (e.hydrationMismatch) bits.push("hydration mismatch warning seen");
+  if (e.refilled) bits.push("fields were wiped and re-filled once");
+  return `no success banner after submit — ${bits.join("; ")}`;
+}
+
+/**
  * Real Playwright form runner. Lazily imports @playwright/test so unit tests (which
  * inject a fake runner) never load it — and so the audit's static import graph stays
  * central-dep-free for `test:dist`. Every failure degrades to `success:false` (never
@@ -341,18 +417,19 @@ export async function defaultFormRunner(): Promise<FormRunner> {
       try {
         const ctx = await browser.newContext();
         const page = await ctx.newPage();
+        // The tell that the framework recreated the DOM under the probe (Svelte 5
+        // logs a svelte.dev/e/hydration_mismatch warning when it does). Recorded
+        // for the failure detail — on 2026-08-31 this was the discriminator
+        // between reddoor's failing probe and its passing ones.
+        let hydrationMismatch = false;
+        page.on("console", (msg) => {
+          if (msg.text().includes("hydration_mismatch")) hydrationMismatch = true;
+        });
         // Probe each candidate route; none carrying a form ⇒ no contact form (n/a).
         // findFormPath leaves the page on the route it selected, so the fills below
         // act on the form it found.
         const found = await findFormPath(page as unknown as FormProbePage, baseUrl);
         if (!found) return { formPresent: false };
-
-        await page.fill('[name="name"]', "Reddoor Monitor").catch(() => {});
-        await page.fill('[name="email"]', "monitor+e2e@reddoorla.com").catch(() => {});
-        await page.fill('[name="phone"]', "5555550123").catch(() => {});
-        await page
-          .fill('[name="message"]', "Synthetic end-to-end health check — please ignore.")
-          .catch(() => {});
 
         // Inject the testMode marker + a Turnstile token into the submitted form.
         // The site declared forwarding (preflight above), so the marker routes the
@@ -364,7 +441,8 @@ export async function defaultFormRunner(): Promise<FormRunner> {
         // against the Node lib (no DOM globals in this project's tsconfig). The
         // token value is a hardcoded constant (never user input), so inlining it
         // via JSON.stringify into the expression string is safe.
-        await page.evaluate(`
+        const tokenValue = `testmode-${testSitekey}`;
+        const injectExpr = `
           (function () {
             const f = document.querySelector("form");
             if (!f) return;
@@ -379,31 +457,92 @@ export async function defaultFormRunner(): Promise<FormRunner> {
               el.value = value;
             };
             add("testMode", "true");
-            add("cf-turnstile-response", ${JSON.stringify(`testmode-${testSitekey}`)});
+            add("cf-turnstile-response", ${JSON.stringify(tokenValue)});
           })();
-        `);
+        `;
+        // Fills are per-field best-effort (a site may lack a phone field), but
+        // WHICH fills landed is tracked so the pre-click verification below knows
+        // exactly what to expect. The whole sequence is re-runnable on purpose.
+        const fills = [
+          { selector: '[name="name"]', value: "Reddoor Monitor" },
+          { selector: '[name="email"]', value: "monitor+e2e@reddoorla.com" },
+          { selector: '[name="phone"]', value: "5555550123" },
+          {
+            selector: '[name="message"]',
+            value: "Synthetic end-to-end health check — please ignore.",
+          },
+        ];
+        const filled: { selector: string; value: string }[] = [];
+        const fillAll = async () => {
+          for (const f of fills) {
+            const landed = await page
+              .fill(f.selector, f.value)
+              .then(() => true)
+              .catch(() => false);
+            if (landed && !filled.some((s) => s.selector === f.selector)) filled.push(f);
+          }
+          await page.evaluate(injectExpr);
+        };
+        await fillAll();
 
         // Beat the bot-timing screen, then submit and wait for the success banner
         // (role="status") the starter renders on a successful action.
         await page.waitForTimeout(FILL_SETTLE_MS);
+
+        // Verify the fills survived the settle, and refill once if not. A client
+        // re-render during the settle discards everything fillAll did — seen live
+        // on 2026-08-31, when a hydration mismatch on reddoor's /contact recreated
+        // the form: the click then hit empty `required` fields, native validation
+        // blocked the submit, and the night's warn line ("no success banner —
+        // POST 200") pointed at a Turnstile telemetry POST instead. The race is
+        // widest on slow runners (hydration lands late), which is exactly where
+        // the nightly runs.
+        const expected = [
+          ...filled,
+          { selector: 'input[name="testMode"]', value: "true" },
+          { selector: 'input[name="cf-turnstile-response"]', value: tokenValue },
+        ];
+        const wipedCount = (await page
+          .evaluate(
+            `
+          (function () {
+            const expected = ${JSON.stringify(expected)};
+            let wiped = 0;
+            for (const { selector, value } of expected) {
+              const el = document.querySelector(selector);
+              if (!el || el.value !== value) wiped++;
+            }
+            return wiped;
+          })();
+        `,
+          )
+          .catch(() => 0)) as number;
+        const refilled = wipedCount > 0;
+        if (refilled) await fillAll();
         // Capture the action POST so a failure names the real server response
         // (espada 2026-07-10: three "no success banner" warns were undiagnosable
-        // without it — the POST status/alert text is the evidence).
+        // without it — the POST status/alert text is the evidence). SAME-SITE
+        // only: an any-POST predicate matched Google Analytics' beacon and
+        // Turnstile telemetry first, so the 2026-08-31 warn lines ("POST 204",
+        // "POST 200") named third parties while the action POST never fired —
+        // and BUDGET_THIN could time a beacon instead of the action.
         // Stamped as a side-effect rather than awaited here on purpose: awaiting
         // the POST before the banner would serialize two 30s timeouts in the
         // no-POST case and double the worst-case run. `startedAt` is assigned at
-        // the click below — but the predicate matches ANY POST, and a page is free
-        // to fire one before the click (an analytics beacon, a consent ping). If
-        // that happens `startedAt` is still 0 and `Date.now() - 0` is the epoch —
-        // an absurd "elapsed" that would trip BUDGET_THIN, the exact false warn
-        // this measurement exists to kill. Un-clicked → leave it undefined; the
+        // the click below — a same-site POST before the click is unlikely but
+        // free to happen, and `Date.now() - 0` would be the epoch — an absurd
+        // "elapsed" that would trip BUDGET_THIN, the exact false warn this
+        // measurement exists to kill. Un-clicked → leave it undefined; the
         // audit treats absent timing as "no claim to make".
         let startedAt = 0;
         let postElapsedMs: number | undefined;
         const postResponse = page
-          .waitForResponse((r) => r.request().method() === "POST", {
-            timeout: PAGE_TIMEOUT_MS,
-          })
+          .waitForResponse(
+            (r) => r.request().method() === "POST" && isSameSitePost(r.url(), baseUrl),
+            {
+              timeout: PAGE_TIMEOUT_MS,
+            },
+          )
           .then((r) => {
             if (startedAt > 0) postElapsedMs = Date.now() - startedAt;
             return r;
@@ -432,6 +571,7 @@ export async function defaultFormRunner(): Promise<FormRunner> {
             success: true,
             elapsedMs,
             ...(postElapsedMs !== undefined ? { postElapsedMs } : {}),
+            ...(refilled ? { refilled } : {}),
           };
         const actionResp = await postResponse;
         const alertText = await page
@@ -439,13 +579,38 @@ export async function defaultFormRunner(): Promise<FormRunner> {
           .first()
           .textContent({ timeout: 1000 })
           .catch(() => null);
-        const respBit = actionResp
-          ? `POST ${actionResp.status()}${actionResp.status() >= 400 ? ` ${(await actionResp.text().catch(() => "")).slice(0, 80)}` : ""}`
-          : "no POST observed";
+        // What is the form's state NOW? Empty required fields mean native
+        // validation blocked the submit client-side — the one answer "POST
+        // status alone" can never give.
+        const formState = (await page
+          .evaluate(
+            `
+          (function () {
+            const f = document.querySelector("form");
+            if (!f) return { formPresent: false, checkValidity: null, emptyRequired: [] };
+            const emptyRequired = [];
+            for (const el of f.querySelectorAll("input, textarea, select")) {
+              if (el.required && !String(el.value).trim())
+                emptyRequired.push(el.name || el.id || el.type);
+            }
+            return { formPresent: true, checkValidity: f.checkValidity(), emptyRequired };
+          })();
+        `,
+          )
+          .catch(() => null)) as NoBannerFormState | null;
+        const post = actionResp
+          ? {
+              status: actionResp.status(),
+              ...(actionResp.status() >= 400
+                ? { bodyBit: (await actionResp.text().catch(() => "")).slice(0, 80) }
+                : {}),
+            }
+          : null;
         return {
           formPresent: true,
           success: false,
-          detail: `no success banner after submit — ${respBit}${alertText ? `; alert: ${alertText.trim().slice(0, 80)}` : ""}`,
+          ...(refilled ? { refilled } : {}),
+          detail: noBannerDetail({ post, alertText, formState, hydrationMismatch, refilled }),
         };
       } catch (err) {
         return { formPresent: true, success: false, detail: String(err).slice(0, 120) };
