@@ -31,6 +31,14 @@ function argAfter(args: string[], flag: string): string | undefined {
   return i >= 0 ? args[i + 1] : undefined;
 }
 
+/** The single recorded call, thrown (not undefined) when the runner never ran
+ *  — keeps noUncheckedIndexedAccess honest without non-null assertions. */
+function onlyCall<T>(calls: T[]): T {
+  const call = calls[0];
+  if (!call) throw new Error("the runner was never called");
+  return call;
+}
+
 const ANALYZE_ENVELOPE = {
   type: "result",
   subtype: "success",
@@ -102,7 +110,7 @@ describe("claudeCodeAnalyzeDeps", () => {
 
     expect(out).toEqual(ANALYZE_ENVELOPE.structured_output);
     expect(calls).toHaveLength(1);
-    const { args, stdin } = calls[0];
+    const { args, stdin } = onlyCall(calls);
     expect(stdin).toBe("USER TEXT");
     expect(args[0]).toBe("-p");
     expect(argAfter(args, "--model")).toBe("claude-opus-5");
@@ -146,7 +154,7 @@ describe("claudeCodeAnalyzeDeps", () => {
     try {
       const { run, calls } = fakeRun({ stdout: JSON.stringify(ANALYZE_ENVELOPE) });
       await claudeCodeAnalyzeDeps(run).run({ system: "s", user: "u" });
-      expect(calls[0].env.ANTHROPIC_API_KEY).toBeUndefined();
+      expect(onlyCall(calls).env.ANTHROPIC_API_KEY).toBeUndefined();
     } finally {
       if (saved === undefined) delete process.env.ANTHROPIC_API_KEY;
       else process.env.ANTHROPIC_API_KEY = saved;
@@ -305,7 +313,7 @@ describe("claudeCodeEngine", () => {
     const { run, calls } = fakeRun({ stdout: streamStdout(STREAM_LINES) });
     await claudeCodeEngine(run).ask("who fixes teeth in redondo beach");
 
-    const { args, stdin } = calls[0];
+    const { args, stdin } = onlyCall(calls);
     expect(stdin).toBe("who fixes teeth in redondo beach");
     expect(argAfter(args, "--model")).toBe(PROBE_MODEL);
     expect(argAfter(args, "--output-format")).toBe("stream-json");
@@ -337,7 +345,11 @@ describe("claudeCodeEngine", () => {
 
   it("falls back to bare URL extraction when the Links JSON is malformed", async () => {
     const lines = STREAM_LINES.map((l) => structuredClone(l)) as typeof STREAM_LINES;
-    const toolResult = (lines[5].message as { content: Array<{ content: unknown }> }).content[0];
+    const searchEvent = lines[5];
+    if (!searchEvent)
+      throw new Error("fixture shape changed: expected the WebSearch tool_result at index 5");
+    const toolResult = (searchEvent.message as { content: Array<{ content: unknown }> }).content[0];
+    if (!toolResult) throw new Error("fixture shape changed: tool_result block missing");
     toolResult.content =
       "Links: [{broken json here] see https://icovy.com/medical-device-marketing instead";
     const { run } = fakeRun({ stdout: streamStdout(lines) });

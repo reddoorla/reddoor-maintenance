@@ -151,6 +151,7 @@ function result(over: Partial<ProspectAuditResult> = {}): ProspectAuditResult {
   return {
     url: "https://acme.example/",
     businessName: "Acme Roofing",
+    llmAuth: "api",
     generatedAt: "2026-08-25T17:00:00.000Z",
     scores: { findability: 62, readability: 41, answers: 50, aiVisibility: 33 },
     crawl: { ok: true, data: crawlData() },
