@@ -1,5 +1,124 @@
 # @reddoorla/maintenance
 
+## 0.89.0
+
+### Minor Changes
+
+- 5b4befc: Add `db usage` — a nightly alarm on Turso plan-quota headroom (#539 HIGH-10).
+
+  The org runs on the starter plan with `"overages": false`, which means crossing
+  a quota BLOCKS reads and writes rather than billing for them. Once the Airtable
+  cutover lands, Turso is the only store the fleet has, so quota exhaustion is a
+  total outage with no warning shot.
+
+  `db usage` reads the Turso platform API and emits one greppable line:
+
+  ```
+  FLEET_DB_USAGE plan=starter elapsed=82.78% rows_read=0.04% rows_read_proj=0.04% … worst=rows_written_proj:0.36% verdict=ok
+  ```
+
+  Three properties are load-bearing:
+
+  - **Quotas come from the API's own `/plans` response**, matched to the
+    subscribed plan — never hardcoded. A plan upgrade must not leave the alarm
+    measuring against a ceiling that stopped being true.
+  - **Cumulative metrics are projected to the end of the billing cycle.** Rows
+    read/written reset monthly, so a raw percentage is not comparable across the
+    month: 30% on day 3 is a fire, 30% on day 28 is fine. Storage is a level and
+    is deliberately not projected.
+  - **An unconfigured alarm fails.** No token yields `verdict=no-token` and a
+    non-zero exit, and the workflow gates on the marker line rather than the exit
+    code alone — an absent success marker is not a passing check.
+
+  Capacity metrics (databases/locations/groups) are reported but never alarm: the
+  fleet sits at its group ceiling by design on the starter plan, so alarming there
+  would fire nightly about a standing constraint. Those ceilings also fail loudly
+  at creation time, unlike quota exhaustion.
+
+  Wired into `fleet-db-backup` as a separate job, so a quota alarm can never stop
+  the backup being taken, and it files its own tracking issue. Requires a new
+  `TURSO_FLEET_USAGE` secret — a platform API token, distinct from the
+  database-level `TURSO_AUTH_TOKEN`.
+
+  Baseline at the time of writing: the worst metric is 0.36% of its ceiling.
+
+- dadb073: feat(db): THE FLIP — Turso is authoritative (#612, #539 Phase 5 → 6)
+
+  `TURSO_IS_AUTHORITATIVE` is now `true`: every mirror runs strict (a Turso
+  failure is fatal, missing creds refuse to build, `missed` is a bug), and the
+  Airtable write is the swallowed best-effort shadow for the one-week rollback
+  window. The hourly `fleet-db-sync` workflow is retired in the same change —
+  the import and the inversion must move together, and do.
+
+  Go/no-go recorded immediately before the flip:
+  `FLEET_PARITY sites=44 health=44 schedule=44 reports=17 mismatches=0`.
+
+  Airtable is now a frozen archive: no hand-edits (the console replaces them),
+  no imports, no parity. Phase 6 (~a week out) deletes the shadow writes and
+  the Airtable client layer.
+
+  The pre-merge deep review closed three regressions the flip would have
+  exposed: the send batch now mirrors its own `Sent at` / `Resend message ID`
+  stamp into Turso (the retired hourly sync was the only thing converging
+  those, and an unmirrored stamp disarms the console's already-sent guards);
+  `fleet-prismic-drift` and `fleet-security`'s renovate-dispatch steps get the
+  Turso creds their now-strict mirrors refuse to build without; and
+  `db import-airtable` / `db sync` refuse under the freeze unless `--force`,
+  because a habitual import would overwrite authoritative rows from the frozen
+  archive. A failed Launch flip or sent-stamp mirror now reds the send run
+  instead of hiding in a green one.
+
+### Patch Changes
+
+- 3ffa6bd: fix(form-e2e): survive client re-renders, and make a failure name its cause
+
+  The probe filled the form right after `domcontentloaded` and never looked
+  again. Anything that re-rendered the form during the settle — seen live on
+  2026-08-31, when a hydration mismatch on reddoor's /contact made Svelte
+  recreate the subtree — silently discarded the filled values AND the injected
+  `testMode`/`cf-turnstile-response` fields, so the click hit empty `required`
+  fields, native validation blocked the submit, and the night's warn said only
+  "no success banner — POST 200" (a Turnstile telemetry POST; beachfront's
+  "POST 204" the same night was Google Analytics' beacon).
+
+  Three changes, one per lesson:
+
+  - Verify the fills just before the click and refill once if they were wiped;
+    a pass that needed the refill says so in its summary, so production keeps
+    proving (or retiring) the race.
+  - Scope the observed POST to the site's own host (`isSameSitePost`), so the
+    reported status is the action's — and BUDGET_THIN can no longer time a
+    third-party beacon.
+  - On failure, report why nothing happened (`noBannerDetail`): same-site POST
+    or "the submission never left the page", empty required fields, validity,
+    alert text, and whether a hydration-mismatch warning was seen.
+
+- ac99ac2: Fix `db restore` against a hosted Turso database — it could only ever restore
+  into a target that required no authentication.
+
+  The command built its libSQL client from a url alone, with no auth token. That
+  works against `:memory:` and a local `turso dev`, which is exactly what the
+  nightly rehearsal and the 2026-08-26 manual rehearsal used — and 401s against
+  every target an actual recovery would have.
+
+  Found by pointing the shipped command at a real hosted database for the first
+  time. It returned a bare `SERVER_ERROR: Server returned HTTP status 401`.
+
+  The target token now comes from `TURSO_RESTORE_AUTH_TOKEN`, and a hosted target
+  with no token is refused as `RESTORE refused=auth-token-absent` **before** the
+  network and before the dump is even read — so the failure names the missing
+  token rather than surfacing an opaque 401 or an ENOENT that sends you hunting
+  for the dump file.
+
+  It deliberately does not fall back to the ambient `TURSO_AUTH_TOKEN`: that one
+  belongs to production, and inheriting it would undo the reason `--url` is
+  required in the first place.
+
+  Now proven end-to-end against a real hosted Turso database: `RESTORE
+loaded=true tables=11 rows=766 blob_bytes=7777769 mismatches=0` in 10.4s, with
+  both refusals (`auth-token-absent`, `target-not-empty`) also confirmed against
+  that same hosted target.
+
 ## 0.88.3
 
 ### Patch Changes
