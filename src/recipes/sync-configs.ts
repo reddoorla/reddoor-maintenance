@@ -9,6 +9,7 @@ import {
 } from "./sync-configs/gitignore.js";
 import { listTrackedFiles, removeFromIndex } from "../util/git.js";
 import { withRecipe } from "./_with-recipe.js";
+import { renovateActionGaps, withRenovatePinsFrom } from "./sync-configs/renovate-action.js";
 
 export type SyncConfigsOptions = {
   which?: ConfigName[];
@@ -17,6 +18,7 @@ export type SyncConfigsOptions = {
 const GITIGNORE_CONFIG: ConfigName = "gitignore";
 const SVELTE_CONFIG: ConfigName = "svelte";
 const NETLIFY_CONFIG: ConfigName = "netlify";
+const RENOVATE_ACTION_CONFIG: ConfigName = "renovate-action";
 
 /** A site's `svelte.config.js` is "compliant" — and left untouched by sync —
  * once it builds on the canonical helpers (createSvelteConfig + adapter-netlify).
@@ -99,6 +101,28 @@ async function planTemplateDiffs(
     // `[[headers]]` is hardened and left alone (an exact overwrite would strip
     // its security headers). A header-less / missing file gets the template.
     if (t.config === NETLIFY_CONFIG && existing !== null && isNetlifyConfigCompliant(existing)) {
+      continue;
+    }
+    // renovate.yml is likewise compliance-checked, not byte-matched: Renovate
+    // legitimately bumps its own digest pins forward (an exact overwrite would
+    // DOWNGRADE them — reddoorla/reddoor-starter-blux#1, 2026-08-31), and a
+    // site's prettier may legitimately quote the cron / RENOVATE_* scalars
+    // differently than the template (both forms are prettier-clean, so
+    // prettier never converges them — issue #651). A file with zero
+    // `renovateActionGaps` is left alone.
+    if (
+      t.config === RENOVATE_ACTION_CONFIG &&
+      existing !== null &&
+      renovateActionGaps(existing).length === 0
+    ) {
+      continue;
+    }
+    // When renovate.yml genuinely IS non-compliant, heal it with the template
+    // but carry the site's own (still-digest-pinned) action refs forward onto
+    // it first — writing the template verbatim would re-introduce the same
+    // pin downgrade this compliance check exists to prevent.
+    if (t.config === RENOVATE_ACTION_CONFIG) {
+      diffs.push({ ...t, contents: withRenovatePinsFrom(t.contents, existing) });
       continue;
     }
     diffs.push(t);
