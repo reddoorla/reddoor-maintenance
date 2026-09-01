@@ -39,14 +39,17 @@
  *  the shipped constant would prove nothing about the state it is not in.
  */
 
-/** `false` until the freeze. Flipping this to `true` is the freeze: Turso
- *  becomes the store that must succeed, and the Airtable write becomes the
- *  best-effort shadow kept for the one-week rollback window.
+/** `true` since the freeze (flipped 2026-08-31, the same PR that retired the
+ *  hourly `fleet-db-sync` import — the two must move together, and did): Turso
+ *  is the store that must succeed. The Airtable write is kept as the shadow for
+ *  the one-week rollback window — still written, and DELIBERATELY still allowed
+ *  to fail its caller: a shadow you might roll back to is one you keep
+ *  trustworthy, so an Airtable outage still reds writes until Phase 6 deletes
+ *  the shadow and the Airtable client layer with it.
  *
- *  Do not flip it before the hourly import is stopped — with the import still
- *  running, a strict mirror would fail runs over rows the import was about to
- *  reconcile anyway. */
-export const TURSO_IS_AUTHORITATIVE = false;
+ *  Go/no-go recorded on #612: `FLEET_PARITY sites=44 health=44 schedule=44
+ *  reports=17 mismatches=0` immediately before the flip. */
+export const TURSO_IS_AUTHORITATIVE = true;
 
 /**
  * Run one Turso mirror write with the error semantics the current world calls

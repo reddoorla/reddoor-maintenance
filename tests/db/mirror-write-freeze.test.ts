@@ -59,7 +59,8 @@ describe("mirrorWrite — both sides of the switch", () => {
 
   it("defaults to the shipped constant", () => {
     // The ONE assertion on the shipped value; everything else injects.
-    expect(TURSO_IS_AUTHORITATIVE).toBe(false);
+    // `true` since 2026-08-31: the freeze — Turso is authoritative.
+    expect(TURSO_IS_AUTHORITATIVE).toBe(true);
   });
 });
 

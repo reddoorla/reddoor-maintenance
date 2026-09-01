@@ -55,10 +55,11 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
 
   try {
     const base = openBase({ apiKey, baseId });
-    // Read from Turso, WRITE to Airtable (still the source of truth until the
-    // Phase 5 freeze), then mirror so the page re-render right after the save
-    // shows the new text instead of the old one for up to an hour. A mirror
-    // failure is non-fatal — the hourly sync converges it.
+    // Read from Turso, write to Airtable (the rollback-window shadow since the
+    // #643 freeze), then mirror — the write the page re-render right after the
+    // save actually reads. mirrorWrite decides the mirror's error semantics:
+    // post-freeze a failure rethrows and this request 502s, because no sync
+    // converges it any more.
     const db = await openDb(readDbConfig());
     const result = await setReportCommentary(
       {

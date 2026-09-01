@@ -865,14 +865,16 @@ describe("sendApprovedReports", () => {
     expect(flip!.kind === "update" && flip!.records[0]!.fields["Status"]).toBe("maintained");
   });
 
-  it("does not fail the already-sent email when the launch flip errors (M6b)", async () => {
+  it("still sends when the launch flip errors, but REDS the run (M6b, inverted at the freeze)", async () => {
     const base = makeFakeBase({
       Reports: [reportRow({ "Report type": "Launch" })],
       Websites: [siteRow({ Status: "launch" })],
     });
     // Wrap the table factory so only the Websites update (the Status flip) throws.
-    // The send + Reports stamp must still succeed; the flip failure becomes a warning,
-    // not a hard failure, because the email already went out.
+    // The send + Reports stamp must still succeed — the email already went out and
+    // the row must not replay. But post-freeze (#643) the flip failure can no
+    // longer be a green-run warning: nothing converges it, and Turso — the store
+    // lead routing reads — would keep the site in launch-period forever.
     const inner = base as unknown as (t: string) => Record<string, unknown>;
     const patched = ((t: string) => {
       const tbl = inner(t);
@@ -891,9 +893,78 @@ describe("sendApprovedReports", () => {
     vi.mocked(openBase).mockReturnValue(patched);
     const { client } = captureClient();
     const res = await sendApprovedReports({ resend: client });
-    expect(res.code).toBe(0);
+    expect(res.code).toBe(1);
     expect(res.output).toContain("✓ sent:");
     expect(res.output).toContain("launch flip failed");
     expect(res.output).toContain("Status field write blew up");
+  });
+
+  // #643 (the freeze): stampSent's Turso write-through. The stamp is what
+  // removes a row from listSendableReports, so once it lands there is no replay
+  // left to converge a lost mirror — these pin that the mirror gets the exact
+  // values Airtable got, and that losing it cannot hide in a green run.
+  it("mirrors the Sent-at stamp: reportSentMirror gets the report id and the messageId", async () => {
+    const base = makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] });
+    vi.mocked(openBase).mockReturnValue(base);
+    const { client } = captureClient();
+    const stamps: Array<{ id: string; sentAt: Date; messageId: string | null }> = [];
+    const res = await sendApprovedReports({
+      resend: client,
+      reportSentMirror: async (id, sentAt, messageId) => {
+        stamps.push({ id, sentAt, messageId });
+      },
+    });
+    expect(res.code).toBe(0);
+    expect(stamps).toEqual([{ id: "rec_report_1", sentAt: expect.any(Date), messageId: "msg_1" }]);
+  });
+
+  it("mirrors the 409 recovery stamp with a NULL messageId, exactly as Airtable got it", async () => {
+    // The conflict path stamps `Sent at` but leaves `Resend message ID`
+    // untouched (the original id is unrecoverable on a 409) — the shadow must
+    // not invent one either.
+    const base = makeFakeBase({ Reports: [reportRow()], Websites: [siteRow()] });
+    vi.mocked(openBase).mockReturnValue(base);
+    const { client } = idempotencyConflictClient();
+    const stamps: Array<string | null> = [];
+    const res = await sendApprovedReports({
+      resend: client,
+      reportSentMirror: async (_id, _sentAt, messageId) => {
+        stamps.push(messageId);
+      },
+    });
+    expect(res.code).toBe(0);
+    expect(stamps).toEqual([null]);
+  });
+
+  it("reds the run when the sent-stamp mirror fails — but still runs the Launch flip", async () => {
+    // The stamp mirror and the launch flip are independent recoveries: one
+    // failing must not rob the other of its attempt, and neither may hide in a
+    // green run.
+    const base = makeFakeBase({
+      Reports: [reportRow({ "Report type": "Launch" })],
+      Websites: [siteRow({ Status: "launch" })],
+    });
+    vi.mocked(openBase).mockReturnValue(base);
+    const { client } = captureClient();
+    const mirrored: string[] = [];
+    const res = await sendApprovedReports({
+      resend: client,
+      siteMirror: {
+        created: async () => {},
+        health: async () => {},
+        site: async (id) => {
+          mirrored.push(id);
+        },
+      },
+      reportSentMirror: async () => {
+        throw new Error("SQLITE_BUSY");
+      },
+    });
+    expect(res.code).toBe(1);
+    expect(res.output).toContain("✓ sent:");
+    expect(res.output).toContain("sent-stamp mirror failed");
+    expect(res.output).toContain("SQLITE_BUSY");
+    expect(res.output).toContain("launched:");
+    expect(mirrored).toEqual(["rec_site_acme"]);
   });
 });
