@@ -99,6 +99,11 @@ jobs:
         env:
           AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+          # #643 (the freeze): openVerdictSink builds a site mirror, and post-flip
+          # the factory REFUSES TO BUILD without Turso creds — the whole sweep
+          # would exit 1 as an outage before checking a single site.
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           PRISMIC_TOKEN_48BB12D1: ${{ secrets.PRISMIC_TOKEN_48BB12D1 }}
           PRISMIC_TOKEN_ALAMO_ANATOMY: ${{ secrets.PRISMIC_TOKEN_ALAMO_ANATOMY }}
           PRISMIC_TOKEN_CALTEX_LANDING: ${{ secrets.PRISMIC_TOKEN_CALTEX_LANDING }}

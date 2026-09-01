@@ -86,6 +86,13 @@ const STYLES = `
   }
 `;
 
+/** One of the THREE site-score cards. AI Visibility used to be a fourth and
+ *  was removed on purpose, matching the web report's control split: these
+ *  three measure the site and move when the site is fixed; visibility is
+ *  measured out in the world and reported with receipts in "What the AI
+ *  engines said about you" — a fourth card said it was the same kind of claim,
+ *  and ours to move. It is neither. `scores.aiVisibility` stays computed and
+ *  stored; it just is not a card, here or in the email or CLI summary. */
 function scoreCard(label: string, value: number | null, hint?: string): string {
   const n =
     value === null ? `<div class="n na">Not measured</div>` : `<div class="n">${value}</div>`;
@@ -451,7 +458,6 @@ export function renderProspectReport(result: ProspectAuditResult): string {
     ${scoreCard("Findability", result.scores.findability, "How easily AI and search crawlers can find and reach your site — crawl rules, sitemap, key metadata")}
     ${scoreCard("Readability", result.scores.readability, "How much of your site's content those crawlers can actually read once they're in — most don't run JavaScript")}
     ${scoreCard("Answers", result.scores.answers, "How many buyer questions your site's own content answers — separate from what the AI engines say back")}
-    ${scoreCard("AI Visibility", result.scores.aiVisibility, "Based on buyer questions — not questions that name the business directly")}
   </div>
 
   <h2>What the AI engines said about you</h2>

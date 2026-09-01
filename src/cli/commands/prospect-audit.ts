@@ -131,7 +131,9 @@ function summarize(
     scoreLine("Findability", result.scores.findability),
     scoreLine("Readability", result.scores.readability),
     scoreLine("Answers", result.scores.answers),
-    scoreLine("AI Visibility", result.scores.aiVisibility),
+    // No AI Visibility line: the score was removed from every presentation
+    // surface (web, print, email, here) — the measurement lives on as the
+    // report's receipts section, not as a number that reads as ours to move.
   ];
   for (const [name, stage] of [
     ["checks", result.checks],

@@ -335,3 +335,50 @@ describe("runProspectAudit", () => {
     }
   });
 });
+
+describe("llm auth mode in the pipeline", () => {
+  const withEnv = async (value: string | undefined, fn: () => Promise<void>) => {
+    const saved = process.env.PROSPECT_LLM_AUTH;
+    if (value === undefined) delete process.env.PROSPECT_LLM_AUTH;
+    else process.env.PROSPECT_LLM_AUTH = value;
+    try {
+      await fn();
+    } finally {
+      if (saved === undefined) delete process.env.PROSPECT_LLM_AUTH;
+      else process.env.PROSPECT_LLM_AUTH = saved;
+    }
+  };
+
+  it("stamps llmAuth on the result — an audit must say which instrument produced it", () =>
+    withEnv(undefined, async () => {
+      const result = await runProspectAudit(HOME, {}, deps());
+      expect(result.llmAuth).toBe("api");
+    }));
+
+  it("stamps subscription mode even when every model stage is injected", () =>
+    withEnv("subscription", async () => {
+      // Injected deps mean no subprocess ever spawns — the stamp records the
+      // MODE the audit ran under, which --no-probes or a failed stage must
+      // not erase.
+      const result = await runProspectAudit(HOME, {}, deps());
+      expect(result.llmAuth).toBe("subscription");
+    }));
+
+  it("fails fast on a typo'd toggle, before any crawl or Lighthouse spend", () =>
+    withEnv("subscripton", async () => {
+      let crawled = false;
+      const d = deps({
+        crawl: crawlDeps({
+          async fetchUrl(_url): Promise<FetchResponse> {
+            crawled = true;
+            return { status: 200, body: fixture("rich.html"), headers: {} };
+          },
+        }),
+      });
+      await expect(runProspectAudit(HOME, {}, d)).rejects.toThrow(/PROSPECT_LLM_AUTH/);
+      // Without the early check this typo produced a complete-looking report
+      // whose analyze/probes sections carried the config error — and could be
+      // emailed. A misconfiguration should cost nothing and publish nothing.
+      expect(crawled).toBe(false);
+    }));
+});

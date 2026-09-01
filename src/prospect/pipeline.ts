@@ -1,6 +1,7 @@
 import { crawlSite, defaultCrawlDeps, readCapped, USER_AGENT, type CrawlDeps } from "./crawl.js";
 import { computeScores, runChecks } from "./checks.js";
 import { analyzeSite, defaultAnalyzeDeps, type AnalyzeDeps } from "./analyze.js";
+import { claudeCodeAnalyzeDeps, claudeCodeEngine, llmAuthMode } from "./claude-code.js";
 import {
   defaultEngines,
   runVisibilityProbes,
@@ -29,6 +30,28 @@ export type StageName =
   | "probes"
   | "assets"
   | "basics";
+
+/** The two ways an audit can pay for its model calls. Which one runs is
+ *  decided here, once, off PROSPECT_LLM_AUTH (see claude-code.ts) — the
+ *  production runner sets nothing and gets the metered API; a dev machine
+ *  sets `subscription` and rides the Claude plan. Factories are injectable so
+ *  a test can watch the selection without spawning anything. */
+export function envAnalyzeDeps(
+  factories: { api: () => AnalyzeDeps; subscription: () => AnalyzeDeps } = {
+    api: defaultAnalyzeDeps,
+    subscription: claudeCodeAnalyzeDeps,
+  },
+): AnalyzeDeps {
+  return llmAuthMode() === "subscription" ? factories.subscription() : factories.api();
+}
+
+/** Same selection for the probe engines. In subscription mode the claude-code
+ *  engine replaces the API's claude engine (its rows carry their own engine
+ *  name — the two are different instruments); the Perplexity gate inside
+ *  defaultEngines applies either way. */
+export function envEngines(): VisibilityEngine[] {
+  return llmAuthMode() === "subscription" ? defaultEngines(claudeCodeEngine()) : defaultEngines();
+}
 
 /** `opts.probes === false` (the CLI's `--no-probes`) and an attempted probe
  *  run that failed are both `{ok:false, error}` — only the message tells
@@ -165,6 +188,11 @@ export async function runProspectAudit(
   opts: ProspectAuditOptions,
   deps: PipelineDeps = {},
 ): Promise<ProspectAuditResult> {
+  // Resolved once, up front, for two reasons: a typo'd PROSPECT_LLM_AUTH must
+  // fail HERE — before crawl and Lighthouse spend, and before a hollow report
+  // could persist and email — and the mode is stamped on the result below,
+  // because which instrument produced an audit is part of the measurement.
+  const llmAuth = llmAuthMode();
   const crawlDeps = deps.crawl ?? defaultCrawlDeps();
   deps.onStage?.("crawl", "start");
   let crawlData: CrawlResult;
@@ -219,7 +247,7 @@ export async function runProspectAudit(
 
   const analyze: StageResult<AnalyzeResult> = checks.ok
     ? await stage("analyze", deps, async () =>
-        analyzeSite(url, crawlData, checks.data, deps.analyze ?? defaultAnalyzeDeps()),
+        analyzeSite(url, crawlData, checks.data, deps.analyze ?? envAnalyzeDeps()),
       )
     : { ok: false, error: ANALYZE_SKIPPED };
 
@@ -248,7 +276,7 @@ export async function runProspectAudit(
           categoryQueries: analyze.ok ? analyze.data.categoryQueries : [],
           competitors: opts.competitors ?? [],
         },
-        deps.engines ?? defaultEngines(),
+        deps.engines ?? envEngines(),
         probeOpts,
       ),
     );
@@ -279,6 +307,7 @@ export async function runProspectAudit(
   return {
     url,
     businessName,
+    llmAuth,
     generatedAt: new Date().toISOString(),
     scores: computeScores({
       checks: checks.ok ? checks.data : null,

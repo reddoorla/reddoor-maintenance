@@ -77,7 +77,7 @@ dashboard's inline script is a template string no test had executed) and #603
 (commentary offered on templates that ignore it, found by a production render
 probe).
 
-## Phase 5 — freeze 🔶 IN PROGRESS
+## Phase 5 — freeze ✅ COMPLETE — flipped 2026-08-31 (#643)
 
 **This section was rewritten 2026-08-26.** The original text — _"Airtable goes
 read-only. Parity runs for one week."_ — contradicts the decisions taken on
@@ -107,13 +107,46 @@ mirror, so parity does not cover it; the fleet homepage now touches Airtable zer
 times), and `mirrorWrite` bringing the four Netlify request handlers under the
 switch with a lockstep gate to keep them there.
 
-⚠️ **Rollback is unrehearsed.** No Turso restore has ever been performed into a
-real target. `db restore --url --file` exists for it; run it once before the flip.
+**Flipped 2026-08-31, 17:45 PT — #643, main `dadb073`.** `TURSO_IS_AUTHORITATIVE`
+is `true` and `fleet-db-sync` is deleted in the same commit. Go/no-go recorded on
+issue #612 immediately before: `FLEET_PARITY sites=44 health=44 schedule=44
+reports=17 mismatches=0`. A four-track pre-merge review (lead-path trace, sweep,
+week-of-evidence, design-vs-diff) found three regressions the one-line flip would
+have exposed, fixed in the same PR: the send batch never mirrored
+`Sent at`/`Resend message ID` (its exclusion cited "the hourly sync converges
+those"), and `fleet-prismic-drift` + `fleet-security`'s renovate-dispatch step
+had no Turso credentials for mirrors that now refuse to build without them. A
+second, narrower round on the fix commit found nothing.
 
-## Phase 6 — retire ⬜ NOT STARTED
+Two things about the rollback week that are deliberate, not gaps: Airtable shadow
+writes are **still fatal** to their callers (a shadow you might roll back to is one
+you keep trustworthy — an Airtable quota outage still reds writes until Phase 6),
+and `db import-airtable` / `db sync` refuse under the freeze unless `--force`,
+because a habitual import would overwrite authoritative rows from the frozen
+archive. `db parity` stays free — "did the shadow drift?" is the rollback-week
+question. The window closes ~2026-09-07.
 
-One week after the flip. Delete `src/reports/airtable/**` and its callers. Keep
-the frozen base as an archive; there is no reason to delete it.
+✅ **Rollback is rehearsed — three times.** #630 restored into a local `turso dev`
+target; #636 restored into a real hosted database and thereby exposed that
+`db restore` sent no auth token (a defect neither `:memory:` nor `turso dev` could
+show — fixed in the same PR); and on 2026-08-31, hours before the flip, the
+_actual nightly artifact_ was downloaded, decrypted locally with
+`BACKUP_PASSPHRASE`, and restored into a fresh hosted database:
+`RESTORE loaded=true tables=11 rows=803 blob_bytes=7777769 mismatches=0`,
+independently confirmed by a `turso db shell` count check. A full fleet restore
+takes seconds.
+
+## Phase 6 — retire ⏳ SCHEDULED — not before 2026-09-07
+
+Delete `src/reports/airtable/**` and its callers; keep the frozen base as an
+archive. **The order is load-bearing — see #646 for the dependency-ordered
+checklist.** In short: relocate the pure helpers `fleet-state.ts` value-imports
+from the Airtable layer (they run on every lead read), port `resend-webhook`'s
+report lookup to Turso, replace `ensure-site` (the only sites-INSERT path is
+driven by the Airtable create), move batch enumeration off `listWebsites(base)`
+(including the nightly form-e2e), remove `form-ingest`'s Airtable env gate
+_before_ pulling the env vars — and only then delete. #645 (post-flip lead-path
+hardening) should land first.
 
 ## Free-tier guard-rails
 
@@ -127,11 +160,14 @@ the frozen base as an archive; there is no reason to delete it.
   nightly `digest_state` singleton, at the cost of figures up to 24h stale —
   **an operator decision, still open.**
 - ✅ **Index `submissions.resend_message_id`** — migration `0008`.
-- ❌ **Nightly Turso usage check, alarming at 50% of any metric — NEVER BUILT.**
-  Nothing in this repo has ever spoken to the Turso Platform API. It has therefore
-  never run, never been green, and by this repo's first rule is not evidence of
-  anything. **Blocked on the operator: it needs a Turso _platform_ token; the
-  database-level `TURSO_AUTH_TOKEN` cannot read usage.**
+- ✅ **Nightly Turso plan-quota check — built in #634 (2026-08-26).** `db usage`
+  reads the Platform API with the account-level `TURSO_FLEET_USAGE` token (the
+  database-level `TURSO_AUTH_TOKEN` cannot read quota) and runs as
+  `fleet-db-backup`'s separate `quota` job, gated on
+  `FLEET_DB_USAGE … verdict=ok`. ⚠️ It has timed out once (2026-08-29, the job's
+  5-minute limit) — a probe failure reds the job rather than reading as headroom,
+  which is the right direction, but the probe wants hardening now that Turso is
+  the only store and `overages: false` makes a quota crossing a total outage.
 
 ## Open threads carried in
 

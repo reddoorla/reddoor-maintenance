@@ -152,10 +152,12 @@ describe("end to end: runProspectAudit -> renderProspectReport", () => {
     // The business name appears.
     expect(html).toContain("Riverside Plumbing Co");
 
-    // Each of the four score cards is present.
-    for (const label of ["Findability", "Readability", "Answers", "AI Visibility"]) {
+    // The three site score cards are present; the AI Visibility card is
+    // deliberately not (visibility is receipts, not a scorecard item).
+    for (const label of ["Findability", "Readability", "Answers"]) {
       expect(html).toContain(label);
     }
+    expect(html).not.toContain("AI Visibility");
 
     // No undefined/NaN/[object Object] leaks anywhere in the document.
     expect(html).not.toMatch(/\bundefined\b/);

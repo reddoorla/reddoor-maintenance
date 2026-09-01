@@ -5,6 +5,9 @@ export type DbCommandOptions = {
   file?: string;
   /** usage: org slug override; defaults to TURSO_ORG, else discovered. */
   org?: string;
+  /** import-airtable / sync: run despite the freeze — a deliberate
+   *  rollback-window converge from the frozen Airtable shadow. */
+  force?: boolean;
   cwd?: string;
   verbose?: boolean;
 };
@@ -19,7 +22,39 @@ export type DbCommandDeps = {
   platformToken?: string;
   fetchImpl?: (url: string, init?: RequestInit) => Promise<Response>;
   now?: Date;
+  /** restore: auth token for the TARGET database; defaults to
+   *  TURSO_RESTORE_AUTH_TOKEN. Deliberately does NOT fall back to the ambient
+   *  TURSO_AUTH_TOKEN — that one belongs to production, and inheriting it would
+   *  undo the whole point of making --url explicit. */
+  restoreAuthToken?: string;
 };
+
+/** #643 (the freeze): the scheduled import retired with the flip, but the
+ *  MANUAL import survives as the rollback-window converge tool — and run out of
+ *  habit it would overwrite authoritative Turso rows with the frozen Airtable
+ *  archive, including any post-flip write whose best-effort shadow was
+ *  swallowed. So the writing actions refuse under the freeze unless the
+ *  operator says `--force`. `parity` stays unguarded: it only compares, and
+ *  "did the shadow drift?" is exactly the rollback-window question.
+ *
+ *  Pure and exported so the test injects BOTH switch states; `runDbCommand`
+ *  passes the shipped constant. Returns the refusal, or null to proceed. */
+export function freezeGuardsDbWrite(
+  action: string,
+  force: boolean,
+  authoritative: boolean,
+): { output: string; code: number } | null {
+  if (!authoritative) return null;
+  if (action !== "import-airtable" && action !== "sync") return null;
+  if (force) return null;
+  return {
+    output:
+      `db ${action} refused: TURSO_IS_AUTHORITATIVE is on (the freeze, 2026-08-31). ` +
+      `An import now OVERWRITES authoritative Turso rows with the frozen Airtable ` +
+      `archive. Pass --force only for a deliberate rollback-window converge.`,
+    code: 1,
+  };
+}
 
 /** `db <action>` — migrate | replay-deadletters | import-airtable | parity | sync | dump | verify-dump. The db layer is imported
  *  dynamically so a non-db CLI invocation (and `--help`) never loads
@@ -128,6 +163,9 @@ export async function runDbCommand(
   // share that mapping, so parity is definitionally checked against what the
   // importer writes.
   if (action === "import-airtable" || action === "parity" || action === "sync") {
+    const { TURSO_IS_AUTHORITATIVE } = await import("../../db/freeze.js");
+    const refused = freezeGuardsDbWrite(action, opts.force === true, TURSO_IS_AUTHORITATIVE);
+    if (refused) return refused;
     const { readDbConfig, openDb } = await import("../../db/client.js");
     const db = await openDb(opts.url ? { url: opts.url } : readDbConfig());
     const { openBase, readAirtableConfig } = await import("../../reports/airtable/client.js");
@@ -315,13 +353,23 @@ export async function runDbCommand(
         code: 1,
       };
     }
+    // Classify the target BEFORE reading the dump, so a missing token names
+    // itself instead of arriving as an opaque 401 (or, worse, as an ENOENT that
+    // sends you hunting for the dump file). This command built its client from
+    // a url alone until 2026-08-26, which worked against every target the tests
+    // and rehearsals used — `:memory:` and a local `turso dev` — and failed
+    // against every target an actual recovery has.
+    const { parseDumpManifest, requiresAuthToken } = await import("../../db/dump.js");
+    const authToken = deps.restoreAuthToken ?? process.env.TURSO_RESTORE_AUTH_TOKEN ?? "";
+    if (requiresAuthToken(opts.url) && !authToken) {
+      return { output: "RESTORE refused=auth-token-absent", code: 1 };
+    }
     const { readFile } = await import("node:fs/promises");
     const sql = await readFile(file, "utf-8");
-    const { parseDumpManifest } = await import("../../db/dump.js");
     const manifest = parseDumpManifest(sql);
     if (!manifest) return { output: "RESTORE refused=manifest-absent", code: 1 };
     const { createClient } = await import("@libsql/client");
-    const target = createClient({ url: opts.url });
+    const target = createClient(authToken ? { url: opts.url, authToken } : { url: opts.url });
     const existing = await target.execute(
       "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
     );

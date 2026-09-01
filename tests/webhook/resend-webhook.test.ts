@@ -27,8 +27,17 @@ vi.mock("../../src/db/client.js", () => ({
 vi.mock("../../src/db/submissions.js", () => ({
   markNotifyBouncedByMessageId: vi.fn(),
 }));
+// Post-freeze (#612) the Turso patch inside `mirrorWrite` is the write that
+// must SUCCEED — a healthy-path test therefore needs a working mirror, exactly
+// as it needs the Airtable pair above. Unmocked, the real mirrorReportPatch
+// would run against the fake db object and throw, which the old swallow hid
+// and the strict world correctly turns into a 500.
+vi.mock("../../src/db/fleet-state.js", () => ({
+  mirrorReportPatch: vi.fn(),
+}));
 import { openDb } from "../../src/db/client.js";
 import { markNotifyBouncedByMessageId } from "../../src/db/submissions.js";
+import { mirrorReportPatch } from "../../src/db/fleet-state.js";
 
 // Imports the real STATUS_MAP from the webhook handler so a drift between code
 // and "expected" mapping fails this test. (Previously this file declared its
@@ -221,6 +230,7 @@ const findReportMock = vi.mocked(findReportByMessageId);
 const setStatusMock = vi.mocked(setDeliveryStatus);
 const markBouncedMock = vi.mocked(markNotifyBouncedByMessageId);
 const openDbMock = vi.mocked(openDb);
+const mirrorPatchMock = vi.mocked(mirrorReportPatch);
 const fakeReport = { id: "recReport123" } as Awaited<ReturnType<typeof findReportByMessageId>>;
 
 describe("Resend webhook signed-POST path", () => {
@@ -238,6 +248,9 @@ describe("Resend webhook signed-POST path", () => {
     markBouncedMock.mockResolvedValue(false);
     openDbMock.mockReset();
     openDbMock.mockResolvedValue({} as Awaited<ReturnType<typeof openDb>>);
+    // Default: the authoritative Turso patch succeeds (the healthy world).
+    mirrorPatchMock.mockReset();
+    mirrorPatchMock.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -255,6 +268,10 @@ describe("Resend webhook signed-POST path", () => {
     expect(res.status).toBe(200);
     expect(findReportMock).toHaveBeenCalledWith(expect.anything(), "msgId_xyz");
     expect(setStatusMock).toHaveBeenCalledWith(expect.anything(), "recReport123", "delivered");
+    // Post-freeze the Turso row is the authoritative record of the status.
+    expect(mirrorPatchMock).toHaveBeenCalledWith(expect.anything(), "recReport123", {
+      delivery_status: "delivered",
+    });
   });
 
   // Build a matched report row carrying a specific current Delivery status, so
@@ -394,12 +411,20 @@ describe("Resend webhook signed-POST path", () => {
     expect(findReportMock).not.toHaveBeenCalled();
   });
 
-  it("fails open when libSQL is down: the bounce falls through to the report path", async () => {
+  it("fails CLOSED when libSQL is down: 500 so Resend redelivers (post-freeze)", async () => {
+    // Pre-freeze this test proved the opposite — a Turso outage fell through
+    // and the Airtable write alone counted as success. With Turso
+    // authoritative (#612), a status that never reached the real store is NOT
+    // recorded: the handler must 500 so Resend retries the event. The
+    // monotonic guard makes the redelivery idempotent, and the bounce lookup's
+    // own fall-through (submissions → report path) still happens first.
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     openDbMock.mockRejectedValue(new Error("turso down"));
     findReportMock.mockResolvedValue(fakeReport);
     const res = await post(resendEvent("email.bounced", { emailId: "msg_during_outage" }));
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
+    // The Airtable shadow write still ran (it precedes the mirror) — harmless,
+    // idempotent on retry, and gone entirely in Phase 6.
     expect(setStatusMock).toHaveBeenCalledWith(expect.anything(), "recReport123", "bounced");
     errorSpy.mockRestore();
   });

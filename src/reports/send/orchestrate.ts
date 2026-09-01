@@ -39,6 +39,13 @@ export type OrchestrateOptions = {
    *  updates. Injected rather than defaulted — this function is called directly
    *  by tests, and a default would open a real libSQL handle inside the suite. */
   siteMirror?: SiteMirror;
+  /** #643 (the freeze): Turso write-through for the `Sent at` / `Resend message
+   *  ID` stamp. stampSent is what removes a row from listSendableReports, so
+   *  once it lands there is no replay left to converge a lost mirror — and the
+   *  console's already-sent guards (approve, the commentary lock, re-render)
+   *  read `sent_at` from Turso. Injected like siteMirror; the CLI wires it
+   *  through `mirrorWrite` so the freeze switch owns the error semantics. */
+  reportSentMirror?: (reportId: string, sentAt: Date, messageId: string | null) => Promise<void>;
 };
 
 export async function sendApprovedReports(
@@ -63,8 +70,19 @@ export async function sendApprovedReports(
       continue;
     }
     try {
-      const messageId = await sendOne(client, base, site, report);
-      lines.push(`✓ sent: ${report.reportId} (${messageId})`);
+      const sent = await sendOne(client, base, site, report);
+      lines.push(`✓ sent: ${report.reportId} (${sent.display})`);
+      // Mirror the stamp into Turso. Caught here rather than thrown so one
+      // report's lost mirror still lets the batch continue AND still runs this
+      // report's Launch flip below — but it reds the run (`anyFailed`), because
+      // post-freeze nothing converges the miss; `db sync --force` is the manual
+      // converge during the rollback window.
+      try {
+        await options.reportSentMirror?.(report.id, sent.sentAt, sent.messageId);
+      } catch (e) {
+        lines.push(`  ✗ sent-stamp mirror failed for ${report.reportId}: ${(e as Error).message}`);
+        anyFailed = true;
+      }
       if (report.sendOverride) {
         const failing = gatingHealth({
           reportType: report.reportType,
@@ -110,7 +128,12 @@ export async function sendApprovedReports(
             new Date(),
           );
         } catch (e) {
+          // Post-freeze a swallowed flip failure is permanent divergence: Turso
+          // — the store lead routing reads — would keep the site in
+          // launch-period forever (its leads go operator-only). Red the run
+          // instead of shrugging; the email itself already went out.
           lines.push(`  ⚠ launch flip failed for ${site.name}: ${(e as Error).message}`);
+          anyFailed = true;
         }
       }
     } catch (e) {
@@ -121,12 +144,17 @@ export async function sendApprovedReports(
   return { output: lines.join("\n"), code: anyFailed ? 1 : 0 };
 }
 
+/** What the caller needs to mirror the stamp: the exact values stampSent wrote
+ *  (`messageId` null on the 409 path, where Airtable's field is left untouched
+ *  too), plus the display string for the ✓ line. */
+type SentStamp = { display: string; sentAt: Date; messageId: string | null };
+
 async function sendOne(
   client: ResendClient,
   base: ReturnType<typeof openBase>,
   site: WebsiteRow,
   report: ReportRow,
-): Promise<string> {
+): Promise<SentStamp> {
   // Hard health gate: a Maintenance/Testing report whose gating evidence isn't all pass/n/a must
   // never go out — even if "Approved to send" was set directly in Airtable. Throw so the row is
   // skipped and `Sent at` stays null (at-least-once retry preserved). Launch/Announcement have no
@@ -230,14 +258,16 @@ async function sendOne(
       // sentinel that would masquerade as a real id and orphan webhook lookups.
       // Still return the sentinel string so the caller logs the already-sent path
       // and runs the Launch flip.
-      await stampSent(base, report.id, new Date(), null);
+      const when = new Date();
+      await stampSent(base, report.id, when, null);
       console.log(`↻ already sent (idempotency conflict), stamped: ${report.reportId}`);
-      return "idempotent-conflict";
+      return { display: "idempotent-conflict", sentAt: when, messageId: null };
     }
     throw err;
   }
-  await stampSent(base, report.id, new Date(), result.messageId);
-  return result.messageId;
+  const when = new Date();
+  await stampSent(base, report.id, when, result.messageId);
+  return { display: result.messageId, sentAt: when, messageId: result.messageId };
 }
 
 /**

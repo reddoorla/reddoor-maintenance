@@ -3,7 +3,7 @@ import { richText, assetRef, type PlanSlice } from "./plan.js";
 import { coerceHeadingHtml, demoteHeadingsHtml } from "./coerce-html.js";
 
 /** Allowed heading tags per slice heading slot — MUST mirror the
- *  StructuredText configs in reddoor-starter/src/lib/slices/<Slice>/model.json. */
+ *  StructuredText configs in reddoor-starter-blux/src/lib/slices/<Slice>/model.json. */
 const HEADING_TAGS = {
   hero: ["h1", "h2"],
   media_text: ["h2", "h3"],

@@ -171,8 +171,10 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
 
   try {
     await setDeliveryStatus(base, report.id, newStatus);
-    // Phase 2 (#539): mirror into Turso reports. Non-fatal today because the
-    // hourly sync converges it; fatal once the freeze removes that sync.
+    // #539/#643: mirror into Turso reports. Fatal since the freeze retired the
+    // hourly sync — a swallowed failure here would be permanent divergence, so
+    // mirrorWrite rethrows into the catch below and the 500 makes svix
+    // redeliver (the monotonic guard keeps the retry idempotent).
     await mirrorWrite(`resend-webhook ${report.id}`, async () => {
       const db = await openDb(readDbConfig());
       await mirrorReportPatch(db, report.id, { delivery_status: newStatus });
@@ -181,9 +183,11 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
       `[resend-webhook] updated record=${report.id} → ${newStatus} (messageId=${messageId})`,
     );
   } catch (e) {
-    // Don't echo raw Airtable/internal error text to the caller; log it instead.
+    // Don't echo raw internal error text to the caller; log it instead. Names
+    // both stores because post-freeze the likelier thrower is the strict Turso
+    // mirror, not Airtable — an outage triage greps this line first.
     console.error(
-      `[resend-webhook] Airtable update failed for record=${report.id}: ${(e as Error).message}`,
+      `[resend-webhook] update failed (Airtable or Turso mirror) for record=${report.id}: ${(e as Error).message}`,
     );
     return new Response("internal error", { status: 500 });
   }
