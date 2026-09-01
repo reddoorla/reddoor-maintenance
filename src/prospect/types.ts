@@ -1,4 +1,21 @@
 import type { AuditResult } from "../types.js";
+import type { AnswerSpace } from "./answer-space.js";
+import type { AssetCheck } from "./assets.js";
+import type { BasicsCheck } from "./basics.js";
+import type { ConsistencyResult } from "./consistency.js";
+import type { GoalFit, SiteGoal } from "./goals.js";
+import type { JourneyMap } from "./journey.js";
+
+// Re-exported so a consumer reading `probes.answerSpace` off the `./audit`
+// entry can name its type, rather than only matching it structurally. The
+// report renderer in reddoor-website is the consumer this is for.
+export type { AnswerSpace, SourceCount } from "./answer-space.js";
+export type { AssetCheck, ProbedUrl } from "./assets.js";
+export type { BasicsCheck, Reachability } from "./basics.js";
+export type { ConsistencyResult, ContactVariant } from "./consistency.js";
+export type { GoalFit, GoalRequirement, Scope, SiteGoal } from "./goals.js";
+export { GOAL_LABELS, orderRequirements } from "./goals.js";
+export type { ContactAffordance, JourneyMap, PageJourney } from "./journey.js";
 
 /** Every pipeline stage resolves to this. A failed stage degrades its report
  *  section to "not measured" — it never kills the run (spec: error handling). */
@@ -10,6 +27,52 @@ export type RobotsAgentAccess = {
   allowed: boolean;
   /** The deciding rule, e.g. "User-agent: GPTBot → Disallow: /". Null = no rule matched. */
   matchedRule: string | null;
+};
+
+/** One `<a href>`. `href` is exactly as authored — relative, absolute, `tel:`,
+ *  `mailto:`, `#anchor` — and is resolved against the page URL by whoever needs
+ *  an absolute one. Resolving here would discard the distinction between a
+ *  genuinely absolute link and a relative one, which is itself a finding when a
+ *  site hardcodes a staging host. */
+export type PageAnchor = { href: string; text: string; rel: string };
+
+/**
+ * What a form is FOR, inferred from its shape.
+ *
+ * - `enquiry`   asks for a way to reply AND for something else — a name, a
+ *               message, a budget. This is the one that reaches a human.
+ * - `subscribe` asks for a way to reply and nothing else: a lone email box.
+ *               A newsletter signup is a conversion, but it is not a way to
+ *               get an answer, and a visitor with a question is not served by
+ *               one.
+ * - `other`     everything else — search, filters, logins, calculators. No
+ *               attempt is made to tell those apart; the shapes overlap too
+ *               much to do it honestly from markup.
+ *
+ * The distinction earns its keep on real data. One audited site carries a
+ * one-field email box in the footer of every page. Counting that as a contact
+ * route put the whole site at zero clicks from "reaching them", when in fact
+ * the only form that reaches a person was the nine-field one on its contact
+ * page.
+ */
+export type FormKind = "enquiry" | "subscribe" | "other";
+
+/** One `<form>`, in enough detail to tell an enquiry form from a newsletter box
+ *  or a search field. That distinction is the whole point: a site nobody can
+ *  actually reach must not score as though it has a conversion path. */
+export type FormShape = {
+  kind: FormKind;
+  /** As authored, or null for a form that posts to its own URL. */
+  action: string | null;
+  /** Lower-cased; defaults to "get", which is what a browser does. */
+  method: string;
+  /** Visible, named controls — hidden inputs, submits and buttons excluded, so
+   *  a one-field newsletter box does not read the same as a real enquiry form. */
+  fieldCount: number;
+  /** Does it ask for an email address or a phone number? A search box does not,
+   *  and this is what separates "can be contacted" from "can be searched". */
+  hasContactField: boolean;
+  hasSubmit: boolean;
 };
 
 export type PageExtract = {
@@ -26,6 +89,28 @@ export type PageExtract = {
   hasViewportMeta: boolean;
   /** Visible text, whitespace-collapsed. */
   text: string;
+  /**
+   * Anchors in document order, CAPPED — see `anchorCount` for the true total.
+   *
+   * Capped because this whole extract is persisted into
+   * `prospect_audits.result_json`, once per page per audit, and a navigation-
+   * heavy page can carry several hundred anchors. The cap is generous enough
+   * that no ordinary page reaches it.
+   *
+   * The count is reported separately rather than left implicit, because a
+   * truncated list that looks complete is exactly the kind of quiet lie this
+   * audit is built not to tell: "we checked every link" and "we checked the
+   * first 300" are different claims.
+   *
+   * Optional: reports stored before this existed lack it, and a reader must
+   * treat its absence as "not measured" rather than "no links".
+   */
+  anchors?: PageAnchor[];
+  /** True number of `<a href>` on the page, before `anchors` was capped. */
+  anchorCount?: number;
+  /** `src` of each `<img>`, as authored. Same resolution note as `anchors`. */
+  imageSrcs?: string[];
+  forms?: FormShape[];
 };
 
 export type PageCapture = {
@@ -107,6 +192,12 @@ export type ChecksResult = {
   llmsTxtMeasured: boolean;
   llmsTxtPresent: boolean;
   viewportOk: boolean;
+  /** Can a visitor get from where they landed to a way of contacting you?
+   *  Optional: reports stored before this was measured lack it, and a reader
+   *  must say "not measured" rather than "no path". See journey.ts. */
+  journey?: JourneyMap;
+  /** Does the site tell the same story on every page? See consistency.ts. */
+  consistency?: ConsistencyResult;
 };
 
 export type BuyerQuestion = {
@@ -135,6 +226,10 @@ export type AnalyzeResult = {
   /** The model's read of what this company does, for whom, where. */
   business: string;
   entityClarity: { score: number; missing: string[] };
+  /** The one action this site is built to produce — the lens goals.ts reads
+   *  every requirement through. Optional for reports stored before it existed;
+   *  absence means the goal section reads "not measured". */
+  primaryGoal?: SiteGoal;
   buyerQuestions: BuyerQuestion[];
   /** Standalone searches for the visibility probes — what a buyer types before
    *  they know this company exists. Distinct from `buyerQuestions`, which are
@@ -172,6 +267,21 @@ export type ProbeAnswer = {
   citedDomains: string[];
   /** First ~300 chars of the engine's answer — the report's receipt. */
   snippet: string;
+  /**
+   * The engine's answer in full, kept for BRANDED answers only.
+   *
+   * The accuracy stage reads these to work out which statements about the
+   * business its own site actually supports, and a 300-character snippet cuts
+   * off mid-sentence — every claim past it would be invisible, and invisible
+   * reads the same as absent. Branded answers are two or three per run, so
+   * keeping them whole costs little; category and competitor answers are many
+   * and nothing downstream reads them in full, so they do not carry it.
+   *
+   * Optional because reports stored before the accuracy stage existed do not
+   * have it, and there the stage must report that it could not run rather than
+   * report an absence of claims.
+   */
+  fullAnswer?: string;
   /** True when `snippet` is a truncated prefix of a longer answer — set
    *  right where the truncation happens (probes.ts's SNIPPET_CHARS), so the
    *  renderer never has to re-derive "was this cut short?" from a length
@@ -215,6 +325,31 @@ export type ProbesResult = {
    *  existed lacks it. `runVisibilityProbes` always sets it; readers must still
    *  handle its absence rather than assume a stored report has it. */
   categoryProbes?: { attempted: number; answered: number };
+  /**
+   * The shape of the answer the prospect is absent from — see answer-space.ts.
+   *
+   * `visibilityScore` cannot carry a report on its own: across the 12 audits
+   * stored to date it is 0 for eight of them and takes four distinct values in
+   * total, so it cannot rank most prospects against each other at all — and a
+   * bare 0 invites the one question we cannot honestly answer, "how do we make
+   * it go up?". Two zeros can mean opposite things: a category answered by
+   * Stryker, Arthrex and the FDA (no website work reaches that answer — the
+   * honest counsel is not to buy AEO) versus one answered by five local
+   * practices exactly the prospect's size (plainly reachable, and they simply
+   * are not there). This is the evidence that tells those apart.
+   *
+   * Related to `competitorsSeen` but not a replacement for it: that field
+   * predates this one and is what stored reports and the current renderer read,
+   * so it stays. What is new here is the denominator — how many distinct
+   * sources the engine drew on, how many of them it takes to cover half the
+   * citations, and where the prospect's own domain ranks among them.
+   *
+   * Optional because this type also describes runs deserialized from
+   * `prospect_audits.result_json`, and every report stored before this field
+   * existed lacks it. `runVisibilityProbes` always sets it; readers must still
+   * handle its absence rather than assume a stored report has it.
+   */
+  answerSpace?: AnswerSpace;
 };
 
 export type LighthouseScores = {
@@ -264,4 +399,18 @@ export type ProspectAuditResult = {
   lighthouse: StageResult<LighthouseScores>;
   analyze: StageResult<AnalyzeResult>;
   probes: StageResult<ProbesResult>;
+  /** Broken links, broken images and image weight. Its own stage rather than
+   *  part of `checks` because it is the only site check that makes requests —
+   *  `runChecks` is pure and synchronous over the crawl, and it is worth
+   *  keeping it that way. Optional for reports stored before it existed. */
+  assets?: StageResult<AssetCheck>;
+  /** The things a stranger checks first — whether the address works typed the
+   *  ordinary ways, what a missing page does, and the handful of basics the
+   *  crawl already has the evidence for. See basics.ts. Optional for reports
+   *  stored before it existed. */
+  basics?: StageResult<BasicsCheck>;
+  /** Can a visitor do the one thing this site needs them to do? Read against a
+   *  single named goal rather than a generic template — see goals.ts. Optional
+   *  for reports stored before it existed. */
+  goalFit?: StageResult<GoalFit>;
 };

@@ -240,7 +240,14 @@ function buildFindabilitySection(c: ChecksResult): string {
       ? `<p><strong>Blocked AI crawlers:</strong> ${escapeHtml(
           c.crawlerAccess.blockedAi.map(describeAgent).join(", "),
         )}</p>`
-      : `<p>Every AI crawler we checked can reach the site.</p>`;
+      : // Says what was measured, which is robots.txt, and no more. "Every AI
+        // crawler can reach the site" was a claim robots.txt cannot support:
+        // a CDN's bot management enforces its own answer and can contradict the
+        // file without the owner knowing. Confirmed on a live prospect: its
+        // robots.txt blocked nothing relevant, and its CDN returned 403 to one
+        // named AI crawler on every request while serving a browser and two
+        // other crawlers normally. The report said they were fine.
+        `<p>Nothing in your robots.txt blocks the AI crawlers we checked.</p>`;
   const classical =
     c.crawlerAccessMeasured && c.crawlerAccess.blockedClassical.length
       ? `<p><strong>Blocked search crawlers:</strong> ${escapeHtml(
@@ -250,13 +257,21 @@ function buildFindabilitySection(c: ChecksResult): string {
   const sitemapLine = c.sitemapMeasured
     ? `<li>sitemap.xml: ${c.sitemapPresent ? "present" : "missing"}</li>`
     : `<li>sitemap.xml: not measured — ${STAGE_FAILED_MESSAGE}.</li>`;
-  const llmsLine = c.llmsTxtMeasured
-    ? `<li>llms.txt: ${c.llmsTxtPresent ? "present" : "missing"}</li>`
-    : `<li>llms.txt: not measured — ${STAGE_FAILED_MESSAGE}.</li>`;
+  // llms.txt is no longer listed as a finding. It used to sit here as
+  // "present"/"missing" beside sitemap.xml, which put the two on equal footing
+  // — and "missing" beside a checklist reads as a job to do. Search crawlers
+  // demonstrably read a sitemap; no answer engine has documented reading
+  // llms.txt to build an answer. The footnote below says that outright instead
+  // of leaving a prospect to infer it, or to go and build one on our say-so.
+  const llmsFootnote = `<p class="muted"><strong>A note on llms.txt.</strong> You may have been told to
+    add one. We check for it — this site ${
+      !c.llmsTxtMeasured ? "could not be checked" : c.llmsTxtPresent ? "has one" : "does not"
+    } — but we do not score it and we will not recommend it. It is a 2024 proposal that no
+    answer engine has committed to reading, and adding one has no measured effect on whether you
+    are cited. If that changes we will say so and score it then.</p>`;
   return `${accessBlock}${classical}
     <ul>
       ${sitemapLine}
-      ${llmsLine}
       <li>Pages missing a meta description: ${c.meta.missingDescription} of ${c.meta.pageCount}</li>
       <li>Pages missing a canonical URL: ${c.meta.missingCanonical} of ${c.meta.pageCount}</li>
       <li>Pages missing share images/titles: ${c.meta.missingSocial} of ${c.meta.pageCount}</li>
@@ -272,7 +287,7 @@ function buildFindabilitySection(c: ChecksResult): string {
             } not counted in the ${c.meta.pageCount} pages above.</li>`
           : ""
       }
-    </ul>`;
+    </ul>${llmsFootnote}`;
 }
 
 /** Lighthouse runs as its own independent pipeline stage (see pipeline.ts) —

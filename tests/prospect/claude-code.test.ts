@@ -168,6 +168,30 @@ describe("claudeCodeAnalyzeDeps", () => {
     );
   });
 
+  it("falls back to stdout when a non-zero exit left stderr empty", async () => {
+    // Observed in production on 2026-09-01: two audits lost their analyze stage
+    // to `claude -p (analyze) exited 1:` — with nothing after the colon, because
+    // stderr was empty and that is all this error carried. The failure was
+    // transient and reproduced clean by hand afterwards, so the only evidence of
+    // what happened was in the output we discarded. An error that cannot be
+    // diagnosed is a bug of its own.
+    const { run } = fakeRun({
+      stdout: '{"type":"result","subtype":"error","is_error":true,"result":"overloaded"}',
+      stderr: "",
+      code: 1,
+    });
+    await expect(claudeCodeAnalyzeDeps(run).run({ system: "s", user: "u" })).rejects.toThrow(
+      /overloaded/,
+    );
+  });
+
+  it("says outright when a non-zero exit left both streams empty", async () => {
+    const { run } = fakeRun({ stdout: "", stderr: "", code: 1 });
+    await expect(claudeCodeAnalyzeDeps(run).run({ system: "s", user: "u" })).rejects.toThrow(
+      /no output on either stream/,
+    );
+  });
+
   it("throws when the envelope reports an error instead of returning junk", async () => {
     const envelope = { ...ANALYZE_ENVELOPE, subtype: "error_during_execution", is_error: true };
     const { run } = fakeRun({ stdout: JSON.stringify(envelope) });

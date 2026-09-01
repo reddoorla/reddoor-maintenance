@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { pacedEach, sleep } from "./crawl.js";
+import { analyzeAnswerSpace } from "./answer-space.js";
 import type { ProbeAnswer, ProbesResult } from "./types.js";
 
 /** One answer engine. Adding OpenAI or Gemini later means one more of these. */
@@ -400,6 +401,11 @@ export async function runVisibilityProbes(
           citedDomains,
           snippet: reply.answer.slice(0, SNIPPET_CHARS),
           truncated: reply.answer.length > SNIPPET_CHARS,
+          // Branded only — see ProbeAnswer.fullAnswer. The accuracy stage needs
+          // the whole answer to tell "the site never says this" apart from "the
+          // claim was past where we stopped reading", and only branded answers
+          // make claims about the business itself.
+          ...(kind === "branded" ? { fullAnswer: reply.answer } : {}),
           askedAt: new Date().toISOString(),
         });
       },
@@ -460,6 +466,11 @@ export async function runVisibilityProbes(
       .sort((a, b) => b.count - a.count)
       .slice(0, 8),
     categoryProbes: { attempted: categoryAttempted, answered: categoryAnswers.length },
+    // Derived from `answers` above rather than accumulated during the run: it is
+    // a pure read of citations already recorded, so computing it here keeps the
+    // ask loop to one job and lets the same function be re-run over a stored
+    // report if we ever backfill.
+    answerSpace: analyzeAnswerSpace(answers, input.url),
   };
 }
 

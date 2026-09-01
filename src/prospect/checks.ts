@@ -1,4 +1,6 @@
 import { AI_AGENTS, CLASSICAL_AGENTS } from "./crawl.js";
+import { checkConsistency } from "./consistency.js";
+import { buildJourney } from "./journey.js";
 import type {
   AnalyzeResult,
   ChecksResult,
@@ -206,6 +208,11 @@ export function runChecks(crawl: CrawlResult): ChecksResult {
     llmsTxtMeasured: crawl.sidecarErrors.llms === null,
     llmsTxtPresent: crawl.llmsTxt.present,
     viewportOk: views.length > 0 && views.every((v) => v.hasViewportMeta),
+    // Both are pure reads of the crawl, like everything else here — they make
+    // no requests, so they belong in this stage rather than costing the audit
+    // another round trip to the prospect's server.
+    journey: buildJourney(crawl.pages),
+    consistency: checkConsistency(crawl.pages),
   };
 }
 
@@ -253,8 +260,18 @@ export function computeScores(input: {
       // absence does, and never gets credited the way a confirmed presence
       // does.
       const sitemapScore = checks.sitemapMeasured ? (checks.sitemapPresent ? 1 : 0) : 0.5;
-      const llmsScore = checks.llmsTxtMeasured ? (checks.llmsTxtPresent ? 1 : 0) : 0.5;
-      const technical = sitemapScore * 0.5 + (checks.viewportOk ? 1 : 0) * 0.25 + llmsScore * 0.25;
+      // llms.txt USED TO BE a quarter of this component — about 4.7 points of
+      // findability — scored with the same confidence as sitemap.xml. It is not
+      // the same kind of signal. Classical crawlers demonstrably consume a
+      // sitemap; no answer engine has documented consuming llms.txt to build an
+      // answer, and Google has publicly dismissed it. Scoring a proposal nobody
+      // has committed to reading, and then grading a prospect down for not
+      // having one, is the one place this audit asserted more than it knew.
+      //
+      // Still measured and still reported — see `llmsTxtPresent` — just never
+      // scored, and never offered as a fix. The footnote in the report says so
+      // out loud rather than leaving its absence to be inferred.
+      const technical = sitemapScore * (2 / 3) + (checks.viewportOk ? 1 : 0) * (1 / 3);
 
       // Crawler access 40 / classical access 10 / metadata 15 / technical 15,
       // normalized to 0..1. Lighthouse SEO, when measured, takes the last 20

@@ -182,3 +182,252 @@ describe("extractPage — pathological nesting", () => {
     expect(page.headings.some((h) => h.text === "Buried heading")).toBe(false);
   });
 });
+
+describe("extractPage — anchors, images and forms", () => {
+  it("collects hrefs as authored, and counts them truthfully", () => {
+    // Kept as authored on purpose: resolving here would erase the difference
+    // between a relative link and one that hardcodes an absolute host, which is
+    // itself a finding when a site ships a staging URL to production.
+    const page = extractPage(`<html><body>
+      <a href="/about">About</a>
+      <a href="https://elsewhere.example/x">Away</a>
+      <a href="tel:+15550100">Call</a>
+      <a>no href</a>
+      <a href="  ">blank href</a>
+    </body></html>`);
+    expect(page.anchors?.map((a) => a.href)).toEqual([
+      "/about",
+      "https://elsewhere.example/x",
+      "tel:+15550100",
+    ]);
+    expect(page.anchorCount).toBe(3);
+  });
+
+  it("reads an anchor's visible label, not its markup", () => {
+    const page = extractPage(
+      `<html><body><a href="/x"><svg><title>icon</title></svg><span>Contact us</span></a></body></html>`,
+    );
+    expect(page.anchors?.[0]?.text).toBe("Contact us");
+  });
+
+  it("collects image sources and drops empty ones", () => {
+    const page = extractPage(
+      `<html><body><img src="/a.jpg" alt="a"><img src=""><img alt="no src"></body></html>`,
+    );
+    expect(page.imageSrcs).toEqual(["/a.jpg"]);
+  });
+
+  it("classifies a multi-field form that asks for a reply as an enquiry", () => {
+    const page = extractPage(`<html><body><form method="POST" action="/send">
+      <input name="name"><input type="email" name="email"><textarea name="message"></textarea>
+      <input type="hidden" name="csrf"><input type="submit" value="Send">
+    </form></body></html>`);
+    const form = page.forms?.[0];
+    expect(form?.kind).toBe("enquiry");
+    // Hidden and submit are not questions asked of the visitor.
+    expect(form?.fieldCount).toBe(3);
+    expect(form?.method).toBe("post");
+    expect(form?.action).toBe("/send");
+    expect(form?.hasSubmit).toBe(true);
+  });
+
+  // The Icovy case: a lone email box in the footer of every page. Counting it
+  // as a way to reach a human put that whole site at zero clicks from contact.
+  it("classifies a lone email box as subscribe, not enquiry", () => {
+    const page = extractPage(
+      `<html><body><form action="/subscribe"><input type="email" name="email"><button>Join</button></form></body></html>`,
+    );
+    expect(page.forms?.[0]?.kind).toBe("subscribe");
+    expect(page.forms?.[0]?.hasContactField).toBe(true);
+  });
+
+  it("classifies a search box as other, and defaults its method to get", () => {
+    const page = extractPage(
+      `<html><body><form><input type="text" name="q" placeholder="Search"><button>Go</button></form></body></html>`,
+    );
+    expect(page.forms?.[0]?.kind).toBe("other");
+    expect(page.forms?.[0]?.method).toBe("get");
+  });
+
+  // Asserted on `hasContactField` rather than on `kind`: this test is about
+  // reading the meaning out of whichever attribute an author happened to use,
+  // and a two-field form is no longer an enquiry form on its own — see
+  // "telling an enquiry form from a two-field newsletter box" below.
+  it("recognises a contact field from any attribute an author might use", () => {
+    for (const control of [
+      `<input type="tel" name="x">`,
+      `<input name="user_phone">`,
+      `<input id="contact-field">`,
+      `<input name="contact_email">`,
+      `<input name="yourPhone">`,
+      `<input placeholder="Your email">`,
+      `<input aria-label="Phone number">`,
+    ]) {
+      const page = extractPage(
+        `<html><body><form><input name="name">${control}<textarea name="message"></textarea></form></body></html>`,
+      );
+      expect(page.forms?.[0]?.hasContactField, control).toBe(true);
+      expect(page.forms?.[0]?.kind, control).toBe("enquiry");
+    }
+  });
+});
+
+// A form that a visitor cannot use to start a conversation is not a conversion
+// path, and journey.ts counts ONLY `enquiry`: "counting any of them would
+// report a site nobody can actually reach as having a conversion path — the
+// exact failure this check exists to catch". A patient-portal login sitting in
+// a site header does exactly that on every page of the site.
+describe("formShape — forms that are not a way to reach a person", () => {
+  const kindOf = (html: string) =>
+    extractPage(`<html><body>${html}</body></html>`).forms?.[0]?.kind;
+
+  it("does not call a login form an enquiry form", () => {
+    expect(
+      kindOf(`<form action="/account/login" method="post">
+        <input type="email" name="email"><input type="password" name="password">
+        <button>Sign in</button>
+      </form>`),
+    ).toBe("other");
+  });
+
+  it("does not call an account signup an enquiry form, however many fields it asks for", () => {
+    expect(
+      kindOf(`<form action="/create" method="post">
+        <input name="first_name"><input name="last_name"><input type="email" name="email">
+        <input type="password" name="password"><input type="password" name="password_confirm">
+        <button>Create account</button>
+      </form>`),
+    ).toBe("other");
+  });
+
+  it("does not call a WordPress comment form an enquiry form", () => {
+    expect(
+      kindOf(`<form action="https://blog.example/wp-comments-post.php" method="post">
+        <input name="author"><input name="email" type="email"><input name="url">
+        <textarea name="comment"></textarea><input type="submit" value="Post Comment">
+      </form>`),
+    ).toBe("other");
+  });
+
+  // A portal login that asks for a member number and a PIN has no password
+  // input to disqualify it, so the path is the only thing left that knows.
+  it("does not call a patient-portal sign-in an enquiry form", () => {
+    expect(
+      kindOf(`<form action="/patient-portal/signin" method="post">
+        <input name="member_email" type="email"><input name="pin"><input name="dob">
+        <input name="zip"><button>Enter portal</button>
+      </form>`),
+    ).toBe("other");
+  });
+
+  it("excludes a form by the path it posts to, whatever it asks for", () => {
+    for (const action of [
+      "/login",
+      "/sign-in",
+      "/signin",
+      "/users/sign_up",
+      "/register",
+      "/checkout",
+      "/cart",
+      "/search",
+      "https://shop.example/cart/add",
+      "/wp-login.php",
+      "/wp-comments-post.php",
+    ]) {
+      expect(
+        kindOf(`<form action="${action}" method="post">
+          <input name="name"><input type="email" name="email"><textarea name="message"></textarea>
+          <button>Send</button>
+        </form>`),
+        action,
+      ).toBe("other");
+    }
+  });
+
+  // The exclusion is on whole path SEGMENTS, not substrings: a lead form living
+  // at /signup-for-a-consultation is the real thing, and reading it as a login
+  // would report a reachable practice as unreachable.
+  it("does not exclude a real enquiry form whose path merely contains one of those words", () => {
+    for (const action of [
+      "/signup-for-a-consultation",
+      "/contact/new-patient-registration-request",
+      "/research-inquiry",
+    ]) {
+      expect(
+        kindOf(`<form action="${action}" method="post">
+          <input name="name"><input type="email" name="email"><textarea name="message"></textarea>
+          <button>Send</button>
+        </form>`),
+        action,
+      ).toBe("enquiry");
+    }
+  });
+
+  it("keeps counting a password as a field the visitor fills in, so fieldCount stays true", () => {
+    const form = extractPage(
+      `<html><body><form action="/login"><input type="email" name="e"><input type="password" name="p"></form></body></html>`,
+    ).forms?.[0];
+    expect(form?.fieldCount).toBe(2);
+    expect(form?.hasContactField).toBe(true);
+    expect(form?.kind).toBe("other");
+  });
+});
+
+describe("formShape — telling an enquiry form from a two-field newsletter box", () => {
+  const kindOf = (html: string) =>
+    extractPage(`<html><body>${html}</body></html>`).forms?.[0]?.kind;
+
+  // "Name + email + Subscribe" is the second-commonest newsletter box on the
+  // web, and the old `fieldCount >= 2` rule read every one of them as a way to
+  // reach a human.
+  it("does not call a name-and-email signup box an enquiry form", () => {
+    expect(
+      kindOf(`<form action="/newsletter" method="post">
+        <input name="first_name" placeholder="First name">
+        <input type="email" name="email" placeholder="Email">
+        <button>Subscribe</button>
+      </form>`),
+    ).toBe("subscribe");
+  });
+
+  it("calls a form with a message box an enquiry form", () => {
+    expect(
+      kindOf(`<form action="/send" method="post">
+        <input type="email" name="email"><textarea name="message"></textarea><button>Send</button>
+      </form>`),
+    ).toBe("enquiry");
+  });
+
+  it("calls a form with no message box an enquiry form once it asks three other questions", () => {
+    expect(
+      kindOf(`<form action="/quote" method="post">
+        <input name="name"><input type="email" name="email"><input type="tel" name="phone">
+        <select name="service"><option>Cleaning</option></select>
+        <input name="preferred_date" type="date"><button>Request a quote</button>
+      </form>`),
+    ).toBe("enquiry");
+  });
+
+  // The lean quote form: contact details plus two other questions and no
+  // message box. It is an enquiry form — reading it as a newsletter signup
+  // would cost the site a conversion path it really has, and could make a page
+  // with a working enquiry form report as having none.
+  it("counts a quote form with no message box", () => {
+    expect(
+      kindOf(`<form action="/quote" method="post">
+        <input name="name"><input type="email" name="email"><input type="tel" name="phone">
+        <input name="subject"><button>Send</button>
+      </form>`),
+    ).toBe("enquiry");
+  });
+
+  // The boundary that must still hold: an email box with one extra question is
+  // the second commonest newsletter signup on the web, not an enquiry form.
+  it("still reads first-name-plus-email as a newsletter box", () => {
+    expect(
+      kindOf(`<form action="/subscribe" method="post">
+        <input name="first_name"><input type="email" name="email"><button>Subscribe</button>
+      </form>`),
+    ).toBe("subscribe");
+  });
+});

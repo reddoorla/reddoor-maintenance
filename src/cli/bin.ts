@@ -604,6 +604,10 @@ cli
     "--competitors <list>",
     "Comma-separated competitor domains to add comparison probes for.",
   )
+  .option(
+    "--goal <goal>",
+    "What the site should get a visitor to do: book, enquire, call, visit, buy, demo or partner. Defaults to what the model reads off the site.",
+  )
   .option("--no-probes", "Skip the live AI-visibility probes (tier 3).")
   .option("--out <file>", "Also write the rendered report to this file.")
   .option("--json", "Print the raw result JSON instead of the report summary.")
@@ -616,6 +620,7 @@ cli
       url: string,
       opts: {
         business?: string;
+        goal?: string;
         competitors?: string;
         probes?: boolean;
         out?: string;

@@ -1,4 +1,5 @@
 import { parse, HTMLElement, NodeType } from "node-html-parser";
+import { isInfraPath } from "./pages.js";
 import type { CrawlResult, PageCapture, RobotsAgentAccess } from "./types.js";
 import { extractPage, UNRENDERED_TAGS } from "./extract.js";
 import { isPrivateOrLoopbackHost } from "../util/url.js";
@@ -233,6 +234,15 @@ const ASSET_EXT = /\.(pdf|jpe?g|png|gif|webp|avif|svg|zip|mp4|mov|css|js|xml|jso
  *  test can assert against it directly. */
 export const MAX_RESPONSE_BYTES = 5_000_000;
 
+/** How long to let a page settle after `load` before capturing its DOM.
+ *
+ *  The rendered extract exists to be compared against the raw HTML, and the
+ *  difference is what a client-side framework painted — so the capture has to
+ *  happen after hydration or it measures nothing. Long enough for that,
+ *  nowhere near long enough to wait out a polling widget. Exported so a test
+ *  can assert the budget rather than rediscover it. */
+export const RENDER_SETTLE_MS = 1_500;
+
 /** Thrown by `defaultCrawlDeps().fetchUrl` when a body exceeds
  *  `MAX_RESPONSE_BYTES` — either the declared `content-length` refuses the
  *  request early, or the actual byte count catches a missing or lying header
@@ -314,6 +324,21 @@ function headerValue(headers: Record<string, string>, name: string): string | nu
   return null;
 }
 
+/**
+ * The dedupe key for "is this the same page?".
+ *
+ * A trailing slash addresses the same page — sites link to `/services` in the
+ * nav and `/services/` in the footer constantly — and crawling both produced a
+ * duplicate-title finding about one page, which the client cannot fix because
+ * there is nothing to fix. The query string is KEPT: `?page=2` genuinely is
+ * another page, and folding it in would silently drop paginated content from
+ * the crawl.
+ */
+function samePageKey(u: URL): string {
+  const path = u.pathname.replace(/\/+$/, "") || "/";
+  return `${u.origin.toLowerCase()}${path}${u.search}`;
+}
+
 function normalizeCandidates(urls: string[], origin: string, max: number): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
@@ -326,11 +351,15 @@ function normalizeCandidates(urls: string[], origin: string, max: number): strin
     }
     if (u.origin !== origin) continue;
     if (ASSET_EXT.test(u.pathname)) continue;
+    // Infrastructure a crawler can follow but a visitor never lands on — see
+    // pages.ts. Following them costs a page of the budget and then invites a
+    // finding about a URL the prospect never chose to publish.
+    if (isInfraPath(u.toString())) continue;
     u.hash = "";
-    const norm = u.toString();
-    if (seen.has(norm)) continue;
-    seen.add(norm);
-    out.push(norm);
+    const key = samePageKey(u);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(u.toString());
     if (out.length >= max) break;
   }
   return out;
@@ -525,7 +554,14 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
       url,
       status: res?.status ?? null,
       raw: usable ? extractPage(res!.body) : null,
-      rendered: renderedHtml ? extractPage(renderedHtml) : null,
+      // Gated on `usable` for the same reason `raw` is. A browser paints
+      // something for a 404 — Cloudflare's email-protection interstitial is the
+      // case that bit us — and a captured paint is not evidence that the URL is
+      // a page of this website. Leaving it non-null let every cross-page check
+      // that asked "is there an extract?" admit a page the server refused, and
+      // that one URL became the only dead end and the only off-template page
+      // found in the entire stored corpus.
+      rendered: usable && renderedHtml ? extractPage(renderedHtml) : null,
       error: error ?? (res && res.status >= 400 ? `HTTP ${res.status}` : notHtmlReason),
     });
   }
@@ -551,8 +587,12 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
  *  actual byte count as it streams, so a missing OR a lying header can't get
  *  a huge body past the check either. `Body.text()` always decodes as UTF-8
  *  per the Fetch spec, so decoding the accumulated bytes the same way here
- *  reproduces `res.text()` exactly for anything under the cap. */
-async function readCapped(res: Response, url: string): Promise<string> {
+ *  reproduces `res.text()` exactly for anything under the cap.
+ *
+ *  Exported because every stage that reads a body off a stranger's server needs
+ *  this same guard, and a second copy of it is a second place for the limit to
+ *  drift out of step with the one that has tests. */
+export async function readCapped(res: Response, url: string): Promise<string> {
   const declared = res.headers.get("content-length");
   if (declared !== null && Number(declared) > MAX_RESPONSE_BYTES) {
     throw new ResponseTooLargeError(url);
@@ -616,7 +656,27 @@ export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
         // so they get the same courtesy pacing as the raw fetches.
         await pacedEach(urls, delayMs, async (url) => {
           try {
-            await page.goto(url, { waitUntil: "networkidle", timeout: 30_000 });
+            // `load`, NOT `networkidle`.
+            //
+            // `networkidle` waits for 500ms with no network activity, and a
+            // great many real business sites never go quiet: a chat widget, an
+            // analytics heartbeat or any polling script keeps the connection
+            // busy forever. Every such page burned the full 30s timeout and
+            // then threw, so at the production page budget a single chat
+            // widget cost the audit ten minutes of nothing.
+            //
+            // Worse, the catch below turned that into a MISSING rendered
+            // extract, so no page produced a raw/rendered pair, `jsDependence`
+            // came back null, and the whole Readability score reported "not
+            // measured" — the open Beachfront readability-null bug, which is
+            // this and not a scoring fault at all.
+            //
+            // Playwright's own docs discourage `networkidle` for exactly this
+            // reason. `load` fires once resources are in; the settle below
+            // gives client-side frameworks room to hydrate, which is what the
+            // rendered extract is actually for.
+            await page.goto(url, { waitUntil: "load", timeout: 20_000 });
+            await page.waitForTimeout(RENDER_SETTLE_MS);
             out.set(url, await page.content());
           } catch {
             // A page that won't render simply has no rendered extract.

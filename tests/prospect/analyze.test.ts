@@ -246,7 +246,7 @@ describe("buildAnalyzeInput — unmeasured crawler access", () => {
 });
 
 describe("buildAnalyzeInput — unmeasured sidecars", () => {
-  it("distinguishes an unmeasured sitemap/llms.txt from a confirmed absence", () => {
+  it("distinguishes an unmeasured sitemap from a confirmed absence", () => {
     const c = crawl();
     c.sidecarErrors = {
       robots: null,
@@ -255,20 +255,35 @@ describe("buildAnalyzeInput — unmeasured sidecars", () => {
     };
     const checks = runChecks(c);
     expect(checks.sitemapMeasured).toBe(false);
-    expect(checks.llmsTxtMeasured).toBe(false);
 
     const { user } = buildAnalyzeInput("https://acme.example/", c, checks);
     expect(user).not.toContain("sitemap.xml: missing");
-    expect(user).not.toContain("llms.txt: missing");
     expect(user).toMatch(/sitemap\.xml: not measured/i);
-    expect(user).toMatch(/llms\.txt: not measured/i);
   });
 
   it("still reports present/missing for a sidecar that WAS measured", () => {
     const c = crawl();
     const { user } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
     expect(user).toMatch(/sitemap\.xml: present/);
-    expect(user).toMatch(/llms\.txt: missing/);
+  });
+
+  // llms.txt reaches the model in NO form — not "present", not "missing", not
+  // "not measured". A model handed a file described as missing proposes adding
+  // it, and that recommendation is the exact thing removing it from the score
+  // was meant to stop. Dropping it from the score while leaving it in the
+  // prompt would have changed the grade and kept the advice.
+  it("never mentions llms.txt to the model, in any state", () => {
+    const present = crawl();
+    present.llmsTxt = { present: true, firstLine: "# Acme" };
+    const absent = crawl();
+    const unmeasured = crawl();
+    unmeasured.sidecarErrors = { robots: null, llms: "fetch failed: ETIMEDOUT", sitemap: null };
+
+    for (const c of [present, absent, unmeasured]) {
+      const { user, system } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
+      expect(user.toLowerCase()).not.toContain("llms");
+      expect(system.toLowerCase()).not.toContain("llms");
+    }
   });
 });
 

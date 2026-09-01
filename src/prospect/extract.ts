@@ -1,5 +1,43 @@
 import { parse, HTMLElement, NodeType } from "node-html-parser";
-import type { PageExtract } from "./types.js";
+import type { FormShape, PageAnchor, PageExtract } from "./types.js";
+
+/** See `PageExtract.anchors`: the extract is persisted once per page per audit,
+ *  and a navigation-heavy page can carry several hundred anchors. Generous
+ *  enough that no ordinary page reaches it; `anchorCount` always reports the
+ *  true total so a capped list is never mistaken for a complete one. */
+export const MAX_ANCHORS = 300;
+
+/** Input types that are not a field a visitor fills in. `hidden` carries CSRF
+ *  tokens and form ids; the button types are the control, not the question.
+ *
+ *  `password` is deliberately NOT in this set. It IS a field a visitor fills
+ *  in, and `fieldCount` is documented as "visible, named controls", so hiding
+ *  it here would make that number lie. What a password means for the form's
+ *  KIND is handled in `formShape` instead, where it disqualifies the form
+ *  outright rather than merely going uncounted. */
+const NON_FIELD_INPUTS = new Set(["hidden", "submit", "button", "image", "reset"]);
+
+/** Names, types and labels that mean "we can contact you back". A form with
+ *  none of these is a search box or a filter, and calling that a conversion
+ *  path would pass a site that cannot be reached by anyone. */
+const CONTACT_FIELD = /\b(e-?mail|phone|tel|mobile|contact)\b/i;
+
+/**
+ * Break a field's attributes into words the way a human reads them.
+ *
+ * `CONTACT_FIELD` is anchored on `\b`, and neither of the two conventions that
+ * dominate real form markup puts a word boundary where one is needed:
+ *
+ *   snake_case  `user_phone`  — `_` is a WORD character, so `\bphone\b` misses
+ *   camelCase   `yourPhone`   — `r` to `P` is not a boundary either
+ *
+ * Left unhandled, both read a working enquiry form as "other", which reports a
+ * site with a perfectly good contact form as having no way to reach anyone —
+ * a false alarm in the direction that costs a prospect's trust in the whole
+ * audit. Caught by a test, not by review.
+ */
+const toWords = (s: string): string =>
+  s.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_\-.]+/g, " ");
 
 /** Subtrees a browser never renders. Skipped WHOLE — including their headings,
  *  images and schema blocks, which a <template> stamp would otherwise donate to
@@ -87,11 +125,15 @@ function textOf(el: HTMLElement): string {
 
 type Collected = {
   metas: HTMLElement[];
+  /** `<link>` elements — canonical and friends. NOT anchors; see `anchors`. */
   links: HTMLElement[];
   jsonLd: string[];
   images: HTMLElement[];
   headings: { level: number; text: string }[];
   title: string | null;
+  /** `<a href>` elements, in document order. */
+  anchors: HTMLElement[];
+  forms: HTMLElement[];
 };
 
 /** One ordered pass for the element-level signals. Document order matters: the
@@ -113,6 +155,15 @@ function collect(el: HTMLElement, out: Collected, depth = 0): void {
         break;
       case "IMG":
         out.images.push(e);
+        break;
+      case "A":
+        // Only anchors that actually go somewhere. `<a>` without href is a
+        // named target or a styling hook, and counting it as a link would
+        // inflate every navigation measure below.
+        if ((e.getAttribute("href") ?? "").trim()) out.anchors.push(e);
+        break;
+      case "FORM":
+        out.forms.push(e);
         break;
       case "TITLE":
         if (out.title === null) out.title = collapse(e.text) || null;
@@ -138,6 +189,148 @@ function collect(el: HTMLElement, out: Collected, depth = 0): void {
   }
 }
 
+/**
+ * Path segments that name a form doing something other than starting a
+ * conversation with the business.
+ *
+ * A login, an account signup, a checkout and a WordPress comment box all ask
+ * for an email address and at least one more field — which was every signal
+ * the shape test had, so all four read as enquiry forms. journey.ts counts
+ * ONLY `enquiry`, precisely so that "a site nobody can actually reach" does
+ * not score as having a conversion path, and a patient-portal login sitting in
+ * a site header handed exactly that to every page of such a site.
+ *
+ * Matched on whole path SEGMENTS, never as substrings. `/signup-for-a-consultation`
+ * is a real lead form; excluding it would report a reachable business as
+ * unreachable, which is the false alarm `toWords` above exists to prevent.
+ */
+const NON_ENQUIRY_SEGMENTS = new Set([
+  // Account doors
+  "login",
+  "log-in",
+  "log_in",
+  "logon",
+  "signin",
+  "sign-in",
+  "sign_in",
+  "signup",
+  "sign-up",
+  "sign_up",
+  "register",
+  "registration",
+  // Commerce
+  "checkout",
+  "cart",
+  "basket",
+  // Retrieval, not contact
+  "search",
+  // WordPress, whose comment endpoint is a fixed path on a great many sites
+  "wp-login",
+  "wp-signup",
+  "wp-register",
+  "wp-comments-post",
+]);
+
+/** Does this `action` post somewhere that is not a way to reach a person?
+ *  Resolved against a placeholder base so a relative action, a rooted path and
+ *  a full URL are all read the same way; the base itself is never used. A
+ *  trailing extension is dropped so `/wp-comments-post.php` reads as its
+ *  segment. A form with no action posts to its own URL, which says nothing
+ *  either way — and saying nothing is not evidence against the site. */
+function isNonEnquiryAction(action: string | null): boolean {
+  if (!action) return false;
+  let path: string;
+  try {
+    path = new URL(action, "https://form.invalid/").pathname;
+  } catch {
+    path = action;
+  }
+  return path
+    .toLowerCase()
+    .split("/")
+    .some((segment) => NON_ENQUIRY_SEGMENTS.has(segment.replace(/\.[a-z0-9]+$/, "")));
+}
+
+/** One `<form>`'s shape. Exported for its own tests: telling a contact form
+ *  from a search box is the judgement the conversion check rests on, and it is
+ *  worth being able to exercise it directly. */
+export function formShape(form: HTMLElement): FormShape {
+  const controls = form.querySelectorAll("input, textarea, select");
+  let fieldCount = 0;
+  /** Fields that are a way to reply, so the rest can be counted separately —
+   *  see the enquiry bar below. */
+  let contactFieldCount = 0;
+  let hasContactField = false;
+  let hasPassword = false;
+  let hasTextarea = false;
+  let hasSubmit = form.querySelectorAll("button").length > 0;
+
+  for (const control of controls) {
+    const type = (control.getAttribute("type") ?? "").toLowerCase().trim();
+    if (control.tagName === "INPUT" && NON_FIELD_INPUTS.has(type)) {
+      if (type === "submit" || type === "image") hasSubmit = true;
+      continue;
+    }
+    if (control.tagName === "TEXTAREA") hasTextarea = true;
+    if (control.tagName === "INPUT" && type === "password") hasPassword = true;
+    fieldCount += 1;
+    // Any of the attributes an author might carry the meaning in. Checked
+    // together rather than in priority order: a field is a contact field if
+    // ANY of them says so, and sites disagree about which one to use.
+    const signature = toWords(
+      [
+        type,
+        control.getAttribute("name") ?? "",
+        control.getAttribute("id") ?? "",
+        control.getAttribute("placeholder") ?? "",
+        control.getAttribute("autocomplete") ?? "",
+        control.getAttribute("aria-label") ?? "",
+      ].join(" "),
+    );
+    if (type === "email" || type === "tel" || CONTACT_FIELD.test(signature)) {
+      hasContactField = true;
+      contactFieldCount += 1;
+    }
+  }
+
+  const action = form.getAttribute("action")?.trim() || null;
+  // An account door, not a conversation. A password field says so outright; the
+  // path says so for the portal logins that ask for a member number and a PIN.
+  const isAccountForm = hasPassword || isNonEnquiryAction(action);
+  // A message box, or enough questions beyond the contact details to be an
+  // intake form. Without this, "first name + email + Subscribe" — the second
+  // commonest newsletter box on the web — cleared the bar on `fieldCount >= 2`
+  // alone.
+  //
+  // The threshold is TWO non-contact questions, not three. Three was tried and
+  // it failed a shape that is everywhere: name / email / phone / subject with
+  // no message box, the lean quote form. Reading that as a newsletter signup
+  // costs the site a real conversion path and can make a page with a working
+  // enquiry form read as having none — which is the same class of error, in
+  // the same direction, as the ones this pass exists to remove. A newsletter
+  // box asking two questions beyond an email address does not exist in the
+  // wild; a quote form that does is ordinary.
+  const asksSomethingBack = hasTextarea || fieldCount - contactFieldCount >= 2;
+
+  return {
+    // A lone contact field is a newsletter box, not an enquiry form. See
+    // `FormKind`: on one audited site a footer email box put every page at zero
+    // clicks from "reaching them", when the only form that reaches a person
+    // was the nine-field one on its contact page.
+    kind:
+      isAccountForm || !hasContactField
+        ? "other"
+        : fieldCount >= 2 && asksSomethingBack
+          ? "enquiry"
+          : "subscribe",
+    action,
+    method: (form.getAttribute("method") ?? "get").toLowerCase().trim() || "get",
+    fieldCount,
+    hasContactField,
+    hasSubmit,
+  };
+}
+
 /** Parse one HTML document into the signals every downstream check reads.
  *  Pure — the same input always yields the same extract. */
 export function extractPage(html: string): PageExtract {
@@ -152,6 +345,8 @@ export function extractPage(html: string): PageExtract {
     images: [],
     headings: [],
     title: null,
+    anchors: [],
+    forms: [],
   };
   collect(documentEl, out);
 
@@ -186,5 +381,19 @@ export function extractPage(html: string): PageExtract {
     // Body-scoped: <head> has no visible text, and scoping here rather than
     // filtering keeps the rule obvious.
     text: textOf(root.querySelector("body") ?? documentEl),
+    anchors: out.anchors.slice(0, MAX_ANCHORS).map((a): PageAnchor => ({
+      href: (a.getAttribute("href") ?? "").trim(),
+      // The visible label, not the raw text: an anchor wrapping an icon and a
+      // span should read as its span. `textOf` already drops the unrendered
+      // subtrees an icon sprite lives in.
+      text: textOf(a).slice(0, 120),
+      rel: (a.getAttribute("rel") ?? "").toLowerCase().trim(),
+    })),
+    // The TRUE total, so a capped list is never mistaken for a complete one.
+    anchorCount: out.anchors.length,
+    imageSrcs: out.images
+      .map((i) => (i.getAttribute("src") ?? "").trim())
+      .filter((src) => src.length > 0),
+    forms: out.forms.map(formShape),
   };
 }
