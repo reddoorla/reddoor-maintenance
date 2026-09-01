@@ -43,6 +43,7 @@ export default defineConfig({
     "src/configs/prettier.ts",
     "src/configs/playwright-a11y.ts",
     "src/configs/svelte.ts",
+    "src/images/index.ts",
     "src/util/git.ts",
     "src/util/pkg.ts",
     "src/recipes/sync-configs.ts",
