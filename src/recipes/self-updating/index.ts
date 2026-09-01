@@ -1,8 +1,12 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { ConfigName, RecipeResult, Site } from "../../types.js";
+import type { RecipeResult, Site } from "../../types.js";
 import { templatesByName } from "../sync-configs/templates.js";
-import { renovateActionGaps, withRenovatePinsFrom } from "../sync-configs/renovate-action.js";
+import {
+  renovateActionGaps,
+  withRenovatePinsFrom,
+  RENOVATE_ACTION_CONFIG,
+} from "../sync-configs/renovate-action.js";
 import {
   getRemoteUrl,
   parseOwnerRepo,
@@ -33,8 +37,6 @@ import {
 // its github-actions manager already updates action pins on fleet sites, and
 // reddoorla/.github publishes the tags it tracks).
 const SELF_UPDATING_CONFIGS = ["renovate-action", "renovate-config"] as const;
-
-const RENOVATE_ACTION_CONFIG: ConfigName = "renovate-action";
 
 // Reusable-workflow jobs report their check as "<caller-job> / <reusable-job>".
 // The thin `ci` caller (job `ci`) calls reddoorla/.github's reusable workflow (job `ci`),
@@ -185,7 +187,14 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
         }
         maintBranch = branchName("self-updating");
         await createBranch(site.path, maintBranch);
+        // Write only the paths that actually drifted — a repo whose
+        // renovate.json is stale but whose renovate.yml already passes
+        // `renovateActionGaps` must not have that compliant renovate.yml
+        // silently rewritten (e.g. un-quoting its scalars) in the same PR.
+        // On a fresh repo every template path is missing, so `drifted`
+        // already contains all of them and bootstrap is unaffected.
         for (const t of templates) {
+          if (!drifted.includes(t.path)) continue;
           const dest = join(site.path, t.path);
           await mkdir(dirname(dest), { recursive: true });
           // For a genuinely non-compliant renovate.yml, carry the site's own

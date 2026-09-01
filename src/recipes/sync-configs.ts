@@ -9,7 +9,11 @@ import {
 } from "./sync-configs/gitignore.js";
 import { listTrackedFiles, removeFromIndex } from "../util/git.js";
 import { withRecipe } from "./_with-recipe.js";
-import { renovateActionGaps, withRenovatePinsFrom } from "./sync-configs/renovate-action.js";
+import {
+  renovateActionGaps,
+  withRenovatePinsFrom,
+  RENOVATE_ACTION_CONFIG,
+} from "./sync-configs/renovate-action.js";
 
 export type SyncConfigsOptions = {
   which?: ConfigName[];
@@ -18,7 +22,6 @@ export type SyncConfigsOptions = {
 const GITIGNORE_CONFIG: ConfigName = "gitignore";
 const SVELTE_CONFIG: ConfigName = "svelte";
 const NETLIFY_CONFIG: ConfigName = "netlify";
-const RENOVATE_ACTION_CONFIG: ConfigName = "renovate-action";
 
 /** A site's `svelte.config.js` is "compliant" — and left untouched by sync —
  * once it builds on the canonical helpers (createSvelteConfig + adapter-netlify).

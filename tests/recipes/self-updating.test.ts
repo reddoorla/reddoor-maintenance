@@ -321,6 +321,49 @@ describe("selfUpdating recipe", () => {
     expect(calls).toContain("pr:o/r");
   });
 
+  it("writes only the drifted path — a compliant renovate.yml is not rewritten just because renovate.json drifted", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const baseSha = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: dir,
+      encoding: "utf-8",
+    }).trim();
+    const renovateActionPath = SELF_UPDATING_TEMPLATES.find(
+      (t) => t.config === "renovate-action",
+    )!.path;
+    const renovateConfigPath = SELF_UPDATING_TEMPLATES.find(
+      (t) => t.config === "renovate-config",
+    )!.path;
+    const { gh } = fakeGitHub({
+      // renovate.yml already at canonical content (compliant, no drift);
+      // renovate.json missing (drift). Only renovate.json should be written.
+      fileContentsOnBranch: async (_repo, _branch, path) =>
+        path === renovateActionPath ? CONTENT_BY_PATH.get(path)! : null,
+      autoMergeEnabled: async () => false,
+      branchProtectionContexts: async () => ["ci / ci"],
+      secretExists: async () => true,
+    });
+    let changedPaths: string[] = [];
+    const push = vi.fn(async (cwd: string, branch: string) => {
+      const diff = execFileSync("git", ["diff", "--name-only", baseSha, branch], {
+        cwd,
+        encoding: "utf-8",
+      });
+      changedPaths = diff.trim().split("\n").filter(Boolean);
+    });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: push },
+    );
+    expect(r.status).toBe("applied");
+    // The drifted file was written...
+    expect(changedPaths).toContain(renovateConfigPath);
+    // ...but the already-compliant renovate.yml was left alone — writing it
+    // (even with byte-identical canonical content) would show up here as a
+    // newly-created file, since this fresh checkout never had it before.
+    expect(changedPaths).not.toContain(renovateActionPath);
+  });
+
   it("fails (without mutating GitHub) when the bootstrap tree is dirty", async () => {
     const dir = mkdtempSync(join(tmpdir(), "su-"));
     gitInit(dir);
