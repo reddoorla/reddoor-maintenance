@@ -3,6 +3,11 @@ import { dirname, join } from "node:path";
 import type { RecipeResult, Site } from "../../types.js";
 import { templatesByName } from "../sync-configs/templates.js";
 import {
+  renovateActionGaps,
+  withRenovatePinsFrom,
+  RENOVATE_ACTION_CONFIG,
+} from "../sync-configs/renovate-action.js";
+import {
   getRemoteUrl,
   parseOwnerRepo,
   isOwnerRepo,
@@ -137,10 +142,32 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
     // forever. The prior existence-only gate reported "already self-updating" for any
     // repo that merely HAD the files, however out of date — the very drift this
     // recipe exists to repair (e.g. the Renovate schedule-window regression).
+    //
+    // renovate.yml specifically is compliance-checked rather than byte-matched
+    // (see renovateActionGaps / withRenovatePinsFrom in
+    // ../sync-configs/renovate-action.js): Renovate legitimately bumps its own
+    // digest pins forward, and a site's prettier may legitimately quote the
+    // cron / RENOVATE_* scalars differently — neither is real drift (issue
+    // #651; a byte-match recipe opened reddoor-starter-blux#1, a PR that
+    // DOWNGRADED Renovate's own pin).
     const drifted: string[] = [];
+    // Captured so the write loop below can carry a drifted renovate.yml's own
+    // pins forward instead of re-fetching (and so a compliant-but-non-byte-
+    // identical file's contents are available for that carry-forward too,
+    // though it won't need healing).
+    const currentContents = new Map<string, string | null>();
     for (const t of templates) {
       const current = await github.fileContentsOnBranch(repo, base, t.path);
-      if (current === null || !sameConfigContents(current, t.contents)) drifted.push(t.path);
+      currentContents.set(t.path, current);
+      if (current === null) {
+        drifted.push(t.path);
+        continue;
+      }
+      if (sameConfigContents(current, t.contents)) continue;
+      if (t.config === RENOVATE_ACTION_CONFIG && renovateActionGaps(current).length === 0) {
+        continue;
+      }
+      drifted.push(t.path);
     }
     if (drifted.length > 0) {
       const existingPR = await github.findOpenSelfUpdatingPR(repo);
@@ -160,10 +187,26 @@ export async function selfUpdating(site: Site, deps: SelfUpdatingDeps = {}): Pro
         }
         maintBranch = branchName("self-updating");
         await createBranch(site.path, maintBranch);
+        // Write only the paths that actually drifted — a repo whose
+        // renovate.json is stale but whose renovate.yml already passes
+        // `renovateActionGaps` must not have that compliant renovate.yml
+        // silently rewritten (e.g. un-quoting its scalars) in the same PR.
+        // On a fresh repo every template path is missing, so `drifted`
+        // already contains all of them and bootstrap is unaffected.
         for (const t of templates) {
+          if (!drifted.includes(t.path)) continue;
           const dest = join(site.path, t.path);
           await mkdir(dirname(dest), { recursive: true });
-          await writeFile(dest, t.contents, "utf-8");
+          // For a genuinely non-compliant renovate.yml, carry the site's own
+          // (still-digest-pinned) action refs forward onto the template before
+          // writing it — writing the template verbatim would put its OLDER
+          // pins over the site's newer ones, re-introducing the downgrade
+          // this compliance check exists to prevent (issue #651).
+          const contents =
+            t.config === RENOVATE_ACTION_CONFIG
+              ? withRenovatePinsFrom(t.contents, currentContents.get(t.path) ?? null)
+              : t.contents;
+          await writeFile(dest, contents, "utf-8");
         }
         const sha = await gitCommit(site.path, "ci: enable self-updating (Renovate auto-merge)");
         if (sha) commits.push(sha);

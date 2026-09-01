@@ -9,6 +9,11 @@ import {
 } from "./sync-configs/gitignore.js";
 import { listTrackedFiles, removeFromIndex } from "../util/git.js";
 import { withRecipe } from "./_with-recipe.js";
+import {
+  renovateActionGaps,
+  withRenovatePinsFrom,
+  RENOVATE_ACTION_CONFIG,
+} from "./sync-configs/renovate-action.js";
 
 export type SyncConfigsOptions = {
   which?: ConfigName[];
@@ -30,7 +35,21 @@ const NETLIFY_CONFIG: ConfigName = "netlify";
  * overrides per key (and may add more), so a site's additive customization is safe
  * to preserve. */
 function isSvelteConfigCompliant(contents: string): boolean {
-  return contents.includes("createSvelteConfig") && contents.includes("@sveltejs/adapter-netlify");
+  // Not on the canonical adapter (a missing file, or `adapter-auto` from a
+  // stock `npm create svelte`) => bring it to the template.
+  if (!contents.includes("@sveltejs/adapter-netlify")) return false;
+  // The canonical shape: the helper supplies fleet aliases, the warning filter
+  // and CSP defaults.
+  if (contents.includes("createSvelteConfig")) return true;
+  // A hand-authored config with its own `kit` block is deliberate customization,
+  // not drift. Requiring the helper string treated four live sites as off-pattern
+  // — the-pointe-burbank (151 lines), beachfront-dentistry (241), 1836dig,
+  // data-dynamiq — plus reddoor-starter, whose placeholder-repo prerender
+  // tolerance is the only reason a freshly cloned site builds green. Replacing
+  // any of those with the 8-line template is the clobbering bug this predicate
+  // exists to prevent (MSOT's $utils aliases, 2026-06-04), not a fix for it.
+  // A stub with no `kit` config at all still gets the template.
+  return /\bkit\s*:/.test(contents);
 }
 
 /** Any of the baseline security headers — the marker that a netlify.toml is
@@ -81,7 +100,7 @@ async function readMaybe(path: string): Promise<string | null> {
   }
 }
 
-async function planTemplateDiffs(
+export async function planTemplateDiffs(
   cwd: string,
   templates: ConfigTemplate[],
 ): Promise<ConfigTemplate[]> {
@@ -99,6 +118,28 @@ async function planTemplateDiffs(
     // `[[headers]]` is hardened and left alone (an exact overwrite would strip
     // its security headers). A header-less / missing file gets the template.
     if (t.config === NETLIFY_CONFIG && existing !== null && isNetlifyConfigCompliant(existing)) {
+      continue;
+    }
+    // renovate.yml is likewise compliance-checked, not byte-matched: Renovate
+    // legitimately bumps its own digest pins forward (an exact overwrite would
+    // DOWNGRADE them — reddoorla/reddoor-starter-blux#1, 2026-08-31), and a
+    // site's prettier may legitimately quote the cron / RENOVATE_* scalars
+    // differently than the template (both forms are prettier-clean, so
+    // prettier never converges them — issue #651). A file with zero
+    // `renovateActionGaps` is left alone.
+    if (
+      t.config === RENOVATE_ACTION_CONFIG &&
+      existing !== null &&
+      renovateActionGaps(existing).length === 0
+    ) {
+      continue;
+    }
+    // When renovate.yml genuinely IS non-compliant, heal it with the template
+    // but carry the site's own (still-digest-pinned) action refs forward onto
+    // it first — writing the template verbatim would re-introduce the same
+    // pin downgrade this compliance check exists to prevent.
+    if (t.config === RENOVATE_ACTION_CONFIG) {
+      diffs.push({ ...t, contents: withRenovatePinsFrom(t.contents, existing) });
       continue;
     }
     diffs.push(t);
