@@ -28,11 +28,11 @@ const CONFIG_FILES = ["slicemachine.config.json", "prismic.config.json"] as cons
  * its own" — a placeholder, never a client's Prismic repository.
  *
  * `your-prismic-repo-name` is the starter's placeholder, carried unreplaced by
- * three fleet repos: reddoor-starter, canvas-starter, and
- * composition-hospitality. Only the first two are visible from a local sweep
+ * four fleet repos: reddoor-starter, reddoor-starter-blux, canvas-starter, and
+ * composition-hospitality. Only the first three are visible from a local sweep
  * (verified 2026-08-12; the third has no local checkout and was confirmed
  * through the GitHub API), so a measurement taken across `~/Documents/GitHub`
- * finds two and is not evidence that the third is gone.
+ * finds three and is not evidence that the third is gone.
  *
  * `reddoor-wireframer` is Reddoor's shared wireframe repository (operator
  * ruling 2026-08-14). Only data-dynamiq names it. It belongs here for a reason

@@ -1,5 +1,9 @@
 # Blux → Reddoor-stack conversion pipeline — design
 
+> **2026-08-31:** the render target is now `reddoorla/reddoor-starter-blux`
+> (see `2026-08-31-starter-track-split-design.md`); every `reddoor-starter`
+> path below refers to that repo.
+
 **Goal:** A reusable, deterministic pipeline that converts a Blux site export into
 a Reddoor-stack site — Prismic page content, reusable Custom Types (from Blux feeds)
 with their assets uploaded via the Migration API, and a SvelteKit theme

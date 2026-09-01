@@ -49,7 +49,7 @@ function parseNavItems(items: unknown): NavItem[] {
  * the export, so we recover them from the scraped live footer by matching the
  * link's host against these.
  *
- * Keep this in lockstep with the render's Footer `NETWORK` map (reddoor-starter
+ * Keep this in lockstep with the render's Footer `NETWORK` map (reddoor-starter-blux
  * src/lib/components/Footer.svelte): a network we resolve an href for but the
  * Footer can't draw is silently dropped, so only list networks the Footer
  * renders. */

@@ -140,7 +140,7 @@ export type Presentation = { bands: Record<string, BandPresentation> };
  * indices are page-local (page-block-N restarts at 0 on every page), so a flat
  * bands map would collide across pages. `blux convert` writes this shape;
  * single-page consumers select a page with `selectPagePresentation`. The
- * render mirror is reddoor-starter's `SitePresentation`. */
+ * render mirror is reddoor-starter-blux's `SitePresentation`. */
 export type SitePresentation = Presentation | { pages: Record<string, Presentation> };
 
 /** One page's slice of a site manifest (the flat form passes through). The
