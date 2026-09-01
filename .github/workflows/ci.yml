@@ -28,17 +28,24 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # ONE definition of the gate, shared with local runs: `pnpm verify` is
-      # typecheck -> lint -> build -> test:coverage -> test:dist. Do not inline
-      # those steps here again — when the two lists were maintained separately,
-      # a local run of build+lint+test could pass while CI failed on typecheck
-      # (which is the only thing that checks tests/**) or on test:dist, neither
-      # of which `pnpm test` covers. Add a gate to the script, not to this file,
-      # and both surfaces get it.
+      # These steps ARE `pnpm verify`, listed individually so a failure is
+      # attributable at a glance in the Actions UI. They are not a second,
+      # hand-maintained list: tests/ci-gate.test.ts derives the expected
+      # commands from the `verify` script and fails if this list drifts from it
+      # in content or order. Add a gate to `verify` in package.json and this
+      # file must follow — the test says so.
       #
-      # test:coverage rather than test: it enforces the floor in vitest.config.ts.
-      # Plain `pnpm test` stays fast for local TDD.
-      - run: pnpm verify
+      # Why it matters: when the two really were maintained separately, a local
+      # `lint && build && test` passed while CI failed on typecheck (the only
+      # step that typechecks tests/**), and nothing local ran test:dist at all.
+      #
+      # test:coverage rather than test — it enforces the floor in
+      # vitest.config.ts. Plain `pnpm test` stays fast for local TDD.
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm build
+      - run: pnpm test:coverage
+      - run: pnpm test:dist
 
       # Test-suite tripwire: fail if build+tests left the tree dirty. dist/,
       # coverage/, .vitest-cache/ are gitignored, so anything here is a real leak
