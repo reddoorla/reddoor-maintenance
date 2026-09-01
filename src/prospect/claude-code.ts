@@ -193,6 +193,28 @@ function analyzeJsonSchema(): string {
 /** The analyze pass over `claude -p`: same system prompt, same user prompt,
  *  same model, and the same AnalyzeSchema. `analyzeSite` re-parses and
  *  evidence-verifies the result exactly as it does for the API path. */
+/**
+ * What to print when the CLI exits non-zero.
+ *
+ * This used to be `res.stderr.slice(0, 400)` alone, and on 2026-09-01 two live
+ * audits lost their analyze stage to the message `claude -p (analyze) exited 1:`
+ * — with nothing after the colon. The failure was transient (the same input
+ * reproduced clean by hand minutes later), so the discarded output was the only
+ * evidence there would ever be of what happened.
+ *
+ * stderr first because that is where a real error usually lands; stdout second
+ * because the CLI can report a failure as a result envelope and still exit
+ * non-zero; and an explicit sentence when both are empty, so the message is
+ * never a dangling colon that reads like a truncation bug in our own code.
+ */
+function exitDetail(res: { stdout: string; stderr: string }): string {
+  const stderr = res.stderr.trim();
+  if (stderr) return stderr.slice(0, 400);
+  const stdout = res.stdout.trim();
+  if (stdout) return `no stderr; stdout was: ${stdout.slice(0, 400)}`;
+  return "no output on either stream";
+}
+
 export function claudeCodeAnalyzeDeps(run: ClaudeCodeRun = defaultClaudeCodeRun): AnalyzeDeps {
   return {
     async run({ system, user }) {
@@ -217,7 +239,7 @@ export function claudeCodeAnalyzeDeps(run: ClaudeCodeRun = defaultClaudeCodeRun)
       ];
       const res = await run({ args, stdin: user, env: childEnv(), timeoutMs: ANALYZE_TIMEOUT_MS });
       if (res.code !== 0) {
-        throw new Error(`claude -p (analyze) exited ${res.code}: ${res.stderr.slice(0, 400)}`);
+        throw new Error(`claude -p (analyze) exited ${res.code}: ${exitDetail(res)}`);
       }
       let envelope: ResultEnvelope;
       try {
@@ -337,7 +359,7 @@ export function claudeCodeAccuracyRun(run: ClaudeCodeRun = defaultClaudeCodeRun)
     ];
     const res = await run({ args, stdin: user, env: childEnv(), timeoutMs: ANALYZE_TIMEOUT_MS });
     if (res.code !== 0) {
-      throw new Error(`claude -p (accuracy) exited ${res.code}: ${res.stderr.slice(0, 400)}`);
+      throw new Error(`claude -p (accuracy) exited ${res.code}: ${exitDetail(res)}`);
     }
     let envelope: ResultEnvelope;
     try {
@@ -387,7 +409,7 @@ export function claudeCodeEngine(run: ClaudeCodeRun = defaultClaudeCodeRun): Vis
       ];
       const res = await run({ args, stdin: query, env: childEnv(), timeoutMs: PROBE_TIMEOUT_MS });
       if (res.code !== 0) {
-        throw new Error(`claude -p (probe) exited ${res.code}: ${res.stderr.slice(0, 400)}`);
+        throw new Error(`claude -p (probe) exited ${res.code}: ${exitDetail(res)}`);
       }
       const events: StreamEvent[] = res.stdout
         .split("\n")
