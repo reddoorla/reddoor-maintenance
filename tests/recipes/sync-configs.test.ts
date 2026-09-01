@@ -100,6 +100,78 @@ export default createSvelteConfig({
     expect(after).toContain("$utils");
   });
 
+  it("leaves a hand-authored svelte.config untouched when it has its own kit block", async () => {
+    // Four LIVE sites carry a hand-authored config rather than calling the helper —
+    // the-pointe-burbank (151 lines), beachfront-dentistry (241), 1836dig,
+    // data-dynamiq — and so does reddoor-starter, whose placeholder-repo prerender
+    // tolerance is the only reason a freshly cloned site's build stays green.
+    // Requiring the literal "createSvelteConfig" treated every one of them as
+    // off-pattern, i.e. one sync away from being replaced by the 8-line template.
+    const cwd = await copyFixtureToTmp(drift);
+    const handAuthored = `import adapter from "@sveltejs/adapter-netlify";
+
+/** @type {import('@sveltejs/kit').Config} */
+const config = {
+  kit: {
+    adapter: adapter(),
+    prerender: {
+      handleHttpError: ({ status }) => {
+        if (status === 404) return;
+        throw new Error("prerender failed");
+      },
+    },
+    alias: { $components: "src/lib/components" },
+    csp: { directives: { "object-src": ["none"] } },
+  },
+};
+
+export default config;
+`;
+    await writeCommitted(cwd, "svelte.config.js", handAuthored);
+
+    const result = await syncConfigs({ path: cwd }, { which: ["svelte"] });
+    expect(result.status).toBe("noop");
+
+    const after = await readFile(join(cwd, "svelte.config.js"), "utf-8");
+    expect(after).toBe(handAuthored);
+    expect(after).toContain("handleHttpError");
+    expect(after).toContain("$components");
+  });
+
+  it("still overwrites a svelte.config on the wrong adapter, kit block or not", async () => {
+    // Broadening compliance must not mean "never heal anything". A stock
+    // `npm create svelte` config has a kit block but the wrong adapter.
+    const cwd = await copyFixtureToTmp(drift);
+    await writeCommitted(
+      cwd,
+      "svelte.config.js",
+      `import adapter from "@sveltejs/adapter-auto";
+export default { kit: { adapter: adapter() } };
+`,
+    );
+
+    const result = await syncConfigs({ path: cwd }, { which: ["svelte"] });
+    expect(result.status).toBe("applied");
+
+    const after = await readFile(join(cwd, "svelte.config.js"), "utf-8");
+    expect(after).toContain("@sveltejs/adapter-netlify");
+  });
+
+  it("still overwrites an adapter-netlify stub that has no kit config", async () => {
+    const cwd = await copyFixtureToTmp(drift);
+    await writeCommitted(
+      cwd,
+      "svelte.config.js",
+      `import adapter from "@sveltejs/adapter-netlify";
+export default {};
+`,
+    );
+
+    const result = await syncConfigs({ path: cwd }, { which: ["svelte"] });
+    expect(result.status).toBe("applied");
+    expect(await readFile(join(cwd, "svelte.config.js"), "utf-8")).toContain("createSvelteConfig");
+  });
+
   it("overwrites a non-compliant svelte.config with the canonical template", async () => {
     // sync-drift ships `export default { kit: {} }` — no createSvelteConfig, no
     // adapter-netlify — so it's off-pattern and must be brought to canonical.
@@ -111,6 +183,70 @@ export default createSvelteConfig({
     const after = await readFile(join(cwd, "svelte.config.js"), "utf-8");
     expect(after).toContain("createSvelteConfig");
     expect(after).toContain("@sveltejs/adapter-netlify");
+  });
+
+  it("#651: leaves a renovate.yml that differs only by a newer digest pin + quoting untouched (noop)", async () => {
+    // The false-drift bug: Renovate bumps its own digest pin on the site (never
+    // to be reverted), and the site's prettier quotes the cron + RENOVATE_*
+    // scalar values (both forms are prettier-clean, so prettier never converges
+    // them). renovate.yml is compliance-checked, not byte-matched — this must
+    // stay a noop, not open a PR that downgrades Renovate's own pin.
+    const cwd = await copyFixtureToTmp(drift);
+    const canonical = templatesByName(["renovate-action"])[0]!.contents;
+    const starterShape = canonical
+      .replace(
+        "renovatebot/github-action@1a96852b0384df1837619d04c60b2d10d1f9ff08 # v46.1.21",
+        "renovatebot/github-action@e09d604f8f803bb527bd8321ed5be06c460b8682 # v46.2.2",
+      )
+      .replace("- cron: 0 */12 * * *", "- cron: '0 */12 * * *'")
+      .replace(
+        "RENOVATE_USERNAME: reddoor-renovate[bot]",
+        "RENOVATE_USERNAME: 'reddoor-renovate[bot]'",
+      );
+    expect(starterShape).not.toBe(canonical);
+    await writeCommitted(cwd, ".github/workflows/renovate.yml", starterShape);
+
+    const result = await syncConfigs({ path: cwd }, { which: ["renovate-action"] });
+    expect(result.status).toBe("noop");
+
+    const after = await readFile(join(cwd, ".github/workflows/renovate.yml"), "utf-8");
+    expect(after).toBe(starterShape);
+    expect(after).toContain("e09d604f8f803bb527bd8321ed5be06c460b8682");
+  });
+
+  it("merges .prettierignore, preserving a site's own entries", async () => {
+    // Regression for the same clobber class as svelte.config/netlify.toml:
+    // reddoor-starter ignores the Slice Machine-generated
+    // src/prismicio-types.d.ts because a prettier version bump reformats it and
+    // reds `prettier --check` on otherwise-fine dependency PRs. An exact
+    // overwrite deleted that line and re-armed the failure.
+    const cwd = await copyFixtureToTmp(drift);
+    const canonical = templatesByName(["prettier-ignore"])[0]!.contents;
+    const siteOwn = canonical + "\n# site-specific\nsrc/prismicio-types.d.ts\nscratchpad/\n";
+    await writeCommitted(cwd, ".prettierignore", siteOwn);
+
+    const result = await syncConfigs({ path: cwd }, { which: ["prettier-ignore"] });
+    expect(result.status).toBe("noop");
+
+    const after = await readFile(join(cwd, ".prettierignore"), "utf-8");
+    expect(after).toContain("src/prismicio-types.d.ts");
+    expect(after).toContain("scratchpad/");
+  });
+
+  it("backfills only the canonical .prettierignore entries a site is missing", async () => {
+    const cwd = await copyFixtureToTmp(drift);
+    await writeCommitted(cwd, ".prettierignore", "src/prismicio-types.d.ts\n");
+
+    const result = await syncConfigs({ path: cwd }, { which: ["prettier-ignore"] });
+    expect(result.status).toBe("applied");
+
+    const after = await readFile(join(cwd, ".prettierignore"), "utf-8");
+    // The site's own entry survives...
+    expect(after).toContain("src/prismicio-types.d.ts");
+    // ...and every canonical entry is now present.
+    for (const entry of ["pnpm-lock.yaml", ".svelte-kit/", "build/", ".netlify/", "dist/"]) {
+      expect(after).toContain(entry);
+    }
   });
 
   it("ships security headers in the canonical netlify template", () => {

@@ -113,4 +113,13 @@ describe("configs/playwright-a11y", () => {
       }
     });
   });
+
+  it("emulates reduced motion so scroll-driven actionability checks don't flake", async () => {
+    // Upstreamed from reddoor-starter's local override (2026-09-01): every site
+    // gates scroll-behavior on prefers-reduced-motion, so a smooth-scrolling
+    // test run is a fleet-wide flake source, not a per-site quirk.
+    const mod = await import("../../src/configs/playwright-a11y.js");
+    // Under contextOptions, not top-level `use` — see the config comment.
+    expect(mod.default.use?.contextOptions?.reducedMotion).toBe("reduce");
+  });
 });

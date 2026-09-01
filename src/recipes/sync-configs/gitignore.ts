@@ -26,7 +26,6 @@ export const CANONICAL_GITIGNORE_ENTRIES: readonly string[] = [
   "!.env.example",
   ".DS_Store",
   "*.log",
-  ".vercel/",
   ".netlify/",
   ".reddoor-a11y/",
   // The a11y audit's transient spec dir, written inside the checkout and

@@ -237,6 +237,45 @@ describe("selfUpdating recipe", () => {
     expect(calls).toContain("pr:o/r");
   });
 
+  it("#651: a renovate.yml that differs from the template ONLY by a newer digest pin + quoting is a noop", async () => {
+    // The false-drift bug: Renovate bumps its own digest pin on the site (a
+    // supply-chain update we must never revert), and the site's prettier quotes
+    // the cron + the two RENOVATE_* scalar values (both quoted and unquoted forms
+    // are prettier-clean, so prettier never converges them). Neither is real
+    // drift — renovate.yml is compliance-checked, not byte-matched.
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const renovateActionPath = SELF_UPDATING_TEMPLATES.find(
+      (t) => t.config === "renovate-action",
+    )!.path;
+    const starterShape = CONTENT_BY_PATH.get(renovateActionPath)!
+      .replace(
+        "renovatebot/github-action@1a96852b0384df1837619d04c60b2d10d1f9ff08 # v46.1.21",
+        "renovatebot/github-action@e09d604f8f803bb527bd8321ed5be06c460b8682 # v46.2.2",
+      )
+      .replace("- cron: 0 */12 * * *", "- cron: '0 */12 * * *'")
+      .replace(
+        "RENOVATE_USERNAME: reddoor-renovate[bot]",
+        "RENOVATE_USERNAME: 'reddoor-renovate[bot]'",
+      );
+    const { gh, calls } = fakeGitHub({
+      fileContentsOnBranch: async (_repo, _branch, path) =>
+        path === renovateActionPath ? starterShape : (CONTENT_BY_PATH.get(path) ?? null),
+      autoMergeEnabled: async () => false,
+      branchProtectionContexts: async () => ["ci / ci"],
+      secretExists: async () => true,
+      ...WIRED_RULESET,
+    });
+    const push = vi.fn(async () => {});
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: push },
+    );
+    expect(r.status).toBe("noop");
+    expect(push).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  });
+
   it("treats a trailing-whitespace-only difference as NOT drift (no needless nightly PR)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "su-"));
     gitInit(dir);
@@ -280,6 +319,49 @@ describe("selfUpdating recipe", () => {
     expect(r.status).toBe("applied");
     expect(push).toHaveBeenCalledOnce();
     expect(calls).toContain("pr:o/r");
+  });
+
+  it("writes only the drifted path — a compliant renovate.yml is not rewritten just because renovate.json drifted", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "su-"));
+    gitInit(dir);
+    const baseSha = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: dir,
+      encoding: "utf-8",
+    }).trim();
+    const renovateActionPath = SELF_UPDATING_TEMPLATES.find(
+      (t) => t.config === "renovate-action",
+    )!.path;
+    const renovateConfigPath = SELF_UPDATING_TEMPLATES.find(
+      (t) => t.config === "renovate-config",
+    )!.path;
+    const { gh } = fakeGitHub({
+      // renovate.yml already at canonical content (compliant, no drift);
+      // renovate.json missing (drift). Only renovate.json should be written.
+      fileContentsOnBranch: async (_repo, _branch, path) =>
+        path === renovateActionPath ? CONTENT_BY_PATH.get(path)! : null,
+      autoMergeEnabled: async () => false,
+      branchProtectionContexts: async () => ["ci / ci"],
+      secretExists: async () => true,
+    });
+    let changedPaths: string[] = [];
+    const push = vi.fn(async (cwd: string, branch: string) => {
+      const diff = execFileSync("git", ["diff", "--name-only", baseSha, branch], {
+        cwd,
+        encoding: "utf-8",
+      });
+      changedPaths = diff.trim().split("\n").filter(Boolean);
+    });
+    const r = await selfUpdating(
+      { path: dir, name: "r", gitRepo: "o/r" },
+      { github: gh, pushBranch: push },
+    );
+    expect(r.status).toBe("applied");
+    // The drifted file was written...
+    expect(changedPaths).toContain(renovateConfigPath);
+    // ...but the already-compliant renovate.yml was left alone — writing it
+    // (even with byte-identical canonical content) would show up here as a
+    // newly-created file, since this fresh checkout never had it before.
+    expect(changedPaths).not.toContain(renovateActionPath);
   });
 
   it("fails (without mutating GitHub) when the bootstrap tree is dirty", async () => {

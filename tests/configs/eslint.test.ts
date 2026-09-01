@@ -54,4 +54,14 @@ describe("configs/eslint", () => {
     ) as { languageOptions?: { parserOptions?: { svelteConfig?: unknown } } } | undefined;
     expect(svelteBlock?.languageOptions?.parserOptions?.svelteConfig).toBe(svelteConfig);
   });
+
+  it("ignores the agency process directories", () => {
+    // Upstreamed from reddoor-starter (2026-09-01): docs/superpowers/ and
+    // scratchpad/ are git-ignored but present on disk, so a local `pnpm lint`
+    // would try to parse them.
+    const config = createEslintConfig({ svelteConfig: {} });
+    const ignores = config.flatMap((c) => ("ignores" in c && c.ignores ? c.ignores : []));
+    expect(ignores).toContain("docs/superpowers/");
+    expect(ignores).toContain("scratchpad/");
+  });
 });
