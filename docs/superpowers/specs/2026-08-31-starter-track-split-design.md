@@ -207,5 +207,4 @@ each noted in the review and tracked separately.
 ## Changelog
 
 - 2026-08-31 — spec written and approved. Pre-split `reddoor-starter` `main`
-  is `82d93b0` (Merge PR #103); the Blux snapshot SHA is recorded here when
-  step 2 runs.
+  is `82d93b0` (Merge PR #103); the Blux snapshot (`reddoor-starter-blux` main) is that same commit, `82d93b0`, pushed 2026-08-31.
