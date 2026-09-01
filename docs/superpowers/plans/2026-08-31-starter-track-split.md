@@ -211,6 +211,7 @@ Expected: `starter	https://github.com/reddoorla/reddoor-starter.git (fetch)`
 
 - Move: `src/lib/blux/site-config.ts` → `src/lib/site-config.ts`
 - Move: `src/lib/blux/site-config.json` → `src/lib/site-config.json`
+- Move: `src/lib/blux/site-config.test.ts` → `src/lib/site-config.test.ts` (content unchanged; its relative import keeps resolving)
 - Modify: `src/lib/components/Nav.svelte:5`
 - Modify: `src/lib/components/Footer.svelte:3-8`
 - Modify: `src/routes/+layout.svelte:13,21-24,42-47`
@@ -235,7 +236,10 @@ All following Leg B steps run from `/Users/tuckerlemos/Documents/GitHub/reddoor-
 ```bash
 git mv src/lib/blux/site-config.ts src/lib/site-config.ts
 git mv src/lib/blux/site-config.json src/lib/site-config.json
+git mv src/lib/blux/site-config.test.ts src/lib/site-config.test.ts
 ```
+
+Note: from this commit until Task 7 deletes them, `src/routes/dev/blux-frozen` and `tests/gate/frozen-fidelity.spec.ts` are knowingly broken (the layout no longer honours `page.data.frozen`). The branch merges as a whole; never cherry-pick this commit alone.
 
 - [ ] **Step 3: Rewrite `src/lib/site-config.ts`'s header + import**
 
@@ -1369,6 +1373,13 @@ Accessibility and security notes: [docs/accessibility.md](docs/accessibility.md)
 
 `/new-site` fills in `<Site name>` / `<Client>` (added to the skill in Task 13).
 
+- [ ] **Step 5b: Manual read of the chrome components and the PageData contract**
+
+Open `src/lib/components/Nav.svelte`, `src/lib/components/Footer.svelte` and `src/app.d.ts` and reword every comment that describes the `navLinks` / `footerColumns` / `logo` props in Blux terms ("a migrated Blux site supplies these", "the Blux catalog pipeline emits", "the unconverted-starter default", "a converted site's resolved logo url") into native terms: `navLinks`/`footerColumns` are an optional per-route override of the `src/lib/site-config.json` defaults that no route in the bare template supplies; `logo`/`items` come from site-config. Keep the props and both render paths (the Blux repo forward-merges these files; deleting the override path would manufacture a conflict on every merge). A grep for the literal word `blux` does not catch "unconverted"/"converted" — read the files.
+
+Run: `grep -n -i 'blux\|migrated\|converted\|catalog' src/lib/components/Nav.svelte src/lib/components/Footer.svelte src/app.d.ts`
+Expected: no output.
+
 - [ ] **Step 6: Whole-repo Prettier, lint, commit**
 
 Run: `pnpm format >/dev/null && pnpm lint 2>&1 | tail -2`
@@ -1386,7 +1397,7 @@ git commit -m "chore(template): nine-slice registry, page-type choices, Lighthou
 - [ ] **Step 1: Definition-of-done greps**
 
 ```bash
-grep -ri blux src customtypes tests docs README.md svelte.config.js package.json .prettierignore lighthouserc.json --exclude=prismicio-types.d.ts; echo "grep exit=$?"
+grep -ri 'blux\|catalog chrome\|leasing\|fidelity gate\|migrated site\|converted site\|unconverted' src customtypes tests docs README.md svelte.config.js package.json .prettierignore lighthouserc.json --exclude=prismicio-types.d.ts; echo "grep exit=$?"
 git ls-files docs/superpowers scratchpad | wc -l
 ```
 
