@@ -60,7 +60,7 @@ describe("checkConsistency", () => {
     expect(result.phones[0]?.pages).toHaveLength(3);
   });
 
-  // The exact text from beachfrontdentistry.com, which broke the first
+  // The exact text from seaviewdental.example, which broke the first
   // version. A greedy digit run swallowed the suite number and reported one
   // number as two — 3103789241 AND 31037892411706 — which is the invented
   // inconsistency this whole module is supposed to avoid. Found by running it
@@ -154,5 +154,72 @@ describe("checkConsistency", () => {
     expect(result.emails).toEqual([]);
     expect(result.newestCopyrightYear).toBeNull();
     expect(result.pagesOffTemplate).toEqual([]);
+  });
+});
+
+describe("phones and emails are an inventory, not an accusation", () => {
+  // Replaying the old rule over the stored corpus failed 8 of 22 hosts, and
+  // every hit was legitimate: our own site's labelled California and Texas
+  // office lines, a nonprofit listing 13 partner helplines, a company's fax
+  // number, a firm's "general" and "business inquiries" lines. The count was
+  // right; the claim built on it — "a business that disagrees with itself" —
+  // was not, and the reader could refute it from the contact page in one click.
+  it("records two labelled office numbers without any of them being a conflict", () => {
+    const pages = [
+      page("https://example.com/contact", {
+        text: "California Office +1 310-341-3571 Texas Office +1 310-418-9976",
+      }),
+    ];
+
+    const result = checkConsistency(pages);
+
+    expect(result.phones).toHaveLength(2);
+    // Nothing in the result asserts a disagreement — the shape carries no
+    // conflict field for a renderer to reach for.
+    expect(result).not.toHaveProperty("phoneConflict");
+    expect(result).not.toHaveProperty("hasInconsistentPhones");
+  });
+
+  it("still records whether a number is tappable, which is the actionable part", () => {
+    const pages = [
+      page("https://example.com/", {
+        text: "Call 310-341-3571",
+        anchors: [{ href: "tel:+13104189976", text: "Call us", rel: "" }],
+      }),
+    ];
+
+    const result = checkConsistency(pages);
+
+    const prose = result.phones.find((p) => p.normalized === "3103413571");
+    const linked = result.phones.find((p) => p.normalized === "3104189976");
+    expect(prose?.linked).toBe(false);
+    expect(linked?.linked).toBe(true);
+  });
+});
+
+describe("checkConsistency: pages the server never served", () => {
+  it("does not judge a 404 interstitial as a page built outside the template", () => {
+    const real = (url: string) =>
+      page(url, { anchors: [{ href: "/about", text: "About", rel: "" }] });
+    const pages = [
+      real("https://example.com/"),
+      real("https://example.com/about"),
+      real("https://example.com/services"),
+      {
+        url: "https://example.com/cdn-cgi/l/email-protection",
+        status: 404,
+        raw: null,
+        rendered: {
+          ...page("https://example.com/x").rendered!,
+          anchors: [],
+        },
+        error: "HTTP 404",
+      },
+    ];
+
+    const result = checkConsistency(pages);
+
+    expect(result.pagesOffTemplate).toEqual([]);
+    expect(result.pagesExamined).toBe(3);
   });
 });

@@ -621,3 +621,76 @@ describe("a hostile sitemap index cannot starve out the real children", () => {
     expect(fetched).toEqual([]);
   });
 });
+
+describe("a URL the server refused is not a page of the site", () => {
+  it("keeps no extract for a non-2xx page, even when the browser painted one", () => {
+    // The bug this fixes: `rendered` was built from whatever Playwright
+    // captured, without consulting the HTTP status, while `raw` was correctly
+    // withheld. Cloudflare's email-protection interstitial answers 404 and
+    // still paints — so every cross-page check that asked "is there an
+    // extract?" admitted it, and it became the only dead end and the only
+    // off-template page found anywhere in the stored corpus.
+    const deps = stubDeps(
+      {
+        [HOME]: { body: '<html><body><a href="/gone">Gone</a></body></html>' },
+        "https://acme.example/gone": { status: 404, body: "<html><body>Not found</body></html>" },
+      },
+      {
+        async renderPages(urls) {
+          return new Map(urls.map((u) => [u, "<html><body><p>painted anyway</p></body></html>"]));
+        },
+      },
+    );
+
+    return crawlSite(HOME, deps).then((crawl) => {
+      const gone = crawl.pages.find((p) => p.url === "https://acme.example/gone");
+      expect(gone?.status).toBe(404);
+      expect(gone?.raw).toBeNull();
+      expect(gone?.rendered).toBeNull();
+    });
+  });
+
+  it("never follows a link into CDN or CMS infrastructure", () => {
+    // /cdn-cgi/l/email-protection is linked from the obfuscated mailto that
+    // Cloudflare injects, so a crawler finds it on sites that never chose it.
+    const deps = stubDeps({
+      [HOME]: {
+        body:
+          '<html><body><a href="/cdn-cgi/l/email-protection">email</a>' +
+          '<a href="/wp-admin/admin-ajax.php">ajax</a>' +
+          '<a href="/about">About</a></body></html>',
+      },
+      "https://acme.example/about": { body: "<html><body>About us</body></html>" },
+    });
+
+    return crawlSite(HOME, deps).then((crawl) => {
+      const urls = crawl.pages.map((p) => p.url);
+      expect(urls).not.toContain("https://acme.example/cdn-cgi/l/email-protection");
+      expect(urls).not.toContain("https://acme.example/wp-admin/admin-ajax.php");
+      expect(urls).toContain("https://acme.example/about");
+    });
+  });
+
+  it("crawls one page once when the site links to it both with and without a trailing slash", () => {
+    // Crawled twice, it was then reported as two pages sharing a title — a
+    // duplicate-title defect that does not exist and a fix nobody can make.
+    const deps = stubDeps({
+      [HOME]: {
+        body:
+          '<html><body><a href="/services">Services</a>' +
+          '<a href="/services/">Services again</a></body></html>',
+      },
+      "https://acme.example/services": {
+        body: "<html><head><title>Services</title></head><body>x</body></html>",
+      },
+      "https://acme.example/services/": {
+        body: "<html><head><title>Services</title></head><body>x</body></html>",
+      },
+    });
+
+    return crawlSite(HOME, deps).then((crawl) => {
+      const services = crawl.pages.filter((p) => /\/services\/?$/.test(p.url));
+      expect(services).toHaveLength(1);
+    });
+  });
+});

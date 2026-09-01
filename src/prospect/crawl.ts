@@ -1,4 +1,5 @@
 import { parse, HTMLElement, NodeType } from "node-html-parser";
+import { isInfraPath } from "./pages.js";
 import type { CrawlResult, PageCapture, RobotsAgentAccess } from "./types.js";
 import { extractPage, UNRENDERED_TAGS } from "./extract.js";
 import { isPrivateOrLoopbackHost } from "../util/url.js";
@@ -323,6 +324,21 @@ function headerValue(headers: Record<string, string>, name: string): string | nu
   return null;
 }
 
+/**
+ * The dedupe key for "is this the same page?".
+ *
+ * A trailing slash addresses the same page — sites link to `/services` in the
+ * nav and `/services/` in the footer constantly — and crawling both produced a
+ * duplicate-title finding about one page, which the client cannot fix because
+ * there is nothing to fix. The query string is KEPT: `?page=2` genuinely is
+ * another page, and folding it in would silently drop paginated content from
+ * the crawl.
+ */
+function samePageKey(u: URL): string {
+  const path = u.pathname.replace(/\/+$/, "") || "/";
+  return `${u.origin.toLowerCase()}${path}${u.search}`;
+}
+
 function normalizeCandidates(urls: string[], origin: string, max: number): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
@@ -335,11 +351,15 @@ function normalizeCandidates(urls: string[], origin: string, max: number): strin
     }
     if (u.origin !== origin) continue;
     if (ASSET_EXT.test(u.pathname)) continue;
+    // Infrastructure a crawler can follow but a visitor never lands on — see
+    // pages.ts. Following them costs a page of the budget and then invites a
+    // finding about a URL the prospect never chose to publish.
+    if (isInfraPath(u.toString())) continue;
     u.hash = "";
-    const norm = u.toString();
-    if (seen.has(norm)) continue;
-    seen.add(norm);
-    out.push(norm);
+    const key = samePageKey(u);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(u.toString());
     if (out.length >= max) break;
   }
   return out;
@@ -534,7 +554,14 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
       url,
       status: res?.status ?? null,
       raw: usable ? extractPage(res!.body) : null,
-      rendered: renderedHtml ? extractPage(renderedHtml) : null,
+      // Gated on `usable` for the same reason `raw` is. A browser paints
+      // something for a 404 — Cloudflare's email-protection interstitial is the
+      // case that bit us — and a captured paint is not evidence that the URL is
+      // a page of this website. Leaving it non-null let every cross-page check
+      // that asked "is there an extract?" admit a page the server refused, and
+      // that one URL became the only dead end and the only off-template page
+      // found in the entire stored corpus.
+      rendered: usable && renderedHtml ? extractPage(renderedHtml) : null,
       error: error ?? (res && res.status >= 400 ? `HTTP ${res.status}` : notHtmlReason),
     });
   }

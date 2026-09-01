@@ -1,21 +1,36 @@
-import type { PageCapture, PageExtract } from "./types.js";
+import { usablePages } from "./pages.js";
+import type { PageCapture } from "./types.js";
 
 /**
  * Does the site tell the same story on every page?
  *
- * Three findings live here, and they share a property that makes them worth
+ * Two findings live here, and they share a property that makes them worth
  * checking together: each is cheap to fix, embarrassing to leave, and invisible
  * from any single page. You only see them by comparing pages, which is exactly
  * what nobody does when they look at their own site.
  *
- *   - More than one phone number or email. A visitor cannot tell which one is
- *     real, and directory listings and answer engines that reconcile a business
- *     across sources see a business that disagrees with itself.
  *   - A stale copyright year. It says nobody has touched this in years, to
  *     every visitor, on every page, for free.
  *   - Pages that do not share the site's navigation. Usually a landing page
  *     built outside the template — a visitor who lands there is in a different
  *     website with no way back into this one.
+ *
+ * The contact numbers and addresses are an INVENTORY, not a third finding, and
+ * that is a correction rather than an omission. This module used to treat more
+ * than one phone number as "a business that disagrees with itself". Replayed
+ * over every stored audit, that rule failed 8 of 22 sites and every single hit
+ * was legitimate: our own site's labelled California and Texas office lines, a
+ * nonprofit listing thirteen partner helplines on a resources page, a company's
+ * fax line, a firm publishing separate general and business-inquiry numbers. A
+ * business with two numbers is not confused; it has two numbers. The count was
+ * correct data and the claim built on it was false, which is the worst of both
+ * — and it was refutable by the reader from their own contact page.
+ *
+ * What survives is real and actionable: WHICH numbers appear, on which pages,
+ * and whether each was ever written as a `tel:` link (see `linked`). Consumers
+ * must render the list as a receipt. Any future "you have too many numbers"
+ * finding needs a way to tell a second office from a contradiction first, and
+ * this data does not carry one.
  *
  * Deliberately NOT checked: the postal address. Addresses cannot be pulled out
  * of free text reliably enough to accuse someone of inconsistency, and a false
@@ -69,7 +84,7 @@ export type ConsistencyResult = {
  * A phone number in prose, matched on SHAPE rather than as a run of digits.
  *
  * The first version was a loose digit run — `\+?\d[\d\s().-]{8,}\d` — and it
- * was greedy across whitespace, so on beachfrontdentistry.com it swallowed the
+ * was greedy across whitespace, so on a real dental site it swallowed the
  * suite number sitting next to the phone and produced:
  *
  *     3103789241        from "+13103789241"
@@ -86,7 +101,7 @@ export type ConsistencyResult = {
  * on the page, and numbers written as links are caught by `tel:` regardless of
  * format.
  */
-const PHONE_IN_TEXT = /(?<!\d)(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?!\d)/g;
+export const PHONE_IN_TEXT = /(?<!\d)(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?!\d)/g;
 const COPYRIGHT_YEAR = /(?:©|&copy;|copyright)\s*(?:\d{4}\s*[-–—]\s*)?(\d{4})/gi;
 
 /** Digits only, with a leading US country code dropped so `+1 310 341 3571` and
@@ -99,10 +114,6 @@ export function normalizePhone(raw: string): string | null {
   const national = digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
   if (national.length < 10 || national.length > 15) return null;
   return national;
-}
-
-function extractOf(page: PageCapture): PageExtract | null {
-  return page.rendered ?? page.raw;
 }
 
 /** Merge one sighting into the variant list, keyed on the normalized form.
@@ -128,7 +139,11 @@ function record(
 }
 
 export function checkConsistency(pages: PageCapture[]): ConsistencyResult {
-  const usable = pages.filter((p) => extractOf(p) !== null);
+  // Only pages the server actually served, all read from the same view — see
+  // pages.ts. A 404 the crawler followed carries none of the site's navigation
+  // by definition, so admitting it produced a guaranteed "off template" finding
+  // about a URL no visitor ever lands on.
+  const usable = usablePages(pages);
 
   const phones = new Map<string, ContactVariant>();
   const emails = new Map<string, ContactVariant>();
@@ -136,10 +151,7 @@ export function checkConsistency(pages: PageCapture[]): ConsistencyResult {
   // Link sets per page, for the shared-navigation intersection below.
   const linkSets: { url: string; hrefs: Set<string> }[] = [];
 
-  for (const page of usable) {
-    const extract = extractOf(page);
-    if (!extract) continue;
-
+  for (const { page, extract } of usable.pages) {
     const hrefs = new Set<string>();
     for (const anchor of extract.anchors ?? []) {
       const href = anchor.href.trim();

@@ -3,6 +3,7 @@ import { checkGoal, orderRequirements, type SiteGoal } from "../../src/prospect/
 import type {
   ChecksResult,
   CrawlResult,
+  JourneyMap,
   PageAnchor,
   PageCapture,
   PageExtract,
@@ -79,6 +80,23 @@ const anchor = (href: string, text = ""): PageAnchor => ({ href, text, rel: "" }
 const status = (fit: ReturnType<typeof checkGoal>, key: string): string | undefined =>
   fit.requirements.find((r) => r.key === key)?.status;
 const met = (fit: ReturnType<typeof checkGoal>, key: string): boolean => status(fit, key) === "met";
+const evidenceFor = (fit: ReturnType<typeof checkGoal>, key: string): string =>
+  fit.requirements.find((r) => r.key === key)?.evidence ?? "";
+
+/** A journey map with nothing wrong with it, so each test states only the one
+ *  thing it is about. `anchorsMeasured: true` is the measured case; the
+ *  unmeasured one is a test of its own. */
+function journey(over: Partial<JourneyMap> = {}): JourneyMap {
+  return {
+    affordances: [],
+    pages: [],
+    deadEnds: [],
+    worstClicksToContact: 1,
+    pagesExamined: 4,
+    anchorsMeasured: true,
+    ...over,
+  };
+}
 
 describe("checkGoal — booking", () => {
   it("finds a third-party booking link", () => {
@@ -278,6 +296,27 @@ describe("content checks match an answer, never a topic", () => {
     "Dr. Alvarez holds credentials from three separate boards.",
     "We photographed each package at our studio over two afternoons.",
     "That campaign eventually delivered $2.4M in new revenue for the client.",
+    // Everything below is a sentence this section actually fired on, taken off
+    // the stored audits — fourteen "met" receipts across ten real sites. Each
+    // one was printed to a client as proof they had answered a question they
+    // had never answered, which is the costliest thing this report can do.
+    //
+    // Placeholder copy left in a theme. It names three of the topics and
+    // answers none of them, which is precisely the bare-noun failure.
+    "Lorem ipsum dolor sit amet, consectetur adipiscing elit — shipping, returns and parking information coming soon.",
+    // The country list inside a phone-input widget, extracted as page text.
+    "United Kingdom (+44) British Indian Ocean Territory (+246) Palestinian Territory, Occupied (+970)",
+    // A client's name on a portfolio page. The site sells to distributors; it
+    // is not looking for any.
+    "Recent clients include Harbor Freight, Meridian Distribution and the Valley Wholesale Group.",
+    // Somebody ELSE's policy, quoted on a comparison page. Reading it as this
+    // site's returns policy quotes a competitor's promise back to the client.
+    "Compared with the national chains, who advertise a 30-day money-back guarantee, we would rather just fix the problem.",
+    // Boilerplate at the foot of a legal page.
+    "Nothing on this page constitutes advice, and all trademarks, service marks and distribution rights remain the property of their respective owners.",
+    // A penalty is not a price. This one was quoted as proof the site publishes
+    // what it charges.
+    "A $50 cancellation fee applies to appointments missed without 24 hours of notice.",
   ].join(" ");
 
   const GOALS: SiteGoal[] = ["book", "enquire", "call", "visit", "buy", "demo", "partner"];
@@ -306,6 +345,226 @@ describe("content checks match an answer, never a topic", () => {
     expect(met(buy, "returns")).toBe(true);
     const call = checkGoal("call", "inferred", crawl(real), null);
     expect(met(call, "what-to-expect")).toBe(true);
+  });
+});
+
+describe("every tightened pattern can still come back green", () => {
+  // The other half of the bargain. Tightening a pattern until nothing matches
+  // is not a fix — it just moves the lie from "Yes" to "No". So for each
+  // pattern narrowed above, one ordinary sentence a real business would write,
+  // which has to register.
+  const GREEN: [SiteGoal, string, string][] = [
+    ["visit", "getting-there", "Free parking is available in the lot behind the building."],
+    ["visit", "getting-there", "Parking is validated for two hours at the front desk."],
+    ["visit", "getting-there", "The Metro station is a five-minute walk from our front door."],
+    [
+      "buy",
+      "shipping",
+      "Shipping is free on orders over $75, and everything ships within two days.",
+    ],
+    ["buy", "shipping", "Standard delivery times are three to five business days."],
+    [
+      "buy",
+      "returns",
+      "Our returns policy runs 30 days from delivery, and return shipping is free.",
+    ],
+    ["buy", "returns", "You can return any unopened item within 60 days for a full refund."],
+    [
+      "partner",
+      "partner-route",
+      "Interested in becoming a distributor? Our dealer application takes ten minutes.",
+    ],
+    ["partner", "partner-route", "We are opening a reseller programme in the new year."],
+    ["partner", "requirements", "Exclusive territories are still available across the Midwest."],
+    ["call", "what-to-expect", "Here is what to expect on your first call with us."],
+    ["call", "what-to-expect", "Your first consultation is free and there is no obligation."],
+    ["book", "new-clients", "We are currently accepting new patients at both locations."],
+  ];
+
+  it.each(GREEN)("%s / %s", (goal, key, sentence) => {
+    const fit = checkGoal(goal, "inferred", crawl(sentence), null);
+    expect(met(fit, key), `"${sentence}" must register as ${key}`).toBe(true);
+  });
+});
+
+describe("booking and map links are matched by host, not by substring", () => {
+  // Found by replaying over the stored audits: `linksTo` compared the raw href
+  // against a host list with `includes`, so any URL containing "cal.com" —
+  // medical.com, surgical.com, socal.com, a mailto: address at any of them —
+  // credited "A way to book without calling" and printed that URL as the
+  // receipt. Medtech and clinic prospects link to *medical.com constantly.
+  it("does not credit booking to a domain that merely contains a booking host", () => {
+    for (const href of [
+      "https://www.medical.com/products",
+      "https://surgical.com/",
+      "https://socal.com/about",
+      "mailto:hello@cal.com",
+      "tel:+13105550142",
+      "/local/cal.com/page",
+    ]) {
+      const fit = checkGoal("book", "inferred", crawl("", [anchor(href)]), null);
+      expect(met(fit, "booking"), `${href} is not a booking link`).toBe(false);
+    }
+  });
+
+  it("still credits the real host, including a subdomain of it", () => {
+    for (const href of ["https://cal.com/dr-alvarez", "https://acme.cal.com/intro"]) {
+      const fit = checkGoal("book", "inferred", crawl("", [anchor(href)]), null);
+      expect(met(fit, "booking"), `${href} is a booking link`).toBe(true);
+    }
+  });
+
+  it("credits the map links people actually use", () => {
+    for (const href of [
+      "https://maps.google.com/?q=1820+Catalina+Ave",
+      "https://www.google.com/maps/place/Somewhere",
+      "https://www.bing.com/maps?q=1820+Catalina+Ave",
+      "https://maps.app.goo.gl/abc123",
+      "https://maps.apple.com/?address=1820+Catalina",
+    ]) {
+      const fit = checkGoal("visit", "inferred", crawl("", [anchor(href)]), null);
+      expect(met(fit, "address"), `${href} is a map link`).toBe(true);
+    }
+  });
+
+  it("does not credit an address to a URL that merely mentions a map host in its path", () => {
+    const fit = checkGoal(
+      "visit",
+      "inferred",
+      crawl("", [anchor("https://roadmaps.example.com/google.com/maps")]),
+      null,
+    );
+    expect(met(fit, "address")).toBe(false);
+  });
+});
+
+describe("checkGoal — reachability agrees with the site-health section", () => {
+  // The two sections print on the same page. `reachable` was read off
+  // `worstClicksToContact`, which journey.ts computes only over pages that HAVE
+  // a path — pages in `deadEnds` never move it. So the goal section said "Yes,
+  // a route from wherever they land" directly above a list of pages with no
+  // route, in front of the client.
+  it("is missing when any examined page is a dead end, however short the worst path", () => {
+    const fit = checkGoal(
+      "call",
+      "inferred",
+      crawl(""),
+      checks({
+        journey: journey({
+          deadEnds: ["https://example.com/blog/hello", "https://example.com/team"],
+          worstClicksToContact: 1,
+          pagesExamined: 6,
+        }),
+      }),
+    );
+    expect(status(fit, "reachable")).toBe("missing");
+    const evidence = evidenceFor(fit, "reachable");
+    expect(evidence).toContain("https://example.com/blog/hello");
+    expect(evidence).toContain("https://example.com/team");
+    // How many of how many — a five-page sample must never read as the site.
+    expect(evidence).toMatch(/2 of 6/);
+  });
+
+  it("is missing, not unmeasured, when no page has a path at all", () => {
+    const fit = checkGoal(
+      "call",
+      "inferred",
+      crawl(""),
+      checks({
+        journey: journey({
+          deadEnds: ["https://example.com/"],
+          worstClicksToContact: null,
+          pagesExamined: 1,
+        }),
+      }),
+    );
+    expect(status(fit, "reachable")).toBe("missing");
+  });
+
+  it("is NOT measured when the crawl never recorded links", () => {
+    // `anchorsMeasured: false` means we have no link data, so `deadEnds` is
+    // empty because we did not look — not because there are none. Reading that
+    // as a pass is our missing data reported as their site being fine; reading
+    // it as a failure is our missing data reported as their defect.
+    const fit = checkGoal(
+      "call",
+      "inferred",
+      crawl(""),
+      checks({
+        journey: journey({
+          anchorsMeasured: false,
+          deadEnds: [],
+          worstClicksToContact: null,
+          pagesExamined: 5,
+        }),
+      }),
+    );
+    expect(status(fit, "reachable")).toBe("unmeasured");
+    expect(evidenceFor(fit, "reachable")).toBe("");
+  });
+
+  it("is met only when nothing is stranded and the worst page is within two clicks", () => {
+    const near = checkGoal(
+      "call",
+      "inferred",
+      crawl("", []),
+      checks({ journey: journey({ worstClicksToContact: 2, pagesExamined: 5 }) }),
+    );
+    expect(status(near, "reachable")).toBe("met");
+
+    const far = checkGoal(
+      "call",
+      "inferred",
+      crawl("", []),
+      checks({ journey: journey({ worstClicksToContact: 3, pagesExamined: 5 }) }),
+    );
+    expect(status(far, "reachable")).toBe("missing");
+  });
+
+  it("counts in English", () => {
+    // The report printed "at most 1 clicks away".
+    const one = checkGoal(
+      "call",
+      "inferred",
+      crawl(""),
+      checks({ journey: journey({ worstClicksToContact: 1 }) }),
+    );
+    expect(evidenceFor(one, "reachable")).toContain("1 click ");
+    expect(evidenceFor(one, "reachable")).not.toContain("1 clicks");
+
+    const two = checkGoal(
+      "call",
+      "inferred",
+      crawl(""),
+      checks({ journey: journey({ worstClicksToContact: 2 }) }),
+    );
+    expect(evidenceFor(two, "reachable")).toContain("2 clicks");
+  });
+});
+
+describe("priceSignal — the phrasings real sites use", () => {
+  it("reads the two commonest ways a price is written", () => {
+    for (const real of ["Treatment plans start at $250.", "$99 new patient special this month."]) {
+      expect(met(checkGoal("enquire", "inferred", crawl(real), null), "price-signal"), real).toBe(
+        true,
+      );
+    }
+  });
+
+  it("does not read a penalty as a price", () => {
+    // A cancellation fee tells a buyer nothing about what the work costs, and
+    // quoting one as "you publish your pricing" is the same error as quoting a
+    // case-study figure.
+    for (const penalty of [
+      "A $50 cancellation fee applies to appointments missed without notice.",
+      "Late fees of $25 are charged on invoices more than 30 days overdue.",
+      "There is a $35 fee for a returned check.",
+    ]) {
+      expect(
+        met(checkGoal("enquire", "inferred", crawl(penalty), null), "price-signal"),
+        penalty,
+      ).toBe(false);
+    }
   });
 });
 
@@ -423,7 +682,9 @@ describe("checkGoal — never converts our own missing data into their defect", 
     // boundary separates them, so that is what the check has to read.
     const adjacent =
       "We photographed each package at our studio. That campaign delivered $2.4M in new revenue.";
-    expect(met(checkGoal("enquire", "inferred", crawl(adjacent), null), "price-signal")).toBe(false);
+    expect(met(checkGoal("enquire", "inferred", crawl(adjacent), null), "price-signal")).toBe(
+      false,
+    );
   });
 
   it("still reads a real price out of the sentence that quotes it", () => {

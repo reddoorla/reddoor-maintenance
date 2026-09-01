@@ -76,8 +76,9 @@ export type AnswerSpace = {
   /** The most-cited source that is NOT the prospect, on the queries we ran.
    *
    *  ⚠️ This is NOT "who owns your category", and the report must never call
-   *  it that. Real shares from the benchmark: Icovy's top rival holds 4%,
-   *  ParkerWhite's 6%, Designity's 8%. At those shares there is no owner —
+   *  it that. Real shares from the benchmark: across the audited sites the
+   *  biggest rival held 4%, 6% and 8% of citations. At those shares there is
+   *  no owner —
    *  the answer space is fragmented (see `domainsToHalf`, which ran 5–18).
    *  What this legitimately answers is narrower and still useful: "on the
    *  specific searches we ran, here is who came back instead of you."

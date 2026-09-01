@@ -78,12 +78,13 @@ export type Assertion = {
    * Something related the site DOES say, on an assertion we are still calling
    * absent — the obvious objection, answered before it is raised.
    *
-   * The case this exists for: an engine says the practice was "formerly known as
-   * Michael Z. Hopkins DDS"; the site never says that, but its team page lists
-   * Dr. Michael Hopkins. Suppressing the finding loses the most valuable line in
-   * the section. Printing it bare invites a client to open their own team page
-   * and conclude we cannot read. Printing it with "your site mentions Dr.
-   * Michael Hopkins, but not this" keeps the finding and shows the work.
+   * The case this exists for, from a real run: an engine said a practice was
+   * "formerly known as <a person's name> DDS"; the site never says that, but
+   * its team page lists a clinician with a similar name. Suppressing the
+   * finding loses the most valuable line in the section. Printing it bare
+   * invites a client to open their own team page and conclude we cannot read.
+   * Printing it with "your site mentions <the name it does list>, but not
+   * this" keeps the finding and shows the work.
    */
   nearbyMention: string | null;
   /** Domains the engine cited on the answer this came from, excluding the
@@ -117,7 +118,7 @@ export type AccuracyResult = {
   answersRead: number;
 };
 
-const AccuracySchema = z.object({
+export const AccuracySchema = z.object({
   assertions: z
     .array(
       z.object({
@@ -204,9 +205,21 @@ export function fullSiteText(crawl: CrawlResult): string {
 export function selectPages(crawl: CrawlResult): {
   pages: PageCapture[];
   fullyRead: boolean;
+  /** Pages the crawl retrieved but nobody could read — a refused fetch, a
+   *  non-HTML body, a render that produced nothing. Counted, not hidden. */
+  pagesUnread: number;
 } {
-  const [home, ...rest] = crawl.pages;
-  if (!home) return { pages: [], fullyRead: crawl.pages.length === 0 };
+  // A page with no extract is a page we never read. It used to be kept — it
+  // contributed zero characters and still counted toward `fullyRead` — which
+  // let the one verdict this file must never get wrong, `absent`, stand
+  // against a page whose fetch the server refused. "Your site does not say
+  // this" and "we could not read that page" are different sentences and only
+  // one of them is ours to write.
+  const readable = crawl.pages.filter((p) => (viewOf(p)?.text ?? "").length > 0);
+  const pagesUnread = crawl.pages.length - readable.length;
+
+  const [home, ...rest] = readable;
+  if (!home) return { pages: [], fullyRead: crawl.pages.length === 0, pagesUnread };
   const ordered = [home, ...rest.slice().sort((a, b) => pathDepth(a.url) - pathDepth(b.url))];
 
   const kept: PageCapture[] = [];
@@ -217,7 +230,7 @@ export function selectPages(crawl: CrawlResult): {
     kept.push(page);
     chars += len;
   }
-  return { pages: kept, fullyRead: kept.length === crawl.pages.length };
+  return { pages: kept, fullyRead: kept.length === crawl.pages.length, pagesUnread };
 }
 
 export function buildAccuracyInput(
@@ -275,11 +288,11 @@ const MIN_TOKEN = 5;
  * Two different questions, deliberately not collapsed into one.
  *
  * `exact` — the site uses these very words, so we cannot call the fact absent.
- * `scattered` — the site uses all the distinctive words but not together. On the
- * real Beachfront run that is the difference between the practice being named
- * "Michael Z. Hopkins DDS" (which the site never says) and Dr. Michael Hopkins
- * appearing on the team page (which it does). The fact is still absent; the
- * client's first objection is not.
+ * `scattered` — the site uses all the distinctive words but not together. On a
+ * real run that was the difference between an engine naming a practice after a
+ * clinician the site never mentions, and a similarly-named clinician who does
+ * appear on the team page. The fact is still absent; the client's first
+ * objection is not.
  *
  * Collapsing the two into "found" suppressed the most valuable finding in the
  * section. Collapsing them into "not found" printed a finding a client could
@@ -406,7 +419,18 @@ export type AccuracyDeps = {
   ownership: OwnershipDeps;
 };
 
-export function defaultAccuracyDeps(): AccuracyDeps {
+/**
+ * The metered-API implementation.
+ *
+ * NOT a default parameter anywhere, deliberately. Under
+ * `PROSPECT_LLM_AUTH=subscription` every model call in this pipeline must go
+ * through claude-code.ts, and a default that silently bills the API is exactly
+ * the shape that toggle exists to prevent — this is the pipeline's largest
+ * prompt (up to 14 untruncated pages) on Opus, so one forgotten argument is a
+ * real bill. Callers pick an implementation explicitly, or use
+ * `envAccuracyDeps()` in pipeline.ts, which picks by the env toggle.
+ */
+export function apiAccuracyDeps(): AccuracyDeps {
   return {
     async run({ system, user }) {
       const [{ default: Anthropic }, { zodOutputFormat }] = await Promise.all([
@@ -435,8 +459,10 @@ export async function checkAccuracy(
   url: string,
   crawl: CrawlResult,
   answers: ProbeAnswer[],
-  prospectPhones: string[] = [],
-  deps: AccuracyDeps = defaultAccuracyDeps(),
+  prospectPhones: string[],
+  // Required: see `apiAccuracyDeps`. There is no default because the only
+  // possible default bills the metered API regardless of PROSPECT_LLM_AUTH.
+  deps: AccuracyDeps,
 ): Promise<AccuracyResult> {
   // Only branded answers, and only those we kept whole. A run whose probes
   // predate `fullAnswer` reports zero answers read — which the report renders as

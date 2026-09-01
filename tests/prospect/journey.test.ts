@@ -226,3 +226,67 @@ describe("buildJourney", () => {
     expect(deep?.clicksToContact).toBe(1);
   });
 });
+
+describe("buildJourney: our missing data is never their dead end", () => {
+  it("ignores a page the server did not serve, even when a browser painted something for it", () => {
+    // Cloudflare's email-protection interstitial: linked from the homepage,
+    // answers 404, and Playwright still captures a render. Before this it was
+    // admitted as a node with no outgoing links, and it was the only dead end
+    // found anywhere in the stored corpus.
+    const home = page("https://example.com/", {
+      anchors: [link("/cdn-cgi/l/email-protection"), link("tel:+13105551212")],
+    });
+    const interstitial: PageCapture = {
+      url: "https://example.com/cdn-cgi/l/email-protection",
+      status: 404,
+      raw: null,
+      rendered: extract({ anchors: [] }),
+      error: "HTTP 404",
+    };
+
+    const journey = buildJourney([home, interstitial]);
+
+    expect(journey.deadEnds).toEqual([]);
+    expect(journey.pagesExamined).toBe(1);
+  });
+
+  it("reports dead ends as not measured when the crawl never recorded anchors", () => {
+    // Rows stored before anchors existed. `anchors ?? []` read as "no links",
+    // which would turn a backfill over old audits into "every page on your
+    // site is a dead end" — our missing field, reported as their defect.
+    const noAnchors = extract();
+    delete (noAnchors as { anchors?: unknown }).anchors;
+    const pages: PageCapture[] = [
+      {
+        url: "https://example.com/",
+        status: 200,
+        raw: noAnchors,
+        rendered: noAnchors,
+        error: null,
+      },
+      {
+        url: "https://example.com/a",
+        status: 200,
+        raw: noAnchors,
+        rendered: noAnchors,
+        error: null,
+      },
+    ];
+
+    const journey = buildJourney(pages);
+
+    expect(journey.anchorsMeasured).toBe(false);
+    expect(journey.deadEnds).toEqual([]);
+    expect(journey.worstClicksToContact).toBeNull();
+  });
+
+  it("says so when anchors WERE measured, so a real dead end still reports", () => {
+    const home = page("https://example.com/", { anchors: [link("tel:+13105551212")] });
+    const orphan = page("https://example.com/orphan", { anchors: [] });
+
+    const journey = buildJourney([home, orphan]);
+
+    expect(journey.anchorsMeasured).toBe(true);
+    expect(journey.deadEnds).toEqual(["https://example.com/orphan"]);
+  });
+});

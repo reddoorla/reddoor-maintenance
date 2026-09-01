@@ -136,7 +136,7 @@ describe("checkAssets — broken links", () => {
 
 describe("checkAssets — images", () => {
   it("reports a broken image wherever it is hosted", async () => {
-    const d = deps({ "https://cdn.example/hero.jpg": { status: 403 } });
+    const d = deps({ "https://cdn.example/hero.jpg": { status: 404 } });
     const result = await checkAssets(
       [page("https://acme.example/", { imageSrcs: ["https://cdn.example/hero.jpg"] })],
       ORIGIN,
@@ -237,5 +237,146 @@ describe("checkAssets — nothing to do", () => {
     );
     expect(result.linksFound).toBe(0);
     expect(d.asked).toEqual([]);
+  });
+});
+
+/**
+ * The line between "their broken link" and "we could not look".
+ *
+ * `isOk` used to be 2xx-only, so every non-2xx answer landed in `brokenLinks`
+ * or `brokenImages` with its status printed as proof. A CDN that 403s a
+ * non-browser user agent for an image the page paints perfectly, or a 429 our
+ * own burst of requests provoked, became a defect on a client's report. Both are
+ * OUR missing evidence, and missing evidence must never render as a finding.
+ */
+describe("checkAssets — broken versus could-not-verify", () => {
+  const linkPage = (href: string): PageCapture =>
+    page("https://acme.example/", { anchors: [link(href)] });
+
+  it("calls a 404 and a 410 broken", async () => {
+    const d = deps({
+      "https://acme.example/gone": { status: 404 },
+      "https://acme.example/retired": { status: 410 },
+    });
+    const result = await checkAssets(
+      [page("https://acme.example/", { anchors: [link("/gone"), link("/retired")] })],
+      ORIGIN,
+      d,
+    );
+    expect(result.brokenLinks.map((l) => l.status).sort()).toEqual([404, 410]);
+    expect(result.linksUnverified?.count).toBe(0);
+  });
+
+  // The fetch follows redirects, so a 3xx arriving here is a redirect that never
+  // resolved — a visitor following that link lands nowhere.
+  it("calls a redirect that did not resolve broken", async () => {
+    const d = deps({ "https://acme.example/loop": { status: 302 } });
+    const result = await checkAssets([linkPage("/loop")], ORIGIN, d);
+    expect(result.brokenLinks).toHaveLength(1);
+  });
+
+  it("does not call a 403 broken, and says why it could not tell", async () => {
+    const d = deps({ "https://cdn.example/hero.jpg": { status: 403 } });
+    const result = await checkAssets(
+      [page("https://acme.example/", { imageSrcs: ["https://cdn.example/hero.jpg"] })],
+      ORIGIN,
+      d,
+    );
+    expect(result.brokenImages).toEqual([]);
+    expect(result.imagesUnverified?.count).toBe(1);
+    expect(result.imagesUnverified?.groups).toEqual([
+      {
+        reason: "refused",
+        count: 1,
+        detail: expect.any(String),
+        example: "https://cdn.example/hero.jpg",
+      },
+    ]);
+  });
+
+  it("does not call a 401 broken", async () => {
+    const d = deps({ "https://acme.example/members": { status: 401 } });
+    const result = await checkAssets([linkPage("/members")], ORIGIN, d);
+    expect(result.brokenLinks).toEqual([]);
+    expect(result.linksUnverified?.groups[0]?.reason).toBe("auth-required");
+  });
+
+  // A 429 is the clearest case of all: we caused it.
+  it("does not call a 429 broken", async () => {
+    const d = deps({ "https://acme.example/a": { status: 429 } });
+    const result = await checkAssets([linkPage("/a")], ORIGIN, d);
+    expect(result.brokenLinks).toEqual([]);
+    expect(result.linksUnverified?.groups[0]?.reason).toBe("rate-limited");
+  });
+
+  it("does not call a 5xx broken", async () => {
+    const d = deps({ "https://acme.example/a": { status: 503 } });
+    const result = await checkAssets([linkPage("/a")], ORIGIN, d);
+    expect(result.brokenLinks).toEqual([]);
+    expect(result.linksUnverified?.groups[0]?.reason).toBe("server-error");
+  });
+
+  // Already excluded from the broken list before this change — but silently, so
+  // the report could not say how much of the site it had failed to look at.
+  it("counts a transport failure as unverified rather than dropping it", async () => {
+    const d = deps({ "https://acme.example/flaky": "throw" });
+    const result = await checkAssets([linkPage("/flaky")], ORIGIN, d);
+    expect(result.brokenLinks).toEqual([]);
+    expect(result.linksUnverified?.groups[0]?.reason).toBe("no-response");
+  });
+
+  it("groups several unverifiable answers by reason with one example each", async () => {
+    const d = deps({
+      "https://acme.example/a": { status: 403 },
+      "https://acme.example/b": { status: 403 },
+      "https://acme.example/c": { status: 500 },
+    });
+    const result = await checkAssets(
+      [page("https://acme.example/", { anchors: [link("/a"), link("/b"), link("/c")] })],
+      ORIGIN,
+      d,
+    );
+    expect(result.linksUnverified?.count).toBe(3);
+    expect(result.linksUnverified?.groups.map((g) => [g.reason, g.count])).toEqual([
+      ["refused", 2],
+      ["server-error", 1],
+    ]);
+  });
+
+  // The whole point of the split: a healthy site must be able to come back with
+  // an empty broken list AND an empty unverified list.
+  it("comes back clean for a site whose links and images all answer 200", async () => {
+    const result = await checkAssets(
+      [page("https://acme.example/", { anchors: [link("/a")], imageSrcs: ["/b.jpg"] })],
+      ORIGIN,
+      deps({}),
+    );
+    expect(result.brokenLinks).toEqual([]);
+    expect(result.brokenImages).toEqual([]);
+    expect(result.linksUnverified).toEqual({ count: 0, groups: [] });
+    expect(result.imagesUnverified).toEqual({ count: 0, groups: [] });
+  });
+});
+
+describe("checkAssets — pacing", () => {
+  // The image batch used to start the instant the link batch ended, so the
+  // boundary between them was the one unpaced request in the stage — and a
+  // burst is exactly what earns the 429 that used to be printed as a defect.
+  it("waits between every probe, including the first image after the last link", async () => {
+    const waits: number[] = [];
+    const d = deps({}, { delayMs: 150, sleep: async (ms) => void waits.push(ms) });
+    await checkAssets(
+      [
+        page("https://acme.example/", {
+          anchors: [link("/a"), link("/b")],
+          imageSrcs: ["/c.jpg", "/d.jpg"],
+        }),
+      ],
+      ORIGIN,
+      d,
+    );
+    expect(d.asked).toHaveLength(4);
+    // Three gaps for four requests: never before the first, always between.
+    expect(waits).toEqual([150, 150, 150]);
   });
 });

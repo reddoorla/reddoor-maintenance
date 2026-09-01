@@ -141,6 +141,24 @@ const deps: PipelineDeps = {
   lighthouse: async () => {
     throw new Error("lighthouse: npx exited with ENOENT (no chrome binary found)");
   },
+  // The two network stages, stubbed for the same reason the crawl is: this
+  // rehearsal is meant to be a closed system. Unstubbed, it fired real HTTP at
+  // riversideplumbing.example on every run — a hostname that does not resolve,
+  // so the suite's timing (and, on a resolver that hangs rather than refuses,
+  // its outcome) depended on the runner's DNS rather than on the code.
+  assets: {
+    probe: async () => {
+      throw new Error("network disabled in tests");
+    },
+  },
+  basics: {
+    probe: async () => {
+      throw new Error("network disabled in tests");
+    },
+    probeAs: async () => {
+      throw new Error("network disabled in tests");
+    },
+  },
   probeDelayMs: 0,
 };
 

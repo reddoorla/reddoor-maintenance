@@ -1,5 +1,8 @@
 import { isPrivateOrLoopbackHost } from "../util/url.js";
-import type { CrawlResult, PageCapture, PageExtract } from "./types.js";
+import { pacedEach, sleep as defaultSleep } from "./crawl.js";
+import { canonicalizeUrl } from "./journey.js";
+import { usablePages } from "./pages.js";
+import type { CrawlResult } from "./types.js";
 
 /**
  * The things a stranger would check first.
@@ -39,8 +42,8 @@ export const MISSING_PATH = "/reddoor-audit-page-that-does-not-exist";
  * against.
  *
  * Reading robots.txt is not enough, and believing otherwise produced a
- * confidently wrong answer on the check that matters most. ludlowkingsley.com
- * publishes a robots.txt that blocks nothing relevant, and returns **403 to
+ * confidently wrong answer on the check that matters most. One audited site
+ * published a robots.txt that blocks nothing relevant, and returned **403 to
  * ClaudeBot on every request** at the Cloudflare edge — 8 of 8, while a browser,
  * GPTBot, PerplexityBot and our own audit agent all get 200. The audit told them
  * "every AI crawler we checked can reach the site" while probing their
@@ -61,7 +64,7 @@ export const MISSING_PATH = "/reddoor-audit-page-that-does-not-exist";
  * The agents to ask, and what each one being turned away actually costs.
  *
  * The role matters more than the block, and diagnosing a real one proved it.
- * `ludlowkingsley.com` returns 403 to ClaudeBot and 200 to Claude-SearchBot and
+ * one audited site returned 403 to ClaudeBot and 200 to Claude-SearchBot and
  * Claude-User from the same origin. Reported as "Claude is blocked" that reads
  * as "you are invisible to Claude", which is false — Claude cites them today.
  * What they have actually lost is training and index coverage, while live
@@ -148,26 +151,74 @@ export type BasicsDeps = {
   /** Same fetch, with a chosen user-agent. Separate from `probe` because these
    *  requests are about the HEADER, not the URL. */
   probeAs?: (url: string, userAgent: string) => Promise<BasicsProbe>;
+  /** Gap between crawler-reachability requests. Defaults to
+   *  `CRAWLER_PROBE_DELAY_MS`; a test passes its own `sleep` instead. */
+  crawlerDelayMs?: number;
+  /** Injected so the pacing above is testable without spending real seconds. */
+  sleep?: (ms: number) => Promise<void>;
 };
 
-/** What one AI crawler gets when it asks for the homepage, next to what a
- *  browser gets. `blocked` is always a COMPARISON — a site that is down answers
- *  everyone badly, and that is an outage, not a crawler policy. */
+/** The courtesy gap between crawler-reachability requests, matching the crawl's
+ *  own default. These are full-body homepage GETs and there are up to two per
+ *  agent, so firing them in a burst is both rude and self-defeating: the 429 it
+ *  earns is indistinguishable, from one sample, from a real block. */
+export const CRAWLER_PROBE_DELAY_MS = 500;
+
+/**
+ * What one AI crawler gets when it asks for the homepage, next to what a
+ * browser gets.
+ *
+ * `blocked` is always a COMPARISON — a site that is down answers everyone
+ * badly, and that is an outage, not a crawler policy — and it is now also
+ * always CONFIRMED: two requests had to agree before this is true. The finding
+ * it supports is "this agent is served something a browser is not", which is
+ * what we actually observed. It is not "the site blocks this vendor": bot
+ * management keys on IP reputation, geography and rate as well as the header,
+ * none of which we can characterise from here.
+ */
 export type CrawlerReach = {
   agent: string;
+  /** The last status we saw, or null when no request got an answer. */
   status: number | null;
+  /** Confirmed served differently from a browser. Only ever true when
+   *  `measured` is true. */
   blocked: boolean;
+  /**
+   * Do we have evidence either way about this agent?
+   *
+   * False for a transient answer (429, 5xx), a failed request, or two requests
+   * that disagreed. Each of those is OUR missing data — most obviously the 429,
+   * which our own request rate causes — and a report must say "not measured"
+   * rather than name a vendor on the strength of it.
+   *
+   * Optional because this type also describes runs deserialized from
+   * `prospect_audits.result_json`, and every report stored before this field
+   * existed lacks it — those `blocked` values came from a single unpaced
+   * sample. `checkCrawlerReach` always sets it; a reader must treat absence as
+   * "we do not know how this was judged".
+   */
+  measured?: boolean;
+  /** Why we could not judge it, in words a report can print. Null when
+   *  `measured` is true, absent on reports stored before it existed. */
+  unverifiedReason?: string | null;
   error: string | null;
 };
 
 export type CrawlerReachability = {
-  /** False when the browser control itself failed, so nothing below can be
-   *  attributed to crawler policy and the report must say "not measured". */
+  /** False when the browser control itself failed or came back 4xx/5xx, so
+   *  nothing below can be attributed to crawler policy and the report must say
+   *  "not measured". */
   measured: boolean;
   browserStatus: number | null;
   agents: CrawlerReach[];
-  /** Agents served something a browser is not. The finding. */
+  /** Agents confirmed to be served something a browser is not. The finding —
+   *  and it is a description of what we saw, never an accusation about intent. */
   blocked: string[];
+  /** Agents we asked about and learned nothing from. Neither reachable nor
+   *  blocked: not measured, and reported as such so the report's denominator is
+   *  honest. Optional for reports stored before it existed, where absence means
+   *  "not measured" rather than "nothing went unverified". */
+  unverified?: string[];
 };
 
 /** One reachability answer. `measured: false` means the request failed for a
@@ -239,10 +290,6 @@ export type BasicsCheck = {
   crawlerReachability?: CrawlerReachability;
 };
 
-function extractOf(page: PageCapture): PageExtract | null {
-  return page.rendered ?? page.raw;
-}
-
 /** The www/apex counterpart of a hostname, or null when there is no sensible
  *  one — a subdomain like `shop.example.com` has no counterpart worth probing,
  *  and `www.` is not a thing you add to it. */
@@ -313,63 +360,180 @@ export function hasSiteLink(html: string, origin: string): boolean {
   return false;
 }
 
+/** An answer that says more about the moment than about the site: a rate limit
+ *  our own requests provoked, or a server having a bad afternoon. Neither is
+ *  evidence of a crawler policy, and one sample of either used to become one. */
+function isTransient(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
+function transientReason(status: number): string {
+  return status === 429
+    ? "answered 429 (rate limited), which our own request rate can cause — not measured."
+    : `answered ${status} while we were asking, which is a moment rather than a policy — not measured.`;
+}
+
 /**
  * Ask for the homepage as each AI crawler, and as a browser, and compare.
  *
  * Only a DIFFERENCE is reportable. An absolute status cannot distinguish "this
  * CDN turns ClaudeBot away" from "this site is down", and only the first is a
- * finding about the prospect. A crawler that gets the same answer as a browser
- * is recorded as not blocked — which is a statement about this moment, not a
- * guarantee: bot management also keys on IP reputation, geography and rate, none
- * of which one request from us can characterise.
+ * finding about the prospect.
+ *
+ * Three rules keep this from manufacturing findings, all of them learned from
+ * the shape of the thing it used to do — ten unpaced full-body GETs, each
+ * judged on one sample:
+ *
+ *   1. Paced, with `pacedEach` from the crawl. A burst earns a rate limit, and
+ *      a rate limit read as a block is our own traffic reported as their policy.
+ *   2. A transient answer (429, 5xx) is NOT MEASURED, never blocked.
+ *   3. A difference must be CONFIRMED by a second request that agrees before
+ *      any named vendor appears in a report. One flaky response is not a
+ *      finding about Perplexity.
+ *
+ * A crawler that gets the same answer as a browser is recorded as not blocked —
+ * a statement about this moment, not a guarantee: bot management also keys on
+ * IP reputation, geography and rate, none of which we can characterise.
  */
 async function checkCrawlerReach(
   origin: string,
   probeAs: (url: string, ua: string) => Promise<BasicsProbe>,
+  delayMs: number,
+  sleepFn: (ms: number) => Promise<void>,
 ): Promise<CrawlerReachability> {
   const url = `${origin}/`;
+  const nothing = (browserStatus: number | null): CrawlerReachability => ({
+    measured: false,
+    browserStatus,
+    agents: [],
+    blocked: [],
+    unverified: [],
+  });
+
   let browserStatus: number;
   try {
     browserStatus = (await probeAs(url, BROWSER_UA)).status;
   } catch {
     // No control, no comparison. Everything below would be unattributable.
-    return { measured: false, browserStatus: null, agents: [], blocked: [] };
+    return nothing(null);
   }
+  // A site erroring for a browser is an outage, not a crawler policy — and
+  // there is nothing to learn from asking it nine more times while it struggles.
+  if (browserStatus >= 400) return nothing(browserStatus);
+
+  const ask = async (ua: string): Promise<{ status: number | null; error: string | null }> => {
+    try {
+      return { status: (await probeAs(url, ua)).status, error: null };
+    } catch (err) {
+      return { status: null, error: err instanceof Error ? err.message : String(err) };
+    }
+  };
+
+  const unverified = (
+    agent: string,
+    status: number | null,
+    reason: string,
+    error: string | null = null,
+  ): CrawlerReach => ({
+    agent,
+    status,
+    blocked: false,
+    measured: false,
+    unverifiedReason: reason,
+    error,
+  });
+
+  const reachOf = async (agent: string, ua: string): Promise<CrawlerReach> => {
+    const first = await ask(ua);
+    if (first.status === null) {
+      // A thrown request is ours or the network's — never reported as a block.
+      return unverified(agent, null, "the request never got an answer.", first.error);
+    }
+    if (first.status === browserStatus) {
+      return {
+        agent,
+        status: first.status,
+        blocked: false,
+        measured: true,
+        unverifiedReason: null,
+        error: null,
+      };
+    }
+    if (isTransient(first.status)) {
+      return unverified(agent, first.status, transientReason(first.status));
+    }
+
+    // It differs. Before naming a vendor, ask again — paced like everything
+    // else, because the second request is exactly as much traffic as the first.
+    if (delayMs > 0) await sleepFn(delayMs);
+    const second = await ask(ua);
+    if (second.status === null) {
+      return unverified(
+        agent,
+        first.status,
+        "one request differed from a browser and the confirming request never answered.",
+        second.error,
+      );
+    }
+    if (isTransient(second.status)) {
+      return unverified(agent, second.status, transientReason(second.status));
+    }
+    if (second.status === browserStatus) {
+      return unverified(
+        agent,
+        second.status,
+        "one request differed from a browser and the next matched it, so the difference did not hold up.",
+      );
+    }
+    if (second.status !== first.status) {
+      return unverified(
+        agent,
+        second.status,
+        `two requests disagreed with each other (${first.status}, then ${second.status}), so we cannot say what this agent is served.`,
+      );
+    }
+    return {
+      agent,
+      status: second.status,
+      blocked: true,
+      measured: true,
+      unverifiedReason: null,
+      error: null,
+    };
+  };
 
   const agents: CrawlerReach[] = [];
-  for (const { agent, ua } of CRAWLER_AGENTS) {
-    try {
-      const { status } = await probeAs(url, ua);
-      agents.push({ agent, status, blocked: status !== browserStatus, error: null });
-    } catch (err) {
-      // A thrown request is ours or the network's — never reported as a block.
-      agents.push({
-        agent,
-        status: null,
-        blocked: false,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
+  await pacedEach(
+    CRAWLER_AGENTS,
+    delayMs,
+    async ({ agent, ua }) => {
+      agents.push(await reachOf(agent, ua));
+    },
+    sleepFn,
+  );
 
   return {
-    // A browser control that itself failed to load leaves nothing to compare
-    // against, and a site erroring for everyone is an outage, not a policy.
-    measured: browserStatus < 400,
+    measured: true,
     browserStatus,
     agents,
     blocked: agents.filter((a) => a.blocked).map((a) => a.agent),
+    unverified: agents.filter((a) => !a.measured).map((a) => a.agent),
   };
 }
 
 export async function checkBasics(crawl: CrawlResult, deps: BasicsDeps): Promise<BasicsCheck> {
   const origin = new URL(crawl.origin);
-  const usable = crawl.pages.map(extractOf).filter((e): e is PageExtract => e !== null);
+  // One view for the whole set, fetched pages only — see pages.ts. Reading each
+  // page from whichever view it happens to have, and counting a 404 that still
+  // parsed as one of the prospect's pages, are both ways of turning our own
+  // crawl artefacts into their defects.
+  const usable = usablePages(crawl.pages);
 
-  // ── Reachability: three requests, no more ──────────────────────────────
+  // ── Reachability: three requests here, plus the crawler probes below ───
   //
   // Sequential rather than concurrent, for the same reason the crawl is: this
-  // is a stranger's server and we are here uninvited.
+  // is a stranger's server and we are here uninvited. The crawler-reachability
+  // check adds up to two more per agent in CRAWLER_AGENTS, paced the same way.
 
   const insecure = await reach(`http://${origin.host}/`, deps, (p) => {
     // Landing on https is the pass. A 4xx/5xx over http is a fail even if the
@@ -434,11 +598,20 @@ export async function checkBasics(crawl: CrawlResult, deps: BasicsDeps): Promise
   let imagesSeen = 0;
   let imagesTotal = 0;
   let imagesWithAlt = 0;
-  const titles = new Map<string, string[]>();
+  /**
+   * Titles, keyed by CANONICAL url.
+   *
+   * The crawl dedupes its candidates only after stripping the hash, so a site
+   * serving the same page at `/x` and `/x/` (or at both www and apex) is
+   * crawled twice — and grouping on the raw url then told the owner they had
+   * two pages sharing a title. There is no such defect and no fix they could
+   * make: it was our crawl, described back to them as their problem.
+   * `canonicalizeUrl` is the crawl's own idea of "one page", imported rather
+   * than re-derived so the two cannot drift apart.
+   */
+  const titles = new Map<string, { seen: Set<string>; pages: string[] }>();
 
-  for (const page of crawl.pages) {
-    const extract = extractOf(page);
-    if (!extract) continue;
+  for (const { page, extract } of usable.pages) {
     imagesTotal += extract.images.total;
     imagesWithAlt += extract.images.withAlt;
     for (const src of extract.imageSrcs ?? []) {
@@ -447,11 +620,15 @@ export async function checkBasics(crawl: CrawlResult, deps: BasicsDeps): Promise
     }
     const title = extract.title?.trim();
     if (title) {
-      const pages = titles.get(title);
-      if (pages) {
-        if (!pages.includes(page.url)) pages.push(page.url);
+      const key = canonicalizeUrl(page.url) ?? page.url;
+      const entry = titles.get(title);
+      if (entry) {
+        if (!entry.seen.has(key)) {
+          entry.seen.add(key);
+          entry.pages.push(page.url);
+        }
       } else {
-        titles.set(title, [page.url]);
+        titles.set(title, { seen: new Set([key]), pages: [page.url] });
       }
     }
   }
@@ -470,19 +647,26 @@ export async function checkBasics(crawl: CrawlResult, deps: BasicsDeps): Promise
       // Only meaningful on an https site, and only over the images the extract
       // records — stylesheets and scripts are not captured, so the report must
       // not claim to have checked them.
-      measured: isHttps && usable.length > 0,
+      measured: isHttps && usable.pages.length > 0,
       imageUrls: [...insecureImages].slice(0, 12),
       imagesSeen,
     },
-    altText: { imagesTotal, imagesWithAlt, pagesExamined: usable.length },
+    altText: { imagesTotal, imagesWithAlt, pagesExamined: usable.pages.length },
     duplicateTitles: [...titles.entries()]
-      .filter(([, pages]) => pages.length > 1)
-      .map(([title, pages]) => ({ title, pages }))
+      .filter(([, entry]) => entry.pages.length > 1)
+      .map(([title, entry]) => ({ title, pages: entry.pages }))
       .sort((a, b) => b.pages.length - a.pages.length),
     // Optional dependency: without a UA-capable probe this check simply does not
     // run, and its absence reads as "not measured" rather than "nothing blocked".
     ...(deps.probeAs
-      ? { crawlerReachability: await checkCrawlerReach(crawl.origin, deps.probeAs) }
+      ? {
+          crawlerReachability: await checkCrawlerReach(
+            crawl.origin,
+            deps.probeAs,
+            deps.crawlerDelayMs ?? CRAWLER_PROBE_DELAY_MS,
+            deps.sleep ?? defaultSleep,
+          ),
+        }
       : {}),
   };
 }

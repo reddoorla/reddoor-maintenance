@@ -46,12 +46,13 @@ function crawl(over: Partial<CrawlResult> = {}): CrawlResult {
 /** A probe that answers from a table, and records what was asked. Anything not
  *  in the table throws, which is how a test proves no unexpected request was
  *  made rather than silently tolerating one. */
-function stubProbe(
-  table: Record<string, Partial<BasicsProbe>>,
-): BasicsDeps & { asked: string[] } {
+function stubProbe(table: Record<string, Partial<BasicsProbe>>): BasicsDeps & { asked: string[] } {
   const asked: string[] = [];
   return {
     asked,
+    // The crawler-reachability loop paces itself against a stranger's server.
+    // Nothing in this suite wants to spend real seconds proving that.
+    sleep: async () => {},
     async probe(url) {
       asked.push(url);
       const hit = table[url];
@@ -98,7 +99,8 @@ describe("hasSiteLink", () => {
   });
 
   it("rejects a default server error page", () => {
-    const nginx = "<html><head><title>404 Not Found</title></head><body><center><h1>404 Not Found</h1></center><hr><center>nginx</center></body></html>";
+    const nginx =
+      "<html><head><title>404 Not Found</title></head><body><center><h1>404 Not Found</h1></center><hr><center>nginx</center></body></html>";
     expect(hasSiteLink(nginx, "https://example.com")).toBe(false);
   });
 
@@ -126,7 +128,10 @@ describe("checkBasics — reachability", () => {
   it("fails a site that serves plain http without redirecting", async () => {
     const result = await checkBasics(
       crawl(),
-      stubProbe({ ...HEALTHY, "http://example.com/": { status: 200, finalUrl: "http://example.com/" } }),
+      stubProbe({
+        ...HEALTHY,
+        "http://example.com/": { status: 200, finalUrl: "http://example.com/" },
+      }),
     );
     expect(result.insecureEntry.ok).toBe(false);
     expect(result.insecureEntry.measured).toBe(true);
@@ -271,7 +276,10 @@ describe("checkBasics — derived from the crawl", () => {
       stubProbe(HEALTHY),
     );
     expect(result.duplicateTitles).toEqual([
-      { title: "Acme", pages: ["https://example.com/a", "https://example.com/b", "https://example.com/c"] },
+      {
+        title: "Acme",
+        pages: ["https://example.com/a", "https://example.com/b", "https://example.com/c"],
+      },
     ]);
   });
 
@@ -280,7 +288,13 @@ describe("checkBasics — derived from the crawl", () => {
       crawl({
         pages: [
           page("https://example.com/", { title: "Home" }),
-          { url: "https://example.com/dead", status: 500, raw: null, rendered: null, error: "HTTP 500" },
+          {
+            url: "https://example.com/dead",
+            status: 500,
+            raw: null,
+            rendered: null,
+            error: "HTTP 500",
+          },
         ],
       }),
       stubProbe(HEALTHY),
@@ -326,12 +340,20 @@ describe("checkBasics — what the crawlers are actually served", () => {
   it("never calls a site-wide outage a crawler block", async () => {
     // 503 to everyone, browser included. That is an outage, and attributing it
     // to crawler policy would invent a finding out of a bad afternoon.
+    let requests = 0;
     const result = await checkBasics(crawl(), {
       ...stubProbe(HEALTHY),
-      probeAs: async (url) => ({ status: 503, finalUrl: url, body: "" }),
+      probeAs: async (url) => {
+        requests += 1;
+        return { status: 503, finalUrl: url, body: "" };
+      },
     });
     expect(result.crawlerReachability?.measured).toBe(false);
     expect(result.crawlerReachability?.blocked).toEqual([]);
+    // And it stops there. With no usable control every answer below would be
+    // unattributable, so nine more requests at a struggling server buy nothing.
+    expect(requests).toBe(1);
+    expect(result.crawlerReachability?.agents).toEqual([]);
   });
 
   it("treats a thrown request as ours, not as a block", async () => {
@@ -357,5 +379,232 @@ describe("checkBasics — what the crawlers are actually served", () => {
     // CDN's opinion of our invention, not its policy.
     expect(CRAWLER_AGENTS.map((a) => a.agent)).not.toContain("Google-Extended");
     for (const { ua } of CRAWLER_AGENTS) expect(ua).not.toMatch(/Google-Extended/);
+  });
+});
+
+/**
+ * Two requests before naming a vendor, and never our own rate limit.
+ *
+ * `blocked` used to be `status !== browserStatus` from ONE sample, over an
+ * unpaced burst of ten full-body homepage GETs. So a 429 we provoked ourselves,
+ * or a single flaky 503, was stored as "this named AI crawler is turned away by
+ * your site" — a specific, quotable claim about a named vendor, built out of our
+ * own traffic.
+ */
+describe("checkBasics — crawler reach is a measurement, not an accusation", () => {
+  /** A UA-aware probe whose answers can differ between successive requests, so
+   *  a test can prove the confirming request is actually made and actually
+   *  read. Each entry is consumed in order; the last one repeats. */
+  function uaSequence(table: Record<string, (number | "throw")[]>): {
+    probeAs: (url: string, ua: string) => Promise<BasicsProbe>;
+    asked: string[];
+  } {
+    const seen = new Map<string, number>();
+    const asked: string[] = [];
+    return {
+      asked,
+      async probeAs(url, ua) {
+        for (const [needle, outcomes] of Object.entries(table)) {
+          if (!ua.includes(needle)) continue;
+          asked.push(needle);
+          const i = Math.min(seen.get(needle) ?? 0, outcomes.length - 1);
+          seen.set(needle, i + 1);
+          const outcome = outcomes[i]!;
+          if (outcome === "throw") throw new Error("ECONNRESET");
+          return { status: outcome, finalUrl: url, body: "" };
+        }
+        asked.push("browser-or-other");
+        return { status: 200, finalUrl: url, body: "<html></html>" };
+      },
+    };
+  }
+
+  const paced = (
+    probeAs: (url: string, ua: string) => Promise<BasicsProbe>,
+    waits: number[],
+  ): BasicsDeps => ({
+    ...stubProbe(HEALTHY),
+    probeAs,
+    crawlerDelayMs: 200,
+    sleep: async (ms) => void waits.push(ms),
+  });
+
+  it("waits between every crawler request, the way the crawl does", async () => {
+    const waits: number[] = [];
+    const { probeAs } = uaSequence({});
+    await checkBasics(crawl(), paced(probeAs, waits));
+    // One gap per agent after the first — never before the first, exactly like
+    // `pacedEach` in crawl.ts, whose delay this reuses rather than re-invents.
+    expect(waits).toHaveLength(CRAWLER_AGENTS.length - 1);
+    expect(new Set(waits)).toEqual(new Set([200]));
+  });
+
+  it("does not call a 429 a block — that is our request rate, not their policy", async () => {
+    const waits: number[] = [];
+    const { probeAs, asked } = uaSequence({ ClaudeBot: [429] });
+    const result = await checkBasics(crawl(), paced(probeAs, waits));
+    const claude = result.crawlerReachability?.agents.find((a) => a.agent === "ClaudeBot");
+
+    expect(claude?.blocked).toBe(false);
+    expect(claude?.measured).toBe(false);
+    expect(claude?.unverifiedReason).toMatch(/rate/i);
+    expect(result.crawlerReachability?.blocked).toEqual([]);
+    expect(result.crawlerReachability?.unverified).toEqual(["ClaudeBot"]);
+    // And we did not hammer it a second time to find out.
+    expect(asked.filter((a) => a === "ClaudeBot")).toHaveLength(1);
+  });
+
+  it("does not call a 5xx on one agent a block", async () => {
+    const waits: number[] = [];
+    const { probeAs } = uaSequence({ GPTBot: [503] });
+    const result = await checkBasics(crawl(), paced(probeAs, waits));
+    const gpt = result.crawlerReachability?.agents.find((a) => a.agent === "GPTBot");
+
+    expect(gpt?.blocked).toBe(false);
+    expect(gpt?.measured).toBe(false);
+    expect(result.crawlerReachability?.unverified).toEqual(["GPTBot"]);
+  });
+
+  it("will not name a vendor on one sample that the next request contradicts", async () => {
+    const waits: number[] = [];
+    const { probeAs, asked } = uaSequence({ PerplexityBot: [403, 200] });
+    const result = await checkBasics(crawl(), paced(probeAs, waits));
+    const perplexity = result.crawlerReachability?.agents.find((a) => a.agent === "PerplexityBot");
+
+    expect(asked.filter((a) => a === "PerplexityBot")).toHaveLength(2);
+    expect(perplexity?.blocked).toBe(false);
+    expect(perplexity?.measured).toBe(false);
+    expect(result.crawlerReachability?.blocked).toEqual([]);
+  });
+
+  it("names a vendor only when a second request agrees", async () => {
+    const waits: number[] = [];
+    const { probeAs, asked } = uaSequence({ ClaudeBot: [403, 403] });
+    const result = await checkBasics(crawl(), paced(probeAs, waits));
+
+    expect(asked.filter((a) => a === "ClaudeBot")).toHaveLength(2);
+    expect(result.crawlerReachability?.blocked).toEqual(["ClaudeBot"]);
+    const claude = result.crawlerReachability?.agents.find((a) => a.agent === "ClaudeBot");
+    expect(claude?.measured).toBe(true);
+    expect(claude?.status).toBe(403);
+    // The confirming request is paced too: one extra gap on top of the per-agent ones.
+    expect(waits).toHaveLength(CRAWLER_AGENTS.length);
+  });
+
+  it("does not report a block when the two differing answers disagree with each other", async () => {
+    const waits: number[] = [];
+    const { probeAs } = uaSequence({ CCBot: [403, 404] });
+    const result = await checkBasics(crawl(), paced(probeAs, waits));
+    const ccbot = result.crawlerReachability?.agents.find((a) => a.agent === "CCBot");
+
+    expect(ccbot?.blocked).toBe(false);
+    expect(ccbot?.measured).toBe(false);
+    expect(result.crawlerReachability?.blocked).toEqual([]);
+  });
+
+  // The check has to be able to come back clean, or it is a complaint.
+  it("reports every agent measured and none blocked on a site that serves them all", async () => {
+    const waits: number[] = [];
+    const { probeAs } = uaSequence({});
+    const result = await checkBasics(crawl(), paced(probeAs, waits));
+
+    expect(result.crawlerReachability?.measured).toBe(true);
+    expect(result.crawlerReachability?.blocked).toEqual([]);
+    expect(result.crawlerReachability?.unverified).toEqual([]);
+    expect(result.crawlerReachability?.agents.every((a) => a.measured)).toBe(true);
+  });
+});
+
+/**
+ * Duplicate titles used to be grouped by the RAW crawled URL, while the crawl
+ * dedupes candidates only after stripping the hash. A site that serves the same
+ * page at `/x` and `/x/` was crawled twice and then told it had two pages
+ * sharing a title — a defect that does not exist and a fix nobody can make.
+ */
+describe("checkBasics — one page is one page", () => {
+  it("does not report a trailing-slash pair as two pages sharing a title", async () => {
+    const result = await checkBasics(
+      crawl({
+        pages: [
+          page("https://example.com/", { title: "Home" }),
+          page("https://example.com/services", { title: "Services" }),
+          page("https://example.com/services/", { title: "Services" }),
+        ],
+      }),
+      stubProbe(HEALTHY),
+    );
+    expect(result.duplicateTitles).toEqual([]);
+  });
+
+  it("does not report a www variant of the same path as a second page", async () => {
+    const result = await checkBasics(
+      crawl({
+        pages: [
+          page("https://example.com/about", { title: "About" }),
+          page("https://www.example.com/about", { title: "About" }),
+        ],
+      }),
+      stubProbe(HEALTHY),
+    );
+    expect(result.duplicateTitles).toEqual([]);
+  });
+
+  it("still reports two genuinely different pages that share a title", async () => {
+    const result = await checkBasics(
+      crawl({
+        pages: [
+          page("https://example.com/a", { title: "Acme" }),
+          page("https://example.com/a/", { title: "Acme" }),
+          page("https://example.com/b", { title: "Acme" }),
+        ],
+      }),
+      stubProbe(HEALTHY),
+    );
+    expect(result.duplicateTitles).toEqual([
+      { title: "Acme", pages: ["https://example.com/a", "https://example.com/b"] },
+    ]);
+  });
+
+  // Cloudflare's email-protection URL answers 404 and still paints something
+  // parseable. It is not one of the prospect's pages, and counting it as one is
+  // how our own crawl artefact became their defect.
+  it("does not count an infrastructure URL among the pages examined", async () => {
+    const result = await checkBasics(
+      crawl({
+        pages: [
+          page("https://example.com/", { title: "Home" }),
+          {
+            url: "https://example.com/cdn-cgi/l/email-protection",
+            status: 404,
+            raw: extract({ title: "Home" }),
+            rendered: null,
+            error: null,
+          },
+        ],
+      }),
+      stubProbe(HEALTHY),
+    );
+    expect(result.altText.pagesExamined).toBe(1);
+    expect(result.duplicateTitles).toEqual([]);
+  });
+
+  it("does not count a page the server refused among the pages examined", async () => {
+    const result = await checkBasics(
+      crawl({
+        pages: [
+          page("https://example.com/", { title: "Home" }),
+          {
+            url: "https://example.com/members",
+            status: 403,
+            raw: extract({ title: "Home" }),
+            rendered: null,
+            error: null,
+          },
+        ],
+      }),
+      stubProbe(HEALTHY),
+    );
+    expect(result.altText.pagesExamined).toBe(1);
+    expect(result.duplicateTitles).toEqual([]);
   });
 });

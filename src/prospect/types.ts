@@ -49,10 +49,11 @@ export type PageAnchor = { href: string; text: string; rel: string };
  *               attempt is made to tell those apart; the shapes overlap too
  *               much to do it honestly from markup.
  *
- * The distinction earns its keep on real data. Icovy carries a one-field email
- * box in the footer of every page. Counting that as a contact route put the
- * whole site at zero clicks from "reaching them", when in fact the only form
- * that reaches a person is the nine-field one on `/contact-us`.
+ * The distinction earns its keep on real data. One audited site carries a
+ * one-field email box in the footer of every page. Counting that as a contact
+ * route put the whole site at zero clicks from "reaching them", when in fact
+ * the only form that reaches a person was the nine-field one on its contact
+ * page.
  */
 export type FormKind = "enquiry" | "subscribe" | "other";
 

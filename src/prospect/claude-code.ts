@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import os from "node:os";
 import { StringDecoder } from "node:string_decoder";
 import { z } from "zod";
+import { AccuracySchema } from "./accuracy.js";
 import { AnalyzeSchema, type AnalyzeDeps } from "./analyze.js";
 import { domainOf, PROBE_MODEL, type VisibilityEngine } from "./probes.js";
 
@@ -297,6 +298,67 @@ function urlsFromSearchResult(text: string): string[] {
  * the closest analogue of the API path reading `web_search_tool_result`
  * blocks; final-answer prose is deliberately not mined for URLs.
  */
+/** The accuracy prompt's schema, minus the `$schema` meta key — see
+ *  `analyzeJsonSchema` for why that key silently costs you the structured
+ *  output. */
+function accuracyJsonSchema(): string {
+  const schema = z.toJSONSchema(AccuracySchema) as Record<string, unknown>;
+  delete schema["$schema"];
+  return JSON.stringify(schema);
+}
+
+/**
+ * The subscription twin of `apiAccuracyDeps`.
+ *
+ * Accuracy re-reads the whole site against what an engine said about the
+ * business, so its prompt is the largest in the pipeline; the budget bound is
+ * correspondingly higher than analyze's and is still only a runaway backstop.
+ * `ownership` is left to the caller because it makes no model call — it fetches
+ * cited domains — and so does not belong to either auth mode.
+ */
+export function claudeCodeAccuracyRun(run: ClaudeCodeRun = defaultClaudeCodeRun) {
+  return async ({ system, user }: { system: string; user: string }): Promise<unknown> => {
+    const args = [
+      "-p",
+      "--output-format",
+      "json",
+      "--json-schema",
+      accuracyJsonSchema(),
+      "--system-prompt",
+      system,
+      "--model",
+      "claude-opus-5",
+      "--no-session-persistence",
+      "--disallowedTools",
+      ANALYZE_DISALLOWED,
+      ...ISOLATION_ARGS,
+      "--max-budget-usd",
+      "8",
+    ];
+    const res = await run({ args, stdin: user, env: childEnv(), timeoutMs: ANALYZE_TIMEOUT_MS });
+    if (res.code !== 0) {
+      throw new Error(`claude -p (accuracy) exited ${res.code}: ${res.stderr.slice(0, 400)}`);
+    }
+    let envelope: ResultEnvelope;
+    try {
+      envelope = JSON.parse(res.stdout) as ResultEnvelope;
+    } catch {
+      throw new Error(
+        `claude -p (accuracy) printed something other than the JSON envelope: ${res.stdout.slice(0, 200)}`,
+      );
+    }
+    if (envelope.is_error || envelope.subtype !== "success") {
+      throw new Error(
+        `claude -p (accuracy) failed (${envelope.subtype ?? "unknown"}): ${String(envelope.result ?? "").slice(0, 400)}`,
+      );
+    }
+    if (envelope.structured_output === undefined) {
+      throw new Error("claude -p (accuracy) returned no structured_output");
+    }
+    return envelope.structured_output;
+  };
+}
+
 export function claudeCodeEngine(run: ClaudeCodeRun = defaultClaudeCodeRun): VisibilityEngine {
   return {
     name: "claude-code",

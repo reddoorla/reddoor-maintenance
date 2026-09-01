@@ -1,7 +1,14 @@
 import { crawlSite, defaultCrawlDeps, readCapped, USER_AGENT, type CrawlDeps } from "./crawl.js";
 import { computeScores, runChecks } from "./checks.js";
 import { analyzeSite, defaultAnalyzeDeps, type AnalyzeDeps } from "./analyze.js";
-import { claudeCodeAnalyzeDeps, claudeCodeEngine, llmAuthMode } from "./claude-code.js";
+import {
+  claudeCodeAccuracyRun,
+  claudeCodeAnalyzeDeps,
+  claudeCodeEngine,
+  llmAuthMode,
+} from "./claude-code.js";
+import { apiAccuracyDeps, type AccuracyDeps } from "./accuracy.js";
+import { defaultOwnershipDeps } from "./ownership.js";
 import {
   defaultEngines,
   runVisibilityProbes,
@@ -23,13 +30,7 @@ import type {
 } from "./types.js";
 
 export type StageName =
-  | "crawl"
-  | "checks"
-  | "lighthouse"
-  | "analyze"
-  | "probes"
-  | "assets"
-  | "basics";
+  "crawl" | "checks" | "lighthouse" | "analyze" | "probes" | "assets" | "basics";
 
 /** The two ways an audit can pay for its model calls. Which one runs is
  *  decided here, once, off PROSPECT_LLM_AUTH (see claude-code.ts) — the
@@ -49,6 +50,22 @@ export function envAnalyzeDeps(
  *  engine replaces the API's claude engine (its rows carry their own engine
  *  name — the two are different instruments); the Perplexity gate inside
  *  defaultEngines applies either way. */
+/**
+ * The accuracy stage's dependencies, chosen by the same env toggle as analyze.
+ *
+ * Accuracy is not wired into `runProspectAudit` yet. This selector exists
+ * anyway so that when it is, the wiring cannot silently bill the metered API
+ * under `PROSPECT_LLM_AUTH=subscription` — `apiAccuracyDeps` is deliberately
+ * not a default parameter, so the only convenient way to call `checkAccuracy`
+ * is through here.
+ */
+export function envAccuracyDeps(userAgent: string): AccuracyDeps {
+  const api = apiAccuracyDeps();
+  return llmAuthMode() === "subscription"
+    ? { run: claudeCodeAccuracyRun(), ownership: defaultOwnershipDeps(userAgent) }
+    : api;
+}
+
 export function envEngines(): VisibilityEngine[] {
   return llmAuthMode() === "subscription" ? defaultEngines(claudeCodeEngine()) : defaultEngines();
 }
@@ -110,9 +127,9 @@ async function defaultAssetProbe(
   return { status: get.status, headers: headersOf(get) };
 }
 
-/** Three requests, and every one of them wants the body — a HEAD tells us
- *  nothing about whether a 404 page has a way back into the site. Redirects are
- *  followed because the whole point of two of these checks is where you land. */
+/** Every one of these wants the body — a HEAD tells us nothing about whether a
+ *  404 page has a way back into the site. Redirects are followed because the
+ *  whole point of two of these checks is where you land. */
 async function defaultBasicsProbe(url: string, userAgent = USER_AGENT): Promise<BasicsProbe> {
   const res = await fetch(url, {
     headers: { "user-agent": userAgent, accept: "text/html,*/*" },
@@ -136,8 +153,16 @@ export type PipelineDeps = {
    *  someone else's server, and a courteous audit is worth more than an
    *  exhaustive one. A test passes its own `probe` to avoid a network. */
   assets?: Partial<AssetCheckDeps>;
-  /** Overrides the reachability probe. A test passes its own to avoid a network;
-   *  production makes exactly three requests through the default. */
+  /**
+   * Overrides the reachability probes. A test passes its own to avoid a
+   * network: three reachability requests, plus one or two per named crawler
+   * agent for the served-differently check.
+   *
+   * Passing `probe` alone is enough — `probeAs` inherits it (see the wiring
+   * below). It used to fall back to the live network instead, so the offline
+   * suites stubbed `probe`, believed they were closed systems, and fired real
+   * requests at a fixture hostname on every run.
+   */
   basics?: Partial<BasicsDeps>;
   /** Forwarded to probes.ts's ProbeRunOptions.delayMs — production runs want
    *  the real between-query pacing (a metered, rate-limited API); an offline
@@ -236,8 +261,14 @@ export async function runProspectAudit(
   const basics: StageResult<BasicsCheck> = await stage("basics", deps, async () =>
     checkBasics(crawlData, {
       probe: defaultBasicsProbe,
-      probeAs: defaultBasicsProbe,
       ...deps.basics,
+      // Inherit `probe` when only that was overridden. Both defaults are the
+      // same function, so this changes nothing in production — but it means a
+      // caller who stubs the network cannot stub HALF of it by accident, which
+      // is exactly what the offline suites had been doing.
+      probeAs:
+        deps.basics?.probeAs ??
+        (deps.basics?.probe ? (url) => deps.basics!.probe!(url) : defaultBasicsProbe),
     }),
   );
 

@@ -1,4 +1,5 @@
-import { normalizePhone } from "./consistency.js";
+import { isPrivateOrLoopbackHost } from "../util/url.js";
+import { normalizePhone, PHONE_IN_TEXT } from "./consistency.js";
 import { domainOf } from "./probes.js";
 
 /**
@@ -31,7 +32,16 @@ import { domainOf } from "./probes.js";
  * `platform` — a directory, review site or social profile. A listing ABOUT you
  *   that you can usually claim and correct, which is a different job from
  *   writing a page and worth naming separately.
- * `theirs` — somebody else's website entirely.
+ * `theirs` — no connection to the prospect that we could find.
+ *
+ *   Worded deliberately as an absence of evidence, because that is all this
+ *   module establishes: no shared phone number, and no redirect home. It is
+ *   NOT a finding that the domain belongs to somebody else — asserting that
+ *   about a third party is a claim we cannot check, in a report whose whole
+ *   argument is that unchecked claims are the problem. The user-facing string
+ *   lives in `because` and says so; the variant name is kept because
+ *   `DomainVerdict` already crosses a module boundary into accuracy.ts, and
+ *   nothing renders the name itself.
  * `unknown` — we could not tell, and say so.
  */
 export type DomainOwner = "yours" | "platform" | "theirs" | "unknown";
@@ -116,7 +126,6 @@ export type OwnershipDeps = {
 };
 
 const TEL_LINK = /href=["']tel:([^"']+)["']/gi;
-const PHONE_IN_TEXT = /(\+?\d[\d().\-\s]{7,}\d)/g;
 
 /** Every phone number a page publishes, normalized. */
 export function phonesOn(html: string): Set<string> {
@@ -133,25 +142,94 @@ export function phonesOn(html: string): Set<string> {
   return out;
 }
 
+/**
+ * A bare address literal, v4 or v6.
+ *
+ * Refused whether or not it is routable. An answer engine naming `8.8.8.8` as
+ * a source is a model artefact, not a citation — no business's web presence is
+ * an IP address — so there is nothing to lose by not fetching it, and the
+ * check stays one rule instead of two.
+ */
+function isAddressLiteral(host: string): boolean {
+  const bare = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(bare) || bare.includes(":");
+}
+
+/**
+ * Hosts this module will not send a request to.
+ *
+ * Every domain reaching `classifyDomains` was named by an answer engine, and
+ * every redirect it follows is chosen by a stranger's server. PR #618 hardened
+ * the crawler against precisely this; the ownership fetcher was the one
+ * prospect fetcher left without a guard, and it runs on a private runner whose
+ * environment holds Turso, Discord and API credentials. Same best-effort bound
+ * as crawl.ts: address literals only, no DNS resolution.
+ */
+function isUnfetchableHost(host: string): boolean {
+  return host.length === 0 || isAddressLiteral(host) || isPrivateOrLoopbackHost(host);
+}
+
 /** Same registrable-ish site: equal, or one is a subdomain of the other. */
 export function sameSite(a: string, b: string): boolean {
   if (a === b) return true;
   return a.endsWith(`.${b}`) || b.endsWith(`.${a}`);
 }
 
+/** Redirect hops we will take. Enough for the apex → www → https chains real
+ *  hosting ships; past that it is a loop, and a loop is not a website. */
+const MAX_REDIRECTS = 5;
+
 export function defaultOwnershipDeps(userAgent: string): OwnershipDeps {
-  const once = async (url: string) => {
-    try {
-      const res = await fetch(url, {
-        redirect: "follow",
-        headers: { "user-agent": userAgent },
-        signal: AbortSignal.timeout(12_000),
-      });
+  // `redirect: "manual"`, not "follow" — the pattern crawl.ts reaches for when
+  // the destination is chosen by somebody else. Following automatically means
+  // the request to wherever a stranger's 302 points has ALREADY been made by
+  // the time anything can object, and "wherever" includes 169.254.169.254.
+  // Here every hop is judged before it is taken.
+  const once = async (start: string) => {
+    let url = start;
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+      let target: URL;
+      try {
+        target = new URL(url);
+      } catch {
+        return null;
+      }
+      if (target.protocol !== "https:" && target.protocol !== "http:") return null;
+      if (isUnfetchableHost(target.hostname)) return null;
+
+      let res: Response;
+      try {
+        res = await fetch(target.toString(), {
+          redirect: "manual",
+          headers: { "user-agent": userAgent },
+          signal: AbortSignal.timeout(12_000),
+        });
+      } catch {
+        return null;
+      }
+
+      const location =
+        res.status >= 300 && res.status < 400 ? (res.headers.get("location") ?? null) : null;
+      if (location) {
+        try {
+          url = new URL(location, target).toString();
+        } catch {
+          return null;
+        }
+        continue;
+      }
+
       if (!res.ok) return null;
-      return { finalUrl: res.url, body: await res.text() };
-    } catch {
-      return null;
+      try {
+        // The URL we actually asked for on the last hop, which is where the
+        // body came from — `res.url` is not set by every runtime under manual
+        // redirects, and a wrong finalUrl here decides who owns a domain.
+        return { finalUrl: target.toString(), body: await res.text() };
+      } catch {
+        return null;
+      }
     }
+    return null;
   };
 
   return {
@@ -200,13 +278,39 @@ export async function classifyDomains(
       continue;
     }
 
+    // Refused before any request is made, so an injected fetcher cannot be
+    // pointed at an internal target either — see `isUnfetchableHost`. This is
+    // "we did not look", not "there is nothing there", and `because` says so:
+    // our own refusal to fetch must never read as a defect of theirs.
+    if (isUnfetchableHost(domain)) {
+      out.push({
+        domain,
+        owner: "unknown",
+        because: "We did not fetch it: it is an internal or numeric address, not a website.",
+      });
+      continue;
+    }
+
     const page = await deps.fetchPage(`https://${domain}/`);
     if (!page) {
       out.push({ domain, owner: "unknown", because: "We could not reach it to check." });
       continue;
     }
 
-    if (sameSite(domainOf(page.finalUrl), prospect)) {
+    // Where a redirect LANDED is chosen by the domain, not by us. A body served
+    // from an internal address is not evidence about anyone's website, and is
+    // not read.
+    const landed = domainOf(page.finalUrl);
+    if (isUnfetchableHost(landed)) {
+      out.push({
+        domain,
+        owner: "unknown",
+        because: "We did not read it: it redirects to an internal address.",
+      });
+      continue;
+    }
+
+    if (sameSite(landed, prospect)) {
       out.push({ domain, owner: "yours", because: "It redirects to your site." });
       continue;
     }

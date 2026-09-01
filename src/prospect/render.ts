@@ -243,10 +243,10 @@ function buildFindabilitySection(c: ChecksResult): string {
       : // Says what was measured, which is robots.txt, and no more. "Every AI
         // crawler can reach the site" was a claim robots.txt cannot support:
         // a CDN's bot management enforces its own answer and can contradict the
-        // file without the owner knowing. Confirmed on a live prospect —
-        // ludlowkingsley.com publishes a robots.txt that blocks nothing relevant
-        // and returns 403 to ClaudeBot on every request, while serving a browser,
-        // GPTBot and PerplexityBot normally. The report said they were fine.
+        // file without the owner knowing. Confirmed on a live prospect: its
+        // robots.txt blocked nothing relevant, and its CDN returned 403 to one
+        // named AI crawler on every request while serving a browser and two
+        // other crawlers normally. The report said they were fine.
         `<p>Nothing in your robots.txt blocks the AI crawlers we checked.</p>`;
   const classical =
     c.crawlerAccessMeasured && c.crawlerAccess.blockedClassical.length

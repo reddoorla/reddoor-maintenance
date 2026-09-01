@@ -7,6 +7,7 @@ import {
   ASSETS_SKIPPED,
   PROBES_SKIPPED,
   ANALYZE_SKIPPED,
+  envAccuracyDeps,
   type PipelineDeps,
 } from "../../src/prospect/pipeline.js";
 import type { CrawlDeps, FetchResponse } from "../../src/prospect/crawl.js";
@@ -137,6 +138,15 @@ const deps = (over: Partial<PipelineDeps> = {}): PipelineDeps => ({
   // happens to use, which is both slow and rude.
   basics: {
     probe: async () => {
+      throw new Error("network disabled in tests");
+    },
+    // `probeAs` too, and not as belt-and-braces: pipeline.ts defaults it to the
+    // live crawler-reachability probe, so stubbing only `probe` left this
+    // offline suite firing real requests at whatever hostname the fixture
+    // happened to use — one per named agent, per run. The tests passed whether
+    // those succeeded, failed or hung, which means they asserted nothing about
+    // this stage and the suite's result depended on the runner's DNS.
+    probeAs: async () => {
       throw new Error("network disabled in tests");
     },
   },
@@ -337,6 +347,17 @@ describe("runProspectAudit", () => {
 });
 
 describe("llm auth mode in the pipeline", () => {
+  /** The api-mode accuracy deps, read with the toggle explicitly off. */
+  const withApiMode = async () => {
+    const saved = process.env.PROSPECT_LLM_AUTH;
+    delete process.env.PROSPECT_LLM_AUTH;
+    try {
+      return envAccuracyDeps("test-agent");
+    } finally {
+      if (saved !== undefined) process.env.PROSPECT_LLM_AUTH = saved;
+    }
+  };
+
   const withEnv = async (value: string | undefined, fn: () => Promise<void>) => {
     const saved = process.env.PROSPECT_LLM_AUTH;
     if (value === undefined) delete process.env.PROSPECT_LLM_AUTH;
@@ -348,6 +369,24 @@ describe("llm auth mode in the pipeline", () => {
       else process.env.PROSPECT_LLM_AUTH = saved;
     }
   };
+
+  it("routes the accuracy stage through the subscription path when the toggle says so", () =>
+    withEnv("subscription", async () => {
+      // accuracy is the pipeline's largest prompt, on Opus, and it is the one
+      // model stage with no default deps — because the only possible default
+      // is the metered API client, which would bill regardless of this
+      // toggle. Everything reaches it through here instead.
+      const subscription = envAccuracyDeps("test-agent");
+      const api = await withApiMode();
+      expect(subscription.run).not.toBe(api.run);
+    }));
+
+  it("uses the metered API client for accuracy when the toggle is unset", () =>
+    withEnv(undefined, async () => {
+      const chosen = envAccuracyDeps("test-agent");
+      expect(typeof chosen.run).toBe("function");
+      expect(typeof chosen.ownership.fetchPage).toBe("function");
+    }));
 
   it("stamps llmAuth on the result — an audit must say which instrument produced it", () =>
     withEnv(undefined, async () => {

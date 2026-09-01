@@ -1,3 +1,4 @@
+import { usablePages } from "./pages.js";
 import type { PageCapture, PageExtract } from "./types.js";
 
 /**
@@ -58,6 +59,17 @@ export type JourneyMap = {
   /** How many pages this was computed over. Reported so no consumer can
    *  describe a five-page sample as though it were the whole site. */
   pagesExamined: number;
+  /**
+   * Did every page examined carry a recorded anchor list?
+   *
+   * False means the crawl did not record links (reports stored before
+   * `PageExtract.anchors` existed), and NOTHING here is a finding: `deadEnds`
+   * is empty and `worstClicksToContact` is null, because a page whose links we
+   * never captured is a page we cannot say anything about. Reading an absent
+   * anchors array as "no links" would report our own missing field as every
+   * page on the site being a dead end.
+   */
+  anchorsMeasured: boolean;
 };
 
 /** Trailing slash and case folded on the host, so "/about" and "/about/" are one
@@ -89,22 +101,15 @@ export function resolveNavigable(href: string, pageUrl: string): string | null {
   }
 }
 
-/** The extract to reason about: rendered when we have it, raw otherwise.
- *
- *  Rendered first because a visitor uses a browser — a nav injected by
- *  JavaScript is a real path for the person we are measuring here, even though
- *  it is invisible to the crawlers the rest of the audit worries about. Those
- *  are two different questions and this one is about the human. */
-function extractOf(page: PageCapture): PageExtract | null {
-  return page.rendered ?? page.raw;
-}
-
 const TEL_HREF = /^tel:(.+)$/i;
 const MAILTO_HREF = /^mailto:([^?]+)/i;
 
 /** Every way of making contact on one page. */
-export function affordancesOn(page: PageCapture): ContactAffordance[] {
-  const extract = extractOf(page);
+export function affordancesOn(page: PageCapture, view?: PageExtract): ContactAffordance[] {
+  // The view is passed in by `buildJourney` so every page in one journey is
+  // read the same way; on its own the function falls back to what a visitor
+  // sees, since a nav injected by JavaScript is a real path for a human.
+  const extract = view ?? page.rendered ?? page.raw;
   if (!extract) return [];
   const found: ContactAffordance[] = [];
 
@@ -125,8 +130,8 @@ export function affordancesOn(page: PageCapture): ContactAffordance[] {
     // box are all forms too, and counting any of them would report a site
     // nobody can actually reach as having a conversion path — the exact
     // failure this check exists to catch. See `FormKind` for why the
-    // one-field case had to be split out: Icovy's footer email box otherwise
-    // put every page of that site at zero clicks from reaching a person.
+    // one-field case had to be split out: on one audited site a footer email
+    // box otherwise put every page at zero clicks from reaching a person.
     if (form.kind !== "enquiry") continue;
     found.push({ kind: "form", page: page.url, detail: form.action ?? page.url });
   }
@@ -135,25 +140,24 @@ export function affordancesOn(page: PageCapture): ContactAffordance[] {
 }
 
 export function buildJourney(pages: PageCapture[]): JourneyMap {
-  // Only pages that actually produced an extract. One that failed to fetch
-  // tells us nothing about its links, and treating it as a node with no edges
-  // would invent a dead end out of our own transport failure.
-  const usable = pages.filter((p) => extractOf(p) !== null);
+  // What counts as a page of this site, all read from one view — see pages.ts.
+  // A URL the server answered with a 404 is not a dead end on their site; it
+  // is a link we followed and should not have.
+  const usable = usablePages(pages);
 
-  const nodes = new Map<string, PageCapture>();
-  for (const page of usable) {
-    const key = canonicalizeUrl(page.url);
-    if (key) nodes.set(key, page);
+  const nodes = new Map<string, { page: PageCapture; extract: PageExtract }>();
+  for (const entry of usable.pages) {
+    const key = canonicalizeUrl(entry.page.url);
+    if (key) nodes.set(key, entry);
   }
 
   const affordances: ContactAffordance[] = [];
   // Keys of pages that carry a way to make contact — the BFS targets.
   const hasContact = new Set<string>();
-  for (const page of usable) {
-    const key = canonicalizeUrl(page.url);
-    const found = affordancesOn(page);
+  for (const [key, entry] of nodes) {
+    const found = affordancesOn(entry.page, entry.extract);
     affordances.push(...found);
-    if (key && found.length > 0) hasContact.add(key);
+    if (found.length > 0) hasContact.add(key);
   }
 
   // Forward edges, and the reverse graph the search actually runs on.
@@ -164,11 +168,10 @@ export function buildJourney(pages: PageCapture[]): JourneyMap {
   // and it cannot drift between pages the way N separate searches can.
   const outgoing = new Map<string, Set<string>>();
   const incoming = new Map<string, Set<string>>();
-  for (const [key, page] of nodes) {
-    const extract = extractOf(page);
+  for (const [key, entry] of nodes) {
     const out = new Set<string>();
-    for (const anchor of extract?.anchors ?? []) {
-      const abs = resolveNavigable(anchor.href, page.url);
+    for (const anchor of entry.extract.anchors ?? []) {
+      const abs = resolveNavigable(anchor.href, entry.page.url);
       if (!abs) continue;
       const target = canonicalizeUrl(abs);
       if (!target || target === key || !nodes.has(target)) continue;
@@ -196,9 +199,9 @@ export function buildJourney(pages: PageCapture[]): JourneyMap {
     frontier = next;
   }
 
-  const journeys: PageJourney[] = [...nodes.entries()].map(([key, page]) => ({
-    url: page.url,
-    clicksToContact: distance.get(key) ?? null,
+  const journeys: PageJourney[] = [...nodes.entries()].map(([key, entry]) => ({
+    url: entry.page.url,
+    clicksToContact: usable.anchorsMeasured ? (distance.get(key) ?? null) : null,
     internalLinks: outgoing.get(key)?.size ?? 0,
   }));
 
@@ -207,8 +210,14 @@ export function buildJourney(pages: PageCapture[]): JourneyMap {
   return {
     affordances,
     pages: journeys,
-    deadEnds: journeys.filter((j) => j.clicksToContact === null).map((j) => j.url),
+    // Without recorded anchors there is no evidence either way, so there is no
+    // finding — not "every page is a dead end", which is what reading the
+    // absent array as an empty one used to produce.
+    deadEnds: usable.anchorsMeasured
+      ? journeys.filter((j) => j.clicksToContact === null).map((j) => j.url)
+      : [],
     worstClicksToContact: reachable.length > 0 ? Math.max(...reachable) : null,
     pagesExamined: journeys.length,
+    anchorsMeasured: usable.anchorsMeasured,
   };
 }

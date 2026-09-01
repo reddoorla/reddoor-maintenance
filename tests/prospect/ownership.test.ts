@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   classifyDomains,
+  defaultOwnershipDeps,
   phonesOn,
   sameSite,
   type OwnershipDeps,
@@ -158,5 +159,165 @@ describe("classifyDomains", () => {
       { ...deps({ "https://someotherdds.com/": { body: "<p>A practice</p>" } }) },
     );
     expect(out).toHaveLength(1);
+  });
+});
+
+describe("phonesOn — a number in prose next to another number", () => {
+  // The exact shape consistency.ts replaced its own loose digit run over: a
+  // greedy match swallows the street/suite number sitting beside the phone and
+  // reports one number as a different, longer one. Here that costs more than a
+  // duplicate finding — the number no longer matches the prospect's, so their
+  // own abandoned domain gets classified as somebody else's website.
+  it("reads the phone number, not the phone number welded to the street number", () => {
+    const found = [...phonesOn("<p>Beachfront Dentistry (310) 378-9241 1706 S Catalina Ave</p>")];
+    expect(found).toContain("3103789241");
+    expect(found).not.toContain("31037892411706");
+  });
+
+  it("does not read a street number followed by a zip as a phone number", () => {
+    expect([...phonesOn("<p>1706 S Catalina Ave, Redondo Beach 90277</p>")]).toEqual([]);
+  });
+});
+
+describe("classifyDomains — a shared number written as prose", () => {
+  it("does not call the client's own abandoned site somebody else's", async () => {
+    const [v] = await classifyDomains(
+      "https://beachfrontdentistry.com",
+      ["3103789241"],
+      ["dochopkins.com"],
+      deps({
+        "https://dochopkins.com/": {
+          body: "<p>Dr Hopkins DDS (310) 378-9241 1706 S Catalina Ave, Redondo Beach</p>",
+        },
+      }),
+    );
+    expect(v?.owner).toBe("yours");
+  });
+});
+
+describe("classifyDomains — addresses we refuse to fetch", () => {
+  // Every domain here was named by an answer engine, and this runs on a private
+  // runner holding Turso, Discord and API credentials. crawl.ts was hardened
+  // against exactly this in PR #618; this fetcher was the one that was not.
+  const PRIVATE = [
+    "127.0.0.1",
+    "localhost",
+    "foo.localhost",
+    "10.0.0.5",
+    "192.168.1.10",
+    "172.16.4.4",
+    "169.254.169.254",
+    "100.64.1.1",
+    "[::1]",
+  ];
+
+  it("never fetches a private, loopback or link-local address", async () => {
+    const asked: string[] = [];
+    const out = await classifyDomains("https://acme.example", ["3103789241"], PRIVATE, {
+      fetchPage: async (url) => {
+        asked.push(url);
+        return { finalUrl: url, body: "<p>310-378-9241</p>" };
+      },
+    });
+    expect(asked).toEqual([]);
+    expect(out.map((v) => v.owner)).toEqual(PRIVATE.map(() => "unknown"));
+    for (const v of out) expect(v.because).toMatch(/did not|not fetch|internal|private/i);
+  });
+
+  // A publicly routable literal is still not a website a business owns, and an
+  // engine naming one is a model artefact rather than a citation.
+  it("never fetches a bare IP literal, routable or not", async () => {
+    const asked: string[] = [];
+    const [v] = await classifyDomains("https://acme.example", ["3103789241"], ["8.8.8.8"], {
+      fetchPage: async (url) => {
+        asked.push(url);
+        return { finalUrl: url, body: "<p>310-378-9241</p>" };
+      },
+    });
+    expect(asked).toEqual([]);
+    expect(v?.owner).toBe("unknown");
+  });
+
+  it("does not read a body that came back from a private address after a redirect", async () => {
+    const [v] = await classifyDomains(
+      "https://acme.example",
+      ["3103789241"],
+      ["redirector.example"],
+      {
+        fetchPage: async () => ({
+          finalUrl: "http://169.254.169.254/latest/meta-data/",
+          body: "<p>Call 310-378-9241</p>",
+        }),
+      },
+    );
+    expect(v?.owner).toBe("unknown");
+  });
+});
+
+describe("defaultOwnershipDeps — redirects", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("does not follow a redirect onto a private address", async () => {
+    const asked: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        asked.push(url);
+        return {
+          ok: false,
+          status: 302,
+          url,
+          headers: {
+            get: (n: string) => (n.toLowerCase() === "location" ? "http://127.0.0.1/" : null),
+          },
+          async text() {
+            throw new Error("must not read a body from a refused hop");
+          },
+        };
+      }) as unknown as typeof fetch,
+    );
+
+    const deps = defaultOwnershipDeps("test-agent");
+    await expect(deps.fetchPage("https://redirector.example/")).resolves.toBeNull();
+    expect(asked.some((u) => u.includes("127.0.0.1"))).toBe(false);
+  });
+
+  it("follows an ordinary redirect and reports where it landed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url === "https://old.example/") {
+          return {
+            ok: false,
+            status: 301,
+            url,
+            headers: {
+              get: (n: string) =>
+                n.toLowerCase() === "location" ? "https://new.example/home" : null,
+            },
+            async text() {
+              return "";
+            },
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          url,
+          headers: { get: () => null },
+          async text() {
+            return "<p>Welcome</p>";
+          },
+        };
+      }) as unknown as typeof fetch,
+    );
+
+    const deps = defaultOwnershipDeps("test-agent");
+    await expect(deps.fetchPage("https://old.example/")).resolves.toEqual({
+      finalUrl: "https://new.example/home",
+      body: "<p>Welcome</p>",
+    });
   });
 });

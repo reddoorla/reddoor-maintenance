@@ -1,4 +1,4 @@
-import type { ChecksResult, CrawlResult, PageCapture, PageExtract } from "./types.js";
+import type { ChecksResult, CrawlResult, JourneyMap, PageCapture, PageExtract } from "./types.js";
 
 /**
  * Can a visitor do the one thing this site needs them to do?
@@ -79,10 +79,18 @@ export type GoalFit = {
   total: number;
 };
 
-/** Third-party scheduling a visitor can actually complete. Deliberately a list
- *  of hosts rather than a guess at markup: a booking widget is nearly always an
- *  outbound link or an iframe to one of these, and inferring "booking" from a
- *  form containing a date field catches every event RSVP on the web. */
+/**
+ * Third-party scheduling a visitor can actually complete. Deliberately a list
+ * of hosts rather than a guess at markup: a booking widget is nearly always an
+ * outbound link or an iframe to one of these, and inferring "booking" from a
+ * form containing a date field catches every event RSVP on the web.
+ *
+ * Matched on the HOSTNAME, never on the raw href — see `linksTo`. A substring
+ * test for "cal.com" credited a booking system to medical.com, surgical.com,
+ * socal.com and every `mailto:` address at any of them, and printed that URL
+ * back to the client as the receipt. Medtech and clinic prospects link to
+ * *medical.com constantly.
+ */
 const BOOKING_HOSTS = [
   "zocdoc.com",
   "calendly.com",
@@ -107,7 +115,23 @@ const BOOKING_HOSTS = [
   "mindbodyonline.com",
 ];
 
-const MAP_HOSTS = ["google.com/maps", "goo.gl/maps", "maps.app.goo.gl", "maps.apple.com"];
+/**
+ * A link that shows the visitor where you are. An entry may carry a path prefix
+ * when the host alone is not the signal — google.com is not a map, but
+ * google.com/maps is.
+ *
+ * `maps.google.com` and `bing.com/maps` were both missed while the substring
+ * test was crediting *medical.com with a booking system: the check was loose
+ * where it should have been strict and strict where it should have been loose.
+ */
+const MAP_HOSTS = [
+  "google.com/maps",
+  "maps.google.com",
+  "goo.gl/maps",
+  "maps.app.goo.gl",
+  "maps.apple.com",
+  "bing.com/maps",
+];
 
 /** Day-of-week followed by a time, which is what an opening-hours line looks
  *  like in prose regardless of how it is formatted. */
@@ -118,8 +142,18 @@ const HOURS_IN_TEXT =
  *  study is not read as a price. */
 const MONEY = /[$£€]\s?\d[\d,]*(?:\.\d{2})?(?:\s?[kKmM]\b)?/;
 
+/**
+ * The words a site uses when it is about to tell you what something costs.
+ *
+ * "starting at|starts at" missed the two commonest real phrasings outright:
+ * "Treatment plans start at $250" (the bare infinitive) and "$99 new patient
+ * special" (no price word at all until "special" was added). Both came back
+ * "you have never published a price" against sites that publish one on the home
+ * page, which is the same class of error as a false yes and lands in front of
+ * the person who wrote the sentence.
+ */
 const PRICE_WORDS =
-  /\b(pricing|price list|starting at|starts at|from \$|per project|per month|retainer|packages?|rates?|fees?|budget starts)\b/i;
+  /\b(pricing|price list|start(?:s|ing)? (?:at|from)|begin(?:s|ning)? at|from \$|per project|per month|per hour|retainer|packages?|rates?|fees?|budget starts|as (?:low|little) as|specials?|promotion)\b/i;
 
 /**
  * Content checks match an ANSWER, never a topic.
@@ -144,7 +178,24 @@ const PRICE_WORDS =
  * right. `tests/prospect/goals.test.ts` holds a decoy corpus of sentences that
  * mention every one of these topics without answering any of them; nothing here
  * may fire on it.
+ *
+ * Replaying the checks over the stored audits found six of the eight patterns
+ * still firing on a bare topic noun — fourteen "met" receipts across ten real
+ * sites, quoting back to the client: placeholder lorem ipsum, the country list
+ * inside a phone-input widget ("British Indian Ocean Territory"), a client's
+ * name on a portfolio page ("Meridian Distribution"), a COMPETITOR's
+ * money-back promise on a comparison page, and a legal disclaimer. Every
+ * pattern below now asks for the answer beside the noun: parking with a place
+ * or a price, shipping with a cost or a window, a return with a policy verb, a
+ * territory that is exclusive or available. The test for whether an alternative
+ * belongs here is the receipt: the sentence it matches, printed on its own,
+ * has to answer the question the requirement asks.
  */
+
+/** Alternatives, one per line, because a pattern nobody can read is a pattern
+ *  nobody can check. */
+const anyOf = (...alternatives: string[]): RegExp => new RegExp(alternatives.join("|"), "i");
+
 const ANSWERS = {
   /** A verb of availability beside the noun. "not accepting new patients" is a
    *  perfectly good answer and matches too — the requirement is that the site
@@ -152,32 +203,131 @@ const ANSWERS = {
   acceptingClients:
     /\b(?:accepting|welcoming|taking(?:\s+on)?|seeing|onboarding)\s+(?:any\s+)?new\s+(?:patients|clients|customers|members|students)\b|\bnew\s+(?:patients|clients|customers|members)\s+(?:are\s+)?(?:welcome|accepted)\b/i,
 
-  /** "same day" alone matched anniversaries and opening dates; it has to be the
-   *  same day as something a caller would want. */
-  whatToExpect:
-    /\b(?:free consultation|no obligation|no cost consultation|what to expect|we(?:'ll| will) call you back|same[- ]day (?:appointments?|service|visit|care|callback|response))\b/i,
+  /**
+   * "same day" alone matched anniversaries and opening dates; it has to be the
+   * same day as something a caller would want. Bare "no obligation" matched a
+   * terms-of-use line — "we are under no obligation to update this page" —
+   * which is the site disclaiming a duty to itself, not offering the visitor
+   * anything, so the phrase now has to attach to the visitor's decision.
+   */
+  whatToExpect: anyOf(
+    String.raw`\b(?:free|complimentary|no[- ]cost|no[- ]charge|no[- ]obligation)\s+(?:initial\s+|first\s+|\d+[- ]minute\s+)?(?:consultations?|consults?|quotes?|quotations?|estimates?|assessments?|evaluations?|exams?)\b`,
+    String.raw`\b(?:consultations?|consults?|quotes?|estimates?|assessments?)\s+(?:are|is)\s+(?:always\s+)?(?:free|complimentary|on us|no charge)\b`,
+    String.raw`\bwith\s+no\s+obligation\b`,
+    String.raw`\b(?:there(?:'s| is)|and)\s+(?:is\s+)?no\s+obligation\b`,
+    String.raw`\bno\s+obligation\s+to\s+(?:buy|book|purchase|proceed|continue|commit|hire)\b`,
+    // "What to expect" as a promise the sentence then keeps, rather than a
+    // slogan that leaves the visitor exactly where they were.
+    String.raw`\b(?:here(?:'s| is)|this is|below is)\s+what\s+to\s+expect\b`,
+    String.raw`\bwhat\s+to\s+expect\s+(?:at|on|during|from|when|before|after|in)\b`,
+    String.raw`\bwe(?:'ll| will)\s+call\s+you\s+back\b`,
+    String.raw`\bsame[- ]day\s+(?:appointments?|service|visit|care|callback|response)\b`,
+  ),
 
-  /** "garage" on its own matched an auto shop describing itself. */
-  gettingThere:
-    /\b(?:parking|valet|bus stop|subway|light rail|metro station|public transit|nearest station)\b/i,
+  /**
+   * "garage" on its own matched an auto shop describing itself, and bare
+   * "parking" matched placeholder copy promising a parking page "coming soon".
+   * A visitor asking about parking wants a price, a place or a promise.
+   */
+  gettingThere: anyOf(
+    String.raw`\b(?:free|street|on[- ]?site|off[- ]?street|validated|complimentary|covered|underground|gated|ample|dedicated|reserved|metered|paid|patient|client|customer|visitor|garage|lot)\s+parking\b`,
+    String.raw`\bparking\s+(?:lot|garage|structure|deck|spaces?|is|are|can\s+be|will\s+be|available|validated|included)\b`,
+    String.raw`\bparking\s+(?:in|on|at|behind|beneath|below|under|out\s+(?:back|front)|across|next\s+to|opposite)\b`,
+    String.raw`\bwe\s+(?:have|offer|provide|validate)\s+(?:\w+\s+){0,2}parking\b`,
+    String.raw`\bvalet\s+(?:parking|service)\b`,
+    // Transit, with a distance or a direction beside it. A station named and
+    // left there tells a visitor nothing about getting from it to you.
+    String.raw`\b(?:bus stop|subway|light rail|metro station|train station|nearest station|public transit|park[- ]and[- ]ride)\b[^.!?]{0,60}?\b(?:is|are|stops?|serves?|steps|blocks?|minutes?|walk|away|outside|across|adjacent|nearby|north|south|east|west|corner|line)\b`,
+    String.raw`\b(?:steps|blocks?|minutes?|short walk|walking distance|directly across)\b[^.!?]{0,60}?\b(?:bus stop|subway|light rail|metro station|train station|station)\b`,
+  ),
 
-  /** Bare "delivery" matched "delivery of care" and "delivery of the project". */
-  shipping:
-    /\b(?:shipping|free delivery|delivery (?:times?|options|charges?|fees?)|delivered within|ships? (?:within|in)|dispatch(?:ed)? within)\b/i,
+  /**
+   * Bare "delivery" matched "delivery of care" and "delivery of the project",
+   * and bare "shipping" matched a placeholder and a "prices, shipping and
+   * availability subject to change" line. The buyer's question is what it costs
+   * and when it arrives, so the pattern asks for one of those.
+   */
+  shipping: anyOf(
+    String.raw`\b(?:free|flat[- ]rate|expedited|overnight|standard|express|next[- ]day|same[- ]day|two[- ]day|international|domestic|worldwide)\s+(?:shipping|delivery|postage)\b`,
+    String.raw`\bshipping\s+(?:is|costs?|rates?|charges?|fees?|options?|times?|policy|starts|and\s+handling|within|on\s+(?:all\s+)?orders?)\b`,
+    String.raw`\bdelivery\s+(?:times?|options?|charges?|fees?|costs?|rates?|window)\b`,
+    String.raw`\b(?:ships?|shipped|shipping|delivers?|delivered|dispatch(?:ed)?)\s+(?:within|in)\s+(?:\d|one|two|three|four|five|six|seven|ten|a\s+few)`,
+    String.raw`\bships?\s+(?:free|the\s+same\s+day|next\s+day|worldwide|nationwide)\b`,
+    String.raw`\borders?\s+(?:over|above)\s+[$£€]\s?\d[\d,]*\s+ship`,
+  ),
 
-  /** Bare "return" matched "return to our office" and "returning patients" —
-   *  the latter on exactly the kind of site this check runs against. */
-  returns:
-    /\b(?:returns? policy|returns? and exchanges|refunds?|money[- ]back|exchange policy|\d+[- ]day returns?|free returns?)\b/i,
+  /**
+   * Bare "return" matched "return to our office" and "returning patients" — the
+   * latter on exactly the kind of site this check runs against — and bare
+   * "refunds" / "money-back" matched a legal disclaimer and a COMPETITOR's
+   * guarantee quoted on a comparison page. A returns policy is a promise the
+   * seller makes, so the pattern asks for the promise, and `NOT_OUR_ANSWER`
+   * throws out the ones made by somebody else.
+   */
+  returns: anyOf(
+    String.raw`\b(?:returns?|refunds?|exchanges?)\s+(?:and\s+(?:exchanges?|refunds?)\s+)?polic(?:y|ies)\b`,
+    String.raw`\breturns?\s+(?:and|&)\s+exchanges?\b`,
+    String.raw`\b\d+[- ]day\s+(?:returns?|refunds?|exchanges?|money[- ]back|guarantee|return\s+window)\b`,
+    String.raw`\b(?:returns?|refunds?|exchanges?)\s+(?:are\s+)?(?:accepted\s+)?within\s+\d`,
+    String.raw`\bfree\s+returns?\b`,
+    String.raw`\b(?:you|we)\s+(?:can|may|will|do|must)?\s*(?:accept|offer|issue|process|request|return|refund)\w*(?:\s+(?:a|an|any|all|your|the|full|partial|unopened|unused|original|damaged))*\s+(?:returns?|refunds?|exchanges?|items?|orders?|purchases?|products?)\b`,
+    String.raw`\b(?:full|partial|store[- ]credit|prorated)\s+refunds?\b`,
+    String.raw`\b(?:our|a)\s+(?:no[- ]questions[- ]asked\s+)?money[- ]back\s+guarantee\b`,
+  ),
 
-  partnerRoute:
-    /\b(?:distributor|distribution|become a partner|reseller|partnership enquir|wholesale)\b/i,
+  /**
+   * Bare "distributor" / "distribution" / "wholesale" matched a client's name
+   * on a portfolio page and "distribution rights" in a legal footer. The
+   * requirement is a ROUTE for a partner, not the word for one, so the pattern
+   * asks for the invitation: become, apply, programme, enquiry.
+   */
+  partnerRoute: anyOf(
+    String.raw`\b(?:become|becoming|apply\s+to\s+be(?:come)?|interested\s+in\s+becoming|join\s+us\s+as)\s+(?:a|an|our)?\s*(?:partner|distributor|dealer|reseller|stockist|retailer|affiliate)s?\b`,
+    String.raw`\b(?:distribut(?:or|ion)|dealer|reseller|wholesale|partner(?:ship)?|stockist|trade)\s+(?:program(?:me)?s?|applications?|enquir(?:y|ies)|inquir(?:y|ies)|opportunit(?:y|ies)|accounts?|portal|pricing|terms|network)\b`,
+    String.raw`\bapply\s+(?:now\s+)?(?:for|to\s+join)\s+(?:a\s+|our\s+)?(?:wholesale|dealer|distributor|reseller|partner|trade)\b`,
+    String.raw`\b(?:partner|distribute|resell|wholesale)\s+with\s+us\b`,
+    String.raw`\bjoin\s+our\s+(?:dealer|partner|reseller|distributor|stockist)\s+(?:network|program(?:me)?|team)\b`,
+    String.raw`\b(?:looking|searching)\s+for\s+(?:new\s+)?(?:distributors|dealers|resellers|partners|stockists)\b`,
+    String.raw`\b(?:signing|recruiting|appointing|onboarding)\s+(?:new\s+)?(?:distributors|dealers|resellers|partners|stockists)\b`,
+  ),
 
-  /** Bare "requirements" matched "requirements for your first visit", and bare
-   *  "volume" matched "volume of work". */
-  partnerTerms:
-    /\b(?:territor(?:y|ies)|minimum order|minimum volume|volume commitment|(?:partner|dealer|reseller|distributor) requirements|qualif(?:ication|ying) criteria|licens(?:e|ing) requirements?)\b/i,
+  /**
+   * Bare "requirements" matched "requirements for your first visit", bare
+   * "volume" matched "volume of work", and bare "territory" matched the country
+   * list inside a phone-input widget on three separate sites. A territory
+   * answers the question only when the site says what its status is.
+   */
+  partnerTerms: anyOf(
+    String.raw`\b(?:exclusive|protected|open|available|assigned|unassigned|defined|remaining|new)\s+territor(?:y|ies)\b`,
+    String.raw`\bterritor(?:y|ies)\s+(?:is|are)\s+(?:exclusive|protected|open|available|assigned|awarded|granted|allocated|still)\b`,
+    String.raw`\bterritor(?:y|ies)\s+(?:rights|protection|exclusivity|agreement|restrictions)\b`,
+    String.raw`\bminimum\s+(?:order|volume|purchase|commitment|spend|quantity)\b`,
+    String.raw`\bvolume\s+commitment\b`,
+    String.raw`\b(?:partner|dealer|reseller|distributor|stockist)\s+(?:requirements|criteria|qualifications)\b`,
+    String.raw`\bqualif(?:ication|ying)\s+criteria\b`,
+    String.raw`\blicens(?:e|ing)\s+requirements?\b`,
+  ),
 } as const;
+
+/**
+ * A promise made by somebody else is not this site's answer.
+ *
+ * Caught by replaying over the stored audits: a comparison page quoting a
+ * competitor's money-back guarantee scored the prospect a returns policy, and
+ * the competitor's own sentence was printed to them as the receipt.
+ *
+ * Applied to a WINDOW around the match rather than to the sentence, because
+ * extracted page text is frequently headings and table cells joined with no
+ * punctuation at all. There the whole site is one "sentence", and a
+ * sentence-wide veto would silence every content check on the site because of
+ * one word somewhere else on the page — our parsing limit reported as their
+ * defect, in the other direction.
+ */
+const NOT_OUR_ANSWER =
+  /\b(?:competitors?|competing|the competition|unlike|versus|vs\.?|compared (?:to|with)|other (?:agencies|firms|providers|companies|clinics|shops|practices|studios|brands)|most (?:agencies|firms|providers|companies|clinics|shops|practices|studios)|elsewhere|they (?:offer|charge|advertise|promise))\b/i;
+
+/** How far either side of a match counts as its surroundings. */
+const NOT_OUR_ANSWER_WINDOW = 90;
 
 function extractOf(page: PageCapture): PageExtract | null {
   return page.rendered ?? page.raw;
@@ -204,15 +354,46 @@ function allAnchors(pages: PageCapture[]): { href: string; text: string }[] {
   return out;
 }
 
+/** A short quotation around one match, so a finding can show its work. */
+function quoteAt(haystack: string, at: number, length: number): string {
+  const start = Math.max(0, at - 40);
+  return `…${haystack
+    .slice(start, at + length + 40)
+    .replace(/\s+/g, " ")
+    .trim()}…`;
+}
+
 /** A short quotation around the first match, so a finding can show its work. */
 function quote(haystack: string, pattern: RegExp): string | null {
   const m = pattern.exec(haystack);
   if (!m || m.index === undefined) return null;
-  const start = Math.max(0, m.index - 40);
-  return `…${haystack
-    .slice(start, m.index + m[0].length + 40)
-    .replace(/\s+/g, " ")
-    .trim()}…`;
+  return quoteAt(haystack, m.index, m[0].length);
+}
+
+/**
+ * The first match whose surroundings do not disown it.
+ *
+ * Every match here becomes a receipt, so the scan keeps going past one that
+ * sits inside a comparison with somebody else's offer rather than giving up at
+ * the first hit: a site that mentions a competitor's guarantee in one paragraph
+ * and states its own in the next has answered the question.
+ */
+function answerIn(text: string, pattern: RegExp): string | null {
+  const scan = new RegExp(
+    pattern.source,
+    pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`,
+  );
+  for (let m = scan.exec(text); m !== null; m = scan.exec(text)) {
+    if (m[0].length === 0) {
+      scan.lastIndex += 1;
+      continue;
+    }
+    const from = Math.max(0, m.index - NOT_OUR_ANSWER_WINDOW);
+    const around = text.slice(from, m.index + m[0].length + NOT_OUR_ANSWER_WINDOW);
+    if (NOT_OUR_ANSWER.test(around)) continue;
+    return quoteAt(text, m.index, m[0].length);
+  }
+  return null;
 }
 
 type Signals = {
@@ -230,8 +411,11 @@ type Signals = {
   /** False when there is no phone number at all, or when the report predates
    *  `linked` being recorded — either way the tappable check cannot be judged. */
   phoneLinkMeasured: boolean;
-  /** Worst-case clicks from a crawled page to any contact route. */
-  worstClicks: number | null;
+  /** The whole journey map, not just its headline number. The headline is
+   *  computed over pages that HAVE a path, so reading it alone said "yes, a
+   *  route from wherever they land" about sites whose dead ends were listed
+   *  three inches further down the same report. */
+  journey: JourneyMap | null;
 };
 
 /**
@@ -276,6 +460,22 @@ const SENTENCE_SPLIT = /(?<=[.!?])\s+/;
 const OUTCOME_CONTEXT =
   /\b(revenue|sales|raised|funding|valuation|arr|mrr|grew|growth|profit|roi|year[- ]over[- ]year|yoy|increased|lift(?:ed)?|generated|worth|acquisition)\b/i;
 
+/**
+ * A charge for not turning up is not a price.
+ *
+ * "A $50 cancellation fee applies to appointments missed without notice" was
+ * quoted to a client as proof they publish what their work costs. It is the
+ * case-study bug wearing a different hat — a real amount in a sentence that
+ * answers a different question — and a buyer reading it learns nothing about
+ * what the actual service costs.
+ *
+ * Tested against the WINDOW the amount was found in rather than the whole
+ * sentence, so a rate card that happens to end with a cancellation note still
+ * scores the rates.
+ */
+const PENALTY_CONTEXT =
+  /\b(?:cancellation|no[- ]shows?|missed (?:appointments?|visits?)|late (?:fees?|payments?|cancellations?)|reschedul(?:e|ing)|returned (?:check|cheque)|bounced|overdue|penalt(?:y|ies)|interest charge|restocking)\b/i;
+
 function priceSignal(text: string): string | null {
   let offset = 0;
   for (const sentence of text.split(SENTENCE_SPLIT)) {
@@ -289,6 +489,7 @@ function priceSignal(text: string): string | null {
       const window = sentence.slice(from, m.index + m[0].length + PRICE_WINDOW);
       const money = MONEY.exec(window);
       if (!money || money.index === undefined) continue;
+      if (PENALTY_CONTEXT.test(window)) continue;
       // Centre the receipt on the AMOUNT, not on the word that led us to it. The
       // client reads this quote as the proof, and a quote containing "packages"
       // but no number does not look like evidence of a price. Quoted from the
@@ -325,19 +526,67 @@ function gather(crawl: CrawlResult, checks: ChecksResult | null): Signals {
     // answerable at all.
     hasTappablePhone: phones.some((p) => p.linked === true),
     phoneLinkMeasured: phones.length > 0 && phones.some((p) => p.linked !== undefined),
-    worstClicks: checks?.journey?.worstClicksToContact ?? null,
+    journey: checks?.journey ?? null,
   };
 }
 
-const linksTo = (s: Signals, hosts: string[]): string | null => {
+/**
+ * Does this hostname belong to the target?
+ *
+ * Registrable-domain matching without a public-suffix list: exact host, or a
+ * subdomain of it. An entry with no dot ("doctolib") is a brand rather than a
+ * domain — the same product answers on .fr, .de and .it — so it is matched
+ * against the hostname's own labels instead.
+ */
+function hostMatches(hostname: string, target: string): boolean {
+  const host = hostname.replace(/^www\./, "");
+  if (!target.includes(".")) {
+    const labels = host.split(".");
+    return labels[0] === target || labels[labels.length - 2] === target;
+  }
+  return host === target || host.endsWith(`.${target}`);
+}
+
+/**
+ * The first anchor pointing at one of these targets, or null.
+ *
+ * The href is PARSED, and the hostname compared — a substring test credited
+ * "cal.com" to medical.com, surgical.com and socal.com, and to `mailto:`
+ * addresses at all three, then printed the address to the client as proof they
+ * had online booking. A target may carry a path prefix ("google.com/maps"),
+ * which is checked against the path and nothing else.
+ */
+const linksTo = (s: Signals, targets: string[]): string | null => {
   for (const a of s.anchors) {
-    const href = a.href.toLowerCase();
-    for (const host of hosts) if (href.includes(host)) return a.href;
+    let url: URL;
+    try {
+      url = new URL(a.href);
+    } catch {
+      // A relative href addresses this site, and nothing on this site is a
+      // third-party booking system or somebody else's map.
+      continue;
+    }
+    // `mailto:`, `tel:` and `javascript:` carry text that can look like a
+    // domain and link to nowhere.
+    if (url.protocol !== "http:" && url.protocol !== "https:") continue;
+    const host = url.hostname.toLowerCase();
+    const path = url.pathname.toLowerCase();
+    for (const target of targets) {
+      const slash = target.indexOf("/");
+      const wantHost = slash === -1 ? target : target.slice(0, slash);
+      const wantPath = slash === -1 ? null : target.slice(slash);
+      if (!hostMatches(host, wantHost)) continue;
+      if (wantPath !== null && !path.startsWith(wantPath)) continue;
+      return a.href;
+    }
   }
   return null;
 };
 
 const has = (s: Signals, re: RegExp): string | null => quote(s.text, re);
+
+/** A content answer: matched, then checked against what surrounds it. */
+const answers = (s: Signals, re: RegExp): string | null => answerIn(s.text, re);
 
 /** One requirement, phrased once. `evidence` non-null means met; null means
  *  missing. Pass `measured: false` for a check whose INPUT was unavailable —
@@ -361,6 +610,66 @@ function req(
 }
 
 /**
+ * "A route to you from wherever they land", read off the whole journey map.
+ *
+ * This used to be `worstClicksToContact <= 2`, and journey.ts computes that
+ * number only over pages that HAVE a path — a page in `deadEnds` never moves
+ * it. So the goal section printed "Yes, a route from wherever they land" at the
+ * top of the report while the site-health section listed the stranded pages
+ * further down the same page. Two sections of one document contradicting each
+ * other in front of the client is worse than either being wrong alone, because
+ * it is visible without checking anything.
+ *
+ * One stranded page IS the failure this requirement is named for, so any dead
+ * end makes it missing — and the evidence names the pages and the size of the
+ * sample, because "no path among the five pages we looked at" and "no path
+ * exists" are different claims and only one of them is ours to make.
+ *
+ * The evidence is a `missing` receipt, which is why this is built by hand
+ * rather than through `req` — there, evidence means "we found it".
+ */
+function reachability(s: Signals): GoalRequirement {
+  const shape = (status: RequirementStatus, evidence: string | null): GoalRequirement => ({
+    key: "reachable",
+    label: "A route to you from wherever they land",
+    status,
+    evidence,
+    why: "Search engines and AI answers send people to whichever page answers their question, not to your home page.",
+    scope: "quick",
+  });
+
+  const journey = s.journey;
+  // `anchorsMeasured` is absent on reports stored before it existed, and those
+  // journeys were computed by reading a missing anchor list as "this page links
+  // nowhere" — which is how every page of a working site becomes a dead end in
+  // our data and nowhere else. Only an explicit true is a measurement.
+  if (!journey || journey.anchorsMeasured !== true || journey.pagesExamined === 0) {
+    return shape("unmeasured", null);
+  }
+
+  if (journey.deadEnds.length > 0) {
+    const shown = journey.deadEnds.slice(0, 3);
+    const rest = journey.deadEnds.length - shown.length;
+    return shape(
+      "missing",
+      `${journey.deadEnds.length} of ${journey.pagesExamined} pages we examined have no route to a way of contacting you: ${shown.join(", ")}${rest > 0 ? `, and ${rest} more` : ""}`,
+    );
+  }
+
+  const worst = journey.worstClicksToContact;
+  // No dead ends and no worst distance means no page carried a distance at all,
+  // which is a shape we cannot read rather than a site we can judge.
+  if (worst === null) return shape("unmeasured", null);
+  if (worst > 2) return shape("missing", null);
+  return shape(
+    "met",
+    worst === 0
+      ? `a way to make contact on every one of the ${journey.pagesExamined} pages we examined`
+      : `at most ${worst} ${worst === 1 ? "click" : "clicks"} away, across ${journey.pagesExamined} pages examined`,
+  );
+}
+
+/**
  * Requirements shared by every goal that ends in a human conversation. Pulled
  * out because four of the seven goals need exactly these and duplicating them
  * is how they drift apart.
@@ -377,14 +686,7 @@ function contactBasics(s: Signals): GoalRequirement[] {
       // a report stored before `linked` was recorded cannot answer this at all.
       s.phoneLinkMeasured,
     ),
-    req(
-      "reachable",
-      "A route to you from wherever they land",
-      "Search engines and AI answers send people to whichever page answers their question, not to your home page.",
-      "quick",
-      s.worstClicks !== null && s.worstClicks <= 2 ? `at most ${s.worstClicks} clicks away` : null,
-      s.worstClicks !== null,
-    ),
+    reachability(s),
   ];
 }
 
@@ -449,7 +751,7 @@ export function checkGoal(
           "Whether you are taking new clients",
           "Nobody wants to fill in a form to find out you are full.",
           "content",
-          has(s, ANSWERS.acceptingClients),
+          answers(s, ANSWERS.acceptingClients),
         ),
         address,
       ];
@@ -468,7 +770,7 @@ export function checkGoal(
           "What happens when they call",
           "A first call is easier to make when the visitor knows who picks up and what it costs them.",
           "content",
-          has(s, ANSWERS.whatToExpect),
+          answers(s, ANSWERS.whatToExpect),
         ),
       ];
       break;
@@ -483,7 +785,7 @@ export function checkGoal(
           "Parking or transit",
           "The last hundred metres are where a visit gets abandoned.",
           "content",
-          has(s, ANSWERS.gettingThere),
+          answers(s, ANSWERS.gettingThere),
         ),
       ];
       break;
@@ -495,14 +797,14 @@ export function checkGoal(
           "Shipping cost and timing",
           "Unexpected shipping cost is the single most common reason a cart is abandoned.",
           "content",
-          has(s, ANSWERS.shipping),
+          answers(s, ANSWERS.shipping),
         ),
         req(
           "returns",
           "A returns policy",
           "Buyers look for it before their first order from a company they do not know.",
           "content",
-          has(s, ANSWERS.returns),
+          answers(s, ANSWERS.returns),
         ),
         price,
         ...contactBasics(s),
@@ -536,14 +838,14 @@ export function checkGoal(
           "A named route for partners, separate from customers",
           "A distributor who lands on a customer contact form usually leaves.",
           "content",
-          has(s, ANSWERS.partnerRoute),
+          answers(s, ANSWERS.partnerRoute),
         ),
         req(
           "requirements",
           "What you are looking for in a partner",
           "Territory, volume or credentials — enough for someone to tell whether it is worth writing to you.",
           "content",
-          has(s, ANSWERS.partnerTerms),
+          answers(s, ANSWERS.partnerTerms),
         ),
         ...contactBasics(s),
       ];

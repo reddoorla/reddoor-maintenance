@@ -8,7 +8,13 @@ import type { FormShape, PageAnchor, PageExtract } from "./types.js";
 export const MAX_ANCHORS = 300;
 
 /** Input types that are not a field a visitor fills in. `hidden` carries CSRF
- *  tokens and form ids; the button types are the control, not the question. */
+ *  tokens and form ids; the button types are the control, not the question.
+ *
+ *  `password` is deliberately NOT in this set. It IS a field a visitor fills
+ *  in, and `fieldCount` is documented as "visible, named controls", so hiding
+ *  it here would make that number lie. What a password means for the form's
+ *  KIND is handled in `formShape` instead, where it disqualifies the form
+ *  outright rather than merely going uncounted. */
 const NON_FIELD_INPUTS = new Set(["hidden", "submit", "button", "image", "reset"]);
 
 /** Names, types and labels that mean "we can contact you back". A form with
@@ -183,13 +189,80 @@ function collect(el: HTMLElement, out: Collected, depth = 0): void {
   }
 }
 
+/**
+ * Path segments that name a form doing something other than starting a
+ * conversation with the business.
+ *
+ * A login, an account signup, a checkout and a WordPress comment box all ask
+ * for an email address and at least one more field — which was every signal
+ * the shape test had, so all four read as enquiry forms. journey.ts counts
+ * ONLY `enquiry`, precisely so that "a site nobody can actually reach" does
+ * not score as having a conversion path, and a patient-portal login sitting in
+ * a site header handed exactly that to every page of such a site.
+ *
+ * Matched on whole path SEGMENTS, never as substrings. `/signup-for-a-consultation`
+ * is a real lead form; excluding it would report a reachable business as
+ * unreachable, which is the false alarm `toWords` above exists to prevent.
+ */
+const NON_ENQUIRY_SEGMENTS = new Set([
+  // Account doors
+  "login",
+  "log-in",
+  "log_in",
+  "logon",
+  "signin",
+  "sign-in",
+  "sign_in",
+  "signup",
+  "sign-up",
+  "sign_up",
+  "register",
+  "registration",
+  // Commerce
+  "checkout",
+  "cart",
+  "basket",
+  // Retrieval, not contact
+  "search",
+  // WordPress, whose comment endpoint is a fixed path on a great many sites
+  "wp-login",
+  "wp-signup",
+  "wp-register",
+  "wp-comments-post",
+]);
+
+/** Does this `action` post somewhere that is not a way to reach a person?
+ *  Resolved against a placeholder base so a relative action, a rooted path and
+ *  a full URL are all read the same way; the base itself is never used. A
+ *  trailing extension is dropped so `/wp-comments-post.php` reads as its
+ *  segment. A form with no action posts to its own URL, which says nothing
+ *  either way — and saying nothing is not evidence against the site. */
+function isNonEnquiryAction(action: string | null): boolean {
+  if (!action) return false;
+  let path: string;
+  try {
+    path = new URL(action, "https://form.invalid/").pathname;
+  } catch {
+    path = action;
+  }
+  return path
+    .toLowerCase()
+    .split("/")
+    .some((segment) => NON_ENQUIRY_SEGMENTS.has(segment.replace(/\.[a-z0-9]+$/, "")));
+}
+
 /** One `<form>`'s shape. Exported for its own tests: telling a contact form
  *  from a search box is the judgement the conversion check rests on, and it is
  *  worth being able to exercise it directly. */
 export function formShape(form: HTMLElement): FormShape {
   const controls = form.querySelectorAll("input, textarea, select");
   let fieldCount = 0;
+  /** Fields that are a way to reply, so the rest can be counted separately —
+   *  see the enquiry bar below. */
+  let contactFieldCount = 0;
   let hasContactField = false;
+  let hasPassword = false;
+  let hasTextarea = false;
   let hasSubmit = form.querySelectorAll("button").length > 0;
 
   for (const control of controls) {
@@ -198,6 +271,8 @@ export function formShape(form: HTMLElement): FormShape {
       if (type === "submit" || type === "image") hasSubmit = true;
       continue;
     }
+    if (control.tagName === "TEXTAREA") hasTextarea = true;
+    if (control.tagName === "INPUT" && type === "password") hasPassword = true;
     fieldCount += 1;
     // Any of the attributes an author might carry the meaning in. Checked
     // together rather than in priority order: a field is a contact field if
@@ -214,16 +289,41 @@ export function formShape(form: HTMLElement): FormShape {
     );
     if (type === "email" || type === "tel" || CONTACT_FIELD.test(signature)) {
       hasContactField = true;
+      contactFieldCount += 1;
     }
   }
 
+  const action = form.getAttribute("action")?.trim() || null;
+  // An account door, not a conversation. A password field says so outright; the
+  // path says so for the portal logins that ask for a member number and a PIN.
+  const isAccountForm = hasPassword || isNonEnquiryAction(action);
+  // A message box, or enough questions beyond the contact details to be an
+  // intake form. Without this, "first name + email + Subscribe" — the second
+  // commonest newsletter box on the web — cleared the bar on `fieldCount >= 2`
+  // alone.
+  //
+  // The threshold is TWO non-contact questions, not three. Three was tried and
+  // it failed a shape that is everywhere: name / email / phone / subject with
+  // no message box, the lean quote form. Reading that as a newsletter signup
+  // costs the site a real conversion path and can make a page with a working
+  // enquiry form read as having none — which is the same class of error, in
+  // the same direction, as the ones this pass exists to remove. A newsletter
+  // box asking two questions beyond an email address does not exist in the
+  // wild; a quote form that does is ordinary.
+  const asksSomethingBack = hasTextarea || fieldCount - contactFieldCount >= 2;
+
   return {
     // A lone contact field is a newsletter box, not an enquiry form. See
-    // `FormKind`: Icovy's footer email box put every page of that site at zero
-    // clicks from "reaching them" when the only form that reaches a person is
-    // the nine-field one on /contact-us.
-    kind: !hasContactField ? "other" : fieldCount >= 2 ? "enquiry" : "subscribe",
-    action: form.getAttribute("action")?.trim() || null,
+    // `FormKind`: on one audited site a footer email box put every page at zero
+    // clicks from "reaching them", when the only form that reaches a person
+    // was the nine-field one on its contact page.
+    kind:
+      isAccountForm || !hasContactField
+        ? "other"
+        : fieldCount >= 2 && asksSomethingBack
+          ? "enquiry"
+          : "subscribe",
+    action,
     method: (form.getAttribute("method") ?? "get").toLowerCase().trim() || "get",
     fieldCount,
     hasContactField,
