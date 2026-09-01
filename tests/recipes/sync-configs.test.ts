@@ -113,6 +113,35 @@ export default createSvelteConfig({
     expect(after).toContain("@sveltejs/adapter-netlify");
   });
 
+  it("#651: leaves a renovate.yml that differs only by a newer digest pin + quoting untouched (noop)", async () => {
+    // The false-drift bug: Renovate bumps its own digest pin on the site (never
+    // to be reverted), and the site's prettier quotes the cron + RENOVATE_*
+    // scalar values (both forms are prettier-clean, so prettier never converges
+    // them). renovate.yml is compliance-checked, not byte-matched — this must
+    // stay a noop, not open a PR that downgrades Renovate's own pin.
+    const cwd = await copyFixtureToTmp(drift);
+    const canonical = templatesByName(["renovate-action"])[0]!.contents;
+    const starterShape = canonical
+      .replace(
+        "renovatebot/github-action@1a96852b0384df1837619d04c60b2d10d1f9ff08 # v46.1.21",
+        "renovatebot/github-action@e09d604f8f803bb527bd8321ed5be06c460b8682 # v46.2.2",
+      )
+      .replace("- cron: 0 */12 * * *", "- cron: '0 */12 * * *'")
+      .replace(
+        "RENOVATE_USERNAME: reddoor-renovate[bot]",
+        "RENOVATE_USERNAME: 'reddoor-renovate[bot]'",
+      );
+    expect(starterShape).not.toBe(canonical);
+    await writeCommitted(cwd, ".github/workflows/renovate.yml", starterShape);
+
+    const result = await syncConfigs({ path: cwd }, { which: ["renovate-action"] });
+    expect(result.status).toBe("noop");
+
+    const after = await readFile(join(cwd, ".github/workflows/renovate.yml"), "utf-8");
+    expect(after).toBe(starterShape);
+    expect(after).toContain("e09d604f8f803bb527bd8321ed5be06c460b8682");
+  });
+
   it("ships security headers in the canonical netlify template", () => {
     // Regression guard: the template once shipped header-less and a sync STRIPPED
     // live sites' security headers (gallerysonder, 2026-06-10). Never again.
