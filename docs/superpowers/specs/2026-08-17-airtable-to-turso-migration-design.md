@@ -265,12 +265,14 @@ Also required before it is trusted:
   `github-signals`, deleting the per-site loops.
 - **Phase 4 — console.** Fleet table, full-coverage editor, create/archive,
   report review.
-- **Phase 5 — freeze.** ⚠️ **SUPERSEDED 2026-08-25 (#612).** Not "parity runs for
-  one week": the hourly import AND recurring parity both STOP at the flip, parity
-  runs ONCE as the go/no-go, and the week that follows is a dual-write ROLLBACK
-  WINDOW rather than a reconciliation period. Airtable hand-editing stops
-  entirely; the console replaces it. See the plan for the full set.
-- **Phase 6 — retire.** Delete the Airtable client layer.
+- **Phase 5 — freeze.** ✅ **FLIPPED 2026-08-31 (#643).** As decided on #612
+  (superseding the original "parity runs for one week"): the hourly import AND
+  recurring parity both stopped at the flip, parity ran ONCE as the go/no-go
+  (`mismatches=0`), and the week that follows is a dual-write ROLLBACK WINDOW
+  rather than a reconciliation period. Airtable hand-editing has stopped; the
+  console replaces it. See the plan for what the flip actually required.
+- **Phase 6 — retire.** Delete the Airtable client layer — not before
+  2026-09-07, in the dependency order laid out in #646.
 
 ## Site status values need semantic names
 
