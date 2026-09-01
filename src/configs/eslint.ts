@@ -70,6 +70,10 @@ export function createEslintConfig(opts: CreateEslintConfigOptions): Linter.Conf
         "static/",
         "customtypes/",
         "src/lib/slices/**/index.js",
+        // Agency process artifacts: git-ignored in every repo, but present on
+        // disk locally, so `pnpm lint` would otherwise try to parse them.
+        "docs/superpowers/",
+        "scratchpad/",
       ],
     },
   ] as Linter.Config[];

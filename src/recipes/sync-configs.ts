@@ -21,6 +21,7 @@ export type SyncConfigsOptions = {
 
 const GITIGNORE_CONFIG: ConfigName = "gitignore";
 const SVELTE_CONFIG: ConfigName = "svelte";
+const PRETTIER_IGNORE_CONFIG: ConfigName = "prettier-ignore";
 const NETLIFY_CONFIG: ConfigName = "netlify";
 
 /** A site's `svelte.config.js` is "compliant" — and left untouched by sync —
@@ -142,9 +143,30 @@ export async function planTemplateDiffs(
       diffs.push({ ...t, contents: withRenovatePinsFrom(t.contents, existing) });
       continue;
     }
+    // .prettierignore is MERGED, not overwritten — the same treatment
+    // .gitignore has always had, because it is the same kind of file: a list a
+    // site legitimately extends. reddoor-starter adds the Slice Machine-
+    // generated `src/prismicio-types.d.ts`, whose reformatting on a prettier
+    // version bump reds `prettier --check` on otherwise-fine dependency PRs.
+    // An exact overwrite silently deleted that and re-armed the failure.
+    if (t.config === PRETTIER_IGNORE_CONFIG) {
+      const merged = mergeGitignore(existing, canonicalIgnoreEntries(t.contents));
+      if (merged.added.length === 0) continue;
+      diffs.push({ ...t, contents: merged.content });
+      continue;
+    }
     diffs.push(t);
   }
   return diffs;
+}
+
+/** The template's own entries, minus comments and blank lines — the set a site
+ *  must contain for its .prettierignore to be considered complete. */
+function canonicalIgnoreEntries(templateContents: string): string[] {
+  return templateContents
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l !== "" && !l.startsWith("#"));
 }
 
 type GitignorePlan =

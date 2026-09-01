@@ -214,6 +214,41 @@ export default {};
     expect(after).toContain("e09d604f8f803bb527bd8321ed5be06c460b8682");
   });
 
+  it("merges .prettierignore, preserving a site's own entries", async () => {
+    // Regression for the same clobber class as svelte.config/netlify.toml:
+    // reddoor-starter ignores the Slice Machine-generated
+    // src/prismicio-types.d.ts because a prettier version bump reformats it and
+    // reds `prettier --check` on otherwise-fine dependency PRs. An exact
+    // overwrite deleted that line and re-armed the failure.
+    const cwd = await copyFixtureToTmp(drift);
+    const [tpl] = templatesByName(["prettier-ignore"]);
+    const siteOwn = tpl.contents + "\n# site-specific\nsrc/prismicio-types.d.ts\nscratchpad/\n";
+    await writeCommitted(cwd, ".prettierignore", siteOwn);
+
+    const result = await syncConfigs({ path: cwd }, { which: ["prettier-ignore"] });
+    expect(result.status).toBe("noop");
+
+    const after = await readFile(join(cwd, ".prettierignore"), "utf-8");
+    expect(after).toContain("src/prismicio-types.d.ts");
+    expect(after).toContain("scratchpad/");
+  });
+
+  it("backfills only the canonical .prettierignore entries a site is missing", async () => {
+    const cwd = await copyFixtureToTmp(drift);
+    await writeCommitted(cwd, ".prettierignore", "src/prismicio-types.d.ts\n");
+
+    const result = await syncConfigs({ path: cwd }, { which: ["prettier-ignore"] });
+    expect(result.status).toBe("applied");
+
+    const after = await readFile(join(cwd, ".prettierignore"), "utf-8");
+    // The site's own entry survives...
+    expect(after).toContain("src/prismicio-types.d.ts");
+    // ...and every canonical entry is now present.
+    for (const entry of ["pnpm-lock.yaml", ".svelte-kit/", "build/", ".netlify/", "dist/"]) {
+      expect(after).toContain(entry);
+    }
+  });
+
   it("ships security headers in the canonical netlify template", () => {
     // Regression guard: the template once shipped header-less and a sync STRIPPED
     // live sites' security headers (gallerysonder, 2026-06-10). Never again.
