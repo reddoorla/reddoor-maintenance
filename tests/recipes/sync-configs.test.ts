@@ -221,8 +221,8 @@ export default {};
     // reds `prettier --check` on otherwise-fine dependency PRs. An exact
     // overwrite deleted that line and re-armed the failure.
     const cwd = await copyFixtureToTmp(drift);
-    const [tpl] = templatesByName(["prettier-ignore"]);
-    const siteOwn = tpl.contents + "\n# site-specific\nsrc/prismicio-types.d.ts\nscratchpad/\n";
+    const canonical = templatesByName(["prettier-ignore"])[0]!.contents;
+    const siteOwn = canonical + "\n# site-specific\nsrc/prismicio-types.d.ts\nscratchpad/\n";
     await writeCommitted(cwd, ".prettierignore", siteOwn);
 
     const result = await syncConfigs({ path: cwd }, { which: ["prettier-ignore"] });
