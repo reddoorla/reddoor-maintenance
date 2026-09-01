@@ -28,11 +28,22 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # These steps ARE `pnpm verify`, listed individually so a failure is
+      # attributable at a glance in the Actions UI. They are not a second,
+      # hand-maintained list: tests/ci-gate.test.ts derives the expected
+      # commands from the `verify` script and fails if this list drifts from it
+      # in content or order. Add a gate to `verify` in package.json and this
+      # file must follow — the test says so.
+      #
+      # Why it matters: when the two really were maintained separately, a local
+      # `lint && build && test` passed while CI failed on typecheck (the only
+      # step that typechecks tests/**), and nothing local ran test:dist at all.
+      #
+      # test:coverage rather than test — it enforces the floor in
+      # vitest.config.ts. Plain `pnpm test` stays fast for local TDD.
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm build
-      # Coverage-gated test run (enforces the floor in vitest.config.ts). Plain
-      # `pnpm test` stays fast for local TDD; CI runs the suite once, with coverage.
       - run: pnpm test:coverage
       - run: pnpm test:dist
 

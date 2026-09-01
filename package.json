@@ -62,6 +62,7 @@
     "reddoor-maint": "./dist/cli/bin.js"
   },
   "scripts": {
+    "verify": "pnpm typecheck && pnpm lint && pnpm build && pnpm test:coverage && pnpm test:dist",
     "build": "tsup",
     "dev": "tsup --watch",
     "pretest": "pnpm run build",
