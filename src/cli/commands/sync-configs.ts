@@ -1,6 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { syncConfigs, ALL_CONFIG_NAMES, isConfigName } from "../../recipes/sync-configs.js";
+import {
+  syncConfigs,
+  ALL_CONFIG_NAMES,
+  isConfigName,
+  planTemplateDiffs,
+} from "../../recipes/sync-configs.js";
 import { ALL_TEMPLATES, templatesByName } from "../../recipes/sync-configs/templates.js";
 import {
   CANONICAL_GITIGNORE_ENTRIES,
@@ -52,16 +57,12 @@ async function dryPlan(cwd: string, which?: ConfigName[]): Promise<string> {
     ? templatesByName(which.filter((c): c is ConfigName => c !== "gitignore"))
     : ALL_TEMPLATES;
 
-  const lines: string[] = [];
-  for (const t of templateTargets) {
-    let existing = "";
-    try {
-      existing = await readFile(join(cwd, t.path), "utf-8");
-    } catch {
-      // missing file => will be created
-    }
-    if (existing !== t.contents) lines.push(`would update ${t.path} (config: ${t.config})`);
-  }
+  // Ask the recipe's own planner rather than re-deriving drift here. svelte.config
+  // and netlify.toml are compliance-checked, not byte-matched, so a local
+  // `existing !== contents` comparison reported files the real run leaves alone —
+  // and a preview that disagrees with the command it previews is worse than none.
+  const diffs = await planTemplateDiffs(cwd, templateTargets);
+  const lines = diffs.map((t) => `would update ${t.path} (config: ${t.config})`);
   if (includeGitignore) {
     const gi = await dryPlanGitignore(cwd);
     if (gi) lines.push(gi);

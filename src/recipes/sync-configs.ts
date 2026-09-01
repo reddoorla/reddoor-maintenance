@@ -35,7 +35,21 @@ const NETLIFY_CONFIG: ConfigName = "netlify";
  * overrides per key (and may add more), so a site's additive customization is safe
  * to preserve. */
 function isSvelteConfigCompliant(contents: string): boolean {
-  return contents.includes("createSvelteConfig") && contents.includes("@sveltejs/adapter-netlify");
+  // Not on the canonical adapter (a missing file, or `adapter-auto` from a
+  // stock `npm create svelte`) => bring it to the template.
+  if (!contents.includes("@sveltejs/adapter-netlify")) return false;
+  // The canonical shape: the helper supplies fleet aliases, the warning filter
+  // and CSP defaults.
+  if (contents.includes("createSvelteConfig")) return true;
+  // A hand-authored config with its own `kit` block is deliberate customization,
+  // not drift. Requiring the helper string treated four live sites as off-pattern
+  // — the-pointe-burbank (151 lines), beachfront-dentistry (241), 1836dig,
+  // data-dynamiq — plus reddoor-starter, whose placeholder-repo prerender
+  // tolerance is the only reason a freshly cloned site builds green. Replacing
+  // any of those with the 8-line template is the clobbering bug this predicate
+  // exists to prevent (MSOT's $utils aliases, 2026-06-04), not a fix for it.
+  // A stub with no `kit` config at all still gets the template.
+  return /\bkit\s*:/.test(contents);
 }
 
 /** Any of the baseline security headers — the marker that a netlify.toml is
@@ -86,7 +100,7 @@ async function readMaybe(path: string): Promise<string | null> {
   }
 }
 
-async function planTemplateDiffs(
+export async function planTemplateDiffs(
   cwd: string,
   templates: ConfigTemplate[],
 ): Promise<ConfigTemplate[]> {
