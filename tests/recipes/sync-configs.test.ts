@@ -100,6 +100,78 @@ export default createSvelteConfig({
     expect(after).toContain("$utils");
   });
 
+  it("leaves a hand-authored svelte.config untouched when it has its own kit block", async () => {
+    // Four LIVE sites carry a hand-authored config rather than calling the helper —
+    // the-pointe-burbank (151 lines), beachfront-dentistry (241), 1836dig,
+    // data-dynamiq — and so does reddoor-starter, whose placeholder-repo prerender
+    // tolerance is the only reason a freshly cloned site's build stays green.
+    // Requiring the literal "createSvelteConfig" treated every one of them as
+    // off-pattern, i.e. one sync away from being replaced by the 8-line template.
+    const cwd = await copyFixtureToTmp(drift);
+    const handAuthored = `import adapter from "@sveltejs/adapter-netlify";
+
+/** @type {import('@sveltejs/kit').Config} */
+const config = {
+  kit: {
+    adapter: adapter(),
+    prerender: {
+      handleHttpError: ({ status }) => {
+        if (status === 404) return;
+        throw new Error("prerender failed");
+      },
+    },
+    alias: { $components: "src/lib/components" },
+    csp: { directives: { "object-src": ["none"] } },
+  },
+};
+
+export default config;
+`;
+    await writeCommitted(cwd, "svelte.config.js", handAuthored);
+
+    const result = await syncConfigs({ path: cwd }, { which: ["svelte"] });
+    expect(result.status).toBe("noop");
+
+    const after = await readFile(join(cwd, "svelte.config.js"), "utf-8");
+    expect(after).toBe(handAuthored);
+    expect(after).toContain("handleHttpError");
+    expect(after).toContain("$components");
+  });
+
+  it("still overwrites a svelte.config on the wrong adapter, kit block or not", async () => {
+    // Broadening compliance must not mean "never heal anything". A stock
+    // `npm create svelte` config has a kit block but the wrong adapter.
+    const cwd = await copyFixtureToTmp(drift);
+    await writeCommitted(
+      cwd,
+      "svelte.config.js",
+      `import adapter from "@sveltejs/adapter-auto";
+export default { kit: { adapter: adapter() } };
+`,
+    );
+
+    const result = await syncConfigs({ path: cwd }, { which: ["svelte"] });
+    expect(result.status).toBe("applied");
+
+    const after = await readFile(join(cwd, "svelte.config.js"), "utf-8");
+    expect(after).toContain("@sveltejs/adapter-netlify");
+  });
+
+  it("still overwrites an adapter-netlify stub that has no kit config", async () => {
+    const cwd = await copyFixtureToTmp(drift);
+    await writeCommitted(
+      cwd,
+      "svelte.config.js",
+      `import adapter from "@sveltejs/adapter-netlify";
+export default {};
+`,
+    );
+
+    const result = await syncConfigs({ path: cwd }, { which: ["svelte"] });
+    expect(result.status).toBe("applied");
+    expect(await readFile(join(cwd, "svelte.config.js"), "utf-8")).toContain("createSvelteConfig");
+  });
+
   it("overwrites a non-compliant svelte.config with the canonical template", async () => {
     // sync-drift ships `export default { kit: {} }` — no createSvelteConfig, no
     // adapter-netlify — so it's off-pattern and must be brought to canonical.
