@@ -102,6 +102,18 @@ const playwrightA11yConfig: PlaywrightTestConfig = defineConfig({
   use: {
     baseURL: `http://localhost:${port}`,
     trace: "on-first-retry",
+    // Emulate reduced motion fleet-wide: scrollIntoView lands instantly rather
+    // than animating, so Playwright's actionability checks don't flake under
+    // parallel load, and view transitions fall back to instant. Pairs with the
+    // prefers-reduced-motion gate on scroll-behavior in every site's app.css.
+    //
+    // It MUST sit under `contextOptions` — `reducedMotion` is a
+    // BrowserContextOptions member, not a top-level test option. reddoor-starter
+    // carried it at the top level of `use` from 2026-06 until 2026-09-01, where
+    // Playwright silently ignored it (unknown keys are dropped at runtime) and
+    // `pnpm check` never flagged it because svelte-check does not typecheck
+    // playwright.config.ts. The emulation was inert that whole time.
+    contextOptions: { reducedMotion: "reduce" as const },
   },
   projects: [
     {
