@@ -99,15 +99,32 @@ export const GOAL_UNRESOLVED = "no goal supplied and none could be inferred";
  *  prospect's report with defects that do not exist. The GET is made with a
  *  Range header asking for the first byte, so a heavy asset is not pulled in
  *  whole just to learn its status. */
-async function defaultAssetProbe(
+/**
+ * What a browser tells an image host it can accept.
+ *
+ * Without this the probe sent no Accept at all, so every content-negotiating
+ * host — imgix, Cloudinary, Cloudflare Images, and Prismic, which is most of
+ * our own fleet — fell back to the original JPEG and we published its size as
+ * the site's image weight. On reddoorla.com we reported 1,760 KB for a hero a
+ * real desktop browser receives as a 543 KB AVIF: three times over, in the
+ * direction that makes our own finding look worse than the truth.
+ *
+ * The trailing wildcard is not decoration. A host serving a format we did not
+ * name could otherwise answer 406, and an image we failed to ask for properly
+ * would be reported to the client as a broken one.
+ */
+export const ASSET_ACCEPT = "image/avif,image/webp,image/apng,image/*,*/*;q=0.8";
+
+export async function defaultAssetProbe(
   url: string,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<{ status: number; headers: Record<string, string> }> {
   const headersOf = (res: Response): Record<string, string> =>
     Object.fromEntries([...res.headers].map(([k, v]) => [k.toLowerCase(), v]));
 
-  const head = await fetch(url, {
+  const head = await fetchImpl(url, {
     method: "HEAD",
-    headers: { "user-agent": USER_AGENT },
+    headers: { "user-agent": USER_AGENT, accept: ASSET_ACCEPT },
     redirect: "follow",
     signal: AbortSignal.timeout(15_000),
   });
@@ -115,9 +132,9 @@ async function defaultAssetProbe(
     return { status: head.status, headers: headersOf(head) };
   }
 
-  const get = await fetch(url, {
+  const get = await fetchImpl(url, {
     method: "GET",
-    headers: { "user-agent": USER_AGENT, range: "bytes=0-0" },
+    headers: { "user-agent": USER_AGENT, accept: ASSET_ACCEPT, range: "bytes=0-0" },
     redirect: "follow",
     signal: AbortSignal.timeout(15_000),
   });
