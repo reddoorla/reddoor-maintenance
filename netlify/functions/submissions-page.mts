@@ -44,17 +44,14 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   if (req.method === "POST" && !isCsrfAllowed(req)) {
     return plainText("Cross-site request rejected.", 403);
   }
-  // Authenticate BEFORE the Airtable/Turso env guards so an unauthenticated probe
-  // can't tell which backend env is unset (a differentiated 500 leaks config
-  // state). Only the password check — unavoidable, since auth needs it — precedes.
+  // Authenticate BEFORE the Turso env guard so an unauthenticated probe can't
+  // tell which backend env is unset (a differentiated 500 leaks config state).
+  // Only the password check — unavoidable, since auth needs it — precedes.
   const auth = requireOperator(req, { wants: "redirect" });
   if (!auth.ok) return denialResponse(auth.denial);
-  const apiKey = process.env.AIRTABLE_PAT;
-  const baseId = process.env.AIRTABLE_BASE_ID;
-  if (!apiKey || !baseId) {
-    console.error("[submissions-page] AIRTABLE_PAT or AIRTABLE_BASE_ID missing");
-    return plainText("Airtable env missing", 500);
-  }
+  // No Airtable guard: this page is a Turso read that imports one pure string
+  // helper from the Airtable module, so the check could only refuse a page it
+  // does not need. Same removal as form-ingest and fleet-homepage.
   if (!process.env.TURSO_DATABASE_URL) {
     console.error("[submissions-page] TURSO_DATABASE_URL missing");
     return plainText("Turso env missing", 500);
