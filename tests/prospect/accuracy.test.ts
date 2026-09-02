@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   backstopAbsent,
+  quoteSupportsClaim,
   buildAccuracyInput,
   checkAccuracy,
   fullSiteText,
@@ -435,5 +436,50 @@ describe("backstopAbsent — a single common word is a topic, not an answer", ()
       true,
     );
     expect(out!.verdict).toBe("unverified");
+  });
+});
+
+describe("quoteSupportsClaim — a related passage is not a supporting one", () => {
+  it("rejects a quote that shares only one common word with the claim", () => {
+    // Observed live. The engine said Reddoor is "a graphic design and branding
+    // company"; the model marked it confirmed and cited our tagline — "We save
+    // you from drowning in an ocean of noise by arming you with a clear story
+    // and compelling design." The only word in common is "design". A reader
+    // notices immediately that the quote does not say what the claim says, and
+    // once they have noticed, every other quote on the page is in question.
+    expect(
+      quoteSupportsClaim(
+        "Reddoor Creative is a graphic design and branding company.",
+        "We save you from drowning in an ocean of noise by arming you with a clear story and compelling design.",
+      ),
+    ).toBe(false);
+  });
+
+  it("accepts a quote that carries the substance of the claim", () => {
+    // Every one of these is a real confirmed pair from the same run, and each
+    // must survive: the guard is worthless if it demotes true confirmations.
+    const pairs: [string, string][] = [
+      [
+        "Reddoor Creative is based in Fair Oaks Ranch, Texas.",
+        "HQ MAILING ADDRESS 29027 Dapper Dan Dr. Fair Oaks Ranch, TX 78015",
+      ],
+      [
+        "Reddoor Creative has designers spread across California, Texas and Idaho.",
+        "We have designers sprinkled across California, Texas and Idaho, conveniently located near the Los Angeles, San Antonio, and Boise metro areas.",
+      ],
+      [
+        "Reddoor Creative is led by Tim Holmes.",
+        "Because of unforeseen circumstances owner, Tim Holmes, found himself stuck in LA with a white Toyota.",
+      ],
+    ];
+    for (const [claim, quote] of pairs) {
+      expect(quoteSupportsClaim(claim, quote), claim).toBe(true);
+    }
+  });
+
+  it("rejects a quote with nothing of the claim in it at all", () => {
+    expect(
+      quoteSupportsClaim("Acme is open on Saturdays.", "Our team has served the region."),
+    ).toBe(false);
   });
 });

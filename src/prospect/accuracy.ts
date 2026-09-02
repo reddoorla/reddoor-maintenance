@@ -171,6 +171,10 @@ For each assertion return:
     "absent"       — the website does not address this fact at all.
 - siteQuote: the exact words from the website that support a "confirmed" or "contradicted" verdict, copied
   verbatim. It is checked against the page text character by character. Null for "absent".
+  The passage must STATE the claim, not merely be about the same subject. A tagline that happens to use
+  the word "design" does not support "this is a graphic design company"; a sentence saying what the
+  company does supports it. If the only passage you can find is on-topic but does not actually say the
+  thing, the verdict is "absent" with that passage left out — not "confirmed" with it attached.
 - searchTerms: 1-6 distinctive words or short phrases you would search the site for to find this fact —
   proper nouns, numbers, street names. These are used to re-check "absent" verdicts across pages you were
   not shown, so choose terms that would actually appear if the fact were stated somewhere else on the site.
@@ -396,6 +400,88 @@ export function backstopAbsent(
  * real quote behind it is the report telling a client their site says something
  * we cannot show them.
  */
+/**
+ * Words too common to carry a claim on their own. Not a general stopword list —
+ * these are the words that turn up in every agency's copy, so overlapping on
+ * one of them says nothing about whether a passage supports a statement.
+ */
+const WEAK_WORDS = new Set([
+  "design",
+  "designs",
+  "brand",
+  "brands",
+  "branding",
+  "company",
+  "business",
+  "services",
+  "service",
+  "creative",
+  "studio",
+  "agency",
+  "clients",
+  "client",
+  "team",
+  "work",
+  "works",
+  "people",
+  "years",
+  "about",
+  "their",
+  "there",
+  "which",
+  "where",
+  "these",
+  "those",
+  "would",
+  "could",
+  "every",
+  "other",
+  "across",
+  "based",
+]);
+
+/**
+ * Does this passage actually STATE the claim, or merely touch the same subject?
+ *
+ * Observed live, on our own site. The engine said Reddoor is "a graphic design
+ * and branding company"; the model marked it confirmed and quoted our tagline —
+ * "We save you from drowning in an ocean of noise by arming you with a clear
+ * story and compelling design." The only word in common is "design". A reader
+ * sees at once that the quote does not say what the claim says, and once they
+ * have seen it, every other quote on the page is in question.
+ *
+ * The same topic-versus-answer rule the absent-backstop needed, applied to the
+ * other end. Two distinctive words in common, or none of this is evidence: one
+ * shared word is a subject, two is a statement. Weak words are excluded because
+ * "design" and "branding" appear in every sentence an agency has ever written,
+ * so overlapping on them proves nothing.
+ *
+ * A failing pair becomes `unverified`, never `absent`. The site may well say
+ * this somewhere; we just have not been shown the passage that says it.
+ */
+export function quoteSupportsClaim(claim: string, quote: string): boolean {
+  // Two kinds of token count, and the second is why this is not a plain word
+  // filter. "Reddoor Creative is led by Tim Holmes" against "owner, Tim Holmes,
+  // found himself stuck in LA" shares exactly the two words that matter, and a
+  // length threshold throws one of them away: "Tim" is three letters. A proper
+  // noun is distinctive BECAUSE it is a name, whatever its length.
+  const words = (t: string): Set<string> => {
+    const out = new Set<string>();
+    for (const w of t.split(/[^A-Za-z0-9]+/)) {
+      if (w === "") continue;
+      const lower = w.toLowerCase();
+      if (WEAK_WORDS.has(lower)) continue;
+      const properNoun = /^[A-Z]/.test(w) && w.length >= 3;
+      if (properNoun || lower.length >= 4) out.add(lower);
+    }
+    return out;
+  };
+  const inQuote = words(quote);
+  let shared = 0;
+  for (const w of words(claim)) if (inQuote.has(w)) shared += 1;
+  return shared >= 2;
+}
+
 function verifyQuotes(
   raw: z.infer<typeof AccuracySchema>["assertions"],
   answerText: string,
@@ -417,17 +503,26 @@ function verifyQuotes(
 
     const quoteReal = a.siteQuote !== null && site.includes(normalize(a.siteQuote));
     const needsQuote = a.verdict === "confirmed" || a.verdict === "contradicted";
+    // A real quote is not automatically a supporting one — see
+    // quoteSupportsClaim. Only checked where the verdict rests on the quote.
+    const quoteSupports =
+      quoteReal && a.siteQuote !== null && quoteSupportsClaim(a.claim, a.siteQuote);
+    const unsupported = needsQuote && (!quoteReal || !quoteSupports);
 
     out.push({
       claim: a.claim,
-      verdict: needsQuote && !quoteReal ? "unverified" : a.verdict,
+      verdict: unsupported ? "unverified" : a.verdict,
       engineQuote: a.engineQuote,
+      // Kept when it is real, even where it does not carry the claim: the
+      // reader can see what we looked at and judge it themselves, which is a
+      // better position than being told we found nothing.
       siteQuote: quoteReal ? a.siteQuote : null,
       nearbyMention: null,
-      unverifiedReason:
-        needsQuote && !quoteReal
+      unverifiedReason: !unsupported
+        ? null
+        : !quoteReal
           ? "We could not find the passage this was based on, so we have not stated it either way."
-          : null,
+          : "The passage we found is about the same subject but does not actually say this, so we have not stated it either way.",
       sourceDomains,
       query: from?.query ?? "",
       engine: from?.engine ?? "",
