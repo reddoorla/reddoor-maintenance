@@ -720,7 +720,7 @@ export function checkGoal(
   const price = req(
     "price-signal",
     "Some signal of what it costs",
-    "It is the most common question buyers ask before making contact, and the one most sites never answer. A range, a starting point or a worked example is enough — silence sends them to someone who does say.",
+    "Buyers ask this before making contact, and a site that does not answer it sends them to one that does. A range, a starting point or a worked example is enough.",
     "content",
     priceSignal(s.text),
   );

@@ -502,7 +502,11 @@ describe("runProspectAudit — the fix list is checked against the checklist", (
     expect(met, "the fixture site really does have a tappable phone").toContain("tappable-phone");
     const an = result.analyze;
     if (!an?.ok) throw new Error("the analyze stage did not run");
-    expect(an.data.fixes.map((f) => f.title)).toEqual(["Compress the hero image"]);
+    // Measured fixes now precede the model's; the reconciliation under test is
+    // about the model's list, so look only at recommendations.
+    expect(an.data.fixes.filter((f) => f.origin === "recommendation").map((f) => f.title)).toEqual([
+      "Compress the hero image",
+    ]);
   });
 
   it("drops it on an ordinary audit too, where the goal is the model's own", async () => {
@@ -570,7 +574,62 @@ describe("runProspectAudit — the fix list is checked against the checklist", (
 
     const an = result.analyze;
     if (!an?.ok) throw new Error("the analyze stage did not run");
-    expect(an.data.fixes.map((f) => f.title)).toEqual(["Compress the hero image"]);
+    // Measured fixes now precede the model's; the reconciliation under test is
+    // about the model's list, so look only at recommendations.
+    expect(an.data.fixes.filter((f) => f.origin === "recommendation").map((f) => f.title)).toEqual([
+      "Compress the hero image",
+    ]);
+  });
+
+  it("puts measured fixes first and stamps the model's as recommendations", async () => {
+    // A number written as plain text is a measured defect. It used to be the
+    // one finding that never reached the fix list while ten suggestions did.
+    const withPlainPhone = fixture("rich.html").replace(
+      "</body>",
+      "<p>Call us on 310-555-1234</p></body>",
+    );
+    const result = await runProspectAudit(
+      HOME,
+      {},
+      {
+        ...deps(),
+        crawl: crawlDeps({
+          async fetchUrl(url) {
+            return url === HOME || url.endsWith("/services") || url.endsWith("/about")
+              ? { status: 200, body: withPlainPhone, headers: {} }
+              : { status: 404, body: "", headers: {} };
+          },
+          async renderPages(urls) {
+            return new Map(urls.map((u) => [u, withPlainPhone]));
+          },
+        }),
+        analyze: {
+          run: async () => ({
+            ...analyzeOutput,
+            fixes: [
+              {
+                title: "Rewrite the homepage",
+                why: "w",
+                impact: "high",
+                effort: "low",
+                tier: "content",
+                addresses: null,
+              },
+            ],
+          }),
+        },
+      },
+    );
+    const an = result.analyze;
+    if (!an?.ok) throw new Error("the analyze stage did not run");
+    const origins = an.data.fixes.map((f) => f.origin);
+    expect(origins).toContain("measured");
+    expect(origins.indexOf("recommendation")).toBeGreaterThan(origins.lastIndexOf("measured"));
+    expect(an.data.fixes.at(-1)).toMatchObject({
+      title: "Rewrite the homepage",
+      origin: "recommendation",
+    });
+    expect(an.data.fixes.map((f) => f.title)).toContain("Make your phone number tappable");
   });
 
   it("tells the model nothing about the checklist when no goal was given", async () => {

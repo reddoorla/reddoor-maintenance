@@ -33,6 +33,7 @@ const checks = (over: Partial<NonNullable<MeasuredInput["checks"]>> = {}) => ({
     missingTitle: 0,
     missingDescription: 0,
     missingSocial: 0,
+    pagesWithoutExtract: 0,
   },
   schema: { typesFound: [], missingExpected: [], invalidBlocks: 0 },
   crawlerAccessMeasured: true,
@@ -124,6 +125,7 @@ describe("measuredFixes", () => {
           missingTitle: 0,
           missingDescription: 0,
           missingSocial: 0,
+          pagesWithoutExtract: 0,
         },
       }),
     });
@@ -181,6 +183,7 @@ describe("measuredFixes", () => {
           missingTitle: 0,
           missingDescription: 0,
           missingSocial: 0,
+          pagesWithoutExtract: 0,
         },
         crawlerAccess: { blockedAi: ["GPTBot"], allowedAi: [], blockedClassical: [] },
       }),
