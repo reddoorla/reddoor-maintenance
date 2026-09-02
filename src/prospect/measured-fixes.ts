@@ -65,7 +65,16 @@ export function measuredFixes(input: MeasuredInput): Fix[] {
     });
   }
 
-  const plain = (input.phones ?? []).filter((p) => p.linked === false).length;
+  // When the goal checklist judges the phone number, its row already says
+  // "A phone number they can tap — Yes/No" two sections above this list. A
+  // second fix from the consistency check would print the same finding twice,
+  // or contradict it.
+  const phoneJudgedByGoal = (input.goalFit?.requirements ?? []).some(
+    (r) => r.key === "tappable-phone",
+  );
+  const plain = phoneJudgedByGoal
+    ? 0
+    : (input.phones ?? []).filter((p) => p.linked === false).length;
   if (plain > 0) {
     out.push({
       title: "Make your phone number tappable",

@@ -95,6 +95,24 @@ describe("measuredFixes", () => {
     expect(plain[0]!.why).toContain("1 number");
   });
 
+  it("leaves the phone to the goal checklist when the checklist already judges it", () => {
+    // The requirement row says "A phone number they can tap — Yes/No" two
+    // sections above the fix list; a second fix from the consistency check
+    // would print the same finding twice, or contradict it.
+    const fixes = measuredFixes({
+      ...empty(),
+      goalFit: {
+        goal: "call",
+        source: "operator",
+        requirements: [req("tappable-phone", "met")],
+        met: 1,
+        total: 1,
+      },
+      phones: [{ normalized: "13105551234", linked: false }],
+    });
+    expect(fixes).toEqual([]);
+  });
+
   it("counts pages without a top heading and pages without a canonical address", () => {
     const fixes = measuredFixes({
       ...empty(),
