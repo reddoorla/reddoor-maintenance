@@ -3,6 +3,7 @@ import type { AnswerSpace } from "./answer-space.js";
 import type { AssetCheck } from "./assets.js";
 import type { BasicsCheck } from "./basics.js";
 import type { ConsistencyResult } from "./consistency.js";
+import type { AccuracyResult } from "./accuracy.js";
 import type { GoalFit, SiteGoal } from "./goals.js";
 import type { JourneyMap } from "./journey.js";
 
@@ -429,4 +430,8 @@ export type ProspectAuditResult = {
    *  single named goal rather than a generic template — see goals.ts. Optional
    *  for reports stored before it existed. */
   goalFit?: StageResult<GoalFit>;
+  /** When an engine describes this business, where is it getting that from —
+   *  each statement sorted by SOURCE, never by truth. See accuracy.ts. Optional
+   *  for reports stored before the stage was wired in. */
+  accuracy?: StageResult<AccuracyResult>;
 };

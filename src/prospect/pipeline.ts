@@ -7,7 +7,12 @@ import {
   claudeCodeEngine,
   llmAuthMode,
 } from "./claude-code.js";
-import { apiAccuracyDeps, type AccuracyDeps } from "./accuracy.js";
+import {
+  apiAccuracyDeps,
+  checkAccuracy,
+  type AccuracyDeps,
+  type AccuracyResult,
+} from "./accuracy.js";
 import { defaultOwnershipDeps } from "./ownership.js";
 import {
   defaultEngines,
@@ -30,7 +35,7 @@ import type {
 } from "./types.js";
 
 export type StageName =
-  "crawl" | "checks" | "lighthouse" | "analyze" | "probes" | "assets" | "basics";
+  "crawl" | "checks" | "lighthouse" | "analyze" | "probes" | "assets" | "basics" | "accuracy";
 
 /** The two ways an audit can pay for its model calls. Which one runs is
  *  decided here, once, off PROSPECT_LLM_AUTH (see claude-code.ts) — the
@@ -53,11 +58,11 @@ export function envAnalyzeDeps(
 /**
  * The accuracy stage's dependencies, chosen by the same env toggle as analyze.
  *
- * Accuracy is not wired into `runProspectAudit` yet. This selector exists
- * anyway so that when it is, the wiring cannot silently bill the metered API
- * under `PROSPECT_LLM_AUTH=subscription` — `apiAccuracyDeps` is deliberately
- * not a default parameter, so the only convenient way to call `checkAccuracy`
- * is through here.
+ * `apiAccuracyDeps` is deliberately not a default parameter, so the only
+ * convenient way to call `checkAccuracy` is through here — which is what stops
+ * the wiring silently billing the metered API under
+ * `PROSPECT_LLM_AUTH=subscription`. This is the pipeline's largest prompt (up
+ * to 14 untruncated pages) on Opus, so one forgotten argument is expensive.
  */
 export function envAccuracyDeps(userAgent: string): AccuracyDeps {
   const api = apiAccuracyDeps();
@@ -85,6 +90,11 @@ export const ANALYZE_SKIPPED = "skipped — the checks stage failed";
  *  has nothing to work from when that stage failed. Exported for the same
  *  reason as the constants above: consumers compare, they do not retype. */
 export const ASSETS_SKIPPED = "skipped — the checks stage failed";
+
+/** No branded answers to check, because the probes did not run or were turned
+ *  off. An absence of input, never a finding: the report must read "not
+ *  measured" here and never "the engine said nothing wrong about you". */
+export const ACCURACY_SKIPPED = "skipped — no branded answers to check";
 
 /** No goal was supplied and the analyze stage did not infer one — so the goal
  *  section reads "not measured". Distinct from a goal of `unknown`, which IS a
@@ -170,6 +180,8 @@ export type PipelineDeps = {
    *  someone else's server, and a courteous audit is worth more than an
    *  exhaustive one. A test passes its own `probe` to avoid a network. */
   assets?: Partial<AssetCheckDeps>;
+  /** Overrides the accuracy stage's model call and domain-ownership probes. */
+  accuracy?: Partial<AccuracyDeps>;
   /**
    * Overrides the reachability probes. A test passes its own to avoid a
    * network: three reachability requests, plus one or two per named crawler
@@ -380,6 +392,38 @@ export async function runProspectAudit(
             ),
         };
 
+  // When an engine describes this business, where is it getting that from?
+  //
+  // Runs last because it needs the most: the branded answers from probes, the
+  // whole crawl to check each claim against, and the site's own phone numbers
+  // from checks so a wrong number is read as a contradiction rather than an
+  // absence. Cheap to place here and impossible to place earlier.
+  //
+  // Skipped rather than failed when there are no branded answers. "We had
+  // nothing to check" and "the engine said nothing wrong about you" are
+  // opposite claims, and only one of them is ours to make.
+  const brandedAnswers = probes.ok ? probes.data.answers.filter((a) => a.kind === "branded") : [];
+  const accuracy: StageResult<AccuracyResult> =
+    brandedAnswers.length === 0
+      ? { ok: false, error: ACCURACY_SKIPPED }
+      : await stage("accuracy", deps, async () => {
+          const env = envAccuracyDeps(USER_AGENT);
+          return checkAccuracy(
+            url,
+            crawlData,
+            probes.ok ? probes.data.answers : [],
+            // The site's own numbers, so a wrong one in an answer reads as a
+            // contradiction rather than as something the site never mentions.
+            // `consistency` is optional on older shapes; an empty list makes
+            // every phone claim an ordinary absence, which is the safe default.
+            checks.ok ? (checks.data.consistency?.phones ?? []).map((p) => p.normalized) : [],
+            {
+              run: deps.accuracy?.run ?? env.run,
+              ownership: deps.accuracy?.ownership ?? env.ownership,
+            },
+          );
+        });
+
   return {
     url,
     businessName,
@@ -399,5 +443,6 @@ export async function runProspectAudit(
     assets,
     basics,
     goalFit,
+    accuracy,
   };
 }
