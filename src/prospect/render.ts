@@ -66,6 +66,7 @@ const STYLES = `
   .tag { display: inline-block; font-size: 12px; letter-spacing: .06em; text-transform: uppercase;
     border-radius: 999px; padding: 2px 10px; border: 1px solid currentColor; }
   .yes { color: #14663c; } .partial { color: #8a6d00; } .no { color: ${RED}; }
+  .unknown { color: #8a857e; border-style: dashed; }
   ul { padding-left: 20px; } li { margin: 6px 0; }
   .muted { color: #8a857e; }
   .cta { margin-top: 56px; background: ${RED}; color: #fff; border-radius: 8px; padding: 24px 28px; }
@@ -332,21 +333,37 @@ function buildReadabilitySection(c: ChecksResult): string {
  *  "#" anchor). `answered`/`impact`/`effort` are escaped even though a zod
  *  enum constrains them upstream — the renderer should not depend on
  *  another file staying in sync to stay safe. */
+/** What the verdict column says. "unknown" is OUR gap — the model returned no
+ *  verdict for that question — so it must not be printed as a finding about the
+ *  site, and must not look like one either. Matches the web report's labels. */
+const ANSWERED_LABEL: Record<string, string> = {
+  yes: "yes",
+  partial: "partial",
+  no: "no",
+  unknown: "not measured",
+};
+
 function buildAnswersSection(a: AnalyzeResult): string {
   const rows = a.buyerQuestions
     .map((q) => {
       const answered = escapeHtml(q.answered);
+      const label = escapeHtml(ANSWERED_LABEL[q.answered] ?? q.answered);
       const evidenceText = q.evidence ? escapeHtml(q.evidence) : null;
       const evidenceHref = q.evidence && q.page ? safeUrl(q.page) : null;
+      // An unmeasured question has no evidence for the same reason it has no
+      // verdict: we never got one back. Printing "no passage on the site" there
+      // reports our own missing measurement as a defect of theirs.
       const evidenceCell =
-        evidenceText === null
-          ? '<span class="muted">no passage on the site</span>'
-          : evidenceHref && evidenceHref !== "#"
-            ? `<a href="${escapeHtml(evidenceHref)}" target="_blank" rel="noopener noreferrer">${evidenceText}</a>`
-            : evidenceText;
+        q.answered === "unknown"
+          ? '<span class="muted">we did not get a verdict on this question</span>'
+          : evidenceText === null
+            ? '<span class="muted">no passage on the site</span>'
+            : evidenceHref && evidenceHref !== "#"
+              ? `<a href="${escapeHtml(evidenceHref)}" target="_blank" rel="noopener noreferrer">${evidenceText}</a>`
+              : evidenceText;
       return `<tr>
           <td>${escapeHtml(q.question)}</td>
-          <td><span class="tag ${answered}">${answered}</span></td>
+          <td><span class="tag ${answered}">${label}</span></td>
           <td>${evidenceCell}</td>
         </tr>`;
     })

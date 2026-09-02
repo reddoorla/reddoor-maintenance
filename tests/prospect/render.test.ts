@@ -447,6 +447,55 @@ describe("renderProspectReport", () => {
     expect(html).not.toMatch(/no buyer-question \(category\) query was tested/i);
   });
 
+  // A question the model skipped comes back answered:"unknown", evidence:null —
+  // OUR measurement gap, not a fact about their site. The web report already
+  // says so ("Not measured", excluded from the meter); this renderer printed the
+  // raw token beside "no passage on the site", which is a claim about their site
+  // for a question we never got a verdict on. It is the exact inversion the
+  // "unknown" state was introduced to prevent, and email.ts attaches this HTML.
+  describe("an unmeasured question is reported as ours, not theirs", () => {
+    const unmeasured = () =>
+      renderProspectReport(
+        result({
+          analyze: {
+            ok: true,
+            data: analyzeData({
+              buyerQuestions: [
+                {
+                  question: "Do you do flat roofs?",
+                  answered: "unknown",
+                  quotable: false,
+                  page: null,
+                  evidence: null,
+                },
+              ],
+            }),
+          },
+        }),
+      );
+
+    it("never blames the site for a passage we did not look for", () => {
+      expect(unmeasured()).not.toContain("no passage on the site");
+    });
+
+    it("says we did not measure it, in words rather than a raw enum token", () => {
+      const html = unmeasured();
+      expect(html).toMatch(/not measured/i);
+      expect(html).not.toMatch(/<span class="tag unknown">unknown<\/span>/);
+    });
+
+    it("styles the unknown tag, so it cannot read as a measured verdict", () => {
+      expect(unmeasured()).toMatch(/\.unknown\s*\{/);
+    });
+
+    // The three real verdicts must keep saying exactly what they said.
+    it("leaves a genuinely unanswered question alone", () => {
+      const html = renderProspectReport(result());
+      expect(html).toContain("no passage on the site");
+      expect(html).toMatch(/<span class="tag no">no<\/span>/);
+    });
+  });
+
   // --- Adversarial escaping: business/description was already covered
   // above; every other prospect-controlled sink gets its own hostile fixture.
   describe("escapes hostile content at every prospect-controlled sink", () => {
