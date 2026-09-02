@@ -144,8 +144,14 @@ checklist.** In short: relocate the pure helpers `fleet-state.ts` value-imports
 from the Airtable layer (they run on every lead read), port `resend-webhook`'s
 report lookup to Turso, replace `ensure-site` (the only sites-INSERT path is
 driven by the Airtable create), move batch enumeration off `listWebsites(base)`
-(including the nightly form-e2e), remove `form-ingest`'s Airtable env gate
-_before_ pulling the env vars — and only then delete. #645 (post-flip lead-path
+(including the nightly form-e2e), ~~remove `form-ingest`'s Airtable env gate
+_before_ pulling the env vars~~ (**done 2026-09-02**: the gate is gone from
+`form-ingest` and from the vestigial copy in `submissions-page`, and a
+handler-level test reds if either comes back —
+`tests/forms/form-ingest-handler.test.ts` for the lead path,
+`tests/dashboard/submissions-bulk-read.test.ts` for the page. The ordering
+constraint is now enforced by the suite rather than by this checklist)
+— and only then delete. #645 (post-flip lead-path
 hardening) should land first.
 
 ## Free-tier guard-rails

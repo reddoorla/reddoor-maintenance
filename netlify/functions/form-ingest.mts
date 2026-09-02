@@ -1,5 +1,5 @@
 import type { Context, Config } from "@netlify/functions";
-import { openBase } from "../../src/reports/airtable/client.js";
+import { openBase, readAirtableConfig } from "../../src/reports/airtable/client.js";
 import { getWebsiteBySlug } from "../../src/reports/airtable/websites.js";
 import { getSiteBySlug } from "../../src/db/fleet-state.js";
 import { makeSiteLookup } from "../../src/forms/site-lookup.js";
@@ -105,13 +105,14 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     return json({ ok: false, error: "unauthorized" }, 401);
   }
 
-  const apiKey = process.env.AIRTABLE_PAT;
-  const baseId = process.env.AIRTABLE_BASE_ID;
-  if (!apiKey || !baseId) {
-    console.error("[form-ingest] AIRTABLE_PAT or AIRTABLE_BASE_ID missing");
-    return json({ ok: false, error: "airtable-env-missing" }, 500);
-  }
-
+  // NO Airtable precondition here, deliberately. Post-freeze the site lookup is
+  // Turso-only (site-lookup.ts `strict`), so Airtable cannot answer this request
+  // even in principle — a presence check on AIRTABLE_PAT / AIRTABLE_BASE_ID
+  // therefore guards nothing and can only ever refuse a lead. It refused it at
+  // the worst possible point too: BEFORE `ingestSubmission`, and the dead-letter
+  // lives inside `ingestSubmission`, so the lead was not captured anywhere and
+  // `submitToIngest` does not retry. fleet-homepage.mts made the same removal
+  // for a page; this is the path where the cost is a client's lead.
   if (!process.env.TURSO_DATABASE_URL) {
     console.error("[form-ingest] TURSO_DATABASE_URL missing");
     return json({ ok: false, error: "db-env-missing" }, 500);
@@ -128,16 +129,23 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
   }
 
   try {
-    const base = openBase({ apiKey, baseId });
     const db = await openDb(readDbConfig());
 
-    // Phase 2 (#539): the site lookup is Turso-primary — the hourly sync keeps
-    // `sites` fresh; Airtable is consulted only for a slug Turso doesn't know
-    // (the new-site window). This retires the 08-17 outage class: an Airtable
-    // outage can no longer touch the lead hot path.
+    // #612: post-freeze the site lookup is Turso-ONLY. The Phase 2 shape this
+    // replaces ("Turso-primary, Airtable for a slug Turso doesn't know") ended
+    // with the freeze: the hourly import that opened that window is retired and
+    // `ensure-site` inserts straight into Turso, so a slug Turso does not know
+    // is an unknown slug. This is what retires the 08-17 outage class outright
+    // — an Airtable outage, an expired PAT or an unset one cannot reach a lead.
     const lookupSite = makeSiteLookup({
       fromDb: (s) => getSiteBySlug(db, s),
-      fromAirtable: (s) => getWebsiteBySlug(base, s),
+      // Built INSIDE the callback, not above it: `strict` returns null before
+      // ever calling this, so on the live path no Airtable client is
+      // constructed and no Airtable credential is read. Constructing it eagerly
+      // is what put the whole Airtable layer in front of every lead. Reached
+      // only with `strict` false, where `readAirtableConfig()` throwing is the
+      // documented behaviour — it hands the lead to the dead-letter.
+      fromAirtable: (s) => getWebsiteBySlug(openBase(readAirtableConfig()), s),
     });
 
     // Screen-out beacon: a no-PII { _screenOut: honeypot|too-fast } body is routed

@@ -234,4 +234,22 @@ describe("submissions-page adapter — bulk mark-read POST", () => {
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("No submissions match these filters.");
   });
+
+  // The page reads `sites` and `submissions` from Turso and imports only
+  // `siteSlug` (a pure string helper) from the Airtable module — so an Airtable
+  // presence check could only ever refuse a page it does not need. The rest of
+  // this file sets AIRTABLE_PAT in beforeEach, which is exactly what kept the
+  // dead guard invisible.
+  it("renders with no Airtable env at all", async () => {
+    delete process.env.AIRTABLE_PAT;
+    delete process.env.AIRTABLE_BASE_ID;
+    const res = await submissionsPage(
+      new Request("https://dash.x/submissions", {
+        method: "GET",
+        headers: { authorization: AUTH },
+      }),
+      ctx,
+    );
+    expect(res.status).toBe(200);
+  });
 });
