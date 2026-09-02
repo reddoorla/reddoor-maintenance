@@ -279,7 +279,29 @@ function normalize(s: string): string {
  * words are dropped for that reason.
  */
 function distinctive(terms: string[]): string[] {
-  return terms.map((t) => t.trim()).filter((t) => t.length >= 5);
+  return terms
+    .map((t) => t.trim())
+    .filter((t) => {
+      if (t.length < 5) return false;
+      // A single common noun is a TOPIC; the backstop needs an ANSWER.
+      //
+      // Length alone was the whole guard, and it let "employees" through on a
+      // real run of our own site: an engine claimed the company had "about 5
+      // employees", the word turned up inside an unrelated case study about an
+      // organisation of 84,000 people, and the report excused the claim with
+      // `Your site does say "employees"`. To a reader that is not caution, it
+      // is a tool that cannot read — and it suppresses a true finding.
+      //
+      // Three shapes survive, and each one is a claim rather than a subject:
+      // a phrase, anything carrying a number, and a proper noun. The last is
+      // what the backstop was built for — an engine naming a practice after a
+      // clinician whose name does appear on the team page — and it is the only
+      // reason a lone word is ever enough.
+      const multiWord = /\s/.test(t);
+      const hasNumber = /\d/.test(t);
+      const properNoun = /^[A-Z]/.test(t);
+      return multiWord || hasNumber || properNoun;
+    });
 }
 
 const MIN_TOKEN = 5;

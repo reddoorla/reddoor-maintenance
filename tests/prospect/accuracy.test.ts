@@ -379,3 +379,61 @@ describe("fullSiteText", () => {
     expect(text).toContain("two");
   });
 });
+
+describe("backstopAbsent — a single common word is a topic, not an answer", () => {
+  const assertion = (claim: string) => ({
+    claim,
+    verdict: "absent" as const,
+    engineQuote: "q",
+    siteQuote: null,
+    unverifiedReason: null,
+    nearbyMention: null,
+    sourceDomains: [],
+    query: "who is Acme",
+    engine: "claude",
+  });
+
+  it("does not excuse a claim because one common word appears somewhere", () => {
+    // Observed on a real run of our own site. An engine claimed the company has
+    // "about 5 employees"; the backstop found the word "employees" inside an
+    // unrelated case study about an organisation of 84,000 people, and printed
+    // `Your site does say "employees", so we have not counted this as missing.`
+    // That is a topic match dressed as an answer, and it reads as a tool that
+    // cannot read.
+    const site =
+      "We turned policy into county-wide action by managing an organization of over 84,000 employees.";
+    const [out] = backstopAbsent(
+      [assertion("Acme has about 5 employees")],
+      site,
+      new Map([["Acme has about 5 employees", ["employees"]]]),
+      true,
+    );
+    expect(out!.verdict).toBe("absent");
+    expect(out!.nearbyMention).toBeNull();
+  });
+
+  it("still excuses a claim when the site uses the actual phrase", () => {
+    const site = "Our studio has about 5 employees across three states.";
+    const [out] = backstopAbsent(
+      [assertion("Acme has about 5 employees")],
+      site,
+      new Map([["Acme has about 5 employees", ["about 5 employees"]]]),
+      true,
+    );
+    expect(out!.verdict).toBe("unverified");
+  });
+
+  it("still trusts a distinctive proper noun on its own", () => {
+    // The case the backstop was built for: an engine names a practice after a
+    // clinician the site never mentions, and the team page lists a similar
+    // name. A single word is enough here precisely because it is a name.
+    const site = "Our team is led by Dr Alderson, who founded the practice.";
+    const [out] = backstopAbsent(
+      [assertion("Formerly known as Alderson Dental")],
+      site,
+      new Map([["Formerly known as Alderson Dental", ["Alderson"]]]),
+      true,
+    );
+    expect(out!.verdict).toBe("unverified");
+  });
+});
