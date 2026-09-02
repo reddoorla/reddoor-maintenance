@@ -505,6 +505,74 @@ describe("runProspectAudit — the fix list is checked against the checklist", (
     expect(an.data.fixes.map((f) => f.title)).toEqual(["Compress the hero image"]);
   });
 
+  it("drops it on an ordinary audit too, where the goal is the model's own", async () => {
+    // The gap the operator-goal test above cannot see. With no --goal the
+    // checklist is computed AFTER analyze, from the goal the model inferred —
+    // and it is printed in the report. Reconciliation only ever ran on the
+    // operator path, so on an ordinary audit the report could print a checklist
+    // saying "already done" three sections above a fix saying to do it.
+    //
+    // (With no operator goal AND no inferred goal there is no checklist at all,
+    // so there is nothing to reconcile against — that case is not this bug.)
+    const withPhone = fixture("rich.html").replace(
+      "</body>",
+      '<a href="tel:+12085551234">Call us</a></body>',
+    );
+    const fixes = [
+      {
+        title: "Make the phone number tappable",
+        why: "w",
+        impact: "high",
+        effort: "low",
+        tier: "technical",
+        addresses: "tappable-phone",
+      },
+      {
+        title: "Compress the hero image",
+        why: "w",
+        impact: "medium",
+        effort: "low",
+        tier: "technical",
+        addresses: null,
+      },
+    ];
+    const serveWithPhone = crawlDeps({
+      async fetchUrl(url) {
+        return url === HOME || url.endsWith("/services") || url.endsWith("/about")
+          ? { status: 200, body: withPhone, headers: {} }
+          : { status: 404, body: "", headers: {} };
+      },
+      async renderPages(urls) {
+        return new Map(urls.map((u) => [u, withPhone]));
+      },
+    });
+    const result = await runProspectAudit(
+      HOME,
+      {},
+      {
+        ...deps(),
+        crawl: serveWithPhone,
+        // No operator goal: the model names the goal itself, which is what the
+        // report then grades the site against.
+        analyze: {
+          run: async () => ({ ...analyzeOutput, primaryGoal: "enquire" as const, fixes }),
+        },
+      },
+    );
+
+    const gf = result.goalFit;
+    if (!gf?.ok) throw new Error("the goal check did not run");
+    expect(gf.data.source, "the checklist came from the model, not an operator").toBe("inferred");
+    const met = gf.data.requirements
+      .filter((r: GoalRequirement) => r.status === "met")
+      .map((r: GoalRequirement) => r.key);
+    expect(met, "the fixture site really does have a tappable phone").toContain("tappable-phone");
+
+    const an = result.analyze;
+    if (!an?.ok) throw new Error("the analyze stage did not run");
+    expect(an.data.fixes.map((f) => f.title)).toEqual(["Compress the hero image"]);
+  });
+
   it("tells the model nothing about the checklist when no goal was given", async () => {
     // We do not know which checklist applies yet, and inventing one would grade
     // the site against our own guess before the model has even read it.

@@ -1,6 +1,6 @@
 import { crawlSite, defaultCrawlDeps, readCapped, USER_AGENT, type CrawlDeps } from "./crawl.js";
 import { computeScores, runChecks } from "./checks.js";
-import { analyzeSite, defaultAnalyzeDeps, type AnalyzeDeps } from "./analyze.js";
+import { analyzeSite, defaultAnalyzeDeps, reconcileFixes, type AnalyzeDeps } from "./analyze.js";
 import {
   claudeCodeAccuracyRun,
   claudeCodeAnalyzeDeps,
@@ -392,6 +392,24 @@ export async function runProspectAudit(
             ),
         };
 
+  // Reconcile the fix list against the checklist the REPORT prints. On an
+  // ordinary audit that checklist is only known HERE — the goal came from the
+  // model, so it did not exist when analyze ran and the backstop inside
+  // analyzeSite had nothing to compare against. Without this, a report can
+  // print "Yes — a phone number they can tap" and, three sections later, tell
+  // them to add one.
+  //
+  // On the operator path this is the same checklist analyze was already shown
+  // and already filtered against; the filter is idempotent, so one call covers
+  // both paths rather than two rules that can drift apart.
+  const reconciled: StageResult<AnalyzeResult> =
+    analyze.ok && goalFit.ok
+      ? {
+          ok: true,
+          data: { ...analyze.data, fixes: reconcileFixes(analyze.data.fixes, goalFit.data) },
+        }
+      : analyze;
+
   // When an engine describes this business, where is it getting that from?
   //
   // Runs last because it needs the most: the branded answers from probes, the
@@ -432,13 +450,13 @@ export async function runProspectAudit(
     scores: computeScores({
       checks: checks.ok ? checks.data : null,
       lighthouse: lighthouse.ok ? lighthouse.data : null,
-      analyze: analyze.ok ? analyze.data : null,
+      analyze: reconciled.ok ? reconciled.data : null,
       probes: probes.ok ? probes.data : null,
     }),
     crawl,
     checks,
     lighthouse,
-    analyze,
+    analyze: reconciled,
     probes,
     assets,
     basics,
