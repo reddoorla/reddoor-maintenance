@@ -228,6 +228,11 @@ export type Fix = {
    *  image, a broken link, a stale year) answer to no requirement at all.
    *  Absent on reports stored before the model was asked to tag them. */
   addresses?: string | null;
+  /** Where the fix came from. "measured": produced by code from a check that
+   *  ran on this audit — a finding. "recommendation": written by the model —
+   *  judgement, rendered below the findings and labelled as such. Absent on
+   *  reports stored before the split, which were all model-written. */
+  origin?: "measured" | "recommendation";
 };
 
 export type AnalyzeResult = {
