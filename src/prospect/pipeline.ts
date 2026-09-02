@@ -1,11 +1,6 @@
 import { crawlSite, defaultCrawlDeps, readCapped, USER_AGENT, type CrawlDeps } from "./crawl.js";
 import { computeScores, runChecks } from "./checks.js";
-import {
-  analyzeSite,
-  defaultAnalyzeDeps,
-  reconcileFixes,
-  type AnalyzeDeps,
-} from "./analyze.js";
+import { analyzeSite, defaultAnalyzeDeps, reconcileFixes, type AnalyzeDeps } from "./analyze.js";
 import {
   claudeCodeAccuracyRun,
   claudeCodeAnalyzeDeps,
