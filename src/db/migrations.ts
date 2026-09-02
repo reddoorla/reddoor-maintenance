@@ -367,4 +367,30 @@ export const MIGRATIONS: Migration[] = [
         ON submissions (form_type);
     `,
   },
+  {
+    // `url` is stored exactly as audited, which makes it a record of the run and
+    // a bad thing to group by: the table already holds beachfrontdentistry.com
+    // and beachfrontdentistry.com/ as two histories of one practice, and both
+    // spellings of ludlowkingsley.com. That costs nothing today because nothing
+    // compares two audits of one site — and becomes a returning client with no
+    // history the day the report offers a before and an after.
+    //
+    // Deliberately no SQL backfill. Doing it with lower()/replace()/rtrim()
+    // would mangle any URL containing "www." or "http://" away from its start,
+    // and a key that is quietly wrong is worse than one that is null. Existing
+    // rows are backfilled once with the real siteKey().
+    // Same ADD COLUMN caveat as 0003: no IF NOT EXISTS in SQLite, so the runner
+    // treats "duplicate column name" as already-applied. Kept as its own
+    // migration, separate from its index below, so that recovery path stays a
+    // single statement.
+    id: "0013_prospect_audits_site_key",
+    sql: `ALTER TABLE prospect_audits ADD COLUMN site_key TEXT;`,
+  },
+  {
+    id: "0014_prospect_audits_site_key_index",
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_prospect_audits_site_key
+        ON prospect_audits (site_key, created_at DESC);
+    `,
+  },
 ];

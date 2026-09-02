@@ -76,6 +76,8 @@ const PURE_EXPORTS = new Set([
   "generateToken",
   "isValidToken",
   "newProspectAuditId",
+  // Pure string normalisation — computes the lineage key, never queries on it.
+  "siteKey",
 ]);
 
 /** Raw scans accepted with a written justification. Empty today — the 0008

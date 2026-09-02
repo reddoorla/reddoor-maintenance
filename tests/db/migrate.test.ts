@@ -19,6 +19,8 @@ describe("runMigrations", () => {
       "0010_prospect_audits_created_index",
       "0011_digest_state",
       "0012_submissions_form_type_index",
+      "0013_prospect_audits_site_key",
+      "0014_prospect_audits_site_key_index",
     ]);
     const tables = await client.execute(
       "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
@@ -49,6 +51,8 @@ describe("runMigrations", () => {
       "0010_prospect_audits_created_index",
       "0011_digest_state",
       "0012_submissions_form_type_index",
+      "0013_prospect_audits_site_key",
+      "0014_prospect_audits_site_key_index",
     ]);
   });
 
@@ -83,6 +87,8 @@ describe("runMigrations", () => {
       "0010_prospect_audits_created_index",
       "0011_digest_state",
       "0012_submissions_form_type_index",
+      "0013_prospect_audits_site_key",
+      "0014_prospect_audits_site_key_index",
     ]);
   });
 
@@ -120,6 +126,8 @@ describe("runMigrations", () => {
       "0010_prospect_audits_created_index",
       "0011_digest_state",
       "0012_submissions_form_type_index",
+      "0013_prospect_audits_site_key",
+      "0014_prospect_audits_site_key_index",
     ]);
   });
 });
