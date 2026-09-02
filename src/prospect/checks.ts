@@ -304,10 +304,22 @@ export function computeScores(input: {
   }
 
   let answers: number | null = null;
-  if (analyze && analyze.buyerQuestions.length > 0) {
-    const weight = { yes: 1, partial: 0.5, no: 0 } as const;
-    const total = analyze.buyerQuestions.reduce((s, q) => s + weight[q.answered], 0);
-    answers = pct((total / analyze.buyerQuestions.length) * 100);
+  if (analyze) {
+    // Only questions we actually got a verdict on. "unknown" means the model
+    // skipped one of ours (see conformToSet in analyze.ts) — that is a hole in
+    // our measurement, and both ways of absorbing it are wrong: counted as a
+    // zero it reports our gap as their defect, counted as a pass it credits
+    // them for something nobody checked. It leaves the denominator instead,
+    // exactly as an unmeasured requirement does in goals.ts.
+    //
+    // The row is still shown in the report's table, marked as not measured, so
+    // the reader can see what we asked and what we failed to answer.
+    const judged = analyze.buyerQuestions.filter((q) => q.answered !== "unknown");
+    if (judged.length > 0) {
+      const weight = { yes: 1, partial: 0.5, no: 0 } as const;
+      const total = judged.reduce((s, q) => s + weight[q.answered as keyof typeof weight], 0);
+      answers = pct((total / judged.length) * 100);
+    }
   }
 
   return {

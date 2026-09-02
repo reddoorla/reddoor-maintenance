@@ -26,6 +26,38 @@ export function newProspectAuditId(): string {
  *  deserializing the whole result_json. */
 export type ProspectAuditStatus = "complete" | "partial";
 
+/**
+ * The lineage handle for a site: one key for every way of writing its address.
+ *
+ * `url` is kept exactly as it was given, because what we audited is a fact
+ * about the run. It is the wrong thing to group by, though, and the corpus
+ * already proves it — `beachfrontdentistry.com` and `beachfrontdentistry.com/`
+ * are two separate histories in the table today, as are the two spellings of
+ * ludlowkingsley.com. Nothing has broken only because nothing yet compares two
+ * audits of one site. The moment the report offers a before and an after, a
+ * trailing slash turns a returning client into a stranger.
+ *
+ * Scheme, a leading "www.", a trailing slash, a query string and a fragment all
+ * go: none of them distinguish one site from another. The path stays, because a
+ * site living in a subdirectory genuinely is a different site.
+ *
+ * Never throws. A key we cannot compute must not take an audit down with it —
+ * an unparseable input falls back to its trimmed self, which groups nothing and
+ * so is no worse than having no key at all.
+ */
+export function siteKey(url: string): string {
+  const raw = url.trim();
+  if (raw === "") return "";
+  try {
+    const u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`);
+    const host = u.hostname.toLowerCase().replace(/^www\./, "");
+    const path = u.pathname.replace(/\/+$/, "");
+    return `${host}${path}`;
+  } catch {
+    return raw;
+  }
+}
+
 export type NewProspectAudit = {
   url: string;
   business: string | null;
@@ -49,6 +81,7 @@ export async function createProspectAudit(
       id,
       token,
       url: audit.url,
+      site_key: siteKey(audit.url),
       business: audit.business,
       created_at: new Date().toISOString(),
       status: audit.status ?? "complete",

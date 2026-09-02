@@ -3,6 +3,7 @@ import type { AnswerSpace } from "./answer-space.js";
 import type { AssetCheck } from "./assets.js";
 import type { BasicsCheck } from "./basics.js";
 import type { ConsistencyResult } from "./consistency.js";
+import type { AccuracyResult } from "./accuracy.js";
 import type { GoalFit, SiteGoal } from "./goals.js";
 import type { JourneyMap } from "./journey.js";
 
@@ -201,8 +202,14 @@ export type ChecksResult = {
 };
 
 export type BuyerQuestion = {
+  /** Stable key from the fixed set in questions.ts. Absent on reports stored
+   *  before the set was fixed, when the model still wrote its own questions. */
+  id?: string;
   question: string;
-  answered: "yes" | "partial" | "no";
+  /** "unknown" is ours, never the model's: it means we did not get an answer
+   *  for a question we asked, so the row is shown and excluded from the score.
+   *  A missing answer of ours must never be scored as a "no" about them. */
+  answered: "yes" | "partial" | "no" | "unknown";
   /** Is there a passage an AI answer could quote verbatim? */
   quotable: boolean;
   page: string | null;
@@ -215,6 +222,12 @@ export type Fix = {
   impact: "high" | "medium" | "low";
   effort: "low" | "medium" | "high";
   tier: "crawl" | "content" | "technical";
+  /** The goal-requirement key this fix would satisfy, when it maps to one —
+   *  the handle `reconcileFixes` uses to drop a fix for something we already
+   *  measured as present. Null is the normal case: most good fixes (a heavy
+   *  image, a broken link, a stale year) answer to no requirement at all.
+   *  Absent on reports stored before the model was asked to tag them. */
+  addresses?: string | null;
 };
 
 export type AnalyzeResult = {
@@ -231,6 +244,10 @@ export type AnalyzeResult = {
    *  absence means the goal section reads "not measured". */
   primaryGoal?: SiteGoal;
   buyerQuestions: BuyerQuestion[];
+  /** Which fixed question set was asked — `${goal}-v${QUESTION_SET_VERSION}`.
+   *  Absent on reports stored before the set was fixed. Two audits' Answers
+   *  scores are comparable exactly when this matches; see sameQuestionSet. */
+  questionSetId?: string;
   /** Standalone searches for the visibility probes — what a buyer types before
    *  they know this company exists. Distinct from `buyerQuestions`, which are
    *  phrased about this site and are unanswerable on their own; see the schema
@@ -413,4 +430,8 @@ export type ProspectAuditResult = {
    *  single named goal rather than a generic template — see goals.ts. Optional
    *  for reports stored before it existed. */
   goalFit?: StageResult<GoalFit>;
+  /** When an engine describes this business, where is it getting that from —
+   *  each statement sorted by SOURCE, never by truth. See accuracy.ts. Optional
+   *  for reports stored before the stage was wired in. */
+  accuracy?: StageResult<AccuracyResult>;
 };

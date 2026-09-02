@@ -110,6 +110,34 @@ describe("checkConsistency", () => {
     expect(result.newestCopyrightYear).toBe(2021);
   });
 
+  it("finds the year when the company name sits between the symbol and it", () => {
+    // "© Reddoor Creative 2006-2026" is our own footer, and the detector read
+    // it as no copyright line at all — the year has to follow the symbol
+    // immediately. It is one of the most ordinary ways to write the line, and
+    // missing it means never reporting a stale year on any site that writes it
+    // that way. Found by auditing our own site before showing the tool to
+    // anyone else.
+    const result = checkConsistency([
+      page("https://x.example/", { text: "© Reddoor Creative 2006-2026, All Rights Reserved" }),
+      page("https://x.example/a", { text: "Copyright Acme Industries Ltd 2021" }),
+    ]);
+    expect(result.copyrightYears).toEqual([2021, 2026]);
+    expect(result.newestCopyrightYear).toBe(2026);
+  });
+
+  it("does not reach across a sentence to bind a year to the word copyright", () => {
+    // The gap is bounded on purpose. Without a limit, "copyright" anywhere on a
+    // page would capture the next four-digit number on it — a founding date, an
+    // address, a case-study statistic — and report it as the site's copyright
+    // year, which is how a check invents a stale-site finding out of nothing.
+    const result = checkConsistency([
+      page("https://x.example/", {
+        text: "All content is protected by copyright. Our team has served the region since 1998, delivering more than 2400 projects.",
+      }),
+    ]);
+    expect(result.copyrightYears).toEqual([]);
+  });
+
   it("ignores a four-digit number that is not a plausible year", () => {
     const result = checkConsistency([page("https://x.example/", { text: "© 1200 Acme" })]);
     expect(result.copyrightYears).toEqual([]);

@@ -47,6 +47,8 @@ describe("openDb", () => {
       "0010_prospect_audits_created_index",
       "0011_digest_state",
       "0012_submissions_form_type_index",
+      "0013_prospect_audits_site_key",
+      "0014_prospect_audits_site_key_index",
     ]);
     await db.destroy();
   });
