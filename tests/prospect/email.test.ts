@@ -4,7 +4,6 @@ import {
   sendAuditEmail,
   parseProspectAuditRecipients,
 } from "../../src/prospect/email.js";
-import { PROBES_SKIPPED, ANALYZE_SKIPPED } from "../../src/prospect/pipeline.js";
 import type { ResendClient, ResendSendInput } from "../../src/reports/send/resend.js";
 import type {
   AnalyzeResult,

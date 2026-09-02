@@ -1,7 +1,7 @@
 import { escapeHtml, safeUrl } from "../util/html.js";
 import { hostnameOf } from "../util/url.js";
 import { defaultResendClient, type ResendClient } from "../reports/send/resend.js";
-import type { AnalyzeResult, Fix, ProspectAuditResult, StageResult } from "./types.js";
+import type { ProspectAuditResult } from "./types.js";
 
 /**
  * Mirrors `reports/send/orchestrate.ts`'s `FROM_ADDRESS` (its line 18) — copied,
@@ -122,16 +122,6 @@ function notMeasuredLines(result: ProspectAuditResult): NotMeasuredLine[] {
 
   return lines;
 }
-
-/** The three SITE scores. aiVisibility is deliberately absent — the report
- *  reorganised around what the client controls, and a visibility number in a
- *  score row reads as ours to move. It stays computed and stored; the report
- *  page presents the receipts. */
-const SCORE_FIELDS: { key: keyof ProspectAuditResult["scores"]; label: string }[] = [
-  { key: "findability", label: "Findability" },
-  { key: "readability", label: "Readability" },
-  { key: "answers", label: "Answers" },
-];
 
 function notMeasuredHtml(lines: NotMeasuredLine[]): string {
   if (lines.length === 0) return "";
