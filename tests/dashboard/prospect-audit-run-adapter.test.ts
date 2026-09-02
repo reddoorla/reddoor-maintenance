@@ -91,7 +91,7 @@ function post(body: unknown, headers: Record<string, string> = {}): Request {
   });
 }
 
-const GOOD_BODY = { url: "https://prospect.example/", business: "Prospect Co" };
+const GOOD_BODY = { url: "https://prospect.example/", goal: "enquire", business: "Prospect Co" };
 
 describe("prospect-audit-run adapter — method + CSRF + auth gating", () => {
   it("405s a non-GET/non-POST method (DELETE)", async () => {
@@ -179,7 +179,7 @@ describe("prospect-audit-run adapter — input validation (each rejection is dis
   it("400s a private/loopback-host url with a DIFFERENT message than a bad url", async () => {
     configureEnv();
     const res = await prospectAuditRun(
-      post({ url: "http://127.0.0.1:8080/" }, authHeader("tucker", "s3cret")),
+      post({ url: "http://127.0.0.1:8080/", goal: "enquire" }, authHeader("tucker", "s3cret")),
       ctx,
     );
     expect(res.status).toBe(400);
@@ -229,6 +229,7 @@ describe("prospect-audit-run adapter — a good request", () => {
       workflowFile: "prospect-audit.yml",
       inputs: {
         url: "https://prospect.example/",
+        goal: "enquire",
         business: "Prospect Co",
         // The shared-password fallback has no identity behind it, so the audit
         // log says so rather than naming whoever the Basic username claimed.
@@ -276,7 +277,7 @@ describe("prospect-audit-run adapter — a good request", () => {
   it("treats a missing business name as an empty workflow input, not literal 'null'", async () => {
     configureEnv();
     await prospectAuditRun(
-      post({ url: "https://prospect.example/" }, authHeader("tucker", "s3cret")),
+      post({ url: "https://prospect.example/", goal: "enquire" }, authHeader("tucker", "s3cret")),
       ctx,
     );
     expect(dispatchCalls[0]?.inputs.business).toBe("");

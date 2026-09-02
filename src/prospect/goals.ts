@@ -55,6 +55,19 @@ export type Scope = "quick" | "content" | "structural";
  */
 export type RequirementStatus = "met" | "missing" | "unmeasured";
 
+/** The goals an OPERATOR may choose for a run. "unknown" is deliberately not
+ *  here: it is a finding the audit can reach on its own — we read every page
+ *  and could not tell — never something a person sits down and selects. */
+export const OPERATOR_GOALS = [
+  "book",
+  "enquire",
+  "call",
+  "visit",
+  "buy",
+  "demo",
+  "partner",
+] as const;
+
 export type GoalRequirement = {
   key: string;
   /** What the visitor needs, in the visitor's terms. */
