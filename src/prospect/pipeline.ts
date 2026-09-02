@@ -276,6 +276,17 @@ export async function runProspectAudit(
     (deps.lighthouse ?? runLighthouse)(url),
   );
 
+  // When the operator told us what the site is for, the goal checklist is a
+  // pure function of the crawl and the checks — so it can be computed BEFORE
+  // the model runs and handed to it, which is the only way the fix list can be
+  // stopped from recommending work the report says is already done. Without an
+  // operator goal we do not yet know which checklist applies, and the model
+  // gets nothing; reconcileFixes still runs as the backstop either way.
+  const operatorFit: GoalFit | null =
+    opts.goal !== undefined && opts.goal !== null
+      ? checkGoal(opts.goal, "operator", crawlData, checks.ok ? checks.data : null)
+      : null;
+
   const analyze: StageResult<AnalyzeResult> = checks.ok
     ? await stage("analyze", deps, async () =>
         // The operator's goal, when we have one, decides which fixed question
@@ -288,6 +299,7 @@ export async function runProspectAudit(
           checks.data,
           deps.analyze ?? envAnalyzeDeps(),
           opts.goal ?? "unknown",
+          operatorFit,
         ),
       )
     : { ok: false, error: ANALYZE_SKIPPED };
@@ -337,12 +349,18 @@ export async function runProspectAudit(
       ? { ok: false, error: GOAL_UNRESOLVED }
       : {
           ok: true,
-          data: checkGoal(
-            resolvedGoal,
-            opts.goal ? "operator" : "inferred",
-            crawlData,
-            checks.ok ? checks.data : null,
-          ),
+          // Reuse the checklist the model was shown rather than recomputing an
+          // identical one. Same inputs either way, but sharing the object makes
+          // it structurally impossible for the fix list to have been reconciled
+          // against a different checklist from the one the report prints.
+          data:
+            operatorFit ??
+            checkGoal(
+              resolvedGoal,
+              opts.goal ? "operator" : "inferred",
+              crawlData,
+              checks.ok ? checks.data : null,
+            ),
         };
 
   return {

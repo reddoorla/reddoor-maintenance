@@ -5,10 +5,12 @@ import type {
   BuyerQuestion,
   ChecksResult,
   CrawlResult,
+  Fix,
   PageCapture,
 } from "./types.js";
 import type { SiteGoal } from "./goals.js";
 import { questionSetFor, type QuestionSet } from "./questions.js";
+import type { GoalFit } from "./goals.js";
 
 /** Bounds on what reaches the model: enough site to judge, small enough to stay
  *  inside one ~$0.50 call. */
@@ -80,6 +82,10 @@ export const AnalyzeSchema = z.object({
         impact: z.enum(["high", "medium", "low"]),
         effort: z.enum(["low", "medium", "high"]),
         tier: z.enum(["crawl", "content", "technical"]),
+        // The handle that lets us check the model's prose against our own
+        // measurements. Nullable and expected to be null most of the time —
+        // see reconcileFixes.
+        addresses: z.string().nullable().default(null),
       }),
     )
     .max(10),
@@ -157,6 +163,10 @@ Return:
   at it with a pronoun has no antecedent and the engine will answer that it does not know who is meant.
   These are searches, not conversational questions, and they are not the buyerQuestions above.
 - fixes: prioritized, concrete, specific to this site. No generic SEO advice.
+  Set addresses to the key of the measured requirement a fix would satisfy — one of the keys listed
+  under "What we have already measured", exactly as written — or null when it answers to none of them.
+  Null is the normal case: a heavy image, a broken link or a stale copyright year maps to no
+  requirement. Do not invent a key.
 - narrative: two or three plain sentences per report section, addressed to the business owner. No
   jargon, no hedging.`;
 }
@@ -246,6 +256,7 @@ export function buildAnalyzeInput(
   crawl: CrawlResult,
   checks: ChecksResult,
   questions: QuestionSet,
+  goalFit: GoalFit | null = null,
 ): { system: string; user: string } {
   const fence = makeFenceTag();
   const pages = selectPages(crawl.pages).map((p) => {
@@ -277,6 +288,30 @@ export function buildAnalyzeInput(
     // The questions come before the pages deliberately: the model reads what it
     // is looking for, then reads the site looking for it, rather than forming an
     // impression and then being asked to grade it.
+    // What we already know, so the model cannot recommend it. reconcileFixes
+    // is the backstop that catches it anyway; this is the cheaper half of the
+    // same guard, and it also stops the fix list wasting its ten slots on work
+    // that is already done.
+    ...(goalFit
+      ? [
+          `## What we have already measured`,
+          `This site's main goal is "${goalFit.goal}". We checked the following and found:`,
+          goalFit.requirements
+            .map(
+              (r) =>
+                `- ${r.key} (${r.label}): ${
+                  r.status === "met"
+                    ? "ALREADY DONE"
+                    : r.status === "missing"
+                      ? "NOT ON THE SITE"
+                      : "we could not check"
+                }`,
+            )
+            .join("\n"),
+          `Never propose a fix for anything marked ALREADY DONE — the report says so two sections above your list, and contradicting it discredits the whole document.`,
+          "",
+        ]
+      : []),
     "## Questions to answer",
     `Answer every one of these and no others, returning each id exactly as written.`,
     questions.questions.map((q) => `- ${q.id}: ${q.question}`).join("\n"),
@@ -461,20 +496,48 @@ function conformToSet(
  * because the goal-fit section needs it even when we could not ask its
  * questions.
  */
+/**
+ * Drop any fix that tells the prospect to do something we measured them as
+ * having already done.
+ *
+ * The fix list is the only section the model writes freely, and until now
+ * nothing reconciled it against the checks printed above it. A report that
+ * says "Yes — a way to book without calling" in the goal checklist and then
+ * lists "Add an online booking link" three sections later does not read as one
+ * finding contradicting another; it reads as a document nobody checked, and it
+ * discredits every other line in it.
+ *
+ * Only a `met` requirement removes a fix. `missing` obviously keeps it, and
+ * `unmeasured` keeps it too: not having looked is not evidence that the work is
+ * already done, and dropping a fix on that basis would let a gap in our
+ * measurement quietly delete advice.
+ *
+ * An untagged fix always survives. Most of the good ones — a two-megabyte
+ * image, a broken link, a copyright year stuck in 2022 — answer to no goal
+ * requirement at all, and treating "no tag" as suspicious would gut the list.
+ */
+export function reconcileFixes(fixes: Fix[], goalFit: GoalFit | null): Fix[] {
+  if (!goalFit) return fixes;
+  const met = new Set(goalFit.requirements.filter((r) => r.status === "met").map((r) => r.key));
+  return fixes.filter((f) => !(f.addresses && met.has(f.addresses)));
+}
+
 export async function analyzeSite(
   url: string,
   crawl: CrawlResult,
   checks: ChecksResult,
   deps: AnalyzeDeps = defaultAnalyzeDeps(),
   goal: SiteGoal = "unknown",
+  goalFit: GoalFit | null = null,
 ): Promise<AnalyzeResult> {
   const set = questionSetFor(goal);
-  const raw = await deps.run(buildAnalyzeInput(url, crawl, checks, set));
+  const raw = await deps.run(buildAnalyzeInput(url, crawl, checks, set, goalFit));
   const parsed = AnalyzeSchema.parse(raw);
   const conformed: AnalyzeResult = {
     ...parsed,
     questionSetId: set.id,
     buyerQuestions: conformToSet(parsed.buyerQuestions, set),
+    fixes: reconcileFixes(parsed.fixes, goalFit),
   };
   return verifyEvidence(conformed, crawl);
 }

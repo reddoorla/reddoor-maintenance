@@ -221,6 +221,12 @@ export type Fix = {
   impact: "high" | "medium" | "low";
   effort: "low" | "medium" | "high";
   tier: "crawl" | "content" | "technical";
+  /** The goal-requirement key this fix would satisfy, when it maps to one —
+   *  the handle `reconcileFixes` uses to drop a fix for something we already
+   *  measured as present. Null is the normal case: most good fixes (a heavy
+   *  image, a broken link, a stale year) answer to no requirement at all.
+   *  Absent on reports stored before the model was asked to tag them. */
+  addresses?: string | null;
 };
 
 export type AnalyzeResult = {

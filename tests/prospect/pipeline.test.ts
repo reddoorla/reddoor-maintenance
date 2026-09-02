@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import type { GoalRequirement } from "../../src/prospect/goals.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
@@ -420,4 +421,95 @@ describe("llm auth mode in the pipeline", () => {
       // emailed. A misconfiguration should cost nothing and publish nothing.
       expect(crawled).toBe(false);
     }));
+});
+
+describe("runProspectAudit — the fix list is checked against the checklist", () => {
+  /** Capture what the analyze stage was actually shown. */
+  function spyDeps(fixes: unknown[]) {
+    let seen: { system: string; user: string } | null = null;
+    return {
+      deps: {
+        ...deps(),
+        analyze: {
+          run: async (input: { system: string; user: string }) => {
+            seen = input;
+            return { ...analyzeOutput, fixes };
+          },
+        },
+      },
+      prompt: () => seen,
+    };
+  }
+
+  it("shows the model what we already measured, when the operator set the goal", async () => {
+    const { deps: d, prompt } = spyDeps([]);
+    await runProspectAudit(HOME, { goal: "enquire" }, d);
+    const user = prompt()!.user;
+    expect(user).toContain("What we have already measured");
+    expect(user).toContain("price-signal");
+    expect(user).toContain("ALREADY DONE");
+  });
+
+  it("drops a fix for something the checklist says is already done", async () => {
+    // The failure this prevents: the goal section prints "Yes — a phone number
+    // they can tap" and the fix list, three sections later, says to add one.
+    // The shared fixture has no tel: link, so this test serves one that does —
+    // the point is a requirement that genuinely measures as met, not a stub.
+    const withPhone = fixture("rich.html").replace(
+      "</body>",
+      '<a href="tel:+12085551234">Call us</a></body>',
+    );
+    const { deps: d } = spyDeps([
+      {
+        title: "Make the phone number tappable",
+        why: "w",
+        impact: "high",
+        effort: "low",
+        tier: "technical",
+        addresses: "tappable-phone",
+      },
+      {
+        title: "Compress the hero image",
+        why: "w",
+        impact: "medium",
+        effort: "low",
+        tier: "technical",
+        addresses: null,
+      },
+    ]);
+    const result = await runProspectAudit(
+      HOME,
+      { goal: "enquire" },
+      {
+        ...d,
+        crawl: crawlDeps({
+          async fetchUrl(url) {
+            return url === HOME || url.endsWith("/services") || url.endsWith("/about")
+              ? { status: 200, body: withPhone, headers: {} }
+              : { status: 404, body: "", headers: {} };
+          },
+          async renderPages(urls) {
+            return new Map(urls.map((u) => [u, withPhone]));
+          },
+        }),
+      },
+    );
+    const gf = result.goalFit;
+    if (!gf?.ok) throw new Error("the goal check did not run");
+    const met = gf.data.requirements
+      .filter((r: GoalRequirement) => r.status === "met")
+      .map((r: GoalRequirement) => r.key);
+    expect(met, "the fixture site really does have a tappable phone").toContain("tappable-phone");
+    const an = result.analyze;
+    if (!an?.ok) throw new Error("the analyze stage did not run");
+    expect(an.data.fixes.map((f) => f.title)).toEqual(["Compress the hero image"]);
+  });
+
+  it("tells the model nothing about the checklist when no goal was given", async () => {
+    // We do not know which checklist applies yet, and inventing one would grade
+    // the site against our own guess before the model has even read it.
+    const { deps: d, prompt } = spyDeps([]);
+    await runProspectAudit(HOME, {}, d);
+    expect(prompt()!.user).not.toContain("What we have already measured");
+  });
 });
