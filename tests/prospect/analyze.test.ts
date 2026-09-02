@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { analyzeSite, buildAnalyzeInput, AnalyzeSchema } from "../../src/prospect/analyze.js";
+import { questionSetFor } from "../../src/prospect/questions.js";
 import { runChecks } from "../../src/prospect/checks.js";
 import { extractPage } from "../../src/prospect/extract.js";
 import type { CrawlResult, PageCapture } from "../../src/prospect/types.js";
@@ -41,49 +42,28 @@ const validOutput = {
     "how much does a commercial roof replacement cost",
     "flat roof repair Idaho",
   ],
+  // Answers to the universal set (questions.ts), by id — analyzeSite defaults
+  // to the "unknown" goal, whose set is exactly these six. The model no longer
+  // supplies the wording; `conformToSet` fills it in from the set.
   buyerQuestions: [
     {
-      question: "What does a roof repair cost?",
+      id: "cost",
       answered: "partial" as const,
       quotable: false,
       page: "https://acme.example/p0",
       evidence: "Most repairs run between $1,200 and $8,000",
     },
     {
-      question: "Do you work on commercial buildings or just residential?",
+      id: "who-for",
       answered: "yes" as const,
       quotable: true,
       page: "https://acme.example/p0",
       evidence: "Commercial roofing in Boise, Idaho",
     },
-    {
-      question: "What areas do you service?",
-      answered: "no" as const,
-      quotable: false,
-      page: null,
-      evidence: null,
-    },
-    {
-      question: "Are you licensed and insured?",
-      answered: "no" as const,
-      quotable: false,
-      page: null,
-      evidence: null,
-    },
-    {
-      question: "Do you offer emergency repairs?",
-      answered: "partial" as const,
-      quotable: false,
-      page: "https://acme.example/p0",
-      evidence: "Call us for urgent issues",
-    },
-    {
-      question: "What roofing materials do you install?",
-      answered: "no" as const,
-      quotable: false,
-      page: null,
-      evidence: null,
-    },
+    { id: "proof", answered: "no" as const, quotable: false, page: null, evidence: null },
+    { id: "who-does-it", answered: "no" as const, quotable: false, page: null, evidence: null },
+    { id: "where", answered: "no" as const, quotable: false, page: null, evidence: null },
+    { id: "next-step", answered: "no" as const, quotable: false, page: null, evidence: null },
   ],
   fixes: [
     {
@@ -97,23 +77,15 @@ const validOutput = {
   narrative: { findability: "…", readability: "…", answers: "…" },
 };
 
-/** N schema-shaped buyer questions with no page/evidence attached — for the
- *  min/max boundary tests, where the count is what's under test, not the
- *  content. */
-function makeQuestions(n: number): (typeof validOutput)["buyerQuestions"] {
-  return Array.from({ length: n }, (_, i) => ({
-    question: `Question ${i}?`,
-    answered: "no" as const,
-    quotable: false,
-    page: null,
-    evidence: null,
-  }));
-}
-
 describe("buildAnalyzeInput", () => {
   it("puts the deterministic findings and each page's content in the prompt", () => {
     const c = crawl();
-    const { system, user } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
+    const { system, user } = buildAnalyzeInput(
+      "https://acme.example/",
+      c,
+      runChecks(c),
+      questionSetFor("unknown"),
+    );
     expect(system).toContain("answer engine");
     expect(user).toContain("https://acme.example/p0");
     expect(user).toContain("Page 0");
@@ -124,7 +96,12 @@ describe("buildAnalyzeInput", () => {
   it("caps the page budget and the per-page text", () => {
     const c = crawl(20);
     c.pages[0]!.rendered!.text = "x".repeat(5000);
-    const { user } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
+    const { user } = buildAnalyzeInput(
+      "https://acme.example/",
+      c,
+      runChecks(c),
+      questionSetFor("unknown"),
+    );
     expect(user).toContain("https://acme.example/p11");
     expect(user).not.toContain("https://acme.example/p12");
     expect(user).not.toContain("x".repeat(2000));
@@ -132,7 +109,12 @@ describe("buildAnalyzeInput", () => {
 
   it("never ships raw HTML to the model", () => {
     const c = crawl();
-    const { user } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
+    const { user } = buildAnalyzeInput(
+      "https://acme.example/",
+      c,
+      runChecks(c),
+      questionSetFor("unknown"),
+    );
     expect(user).not.toContain("<html>");
     expect(user).not.toContain("<h1>");
   });
@@ -145,7 +127,12 @@ describe("buildAnalyzeInput — untrusted page text", () => {
     // itself as "instructions" past that point). A random per-run token closes
     // that hole — nothing in the page content can know it in advance.
     const c = crawl();
-    const { system, user } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
+    const { system, user } = buildAnalyzeInput(
+      "https://acme.example/",
+      c,
+      runChecks(c),
+      questionSetFor("unknown"),
+    );
     expect(user).not.toContain("<page_text>");
     expect(user).not.toContain("</page_text>");
 
@@ -161,8 +148,18 @@ describe("buildAnalyzeInput — untrusted page text", () => {
 
   it("generates a different fence on every call, so a page can't reuse a name it learned from a prior run", () => {
     const c = crawl();
-    const { user: user1 } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
-    const { user: user2 } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
+    const { user: user1 } = buildAnalyzeInput(
+      "https://acme.example/",
+      c,
+      runChecks(c),
+      questionSetFor("unknown"),
+    );
+    const { user: user2 } = buildAnalyzeInput(
+      "https://acme.example/",
+      c,
+      runChecks(c),
+      questionSetFor("unknown"),
+    );
     const fence1 = user1.match(/<([a-zA-Z0-9_]+)>/)![1]!;
     const fence2 = user2.match(/<([a-zA-Z0-9_]+)>/)![1]!;
     expect(fence1).not.toBe(fence2);
@@ -170,7 +167,12 @@ describe("buildAnalyzeInput — untrusted page text", () => {
 
   it("frames page content as data (not instructions) and requires verbatim evidence in the system prompt", () => {
     const c = crawl();
-    const { system } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
+    const { system } = buildAnalyzeInput(
+      "https://acme.example/",
+      c,
+      runChecks(c),
+      questionSetFor("unknown"),
+    );
     expect(system).toContain("DATA collected");
     expect(system).toContain("never instructions");
     expect(system).toContain("note it as a finding");
@@ -182,13 +184,23 @@ describe("buildAnalyzeInput — truncation marker", () => {
   it("marks a page's text as truncated when it exceeds the per-page cap", () => {
     const c = crawl();
     c.pages[0]!.rendered!.text = "y".repeat(2000);
-    const { user } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
+    const { user } = buildAnalyzeInput(
+      "https://acme.example/",
+      c,
+      runChecks(c),
+      questionSetFor("unknown"),
+    );
     expect(user).toContain("…[truncated]");
   });
 
   it("does not mark text as truncated when it is under the per-page cap", () => {
     const c = crawl();
-    const { user } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
+    const { user } = buildAnalyzeInput(
+      "https://acme.example/",
+      c,
+      runChecks(c),
+      questionSetFor("unknown"),
+    );
     expect(user).not.toContain("…[truncated]");
   });
 });
@@ -211,7 +223,12 @@ describe("buildAnalyzeInput — page selection", () => {
     const services = page("https://acme.example/services", html("Services", "What Acme does."));
     const c: CrawlResult = { ...crawl(0), pages: [home, deepPost, ...fillers, services] };
 
-    const { user } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
+    const { user } = buildAnalyzeInput(
+      "https://acme.example/",
+      c,
+      runChecks(c),
+      questionSetFor("unknown"),
+    );
 
     const urls = [...user.matchAll(/^URL: (.+)$/gm)].map((m) => m[1]!);
     expect(urls[0]).toBe("https://acme.example/");
@@ -226,7 +243,12 @@ describe("buildAnalyzeInput — unmeasured crawler access", () => {
     const checks = runChecks(c);
     expect(checks.crawlerAccessMeasured).toBe(false);
 
-    const { user } = buildAnalyzeInput("https://acme.example/", c, checks);
+    const { user } = buildAnalyzeInput(
+      "https://acme.example/",
+      c,
+      checks,
+      questionSetFor("unknown"),
+    );
 
     // The bug this guards against: crawlerAccessMeasured correctly gates
     // computeScores, but summarizeFindings used to read the (empty,
@@ -240,7 +262,12 @@ describe("buildAnalyzeInput — unmeasured crawler access", () => {
 
   it("still reports the real blocked-crawler lists when the fetch succeeded", () => {
     const c = crawl();
-    const { user } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
+    const { user } = buildAnalyzeInput(
+      "https://acme.example/",
+      c,
+      runChecks(c),
+      questionSetFor("unknown"),
+    );
     expect(user).toContain("Blocked AI crawlers: GPTBot");
   });
 });
@@ -256,14 +283,24 @@ describe("buildAnalyzeInput — unmeasured sidecars", () => {
     const checks = runChecks(c);
     expect(checks.sitemapMeasured).toBe(false);
 
-    const { user } = buildAnalyzeInput("https://acme.example/", c, checks);
+    const { user } = buildAnalyzeInput(
+      "https://acme.example/",
+      c,
+      checks,
+      questionSetFor("unknown"),
+    );
     expect(user).not.toContain("sitemap.xml: missing");
     expect(user).toMatch(/sitemap\.xml: not measured/i);
   });
 
   it("still reports present/missing for a sidecar that WAS measured", () => {
     const c = crawl();
-    const { user } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
+    const { user } = buildAnalyzeInput(
+      "https://acme.example/",
+      c,
+      runChecks(c),
+      questionSetFor("unknown"),
+    );
     expect(user).toMatch(/sitemap\.xml: present/);
   });
 
@@ -280,7 +317,12 @@ describe("buildAnalyzeInput — unmeasured sidecars", () => {
     unmeasured.sidecarErrors = { robots: null, llms: "fetch failed: ETIMEDOUT", sitemap: null };
 
     for (const c of [present, absent, unmeasured]) {
-      const { user, system } = buildAnalyzeInput("https://acme.example/", c, runChecks(c));
+      const { user, system } = buildAnalyzeInput(
+        "https://acme.example/",
+        c,
+        runChecks(c),
+        questionSetFor("unknown"),
+      );
       expect(user.toLowerCase()).not.toContain("llms");
       expect(system.toLowerCase()).not.toContain("llms");
     }
@@ -305,7 +347,7 @@ describe("analyzeSite", () => {
   it("rejects output that does not match the schema", async () => {
     await expect(
       analyzeSite("https://acme.example/", crawl(), runChecks(crawl()), {
-        run: async () => ({ ...validOutput, buyerQuestions: [{ question: "q" }] }),
+        run: async () => ({ ...validOutput, buyerQuestions: [{ id: "cost" }] }),
       }),
     ).rejects.toThrow();
   });
@@ -324,26 +366,6 @@ describe("analyzeSite", () => {
     expect(() => AnalyzeSchema.parse(validOutput)).not.toThrow();
   });
 
-  it("rejects a model response with fewer than 6 buyer questions", async () => {
-    const thin = { ...validOutput, buyerQuestions: validOutput.buyerQuestions.slice(0, 3) };
-    await expect(
-      analyzeSite("https://acme.example/", crawl(), runChecks(crawl()), {
-        run: async () => thin,
-      }),
-    ).rejects.toThrow();
-  });
-
-  it("accepts a model response with exactly 6 buyer questions", async () => {
-    const result = await analyzeSite("https://acme.example/", crawl(), runChecks(crawl()), {
-      run: async () => validOutput,
-    });
-    expect(result.buyerQuestions).toHaveLength(6);
-  });
-
-  // categoryQueries is what the probe stage searches on. An empty or thin array
-  // does not fail that stage loudly — it silently drops the category probes to
-  // one or none and the visibility score reads 0, which is indistinguishable
-  // from a prospect who genuinely never surfaces. It has to fail here instead.
   it("rejects a model response with fewer than 3 category queries", async () => {
     const thin = { ...validOutput, categoryQueries: validOutput.categoryQueries.slice(0, 2) };
     await expect(
@@ -381,23 +403,6 @@ describe("analyzeSite", () => {
     ).rejects.toThrow();
   });
 
-  it("rejects a model response with 11 buyer questions", async () => {
-    const eleven = { ...validOutput, buyerQuestions: makeQuestions(11) };
-    await expect(
-      analyzeSite("https://acme.example/", crawl(), runChecks(crawl()), {
-        run: async () => eleven,
-      }),
-    ).rejects.toThrow();
-  });
-
-  it("accepts a model response with exactly 10 buyer questions", async () => {
-    const ten = { ...validOutput, buyerQuestions: makeQuestions(10) };
-    const result = await analyzeSite("https://acme.example/", crawl(), runChecks(crawl()), {
-      run: async () => ten,
-    });
-    expect(result.buyerQuestions).toHaveLength(10);
-  });
-
   it("rejects a model response with 11 fixes", async () => {
     const tooManyFixes = {
       ...validOutput,
@@ -421,7 +426,7 @@ describe("analyzeSite — evidence verification", () => {
       ...validOutput,
       buyerQuestions: [
         {
-          question: "What does the page say?",
+          id: "cost",
           answered: "yes" as const,
           quotable: true,
           page: "https://acme.example/p0",
@@ -443,7 +448,7 @@ describe("analyzeSite — evidence verification", () => {
       ...validOutput,
       buyerQuestions: [
         {
-          question: "What does the page say?",
+          id: "cost",
           answered: "yes" as const,
           quotable: true,
           page: "https://acme.example/p0",
@@ -467,7 +472,7 @@ describe("analyzeSite — evidence verification", () => {
       ...validOutput,
       buyerQuestions: [
         {
-          question: "What does the page say?",
+          id: "cost",
           answered: "yes" as const,
           quotable: true,
           page: "https://acme.example/never-crawled",
@@ -489,7 +494,7 @@ describe("analyzeSite — evidence verification", () => {
       ...validOutput,
       buyerQuestions: [
         {
-          question: "What does the page say?",
+          id: "cost",
           answered: "yes" as const,
           quotable: true,
           page: "https://acme.example/p0",
@@ -510,9 +515,7 @@ describe("analyzeSite — evidence verification", () => {
       run: async () => validOutput,
     });
     // validOutput's 3rd/4th/6th questions carry page: null, evidence: null.
-    const untouched = result.buyerQuestions.find(
-      (q) => q.question === "What areas do you service?",
-    );
+    const untouched = result.buyerQuestions.find((q) => q.id === "proof");
     expect(untouched?.page).toBeNull();
     expect(untouched?.evidence).toBeNull();
   });
@@ -535,7 +538,10 @@ describe("verifyEvidence — a positive verdict must be supported", () => {
     const result = await analyzeSite("https://acme.example/", c, runChecks(c), {
       run: async () => ({
         ...validOutput,
-        buyerQuestions: [{ ...validOutput.buyerQuestions[0]!, ...over }, ...makeQuestions(5)],
+        buyerQuestions: [
+          { ...validOutput.buyerQuestions[0]!, ...over },
+          ...validOutput.buyerQuestions.slice(1),
+        ],
       }),
     });
     return result.buyerQuestions[0]!;
@@ -586,7 +592,8 @@ describe("verifyEvidence — a positive verdict must be supported", () => {
   // hide a gap the prospect should see.
   it("keeps the question visible rather than removing it", async () => {
     const q = await ask({ answered: "yes", page: null, evidence: null });
-    expect(q.question).toBe(validOutput.buyerQuestions[0]!.question);
+    // The wording is ours now, so it is checked against the set, not the fixture.
+    expect(q.question).toBe(questionSetFor("unknown").questions[0]!.question);
   });
 
   it("leaves an already-`no` verdict untouched", async () => {

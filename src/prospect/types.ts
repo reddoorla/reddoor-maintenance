@@ -201,8 +201,14 @@ export type ChecksResult = {
 };
 
 export type BuyerQuestion = {
+  /** Stable key from the fixed set in questions.ts. Absent on reports stored
+   *  before the set was fixed, when the model still wrote its own questions. */
+  id?: string;
   question: string;
-  answered: "yes" | "partial" | "no";
+  /** "unknown" is ours, never the model's: it means we did not get an answer
+   *  for a question we asked, so the row is shown and excluded from the score.
+   *  A missing answer of ours must never be scored as a "no" about them. */
+  answered: "yes" | "partial" | "no" | "unknown";
   /** Is there a passage an AI answer could quote verbatim? */
   quotable: boolean;
   page: string | null;
@@ -231,6 +237,10 @@ export type AnalyzeResult = {
    *  absence means the goal section reads "not measured". */
   primaryGoal?: SiteGoal;
   buyerQuestions: BuyerQuestion[];
+  /** Which fixed question set was asked — `${goal}-v${QUESTION_SET_VERSION}`.
+   *  Absent on reports stored before the set was fixed. Two audits' Answers
+   *  scores are comparable exactly when this matches; see sameQuestionSet. */
+  questionSetId?: string;
   /** Standalone searches for the visibility probes — what a buyer types before
    *  they know this company exists. Distinct from `buyerQuestions`, which are
    *  phrased about this site and are unanswerable on their own; see the schema

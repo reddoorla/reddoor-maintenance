@@ -278,7 +278,17 @@ export async function runProspectAudit(
 
   const analyze: StageResult<AnalyzeResult> = checks.ok
     ? await stage("analyze", deps, async () =>
-        analyzeSite(url, crawlData, checks.data, deps.analyze ?? envAnalyzeDeps()),
+        // The operator's goal, when we have one, decides which fixed question
+        // set gets asked — so it must reach this stage rather than being
+        // applied after it. Without one we ask the universal set; the model
+        // still infers `primaryGoal` for the goal-fit section either way.
+        analyzeSite(
+          url,
+          crawlData,
+          checks.data,
+          deps.analyze ?? envAnalyzeDeps(),
+          opts.goal ?? "unknown",
+        ),
       )
     : { ok: false, error: ANALYZE_SKIPPED };
 

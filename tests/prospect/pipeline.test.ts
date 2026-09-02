@@ -51,42 +51,42 @@ const analyzeOutput = {
   // now does it matter.
   buyerQuestions: [
     {
-      question: "How much does a roof repair cost?",
+      id: "cost",
       answered: "yes" as const,
       quotable: true,
       page: HOME,
       evidence: "We repair flat commercial roofs across the Treasure Valley",
     },
     {
-      question: "Do you offer free estimates?",
+      id: "who-for",
       answered: "yes" as const,
       quotable: true,
       page: HOME,
       evidence: "We repair flat commercial roofs across the Treasure Valley",
     },
     {
-      question: "What areas do you service?",
+      id: "proof",
       answered: "yes" as const,
       quotable: true,
       page: HOME,
       evidence: "We repair flat commercial roofs across the Treasure Valley",
     },
     {
-      question: "Are you licensed and insured?",
+      id: "who-does-it",
       answered: "yes" as const,
       quotable: true,
       page: HOME,
       evidence: "We repair flat commercial roofs across the Treasure Valley",
     },
     {
-      question: "Do you handle emergency repairs?",
+      id: "where",
       answered: "yes" as const,
       quotable: true,
       page: HOME,
       evidence: "We repair flat commercial roofs across the Treasure Valley",
     },
     {
-      question: "What kind of warranty do you offer?",
+      id: "next-step",
       answered: "yes" as const,
       quotable: true,
       page: HOME,

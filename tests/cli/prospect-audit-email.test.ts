@@ -63,7 +63,7 @@ function stubDeps(): PipelineDeps {
           "flat roof repair Idaho",
         ],
         buyerQuestions: [
-          { question: "cost?", answered: "no", quotable: false, page: null, evidence: null },
+          { id: "cost", answered: "no", quotable: false, page: null, evidence: null },
         ],
         fixes: [],
         narrative: { findability: "a", readability: "b", answers: "c" },
