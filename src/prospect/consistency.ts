@@ -102,7 +102,32 @@ export type ConsistencyResult = {
  * format.
  */
 export const PHONE_IN_TEXT = /(?<!\d)(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?!\d)/g;
-const COPYRIGHT_YEAR = /(?:©|&copy;|copyright)\s*(?:\d{4}\s*[-–—]\s*)?(\d{4})/gi;
+/**
+ * A copyright line, allowing the company's name to sit between the symbol and
+ * the year.
+ *
+ * This used to require the year immediately after the symbol, so our own footer
+ * — "© Reddoor Creative 2006-2026" — read as no copyright line at all. It is
+ * one of the most ordinary ways to write it, and missing it means never
+ * reporting a stale year on any site that does. Found by running the audit
+ * against our own site before showing the tool to anyone.
+ *
+ * Group 1 is the gap, and it is captured rather than skipped so the caller can
+ * reject a match that reached across a sentence. Group 3 is the year — group 2
+ * is the opening year of a range like 2006-2026, deliberately discarded,
+ * because the question is always how recently the line was updated.
+ *
+ * The 30-character window is the whole safety margin. Unbounded, the word
+ * "copyright" anywhere on a page would bind to the next four-digit number on
+ * it — a founding date, a street address, a case-study figure — and report it
+ * as the site's copyright year. A false stale-site finding is worse than a
+ * missed one: it is a claim about their business that they can disprove.
+ */
+const COPYRIGHT_YEAR = /(?:©|&copy;|copyright)([^\d<>]{0,30}?)(?:(\d{4})\s*[-–—]\s*)?(\d{4})/gi;
+
+/** A gap that crosses a sentence boundary is not a company name, and the year
+ *  after it is some other number that happens to follow the word. */
+const SENTENCE_BREAK = /[.!?]\s/;
 
 /** Digits only, with a leading US country code dropped so `+1 310 341 3571` and
  *  `(310) 341-3571` are one number rather than two. Numbers shorter than 10
@@ -182,7 +207,8 @@ export function checkConsistency(pages: PageCapture[]): ConsistencyResult {
     }
 
     for (const match of extract.text.matchAll(COPYRIGHT_YEAR)) {
-      const year = Number(match[1]);
+      if (SENTENCE_BREAK.test(match[1] ?? "")) continue;
+      const year = Number(match[3]);
       // A plausible range. A four-digit number next to the word "copyright" is
       // usually a year, but not always, and a stray 1200 would make the "stale
       // by N years" sentence nonsense.
