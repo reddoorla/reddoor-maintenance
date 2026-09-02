@@ -1,5 +1,64 @@
 # @reddoorla/maintenance
 
+## 0.91.0
+
+### Minor Changes
+
+- 6876004: prospect-audit: measure the answer space, the visitor journey and what is broken
+
+  New in the report, all stored on `result_json`: `goalFit` (the site's primary
+  goal, inferred by the model or set with the new `--goal` flag, and the concrete
+  things a site with that goal needs), `basics` (reachability, redirects, mixed
+  content, duplicate titles, and what each named AI crawler is served),
+  `assets` (broken links and images), `journey` (click distance from every crawled
+  page to a way of making contact) and `consistency` (copyright currency, pages
+  off the site template, and an inventory of the contact details published).
+
+  Findability is reweighted: `llms.txt` no longer scores, because nothing we can
+  observe reads it. Reports stored before this release carry none of the new
+  fields, and a reader must treat their absence as "not measured" — not as a
+  finding.
+
+  Two rules the new checks are held to, both of which cost checks that were
+  already written: a check reports an ANSWER, never a topic that happens to be
+  mentioned; and our own missing data — a refused fetch, a rate limit, a render
+  that timed out, a link into CDN infrastructure — is never reported as the
+  prospect's defect.
+
+### Patch Changes
+
+- 19d5b1c: Capture `block-subbody` text in the Blux grid parser, which was silently dropped
+
+  The grid parser recognized `block-title`, `block-body` and `block-subtitle`, but
+  not `block-subbody`. A `block-subbody` element therefore parsed as an
+  unrecognized `raw` node and its text never reached the emitted content, with no
+  error — the failure mode was a paragraph quietly missing from the migrated page.
+
+  `block-subbody` appears on 4+ sites in the export set (mediaStudios, thePinnacle,
+  theTower, strategyAdvantage). Where it carries a unique body paragraph rather
+  than link text — williamsonHomes' about-page lead, for instance — that paragraph
+  was lost.
+
+  It is now treated as a body leaf, the same text role as `block-body`.
+
+  This fix was originally written in July (#451) and merged into
+  `feat/blux-catalog-emit`, but did not survive that branch's squash to main in
+  #452, so it never actually shipped.
+
+- 38865a4: Add `pnpm verify` and bind the CI workflow to it, so the local gate and the Actions gate cannot drift
+
+  CI listed its steps inline while contributors ran some ad-hoc subset locally, and
+  the two drifted in the expensive direction: a local `lint && build && test` could
+  pass while CI failed on `typecheck` — the only step that typechecks `tests/**` —
+  and nothing local ran `test:dist` at all. `pnpm test` is also not `test:coverage`,
+  so the coverage floor in vitest.config.ts was never enforced outside CI.
+
+  `pnpm verify` is now typecheck → lint → build → test:coverage → test:dist. CI still
+  lists those steps individually, so a failure stays attributable at a glance in the
+  Actions UI — but `tests/ci-gate.test.ts` derives the expected commands from the
+  `verify` script and asserts the workflow matches it exactly, in order. The
+  workflow cannot gain, lose, or reorder a gate without the suite failing.
+
 ## 0.90.1
 
 ### Patch Changes
