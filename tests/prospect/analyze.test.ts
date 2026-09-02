@@ -601,3 +601,21 @@ describe("verifyEvidence — a positive verdict must be supported", () => {
     expect(q.answered).toBe("no");
   });
 });
+
+describe("fix rationales may not promise engine outcomes", () => {
+  // Three of ten model fixes on a real run argued "nothing to cite" or "cannot
+  // be cited", four screens after the report said nothing on the site reliably
+  // moves what an engine cites. The prompt now says so in the fixes rule.
+  it("the prompt forbids predicting what an engine will cite, repeat, rank or recommend", async () => {
+    const c = crawl(1);
+    const { system } = buildAnalyzeInput(
+      "https://acme.example/",
+      c,
+      await runChecks(c),
+      questionSetFor("enquire"),
+    );
+    expect(system).toMatch(
+      /Never predict\s+what an answer engine will cite, repeat, rank or recommend/,
+    );
+  });
+});

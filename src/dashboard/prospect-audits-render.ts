@@ -103,7 +103,7 @@ const RUN_SCRIPT = `<script>
     fetch('/api/prospect-audit/run', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ url: url, business: business }),
+      body: JSON.stringify({ url: url, business: business, goal: form.elements.goal.value }),
     })
       .then(function (res) {
         return res.json().catch(function () { return null; }).then(function (data) {
@@ -212,6 +212,18 @@ export function renderProspectAuditsPageHtml(model: ProspectAuditsPageModel): st
     </label>
     <label>Business name (optional)
       <input type="text" name="business" placeholder="Acme Roofing" />
+    </label>
+    <label>Goal
+      <select name="goal" required>
+        <option value="">What should the site get a visitor to do?</option>
+        <option value="book">Book an appointment</option>
+        <option value="enquire">Start a project or ask for a quote</option>
+        <option value="call">Pick up the phone</option>
+        <option value="visit">Come in person</option>
+        <option value="buy">Buy something</option>
+        <option value="demo">Talk to sales</option>
+        <option value="partner">Ask about distribution or partnership</option>
+      </select>
     </label>
     <button type="submit">Run audit</button>
     <div id="audit-run-status" class="run-status" aria-live="polite"></div>

@@ -4,8 +4,6 @@ import {
   sendAuditEmail,
   parseProspectAuditRecipients,
 } from "../../src/prospect/email.js";
-import { renderProspectReport } from "../../src/prospect/render.js";
-import { PROBES_SKIPPED, ANALYZE_SKIPPED } from "../../src/prospect/pipeline.js";
 import type { ResendClient, ResendSendInput } from "../../src/reports/send/resend.js";
 import type {
   AnalyzeResult,
@@ -175,35 +173,6 @@ describe("buildAuditEmail", () => {
     expect(html).toContain("acme.example");
   });
 
-  it("shows the three site scores, and never an AI Visibility score", () => {
-    const { html } = buildAuditEmail(result(), { link: null });
-    for (const label of ["Findability", "Readability", "Answers"]) {
-      expect(html).toContain(label);
-    }
-    // Removed on purpose, mirroring the report: visibility is receipts, not a
-    // score presented as ours to move.
-    expect(html).not.toContain("AI Visibility");
-    expect(html).toContain("80");
-    expect(html).toContain("70");
-  });
-
-  it("names an unmeasured score as 'Not measured' rather than printing a number", () => {
-    const r = result({
-      scores: { findability: 80, readability: 70, answers: null, aiVisibility: null },
-      analyze: { ok: false, error: ANALYZE_SKIPPED },
-      probes: { ok: false, error: PROBES_SKIPPED },
-    });
-    const { html } = buildAuditEmail(r, { link: null });
-    expect(html).toContain("Not measured");
-    // The section names WHICH scores and why, in plain words — not just a bare count.
-    expect(html).toContain("Answers");
-    expect(html).toContain(ANALYZE_SKIPPED);
-    // The probes stage's absence is still explained — under the name of what
-    // it actually measures, not a score label that no longer exists.
-    expect(html).toContain("AI engine answers");
-    expect(html).toContain(PROBES_SKIPPED);
-  });
-
   it("explains a checks-stage failure for both findability and readability", () => {
     const r = result({
       scores: { findability: null, readability: null, answers: 90, aiVisibility: 50 },
@@ -226,20 +195,26 @@ describe("buildAuditEmail", () => {
     expect(html).not.toContain("Not measured</h2>");
   });
 
-  it("lists only the top few fixes, in impact order", () => {
-    const { html } = buildAuditEmail(result(), { link: null });
-    expect(html).toContain("Add a sitemap");
-    expect(html).toContain("Fix headings");
-    // The 4th fixture fix (low impact) is beyond the "top few" cutoff.
-    expect(html).not.toContain("Compress hero image");
-    expect(html.indexOf("Add a sitemap")).toBeLessThan(html.indexOf("Fix headings"));
+  it("is a note and a link — no scores, no fixes, no findings, no old renderer", () => {
+    // The emailed report was the pre-Gate-A product: it scored a Findability
+    // the web abolished, named Google, and closed on "recommend them". Now the
+    // email carries the link and nothing that could contradict the page.
+    const built = buildAuditEmail(result(), { link: "https://reddoorla.com/audit/tok" });
+    expect(built.html).toContain("https://reddoorla.com/audit/tok");
+    expect(built.html).not.toMatch(/Findability|Readability|Answers|\/100|Top fixes/);
+    expect(built.html).not.toMatch(/Google|recommend/i);
+    expect(built).not.toHaveProperty("attachmentHtml");
   });
 
-  it("explains fixes are unavailable when analyze failed, instead of an empty list", () => {
-    const r = result({ analyze: { ok: false, error: ANALYZE_SKIPPED } });
-    const { html } = buildAuditEmail(r, { link: null });
-    expect(html).toContain("Fixes not available");
-    expect(html).toContain(ANALYZE_SKIPPED);
+  it("still names the reasons a stage did not run, because this note is internal", () => {
+    const { html } = buildAuditEmail(
+      result({ probes: { ok: false, error: "spend cap reached" } }),
+      {
+        link: "https://x/y",
+      },
+    );
+    expect(html).toContain("spend cap reached");
+    expect(html).toMatch(/Internal note/);
   });
 
   it("includes the shareable link when present, and a plain note when it's null", () => {
@@ -248,7 +223,7 @@ describe("buildAuditEmail", () => {
 
     const withoutLink = buildAuditEmail(result(), { link: null });
     expect(withoutLink.html).toContain("No shareable link");
-    expect(withoutLink.html).toContain("attached");
+    expect(withoutLink.html).toContain("could not be saved");
   });
 
   it("escapes untrusted business name, fix text and stage error text in the HTML body", () => {
@@ -283,12 +258,6 @@ describe("buildAuditEmail", () => {
     const { subject } = buildAuditEmail(r, { link: null });
     expect(subject).not.toMatch(/[\r\n]/);
     expect(subject).toContain("Acme Bcc: attacker@evil.example");
-  });
-
-  it("returns the real rendered client-facing report as attachmentHtml", () => {
-    const r = result();
-    const { attachmentHtml } = buildAuditEmail(r, { link: null });
-    expect(attachmentHtml).toBe(renderProspectReport(r));
   });
 });
 
@@ -340,19 +309,6 @@ describe("sendAuditEmail", () => {
     expect(sent[0]!.html).toContain("https://dash.example/r/tok123");
   });
 
-  it("attaches the FULL real rendered report as a base64 .html file", async () => {
-    const { client, sent } = captureResend();
-    const r = result();
-    await sendAuditEmail(r, { link: null, recipients: ["tucker@reddoorla.com"], client });
-    const attachments = sent[0]!.attachments;
-    expect(attachments).toHaveLength(1);
-    const attachment = attachments![0]!;
-    expect(attachment.filename).toMatch(/\.html$/);
-    expect(attachment.contentType).toBe("text/html");
-    const decoded = Buffer.from(attachment.content, "base64").toString("utf-8");
-    expect(decoded).toBe(renderProspectReport(r));
-  });
-
   it("derives the idempotency key from the audit id when given", async () => {
     const { client, sent } = captureResend();
     await sendAuditEmail(result(), {
@@ -371,22 +327,6 @@ describe("sendAuditEmail", () => {
     expect(sent[0]!.idempotencyKey).toBe(`prospect-audit:${r.url}#${r.generatedAt}`);
   });
 
-  it("honors a renderReport override for the attachment only, without changing the sheet body", async () => {
-    const { client, sent } = captureResend();
-    const r = result();
-    await sendAuditEmail(r, {
-      link: null,
-      recipients: ["tucker@reddoorla.com"],
-      client,
-      renderReport: () => "<html>stub report</html>",
-    });
-    const attachment = sent[0]!.attachments![0]!;
-    expect(Buffer.from(attachment.content, "base64").toString("utf-8")).toBe(
-      "<html>stub report</html>",
-    );
-    expect(sent[0]!.html).toContain("Acme Roofing");
-  });
-
   it("propagates a throwing client rather than swallowing it", async () => {
     const client: ResendClient = {
       async send() {
@@ -399,41 +339,18 @@ describe("sendAuditEmail", () => {
   });
 });
 
-describe("buildAuditEmail — internal framing", () => {
-  it("labels the sheet as internal and points at the attachment", () => {
-    const { html } = buildAuditEmail(result(), {
-      link: "https://dash.test/r/AAAAAAAAAAAAAAAAAAAAAA",
-    });
-    // The body carries the real reasons a stage failed, which are useful to us
-    // and wrong in front of a prospect — so it must say which artefact is the
-    // shareable one, or the natural thing to do with a useful email is forward it.
-    expect(html).toMatch(/internal sheet/i);
-    expect(html).toMatch(/attached/i);
-  });
-});
-
 describe("sendAuditEmail — the PDF leave-behind", () => {
   const opts = { link: "https://reddoorla.com/audit/abc", recipients: ["tucker@reddoorla.com"] };
 
-  it("attaches the PDF alongside the HTML sheet when one was rendered", async () => {
+  it("attaches the PDF, and only the PDF, when one was rendered", async () => {
     const { client, sent } = captureResend();
-    const pdf = Buffer.from("%PDF-1.4 fake");
-    await sendAuditEmail(result(), { ...opts, pdf, client });
-
+    const pdf = Buffer.from("%PDF-1.4 stub");
+    await sendAuditEmail(result(), { recipients: ["a@b.co"], link: "https://x/y", client, pdf });
     const attachments = sent[0]!.attachments!;
-    expect(attachments).toHaveLength(2);
-    // The HTML sheet stays first — it is the attachment recipients already know.
-    expect(attachments[0]!.contentType).toBe("text/html");
-    expect(attachments[1]!.contentType).toBe("application/pdf");
-    expect(attachments[1]!.filename).toMatch(/\.pdf$/);
-    expect(attachments[1]!.content).toBe(pdf.toString("base64"));
-  });
-
-  it("names the PDF after the same host as the sheet", async () => {
-    const { client, sent } = captureResend();
-    await sendAuditEmail(result(), { ...opts, pdf: Buffer.from("x"), client });
-    const [html, pdf] = sent[0]!.attachments!;
-    expect(pdf!.filename).toBe(html!.filename.replace(/\.html$/, ".pdf"));
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0]!.contentType).toBe("application/pdf");
+    expect(attachments[0]!.filename).toMatch(/^prospect-audit-.*\.pdf$/);
+    expect(attachments[0]!.content).toBe(pdf.toString("base64"));
   });
 
   // Rendering needs a live page and a headless browser. When either is
@@ -442,14 +359,13 @@ describe("sendAuditEmail — the PDF leave-behind", () => {
   it("sends the email unchanged when no PDF was rendered", async () => {
     const { client, sent } = captureResend();
     await sendAuditEmail(result(), { ...opts, pdf: null, client });
-    const attachments = sent[0]!.attachments!;
-    expect(attachments).toHaveLength(1);
-    expect(attachments[0]!.contentType).toBe("text/html");
+    // No PDF, no attachment: the report is the link, and nothing else is sent.
+    expect(sent[0]!.attachments ?? []).toHaveLength(0);
   });
 
   it("treats an omitted pdf the same as a null one", async () => {
     const { client, sent } = captureResend();
     await sendAuditEmail(result(), { ...opts, client });
-    expect(sent[0]!.attachments!).toHaveLength(1);
+    expect(sent[0]!.attachments ?? []).toHaveLength(0);
   });
 });

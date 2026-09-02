@@ -114,6 +114,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   const url = typeof payload.url === "string" ? payload.url : "";
   const business =
     typeof payload.business === "string" && payload.business.trim() ? payload.business : null;
+  const goal = typeof payload.goal === "string" ? payload.goal : "";
   const requestedBy = resolveRequestedBy(auth.email);
 
   try {
@@ -124,7 +125,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
         dispatch: makeWorkflowDispatchDispatcher({ token }),
       },
       { repo, workflowFile },
-      { url, business, requestedBy },
+      { url, business, requestedBy, goal },
     );
     const recipientsLabel = prospectAuditRecipientsLabel(process.env.PROSPECT_AUDIT_RECIPIENTS);
     const { status, body } = respondToProspectAuditTrigger(result, { recipientsLabel });

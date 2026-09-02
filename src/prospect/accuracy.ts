@@ -116,7 +116,22 @@ export type AccuracyResult = {
   /** Which branded answers we had full text for. A run whose probes predate
    *  `fullAnswer` reports zero and no assertions, rather than "nothing wrong". */
   answersRead: number;
+  /** The engine confused this business with others of the same name. For a
+   *  common name this is the headline of the branded search, and it was only
+   *  ever visible inside a truncated quote. `engineQuote` is verified against
+   *  the answer text like every other quote; a conflation whose quote is not
+   *  in the answer is discarded, not trusted. */
+  conflation: Conflation;
 };
+
+export type Conflation = {
+  detected: boolean;
+  /** The OTHER businesses the engine named — never this one. */
+  otherNames: string[];
+  engineQuote: string | null;
+};
+
+const NO_CONFLATION: Conflation = { detected: false, otherNames: [], engineQuote: null };
 
 export const AccuracySchema = z.object({
   assertions: z
@@ -136,6 +151,16 @@ export const AccuracySchema = z.object({
       }),
     )
     .max(MAX_ASSERTIONS),
+  /** Does the answer describe MORE THAN ONE business under this name, or a
+   *  different business first? Defaulted, so a model that omits it reads as
+   *  "not detected" rather than failing the whole stage. */
+  conflation: z
+    .object({
+      detected: z.boolean(),
+      otherNames: z.array(z.string()).max(6),
+      engineQuote: z.string().nullable(),
+    })
+    .default({ detected: false, otherNames: [], engineQuote: null }),
 });
 
 /** Fresh per call, so nothing inside the fenced data can predict the tag and
@@ -178,6 +203,12 @@ For each assertion return:
 - searchTerms: 1-6 distinctive words or short phrases you would search the site for to find this fact —
   proper nouns, numbers, street names. These are used to re-check "absent" verdicts across pages you were
   not shown, so choose terms that would actually appear if the fact were stated somewhere else on the site.
+
+Separately, return "conflation": does the answer describe MORE THAN ONE business under this name, or
+describe a different business first? If so, detected is true, otherNames lists the OTHER businesses
+named (never this one), and engineQuote is the exact sentence that says the name belongs to several
+businesses — copied verbatim, it is checked against the answer character by character. Otherwise
+detected is false with an empty otherNames and a null engineQuote.
   Avoid generic words ("dental", "services") that appear on every page.
 
 Be conservative about "confirmed": if the site only gestures at the fact, that is "absent". Being wrong in
@@ -488,35 +519,55 @@ function verifyQuotes(
   siteText: string,
   answerOf: Map<string, ProbeAnswer>,
   prospectDomain: string,
+  searchTermsByClaim: Map<string, string[]> = new Map(),
 ): Assertion[] {
   const answers = normalize(answerText);
   const site = normalize(siteText);
+  const flat = siteText.replace(/\s+/g, " ");
   const out: Assertion[] = [];
 
   for (const a of raw) {
     if (!answers.includes(normalize(a.engineQuote))) continue;
+
+    // A place or a name the site itself uses, anywhere, cannot be
+    // "contradicted": a Texas mailing address on one page and "near the Los
+    // Angeles metro" on another is the site saying both, not the engine getting
+    // it wrong. When the site uses the claim's own distinctive terms exactly,
+    // the honest verdict is confirmed, quoting the site's own sentence.
+    let verdict: typeof a.verdict = a.verdict;
+    let siteQuote: string | null = a.siteQuote;
+    if (a.verdict === "contradicted") {
+      for (const term of distinctive(searchTermsByClaim.get(a.claim) ?? [])) {
+        if (findTerm(site, term) !== "exact") continue;
+        // The quote must survive the same substring check as a model quote, so
+        // no ellipses: they are not in the page and would fail it.
+        const at = site.indexOf(normalize(term));
+        verdict = "confirmed";
+        siteQuote = flat.slice(Math.max(0, at - 80), at + term.length + 80).trim();
+        break;
+      }
+    }
 
     const from = answerOf.get(normalize(a.engineQuote));
     const sourceDomains = [
       ...new Set((from?.citedDomains ?? []).map(domainOf).filter((d) => d !== prospectDomain)),
     ];
 
-    const quoteReal = a.siteQuote !== null && site.includes(normalize(a.siteQuote));
-    const needsQuote = a.verdict === "confirmed" || a.verdict === "contradicted";
+    const quoteReal = siteQuote !== null && site.includes(normalize(siteQuote));
+    const needsQuote = verdict === "confirmed" || verdict === "contradicted";
     // A real quote is not automatically a supporting one — see
     // quoteSupportsClaim. Only checked where the verdict rests on the quote.
-    const quoteSupports =
-      quoteReal && a.siteQuote !== null && quoteSupportsClaim(a.claim, a.siteQuote);
+    const quoteSupports = quoteReal && siteQuote !== null && quoteSupportsClaim(a.claim, siteQuote);
     const unsupported = needsQuote && (!quoteReal || !quoteSupports);
 
     out.push({
       claim: a.claim,
-      verdict: unsupported ? "unverified" : a.verdict,
+      verdict: unsupported ? "unverified" : verdict,
       engineQuote: a.engineQuote,
       // Kept when it is real, even where it does not carry the claim: the
       // reader can see what we looked at and judge it themselves, which is a
       // better position than being told we found nothing.
-      siteQuote: quoteReal ? a.siteQuote : null,
+      siteQuote: quoteReal ? siteQuote : null,
       nearbyMention: null,
       unverifiedReason: !unsupported
         ? null
@@ -594,11 +645,13 @@ export async function checkAccuracy(
       pagesRead: 0,
       pagesTotal: crawl.pages.length,
       answersRead: 0,
+      conflation: NO_CONFLATION,
     };
   }
 
   const input = buildAccuracyInput(crawl, branded);
   const parsed = AccuracySchema.parse(await deps.run(input));
+  const termsByClaim = new Map(parsed.assertions.map((a) => [a.claim, a.searchTerms]));
 
   // Which answer each quote came from, so an assertion can name the sources the
   // engine cited when it made that particular claim.
@@ -612,15 +665,22 @@ export async function checkAccuracy(
   }
 
   const siteText = fullSiteText(crawl);
+  const answerText = branded.map((a) => a.fullAnswer ?? "").join("\n");
   const verified = verifyQuotes(
     parsed.assertions,
-    branded.map((a) => a.fullAnswer ?? "").join("\n"),
+    answerText,
     siteText,
     answerOf,
     domainOf(url),
+    termsByClaim,
   );
 
-  const termsByClaim = new Map(parsed.assertions.map((a) => [a.claim, a.searchTerms]));
+  // Same rule as every quote: not in the answer, not trusted.
+  const c = parsed.conflation;
+  const conflation: Conflation =
+    c.detected && c.engineQuote !== null && normalize(answerText).includes(normalize(c.engineQuote))
+      ? { detected: true, otherNames: c.otherNames, engineQuote: c.engineQuote }
+      : NO_CONFLATION;
 
   const sources = await classifyDomains(
     url,
@@ -636,5 +696,6 @@ export async function checkAccuracy(
     pagesRead: input.pagesRead,
     pagesTotal: crawl.pages.length,
     answersRead: branded.length,
+    conflation,
   };
 }

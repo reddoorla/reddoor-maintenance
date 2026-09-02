@@ -163,6 +163,10 @@ Return:
   at it with a pronoun has no antecedent and the engine will answer that it does not know who is meant.
   These are searches, not conversational questions, and they are not the buyerQuestions above.
 - fixes: prioritized, concrete, specific to this site. No generic SEO advice.
+  Each "why" describes what a buyer or a crawler can or cannot read on the site TODAY. Never predict
+  what an answer engine will cite, repeat, rank or recommend: the report states elsewhere, with
+  evidence, that nothing on the site reliably moves that, and a fix that promises it contradicts the
+  report. "A buyer cannot find a price" is a reason; "an engine will have nothing to cite" is not.
   Set addresses to the key of the measured requirement a fix would satisfy — one of the keys listed
   under "What we have already measured", exactly as written — or null when it answers to none of them.
   Null is the normal case: a heavy image, a broken link or a stale copyright year maps to no
@@ -537,7 +541,12 @@ export async function analyzeSite(
     ...parsed,
     questionSetId: set.id,
     buyerQuestions: conformToSet(parsed.buyerQuestions, set),
-    fixes: reconcileFixes(parsed.fixes, goalFit),
+    // Stamped here, at the one place model fixes enter the system, so the
+    // renderer can label them as judgement and never as a finding.
+    fixes: reconcileFixes(parsed.fixes, goalFit).map((f) => ({
+      ...f,
+      origin: "recommendation" as const,
+    })),
   };
   return verifyEvidence(conformed, crawl);
 }

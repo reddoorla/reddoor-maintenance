@@ -1,4 +1,5 @@
 import { assertUrlSegment } from "../github/gh.js";
+import { OPERATOR_GOALS } from "../prospect/goals.js";
 import { makeGitHubRest } from "../github/gh-rest.js";
 import { isHttpUrl, isPrivateOrLoopbackHost, hostnameOf } from "../util/url.js";
 import type { ProspectAuditListItem } from "../db/prospect-audits.js";
@@ -66,6 +67,8 @@ export type ProspectAuditDispatchInputs = {
   url: string;
   business: string;
   requested_by: string;
+  /** One of OPERATOR_GOALS. Required: see triggerProspectAudit. */
+  goal: string;
 };
 
 /** Everything a dispatcher needs to fire one run — deliberately narrow (no
@@ -164,11 +167,16 @@ export type ProspectAuditTriggerInput = {
   url: string;
   business: string | null;
   requestedBy: string;
+  /** What the site should get a visitor to do. Empty is refused. */
+  goal: string;
 };
 
 export type ProspectAuditTriggerResult =
   | { status: "invalid-url" }
   | { status: "private-host" }
+  /** Gate B: a client-facing audit grades the site against a goal a person
+   *  chose. Inference is for internal runs; the cockpit is the client path. */
+  | { status: "missing-goal" }
   | { status: "duplicate"; existing: ProspectAuditListItem }
   /** The 24h runaway brake tripped (#612 review). Carries both numbers so the
    *  operator sees a real limit rather than a bare refusal. */
@@ -197,6 +205,9 @@ export async function triggerProspectAudit(
   const hostname = new URL(url).hostname;
   if (isPrivateOrLoopbackHost(hostname)) return { status: "private-host" };
 
+  const goal = input.goal.trim();
+  if (!(OPERATOR_GOALS as readonly string[]).includes(goal)) return { status: "missing-goal" };
+
   const now = (deps.now ?? (() => new Date()))();
   const cutoff = now.getTime() - PROSPECT_AUDIT_DUPLICATE_WINDOW_MS;
   const recent = await deps.listRecent(Math.max(DUPLICATE_CHECK_LOOKBACK, DAILY_CAP_LOOKBACK));
@@ -216,7 +227,7 @@ export async function triggerProspectAudit(
   const result = await deps.dispatch({
     repo: target.repo,
     workflowFile: target.workflowFile,
-    inputs: { url, business: business ?? "", requested_by: input.requestedBy },
+    inputs: { url, business: business ?? "", requested_by: input.requestedBy, goal },
   });
   if (!result.ok) return { status: "dispatch-failed", error: result.error };
   return { status: "dispatched" };
@@ -267,6 +278,16 @@ export function respondToProspectAuditTrigger(
       return {
         status: 400,
         body: { ok: false, error: "invalid-url", message: "Enter a valid http(s) URL to audit." },
+      };
+    case "missing-goal":
+      return {
+        status: 400,
+        body: {
+          ok: false,
+          error: "missing-goal",
+          message:
+            "Choose what the site should get a visitor to do. Every client-facing audit grades the site against a goal a person chose.",
+        },
       };
     case "private-host":
       return {

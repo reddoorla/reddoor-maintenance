@@ -24,10 +24,12 @@ import { runLighthouse } from "./lighthouse.js";
 import { checkAssets, type AssetCheck, type AssetCheckDeps } from "./assets.js";
 import { checkBasics, type BasicsCheck, type BasicsDeps, type BasicsProbe } from "./basics.js";
 import { checkGoal, type GoalFit, type SiteGoal } from "./goals.js";
+import { measuredFixes } from "./measured-fixes.js";
 import type {
   AnalyzeResult,
   ChecksResult,
   CrawlResult,
+  Fix,
   LighthouseScores,
   ProbesResult,
   ProspectAuditResult,
@@ -237,6 +239,14 @@ async function stage<T>(
  * isolated: a failure becomes `{ok: false, error}` and its report section reads
  * "not measured".
  */
+/** Measured fixes first; a model fix tagged to a requirement a measured fix
+ *  already covers is dropped rather than printed twice. Pure, so the order the
+ *  report prints is a tested fact rather than a property of the prompt. */
+export function mergeFixes(measured: Fix[], model: Fix[]): Fix[] {
+  const covered = new Set(measured.map((f) => f.addresses).filter((k): k is string => !!k));
+  return [...measured, ...model.filter((f) => !(f.addresses && covered.has(f.addresses)))];
+}
+
 export async function runProspectAudit(
   url: string,
   opts: ProspectAuditOptions,
@@ -402,13 +412,29 @@ export async function runProspectAudit(
   // On the operator path this is the same checklist analyze was already shown
   // and already filtered against; the filter is idempotent, so one call covers
   // both paths rather than two rules that can drift apart.
-  const reconciled: StageResult<AnalyzeResult> =
-    analyze.ok && goalFit.ok
-      ? {
-          ok: true,
-          data: { ...analyze.data, fixes: reconcileFixes(analyze.data.fixes, goalFit.data) },
-        }
-      : analyze;
+  //
+  // And the list is ordered: what we MEASURED first, each one a finding with a
+  // count, then what the model wrote, stamped as a recommendation. A model fix
+  // tagged to a requirement a measured fix already covers is dropped rather
+  // than printed twice.
+  const reconciled: StageResult<AnalyzeResult> = analyze.ok
+    ? {
+        ok: true,
+        data: {
+          ...analyze.data,
+          fixes: mergeFixes(
+            measuredFixes({
+              goalFit: goalFit.ok ? goalFit.data : null,
+              checks: checks.ok ? checks.data : null,
+              phones: checks.ok ? (checks.data.consistency?.phones ?? null) : null,
+              brokenLinks: assets.ok ? assets.data.brokenLinks.length : null,
+              brokenImages: assets.ok ? assets.data.brokenImages.length : null,
+            }),
+            goalFit.ok ? reconcileFixes(analyze.data.fixes, goalFit.data) : analyze.data.fixes,
+          ),
+        },
+      }
+    : analyze;
 
   // When an engine describes this business, where is it getting that from?
   //

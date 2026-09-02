@@ -49,7 +49,12 @@ describe("triggerProspectAudit", () => {
         },
       }),
       TARGET,
-      { url: "https://prospect.example/", business: "Prospect Co", requestedBy: "tucker" },
+      {
+        url: "https://prospect.example/",
+        business: "Prospect Co",
+        requestedBy: "tucker",
+        goal: "enquire",
+      },
     );
     expect(r).toEqual({ status: "dispatched" });
     expect(calls).toHaveLength(1);
@@ -60,6 +65,7 @@ describe("triggerProspectAudit", () => {
         url: "https://prospect.example/",
         business: "Prospect Co",
         requested_by: "tucker",
+        goal: "enquire",
       },
     });
   });
@@ -74,7 +80,12 @@ describe("triggerProspectAudit", () => {
         },
       }),
       TARGET,
-      { url: "  https://prospect.example/  ", business: "   ", requestedBy: "cockpit" },
+      {
+        url: "  https://prospect.example/  ",
+        business: "   ",
+        requestedBy: "cockpit",
+        goal: "enquire",
+      },
     );
     expect(calls[0]!.inputs.url).toBe("https://prospect.example/");
     expect(calls[0]!.inputs.business).toBe("");
@@ -87,6 +98,7 @@ describe("triggerProspectAudit", () => {
       url: "not-a-url",
       business: null,
       requestedBy: "cockpit",
+      goal: "enquire",
     });
     expect(r).toEqual({ status: "invalid-url" });
     expect(listRecent).not.toHaveBeenCalled();
@@ -99,6 +111,7 @@ describe("triggerProspectAudit", () => {
       url: "",
       business: null,
       requestedBy: "cockpit",
+      goal: "enquire",
     });
     expect(r).toEqual({ status: "invalid-url" });
     expect(dispatch).not.toHaveBeenCalled();
@@ -111,6 +124,7 @@ describe("triggerProspectAudit", () => {
       url: "http://127.0.0.1:8080/admin",
       business: null,
       requestedBy: "cockpit",
+      goal: "enquire",
     });
     expect(r).toEqual({ status: "private-host" });
     expect(listRecent).not.toHaveBeenCalled();
@@ -123,6 +137,7 @@ describe("triggerProspectAudit", () => {
       url: "http://169.254.169.254/latest/meta-data",
       business: null,
       requestedBy: "cockpit",
+      goal: "enquire",
     });
     expect(r).toEqual({ status: "private-host" });
     expect(dispatch).not.toHaveBeenCalled();
@@ -137,7 +152,7 @@ describe("triggerProspectAudit", () => {
     const r = await triggerProspectAudit(
       deps({ listRecent: async () => [existing], dispatch }),
       TARGET,
-      { url: "https://prospect.example/", business: null, requestedBy: "cockpit" },
+      { url: "https://prospect.example/", business: null, requestedBy: "cockpit", goal: "enquire" },
     );
     expect(r).toEqual({ status: "duplicate", existing });
     expect(dispatch).not.toHaveBeenCalled();
@@ -152,7 +167,7 @@ describe("triggerProspectAudit", () => {
     const r = await triggerProspectAudit(
       deps({ listRecent: async () => [stale], dispatch }),
       TARGET,
-      { url: "https://prospect.example/", business: null, requestedBy: "cockpit" },
+      { url: "https://prospect.example/", business: null, requestedBy: "cockpit", goal: "enquire" },
     );
     expect(r).toEqual({ status: "dispatched" });
     expect(dispatch).toHaveBeenCalledTimes(1);
@@ -164,7 +179,7 @@ describe("triggerProspectAudit", () => {
     const r = await triggerProspectAudit(
       deps({ listRecent: async () => [other], dispatch }),
       TARGET,
-      { url: "https://prospect.example/", business: null, requestedBy: "cockpit" },
+      { url: "https://prospect.example/", business: null, requestedBy: "cockpit", goal: "enquire" },
     );
     expect(r).toEqual({ status: "dispatched" });
   });
@@ -173,7 +188,7 @@ describe("triggerProspectAudit", () => {
     const r = await triggerProspectAudit(
       deps({ dispatch: async () => ({ ok: false, error: "403 no actions:write" }) }),
       TARGET,
-      { url: "https://prospect.example/", business: null, requestedBy: "cockpit" },
+      { url: "https://prospect.example/", business: null, requestedBy: "cockpit", goal: "enquire" },
     );
     expect(r).toEqual({ status: "dispatch-failed", error: "403 no actions:write" });
   });
@@ -291,7 +306,12 @@ describe("makeWorkflowDispatchDispatcher", () => {
     const result = await dispatcher({
       repo: "reddoorla/private-audits",
       workflowFile: "prospect-audit.yml",
-      inputs: { url: "https://prospect.example/", business: "Prospect Co", requested_by: "tucker" },
+      inputs: {
+        url: "https://prospect.example/",
+        business: "Prospect Co",
+        requested_by: "tucker",
+        goal: "enquire",
+      },
     });
     expect(result).toEqual({ ok: true });
     expect(calls).toHaveLength(2);
@@ -302,7 +322,12 @@ describe("makeWorkflowDispatchDispatcher", () => {
     const sentBody = JSON.parse(String(dispatchCall.init?.body));
     expect(sentBody).toEqual({
       ref: "main",
-      inputs: { url: "https://prospect.example/", business: "Prospect Co", requested_by: "tucker" },
+      inputs: {
+        url: "https://prospect.example/",
+        business: "Prospect Co",
+        requested_by: "tucker",
+        goal: "enquire",
+      },
     });
   });
 
@@ -314,7 +339,7 @@ describe("makeWorkflowDispatchDispatcher", () => {
     const result = await dispatcher({
       repo: "not-owner-slash-repo",
       workflowFile: "prospect-audit.yml",
-      inputs: { url: "https://x.example/", business: "", requested_by: "cockpit" },
+      inputs: { url: "https://x.example/", business: "", requested_by: "cockpit", goal: "enquire" },
     });
     expect(result.ok).toBe(false);
   });
@@ -331,7 +356,7 @@ describe("makeWorkflowDispatchDispatcher", () => {
     const result = await dispatcher({
       repo: "reddoorla/private-audits",
       workflowFile: "prospect-audit.yml",
-      inputs: { url: "https://x.example/", business: "", requested_by: "cockpit" },
+      inputs: { url: "https://x.example/", business: "", requested_by: "cockpit", goal: "enquire" },
     });
     expect(result).toEqual({ ok: false, error: expect.stringContaining("403") });
   });
@@ -347,7 +372,7 @@ describe("makeWorkflowDispatchDispatcher", () => {
     const result = await dispatcher({
       repo: "reddoorla/private-audits",
       workflowFile: "prospect-audit.yml",
-      inputs: { url: "https://x.example/", business: "", requested_by: "cockpit" },
+      inputs: { url: "https://x.example/", business: "", requested_by: "cockpit", goal: "enquire" },
     });
     expect(result).toEqual({ ok: false, error: expect.stringContaining("network down") });
   });
@@ -389,7 +414,12 @@ describe("the 24h daily cap", () => {
         },
       }),
       TARGET,
-      { url: "https://brand-new.example/", business: null, requestedBy: "op@reddoorla.com" },
+      {
+        url: "https://brand-new.example/",
+        business: null,
+        requestedBy: "op@reddoorla.com",
+        goal: "enquire",
+      },
     );
     expect(r.status).toBe("daily-cap");
     expect(dispatched).toBe(0);
@@ -400,7 +430,12 @@ describe("the 24h daily cap", () => {
     const r = await triggerProspectAudit(
       deps({ listRecent: async () => recentRun(PROSPECT_AUDIT_DAILY_CAP - 1) }),
       TARGET,
-      { url: "https://brand-new.example/", business: null, requestedBy: "op@reddoorla.com" },
+      {
+        url: "https://brand-new.example/",
+        business: null,
+        requestedBy: "op@reddoorla.com",
+        goal: "enquire",
+      },
     );
     expect(r.status).toBe("dispatched");
   });
@@ -411,7 +446,12 @@ describe("the 24h daily cap", () => {
         listRecent: async () => recentRun(PROSPECT_AUDIT_DAILY_CAP, "2026-08-23T09:00:00.000Z"),
       }),
       TARGET,
-      { url: "https://brand-new.example/", business: null, requestedBy: "op@reddoorla.com" },
+      {
+        url: "https://brand-new.example/",
+        business: null,
+        requestedBy: "op@reddoorla.com",
+        goal: "enquire",
+      },
     );
     expect(r.status).toBe("dispatched");
   });
@@ -423,7 +463,12 @@ describe("the 24h daily cap", () => {
     const r = await triggerProspectAudit(
       deps({ listRecent: async () => [dup, ...recentRun(PROSPECT_AUDIT_DAILY_CAP)] }),
       TARGET,
-      { url: "https://acme.example/", business: null, requestedBy: "op@reddoorla.com" },
+      {
+        url: "https://acme.example/",
+        business: null,
+        requestedBy: "op@reddoorla.com",
+        goal: "enquire",
+      },
     );
     expect(r.status).toBe("duplicate");
   });
@@ -441,5 +486,53 @@ describe("the 24h daily cap", () => {
     );
     expect(out.status).toBe(429);
     expect(String(out.body.message)).toContain("25");
+  });
+});
+
+describe("Gate B: a client-facing audit needs a goal", () => {
+  // The cockpit is the client path. Inference is for internal runs; a report
+  // Tim shows a prospect grades the site against a goal a person chose.
+  it("refuses a run with no goal", async () => {
+    const dispatch = vi.fn(async () => ({ ok: true as const }));
+    const r = await triggerProspectAudit(deps({ dispatch }), TARGET, {
+      url: "https://acme.example/",
+      business: null,
+      requestedBy: "x",
+      goal: "",
+    });
+    expect(r).toEqual({ status: "missing-goal" });
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("refuses a goal outside the operator set — 'unknown' is a finding, not a choice", async () => {
+    const r = await triggerProspectAudit(deps(), TARGET, {
+      url: "https://acme.example/",
+      business: null,
+      requestedBy: "x",
+      goal: "unknown",
+    });
+    expect(r).toEqual({ status: "missing-goal" });
+  });
+
+  it("forwards the goal to the dispatcher", async () => {
+    const dispatch = vi.fn(async () => ({ ok: true as const }));
+    await triggerProspectAudit(deps({ dispatch }), TARGET, {
+      url: "https://acme.example/",
+      business: null,
+      requestedBy: "x",
+      goal: "enquire",
+    });
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ inputs: expect.objectContaining({ goal: "enquire" }) }),
+    );
+  });
+
+  it("explains a missing goal to the operator as a 400", () => {
+    const { status, body } = respondToProspectAuditTrigger(
+      { status: "missing-goal" },
+      { recipientsLabel: "x" },
+    );
+    expect(status).toBe(400);
+    expect(JSON.stringify(body)).toMatch(/what the site should get a visitor to do/i);
   });
 });
