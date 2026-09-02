@@ -483,3 +483,128 @@ describe("quoteSupportsClaim — a related passage is not a supporting one", () 
     ).toBe(false);
   });
 });
+
+describe("a place the site itself names is never 'contradicted'", () => {
+  // The audited site listed a Texas mailing address on one page and "near the
+  // Los Angeles metro" on another. The model called "Los Angeles-based"
+  // contradicted on the strength of the address alone. The site says both;
+  // the honest verdict quotes the site's own sentence.
+  const site = crawl([
+    page(
+      "https://acme.example/",
+      "Acme Design. HQ mailing address: 1 Main St, Fair Oaks Ranch, TX.",
+    ),
+    page(
+      "https://acme.example/about",
+      "We are conveniently located near the Los Angeles metro area.",
+    ),
+  ]);
+  const answer = branded({
+    query: "who is Acme Design",
+    citedDomains: ["yelp.com"],
+    fullAnswer: "Acme Design (Los Angeles-based) is a studio.",
+  });
+  const offline = { fetchPage: async () => null };
+
+  it("flips contradicted to confirmed when the site uses the claim's own terms", async () => {
+    const r = await checkAccuracy("https://acme.example/", site, [answer], [], {
+      run: async () => ({
+        assertions: [
+          {
+            claim: "Acme Design is based in Los Angeles.",
+            engineQuote: "Acme Design (Los Angeles-based)",
+            verdict: "contradicted",
+            siteQuote: "HQ mailing address: 1 Main St, Fair Oaks Ranch, TX.",
+            searchTerms: ["Los Angeles"],
+          },
+        ],
+      }),
+      ownership: offline,
+    });
+    expect(r.assertions[0]).toMatchObject({
+      verdict: "confirmed",
+      siteQuote: expect.stringContaining("Los Angeles"),
+    });
+  });
+
+  it("keeps contradicted when the site never uses the claim's terms", async () => {
+    const r = await checkAccuracy("https://acme.example/", site, [answer], [], {
+      run: async () => ({
+        assertions: [
+          {
+            claim: "Acme Design is based in Portland.",
+            engineQuote: "Acme Design (Los Angeles-based)",
+            verdict: "contradicted",
+            siteQuote: "HQ mailing address: 1 Main St, Fair Oaks Ranch, TX.",
+            searchTerms: ["Portland"],
+          },
+        ],
+      }),
+      ownership: offline,
+    });
+    expect(r.assertions[0]?.verdict).not.toBe("confirmed");
+  });
+});
+
+describe("name collision", () => {
+  const site = crawl([page("https://acme.example/", "Acme Design, Boise.")]);
+  const offline = { fetchPage: async () => null };
+
+  it("records when the engine describes more than one business under the name", async () => {
+    const answer = branded({
+      query: "who is Acme Design",
+      citedDomains: [],
+      fullAnswer:
+        '"Acme Design" is a name used by several companies. The main one is Acme Design Photography (Virginia).',
+    });
+    const r = await checkAccuracy("https://acme.example/", site, [answer], [], {
+      run: async () => ({
+        assertions: [],
+        conflation: {
+          detected: true,
+          otherNames: ["Acme Design Photography"],
+          engineQuote: '"Acme Design" is a name used by several companies',
+        },
+      }),
+      ownership: offline,
+    });
+    expect(r.conflation).toEqual({
+      detected: true,
+      otherNames: ["Acme Design Photography"],
+      engineQuote: '"Acme Design" is a name used by several companies',
+    });
+  });
+
+  it("discards a conflation whose quote is not in the answer", async () => {
+    const answer = branded({
+      query: "who is Acme Design",
+      citedDomains: [],
+      fullAnswer: "Acme Design is a Boise studio.",
+    });
+    const r = await checkAccuracy("https://acme.example/", site, [answer], [], {
+      run: async () => ({
+        assertions: [],
+        conflation: {
+          detected: true,
+          otherNames: ["Someone Else"],
+          engineQuote: "several companies",
+        },
+      }),
+      ownership: offline,
+    });
+    expect(r.conflation).toEqual({ detected: false, otherNames: [], engineQuote: null });
+  });
+
+  it("reads as not-detected when the model omits the field", async () => {
+    const answer = branded({
+      query: "who is Acme Design",
+      citedDomains: [],
+      fullAnswer: "Acme Design is a Boise studio.",
+    });
+    const r = await checkAccuracy("https://acme.example/", site, [answer], [], {
+      run: async () => ({ assertions: [] }),
+      ownership: offline,
+    });
+    expect(r.conflation).toEqual({ detected: false, otherNames: [], engineQuote: null });
+  });
+});
