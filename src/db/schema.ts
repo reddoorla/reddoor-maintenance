@@ -213,6 +213,10 @@ export interface ProspectAuditsTable {
   id: string;
   token: string;
   url: string;
+  /** One key per site, however its address was written (migration 0013). `url`
+   *  records what we audited; this is what two audits of one site are grouped
+   *  by. Null on rows written before the column existed. See siteKey(). */
+  site_key: string | null;
   business: string | null;
   created_at: string;
   status: string;

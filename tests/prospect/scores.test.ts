@@ -135,6 +135,30 @@ describe("computeScores", () => {
     expect(s.answers).toBe(38);
   });
 
+  it("leaves a question we never got an answer for out of the denominator", () => {
+    // "unknown" is our own gap, not a "no" about them. Scored as a zero it
+    // would both understate the site and make the number move whenever OUR
+    // measurement flaked — the opposite of an instrument you can read twice.
+    const s = computeScores({
+      checks: null,
+      lighthouse: null,
+      analyze: analyze(["yes", "partial", "unknown", "unknown"]),
+      probes: null,
+    });
+    // Judged: one yes, one partial → 1.5 of 2, not 1.5 of 4.
+    expect(s.answers).toBe(75);
+  });
+
+  it("reports no answers score at all when nothing could be judged", () => {
+    const s = computeScores({
+      checks: null,
+      lighthouse: null,
+      analyze: analyze(["unknown", "unknown"]),
+      probes: null,
+    });
+    expect(s.answers).toBeNull();
+  });
+
   it("passes the probe visibility score through", () => {
     expect(
       computeScores({ checks: null, lighthouse: null, analyze: null, probes }).aiVisibility,

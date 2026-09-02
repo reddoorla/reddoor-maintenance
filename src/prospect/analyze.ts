@@ -5,8 +5,12 @@ import type {
   BuyerQuestion,
   ChecksResult,
   CrawlResult,
+  Fix,
   PageCapture,
 } from "./types.js";
+import type { SiteGoal } from "./goals.js";
+import { questionSetFor, type QuestionSet } from "./questions.js";
+import type { GoalFit } from "./goals.js";
 
 /** Bounds on what reaches the model: enough site to judge, small enough to stay
  *  inside one ~$0.50 call. */
@@ -42,20 +46,22 @@ export const AnalyzeSchema = z.object({
     // that. The default is the same value the model would give when it cannot
     // tell, and the goal section already degrades gracefully on it.
     .default("unknown"),
-  // 6-10, not just "an array": a thin or empty response must fail loudly here
-  // rather than quietly starving the report's Answers section.
-  buyerQuestions: z
-    .array(
-      z.object({
-        question: z.string(),
-        answered: z.enum(["yes", "partial", "no"]),
-        quotable: z.boolean(),
-        page: z.string().nullable(),
-        evidence: z.string().nullable(),
-      }),
-    )
-    .min(6)
-    .max(10),
+  // The model no longer writes the questions — it answers ours, keyed by the
+  // id we gave it (see questions.ts). No floor or ceiling is enforced here on
+  // purpose: the set decides the length, and `conformToSet` below reconciles
+  // whatever comes back against it, so a short or padded response is repaired
+  // rather than thrown away. The enum deliberately excludes "unknown": that
+  // value is ours to assign to a question the model skipped, and offering it
+  // would let the model opt out of judging.
+  buyerQuestions: z.array(
+    z.object({
+      id: z.string(),
+      answered: z.enum(["yes", "partial", "no"]),
+      quotable: z.boolean(),
+      page: z.string().nullable(),
+      evidence: z.string().nullable(),
+    }),
+  ),
   // Seeds the live-search probes in the next stage. Deliberately NOT the same
   // strings as buyerQuestions: those are written about THIS site and read
   // correctly only beside it ("What services does this agency offer?"), so as
@@ -76,6 +82,10 @@ export const AnalyzeSchema = z.object({
         impact: z.enum(["high", "medium", "low"]),
         effort: z.enum(["low", "medium", "high"]),
         tier: z.enum(["crawl", "content", "technical"]),
+        // The handle that lets us check the model's prose against our own
+        // measurements. Nullable and expected to be null most of the time —
+        // see reconcileFixes.
+        addresses: z.string().nullable().default(null),
       }),
     )
     .max(10),
@@ -130,10 +140,14 @@ Return:
   not "book".
   Answer "unknown" when the site genuinely does not push toward any single action. That is a real
   answer and a useful one: do not pick the least-bad option to avoid it.
-- buyerQuestions: 6-10 questions a real buyer in this category asks before hiring. For each, whether
-  the site answers it (yes/partial/no), whether there is a passage an AI could quote verbatim, the page
-  it lives on, and the evidence quote. evidence must be an EXACT substring of that page's quoted text —
-  copied verbatim, never paraphrased or invented — or null when no exact quote supports the answer.
+- buyerQuestions: an answer to EVERY question in the "Questions to answer" list below, and to no
+  others. Return each one's id exactly as given. Do not add questions, do not drop questions, and do
+  not rewrite them — the list is fixed so that this site can be measured again later against the same
+  questions. For each: whether the site answers it (yes/partial/no), whether there is a passage an AI
+  could quote verbatim, the page it lives on, and the evidence quote.
+  evidence must be an EXACT substring of that page's quoted text — copied verbatim, never paraphrased or invented — or null when
+  no exact quote supports the answer. Answer "no" only when the site genuinely does not say; an answer
+  you cannot point at a passage for is not a "yes".
 - categoryQueries: 5 searches a buyer types BEFORE they have heard of this company, chosen so that this
   company could PLAUSIBLY RANK for them today — not ones it arguably deserves. A broad head term
   ("branding agency Los Angeles") returns directories and listicles, which is where small firms are
@@ -149,6 +163,10 @@ Return:
   at it with a pronoun has no antecedent and the engine will answer that it does not know who is meant.
   These are searches, not conversational questions, and they are not the buyerQuestions above.
 - fixes: prioritized, concrete, specific to this site. No generic SEO advice.
+  Set addresses to the key of the measured requirement a fix would satisfy — one of the keys listed
+  under "What we have already measured", exactly as written — or null when it answers to none of them.
+  Null is the normal case: a heavy image, a broken link or a stale copyright year maps to no
+  requirement. Do not invent a key.
 - narrative: two or three plain sentences per report section, addressed to the business owner. No
   jargon, no hedging.`;
 }
@@ -237,6 +255,8 @@ export function buildAnalyzeInput(
   url: string,
   crawl: CrawlResult,
   checks: ChecksResult,
+  questions: QuestionSet,
+  goalFit: GoalFit | null = null,
 ): { system: string; user: string } {
   const fence = makeFenceTag();
   const pages = selectPages(crawl.pages).map((p) => {
@@ -264,6 +284,37 @@ export function buildAnalyzeInput(
     "",
     "## What the automated checks found",
     summarizeFindings(checks),
+    "",
+    // The questions come before the pages deliberately: the model reads what it
+    // is looking for, then reads the site looking for it, rather than forming an
+    // impression and then being asked to grade it.
+    // What we already know, so the model cannot recommend it. reconcileFixes
+    // is the backstop that catches it anyway; this is the cheaper half of the
+    // same guard, and it also stops the fix list wasting its ten slots on work
+    // that is already done.
+    ...(goalFit
+      ? [
+          `## What we have already measured`,
+          `This site's main goal is "${goalFit.goal}". We checked the following and found:`,
+          goalFit.requirements
+            .map(
+              (r) =>
+                `- ${r.key} (${r.label}): ${
+                  r.status === "met"
+                    ? "ALREADY DONE"
+                    : r.status === "missing"
+                      ? "NOT ON THE SITE"
+                      : "we could not check"
+                }`,
+            )
+            .join("\n"),
+          `Never propose a fix for anything marked ALREADY DONE — the report says so two sections above your list, and contradicting it discredits the whole document.`,
+          "",
+        ]
+      : []),
+    "## Questions to answer",
+    `Answer every one of these and no others, returning each id exactly as written.`,
+    questions.questions.map((q) => `- ${q.id}: ${q.question}`).join("\n"),
     "",
     "## Pages",
     pages.join("\n\n---\n\n"),
@@ -369,7 +420,14 @@ function verifyEvidence(result: AnalyzeResult, crawl: CrawlResult): AnalyzeResul
     // it just stops it scoring. If a question is ever legitimately answered by
     // page structure rather than a quotable line, that needs its own field —
     // silence is not the way to express it.
-    return verified.evidence === null && verified.answered !== "no"
+    //
+    // "unknown" is excluded: it means WE never got an answer for this question,
+    // so demoting it to "no" would convert our gap into a finding about them —
+    // the one thing this report must never do. It stays unknown and stays out
+    // of the score.
+    return verified.evidence === null &&
+      verified.answered !== "no" &&
+      verified.answered !== "unknown"
       ? { ...verified, answered: "no" as const }
       : verified;
   });
@@ -377,13 +435,109 @@ function verifyEvidence(result: AnalyzeResult, crawl: CrawlResult): AnalyzeResul
   return { ...result, buyerQuestions };
 }
 
+/**
+ * Reconcile whatever the model returned against the set we actually asked.
+ *
+ * The set is authoritative in both directions, and the two directions fail
+ * differently on purpose:
+ *
+ *   a question the model SKIPPED  → kept, marked "unknown", excluded from the
+ *                                   score. It is our measurement that came up
+ *                                   short, and reporting it as "no" would print
+ *                                   our gap as their defect.
+ *   a question the model INVENTED → dropped. It was not asked, nobody can
+ *                                   reproduce it, and a row that appears in one
+ *                                   audit and not the next is exactly the
+ *                                   instability the fixed set exists to remove.
+ *
+ * The wording is taken from the set, never from the response, so the report
+ * cannot quietly print a question we did not ask.
+ */
+function conformToSet(
+  returned: {
+    id: string;
+    answered: "yes" | "partial" | "no";
+    quotable: boolean;
+    page: string | null;
+    evidence: string | null;
+  }[],
+  set: QuestionSet,
+): BuyerQuestion[] {
+  const byId = new Map(returned.map((q) => [q.id, q]));
+  return set.questions.map((spec) => {
+    const got = byId.get(spec.id);
+    if (!got) {
+      return {
+        id: spec.id,
+        question: spec.question,
+        answered: "unknown" as const,
+        quotable: false,
+        page: null,
+        evidence: null,
+      };
+    }
+    return {
+      id: spec.id,
+      question: spec.question,
+      answered: got.answered,
+      quotable: got.quotable,
+      page: got.page,
+      evidence: got.evidence,
+    };
+  });
+}
+
+/**
+ * @param goal what the site is for, when the operator told us. It selects the
+ * question set, so it must be known BEFORE the call — which is why the operator
+ * goal is threaded down here rather than read off the model's own inference.
+ * Without one we ask the universal set: the questions worth asking whatever the
+ * site turns out to be for. The model still reports `primaryGoal` either way,
+ * because the goal-fit section needs it even when we could not ask its
+ * questions.
+ */
+/**
+ * Drop any fix that tells the prospect to do something we measured them as
+ * having already done.
+ *
+ * The fix list is the only section the model writes freely, and until now
+ * nothing reconciled it against the checks printed above it. A report that
+ * says "Yes — a way to book without calling" in the goal checklist and then
+ * lists "Add an online booking link" three sections later does not read as one
+ * finding contradicting another; it reads as a document nobody checked, and it
+ * discredits every other line in it.
+ *
+ * Only a `met` requirement removes a fix. `missing` obviously keeps it, and
+ * `unmeasured` keeps it too: not having looked is not evidence that the work is
+ * already done, and dropping a fix on that basis would let a gap in our
+ * measurement quietly delete advice.
+ *
+ * An untagged fix always survives. Most of the good ones — a two-megabyte
+ * image, a broken link, a copyright year stuck in 2022 — answer to no goal
+ * requirement at all, and treating "no tag" as suspicious would gut the list.
+ */
+export function reconcileFixes(fixes: Fix[], goalFit: GoalFit | null): Fix[] {
+  if (!goalFit) return fixes;
+  const met = new Set(goalFit.requirements.filter((r) => r.status === "met").map((r) => r.key));
+  return fixes.filter((f) => !(f.addresses && met.has(f.addresses)));
+}
+
 export async function analyzeSite(
   url: string,
   crawl: CrawlResult,
   checks: ChecksResult,
   deps: AnalyzeDeps = defaultAnalyzeDeps(),
+  goal: SiteGoal = "unknown",
+  goalFit: GoalFit | null = null,
 ): Promise<AnalyzeResult> {
-  const raw = await deps.run(buildAnalyzeInput(url, crawl, checks));
+  const set = questionSetFor(goal);
+  const raw = await deps.run(buildAnalyzeInput(url, crawl, checks, set, goalFit));
   const parsed = AnalyzeSchema.parse(raw);
-  return verifyEvidence(parsed, crawl);
+  const conformed: AnalyzeResult = {
+    ...parsed,
+    questionSetId: set.id,
+    buyerQuestions: conformToSet(parsed.buyerQuestions, set),
+    fixes: reconcileFixes(parsed.fixes, goalFit),
+  };
+  return verifyEvidence(conformed, crawl);
 }

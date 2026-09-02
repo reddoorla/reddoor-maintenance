@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   backstopAbsent,
+  quoteSupportsClaim,
   buildAccuracyInput,
   checkAccuracy,
   fullSiteText,
@@ -377,5 +378,108 @@ describe("fullSiteText", () => {
     );
     expect(text).toContain("one");
     expect(text).toContain("two");
+  });
+});
+
+describe("backstopAbsent — a single common word is a topic, not an answer", () => {
+  const assertion = (claim: string) => ({
+    claim,
+    verdict: "absent" as const,
+    engineQuote: "q",
+    siteQuote: null,
+    unverifiedReason: null,
+    nearbyMention: null,
+    sourceDomains: [],
+    query: "who is Acme",
+    engine: "claude",
+  });
+
+  it("does not excuse a claim because one common word appears somewhere", () => {
+    // Observed on a real run of our own site. An engine claimed the company has
+    // "about 5 employees"; the backstop found the word "employees" inside an
+    // unrelated case study about an organisation of 84,000 people, and printed
+    // `Your site does say "employees", so we have not counted this as missing.`
+    // That is a topic match dressed as an answer, and it reads as a tool that
+    // cannot read.
+    const site =
+      "We turned policy into county-wide action by managing an organization of over 84,000 employees.";
+    const [out] = backstopAbsent(
+      [assertion("Acme has about 5 employees")],
+      site,
+      new Map([["Acme has about 5 employees", ["employees"]]]),
+      true,
+    );
+    expect(out!.verdict).toBe("absent");
+    expect(out!.nearbyMention).toBeNull();
+  });
+
+  it("still excuses a claim when the site uses the actual phrase", () => {
+    const site = "Our studio has about 5 employees across three states.";
+    const [out] = backstopAbsent(
+      [assertion("Acme has about 5 employees")],
+      site,
+      new Map([["Acme has about 5 employees", ["about 5 employees"]]]),
+      true,
+    );
+    expect(out!.verdict).toBe("unverified");
+  });
+
+  it("still trusts a distinctive proper noun on its own", () => {
+    // The case the backstop was built for: an engine names a practice after a
+    // clinician the site never mentions, and the team page lists a similar
+    // name. A single word is enough here precisely because it is a name.
+    const site = "Our team is led by Dr Alderson, who founded the practice.";
+    const [out] = backstopAbsent(
+      [assertion("Formerly known as Alderson Dental")],
+      site,
+      new Map([["Formerly known as Alderson Dental", ["Alderson"]]]),
+      true,
+    );
+    expect(out!.verdict).toBe("unverified");
+  });
+});
+
+describe("quoteSupportsClaim — a related passage is not a supporting one", () => {
+  it("rejects a quote that shares only one common word with the claim", () => {
+    // Observed live. The engine said Reddoor is "a graphic design and branding
+    // company"; the model marked it confirmed and cited our tagline — "We save
+    // you from drowning in an ocean of noise by arming you with a clear story
+    // and compelling design." The only word in common is "design". A reader
+    // notices immediately that the quote does not say what the claim says, and
+    // once they have noticed, every other quote on the page is in question.
+    expect(
+      quoteSupportsClaim(
+        "Reddoor Creative is a graphic design and branding company.",
+        "We save you from drowning in an ocean of noise by arming you with a clear story and compelling design.",
+      ),
+    ).toBe(false);
+  });
+
+  it("accepts a quote that carries the substance of the claim", () => {
+    // Every one of these is a real confirmed pair from the same run, and each
+    // must survive: the guard is worthless if it demotes true confirmations.
+    const pairs: [string, string][] = [
+      [
+        "Reddoor Creative is based in Fair Oaks Ranch, Texas.",
+        "HQ MAILING ADDRESS 29027 Dapper Dan Dr. Fair Oaks Ranch, TX 78015",
+      ],
+      [
+        "Reddoor Creative has designers spread across California, Texas and Idaho.",
+        "We have designers sprinkled across California, Texas and Idaho, conveniently located near the Los Angeles, San Antonio, and Boise metro areas.",
+      ],
+      [
+        "Reddoor Creative is led by Tim Holmes.",
+        "Because of unforeseen circumstances owner, Tim Holmes, found himself stuck in LA with a white Toyota.",
+      ],
+    ];
+    for (const [claim, quote] of pairs) {
+      expect(quoteSupportsClaim(claim, quote), claim).toBe(true);
+    }
+  });
+
+  it("rejects a quote with nothing of the claim in it at all", () => {
+    expect(
+      quoteSupportsClaim("Acme is open on Saturdays.", "Our team has served the region."),
+    ).toBe(false);
   });
 });

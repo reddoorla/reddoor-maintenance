@@ -7,7 +7,12 @@ import {
   claudeCodeEngine,
   llmAuthMode,
 } from "./claude-code.js";
-import { apiAccuracyDeps, type AccuracyDeps } from "./accuracy.js";
+import {
+  apiAccuracyDeps,
+  checkAccuracy,
+  type AccuracyDeps,
+  type AccuracyResult,
+} from "./accuracy.js";
 import { defaultOwnershipDeps } from "./ownership.js";
 import {
   defaultEngines,
@@ -30,7 +35,7 @@ import type {
 } from "./types.js";
 
 export type StageName =
-  "crawl" | "checks" | "lighthouse" | "analyze" | "probes" | "assets" | "basics";
+  "crawl" | "checks" | "lighthouse" | "analyze" | "probes" | "assets" | "basics" | "accuracy";
 
 /** The two ways an audit can pay for its model calls. Which one runs is
  *  decided here, once, off PROSPECT_LLM_AUTH (see claude-code.ts) — the
@@ -53,11 +58,11 @@ export function envAnalyzeDeps(
 /**
  * The accuracy stage's dependencies, chosen by the same env toggle as analyze.
  *
- * Accuracy is not wired into `runProspectAudit` yet. This selector exists
- * anyway so that when it is, the wiring cannot silently bill the metered API
- * under `PROSPECT_LLM_AUTH=subscription` — `apiAccuracyDeps` is deliberately
- * not a default parameter, so the only convenient way to call `checkAccuracy`
- * is through here.
+ * `apiAccuracyDeps` is deliberately not a default parameter, so the only
+ * convenient way to call `checkAccuracy` is through here — which is what stops
+ * the wiring silently billing the metered API under
+ * `PROSPECT_LLM_AUTH=subscription`. This is the pipeline's largest prompt (up
+ * to 14 untruncated pages) on Opus, so one forgotten argument is expensive.
  */
 export function envAccuracyDeps(userAgent: string): AccuracyDeps {
   const api = apiAccuracyDeps();
@@ -86,6 +91,11 @@ export const ANALYZE_SKIPPED = "skipped — the checks stage failed";
  *  reason as the constants above: consumers compare, they do not retype. */
 export const ASSETS_SKIPPED = "skipped — the checks stage failed";
 
+/** No branded answers to check, because the probes did not run or were turned
+ *  off. An absence of input, never a finding: the report must read "not
+ *  measured" here and never "the engine said nothing wrong about you". */
+export const ACCURACY_SKIPPED = "skipped — no branded answers to check";
+
 /** No goal was supplied and the analyze stage did not infer one — so the goal
  *  section reads "not measured". Distinct from a goal of `unknown`, which IS a
  *  measurement: it means we looked and the site does not push toward any single
@@ -99,15 +109,32 @@ export const GOAL_UNRESOLVED = "no goal supplied and none could be inferred";
  *  prospect's report with defects that do not exist. The GET is made with a
  *  Range header asking for the first byte, so a heavy asset is not pulled in
  *  whole just to learn its status. */
-async function defaultAssetProbe(
+/**
+ * What a browser tells an image host it can accept.
+ *
+ * Without this the probe sent no Accept at all, so every content-negotiating
+ * host — imgix, Cloudinary, Cloudflare Images, and Prismic, which is most of
+ * our own fleet — fell back to the original JPEG and we published its size as
+ * the site's image weight. On reddoorla.com we reported 1,760 KB for a hero a
+ * real desktop browser receives as a 543 KB AVIF: three times over, in the
+ * direction that makes our own finding look worse than the truth.
+ *
+ * The trailing wildcard is not decoration. A host serving a format we did not
+ * name could otherwise answer 406, and an image we failed to ask for properly
+ * would be reported to the client as a broken one.
+ */
+export const ASSET_ACCEPT = "image/avif,image/webp,image/apng,image/*,*/*;q=0.8";
+
+export async function defaultAssetProbe(
   url: string,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<{ status: number; headers: Record<string, string> }> {
   const headersOf = (res: Response): Record<string, string> =>
     Object.fromEntries([...res.headers].map(([k, v]) => [k.toLowerCase(), v]));
 
-  const head = await fetch(url, {
+  const head = await fetchImpl(url, {
     method: "HEAD",
-    headers: { "user-agent": USER_AGENT },
+    headers: { "user-agent": USER_AGENT, accept: ASSET_ACCEPT },
     redirect: "follow",
     signal: AbortSignal.timeout(15_000),
   });
@@ -115,9 +142,9 @@ async function defaultAssetProbe(
     return { status: head.status, headers: headersOf(head) };
   }
 
-  const get = await fetch(url, {
+  const get = await fetchImpl(url, {
     method: "GET",
-    headers: { "user-agent": USER_AGENT, range: "bytes=0-0" },
+    headers: { "user-agent": USER_AGENT, accept: ASSET_ACCEPT, range: "bytes=0-0" },
     redirect: "follow",
     signal: AbortSignal.timeout(15_000),
   });
@@ -153,6 +180,8 @@ export type PipelineDeps = {
    *  someone else's server, and a courteous audit is worth more than an
    *  exhaustive one. A test passes its own `probe` to avoid a network. */
   assets?: Partial<AssetCheckDeps>;
+  /** Overrides the accuracy stage's model call and domain-ownership probes. */
+  accuracy?: Partial<AccuracyDeps>;
   /**
    * Overrides the reachability probes. A test passes its own to avoid a
    * network: three reachability requests, plus one or two per named crawler
@@ -276,9 +305,31 @@ export async function runProspectAudit(
     (deps.lighthouse ?? runLighthouse)(url),
   );
 
+  // When the operator told us what the site is for, the goal checklist is a
+  // pure function of the crawl and the checks — so it can be computed BEFORE
+  // the model runs and handed to it, which is the only way the fix list can be
+  // stopped from recommending work the report says is already done. Without an
+  // operator goal we do not yet know which checklist applies, and the model
+  // gets nothing; reconcileFixes still runs as the backstop either way.
+  const operatorFit: GoalFit | null =
+    opts.goal !== undefined && opts.goal !== null
+      ? checkGoal(opts.goal, "operator", crawlData, checks.ok ? checks.data : null)
+      : null;
+
   const analyze: StageResult<AnalyzeResult> = checks.ok
     ? await stage("analyze", deps, async () =>
-        analyzeSite(url, crawlData, checks.data, deps.analyze ?? envAnalyzeDeps()),
+        // The operator's goal, when we have one, decides which fixed question
+        // set gets asked — so it must reach this stage rather than being
+        // applied after it. Without one we ask the universal set; the model
+        // still infers `primaryGoal` for the goal-fit section either way.
+        analyzeSite(
+          url,
+          crawlData,
+          checks.data,
+          deps.analyze ?? envAnalyzeDeps(),
+          opts.goal ?? "unknown",
+          operatorFit,
+        ),
       )
     : { ok: false, error: ANALYZE_SKIPPED };
 
@@ -327,13 +378,51 @@ export async function runProspectAudit(
       ? { ok: false, error: GOAL_UNRESOLVED }
       : {
           ok: true,
-          data: checkGoal(
-            resolvedGoal,
-            opts.goal ? "operator" : "inferred",
-            crawlData,
-            checks.ok ? checks.data : null,
-          ),
+          // Reuse the checklist the model was shown rather than recomputing an
+          // identical one. Same inputs either way, but sharing the object makes
+          // it structurally impossible for the fix list to have been reconciled
+          // against a different checklist from the one the report prints.
+          data:
+            operatorFit ??
+            checkGoal(
+              resolvedGoal,
+              opts.goal ? "operator" : "inferred",
+              crawlData,
+              checks.ok ? checks.data : null,
+            ),
         };
+
+  // When an engine describes this business, where is it getting that from?
+  //
+  // Runs last because it needs the most: the branded answers from probes, the
+  // whole crawl to check each claim against, and the site's own phone numbers
+  // from checks so a wrong number is read as a contradiction rather than an
+  // absence. Cheap to place here and impossible to place earlier.
+  //
+  // Skipped rather than failed when there are no branded answers. "We had
+  // nothing to check" and "the engine said nothing wrong about you" are
+  // opposite claims, and only one of them is ours to make.
+  const brandedAnswers = probes.ok ? probes.data.answers.filter((a) => a.kind === "branded") : [];
+  const accuracy: StageResult<AccuracyResult> =
+    brandedAnswers.length === 0
+      ? { ok: false, error: ACCURACY_SKIPPED }
+      : await stage("accuracy", deps, async () => {
+          const env = envAccuracyDeps(USER_AGENT);
+          return checkAccuracy(
+            url,
+            crawlData,
+            probes.ok ? probes.data.answers : [],
+            // The site's own numbers, so a wrong one in an answer reads as a
+            // contradiction rather than as something the site never mentions.
+            // `consistency` is optional on older shapes; an empty list makes
+            // every phone claim an ordinary absence, which is the safe default.
+            checks.ok ? (checks.data.consistency?.phones ?? []).map((p) => p.normalized) : [],
+            {
+              run: deps.accuracy?.run ?? env.run,
+              ownership: deps.accuracy?.ownership ?? env.ownership,
+            },
+          );
+        });
 
   return {
     url,
@@ -354,5 +443,6 @@ export async function runProspectAudit(
     assets,
     basics,
     goalFit,
+    accuracy,
   };
 }
