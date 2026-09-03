@@ -3,6 +3,7 @@ import { usablePages } from "./pages.js";
 import type { Scope } from "./goals.js";
 import type { PageVitals } from "./accessibility.js";
 import type { DnsFindings } from "./dns.js";
+import { MIN_OG_IMAGE_EDGE, type HttpFindings, type ProbeVerdict } from "./http-probes.js";
 import type { ChecksResult, CrawlResult, FormShape, PageAnchor, PageExtract } from "./types.js";
 
 /**
@@ -1019,7 +1020,8 @@ function headerChecks(headers: Record<string, string>, measured: boolean): SiteC
 
 // ─── robots.txt and the sitemap ──────────────────────────────────────────────
 
-function sidecarChecks(crawl: CrawlResult, discoveredLinks: number): SiteCheck[] {
+function sidecarChecks(crawl: CrawlResult, linkedPages: Set<string>): SiteCheck[] {
+  const discoveredLinks = linkedPages.size;
   const out: SiteCheck[] = [];
   const robotsMeasured = crawl.sidecarErrors.robots === null;
 
@@ -1113,14 +1115,27 @@ function sidecarChecks(crawl: CrawlResult, discoveredLinks: number): SiteCheck[]
     // cap. "We read 14 of your pages" is a fact about our limit, and using it
     // as the denominator would report our ceiling as their gap.
     const ok = crawl.sitemap.urlCount >= discoveredLinks;
+    // When the crawl carried the WHOLE sitemap, a count is not the best we can
+    // do — we can name a page it leaves out, and a named page is a job where a
+    // count is only a worry. Only when it is whole: against a truncated sample
+    // an absent URL may be one we did not carry, and printing that as their
+    // omission is our own ceiling reported as their gap for the second time in
+    // the same check.
+    const sample = crawl.sitemap.sample;
+    const whole = sample !== undefined && crawl.sitemap.urlCount <= sample.length;
+    const key = (u: string) => u.replace(/\/+$/, "").split("#")[0]!;
+    const listed = new Set(sample?.map(key));
+    const unlisted = whole ? [...linkedPages].filter((u) => !listed.has(key(u))) : [];
     out.push(
       check(
         "sitemap-coverage",
         "A sitemap that lists your pages",
         WHY_COVERAGE,
         "content",
-        ok,
-        `${crawl.sitemap.urlCount} URLs listed, against ${discoveredLinks} distinct pages your own links point to`,
+        ok && unlisted.length === 0,
+        unlisted.length > 0
+          ? `${unlisted.length} ${unlisted.length === 1 ? "page your own links point to is" : "pages your own links point to are"} missing from it — ${unlisted[0]}`
+          : `${crawl.sitemap.urlCount} URLs listed, against ${discoveredLinks} distinct pages your own links point to`,
       ),
     );
   }
@@ -2059,6 +2074,244 @@ export function dnsChecks(dns: DnsFindings | null): SiteCheck[] {
   return out;
 }
 
+/**
+ * The Tier 2 verdicts — what the server actually served.
+ *
+ * Every field of `HttpFindings` is three-state, and the shape below is the same
+ * three times over: `undefined` becomes `unmeasured`, `null` becomes
+ * `not-applicable`, and only a real answer reaches a pass or a fail. A probe we
+ * could not read (403 from bot management, 429 we caused ourselves) arrives as
+ * the verdict `unverified` and stops there — it never becomes a finding.
+ */
+export function httpChecks(http: HttpFindings | null): SiteCheck[] {
+  const WHY_FAVICON =
+    "The icon in the browser tab and the bookmark bar. When the file is missing the tab shows a blank sheet, which is the difference between a site that looks maintained and one that does not.";
+  const WHY_UPGRADE =
+    "Somebody typing your address without https, or following an old link, should land on the secure version in one step. Every extra redirect is delay on the first impression, and a chain that ends on http means the page is served in the clear.";
+  const WHY_STABLE =
+    "Two requests seconds apart got different answers, which is what an overloaded or half-deployed server looks like from outside. Some visitors are seeing the bad one.";
+  const WHY_SLASH =
+    "When /about and /about/ both answer with the same page and neither says which is real, search engines index both and split the credit between them.";
+  const WHY_INDEX =
+    "Your homepage answers at two addresses. Links, shares and search results scatter across both instead of accumulating on one.";
+  const WHY_CASE =
+    "The same page answers at two spellings, so the same content competes with itself in search results.";
+  const WHY_SITEMAP_LIVE =
+    "A sitemap is a list you hand to search engines saying 'these pages exist'. Entries that no longer answer waste the crawl budget you were trying to direct.";
+  const WHY_EXTERNAL =
+    "A link on your site that leads nowhere is a dead end for the visitor and a small mark against the page for a search engine.";
+  const WHY_OG_SERVED =
+    "This is the picture that appears when your page is shared in a message, on LinkedIn, or in a Slack channel. When the file does not load, the share renders as a bare grey box.";
+  const WHY_OG_SIZE = `A share image under ${MIN_OG_IMAGE_EDGE} pixels on either edge is either cropped to nothing or dropped entirely by the platform showing it.`;
+  const WHY_LOGO =
+    "A logo that does not load leaves a broken-image icon at the top of every page, and it is the first thing on the page.";
+  const WHY_CHAINS =
+    "A link that redirects more than once makes every visitor wait through each hop, and search engines pass less credit along a chain than a direct link.";
+
+  const ALL: [string, string, string, Scope][] = [
+    ["favicon-served", "A favicon that actually loads", WHY_FAVICON, "quick"],
+    ["https-upgrade", "http:// reaching https:// without a detour", WHY_UPGRADE, "structural"],
+    ["home-stable", "A homepage that answers the same way twice", WHY_STABLE, "structural"],
+    ["trailing-slash", "One address per page, slash or no slash", WHY_SLASH, "structural"],
+    ["index-alias", "A homepage that lives at one address", WHY_INDEX, "structural"],
+    ["case-alias", "Paths that do not answer to two spellings", WHY_CASE, "structural"],
+    ["sitemap-urls-live", "A sitemap whose pages still exist", WHY_SITEMAP_LIVE, "quick"],
+    ["external-links-live", "Outbound links that still work", WHY_EXTERNAL, "quick"],
+    ["og-image-served", "A share image that loads", WHY_OG_SERVED, "quick"],
+    ["og-image-size", "A share image big enough to render", WHY_OG_SIZE, "quick"],
+    ["logo-served", "A logo that loads", WHY_LOGO, "quick"],
+    ["redirect-chains", "Internal links that go straight there", WHY_CHAINS, "quick"],
+  ];
+
+  const meta = new Map(ALL.map(([key, label, why, scope]) => [key, { label, why, scope }]));
+  const unmeasuredAll = (): SiteCheck[] =>
+    ALL.map(([key, label, why, scope]) => unknown(key, label, why, scope));
+
+  if (!http || !http.measured) return unmeasuredAll();
+
+  const out: SiteCheck[] = [];
+  /**
+   * One place where the three states are read, so no check below can invent a
+   * fourth reading — and so `not-applicable` and `unmeasured` cannot both be
+   * pushed for the same key, which is what happened when each check decided
+   * for itself.
+   *
+   *   undefined from `value`    we never got an answer           → unmeasured
+   *   undefined from `verdict`  we got one and could not read it → unmeasured
+   *   null from `verdict`       there was nothing of this kind   → not-applicable
+   */
+  const add = (
+    key: string,
+    value: unknown,
+    verdict: () => { ok: boolean; evidence: string } | null | undefined,
+  ): void => {
+    const m = meta.get(key)!;
+    if (value === undefined) return void out.push(unknown(key, m.label, m.why, m.scope));
+    const v = verdict();
+    if (v === undefined) return void out.push(unknown(key, m.label, m.why, m.scope));
+    if (v === null) return void out.push(skip(key, m.label, m.why, m.scope, notApplicable(key)));
+    out.push(check(key, m.label, m.why, m.scope, v.ok, v.evidence));
+  };
+
+  const notApplicable = (key: string): string =>
+    key === "index-alias"
+      ? "/index.html does not answer, which is the behaviour we were hoping for"
+      : key === "case-alias"
+        ? "a differently-cased path 404s, which is the behaviour we were hoping for"
+        : key === "og-image-served" || key === "og-image-size"
+          ? "the homepage declares no share image, which is covered above"
+          : key === "sitemap-urls-live"
+            ? "there is no sitemap to check, which is covered above"
+            : key === "external-links-live"
+              ? "this site does not link out to anywhere else"
+              : "there was nothing of this kind to check";
+
+  /** A probe that answered 403 or 429 told us about a CDN, not about the site. */
+  const fromVerdict = (v: ProbeVerdict, ok: string, bad: string) =>
+    v === "unverified" ? undefined : { ok: v === "ok", evidence: v === "ok" ? ok : bad };
+
+  add("favicon-served", http.favicon, () => {
+    const f = http.favicon!;
+    return fromVerdict(
+      f.verdict,
+      f.declared ? "the declared icon is served" : "/favicon.ico is served",
+      f.declared ? `the icon at ${f.url} does not load` : "no icon at /favicon.ico",
+    );
+  });
+
+  add("https-upgrade", http.httpUpgrade, () => {
+    const u = http.httpUpgrade!;
+    if (!u.https) return { ok: false, evidence: "http:// does not end up on https://" };
+    const hops = u.hops;
+    if (hops === null) return { ok: true, evidence: "http:// arrives on https://" };
+    return {
+      ok: hops <= 2,
+      evidence:
+        hops <= 2
+          ? `http:// arrives on https:// in ${hops === 1 ? "one hop" : `${hops} hops`}`
+          : `http:// takes ${hops} redirects to reach https://`,
+    };
+  });
+
+  add("home-stable", http.homeSamples, () => {
+    const [a, b] = http.homeSamples!;
+    // Both halves must have answered, and a pair of matching non-2xx statuses
+    // is a different check's business — reporting it here would say
+    // "intermittent" about a server that is consistently down.
+    if (a === null || b === null) return null;
+    if (a === b)
+      return a >= 200 && a < 400 ? { ok: true, evidence: `two requests, both ${a}` } : null;
+    return { ok: false, evidence: `two requests seconds apart answered ${a} and ${b}` };
+  });
+
+  add("trailing-slash", http.trailingSlash, () => {
+    const t = http.trailingSlash!;
+    return { ok: t.settled, evidence: `${t.path} — ${t.detail}` };
+  });
+
+  add("index-alias", http.indexAlias, () => {
+    const i = http.indexAlias;
+    return i === null ? null : { ok: !i!.duplicate, evidence: `/index.html — ${i!.detail}` };
+  });
+
+  add("case-alias", http.caseAlias, () => {
+    const c = http.caseAlias;
+    return c === null ? null : { ok: !c!.duplicate, evidence: `${c!.path} — ${c!.detail}` };
+  });
+
+  add("sitemap-urls-live", http.sitemapUrls, () => {
+    const s = http.sitemapUrls;
+    if (s === null) return null;
+    const { checked, total, broken } = s!;
+    // The denominator travels with the verdict: "every URL works" would be a
+    // lie about a sitemap of four hundred when we asked about twelve. Phrased
+    // so the two numbers cannot be read as a ratio of working to broken —
+    // "12 of 49 answer" says the other 37 did not, and means the opposite.
+    return broken.length === 0
+      ? {
+          ok: true,
+          evidence:
+            checked >= total
+              ? `all ${total} answer`
+              : `we sampled ${checked} of ${total}; all of them answer`,
+        }
+      : {
+          ok: false,
+          evidence: `${broken.length} of the ${checked} we sampled are gone — ${broken[0]!.url}`,
+        };
+  });
+
+  add("external-links-live", http.externalLinks, () => {
+    const e = http.externalLinks;
+    if (e === null) return null;
+    const { checked, total, broken } = e!;
+    return broken.length === 0
+      ? {
+          ok: true,
+          evidence:
+            checked >= total
+              ? `all ${total} outbound links answer`
+              : `we sampled ${checked} of ${total} outbound links; all of them answer`,
+        }
+      : {
+          ok: false,
+          evidence: `${broken.length} of the ${checked} we sampled are dead — ${broken[0]!.url}`,
+        };
+  });
+
+  add("og-image-served", http.ogImage, () => {
+    const o = http.ogImage;
+    if (o === null) return null;
+    return fromVerdict(
+      o!.verdict,
+      "the share image loads",
+      `the share image does not load — ${o!.url}`,
+    );
+  });
+
+  add("og-image-size", http.ogImage, () => {
+    const o = http.ogImage;
+    if (o === null) return null;
+    // A format we cannot measure — SVG above all — is not a small image.
+    if (o!.width === null || o!.height === null) return null;
+    const small = o!.width < MIN_OG_IMAGE_EDGE || o!.height < MIN_OG_IMAGE_EDGE;
+    return { ok: !small, evidence: `${o!.width}×${o!.height}` };
+  });
+
+  add("logo-served", http.logo, () => {
+    const l = http.logo;
+    if (l === null) return null;
+    return fromVerdict(l!.verdict, `${l!.how} loads`, `${l!.how} does not load — ${l!.url}`);
+  });
+
+  add("redirect-chains", http.redirectChains, () => {
+    const r = http.redirectChains!;
+    return r.chained.length === 0
+      ? { ok: true, evidence: `${r.checked} internal links, none redirecting twice` }
+      : {
+          ok: false,
+          evidence: `${r.chained.length} of ${r.checked} take ${r.chained[0]!.hops} hops — ${r.chained[0]!.url}`,
+        };
+  });
+
+  return out;
+}
+
+export const TIER2_HTTP_CHECK_KEYS = [
+  "favicon-served",
+  "https-upgrade",
+  "home-stable",
+  "trailing-slash",
+  "index-alias",
+  "case-alias",
+  "sitemap-urls-live",
+  "external-links-live",
+  "og-image-served",
+  "og-image-size",
+  "logo-served",
+  "redirect-chains",
+] as const;
+
 export const TIER2_DNS_CHECK_KEYS = [
   "dns-spf",
   "dns-dmarc",
@@ -2141,6 +2394,7 @@ export function runSiteChecks(
   checks: ChecksResult | null,
   businessName: string | null = null,
   dns: DnsFindings | null = null,
+  http: HttpFindings | null = null,
 ): SiteCheck[] {
   const set = usablePages(crawl.pages);
   const pages = set.pages.map((p) => ({
@@ -2186,8 +2440,9 @@ export function runSiteChecks(
     ...newTabChecks(pages),
     ...browserChecks(pages),
     ...dnsChecks(dns),
+    ...httpChecks(http),
     ...headerChecks(crawl.homeHeaders ?? {}, headersMeasured),
-    ...sidecarChecks(crawl, linked.size),
+    ...sidecarChecks(crawl, linked),
     analyticsCheck(pages),
   ];
 }

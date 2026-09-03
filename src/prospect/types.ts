@@ -7,6 +7,7 @@ import type { AccuracyResult } from "./accuracy.js";
 import type { GoalFit, SiteGoal } from "./goals.js";
 import type { StackReadout } from "./stack.js";
 import type { DnsFindings } from "./dns.js";
+import type { HttpFindings } from "./http-probes.js";
 import type { AccessibilityResult, AxePageResult, PageVitals } from "./accessibility.js";
 import type { SiteCheck } from "./site-checks.js";
 import type { JourneyMap } from "./journey.js";
@@ -21,6 +22,7 @@ export type { ConsistencyResult, ContactVariant } from "./consistency.js";
 export type { StackItem, StackLayer, StackReadout } from "./stack.js";
 export type { CheckStatus, SiteCheck } from "./site-checks.js";
 export type { DnsFindings } from "./dns.js";
+export type { HttpFindings } from "./http-probes.js";
 export type {
   AccessibilityResult,
   AxeImpact,
@@ -222,7 +224,10 @@ export type CrawlResult = {
   robotsTxt: string | null;
   /** One entry per agent in crawl.ts's ALL_AGENTS (6 AI + 2 classical). */
   agentAccess: RobotsAgentAccess[];
-  sitemap: { present: boolean; urlCount: number };
+  /** `sample` is a capped slice of the URLs, absent on reports stored before
+   *  it existed — read absence as "not measured", never as "the sitemap is
+   *  empty". `urlCount` is the true total either way. */
+  sitemap: { present: boolean; urlCount: number; sample?: string[] };
   llmsTxt: { present: boolean; firstLine: string | null };
   /** Per sidecar, the error that stopped us fetching it, or null. A fetch that
    *  FAILED must never be reported as "the site has no robots.txt" — that would
@@ -562,6 +567,15 @@ export type ProspectAuditResult = {
    * existed.
    */
   dns?: StageResult<DnsFindings>;
+  /**
+   * What the server SERVED, as opposed to what the markup declared — the icon,
+   * the share image, the sitemap's own URLs, and how many hops a link takes.
+   *
+   * The only part of the check battery that costs the prospect requests, which
+   * is why it is capped, paced, and reports the count it made. Optional for
+   * reports stored before it existed.
+   */
+  http?: StageResult<HttpFindings>;
   /** When an engine describes this business, where is it getting that from —
    *  each statement sorted by SOURCE, never by truth. See accuracy.ts. Optional
    *  for reports stored before the stage was wired in. */

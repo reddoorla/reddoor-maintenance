@@ -294,6 +294,11 @@ export class ResponseTooLargeError extends Error {
  *  with the same `pacedEach`) doesn't need its own identical copy. */
 export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+/** How many sitemap URLs are carried forward for probing. Ten times the number
+ *  Tier 2 samples, so the sample is drawn from a spread of the sitemap rather
+ *  than its first twelve entries — which on most CMSes are the newest posts. */
+export const MAX_SITEMAP_SAMPLE = 120;
+
 /** Runs `fn` once per item, waiting `delayMs` between calls but never before
  *  the first — the same courtesy pacing the raw-fetch loop already applies to
  *  a prospect's server, given here to the heavier half of the traffic (each
@@ -615,7 +620,15 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
     origin,
     robotsTxt: sidecars.robotsTxt,
     agentAccess: sidecars.agentAccess,
-    sitemap: { present: sidecars.sitemapPresent, urlCount: sidecars.sitemapUrls.length },
+    sitemap: {
+      present: sidecars.sitemapPresent,
+      urlCount: sidecars.sitemapUrls.length,
+      // A capped sample, kept so Tier 2 can ask whether the URLs a sitemap
+      // advertises actually answer — `urlCount` alone cannot be probed. Capped
+      // because this lands in `result_json`, and a 4,000-URL sitemap has no
+      // business being stored whole for the sake of sampling twelve of them.
+      sample: sidecars.sitemapUrls.slice(0, MAX_SITEMAP_SAMPLE),
+    },
     llmsTxt: sidecars.llmsTxt,
     sidecarErrors: sidecars.sidecarErrors,
     homeHeaders,

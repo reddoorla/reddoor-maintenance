@@ -72,7 +72,7 @@ describe("crawlSite", () => {
       "https://acme.example/services",
       "https://acme.example/about",
     ]);
-    expect(result.sitemap).toEqual({ present: false, urlCount: 0 });
+    expect(result.sitemap).toEqual({ present: false, urlCount: 0, sample: [] });
   });
 
   it("prefers sitemap URLs and honours maxPages", async () => {
@@ -88,7 +88,10 @@ describe("crawlSite", () => {
       routes[`https://acme.example/p${i}`] = { body: fixture("rich.html") };
     const result = await crawlSite(HOME, stubDeps(routes, { maxPages: 3 }));
 
-    expect(result.sitemap).toEqual({ present: true, urlCount: 5 });
+    expect(result.sitemap).toMatchObject({ present: true, urlCount: 5 });
+    // The sample is what Tier 2 probes: five URLs is under the cap, so it is
+    // the whole sitemap and `sitemap-coverage` may name a page it omits.
+    expect(result.sitemap.sample).toHaveLength(5);
     expect(result.pages).toHaveLength(3);
     expect(result.pages.map((p) => p.url)).toEqual([
       HOME,

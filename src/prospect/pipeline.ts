@@ -28,6 +28,12 @@ import { readStack, type StackReadout } from "./stack.js";
 import { runSiteChecks, type SiteCheck } from "./site-checks.js";
 import { summarizeAccessibility, type AccessibilityResult } from "./accessibility.js";
 import { defaultDnsDeps, lookupDns, type DnsDeps, type DnsFindings } from "./dns.js";
+import {
+  defaultHttpProbeDeps,
+  probeHttp,
+  type HttpFindings,
+  type HttpProbeDeps,
+} from "./http-probes.js";
 import { measuredFixes } from "./measured-fixes.js";
 import type {
   AnalyzeResult,
@@ -51,6 +57,7 @@ export type StageName =
   | "stack"
   | "siteChecks"
   | "dns"
+  | "http"
   | "accessibility"
   | "accuracy";
 
@@ -199,6 +206,8 @@ export type PipelineDeps = {
   assets?: Partial<AssetCheckDeps>;
   /** Overrides the DNS/RDAP lookups, so a test never touches a resolver. */
   dns?: DnsDeps;
+  /** Overrides the Tier 2 HTTP probes, so a test makes no requests. */
+  http?: Partial<HttpProbeDeps>;
   /** Overrides the accuracy stage's model call and domain-ownership probes. */
   accuracy?: Partial<AccuracyDeps>;
   /**
@@ -395,6 +404,13 @@ export async function runProspectAudit(
     ),
   );
 
+  // The only stage that makes NEW requests to the prospect's server for the
+  // sake of the check battery. Capped, paced and counted; its own stage so a
+  // rate limit or a firewall degrades these thirteen findings and nothing else.
+  const http: StageResult<HttpFindings> = await stage("http", deps, async () =>
+    probeHttp(crawlData, { ...defaultHttpProbeDeps(USER_AGENT), ...deps.http }),
+  );
+
   // After `businessName`, because two of these read it — a headline that is
   // only the company name, and a title that never mentions it — and grading a
   // site against a name we guessed at would be worse than not asking. Pure
@@ -406,6 +422,7 @@ export async function runProspectAudit(
       checks.ok ? checks.data : null,
       businessName,
       dns.ok ? dns.data : null,
+      http.ok ? http.data : null,
     ),
   );
 
@@ -548,6 +565,7 @@ export async function runProspectAudit(
     siteChecks,
     accessibility,
     dns,
+    http,
     goalFit,
     accuracy,
   };
