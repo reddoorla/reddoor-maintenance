@@ -33,19 +33,37 @@ theirs. Screenshot verification of the section is blocked — headless capture
 returns blank at non-zero scroll on this page, though the DOM confirms opacity
 and visibility are fine throughout; verified from the served DOM instead.
 
-## 2. Tier 0 — free over stored data (36 checks)
+## 2. Tier 0 — free over stored data — DONE (35 of 36)
 
-- [ ] A check-result shape with the **four** states (met / missing / unmeasured /
-      not-applicable) and a denominator that excludes the last two
-- [ ] T0-30..35 six security headers, split (start here)
-- [ ] T0-16 mojibake (then here)
-- [ ] T0-01..12 anchors — 01 REWORD, 04 REWORD why, 12 via `sharedNavLinks`
-- [ ] T0-13..20 text
-- [ ] T0-22..24 headings
-- [ ] T0-25..29 JSON-LD (all COND)
-- [ ] T0-36, 37, 39 headers
-- [ ] T0-40..43 robots/sitemap
-- [ ] T0-46 analytics present
+- [x] `SiteCheck` with the four states, and `tally` excluding the last two
+- [x] T0-30..35 six security headers, split
+- [x] T0-16 mojibake
+- [x] T0-01..12 anchors — 01 scoped to `javascript:` no-ops (a bare `#` is how
+      good disclosures are written), 12 via link text shared across every page
+- [x] T0-13..20 text
+- [x] T0-22..24 headings
+- [x] T0-25..29 JSON-LD (all conditional)
+- [x] T0-36, 37, 39 headers
+- [x] T0-40..43 robots/sitemap
+- [x] T0-46 analytics present
+- [x] Wired into the pipeline, and into `healthRows` so failures become findings
+      and passes fold into What passes
+- [ ] **T0-04 deferred to Tier 1.** `target="_blank"` without `rel="noopener"`
+      needs a `target` on `PageAnchor`, so it is not free — and browsers have
+      implied noopener since 2021, so the finding is tidiness. Do it with
+      Cluster D.
+
+Landed: maintenance `85d168b` + `d440043`; website `1cc3fd8`.
+
+**The report now says "46 checks" where it said 12, and "63 came back clean"
+where it said 29.**
+
+**Found on the way.** Generating the fixture from the real checks instead of
+hand-writing it caught `staging-links` firing on the site's OWN origin whenever
+that origin looks like a dev host — it broke the fixture's `.test` domain and
+would have broken any client running an internal tool at `.local`. Fixed, with a
+regression test. That is the third instrument bug in two days, and the third one
+that overstated the client's fault.
 
 ## 3. axe-core (T3-14) — out of order
 
