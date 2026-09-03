@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { runSiteChecks, tally, TIER0_CHECK_KEYS } from "../../src/prospect/site-checks.js";
+import {
+  runSiteChecks,
+  tally,
+  TIER0_CHECK_KEYS,
+  TIER1_CHECK_KEYS,
+} from "../../src/prospect/site-checks.js";
 import type {
   ChecksResult,
   CrawlResult,
@@ -45,25 +50,49 @@ const SCHEMA = JSON.stringify({
 function extract(over: Partial<PageExtract> = {}): PageExtract {
   return {
     title: "Acme Roofing — Commercial Roof Repair in Boise",
-    metaDescription: "Commercial roof repair across the Treasure Valley.",
-    canonical: null,
+    metaDescription:
+      "Commercial roof repair and replacement across the Treasure Valley, from a Boise crew.",
+    canonical: "https://acme.example/",
     social: {},
     headings: [{ level: 1, text: "Commercial roof repair in Boise" }],
     jsonLd: [SCHEMA],
     images: { total: 3, withAlt: 3 },
     hasViewportMeta: true,
     text: "We repair commercial roofs across the Treasure Valley. Call us on (310) 555-0142.",
+    // `target: ""` on every anchor, because the real extractor always sets it.
+    // A stored report from before it was captured has it undefined on all of
+    // them, which is what makes the noopener check read as unmeasured there.
     anchors: [
-      { href: "/services", text: "Services", rel: "" },
-      { href: "/contact", text: "Contact", rel: "" },
-      { href: "tel:+13105550142", text: "Call us", rel: "" },
-      { href: "https://www.facebook.com/acmeroofingboise", text: "Facebook", rel: "" },
+      { href: "/services", text: "Services", rel: "", target: "" },
+      { href: "/contact", text: "Contact", rel: "", target: "" },
+      { href: "tel:+13105550142", text: "Call us", rel: "", target: "" },
+      { href: "https://www.facebook.com/acmeroofingboise", text: "Facebook", rel: "", target: "" },
     ],
     anchorCount: 4,
     imageSrcs: [],
     scriptSrcs: ["https://www.googletagmanager.com/gtag/js?id=G-ABC"],
     scriptCount: 1,
     metas: { charset: "utf-8" },
+    links: [
+      { rel: "icon", href: "/favicon.ico" },
+      { rel: "canonical", href: "https://acme.example/" },
+    ],
+    forms: [
+      {
+        kind: "enquiry",
+        action: "/enquiry",
+        method: "post",
+        fieldCount: 5,
+        hasContactField: true,
+        hasSubmit: true,
+        fields: [
+          { type: "text", name: "name", autocomplete: "name", required: true },
+          { type: "email", name: "email", autocomplete: "email", required: true },
+          { type: "tel", name: "phone", autocomplete: "tel", required: false },
+          { type: "textarea", name: "message", autocomplete: null, required: true },
+        ],
+      },
+    ],
     ...over,
   };
 }
@@ -85,7 +114,13 @@ function exemplary(over: Partial<CrawlResult> = {}): CrawlResult {
       page("https://acme.example/"),
       page("https://acme.example/services", {
         title: "Roof repair services — Acme Roofing",
+        metaDescription: "What we repair, how long it takes, and what a commercial roof job costs.",
+        canonical: "https://acme.example/services",
         headings: [{ level: 1, text: "What we repair" }],
+        links: [
+          { rel: "icon", href: "/favicon.ico" },
+          { rel: "canonical", href: "https://acme.example/services" },
+        ],
       }),
     ],
     ...over,
@@ -131,7 +166,7 @@ describe("an ordinary careful site passes the whole battery", () => {
     // The cheap way to make the assertion above pass is to skip everything.
     // This is the guard on the guard.
     const t = tally(checks);
-    expect(t.total).toBeGreaterThanOrEqual(25);
+    expect(t.total).toBeGreaterThanOrEqual(40);
     expect(t.passed).toBe(t.total);
   });
 
@@ -144,7 +179,7 @@ describe("an ordinary careful site passes the whole battery", () => {
   });
 
   it("declares every key it promises", () => {
-    for (const key of TIER0_CHECK_KEYS) {
+    for (const key of [...TIER0_CHECK_KEYS, ...TIER1_CHECK_KEYS]) {
       expect(byKey(checks, key), `${key} was never produced`).toBeDefined();
     }
   });
@@ -501,5 +536,229 @@ describe("each check fires on the thing it is named for", () => {
       "Acme Roofing",
     );
     expect(byKey(checks, "sitemap-coverage")?.status).toBe("fail");
+  });
+});
+
+describe("Tier 1 — each check fires on the thing it is named for", () => {
+  const one = (over: Partial<PageExtract>) =>
+    runSiteChecks(
+      exemplary({ pages: [page("https://acme.example/", over)] }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+
+  it("catches the noindex a staging site leaves behind", () => {
+    // The highest-value check in the battery: nothing on the page looks wrong,
+    // the owner cannot see it, and it removes them from search entirely.
+    const c = byKey(
+      one({ metas: { charset: "utf-8", robots: "noindex, nofollow" } }),
+      "meta-noindex",
+    );
+    expect(c?.status).toBe("fail");
+    expect(c?.evidence).toContain("noindex");
+  });
+
+  it("does not read an ordinary robots meta as noindex", () => {
+    expect(
+      byKey(
+        one({ metas: { charset: "utf-8", robots: "index, follow, max-snippet:-1" } }),
+        "meta-noindex",
+      )?.status,
+    ).toBe("pass");
+  });
+
+  it("catches a missing charset, which is what turns apostrophes into mojibake", () => {
+    expect(byKey(one({ metas: {} }), "meta-charset")?.status).toBe("fail");
+  });
+
+  it("catches every page pointing its canonical at the home page", () => {
+    const checks = runSiteChecks(
+      exemplary({
+        pages: [
+          page("https://acme.example/"),
+          page("https://acme.example/services", { canonical: "https://acme.example/" }),
+        ],
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(checks, "canonical-self")?.status).toBe("fail");
+  });
+
+  it("forgives a trailing slash and a www, which are not what that check is about", () => {
+    const checks = runSiteChecks(
+      exemplary({
+        pages: [
+          page("https://acme.example/services", {
+            canonical: "https://www.acme.example/services/",
+          }),
+        ],
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(checks, "canonical-self")?.status).toBe("pass");
+  });
+
+  it("catches a canonical left pointing at a staging host", () => {
+    const checks = one({ canonical: "https://acme.staging.example/" });
+    expect(byKey(checks, "canonical-origin")?.status).toBe("fail");
+  });
+
+  it("catches a missing favicon", () => {
+    expect(
+      byKey(
+        one({ links: [{ rel: "canonical", href: "https://acme.example/" }] }),
+        "favicon-declared",
+      )?.status,
+    ).toBe("fail");
+  });
+
+  it("catches a relative og:image, which renders no card anywhere", () => {
+    expect(byKey(one({ social: { "og:image": "/og.jpg" } }), "og-image-absolute")?.status).toBe(
+      "fail",
+    );
+  });
+
+  it("skips the og:image check entirely when there is no og:image", () => {
+    // Not a failure — this site declares no share image, which the meta section
+    // already reports. Two headings for one gap reads as two problems.
+    expect(byKey(one({ social: {} }), "og-image-absolute")?.status).toBe("not-applicable");
+  });
+
+  it("tolerates a long title but not an absurd one", () => {
+    expect(
+      byKey(one({ title: "Acme Roofing — Commercial Roof Repair in Boise, Idaho" }), "title-length")
+        ?.status,
+    ).toBe("pass");
+    expect(byKey(one({ title: "A".repeat(120) }), "title-length")?.status).toBe("fail");
+  });
+
+  it("catches the same description repeated on every page", () => {
+    const checks = runSiteChecks(
+      exemplary({
+        pages: [
+          page("https://acme.example/"),
+          page("https://acme.example/services", { canonical: "https://acme.example/services" }),
+        ],
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    // Both pages inherit the base description in this fixture.
+    expect(byKey(checks, "duplicate-descriptions")?.status).toBe("fail");
+  });
+
+  it("catches an email field a phone keyboard cannot help with", () => {
+    const checks = one({
+      forms: [
+        {
+          kind: "enquiry",
+          action: "/enquiry",
+          method: "post",
+          fieldCount: 2,
+          hasContactField: true,
+          hasSubmit: true,
+          fields: [
+            { type: "text", name: "email", autocomplete: "email", required: true },
+            { type: "textarea", name: "message", autocomplete: null, required: true },
+          ],
+        },
+      ],
+    });
+    const c = byKey(checks, "form-field-types");
+    expect(c?.status).toBe("fail");
+    expect(c?.evidence).toContain('type="text"');
+  });
+
+  it("catches an enquiry form that submits with GET", () => {
+    const checks = one({
+      forms: [
+        {
+          kind: "enquiry",
+          action: "/enquiry",
+          method: "get",
+          fieldCount: 2,
+          hasContactField: true,
+          hasSubmit: true,
+          fields: [{ type: "email", name: "email", autocomplete: "email", required: true }],
+        },
+      ],
+    });
+    expect(byKey(checks, "form-method")?.status).toBe("fail");
+  });
+
+  it("calls an unrecognised third-party form endpoint unmeasured, never broken", () => {
+    // Our provider list will always be incomplete. Reporting a working in-house
+    // endpoint as broken is the false alarm that costs a prospect's trust in
+    // every other line of the report.
+    const checks = one({
+      forms: [
+        {
+          kind: "enquiry",
+          action: "https://forms.some-agency.example/submit/abc",
+          method: "post",
+          fieldCount: 2,
+          hasContactField: true,
+          hasSubmit: true,
+          fields: [{ type: "email", name: "email", autocomplete: "email", required: true }],
+        },
+      ],
+    });
+    expect(byKey(checks, "form-action")?.status).toBe("unmeasured");
+  });
+
+  it("recognises a known provider and passes it", () => {
+    const checks = one({
+      forms: [
+        {
+          kind: "enquiry",
+          action: "https://formspree.io/f/xyzabc",
+          method: "post",
+          fieldCount: 2,
+          hasContactField: true,
+          hasSubmit: true,
+          fields: [{ type: "email", name: "email", autocomplete: "email", required: true }],
+        },
+      ],
+    });
+    expect(byKey(checks, "form-action")?.status).toBe("pass");
+  });
+
+  it("catches a new-tab link with no noopener, and says it is tidiness", () => {
+    const checks = one({
+      anchors: [{ href: "https://elsewhere.example/", text: "Partner", rel: "", target: "_blank" }],
+    });
+    const c = byKey(checks, "noopener");
+    expect(c?.status).toBe("fail");
+    // Browsers have implied noopener since 2021. Overstating this as a security
+    // hole is what discredits every other line in the report.
+    expect(c?.why).not.toMatch(/vulnerab|attack|security|hijack/i);
+  });
+
+  it("skips the noopener check when nothing opens a new tab", () => {
+    expect(byKey(one({}), "noopener")?.status).toBe("not-applicable");
+  });
+
+  it("is unmeasured on a report stored before target was captured", () => {
+    // Every anchor lacking the attribute means we never recorded it — which is
+    // our gap, and must not read as "nothing opens a new tab".
+    const checks = one({ anchors: [{ href: "/x", text: "X", rel: "" }] });
+    expect(byKey(checks, "noopener")?.status).toBe("unmeasured");
+  });
+
+  it("skips hreflang on a monolingual site rather than passing it", () => {
+    expect(byKey(one({}), "hreflang-self")?.status).toBe("not-applicable");
+  });
+
+  it("catches an hreflang set that does not name itself", () => {
+    const checks = one({
+      links: [
+        { rel: "icon", href: "/favicon.ico" },
+        { rel: "canonical", href: "https://acme.example/" },
+        { rel: "alternate", href: "https://acme.example/es/", hreflang: "es" },
+      ],
+    });
+    expect(byKey(checks, "hreflang-self")?.status).toBe("fail");
   });
 });

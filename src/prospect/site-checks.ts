@@ -1,7 +1,7 @@
 import { resolveNavigable } from "./journey.js";
 import { usablePages } from "./pages.js";
 import type { Scope } from "./goals.js";
-import type { ChecksResult, CrawlResult, PageAnchor, PageExtract } from "./types.js";
+import type { ChecksResult, CrawlResult, FormShape, PageAnchor, PageExtract } from "./types.js";
 
 /**
  * The things a careful person would check with a browser and ten minutes.
@@ -1168,6 +1168,638 @@ function analyticsCheck(pages: { url: string; extract: PageExtract }[]): SiteChe
   );
 }
 
+// ─── Metas ───────────────────────────────────────────────────────────────────
+
+/**
+ * What the page tells search engines and assistants about itself.
+ *
+ * `<meta name="robots">` is the highest-value check in the whole battery. A
+ * site ships `noindex` from staging, loses everything, and nothing on the page
+ * looks wrong — it is invisible to the owner and instantly visible to us.
+ *
+ * Deliberately NOT here: the viewport-zoom check. axe's `meta-viewport` rule
+ * tests exactly that (`user-scalable=no`, `maximum-scale` under 2) against the
+ * rendered DOM, and asking the same question twice under two headings reads as
+ * two problems.
+ */
+function metaChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck[] {
+  const out: SiteCheck[] = [];
+  const readable = pages.filter((p) => p.extract.metas !== undefined);
+
+  const WHY_NOINDEX =
+    "This one line tells every search engine and assistant to leave the page out of their results entirely. It is almost always left over from a staging site, and nothing on the page looks wrong.";
+  const WHY_NOFOLLOW =
+    "It tells search engines not to follow any link on the page, so nothing you link to gets credit from it.";
+  const WHY_CHARSET =
+    "Without a declared character set the browser guesses, and a wrong guess is what turns apostrophes into â€™.";
+
+  if (readable.length === 0) {
+    return [
+      unknown("meta-noindex", "Pages search engines are allowed to list", WHY_NOINDEX, "quick"),
+      unknown("meta-nofollow", "Links search engines are allowed to follow", WHY_NOFOLLOW, "quick"),
+      unknown("meta-charset", "A declared character set", WHY_CHARSET, "quick"),
+      unknown(
+        "title-length",
+        "Titles that survive a search result",
+        "A title that is too long is cut off mid-word in the result, and one that is too short wastes the most valuable line you get.",
+        "content",
+      ),
+      unknown(
+        "description-length",
+        "Descriptions that survive a search result",
+        "The description is the sentence under your link. Too long and it is truncated; too short and the engine writes its own.",
+        "content",
+      ),
+      unknown(
+        "og-image-absolute",
+        "A share image that loads anywhere",
+        "A relative og:image renders no card at all on Slack, LinkedIn or iMessage — the link arrives as bare text.",
+        "quick",
+      ),
+      unknown(
+        "duplicate-descriptions",
+        "A different description on each page",
+        "Identical descriptions make every page look like the same page in a search result.",
+        "content",
+      ),
+    ];
+  }
+
+  const flagged = (token: RegExp): { url: string; value: string }[] =>
+    readable
+      .filter((p) => token.test(p.extract.metas?.["robots"] ?? ""))
+      .map((p) => ({ url: p.url, value: p.extract.metas!["robots"]! }));
+
+  const noindex = flagged(/\bnoindex\b/i);
+  out.push(
+    check(
+      "meta-noindex",
+      "Pages search engines are allowed to list",
+      WHY_NOINDEX,
+      "quick",
+      noindex.length === 0,
+      noindex.length === 0
+        ? `none of the ${readable.length} pages we read asks to be hidden`
+        : `${noindex.length} ${noindex.length === 1 ? "page carries" : "pages carry"} noindex: ${noindex
+            .slice(0, 3)
+            .map((n) => n.url)
+            .join(", ")}`,
+    ),
+  );
+
+  const nofollow = flagged(/\bnofollow\b/i);
+  out.push(
+    check(
+      "meta-nofollow",
+      "Links search engines are allowed to follow",
+      WHY_NOFOLLOW,
+      "quick",
+      nofollow.length === 0,
+      nofollow.length === 0
+        ? "no page-wide nofollow"
+        : `${nofollow.length} ${nofollow.length === 1 ? "page" : "pages"}`,
+    ),
+  );
+
+  const noCharset = readable.filter((p) => !p.extract.metas?.["charset"]);
+  out.push(
+    check(
+      "meta-charset",
+      "A declared character set",
+      WHY_CHARSET,
+      "quick",
+      noCharset.length === 0,
+      noCharset.length === 0
+        ? `declared on all ${readable.length} pages`
+        : `missing on ${noCharset.length} ${noCharset.length === 1 ? "page" : "pages"}`,
+    ),
+  );
+
+  // Generous bands, on purpose. Sixty characters is where Google truncates by
+  // PIXEL width, not by character count, so a hard 60 fails a great many
+  // perfectly good titles. Only the genuinely broken ends are flagged.
+  const TITLE_MIN = 10;
+  const TITLE_MAX = 70;
+  const titled = pages.filter((p) => p.extract.title);
+  if (titled.length === 0) {
+    out.push(
+      skip(
+        "title-length",
+        "Titles that survive a search result",
+        "A title that is too long is cut off mid-word in the result, and one that is too short wastes the most valuable line you get.",
+        "content",
+        "no page we read carries a title, which is reported separately",
+      ),
+    );
+  } else {
+    const bad = titled.filter(
+      (p) => p.extract.title!.length < TITLE_MIN || p.extract.title!.length > TITLE_MAX,
+    );
+    out.push(
+      check(
+        "title-length",
+        "Titles that survive a search result",
+        "A title that is too long is cut off mid-word in the result, and one that is too short wastes the most valuable line you get.",
+        "content",
+        bad.length === 0,
+        bad.length === 0
+          ? `all ${titled.length} are between ${TITLE_MIN} and ${TITLE_MAX} characters`
+          : bad
+              .slice(0, 2)
+              .map((p) => `${p.url}: ${p.extract.title!.length} characters`)
+              .join(", "),
+      ),
+    );
+  }
+
+  const DESC_MIN = 50;
+  const DESC_MAX = 170;
+  const described = pages.filter((p) => p.extract.metaDescription);
+  if (described.length === 0) {
+    out.push(
+      skip(
+        "description-length",
+        "Descriptions that survive a search result",
+        "The description is the sentence under your link. Too long and it is truncated; too short and the engine writes its own.",
+        "content",
+        "no page we read carries a description, which is reported separately",
+      ),
+    );
+  } else {
+    const bad = described.filter(
+      (p) =>
+        p.extract.metaDescription!.length < DESC_MIN ||
+        p.extract.metaDescription!.length > DESC_MAX,
+    );
+    out.push(
+      check(
+        "description-length",
+        "Descriptions that survive a search result",
+        "The description is the sentence under your link. Too long and it is truncated; too short and the engine writes its own.",
+        "content",
+        bad.length === 0,
+        bad.length === 0
+          ? `all ${described.length} are between ${DESC_MIN} and ${DESC_MAX} characters`
+          : bad
+              .slice(0, 2)
+              .map((p) => `${p.url}: ${p.extract.metaDescription!.length} characters`)
+              .join(", "),
+      ),
+    );
+  }
+
+  const WHY_OG =
+    "A relative og:image renders no card at all on Slack, LinkedIn or iMessage — the link arrives as bare text.";
+  const withOg = pages.filter((p) => p.extract.social["og:image"]);
+  if (withOg.length === 0) {
+    out.push(
+      skip(
+        "og-image-absolute",
+        "A share image that loads anywhere",
+        WHY_OG,
+        "quick",
+        "no page we read declares an og:image",
+      ),
+    );
+  } else {
+    const relative = withOg.filter((p) => !/^https?:\/\//i.test(p.extract.social["og:image"]!));
+    out.push(
+      check(
+        "og-image-absolute",
+        "A share image that loads anywhere",
+        WHY_OG,
+        "quick",
+        relative.length === 0,
+        relative.length === 0
+          ? withOg[0]!.extract.social["og:image"]!
+          : `${relative[0]!.url} declares “${relative[0]!.extract.social["og:image"]}”, which has no host`,
+      ),
+    );
+  }
+
+  const WHY_DUP_DESC =
+    "Identical descriptions make every page look like the same page in a search result, and the engine usually replaces them with a sentence of its own choosing.";
+  if (described.length < 2) {
+    out.push(
+      skip(
+        "duplicate-descriptions",
+        "A different description on each page",
+        WHY_DUP_DESC,
+        "content",
+        "fewer than two pages carry a description, so there is nothing to compare",
+      ),
+    );
+  } else {
+    const seen = new Map<string, string[]>();
+    for (const p of described) {
+      const key = p.extract.metaDescription!.trim().toLowerCase();
+      seen.set(key, [...(seen.get(key) ?? []), p.url]);
+    }
+    const dupes = [...seen.entries()].filter(([, urls]) => urls.length > 1);
+    out.push(
+      check(
+        "duplicate-descriptions",
+        "A different description on each page",
+        WHY_DUP_DESC,
+        "content",
+        dupes.length === 0,
+        dupes.length === 0
+          ? `${described.length} pages, ${seen.size} different descriptions`
+          : `${dupes[0]![1].length} pages share one description`,
+      ),
+    );
+  }
+
+  return out;
+}
+
+// ─── The <link> set ──────────────────────────────────────────────────────────
+
+function linkChecks(pages: { url: string; extract: PageExtract }[], origin: string): SiteCheck[] {
+  const readable = pages.filter((p) => p.extract.links !== undefined);
+  const WHY_FAVICON =
+    "Without one the browser shows a blank page icon in the tab and the bookmark, which is the smallest possible thing to fix and the most often seen.";
+  const WHY_CANON_SELF =
+    "A canonical pointing somewhere else tells search engines to index that page instead of this one. Every page pointing at the home page is the version of this mistake that removes a whole site from search results.";
+  const WHY_CANON_ORIGIN =
+    "A canonical on another domain hands every page's search ranking to that domain. It is usually a staging host or a site they used to own.";
+  const WHY_HREFLANG =
+    "An hreflang set that does not name itself is ignored, so the translated pages compete with each other instead of being offered to the right reader.";
+
+  if (readable.length === 0) {
+    return [
+      unknown("favicon-declared", "An icon for the browser tab", WHY_FAVICON, "quick"),
+      unknown("canonical-self", "Pages that point at themselves", WHY_CANON_SELF, "structural"),
+      unknown(
+        "canonical-origin",
+        "Canonicals that stay on your domain",
+        WHY_CANON_ORIGIN,
+        "structural",
+      ),
+      unknown("hreflang-self", "Language alternates that name themselves", WHY_HREFLANG, "content"),
+    ];
+  }
+
+  const out: SiteCheck[] = [];
+  const icon = readable
+    .flatMap((p) => p.extract.links ?? [])
+    .find((l) => /(^|\s)(icon|shortcut icon|apple-touch-icon)(\s|$)/.test(l.rel));
+  out.push(
+    check(
+      "favicon-declared",
+      "An icon for the browser tab",
+      WHY_FAVICON,
+      "quick",
+      icon !== undefined,
+      icon ? `rel="${icon.rel}" → ${icon.href}` : "no icon link on the pages we read",
+    ),
+  );
+
+  const host = (u: string, base?: string): string | null => {
+    try {
+      return new URL(u, base).hostname.replace(/^www\./i, "").toLowerCase();
+    } catch {
+      return null;
+    }
+  };
+  const ownHost = host(origin);
+
+  const canonical = pages.filter((p) => p.extract.canonical);
+  if (canonical.length === 0) {
+    out.push(
+      skip(
+        "canonical-self",
+        "Pages that point at themselves",
+        WHY_CANON_SELF,
+        "structural",
+        "no page we read declares a canonical, which is reported separately",
+      ),
+      skip(
+        "canonical-origin",
+        "Canonicals that stay on your domain",
+        WHY_CANON_ORIGIN,
+        "structural",
+        "no page we read declares a canonical",
+      ),
+    );
+  } else {
+    // Compared path-wise and host-wise, ignoring a trailing slash and a `www.`,
+    // because those differences are not what this check is about and flagging
+    // them would bury the one case that matters.
+    const norm = (u: string, base: string): string | null => {
+      try {
+        const parsed = new URL(u, base);
+        return `${parsed.hostname.replace(/^www\./i, "").toLowerCase()}${
+          parsed.pathname.replace(/\/+$/, "") || "/"
+        }`;
+      } catch {
+        return null;
+      }
+    };
+    const notSelf = canonical.filter((p) => {
+      const a = norm(p.extract.canonical!, p.url);
+      const b = norm(p.url, p.url);
+      return a === null || b === null || a !== b;
+    });
+    out.push(
+      check(
+        "canonical-self",
+        "Pages that point at themselves",
+        WHY_CANON_SELF,
+        "structural",
+        notSelf.length === 0,
+        notSelf.length === 0
+          ? `all ${canonical.length} canonicals point at their own page`
+          : `${notSelf.length} of ${canonical.length}: ${notSelf[0]!.url} points at ${notSelf[0]!.extract.canonical}`,
+      ),
+    );
+
+    const offOrigin = canonical.filter((p) => {
+      const h = host(p.extract.canonical!, p.url);
+      return h !== null && h !== ownHost;
+    });
+    out.push(
+      check(
+        "canonical-origin",
+        "Canonicals that stay on your domain",
+        WHY_CANON_ORIGIN,
+        "structural",
+        offOrigin.length === 0,
+        offOrigin.length === 0
+          ? "every canonical stays on this domain"
+          : `${offOrigin[0]!.url} points at ${offOrigin[0]!.extract.canonical}`,
+      ),
+    );
+  }
+
+  // Conditional by nature: a monolingual site has no alternates, and passing it
+  // would be five free points for something it does not do.
+  const alternates = readable.filter((p) =>
+    (p.extract.links ?? []).some((l) => l.rel === "alternate" && l.hreflang),
+  );
+  if (alternates.length === 0) {
+    out.push(
+      skip(
+        "hreflang-self",
+        "Language alternates that name themselves",
+        WHY_HREFLANG,
+        "content",
+        "this site publishes no language alternates",
+      ),
+    );
+  } else {
+    const missingSelf = alternates.filter((p) => {
+      const mine = norm2(p.url);
+      return !(p.extract.links ?? []).some(
+        (l) => l.rel === "alternate" && l.hreflang && norm2(l.href, p.url) === mine,
+      );
+    });
+    out.push(
+      check(
+        "hreflang-self",
+        "Language alternates that name themselves",
+        WHY_HREFLANG,
+        "content",
+        missingSelf.length === 0,
+        missingSelf.length === 0
+          ? `${alternates.length} ${alternates.length === 1 ? "page lists" : "pages list"} themselves among their alternates`
+          : `${missingSelf[0]!.url} is not among its own alternates`,
+      ),
+    );
+  }
+
+  return out;
+}
+
+/** Host + path, trailing slash and `www.` ignored — the comparison every URL
+ *  equality check in this file wants. */
+function norm2(u: string, base?: string): string | null {
+  try {
+    const parsed = new URL(u, base);
+    return `${parsed.hostname.replace(/^www\./i, "").toLowerCase()}${
+      parsed.pathname.replace(/\/+$/, "") || "/"
+    }`;
+  } catch {
+    return null;
+  }
+}
+
+// ─── Forms, in the detail that decides whether they get filled in ────────────
+
+/** Providers whose endpoint we recognise, so an action pointing at one is not
+ *  reported as a mystery. Deliberately incomplete — see the check. */
+const FORM_PROVIDERS =
+  /(formspree\.io|hsforms\.(?:net|com)|typeform\.com|jotform\.com|wufoo\.com|formstack\.com|getform\.io|basin\.com|netlify|web3forms\.com|formsubmit\.co|google\.com\/forms)/i;
+
+function formChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck[] {
+  const WHY_TYPES =
+    "An email field typed as plain text gives a phone the ordinary keyboard, so the visitor hunts for the @ at exactly the moment they had decided to write to you.";
+  const WHY_AUTOCOMPLETE =
+    "With these, a phone offers to fill the whole form in one tap. Without them it does not offer at all.";
+  const WHY_METHOD =
+    "A form that submits with GET puts everything the visitor typed into the address bar, and from there into your server logs and their browser history.";
+  const WHY_ACTION =
+    "A form posting to an endpoint nobody owns any more looks like it worked and silently goes nowhere.";
+  const WHY_REQUIRED =
+    "Without it the browser cannot stop a half-filled form being sent, and the visitor finds out something was missing only if somebody tells them.";
+
+  const enquiries = pages.flatMap((p) =>
+    (p.extract.forms ?? [])
+      .filter((f) => f.kind === "enquiry")
+      .map((f) => ({ form: f, url: p.url })),
+  );
+  const measured = enquiries.filter((e) => e.form.fields !== undefined);
+
+  if (enquiries.length === 0) {
+    const note = "no enquiry form on the pages we read, which is reported separately";
+    return [
+      skip("form-field-types", "Fields typed for a phone keyboard", WHY_TYPES, "content", note),
+      skip(
+        "form-autocomplete",
+        "Fields a phone can fill in one tap",
+        WHY_AUTOCOMPLETE,
+        "content",
+        note,
+      ),
+      skip("form-method", "A form that does not put answers in the URL", WHY_METHOD, "quick", note),
+      skip(
+        "form-action",
+        "A form that posts somewhere we recognise",
+        WHY_ACTION,
+        "structural",
+        note,
+      ),
+      skip("form-required", "Fields marked as required", WHY_REQUIRED, "quick", note),
+    ];
+  }
+  if (measured.length === 0) {
+    return [
+      unknown("form-field-types", "Fields typed for a phone keyboard", WHY_TYPES, "content"),
+      unknown(
+        "form-autocomplete",
+        "Fields a phone can fill in one tap",
+        WHY_AUTOCOMPLETE,
+        "content",
+      ),
+      unknown("form-method", "A form that does not put answers in the URL", WHY_METHOD, "quick"),
+      unknown("form-action", "A form that posts somewhere we recognise", WHY_ACTION, "structural"),
+      unknown("form-required", "Fields marked as required", WHY_REQUIRED, "quick"),
+    ];
+  }
+
+  const out: SiteCheck[] = [];
+  const looksLikeEmail = (f: NonNullable<FormShape["fields"]>[number]): boolean =>
+    /e-?mail/i.test(`${f.name ?? ""} ${f.autocomplete ?? ""}`);
+  const looksLikePhone = (f: NonNullable<FormShape["fields"]>[number]): boolean =>
+    /\b(phone|tel|mobile)\b/i.test(`${f.name ?? ""} ${f.autocomplete ?? ""}`);
+
+  const mistyped = measured.flatMap(({ form, url }) =>
+    (form.fields ?? [])
+      .filter(
+        (f) => (looksLikeEmail(f) && f.type !== "email") || (looksLikePhone(f) && f.type !== "tel"),
+      )
+      .map((f) => `${url}: ${f.name ?? "a field"} is type="${f.type}"`),
+  );
+  out.push(
+    check(
+      "form-field-types",
+      "Fields typed for a phone keyboard",
+      WHY_TYPES,
+      "content",
+      mistyped.length === 0,
+      mistyped.length === 0
+        ? "your email and phone fields use the right input types"
+        : mistyped.slice(0, 2).join(", "),
+    ),
+  );
+
+  const withAuto = measured.filter(({ form }) => (form.fields ?? []).some((f) => f.autocomplete));
+  out.push(
+    check(
+      "form-autocomplete",
+      "Fields a phone can fill in one tap",
+      WHY_AUTOCOMPLETE,
+      "content",
+      withAuto.length === measured.length,
+      withAuto.length === measured.length
+        ? `all ${measured.length} enquiry ${measured.length === 1 ? "form carries" : "forms carry"} autocomplete`
+        : `${measured.length - withAuto.length} of ${measured.length} carry none`,
+    ),
+  );
+
+  const getForms = measured.filter(({ form }) => form.method !== "post");
+  out.push(
+    check(
+      "form-method",
+      "A form that does not put answers in the URL",
+      WHY_METHOD,
+      "quick",
+      getForms.length === 0,
+      getForms.length === 0
+        ? "every enquiry form posts"
+        : `${getForms[0]!.url} submits with ${getForms[0]!.form.method.toUpperCase()}`,
+    ),
+  );
+
+  // A provider we do not recognise is UNMEASURED, never a failure: our list will
+  // always be incomplete, and calling a working in-house endpoint broken is
+  // exactly the false alarm that costs a prospect's trust in everything else.
+  const offsite = measured.filter(({ form, url }) => {
+    const action = form.action;
+    if (!action) return false;
+    const h = norm2(action, url);
+    const own = norm2(url);
+    return h !== null && own !== null && h.split("/")[0] !== own.split("/")[0];
+  });
+  const unrecognised = offsite.filter(({ form }) => !FORM_PROVIDERS.test(form.action ?? ""));
+  out.push(
+    unrecognised.length > 0
+      ? unknown("form-action", "A form that posts somewhere we recognise", WHY_ACTION, "structural")
+      : check(
+          "form-action",
+          "A form that posts somewhere we recognise",
+          WHY_ACTION,
+          "structural",
+          true,
+          offsite.length === 0
+            ? "your forms post to your own site"
+            : `posts to ${offsite[0]!.form.action}`,
+        ),
+  );
+
+  const noRequired = measured.filter(({ form }) => !(form.fields ?? []).some((f) => f.required));
+  out.push(
+    check(
+      "form-required",
+      "Fields marked as required",
+      WHY_REQUIRED,
+      "quick",
+      noRequired.length === 0,
+      noRequired.length === 0
+        ? `every enquiry form marks at least one field required`
+        : `${noRequired[0]!.url} marks none`,
+    ),
+  );
+
+  return out;
+}
+
+/** T0-04, which needed the `target` attribute and so waited for this tier. */
+function newTabChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck[] {
+  // Tidiness, NOT a vulnerability. Browsers have implied `noopener` for
+  // `target="_blank"` since 2021, so the honest framing is a lint that shows
+  // care — overstating it as a security hole is the kind of thing that
+  // discredits every other line in the report.
+  const WHY =
+    'Adding rel="noopener" to links that open a new tab is a one-line habit that keeps older browsers from handing the new page a reference back to yours.';
+  const LABEL = 'New-tab links carrying rel="noopener"';
+  const readable = pages.filter((p) =>
+    (p.extract.anchors ?? []).every((a) => a.target !== undefined),
+  );
+  if (pages.length === 0 || readable.length !== pages.length) {
+    return [unknown("noopener", LABEL, WHY, "quick")];
+  }
+  const blanks = readable.flatMap((p) =>
+    (p.extract.anchors ?? []).filter((a) => a.target === "_blank"),
+  );
+  if (blanks.length === 0) {
+    return [skip("noopener", LABEL, WHY, "quick", "no link on these pages opens a new tab")];
+  }
+  const bare = blanks.filter((a) => !/\bnoopener\b/.test(a.rel));
+  return [
+    check(
+      "noopener",
+      LABEL,
+      WHY,
+      "quick",
+      bare.length === 0,
+      bare.length === 0
+        ? `all ${blanks.length} new-tab ${blanks.length === 1 ? "link carries" : "links carry"} it`
+        : `${bare.length} of ${blanks.length} do not`,
+    ),
+  ];
+}
+
+export const TIER1_CHECK_KEYS = [
+  "meta-noindex",
+  "meta-nofollow",
+  "meta-charset",
+  "title-length",
+  "description-length",
+  "og-image-absolute",
+  "duplicate-descriptions",
+  "favicon-declared",
+  "canonical-self",
+  "canonical-origin",
+  "hreflang-self",
+  "form-field-types",
+  "form-autocomplete",
+  "form-method",
+  "form-action",
+  "form-required",
+  "noopener",
+] as const;
+
 export const TIER0_CHECK_KEYS = [
   "dead-links",
   "staging-links",
@@ -1246,6 +1878,10 @@ export function runSiteChecks(
     ...textChecks(pages, businessName),
     ...headingChecks(pages, businessName),
     ...schemaChecks(pages, crawl.origin, phones),
+    ...metaChecks(pages),
+    ...linkChecks(pages, crawl.origin),
+    ...formChecks(pages),
+    ...newTabChecks(pages),
     ...headerChecks(crawl.homeHeaders ?? {}, headersMeasured),
     ...sidecarChecks(crawl, linked.size),
     analyticsCheck(pages),

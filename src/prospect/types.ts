@@ -48,7 +48,15 @@ export type RobotsAgentAccess = {
  *  an absolute one. Resolving here would discard the distinction between a
  *  genuinely absolute link and a relative one, which is itself a finding when a
  *  site hardcodes a staging host. */
-export type PageAnchor = { href: string; text: string; rel: string };
+export type PageAnchor = {
+  href: string;
+  text: string;
+  rel: string;
+  /** As authored, lower-cased — `_blank` on a link that opens a new tab.
+   *  Optional: absent on reports stored before it was captured, which reads as
+   *  "not measured" rather than "opens in this tab". */
+  target?: string;
+};
 
 /**
  * What a form is FOR, inferred from its shape.
@@ -74,6 +82,17 @@ export type FormKind = "enquiry" | "subscribe" | "other";
 /** One `<form>`, in enough detail to tell an enquiry form from a newsletter box
  *  or a search field. That distinction is the whole point: a site nobody can
  *  actually reach must not score as though it has a conversion path. */
+/** One control a visitor fills in. Just the three attributes that decide
+ *  whether the form is easy to complete on a phone. */
+export type FormField = {
+  /** Lower-cased, defaulting to "text" for a bare `<input>` exactly as a
+   *  browser does; `textarea` and `select` carry their tag name. */
+  type: string;
+  name: string | null;
+  autocomplete: string | null;
+  required: boolean;
+};
+
 export type FormShape = {
   kind: FormKind;
   /** As authored, or null for a form that posts to its own URL. */
@@ -87,6 +106,9 @@ export type FormShape = {
    *  and this is what separates "can be contacted" from "can be searched". */
   hasContactField: boolean;
   hasSubmit: boolean;
+  /** Per-field detail. Optional: absent on reports stored before it existed,
+   *  and absence must read as "not measured", never as "no fields". */
+  fields?: FormField[];
 };
 
 export type PageExtract = {
@@ -139,6 +161,17 @@ export type PageExtract = {
    * as "not measured", never as "this page declares no metas".
    */
   metas?: Record<string, string>;
+  /**
+   * Every `<link>` in the document, as authored.
+   *
+   * The elements were ALREADY collected by the extractor — only the canonical
+   * one was ever projected onto this type — so this is a projection change
+   * rather than a new traversal.
+   *
+   * Optional: absent on reports stored before it existed. Absence means "not
+   * measured", never "this page declares no favicon".
+   */
+  links?: { rel: string; href: string; hreflang?: string; type?: string }[];
   /**
    * `src` of each `<script src>`, as authored, CAPPED — see `scriptCount` for
    * the true total, exactly as `anchors`/`anchorCount` do.

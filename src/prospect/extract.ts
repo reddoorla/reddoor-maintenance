@@ -1,5 +1,5 @@
 import { parse, HTMLElement, NodeType } from "node-html-parser";
-import type { FormShape, PageAnchor, PageExtract } from "./types.js";
+import type { FormField, FormShape, PageAnchor, PageExtract } from "./types.js";
 
 /** See `PageExtract.anchors`: the extract is persisted once per page per audit,
  *  and a navigation-heavy page can carry several hundred anchors. Generous
@@ -275,6 +275,12 @@ export function formShape(form: HTMLElement): FormShape {
   let hasTextarea = false;
   let hasSubmit = form.querySelectorAll("button").length > 0;
 
+  // The three attributes that decide whether a field is easy to fill in on a
+  // phone, collected here rather than re-walked later: the mobile keyboard
+  // switches on `type`, one-tap fill needs `autocomplete`, and `required` is
+  // the only machine-readable way a form says a field is compulsory.
+  const fields: FormField[] = [];
+
   for (const control of controls) {
     const type = (control.getAttribute("type") ?? "").toLowerCase().trim();
     if (control.tagName === "INPUT" && NON_FIELD_INPUTS.has(type)) {
@@ -284,6 +290,14 @@ export function formShape(form: HTMLElement): FormShape {
     if (control.tagName === "TEXTAREA") hasTextarea = true;
     if (control.tagName === "INPUT" && type === "password") hasPassword = true;
     fieldCount += 1;
+    fields.push({
+      // A bare <input> defaults to text, exactly as a browser treats it, so an
+      // author who wrote nothing reads the same as one who wrote type="text".
+      type: control.tagName === "INPUT" ? type || "text" : control.tagName.toLowerCase(),
+      name: (control.getAttribute("name") ?? "").toLowerCase().trim() || null,
+      autocomplete: (control.getAttribute("autocomplete") ?? "").toLowerCase().trim() || null,
+      required: control.hasAttribute("required"),
+    });
     // Any of the attributes an author might carry the meaning in. Checked
     // together rather than in priority order: a field is a contact field if
     // ANY of them says so, and sites disagree about which one to use.
@@ -338,6 +352,7 @@ export function formShape(form: HTMLElement): FormShape {
     fieldCount,
     hasContactField,
     hasSubmit,
+    fields,
   };
 }
 
@@ -419,6 +434,7 @@ export function extractPage(html: string): PageExtract {
       // subtrees an icon sprite lives in.
       text: textOf(a).slice(0, 120),
       rel: (a.getAttribute("rel") ?? "").toLowerCase().trim(),
+      target: (a.getAttribute("target") ?? "").toLowerCase().trim(),
     })),
     // The TRUE total, so a capped list is never mistaken for a complete one.
     anchorCount: out.anchors.length,
@@ -427,6 +443,14 @@ export function extractPage(html: string): PageExtract {
       .filter((src) => src.length > 0),
     forms: out.forms.map(formShape),
     metas,
+    // A projection of elements `collect` was already gathering — until now only
+    // the canonical one was ever read off them.
+    links: out.links.map((l) => ({
+      rel: (l.getAttribute("rel") ?? "").toLowerCase().trim(),
+      href: (l.getAttribute("href") ?? "").trim(),
+      hreflang: (l.getAttribute("hreflang") ?? "").trim(),
+      type: (l.getAttribute("type") ?? "").toLowerCase().trim(),
+    })),
     scriptSrcs: out.scriptSrcs.slice(0, MAX_SCRIPTS),
     // The TRUE total, for the same reason `anchorCount` exists: a capped list
     // must never be mistaken for a complete one.
