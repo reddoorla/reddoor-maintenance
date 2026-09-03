@@ -1229,7 +1229,7 @@ function metaChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck[]
       ),
       unknown(
         "og-image-absolute",
-        "A share image that loads anywhere",
+        "A share image with a full web address",
         "A relative og:image renders no card at all on Slack, LinkedIn or iMessage — the link arrives as bare text.",
         "quick",
       ),
@@ -1372,7 +1372,7 @@ function metaChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck[]
     out.push(
       skip(
         "og-image-absolute",
-        "A share image that loads anywhere",
+        "A share image with a full web address",
         WHY_OG,
         "quick",
         "no page we read declares an og:image",
@@ -1383,7 +1383,7 @@ function metaChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck[]
     out.push(
       check(
         "og-image-absolute",
-        "A share image that loads anywhere",
+        "A share image with a full web address",
         WHY_OG,
         "quick",
         relative.length === 0,
@@ -2250,7 +2250,7 @@ export function httpChecks(http: HttpFindings | null): SiteCheck[] {
           ok: true,
           evidence:
             checked >= total
-              ? `all ${total} outbound links answer`
+              ? `all ${total} outbound ${total === 1 ? "link answers" : "links answer"}`
               : `we sampled ${checked} of ${total} outbound links; all of them answer`,
         }
       : {
