@@ -172,6 +172,44 @@ describe("buildAutoresponder", () => {
     expect(input.html).not.toContain("<img src=x");
   });
 
+  it("attaches an .ics and links Google Calendar when the envelope carries an event", () => {
+    const site = makeWebsiteRow({
+      url: "https://gallerysonder.com",
+      pointOfContact: "info@gallerysonder.com",
+    });
+    const sub = makeSubmissionRow({
+      formType: "rsvp",
+      email: "guest@example.com",
+      extraFields: JSON.stringify({
+        event: "Euphorbia",
+        _reply: {
+          paragraphs: ["Thanks for RSVPing."],
+          calendar: {
+            title: "Euphorbia — Opening Reception",
+            start: "2026-09-12T18:00:00-07:00",
+            end: "2026-09-12T21:00:00-07:00",
+            location: "3435 E Coast Highway, Corona del Mar, CA 92625",
+          },
+        },
+      }),
+    });
+    const input = buildAutoresponder(site, sub)!;
+    expect(input.html).toContain("https://calendar.google.com/calendar/render");
+    const att = input.attachments![0];
+    expect(att.filename).toBe("event.ics");
+    expect(att.contentType).toBe("text/calendar");
+    expect(Buffer.from(att.content, "base64").toString("utf8")).toContain("BEGIN:VEVENT");
+  });
+
+  it("attaches nothing when the envelope has no calendar", () => {
+    const site = makeWebsiteRow({ url: "https://gallerysonder.com", pointOfContact: "info@x.com" });
+    const sub = makeSubmissionRow({
+      email: "guest@example.com",
+      extraFields: JSON.stringify({ _reply: { subject: "hi" } }),
+    });
+    expect(buildAutoresponder(site, sub)!.attachments).toBeUndefined();
+  });
+
   it("still suppresses for spam and same-domain backscatter, envelope or not", () => {
     const site = makeWebsiteRow({ url: "https://acme.com", pointOfContact: "owner@acme.com" });
     const envelope = JSON.stringify({ _reply: { subject: "hi" } });
