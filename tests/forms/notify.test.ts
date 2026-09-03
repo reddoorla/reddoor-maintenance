@@ -47,6 +47,22 @@ describe("buildPocNotification", () => {
     expect(input.html).not.toContain("Appointment date");
   });
 
+  it("never renders reserved underscore keys into the table", () => {
+    const site = makeWebsiteRow({ pointOfContact: "owner@acme.com" });
+    const sub = makeSubmissionRow({
+      formType: "rsvp",
+      email: "guest@x.com",
+      extraFields: JSON.stringify({
+        event: "Euphorbia",
+        _reply: { subject: "You're on the list for Euphorbia" },
+      }),
+    });
+    const input = buildPocNotification(site, sub)!;
+    expect(input.html).toContain("Euphorbia");
+    expect(input.html).not.toContain("Reply");
+    expect(input.html).not.toContain("You&#39;re on the list");
+  });
+
   it("escapes HTML in extraFields and tolerates malformed JSON without throwing", () => {
     const site = makeWebsiteRow({ pointOfContact: "owner@acme.com" });
     const evil = buildPocNotification(
