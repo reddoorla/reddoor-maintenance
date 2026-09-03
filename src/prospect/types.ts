@@ -6,6 +6,7 @@ import type { ConsistencyResult } from "./consistency.js";
 import type { AccuracyResult } from "./accuracy.js";
 import type { GoalFit, SiteGoal } from "./goals.js";
 import type { StackReadout } from "./stack.js";
+import type { AccessibilityResult, AxePageResult } from "./accessibility.js";
 import type { SiteCheck } from "./site-checks.js";
 import type { JourneyMap } from "./journey.js";
 
@@ -18,6 +19,12 @@ export type { BasicsCheck, Reachability } from "./basics.js";
 export type { ConsistencyResult, ContactVariant } from "./consistency.js";
 export type { StackItem, StackLayer, StackReadout } from "./stack.js";
 export type { CheckStatus, SiteCheck } from "./site-checks.js";
+export type {
+  AccessibilityResult,
+  AxeImpact,
+  AxePageResult,
+  AxeViolation,
+} from "./accessibility.js";
 export { tally } from "./site-checks.js";
 export { LAYER_LABELS, LAYER_ORDER } from "./stack.js";
 export type { GoalFit, GoalRequirement, Scope, SiteGoal } from "./goals.js";
@@ -155,6 +162,15 @@ export type PageCapture = {
   /** Extract of the Playwright-rendered DOM (what a browser sees). */
   rendered: PageExtract | null;
   error: string | null;
+  /**
+   * What the axe rule set found on this page, collected in the SAME browser
+   * pass that produced `rendered` — never a second navigation.
+   *
+   * Null means the rules did not run: an older stored report, a page that
+   * failed to render, or a scan that threw. It must never read as "no
+   * violations", which is the opposite claim.
+   */
+  axe?: AxePageResult | null;
 };
 
 export type CrawlResult = {
@@ -486,6 +502,15 @@ export type ProspectAuditResult = {
    * our own behalf. Optional for reports stored before the stage existed.
    */
   siteChecks?: StageResult<SiteCheck[]>;
+  /**
+   * The axe rule set, run against the rendered DOM.
+   *
+   * Named rules with named fixes, where the Lighthouse accessibility score is
+   * one opaque number over a subset of the same rules. Optional for reports
+   * stored before it existed — and absence means the rules did not run, never
+   * that nothing was found.
+   */
+  accessibility?: StageResult<AccessibilityResult>;
   /** When an engine describes this business, where is it getting that from —
    *  each statement sorted by SOURCE, never by truth. See accuracy.ts. Optional
    *  for reports stored before the stage was wired in. */

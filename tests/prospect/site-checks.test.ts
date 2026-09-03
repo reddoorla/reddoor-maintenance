@@ -285,7 +285,9 @@ describe("each check fires on the thing it is named for", () => {
             url: "https://acme.test/",
             status: 200,
             raw: null,
-            rendered: extract({ anchors: [{ href: "https://acme.test/about", text: "About", rel: "" }] }),
+            rendered: extract({
+              anchors: [{ href: "https://acme.test/about", text: "About", rel: "" }],
+            }),
             error: null,
           },
         ],

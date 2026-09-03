@@ -26,6 +26,7 @@ import { checkBasics, type BasicsCheck, type BasicsDeps, type BasicsProbe } from
 import { checkGoal, type GoalFit, type SiteGoal } from "./goals.js";
 import { readStack, type StackReadout } from "./stack.js";
 import { runSiteChecks, type SiteCheck } from "./site-checks.js";
+import { summarizeAccessibility, type AccessibilityResult } from "./accessibility.js";
 import { measuredFixes } from "./measured-fixes.js";
 import type {
   AnalyzeResult,
@@ -48,6 +49,7 @@ export type StageName =
   | "basics"
   | "stack"
   | "siteChecks"
+  | "accessibility"
   | "accuracy";
 
 /** The two ways an audit can pay for its model calls. Which one runs is
@@ -330,6 +332,14 @@ export async function runProspectAudit(
     readStack(crawlData),
   );
 
+  // Reads results the crawl's own browser pass already collected — no second
+  // navigation, and nothing here touches the network at all.
+  const accessibility: StageResult<AccessibilityResult> = await stage(
+    "accessibility",
+    deps,
+    async () => summarizeAccessibility(crawlData.pages),
+  );
+
   const lighthouse: StageResult<LighthouseScores> = await stage("lighthouse", deps, async () =>
     (deps.lighthouse ?? runLighthouse)(url),
   );
@@ -516,6 +526,7 @@ export async function runProspectAudit(
     basics,
     stack,
     siteChecks,
+    accessibility,
     goalFit,
     accuracy,
   };

@@ -1,5 +1,6 @@
 import { parse, HTMLElement, NodeType } from "node-html-parser";
 import { isInfraPath } from "./pages.js";
+import type { AxePageResult } from "./accessibility.js";
 import type { CrawlResult, PageCapture, RobotsAgentAccess } from "./types.js";
 import { extractPage, UNRENDERED_TAGS } from "./extract.js";
 import { isPrivateOrLoopbackHost } from "../util/url.js";
@@ -213,13 +214,40 @@ export type FetchResponse = {
   url?: string;
 };
 
+/**
+ * What one browser pass produced for a page.
+ *
+ * A bare string is still accepted, and every injected test stub returns one —
+ * which normalises to `axe: null`, meaning "we ran no accessibility rules here".
+ * That is the honest reading: absence of results must never render as absence
+ * of violations, and widening the type this way keeps the seventeen existing
+ * stubs correct rather than making them lie by omission.
+ */
+export type RenderedPage = { html: string; axe: AxePageResult | null };
+
 export type CrawlDeps = {
   fetchUrl: (url: string) => Promise<FetchResponse>;
-  /** Rendered DOM per URL. A URL absent from the map has no rendered extract. */
-  renderPages: (urls: string[]) => Promise<Map<string, string>>;
+  /**
+   * Rendered DOM per URL, and whatever else the one browser pass collected. A
+   * URL absent from the map has no rendered extract.
+   *
+   * The accessibility rules run HERE rather than in a stage of their own,
+   * because a stage of their own would mean opening a second browser and
+   * navigating every page a second time — doubling the heaviest traffic we put
+   * on a stranger's server to learn something the first visit could have told
+   * us.
+   */
+  renderPages: (urls: string[]) => Promise<Map<string, string | RenderedPage>>;
   maxPages: number;
   delayMs: number;
 };
+
+/** Normalises the union above. A stub that returns plain HTML has measured no
+ *  accessibility rules, and says so. */
+export function asRendered(v: string | RenderedPage | undefined): RenderedPage | null {
+  if (v === undefined) return null;
+  return typeof v === "string" ? { html: v, axe: null } : v;
+}
 
 /** Honest, identified UA — we audit on the prospect's behalf and say so. */
 export const USER_AGENT = "ReddoorAudit/1.0 (+https://reddoorla.com/; operator-run site audit)";
@@ -523,7 +551,9 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
     deps.maxPages,
   );
 
-  const rendered = await deps.renderPages(pageUrls).catch(() => new Map<string, string>());
+  const rendered = await deps
+    .renderPages(pageUrls)
+    .catch(() => new Map<string, string | RenderedPage>());
 
   const pages: PageCapture[] = [];
   for (const url of pageUrls) {
@@ -539,7 +569,8 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
         error = err instanceof Error ? err.message : String(err);
       }
     }
-    const renderedHtml = rendered.get(url) ?? null;
+    const renderedPage = asRendered(rendered.get(url));
+    const renderedHtml = renderedPage?.html ?? null;
     // A sitemap or nav link can point at a non-HTML resource (a linked PDF
     // brochure, say). Decoding that as HTML produces raw/rendered divergence
     // that has nothing to do with the prospect's JavaScript, so it must not
@@ -563,6 +594,10 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
       // found in the entire stored corpus.
       rendered: usable && renderedHtml ? extractPage(renderedHtml) : null,
       error: error ?? (res && res.status >= 400 ? `HTTP ${res.status}` : notHtmlReason),
+      // Gated on `usable` for the same reason as `rendered`: a browser paints
+      // something for a 404, and running the rule set over an error page would
+      // report that page's failings as the website's.
+      axe: usable ? (renderedPage?.axe ?? null) : null,
     });
   }
 
@@ -621,6 +656,49 @@ export async function readCapped(res: Response, url: string): Promise<string> {
   return new TextDecoder("utf-8").decode(merged);
 }
 
+/**
+ * Run the whole axe rule set against the page already loaded in this tab.
+ *
+ * No `withTags` call, deliberately. Restricting to `wcag2a`/`wcag2aa`/`wcag21a`/
+ * `wcag21aa` — which is what our own fleet audit does — silently drops every
+ * landmark and heading-order rule, because those are tagged `best-practice`.
+ * The default set is all of them, and the structural rules are the ones most
+ * worth having.
+ *
+ * Returns null rather than throwing on any failure. An accessibility scan that
+ * fell over is OUR missing measurement, and a page reported with no violations
+ * because the scanner crashed would be the worst kind of false all-clear.
+ */
+async function runAxe(page: import("@playwright/test").Page): Promise<AxePageResult | null> {
+  try {
+    // The NAMED export, not the default. The package publishes both, and under
+    // Node's CJS interop the `default` binding resolves to the whole module
+    // namespace rather than the class — which type-checks as "not
+    // constructable" and would have thrown at runtime.
+    const { AxeBuilder } = await import("@axe-core/playwright");
+    const results = await new AxeBuilder({ page }).analyze();
+    return {
+      violations: results.violations.map((v) => ({
+        id: v.id,
+        impact: (v.impact ?? null) as AxePageResult["violations"][number]["impact"],
+        help: v.help,
+        helpUrl: v.helpUrl,
+        nodes: v.nodes.length,
+        // One element, truncated: enough for a reader to find it on the page,
+        // not enough to bloat a stored report with a page of markup.
+        sample: v.nodes[0]?.html?.slice(0, 200) ?? null,
+      })),
+      passes: results.passes.length,
+      incomplete: results.incomplete.length,
+      // Carried so the report can say how many rules had something to check
+      // rather than implying we checked all ninety.
+      inapplicable: results.inapplicable.length,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Real deps: identified sequential fetches + one shared Playwright chromium.
  *  Playwright is imported lazily so unit tests (which inject deps) never load it. */
 export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
@@ -646,7 +724,7 @@ export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
     },
     async renderPages(urls) {
       const { chromium } = await import("@playwright/test");
-      const out = new Map<string, string>();
+      const out = new Map<string, string | RenderedPage>();
       const browser = await chromium.launch();
       try {
         const ctx = await browser.newContext({ userAgent: USER_AGENT });
@@ -677,7 +755,8 @@ export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
             // rendered extract is actually for.
             await page.goto(url, { waitUntil: "load", timeout: 20_000 });
             await page.waitForTimeout(RENDER_SETTLE_MS);
-            out.set(url, await page.content());
+            const html = await page.content();
+            out.set(url, { html, axe: await runAxe(page) });
           } catch {
             // A page that won't render simply has no rendered extract.
           }
