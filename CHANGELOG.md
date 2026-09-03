@@ -1,5 +1,38 @@
 # @reddoorla/maintenance
 
+## 0.92.0
+
+### Minor Changes
+
+- 0005dc1: Form auto-replies can now be authored in a site's CMS.
+
+  A site may forward a `_reply` envelope with a submission — subject, body
+  paragraphs, signature, and calendar details — and the autoresponder renders it,
+  attaching an RFC 5545 invite and a Google Calendar link when the envelope
+  carries an event. Sites that send nothing keep today's email exactly, and an
+  RSVP now names its event in the subject even with no copy authored at all.
+
+  `@reddoorla/maintenance/forms/prismic` resolves that envelope from a Prismic
+  repository: per-form-type defaults from a `form_replies` singleton, overridden
+  per event. Its client is structurally typed, so the package still depends on no
+  CMS SDK and `./forms` stays importable by a site that uses none.
+
+  Two fixes ride along. `buildPayload` may now be async, and a rejected one is the
+  documented 400 rather than an unhandled rejection. And reserved underscore keys
+  can no longer be smuggled into `extraFields` from a request — previously any
+  unrecognized `_`-prefixed key was folded in, which would have let a bot dictate
+  the text of an email sent from `forms@reddoorla.com`.
+
+### Patch Changes
+
+- 9295548: Add a "Prospect audits" button to the fleet cockpit.
+
+  The `/audits` page is the one Tim and Erik are expected to use directly, and
+  until now it was reachable only by typing the URL — the cockpit linked to the
+  fleet table and nothing else. A pill-styled link under the header row gets them
+  there in one click. Stopgap for the dashboard rework tracked separately; a
+  shared shell with real navigation is that issue's job, not this one's.
+
 ## 0.91.0
 
 ### Minor Changes
