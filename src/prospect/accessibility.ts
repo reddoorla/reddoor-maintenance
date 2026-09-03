@@ -170,3 +170,41 @@ export function summarizeAccessibility(pages: PageCapture[]): AccessibilityResul
     violationsTotal: all.length,
   };
 }
+
+/**
+ * What the browser itself reported while the page was open.
+ *
+ * Collected in the SAME pass as the rendered DOM and the axe run — listeners
+ * attached before navigation, one viewport resize after it. A resize reflows
+ * the page the browser has already loaded; it costs no request and puts nothing
+ * extra on the prospect's server, which is why the mobile-overflow measurement
+ * is affordable at all.
+ */
+export type PageVitals = {
+  /** Uncaught exceptions and `console.error` calls, capped and deduped. The
+   *  most demonstrable "your site is broken" evidence there is. */
+  consoleErrors: string[];
+  /**
+   * Requests the page made that failed or came back 4xx/5xx.
+   *
+   * `firstParty` decides whether it is a finding at all. A blocked third-party
+   * analytics beacon is our network or an ad blocker; a 404 on the site's own
+   * stylesheet is theirs, and only the second belongs in a report.
+   */
+  failedRequests: { url: string; status: number | null; firstParty: boolean }[];
+  /**
+   * Pixels the document overflows a 375px viewport, or null when we could not
+   * measure. Zero is the answer a correct site gives.
+   */
+  overflowAt375: number | null;
+  /** Text nodes rendering below 12px, with one example. Null = not measured. */
+  tinyText: { count: number; sample: string | null } | null;
+  /** Images downloaded far larger than they are drawn — the bytes a visitor
+   *  pays for and never sees. */
+  oversizedImages: { src: string; naturalWidth: number; renderedWidth: number }[];
+};
+
+/** Enough to name the problem, not so many the report becomes a log file. */
+export const MAX_CONSOLE_ERRORS = 8;
+export const MAX_FAILED_REQUESTS = 12;
+export const MAX_OVERSIZED_IMAGES = 6;

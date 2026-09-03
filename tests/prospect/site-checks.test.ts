@@ -4,6 +4,7 @@ import {
   tally,
   TIER0_CHECK_KEYS,
   TIER1_CHECK_KEYS,
+  TIER3_CHECK_KEYS,
 } from "../../src/prospect/site-checks.js";
 import type {
   ChecksResult,
@@ -97,8 +98,22 @@ function extract(over: Partial<PageExtract> = {}): PageExtract {
   };
 }
 
-function page(url: string, over: Partial<PageExtract> = {}): PageCapture {
-  return { url, status: 200, raw: null, rendered: extract(over), error: null };
+/** A page the browser opened and found nothing wrong with. Separate from the
+ *  extract because these are the browser's observations, not the markup's. */
+const CLEAN_VITALS = {
+  consoleErrors: [],
+  failedRequests: [],
+  overflowAt375: 0,
+  tinyText: { count: 0, sample: null },
+  oversizedImages: [],
+};
+
+function page(
+  url: string,
+  over: Partial<PageExtract> = {},
+  vitals: PageCapture["vitals"] = CLEAN_VITALS,
+): PageCapture {
+  return { url, status: 200, raw: null, rendered: extract(over), error: null, vitals };
 }
 
 function exemplary(over: Partial<CrawlResult> = {}): CrawlResult {
@@ -166,7 +181,7 @@ describe("an ordinary careful site passes the whole battery", () => {
     // The cheap way to make the assertion above pass is to skip everything.
     // This is the guard on the guard.
     const t = tally(checks);
-    expect(t.total).toBeGreaterThanOrEqual(40);
+    expect(t.total).toBeGreaterThanOrEqual(50);
     expect(t.passed).toBe(t.total);
   });
 
@@ -179,7 +194,7 @@ describe("an ordinary careful site passes the whole battery", () => {
   });
 
   it("declares every key it promises", () => {
-    for (const key of [...TIER0_CHECK_KEYS, ...TIER1_CHECK_KEYS]) {
+    for (const key of [...TIER0_CHECK_KEYS, ...TIER1_CHECK_KEYS, ...TIER3_CHECK_KEYS]) {
       expect(byKey(checks, key), `${key} was never produced`).toBeDefined();
     }
   });
@@ -760,5 +775,98 @@ describe("Tier 1 — each check fires on the thing it is named for", () => {
       ],
     });
     expect(byKey(checks, "hreflang-self")?.status).toBe("fail");
+  });
+});
+
+describe("Tier 3 — what the browser itself reported", () => {
+  const withVitals = (v: Partial<NonNullable<PageCapture["vitals"]>>) =>
+    runSiteChecks(
+      exemplary({ pages: [page("https://acme.example/", {}, { ...CLEAN_VITALS, ...v })] }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+
+  it("catches a JavaScript error, which no amount of markup reading can reach", () => {
+    const c = byKey(
+      withVitals({ consoleErrors: ["TypeError: n.slice is not a function"] }),
+      "console-errors",
+    );
+    expect(c?.status).toBe("fail");
+    expect(c?.evidence).toContain("TypeError");
+  });
+
+  it("catches a page that scrolls sideways on a phone", () => {
+    const c = byKey(withVitals({ overflowAt375: 84 }), "mobile-overflow");
+    expect(c?.status).toBe("fail");
+    expect(c?.evidence).toContain("84px");
+  });
+
+  it("forgives a few pixels, which is a scrollbar and not a layout bug", () => {
+    expect(byKey(withVitals({ overflowAt375: 3 }), "mobile-overflow")?.status).toBe("pass");
+  });
+
+  it("blames the site for its own broken file", () => {
+    const c = byKey(
+      withVitals({
+        failedRequests: [
+          { url: "https://acme.example/css/main.css", status: 404, firstParty: true },
+        ],
+      }),
+      "failed-requests",
+    );
+    expect(c?.status).toBe("fail");
+  });
+
+  it("does not blame the site for a third party that failed", () => {
+    // An ad blocker, our network, or somebody else's outage. Reporting it as
+    // their broken site is the exact error this codebase exists to avoid.
+    const c = byKey(
+      withVitals({
+        failedRequests: [
+          {
+            url: "https://connect.facebook.net/en_US/fbevents.js",
+            status: null,
+            firstParty: false,
+          },
+        ],
+      }),
+      "failed-requests",
+    );
+    expect(c?.status).toBe("pass");
+  });
+
+  it("catches text too small to read", () => {
+    const c = byKey(
+      withVitals({ tinyText: { count: 6, sample: "Terms and conditions apply" } }),
+      "tiny-text",
+    );
+    expect(c?.status).toBe("fail");
+    expect(c?.evidence).toContain("Terms and conditions");
+  });
+
+  it("catches an image downloaded far larger than it is drawn", () => {
+    const c = byKey(
+      withVitals({
+        oversizedImages: [
+          { src: "https://acme.example/hero.jpg", naturalWidth: 4000, renderedWidth: 600 },
+        ],
+      }),
+      "oversized-images",
+    );
+    expect(c?.status).toBe("fail");
+    expect(c?.evidence).toContain("4000px");
+  });
+
+  it("is unmeasured on a report stored before the browser recorded any of this", () => {
+    // Not "nothing went wrong" — the opposite claim, and the one that would
+    // matter most to get wrong.
+    const stored = runSiteChecks(
+      exemplary({ pages: [page("https://acme.example/", {}, null)] }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    for (const key of TIER3_CHECK_KEYS) {
+      expect(byKey(stored, key)?.status, key).toBe("unmeasured");
+    }
   });
 });

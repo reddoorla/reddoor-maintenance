@@ -1,6 +1,12 @@
 import { parse, HTMLElement, NodeType } from "node-html-parser";
 import { isInfraPath } from "./pages.js";
-import type { AxePageResult } from "./accessibility.js";
+import {
+  MAX_CONSOLE_ERRORS,
+  MAX_FAILED_REQUESTS,
+  MAX_OVERSIZED_IMAGES,
+  type AxePageResult,
+  type PageVitals,
+} from "./accessibility.js";
 import type { CrawlResult, PageCapture, RobotsAgentAccess } from "./types.js";
 import { extractPage, UNRENDERED_TAGS } from "./extract.js";
 import { isPrivateOrLoopbackHost } from "../util/url.js";
@@ -223,7 +229,7 @@ export type FetchResponse = {
  * of violations, and widening the type this way keeps the seventeen existing
  * stubs correct rather than making them lie by omission.
  */
-export type RenderedPage = { html: string; axe: AxePageResult | null };
+export type RenderedPage = { html: string; axe: AxePageResult | null; vitals?: PageVitals | null };
 
 export type CrawlDeps = {
   fetchUrl: (url: string) => Promise<FetchResponse>;
@@ -246,7 +252,7 @@ export type CrawlDeps = {
  *  accessibility rules, and says so. */
 export function asRendered(v: string | RenderedPage | undefined): RenderedPage | null {
   if (v === undefined) return null;
-  return typeof v === "string" ? { html: v, axe: null } : v;
+  return typeof v === "string" ? { html: v, axe: null, vitals: null } : v;
 }
 
 /** Honest, identified UA — we audit on the prospect's behalf and say so. */
@@ -598,6 +604,7 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
       // something for a 404, and running the rule set over an error page would
       // report that page's failings as the website's.
       axe: usable ? (renderedPage?.axe ?? null) : null,
+      vitals: usable ? (renderedPage?.vitals ?? null) : null,
     });
   }
 
@@ -654,6 +661,91 @@ export async function readCapped(res: Response, url: string): Promise<string> {
     offset += chunk.byteLength;
   }
   return new TextDecoder("utf-8").decode(merged);
+}
+
+/** The viewport the overflow check is named for — an iPhone SE, the narrowest
+ *  screen still worth designing for and the one that finds the bug. */
+const MOBILE_WIDTH = 375;
+const MOBILE_HEIGHT = 812;
+/** What the crawl renders at otherwise. Restored after each measurement so the
+ *  next page is captured the same way as the first. */
+const DESKTOP_WIDTH = 1280;
+const DESKTOP_HEIGHT = 720;
+
+/**
+ * What the browser noticed, measured in the page it has already loaded.
+ *
+ * Every measurement here is a reflow or a DOM read — no navigation, no request.
+ * Returns null on any failure, for the same reason `runAxe` does: a measurement
+ * that fell over is ours, and reporting a page as clean because the measuring
+ * threw would be a false all-clear.
+ */
+async function measureVitals(
+  page: import("@playwright/test").Page,
+  collected: { consoleErrors: string[]; failed: PageVitals["failedRequests"] },
+): Promise<PageVitals | null> {
+  try {
+    // Desktop first, because that is how the page was rendered and captured.
+    const desktop = await page.evaluate(
+      ({ maxImages }) => {
+        const tiny: { count: number; sample: string | null } = { count: 0, sample: null };
+        for (const el of Array.from(document.body.querySelectorAll("*"))) {
+          // Only elements with their own text, so a wrapper does not inherit
+          // the blame for its child's font size.
+          const ownText = Array.from(el.childNodes)
+            .filter((n) => n.nodeType === 3)
+            .map((n) => n.textContent ?? "")
+            .join("")
+            .trim();
+          if (ownText.length < 12) continue;
+          const size = parseFloat(getComputedStyle(el).fontSize);
+          if (Number.isFinite(size) && size > 0 && size < 12) {
+            tiny.count += 1;
+            tiny.sample ??= ownText.slice(0, 80);
+          }
+        }
+
+        const oversized: { src: string; naturalWidth: number; renderedWidth: number }[] = [];
+        for (const img of Array.from(document.images)) {
+          const rendered = img.clientWidth;
+          // Twice the drawn width in each direction is four times the pixels,
+          // which is where the waste becomes worth a sentence. A 2x retina
+          // asset is deliberately under that bar.
+          if (rendered > 0 && img.naturalWidth > rendered * 2.5) {
+            oversized.push({
+              src: img.currentSrc || img.src,
+              naturalWidth: img.naturalWidth,
+              renderedWidth: rendered,
+            });
+          }
+        }
+        oversized.sort((a, b) => b.naturalWidth - a.naturalWidth);
+        return { tiny, oversized: oversized.slice(0, maxImages) };
+      },
+      { maxImages: MAX_OVERSIZED_IMAGES },
+    );
+
+    // Then the narrow viewport. A resize reflows a page the browser already
+    // holds — no navigation, no new bytes from the prospect's server.
+    await page.setViewportSize({ width: MOBILE_WIDTH, height: MOBILE_HEIGHT });
+    // One frame for the reflow to settle before measuring it.
+    await page.waitForTimeout(250);
+    const overflowAt375 = await page.evaluate(() => {
+      const doc = document.documentElement;
+      return Math.max(0, Math.round(doc.scrollWidth - doc.clientWidth));
+    });
+    await page.setViewportSize({ width: DESKTOP_WIDTH, height: DESKTOP_HEIGHT });
+
+    return {
+      consoleErrors: collected.consoleErrors.slice(0, MAX_CONSOLE_ERRORS),
+      failedRequests: collected.failed.slice(0, MAX_FAILED_REQUESTS),
+      overflowAt375,
+      tinyText: desktop.tiny,
+      oversizedImages: desktop.oversized,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -727,8 +819,51 @@ export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
       const out = new Map<string, string | RenderedPage>();
       const browser = await chromium.launch();
       try {
-        const ctx = await browser.newContext({ userAgent: USER_AGENT });
+        const ctx = await browser.newContext({
+          userAgent: USER_AGENT,
+          viewport: { width: DESKTOP_WIDTH, height: DESKTOP_HEIGHT },
+        });
         const page = await ctx.newPage();
+
+        // Listeners are attached ONCE and buffer into `collected`, which is
+        // cleared per URL. Attaching them per navigation would miss everything
+        // the page reports during load, which is most of it.
+        const collected = {
+          consoleErrors: [] as string[],
+          failed: [] as PageVitals["failedRequests"],
+        };
+        let currentOrigin = "";
+        const noteError = (message: string): void => {
+          const trimmed = message.trim().slice(0, 300);
+          // Deduped: one broken component in a loop can report the same line a
+          // thousand times, and a thousand copies is not a thousand problems.
+          if (trimmed && !collected.consoleErrors.includes(trimmed)) {
+            collected.consoleErrors.push(trimmed);
+          }
+        };
+        page.on("pageerror", (err) => noteError(err.message));
+        page.on("console", (msg) => {
+          if (msg.type() === "error") noteError(msg.text());
+        });
+        const noteFailed = (url: string, status: number | null): void => {
+          // A URL we cannot parse is not evidence that it belongs to this site,
+          // so it counts as third-party — the direction that cannot manufacture
+          // a finding against the prospect.
+          const firstParty = ((): boolean => {
+            try {
+              return new URL(url).origin === currentOrigin;
+            } catch {
+              return false;
+            }
+          })();
+          if (collected.failed.length < MAX_FAILED_REQUESTS * 4) {
+            collected.failed.push({ url: url.slice(0, 200), status, firstParty });
+          }
+        };
+        page.on("requestfailed", (req) => noteFailed(req.url(), null));
+        page.on("response", (res) => {
+          if (res.status() >= 400) noteFailed(res.url(), res.status());
+        });
         // Playwright navigations are the heavier half of the traffic we put on
         // a stranger's server (each pulls images, fonts, third-party scripts),
         // so they get the same courtesy pacing as the raw fetches.
@@ -753,10 +888,18 @@ export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
             // reason. `load` fires once resources are in; the settle below
             // gives client-side frameworks room to hydrate, which is what the
             // rendered extract is actually for.
+            collected.consoleErrors.length = 0;
+            collected.failed.length = 0;
+            try {
+              currentOrigin = new URL(url).origin;
+            } catch {
+              currentOrigin = "";
+            }
             await page.goto(url, { waitUntil: "load", timeout: 20_000 });
             await page.waitForTimeout(RENDER_SETTLE_MS);
             const html = await page.content();
-            out.set(url, { html, axe: await runAxe(page) });
+            const axe = await runAxe(page);
+            out.set(url, { html, axe, vitals: await measureVitals(page, collected) });
           } catch {
             // A page that won't render simply has no rendered extract.
           }

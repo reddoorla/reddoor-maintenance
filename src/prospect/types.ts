@@ -6,7 +6,7 @@ import type { ConsistencyResult } from "./consistency.js";
 import type { AccuracyResult } from "./accuracy.js";
 import type { GoalFit, SiteGoal } from "./goals.js";
 import type { StackReadout } from "./stack.js";
-import type { AccessibilityResult, AxePageResult } from "./accessibility.js";
+import type { AccessibilityResult, AxePageResult, PageVitals } from "./accessibility.js";
 import type { SiteCheck } from "./site-checks.js";
 import type { JourneyMap } from "./journey.js";
 
@@ -204,6 +204,14 @@ export type PageCapture = {
    * violations", which is the opposite claim.
    */
   axe?: AxePageResult | null;
+  /**
+   * What the browser itself reported while this page was open — console errors,
+   * failed requests, mobile overflow. Same pass as `rendered` and `axe`.
+   *
+   * Null means nothing was measured. It must never read as "nothing went
+   * wrong", which is the opposite claim.
+   */
+  vitals?: PageVitals | null;
 };
 
 export type CrawlResult = {

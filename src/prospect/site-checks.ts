@@ -1,6 +1,7 @@
 import { resolveNavigable } from "./journey.js";
 import { usablePages } from "./pages.js";
 import type { Scope } from "./goals.js";
+import type { PageVitals } from "./accessibility.js";
 import type { ChecksResult, CrawlResult, FormShape, PageAnchor, PageExtract } from "./types.js";
 
 /**
@@ -1780,6 +1781,149 @@ function newTabChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck
   ];
 }
 
+// ─── What the browser itself reported ────────────────────────────────────────
+
+/**
+ * The five findings a browser hands you for free once you have already opened
+ * the page, and which no amount of markup reading can reach.
+ *
+ * A JavaScript error on the home page is the single most demonstrable "your
+ * site is broken" finding there is: it is invisible in the HTML, invisible to
+ * the owner, and a reader can confirm it in fifteen seconds with their own
+ * developer tools. Horizontal overflow at 375px is the same shape — the most
+ * common mobile bug on the web, and one nobody sees until somebody looks.
+ */
+function browserChecks(
+  pages: { url: string; extract: PageExtract; vitals?: unknown }[],
+): SiteCheck[] {
+  const WHY_CONSOLE =
+    "A script that throws stops running, so whatever it was doing — a menu, a form, a gallery — silently stops working for every visitor from that point on.";
+  const WHY_REQUESTS =
+    "A file the page asks for and does not get is a missing image, an unstyled section or a feature that does nothing.";
+  const WHY_OVERFLOW =
+    "Something on the page is wider than a phone screen, so the whole page scrolls sideways. Most of your visitors are on a phone, and this is the first thing they will notice.";
+  const WHY_TINY =
+    "Text under twelve pixels is uncomfortable on a desktop and unreadable on a phone without pinching.";
+  const WHY_HEAVY =
+    "These images are downloaded at several times the size they are shown at, so every visitor pays for pixels they never see.";
+
+  const withVitals = pages.filter((p): p is typeof p & { vitals: PageVitals } => p.vitals != null);
+  if (withVitals.length === 0) {
+    return [
+      unknown("console-errors", "Pages without JavaScript errors", WHY_CONSOLE, "structural"),
+      unknown("failed-requests", "Files the page asks for and gets", WHY_REQUESTS, "quick"),
+      unknown("mobile-overflow", "Pages that fit a phone screen", WHY_OVERFLOW, "structural"),
+      unknown("tiny-text", "Text big enough to read", WHY_TINY, "content"),
+      unknown("oversized-images", "Images sized for where they are shown", WHY_HEAVY, "quick"),
+    ];
+  }
+
+  const out: SiteCheck[] = [];
+
+  const erroring = withVitals.filter((p) => p.vitals.consoleErrors.length > 0);
+  out.push(
+    check(
+      "console-errors",
+      "Pages without JavaScript errors",
+      WHY_CONSOLE,
+      "structural",
+      erroring.length === 0,
+      erroring.length === 0
+        ? `none on the ${withVitals.length} pages we opened`
+        : `${erroring[0]!.url}: ${erroring[0]!.vitals.consoleErrors[0]}`,
+    ),
+  );
+
+  // FIRST-PARTY ONLY. A blocked analytics beacon or a third-party widget that
+  // 404s is our network, an ad blocker, or somebody else's outage — reporting
+  // it as their broken site is the exact error this codebase exists to avoid.
+  const broken = withVitals.flatMap((p) =>
+    p.vitals.failedRequests.filter((r) => r.firstParty).map((r) => ({ ...r, page: p.url })),
+  );
+  out.push(
+    check(
+      "failed-requests",
+      "Files the page asks for and gets",
+      WHY_REQUESTS,
+      "quick",
+      broken.length === 0,
+      broken.length === 0
+        ? "every file your pages asked for came back"
+        : `${broken.length}: ${broken
+            .slice(0, 2)
+            .map((b) => `${b.url}${b.status ? ` (${b.status})` : ""}`)
+            .join(", ")}`,
+    ),
+  );
+
+  const measuredOverflow = withVitals.filter((p) => p.vitals.overflowAt375 !== null);
+  if (measuredOverflow.length === 0) {
+    out.push(
+      unknown("mobile-overflow", "Pages that fit a phone screen", WHY_OVERFLOW, "structural"),
+    );
+  } else {
+    // A couple of pixels is a rounding artefact of a scrollbar or a border, not
+    // a layout bug. The bar is where a human would actually see the page move.
+    const OVERFLOW_TOLERANCE = 4;
+    const wide = measuredOverflow.filter((p) => p.vitals.overflowAt375! > OVERFLOW_TOLERANCE);
+    out.push(
+      check(
+        "mobile-overflow",
+        "Pages that fit a phone screen",
+        WHY_OVERFLOW,
+        "structural",
+        wide.length === 0,
+        wide.length === 0
+          ? `all ${measuredOverflow.length} fit a 375px screen`
+          : `${wide[0]!.url} is ${wide[0]!.vitals.overflowAt375}px wider than the screen`,
+      ),
+    );
+  }
+
+  const measuredText = withVitals.filter((p) => p.vitals.tinyText !== null);
+  if (measuredText.length === 0) {
+    out.push(unknown("tiny-text", "Text big enough to read", WHY_TINY, "content"));
+  } else {
+    const tiny = measuredText.filter((p) => p.vitals.tinyText!.count > 0);
+    out.push(
+      check(
+        "tiny-text",
+        "Text big enough to read",
+        WHY_TINY,
+        "content",
+        tiny.length === 0,
+        tiny.length === 0
+          ? "no text under 12px on the pages we opened"
+          : `${tiny[0]!.url}: ${tiny[0]!.vitals.tinyText!.count} passages, e.g. “${tiny[0]!.vitals.tinyText!.sample}”`,
+      ),
+    );
+  }
+
+  const heavy = withVitals.flatMap((p) => p.vitals.oversizedImages);
+  out.push(
+    check(
+      "oversized-images",
+      "Images sized for where they are shown",
+      WHY_HEAVY,
+      "quick",
+      heavy.length === 0,
+      heavy.length === 0
+        ? "every image is close to the size it is drawn at"
+        : `${heavy[0]!.src} is ${heavy[0]!.naturalWidth}px wide and drawn at ${heavy[0]!.renderedWidth}px`,
+    ),
+  );
+
+  return out;
+}
+
+export const TIER3_CHECK_KEYS = [
+  "console-errors",
+  "failed-requests",
+  "mobile-overflow",
+  "tiny-text",
+  "oversized-images",
+] as const;
+
 export const TIER1_CHECK_KEYS = [
   "meta-noindex",
   "meta-nofollow",
@@ -1847,7 +1991,13 @@ export function runSiteChecks(
   businessName: string | null = null,
 ): SiteCheck[] {
   const set = usablePages(crawl.pages);
-  const pages = set.pages.map((p) => ({ url: p.page.url, extract: p.extract }));
+  const pages = set.pages.map((p) => ({
+    url: p.page.url,
+    extract: p.extract,
+    // Carried through so the browser checks can read what the render pass
+    // observed without a second traversal of the capture list.
+    vitals: p.page.vitals,
+  }));
 
   // Distinct same-origin pages the site's own links point at. This is the
   // honest denominator for sitemap coverage: our crawl is capped, so using the
@@ -1882,6 +2032,7 @@ export function runSiteChecks(
     ...linkChecks(pages, crawl.origin),
     ...formChecks(pages),
     ...newTabChecks(pages),
+    ...browserChecks(pages),
     ...headerChecks(crawl.homeHeaders ?? {}, headersMeasured),
     ...sidecarChecks(crawl, linked.size),
     analyticsCheck(pages),
