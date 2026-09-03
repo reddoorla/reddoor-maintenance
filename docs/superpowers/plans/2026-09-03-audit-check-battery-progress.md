@@ -133,14 +133,35 @@ every other line.
 **`noopener` is framed as tidiness**, with a test asserting its `why` contains no
 security language. Browsers have implied it since 2021.
 
-## 5. Tier 3 instrumentation (8 checks) — screenshots first
+## 5. Tier 3 instrumentation — DONE (5 checks); screenshots NEED A DECISION
 
-- [ ] Screenshots, mobile + desktop
-- [ ] T3-01 console errors, T3-02 failed requests (first- vs third-party),
-      T3-03 rejections
-- [ ] T3-05 horizontal overflow at 375px _(needs a second context — not free)_
-- [ ] T3-07 body text < 12px, T3-09 oversized images, T3-11 CLS vs CWV threshold
-- [ ] T3-08 blocked on a definition of "focus is visible"
+- [x] T3-01 console errors, T3-02 failed requests (first- vs third-party),
+      T3-03 unhandled rejections (same listener as T3-01)
+- [x] T3-05 horizontal overflow at 375px
+- [x] T3-07 text under 12px, T3-09 oversized images
+- [x] Verified against a live page, not assumed
+- [ ] **Screenshots — NOT DONE, and deliberately.** `prospect_audits.result_json`
+      is one TEXT column the DB layer already flags as large. Two base64
+      screenshots per audit is ~100-200KB per row, and quietly tripling every
+      stored report is an infrastructure decision, not a code one. Options:
+      thumbnail-only (~30KB each), a blob store, or skip. **Tucker's call.**
+- [ ] T3-08 still blocked on a definition of "focus is visible"
+- [ ] T3-11 CLS — not done. Needs a PerformanceObserver over a settle window,
+      and Lighthouse already measures it; the value is surfacing the number the
+      score hides, which is smaller than the other four here.
+
+Landed: maintenance `89170f6`; website `31fdcd7`+.
+
+**The overflow check was much cheaper than the spec assumed.** I had it down as
+"not free — needs a second render pass". A viewport RESIZE reflows the page the
+browser already holds: no navigation, no new bytes. It costs a reflow and 250ms.
+
+**Judgement calls.** Console errors are deduped (one broken component in a loop
+reports the same line a thousand times). Overflow under 4px is a scrollbar, not a
+layout bug. An image is only oversized past 2.5x its drawn width, so an ordinary
+retina asset is under the bar rather than in the report.
+
+**Found a real bug on our own production site** — see the log below.
 
 ## 6. Tier 2 — DNS/RDAP first (17 checks)
 
@@ -173,3 +194,12 @@ security language. Browsers have implied it since 2021.
 ## Log
 
 - 2026-09-03 — branch cut from `main`, spec + this checklist committed.
+- 2026-09-03 — **reddoorla.com ships a blocked preconnect.** `src/app.html`
+  preconnects to `fonts.googleapis.com`, but preconnect is governed by
+  `connect-src`, and netlify.toml's CSP lists that host under `style-src` and
+  `font-src` only. So the preconnect is refused on every page view: the fonts
+  still load (style-src allows the stylesheet) but the optimisation does nothing
+  and every visitor's console carries a CSP error. One-line fix — add
+  `https://fonts.googleapis.com` and `https://fonts.gstatic.com` to
+  `connect-src` — but it is production security config, so NOT changed
+  unilaterally. Found by the T3-01 console-error check on its first live run.
