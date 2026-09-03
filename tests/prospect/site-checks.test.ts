@@ -271,6 +271,31 @@ describe("each check fires on the thing it is named for", () => {
     expect(byKey(checks, "dead-links")?.status).toBe("pass");
   });
 
+  it("does not flag internal links on a site that itself lives at a dev-looking host", () => {
+    // Found by building the report fixture, which is deliberately on a `.test`
+    // domain so nothing can be mistaken for a client: every internal link fired.
+    // A site served from `.local` or `.test` is not a site full of stray
+    // staging links, and the same bug would have hit any client running an
+    // internal tool.
+    const checks = runSiteChecks(
+      exemplary({
+        origin: "https://acme.test",
+        pages: [
+          {
+            url: "https://acme.test/",
+            status: 200,
+            raw: null,
+            rendered: extract({ anchors: [{ href: "https://acme.test/about", text: "About", rel: "" }] }),
+            error: null,
+          },
+        ],
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(checks, "staging-links")?.status).toBe("pass");
+  });
+
   it("catches a staging link", () => {
     const checks = runSiteChecks(
       exemplary({

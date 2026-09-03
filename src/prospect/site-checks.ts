@@ -203,11 +203,24 @@ function anchorChecks(pages: { url: string; extract: PageExtract }[], origin: st
     ),
   );
 
+  // A link to the site's OWN host is never a stray development link, whatever
+  // that host looks like. Without this the check fired on every internal link
+  // of any site served from a `.test`, `.local` or `localhost` name — which
+  // includes our own fixture, and would have included any client running an
+  // internal tool. The finding is a link that leaves for a development
+  // address, not a site that lives at one.
+  let ownHost: string | null = null;
+  try {
+    ownHost = new URL(origin).hostname.toLowerCase();
+  } catch {
+    ownHost = null;
+  }
   const staging = all.filter(({ a, page }) => {
     const abs = resolveNavigable(a.href, page);
     if (!abs) return false;
     try {
-      return LOCAL_HOST.test(new URL(abs).hostname);
+      const host = new URL(abs).hostname.toLowerCase();
+      return host !== ownHost && LOCAL_HOST.test(host);
     } catch {
       return false;
     }
