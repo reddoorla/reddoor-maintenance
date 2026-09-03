@@ -150,8 +150,20 @@ export async function resolveReplyCopy(
     await attempt(() => client.getSingle(opts.settingsType ?? "form_replies")),
   );
   const settingsData = record(settings.data);
-  const entries = Array.isArray(settingsData.replies) ? settingsData.replies : [];
-  const entry = record(entries.find((e) => record(e).form_type === opts.formType));
+  const entries = (Array.isArray(settingsData.replies) ? settingsData.replies : []).map(record);
+  // Prefer the first row for this form type that actually SAYS something.
+  //
+  // A repeatable group hands the editor a new row with the Select unset or
+  // defaulted, so a document part-way through being filled in genuinely does
+  // contain several blank rows all claiming the same form type. Taking the
+  // first match outright meant one stray blank row above the real copy
+  // silently discarded it — the reply fell back to the built-in default and
+  // looked, from the client's side, exactly like the feature not working.
+  const matches = entries.filter((e) => e.form_type === opts.formType);
+  const entry =
+    matches.find((e) => text(e.subject) !== undefined || blocks(e.body) !== undefined) ??
+    matches[0] ??
+    {};
 
   const draft: Record<string, unknown> = {
     subject: text(entry.subject),
