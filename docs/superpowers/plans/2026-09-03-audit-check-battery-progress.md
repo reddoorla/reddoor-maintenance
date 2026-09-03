@@ -8,17 +8,30 @@ to be wrong on contact with the code gets written down here, not silently droppe
 
 ---
 
-## 1. Stack readout — "name their stack back to them"
+## 1. Stack readout — "name their stack back to them" — DONE
 
-- [ ] `scriptSrcs` field on `PageExtract`
-- [ ] `metas` map on `PageExtract` _(pulled forward from Tier 1 Cluster B — the
-      readout needs `<meta name="generator">` and doing the same field twice is
-      silly; Cluster B then becomes pure logic)_
-- [ ] `src/prospect/stack.ts` — CMS/builder, WP theme, WP plugins, page builder,
-      framework, hosting/CDN, ecommerce, forms, analytics, fonts
-- [ ] Receipts on every line; absence = "we did not see one", never "they lack it"
-- [ ] Wired into the pipeline as its own stage, outside the pass/fail denominator
-- [ ] Renderer section, ahead of "Does it work?"
+- [x] `scriptSrcs` field on `PageExtract` (capped, with `scriptCount`)
+- [x] `metas` map on `PageExtract` — pulled forward from Tier 1 Cluster B,
+      because the readout needs `<meta name="generator">` and building the same
+      field twice is silly. Cluster B is now pure logic.
+- [x] `src/prospect/stack.ts` — 50 signatures across 10 layers
+- [x] Receipts on every line; absence = "we did not see one", never "they lack it"
+- [x] Wired into the pipeline as its own stage, outside every denominator
+- [x] Renderer section ahead of "Does it work?", plus the print template
+      (names only — a page of URLs is a worse trade in a document nobody can expand)
+
+Landed: maintenance `5a8d14b` on `feat/audit-check-battery`; website `7858759`
+on `feat/report-stack-readout`.
+
+**Found on the way.** `<meta charset="utf-8">` carries neither `name` nor
+`content`, so it was invisible to `extract.ts` — T1-12 (charset declared) could
+never have gone green. Both spellings are read now.
+
+**Left open.** Google Fonts is a `<link>`, not a script, so it lights up only
+once Cluster A projects the `<link>` set; its absence today is our gap, not
+theirs. Screenshot verification of the section is blocked — headless capture
+returns blank at non-zero scroll on this page, though the DOM confirms opacity
+and visibility are fine throughout; verified from the served DOM instead.
 
 ## 2. Tier 0 — free over stored data (36 checks)
 
