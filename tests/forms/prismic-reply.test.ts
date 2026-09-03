@@ -48,15 +48,64 @@ describe("resolveReplyCopy", () => {
     });
   });
 
-  it("flattens rich text to paragraphs, dropping empty blocks", async () => {
+  it("maps rich text to blocks, dropping empty ones", async () => {
     const copy = await resolveReplyCopy(reader({ getByUID: vi.fn() }), { formType: "rsvp" });
-    expect(copy?.paragraphs).toEqual(["Thanks for RSVPing.", "Doors at 6."]);
+    expect(copy?.body).toEqual([
+      { type: "paragraph", text: "Thanks for RSVPing." },
+      { type: "paragraph", text: "Doors at 6." },
+    ]);
+  });
+
+  it("carries formatting through, mapping Prismic's hyperlink onto link", async () => {
+    const rich = {
+      data: {
+        signature: [],
+        replies: [
+          {
+            form_type: "rsvp",
+            subject: "s",
+            body: [
+              {
+                type: "paragraph",
+                text: "See the show",
+                spans: [
+                  { start: 0, end: 3, type: "strong" },
+                  {
+                    start: 8,
+                    end: 12,
+                    type: "hyperlink",
+                    data: { url: "https://gallerysonder.com" },
+                  },
+                  { start: 0, end: 3, type: "label" },
+                ],
+              },
+              { type: "list-item", text: "Doors at 6" },
+            ],
+          },
+        ],
+      },
+    };
+    const copy = await resolveReplyCopy(
+      reader({ getSingle: vi.fn().mockResolvedValue(rich), getByUID: vi.fn() }),
+      { formType: "rsvp" },
+    );
+    expect(copy?.body).toEqual([
+      {
+        type: "paragraph",
+        text: "See the show",
+        spans: [
+          { start: 0, end: 3, type: "strong" },
+          { start: 8, end: 12, type: "link", url: "https://gallerysonder.com" },
+        ],
+      },
+      { type: "list-item", text: "Doors at 6" },
+    ]);
   });
 
   it("lets the event override the site default and adds the calendar", async () => {
     const copy = await resolveReplyCopy(reader(), { formType: "rsvp", eventUid: "euphorbia" });
     expect(copy?.subject).toBe("You're on the list for Euphorbia");
-    expect(copy?.paragraphs).toEqual(["See you at the opening."]);
+    expect(copy?.body).toEqual([{ type: "paragraph", text: "See you at the opening." }]);
     expect(copy?.signature).toBe("Gallery Sonder, Corona del Mar");
     expect(copy?.calendar).toMatchObject({
       title: "Euphorbia",

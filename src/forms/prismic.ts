@@ -14,7 +14,14 @@
  * Every read is wrapped: a CMS failure must cost the visitor nothing, because
  * the submission itself is captured either way.
  */
-import { parseReplyCopy, type ReplyCalendar, type ReplyCopy } from "./reply-copy.js";
+import {
+  parseReplyCopy,
+  REPLY_BLOCK_TYPES,
+  type ReplyBlock,
+  type ReplyCalendar,
+  type ReplyCopy,
+  type ReplySpan,
+} from "./reply-copy.js";
 
 export type PrismicReader = {
   getSingle: (type: string) => Promise<unknown>;
@@ -48,13 +55,47 @@ function text(v: unknown): string | undefined {
   return t === "" ? undefined : t;
 }
 
-/** Prismic Rich Text is an array of blocks each carrying a flat `.text`. That
- *  flat field is exactly what a plain-text email wants, so no renderer is
- *  needed — and no rich-text HTML can escape into the message. */
-function paragraphs(v: unknown): string[] | undefined {
+/** Prismic Rich Text is already a block/span AST, and `ReplyBlock` is modelled
+ *  on it — so this is close to a pass-through, mapping Prismic's `hyperlink`
+ *  onto our `link` and dropping any block or span kind the renderer does not
+ *  know. Nothing is converted to HTML here: the AST crosses the wire and the
+ *  shared renderer is the only thing that ever emits a tag. */
+function blocks(v: unknown): ReplyBlock[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out: ReplyBlock[] = [];
+  for (const raw of v) {
+    const b = record(raw);
+    const body = typeof b.text === "string" ? b.text : "";
+    if (body.trim() === "") continue;
+    const declared = typeof b.type === "string" ? b.type : "paragraph";
+    const type = (REPLY_BLOCK_TYPES as readonly string[]).includes(declared)
+      ? (declared as ReplyBlock["type"])
+      : "paragraph";
+    const block: ReplyBlock = { type, text: body };
+    const spans = Array.isArray(b.spans) ? b.spans.map(record) : [];
+    const mapped: ReplySpan[] = [];
+    for (const s of spans) {
+      const kind = s.type === "hyperlink" ? "link" : s.type;
+      if (kind !== "strong" && kind !== "em" && kind !== "link") continue;
+      const start = typeof s.start === "number" ? s.start : NaN;
+      const end = typeof s.end === "number" ? s.end : NaN;
+      if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+      const span: ReplySpan = { start, end, type: kind };
+      const url = text(record(s.data).url);
+      if (url) span.url = url;
+      mapped.push(span);
+    }
+    if (mapped.length > 0) block.spans = mapped;
+    out.push(block);
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+/** The signature is a short sign-off, so it stays flat text. */
+function flatText(v: unknown): string | undefined {
   if (!Array.isArray(v)) return undefined;
   const out = v.map((b) => text(record(b).text)).filter((t): t is string => t !== undefined);
-  return out.length > 0 ? out : undefined;
+  return out.length > 0 ? out.join(" ") : undefined;
 }
 
 /** A Prismic Timestamp ("2026-09-12T18:00:00+0000") as an ISO string, or
@@ -114,8 +155,8 @@ export async function resolveReplyCopy(
 
   const draft: Record<string, unknown> = {
     subject: text(entry.subject),
-    paragraphs: paragraphs(entry.body),
-    signature: paragraphs(settingsData.signature)?.join(" "),
+    body: blocks(entry.body),
+    signature: flatText(settingsData.signature),
   };
 
   if (opts.eventUid) {
@@ -125,7 +166,7 @@ export async function resolveReplyCopy(
     const data = record(event.data);
     if (Object.keys(data).length > 0) {
       draft.subject = text(data.reply_subject) ?? draft.subject;
-      draft.paragraphs = paragraphs(data.reply_body) ?? draft.paragraphs;
+      draft.body = blocks(data.reply_body) ?? draft.body;
       draft.calendar = calendarFrom(data, opts);
     }
   }
