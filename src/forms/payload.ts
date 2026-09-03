@@ -1,5 +1,6 @@
 import { SUBMISSION_FORM_TYPES, type FormType } from "./types.js";
 import type { SubmissionMeta } from "./meta.js";
+import { parseReplyCopy, type ReplyCopy } from "./reply-copy.js";
 
 /** The JSON wire format a fleet site forwards to the ingest endpoint.
  *
@@ -22,6 +23,10 @@ export type SubmissionPayload = {
   extra?: Record<string, unknown>;
   /** Reserved transport envelope (token/IP/UA); stripped by normalizeSubmission, never persisted. */
   _meta?: SubmissionMeta;
+  /** Reserved: confirmation-email copy the SITE resolved from its own CMS.
+   *  Validated by parseReplyCopy, then stored under the same key in extraFields
+   *  so a replayed submission sends the same email it would have sent live. */
+  _reply?: ReplyCopy;
 };
 
 export type NormalizedSubmission = {
@@ -50,6 +55,7 @@ const KNOWN_KEYS = new Set([
   "utm",
   "extra",
   "_meta",
+  "_reply",
 ]);
 
 // Keys that, copied as own-properties into the captured object, could surprise a
@@ -104,12 +110,19 @@ export function normalizeSubmission(payload: unknown): NormalizeResult {
   const extra = p.extra;
   if (typeof extra === "object" && extra !== null) {
     for (const [k, v] of Object.entries(extra)) {
-      if (!DANGEROUS_KEYS.has(k)) extraFields[k] = v;
+      if (!DANGEROUS_KEYS.has(k) && !k.startsWith("_")) extraFields[k] = v;
     }
   }
   for (const [k, v] of Object.entries(p)) {
-    if (!KNOWN_KEYS.has(k) && !DANGEROUS_KEYS.has(k)) extraFields[k] = v;
+    if (!KNOWN_KEYS.has(k) && !DANGEROUS_KEYS.has(k) && !k.startsWith("_")) extraFields[k] = v;
   }
+  // The ONE underscore key a caller may set. Both loops above dropped the rest,
+  // including any `_reply` smuggled in through `extra` — this is the only way a
+  // value reaches that key, and it is validated on the way through. Without it,
+  // a bot could POST its own copy and dictate the text of an email we send from
+  // a domain with real sending reputation.
+  const reply = parseReplyCopy(p._reply);
+  if (reply) extraFields._reply = reply;
 
   const value: NormalizedSubmission = {
     formType,
