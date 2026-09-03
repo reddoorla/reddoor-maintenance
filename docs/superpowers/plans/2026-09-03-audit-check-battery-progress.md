@@ -163,12 +163,53 @@ retina asset is under the bar rather than in the report.
 
 **Found a real bug on our own production site** — see the log below.
 
-## 6. Tier 2 — DNS/RDAP first (17 checks)
+## 6. Tier 2 — DONE (17 checks: 5 DNS + 12 HTTP)
 
-- [ ] T2-15..19 SPF, DMARC, MX, mailto MX, domain expiry
-- [ ] T2-01 favicon served, 03 trailing slash, 04 single-hop, 05/06 duplicates,
-      07 chains, 08 sitemap 200s, 09 orphans, 10 external links, 11 og:image,
-      12 logo, 14 flaky server
+- [x] T2-15..19 SPF, DMARC, MX, mailto MX, domain expiry
+- [x] T2-01 favicon served, 03 trailing slash, 04 single-hop, 05 /index.html,
+      06 case, 07 chains, 08 sitemap 200s, 10 external links, 11 og:image
+      (served AND ≥200px), 12 logo, 14 flaky server
+- [x] Verified live against reddoorla.com, stripe.com and basecamp.com
+- [ ] **T2-09 orphans — NOT IMPLEMENTABLE AS WRITTEN.** See below.
+
+Landed: maintenance `c6cf907` (DNS), `fded02d` (expiry honesty), `4269411` (HTTP).
+
+**The DNS half found a live problem on our own domain and a false one.**
+reddoorla.com has no SPF record — real, still open. It also read as "expires in
+2 days", and auto-renew is on. The registry publishes an expiry; it does not
+publish whether the registrar will renew, and most well-run domains renew inside
+the last thirty days. So the check now reports the date and names the gap. The
+first thing a client checks is the line about their own domain, and being wrong
+there costs every other line on the page.
+
+**The instrument was broken and only the live run showed it.** The first RDAP
+version went through rdap.org, which sits behind Cloudflare and answers a plain
+fetch with a 403 challenge. Every expiry came back unmeasured INCLUDING `.com`.
+The unit tests passed the whole time, because they stub the fetch. A check that
+is unmeasured everywhere is a broken check, not a fact about the world.
+
+**Three bugs in the HTTP half, all found by tests, all mine.** `0x89 << 24` is
+negative in JavaScript, so the PNG signature never matched and every share image
+was unmeasured. `new URL("https://x").toString()` appends a slash, so
+`${origin}/index.html` built `//index.html` and every site read "no duplicate
+homepage" for the wrong reason. And the trailing-slash check compared the two
+forms through a helper that deliberately ignores a trailing slash.
+
+**T2-09 is cut, and the reasoning matters.** "Sitemap URLs nothing links to" is
+unanswerable with a capped crawl: against a 400-URL sitemap every entry we did
+not visit looks orphaned, so the check fails every site large enough to have a
+sitemap worth having — our budget printed as their fault. The reverse direction
+IS answerable, and Tier 0's `sitemap-coverage` already asks it; that check now
+NAMES the page a complete sitemap omits rather than only comparing counts, and
+falls back to the count when the sitemap was longer than the sample we carried.
+
+**Found on our own site.** `reddoorla.com/index.html` answers 200 with the
+homepage's content and declares no canonical — the homepage lives at two
+addresses. Netlify serving the prerendered file directly. Not fixed here; it is
+deploy configuration.
+
+**Cost.** About 35 requests per audit, paced 150ms apart, and `requests` is
+carried in the findings so the number is reportable rather than hidden.
 
 ## 7. Tier 4 — interaction (10 checks)
 
