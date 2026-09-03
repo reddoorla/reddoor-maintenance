@@ -65,14 +65,38 @@ would have broken any client running an internal tool at `.local`. Fixed, with a
 regression test. That is the third instrument bug in two days, and the third one
 that overstated the client's fault.
 
-## 3. axe-core (T3-14) — out of order
+## 3. axe-core (T3-14) — DONE
 
-- [ ] Inject via `page.addScriptTag` in the existing crawl browser
-- [ ] **Full** tag set, not just wcag2a/2aa/21a/21aa
-- [ ] Report rule names + counts, never a verdict on the site
-- [ ] Retire the items it absorbs: T0-05, T3-06, and decide owners for
-      T1-11/19/20/22
-- [ ] Say plainly in the report how this relates to the Lighthouse a11y score
+- [x] Injected in the crawl's EXISTING browser pass — no second navigation
+- [x] **Full** tag set, not just wcag2a/2aa/21a/21aa
+- [x] Report rule names + counts, never a verdict on the site
+- [x] Absorbs T0-05 (link names), T3-06 (tap targets); T1-11/19/20/22 owners
+      decided in Cluster B/C/D — axe owns viewport-zoom, `lang` and form labels
+- [x] Says plainly how this relates to the Lighthouse a11y score
+
+Landed: maintenance `d9f74be`; website `a586b58`.
+
+**Measured, not assumed.** Ran axe against our own report page to get real
+numbers: the default set is **90 rules**, of which **14 best-practice rules
+actually ran** — `landmark-one-main`, `heading-order`, `empty-heading`,
+`landmark-no-duplicate-main` among them. Those are precisely the rules a
+wcag-tags-only scan cannot see, so the premise holds.
+
+**It also corrected the arithmetic.** `passes` came back 42, not 90: 47 rules had
+nothing on the page to apply to and 1 was incomplete. Printing 90 as "we checked
+90 things" would have been a number inflated on our own behalf, so
+`inapplicable` is carried and the report says "of the 42 rules that had
+something to check". My "~90 net-new checks" pitch was wrong twice over — the
+Lighthouse a11y category already IS axe, and half the rules never run.
+
+**A gotcha worth keeping.** `@axe-core/playwright` publishes both a named and a
+default export; under Node's CJS interop the `default` binding resolves to the
+whole module namespace, not the class. Use the NAMED export or it fails as "not
+constructable".
+
+`renderPages` widened to `string | RenderedPage` so the seventeen existing test
+stubs stay correct — a bare string normalises to `axe: null`, which reads as
+"no rules ran here" rather than silently asserting a clean scan.
 
 ## 4. Tier 1 Cluster B, then A / C / D (23 checks)
 
