@@ -18,8 +18,16 @@ export type CreateIngestActionOptions = {
   /**
    * Map this form's fields to a payload. The factory's `formType` is always
    * authoritative and cannot be overridden by `buildPayload`.
+   *
+   * May be async, matching `createIngestEndpoint` — a site that resolves
+   * confirmation copy from its CMS does a read here (see
+   * `@reddoorla/maintenance/forms/prismic`). A rejection is handled exactly
+   * like a throw from a sync one: a failure result, never a 500.
    */
-  buildPayload: (form: FormData, event: RequestEvent) => SubmissionPayload;
+  buildPayload: (
+    form: FormData,
+    event: RequestEvent,
+  ) => SubmissionPayload | Promise<SubmissionPayload>;
   /** Honeypot input name. Default "bot-field". */
   botFieldName?: string;
   /** Hidden timestamp input name (planted in `load`). Default "ts". */
@@ -99,7 +107,7 @@ export function createIngestAction(
     let payload: SubmissionPayload;
     try {
       payload = {
-        ...opts.buildPayload(form, event),
+        ...(await opts.buildPayload(form, event)),
         formType: opts.formType,
         _meta: buildSubmissionMeta(event, form.get(turnstileFieldName)?.toString()),
       };
