@@ -4,6 +4,7 @@ import {
   tally,
   TIER0_CHECK_KEYS,
   TIER1_CHECK_KEYS,
+  TIER2_DNS_CHECK_KEYS,
   TIER3_CHECK_KEYS,
 } from "../../src/prospect/site-checks.js";
 import type {
@@ -194,7 +195,12 @@ describe("an ordinary careful site passes the whole battery", () => {
   });
 
   it("declares every key it promises", () => {
-    for (const key of [...TIER0_CHECK_KEYS, ...TIER1_CHECK_KEYS, ...TIER3_CHECK_KEYS]) {
+    for (const key of [
+      ...TIER0_CHECK_KEYS,
+      ...TIER1_CHECK_KEYS,
+      ...TIER3_CHECK_KEYS,
+      ...TIER2_DNS_CHECK_KEYS,
+    ]) {
       expect(byKey(checks, key), `${key} was never produced`).toBeDefined();
     }
   });

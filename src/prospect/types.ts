@@ -6,6 +6,7 @@ import type { ConsistencyResult } from "./consistency.js";
 import type { AccuracyResult } from "./accuracy.js";
 import type { GoalFit, SiteGoal } from "./goals.js";
 import type { StackReadout } from "./stack.js";
+import type { DnsFindings } from "./dns.js";
 import type { AccessibilityResult, AxePageResult, PageVitals } from "./accessibility.js";
 import type { SiteCheck } from "./site-checks.js";
 import type { JourneyMap } from "./journey.js";
@@ -19,6 +20,7 @@ export type { BasicsCheck, Reachability } from "./basics.js";
 export type { ConsistencyResult, ContactVariant } from "./consistency.js";
 export type { StackItem, StackLayer, StackReadout } from "./stack.js";
 export type { CheckStatus, SiteCheck } from "./site-checks.js";
+export type { DnsFindings } from "./dns.js";
 export type {
   AccessibilityResult,
   AxeImpact,
@@ -552,6 +554,14 @@ export type ProspectAuditResult = {
    * that nothing was found.
    */
   accessibility?: StageResult<AccessibilityResult>;
+  /**
+   * What the DOMAIN says — SPF, DMARC, mail servers, registration expiry.
+   *
+   * None of it touches their web server, and none of it is visible from any
+   * amount of reading their HTML. Optional for reports stored before it
+   * existed.
+   */
+  dns?: StageResult<DnsFindings>;
   /** When an engine describes this business, where is it getting that from —
    *  each statement sorted by SOURCE, never by truth. See accuracy.ts. Optional
    *  for reports stored before the stage was wired in. */

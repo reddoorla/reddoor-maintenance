@@ -27,6 +27,7 @@ import { checkGoal, type GoalFit, type SiteGoal } from "./goals.js";
 import { readStack, type StackReadout } from "./stack.js";
 import { runSiteChecks, type SiteCheck } from "./site-checks.js";
 import { summarizeAccessibility, type AccessibilityResult } from "./accessibility.js";
+import { defaultDnsDeps, lookupDns, type DnsDeps, type DnsFindings } from "./dns.js";
 import { measuredFixes } from "./measured-fixes.js";
 import type {
   AnalyzeResult,
@@ -49,6 +50,7 @@ export type StageName =
   | "basics"
   | "stack"
   | "siteChecks"
+  | "dns"
   | "accessibility"
   | "accuracy";
 
@@ -195,6 +197,8 @@ export type PipelineDeps = {
    *  someone else's server, and a courteous audit is worth more than an
    *  exhaustive one. A test passes its own `probe` to avoid a network. */
   assets?: Partial<AssetCheckDeps>;
+  /** Overrides the DNS/RDAP lookups, so a test never touches a resolver. */
+  dns?: DnsDeps;
   /** Overrides the accuracy stage's model call and domain-ownership probes. */
   accuracy?: Partial<AccuracyDeps>;
   /**
@@ -380,13 +384,29 @@ export async function runProspectAudit(
   const businessName =
     opts.business?.trim() || (analyze.ok ? analyze.data.businessName : "") || null;
 
+  // Five lookups that never touch their web server, so this is the cheapest
+  // section of the audit and the one nobody else sends. Its own stage because
+  // a resolver outage must degrade these five findings and nothing else.
+  const dns: StageResult<DnsFindings> = await stage("dns", deps, async () =>
+    lookupDns(
+      crawlData.origin,
+      checks.ok ? (checks.data.consistency?.emails ?? []).map((e) => e.normalized) : [],
+      deps.dns ?? defaultDnsDeps(),
+    ),
+  );
+
   // After `businessName`, because two of these read it — a headline that is
   // only the company name, and a title that never mentions it — and grading a
   // site against a name we guessed at would be worse than not asking. Pure
   // functions over what the crawl already stored: no request is made here, so
   // this stage cannot slow a run down or annoy a prospect's server.
   const siteChecks: StageResult<SiteCheck[]> = await stage("siteChecks", deps, async () =>
-    runSiteChecks(crawlData, checks.ok ? checks.data : null, businessName),
+    runSiteChecks(
+      crawlData,
+      checks.ok ? checks.data : null,
+      businessName,
+      dns.ok ? dns.data : null,
+    ),
   );
 
   const probeOpts: ProbeRunOptions = {
@@ -527,6 +547,7 @@ export async function runProspectAudit(
     stack,
     siteChecks,
     accessibility,
+    dns,
     goalFit,
     accuracy,
   };

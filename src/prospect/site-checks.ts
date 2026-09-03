@@ -2,6 +2,7 @@ import { resolveNavigable } from "./journey.js";
 import { usablePages } from "./pages.js";
 import type { Scope } from "./goals.js";
 import type { PageVitals } from "./accessibility.js";
+import type { DnsFindings } from "./dns.js";
 import type { ChecksResult, CrawlResult, FormShape, PageAnchor, PageExtract } from "./types.js";
 
 /**
@@ -1916,6 +1917,132 @@ function browserChecks(
   return out;
 }
 
+// ─── The domain, as opposed to the website ───────────────────────────────────
+
+/**
+ * Five findings that never touch their web server.
+ *
+ * Every one of these is invisible from any amount of reading their HTML, and
+ * two of them — "anyone can send email as you" and "your domain renews in
+ * forty-one days" — are acted on the same afternoon they are read.
+ */
+export function dnsChecks(dns: DnsFindings | null): SiteCheck[] {
+  const WHY_SPF =
+    "Without it, anyone can send email that appears to come from your address, and your own mail is more likely to be filed as spam.";
+  const WHY_DMARC =
+    "SPF says who may send as you. DMARC is what tells the receiving mail server to act on that, and to report attempts to you. Without it the first one is advisory.";
+  const WHY_MX =
+    "There is no mail server listed for your domain, so email sent to any address at it is rejected.";
+  const WHY_CONTACT_MX =
+    "The address you publish is on a domain with no mail server, so anything sent to it bounces.";
+  const WHY_EXPIRY =
+    "When a registration lapses the site and the email both stop, usually on a weekend, and recovery is neither quick nor certain.";
+
+  if (!dns || !dns.measured) {
+    return [
+      unknown("dns-spf", "An SPF record, so your email is trusted", WHY_SPF, "quick"),
+      unknown("dns-dmarc", "A DMARC record, so SPF is enforced", WHY_DMARC, "quick"),
+      unknown("dns-mx", "A mail server for your domain", WHY_MX, "structural"),
+      unknown("dns-contact-mx", "An email address that can receive mail", WHY_CONTACT_MX, "quick"),
+      unknown("domain-expiry", "A domain that is not about to lapse", WHY_EXPIRY, "quick"),
+    ];
+  }
+
+  const out: SiteCheck[] = [];
+
+  out.push(
+    dns.spf === undefined
+      ? unknown("dns-spf", "An SPF record, so your email is trusted", WHY_SPF, "quick")
+      : check(
+          "dns-spf",
+          "An SPF record, so your email is trusted",
+          WHY_SPF,
+          "quick",
+          dns.spf !== null,
+          dns.spf ?? `no v=spf1 record on ${dns.domain}`,
+        ),
+  );
+
+  out.push(
+    dns.dmarc === undefined
+      ? unknown("dns-dmarc", "A DMARC record, so SPF is enforced", WHY_DMARC, "quick")
+      : check(
+          "dns-dmarc",
+          "A DMARC record, so SPF is enforced",
+          WHY_DMARC,
+          "quick",
+          dns.dmarc !== null,
+          dns.dmarc ?? `no record at _dmarc.${dns.domain}`,
+        ),
+  );
+
+  out.push(
+    dns.mx === undefined
+      ? unknown("dns-mx", "A mail server for your domain", WHY_MX, "structural")
+      : check(
+          "dns-mx",
+          "A mail server for your domain",
+          WHY_MX,
+          "structural",
+          dns.mx.length > 0,
+          dns.mx.length > 0 ? dns.mx.slice(0, 2).join(", ") : `no MX record on ${dns.domain}`,
+        ),
+  );
+
+  out.push(
+    dns.contactMx === undefined
+      ? unknown("dns-contact-mx", "An email address that can receive mail", WHY_CONTACT_MX, "quick")
+      : dns.contactMx === null
+        ? skip(
+            "dns-contact-mx",
+            "An email address that can receive mail",
+            WHY_CONTACT_MX,
+            "quick",
+            "the addresses you publish are on your own domain, which is checked above",
+          )
+        : check(
+            "dns-contact-mx",
+            "An email address that can receive mail",
+            WHY_CONTACT_MX,
+            "quick",
+            dns.contactMx.hasMx,
+            `${dns.contactMx.domain}${dns.contactMx.hasMx ? " accepts mail" : " has no mail server"}`,
+          ),
+  );
+
+  // Thirty days is the point at which this stops being a diary note and starts
+  // being a thing to do today. Many ccTLDs publish no expiry at all, which is
+  // the registry's choice and reads as unmeasured.
+  const DAYS = 30;
+  if (dns.expiresAt === undefined) {
+    out.push(unknown("domain-expiry", "A domain that is not about to lapse", WHY_EXPIRY, "quick"));
+  } else {
+    const days = Math.round((Date.parse(dns.expiresAt) - Date.now()) / 86_400_000);
+    out.push(
+      check(
+        "domain-expiry",
+        "A domain that is not about to lapse",
+        WHY_EXPIRY,
+        "quick",
+        days > DAYS,
+        days > DAYS
+          ? `renews ${dns.expiresAt.slice(0, 10)}`
+          : `expires ${dns.expiresAt.slice(0, 10)} — ${days} days`,
+      ),
+    );
+  }
+
+  return out;
+}
+
+export const TIER2_DNS_CHECK_KEYS = [
+  "dns-spf",
+  "dns-dmarc",
+  "dns-mx",
+  "dns-contact-mx",
+  "domain-expiry",
+] as const;
+
 export const TIER3_CHECK_KEYS = [
   "console-errors",
   "failed-requests",
@@ -1989,6 +2116,7 @@ export function runSiteChecks(
   crawl: CrawlResult,
   checks: ChecksResult | null,
   businessName: string | null = null,
+  dns: DnsFindings | null = null,
 ): SiteCheck[] {
   const set = usablePages(crawl.pages);
   const pages = set.pages.map((p) => ({
@@ -2033,6 +2161,7 @@ export function runSiteChecks(
     ...formChecks(pages),
     ...newTabChecks(pages),
     ...browserChecks(pages),
+    ...dnsChecks(dns),
     ...headerChecks(crawl.homeHeaders ?? {}, headersMeasured),
     ...sidecarChecks(crawl, linked.size),
     analyticsCheck(pages),
