@@ -170,3 +170,41 @@ describe("resolveReplyCopy", () => {
     expect(copy?.signature).toBeUndefined();
   });
 });
+
+describe("resolveReplyCopy — part-way-filled settings", () => {
+  it("skips blank rows claiming the same form type and uses the one with copy", async () => {
+    // Exactly the shape a real document takes while an editor is filling it in:
+    // several rows added at once, Select left at its default, copy written last.
+    const partial = {
+      data: {
+        signature: [],
+        replies: [
+          { form_type: "contact", subject: "", body: [] },
+          { form_type: "contact", subject: "", body: [{ type: "paragraph", text: "  " }] },
+          {
+            form_type: "contact",
+            subject: "We got your message",
+            body: [{ type: "paragraph", text: "Someone will reply shortly." }],
+          },
+        ],
+      },
+    };
+    const copy = await resolveReplyCopy(
+      { getSingle: vi.fn().mockResolvedValue(partial), getByUID: vi.fn() },
+      { formType: "contact" },
+    );
+    expect(copy?.subject).toBe("We got your message");
+    expect(copy?.body).toEqual([{ type: "paragraph", text: "Someone will reply shortly." }]);
+  });
+
+  it("still yields undefined when every row for the type is blank", async () => {
+    const allBlank = {
+      data: { signature: [], replies: [{ form_type: "contact", subject: "", body: [] }] },
+    };
+    const copy = await resolveReplyCopy(
+      { getSingle: vi.fn().mockResolvedValue(allBlank), getByUID: vi.fn() },
+      { formType: "contact" },
+    );
+    expect(copy).toBeUndefined();
+  });
+});
