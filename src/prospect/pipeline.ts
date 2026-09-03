@@ -25,6 +25,7 @@ import { checkAssets, type AssetCheck, type AssetCheckDeps } from "./assets.js";
 import { checkBasics, type BasicsCheck, type BasicsDeps, type BasicsProbe } from "./basics.js";
 import { checkGoal, type GoalFit, type SiteGoal } from "./goals.js";
 import { readStack, type StackReadout } from "./stack.js";
+import { runSiteChecks, type SiteCheck } from "./site-checks.js";
 import { measuredFixes } from "./measured-fixes.js";
 import type {
   AnalyzeResult,
@@ -46,6 +47,7 @@ export type StageName =
   | "assets"
   | "basics"
   | "stack"
+  | "siteChecks"
   | "accuracy";
 
 /** The two ways an audit can pay for its model calls. Which one runs is
@@ -368,6 +370,15 @@ export async function runProspectAudit(
   const businessName =
     opts.business?.trim() || (analyze.ok ? analyze.data.businessName : "") || null;
 
+  // After `businessName`, because two of these read it — a headline that is
+  // only the company name, and a title that never mentions it — and grading a
+  // site against a name we guessed at would be worse than not asking. Pure
+  // functions over what the crawl already stored: no request is made here, so
+  // this stage cannot slow a run down or annoy a prospect's server.
+  const siteChecks: StageResult<SiteCheck[]> = await stage("siteChecks", deps, async () =>
+    runSiteChecks(crawlData, checks.ok ? checks.data : null, businessName),
+  );
+
   const probeOpts: ProbeRunOptions = {
     ...(deps.probeDelayMs !== undefined ? { delayMs: deps.probeDelayMs } : {}),
     ...(deps.probeSleep !== undefined ? { sleep: deps.probeSleep } : {}),
@@ -504,6 +515,7 @@ export async function runProspectAudit(
     assets,
     basics,
     stack,
+    siteChecks,
     goalFit,
     accuracy,
   };

@@ -6,6 +6,7 @@ import type { ConsistencyResult } from "./consistency.js";
 import type { AccuracyResult } from "./accuracy.js";
 import type { GoalFit, SiteGoal } from "./goals.js";
 import type { StackReadout } from "./stack.js";
+import type { SiteCheck } from "./site-checks.js";
 import type { JourneyMap } from "./journey.js";
 
 // Re-exported so a consumer reading `probes.answerSpace` off the `./audit`
@@ -16,6 +17,8 @@ export type { AssetCheck, ProbedUrl } from "./assets.js";
 export type { BasicsCheck, Reachability } from "./basics.js";
 export type { ConsistencyResult, ContactVariant } from "./consistency.js";
 export type { StackItem, StackLayer, StackReadout } from "./stack.js";
+export type { CheckStatus, SiteCheck } from "./site-checks.js";
+export { tally } from "./site-checks.js";
 export { LAYER_LABELS, LAYER_ORDER } from "./stack.js";
 export type { GoalFit, GoalRequirement, Scope, SiteGoal } from "./goals.js";
 export { GOAL_LABELS, orderRequirements } from "./goals.js";
@@ -473,6 +476,16 @@ export type ProspectAuditResult = {
    * finding. Optional for reports stored before the stage existed.
    */
   stack?: StageResult<StackReadout>;
+  /**
+   * The Tier 0 battery — the things a careful person would check with a
+   * browser and ten minutes, every one of them a pure function of the crawl.
+   *
+   * Four states per check, and only `pass`/`fail` count toward the denominator:
+   * a site with no schema has not failed the schema checks, and printing
+   * "34 of 40" where six were never applicable would be a number inflated on
+   * our own behalf. Optional for reports stored before the stage existed.
+   */
+  siteChecks?: StageResult<SiteCheck[]>;
   /** When an engine describes this business, where is it getting that from —
    *  each statement sorted by SOURCE, never by truth. See accuracy.ts. Optional
    *  for reports stored before the stage was wired in. */
