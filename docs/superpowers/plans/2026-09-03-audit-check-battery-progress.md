@@ -211,12 +211,52 @@ deploy configuration.
 **Cost.** About 35 requests per audit, paced 150ms apart, and `requests` is
 carried in the findings so the number is reportable rather than hidden.
 
-## 7. Tier 4 — interaction (10 checks)
+## 7. Tier 4 — the form pair only (2 checks). Tucker's call, 09-03.
 
-- [ ] T4-01 nav navigates, 02/03 mobile menu, 04 skip link
-- [ ] T4-05 empty submit, T4-06 invalid email
-- [ ] T4-07..10 COND: cookie banner, search, booking slot, cart
-- [ ] T4-15 blocked on a decision
+- [x] The abort harness — nothing this tier does reaches their server
+- [x] T4-05 empty submit, T4-06 invalid email
+- [x] Verified against a REAL browser and a local server that logs every
+      request: five form shapes, correct verdict on each, **zero non-GET
+      requests received**
+- [ ] **T4-01 nav navigates — DROPPED.** Tier 0 `dead-links` and Tier 2 already
+      answer it for anything with an `href`.
+- [ ] **T4-04 skip link — DROPPED.** axe runs `bypass` AND `skip-link` in our
+      default set. Asking it again under our own heading reads as two problems.
+- [ ] T4-02/03 mobile menu — not built. Fragile heuristic, lots of
+      not-applicable; the viewport window in `measureVitals` is already there
+      for it whenever we want it.
+- [ ] T4-07..10 COND: cookie banner, search, booking slot, cart — not built.
+- [ ] T4-15 still blocked on a decision, and now largely moot: 05/06 get the
+      value without ever sending anything.
+
+**The safety argument, because this is the only tier that acts.** A contact form
+with no client-side validation, submitted empty, POSTs to whoever reads that
+inbox — a junk enquiry from an audit nobody asked for, indistinguishable from a
+real lead. So the route interceptor is armed BEFORE the first click, aborts every
+navigation and every same-origin non-GET, and the count of what it stopped rides
+back in `blocked` so "we submitted nothing" is checkable rather than asserted.
+The evidence line says so too: "we stopped the request before it left the
+browser".
+
+That interception is also the measurement. A form that refuses an empty submit
+never asks the network for anything; a form that accepts one tries, and we catch
+it trying. The thing that keeps us honest and the thing that produces the finding
+are the same mechanism.
+
+**Two bugs the live run found that the unit tests could not.** `page.evaluate`
+given a STRING evaluates it as an expression and never calls it — every snippet
+returned `undefined`, so `probeForms` found no form on any page and reported
+"no form pressed" five times out of five. The fakes could not catch this: they
+stub `evaluate` itself.
+
+And aborting a form navigation leaves Chromium on `chrome-error://chromewebdata/`
+— the form is gone, so the second question could not be asked on exactly the
+forms most likely to be broken. Fixed by reloading between the two passes, which
+also removes the subtler bug: a JS form that painted "please enter a valid email"
+during the empty pass still has that text on screen, and reading it after the
+second click would credit the form with catching something it never saw.
+
+**Cost.** One extra page load per crawl, on the one page with an enquiry form.
 
 ---
 

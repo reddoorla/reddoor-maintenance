@@ -7,6 +7,7 @@ import {
   type AxePageResult,
   type PageVitals,
 } from "./accessibility.js";
+import { pageInteractionDeps, probeForms, type FormProbe } from "./interaction.js";
 import type { CrawlResult, PageCapture, RobotsAgentAccess } from "./types.js";
 import { extractPage, UNRENDERED_TAGS } from "./extract.js";
 import { isPrivateOrLoopbackHost } from "../util/url.js";
@@ -229,7 +230,13 @@ export type FetchResponse = {
  * of violations, and widening the type this way keeps the seventeen existing
  * stubs correct rather than making them lie by omission.
  */
-export type RenderedPage = { html: string; axe: AxePageResult | null; vitals?: PageVitals | null };
+export type RenderedPage = {
+  html: string;
+  axe: AxePageResult | null;
+  vitals?: PageVitals | null;
+  /** Present only on the one page we interacted with. */
+  formProbe?: FormProbe | null;
+};
 
 export type CrawlDeps = {
   fetchUrl: (url: string) => Promise<FetchResponse>;
@@ -252,7 +259,7 @@ export type CrawlDeps = {
  *  accessibility rules, and says so. */
 export function asRendered(v: string | RenderedPage | undefined): RenderedPage | null {
   if (v === undefined) return null;
-  return typeof v === "string" ? { html: v, axe: null, vitals: null } : v;
+  return typeof v === "string" ? { html: v, axe: null, vitals: null, formProbe: null } : v;
 }
 
 /** Honest, identified UA — we audit on the prospect's behalf and say so. */
@@ -610,6 +617,7 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
       // report that page's failings as the website's.
       axe: usable ? (renderedPage?.axe ?? null) : null,
       vitals: usable ? (renderedPage?.vitals ?? null) : null,
+      formProbe: usable ? (renderedPage?.formProbe ?? null) : null,
     });
   }
 
@@ -880,6 +888,7 @@ export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
         // Playwright navigations are the heavier half of the traffic we put on
         // a stranger's server (each pulls images, fonts, third-party scripts),
         // so they get the same courtesy pacing as the raw fetches.
+        let formProbed = false;
         await pacedEach(urls, delayMs, async (url) => {
           try {
             // `load`, NOT `networkidle`.
@@ -912,7 +921,19 @@ export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
             await page.waitForTimeout(RENDER_SETTLE_MS);
             const html = await page.content();
             const axe = await runAxe(page);
-            out.set(url, { html, axe, vitals: await measureVitals(page, collected) });
+            const vitals = await measureVitals(page, collected);
+            // LAST, and once per crawl. Everything above reads the page as it
+            // was served; this one presses a button, so it cannot run before
+            // the extract and the rules that describe the untouched document.
+            // Once, because a site has one enquiry form, and probing the same
+            // form on five pages is five sets of aborted requests for one
+            // answer.
+            let formProbe: FormProbe | null = null;
+            if (!formProbed) {
+              formProbe = await probeForms(pageInteractionDeps(page, url)).catch(() => null);
+              if (formProbe) formProbed = true;
+            }
+            out.set(url, { html, axe, vitals, formProbe });
           } catch {
             // A page that won't render simply has no rendered extract.
           }

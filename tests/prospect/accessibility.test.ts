@@ -141,12 +141,13 @@ describe("asRendered — the seventeen existing stubs stay honest", () => {
   it("reads a bare HTML string as 'no rules were run here'", () => {
     // Every injected test stub returns a string. Defaulting that to an empty
     // violation list would make each of them silently assert a clean scan.
-    // Neither the rules nor the browser measurements ran — both must read as
-    // "not measured" rather than as a clean result.
+    // Neither the rules, nor the browser measurements, nor the form probe ran
+    // — all three must read as "not measured" rather than as a clean result.
     expect(asRendered("<html></html>")).toEqual({
       html: "<html></html>",
       axe: null,
       vitals: null,
+      formProbe: null,
     });
   });
 

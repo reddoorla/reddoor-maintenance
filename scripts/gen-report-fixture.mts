@@ -22,6 +22,7 @@
 import { runSiteChecks } from "../src/prospect/site-checks.js";
 import type { DnsFindings } from "../src/prospect/dns.js";
 import type { HttpFindings } from "../src/prospect/http-probes.js";
+import type { FormProbe } from "../src/prospect/interaction.js";
 import type { ChecksResult, CrawlResult, PageCapture, PageExtract } from "../src/prospect/types.js";
 
 const ORIGIN = "https://acme.example";
@@ -103,14 +104,32 @@ function extract(url: string, over: Partial<PageExtract> = {}): PageExtract {
   } as PageExtract;
 }
 
-const page = (url: string, over: Partial<PageExtract> = {}): PageCapture => ({
-  url,
-  status: 200,
-  raw: null,
-  rendered: extract(url, over),
-  error: null,
-  vitals: CLEAN_VITALS,
-});
+/** What the browser found when it pressed this site's enquiry form: a form
+ *  with required fields and a typed email, which the browser itself refuses to
+ *  submit empty or with junk in the address. The ordinary careful case. */
+const FORM_PROBE: FormProbe = {
+  url: `${ORIGIN}/contact`,
+  emptyRefused: true,
+  emptyHow: "the browser blocks it — the form marks its fields required",
+  invalidEmailRefused: true,
+  invalidEmailHow: "the browser catches it — the field is typed as an email",
+  blocked: 0,
+};
+
+const page = (
+  url: string,
+  over: Partial<PageExtract> = {},
+  formProbe: FormProbe | null = null,
+): PageCapture =>
+  ({
+    url,
+    status: 200,
+    raw: null,
+    rendered: extract(url, over),
+    error: null,
+    vitals: CLEAN_VITALS,
+    formProbe,
+  }) as PageCapture;
 
 const PAGES = [
   page(`${ORIGIN}/`),
@@ -124,16 +143,20 @@ const PAGES = [
       { rel: "canonical", href: `${ORIGIN}/services` },
     ],
   }),
-  page(`${ORIGIN}/contact`, {
-    title: "Contact Acme Roofing — Boise, Idaho",
-    metaDescription: "Call, email or send us the details of the roof and we will come and look.",
-    canonical: `${ORIGIN}/contact`,
-    headings: [{ level: 1, text: "Get in touch" }],
-    links: [
-      { rel: "icon", href: "/favicon.ico" },
-      { rel: "canonical", href: `${ORIGIN}/contact` },
-    ],
-  }),
+  page(
+    `${ORIGIN}/contact`,
+    {
+      title: "Contact Acme Roofing — Boise, Idaho",
+      metaDescription: "Call, email or send us the details of the roof and we will come and look.",
+      canonical: `${ORIGIN}/contact`,
+      headings: [{ level: 1, text: "Get in touch" }],
+      links: [
+        { rel: "icon", href: "/favicon.ico" },
+        { rel: "canonical", href: `${ORIGIN}/contact` },
+      ],
+    },
+    FORM_PROBE,
+  ),
 ];
 
 const SITEMAP = [`${ORIGIN}/`, `${ORIGIN}/services`, `${ORIGIN}/contact`];

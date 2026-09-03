@@ -8,6 +8,7 @@ import type { GoalFit, SiteGoal } from "./goals.js";
 import type { StackReadout } from "./stack.js";
 import type { DnsFindings } from "./dns.js";
 import type { HttpFindings } from "./http-probes.js";
+import type { FormProbe } from "./interaction.js";
 import type { AccessibilityResult, AxePageResult, PageVitals } from "./accessibility.js";
 import type { SiteCheck } from "./site-checks.js";
 import type { JourneyMap } from "./journey.js";
@@ -23,6 +24,7 @@ export type { StackItem, StackLayer, StackReadout } from "./stack.js";
 export type { CheckStatus, SiteCheck } from "./site-checks.js";
 export type { DnsFindings } from "./dns.js";
 export type { HttpFindings } from "./http-probes.js";
+export type { FormProbe } from "./interaction.js";
 export type {
   AccessibilityResult,
   AxeImpact,
@@ -216,6 +218,14 @@ export type PageCapture = {
    * wrong", which is the opposite claim.
    */
   vitals?: PageVitals | null;
+  /**
+   * What happened when we pressed this page's enquiry-form submit button.
+   *
+   * Present on at most ONE page per crawl, and null everywhere else — absence
+   * means "we did not interact here", never "the form is fine". Optional for
+   * reports stored before any of this existed.
+   */
+  formProbe?: FormProbe | null;
 };
 
 export type CrawlResult = {

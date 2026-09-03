@@ -2,6 +2,7 @@ import { resolveNavigable } from "./journey.js";
 import { usablePages } from "./pages.js";
 import type { Scope } from "./goals.js";
 import type { PageVitals } from "./accessibility.js";
+import type { FormProbe } from "./interaction.js";
 import type { DnsFindings } from "./dns.js";
 import { MIN_OG_IMAGE_EDGE, type HttpFindings, type ProbeVerdict } from "./http-probes.js";
 import type { ChecksResult, CrawlResult, FormShape, PageAnchor, PageExtract } from "./types.js";
@@ -2297,6 +2298,93 @@ export function httpChecks(http: HttpFindings | null): SiteCheck[] {
   return out;
 }
 
+/**
+ * The two verdicts that came from pressing the button.
+ *
+ * Both are about the same failure a business actually suffers: an enquiry that
+ * never arrives. A form that submits empty puts a blank message in the inbox
+ * and tells the visitor it worked; a form that accepts "not-an-email" takes a
+ * real enquiry and leaves no way to answer it. Neither is visible in the
+ * markup — the form looks perfect either way.
+ *
+ * `undefined` on either field means the click told us nothing (a cross-origin
+ * form, a control we could not reach, a browser pass that never ran) and reads
+ * as unmeasured. A form we could not press is our gap, never their defect.
+ */
+function formInteractionChecks(probes: (FormProbe | null | undefined)[]): SiteCheck[] {
+  const WHY_EMPTY =
+    "Somebody who taps send too early should be told what is missing. A form that submits anyway puts a blank enquiry in your inbox and tells them it worked, so they never follow up and you have nothing to follow up on.";
+  const WHY_EMAIL =
+    "A mistyped address is the one mistake that costs you the whole enquiry: the message arrives, and there is no way to answer it. Catching it while the visitor is still on the page is the only chance to fix it.";
+
+  const probe = probes.find((p) => p) ?? null;
+
+  if (!probe) {
+    // No page we read has a form we could identify as an enquiry. That is a
+    // fact about the site, not a gap in the measurement — but the goal battery
+    // owns "is there a way to get in touch", so this says nothing about it.
+    return [
+      skip(
+        "form-rejects-empty",
+        "A form that catches an empty submission",
+        WHY_EMPTY,
+        "quick",
+        "we found no enquiry form to try",
+      ),
+      skip(
+        "form-rejects-bad-email",
+        "A form that catches a mistyped email",
+        WHY_EMAIL,
+        "quick",
+        "we found no enquiry form to try",
+      ),
+    ];
+  }
+
+  const out: SiteCheck[] = [
+    probe.emptyRefused === undefined
+      ? unknown("form-rejects-empty", "A form that catches an empty submission", WHY_EMPTY, "quick")
+      : check(
+          "form-rejects-empty",
+          "A form that catches an empty submission",
+          WHY_EMPTY,
+          "quick",
+          probe.emptyRefused,
+          probe.emptyHow ?? "",
+        ),
+  ];
+
+  out.push(
+    probe.invalidEmailRefused === null
+      ? skip(
+          "form-rejects-bad-email",
+          "A form that catches a mistyped email",
+          WHY_EMAIL,
+          "quick",
+          "this form does not ask for an email address",
+        )
+      : probe.invalidEmailRefused === undefined
+        ? unknown(
+            "form-rejects-bad-email",
+            "A form that catches a mistyped email",
+            WHY_EMAIL,
+            "quick",
+          )
+        : check(
+            "form-rejects-bad-email",
+            "A form that catches a mistyped email",
+            WHY_EMAIL,
+            "quick",
+            probe.invalidEmailRefused,
+            probe.invalidEmailHow ?? "",
+          ),
+  );
+
+  return out;
+}
+
+export const TIER4_CHECK_KEYS = ["form-rejects-empty", "form-rejects-bad-email"] as const;
+
 export const TIER2_HTTP_CHECK_KEYS = [
   "favicon-served",
   "https-upgrade",
@@ -2441,6 +2529,7 @@ export function runSiteChecks(
     ...browserChecks(pages),
     ...dnsChecks(dns),
     ...httpChecks(http),
+    ...formInteractionChecks(crawl.pages.map((p) => p.formProbe)),
     ...headerChecks(crawl.homeHeaders ?? {}, headersMeasured),
     ...sidecarChecks(crawl, linked),
     analyticsCheck(pages),
