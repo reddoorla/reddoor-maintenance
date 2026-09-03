@@ -292,3 +292,36 @@ describe("createIngestEndpoint", () => {
     expect(body._meta).toEqual({ turnstileToken: "T9" });
   });
 });
+
+describe("createIngestEndpoint — async buildPayload", () => {
+  it("awaits a promise-returning buildPayload and forwards what it resolved to", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true, id: "recX" }));
+    const endpoint = createIngestEndpoint({
+      getConfig: okConfig,
+      buildPayload: async (body) => {
+        await Promise.resolve();
+        return {
+          formType: "rsvp",
+          email: body.email as string,
+          _reply: { subject: "You're on the list for Euphorbia" },
+        };
+      },
+    });
+    const res = await endpoint(fakeEvent({ email: "guest@example.com" }, fetchMock));
+    expect(res.status).toBe(200);
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(sent.formType).toBe("rsvp");
+    expect(sent._reply).toEqual({ subject: "You're on the list for Euphorbia" });
+  });
+
+  it("treats a REJECTED buildPayload as a 400, exactly like a throwing sync one", async () => {
+    const fetchMock = vi.fn();
+    const endpoint = createIngestEndpoint({
+      getConfig: okConfig,
+      buildPayload: () => Promise.reject(new Error("cms exploded")),
+    });
+    const res = await endpoint(fakeEvent({ email: "guest@example.com" }, fetchMock));
+    expect(res.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
