@@ -1926,6 +1926,14 @@ function browserChecks(
  * two of them — "anyone can send email as you" and "your domain renews in
  * forty-one days" — are acted on the same afternoon they are read.
  */
+/** A published DNS record can run to several hundred characters. The reader
+ *  needs to see that one exists and how it ends — `~all`, `p=reject` — not to
+ *  read every include. The full record is one `dig` away and we are not it. */
+function clipRecord(record: string, max = 90): string {
+  const one = record.replace(/\s+/g, " ").trim();
+  return one.length <= max ? one : `${one.slice(0, max - 1).trimEnd()}…`;
+}
+
 export function dnsChecks(dns: DnsFindings | null): SiteCheck[] {
   const WHY_SPF =
     "Without it, anyone can send email that appears to come from your address, and your own mail is more likely to be filed as spam.";
@@ -1935,8 +1943,15 @@ export function dnsChecks(dns: DnsFindings | null): SiteCheck[] {
     "There is no mail server listed for your domain, so email sent to any address at it is rejected.";
   const WHY_CONTACT_MX =
     "The address you publish is on a domain with no mail server, so anything sent to it bounces.";
+  // WHAT THIS CHECK CANNOT SEE. The registry publishes the date a registration
+  // lapses. It does not publish whether the registrar will renew it
+  // automatically, and most well-run domains renew inside the last thirty days
+  // — so a date close at hand is a thing to confirm, not a fault we have found.
+  // Saying otherwise would be our missing measurement dressed up as their
+  // defect, and the client who answers "auto-renew is on" is then right and we
+  // are wrong about the one line they checked.
   const WHY_EXPIRY =
-    "When a registration lapses the site and the email both stop, usually on a weekend, and recovery is neither quick nor certain.";
+    "Registration dates are public; whether it renews automatically is not, so this is one to confirm at your registrar rather than a fault we can see. When a registration does lapse the site and the email stop together, usually on a weekend, and getting them back is neither quick nor certain.";
 
   if (!dns || !dns.measured) {
     return [
@@ -1944,7 +1959,7 @@ export function dnsChecks(dns: DnsFindings | null): SiteCheck[] {
       unknown("dns-dmarc", "A DMARC record, so SPF is enforced", WHY_DMARC, "quick"),
       unknown("dns-mx", "A mail server for your domain", WHY_MX, "structural"),
       unknown("dns-contact-mx", "An email address that can receive mail", WHY_CONTACT_MX, "quick"),
-      unknown("domain-expiry", "A domain that is not about to lapse", WHY_EXPIRY, "quick"),
+      unknown("domain-expiry", "A domain registration with room to spare", WHY_EXPIRY, "quick"),
     ];
   }
 
@@ -1959,7 +1974,7 @@ export function dnsChecks(dns: DnsFindings | null): SiteCheck[] {
           WHY_SPF,
           "quick",
           dns.spf !== null,
-          dns.spf ?? `no v=spf1 record on ${dns.domain}`,
+          (dns.spf ? clipRecord(dns.spf) : null) ?? `no v=spf1 record on ${dns.domain}`,
         ),
   );
 
@@ -1972,7 +1987,7 @@ export function dnsChecks(dns: DnsFindings | null): SiteCheck[] {
           WHY_DMARC,
           "quick",
           dns.dmarc !== null,
-          dns.dmarc ?? `no record at _dmarc.${dns.domain}`,
+          (dns.dmarc ? clipRecord(dns.dmarc) : null) ?? `no record at _dmarc.${dns.domain}`,
         ),
   );
 
@@ -2015,19 +2030,28 @@ export function dnsChecks(dns: DnsFindings | null): SiteCheck[] {
   // the registry's choice and reads as unmeasured.
   const DAYS = 30;
   if (dns.expiresAt === undefined) {
-    out.push(unknown("domain-expiry", "A domain that is not about to lapse", WHY_EXPIRY, "quick"));
+    out.push(
+      unknown("domain-expiry", "A domain registration with room to spare", WHY_EXPIRY, "quick"),
+    );
   } else {
+    const on = dns.expiresAt.slice(0, 10);
     const days = Math.round((Date.parse(dns.expiresAt) - Date.now()) / 86_400_000);
+    // Never "renews on" — that word asserts an auto-renewal the registry does
+    // not publish. The date is the whole of what we know.
+    const evidence =
+      days < 0
+        ? `the registration lapsed on ${on}`
+        : days > DAYS
+          ? `registered through ${on}`
+          : `registered through ${on} — ${days === 1 ? "1 day" : `${days} days`} away`;
     out.push(
       check(
         "domain-expiry",
-        "A domain that is not about to lapse",
+        "A domain registration with room to spare",
         WHY_EXPIRY,
         "quick",
         days > DAYS,
-        days > DAYS
-          ? `renews ${dns.expiresAt.slice(0, 10)}`
-          : `expires ${dns.expiresAt.slice(0, 10)} — ${days} days`,
+        evidence,
       ),
     );
   }

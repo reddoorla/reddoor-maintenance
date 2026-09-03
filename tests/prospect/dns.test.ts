@@ -164,6 +164,41 @@ describe("lookupDns — registration expiry", () => {
     expect(c?.evidence).toMatch(/12 days/);
   });
 
+  it("never claims the domain renews, because the registry does not publish that", async () => {
+    // The failure mode this guards: we print "renews 2027-01-01", the client
+    // reads it as confirmation auto-renew is on, and it is not. Registries
+    // publish an expiry; renewal intent is between the owner and the registrar.
+    const far = new Date(Date.now() + 400 * 86_400_000).toISOString();
+    const c = dnsChecks(
+      await lookupDns("https://acme.com", [], deps({ rdap: rdapWith(far) })),
+    ).find((k) => k.key === "domain-expiry");
+    expect(c?.status).toBe("pass");
+    // Scoped to the claim, not the explanation: the `why` says in so many words
+    // that renewal is the thing we cannot see, and must keep saying it.
+    expect(c?.evidence).not.toMatch(/renew/i);
+  });
+
+  it("says a lapsed registration has lapsed, not that it expires in -40 days", async () => {
+    const past = new Date(Date.now() - 40 * 86_400_000).toISOString();
+    const c = dnsChecks(
+      await lookupDns("https://acme.com", [], deps({ rdap: rdapWith(past) })),
+    ).find((k) => k.key === "domain-expiry");
+    expect(c?.status).toBe("fail");
+    expect(c?.evidence).toMatch(/lapsed on/);
+    expect(c?.evidence).not.toMatch(/-\d+ days/);
+  });
+
+  it("tells the reader we cannot see auto-renew, so a close date is not a verdict", async () => {
+    // Our own domain sits three days out with auto-renew on. If the report
+    // called that a fault, the first thing the client checks would be the one
+    // thing we got wrong.
+    const soon = new Date(Date.now() + 3 * 86_400_000).toISOString();
+    const c = dnsChecks(
+      await lookupDns("https://acme.com", [], deps({ rdap: rdapWith(soon) })),
+    ).find((k) => k.key === "domain-expiry");
+    expect(c?.why).toMatch(/automatically is not|confirm at your registrar/i);
+  });
+
   it("is unmeasured when the registry publishes no expiry, which many ccTLDs do not", async () => {
     const r = await lookupDns(
       "https://acme.co.uk",
