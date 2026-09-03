@@ -98,13 +98,40 @@ constructable".
 stubs stay correct — a bare string normalises to `axe: null`, which reads as
 "no rules ran here" rather than silently asserting a clean scan.
 
-## 4. Tier 1 Cluster B, then A / C / D (23 checks)
+## 4. Tier 1 — DONE (17 checks, not the 23 projected)
 
-- [ ] Cluster B: T1-09 noindex, T1-10 nofollow, T1-11 zoom, T1-12 charset,
-      T1-14/15 lengths, T1-16/17 og, T1-18 duplicate descriptions
-- [ ] Cluster A: project the `<link>` set `extract.ts` already collects
-- [ ] Cluster C: `<html lang>` / `dir`
-- [ ] Cluster D: form field detail on `FormShape`
+- [x] Cluster B — noindex, nofollow, charset, title/description length, og:image
+      absolute, duplicate descriptions
+- [x] Cluster A — favicon, canonical self-referencing, canonical on-origin,
+      hreflang self-reference (a projection of `<link>`, not a new traversal)
+- [x] Cluster D — field types, autocomplete, POST, action provider, required
+- [x] T0-04 noopener, which is what it was waiting for
+- [x] Fixture regenerated: 49 verdicts, 49 passes, 3 not-applicable
+
+Landed: maintenance `7f6c975`; website `31fdcd7`.
+
+**"Does it work" now reads 61 checks where it read 12 this morning. What passes
+reads 78 where it read 29.**
+
+**Departure from the plan, stated rather than buried.** Cluster C is dropped
+entirely: axe owns `html-has-lang` and `html-lang-valid`, and a `dir` check would
+be not-applicable on essentially every site we audit — a check that never reaches
+a verdict is padding, whatever tier it sits in. Viewport-zoom (T1-11) and form
+labels (T1-22) also go to axe. Asking one question under two headings reads as
+two problems. So six of the projected 23 are OWNED ELSEWHERE rather than dropped,
+and the honest count is 17.
+
+**Judgement calls, each with its reasoning in the code.** Titles are flagged only
+under 10 or over 70 characters, because 60 is where Google truncates by _pixel_
+width and a tight band fails good sites. Canonical comparison ignores a trailing
+slash and a `www.`, so the case that matters — every page pointing at the home
+page — is not buried under noise. An unrecognised third-party form endpoint is
+`unmeasured`, never a failure: our provider list will always be incomplete, and
+calling a working in-house endpoint broken is the false alarm that costs trust in
+every other line.
+
+**`noopener` is framed as tidiness**, with a test asserting its `why` contains no
+security language. Browsers have implied it since 2021.
 
 ## 5. Tier 3 instrumentation (8 checks) — screenshots first
 
