@@ -45,7 +45,7 @@ Rejected alternatives:
   identifier in the fleet DB and puts a network call between "lead captured" and
   "confirmation sent" — a new failure mode for content the site already held.
 - **Hidden form fields carry the copy from the browser.** The autoresponder
-  emails a submitter-supplied address. Submitter-supplied *body text* on top of
+  emails a submitter-supplied address. Submitter-supplied _body text_ on top of
   that turns `forms@reddoorla.com` into a phishing relay on a domain with real
   sending reputation. Not viable at any price.
 
@@ -133,29 +133,29 @@ the existing `nav` and `intro_images` singletons). **This is the shared model** 
 byte-identical across every fleet site, which is what makes the rollout a file
 copy rather than a design exercise each time.
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `replies` | Group (repeatable) | One entry per form type |
-| `replies.form_type` | Select | `rsvp` · `inquiry` · `contact` · `newsletter`. Options mirror `SUBMISSION_FORM_TYPES` |
-| `replies.subject` | Text | Blank → the shared package's subject fallback |
-| `replies.body` | Rich Text | Blank → the frozen `copyIntro`/`copyContact` strings |
-| `signature` | Rich Text | Appended to every reply regardless of form type. Replaces `copyFooter` |
+| Field               | Type               | Notes                                                                                 |
+| ------------------- | ------------------ | ------------------------------------------------------------------------------------- |
+| `replies`           | Group (repeatable) | One entry per form type                                                               |
+| `replies.form_type` | Select             | `rsvp` · `inquiry` · `contact` · `newsletter`. Options mirror `SUBMISSION_FORM_TYPES` |
+| `replies.subject`   | Text               | Blank → the shared package's subject fallback                                         |
+| `replies.body`      | Rich Text          | Blank → the frozen `copyIntro`/`copyContact` strings                                  |
+| `signature`         | Rich Text          | Appended to every reply regardless of form type. Replaces `copyFooter`                |
 
 A Select rather than free text because a typo'd form type would silently produce
 no match, and the failure would look exactly like an unfilled field.
 
 Entries for form types a site does not use are simply absent; entries for form
-types the site *does* use but has not written copy for fall through to tier 3.
+types the site _does_ use but has not written copy for fall through to tier 3.
 
 ## Prismic model — per-event override (`rsvp`)
 
-| Field | Type | Blank behavior |
-| --- | --- | --- |
-| `reply_subject` | Text | `You're on the list for {name}`, then the site default |
-| `reply_body` | Rich Text | The site default for `rsvp` |
-| `start_time` | Timestamp | No calendar links; rest of the email unaffected |
-| `end_time` | Timestamp | `start_time` + 2 hours |
-| `location` | Text | Gallery address constant from `$lib/site` |
+| Field           | Type      | Blank behavior                                         |
+| --------------- | --------- | ------------------------------------------------------ |
+| `reply_subject` | Text      | `You're on the list for {name}`, then the site default |
+| `reply_body`    | Rich Text | The site default for `rsvp`                            |
+| `start_time`    | Timestamp | No calendar links; rest of the email unaffected        |
+| `end_time`      | Timestamp | `start_time` + 2 hours                                 |
+| `location`      | Text      | Gallery address constant from `$lib/site`              |
 
 `dates` is untouched and stays authoritative for the page. It is free-form and
 multi-line on real events ("date + reception/reading times"), which a single
@@ -191,8 +191,14 @@ the same-domain backscatter suppression, and the missing-submitter-email exit.
 
 `@reddoorla/maintenance/forms/prismic` — a new entry point, separate from
 `./forms` so the CMS-agnostic core stays that way and sites not on Prismic never
-load it. `@prismicio/client` is an optional peer dependency; every fleet site
-already has it.
+load it.
+
+The client is STRUCTURALLY typed — `{ getSingle, getByUID }` — rather than
+imported from `@prismicio/client`. Those two reads are the whole surface, every
+fleet site already builds its own client, and duck-typing means this package
+gains no dependency at all, which is the same rule `tsup.config.ts` enforces for
+everything else here. It also makes the tests a two-line object instead of a
+mocked SDK.
 
 ```ts
 resolveReplyCopy(client, {
@@ -291,7 +297,7 @@ Steps 1–3 are invisible to visitors. Behavior changes only at step 4.
   stay as the last-resort net for sites that adopt nothing. Removing them is a
   fleet-wide change for after the rollout, not part of this.
 - **Newsletter double opt-in and "Notify Me About" checkboxes** (Carlo's
-  secondary item). The *copy* half of it comes free with the `newsletter` entry
+  secondary item). The _copy_ half of it comes free with the `newsletter` entry
   in `form_replies`; the opt-in flow and the interest tags do not.
 - **Add-to-Calendar for anything but RSVPs.** The envelope permits it; nothing
   else has event data.

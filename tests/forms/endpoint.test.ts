@@ -309,7 +309,7 @@ describe("createIngestEndpoint — async buildPayload", () => {
     });
     const res = await endpoint(fakeEvent({ email: "guest@example.com" }, fetchMock));
     expect(res.status).toBe(200);
-    const sent = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    const sent = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
     expect(sent.formType).toBe("rsvp");
     expect(sent._reply).toEqual({ subject: "You're on the list for Euphorbia" });
   });

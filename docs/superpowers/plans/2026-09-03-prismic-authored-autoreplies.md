@@ -14,10 +14,10 @@
 
 ## Worktrees
 
-| Repo | Path | Branch |
-| --- | --- | --- |
+| Repo                | Path                                                                                    | Branch                    |
+| ------------------- | --------------------------------------------------------------------------------------- | ------------------------- |
 | reddoor-maintenance | `/Users/tuckerlemos/Documents/GitHub/reddoor-maintenance/.worktrees/prismic-reply-copy` | `feat/prismic-reply-copy` |
-| gallerysonder | `/Users/tuckerlemos/Documents/GitHub/gallerysonder/.worktrees/prismic-reply-copy` | `feat/prismic-reply-copy` |
+| gallerysonder       | `/Users/tuckerlemos/Documents/GitHub/gallerysonder/.worktrees/prismic-reply-copy`       | `feat/prismic-reply-copy` |
 
 Tasks 1–9 run in the maintenance worktree, 10–14 in the gallerysonder worktree.
 Referred to below as `$MAINT` and `$SITE`.
@@ -30,27 +30,27 @@ linked build; see Task 14 for the exact procedure.
 
 **reddoor-maintenance**
 
-| File | Responsibility |
-| --- | --- |
-| `src/forms/reply-copy.ts` *(new)* | The `ReplyCopy` type and `parseReplyCopy`, the one validator for untrusted envelope data |
-| `src/forms/ics.ts` *(new)* | `buildIcs` + `googleCalendarUrl` — calendar formats, no knowledge of email |
-| `src/forms/prismic.ts` *(new)* | `resolveReplyCopy` — the only Prismic-shaped module, its own entry point |
-| `src/forms/payload.ts` | Accepts `_reply`, rejects every other underscore key |
-| `src/forms/notify.ts` | Renders `ReplyCopy` into the autoresponder; hides underscore keys from the POC table |
-| `src/forms/endpoint.ts` | `buildPayload` may return a promise |
-| `package.json`, `tsup.config.ts` | Publish `./forms/prismic` |
+| File                              | Responsibility                                                                           |
+| --------------------------------- | ---------------------------------------------------------------------------------------- |
+| `src/forms/reply-copy.ts` _(new)_ | The `ReplyCopy` type and `parseReplyCopy`, the one validator for untrusted envelope data |
+| `src/forms/ics.ts` _(new)_        | `buildIcs` + `googleCalendarUrl` — calendar formats, no knowledge of email               |
+| `src/forms/prismic.ts` _(new)_    | `resolveReplyCopy` — the only Prismic-shaped module, its own entry point                 |
+| `src/forms/payload.ts`            | Accepts `_reply`, rejects every other underscore key                                     |
+| `src/forms/notify.ts`             | Renders `ReplyCopy` into the autoresponder; hides underscore keys from the POC table     |
+| `src/forms/endpoint.ts`           | `buildPayload` may return a promise                                                      |
+| `package.json`, `tsup.config.ts`  | Publish `./forms/prismic`                                                                |
 
 **gallerysonder**
 
-| File | Responsibility |
-| --- | --- |
-| `customtypes/form_replies/index.json` *(new)* | Site-level defaults, one entry per form type. Identical on every fleet site |
-| `customtypes/rsvp/index.json` | Per-event override fields + calendar timestamps |
-| `src/lib/server/reply-copy.ts` *(new)* | Wires the site's Prismic client to `resolveReplyCopy` |
-| `src/routes/api/forms/+server.ts` | Strips underscore keys, awaits the resolver |
-| `src/routes/+layout.svelte` | `event_uid` hidden input |
-| `src/routes/[[preview=preview]]/rsvp/[uid]/+page.svelte` | Populates `event_uid` |
-| `src/lib/site.ts` | Exports the gallery address for the calendar fallback |
+| File                                                     | Responsibility                                                              |
+| -------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `customtypes/form_replies/index.json` _(new)_            | Site-level defaults, one entry per form type. Identical on every fleet site |
+| `customtypes/rsvp/index.json`                            | Per-event override fields + calendar timestamps                             |
+| `src/lib/server/reply-copy.ts` _(new)_                   | Wires the site's Prismic client to `resolveReplyCopy`                       |
+| `src/routes/api/forms/+server.ts`                        | Strips underscore keys, awaits the resolver                                 |
+| `src/routes/+layout.svelte`                              | `event_uid` hidden input                                                    |
+| `src/routes/[[preview=preview]]/rsvp/[uid]/+page.svelte` | Populates `event_uid`                                                       |
+| `src/lib/site.ts`                                        | Exports the gallery address for the calendar fallback                       |
 
 ---
 
@@ -315,21 +315,21 @@ Replace both merge loops in `normalizeSubmission` so underscore keys can never
 become lead data, then write the validated envelope back explicitly:
 
 ```ts
-  const extraFields: Record<string, unknown> = {};
-  const extra = p.extra;
-  if (typeof extra === "object" && extra !== null) {
-    for (const [k, v] of Object.entries(extra)) {
-      if (!DANGEROUS_KEYS.has(k) && !k.startsWith("_")) extraFields[k] = v;
-    }
+const extraFields: Record<string, unknown> = {};
+const extra = p.extra;
+if (typeof extra === "object" && extra !== null) {
+  for (const [k, v] of Object.entries(extra)) {
+    if (!DANGEROUS_KEYS.has(k) && !k.startsWith("_")) extraFields[k] = v;
   }
-  for (const [k, v] of Object.entries(p)) {
-    if (!KNOWN_KEYS.has(k) && !DANGEROUS_KEYS.has(k) && !k.startsWith("_")) extraFields[k] = v;
-  }
-  // The ONE underscore key a caller may set. Everything above dropped the rest,
-  // including any `_reply` smuggled in through `extra` — this is the only way a
-  // value reaches that key, and it is validated on the way through.
-  const reply = parseReplyCopy(p._reply);
-  if (reply) extraFields._reply = reply;
+}
+for (const [k, v] of Object.entries(p)) {
+  if (!KNOWN_KEYS.has(k) && !DANGEROUS_KEYS.has(k) && !k.startsWith("_")) extraFields[k] = v;
+}
+// The ONE underscore key a caller may set. Everything above dropped the rest,
+// including any `_reply` smuggled in through `extra` — this is the only way a
+// value reaches that key, and it is validated on the way through.
+const reply = parseReplyCopy(p._reply);
+if (reply) extraFields._reply = reply;
 ```
 
 - [ ] **Step 4: Run and watch it pass**
@@ -356,21 +356,21 @@ git commit -m "feat(forms): accept _reply, reject every other underscore key"
 - [ ] **Step 1: Write the failing test** (append to the `buildPocNotification` describe)
 
 ```ts
-  it("never renders reserved underscore keys into the table", () => {
-    const site = makeWebsiteRow({ pointOfContact: "owner@acme.com" });
-    const sub = makeSubmissionRow({
-      formType: "rsvp",
-      email: "guest@x.com",
-      extraFields: JSON.stringify({
-        event: "Euphorbia",
-        _reply: { subject: "You're on the list for Euphorbia" },
-      }),
-    });
-    const input = buildPocNotification(site, sub)!;
-    expect(input.html).toContain("Euphorbia");
-    expect(input.html).not.toContain("Reply");
-    expect(input.html).not.toContain("You're on the list");
+it("never renders reserved underscore keys into the table", () => {
+  const site = makeWebsiteRow({ pointOfContact: "owner@acme.com" });
+  const sub = makeSubmissionRow({
+    formType: "rsvp",
+    email: "guest@x.com",
+    extraFields: JSON.stringify({
+      event: "Euphorbia",
+      _reply: { subject: "You're on the list for Euphorbia" },
+    }),
   });
+  const input = buildPocNotification(site, sub)!;
+  expect(input.html).toContain("Euphorbia");
+  expect(input.html).not.toContain("Reply");
+  expect(input.html).not.toContain("You're on the list");
+});
 ```
 
 - [ ] **Step 2: Run it and watch it fail**
@@ -384,13 +384,15 @@ In `src/forms/notify.ts`, change `extraFieldRows`:
 
 ```ts
 function extraFieldRows(raw: string | null): Array<[string, string]> {
-  return Object.entries(parseExtraFields(raw))
-    // Underscore keys are reserved transport (see payload.ts), never lead data.
-    // `_reply` is a whole confirmation email; rendering it here would put the
-    // copy in the client's notification as an unreadable JSON row.
-    .filter(([k]) => !k.startsWith("_"))
-    .filter(([, v]) => !(typeof v === "string" && v.trim() === ""))
-    .map(([k, v]) => [humanizeKey(k), formatValue(v)] as [string, string]);
+  return (
+    Object.entries(parseExtraFields(raw))
+      // Underscore keys are reserved transport (see payload.ts), never lead data.
+      // `_reply` is a whole confirmation email; rendering it here would put the
+      // copy in the client's notification as an unreadable JSON row.
+      .filter(([k]) => !k.startsWith("_"))
+      .filter(([, v]) => !(typeof v === "string" && v.trim() === ""))
+      .map(([k, v]) => [humanizeKey(k), formatValue(v)] as [string, string])
+  );
 }
 ```
 
@@ -509,7 +511,10 @@ const DEFAULT_DURATION_MS = 2 * 60 * 60 * 1000;
 /** `2026-09-12T18:00:00-07:00` → `20260913T010000Z`. Callers have already proven
  *  the string parses (parseReplyCopy), so this never sees NaN. */
 function stamp(iso: string): string {
-  return new Date(iso).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  return new Date(iso)
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d{3}/, "");
 }
 
 function endStamp(e: ReplyCalendar): string {
@@ -600,88 +605,85 @@ git commit -m "feat(forms): ICS and Google Calendar builders"
 - [ ] **Step 1: Write the failing test** (append to the `buildAutoresponder` describe)
 
 ```ts
-  it("prefers the envelope's subject, paragraphs and signature", () => {
-    const site = makeWebsiteRow({
-      name: "Gallery Sonder",
-      pointOfContact: "info@gallerysonder.com",
-      copyIntro: "generic intro",
-      copyFooter: "generic footer",
-    });
-    const sub = makeSubmissionRow({
-      formType: "rsvp",
-      email: "guest@example.com",
-      extraFields: JSON.stringify({
-        event: "Euphorbia",
-        _reply: {
-          subject: "You're on the list for Euphorbia",
-          paragraphs: ["Thanks for RSVPing.", "Doors at 6."],
-          signature: "Gallery Sonder, Corona del Mar",
-        },
-      }),
-    });
-    const input = buildAutoresponder(site, sub)!;
-    expect(input.subject).toBe("You're on the list for Euphorbia");
-    expect(input.html).toContain("<p>Thanks for RSVPing.</p>");
-    expect(input.html).toContain("<p>Doors at 6.</p>");
-    expect(input.html).toContain("Gallery Sonder, Corona del Mar");
-    expect(input.html).not.toContain("generic intro");
-    expect(input.html).not.toContain("generic footer");
+it("prefers the envelope's subject, paragraphs and signature", () => {
+  const site = makeWebsiteRow({
+    name: "Gallery Sonder",
+    pointOfContact: "info@gallerysonder.com",
+    copyIntro: "generic intro",
+    copyFooter: "generic footer",
   });
+  const sub = makeSubmissionRow({
+    formType: "rsvp",
+    email: "guest@example.com",
+    extraFields: JSON.stringify({
+      event: "Euphorbia",
+      _reply: {
+        subject: "You're on the list for Euphorbia",
+        paragraphs: ["Thanks for RSVPing.", "Doors at 6."],
+        signature: "Gallery Sonder, Corona del Mar",
+      },
+    }),
+  });
+  const input = buildAutoresponder(site, sub)!;
+  expect(input.subject).toBe("You're on the list for Euphorbia");
+  expect(input.html).toContain("<p>Thanks for RSVPing.</p>");
+  expect(input.html).toContain("<p>Doors at 6.</p>");
+  expect(input.html).toContain("Gallery Sonder, Corona del Mar");
+  expect(input.html).not.toContain("generic intro");
+  expect(input.html).not.toContain("generic footer");
+});
 
-  it("names the event in the subject when only the event is known", () => {
-    const site = makeWebsiteRow({ pointOfContact: "info@x.com" });
-    const sub = makeSubmissionRow({
-      formType: "rsvp",
-      email: "guest@example.com",
-      extraFields: JSON.stringify({ event: "Euphorbia" }),
-    });
-    expect(buildAutoresponder(site, sub)!.subject).toBe("You're on the list for Euphorbia");
+it("names the event in the subject when only the event is known", () => {
+  const site = makeWebsiteRow({ pointOfContact: "info@x.com" });
+  const sub = makeSubmissionRow({
+    formType: "rsvp",
+    email: "guest@example.com",
+    extraFields: JSON.stringify({ event: "Euphorbia" }),
   });
+  expect(buildAutoresponder(site, sub)!.subject).toBe("You're on the list for Euphorbia");
+});
 
-  it("keeps today's subject and body when there is no envelope and no event", () => {
-    const site = makeWebsiteRow({
-      name: "Acme Co",
-      pointOfContact: "owner@acme.com",
-      copyIntro: "generic intro",
-      copyContact: "generic contact",
-      copyFooter: "generic footer",
-    });
-    const input = buildAutoresponder(site, makeSubmissionRow({ email: "lead@x.com" }))!;
-    expect(input.subject).toBe("We got your message");
-    expect(input.html).toContain("generic intro");
-    expect(input.html).toContain("generic contact");
-    expect(input.html).toContain("generic footer");
+it("keeps today's subject and body when there is no envelope and no event", () => {
+  const site = makeWebsiteRow({
+    name: "Acme Co",
+    pointOfContact: "owner@acme.com",
+    copyIntro: "generic intro",
+    copyContact: "generic contact",
+    copyFooter: "generic footer",
   });
+  const input = buildAutoresponder(site, makeSubmissionRow({ email: "lead@x.com" }))!;
+  expect(input.subject).toBe("We got your message");
+  expect(input.html).toContain("generic intro");
+  expect(input.html).toContain("generic contact");
+  expect(input.html).toContain("generic footer");
+});
 
-  it("escapes envelope copy", () => {
-    const site = makeWebsiteRow({ pointOfContact: "owner@acme.com" });
-    const sub = makeSubmissionRow({
-      email: "lead@x.com",
-      extraFields: JSON.stringify({
-        _reply: { paragraphs: ["<img src=x onerror=alert(1)>"] },
-      }),
-    });
-    const input = buildAutoresponder(site, sub)!;
-    expect(input.html).toContain("&lt;img");
-    expect(input.html).not.toContain("<img src=x");
+it("escapes envelope copy", () => {
+  const site = makeWebsiteRow({ pointOfContact: "owner@acme.com" });
+  const sub = makeSubmissionRow({
+    email: "lead@x.com",
+    extraFields: JSON.stringify({
+      _reply: { paragraphs: ["<img src=x onerror=alert(1)>"] },
+    }),
   });
+  const input = buildAutoresponder(site, sub)!;
+  expect(input.html).toContain("&lt;img");
+  expect(input.html).not.toContain("<img src=x");
+});
 
-  it("still suppresses for spam and same-domain backscatter, envelope or not", () => {
-    const site = makeWebsiteRow({ url: "https://acme.com", pointOfContact: "owner@acme.com" });
-    const envelope = JSON.stringify({ _reply: { subject: "hi" } });
-    expect(
-      buildAutoresponder(
-        site,
-        makeSubmissionRow({ email: "a@b.com", status: "spam", extraFields: envelope }),
-      ),
-    ).toBeNull();
-    expect(
-      buildAutoresponder(
-        site,
-        makeSubmissionRow({ email: "info@acme.com", extraFields: envelope }),
-      ),
-    ).toBeNull();
-  });
+it("still suppresses for spam and same-domain backscatter, envelope or not", () => {
+  const site = makeWebsiteRow({ url: "https://acme.com", pointOfContact: "owner@acme.com" });
+  const envelope = JSON.stringify({ _reply: { subject: "hi" } });
+  expect(
+    buildAutoresponder(
+      site,
+      makeSubmissionRow({ email: "a@b.com", status: "spam", extraFields: envelope }),
+    ),
+  ).toBeNull();
+  expect(
+    buildAutoresponder(site, makeSubmissionRow({ email: "info@acme.com", extraFields: envelope })),
+  ).toBeNull();
+});
 ```
 
 - [ ] **Step 2: Run it and watch it fail**
@@ -701,33 +703,32 @@ Replace the tail of `buildAutoresponder` — everything from the `const intro = 
 line to the end of the function — with:
 
 ```ts
-  const extra = parseExtraFields(submission.extraFields);
-  const reply = parseReplyCopy(extra._reply);
-  const eventName = typeof extra.event === "string" ? extra.event.trim() : "";
+const extra = parseExtraFields(submission.extraFields);
+const reply = parseReplyCopy(extra._reply);
+const eventName = typeof extra.event === "string" ? extra.event.trim() : "";
 
-  // Subject, best available first. The middle tier is why an RSVP reads like a
-  // confirmation even before anyone writes a word of copy: the event name is
-  // already on every submission.
-  const subject =
-    reply?.subject ??
-    (eventName ? `You're on the list for ${eventName}` : "We got your message");
+// Subject, best available first. The middle tier is why an RSVP reads like a
+// confirmation even before anyone writes a word of copy: the event name is
+// already on every submission.
+const subject =
+  reply?.subject ?? (eventName ? `You're on the list for ${eventName}` : "We got your message");
 
-  // Body. The site trio is the last-resort net for sites that author nothing.
-  const paragraphs = reply?.paragraphs ?? [
-    site.copyIntro ?? `Thanks for reaching out to ${site.name}.`,
-    site.copyContact ?? "We've received your message and will be in touch soon.",
-  ];
-  const signature = reply?.signature ?? site.copyFooter ?? site.name;
+// Body. The site trio is the last-resort net for sites that author nothing.
+const paragraphs = reply?.paragraphs ?? [
+  site.copyIntro ?? `Thanks for reaching out to ${site.name}.`,
+  site.copyContact ?? "We've received your message and will be in touch soon.",
+];
+const signature = reply?.signature ?? site.copyFooter ?? site.name;
 
-  const html = [...paragraphs, signature].map((p) => `<p>${escapeHtml(p)}</p>`).join("");
+const html = [...paragraphs, signature].map((p) => `<p>${escapeHtml(p)}</p>`).join("");
 
-  return {
-    from: `${displayName(site.name)} <${FORMS_FROM}>`,
-    to: [submission.email],
-    replyTo: resolveRecipients(site, submission)?.to[0] ?? FALLBACK_REPLY_TO,
-    subject,
-    html,
-  };
+return {
+  from: `${displayName(site.name)} <${FORMS_FROM}>`,
+  to: [submission.email],
+  replyTo: resolveRecipients(site, submission)?.to[0] ?? FALLBACK_REPLY_TO,
+  subject,
+  html,
+};
 ```
 
 - [ ] **Step 4: Run and watch it pass**
@@ -754,40 +755,40 @@ git commit -m "feat(forms): render the reply envelope in the autoresponder"
 - [ ] **Step 1: Write the failing test**
 
 ```ts
-  it("attaches an .ics and links Google Calendar when the envelope carries an event", () => {
-    const site = makeWebsiteRow({ pointOfContact: "info@gallerysonder.com" });
-    const sub = makeSubmissionRow({
-      formType: "rsvp",
-      email: "guest@example.com",
-      extraFields: JSON.stringify({
-        event: "Euphorbia",
-        _reply: {
-          paragraphs: ["Thanks for RSVPing."],
-          calendar: {
-            title: "Euphorbia — Opening Reception",
-            start: "2026-09-12T18:00:00-07:00",
-            end: "2026-09-12T21:00:00-07:00",
-            location: "3435 E Coast Highway, Corona del Mar, CA 92625",
-          },
+it("attaches an .ics and links Google Calendar when the envelope carries an event", () => {
+  const site = makeWebsiteRow({ pointOfContact: "info@gallerysonder.com" });
+  const sub = makeSubmissionRow({
+    formType: "rsvp",
+    email: "guest@example.com",
+    extraFields: JSON.stringify({
+      event: "Euphorbia",
+      _reply: {
+        paragraphs: ["Thanks for RSVPing."],
+        calendar: {
+          title: "Euphorbia — Opening Reception",
+          start: "2026-09-12T18:00:00-07:00",
+          end: "2026-09-12T21:00:00-07:00",
+          location: "3435 E Coast Highway, Corona del Mar, CA 92625",
         },
-      }),
-    });
-    const input = buildAutoresponder(site, sub)!;
-    expect(input.html).toContain("https://calendar.google.com/calendar/render");
-    const att = input.attachments![0];
-    expect(att.filename).toBe("event.ics");
-    expect(att.contentType).toBe("text/calendar");
-    expect(Buffer.from(att.content, "base64").toString("utf8")).toContain("BEGIN:VEVENT");
+      },
+    }),
   });
+  const input = buildAutoresponder(site, sub)!;
+  expect(input.html).toContain("https://calendar.google.com/calendar/render");
+  const att = input.attachments![0];
+  expect(att.filename).toBe("event.ics");
+  expect(att.contentType).toBe("text/calendar");
+  expect(Buffer.from(att.content, "base64").toString("utf8")).toContain("BEGIN:VEVENT");
+});
 
-  it("attaches nothing when the envelope has no calendar", () => {
-    const site = makeWebsiteRow({ pointOfContact: "info@x.com" });
-    const sub = makeSubmissionRow({
-      email: "guest@example.com",
-      extraFields: JSON.stringify({ _reply: { subject: "hi" } }),
-    });
-    expect(buildAutoresponder(site, sub)!.attachments).toBeUndefined();
+it("attaches nothing when the envelope has no calendar", () => {
+  const site = makeWebsiteRow({ pointOfContact: "info@x.com" });
+  const sub = makeSubmissionRow({
+    email: "guest@example.com",
+    extraFields: JSON.stringify({ _reply: { subject: "hi" } }),
   });
+  expect(buildAutoresponder(site, sub)!.attachments).toBeUndefined();
+});
 ```
 
 - [ ] **Step 2: Run it and watch it fail**
@@ -806,42 +807,42 @@ import { buildIcs, googleCalendarUrl } from "./ics.js";
 Replace the `const html = …; return { … }` tail from Task 5 with:
 
 ```ts
-  const blocks = [...paragraphs];
-  const calendar = reply?.calendar;
-  if (calendar) {
-    // A bare Google link strands every Apple Mail reader, and an .ics alone is
-    // a file most people on a phone will not open. Both, once.
-    blocks.push(
-      `Add it to your calendar: <a href="${escapeHtml(googleCalendarUrl(calendar))}">Google Calendar</a>. ` +
-        `The attached invite works in Apple Calendar and Outlook.`,
-    );
-  }
+const blocks = [...paragraphs];
+const calendar = reply?.calendar;
+if (calendar) {
+  // A bare Google link strands every Apple Mail reader, and an .ics alone is
+  // a file most people on a phone will not open. Both, once.
+  blocks.push(
+    `Add it to your calendar: <a href="${escapeHtml(googleCalendarUrl(calendar))}">Google Calendar</a>. ` +
+      `The attached invite works in Apple Calendar and Outlook.`,
+  );
+}
 
-  const html =
-    blocks
-      .slice(0, paragraphs.length)
-      .map((p) => `<p>${escapeHtml(p)}</p>`)
-      .join("") +
-    (calendar ? `<p>${blocks[blocks.length - 1]}</p>` : "") +
-    `<p>${escapeHtml(signature)}</p>`;
+const html =
+  blocks
+    .slice(0, paragraphs.length)
+    .map((p) => `<p>${escapeHtml(p)}</p>`)
+    .join("") +
+  (calendar ? `<p>${blocks[blocks.length - 1]}</p>` : "") +
+  `<p>${escapeHtml(signature)}</p>`;
 
-  const input: ResendSendInput = {
-    from: `${displayName(site.name)} <${FORMS_FROM}>`,
-    to: [submission.email],
-    replyTo: resolveRecipients(site, submission)?.to[0] ?? FALLBACK_REPLY_TO,
-    subject,
-    html,
-  };
-  if (calendar) {
-    input.attachments = [
-      {
-        filename: "event.ics",
-        content: Buffer.from(buildIcs(calendar), "utf8").toString("base64"),
-        contentType: "text/calendar",
-      },
-    ];
-  }
-  return input;
+const input: ResendSendInput = {
+  from: `${displayName(site.name)} <${FORMS_FROM}>`,
+  to: [submission.email],
+  replyTo: resolveRecipients(site, submission)?.to[0] ?? FALLBACK_REPLY_TO,
+  subject,
+  html,
+};
+if (calendar) {
+  input.attachments = [
+    {
+      filename: "event.ics",
+      content: Buffer.from(buildIcs(calendar), "utf8").toString("base64"),
+      contentType: "text/calendar",
+    },
+  ];
+}
+return input;
 ```
 
 > The calendar sentence is the one block that is assembled rather than escaped
@@ -873,27 +874,27 @@ git commit -m "feat(forms): attach a calendar invite to event confirmations"
 - [ ] **Step 1: Write the failing test**
 
 ```ts
-  it("awaits an async buildPayload", async () => {
-    const handler = createIngestEndpoint({
-      getConfig: () => ({ url: "https://ingest.test", token: "t" }),
-      buildPayload: async (body) => {
-        await Promise.resolve();
-        return { formType: "rsvp", email: String(body.email), _reply: { subject: "hi" } };
-      },
-    });
-    const res = await handler(makeEvent({ email: "guest@example.com" }));
-    expect(res.status).toBe(200);
-    expect(lastPayload()._reply).toEqual({ subject: "hi" });
+it("awaits an async buildPayload", async () => {
+  const handler = createIngestEndpoint({
+    getConfig: () => ({ url: "https://ingest.test", token: "t" }),
+    buildPayload: async (body) => {
+      await Promise.resolve();
+      return { formType: "rsvp", email: String(body.email), _reply: { subject: "hi" } };
+    },
   });
+  const res = await handler(makeEvent({ email: "guest@example.com" }));
+  expect(res.status).toBe(200);
+  expect(lastPayload()._reply).toEqual({ subject: "hi" });
+});
 
-  it("treats a rejected buildPayload as a 400, like a throwing sync one", async () => {
-    const handler = createIngestEndpoint({
-      getConfig: () => ({ url: "https://ingest.test", token: "t" }),
-      buildPayload: () => Promise.reject(new Error("cms exploded")),
-    });
-    const res = await handler(makeEvent({ email: "guest@example.com" }));
-    expect(res.status).toBe(400);
+it("treats a rejected buildPayload as a 400, like a throwing sync one", async () => {
+  const handler = createIngestEndpoint({
+    getConfig: () => ({ url: "https://ingest.test", token: "t" }),
+    buildPayload: () => Promise.reject(new Error("cms exploded")),
   });
+  const res = await handler(makeEvent({ email: "guest@example.com" }));
+  expect(res.status).toBe(400);
+});
 ```
 
 > Reuse whatever request/spy helpers the existing `endpoint.test.ts` already
@@ -910,33 +911,31 @@ Expected: FAIL — the promise is spread into the payload, so `formType` is unde
 In `src/forms/endpoint.ts`, widen the option type:
 
 ```ts
-  /**
-   * Map the parsed JSON body to a payload. Must set `formType` UNLESS the fixed
-   * `formType` option is provided (then that is authoritative and overrides it).
-   * May be async — a site that resolves confirmation copy from its CMS does a
-   * read here (see `@reddoorla/maintenance/forms/prismic`).
-   */
-  buildPayload: (
-    body: Record<string, unknown>,
-    event: RequestEvent,
-  ) => SubmissionPayload | Promise<SubmissionPayload>;
+/**
+ * Map the parsed JSON body to a payload. Must set `formType` UNLESS the fixed
+ * `formType` option is provided (then that is authoritative and overrides it).
+ * May be async — a site that resolves confirmation copy from its CMS does a
+ * read here (see `@reddoorla/maintenance/forms/prismic`).
+ */
+buildPayload: (body: Record<string, unknown>, event: RequestEvent) =>
+  SubmissionPayload | Promise<SubmissionPayload>;
 ```
 
 and await it, keeping the existing try/catch (a rejection now lands in the same
 branch a throw always did):
 
 ```ts
-    let payload: SubmissionPayload;
-    try {
-      payload = {
-        ...(await opts.buildPayload(body, event)),
-        ...(opts.formType ? { formType: opts.formType } : {}),
-        _meta: buildSubmissionMeta(event, str(body[turnstileFieldName])),
-      };
-    } catch (err) {
-      console.error(`[forms-ingest] buildPayload threw: ${String(err)}`);
-      return json({ ok: false, error: failed }, { status: 400 });
-    }
+let payload: SubmissionPayload;
+try {
+  payload = {
+    ...(await opts.buildPayload(body, event)),
+    ...(opts.formType ? { formType: opts.formType } : {}),
+    _meta: buildSubmissionMeta(event, str(body[turnstileFieldName])),
+  };
+} catch (err) {
+  console.error(`[forms-ingest] buildPayload threw: ${String(err)}`);
+  return json({ ok: false, error: failed }, { status: 400 });
+}
 ```
 
 - [ ] **Step 4: Run and watch it pass**
@@ -1054,10 +1053,12 @@ describe("resolveReplyCopy", () => {
 
   it("yields undefined rather than throwing when Prismic fails", async () => {
     const boom = vi.fn().mockRejectedValue(new Error("404"));
-    expect(await resolveReplyCopy(reader({ getSingle: boom, getByUID: boom }), {
-      formType: "rsvp",
-      eventUid: "nope",
-    })).toBeUndefined();
+    expect(
+      await resolveReplyCopy(reader({ getSingle: boom, getByUID: boom }), {
+        formType: "rsvp",
+        eventUid: "nope",
+      }),
+    ).toBeUndefined();
   });
 
   it("yields undefined for a form type with no entry and no event", async () => {
@@ -1139,9 +1140,7 @@ function text(v: unknown): string | undefined {
  *  needed — and no rich-text HTML can escape into the message. */
 function paragraphs(v: unknown): string[] | undefined {
   if (!Array.isArray(v)) return undefined;
-  const out = v
-    .map((b) => text(record(b).text))
-    .filter((t): t is string => t !== undefined);
+  const out = v.map((b) => text(record(b).text)).filter((t): t is string => t !== undefined);
   return out.length > 0 ? out : undefined;
 }
 
@@ -1175,7 +1174,8 @@ function calendarFrom(
   const cal: ReplyCalendar = {
     title,
     start,
-    end: timestamp(data.end_time) ?? new Date(Date.parse(start) + DEFAULT_DURATION_MS).toISOString(),
+    end:
+      timestamp(data.end_time) ?? new Date(Date.parse(start) + DEFAULT_DURATION_MS).toISOString(),
   };
   const location = text(data.location) ?? opts.defaultLocation;
   if (location) cal.location = location;
@@ -1192,7 +1192,9 @@ export async function resolveReplyCopy(
   client: PrismicReader,
   opts: ResolveReplyCopyOptions,
 ): Promise<ReplyCopy | undefined> {
-  const settings = record(await attempt(() => client.getSingle(opts.settingsType ?? "form_replies")));
+  const settings = record(
+    await attempt(() => client.getSingle(opts.settingsType ?? "form_replies")),
+  );
   const settingsData = record(settings.data);
   const entries = Array.isArray(settingsData.replies) ? settingsData.replies : [];
   const entry = record(entries.find((e) => record(e).form_type === opts.formType));
@@ -1316,58 +1318,58 @@ gh pr create --title "feat(forms): CMS-authored auto-replies with calendar invit
 
 ```json
 {
-	"format": "custom",
-	"id": "form_replies",
-	"label": "form replies",
-	"repeatable": false,
-	"status": true,
-	"json": {
-		"Main": {
-			"replies": {
-				"type": "Group",
-				"config": {
-					"label": "replies",
-					"repeat": true,
-					"fields": {
-						"form_type": {
-							"type": "Select",
-							"config": {
-								"label": "form",
-								"placeholder": "which form this reply answers",
-								"options": ["contact", "inquiry", "newsletter", "rsvp", "reserve"],
-								"default_value": "contact"
-							}
-						},
-						"subject": {
-							"type": "Text",
-							"config": {
-								"label": "subject",
-								"placeholder": "Subject line of the email the visitor receives"
-							}
-						},
-						"body": {
-							"type": "StructuredText",
-							"config": {
-								"label": "body",
-								"placeholder": "What the visitor reads. Plain paragraphs — formatting is not sent.",
-								"allowTargetBlank": true,
-								"multi": "paragraph"
-							}
-						}
-					}
-				}
-			},
-			"signature": {
-				"type": "StructuredText",
-				"config": {
-					"label": "signature",
-					"placeholder": "Sign-off appended to every reply, whatever the form",
-					"allowTargetBlank": true,
-					"multi": "paragraph"
-				}
-			}
-		}
-	}
+  "format": "custom",
+  "id": "form_replies",
+  "label": "form replies",
+  "repeatable": false,
+  "status": true,
+  "json": {
+    "Main": {
+      "replies": {
+        "type": "Group",
+        "config": {
+          "label": "replies",
+          "repeat": true,
+          "fields": {
+            "form_type": {
+              "type": "Select",
+              "config": {
+                "label": "form",
+                "placeholder": "which form this reply answers",
+                "options": ["contact", "inquiry", "newsletter", "rsvp", "reserve"],
+                "default_value": "contact"
+              }
+            },
+            "subject": {
+              "type": "Text",
+              "config": {
+                "label": "subject",
+                "placeholder": "Subject line of the email the visitor receives"
+              }
+            },
+            "body": {
+              "type": "StructuredText",
+              "config": {
+                "label": "body",
+                "placeholder": "What the visitor reads. Plain paragraphs — formatting is not sent.",
+                "allowTargetBlank": true,
+                "multi": "paragraph"
+              }
+            }
+          }
+        }
+      },
+      "signature": {
+        "type": "StructuredText",
+        "config": {
+          "label": "signature",
+          "placeholder": "Sign-off appended to every reply, whatever the form",
+          "allowTargetBlank": true,
+          "multi": "paragraph"
+        }
+      }
+    }
+  }
 }
 ```
 
@@ -1496,10 +1498,10 @@ git commit -m "feat(site): export the gallery address for calendar invites"
 
 ```ts
 // src/lib/server/reply-copy.ts
-import { createClient } from '$lib/prismicio';
-import { resolveReplyCopy } from '@reddoorla/maintenance/forms/prismic';
-import { GALLERY_ADDRESS, absoluteUrl } from '$lib/site';
-import type { RequestEvent } from '@sveltejs/kit';
+import { createClient } from "$lib/prismicio";
+import { resolveReplyCopy } from "@reddoorla/maintenance/forms/prismic";
+import { GALLERY_ADDRESS, absoluteUrl } from "$lib/site";
+import type { RequestEvent } from "@sveltejs/kit";
 
 /**
  * Confirmation-email copy for one submission, read from Prismic on the server.
@@ -1509,17 +1511,17 @@ import type { RequestEvent } from '@sveltejs/kit';
  * exhibition. No text a visitor supplies can reach an outbound email.
  */
 export async function replyCopyFor(
-	event: RequestEvent,
-	formType: string,
-	eventUid: string | undefined
+  event: RequestEvent,
+  formType: string,
+  eventUid: string | undefined,
 ) {
-	const client = createClient({ fetch: event.fetch });
-	return resolveReplyCopy(client, {
-		formType,
-		eventUid,
-		defaultLocation: GALLERY_ADDRESS,
-		eventUrl: eventUid ? absoluteUrl(`/rsvp/${eventUid}`) : undefined
-	});
+  const client = createClient({ fetch: event.fetch });
+  return resolveReplyCopy(client, {
+    formType,
+    eventUid,
+    defaultLocation: GALLERY_ADDRESS,
+    eventUrl: eventUid ? absoluteUrl(`/rsvp/${eventUid}`) : undefined,
+  });
 }
 ```
 
@@ -1530,44 +1532,42 @@ lookup key, not lead data — it must not land in `extra`), import the wrapper,
 and make `buildPayload` async:
 
 ```ts
-import { replyCopyFor } from '$lib/server/reply-copy';
+import { replyCopyFor } from "$lib/server/reply-copy";
 
 const CONTROL_KEYS = new Set([
-	'bot-field',
-	'ts',
-	'form-name',
-	'cf-turnstile-response',
-	'event_uid'
+  "bot-field",
+  "ts",
+  "form-name",
+  "cf-turnstile-response",
+  "event_uid",
 ]);
 ```
 
 ```ts
-	buildPayload: async (body, event): Promise<SubmissionPayload> => {
-		const extra: Record<string, unknown> = {};
-		for (const [k, v] of Object.entries(body)) {
-			// Underscore keys are RESERVED transport in the ingest wire format. A
-			// request can always claim one; dropping them here is what stops a bot
-			// from posting its own `_reply` and dictating the text of an email we
-			// send from a domain with real sending reputation.
-			if (k.startsWith('_')) continue;
-			if (!CONTROL_KEYS.has(k) && !TYPED_KEYS.has(k)) extra[k] = v;
-		}
-		const formType = str(body.formType);
-		const _reply = formType
-			? await replyCopyFor(event, formType, str(body.event_uid))
-			: undefined;
-		return {
-			formType,
-			name: str(body.name),
-			email: str(body.email),
-			phone: str(body.phone),
-			message: str(body.message),
-			sourceUrl: str(body.sourceUrl),
-			utm: str(body.utm),
-			...(Object.keys(extra).length ? { extra } : {}),
-			...(_reply ? { _reply } : {})
-		};
-	}
+buildPayload: async (body, event): Promise<SubmissionPayload> => {
+  const extra: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(body)) {
+    // Underscore keys are RESERVED transport in the ingest wire format. A
+    // request can always claim one; dropping them here is what stops a bot
+    // from posting its own `_reply` and dictating the text of an email we
+    // send from a domain with real sending reputation.
+    if (k.startsWith("_")) continue;
+    if (!CONTROL_KEYS.has(k) && !TYPED_KEYS.has(k)) extra[k] = v;
+  }
+  const formType = str(body.formType);
+  const _reply = formType ? await replyCopyFor(event, formType, str(body.event_uid)) : undefined;
+  return {
+    formType,
+    name: str(body.name),
+    email: str(body.email),
+    phone: str(body.phone),
+    message: str(body.message),
+    sourceUrl: str(body.sourceUrl),
+    utm: str(body.utm),
+    ...(Object.keys(extra).length ? { extra } : {}),
+    ...(_reply ? { _reply } : {}),
+  };
+};
 ```
 
 - [ ] **Step 3: The hidden input**

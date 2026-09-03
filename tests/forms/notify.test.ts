@@ -195,7 +195,7 @@ describe("buildAutoresponder", () => {
     });
     const input = buildAutoresponder(site, sub)!;
     expect(input.html).toContain("https://calendar.google.com/calendar/render");
-    const att = input.attachments![0];
+    const att = input.attachments![0]!;
     expect(att.filename).toBe("event.ics");
     expect(att.contentType).toBe("text/calendar");
     expect(Buffer.from(att.content, "base64").toString("utf8")).toContain("BEGIN:VEVENT");
@@ -220,7 +220,10 @@ describe("buildAutoresponder", () => {
       ),
     ).toBeNull();
     expect(
-      buildAutoresponder(site, makeSubmissionRow({ email: "info@acme.com", extraFields: envelope })),
+      buildAutoresponder(
+        site,
+        makeSubmissionRow({ email: "info@acme.com", extraFields: envelope }),
+      ),
     ).toBeNull();
   });
 });

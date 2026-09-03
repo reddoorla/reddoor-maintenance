@@ -11,7 +11,10 @@ const DEFAULT_DURATION_MS = 2 * 60 * 60 * 1000;
 /** `2026-09-12T18:00:00-07:00` → `20260913T010000Z`. Callers have already proven
  *  the string parses (parseReplyCopy), so this never sees NaN. */
 function stamp(iso: string): string {
-  return new Date(iso).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  return new Date(iso)
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d{3}/, "");
 }
 
 function endStamp(e: ReplyCalendar): string {

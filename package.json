@@ -25,6 +25,10 @@
       "types": "./dist/forms/index.d.ts",
       "import": "./dist/forms/index.js"
     },
+    "./forms/prismic": {
+      "types": "./dist/forms/prismic.d.ts",
+      "import": "./dist/forms/prismic.js"
+    },
     "./audit": {
       "types": "./dist/prospect/types.d.ts",
       "import": "./dist/prospect/types.js"
