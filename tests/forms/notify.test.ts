@@ -104,6 +104,87 @@ describe("buildAutoresponder", () => {
   it("returns null when the submitter has no email", () => {
     expect(buildAutoresponder(makeWebsiteRow(), makeSubmissionRow({ email: "" }))).toBeNull();
   });
+
+  it("prefers the envelope's subject, paragraphs and signature", () => {
+    const site = makeWebsiteRow({
+      name: "Gallery Sonder",
+      url: "https://gallerysonder.com",
+      pointOfContact: "info@gallerysonder.com",
+      copyIntro: "generic intro",
+      copyFooter: "generic footer",
+    });
+    const sub = makeSubmissionRow({
+      formType: "rsvp",
+      email: "guest@example.com",
+      extraFields: JSON.stringify({
+        event: "Euphorbia",
+        _reply: {
+          subject: "You are on the list for Euphorbia",
+          paragraphs: ["Thanks for RSVPing.", "Doors at 6."],
+          signature: "Gallery Sonder, Corona del Mar",
+        },
+      }),
+    });
+    const input = buildAutoresponder(site, sub)!;
+    expect(input.subject).toBe("You are on the list for Euphorbia");
+    expect(input.html).toContain("<p>Thanks for RSVPing.</p>");
+    expect(input.html).toContain("<p>Doors at 6.</p>");
+    expect(input.html).toContain("Gallery Sonder, Corona del Mar");
+    expect(input.html).not.toContain("generic intro");
+    expect(input.html).not.toContain("generic footer");
+  });
+
+  it("names the event in the subject when only the event is known", () => {
+    const site = makeWebsiteRow({ url: "https://gallerysonder.com", pointOfContact: "info@x.com" });
+    const sub = makeSubmissionRow({
+      formType: "rsvp",
+      email: "guest@example.com",
+      extraFields: JSON.stringify({ event: "Euphorbia" }),
+    });
+    expect(buildAutoresponder(site, sub)!.subject).toBe("You're on the list for Euphorbia");
+  });
+
+  it("keeps today's subject and body when there is no envelope and no event", () => {
+    const site = makeWebsiteRow({
+      name: "Acme Co",
+      pointOfContact: "owner@acme.com",
+      copyIntro: "generic intro",
+      copyContact: "generic contact",
+      copyFooter: "generic footer",
+    });
+    const input = buildAutoresponder(site, makeSubmissionRow({ email: "lead@x.com" }))!;
+    expect(input.subject).toBe("We got your message");
+    expect(input.html).toContain("generic intro");
+    expect(input.html).toContain("generic contact");
+    expect(input.html).toContain("generic footer");
+  });
+
+  it("escapes envelope copy", () => {
+    const site = makeWebsiteRow({ pointOfContact: "owner@acme.com" });
+    const sub = makeSubmissionRow({
+      email: "lead@x.com",
+      extraFields: JSON.stringify({
+        _reply: { paragraphs: ["<img src=x onerror=alert(1)>"] },
+      }),
+    });
+    const input = buildAutoresponder(site, sub)!;
+    expect(input.html).toContain("&lt;img");
+    expect(input.html).not.toContain("<img src=x");
+  });
+
+  it("still suppresses for spam and same-domain backscatter, envelope or not", () => {
+    const site = makeWebsiteRow({ url: "https://acme.com", pointOfContact: "owner@acme.com" });
+    const envelope = JSON.stringify({ _reply: { subject: "hi" } });
+    expect(
+      buildAutoresponder(
+        site,
+        makeSubmissionRow({ email: "a@b.com", status: "spam", extraFields: envelope }),
+      ),
+    ).toBeNull();
+    expect(
+      buildAutoresponder(site, makeSubmissionRow({ email: "info@acme.com", extraFields: envelope })),
+    ).toBeNull();
+  });
 });
 
 describe("spam suppression", () => {
