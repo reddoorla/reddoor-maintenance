@@ -7,6 +7,10 @@ import type { FormShape, PageAnchor, PageExtract } from "./types.js";
  *  true total so a capped list is never mistaken for a complete one. */
 export const MAX_ANCHORS = 300;
 
+/** Same discipline as `MAX_ANCHORS`, for `PageExtract.scriptSrcs`. A tag-manager
+ *  page can inject a hundred of these; `scriptCount` reports the true total. */
+export const MAX_SCRIPTS = 120;
+
 /** Input types that are not a field a visitor fills in. `hidden` carries CSRF
  *  tokens and form ids; the button types are the control, not the question.
  *
@@ -134,6 +138,9 @@ type Collected = {
   /** `<a href>` elements, in document order. */
   anchors: HTMLElement[];
   forms: HTMLElement[];
+  /** `src` of each `<script src>`, in document order. Inline scripts are not
+   *  collected — see `PageExtract.scriptSrcs`. */
+  scriptSrcs: string[];
 };
 
 /** One ordered pass for the element-level signals. Document order matters: the
@@ -168,12 +175,15 @@ function collect(el: HTMLElement, out: Collected, depth = 0): void {
       case "TITLE":
         if (out.title === null) out.title = collapse(e.text) || null;
         break;
-      case "SCRIPT":
+      case "SCRIPT": {
         if ((e.getAttribute("type") ?? "").toLowerCase().trim() === "application/ld+json") {
           out.jsonLd.push(e.text);
         }
+        const src = (e.getAttribute("src") ?? "").trim();
+        if (src) out.scriptSrcs.push(src);
         // Raw-text element — nothing inside to walk.
         continue;
+      }
       case "H1":
       case "H2":
       case "H3":
@@ -347,19 +357,40 @@ export function extractPage(html: string): PageExtract {
     title: null,
     anchors: [],
     forms: [],
+    scriptSrcs: [],
   };
   collect(documentEl, out);
 
   const social: Record<string, string> = {};
+  const metas: Record<string, string> = {};
   let metaDescription: string | null = null;
   let hasViewportMeta = false;
   for (const m of out.metas) {
+    // `charset` is written as a bare attribute (`<meta charset="utf-8">`), not
+    // as name/content, so it never had a key here and the charset check could
+    // not see it. Normalising it to `charset` gives it the same shape as every
+    // other meta; a `<meta http-equiv="content-type">` declaration lands there
+    // too, since both are a page declaring its encoding.
+    const charset = (m.getAttribute("charset") ?? "").trim();
+    if (charset) {
+      metas["charset"] = charset;
+      continue;
+    }
     const key = (m.getAttribute("property") ?? m.getAttribute("name") ?? "").toLowerCase().trim();
-    if (!key) continue;
     const content = (m.getAttribute("content") ?? "").trim();
+    if (!key) {
+      const equiv = (m.getAttribute("http-equiv") ?? "").toLowerCase().trim();
+      if (equiv === "content-type" && /charset=/i.test(content)) {
+        metas["charset"] = content.replace(/^.*charset=/i, "").trim();
+      }
+      continue;
+    }
     if (key === "description") metaDescription = content || null;
     else if (key === "viewport") hasViewportMeta = content.length > 0;
-    else if (key.startsWith("og:") || key.startsWith("twitter:")) social[key] = content;
+    if (key.startsWith("og:") || key.startsWith("twitter:")) social[key] = content;
+    // Everything else, including description and viewport: `social` owns the
+    // two prefixes and `metas` owns the rest, so nothing is stored twice.
+    else metas[key] = content;
   }
 
   const canonicalEl = out.links.find(
@@ -395,5 +426,10 @@ export function extractPage(html: string): PageExtract {
       .map((i) => (i.getAttribute("src") ?? "").trim())
       .filter((src) => src.length > 0),
     forms: out.forms.map(formShape),
+    metas,
+    scriptSrcs: out.scriptSrcs.slice(0, MAX_SCRIPTS),
+    // The TRUE total, for the same reason `anchorCount` exists: a capped list
+    // must never be mistaken for a complete one.
+    scriptCount: out.scriptSrcs.length,
   };
 }

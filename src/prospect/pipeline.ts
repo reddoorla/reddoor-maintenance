@@ -24,6 +24,7 @@ import { runLighthouse } from "./lighthouse.js";
 import { checkAssets, type AssetCheck, type AssetCheckDeps } from "./assets.js";
 import { checkBasics, type BasicsCheck, type BasicsDeps, type BasicsProbe } from "./basics.js";
 import { checkGoal, type GoalFit, type SiteGoal } from "./goals.js";
+import { readStack, type StackReadout } from "./stack.js";
 import { measuredFixes } from "./measured-fixes.js";
 import type {
   AnalyzeResult,
@@ -37,7 +38,15 @@ import type {
 } from "./types.js";
 
 export type StageName =
-  "crawl" | "checks" | "lighthouse" | "analyze" | "probes" | "assets" | "basics" | "accuracy";
+  | "crawl"
+  | "checks"
+  | "lighthouse"
+  | "analyze"
+  | "probes"
+  | "assets"
+  | "basics"
+  | "stack"
+  | "accuracy";
 
 /** The two ways an audit can pay for its model calls. Which one runs is
  *  decided here, once, off PROSPECT_LLM_AUTH (see claude-code.ts) — the
@@ -311,6 +320,14 @@ export async function runProspectAudit(
     }),
   );
 
+  // Reads only the crawl, like `basics`, and cannot fail in a way worth
+  // isolating — but it goes through `stage` anyway so that a throw here degrades
+  // one section instead of losing the run. Nothing in it passes or fails: it is
+  // a readout, and it stays out of every denominator on purpose.
+  const stack: StageResult<StackReadout> = await stage("stack", deps, async () =>
+    readStack(crawlData),
+  );
+
   const lighthouse: StageResult<LighthouseScores> = await stage("lighthouse", deps, async () =>
     (deps.lighthouse ?? runLighthouse)(url),
   );
@@ -486,6 +503,7 @@ export async function runProspectAudit(
     probes,
     assets,
     basics,
+    stack,
     goalFit,
     accuracy,
   };

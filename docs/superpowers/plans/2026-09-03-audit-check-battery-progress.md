@@ -11,9 +11,9 @@ to be wrong on contact with the code gets written down here, not silently droppe
 ## 1. Stack readout — "name their stack back to them"
 
 - [ ] `scriptSrcs` field on `PageExtract`
-- [ ] `metas` map on `PageExtract` *(pulled forward from Tier 1 Cluster B — the
+- [ ] `metas` map on `PageExtract` _(pulled forward from Tier 1 Cluster B — the
       readout needs `<meta name="generator">` and doing the same field twice is
-      silly; Cluster B then becomes pure logic)*
+      silly; Cluster B then becomes pure logic)_
 - [ ] `src/prospect/stack.ts` — CMS/builder, WP theme, WP plugins, page builder,
       framework, hosting/CDN, ecommerce, forms, analytics, fonts
 - [ ] Receipts on every line; absence = "we did not see one", never "they lack it"
@@ -56,7 +56,7 @@ to be wrong on contact with the code gets written down here, not silently droppe
 - [ ] Screenshots, mobile + desktop
 - [ ] T3-01 console errors, T3-02 failed requests (first- vs third-party),
       T3-03 rejections
-- [ ] T3-05 horizontal overflow at 375px *(needs a second context — not free)*
+- [ ] T3-05 horizontal overflow at 375px _(needs a second context — not free)_
 - [ ] T3-07 body text < 12px, T3-09 oversized images, T3-11 CLS vs CWV threshold
 - [ ] T3-08 blocked on a definition of "focus is visible"
 

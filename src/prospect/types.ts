@@ -5,6 +5,7 @@ import type { BasicsCheck } from "./basics.js";
 import type { ConsistencyResult } from "./consistency.js";
 import type { AccuracyResult } from "./accuracy.js";
 import type { GoalFit, SiteGoal } from "./goals.js";
+import type { StackReadout } from "./stack.js";
 import type { JourneyMap } from "./journey.js";
 
 // Re-exported so a consumer reading `probes.answerSpace` off the `./audit`
@@ -14,6 +15,8 @@ export type { AnswerSpace, SourceCount } from "./answer-space.js";
 export type { AssetCheck, ProbedUrl } from "./assets.js";
 export type { BasicsCheck, Reachability } from "./basics.js";
 export type { ConsistencyResult, ContactVariant } from "./consistency.js";
+export type { StackItem, StackLayer, StackReadout } from "./stack.js";
+export { LAYER_LABELS, LAYER_ORDER } from "./stack.js";
 export type { GoalFit, GoalRequirement, Scope, SiteGoal } from "./goals.js";
 export { GOAL_LABELS, orderRequirements } from "./goals.js";
 export type { ContactAffordance, JourneyMap, PageJourney } from "./journey.js";
@@ -112,6 +115,32 @@ export type PageExtract = {
   /** `src` of each `<img>`, as authored. Same resolution note as `anchors`. */
   imageSrcs?: string[];
   forms?: FormShape[];
+  /**
+   * Every `<meta>` that is not `og:`/`twitter:` — those are in `social`, and
+   * carrying them twice would double the biggest part of a persisted extract.
+   * Keyed by lower-cased `name` or `property`, so `robots`, `generator`,
+   * `charset` and `viewport` are all reachable by the name they are written by.
+   *
+   * `metaDescription` and `hasViewportMeta` remain projected separately because
+   * older stored reports have them and nothing should have to know that
+   * `metas.description` is the same string.
+   *
+   * Optional: absent on reports stored before it existed, and absence must read
+   * as "not measured", never as "this page declares no metas".
+   */
+  metas?: Record<string, string>;
+  /**
+   * `src` of each `<script src>`, as authored, CAPPED — see `scriptCount` for
+   * the true total, exactly as `anchors`/`anchorCount` do.
+   *
+   * These are the receipts the stack readout is built from: `/wp-content/
+   * plugins/<name>/`, `/_next/`, `hs-scripts.com`. Inline scripts are not
+   * collected — only ones with a `src`, because a src is an address a reader
+   * can go and check and an inline blob is not.
+   */
+  scriptSrcs?: string[];
+  /** True number of `<script src>` on the page, before `scriptSrcs` was capped. */
+  scriptCount?: number;
 };
 
 export type PageCapture = {
@@ -435,6 +464,15 @@ export type ProspectAuditResult = {
    *  single named goal rather than a generic template — see goals.ts. Optional
    *  for reports stored before it existed. */
   goalFit?: StageResult<GoalFit>;
+  /**
+   * What they are running — platform, theme, plugins, host, forms, analytics.
+   *
+   * NOT a check and never part of any denominator: nothing in it passes or
+   * fails. It opens the report because naming a reader's own stack back to them
+   * answers "do these people know what they are talking about" before the first
+   * finding. Optional for reports stored before the stage existed.
+   */
+  stack?: StageResult<StackReadout>;
   /** When an engine describes this business, where is it getting that from —
    *  each statement sorted by SOURCE, never by truth. See accuracy.ts. Optional
    *  for reports stored before the stage was wired in. */
