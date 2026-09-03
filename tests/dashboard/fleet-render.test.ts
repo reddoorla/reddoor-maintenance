@@ -1183,3 +1183,12 @@ describe("renderCockpitHtml — fleet table link", () => {
     expect(html).toContain('href="/fleet"');
   });
 });
+
+describe("renderCockpitHtml — prospect audits button", () => {
+  // Tim and Erik reach the cockpit through Google sign-in and run audits from
+  // /audits; until now that page was reachable only by typing the URL.
+  it("links to the prospect audits page as a visible button", () => {
+    const html = renderCockpitHtml(model([siteRow()]));
+    expect(html).toMatch(/<a class="nav-btn" href="\/audits">Prospect audits/);
+  });
+});
