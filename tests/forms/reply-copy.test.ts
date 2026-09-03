@@ -6,12 +6,19 @@ describe("parseReplyCopy", () => {
     expect(
       parseReplyCopy({
         subject: "  You're on the list  ",
-        paragraphs: ["Thanks!", "  ", "See you there."],
+        body: [
+          { type: "paragraph", text: "Thanks!" },
+          { type: "paragraph", text: "  " },
+          { type: "heading2", text: "See you there." },
+        ],
         signature: "Gallery Sonder",
       }),
     ).toEqual({
       subject: "You're on the list",
-      paragraphs: ["Thanks!", "See you there."],
+      body: [
+        { type: "paragraph", text: "Thanks!" },
+        { type: "heading2", text: "See you there." },
+      ],
       signature: "Gallery Sonder",
     });
   });
@@ -20,7 +27,7 @@ describe("parseReplyCopy", () => {
     expect(parseReplyCopy(undefined)).toBeUndefined();
     expect(parseReplyCopy("a string")).toBeUndefined();
     expect(parseReplyCopy([])).toBeUndefined();
-    expect(parseReplyCopy({ subject: "   ", paragraphs: [] })).toBeUndefined();
+    expect(parseReplyCopy({ subject: "   ", body: [] })).toBeUndefined();
   });
 
   it("keeps a calendar only with a title and a parseable start", () => {

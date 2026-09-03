@@ -105,7 +105,7 @@ describe("buildAutoresponder", () => {
     expect(buildAutoresponder(makeWebsiteRow(), makeSubmissionRow({ email: "" }))).toBeNull();
   });
 
-  it("prefers the envelope's subject, paragraphs and signature", () => {
+  it("prefers the envelope's subject, body and signature", () => {
     const site = makeWebsiteRow({
       name: "Gallery Sonder",
       url: "https://gallerysonder.com",
@@ -120,7 +120,10 @@ describe("buildAutoresponder", () => {
         event: "Euphorbia",
         _reply: {
           subject: "You are on the list for Euphorbia",
-          paragraphs: ["Thanks for RSVPing.", "Doors at 6."],
+          body: [
+            { type: "paragraph", text: "Thanks for RSVPing." },
+            { type: "paragraph", text: "Doors at 6." },
+          ],
           signature: "Gallery Sonder, Corona del Mar",
         },
       }),
@@ -164,7 +167,7 @@ describe("buildAutoresponder", () => {
     const sub = makeSubmissionRow({
       email: "lead@x.com",
       extraFields: JSON.stringify({
-        _reply: { paragraphs: ["<img src=x onerror=alert(1)>"] },
+        _reply: { body: [{ type: "paragraph", text: "<img src=x onerror=alert(1)>" }] },
       }),
     });
     const input = buildAutoresponder(site, sub)!;
@@ -183,7 +186,7 @@ describe("buildAutoresponder", () => {
       extraFields: JSON.stringify({
         event: "Euphorbia",
         _reply: {
-          paragraphs: ["Thanks for RSVPing."],
+          body: [{ type: "paragraph", text: "Thanks for RSVPing." }],
           calendar: {
             title: "Euphorbia — Opening Reception",
             start: "2026-09-12T18:00:00-07:00",
@@ -208,6 +211,34 @@ describe("buildAutoresponder", () => {
       extraFields: JSON.stringify({ _reply: { subject: "hi" } }),
     });
     expect(buildAutoresponder(site, sub)!.attachments).toBeUndefined();
+  });
+
+  it("renders formatted body copy — bold, links and lists — into the email", () => {
+    const site = makeWebsiteRow({ url: "https://gallerysonder.com", pointOfContact: "info@x.com" });
+    const sub = makeSubmissionRow({
+      formType: "rsvp",
+      email: "guest@example.com",
+      extraFields: JSON.stringify({
+        _reply: {
+          body: [
+            {
+              type: "paragraph",
+              text: "Doors at 6. See the show first.",
+              spans: [
+                { start: 0, end: 11, type: "strong" },
+                { start: 12, end: 24, type: "link", url: "https://gallerysonder.com/exhibitions" },
+              ],
+            },
+            { type: "list-item", text: "Free parking on Marguerite" },
+            { type: "list-item", text: "Bring a friend" },
+          ],
+        },
+      }),
+    });
+    const html = buildAutoresponder(site, sub)!.html;
+    expect(html).toContain("<strong>Doors at 6.</strong>");
+    expect(html).toContain('<a href="https://gallerysonder.com/exhibitions">See the show</a>');
+    expect(html).toContain("<ul><li>Free parking on Marguerite</li><li>Bring a friend</li></ul>");
   });
 
   it("still suppresses for spam and same-domain backscatter, envelope or not", () => {
