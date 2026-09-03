@@ -407,3 +407,40 @@ describe("createIngestAction — buildPayload guard", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe("createIngestAction — async buildPayload", () => {
+  const cfg = () => ({ url: "https://dash/api/forms/site", token: "tok" });
+
+  it("awaits a promise-returning buildPayload and forwards what it resolved to", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true, id: "recX" }));
+    const action = createIngestAction({
+      formType: "contact",
+      getConfig: cfg,
+      // A site resolving confirmation copy from its CMS does a read here.
+      buildPayload: async (form) => {
+        await Promise.resolve();
+        return {
+          email: form.get("email")?.toString(),
+          _reply: { subject: "We got your message" },
+        };
+      },
+    });
+    const res = await action(fakeEvent({ email: "lead@x.com" }, fetchMock));
+    expect((res as { success?: boolean }).success).toBe(true);
+    const sent = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(sent.email).toBe("lead@x.com");
+    expect(sent._reply).toEqual({ subject: "We got your message" });
+  });
+
+  it("treats a REJECTED buildPayload the same as a throwing sync one", async () => {
+    const fetchMock = vi.fn();
+    const action = createIngestAction({
+      formType: "contact",
+      getConfig: cfg,
+      buildPayload: () => Promise.reject(new Error("cms exploded")),
+    });
+    const res = await action(fakeEvent({ email: "lead@x.com" }, fetchMock));
+    expect((res as { success?: boolean }).success).not.toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
