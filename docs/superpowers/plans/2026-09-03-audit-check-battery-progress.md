@@ -294,6 +294,15 @@ Three changes, and the second matters more than the first:
    far worse failure than the hang it replaced, and it was one timeout away.
 3. `probeForms` runs under a budget in `crawl.ts`. A stall now costs two checks
    that read "not measured", never the crawl.
+4. And so do `page.content`, `runAxe` and `measureVitals` — the same unbounded
+   shape sitting right beside it, one slow page from the same outcome.
+
+**Evidence, because one clean run proves nothing about an intermittent bug.**
+Before: 2 hangs in 4 full crawls, and the isolated reproduction hung on round 2
+of 3. After: **5 full crawls and 14 probe rounds, zero hangs**, probe median
+279ms, max 405ms, and nothing reaching the teardown timeout at all. All five
+runs produced identical results (55/69) — a measurement that drifted run to run
+would be as useless as one that hung.
 
 **Also corrected: two checks were never being exercised.** `name-in-title` and
 `h1-not-name` read a business name, and the validation script hardcoded null
