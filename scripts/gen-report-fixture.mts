@@ -198,7 +198,11 @@ const dns: DnsFindings = {
   dmarc: "v=DMARC1; p=reject; rua=mailto:dmarc@acme.example",
   mx: ["aspmx.l.google.com"],
   contactMx: null,
-  expiresAt: new Date(Date.now() + 400 * 86_400_000).toISOString(),
+  // A FIXED date, not `now + 400 days`. A relative one makes every
+  // regeneration produce a diff in a line nothing changed about, which buries
+  // the lines that did change — and reading that diff is the whole point of
+  // generating the fixture instead of writing it.
+  expiresAt: "2030-01-01T00:00:00.000Z",
 };
 
 const http: HttpFindings = {
