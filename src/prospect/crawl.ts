@@ -312,6 +312,12 @@ export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeou
  *  than its first twelve entries — which on most CMSes are the newest posts. */
 export const MAX_SITEMAP_SAMPLE = 120;
 
+/** Ceilings on the per-page browser work. Generous — a slow page should still
+ *  be measured — but finite, because the alternative is losing the crawl. */
+export const CONTENT_BUDGET_MS = 20_000;
+export const AXE_BUDGET_MS = 45_000;
+export const VITALS_BUDGET_MS = 30_000;
+
 /** Runs `fn` once per item, waiting `delayMs` between calls but never before
  *  the first — the same courtesy pacing the raw-fetch loop already applies to
  *  a prospect's server, given here to the heavier half of the traffic (each
@@ -925,9 +931,20 @@ export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
             }
             await page.goto(url, { waitUntil: "load", timeout: 20_000 });
             await page.waitForTimeout(RENDER_SETTLE_MS);
-            const html = await page.content();
-            const axe = await runAxe(page);
-            const vitals = await measureVitals(page, collected);
+            // EVERY ONE OF THESE IS BUDGETED, and the reason is a bug that
+            // already happened: an unbounded await in this loop does not fail
+            // the page it is on, it stalls the whole crawl, and twenty pages
+            // already fetched are lost for one that would not answer. The form
+            // probe was the one that actually deadlocked; these three are the
+            // same shape and were one slow page away from the same outcome.
+            //
+            // Each null is already a state downstream understands — no rendered
+            // extract, no rules run, no browser measurements — so a timeout
+            // costs that page's browser findings and nothing else.
+            const html = await withTimeout(page.content(), CONTENT_BUDGET_MS);
+            if (html === null) return;
+            const axe = await withTimeout(runAxe(page), AXE_BUDGET_MS);
+            const vitals = await withTimeout(measureVitals(page, collected), VITALS_BUDGET_MS);
             // LAST, and once per crawl. Everything above reads the page as it
             // was served; this one presses a button, so it cannot run before
             // the extract and the rules that describe the untouched document.
