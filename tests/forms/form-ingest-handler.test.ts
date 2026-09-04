@@ -79,6 +79,7 @@ function baseEnv(): void {
   delete process.env.RESEND_API_KEY;
   delete process.env.TURNSTILE_SECRET_KEY;
   delete process.env.TURNSTILE_SECRET_KEY_2;
+  delete process.env.TURNSTILE_SECRET_KEY_3;
 }
 
 async function seedSite(): Promise<void> {

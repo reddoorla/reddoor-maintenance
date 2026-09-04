@@ -43,6 +43,47 @@ async function readPkg(cwd: string): Promise<{
   return JSON.parse(await readFile(join(cwd, "package.json"), "utf-8"));
 }
 
+describe("the emitted spec's error allowlists", () => {
+  // The real thing, verbatim from Chromium on 2026-09-04 (vida-legacy-foundation
+  // /contact, sitekey of a widget already full at Cloudflare's 10-hostname cap).
+  // It arrives as an UNCAUGHT exception, i.e. through page.on("pageerror").
+  const REAL_110200 = "TurnstileError: [Cloudflare Turnstile] Error: 110200";
+
+  /** Evaluate one `const NAME: RegExp[] = [...]` literal out of the template. */
+  function patterns(name: string): RegExp[] {
+    const m = new RegExp(`const ${name}: RegExp\\[\\] = (\\[[\\s\\S]*?\\]);`).exec(
+      SMOKE_SPEC_TEMPLATE,
+    );
+    expect(m, `${name} not found in the emitted spec`).not.toBeNull();
+    return new Function(`return ${m![1]}`)() as RegExp[];
+  }
+
+  it("keeps Turnstile console telemetry allowed — a 403 beacon is noise, not a failure", () => {
+    const console = patterns("ALLOWED_CONSOLE_PATTERNS");
+    expect(console.some((re) => re.test(REAL_110200))).toBe(true);
+  });
+
+  it("does NOT allow an uncaught TurnstileError: the widget throwing IS the failure", () => {
+    // This suite watched a broken widget ship and stayed green, because the
+    // console pattern was also applied to pageerror and matched the throw by
+    // name. A sitekey served from a hostname its widget doesn't list mints no
+    // token at all, which on a `Require Turnstile` site buckets 100% of leads.
+    const thrown = patterns("ALLOWED_PAGEERROR_PATTERNS");
+    expect(thrown.some((re) => re.test(REAL_110200))).toBe(false);
+    // ...and the vimeo carve-out that motivated the shared list still applies to
+    // both, so the split narrows exactly one thing.
+    expect(thrown.some((re) => re.test("Error from player.vimeo.com"))).toBe(true);
+  });
+
+  it("wires the pageerror handler to the stricter list", () => {
+    // Guards the other half: two correct arrays are useless if the handler reads
+    // the wrong one.
+    expect(SMOKE_SPEC_TEMPLATE).toMatch(
+      /page\.on\("pageerror", \(err\) => \{\s*if \(isAllowedThrow\(err\.message\)\) return;/,
+    );
+  });
+});
+
 describe("recipes/smoke-suite", () => {
   it("applies on a site without the suite: writes specs + R1.1 config + script split", async () => {
     const cwd = await copyFixtureToTmp(pristine); // has @playwright/test, no config, no tests/smoke

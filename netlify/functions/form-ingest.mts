@@ -87,6 +87,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
           FORMS_INGEST_TOKEN: typeof process.env.FORMS_INGEST_TOKEN === "string",
           TURNSTILE_SECRET_KEY: typeof process.env.TURNSTILE_SECRET_KEY === "string",
           TURNSTILE_SECRET_KEY_2: typeof process.env.TURNSTILE_SECRET_KEY_2 === "string",
+          TURNSTILE_SECRET_KEY_3: typeof process.env.TURNSTILE_SECRET_KEY_3 === "string",
         },
       },
       { status: 200 },
@@ -189,10 +190,23 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     // The verification also carries the solved-hostname from a passing token, which
     // ingest compares to a gated site's own host (turnstile-required-hostname).
     // Widgets cap at 10 hostnames, so the fleet spans several ("Forms 1",
-    // "Site Forms 2", ...) — one secret per widget, tried in order
+    // "Site Forms 2", "Site Forms 3", ...) — one secret per widget, tried in order
     // (busiest-widget-first; a wrong-widget attempt is retried safely, see
     // verifyTurnstileWithSecrets).
-    const turnstileSecrets = [process.env.TURNSTILE_SECRET_KEY, process.env.TURNSTILE_SECRET_KEY_2];
+    //
+    // A widget the fleet is USING but whose secret is missing here is worse than
+    // no Turnstile at all: its tokens are `invalid-input-secret` against every
+    // secret we hold, which collapses to "unverifiable" — fail-open, so leads are
+    // never lost, but the gate is silently off for that site. So when a widget is
+    // added at Cloudflare, its secret is added to this list AND to the deploy env
+    // in the same change. TURNSTILE_SECRET_KEY_3 ("Site Forms 3") was added
+    // 2026-09-04 because "Forms 1" was full at the 10-hostname cap and "Site
+    // Forms 2" had one slot left fleet-wide — see docs/runbooks/turnstile-widgets.md.
+    const turnstileSecrets = [
+      process.env.TURNSTILE_SECRET_KEY,
+      process.env.TURNSTILE_SECRET_KEY_2,
+      process.env.TURNSTILE_SECRET_KEY_3,
+    ];
     if (!turnstileSecrets.some((s) => s?.trim()) && !warnedTurnstileUnset) {
       console.warn(
         "[form-ingest] TURNSTILE_SECRET_KEY unset; Turnstile verification disabled (fail-open)",

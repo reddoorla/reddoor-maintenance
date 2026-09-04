@@ -150,12 +150,19 @@ export type WebsiteRow = {
    *  "ok"`. Single-select `pass`/`fail`; null = never ran. No per-site Prismic token or identity
    *  column is ever built — this rides `/health`. */
   cmsReachable: "pass" | "fail" | null;
-  /** From the same `/health` body's `forms.turnstile` boolean: does the deployed site report
-   *  the Turnstile widget configured (`PUBLIC_TURNSTILE_SITE_KEY` set)? Single-select
-   *  `pass`/`fail`; null = never ran / older site package whose `/health` has no `forms`
-   *  block. Freshness gated by `functionHealthCheckedAt`. Powers the cockpit Require-Turnstile
-   *  guardrail: a site with `requireTurnstile` ON but no widget silently buckets 100% of its
-   *  real leads (and form-e2e can't see it — testMode bypasses the gate). */
+  /** Does the deployed site's Turnstile widget actually work? Single-select `pass`/`fail`;
+   *  null = **unverified**, which is the normal state — see below. Freshness gated by
+   *  `functionHealthCheckedAt`. Powers the cockpit Require-Turnstile guardrail: a site with
+   *  `requireTurnstile` ON but no working widget silently buckets 100% of its real leads.
+   *
+   *  Only `"fail"` is derived from `/health`, whose `forms.turnstile` is a truthiness check
+   *  on `PUBLIC_TURNSTILE_SITE_KEY` that never contacts Cloudflare (see
+   *  audits/function-health-airtable.ts for the incident). No key IS proof the widget can't
+   *  work; a key is NOT proof that it can — a sitekey whose widget is full at Cloudflare's
+   *  10-hostname cap sets the var and still mints no token. So a `"pass"` here has to be
+   *  earned by a real browser rendering the real widget (form-e2e), and until it is, null
+   *  keeps the site in the cockpit's amber "can't verify" watch rather than claiming health
+   *  nobody measured. */
   turnstileWidget: "pass" | "fail" | null;
   /** When the `function-health` audit last ran — the freshness gate for `functionHealth`,
    *  `cmsReachable`, and `turnstileWidget`. Null = never ran. */

@@ -30,17 +30,34 @@ export function functionHealthResultFromAudit(result: AuditResult): FunctionHeal
   const d = result.details as FunctionHealthDetails | undefined;
   const cmsReachable: "pass" | "fail" | null =
     d?.prismic === "ok" ? "pass" : d?.prismic === "error" ? "fail" : null;
-  // `forms` is untyped on the details payload (unknown) — validate defensively. A boolean
-  // `turnstile` inside an object → concrete verdict; anything else (null forms from an older
-  // site package or a "deployed but erroring" body, a malformed shape) → null: the widget
-  // state is simply unknown this run, never a fail. Powers the Require-Turnstile guardrail.
+  // `forms` is untyped on the details payload (unknown) — validate defensively. Anything
+  // that isn't a boolean `turnstile` inside an object (null forms from an older site package
+  // or a "deployed but erroring" body, a malformed shape) → null: unknown this run, never a
+  // fail. Powers the Require-Turnstile guardrail.
   const formsRaw = d?.forms;
   const turnstileFlag =
     formsRaw && typeof formsRaw === "object"
       ? (formsRaw as Record<string, unknown>)["turnstile"]
       : undefined;
-  const turnstileWidget: "pass" | "fail" | null =
-    typeof turnstileFlag === "boolean" ? (turnstileFlag ? "pass" : "fail") : null;
+  // Asymmetric on purpose, and this is the whole point of the column being trustworthy.
+  // `forms.turnstile` is `!!PUBLIC_TURNSTILE_SITE_KEY?.trim()` in the site's own /health
+  // (recipes/health-endpoint/template.ts) — a truthiness check on a string that never
+  // contacts Cloudflare. It answers "is a sitekey configured", not "does the widget work",
+  // and the two came apart on 2026-09-04: a site deployed with the sitekey of a widget
+  // already FULL at Cloudflare's 10-hostname cap reported `turnstile: true` while the live
+  // widget threw 110200 and minted no token. Under `Require Turnstile` that buckets 100% of
+  // real leads (ingest.ts, turnstile-required-absent) — and the false "pass" satisfied BOTH
+  // halves of the guardrail meant to catch it: the red item needs "fail"
+  // (alerts/digest-collectors.ts) and the amber watch needs !== "pass" (fleet-cockpit.ts).
+  //
+  //   false → "fail"  — no key IS proof the widget cannot work. Sound, and unchanged.
+  //   true  → null    — a key is NOT proof that it does. Unknown, not confirmed.
+  //
+  // null is not a downgrade to silence: fleet-cockpit's `!== "pass"` already turns it into
+  // the accept-able amber "can't verify" watch, and websites.ts clears the cell rather than
+  // leaving a stale verdict. Only a real browser can earn the "pass" — form-e2e already
+  // launches Chromium on each site's live /contact, which is where that belongs.
+  const turnstileWidget: "pass" | "fail" | null = turnstileFlag === false ? "fail" : null;
   return {
     functionHealth: d?.ok === true ? "pass" : "fail",
     cmsReachable,

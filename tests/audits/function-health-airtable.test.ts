@@ -73,7 +73,22 @@ describe("functionHealthResultFromAudit", () => {
     });
     expect(functionHealthResultFromAudit(nullPrismic).cmsReachable).toBeNull();
   });
-  it("maps forms.turnstile boolean → turnstileWidget pass/fail; null/malformed forms → null", () => {
+  it("never writes 'pass' from the env-var flag: true → null (unverified), false → 'fail'", () => {
+    // `forms.turnstile` is `!!PUBLIC_TURNSTILE_SITE_KEY?.trim()` in the site's own
+    // /health (recipes/health-endpoint/template.ts) — a truthiness check on a string
+    // that never contacts Cloudflare. On 2026-09-04 a site was deployed with a
+    // sitekey belonging to a widget that was FULL at Cloudflare's 10-hostname cap:
+    // /health said `turnstile: true`, this wrote "Turnstile widget = pass", and the
+    // live widget threw 110200 and minted no token at all. Under `Require Turnstile`
+    // that buckets 100% of real leads as spam_auto, and BOTH halves of the guardrail
+    // were satisfied by the false pass — the red item needs "fail"
+    // (alerts/digest-collectors.ts) and the amber watch needs !== "pass"
+    // (dashboard/fleet-cockpit.ts).
+    //
+    // So the mapping is asymmetric, and sound in both directions: NO key is proof the
+    // widget cannot work ("fail"); a key present is NOT proof that it does (null =
+    // unverified, which fleet-cockpit already turns into the accept-able amber watch).
+    // Only a real browser can earn the "pass" — see form-e2e.
     const on = result({
       details: {
         ok: true,
@@ -82,7 +97,7 @@ describe("functionHealthResultFromAudit", () => {
         checkedAt: "2026-07-06T00:00:00.000Z",
       },
     });
-    expect(functionHealthResultFromAudit(on).turnstileWidget).toBe("pass");
+    expect(functionHealthResultFromAudit(on).turnstileWidget).toBeNull();
 
     const off = result({
       details: {
@@ -93,6 +108,18 @@ describe("functionHealthResultFromAudit", () => {
       },
     });
     expect(functionHealthResultFromAudit(off).turnstileWidget).toBe("fail");
+
+    // The regression this test exists for: a key that is set but cannot solve is
+    // indistinguishable HERE from one that can, so neither may produce "pass".
+    const fullWidgetSitekey = result({
+      details: {
+        ok: true,
+        prismic: "ok",
+        forms: { ingestUrl: true, ingestToken: true, turnstile: true },
+        checkedAt: "2026-07-06T00:00:00.000Z",
+      },
+    });
+    expect(functionHealthResultFromAudit(fullWidgetSitekey).turnstileWidget).not.toBe("pass");
 
     // null forms (older site package / synthetic erroring body) → unknown, never a fail
     const noForms = result({
