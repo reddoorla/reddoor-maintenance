@@ -45,14 +45,28 @@ const ALLOWED_CONSOLE_PATTERNS: RegExp[] = [
   // Vimeo iframe embeds + their CDN telemetry endpoints occasionally 403 from
   // cloud IPs due to bot detection.
   /vimeo/i,
-  // Turnstile (Cloudflare) telemetry occasionally surfaces in console.
+  // Turnstile (Cloudflare) telemetry occasionally surfaces in console — a 403
+  // from a cloud IP, a beacon that didn't land. Console-level ONLY: see
+  // ALLOWED_PAGEERROR_PATTERNS below for why this does not extend to throws.
   /turnstile|challenges\\.cloudflare/i,
 ];
+
+// Uncaught exceptions are held to a stricter bar than console noise, and
+// Turnstile is deliberately NOT on this list. A widget whose sitekey is not
+// allowlisted for the hostname it is served from throws an uncaught
+// \`TurnstileError: [Cloudflare Turnstile] Error: 110200\` and mints no token at
+// all — on a \`Require Turnstile\` site that buckets 100% of real leads as spam.
+// It shipped that way once (2026-09-04) and this suite watched it happen: the
+// pattern above matched the throw's message and the run stayed green. Telemetry
+// that merely logs is noise; a widget that THROWS is the failure itself.
+const ALLOWED_PAGEERROR_PATTERNS: RegExp[] = [/vimeo/i];
 
 function attachConsoleWatcher(page: Page, extraAllowed: RegExp[] = []) {
   const errors: string[] = [];
   const allowed = [...ALLOWED_CONSOLE_PATTERNS, ...extraAllowed];
+  const allowedThrows = [...ALLOWED_PAGEERROR_PATTERNS, ...extraAllowed];
   const isAllowed = (s: string) => !!s && allowed.some((re) => re.test(s));
+  const isAllowedThrow = (s: string) => !!s && allowedThrows.some((re) => re.test(s));
 
   page.on("console", (msg: ConsoleMessage) => {
     if (msg.type() !== "error") return;
@@ -63,7 +77,7 @@ function attachConsoleWatcher(page: Page, extraAllowed: RegExp[] = []) {
   });
 
   page.on("pageerror", (err) => {
-    if (isAllowed(err.message)) return;
+    if (isAllowedThrow(err.message)) return;
     errors.push(\`[pageerror] \${err.message}\`);
   });
 
