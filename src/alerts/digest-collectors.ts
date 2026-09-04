@@ -353,8 +353,16 @@ export function collectTurnstileGuardrailAlerts(
       key: `turnstile:${s.id}`,
       kind: "turnstile",
       siteName: s.name,
+      // Sensor-neutral, and it has to be: the verdict now has TWO fail arms and the
+      // row carries no discriminator. Naming /health sent the operator to Netlify to
+      // check a `PUBLIC_TURNSTILE_SITE_KEY` that is correctly set — because on the
+      // only site that can raise this alarm (Require Turnstile presupposes the key)
+      // the reachable arm is the OTHER one: a browser seeing 110200, i.e. the
+      // hostname missing from the Cloudflare widget's allowlist. Both causes are
+      // named so the runbook fix is the obvious next step.
       title:
-        "Require Turnstile is ON but /health reports no widget — real leads are being auto-bucketed",
+        "Require Turnstile is ON but no working widget was found (no sitekey, or the " +
+        "hostname is not on the Cloudflare widget's allowlist) — real leads are being auto-bucketed",
       url: dashboardUrl(baseUrl, s.name),
       severity: "critical",
       metric: 1,

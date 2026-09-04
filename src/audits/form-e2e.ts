@@ -112,6 +112,16 @@ export type TurnstileObservation = {
    *  console.WARN — not error — so this is deliberately matched across every
    *  console level, not just errors. */
   initFailed: boolean;
+  /** Cloudflare rejected the widget's CONFIGURATION with a `110xxx` other than
+   *  110200 — an invalid, deleted or rotated sitekey (110100 / 110110 / …). Same
+   *  lookup that emits 110200 and equally browser-independent, but this fleet has
+   *  only ever MEASURED 110200 and 600010 verbatim, so an unmeasured code is not
+   *  given the authority to raise a red on a gated site: it lands as `null`,
+   *  "looked, cannot tell", which the cockpit already renders as the amber
+   *  `turnstile-unverified` watch. Its whole job is to deny the green — without
+   *  it, a widget deleted at Cloudflare scores "pass", because the pass arm's
+   *  negative half was the absence of one six-digit string. */
+  widgetError: boolean;
 };
 
 /**
@@ -203,11 +213,16 @@ export type FormsHealth = { testMode: boolean; turnstile: boolean | null };
  *   hostnameRejected          → "fail"  a browser saw 110200 on the live hostname.
  *                                       The widget mints nothing; under Require
  *                                       Turnstile that is 100% lead loss.
- *   container + script, no 110200 → "pass"  a browser loaded Cloudflare's script and
- *                                       the real mount point on the real hostname,
- *                                       and it was not domain-rejected.
+ *   container + script, no widget → "pass"  a browser loaded Cloudflare's script and
+ *   error                                the real mount point on the real hostname,
+ *                                       and Cloudflare raised no configuration
+ *                                       error against the sitekey.
  *   container but no script   → null    the widget could never initialise. NOT a
  *                                       fail: a blocked runner looks identical.
+ *   any other 110xxx          → null    the sitekey is invalid, deleted or rotated
+ *                                       (110100 / 110110 / …). Denies the green; not
+ *                                       a red, because unlike 110200 this fleet has
+ *                                       never measured one verbatim.
  *   turnstile:true, no browser→ null    a key is set and nothing looked. UNVERIFIED —
  *                                       never "pass", which is the whole lesson of
  *                                       #689.
@@ -236,6 +251,21 @@ export type FormsHealth = { testMode: boolean; turnstile: boolean | null };
  * site's. See TurnstileObservation.
  */
 export const TURNSTILE_HOSTNAME_REJECTED = /\[Cloudflare Turnstile\][^\n]*?\b110200\b/;
+
+/**
+ * Every OTHER `110xxx` — Cloudflare's sitekey/domain lookup failing for a reason
+ * that is not the hostname: 110100 invalid sitekey, 110110 sitekey not found, and
+ * the rest of the family. Emitted before any challenge runs, so like 110200 it is
+ * browser-independent and a probe may believe it.
+ *
+ * Deliberately NOT extended to the `6xxxxx` family: 600010 is Cloudflare's answer
+ * to every driven browser (see TurnstileObservation), so matching it would set this
+ * flag on EVERY nightly run and make "pass" unreachable — the feature would go
+ * inert with nothing to show for it. Anchored on the `[Cloudflare Turnstile]`
+ * prefix for the same reason TURNSTILE_HOSTNAME_REJECTED is: six loose digits are
+ * an order id on somebody's page.
+ */
+export const TURNSTILE_WIDGET_ERROR = /\[Cloudflare Turnstile\][^\n]*?\b110(?!200\b)\d{3}\b/;
 
 /** The starter's own tell that `loadTurnstile()` rejected — CSP, offline, a
  *  blocked host. Logged at console.WARN, not error, which is why the console
@@ -270,6 +300,12 @@ export function turnstileVerdict(
   // draft of this change reintroduced it.
   if (!observed.containerPresent) return null;
   if (!observed.scriptLoaded || observed.initFailed) return null;
+  // ...and the negative half has to be more than "no 110200". A widget deleted or
+  // rotated at Cloudflare still serves api.js (2xx — the URL carries no sitekey)
+  // and still SSRs its mount point, so without this the FIRST draft's defect
+  // survives one code along: a dead widget scoring green while a gated site
+  // buckets every real lead. Denies the pass, never manufactures a fail.
+  if (observed.widgetError) return null;
   return "pass";
 }
 
@@ -305,6 +341,9 @@ function liveRunnerEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
  *
  * - no deployedUrl → skip, NO details → writer preserves the prior verdict.
  * - no injected runner + live gate off → skip, NO details (not yet safe to run live).
+ * - /health does not declare testMode → skip WITH details, but NO stamp: the form
+ *   verdict is preserved and only `turnstileWidget` is written (null, clearing the
+ *   value function-health used to keep alive in that column).
  * - no contact form → skip WITH details (ok:null + fresh checkedAt) → persisted as n/a.
  * - form submitted, success → pass (ok:"pass"); not success → warn (ok:"fail").
  */
@@ -375,14 +414,6 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
       };
     }
     const ok: "pass" | "fail" = outcome.success ? "pass" : "fail";
-    // The Turnstile verdict rides this run, and ONLY this run — the browser path.
-    // It is deliberately NOT written on the testModeUndeclared skip above: that
-    // path preserves the prior Form E2E verdict by writing nothing at all, and
-    // refreshing its checked-at stamp to carry a turnstile verdict would make a
-    // stale form verdict look fresh to auto-tick.ts's `formsEvidence` — the exact
-    // bug class this change exists to close. A site that is gated before testMode
-    // forwarding reaches it therefore gets the amber "can't verify" watch, which
-    // is the truth: nothing is verifying it. See the rollout runbook.
     // ALWAYS defined on this path, never omitted — because this path refreshes
     // `Form E2E checked at`, which is the clock the CRITICAL alarm ages the verdict
     // against. Omitting the verdict here would preserve an older one beside a fresh
@@ -391,8 +422,13 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
     // nothing (an injected fake) knows nothing, so it writes null — "looked, cannot
     // tell" — which is honest and cannot produce a red.
     //
-    // The absent-means-preserve case is real, but it belongs to the paths that do
-    // NOT stamp: see the testMode-undeclared skip above.
+    // The absent-means-preserve case is real, but it belongs to the exits that
+    // return no `details` at all (no deployedUrl, the live gate off). The
+    // testMode-undeclared skip above is a THIRD shape: it writes the verdict as
+    // null without stamping, deliberately clearing the legacy value function-health
+    // left in that column — which no writer could correct now that the column has
+    // moved — while leaving `Form E2E checked at` alone so a stale form verdict
+    // never looks fresh to auto-tick.ts's `formsEvidence`.
     const turnstileWidget = turnstileVerdict(
       outcome.formsHealth ?? { testMode: true, turnstile: null },
       outcome.turnstile,
@@ -629,6 +665,12 @@ export async function defaultFormRunner(): Promise<FormRunner> {
       let turnstileHostnameRejected = false;
       let turnstileScriptLoaded = false;
       let turnstileInitFailed = false;
+      let turnstileWidgetError = false;
+      // Hoisted for the same reason as the flags, not merely for tidiness: this is
+      // the ONE signal the verdict short-circuits on, so a throw AFTER the sample
+      // used to discard a container the run had already seen and hand back
+      // "looked, cannot tell" — clearing a verdict it had positively earned.
+      let containerPresent = false;
       const browser = await chromium.launch();
       try {
         const ctx = await browser.newContext();
@@ -650,6 +692,7 @@ export async function defaultFormRunner(): Promise<FormRunner> {
         const noteTurnstile = (text: string) => {
           if (TURNSTILE_HOSTNAME_REJECTED.test(text)) turnstileHostnameRejected = true;
           if (TURNSTILE_INIT_FAILED.test(text)) turnstileInitFailed = true;
+          if (TURNSTILE_WIDGET_ERROR.test(text)) turnstileWidgetError = true;
         };
         page.on("pageerror", (err) => noteTurnstile(String(err?.message ?? err)));
         page.on("console", (msg) => {
@@ -681,7 +724,7 @@ export async function defaultFormRunner(): Promise<FormRunner> {
         // `{#if turnstileSiteKey}` runs during SSR), so it is present at
         // domcontentloaded and needs no wait — unlike the iframe, which invisible
         // mode never leaves behind and which is therefore NOT a health signal.
-        const containerPresent = await page
+        containerPresent = await page
           .locator(".cf-turnstile")
           .count()
           .then((n) => n > 0)
@@ -694,6 +737,7 @@ export async function defaultFormRunner(): Promise<FormRunner> {
           scriptLoaded: turnstileScriptLoaded,
           hostnameRejected: turnstileHostnameRejected,
           initFailed: turnstileInitFailed,
+          widgetError: turnstileWidgetError,
         });
 
         // Inject the testMode marker + a Turnstile token into the submitted form.
@@ -884,20 +928,24 @@ export async function defaultFormRunner(): Promise<FormRunner> {
           formsHealth,
         };
       } catch (err) {
-        // A thrown probe still carries whatever the widget did — the listener is
-        // attached at page creation and the flag is monotonic, so a 110200 seen
-        // before the throw is real evidence and must not be discarded. `rendered`
-        // is not: the sample may not have been reached, and its initializer is
-        // out of scope here, so this reports the conservative "not observed".
+        // A thrown probe still carries whatever the widget did — every signal is
+        // hoisted above the try and monotonic, so evidence gathered before the
+        // throw is real and must not be discarded. That includes the container:
+        // the submit `.click()` has a 30s timeout and can throw long after the
+        // sample, and reporting a hard `false` there sent the verdict down its
+        // `!containerPresent` short-circuit and CLEARED a "pass" the same run had
+        // just earned. A throw before the sample still reports false, which is the
+        // honest answer for a run that never looked.
         return {
           formPresent: true,
           success: false,
           detail: String(err).slice(0, 120),
           turnstile: {
-            containerPresent: false,
+            containerPresent,
             scriptLoaded: turnstileScriptLoaded,
             hostnameRejected: turnstileHostnameRejected,
             initFailed: turnstileInitFailed,
+            widgetError: turnstileWidgetError,
           },
           formsHealth,
         };

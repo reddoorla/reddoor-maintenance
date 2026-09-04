@@ -145,9 +145,29 @@ describe("audits/form-e2e", () => {
             scriptLoaded: true,
             hostnameRejected: false,
             initFailed: false,
+            widgetError: false,
           },
         }),
       ).toBe("pass");
+    });
+
+    it("refuses the pass when Cloudflare rejected the sitekey (110100), not the hostname", async () => {
+      // Every positive signal is true — a deleted or rotated widget still serves
+      // api.js and still SSRs its mount point — so this shape scored "pass" until
+      // the widgetError arm existed. Unverified, not a red: only 110200 has been
+      // measured verbatim in this fleet.
+      expect(
+        await verdictFor({
+          formsHealth: { testMode: true, turnstile: true },
+          turnstile: {
+            containerPresent: true,
+            scriptLoaded: true,
+            hostnameRejected: false,
+            initFailed: false,
+            widgetError: true,
+          },
+        }),
+      ).toBeNull();
     });
 
     it("fails on 110200 — the hostname is not on the widget's allowlist", async () => {
@@ -161,6 +181,7 @@ describe("audits/form-e2e", () => {
             scriptLoaded: true,
             hostnameRejected: true,
             initFailed: false,
+            widgetError: false,
           },
         }),
       ).toBe("fail");
@@ -175,6 +196,7 @@ describe("audits/form-e2e", () => {
             scriptLoaded: false,
             hostnameRejected: false,
             initFailed: false,
+            widgetError: false,
           },
         }),
       ).toBe("fail");
@@ -189,6 +211,7 @@ describe("audits/form-e2e", () => {
             scriptLoaded: false,
             hostnameRejected: false,
             initFailed: false,
+            widgetError: false,
           },
         }),
       ).toBeNull();
@@ -199,7 +222,8 @@ describe("audits/form-e2e", () => {
       // ages the verdict against, so it must never leave an OLDER verdict beside a
       // fresh stamp. A runner that reported nothing knows nothing: null, "looked
       // and cannot tell", which can never produce a red. (The absent-means-preserve
-      // case belongs to the paths that do not stamp — see the testMode skip.)
+      // case belongs to the exits that return no details at all — no deployedUrl,
+      // or the live gate off.)
       expect(await verdictFor({})).toBeNull();
       const r = await formE2eAudit({
         site,
@@ -225,6 +249,7 @@ describe("audits/form-e2e", () => {
               scriptLoaded: true,
               hostnameRejected: true,
               initFailed: false,
+              widgetError: false,
             },
           }),
         },

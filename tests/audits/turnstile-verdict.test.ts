@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { turnstileVerdict, type TurnstileObservation } from "../../src/audits/form-e2e.js";
+import {
+  turnstileVerdict,
+  TURNSTILE_WIDGET_ERROR,
+  TURNSTILE_HOSTNAME_REJECTED,
+  type TurnstileObservation,
+} from "../../src/audits/form-e2e.js";
 
 /** A live, healthy widget: the mount point AND Cloudflare's script. */
 const LIVE: TurnstileObservation = {
@@ -7,6 +12,7 @@ const LIVE: TurnstileObservation = {
   scriptLoaded: true,
   hostnameRejected: false,
   initFailed: false,
+  widgetError: false,
 };
 const ob = (over: Partial<TurnstileObservation>): TurnstileObservation => ({ ...LIVE, ...over });
 
@@ -54,11 +60,23 @@ describe("turnstileVerdict", () => {
       ).toBeNull();
     });
 
+    it("refuses a pass when Cloudflare rejected the sitekey itself", () => {
+      // A widget DELETED or rotated at Cloudflare — the operation this fleet
+      // performs routinely ("Forms 1 is full", three widgets and counting). api.js
+      // still answers 2xx (its URL carries no sitekey) and the starter still SSRs
+      // the mount point, so every positive signal is true and the only tell is a
+      // 110100/110110. Without this arm that shape scored "pass": the first
+      // draft's defect surviving one error code along.
+      expect(
+        turnstileVerdict({ testMode: true, turnstile: true }, ob({ widgetError: true })),
+      ).toBeNull();
+    });
+
     it("a container with nothing behind it is UNVERIFIED, never a fail", () => {
       // Not a fail: a probe whose own egress is blocked looks identical to a site
       // whose script 5xx'd. A red alarm manufactured by our own network is worse
       // than no alarm, so every non-110200 defect degrades to "unverified".
-      for (const broken of [{ scriptLoaded: false }, { initFailed: true }]) {
+      for (const broken of [{ scriptLoaded: false }, { initFailed: true }, { widgetError: true }]) {
         expect(turnstileVerdict({ testMode: true, turnstile: true }, ob(broken))).not.toBe("fail");
       }
     });
@@ -76,26 +94,58 @@ describe("turnstileVerdict", () => {
   });
 
   it("only ONE observation shape yields a pass, out of every combination", () => {
-    // Exhaustive over the four booleans: the pass arm must be exactly
-    // {container, script, !rejected, !initFailed}. A future edit that widens it
-    // by one field fails here rather than in production, which is how the first
-    // draft's hole would have been caught.
+    // Exhaustive over all five booleans: the pass arm must be exactly
+    // {container, script, !rejected, !initFailed, !widgetError}. A future edit
+    // that widens it by one field fails here rather than in production, which is
+    // how BOTH of this change's false-pass holes would have been caught.
     let passes = 0;
     for (const containerPresent of [true, false])
       for (const scriptLoaded of [true, false])
         for (const hostnameRejected of [true, false])
-          for (const initFailed of [true, false]) {
-            const v = turnstileVerdict(
-              { testMode: true, turnstile: true },
-              { containerPresent, scriptLoaded, hostnameRejected, initFailed },
-            );
-            if (v === "pass") {
-              passes++;
-              expect({ containerPresent, scriptLoaded, hostnameRejected, initFailed }).toEqual(
-                LIVE,
-              );
+          for (const initFailed of [true, false])
+            for (const widgetError of [true, false]) {
+              const shape = {
+                containerPresent,
+                scriptLoaded,
+                hostnameRejected,
+                initFailed,
+                widgetError,
+              };
+              if (turnstileVerdict({ testMode: true, turnstile: true }, shape) === "pass") {
+                passes++;
+                expect(shape).toEqual(LIVE);
+              }
             }
-          }
     expect(passes).toBe(1);
+  });
+});
+
+describe("TURNSTILE_WIDGET_ERROR", () => {
+  // The two codes measured verbatim in this fleet, and the reason the families are
+  // split: 110xxx is a sitekey/domain lookup, decided before any challenge runs and
+  // identical for a human; 6xxxxx is challenge execution, which Cloudflare fails for
+  // every driven browser whatever the configuration.
+  const CF = (code: string) => `TurnstileError: [Cloudflare Turnstile] Error: ${code}.`;
+
+  it("matches the sitekey rejections, and NOT the hostname one 110200 already owns", () => {
+    for (const code of ["110100", "110110", "110420", "110600"])
+      expect(TURNSTILE_WIDGET_ERROR.test(CF(code))).toBe(true);
+    // 110200 is a FAIL via its own matcher; if it also set widgetError the fail arm
+    // would still win, but the two must not overlap or the verdict table lies.
+    expect(TURNSTILE_WIDGET_ERROR.test(CF("110200"))).toBe(false);
+    expect(TURNSTILE_HOSTNAME_REJECTED.test(CF("110200"))).toBe(true);
+  });
+
+  it("does NOT match 600010 — that is the harness's own signature", () => {
+    // Load-bearing: Cloudflare answers EVERY CDP-driven browser with 600010, so a
+    // matcher that caught it would set widgetError on every nightly run and make
+    // "pass" unreachable — the audit would go inert with nothing to show for it.
+    expect(TURNSTILE_WIDGET_ERROR.test(CF("600010"))).toBe(false);
+    expect(TURNSTILE_HOSTNAME_REJECTED.test(CF("600010"))).toBe(false);
+  });
+
+  it("is anchored on Cloudflare's prefix, so a page printing the digits is not a signal", () => {
+    expect(TURNSTILE_WIDGET_ERROR.test("order 110100 shipped")).toBe(false);
+    expect(TURNSTILE_WIDGET_ERROR.test("call 110100 for support")).toBe(false);
   });
 });

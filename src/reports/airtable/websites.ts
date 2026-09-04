@@ -152,10 +152,11 @@ export type WebsiteRow = {
   cmsReachable: "pass" | "fail" | null;
   /** Does the deployed site's Turnstile widget actually work? Single-select `pass`/`fail`;
    *  null = **unverified**, which is the normal state — see below. Freshness gated by
-   *  `functionHealthCheckedAt`. Powers the cockpit Require-Turnstile guardrail: a site with
+   *  `formE2eCheckedAt`, the clock of the audit that writes it. Powers the cockpit Require-Turnstile guardrail: a site with
    *  `requireTurnstile` ON but no working widget silently buckets 100% of its real leads.
    *
-   *  Only `"fail"` is derived from `/health`, whose `forms.turnstile` is a truthiness check
+   *  One of the two `"fail"` arms is derived from `/health` (the other is a browser seeing
+   *  110200 on the live hostname), whose `forms.turnstile` is a truthiness check
    *  on `PUBLIC_TURNSTILE_SITE_KEY` that never contacts Cloudflare (see
    *  audits/function-health-airtable.ts for the incident). No key IS proof the widget can't
    *  work; a key is NOT proof that it can — a sitekey whose widget is full at Cloudflare's

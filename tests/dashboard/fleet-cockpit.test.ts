@@ -59,7 +59,7 @@ describe("assignTier — Require-Turnstile guardrail (watch half)", () => {
     const unknown = assignTier(site({ requireTurnstile: true, turnstileWidget: null }), [], NOW);
     expect(unknown.tier).toBe("watch");
     expect(unknown.watchReasons).toEqual([
-      "Require Turnstile on; widget not verifiable from /health",
+      "Require Turnstile on; widget not verified by a browser",
     ]);
     expect(unknown.watchAcceptKeys).toEqual(["turnstile-unverified"]);
     expect(unknown.watchSignals).toEqual(["turnstile-unverified"]);
@@ -72,7 +72,7 @@ describe("assignTier — Require-Turnstile guardrail (watch half)", () => {
     );
     expect(staleFail.tier).toBe("watch");
     expect(staleFail.watchReasons).toEqual([
-      "Require Turnstile on; widget missing per a stale health sweep",
+      "Require Turnstile on; widget broken per a stale browser check",
     ]);
   });
 
@@ -100,7 +100,7 @@ describe("assignTier — Require-Turnstile guardrail (watch half)", () => {
     );
     expect(accepted.tier).toBe("healthy");
     expect(accepted.acceptedReasons).toEqual([
-      "Require Turnstile on; widget not verifiable from /health",
+      "Require Turnstile on; widget not verified by a browser",
     ]);
 
     // The confirmed-missing case arrives as an AttentionItem (collectTurnstileGuardrailAlerts);
