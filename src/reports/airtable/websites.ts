@@ -152,10 +152,11 @@ export type WebsiteRow = {
   cmsReachable: "pass" | "fail" | null;
   /** Does the deployed site's Turnstile widget actually work? Single-select `pass`/`fail`;
    *  null = **unverified**, which is the normal state — see below. Freshness gated by
-   *  `functionHealthCheckedAt`. Powers the cockpit Require-Turnstile guardrail: a site with
+   *  `formE2eCheckedAt`, the clock of the audit that writes it. Powers the cockpit Require-Turnstile guardrail: a site with
    *  `requireTurnstile` ON but no working widget silently buckets 100% of its real leads.
    *
-   *  Only `"fail"` is derived from `/health`, whose `forms.turnstile` is a truthiness check
+   *  One of the two `"fail"` arms is derived from `/health` (the other is a browser seeing
+   *  110200 on the live hostname), whose `forms.turnstile` is a truthiness check
    *  on `PUBLIC_TURNSTILE_SITE_KEY` that never contacts Cloudflare (see
    *  audits/function-health-airtable.ts for the incident). No key IS proof the widget can't
    *  work; a key is NOT proof that it can — a sitekey whose widget is full at Cloudflare's
@@ -678,7 +679,15 @@ export type SmokeResult = { ok: "pass" | "fail"; checkedAt: string };
 
 /** `ok` null clears the single-select cell (n/a — no contact form); a fresh
  *  `checkedAt` still stamps the row so Plan 4 reads null+fresh as n/a. */
-export type FormE2eResult = { ok: "pass" | "fail" | null; checkedAt: string };
+export type FormE2eResult = {
+  /** Absent = no FORM verdict this run; the column and its stamp are left alone. */
+  ok?: "pass" | "fail" | null;
+  checkedAt: string;
+  /** The `Turnstile widget` verdict, owned by this audit since #689 — see
+   *  `formE2eFields`. Absent = no opinion this run (preserve); null = looked and
+   *  could not tell (clear). */
+  turnstileWidget?: "pass" | "fail" | null;
+};
 
 function scoreFields(scores: LighthouseScoreWriteback): FieldSet {
   // A null score CLEARS the cell (→ dashboard "—"), distinguishing a metric that
@@ -874,9 +883,14 @@ function functionHealthFields(r: FunctionHealthResult): FieldSet {
   const fields: Record<string, string | null> = {
     "Function health": r.functionHealth,
     "CMS Reachable": r.cmsReachable,
-    // Same null-clears semantics as "CMS Reachable": a body without a forms block means the
-    // widget state is unknown THIS run — clearing beats a stale verdict next to a fresh stamp.
-    "Turnstile widget": r.turnstileWidget,
+    // "Turnstile widget" is NOT written here any more. /health only knows whether
+    // PUBLIC_TURNSTILE_SITE_KEY is a non-empty string — it never contacts
+    // Cloudflare — so this audit cannot tell a working widget from one whose
+    // hostname is not on the allowlist (#689). The column is owned by `form-e2e`,
+    // which drives a real browser at the real widget and can. Writing it from
+    // both would also be unreachable by the red alarm: this sweep runs at 08:00,
+    // the digest reads at 09:23, form-e2e writes at 10:15 — a browser verdict
+    // would be cleared by this null every morning before the alarm ever saw it.
     "Function health checked at": r.checkedAt,
   };
   return fields as FieldSet;
@@ -894,10 +908,21 @@ function formE2eFields(r: FormE2eResult): FieldSet {
   // CLEARS the cell (→ n/a, distinguished from "never ran" by the fresh checked-at
   // stamped alongside). FieldSet's type omits null, hence the widened-record cast
   // (same approach as domainFields / netlifyDeployFields).
-  const fields: Record<string, string | null> = {
-    "Form E2E OK": r.ok,
-    "Form E2E checked at": r.checkedAt,
-  };
+  const fields: Record<string, string | null> = {};
+  // The FORM verdict and its stamp move together, and only when this run produced
+  // one. A run with no form verdict (the testMode-undeclared skip) writes neither,
+  // which preserves both — refreshing the stamp while preserving a stale verdict
+  // would present months-old evidence as fresh to auto-tick's `formsEvidence`.
+  if (r.ok !== undefined) {
+    fields["Form E2E OK"] = r.ok;
+    fields["Form E2E checked at"] = r.checkedAt;
+  }
+  // The Turnstile verdict rides this audit because it is the only one that opens
+  // a browser on the live form, where the site's REAL widget renders (the probe
+  // never swaps the sitekey). Written only when this run had an opinion: the key
+  // is ABSENT on a run that could not look, which preserves the prior verdict,
+  // and an explicit null is the distinct "looked, could not tell" that clears it.
+  if (r.turnstileWidget !== undefined) fields["Turnstile widget"] = r.turnstileWidget;
   return fields as FieldSet;
 }
 

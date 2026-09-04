@@ -229,8 +229,8 @@ export function assignTier(
       acceptKeys: ["turnstile-unverified", "turnstile unverified", "turnstile"],
       reason:
         site.turnstileWidget === "fail"
-          ? "Require Turnstile on; widget missing per a stale health sweep"
-          : "Require Turnstile on; widget not verifiable from /health",
+          ? "Require Turnstile on; widget broken per a stale browser check"
+          : "Require Turnstile on; widget not verified by a browser",
     });
   }
 
