@@ -25,6 +25,11 @@ export type FormE2eDetails = {
   ok: "pass" | "fail" | null;
   formPresent: boolean;
   checkedAt: string;
+  /** The Turnstile widget verdict this run earned, written to the same Websites
+   *  row and gated by the same `Form E2E checked at` stamp. Absent = this run had
+   *  no opinion, which PRESERVES whatever verdict is already there rather than
+   *  clearing it. See `turnstileVerdict`. */
+  turnstileWidget?: "pass" | "fail" | null;
 };
 
 /** Outcome of driving one site's contact form. `formPresent:false` ⇒ n/a
@@ -55,8 +60,43 @@ export type FormSubmitOutcome =
        *  re-filled once before the click. On a pass this is production proof the
        *  wipe happens; on a failure it says one refill wasn't enough. */
       refilled?: boolean;
+      /** What the site's REAL Turnstile widget did while the probe was on the
+       *  page. The probe does NOT swap the sitekey — `testSitekey` only names the
+       *  fake token VALUE it injects — so the real widget renders with the real
+       *  `PUBLIC_TURNSTILE_SITE_KEY` on every run, and this records what it did.
+       *  Undefined = not observed (an older runner, or the page never loaded). */
+      turnstile?: TurnstileObservation;
+      /** The `forms` block the preflight already read. Carried out rather than
+       *  re-fetched so the verdict cannot disagree with the gate that admitted
+       *  the probe. Undefined = an older runner that did not report it. */
+      formsHealth?: FormsHealth;
     }
   | { testModeUndeclared: true };
+
+/**
+ * What a browser saw the site's own Turnstile widget do. Only two of Cloudflare's
+ * failure modes are BROWSER-INDEPENDENT, and the distinction is the whole point:
+ *
+ * - `110200` is a domain-binding rejection, emitted before any challenge is
+ *   attempted. It means this hostname is not on the widget's allowlist, the widget
+ *   mints NO token, and on a `Require Turnstile` site every real lead is bucketed
+ *   as spam. It fires identically for a human and for automation, so a probe can
+ *   assert on it.
+ * - `600010` is a challenge failure, and Cloudflare returns it to ANY driven
+ *   browser whatever the configuration — measured 2026-09-04 against the
+ *   known-good reddoorla.com canary and against Playwright headed and headless,
+ *   while the same page in an ordinary Chrome window minted a token siteverify
+ *   accepted. It carries NO information about the site and must never be a verdict.
+ *
+ * `rendered` says a `.cf-turnstile` mount point was in the DOM at all, which is
+ * how "the site ships no widget" is told apart from "the widget is fine".
+ */
+export type TurnstileObservation = {
+  /** A `.cf-turnstile` container was present on the submitted form's page. */
+  rendered: boolean;
+  /** An uncaught `110200` was seen — the hostname is not on the widget. */
+  hostnameRejected: boolean;
+};
 
 /**
  * Work a REAL submission does that a `testMode` probe never reaches. The marker
@@ -125,6 +165,71 @@ export type FormRunner = {
   }) => Promise<FormSubmitOutcome>;
   close?: () => Promise<void>;
 };
+
+/**
+ * The site's `/health` `forms` block, read once in the preflight. `testMode` gates
+ * whether the probe may submit at all; `turnstile` is `!!PUBLIC_TURNSTILE_SITE_KEY`
+ * on the deployed site — it says a sitekey is CONFIGURED and nothing more, since
+ * /health never contacts Cloudflare. Null = absent or malformed (an older site
+ * package whose /health has no such key).
+ */
+export type FormsHealth = { testMode: boolean; turnstile: boolean | null };
+
+/**
+ * The `Turnstile widget` verdict, from the two things one form-e2e run knows: what
+ * the deployed site's /health declares, and what a real browser saw the real widget
+ * do. PURE.
+ *
+ * Asymmetric on purpose, and each arm is a claim the evidence actually supports:
+ *
+ *   turnstile:false           → "fail"  no sitekey deployed. /health is CONCLUSIVE
+ *                                       here — an empty env var cannot mint a token.
+ *   hostnameRejected          → "fail"  a browser saw 110200 on the live hostname.
+ *                                       The widget mints nothing; under Require
+ *                                       Turnstile that is 100% lead loss.
+ *   rendered, no 110200       → "pass"  a browser loaded the real widget on the real
+ *                                       hostname and it was not domain-rejected.
+ *   turnstile:true, no browser→ null    a key is set and nothing looked. UNVERIFIED —
+ *                                       never "pass", which is the whole lesson of
+ *                                       #689.
+ *   key set but no container  → null    the page carries no `.cf-turnstile` mount.
+ *                                       Could be a form the widget isn't on; not
+ *                                       evidence either way.
+ *
+ * What "pass" DOES NOT mean: that a human can solve the challenge. No automated
+ * browser can establish that — Cloudflare answers automation with 600010 whatever
+ * the config — so `pass` is precisely "the widget is deployed and is not
+ * mis-hostnamed", which is the failure mode that silently loses leads. The runbook
+ * (docs/runbooks/turnstile-widgets.md) states the same limit.
+ */
+/**
+ * Matches ONLY Cloudflare's own domain-binding rejection. Anchored on the
+ * `[Cloudflare Turnstile]` prefix on purpose: a bare `/110200/` would match any
+ * page that happens to print those six digits (an order id, a phone number, a
+ * stack offset), and this feeds a RED alarm on a gated site — a false positive
+ * here reads as "your form is losing every lead". Verbatim sample, from
+ * vida-legacy-foundation's live /contact on 2026-09-04:
+ *
+ *   TurnstileError: [Cloudflare Turnstile] Error: 110200.
+ *
+ * 600010 deliberately does NOT match: Cloudflare returns it to every driven
+ * browser regardless of configuration, so it is the harness's signature, not the
+ * site's. See TurnstileObservation.
+ */
+export const TURNSTILE_HOSTNAME_REJECTED = /\[Cloudflare Turnstile\][^\n]*?\b110200\b/;
+
+export function turnstileVerdict(
+  health: FormsHealth,
+  observed: TurnstileObservation | undefined,
+): "pass" | "fail" | null {
+  // No key deployed — conclusive from /health alone, no browser needed. Checked
+  // FIRST so it still lands on a site the probe never opened a browser for.
+  if (health.turnstile === false) return "fail";
+  if (!observed) return null;
+  if (observed.hostnameRejected) return "fail";
+  if (!observed.rendered) return null;
+  return "pass";
+}
 
 /** Opt-in gate for the live Playwright fallback. `defaultFormRunner` drives a REAL
  *  browser against `site.deployedUrl` and submits the REAL production contact form.
@@ -209,7 +314,33 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
       };
     }
     const ok: "pass" | "fail" = outcome.success ? "pass" : "fail";
-    const details = { ok, formPresent: true, checkedAt } satisfies FormE2eDetails;
+    // The Turnstile verdict rides this run, and ONLY this run — the browser path.
+    // It is deliberately NOT written on the testModeUndeclared skip above: that
+    // path preserves the prior Form E2E verdict by writing nothing at all, and
+    // refreshing its checked-at stamp to carry a turnstile verdict would make a
+    // stale form verdict look fresh to auto-tick.ts's `formsEvidence` — the exact
+    // bug class this change exists to close. A site that is gated before testMode
+    // forwarding reaches it therefore gets the amber "can't verify" watch, which
+    // is the truth: nothing is verifying it. See the rollout runbook.
+    // A runner that reported NEITHER field observed nothing — an injected fake, or
+    // a runner older than this change. That is "no opinion", which must leave the
+    // existing verdict alone; it is NOT the same as `null`, which means "looked and
+    // could not tell" and CLEARS the cell. Collapsing the two would let a probe
+    // that cannot see Turnstile erase a real verdict, which is the silent-downgrade
+    // shape of #689 pointing the other way.
+    const observed = outcome.turnstile !== undefined || outcome.formsHealth !== undefined;
+    const turnstileWidget = observed
+      ? turnstileVerdict(
+          outcome.formsHealth ?? { testMode: true, turnstile: null },
+          outcome.turnstile,
+        )
+      : undefined;
+    const details = {
+      ok,
+      formPresent: true,
+      checkedAt,
+      ...(turnstileWidget !== undefined ? { turnstileWidget } : {}),
+    } satisfies FormE2eDetails;
     if (!outcome.success) {
       return {
         audit: "form-e2e",
@@ -320,18 +451,40 @@ export async function findFormPath(
  * non-boolean flag all return false — the probe then refuses to submit.
  */
 export async function declaresTestModeForwarding(baseUrl: string): Promise<boolean> {
+  return (await readFormsHealth(baseUrl)).testMode;
+}
+
+/**
+ * The site's `/health` `forms` block. One fetch answers BOTH questions the probe
+ * needs: may it submit (`testMode`), and does the site claim a Turnstile sitekey
+ * (`turnstile`). Split out from `declaresTestModeForwarding` — which stays as the
+ * safety predicate it always was — so the turnstile verdict costs no extra request
+ * and cannot disagree with the gate that let the probe run.
+ *
+ * Everything unreachable degrades to the SAFE side of each field independently:
+ * `testMode:false` refuses the submit, `turnstile:null` means "unknown", never
+ * "no key" — a network blip must not manufacture a `fail`.
+ */
+export async function readFormsHealth(baseUrl: string): Promise<FormsHealth> {
+  const unknown: FormsHealth = { testMode: false, turnstile: null };
   try {
     const res = await fetch(new URL("/health", baseUrl), {
       signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
     });
-    if (!res.ok) return false;
+    if (!res.ok) return unknown;
     const body: unknown = await res.json();
-    if (typeof body !== "object" || body === null) return false;
+    if (typeof body !== "object" || body === null) return unknown;
     const forms = (body as Record<string, unknown>).forms;
-    if (typeof forms !== "object" || forms === null) return false;
-    return (forms as Record<string, unknown>).testMode === true;
+    if (typeof forms !== "object" || forms === null) return unknown;
+    const f = forms as Record<string, unknown>;
+    return {
+      testMode: f.testMode === true,
+      // Strictly boolean. A missing or malformed key is unknown, NOT false —
+      // "no sitekey" is a conclusive fail downstream and must be earned.
+      turnstile: typeof f.turnstile === "boolean" ? f.turnstile : null,
+    };
   } catch {
-    return false;
+    return unknown;
   }
 }
 
@@ -410,9 +563,13 @@ export async function defaultFormRunner(): Promise<FormRunner> {
   return {
     async submit({ baseUrl, testSitekey }) {
       // Per-site safety preflight — refuse before a browser even launches.
-      if (!(await declaresTestModeForwarding(baseUrl))) {
+      const formsHealth = await readFormsHealth(baseUrl);
+      if (!formsHealth.testMode) {
         return { testModeUndeclared: true };
       }
+      // Hoisted above the try: the catch below reports what the widget did, and
+      // the listener that sets this is attached inside.
+      let turnstileHostnameRejected = false;
       const browser = await chromium.launch();
       try {
         const ctx = await browser.newContext();
@@ -422,14 +579,44 @@ export async function defaultFormRunner(): Promise<FormRunner> {
         // for the failure detail — on 2026-08-31 this was the discriminator
         // between reddoor's failing probe and its passing ones.
         let hydrationMismatch = false;
+        // The site's REAL Turnstile widget renders here — the probe never swaps
+        // the sitekey (see the note on TurnstileObservation), so this is the one
+        // place in the fleet that sees a production widget on its production
+        // hostname. Attached at page creation, BEFORE any navigation: api.js
+        // throws during load, so a listener added later misses it entirely.
+        // Both channels, because Cloudflare surfaces the rejection as an uncaught
+        // error AND (separately) as a console error next to the 400 from
+        // challenges.cloudflare.com; either alone is enough, and the flag is
+        // monotonic so a double report is harmless.
+        const noteTurnstile = (text: string) => {
+          if (TURNSTILE_HOSTNAME_REJECTED.test(text)) turnstileHostnameRejected = true;
+        };
+        page.on("pageerror", (err) => noteTurnstile(String(err?.message ?? err)));
         page.on("console", (msg) => {
           if (msg.text().includes("hydration_mismatch")) hydrationMismatch = true;
+          if (msg.type() === "error") noteTurnstile(msg.text());
         });
         // Probe each candidate route; none carrying a form ⇒ no contact form (n/a).
         // findFormPath leaves the page on the route it selected, so the fills below
         // act on the form it found.
         const found = await findFormPath(page as unknown as FormProbePage, baseUrl);
         if (!found) return { formPresent: false };
+
+        // Sampled on the route findFormPath SETTLED on, so a `.cf-turnstile` seen
+        // on `/contact` is never attributed to a `/` probe or vice versa. The
+        // container is server-rendered by the starter's TurnstileWidget (its
+        // `{#if turnstileSiteKey}` runs during SSR), so it is present at
+        // domcontentloaded and needs no wait — unlike the iframe, which invisible
+        // mode never leaves behind and which is therefore NOT a health signal.
+        const turnstileRendered = await page
+          .locator(".cf-turnstile")
+          .count()
+          .then((n) => n > 0)
+          .catch(() => false);
+        const turnstileSeen = (): TurnstileObservation => ({
+          rendered: turnstileRendered,
+          hostnameRejected: turnstileHostnameRejected,
+        });
 
         // Inject the testMode marker + a Turnstile token into the submitted form.
         // The site declared forwarding (preflight above), so the marker routes the
@@ -574,6 +761,8 @@ export async function defaultFormRunner(): Promise<FormRunner> {
             elapsedMs,
             ...(postElapsedMs !== undefined ? { postElapsedMs } : {}),
             ...(refilled ? { refilled } : {}),
+            turnstile: turnstileSeen(),
+            formsHealth,
           };
         const actionResp = await postResponse;
         const alertText = await page
@@ -613,9 +802,22 @@ export async function defaultFormRunner(): Promise<FormRunner> {
           success: false,
           ...(refilled ? { refilled } : {}),
           detail: noBannerDetail({ post, alertText, formState, hydrationMismatch, refilled }),
+          turnstile: turnstileSeen(),
+          formsHealth,
         };
       } catch (err) {
-        return { formPresent: true, success: false, detail: String(err).slice(0, 120) };
+        // A thrown probe still carries whatever the widget did — the listener is
+        // attached at page creation and the flag is monotonic, so a 110200 seen
+        // before the throw is real evidence and must not be discarded. `rendered`
+        // is not: the sample may not have been reached, and its initializer is
+        // out of scope here, so this reports the conservative "not observed".
+        return {
+          formPresent: true,
+          success: false,
+          detail: String(err).slice(0, 120),
+          turnstile: { rendered: false, hostnameRejected: turnstileHostnameRejected },
+          formsHealth,
+        };
       } finally {
         await browser.close().catch(() => {});
       }

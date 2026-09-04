@@ -123,11 +123,30 @@ renders nothing, no widget initialises, and no `TurnstileError` is ever thrown.
 The guard is correct and, as the fleet is configured, **inert**. It defends a
 site's own CI only where that key is present.
 
-**So the honest coverage today is: nothing automated observes a production
-Turnstile widget on its production hostname.** `/health` sees an env var; the
-smoke suite sees a keyless local build; `form-e2e` sees the real widget and
-ignores it. Step 5 above — a human, once, in an ordinary browser — is the whole
-of it.
+**Since 2026-09-04 `form-e2e` no longer ignores it.** It owns the `Turnstile
+widget` column and writes a verdict from what a real browser saw on the real
+hostname:
+
+| what the nightly probe saw                 | verdict            |
+| ------------------------------------------ | ------------------ |
+| `/health` says no sitekey deployed         | `fail`             |
+| an uncaught `110200` on the live page      | `fail`             |
+| the real widget rendered, no `110200`      | `pass`             |
+| a key is set but no widget was on the page | `null`             |
+| the probe never opened a browser here      | _(cell untouched)_ |
+
+**`pass` means "deployed and not mis-hostnamed" — not "a human can solve it".**
+Nothing automated can establish the latter, so step 5 above is still the only
+proof of that, and is still worth doing once per hostname.
+
+**PRECONDITION, and it is new:** the verdict only exists for sites the probe
+opens a browser on, which means sites that declare `forms.testMode` in `/health`.
+**Roll out testMode forwarding before you check `Require Turnstile`**, or the
+gate is on with nothing verifying the widget — the cockpit will say exactly that
+(the amber `turnstile-unverified` watch), which is honest but is not cover.
+
+`/health` still sees only an env var, and the smoke suite still sees a keyless
+local build. Neither is a Turnstile check.
 
 ## At launch (custom domain)
 

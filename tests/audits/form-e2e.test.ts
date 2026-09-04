@@ -104,6 +104,96 @@ describe("audits/form-e2e", () => {
     expect(r.summary).toMatch(/testMode/);
   });
 
+  describe("the Turnstile widget verdict (#689)", () => {
+    /** Run the audit against a fake runner reporting one widget observation. */
+    async function verdictFor(
+      extra: Record<string, unknown>,
+    ): Promise<"pass" | "fail" | null | undefined> {
+      const r = await formE2eAudit({
+        site,
+        now: NOW,
+        formRunner: {
+          submit: async () => ({ formPresent: true, success: true, ...extra }),
+        },
+      });
+      return (r.details as { turnstileWidget?: "pass" | "fail" | null } | undefined)
+        ?.turnstileWidget;
+    }
+
+    it("earns the pass only from a browser that saw the real widget un-rejected", async () => {
+      expect(
+        await verdictFor({
+          formsHealth: { testMode: true, turnstile: true },
+          turnstile: { rendered: true, hostnameRejected: false },
+        }),
+      ).toBe("pass");
+    });
+
+    it("fails on 110200 — the hostname is not on the widget's allowlist", async () => {
+      // The state that silently loses 100% of leads on a Require Turnstile site,
+      // and the one thing nothing in the fleet observed before this change.
+      expect(
+        await verdictFor({
+          formsHealth: { testMode: true, turnstile: true },
+          turnstile: { rendered: false, hostnameRejected: true },
+        }),
+      ).toBe("fail");
+    });
+
+    it("fails when the deployed site has no sitekey at all", async () => {
+      expect(
+        await verdictFor({
+          formsHealth: { testMode: true, turnstile: false },
+          turnstile: { rendered: false, hostnameRejected: false },
+        }),
+      ).toBe("fail");
+    });
+
+    it("clears to null when a key is set but no widget was on the page", async () => {
+      expect(
+        await verdictFor({
+          formsHealth: { testMode: true, turnstile: true },
+          turnstile: { rendered: false, hostnameRejected: false },
+        }),
+      ).toBeNull();
+    });
+
+    it("OMITS the key entirely when the runner observed nothing — preserve, not clear", async () => {
+      // A runner older than this change, or an injected fake. Absent means "no
+      // opinion" and leaves the existing verdict alone; null would CLEAR it. The
+      // two must never collapse, or a probe that cannot see Turnstile erases a
+      // real verdict.
+      expect(await verdictFor({})).toBeUndefined();
+      const r = await formE2eAudit({
+        site,
+        now: NOW,
+        formRunner: { submit: async () => ({ formPresent: true, success: true }) },
+      });
+      expect(Object.keys(r.details as object)).not.toContain("turnstileWidget");
+    });
+
+    it("never lets a Turnstile observation change the FORM verdict", async () => {
+      // The form probe's own pass/fail is what the health gate reads. A broken
+      // widget is a Turnstile problem, not a form problem, and must not red it.
+      const r = await formE2eAudit({
+        site,
+        now: NOW,
+        formRunner: {
+          submit: async () => ({
+            formPresent: true,
+            success: true,
+            formsHealth: { testMode: true, turnstile: true },
+            turnstile: { rendered: true, hostnameRejected: true },
+          }),
+        },
+      });
+      const d = r.details as { ok: string; turnstileWidget: string };
+      expect(d.ok).toBe("pass");
+      expect(d.turnstileWidget).toBe("fail");
+      expect(r.status).not.toBe("fail");
+    });
+  });
+
   it("passes the CF public test sitekey + testMode marker to the runner", async () => {
     let seen: { baseUrl: string; testMode: boolean; testSitekey: string } | undefined;
     await formE2eAudit({
