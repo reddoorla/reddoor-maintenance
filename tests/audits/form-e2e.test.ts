@@ -62,7 +62,12 @@ describe("audits/form-e2e", () => {
   it("passes when the synthetic submission succeeds", async () => {
     const r = await formE2eAudit({ site, now: NOW, formRunner: runner() });
     expect(r.status).toBe("pass");
-    expect(r.details).toEqual({ ok: "pass", formPresent: true, checkedAt: NOW.toISOString() });
+    expect(r.details).toEqual({
+      ok: "pass",
+      formPresent: true,
+      checkedAt: NOW.toISOString(),
+      turnstileWidget: null,
+    });
   });
 
   it("warns + records ok:fail when the submission does not succeed", async () => {
@@ -86,8 +91,16 @@ describe("audits/form-e2e", () => {
     });
     // Skip STATUS (nothing to assert on the CLI), but WITH details so the writer
     // persists the n/a signal: null verdict + fresh checkedAt (Plan 4 reads that as n/a).
+    // The Turnstile verdict rides along because this path REFRESHES the stamp that
+    // ages it — a verdict must never be older than the clock that decides whether
+    // it is still true.
     expect(r.status).toBe("skip");
-    expect(r.details).toEqual({ ok: null, formPresent: false, checkedAt: NOW.toISOString() });
+    expect(r.details).toEqual({
+      ok: null,
+      formPresent: false,
+      checkedAt: NOW.toISOString(),
+      turnstileWidget: null,
+    });
   });
 
   it("skips (no details) when the runner reports the site does not declare testMode forwarding", async () => {
@@ -97,9 +110,12 @@ describe("audits/form-e2e", () => {
       formRunner: runner({ submit: async () => ({ testModeUndeclared: true }) }),
     });
     // Plain skip, NO details: this is "not yet rolled out here", not n/a — the
-    // prior verdict (or unknown) must be preserved, never overwritten.
+    // The FORM verdict must be preserved, never overwritten — so `ok` and the
+    // stamp are absent. The TURNSTILE verdict is explicitly cleared to null:
+    // nothing can browse this site, and a legacy "fail" left frozen in that cell
+    // would page forever with no writer able to correct it.
     expect(r.status).toBe("skip");
-    expect(r.details).toBeUndefined();
+    expect(r.details).toEqual({ checkedAt: "2026-07-06T00:00:00.000Z", turnstileWidget: null });
     expect(r.summary).toMatch(/does not declare/);
     expect(r.summary).toMatch(/testMode/);
   });
@@ -124,7 +140,12 @@ describe("audits/form-e2e", () => {
       expect(
         await verdictFor({
           formsHealth: { testMode: true, turnstile: true },
-          turnstile: { rendered: true, hostnameRejected: false },
+          turnstile: {
+            containerPresent: true,
+            scriptLoaded: true,
+            hostnameRejected: false,
+            initFailed: false,
+          },
         }),
       ).toBe("pass");
     });
@@ -135,7 +156,12 @@ describe("audits/form-e2e", () => {
       expect(
         await verdictFor({
           formsHealth: { testMode: true, turnstile: true },
-          turnstile: { rendered: false, hostnameRejected: true },
+          turnstile: {
+            containerPresent: false,
+            scriptLoaded: true,
+            hostnameRejected: true,
+            initFailed: false,
+          },
         }),
       ).toBe("fail");
     });
@@ -144,7 +170,12 @@ describe("audits/form-e2e", () => {
       expect(
         await verdictFor({
           formsHealth: { testMode: true, turnstile: false },
-          turnstile: { rendered: false, hostnameRejected: false },
+          turnstile: {
+            containerPresent: false,
+            scriptLoaded: false,
+            hostnameRejected: false,
+            initFailed: false,
+          },
         }),
       ).toBe("fail");
     });
@@ -153,23 +184,29 @@ describe("audits/form-e2e", () => {
       expect(
         await verdictFor({
           formsHealth: { testMode: true, turnstile: true },
-          turnstile: { rendered: false, hostnameRejected: false },
+          turnstile: {
+            containerPresent: false,
+            scriptLoaded: false,
+            hostnameRejected: false,
+            initFailed: false,
+          },
         }),
       ).toBeNull();
     });
 
-    it("OMITS the key entirely when the runner observed nothing — preserve, not clear", async () => {
-      // A runner older than this change, or an injected fake. Absent means "no
-      // opinion" and leaves the existing verdict alone; null would CLEAR it. The
-      // two must never collapse, or a probe that cannot see Turnstile erases a
-      // real verdict.
-      expect(await verdictFor({})).toBeUndefined();
+    it("writes null — not absent — when a stamping run observed nothing", async () => {
+      // This path refreshes `Form E2E checked at`, the clock the CRITICAL alarm
+      // ages the verdict against, so it must never leave an OLDER verdict beside a
+      // fresh stamp. A runner that reported nothing knows nothing: null, "looked
+      // and cannot tell", which can never produce a red. (The absent-means-preserve
+      // case belongs to the paths that do not stamp — see the testMode skip.)
+      expect(await verdictFor({})).toBeNull();
       const r = await formE2eAudit({
         site,
         now: NOW,
         formRunner: { submit: async () => ({ formPresent: true, success: true }) },
       });
-      expect(Object.keys(r.details as object)).not.toContain("turnstileWidget");
+      expect(Object.keys(r.details as object)).toContain("turnstileWidget");
     });
 
     it("never lets a Turnstile observation change the FORM verdict", async () => {
@@ -183,7 +220,12 @@ describe("audits/form-e2e", () => {
             formPresent: true,
             success: true,
             formsHealth: { testMode: true, turnstile: true },
-            turnstile: { rendered: true, hostnameRejected: true },
+            turnstile: {
+              containerPresent: true,
+              scriptLoaded: true,
+              hostnameRejected: true,
+              initFailed: false,
+            },
           }),
         },
       });
@@ -368,7 +410,12 @@ describe("audits/form-e2e ingest budget headroom", () => {
     expect(r.summary).toMatch(/BUDGET_THIN/);
     // …but the form DOES work, so the persisted cockpit verdict stays "pass".
     // Flipping it to "fail" would report a working form as broken.
-    expect(r.details).toEqual({ ok: "pass", formPresent: true, checkedAt: NOW.toISOString() });
+    expect(r.details).toEqual({
+      ok: "pass",
+      formPresent: true,
+      checkedAt: NOW.toISOString(),
+      turnstileWidget: null,
+    });
   });
 
   it("leaves the verdict alone when the runner reports no timing", async () => {
@@ -544,7 +591,12 @@ describe("audits/form-e2e refill surfacing", () => {
     expect(r.status).toBe("pass");
     expect(r.summary).toMatch(/re-filled/);
     // The verdict and persisted details stay a clean pass — the form works.
-    expect(r.details).toEqual({ ok: "pass", formPresent: true, checkedAt: NOW.toISOString() });
+    expect(r.details).toEqual({
+      ok: "pass",
+      formPresent: true,
+      checkedAt: NOW.toISOString(),
+      turnstileWidget: null,
+    });
   });
 
   it("keeps a plain pass summary when nothing was wiped", async () => {

@@ -310,17 +310,16 @@ const ANALYTICS_SOFT_FAIL_STALE_DAYS = 45;
  * signal here; the report cron additionally emails a single concise fleet-wide alert
  * (see `assessAnalyticsAlert`). `now` injected, defaults to wall-clock.
  */
-/** A function-health sweep older than this can't confirm the CURRENT widget state.
- *  The sweep is nightly, so 3 days (mirrors GITHUB_SIGNALS_STALE_DAYS) tolerates a
- *  weekend of runner flakes without letting a months-old verdict drive an alarm. */
+/** A form-e2e run older than this can't confirm the CURRENT widget state. The run
+ *  is nightly, so 3 days (mirrors GITHUB_SIGNALS_STALE_DAYS) tolerates a weekend of
+ *  runner flakes without letting a months-old verdict drive an alarm. */
 const TURNSTILE_WIDGET_STALE_DAYS = 3;
 
 /**
- * One CRITICAL attention item per site with `Require Turnstile` ON whose deployed
- * `/health` reports the Turnstile widget NOT configured (`turnstileWidget === "fail"`,
- * fresh per {@link TURNSTILE_WIDGET_STALE_DAYS}). That combination silently buckets
- * 100% of the site's real leads (token-less submissions escalate to spam_auto with
- * notify skipped) and the form-e2e probe cannot see it — testMode bypasses the gate —
+ * One CRITICAL attention item per site with `Require Turnstile` ON whose Turnstile
+ * widget is known BROKEN (`turnstileWidget === "fail"`, fresh per
+ * {@link TURNSTILE_WIDGET_STALE_DAYS}). That combination silently buckets 100% of the
+ * site's real leads (token-less submissions escalate to spam_auto with notify skipped),
  * so the operator's inbox just goes quiet. PURE. Keyed `turnstile:<siteId>`. Because
  * this is an AttentionItem it rides assignTier's items short-circuit, which sits ABOVE
  * the accepted-watch mute loop — an accept key can never silence it. A null verdict or
@@ -335,7 +334,15 @@ export function collectTurnstileGuardrailAlerts(
   const items: AttentionItem[] = [];
   for (const s of sites) {
     if (!s.requireTurnstile || s.turnstileWidget !== "fail") continue;
-    const at = s.functionHealthCheckedAt;
+    // The stamp of the audit that OWNS the verdict, not function-health's.
+    // `form-e2e` took ownership of `turnstileWidget` (#689) because only it opens
+    // a browser on the real widget; function-health merely re-stamped its own
+    // clock at 08:00 whether or not anything had looked at Turnstile, so gating on
+    // it would age a verdict against a timer that never stops — freezing a stale
+    // "fail" into a red that pages every morning and can never be muted. Verdict
+    // and stamp are now written in the SAME FieldSet (`formE2eFields`), so they
+    // always move together; `turnstile-freshness.test.ts` pins that coupling.
+    const at = s.formE2eCheckedAt;
     if (at !== null) {
       const ageMs = now.getTime() - Date.parse(at);
       // Parseable and beyond the window → stale, downgraded to assignTier's watch.

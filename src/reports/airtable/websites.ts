@@ -679,7 +679,8 @@ export type SmokeResult = { ok: "pass" | "fail"; checkedAt: string };
 /** `ok` null clears the single-select cell (n/a — no contact form); a fresh
  *  `checkedAt` still stamps the row so Plan 4 reads null+fresh as n/a. */
 export type FormE2eResult = {
-  ok: "pass" | "fail" | null;
+  /** Absent = no FORM verdict this run; the column and its stamp are left alone. */
+  ok?: "pass" | "fail" | null;
   checkedAt: string;
   /** The `Turnstile widget` verdict, owned by this audit since #689 — see
    *  `formE2eFields`. Absent = no opinion this run (preserve); null = looked and
@@ -906,10 +907,15 @@ function formE2eFields(r: FormE2eResult): FieldSet {
   // CLEARS the cell (→ n/a, distinguished from "never ran" by the fresh checked-at
   // stamped alongside). FieldSet's type omits null, hence the widened-record cast
   // (same approach as domainFields / netlifyDeployFields).
-  const fields: Record<string, string | null> = {
-    "Form E2E OK": r.ok,
-    "Form E2E checked at": r.checkedAt,
-  };
+  const fields: Record<string, string | null> = {};
+  // The FORM verdict and its stamp move together, and only when this run produced
+  // one. A run with no form verdict (the testMode-undeclared skip) writes neither,
+  // which preserves both — refreshing the stamp while preserving a stale verdict
+  // would present months-old evidence as fresh to auto-tick's `formsEvidence`.
+  if (r.ok !== undefined) {
+    fields["Form E2E OK"] = r.ok;
+    fields["Form E2E checked at"] = r.checkedAt;
+  }
   // The Turnstile verdict rides this audit because it is the only one that opens
   // a browser on the live form, where the site's REAL widget renders (the probe
   // never swaps the sitekey). Written only when this run had an opinion: the key
