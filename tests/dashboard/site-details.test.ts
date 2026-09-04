@@ -40,6 +40,46 @@ describe("setSiteDetail", () => {
     expect(read).toBe(false);
   });
 
+  describe("the site's own url", () => {
+    // A site's url is the target every deployed audit drives — function-health,
+    // lighthouse, browser, form-e2e all read it as `deployedUrl`
+    // (src/inventory/airtable.ts). It was writable ONLY at creation
+    // (`ensure-site`), and post-#643 Airtable hand-editing is retired, so a site
+    // that moved — a rename, a staging host, a custom domain at launch — could
+    // not be corrected anywhere. Found on vida-legacy-foundation, whose row
+    // pointed at a hostname that 404s.
+
+    it("writes to the `url` column", async () => {
+      const { deps, writes } = harness();
+      const r = await setSiteDetail(
+        deps,
+        "acme",
+        "url",
+        "https://vida-legacy-foundation-rd.netlify.app",
+      );
+      expect(r.status).toBe("updated");
+      expect(writes).toEqual([
+        { id: "recA", column: "url", value: "https://vida-legacy-foundation-rd.netlify.app" },
+      ]);
+    });
+
+    it("refuses a non-http(s) url without writing", async () => {
+      // The same scheme allowlist the deployed-audit target uses: this value is
+      // handed to Chrome/lhci and fetched server-side, so a file:// or
+      // javascript: cell is a local-file read or an injection sink, not a typo.
+      for (const bad of ["file:///etc/passwd", "javascript:alert(1)", "gopher://x", "notaurl"]) {
+        const { deps, writes } = harness();
+        const r = await setSiteDetail(deps, "acme", "url", bad);
+        expect(r.status, bad).toBe("invalid");
+        expect(writes, bad).toEqual([]);
+      }
+    });
+
+    it("is declared as a url field, so the allowlist above is what validates it", () => {
+      expect(EDITABLE_SITE_FIELDS["url"]).toEqual({ column: "url", kind: "url" });
+    });
+  });
+
   it("writes an enum field to its exact Airtable column", async () => {
     const { deps, writes } = harness();
     const r = await setSiteDetail(deps, "acme", "status", "hosted-only");
