@@ -80,19 +80,54 @@ no widget. That is expected.
    known-good `reddoorla.com` canary reported 600010, Playwright's Chromium
    reported it headed and headless alike, and the same page in an ordinary Chrome
    window minted a token that `siteverify` accepted. **600010 from automation
-   tells you nothing.** That is also why `form-e2e` swaps in Cloudflare's
-   always-pass test sitekey (`form-e2e.ts:11,187`) — it exercises the form, never
-   the real widget, so do not read a green form-e2e as proof of this step.
+   tells you nothing** — do not read it as a defect, and do not read a green
+   `form-e2e` as proof of this step either.
 
    What automation CAN prove is the negative, and it is the one that matters:
 
    > **110200 is never ambiguous — it means the hostname is not on the widget.**
 
-   Unlike 600010 it does not depend on the browser being human, so the smoke
-   suite fails on it: an uncaught `TurnstileError` is not allowlisted, only
-   console telemetry is (`src/recipes/smoke-suite/template.ts`). A green smoke
-   run rules out the wrong-hostname state; it does not establish the widget
-   solves. Only step 5 does that.
+   Unlike 600010 it does not depend on the browser being human: it is a
+   domain-binding rejection, emitted before any challenge is attempted. **Nothing
+   in the fleet asserts on it today**, which is the open gap — see below.
+
+## What is NOT watching this (corrected 2026-09-04)
+
+Two claims written into this runbook and into
+[#689](https://github.com/reddoorla/reddoor-maintenance/issues/689) the same day
+were **wrong**. Both overstated the coverage, which is the dangerous direction,
+so they are corrected here rather than quietly edited away.
+
+**1. `form-e2e` does NOT swap the sitekey.** The earlier text said it "swaps in
+Cloudflare's always-pass test sitekey … it exercises the form, never the real
+widget". Read the code: `CF_TEST_SITEKEY` (`form-e2e.ts:11`) reaches exactly one
+expression — `` const tokenValue = `testmode-${testSitekey}` `` (`:444`) — which
+is injected at `:460` as the **value** of a hidden `cf-turnstile-response` input.
+Nothing writes `data-sitekey`, nothing calls `page.route` or `addInitScript`.
+**The site's real widget renders with its real key on every nightly run**, which
+the code's own comment at `:501` already knew: "the Turnstile widget inserts its
+OWN input with that name while it renders (an erroring widget included)".
+
+So the nightly probe is already generating the evidence and discarding it. It
+launches a browser against 6 sites' live contact forms (the audited fleet is 13;
+7 refuse at the `forms.testMode` preflight, `form-e2e.ts:413`). Wiring the 110200
+observation into a verdict is the open work.
+
+**2. The smoke suite's 110200 guard cannot fire in the fleet run.**
+`src/recipes/smoke-suite/template.ts` really does keep an uncaught
+`TurnstileError` out of its allowlist — but `fleet-smoke` is **clone-based**: it
+clones each site and runs the site's own `pnpm test:smoke` against a local dev
+server (`.github/workflows/fleet-smoke.yml:3-8`). `PUBLIC_TURNSTILE_SITE_KEY` is
+a Netlify env var and is not in the clone, so the starter's `TurnstileWidget`
+renders nothing, no widget initialises, and no `TurnstileError` is ever thrown.
+The guard is correct and, as the fleet is configured, **inert**. It defends a
+site's own CI only where that key is present.
+
+**So the honest coverage today is: nothing automated observes a production
+Turnstile widget on its production hostname.** `/health` sees an env var; the
+smoke suite sees a keyless local build; `form-e2e` sees the real widget and
+ignores it. Step 5 above — a human, once, in an ordinary browser — is the whole
+of it.
 
 ## At launch (custom domain)
 
