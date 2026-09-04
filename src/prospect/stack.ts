@@ -284,7 +284,14 @@ export function readStack(crawl: CrawlResult): StackReadout {
 
   const assetUrls: string[] = [];
   for (const { extract } of readable) {
-    assetUrls.push(...(extract.scriptSrcs ?? []), ...(extract.imageSrcs ?? []));
+    // Hosts named inside inline scripts count too: a deferred loader is still
+    // a tool this site runs, and naming only what was loaded at crawl time
+    // would leave the readout silent about every consent-gated tag.
+    assetUrls.push(
+      ...(extract.scriptSrcs ?? []),
+      ...(extract.imageSrcs ?? []),
+      ...(extract.inlineScriptHosts ?? []),
+    );
   }
 
   // Generators BEFORE assets, because the first receipt for a name is the one

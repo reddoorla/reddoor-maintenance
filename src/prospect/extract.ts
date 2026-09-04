@@ -11,6 +11,22 @@ export const MAX_ANCHORS = 300;
  *  page can inject a hundred of these; `scriptCount` reports the true total. */
 export const MAX_SCRIPTS = 120;
 
+/** Same discipline again, for `PageExtract.inlineScriptHosts`. A tag manager
+ *  bootstrap names a handful of hosts; nothing legitimate names forty. */
+export const MAX_INLINE_HOSTS = 40;
+
+/** Hostnames appearing in a string of JavaScript. Deliberately blunt: this
+ *  answers "does this script mention googletagmanager.com", not "what will it
+ *  load", and the distinction is carried in the field's name. */
+function hostsIn(code: string): string[] {
+  const found = new Set<string>();
+  for (const m of code.matchAll(/https?:\/\/([a-z0-9.-]+\.[a-z]{2,})/gi)) {
+    found.add(m[1]!.toLowerCase());
+    if (found.size >= MAX_INLINE_HOSTS) break;
+  }
+  return [...found];
+}
+
 /** Input types that are not a field a visitor fills in. `hidden` carries CSRF
  *  tokens and form ids; the button types are the control, not the question.
  *
@@ -141,6 +157,7 @@ type Collected = {
   /** `src` of each `<script src>`, in document order. Inline scripts are not
    *  collected — see `PageExtract.scriptSrcs`. */
   scriptSrcs: string[];
+  inlineScriptHosts: string[];
 };
 
 /** One ordered pass for the element-level signals. Document order matters: the
@@ -180,7 +197,21 @@ function collect(el: HTMLElement, out: Collected, depth = 0): void {
           out.jsonLd.push(e.text);
         }
         const src = (e.getAttribute("src") ?? "").trim();
-        if (src) out.scriptSrcs.push(src);
+        if (src) {
+          out.scriptSrcs.push(src);
+        } else {
+          // Hosts NAMED inside an inline script, which is a different claim
+          // from a script that is loaded — and the one that matters for any
+          // site which defers its tags.
+          //
+          // reddoorla.com is the case that found this: it injects gtag.js only
+          // after the first pointer or scroll, for privacy, so at crawl time
+          // there is no analytics `src` anywhere in the DOM. Reading that as
+          // "this site has no analytics" is our missing measurement printed as
+          // their defect, and it would land on every consent-gated site there
+          // is — which is a growing share of the careful ones.
+          for (const host of hostsIn(e.text)) out.inlineScriptHosts.push(host);
+        }
         // Raw-text element — nothing inside to walk.
         continue;
       }
@@ -373,6 +404,7 @@ export function extractPage(html: string): PageExtract {
     anchors: [],
     forms: [],
     scriptSrcs: [],
+    inlineScriptHosts: [],
   };
   collect(documentEl, out);
 
@@ -452,6 +484,7 @@ export function extractPage(html: string): PageExtract {
       type: (l.getAttribute("type") ?? "").toLowerCase().trim(),
     })),
     scriptSrcs: out.scriptSrcs.slice(0, MAX_SCRIPTS),
+    inlineScriptHosts: [...new Set(out.inlineScriptHosts)].slice(0, MAX_INLINE_HOSTS),
     // The TRUE total, for the same reason `anchorCount` exists: a capped list
     // must never be mistaken for a complete one.
     scriptCount: out.scriptSrcs.length,

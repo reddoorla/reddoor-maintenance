@@ -64,6 +64,12 @@ export type SiteCheck = {
  * own behalf, and a reader who worked out what we had done would be right to
  * discard the other thirty-four.
  */
+/** "all 12 links", but "the one link" — because "all 1" reads like a bug in the
+ *  report, and a reader who spots one wonders what else is generated wrong. */
+function countOf(n: number, singular: string, plural: string): string {
+  return n === 1 ? `the one ${singular}` : `all ${n} ${plural}`;
+}
+
 export function tally(checks: SiteCheck[]): { passed: number; failed: number; total: number } {
   const passed = checks.filter((c) => c.status === "pass").length;
   const failed = checks.filter((c) => c.status === "fail").length;
@@ -238,7 +244,7 @@ function anchorChecks(pages: { url: string; extract: PageExtract }[], origin: st
       staging.length === 0,
       staging.length === 0
         ? "none"
-        : `${staging.length}: ${staging
+        : `${staging.length} ${staging.length === 1 ? "link" : "links"}, including ${staging
             .slice(0, 3)
             .map((s) => s.a.href)
             .join(", ")}`,
@@ -258,7 +264,7 @@ function anchorChecks(pages: { url: string; extract: PageExtract }[], origin: st
         insecure.length === 0,
         insecure.length === 0
           ? "every link stays on https"
-          : `${insecure.length}: ${insecure
+          : `${insecure.length} ${insecure.length === 1 ? "link" : "links"}, including ${insecure
               .slice(0, 3)
               .map((s) => s.a.href)
               .join(", ")}`,
@@ -1173,16 +1179,26 @@ function analyticsCheck(pages: { url: string; extract: PageExtract }[]): SiteChe
   const LABEL = "Something measuring whether any of this works";
   const readable = pages.filter((p) => p.extract.scriptSrcs !== undefined);
   if (readable.length === 0) return unknown("analytics", LABEL, WHY, "quick");
-  const hit = readable
-    .flatMap((p) => p.extract.scriptSrcs ?? [])
-    .find((s) => ANALYTICS_MARKERS.test(s));
+
+  // Loaded scripts AND hosts named inside inline ones, because a growing share
+  // of careful sites defer their tags. reddoorla.com injects gtag.js only after
+  // the first pointer or scroll, for privacy — so at crawl time there is no
+  // analytics `src` in the DOM at all, and reading that as "this site measures
+  // nothing" was our blindness printed as their defect. It is exactly the
+  // client who did the considerate thing who would have received that line.
+  const loaded = readable.flatMap((p) => p.extract.scriptSrcs ?? []);
+  const named = readable.flatMap((p) => p.extract.inlineScriptHosts ?? []);
+  const hit = loaded.find((s) => ANALYTICS_MARKERS.test(s));
+  const deferred = hit ? undefined : named.find((h) => ANALYTICS_MARKERS.test(h));
+
   return check(
     "analytics",
     LABEL,
     WHY,
     "quick",
-    hit !== undefined,
-    hit ?? "no analytics script on the pages we read",
+    hit !== undefined || deferred !== undefined,
+    hit ??
+      (deferred ? `${deferred}, loaded on first interaction` : "no analytics on the pages we read"),
   );
 }
 
@@ -1700,7 +1716,9 @@ function formChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck[]
       "content",
       withAuto.length === measured.length,
       withAuto.length === measured.length
-        ? `all ${measured.length} enquiry ${measured.length === 1 ? "form carries" : "forms carry"} autocomplete`
+        ? `${countOf(measured.length, "enquiry form", "enquiry forms")} ${
+            measured.length === 1 ? "carries" : "carry"
+          } autocomplete`
         : `${measured.length - withAuto.length} of ${measured.length} carry none`,
     ),
   );
@@ -1793,7 +1811,9 @@ function newTabChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck
       bare.length === 0,
       bare.length === 0
         ? `all ${blanks.length} new-tab ${blanks.length === 1 ? "link carries" : "links carry"} it`
-        : `${bare.length} of ${blanks.length} do not`,
+        : `${bare.length} of ${blanks.length} new-tab ${
+            blanks.length === 1 ? "link is" : "links are"
+          } missing it`,
     ),
   ];
 }
@@ -1911,7 +1931,9 @@ function browserChecks(
         tiny.length === 0,
         tiny.length === 0
           ? "no text under 12px on the pages we opened"
-          : `${tiny[0]!.url}: ${tiny[0]!.vitals.tinyText!.count} passages, e.g. “${tiny[0]!.vitals.tinyText!.sample}”`,
+          : `${tiny[0]!.url}: ${tiny[0]!.vitals.tinyText!.count} ${
+              tiny[0]!.vitals.tinyText!.count === 1 ? "passage" : "passages"
+            }, e.g. “${tiny[0]!.vitals.tinyText!.sample}”`,
       ),
     );
   }
@@ -2251,7 +2273,9 @@ export function httpChecks(http: HttpFindings | null): SiteCheck[] {
           ok: true,
           evidence:
             checked >= total
-              ? `all ${total} outbound ${total === 1 ? "link answers" : "links answer"}`
+              ? `${countOf(total, "outbound link", "outbound links")} ${
+                  total === 1 ? "answers" : "answer"
+                }`
               : `we sampled ${checked} of ${total} outbound links; all of them answer`,
         }
       : {
