@@ -142,6 +142,21 @@ describe("an empty submission", () => {
     expect(probe?.emptyHow).toMatch(/showed an error/);
   });
 
+  it("believes the error message over the network, when the two disagree", async () => {
+    // The case this exists for: a captcha iframe or a same-origin beacon fires
+    // in the second after the click, so something WAS stopped — while the form
+    // is plainly showing "please fill this in". Reading the traffic first would
+    // accuse a working form of sending an empty enquiry, and that accusation is
+    // far more expensive than a missed detection.
+    const { deps } = fake({
+      blocksPerClick: 1,
+      states: [clean, { ...clean, hasErrorText: true }],
+    });
+    const probe = await probeForms(deps);
+    expect(probe?.emptyRefused).toBe(true);
+    expect(probe?.emptyHow).toMatch(/showed an error/);
+  });
+
   it("catches the button that does nothing at all", async () => {
     // Nothing sent and nothing said is the same experience as a form that
     // swallows the message, and it is invisible in the markup.

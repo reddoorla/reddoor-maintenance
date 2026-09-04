@@ -1187,7 +1187,7 @@ function analyticsCheck(pages: { url: string; extract: PageExtract }[]): SiteChe
   // nothing" was our blindness printed as their defect. It is exactly the
   // client who did the considerate thing who would have received that line.
   const loaded = readable.flatMap((p) => p.extract.scriptSrcs ?? []);
-  const named = readable.flatMap((p) => p.extract.inlineScriptHosts ?? []);
+  const named = readable.flatMap((p) => p.extract.inlineScriptUrls ?? []);
   const hit = loaded.find((s) => ANALYTICS_MARKERS.test(s));
   const deferred = hit ? undefined : named.find((h) => ANALYTICS_MARKERS.test(h));
 

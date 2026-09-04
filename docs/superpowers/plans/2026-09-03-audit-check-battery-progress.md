@@ -317,6 +317,40 @@ page; a portfolio page linked internally but absent from the sitemap; a stale
 `http://` link; no llms.txt. Plus axe: `image-alt` on 47 elements across three
 pages, `color-contrast` on 196 across sixteen.
 
+## Instrumentation closed out — 09-04
+
+Four more found by looking at what the run produced rather than at its verdicts.
+
+**The stack readout named two things.** SvelteKit and Netlify, for a site that
+also runs Prismic, GA4, Adobe Typekit and Google Fonts. Two causes: every
+signature keys on a PATH (`googletagmanager.com/gtag/js` is what separates GA4
+from Tag Manager) while the inline-script capture kept only hostnames; and
+`<link>` hrefs were never fed in, which is where a stylesheet-delivered font
+lives. The table also had no headless CMS at all — a modern agency-built site is
+far likelier to be Prismic or Sanity than WordPress, and naming only the
+framework back to such a client says we did not look hard. **Two items → six.**
+
+**We were breaking Cloudflare Turnstile, and it could have cost a false
+accusation.** `isNavigationRequest()` is true for an iframe loading its own
+document, so the form probe aborted the captcha challenge on the contact page —
+and counted it. The verdict reads "something was stopped after the click" as
+"the form submitted with every field empty", so a third-party iframe appearing
+in that second would have accused a working form of sending an empty enquiry, on
+exactly the page most likely to have a captcha. Navigation blocking is main-frame
+only now; a form submitting into an iframe is still caught by the same-origin
+non-GET rule. `blocked` on our contact page went 1 → 0.
+
+**And the verdict order was wrong.** `attempted` was checked before `complained`,
+so any same-origin beacon firing on the same click outranked the form's own
+"please fill this in". A complaint now wins: a form showing an error has not
+sent anything, and the false accusation is far more expensive than a missed
+detection.
+
+**A claim verified rather than read.** `canonical-self` sits out as
+not-applicable saying the absence "is reported separately". It is — 20 of 20
+pages, via `measuredFixes` — but I had only read that in the source. Running it
+also surfaced the tappable-phone and top-heading fixes.
+
 ## Before merge
 
 - [ ] Re-run the audit on **reddoorla.com**. Every prior measurement change found

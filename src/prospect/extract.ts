@@ -11,18 +11,26 @@ export const MAX_ANCHORS = 300;
  *  page can inject a hundred of these; `scriptCount` reports the true total. */
 export const MAX_SCRIPTS = 120;
 
-/** Same discipline again, for `PageExtract.inlineScriptHosts`. A tag manager
- *  bootstrap names a handful of hosts; nothing legitimate names forty. */
-export const MAX_INLINE_HOSTS = 40;
+/** Same discipline again, for `PageExtract.inlineScriptUrls`. A tag manager
+ *  bootstrap names a handful of URLs; nothing legitimate names forty. */
+export const MAX_INLINE_URLS = 40;
 
-/** Hostnames appearing in a string of JavaScript. Deliberately blunt: this
- *  answers "does this script mention googletagmanager.com", not "what will it
- *  load", and the distinction is carried in the field's name. */
-function hostsIn(code: string): string[] {
+/**
+ * URLs appearing in a string of JavaScript. Blunt on purpose: this answers
+ * "does this script mention googletagmanager.com/gtag/js", not "what will it
+ * load", and the distinction is carried in the field's name.
+ *
+ * The WHOLE url, not just the host, because every signature in `stack.ts` keys
+ * on a path — `googletagmanager.com/gtag/js` distinguishes GA4 from Tag
+ * Manager, and a bare hostname matches neither. A deferred loader usually
+ * builds its src by concatenation, so the literal ends at the quote; capturing
+ * up to there still yields the path that identifies the tool.
+ */
+function urlsIn(code: string): string[] {
   const found = new Set<string>();
-  for (const m of code.matchAll(/https?:\/\/([a-z0-9.-]+\.[a-z]{2,})/gi)) {
-    found.add(m[1]!.toLowerCase());
-    if (found.size >= MAX_INLINE_HOSTS) break;
+  for (const m of code.matchAll(/https?:\/\/[^\s"'`\\)<>]{4,200}/gi)) {
+    found.add(m[0]);
+    if (found.size >= MAX_INLINE_URLS) break;
   }
   return [...found];
 }
@@ -157,7 +165,7 @@ type Collected = {
   /** `src` of each `<script src>`, in document order. Inline scripts are not
    *  collected — see `PageExtract.scriptSrcs`. */
   scriptSrcs: string[];
-  inlineScriptHosts: string[];
+  inlineScriptUrls: string[];
 };
 
 /** One ordered pass for the element-level signals. Document order matters: the
@@ -210,7 +218,7 @@ function collect(el: HTMLElement, out: Collected, depth = 0): void {
           // "this site has no analytics" is our missing measurement printed as
           // their defect, and it would land on every consent-gated site there
           // is — which is a growing share of the careful ones.
-          for (const host of hostsIn(e.text)) out.inlineScriptHosts.push(host);
+          for (const url of urlsIn(e.text)) out.inlineScriptUrls.push(url);
         }
         // Raw-text element — nothing inside to walk.
         continue;
@@ -404,7 +412,7 @@ export function extractPage(html: string): PageExtract {
     anchors: [],
     forms: [],
     scriptSrcs: [],
-    inlineScriptHosts: [],
+    inlineScriptUrls: [],
   };
   collect(documentEl, out);
 
@@ -484,7 +492,7 @@ export function extractPage(html: string): PageExtract {
       type: (l.getAttribute("type") ?? "").toLowerCase().trim(),
     })),
     scriptSrcs: out.scriptSrcs.slice(0, MAX_SCRIPTS),
-    inlineScriptHosts: [...new Set(out.inlineScriptHosts)].slice(0, MAX_INLINE_HOSTS),
+    inlineScriptUrls: [...new Set(out.inlineScriptUrls)].slice(0, MAX_INLINE_URLS),
     // The TRUE total, for the same reason `anchorCount` exists: a capped list
     // must never be mistaken for a complete one.
     scriptCount: out.scriptSrcs.length,

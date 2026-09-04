@@ -176,9 +176,20 @@ const ASSET_SIGNATURES: AssetSignature[] = [
   { layer: "analytics", name: "Fathom", match: /cdn\.usefathom\.com\// },
   { layer: "analytics", name: "Segment", match: /cdn\.segment\.(?:com|io)\// },
 
-  // Fonts. Typekit is a script; Google Fonts is a stylesheet link, so it only
-  // lights up once the `<link>` set is projected (Cluster A) — until then its
-  // absence here is our gap, not theirs.
+  // Headless CMSes, by the asset and API hosts they serve from. A modern
+  // agency-built site is far likelier to be one of these than to be WordPress,
+  // and naming only "SvelteKit and Netlify" back to such a client says we did
+  // not look very hard.
+  { layer: "cms", name: "Prismic", match: /(?:^|\/\/|\.)prismic\.io\// },
+  { layer: "cms", name: "Contentful", match: /(?:^|\/\/|\.)(?:ctfassets\.net|contentful\.com)\// },
+  { layer: "cms", name: "Sanity", match: /(?:^|\/\/|\.)sanity\.io\// },
+  { layer: "cms", name: "Storyblok", match: /(?:^|\/\/|\.)storyblok\.com\// },
+  { layer: "cms", name: "DatoCMS", match: /(?:^|\/\/|\.)datocms-assets\.com\// },
+  { layer: "cms", name: "Strapi", match: /(?:^|\/\/|\.)strapi\.io\// },
+  { layer: "cms", name: "Craft CMS", match: /\/cpresources\// },
+
+  // Fonts. Typekit is a script; Google Fonts arrives as a stylesheet link, so
+  // it needs the `<link>` set — which is fed in above.
   { layer: "fonts", name: "Adobe Fonts (Typekit)", match: /use\.typekit\.net\// },
   { layer: "fonts", name: "Google Fonts", match: /fonts\.(?:googleapis|gstatic)\.com\// },
 ];
@@ -284,13 +295,20 @@ export function readStack(crawl: CrawlResult): StackReadout {
 
   const assetUrls: string[] = [];
   for (const { extract } of readable) {
-    // Hosts named inside inline scripts count too: a deferred loader is still
-    // a tool this site runs, and naming only what was loaded at crawl time
-    // would leave the readout silent about every consent-gated tag.
+    // Four sources, and each closes a hole the others leave.
+    //
+    // URLs named inside inline scripts, because a deferred loader is still a
+    // tool this site runs — naming only what was fetched at crawl time leaves
+    // the readout silent about every consent-gated tag.
+    //
+    // And `<link>` hrefs, which is where a stylesheet-delivered font lives.
+    // That was noted here as our gap back when the link set was not projected;
+    // it is projected now, so the gap closes.
     assetUrls.push(
       ...(extract.scriptSrcs ?? []),
       ...(extract.imageSrcs ?? []),
-      ...(extract.inlineScriptHosts ?? []),
+      ...(extract.inlineScriptUrls ?? []),
+      ...(extract.links ?? []).map((l) => l.href),
     );
   }
 

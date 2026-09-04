@@ -189,15 +189,15 @@ export type PageExtract = {
    */
   scriptSrcs?: string[];
   /**
-   * Hostnames NAMED inside inline scripts — a different claim from a script
-   * that is loaded, and the one that matters for a site which defers its tags.
+   * URLs NAMED inside inline scripts — a different claim from a script that
+   * is loaded, and the one that matters for a site which defers its tags.
    *
    * A page that injects `googletagmanager.com` only after the first scroll has
    * no analytics `src` in the DOM at crawl time. Reading that as "no analytics"
    * is our missing measurement reported as their defect. Absent on reports
    * stored before this existed, which reads as "not measured".
    */
-  inlineScriptHosts?: string[];
+  inlineScriptUrls?: string[];
   /** True number of `<script src>` on the page, before `scriptSrcs` was capped. */
   scriptCount?: number;
 };

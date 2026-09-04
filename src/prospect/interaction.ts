@@ -268,8 +268,16 @@ export async function probeForms(deps: InteractionDeps): Promise<FormProbe | nul
         after !== null &&
         (after.hasErrorText || after.flagged > (before?.flagged ?? 0) || after.nativeInvalid);
 
-      if (attempted) {
-        // It tried to send. Whatever else it painted, an empty enquiry was on
+      if (complained) {
+        // CHECKED BEFORE `attempted`, deliberately. A form that paints "please
+        // fill this in" has not sent anything; if some same-origin beacon fired
+        // on the same click, reading that as a submission would call a good
+        // form broken. The false accusation is the expensive mistake here — a
+        // missed detection is only a silent pass.
+        probe.emptyRefused = true;
+        probe.emptyHow = "the form showed an error rather than submitting";
+      } else if (attempted) {
+        // Nothing said, and something tried to leave: an empty enquiry was on
         // its way to somebody's inbox.
         probe.emptyRefused = false;
         // Says we stopped it, unprompted. A reader who sees "your form
@@ -277,9 +285,6 @@ export async function probeForms(deps: InteractionDeps): Promise<FormProbe | nul
         // enquiry in their inbox to find that out.
         probe.emptyHow =
           "the form submitted with every field empty — we stopped the request before it left the browser";
-      } else if (complained) {
-        probe.emptyRefused = true;
-        probe.emptyHow = "the form showed an error rather than submitting";
       } else if (after === null) {
         // The form left the page without a request — we cannot say what
         // happened, so we do not.
@@ -333,12 +338,13 @@ export async function probeForms(deps: InteractionDeps): Promise<FormProbe | nul
             hasErrorText: boolean;
           } | null>(READ_STATE, { words: ERROR_WORDS.source });
           const attempted = guard.blocked() > beforeBlocked;
-          if (attempted) {
-            probe.invalidEmailRefused = false;
-            probe.invalidEmailHow = `the form accepted “${INVALID_EMAIL}” as an email address — we stopped the request before it left the browser`;
-          } else if (after && (after.hasErrorText || after.nativeInvalid || after.flagged > 0)) {
+          // Same ordering as above, and for the same reason.
+          if (after && (after.hasErrorText || after.nativeInvalid || after.flagged > 0)) {
             probe.invalidEmailRefused = true;
             probe.invalidEmailHow = "the form showed an error rather than submitting";
+          } else if (attempted) {
+            probe.invalidEmailRefused = false;
+            probe.invalidEmailHow = `the form accepted “${INVALID_EMAIL}” as an email address — we stopped the request before it left the browser`;
           } else {
             probe.invalidEmailRefused = undefined;
           }
@@ -440,7 +446,18 @@ export function pageInteractionDeps(
         let stop: boolean;
         try {
           const req = route.request();
-          const isNavigation = req.isNavigationRequest();
+          // MAIN FRAME ONLY. `isNavigationRequest` is also true for an iframe
+          // loading its own document, and on a contact page that is usually a
+          // captcha. Aborting Cloudflare Turnstile's challenge both breaks the
+          // widget on the page we are trying to observe and counts as a stopped
+          // request — which the verdict reads as "the form submitted". A
+          // third-party iframe appearing in the second after a click would have
+          // accused a perfectly good form of sending an empty enquiry, on
+          // exactly the page most likely to have one.
+          //
+          // A form submitting INTO an iframe is still caught, by the
+          // same-origin non-GET rule below.
+          const isNavigation = req.isNavigationRequest() && req.frame() === page.mainFrame();
           const method = req.method().toUpperCase();
           const sameOrigin = (() => {
             try {
