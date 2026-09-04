@@ -65,6 +65,10 @@ export type AxePageResult = {
   /** Rules axe could not decide — genuinely "we do not know", reported as such
    *  rather than folded into either column. */
   incomplete: number;
+  /** WHICH rules those were. A count alone tells a reader three things need a
+   *  human without saying what to look at, which is a worry rather than a job.
+   *  Optional: absent on any result stored before it was captured. */
+  incompleteIds?: string[];
   /** Rules with nothing on the page to check. Carried so the report can say
    *  "43 of axe's 90 rules had something to check here" and be exactly right. */
   inapplicable: number;
@@ -93,6 +97,9 @@ export type AccessibilityResult = {
    */
   rulesPassed: number;
   rulesIncomplete: number;
+  /** The undecided rules by name, so the disclosure can say what to look at
+   *  instead of only how many. Empty when none, absent-safe for old reports. */
+  incompleteIds: string[];
   /** Rules that found nothing on these pages to apply to. Not a pass and not a
    *  failure — the page simply has no table, video or iframe for them. */
   rulesInapplicable: number;
@@ -123,6 +130,7 @@ export function summarizeAccessibility(pages: PageCapture[]): AccessibilityResul
       pagesExamined: 0,
       rulesPassed: 0,
       rulesIncomplete: 0,
+      incompleteIds: [],
       rulesInapplicable: 0,
       violations: [],
       violationsTotal: 0,
@@ -132,6 +140,7 @@ export function summarizeAccessibility(pages: PageCapture[]): AccessibilityResul
   const byRule = new Map<string, AxeViolation & { pages: string[] }>();
   let passes = 0;
   let incomplete = 0;
+  const undecided = new Set<string>();
   let inapplicable = 0;
   for (const page of withResults) {
     const axe = page.axe!;
@@ -140,6 +149,7 @@ export function summarizeAccessibility(pages: PageCapture[]): AccessibilityResul
     // "we ran 470 checks" for 94 rules across five pages.
     passes = Math.max(passes, axe.passes);
     incomplete = Math.max(incomplete, axe.incomplete);
+    for (const id of axe.incompleteIds ?? []) undecided.add(id);
     inapplicable = Math.max(inapplicable, axe.inapplicable ?? 0);
     for (const v of axe.violations) {
       const existing = byRule.get(v.id);
@@ -164,7 +174,16 @@ export function summarizeAccessibility(pages: PageCapture[]): AccessibilityResul
     measured: true,
     pagesExamined: withResults.length,
     rulesPassed: passes,
-    rulesIncomplete: incomplete,
+    // The UNION when we have the names, the per-page max otherwise.
+    //
+    // `Math.max` was only ever a proxy for "how many distinct rules", chosen
+    // because summing would have counted the same rule once per page. Now that
+    // the ids are collected, the distinct count is known exactly — and the two
+    // disagreed on our own site, where the report said "3 rules need a human"
+    // and then listed four. A reader who can count is a reader who stops
+    // trusting the numbers.
+    rulesIncomplete: undecided.size > 0 ? undecided.size : incomplete,
+    incompleteIds: [...undecided].sort(),
     rulesInapplicable: inapplicable,
     violations: all.slice(0, MAX_REPORTED_RULES),
     violationsTotal: all.length,

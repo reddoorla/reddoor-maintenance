@@ -815,6 +815,9 @@ async function runAxe(page: import("@playwright/test").Page): Promise<AxePageRes
       })),
       passes: results.passes.length,
       incomplete: results.incomplete.length,
+      // The ids as well as the count: "three rules need a human" is a worry,
+      // "colour contrast over an image needs a human" is something to look at.
+      incompleteIds: results.incomplete.map((r) => r.id),
       // Carried so the report can say how many rules had something to check
       // rather than implying we checked all ninety.
       inapplicable: results.inapplicable.length,

@@ -18,14 +18,23 @@
  * is what makes the run cover the whole battery rather than 74 of it.
  *
  *   pnpm tsx scripts/validate-checks.mts "https://reddoorla.com|Reddoor Creative"
+ *
+ * Set OUT to also dump the stages as a report-shaped JSON, which is what
+ * reddoor-website's /dev/audit-report reads when it is present — the only way
+ * to see the renderer handle a REAL site rather than a fixture where nothing
+ * is wrong:
+ *
+ *   OUT=../reddoor-website/.audit-sample.json pnpm tsx scripts/validate-checks.mts …
  */
 import { crawlSite, defaultCrawlDeps } from "../src/prospect/crawl.js";
 import { runChecks } from "../src/prospect/checks.js";
 import { defaultDnsDeps, lookupDns } from "../src/prospect/dns.js";
 import { defaultHttpProbeDeps, probeHttp } from "../src/prospect/http-probes.js";
 import { summarizeAccessibility } from "../src/prospect/accessibility.js";
+import { readStack } from "../src/prospect/stack.js";
 import { runSiteChecks, tally } from "../src/prospect/site-checks.js";
 import { USER_AGENT } from "../src/prospect/crawl.js";
+import { writeFileSync } from "node:fs";
 import type { ChecksResult } from "../src/prospect/types.js";
 
 const ORDER = ["fail", "unmeasured", "not-applicable", "pass"] as const;
@@ -75,6 +84,32 @@ async function one(url: string, business: string | null): Promise<void> {
   const results = runSiteChecks(crawl, checks, business, dns, http);
   const t = tally(results);
   console.log(`\n${results.length} checks — ${t.passed}/${t.total} of those with a verdict\n`);
+
+  const out = process.env.OUT;
+  if (out) {
+    // Shaped like a stored `AuditReport`, with the stages this script actually
+    // runs marked ok and the rest absent. Absent is the honest value: the
+    // renderer's whole contract is that a missing stage reads as "did not run".
+    writeFileSync(
+      out,
+      JSON.stringify(
+        {
+          url: crawl.origin,
+          business,
+          crawl: { ok: true, data: crawl },
+          checks: checks ? { ok: true, data: checks } : { ok: false, error: "checks failed" },
+          siteChecks: { ok: true, data: results },
+          accessibility: { ok: true, data: a11y },
+          dns: { ok: true, data: dns },
+          http: { ok: true, data: http },
+          stack: { ok: true, data: readStack(crawl) },
+        },
+        null,
+        2,
+      ),
+    );
+    console.log(`\nwrote ${out}`);
+  }
 
   for (const status of ORDER) {
     const group = results.filter((c) => c.status === status);

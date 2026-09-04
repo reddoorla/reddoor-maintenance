@@ -746,6 +746,31 @@ describe("Tier 1 — each check fires on the thing it is named for", () => {
     expect(byKey(checks, "form-action")?.status).toBe("pass");
   });
 
+  it('accepts rel="noreferrer", which the standard says does the same and more', () => {
+    // reddoorla.com's own outbound links are all `rel="noreferrer"`. Testing
+    // for `noopener` alone marked the stricter choice as the wrong one.
+    const checks = runSiteChecks(
+      exemplary({
+        pages: [
+          page("https://acme.example/", {
+            anchors: [
+              {
+                href: "https://partner.example",
+                text: "Partner",
+                rel: "noreferrer",
+                target: "_blank",
+              },
+            ],
+            anchorCount: 1,
+          }),
+        ],
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(checks, "noopener")?.status).toBe("pass");
+  });
+
   it("catches a new-tab link with no noopener, and says it is tidiness", () => {
     const checks = one({
       anchors: [{ href: "https://elsewhere.example/", text: "Partner", rel: "", target: "_blank" }],

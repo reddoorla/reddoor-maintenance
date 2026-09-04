@@ -1787,7 +1787,7 @@ function newTabChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck
   // care — overstating it as a security hole is the kind of thing that
   // discredits every other line in the report.
   const WHY =
-    'Adding rel="noopener" to links that open a new tab is a one-line habit that keeps older browsers from handing the new page a reference back to yours.';
+    'Adding rel="noopener" — or "noreferrer", which does the same and more — to links that open a new tab is a one-line habit that keeps older browsers from handing the new page a reference back to yours.';
   const LABEL = 'New-tab links carrying rel="noopener"';
   const readable = pages.filter((p) =>
     (p.extract.anchors ?? []).every((a) => a.target !== undefined),
@@ -1801,7 +1801,12 @@ function newTabChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck
   if (blanks.length === 0) {
     return [skip("noopener", LABEL, WHY, "quick", "no link on these pages opens a new tab")];
   }
-  const bare = blanks.filter((a) => !/\bnoopener\b/.test(a.rel));
+  // `noreferrer` COUNTS. The HTML standard gives it the same effect as
+  // `noopener` — it severs `window.opener` and drops the referrer besides — so
+  // a site that chose the stricter keyword has nothing to fix here. Testing for
+  // `noopener` alone failed reddoorla.com's five outbound links, every one of
+  // which already carried `rel="noreferrer"`: the careful choice, marked wrong.
+  const bare = blanks.filter((a) => !/\b(noopener|noreferrer)\b/.test(a.rel));
   return [
     check(
       "noopener",
@@ -1810,7 +1815,7 @@ function newTabChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck
       "quick",
       bare.length === 0,
       bare.length === 0
-        ? `all ${blanks.length} new-tab ${blanks.length === 1 ? "link carries" : "links carry"} it`
+        ? `all ${blanks.length} new-tab ${blanks.length === 1 ? "link carries" : "links carry"} noopener or noreferrer`
         : `${bare.length} of ${blanks.length} new-tab ${
             blanks.length === 1 ? "link is" : "links are"
           } missing it`,
