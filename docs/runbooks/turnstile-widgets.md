@@ -134,13 +134,13 @@ hostname:
 | the mount point **and** a 2xx for Cloudflare's api.js | `pass`                         |
 | a key is set but no widget was on the page            | `null`                         |
 | a 2xx never came for api.js (CSP, 5xx, egress)        | `null`                         |
-| any other `110xxx` — invalid or deleted sitekey       | `null`                         |
+| the sitekey is invalid, deleted or disabled           | `null`                         |
 | the probe never opened a browser here                 | `null` (clears a legacy value) |
 
 An empty cell therefore no longer means "nobody looked and nothing was there
 before" — since 2026-09-04 it most often means the probe looked and could not
-tell, or never got to look and cleared what `function-health` had left. The three
-`null` rows are all the amber `turnstile-unverified` watch, never a red.
+tell, or never got to look and cleared what `function-health` had left. Every
+`null` row is the amber `turnstile-unverified` watch, never a red.
 
 **`pass` means "deployed and not mis-hostnamed" — not "a human can solve it".**
 Nothing automated can establish the latter, so step 5 above is still the only

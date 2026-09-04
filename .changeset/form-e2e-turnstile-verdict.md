@@ -14,13 +14,13 @@
 | uncaught `110200` on the live page                | `fail`                  |
 | mount point **and** a 2xx for Cloudflare's api.js | `pass`                  |
 | key set, no widget on the page                    | `null` (clears)         |
-| any other `110xxx` (invalid/deleted sitekey)      | `null` (clears)         |
+| the sitekey is invalid, deleted or disabled       | `null` (clears)         |
 | the probe never opened a browser                  | `null` (clears)         |
 | the audit had no opinion at all                   | key omitted (preserves) |
 
 `pass` means "deployed and not mis-hostnamed", not "a human can solve it" — no driven browser can establish that, since Cloudflare answers automation with `600010` regardless of configuration. The matchers are anchored on Cloudflare's own `[Cloudflare Turnstile]` prefix so a page that merely prints those six digits cannot raise a red alarm.
 
-It is deliberately **positive evidence** on both halves. The mount point alone proves only that the env var is set — the starter server-renders that div from `{#if turnstileSiteKey}` — so `pass` also requires Cloudflare's script to have answered 2xx; and "no `110200`" alone is not enough, because a sitekey deleted or rotated at Cloudflare still serves api.js and still SSRs its mount point while minting nothing. Any other `110xxx` therefore denies the green. It does not raise a red: only `110200` has been measured verbatim in this fleet, and an alarm on the fleet's one gated site should not rest on an unmeasured string.
+It is deliberately **positive evidence** on both halves. The mount point alone proves only that the env var is set — the starter server-renders that div from `{#if turnstileSiteKey}` — so `pass` also requires Cloudflare's script to have answered 2xx; and "no `110200`" alone is not enough, because a sitekey deleted or rotated at Cloudflare still serves api.js and still SSRs its mount point while minting nothing. Any other error Cloudflare raises against the sitekey therefore denies the green — the rest of `110xxx` by prefix, so a future code fails safe, plus `400020` and `400070`, because Cloudflare's table files "invalid sitekey" under both families and "sitekey disabled" only under the second. It does not raise a red: only `110200` has been measured verbatim here, and an alarm on the fleet's one gated site should not rest on an unmeasured string. That asymmetry is what makes matching a family by prefix safe: over-matching costs one empty cell for a night, under-matching costs leads.
 
 Two properties worth stating because both are load-bearing:
 

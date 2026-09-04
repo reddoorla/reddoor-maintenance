@@ -121,31 +121,53 @@ describe("turnstileVerdict", () => {
 });
 
 describe("TURNSTILE_WIDGET_ERROR", () => {
-  // The two codes measured verbatim in this fleet, and the reason the families are
-  // split: 110xxx is a sitekey/domain lookup, decided before any challenge runs and
-  // identical for a human; 6xxxxx is challenge execution, which Cloudflare fails for
-  // every driven browser whatever the configuration.
   const CF = (code: string) => `TurnstileError: [Cloudflare Turnstile] Error: ${code}.`;
 
-  it("matches the sitekey rejections, and NOT the hostname one 110200 already owns", () => {
-    for (const code of ["110100", "110110", "110420", "110600"])
+  it("catches a dead sitekey in BOTH families Cloudflare files them under", () => {
+    // The table is not tidy by prefix: "invalid sitekey" is 110100 AND 400020, and
+    // "sitekey disabled" is 400070 with no 110xxx twin. Matching the 110 prefix
+    // alone left the disabled-widget case scoring "pass" — the same hole one family
+    // along, which is how this arm came to exist in the first place.
+    for (const code of ["110100", "110110", "400020", "400070"])
       expect(TURNSTILE_WIDGET_ERROR.test(CF(code))).toBe(true);
-    // 110200 is a FAIL via its own matcher; if it also set widgetError the fail arm
-    // would still win, but the two must not overlap or the verdict table lies.
+  });
+
+  it("takes the rest of 110xxx by prefix, so a future code fails SAFE", () => {
+    // Includes 110420 (invalid action) and the two retryable timeouts 110600 /
+    // 110620, which are challenge-time rather than lookup-time. Deliberate: this
+    // arm only ever denies a green, so over-matching costs one empty cell for a
+    // night, while under-matching costs leads.
+    for (const code of ["110420", "110600", "110620", "110999"])
+      expect(TURNSTILE_WIDGET_ERROR.test(CF(code))).toBe(true);
+  });
+
+  it("leaves 110200 to the fail arm that owns it", () => {
+    // If it also set widgetError the fail arm would still win — it is checked
+    // first — but the two must not overlap, or the verdict table lies.
     expect(TURNSTILE_WIDGET_ERROR.test(CF("110200"))).toBe(false);
     expect(TURNSTILE_HOSTNAME_REJECTED.test(CF("110200"))).toBe(true);
   });
 
   it("does NOT match 600010 — that is the harness's own signature", () => {
-    // Load-bearing: Cloudflare answers EVERY CDP-driven browser with 600010, so a
-    // matcher that caught it would set widgetError on every nightly run and make
-    // "pass" unreachable — the audit would go inert with nothing to show for it.
+    // The one load-bearing exclusion. Cloudflare answers EVERY CDP-driven browser
+    // with 600010, so a matcher that caught it would set widgetError on every
+    // nightly run and make "pass" unreachable — the audit would go inert with
+    // nothing to show for it.
     expect(TURNSTILE_WIDGET_ERROR.test(CF("600010"))).toBe(false);
     expect(TURNSTILE_HOSTNAME_REJECTED.test(CF("600010"))).toBe(false);
   });
 
+  it("stops at the two named 4000xx codes — not the whole family", () => {
+    // 3xxxxx and the rest of 4xxxxx are network and challenge conditions, not
+    // statements about the sitekey, and a probe's own environment produces them.
+    for (const code of ["400010", "400100", "300030", "200100"])
+      expect(TURNSTILE_WIDGET_ERROR.test(CF(code))).toBe(false);
+  });
+
   it("is anchored on Cloudflare's prefix, so a page printing the digits is not a signal", () => {
     expect(TURNSTILE_WIDGET_ERROR.test("order 110100 shipped")).toBe(false);
-    expect(TURNSTILE_WIDGET_ERROR.test("call 110100 for support")).toBe(false);
+    expect(TURNSTILE_WIDGET_ERROR.test("invoice 400070 paid")).toBe(false);
+    // ...and it cannot be tricked by a longer number that merely contains one.
+    expect(TURNSTILE_WIDGET_ERROR.test(CF("1101000"))).toBe(false);
   });
 });

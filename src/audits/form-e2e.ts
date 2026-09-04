@@ -112,15 +112,18 @@ export type TurnstileObservation = {
    *  console.WARN — not error — so this is deliberately matched across every
    *  console level, not just errors. */
   initFailed: boolean;
-  /** Cloudflare rejected the widget's CONFIGURATION with a `110xxx` other than
-   *  110200 — an invalid, deleted or rotated sitekey (110100 / 110110 / …). Same
-   *  lookup that emits 110200 and equally browser-independent, but this fleet has
-   *  only ever MEASURED 110200 and 600010 verbatim, so an unmeasured code is not
-   *  given the authority to raise a red on a gated site: it lands as `null`,
-   *  "looked, cannot tell", which the cockpit already renders as the amber
-   *  `turnstile-unverified` watch. Its whole job is to deny the green — without
-   *  it, a widget deleted at Cloudflare scores "pass", because the pass arm's
-   *  negative half was the absence of one six-digit string. */
+  /** Cloudflare raised some OTHER error against the widget — an invalid, deleted,
+   *  rotated or disabled sitekey (110100, 110110, 400020, 400070), or another
+   *  `110xxx`. Its whole job is to deny the green: without it, a widget deleted at
+   *  Cloudflare scores "pass", because api.js still answers 2xx (its URL carries no
+   *  sitekey), the mount point is still server-rendered, and the pass arm's negative
+   *  half was the absence of one six-digit string.
+   *
+   *  Never a fail. This fleet has MEASURED only 110200 and 600010 verbatim, and an
+   *  unmeasured code does not get the authority to raise a red on a gated site — it
+   *  lands as `null`, "looked, cannot tell", which the cockpit already renders as
+   *  the amber `turnstile-unverified` watch. That asymmetry is what makes it safe to
+   *  match a family by prefix rather than a list by measurement. */
   widgetError: boolean;
 };
 
@@ -215,13 +218,15 @@ export type FormsHealth = { testMode: boolean; turnstile: boolean | null };
  *                                       Turnstile that is 100% lead loss.
  *   container + script, no widget → "pass"  a browser loaded Cloudflare's script and
  *   error                                the real mount point on the real hostname,
- *                                       and Cloudflare raised no configuration
- *                                       error against the sitekey.
+ *                                       and Cloudflare raised no error against the
+ *                                       sitekey (see TURNSTILE_WIDGET_ERROR for
+ *                                       exactly which codes that covers).
  *   container but no script   → null    the widget could never initialise. NOT a
  *                                       fail: a blocked runner looks identical.
- *   any other 110xxx          → null    the sitekey is invalid, deleted or rotated
- *                                       (110100 / 110110 / …). Denies the green; not
- *                                       a red, because unlike 110200 this fleet has
+ *   any other widget error    → null    the sitekey is invalid, deleted, rotated or
+ *                                       disabled (110100 / 110110 / 400020 / 400070
+ *                                       / any other 110xxx). Denies the green; not a
+ *                                       red, because unlike 110200 this fleet has
  *                                       never measured one verbatim.
  *   turnstile:true, no browser→ null    a key is set and nothing looked. UNVERIFIED —
  *                                       never "pass", which is the whole lesson of
@@ -253,19 +258,42 @@ export type FormsHealth = { testMode: boolean; turnstile: boolean | null };
 export const TURNSTILE_HOSTNAME_REJECTED = /\[Cloudflare Turnstile\][^\n]*?\b110200\b/;
 
 /**
- * Every OTHER `110xxx` — Cloudflare's sitekey/domain lookup failing for a reason
- * that is not the hostname: 110100 invalid sitekey, 110110 sitekey not found, and
- * the rest of the family. Emitted before any challenge runs, so like 110200 it is
- * browser-independent and a probe may believe it.
+ * Every widget error that is NOT the hostname rejection above and NOT the harness's
+ * own signature. Read off Cloudflare's published client-side error table, which is
+ * NOT tidy by prefix — the two codes that mean "this sitekey is dead" live in two
+ * different families:
  *
- * Deliberately NOT extended to the `6xxxxx` family: 600010 is Cloudflare's answer
- * to every driven browser (see TurnstileObservation), so matching it would set this
- * flag on EVERY nightly run and make "pass" unreachable — the feature would go
- * inert with nothing to show for it. Anchored on the `[Cloudflare Turnstile]`
- * prefix for the same reason TURNSTILE_HOSTNAME_REJECTED is: six loose digits are
- * an order id on somebody's page.
+ *   110100 invalid sitekey        400020 invalid sitekey
+ *   110110 sitekey not found      400070 sitekey DISABLED
+ *   110420 invalid action
+ *   110600 challenge timed out    ← retryable, and challenge-time rather than
+ *   110620 interaction timed out    lookup-time. Matched anyway; see below.
+ *
+ * So the rest of `110xxx` by prefix (future configuration codes fail SAFE — the
+ * previous draft matched only what had been measured, and a dead widget scored a
+ * green one code along) plus those two 4000xx by exact value. NOT the whole
+ * `4xxxxx`/`3xxxxx`/`2xxxxx` families, which are network and challenge conditions
+ * rather than statements about the sitekey.
+ *
+ * Two codes above are timeouts, not configuration, and matching them is a
+ * deliberate accepted cost: this arm only ever DENIES a green, never raises a red,
+ * so its failure mode is one empty cell for a night. Their alternative — narrowing
+ * to the four codes measured somewhere — is the failure mode that costs leads.
+ * Neither is reachable here in any case: the fleet's widgets are invisible mode, so
+ * nothing waits on a visitor to click (110620), and Cloudflare refuses a driven
+ * browser with 600010 immediately rather than letting its challenge stall (110600).
+ *
+ * Deliberately NOT extended to `6xxxxx`: 600010 is Cloudflare's answer to every
+ * driven browser (see TurnstileObservation), so matching it would set this flag on
+ * EVERY nightly run and make "pass" unreachable — the audit would go inert with
+ * nothing to show for it. That one exclusion is load-bearing; the rest is scope.
+ *
+ * Anchored on the `[Cloudflare Turnstile]` prefix for the same reason
+ * TURNSTILE_HOSTNAME_REJECTED is: six loose digits are an order id on somebody's
+ * page.
  */
-export const TURNSTILE_WIDGET_ERROR = /\[Cloudflare Turnstile\][^\n]*?\b110(?!200\b)\d{3}\b/;
+export const TURNSTILE_WIDGET_ERROR =
+  /\[Cloudflare Turnstile\][^\n]*?\b(?:110(?!200\b)\d{3}|400020|400070)\b/;
 
 /** The starter's own tell that `loadTurnstile()` rejected — CSP, offline, a
  *  blocked host. Logged at console.WARN, not error, which is why the console
@@ -300,10 +328,10 @@ export function turnstileVerdict(
   // draft of this change reintroduced it.
   if (!observed.containerPresent) return null;
   if (!observed.scriptLoaded || observed.initFailed) return null;
-  // ...and the negative half has to be more than "no 110200". A widget deleted or
-  // rotated at Cloudflare still serves api.js (2xx — the URL carries no sitekey)
-  // and still SSRs its mount point, so without this the FIRST draft's defect
-  // survives one code along: a dead widget scoring green while a gated site
+  // ...and the negative half has to be more than "no 110200". A widget deleted,
+  // rotated or DISABLED at Cloudflare still serves api.js (2xx — the URL carries no
+  // sitekey) and still SSRs its mount point, so without this the first draft's
+  // defect survives one code along: a dead widget scoring green while a gated site
   // buckets every real lead. Denies the pass, never manufactures a fail.
   if (observed.widgetError) return null;
   return "pass";
