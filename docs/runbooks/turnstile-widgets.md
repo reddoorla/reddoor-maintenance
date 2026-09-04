@@ -62,15 +62,37 @@ no widget. That is expected.
 5. **Prove it from a browser — this is the only real check.** `/health` cannot
    do it and neither can a sitekey-only inspection; Cloudflare exposes no API to
    validate a sitekey against a hostname (`siteverify` takes tokens, not
-   sitekeys). Load the live form and confirm:
+   sitekeys). Load the live form in an ORDINARY browser and confirm one thing:
 
-   - `.cf-turnstile` has an `iframe` child, and
-   - `input[name="cf-turnstile-response"]` has a **non-empty** value, and
-   - the console shows no `110200`.
+   > `input[name="cf-turnstile-response"]` has a **non-empty** value.
 
-   The nightly `form-e2e` probe is the automated version of this, and the smoke
-   suite fails on an uncaught `TurnstileError` (its allowlist covers console
-   telemetry only — see `src/recipes/smoke-suite/template.ts`).
+   That is the whole test. A token is ~770 characters and appears a second or
+   two after load.
+
+   **Do not check for an iframe.** The fleet's widgets are `invisible` mode,
+   which solves without leaving one: a healthy VLF widget was measured with
+   **zero** iframes under `.cf-turnstile` and a valid 773-character token in the
+   same instant. An iframe count is not a health signal in either direction.
+
+   **A driven browser cannot do this for you.** Cloudflare answers an automated
+   Chromium with error **600010** — challenge failed — even when the
+   configuration is perfect. Measured 2026-09-04 across three harnesses: the
+   known-good `reddoorla.com` canary reported 600010, Playwright's Chromium
+   reported it headed and headless alike, and the same page in an ordinary Chrome
+   window minted a token that `siteverify` accepted. **600010 from automation
+   tells you nothing.** That is also why `form-e2e` swaps in Cloudflare's
+   always-pass test sitekey (`form-e2e.ts:11,187`) — it exercises the form, never
+   the real widget, so do not read a green form-e2e as proof of this step.
+
+   What automation CAN prove is the negative, and it is the one that matters:
+
+   > **110200 is never ambiguous — it means the hostname is not on the widget.**
+
+   Unlike 600010 it does not depend on the browser being human, so the smoke
+   suite fails on it: an uncaught `TurnstileError` is not allowlisted, only
+   console telemetry is (`src/recipes/smoke-suite/template.ts`). A green smoke
+   run rules out the wrong-hostname state; it does not establish the widget
+   solves. Only step 5 does that.
 
 ## At launch (custom domain)
 
