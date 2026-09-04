@@ -1170,6 +1170,11 @@ function sidecarChecks(crawl: CrawlResult, linkedPages: Set<string>): SiteCheck[
 
 // ─── Analytics ───────────────────────────────────────────────────────────────
 
+/** Scripts a site must be serving before "all of them are ours" reads as an
+ *  engineering operation with its own telemetry rather than a simple site. See
+ *  `analyticsCheck` — a judgement call, stated as one. */
+const FIRST_PARTY_BUNDLE = 10;
+
 const ANALYTICS_MARKERS =
   /(googletagmanager\.com|google-analytics\.com|plausible\.io|usefathom\.com|clarity\.ms|segment\.(?:com|io)|matomo|piwik|statcounter|hotjar\.com|posthog\.com|umami|simpleanalytics|cloudflareinsights\.com)/i;
 
@@ -1191,6 +1196,36 @@ function analyticsCheck(pages: { url: string; extract: PageExtract }[]): SiteChe
   const hit = loaded.find((s) => ANALYTICS_MARKERS.test(s));
   const deferred = hit ? undefined : named.find((h) => ANALYTICS_MARKERS.test(h));
 
+  // WHAT THIS CHECK CANNOT SEE, AND WHERE THAT MATTERS.
+  //
+  // Analytics is only visible here when it is somebody else's script. A site
+  // that ships its own bundle and reports to its own endpoint from inside it is
+  // invisible to any amount of markup reading. apple.com is exactly that: 47
+  // scripts, every one first-party, no third-party host anywhere — and we told
+  // it that it measures nothing.
+  //
+  // The discriminator below is a judgement call and worth naming as one. A
+  // large all-first-party bundle is an engineering operation that plausibly has
+  // its own telemetry; one hand-written `main.js` on a plumber's website is
+  // not, and "no analytics" is a sound and useful reading there. Ten is the
+  // line, chosen because it separates those two cases and nothing more
+  // principled was available.
+  //
+  // The direction of the error is deliberate: we lose the finding on a handful
+  // of very large sites, rather than accuse a capable client of flying blind
+  // when they are not. They would check, and they would be right.
+  //
+  // Judged on LOADED scripts only. `inlineScriptUrls` catches deferred loaders,
+  // which is why the markers are tested against it above — but it also picks up
+  // any URL that happens to sit in a template string, so it is far too noisy to
+  // answer "does this site run anybody else's code". apple.com had exactly two
+  // such URLs, a support link and an SVG namespace, and requiring none of them
+  // kept this guard switched off.
+  const thirdParty = loaded.filter((src) => /^https?:\/\//i.test(src));
+  if (!hit && !deferred && thirdParty.length === 0 && loaded.length >= FIRST_PARTY_BUNDLE) {
+    return unknown("analytics", LABEL, WHY, "quick");
+  }
+
   return check(
     "analytics",
     LABEL,
@@ -1198,7 +1233,9 @@ function analyticsCheck(pages: { url: string; extract: PageExtract }[]): SiteChe
     "quick",
     hit !== undefined || deferred !== undefined,
     hit ??
-      (deferred ? `${deferred}, loaded on first interaction` : "no analytics on the pages we read"),
+      (deferred
+        ? `${deferred}, loaded on first interaction`
+        : "no third-party analytics on the pages we read"),
   );
 }
 
@@ -1449,7 +1486,12 @@ function metaChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck[]
 
 // ─── The <link> set ──────────────────────────────────────────────────────────
 
-function linkChecks(pages: { url: string; extract: PageExtract }[], origin: string): SiteCheck[] {
+function linkChecks(
+  pages: { url: string; extract: PageExtract }[],
+  origin: string,
+  /** Whether the Tier 2 probe reached a verdict on the icon itself. */
+  faviconProbed: boolean,
+): SiteCheck[] {
   const readable = pages.filter((p) => p.extract.links !== undefined);
   const WHY_FAVICON =
     "Without one the browser shows a blank page icon in the tab and the bookmark, which is the smallest possible thing to fix and the most often seen.";
@@ -1478,15 +1520,37 @@ function linkChecks(pages: { url: string; extract: PageExtract }[], origin: stri
   const icon = readable
     .flatMap((p) => p.extract.links ?? [])
     .find((l) => /(^|\s)(icon|shortcut icon|apple-touch-icon)(\s|$)/.test(l.rel));
+  // SUPERSEDED once we have actually fetched the icon.
+  //
+  // Declaring `<link rel="icon">` is optional: `/favicon.ico` at the root is
+  // the older convention and every browser asks for it unprompted. apple.com
+  // declares no icon link at all and its tab icon is perfect — and our own
+  // report said so on the very next line, failing "an icon for the browser
+  // tab" directly above passing "a favicon that actually loads". Two answers to
+  // one question, and the wrong one first.
+  //
+  // So when the probe reached a verdict, `favicon-served` owns this and the
+  // declaration is a detail, not a finding. Without a probe — an old stored
+  // report — the declaration is the best evidence there is and still stands.
   out.push(
-    check(
-      "favicon-declared",
-      "An icon for the browser tab",
-      WHY_FAVICON,
-      "quick",
-      icon !== undefined,
-      icon ? `rel="${icon.rel}" → ${icon.href}` : "no icon link on the pages we read",
-    ),
+    faviconProbed
+      ? skip(
+          "favicon-declared",
+          "An icon for the browser tab",
+          WHY_FAVICON,
+          "quick",
+          icon
+            ? "the icon your pages declare is the one we fetched, reported below"
+            : "no icon is declared, so we fetched /favicon.ico instead — reported below",
+        )
+      : check(
+          "favicon-declared",
+          "An icon for the browser tab",
+          WHY_FAVICON,
+          "quick",
+          icon !== undefined,
+          icon ? `rel="${icon.rel}" → ${icon.href}` : "no icon link on the pages we read",
+        ),
   );
 
   const host = (u: string, base?: string): string | null => {
@@ -2552,7 +2616,11 @@ export function runSiteChecks(
     ...headingChecks(pages, businessName),
     ...schemaChecks(pages, crawl.origin, phones),
     ...metaChecks(pages),
-    ...linkChecks(pages, crawl.origin),
+    ...linkChecks(
+      pages,
+      crawl.origin,
+      http?.favicon !== undefined && http.favicon.verdict !== "unverified",
+    ),
     ...formChecks(pages),
     ...newTabChecks(pages),
     ...browserChecks(pages),

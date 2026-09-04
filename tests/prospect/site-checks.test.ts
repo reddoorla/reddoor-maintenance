@@ -534,6 +534,24 @@ describe("each check fires on the thing it is named for", () => {
     expect(byKey(checks, "schema-phone-matches")?.status).toBe("fail");
   });
 
+  it("will not call a large all-first-party site analytics-free", () => {
+    // apple.com: 47 scripts, every one its own, telemetry inside the bundle.
+    // Markup cannot see it, so we do not get to call it absent.
+    const checks = runSiteChecks(
+      exemplary({
+        pages: [
+          page("https://acme.example/", {
+            scriptSrcs: Array.from({ length: 12 }, (_, i) => `/ac/built/${i}.js`),
+            inlineScriptUrls: [],
+          }),
+        ],
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(checks, "analytics")?.status).toBe("unmeasured");
+  });
+
   it("catches a site with no analytics at all", () => {
     const checks = runSiteChecks(
       exemplary({ pages: [page("https://acme.example/", { scriptSrcs: ["/js/main.js"] })] }),

@@ -26,9 +26,16 @@ export const MAX_INLINE_URLS = 40;
  * builds its src by concatenation, so the literal ends at the quote; capturing
  * up to there still yields the path that identifies the tool.
  */
+/** URLs that identify a vocabulary rather than something to fetch. An SVG or
+ *  XHTML namespace appears in any inline script that builds markup, and nothing
+ *  ever requests it — counting it as a URL this page references makes every
+ *  templating site look like it reaches out to w3.org. */
+const NAMESPACE_URLS = /^https?:\/\/(www\.)?w3\.org\//i;
+
 function urlsIn(code: string): string[] {
   const found = new Set<string>();
   for (const m of code.matchAll(/https?:\/\/[^\s"'`\\)<>]{4,200}/gi)) {
+    if (NAMESPACE_URLS.test(m[0])) continue;
     found.add(m[0]);
     if (found.size >= MAX_INLINE_URLS) break;
   }
@@ -201,12 +208,21 @@ function collect(el: HTMLElement, out: Collected, depth = 0): void {
         if (out.title === null) out.title = collapse(e.text) || null;
         break;
       case "SCRIPT": {
-        if ((e.getAttribute("type") ?? "").toLowerCase().trim() === "application/ld+json") {
-          out.jsonLd.push(e.text);
-        }
+        const isJsonLd =
+          (e.getAttribute("type") ?? "").toLowerCase().trim() === "application/ld+json";
+        if (isJsonLd) out.jsonLd.push(e.text);
         const src = (e.getAttribute("src") ?? "").trim();
         if (src) {
+          // Collected even for ld+json, which may legitimately be loaded from
+          // a file rather than written inline.
           out.scriptSrcs.push(src);
+        } else if (isJsonLd) {
+          // Its BODY is data, not code. The URLs in there are `@id`s, `sameAs`
+          // links and vocabulary references, and none of them is evidence that
+          // this page loads anything. Letting them through gave apple.com 293
+          // "inline script URLs" — schema.org, wikidata.org, its own support
+          // site — a meaningless number that also silently satisfied a
+          // downstream test for "does this page reference anything external".
         } else {
           // Hosts NAMED inside an inline script, which is a different claim
           // from a script that is loaded — and the one that matters for any

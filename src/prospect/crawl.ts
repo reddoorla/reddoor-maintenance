@@ -896,7 +896,21 @@ export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
             collected.failed.push({ url: url.slice(0, 200), status, firstParty });
           }
         };
-        page.on("requestfailed", (req) => noteFailed(req.url(), null));
+        // ABORTED IS NOT FAILED.
+        //
+        // A browser cancels partial media loads as a matter of routine — it
+        // asks for the first bytes of a hero video, decides it has enough, and
+        // drops the rest. Playwright reports that as `requestfailed` with
+        // `net::ERR_ABORTED`, and so does every request cut short by a
+        // navigation. apple.com came back with nine "failed" requests, every
+        // one of them a .webm the browser had deliberately stopped fetching.
+        // Printing those as broken files is our misreading of the browser, on
+        // a site whose videos play perfectly.
+        page.on("requestfailed", (req) => {
+          const why = req.failure()?.errorText ?? "";
+          if (/ERR_ABORTED/i.test(why)) return;
+          noteFailed(req.url(), null);
+        });
         page.on("response", (res) => {
           if (res.status() >= 400) noteFailed(res.url(), res.status());
         });

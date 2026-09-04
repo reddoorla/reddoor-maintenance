@@ -386,7 +386,7 @@ describe("each check fires on the thing it is named for", () => {
     expect(byKey(httpChecks(findings), "logo-served")?.evidence).toMatch(/file name/);
   });
 
-  it("catches an internal link that redirects twice", async () => {
+  it("catches an internal link that redirects three times", async () => {
     const { checks } = await run({
       ...GOOD,
       "https://acme.example/services": { ...OK_HTML, hops: 3 },
@@ -394,6 +394,16 @@ describe("each check fires on the thing it is named for", () => {
     const c = byKey(checks, "redirect-chains");
     expect(c?.status).toBe("fail");
     expect(c?.evidence).toMatch(/3 hops/);
+  });
+
+  it("leaves a two-hop link alone, because a deliberate redirector is one", async () => {
+    // Every `/us/shop/goto/*` link on apple.com takes two hops, by design.
+    // Flagging those described the pattern, not a problem.
+    const { checks } = await run({
+      ...GOOD,
+      "https://acme.example/services": { ...OK_HTML, hops: 2 },
+    });
+    expect(byKey(checks, "redirect-chains")?.status).toBe("pass");
   });
 });
 

@@ -114,6 +114,16 @@ export type HttpFindings = {
 export const MAX_SITEMAP_PROBES = 12;
 export const MAX_EXTERNAL_PROBES = 15;
 export const MAX_REDIRECT_PROBES = 10;
+/**
+ * Hops before an internal link is worth mentioning.
+ *
+ * ONE redirect is ordinary and often deliberate — a trailing slash, a locale
+ * prefix, a short URL. TWO is where apple.com sits on every `/us/shop/goto/*`
+ * link, which is a deliberate redirector doing its job. Three is where a chain
+ * stops looking intentional and starts looking like something nobody has
+ * revisited, which is the only version of this a reader can act on.
+ */
+export const MAX_ORDINARY_HOPS = 2;
 /** Bytes pulled when a probe needs to read image dimensions. Every format we
  *  can measure carries them in the first few hundred bytes; 32KB is slack for
  *  a JPEG with a large EXIF block ahead of its first frame header. */
@@ -571,12 +581,19 @@ export async function probeHttp(crawl: CrawlResult, deps: HttpProbeDeps): Promis
         if (host === originKey && !sameAddress(abs, page.url)) internal.add(abs);
       }
     }
-    const picked = [...internal].slice(0, MAX_REDIRECT_PROBES);
+    // Spread across the set, not the first ten. On apple.com the first ten
+    // internal links are all shop navigation, so the sample described one
+    // component rather than the site.
+    const all = [...internal];
+    const step = Math.max(1, Math.floor(all.length / MAX_REDIRECT_PROBES));
+    const picked = all.filter((_, i) => i % step === 0).slice(0, MAX_REDIRECT_PROBES);
     if (picked.length > 0) {
       const chained: { url: string; hops: number }[] = [];
       await pacedEach(picked, 0, async (url) => {
         const res = await ask(url, { method: "HEAD" });
-        if (res?.hops != null && res.hops > 1) chained.push({ url, hops: res.hops });
+        if (res?.hops != null && res.hops > MAX_ORDINARY_HOPS) {
+          chained.push({ url, hops: res.hops });
+        }
       });
       out.redirectChains = { checked: picked.length, chained };
     }
