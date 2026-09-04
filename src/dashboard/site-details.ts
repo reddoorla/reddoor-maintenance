@@ -73,6 +73,16 @@ export type EditableField = {
  * with `mapRow` in src/reports/airtable/websites.ts.
  */
 export const EDITABLE_SITE_FIELDS: Record<string, EditableField> = {
+  // The site's own address, and the target EVERY deployed audit drives: the
+  // inventory exposes it as `Site.deployedUrl` (src/inventory/airtable.ts), so
+  // function-health, lighthouse, browser, domain and form-e2e all resolve
+  // against it. It was writable only at creation (`ensure-site`), and the #643
+  // freeze retired Airtable hand-editing — which left a site that MOVED with no
+  // way to be corrected anywhere. Found on vida-legacy-foundation, whose row
+  // still pointed at a hostname that 404s, so every audit that ran against it
+  // was measuring nothing. `kind: "url"` applies the same scheme allowlist the
+  // audit target itself uses.
+  url: { column: "url", kind: "url" },
   pointOfContact: { column: "point of contact", kind: "email" },
   reportRecipientsTo: { column: "Report recipients (To)", kind: "emails" },
   reportRecipientsCc: { column: "Report recipients (CC)", kind: "emails" },
