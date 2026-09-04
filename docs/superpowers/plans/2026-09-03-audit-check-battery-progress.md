@@ -260,6 +260,54 @@ second click would credit the form with catching something it never saw.
 
 ---
 
+## Validating against reddoorla.com — 09-04
+
+Full battery, no model calls: `pnpm tsx scripts/validate-checks.mts "https://reddoorla.com|Reddoor Creative"`.
+
+**76 checks — 55 pass, 14 fail, 7 not-applicable, 0 unmeasured.** The seven
+sitting out have nothing to look at (no rating markup, no canonicals anywhere,
+no language alternates, no new-tab links, published addresses on our own
+domain, and /index.html + a cased path both behaving). Only pass and fail enter
+the denominator, so the ratio is 55/69.
+
+**One instrument bug, and it was the predicted shape.** The battery told our own
+site it has no analytics. It runs GA4, and injects gtag.js only after the first
+pointer or scroll — deliberately, for privacy — so there is no analytics `src`
+in the DOM at crawl time. Fixed by recording hosts NAMED inside inline scripts,
+which is a different claim and says so in the field name. It would have landed on
+every consent-gated site, i.e. on exactly the clients who did the careful thing.
+
+**One reliability bug that only a live crawl could find, and it was mine.** The
+form probe's route handler was `async`, and `unroute`/`unrouteAll` WAIT for
+every handler promise still in flight. The second probe against a given page
+hung in `release`; the third hung in `route` itself. Two runs in four died that
+way, each losing a completed twenty-page crawl. No unit test could see it — the
+fakes have no router.
+
+Three changes, and the second matters more than the first:
+
+1. The handler is synchronous and resolves its route fire-and-forget, so there
+   is nothing for an unroute to await.
+2. `release` DISARMS the handler before it tries to unroute. If the unroute
+   never finishes, an armed handler stays registered and aborts every navigation
+   for the rest of the crawl — silently emptying the remaining pages. That is a
+   far worse failure than the hang it replaced, and it was one timeout away.
+3. `probeForms` runs under a budget in `crawl.ts`. A stall now costs two checks
+   that read "not measured", never the crawl.
+
+**Also corrected: two checks were never being exercised.** `name-in-title` and
+`h1-not-name` read a business name, and the validation script hardcoded null
+because it skips the model stage that supplies one. They reported "not measured"
+and looked like a finding. The script takes `url|Business Name` now.
+
+**What it found on the site, all verified real:** no SPF record; the CSP
+preconnect refusal, confirmed from the browser console rather than by reading
+netlify config; /about and /contact with no `<h1>` at all while the homepage has
+five; /index.html serving the homepage at a second address; no canonical on any
+page; a portfolio page linked internally but absent from the sitemap; a stale
+`http://` link; no llms.txt. Plus axe: `image-alt` on 47 elements across three
+pages, `color-contrast` on 196 across sixteen.
+
 ## Before merge
 
 - [ ] Re-run the audit on **reddoorla.com**. Every prior measurement change found

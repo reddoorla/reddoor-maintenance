@@ -209,6 +209,23 @@ export type InteractionDeps = {
  *  enough for a framework re-render, short enough that it is not a timeout. */
 export const VALIDATION_SETTLE_MS = 600;
 
+/** Nothing in this module may hang the crawl. A probe that stalls costs the
+ *  whole audit — twenty pages already fetched, thrown away — where an
+ *  abandoned one costs two checks that honestly read "not measured". */
+export const PROBE_BUDGET_MS = 45_000;
+
+/** Resolves to `null` rather than waiting forever. Used on every step that
+ *  talks to a browser we do not control. */
+export function withTimeout<T>(work: Promise<T>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout>;
+  return Promise.race([
+    work.catch(() => null),
+    new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 export async function probeForms(deps: InteractionDeps): Promise<FormProbe | null> {
   const chosen = await deps.evaluate<Chosen | null>(CHOOSE_FORM);
   if (!chosen) return null;
@@ -389,6 +406,12 @@ export function pageInteractionDeps(
       // that window — the sole navigation it lets through is our own GET back
       // to a page we already fetched.
       let allowNavigation = false;
+      // Disarmed by `release`, BEFORE it tries to unroute. If the unroute does
+      // not complete — and it sometimes does not — the handler stays registered
+      // for the rest of the crawl, and an armed one aborts every navigation
+      // that follows. That would have silently emptied the remaining pages of a
+      // twenty-page crawl, which is far worse than the hang it replaced.
+      let armed = true;
       let origin = "";
       try {
         origin = new URL(url).origin;
@@ -397,33 +420,50 @@ export function pageInteractionDeps(
       }
       const onDialog = (d: import("@playwright/test").Dialog) => void d.dismiss().catch(() => {});
       page.on("dialog", onDialog);
-      await page.route("**/*", async (route) => {
-        const req = route.request();
-        const isNavigation = req.isNavigationRequest();
-        const method = req.method().toUpperCase();
-        const sameOrigin = (() => {
-          try {
-            return new URL(req.url()).origin === origin;
-          } catch {
-            return false;
-          }
-        })();
-        if (isNavigation) {
-          if (allowNavigation) {
-            await route.continue();
-            return;
-          }
-          blocked++;
-          await route.abort();
+      // SYNCHRONOUS, and the route resolved fire-and-forget.
+      //
+      // This is the deadlock, and it took a live crawl to find. An `async`
+      // handler returns a promise, and `unroute`/`unrouteAll` WAIT for every
+      // such promise still in flight — so the second probe against a given page
+      // hung in `release`, and the third hung in `route` itself, each taking a
+      // twenty-page crawl down with it. No unit test could see it: the fakes
+      // have no router.
+      //
+      // Returning nothing leaves Playwright nothing to await, and the abort or
+      // continue still lands a tick later. The decision is made synchronously
+      // so `blocked` is accurate the instant the request is seen.
+      await page.route("**/*", (route) => {
+        if (!armed) {
+          void route.continue().catch(() => {});
           return;
         }
-        if (method !== "GET" && sameOrigin) {
-          blocked++;
-          await route.abort();
-          return;
+        let stop: boolean;
+        try {
+          const req = route.request();
+          const isNavigation = req.isNavigationRequest();
+          const method = req.method().toUpperCase();
+          const sameOrigin = (() => {
+            try {
+              return new URL(req.url()).origin === origin;
+            } catch {
+              return false;
+            }
+          })();
+          // A form submission is either a navigation or a same-origin non-GET.
+          // Third-party GETs — fonts, images, an analytics beacon — are let
+          // through: blocking them changes how the page behaves without making
+          // anyone safer. Our own reload is the one navigation allowed.
+          stop = (isNavigation && !allowNavigation) || (method !== "GET" && sameOrigin);
+        } catch {
+          // A request we cannot even read is one we do not block, because the
+          // only thing that could make it dangerous is being a submission, and
+          // we would have been able to read that.
+          stop = false;
         }
-        await route.continue();
+        if (stop) blocked++;
+        void (stop ? route.abort() : route.continue()).catch(() => {});
       });
+
       return {
         blocked: () => blocked,
         reload: async () => {
@@ -439,14 +479,28 @@ export function pageInteractionDeps(
           return again !== null;
         },
         release: async () => {
+          armed = false;
           page.off("dialog", onDialog);
-          await page.unroute("**/*").catch(() => {});
+          // THE MARKER FIRST, while the page is still definitely answering.
+          // Then the routes.
           // The marker is ours; leaving it behind would show up in the next
           // page's extract as markup the site does not have. Passed as a
           // STRING like every other snippet here: `src/prospect/types.ts` is a
           // build entry, and an inline arrow touching `document` puts the DOM
           // lib on the declaration build, which does not have one.
-          await page.evaluate(`(${REMOVE_MARKER})()`).catch(() => {});
+          await withTimeout(page.evaluate(`(${REMOVE_MARKER})()`), 5_000);
+
+          // `unrouteAll`, NOT `unroute`, and with `ignoreErrors`.
+          //
+          // This is the deadlock. `page.unroute` waits for route handlers that
+          // are still in flight, and the reload above leaves several — so the
+          // SECOND probe on a given page object hung here forever, taking a
+          // twenty-page crawl down with it. It reproduced two runs in four and
+          // never in a unit test, because the fakes have no router at all.
+          // Short, because it is now only tidying: the handler above is
+          // already inert, so a timeout here costs nothing but a registration
+          // that passes everything through.
+          await withTimeout(page.unrouteAll({ behavior: "ignoreErrors" }), 3_000);
         },
       };
     },

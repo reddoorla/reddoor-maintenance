@@ -7,7 +7,13 @@ import {
   type AxePageResult,
   type PageVitals,
 } from "./accessibility.js";
-import { pageInteractionDeps, probeForms, type FormProbe } from "./interaction.js";
+import {
+  pageInteractionDeps,
+  probeForms,
+  withTimeout,
+  PROBE_BUDGET_MS,
+  type FormProbe,
+} from "./interaction.js";
 import type { CrawlResult, PageCapture, RobotsAgentAccess } from "./types.js";
 import { extractPage, UNRENDERED_TAGS } from "./extract.js";
 import { isPrivateOrLoopbackHost } from "../util/url.js";
@@ -928,9 +934,17 @@ export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
             // Once, because a site has one enquiry form, and probing the same
             // form on five pages is five sets of aborted requests for one
             // answer.
+            //
+            // BUDGETED, because a stall here used to cost the whole crawl:
+            // twenty pages already fetched, thrown away, for two checks. A
+            // probe that runs out of time is abandoned and reads as "not
+            // measured", which is the same trade every other stage makes.
             let formProbe: FormProbe | null = null;
             if (!formProbed) {
-              formProbe = await probeForms(pageInteractionDeps(page, url)).catch(() => null);
+              formProbe = await withTimeout(
+                probeForms(pageInteractionDeps(page, url)),
+                PROBE_BUDGET_MS,
+              );
               if (formProbe) formProbed = true;
             }
             out.set(url, { html, axe, vitals, formProbe });

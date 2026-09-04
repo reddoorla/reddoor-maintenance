@@ -11,7 +11,13 @@
  * client's fault. A fail here is a hypothesis about the site AND a hypothesis
  * about the check, and the second is the one to test first.
  *
- *   pnpm tsx scripts/validate-checks.mts https://reddoorla.com [more urls]
+ * A business name may be appended after a pipe. Two checks read it — a title
+ * that never mentions the company, and a headline that is only the company name
+ * — and this script skips the model stage that supplies it in production, so
+ * without one those two report "not measured" and go untested. Passing it here
+ * is what makes the run cover the whole battery rather than 74 of it.
+ *
+ *   pnpm tsx scripts/validate-checks.mts "https://reddoorla.com|Reddoor Creative"
  */
 import { crawlSite, defaultCrawlDeps } from "../src/prospect/crawl.js";
 import { runChecks } from "../src/prospect/checks.js";
@@ -30,7 +36,7 @@ const MARK: Record<string, string> = {
   pass: " ok ",
 };
 
-async function one(url: string): Promise<void> {
+async function one(url: string, business: string | null): Promise<void> {
   console.log(`\n${"=".repeat(72)}\n${url}\n${"=".repeat(72)}`);
   const started = Date.now();
 
@@ -66,7 +72,7 @@ async function one(url: string): Promise<void> {
   const probe = crawl.pages.find((p) => p.formProbe)?.formProbe;
   if (probe) console.log(`form probe on ${probe.url}, ${probe.blocked} request(s) stopped`);
 
-  const results = runSiteChecks(crawl, checks, null, dns, http);
+  const results = runSiteChecks(crawl, checks, business, dns, http);
   const t = tally(results);
   console.log(`\n${results.length} checks — ${t.passed}/${t.total} of those with a verdict\n`);
 
@@ -82,9 +88,10 @@ async function one(url: string): Promise<void> {
 }
 
 async function main() {
-  for (const url of process.argv.slice(2)) {
+  for (const arg of process.argv.slice(2)) {
+    const [url, business] = arg.split("|");
     try {
-      await one(url);
+      await one(url!.trim(), business?.trim() || null);
     } catch (err) {
       console.log(`\n!! ${url} — ${err instanceof Error ? err.message : err}`);
     }
