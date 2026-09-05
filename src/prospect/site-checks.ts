@@ -157,8 +157,8 @@ function anchorChecks(pages: { url: string; extract: PageExtract }[], origin: st
       ),
       unknown(
         "insecure-links",
-        "Links that drop out of https",
-        "A link back to plain http shows a “not secure” warning on a site that had earned the padlock.",
+        "Links back to your own http address",
+        "A link to the http:// spelling of your own address makes the visitor ask for the page in the clear before your redirect sends them back, and costs them a round trip to do it.",
         "quick",
       ),
       unknown(
@@ -261,17 +261,39 @@ function anchorChecks(pages: { url: string; extract: PageExtract }[], origin: st
   // Only meaningful on a site that is itself on https — on an http site the
   // finding is the site, and `insecureEntry` already says so.
   if (origin.startsWith("https://")) {
-    const insecure = all.filter(({ a }) => /^http:\/\//i.test(a.href.trim()));
+    // Only links back to the site's OWN host.
+    //
+    // The rule was every http:// link, and it was wrong about what happens.
+    // Following an outbound one navigates AWAY: the padlock on the page they
+    // left is untouched, browsers now upgrade top-level http navigations on
+    // their own, and the destination almost always redirects to https anyway.
+    // Four of seven measurable sites failed this, and three of the four failed
+    // on `http://www.facebook.com/…` and the like — old social links that cost
+    // their visitors nothing. That is a finding invented out of a claim that
+    // does not follow.
+    //
+    // A link to your own http address is a different thing and still true: the
+    // first request really does leave in the clear, and HSTS cannot help on a
+    // browser's first contact with the site.
+    const insecure = all.filter(({ a }) => {
+      const href = a.href.trim();
+      if (!/^http:\/\//i.test(href)) return false;
+      try {
+        return new URL(href).hostname.replace(/^www\./i, "") === ownHost?.replace(/^www\./i, "");
+      } catch {
+        return false;
+      }
+    });
     out.push(
       check(
         "insecure-links",
-        "Links that drop out of https",
-        "A link back to plain http shows a “not secure” warning on a site that had earned the padlock.",
+        "Links back to your own http address",
+        "A link to the http:// spelling of your own address makes the visitor ask for the page in the clear before your redirect sends them back, and costs them a round trip to do it.",
         "quick",
         insecure.length === 0,
         insecure.length === 0
-          ? "every link stays on https"
-          : `${insecure.length} ${insecure.length === 1 ? "link" : "links"}, including ${insecure
+          ? "every link to your own pages stays on https"
+          : `${insecure.length} ${insecure.length === 1 ? "link" : "links"} to your own http:// address, including ${insecure
               .slice(0, 3)
               .map((s) => s.a.href)
               .join(", ")}`,
@@ -281,8 +303,8 @@ function anchorChecks(pages: { url: string; extract: PageExtract }[], origin: st
     out.push(
       skip(
         "insecure-links",
-        "Links that drop out of https",
-        "A link back to plain http shows a “not secure” warning on a site that had earned the padlock.",
+        "Links back to your own http address",
+        "A link to the http:// spelling of your own address makes the visitor ask for the page in the clear before your redirect sends them back, and costs them a round trip to do it.",
         "quick",
         "the site is not served over https, which is the finding above instead",
       ),
@@ -488,8 +510,23 @@ const TEMPLATE_LEAKAGE = /(\{\{[^}]{0,80}\}\}|\[object Object\]|<%=?[^%]{0,80}%>
  */
 const MOJIBAKE = /(â€[™œ“”˜]|Ã[©¨¤¡«»]|ï»¿|Â[\s£©®])/;
 
+/**
+ * A page that ANNOUNCES itself unfinished — matched against its title and its
+ * headings, never its prose.
+ *
+ * Running text was the first rule and the corpus falsified it twice out of
+ * twice: "the list of open positions is always changing, so check back soon"
+ * on a working careers page, and "Santa Ana, CA (Coming Soon)" beside a new
+ * store on a locations list. Both are the business working, and we reported
+ * both as the business broken. A heading is what separates a page that IS a
+ * placeholder from a page that mentions the future.
+ *
+ * "page not found" left with the prose rule. Whether a missing page behaves is
+ * asked and answered against a real request (see basics.ts); matching the
+ * phrase in body text could only ever add a second, worse-informed voice.
+ */
 const UNDER_CONSTRUCTION =
-  /\b(under construction|coming soon|site is being (?:built|updated)|check back soon|page not found)\b/i;
+  /\b(under construction|coming soon|site is being (?:built|updated)|check back soon)\b/i;
 
 function textChecks(
   pages: { url: string; extract: PageExtract }[],
@@ -537,13 +574,6 @@ function textChecks(
       "quick",
       MOJIBAKE,
     ],
-    [
-      "under-construction",
-      "Pages that say they are unfinished",
-      "A live page announcing it is coming soon is a page better unlinked until it is not.",
-      "content",
-      UNDER_CONSTRUCTION,
-    ],
   ];
 
   for (const [key, label, why, scope, re] of cases) {
@@ -566,9 +596,43 @@ function textChecks(
     );
   }
 
+  out.push(underConstruction(pages));
   out.push(nameInTitle(pages, businessName));
   return out;
 }
+
+/** See `UNDER_CONSTRUCTION`: the title and the headings, which is where a page
+ *  that is a placeholder says so, and not the prose, where saying so is
+ *  ordinary copy. */
+function underConstruction(pages: { url: string; extract: PageExtract }[]): SiteCheck {
+  const KEY = "under-construction";
+  const LABEL = "Pages that say they are unfinished";
+  const WHY = "A live page announcing it is coming soon is a page better unlinked until it is not.";
+  if (pages.length === 0) return unknown(KEY, LABEL, WHY, "content");
+
+  for (const p of pages) {
+    const headlines = [p.extract.title ?? "", ...p.extract.headings.map((h) => h.text)];
+    for (const line of headlines) {
+      const m = UNDER_CONSTRUCTION.exec(line);
+      if (m) {
+        return check(KEY, LABEL, WHY, "content", false, `${p.url}: “${line.trim()}”`);
+      }
+    }
+  }
+  return check(
+    KEY,
+    LABEL,
+    WHY,
+    "content",
+    true,
+    `no page announces itself unfinished, across the ${pages.length} we read`,
+  );
+}
+
+/** Dropped before taking the head of a business name: "The Pointe Burbank" is
+ *  distinguished by "pointe", and every name beginning "The" would otherwise be
+ *  tested against a word that appears in half the titles on the web. */
+const LEADING_ARTICLES = new Set(["the"]);
 
 function nameInTitle(
   pages: { url: string; extract: PageExtract }[],
@@ -585,14 +649,27 @@ function nameInTitle(
   if (!home || !home.extract.title) {
     return unknown("name-in-title", LABEL, WHY, "quick");
   }
-  // Compared on words rather than as a substring: "Acme Roofing" should match a
-  // title reading "Acme Roofing, Inc." and also "Acme — Roofing in Boise".
+  // The DISTINCTIVE word, not every word of the name.
+  //
+  // Requiring all of them was the first rule and the corpus caught it out:
+  // "Worthe Real Estate Group" against the title "Worthe — Over 7,000,000 SF of
+  // properties in the Los Angeles area" was scored a fail. That is a good
+  // title. It names the company and says what they do, and we failed it for
+  // dropping a category word the model had appended to the name. Three of the
+  // four fails were that same shape.
+  //
+  // The question this check asks is whether a stranger seeing the tab, the
+  // search result or the shared link learns whose page it is — so the test is
+  // the head of the name, the part a person types first. "QTI Sensing
+  // Solutions" against "Your Thermistor Experts" still fails, which is the one
+  // fail of the four that was real.
   const words = businessName
     .toLowerCase()
     .split(/[^\p{L}\p{N}]+/u)
-    .filter((w) => w.length > 2);
+    .filter((w) => w.length > 2 && !LEADING_ARTICLES.has(w));
+  const head = words[0];
   const title = home.extract.title.toLowerCase();
-  const hit = words.length > 0 && words.every((w) => title.includes(w));
+  const hit = head !== undefined && title.includes(head);
   return check("name-in-title", LABEL, WHY, "quick", hit, `“${home.extract.title}”`);
 }
 
@@ -769,15 +846,57 @@ const isType = (n: SchemaNode, names: string[]): boolean =>
 
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
 
+/**
+ * The address inside a schema.org value, whatever shape the emitter chose.
+ *
+ * `logo` was read as a string only, and the corpus said that was wrong: of the
+ * fifteen sites we reported as "missing logo", NINE publish a perfectly
+ * well-formed `{"@type":"ImageObject","url":…}` — the shape Yoast, Rank Math
+ * and Google's own documentation all use. We were reading the rarer spelling
+ * and printing our own narrowness as their omission, which is the one thing
+ * this report may never do.
+ *
+ * An object carrying only `@id` is a REFERENCE to a node declared elsewhere in
+ * the same @graph, so it is resolved against the nodes we collected rather than
+ * counted on its own: an `@id` pointing at nothing really is a dangling
+ * declaration, and should still fail.
+ */
+function schemaUrl(value: unknown, nodes: SchemaNode[], depth = 0): string | null {
+  if (depth > 3) return null;
+  const direct = str(value);
+  if (direct) return direct;
+  if (Array.isArray(value)) {
+    for (const v of value) {
+      const hit = schemaUrl(v, nodes, depth + 1);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  if (!value || typeof value !== "object") return null;
+  const obj = value as SchemaNode;
+  const inline = str(obj["url"]) ?? str(obj["contentUrl"]);
+  if (inline) return inline;
+  const id = str(obj["@id"]);
+  if (!id) return null;
+  const target = nodes.find((n) => n !== obj && str(n["@id"]) === id);
+  return target ? schemaUrl(target, nodes, depth + 1) : null;
+}
+
 function schemaChecks(
   pages: { url: string; extract: PageExtract }[],
   origin: string,
   phones: string[],
 ): SiteCheck[] {
   const nodes: SchemaNode[] = [];
+  // Which page each node was embedded in. JSON-LD resolves a relative IRI
+  // against the document it sits in, so a block reading `"url": "/"` is a
+  // correct self-reference and only looks like a dangling one if you compare
+  // the raw string — see `schema-url-matches`.
+  const declaredOn = new Map<SchemaNode, string>();
   let parsedAny = false;
   for (const p of pages) {
     for (const block of p.extract.jsonLd) {
+      const before = nodes.length;
       try {
         collectNodes(JSON.parse(block), nodes);
         parsedAny = true;
@@ -785,6 +904,7 @@ function schemaChecks(
         // Invalid blocks are counted by checks.schema.invalidBlocks; here they
         // simply contribute nothing.
       }
+      for (let i = before; i < nodes.length; i++) declaredOn.set(nodes[i]!, p.url);
     }
   }
 
@@ -810,7 +930,12 @@ function schemaChecks(
   if (!org) {
     out.push(noSchema("schema-org-complete", "Your business details in structured data", WHY_ORG));
   } else {
-    const missing = ["name", "url", "logo"].filter((f) => !str(org[f]));
+    // `name` stays string-only — its schema.org range is Text. `url` and `logo`
+    // do not: both accept an object, and reading only the string spelling is
+    // what made this check the loudest false accusation in the battery.
+    const missing = (["name", "url", "logo"] as const).filter((f) =>
+      f === "name" ? !str(org[f]) : !schemaUrl(org[f], nodes),
+    );
     out.push(
       check(
         "schema-org-complete",
@@ -851,12 +976,25 @@ function schemaChecks(
 
   const WHY_URL =
     "A structured-data url pointing at a domain you no longer use tells every assistant that reads it to go and look somewhere else.";
-  const declaredUrl = org ? str(org["url"]) : null;
+  const declaredUrl = org ? schemaUrl(org["url"], nodes) : null;
   if (!declaredUrl) {
     out.push(noSchema("schema-url-matches", "Structured data pointing at this site", WHY_URL));
   } else {
-    // An unparseable url in their schema is a fail, not an exception: it is
-    // still a declaration pointing at nothing this site serves.
+    // Resolved against the page the block was declared on, because that is what
+    // a JSON-LD parser does. airstrip.com publishes `"url": "/"` on its
+    // homepage — correct, and unambiguous to every consumer — and a raw string
+    // comparison read it as a url pointing at nothing and failed them for it.
+    //
+    // An unparseable url is still a fail, not an exception: it is a declaration
+    // pointing at nothing this site serves.
+    const base = (org ? declaredOn.get(org) : null) ?? origin;
+    const absolute = ((): string | null => {
+      try {
+        return new URL(declaredUrl, base).toString();
+      } catch {
+        return null;
+      }
+    })();
     const host = (u: string): string | null => {
       try {
         return new URL(u).hostname.replace(/^www\./i, "").toLowerCase();
@@ -864,7 +1002,7 @@ function schemaChecks(
         return null;
       }
     };
-    const declaredHost = host(declaredUrl);
+    const declaredHost = absolute === null ? null : host(absolute);
     const sameHost = declaredHost !== null && declaredHost === host(origin);
     out.push(
       check(
@@ -873,7 +1011,9 @@ function schemaChecks(
         WHY_URL,
         "content",
         sameHost,
-        declaredUrl,
+        // The resolved address, since that is the one we compared. Printing the
+        // raw "/" back at a reader who passed would read as a bug in us.
+        absolute ?? declaredUrl,
       ),
     );
   }

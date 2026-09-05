@@ -1368,3 +1368,204 @@ describe("Tier 3 — what the browser itself reported", () => {
     }
   });
 });
+
+/**
+ * Five faults the stored corpus found when the current battery was re-scored
+ * over 29 sites we had already crawled (see `scripts/replay-checks.mts`).
+ *
+ * Every one of them accused a site of something it had not done, which is the
+ * only bug shape in this report that costs anything: a missed finding is a
+ * missed sale, and an invented one is a stranger reading a confident sentence
+ * about their site that is false. Each test below is the exact shape the corpus
+ * produced, not a contrived one.
+ */
+describe("faults the stored corpus found", () => {
+  it("reads a logo published as an ImageObject, which is how SEO plugins emit it", () => {
+    // NINE of the fifteen sites we reported as "missing logo" published this.
+    const asObject = JSON.stringify({
+      "@type": "Organization",
+      name: "Acme Roofing",
+      url: "https://acme.example",
+      logo: { "@type": "ImageObject", url: "https://acme.example/logo.png" },
+    });
+    const checks = runSiteChecks(
+      exemplary({ pages: [page("https://acme.example/", { jsonLd: [asObject] })] }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(checks, "schema-org-complete")?.status).toBe("pass");
+  });
+
+  it("follows a logo declared as an @id reference into the node it names", () => {
+    const graph = JSON.stringify({
+      "@graph": [
+        {
+          "@type": "Organization",
+          name: "Acme Roofing",
+          url: "https://acme.example",
+          logo: { "@id": "https://acme.example/#logo" },
+        },
+        {
+          "@type": "ImageObject",
+          "@id": "https://acme.example/#logo",
+          url: "https://acme.example/logo.png",
+        },
+      ],
+    });
+    const checks = runSiteChecks(
+      exemplary({ pages: [page("https://acme.example/", { jsonLd: [graph] })] }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(checks, "schema-org-complete")?.status).toBe("pass");
+  });
+
+  it("still fails an @id that names a node the page never declares", () => {
+    const dangling = JSON.stringify({
+      "@type": "Organization",
+      name: "Acme Roofing",
+      url: "https://acme.example",
+      logo: { "@id": "https://acme.example/#nowhere" },
+    });
+    const checks = runSiteChecks(
+      exemplary({ pages: [page("https://acme.example/", { jsonLd: [dangling] })] }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(checks, "schema-org-complete")?.status).toBe("fail");
+    expect(byKey(checks, "schema-org-complete")?.evidence).toContain("logo");
+  });
+
+  it("resolves a relative schema url against the page it was declared on", () => {
+    // airstrip.com publishes exactly this and we told them it pointed nowhere.
+    const relative = JSON.stringify({
+      "@type": "Organization",
+      name: "Acme Roofing",
+      url: "/",
+      logo: "https://acme.example/logo.png",
+    });
+    const checks = runSiteChecks(
+      exemplary({ pages: [page("https://acme.example/", { jsonLd: [relative] })] }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(checks, "schema-url-matches")?.status).toBe("pass");
+    // The resolved address, not the "/" — printing the raw declaration back at
+    // someone who passed reads as a bug in the report.
+    expect(byKey(checks, "schema-url-matches")?.evidence).toContain("acme.example");
+  });
+
+  it("does not read ordinary copy about the future as an unfinished site", () => {
+    // Both of these were real fails: a working careers page, and a locations
+    // list announcing a new store.
+    const prose = runSiteChecks(
+      exemplary({
+        pages: [
+          page("https://acme.example/", {
+            text: "Our list of open positions changes, so check back soon. Boise, ID (Coming Soon)",
+          }),
+        ],
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(prose, "under-construction")?.status).toBe("pass");
+  });
+
+  it("still catches a page whose own headline says it is unfinished", () => {
+    const headline = runSiteChecks(
+      exemplary({
+        pages: [
+          page("https://acme.example/gallery", {
+            headings: [{ level: 1, text: "Coming soon" }],
+          }),
+        ],
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(headline, "under-construction")?.status).toBe("fail");
+    expect(byKey(headline, "under-construction")?.evidence).toContain("Coming soon");
+  });
+
+  it("accepts a title that names the business but drops the category words", () => {
+    // "Worthe Real Estate Group" vs "Worthe — Over 7,000,000 SF of properties in
+    // the Los Angeles area". A good title, scored a fail.
+    const checks = runSiteChecks(
+      exemplary({
+        pages: [
+          page("https://acme.example/", {
+            title: "Acme — Commercial roof repair across the Treasure Valley",
+          }),
+        ],
+      }),
+      exemplaryChecks(),
+      "Acme Roofing Group LLC",
+    );
+    expect(byKey(checks, "name-in-title")?.status).toBe("pass");
+  });
+
+  it("skips a leading article when taking the distinctive word of a name", () => {
+    const checks = runSiteChecks(
+      exemplary({ pages: [page("https://acme.example/", { title: "The Pointe" })] }),
+      exemplaryChecks(),
+      "The Pointe Burbank",
+    );
+    expect(byKey(checks, "name-in-title")?.status).toBe("pass");
+  });
+
+  it("still fails a title that never names the business at all", () => {
+    const checks = runSiteChecks(
+      exemplary({ pages: [page("https://acme.example/", { title: "Your Thermistor Experts" })] }),
+      exemplaryChecks(),
+      "QTI Sensing Solutions",
+    );
+    expect(byKey(checks, "name-in-title")?.status).toBe("fail");
+  });
+
+  it("does not call an outbound http link a lapse in the site's own security", () => {
+    // Three of four fails were `http://www.facebook.com/…` and the like.
+    // Following one navigates AWAY; the padlock on the page they left is
+    // untouched, and the destination redirects to https anyway.
+    const checks = runSiteChecks(
+      exemplary({
+        pages: [
+          page("https://acme.example/", {
+            anchors: [
+              {
+                href: "http://www.facebook.com/acmeroofing",
+                text: "Facebook",
+                rel: "",
+                target: "",
+              },
+              { href: "http://www.chamberofcommerce.org/", text: "Chamber", rel: "", target: "" },
+            ],
+            anchorCount: 2,
+          }),
+        ],
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(checks, "insecure-links")?.status).toBe("pass");
+  });
+
+  it("still catches a link back to the site's own http address", () => {
+    const checks = runSiteChecks(
+      exemplary({
+        pages: [
+          page("https://acme.example/", {
+            anchors: [
+              { href: "http://www.acme.example/services", text: "Services", rel: "", target: "" },
+            ],
+            anchorCount: 1,
+          }),
+        ],
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(checks, "insecure-links")?.status).toBe("fail");
+    expect(byKey(checks, "insecure-links")?.evidence).toContain("acme.example/services");
+  });
+});
