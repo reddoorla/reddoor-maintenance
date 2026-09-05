@@ -3,6 +3,16 @@ name: release
 on:
   push:
     branches: [main]
+  # Manual lever for when the push-triggered run is unusable. On 2026-09-03 the
+  # two runs created by the 0.93.1 version-PR merge were stuck `queued` with no
+  # jobs ever allocated and no attempt ever incremented, while other runs in the
+  # same repo and branch succeeded — a GitHub-side broken run, not a runner
+  # shortage. `gh run rerun` could not revive them and `gh run cancel` refused
+  # them as "completed", so publishing needed a fresh push event, which meant
+  # inventing a commit. Dispatching is idempotent: with changesets pending it
+  # updates the version PR, and without them it publishes only versions the
+  # registry does not already have.
+  workflow_dispatch:
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 

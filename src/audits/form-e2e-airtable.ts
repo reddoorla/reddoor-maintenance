@@ -1,7 +1,12 @@
 import type { AuditResult } from "../types.js";
 import type { FormE2eResult } from "../reports/airtable/websites.js";
 
-type FormE2eDetails = { ok: "pass" | "fail" | null; formPresent: boolean; checkedAt: string };
+type FormE2eDetails = {
+  ok?: "pass" | "fail" | null;
+  formPresent?: boolean;
+  checkedAt: string;
+  turnstileWidget?: "pass" | "fail" | null;
+};
 
 /** True when an AuditResult is a `form-e2e` audit that actually RAN (has details
  *  with a checkedAt). Both a real verdict AND the no-form n/a case carry a checkedAt,
@@ -18,9 +23,19 @@ export function formE2eResultFromAudit(result: AuditResult): FormE2eResult {
     throw new Error(`Expected a 'form-e2e' AuditResult, got '${result.audit}'`);
   }
   const d = result.details as FormE2eDetails | undefined;
-  const ok = d?.ok === "pass" ? "pass" : d?.ok === "fail" ? "fail" : null;
+  // `ok` absent means "no form verdict this run" and must stay absent — coercing
+  // it to null would CLEAR `Form E2E OK` on a skip that exists to preserve it.
+  const ok =
+    d?.ok === undefined ? undefined : d.ok === "pass" ? "pass" : d.ok === "fail" ? "fail" : null;
+  // `turnstileWidget` is OPTIONAL and its absence is meaningful: a run with no
+  // opinion (the no-contact-form n/a) must leave the existing verdict alone
+  // rather than clear it, so the key is omitted rather than set to null. Only an
+  // explicit null — a run that looked and could not tell — clears the cell.
+  const t = d?.turnstileWidget;
+  const turnstileWidget = t === "pass" || t === "fail" || t === null ? t : undefined;
   return {
-    ok,
+    ...(ok !== undefined ? { ok } : {}),
     checkedAt: typeof d?.checkedAt === "string" ? d.checkedAt : new Date().toISOString(),
+    ...(turnstileWidget !== undefined ? { turnstileWidget } : {}),
   };
 }

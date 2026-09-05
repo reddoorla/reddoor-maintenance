@@ -643,6 +643,9 @@ function siteDetailsSection(site: WebsiteRow): string {
     selectRow("Status", "status", SITE_STATUS_OPTIONS, site.statusRaw, url),
     selectRow("Maintenance cadence", "maintenanceFreq", FREQ_OPTIONS, site.maintenanceFreq, url),
     selectRow("Testing cadence", "testingFreq", FREQ_OPTIONS, site.testingFreq, url),
+    // First, because it is the site's own address and the target every deployed
+    // audit drives. `site.url` is the row's value; `url` is this page's endpoint.
+    inputRow("Site URL", "url", site.url, url),
     inputRow("Report recipients (To)", "reportRecipientsTo", site.reportRecipientsTo, url),
     inputRow("Report recipients (CC)", "reportRecipientsCc", site.reportRecipientsCc, url),
     inputRow("Point of contact", "pointOfContact", site.pointOfContact, url),

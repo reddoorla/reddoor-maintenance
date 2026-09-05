@@ -10,11 +10,17 @@ An expired/duplicate token stays fail-open (`"unverifiable"` — a real browser 
 
 ## Preconditions — verify ALL of these before checking the box
 
+0. **The site declares `forms.testMode` in `/health`.** New, and it gates
+   everything below: the `Turnstile widget` verdict is written by the `form-e2e`
+   probe, and that probe refuses to open a browser on a site which has not rolled
+   out testMode forwarding. Without it the widget is simply unobserved, the
+   cockpit shows the amber `turnstile-unverified` watch forever, and checking the
+   box below puts a hard gate in front of an unverified widget.
 1. **The deployed site forwards the token from every form.** The flag is per-**site**; widgets are per-**form**. Every form that posts to central ingest (contact, newsletter, custom) must render the widget and post `cf-turnstile-response`, which the site package forwards as `_meta.turnstileToken`. A footer newsletter form without a widget = every signup bucketed.
 2. **`PUBLIC_TURNSTILE_SITE_KEY` is set** in the site's Netlify env (and a deploy has run since).
-3. **The site's `/health` reports `forms.turnstile: true`.** This is the deployed proof of (2). The nightly function-health sweep now writes it to the Websites row as **`Turnstile widget`** (`pass`/`fail`; freshness stamped by `Function health checked at`) — check the field or the site's `/health` directly.
-4. **The site's hostname is in the Cloudflare Turnstile widget's allowlist** (Cloudflare dashboard → Turnstile → the widget). A hostname missing here means the widget won't solve on the live site — and central verification also compares the token's solved-hostname to the site's URL.
-5. `TURNSTILE_SECRET_KEY` is set centrally (dashboard env). Already true fleet-wide; without it verification ships dark and the gate never fires.
+3. **`Turnstile widget` reads `pass`.** Since 2026-09-04 that verdict is earned by a real browser on the real hostname (`form-e2e`), not inferred from an env var — a `pass` means the widget is deployed and is **not** mis-hostnamed. `/health`'s `forms.turnstile: true` is the deployed proof of (2) — and **only** of (2). It is a truthiness check on the env var; it never contacts Cloudflare, so it cannot tell a working widget from a broken one. Accordingly the nightly sweep writes **`Turnstile widget = fail`** when the var is missing and leaves the cell **empty** when it is set: unverified, not confirmed. A `pass` in that column is only ever earned by a browser.
+4. **The site's hostname is in the Cloudflare Turnstile widget's allowlist**, and you have **seen the widget mint a token on the live site**. This is the precondition that actually bites: a sitekey served from a hostname the widget does not list throws `110200`, renders nothing, and forwards no token — indistinguishable from (2) being unset as far as every automated check is concerned, and fatal once the box below is checked. Load the live form and confirm `input[name="cf-turnstile-response"]` is non-empty. See [turnstile-widgets.md](turnstile-widgets.md) — **including the note that widget "Forms 1" is full**, so a sitekey copied from `.env` lands you in exactly this state.
+5. **The verifying secret for that widget is set centrally** (`TURNSTILE_SECRET_KEY`, `_2`, `_3`, … — `form-ingest.mts` tries each in turn). Without the one matching the site's widget, every token is `invalid-input-secret` → `"unverifiable"` → fail-open, and the gate never fires even though everything above is green.
 
 ## Rollout
 
@@ -24,8 +30,10 @@ An expired/duplicate token stays fail-open (`"unverifiable"` — a real browser 
 
 ## The guardrail (what watches the watcher)
 
-- **Red alarm (cannot be accept-muted):** `Require Turnstile` is ON and a fresh health sweep says `Turnstile widget = fail` → a critical cockpit/digest attention item. Fix: uncheck the flag OR fix the widget (preconditions 1–2), then let the nightly sweep re-verify.
-- **Amber watch (acceptable):** the flag is ON but the widget state can't be verified (`Turnstile widget` empty — older site package whose `/health` has no `forms` block, or a stale sweep). Accept key: `turnstile-unverified`. Prefer upgrading the site package so `/health` reports the forms block.
+- **Red alarm (cannot be accept-muted):** `Require Turnstile` is ON and a fresh health sweep says `Turnstile widget = fail` → a critical cockpit/digest attention item. That means `PUBLIC_TURNSTILE_SITE_KEY` is not set on the deployed site at all. Fix: uncheck the flag OR set the key (preconditions 1–2), then let the nightly sweep re-verify.
+- **Amber watch (acceptable):** the flag is ON but the widget has not been positively confirmed (`Turnstile widget` empty). Accept key: `turnstile-unverified`. This is the **normal** state for a site whose key is set, because /health cannot confirm a widget — so the watch is a standing nag to check precondition 4 by hand, not a sign anything is broken. It also covers an older site package whose `/health` has no `forms` block, and a stale sweep.
+
+  Note what the two states no longer mean: an empty cell is **not** "the key is missing" and a `fail` is **not** "the widget is broken". Before 2026-09-04 a set-but-unusable key wrote `pass` here and satisfied both halves of this guardrail at once ([#689](https://github.com/reddoorla/reddoor-maintenance/issues/689)).
 
 ## Rollback
 

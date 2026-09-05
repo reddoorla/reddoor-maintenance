@@ -28,6 +28,9 @@ export default defineConfig({
   entry: [
     "src/index.ts",
     "src/forms/index.ts",
+    // Its own entry, not folded into forms/index, so `./forms` stays the
+    // CMS-agnostic surface a non-Prismic site can import.
+    "src/forms/prismic.ts",
     // Types only, and deliberately so — reddoor-website imports this as
     // `@reddoorla/maintenance/audit` to type the report it fetches. The subpath
     // is named for what a consumer gets (an audit result); the source path keeps

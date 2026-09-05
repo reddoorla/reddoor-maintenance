@@ -1,6 +1,6 @@
 {
   "name": "@reddoorla/maintenance",
-  "version": "0.91.0",
+  "version": "0.93.1",
   "description": "Canonical maintenance configs, audits, and recipes for the reddoor stack.",
   "type": "module",
   "license": "MIT",
@@ -24,6 +24,10 @@
     "./forms": {
       "types": "./dist/forms/index.d.ts",
       "import": "./dist/forms/index.js"
+    },
+    "./forms/prismic": {
+      "types": "./dist/forms/prismic.d.ts",
+      "import": "./dist/forms/prismic.js"
     },
     "./audit": {
       "types": "./dist/prospect/types.d.ts",

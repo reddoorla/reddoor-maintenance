@@ -738,12 +738,19 @@ describe("collectTurnstileGuardrailAlerts", () => {
   });
 
   it("downgrades a STALE fail to no item (assignTier raises the watch instead); unparseable stamp keeps the item", () => {
+    // Aged on `formE2eCheckedAt` since #689 moved `turnstileWidget` to the audit
+    // that earns it. `functionHealthCheckedAt` is deliberately left FRESH on both
+    // rows: it re-stamps at 08:00 nightly whether or not anything looked at a
+    // widget, so gating on it would make a stale verdict permanent — a CRITICAL
+    // item that pages every morning and, riding assignTier's short-circuit, can
+    // never be muted.
     const staleFail = makeWebsiteRow({
       id: "recSTALE",
       name: "Stale",
       requireTurnstile: true,
       turnstileWidget: "fail",
-      functionHealthCheckedAt: stale,
+      formE2eCheckedAt: stale,
+      functionHealthCheckedAt: NOW.toISOString(),
     });
     expect(collectTurnstileGuardrailAlerts([staleFail], BASE, NOW)).toHaveLength(0);
 
@@ -753,7 +760,7 @@ describe("collectTurnstileGuardrailAlerts", () => {
       name: "Junk",
       requireTurnstile: true,
       turnstileWidget: "fail",
-      functionHealthCheckedAt: "not-a-date",
+      formE2eCheckedAt: "not-a-date",
     });
     expect(collectTurnstileGuardrailAlerts([junkStamp], BASE, NOW)).toHaveLength(1);
   });

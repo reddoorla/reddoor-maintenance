@@ -107,3 +107,39 @@ describe("normalizeSubmission", () => {
     }
   });
 });
+
+describe("reserved underscore keys", () => {
+  it("validates _reply into extraFields", () => {
+    const r = normalizeSubmission({
+      formType: "rsvp",
+      email: "guest@example.com",
+      _reply: { subject: "You're on the list for Euphorbia" },
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.extraFields._reply).toEqual({
+      subject: "You're on the list for Euphorbia",
+    });
+  });
+
+  it("drops an unrecognized underscore key instead of folding it into extraFields", () => {
+    const r = normalizeSubmission({
+      formType: "contact",
+      email: "a@b.com",
+      _sneaky: "payload",
+      extra: { _alsoSneaky: "payload", piece: "Untitled" },
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.extraFields._sneaky).toBeUndefined();
+    expect(r.value.extraFields._alsoSneaky).toBeUndefined();
+    expect(r.value.extraFields.piece).toBe("Untitled");
+  });
+
+  it("drops a malformed _reply rather than storing it", () => {
+    const r = normalizeSubmission({ formType: "rsvp", email: "a@b.com", _reply: "not an object" });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.extraFields._reply).toBeUndefined();
+  });
+});

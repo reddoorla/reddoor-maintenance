@@ -62,7 +62,12 @@ describe("audits/form-e2e", () => {
   it("passes when the synthetic submission succeeds", async () => {
     const r = await formE2eAudit({ site, now: NOW, formRunner: runner() });
     expect(r.status).toBe("pass");
-    expect(r.details).toEqual({ ok: "pass", formPresent: true, checkedAt: NOW.toISOString() });
+    expect(r.details).toEqual({
+      ok: "pass",
+      formPresent: true,
+      checkedAt: NOW.toISOString(),
+      turnstileWidget: null,
+    });
   });
 
   it("warns + records ok:fail when the submission does not succeed", async () => {
@@ -86,8 +91,16 @@ describe("audits/form-e2e", () => {
     });
     // Skip STATUS (nothing to assert on the CLI), but WITH details so the writer
     // persists the n/a signal: null verdict + fresh checkedAt (Plan 4 reads that as n/a).
+    // The Turnstile verdict rides along because this path REFRESHES the stamp that
+    // ages it — a verdict must never be older than the clock that decides whether
+    // it is still true.
     expect(r.status).toBe("skip");
-    expect(r.details).toEqual({ ok: null, formPresent: false, checkedAt: NOW.toISOString() });
+    expect(r.details).toEqual({
+      ok: null,
+      formPresent: false,
+      checkedAt: NOW.toISOString(),
+      turnstileWidget: null,
+    });
   });
 
   it("skips (no details) when the runner reports the site does not declare testMode forwarding", async () => {
@@ -97,11 +110,155 @@ describe("audits/form-e2e", () => {
       formRunner: runner({ submit: async () => ({ testModeUndeclared: true }) }),
     });
     // Plain skip, NO details: this is "not yet rolled out here", not n/a — the
-    // prior verdict (or unknown) must be preserved, never overwritten.
+    // The FORM verdict must be preserved, never overwritten — so `ok` and the
+    // stamp are absent. The TURNSTILE verdict is explicitly cleared to null:
+    // nothing can browse this site, and a legacy "fail" left frozen in that cell
+    // would page forever with no writer able to correct it.
     expect(r.status).toBe("skip");
-    expect(r.details).toBeUndefined();
+    expect(r.details).toEqual({ checkedAt: "2026-07-06T00:00:00.000Z", turnstileWidget: null });
     expect(r.summary).toMatch(/does not declare/);
     expect(r.summary).toMatch(/testMode/);
+  });
+
+  describe("the Turnstile widget verdict (#689)", () => {
+    /** Run the audit against a fake runner reporting one widget observation. */
+    async function verdictFor(
+      extra: Record<string, unknown>,
+    ): Promise<"pass" | "fail" | null | undefined> {
+      const r = await formE2eAudit({
+        site,
+        now: NOW,
+        formRunner: {
+          submit: async () => ({ formPresent: true, success: true, ...extra }),
+        },
+      });
+      return (r.details as { turnstileWidget?: "pass" | "fail" | null } | undefined)
+        ?.turnstileWidget;
+    }
+
+    it("earns the pass only from a browser that saw the real widget un-rejected", async () => {
+      expect(
+        await verdictFor({
+          formsHealth: { testMode: true, turnstile: true },
+          turnstile: {
+            containerPresent: true,
+            scriptLoaded: true,
+            hostnameRejected: false,
+            initFailed: false,
+            widgetError: false,
+          },
+        }),
+      ).toBe("pass");
+    });
+
+    it("refuses the pass when Cloudflare rejected the sitekey (110100), not the hostname", async () => {
+      // Every positive signal is true — a deleted or rotated widget still serves
+      // api.js and still SSRs its mount point — so this shape scored "pass" until
+      // the widgetError arm existed. Unverified, not a red: only 110200 has been
+      // measured verbatim in this fleet.
+      expect(
+        await verdictFor({
+          formsHealth: { testMode: true, turnstile: true },
+          turnstile: {
+            containerPresent: true,
+            scriptLoaded: true,
+            hostnameRejected: false,
+            initFailed: false,
+            widgetError: true,
+          },
+        }),
+      ).toBeNull();
+    });
+
+    it("fails on 110200 — the hostname is not on the widget's allowlist", async () => {
+      // The state that silently loses 100% of leads on a Require Turnstile site,
+      // and the one thing nothing in the fleet observed before this change.
+      expect(
+        await verdictFor({
+          formsHealth: { testMode: true, turnstile: true },
+          turnstile: {
+            containerPresent: false,
+            scriptLoaded: true,
+            hostnameRejected: true,
+            initFailed: false,
+            widgetError: false,
+          },
+        }),
+      ).toBe("fail");
+    });
+
+    it("fails when the deployed site has no sitekey at all", async () => {
+      expect(
+        await verdictFor({
+          formsHealth: { testMode: true, turnstile: false },
+          turnstile: {
+            containerPresent: false,
+            scriptLoaded: false,
+            hostnameRejected: false,
+            initFailed: false,
+            widgetError: false,
+          },
+        }),
+      ).toBe("fail");
+    });
+
+    it("clears to null when a key is set but no widget was on the page", async () => {
+      expect(
+        await verdictFor({
+          formsHealth: { testMode: true, turnstile: true },
+          turnstile: {
+            containerPresent: false,
+            scriptLoaded: false,
+            hostnameRejected: false,
+            initFailed: false,
+            widgetError: false,
+          },
+        }),
+      ).toBeNull();
+    });
+
+    it("writes null — not absent — when a stamping run observed nothing", async () => {
+      // This path refreshes `Form E2E checked at`, the clock the CRITICAL alarm
+      // ages the verdict against, so it must never leave an OLDER verdict beside a
+      // fresh stamp. A runner that reported nothing knows nothing: null, "looked
+      // and cannot tell", which can never produce a red. (The absent-means-preserve
+      // case belongs to the exits that return no details at all — no deployedUrl,
+      // or the live gate off.)
+      expect(await verdictFor({})).toBeNull();
+      const r = await formE2eAudit({
+        site,
+        now: NOW,
+        formRunner: { submit: async () => ({ formPresent: true, success: true }) },
+      });
+      expect(Object.keys(r.details as object)).toContain("turnstileWidget");
+    });
+
+    it("never lets a Turnstile observation change the FORM verdict", async () => {
+      // The form probe's own pass/fail is what the health gate reads. A broken
+      // widget is a Turnstile problem, not a form problem, and must not red it.
+      const r = await formE2eAudit({
+        site,
+        now: NOW,
+        formRunner: {
+          submit: async () => ({
+            formPresent: true,
+            success: true,
+            formsHealth: { testMode: true, turnstile: true },
+            turnstile: {
+              containerPresent: true,
+              scriptLoaded: true,
+              hostnameRejected: true,
+              initFailed: false,
+              widgetError: false,
+            },
+          }),
+        },
+      });
+      const d = r.details as { ok: string; turnstileWidget: string };
+      expect(d.ok).toBe("pass");
+      expect(d.turnstileWidget).toBe("fail");
+      expect(r.status).not.toBe("fail");
+    });
   });
 
   it("passes the CF public test sitekey + testMode marker to the runner", async () => {
@@ -278,7 +435,12 @@ describe("audits/form-e2e ingest budget headroom", () => {
     expect(r.summary).toMatch(/BUDGET_THIN/);
     // …but the form DOES work, so the persisted cockpit verdict stays "pass".
     // Flipping it to "fail" would report a working form as broken.
-    expect(r.details).toEqual({ ok: "pass", formPresent: true, checkedAt: NOW.toISOString() });
+    expect(r.details).toEqual({
+      ok: "pass",
+      formPresent: true,
+      checkedAt: NOW.toISOString(),
+      turnstileWidget: null,
+    });
   });
 
   it("leaves the verdict alone when the runner reports no timing", async () => {
@@ -454,7 +616,12 @@ describe("audits/form-e2e refill surfacing", () => {
     expect(r.status).toBe("pass");
     expect(r.summary).toMatch(/re-filled/);
     // The verdict and persisted details stay a clean pass — the form works.
-    expect(r.details).toEqual({ ok: "pass", formPresent: true, checkedAt: NOW.toISOString() });
+    expect(r.details).toEqual({
+      ok: "pass",
+      formPresent: true,
+      checkedAt: NOW.toISOString(),
+      turnstileWidget: null,
+    });
   });
 
   it("keeps a plain pass summary when nothing was wiped", async () => {

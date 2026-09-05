@@ -48,6 +48,9 @@ h1 { margin: 0 0 0.25rem; font-size: 1.75rem; }
 .muted { color:#999; }
 .filters { display:flex; flex-wrap:wrap; gap:0.4rem; margin-bottom:1.25rem; }
 .filters button { font:inherit; font-size:0.85rem; padding:0.25rem 0.7rem; border:1px solid #ccc; border-radius:999px; background:transparent; color:inherit; cursor:pointer; }
+.top-nav { margin: 0.5rem 0 1rem; }
+.nav-btn { display:inline-block; font-size:0.9rem; padding:0.35rem 0.9rem; border:1px solid currentColor; border-radius:999px; text-decoration:none; }
+.nav-btn:hover { background: rgba(127,127,127,0.12); }
 .filters button[aria-pressed="true"] { background:#1a1a1a; color:#fff; border-color:#1a1a1a; }
 @media (prefers-color-scheme: dark) { .filters button[aria-pressed="true"] { background:#e8e8e8; color:#111; } }
 .fleet-actions { margin-bottom:1.25rem; }
@@ -487,6 +490,9 @@ export function renderCockpitHtml(
   ${renderAuthChrome(operatorEmail)}
   <h1>Reddoor fleet cockpit</h1>
   <div class="meta">${total} site${total === 1 ? "" : "s"} on the Reddoor stack. <a href="/fleet">Fleet table →</a></div>
+  <nav class="top-nav" aria-label="Cockpit pages">
+    <a class="nav-btn" href="/audits">Prospect audits →</a>
+  </nav>
   ${verdictBar(model, feed)}
   ${renderNeedsYouFeed(feed)}
   ${renderFleetBrowsePanel(model)}

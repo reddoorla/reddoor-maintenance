@@ -20,8 +20,15 @@ export type CreateIngestEndpointOptions = {
   /**
    * Map the parsed JSON body to a payload. Must set `formType` UNLESS the fixed
    * `formType` option is provided (then that is authoritative and overrides it).
+   *
+   * May be async. A site that resolves confirmation copy from its own CMS does a
+   * read here — see `@reddoorla/maintenance/forms/prismic`. A rejection is
+   * handled exactly like a throw from a sync one: a 400, never a 500.
    */
-  buildPayload: (body: Record<string, unknown>, event: RequestEvent) => SubmissionPayload;
+  buildPayload: (
+    body: Record<string, unknown>,
+    event: RequestEvent,
+  ) => SubmissionPayload | Promise<SubmissionPayload>;
   /** Fixed formType for single-type endpoints; omit for multi-type endpoints
    *  where `buildPayload` derives formType from the body. */
   formType?: string;
@@ -95,7 +102,7 @@ export function createIngestEndpoint(
     let payload: SubmissionPayload;
     try {
       payload = {
-        ...opts.buildPayload(body, event),
+        ...(await opts.buildPayload(body, event)),
         ...(opts.formType ? { formType: opts.formType } : {}),
         _meta: buildSubmissionMeta(event, str(body[turnstileFieldName])),
       };

@@ -1,5 +1,94 @@
 # @reddoorla/maintenance
 
+## 0.93.1
+
+### Patch Changes
+
+- 9cf7a6c: `createIngestAction`'s `buildPayload` may now be async, matching
+  `createIngestEndpoint`.
+
+  Without this, CMS-authored auto-replies were reachable only from sites using the
+  JSON endpoint. Every site on a SvelteKit form action — which is what
+  `reddoor-starter` generates, so most of the fleet — had no way to await a CMS
+  read and could not adopt the feature at all.
+
+  Also closes the same gap the endpoint had: a promise-returning `buildPayload`
+  previously escaped the try/catch as an unhandled rejection instead of the
+  documented failure result.
+
+## 0.93.0
+
+### Minor Changes
+
+- 1aaf782: Confirmation emails get rich text and real per-form-type defaults.
+
+  **Rich text.** The reply body is now a block/span AST rather than flat strings —
+  bold, italic, links, bulleted and numbered lists, and two heading levels — and
+  `@reddoorla/maintenance/forms/prismic` maps a Prismic Rich Text field straight
+  onto it. Deliberately an AST and NOT an HTML string: the envelope crosses an
+  untrusted boundary twice, and a renderer that can only emit a fixed set of tags
+  keeps "no attacker-authored text reaches an outbound email" true by
+  construction. Links are restricted to `https:` and `mailto:`; anything else
+  renders as plain text. Spans are applied by offset BEFORE escaping, so copy
+  containing an `&` or `<` formats correctly.
+
+  **Per-form-type defaults.** A site that has authored nothing no longer sends
+  "We got your message / Thanks for reaching out to {site}" for every form. Each
+  form type now has its own subject and two-paragraph body — a newsletter signup
+  reads like a subscription confirmation, an inquiry like an inquiry. A site's
+  legacy per-site copy columns still win where they are set, and CMS-authored copy
+  still wins over everything.
+
+  BREAKING for anyone who built a `_reply` envelope by hand: `paragraphs: string[]`
+  is replaced by `body: ReplyBlock[]`. The only consumer is gallerysonder, updated
+  alongside.
+
+### Patch Changes
+
+- 1a98fef: Pick the reply entry that has copy, not merely the first one matching the form
+  type.
+
+  A repeatable group hands an editor a new row with its Select unset or defaulted,
+  so a settings document part-way through being filled genuinely contains several
+  blank rows all claiming the same form type — that is the state a real client
+  document was found in. Taking the first match outright meant one stray blank row
+  above the real copy silently discarded it: the reply fell back to the built-in
+  default and looked, from the client's side, exactly like the feature not
+  working.
+
+## 0.92.0
+
+### Minor Changes
+
+- 0005dc1: Form auto-replies can now be authored in a site's CMS.
+
+  A site may forward a `_reply` envelope with a submission — subject, body
+  paragraphs, signature, and calendar details — and the autoresponder renders it,
+  attaching an RFC 5545 invite and a Google Calendar link when the envelope
+  carries an event. Sites that send nothing keep today's email exactly, and an
+  RSVP now names its event in the subject even with no copy authored at all.
+
+  `@reddoorla/maintenance/forms/prismic` resolves that envelope from a Prismic
+  repository: per-form-type defaults from a `form_replies` singleton, overridden
+  per event. Its client is structurally typed, so the package still depends on no
+  CMS SDK and `./forms` stays importable by a site that uses none.
+
+  Two fixes ride along. `buildPayload` may now be async, and a rejected one is the
+  documented 400 rather than an unhandled rejection. And reserved underscore keys
+  can no longer be smuggled into `extraFields` from a request — previously any
+  unrecognized `_`-prefixed key was folded in, which would have let a bot dictate
+  the text of an email sent from `forms@reddoorla.com`.
+
+### Patch Changes
+
+- 9295548: Add a "Prospect audits" button to the fleet cockpit.
+
+  The `/audits` page is the one Tim and Erik are expected to use directly, and
+  until now it was reachable only by typing the URL — the cockpit linked to the
+  fleet table and nothing else. A pill-styled link under the header row gets them
+  there in one click. Stopgap for the dashboard rework tracked separately; a
+  shared shell with real navigation is that issue's job, not this one's.
+
 ## 0.91.0
 
 ### Minor Changes
