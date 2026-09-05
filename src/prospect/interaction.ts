@@ -132,6 +132,15 @@ const CHOOSE_FORM = `() => {
   }
   if (!best) return null;
   best.form.setAttribute("data-audit-form", "");
+  // TARGET REMOVED, and this is a safety measure rather than a tidy-up.
+  // A form posting to target="popupwindow" — which is how Mailchimp's embed
+  // ships, and how clearleft.com's only form is written — submits into a NEW
+  // page, and a route registered on this one does not see it. Measured: the
+  // request went out and the server received it. Without the target the
+  // submission is an ordinary main-frame navigation, which the interceptor
+  // already stops. The page is abandoned straight after the probe, so nothing
+  // downstream sees the altered form.
+  best.form.removeAttribute("target");
   return { fields: best.fields, hasEmail: best.hasEmail, action: best.action };
 }`;
 
@@ -426,6 +435,17 @@ export function pageInteractionDeps(
       }
       const onDialog = (d: import("@playwright/test").Dialog) => void d.dismiss().catch(() => {});
       page.on("dialog", onDialog);
+      // THE CONTEXT, not the page.
+      //
+      // `page.route` covers this page and its frames. It does NOT cover a popup,
+      // which is a new page — so a form with a `target` submitted for real, and
+      // the receiving server confirmed it. Removing the target in `CHOOSE_FORM`
+      // handles the markup case; this handles the rest, including a submit
+      // handler that calls `window.open` itself.
+      //
+      // Safe because the crawl runs one page in one context and `pacedEach` is
+      // serial, so nothing else is loading while this is armed. See `crawl.ts`.
+      const router = page.context();
       // SYNCHRONOUS, and the route resolved fire-and-forget.
       //
       // This is the deadlock, and it took a live crawl to find. An `async`
@@ -438,7 +458,7 @@ export function pageInteractionDeps(
       // Returning nothing leaves Playwright nothing to await, and the abort or
       // continue still lands a tick later. The decision is made synchronously
       // so `blocked` is accurate the instant the request is seen.
-      await page.route("**/*", (route) => {
+      await router.route("**/*", (route) => {
         if (!armed) {
           void route.continue().catch(() => {});
           return;
@@ -457,7 +477,27 @@ export function pageInteractionDeps(
           //
           // A form submitting INTO an iframe is still caught, by the
           // same-origin non-GET rule below.
-          const isNavigation = req.isNavigationRequest() && req.frame() === page.mainFrame();
+          // THE FRAME READ HAS ITS OWN GUARD, and its failure is a verdict.
+          //
+          // `request.frame()` THROWS for a popup's opening navigation — "the
+          // request was issued before the frame is created", because that
+          // request is what creates it. An iframe is different and measurably
+          // so: a `<iframe src>` added to the page resolves to a real frame.
+          // So a navigation whose frame is unavailable is a new window opening,
+          // and during a submit probe that is the submission leaving.
+          //
+          // This mattered. The outer catch below used to swallow the throw and
+          // fall through to `stop = false`, so a form posting into a popup went
+          // out for real — measured, with the receiving server confirming it.
+          const isNav = req.isNavigationRequest();
+          let frame: import("@playwright/test").Frame | null = null;
+          try {
+            frame = req.frame();
+          } catch {
+            frame = null;
+          }
+          const isPopupNav = isNav && frame === null;
+          const isNavigation = isNav && frame === page.mainFrame();
           const method = req.method().toUpperCase();
           const sameOrigin = (() => {
             try {
@@ -470,11 +510,16 @@ export function pageInteractionDeps(
           // Third-party GETs — fonts, images, an analytics beacon — are let
           // through: blocking them changes how the page behaves without making
           // anyone safer. Our own reload is the one navigation allowed.
-          stop = (isNavigation && !allowNavigation) || (method !== "GET" && sameOrigin);
+          stop =
+            isPopupNav || (isNavigation && !allowNavigation) || (method !== "GET" && sameOrigin);
         } catch {
-          // A request we cannot even read is one we do not block, because the
-          // only thing that could make it dangerous is being a submission, and
-          // we would have been able to read that.
+          // Reaching here means the URL or the method could not be read, which
+          // has never been observed. It is NOT the "frame unavailable" case —
+          // that is handled above and stops the request, because a navigation
+          // we cannot attribute to a frame is a window opening.
+          //
+          // This default used to be reached by the frame throw, and letting
+          // those through delivered a real submission to a real server.
           stop = false;
         }
         if (stop) blocked++;
@@ -517,7 +562,7 @@ export function pageInteractionDeps(
           // Short, because it is now only tidying: the handler above is
           // already inert, so a timeout here costs nothing but a registration
           // that passes everything through.
-          await withTimeout(page.unrouteAll({ behavior: "ignoreErrors" }), 3_000);
+          await withTimeout(router.unrouteAll({ behavior: "ignoreErrors" }), 3_000);
         },
       };
     },

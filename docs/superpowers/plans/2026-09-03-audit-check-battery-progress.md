@@ -421,3 +421,34 @@ also surfaced the tappable-phone and top-heading fixes.
   the same shape and still presence-only. Each needs its own browser check —
   writing one from the specification is how the `permissions-policy` wording
   went wrong in the first place.
+
+- 2026-09-05 — **the Tier 4 abort harness had never fired, and when tested it
+  leaked.** Every unit test supplies a fake `intercept`, so none could see
+  whether anything was intercepted; and the one live run, reddoorla.com, marks
+  its fields required, so the browser refused the submit before a request was
+  made and the probe returned `blocked: 0`. The claim that we can press submit
+  on a stranger's form without delivering anything rested on reading the code.
+
+  `tests/prospect/interaction-harness.test.ts` now runs the real probe against a
+  real Chromium and a real server that records every request it receives. The
+  assertion that matters is that it receives nothing. It found two escapes:
+
+  - **A form with `target=`** submits into a NEW page, and `page.route` does not
+    cover one. The receiving server got `POST /subscribe email=not-an-email`.
+    This is not hypothetical — it is exactly how clearleft.com's only form is
+    written, and it was the site chosen for the next calibration run.
+  - **`request.frame()` THROWS** for a popup's opening navigation, because that
+    request is what creates the frame. The handler's outer `catch` swallowed it
+    and fell through to `stop = false`, so a `window.open` submit went out too.
+    The old comment — "a request we cannot even read is one we do not block,
+    because the only thing that could make it dangerous is being a submission,
+    and we would have been able to read that" — was exactly backwards.
+
+  Fixed three ways: `CHOOSE_FORM` strips `target` from the form it claims, the
+  route is registered on the CONTEXT rather than the page, and a navigation
+  whose frame is unavailable is stopped. An `<iframe src>` resolves its frame
+  and is untouched, which is measured too — the Turnstile case is a regression
+  test now, and `blocked` staying 0 is part of it.
+
+  **Order matters here.** Proving the harness first is the only reason we did
+  not deliver a junk signup to a real Mailchimp list.
