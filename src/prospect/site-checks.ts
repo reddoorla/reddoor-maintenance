@@ -1312,6 +1312,23 @@ function sidecarChecks(crawl: CrawlResult, linkedPages: Set<string>): SiteCheck[
     out.push(
       unknown("sitemap-coverage", "A sitemap that lists your pages", WHY_COVERAGE, "content"),
     );
+  } else if (crawl.sitemap.truncated !== false) {
+    // A COUNT WE DID NOT FINISH READING CANNOT BECOME A FINDING.
+    //
+    // The guard below already refuses to name pages against a truncated
+    // SAMPLE. This is the truncation one level up: a sitemap index whose
+    // children we stopped following. viget.com publishes 35 of them holding
+    // 1,636 URLs; we followed the first few, counted 66, and reported that 179
+    // of their own pages were missing from their sitemap. Every number in that
+    // sentence was ours.
+    //
+    // `undefined` lands here too, and deliberately. It means the run predates
+    // this field, so we do not know whether the read was complete — and "we do
+    // not know" is not "we read the whole thing". A flat sitemap, which is what
+    // almost every small business publishes, records `false` and is unaffected.
+    out.push(
+      unknown("sitemap-coverage", "A sitemap that lists your pages", WHY_COVERAGE, "content"),
+    );
   } else {
     // Compared against pages WE found links to, never against our own crawl
     // cap. "We read 14 of your pages" is a fact about our limit, and using it
@@ -2054,7 +2071,12 @@ function norm2(u: string, base?: string): string | null {
 const FORM_PROVIDERS =
   /(formspree\.io|hsforms\.(?:net|com)|typeform\.com|jotform\.com|wufoo\.com|formstack\.com|getform\.io|basin\.com|netlify|web3forms\.com|formsubmit\.co|google\.com\/forms)/i;
 
-function formChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck[] {
+function formChecks(
+  pages: { url: string; extract: PageExtract }[],
+  /** What the Tier 4 probe watched a form on this site actually do, when it
+   *  reached a verdict. Markup is a prediction; this is an observation. */
+  probes: (FormProbe | null | undefined)[] = [],
+): SiteCheck[] {
   const WHY_TYPES =
     "An email field typed as plain text gives a phone the ordinary keyboard, so the visitor hunts for the @ at exactly the moment they had decided to write to you.";
   const WHY_AUTOCOMPLETE =
@@ -2065,6 +2087,25 @@ function formChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck[]
     "A form posting to an endpoint nobody owns any more looks like it worked and silently goes nowhere.";
   const WHY_REQUIRED =
     "Without it the browser cannot stop a half-filled form being sent, and the visitor finds out something was missing only if somebody tells them.";
+
+  // A FORM WE WATCHED REFUSE AN EMPTY SUBMISSION is a form whose markup did not
+  // govern the outcome — its JavaScript did.
+  //
+  // viget.com's contact form is marked `method="get"` with nothing `required`,
+  // and we pressed its button and watched it paint an error instead of
+  // submitting. We then published, in the same report, that the browser cannot
+  // stop a half-filled form being sent. Two answers to one question, and the
+  // wrong one was the finding: the probe had already settled it.
+  //
+  // So the two markup lints that ONLY matter when the browser is doing the
+  // submitting step aside when the probe says it is not. `form-field-types` and
+  // `form-autocomplete` are untouched — a text input where an email belongs
+  // still gives a phone the wrong keyboard however the form is sent.
+  const watched = probes.filter((p): p is FormProbe => !!p);
+  const jsControlled = new Set(
+    watched.filter((p) => p.emptyRefused === true).map((p) => norm2(p.url) ?? p.url),
+  );
+  const scriptRuns = (url: string) => jsControlled.has(norm2(url) ?? url);
 
   const enquiries = pages.flatMap((p) =>
     (p.extract.forms ?? [])
@@ -2152,18 +2193,29 @@ function formChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck[]
     ),
   );
 
-  const getForms = measured.filter(({ form }) => form.method !== "post");
+  const getForms = measured.filter(({ form, url }) => form.method !== "post" && !scriptRuns(url));
+  const getButScripted = measured.filter(
+    ({ form, url }) => form.method !== "post" && scriptRuns(url),
+  );
   out.push(
-    check(
-      "form-method",
-      "A form that does not put answers in the URL",
-      WHY_METHOD,
-      "quick",
-      getForms.length === 0,
-      getForms.length === 0
-        ? "every enquiry form posts"
-        : `${getForms[0]!.url} submits with ${getForms[0]!.form.method.toUpperCase()}`,
-    ),
+    getForms.length === 0 && getButScripted.length > 0
+      ? skip(
+          "form-method",
+          "A form that does not put answers in the URL",
+          WHY_METHOD,
+          "quick",
+          `${getButScripted[0]!.url} is marked GET, but we watched its script handle the submit instead, so the attribute never decides`,
+        )
+      : check(
+          "form-method",
+          "A form that does not put answers in the URL",
+          WHY_METHOD,
+          "quick",
+          getForms.length === 0,
+          getForms.length === 0
+            ? "every enquiry form posts"
+            : `${getForms[0]!.url} submits with ${getForms[0]!.form.method.toUpperCase()}`,
+        ),
   );
 
   // A provider we do not recognise is UNMEASURED, never a failure: our list will
@@ -2192,18 +2244,28 @@ function formChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck[]
         ),
   );
 
-  const noRequired = measured.filter(({ form }) => !(form.fields ?? []).some((f) => f.required));
+  const bare = measured.filter(({ form }) => !(form.fields ?? []).some((f) => f.required));
+  const noRequired = bare.filter(({ url }) => !scriptRuns(url));
+  const bareButChecked = bare.filter(({ url }) => scriptRuns(url));
   out.push(
-    check(
-      "form-required",
-      "Fields marked as required",
-      WHY_REQUIRED,
-      "quick",
-      noRequired.length === 0,
-      noRequired.length === 0
-        ? `every enquiry form marks at least one field required`
-        : `${noRequired[0]!.url} marks none`,
-    ),
+    noRequired.length === 0 && bareButChecked.length > 0
+      ? skip(
+          "form-required",
+          "Fields marked as required",
+          WHY_REQUIRED,
+          "quick",
+          `${bareButChecked[0]!.url} marks none, and we watched it refuse an empty submission anyway — its script does the checking`,
+        )
+      : check(
+          "form-required",
+          "Fields marked as required",
+          WHY_REQUIRED,
+          "quick",
+          noRequired.length === 0,
+          noRequired.length === 0
+            ? `every enquiry form marks at least one field required`
+            : `${noRequired[0]!.url} marks none`,
+        ),
   );
 
   return out;
@@ -2942,7 +3004,10 @@ export function runSiteChecks(
       crawl.origin,
       http?.favicon !== undefined && http.favicon.verdict !== "unverified",
     ),
-    ...formChecks(pages),
+    ...formChecks(
+      pages,
+      crawl.pages.map((p) => p.formProbe),
+    ),
     ...browserChecks(pages),
     ...dnsChecks(dns),
     ...httpChecks(http),

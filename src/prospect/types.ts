@@ -255,7 +255,25 @@ export type CrawlResult = {
   /** `sample` is a capped slice of the URLs, absent on reports stored before
    *  it existed — read absence as "not measured", never as "the sitemap is
    *  empty". `urlCount` is the true total either way. */
-  sitemap: { present: boolean; urlCount: number; sample?: string[] };
+  sitemap: {
+    present: boolean;
+    urlCount: number;
+    sample?: string[];
+    /**
+     * True when we stopped reading before the sitemap ended, which makes
+     * `urlCount` a FLOOR rather than a count.
+     *
+     * A sitemap index is followed only so far — see `MAX_SITEMAP_CHILDREN` —
+     * and viget.com publishes 35 children holding 1,636 URLs between them. We
+     * read the first few, counted 66, and told them 179 of their own pages were
+     * missing from their sitemap. Our ceiling, reported as their gap, which is
+     * the one mistake this report keeps having to be stopped from making.
+     *
+     * Optional: absent on reports stored before it was tracked, and absent must
+     * read as "we do not know", never as "we read the whole thing".
+     */
+    truncated?: boolean;
+  };
   llmsTxt: { present: boolean; firstLine: string | null };
   /** Per sidecar, the error that stopped us fetching it, or null. A fetch that
    *  FAILED must never be reported as "the site has no robots.txt" — that would

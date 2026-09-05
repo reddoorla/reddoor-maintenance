@@ -75,7 +75,13 @@ describe("crawlSite", () => {
       "https://acme.example/services",
       "https://acme.example/about",
     ]);
-    expect(result.sitemap).toEqual({ present: false, urlCount: 0, sample: [] });
+    expect(result.sitemap).toEqual({
+      present: false,
+      urlCount: 0,
+      sample: [],
+      // No sitemap at all is not a truncated read of one.
+      truncated: false,
+    });
   });
 
   it("spends the page budget on distinct paths before query variants", async () => {

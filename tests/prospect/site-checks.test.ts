@@ -135,7 +135,9 @@ function exemplary(over: Partial<CrawlResult> = {}): CrawlResult {
     origin: "https://acme.example",
     robotsTxt: "User-agent: *\nAllow: /\nSitemap: https://acme.example/sitemap.xml",
     agentAccess: [],
-    sitemap: { present: true, urlCount: 12 },
+    // `truncated: false` — a flat sitemap, read whole, which is what almost
+    // every small business publishes and what the exemplary site has.
+    sitemap: { present: true, urlCount: 12, truncated: false },
     llmsTxt: { present: true, firstLine: "# Acme Roofing" },
     sidecarErrors: { robots: null, llms: null, sitemap: null },
     homeHeaders: HEADERS,
@@ -833,6 +835,103 @@ describe("each check fires on the thing it is named for", () => {
     expect(rp("unsafe-url, strict-origin-when-cross-origin")?.status).toBe("pass");
   });
 
+  it("does not say a form is unguarded when we watched it refuse an empty submit", () => {
+    // viget.com's contact form is marked method="get" with nothing required —
+    // and we pressed its button and watched it paint an error instead of
+    // submitting. Publishing "the browser cannot stop a half-filled form" in
+    // the same report as "the form showed an error rather than submitting" is
+    // two answers to one question, and the probe already settled it.
+    const crawl = exemplary({
+      pages: [
+        {
+          ...page("https://acme.example/contact", {
+            forms: [
+              {
+                kind: "enquiry",
+                action: null,
+                method: "get",
+                fieldCount: 3,
+                hasContactField: true,
+                hasSubmit: true,
+                fields: [
+                  { type: "email", name: "email", autocomplete: "email", required: false },
+                  { type: "tel", name: "phone", autocomplete: "tel", required: false },
+                  { type: "textarea", name: "message", autocomplete: null, required: false },
+                ],
+              },
+            ],
+          }),
+          formProbe: {
+            url: "https://acme.example/contact",
+            emptyRefused: true,
+            emptyHow: "the form showed an error rather than submitting",
+            invalidEmailRefused: true,
+            invalidEmailHow: "the form showed an error rather than submitting",
+            blocked: 0,
+          },
+        },
+      ],
+    });
+    const checks = runSiteChecks(crawl, exemplaryChecks(), "Acme Roofing");
+    expect(byKey(checks, "form-required")?.status).toBe("not-applicable");
+    expect(byKey(checks, "form-required")?.evidence).toContain("its script does the checking");
+    expect(byKey(checks, "form-method")?.status).toBe("not-applicable");
+    // The lints that hold whatever submits the form are untouched.
+    expect(byKey(checks, "form-field-types")?.status).toBe("pass");
+  });
+
+  it("still fails a bare GET form when no probe watched it", () => {
+    // Markup is a prediction. Without an observation to overrule it, it stands.
+    const checks = runSiteChecks(
+      exemplary({
+        pages: [
+          page("https://acme.example/contact", {
+            forms: [
+              {
+                kind: "enquiry",
+                action: null,
+                method: "get",
+                fieldCount: 2,
+                hasContactField: true,
+                hasSubmit: true,
+                fields: [
+                  { type: "email", name: "email", autocomplete: "email", required: false },
+                  { type: "textarea", name: "message", autocomplete: null, required: false },
+                ],
+              },
+            ],
+          }),
+        ],
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(checks, "form-required")?.status).toBe("fail");
+    expect(byKey(checks, "form-method")?.status).toBe("fail");
+  });
+
+  it("will not claim a sitemap gap it did not finish reading", () => {
+    // viget.com publishes a sitemap INDEX with 35 children holding 1,636 URLs.
+    // We followed the first few, counted 66, and reported that 179 of their own
+    // pages were missing from their sitemap. Every number in that sentence was
+    // ours.
+    const truncated = runSiteChecks(
+      exemplary({ sitemap: { present: true, urlCount: 66, sample: [], truncated: true } }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(truncated, "sitemap-coverage")?.status).toBe("unmeasured");
+
+    // Absent means the run predates the field, which is "we do not know" and
+    // not "we read the whole thing".
+    const older = runSiteChecks(
+      exemplary({ sitemap: { present: true, urlCount: 66, sample: [] } }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(older, "sitemap-coverage")?.status).toBe("unmeasured");
+  });
+
   it("catches a page with no h1 and a page with three", () => {
     const none = runSiteChecks(
       exemplary({ pages: [page("https://acme.example/", { headings: [] })] }),
@@ -955,7 +1054,7 @@ describe("each check fires on the thing it is named for", () => {
   it("reports a sitemap thinner than the site's own linking", () => {
     const checks = runSiteChecks(
       exemplary({
-        sitemap: { present: true, urlCount: 1 },
+        sitemap: { present: true, urlCount: 1, truncated: false },
         pages: [
           page("https://acme.example/", {
             anchors: ["/a", "/b", "/c", "/d"].map((href) => ({ href, text: href, rel: "" })),

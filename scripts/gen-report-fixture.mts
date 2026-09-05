@@ -175,7 +175,10 @@ const crawl: CrawlResult = {
   origin: ORIGIN,
   robotsTxt: `User-agent: *\nAllow: /\nSitemap: ${ORIGIN}/sitemap.xml`,
   agentAccess: [],
-  sitemap: { present: true, urlCount: SITEMAP.length, sample: SITEMAP },
+  // `truncated: false`: a flat sitemap, read to the end. A sitemap index we
+  // stopped following makes `urlCount` a floor, and a floor cannot become a
+  // finding about somebody's coverage.
+  sitemap: { present: true, urlCount: SITEMAP.length, sample: SITEMAP, truncated: false },
   llmsTxt: { present: true, firstLine: "# Acme Roofing" },
   sidecarErrors: { robots: null, llms: null, sitemap: null },
   homeHeaders: HEADERS,

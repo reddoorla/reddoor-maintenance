@@ -501,3 +501,30 @@ the checks will actually see. `robots.txt` read for each.
 | torchbox.com/contact   | one form, and it is the dark-mode switch | 0    | BreadcrumbList | out                                                                               |
 | nngroup.com            | —                                        | —    | —              | out: `Crawl-Delay: 60`, so a 20-page crawl is 20 minutes                          |
 | clearleft.com          | newsletter only, `target="popupwindow"`  | 0    | LocalBusiness  | out — and the form that found the first escape                                    |
+
+- 2026-09-05 — **viget.com, the first third-party run.** The abort harness fired
+  on a live site for the first time: `form probe on
+https://www.viget.com/contact/, 1 request(s) stopped`. Their form painted an
+  error rather than submitting, the `complained`-before-`attempted` ordering
+  read it correctly, and nothing reached their inbox. Three faults found, all
+  ours:
+
+  - **We told them 179 of their pages were missing from their sitemap.** Their
+    sitemap is an INDEX with 35 children holding 1,636 URLs between them. We
+    followed three — `.slice(0, 3)` — counted 66, and reported the difference as
+    their gap. Every number in that sentence was ours. `MAX_SITEMAP_CHILDREN` is
+    25 now, the safety filter still runs BEFORE the cap so nothing widens for a
+    hostile index, and going over it sets `sitemap.truncated`. A truncated read
+    cannot become a finding: `sitemap-coverage` goes unmeasured, and `undefined`
+    lands there too, because a run that predates the field does not know.
+  - **`form-required` contradicted `form-rejects-empty` in the same report.** We
+    pressed their button, watched it refuse an empty submission, and then
+    published that the browser cannot stop a half-filled form being sent.
+    viget's form is marked `method="get"` with nothing `required`, and its
+    script does the work. `form-required` and `form-method` now step aside when
+    the probe watched the script handle the submit — an observation outranks a
+    prediction. `form-field-types` and `form-autocomplete` are untouched: a text
+    input where an email belongs still gives a phone the wrong keyboard however
+    the form is sent.
+  - **The crawler ignored their robots.txt.** Fixed before the run, not after —
+    see `robotsAllowsUs`.

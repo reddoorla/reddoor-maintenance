@@ -376,6 +376,14 @@ export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeou
  *  than its first twelve entries — which on most CMSes are the newest posts. */
 export const MAX_SITEMAP_SAMPLE = 120;
 
+/** How many children of a sitemap index we follow. Was 3, which read 66 of
+ *  viget.com's 1,636 URLs and turned our own ceiling into a finding about their
+ *  sitemap. Each child is still filtered by `isSafeNestedSitemap` BEFORE the cap
+ *  applies, so raising it does not widen what a hostile index can reach — it
+ *  only stops a real one being cut off. Whatever the number, going over it now
+ *  sets `truncated`, and a truncated read may not become a finding. */
+export const MAX_SITEMAP_CHILDREN = 25;
+
 /** Ceilings on the per-page browser work. Generous — a slow page should still
  *  be measured — but finite, because the alternative is losing the crawl. */
 export const CONTENT_BUDGET_MS = 20_000;
@@ -522,8 +530,16 @@ type Sidecars = {
   llmsTxt: { present: boolean; firstLine: string | null };
   sitemapUrls: string[];
   sitemapPresent: boolean;
+  sitemapTruncated: boolean;
   sidecarErrors: { robots: string | null; llms: string | null; sitemap: string | null };
 };
+
+/** Kept as a function so the field is written from one place, and so a future
+ *  sidecar shape that cannot answer the question returns `true` rather than
+ *  silently claiming a complete read. */
+function sitemapTruncatedOf(s: Sidecars): boolean {
+  return s.sitemapTruncated;
+}
 
 /** robots.txt, llms.txt and sitemap.xml — every one degrades instead of
  *  failing the crawl, but a transport failure must stay visible in the result
@@ -552,6 +568,7 @@ async function fetchSidecars(origin: string, deps: CrawlDeps): Promise<Sidecars>
   const sitemap = await optional(deps, `${origin}/sitemap.xml`);
   let sitemapUrls: string[] = [];
   let sitemapPresent = false;
+  let sitemapTruncated = false;
   if (sitemap.res && /<(urlset|sitemapindex)[\s>]/i.test(sitemap.res.body)) {
     sitemapPresent = true;
     if (isSitemapIndex(sitemap.res.body)) {
@@ -568,12 +585,17 @@ async function fetchSidecars(origin: string, deps: CrawlDeps): Promise<Sidecars>
       // real sitemaps — the crawl then silently sees fewer pages, which is a
       // quieter failure than the SSRF itself. Caught by the positive control in
       // the SSRF test, not by reading the loop.
-      const children = parseSitemapLocs(sitemap.res.body)
-        .filter((child) => isSafeNestedSitemap(child, origin))
-        .slice(0, 3);
+      const safe = parseSitemapLocs(sitemap.res.body).filter((child) =>
+        isSafeNestedSitemap(child, origin),
+      );
+      const children = safe.slice(0, MAX_SITEMAP_CHILDREN);
+      sitemapTruncated = safe.length > children.length;
       for (const child of children) {
         const nested = await optional(deps, child);
+        // A child we could not fetch is a piece of their sitemap we did not
+        // read, and the count that comes out is short by however much it held.
         if (nested.res) sitemapUrls.push(...parseSitemapLocs(nested.res.body));
+        else sitemapTruncated = true;
       }
     } else {
       sitemapUrls = parseSitemapLocs(sitemap.res.body);
@@ -586,6 +608,7 @@ async function fetchSidecars(origin: string, deps: CrawlDeps): Promise<Sidecars>
     llmsTxt,
     sitemapUrls,
     sitemapPresent,
+    sitemapTruncated,
     sidecarErrors: { robots: robots.error, llms: llms.error, sitemap: sitemap.error },
   };
 }
@@ -742,6 +765,7 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
       // because this lands in `result_json`, and a 4,000-URL sitemap has no
       // business being stored whole for the sake of sampling twelve of them.
       sample: sidecars.sitemapUrls.slice(0, MAX_SITEMAP_SAMPLE),
+      truncated: sitemapTruncatedOf(sidecars),
     },
     llmsTxt: sidecars.llmsTxt,
     sidecarErrors: sidecars.sidecarErrors,
