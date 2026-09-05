@@ -452,3 +452,52 @@ also surfaced the tappable-phone and top-heading fixes.
 
   **Order matters here.** Proving the harness first is the only reason we did
   not deliver a junk signup to a real Mailchimp list.
+
+- 2026-09-05 — **a third escape, and the worst of them: a cross-origin POST.**
+  The block rule stopped navigations and SAME-ORIGIN non-GETs. The comment
+  beside it said third-party GETs are let through — fonts, images, a beacon —
+  but the code let third-party POSTs through too, and that is the shape of
+  nearly every hosted form back end: HubSpot, Formspree, Netlify Forms, Basin.
+  Measured against a second local server standing in for the third party, both
+  passes arrived:
+
+      POST /enquiry name=&email=&message=
+      POST /enquiry name=Audit+Test&email=not-an-email&message=Checking+that...
+
+  Now blocked: every non-GET, wherever it is going.
+
+  **That forced the counter and the blocker apart, and they should never have
+  been one number.** Most analytics beacons are cross-origin POSTs too, so a
+  wider block means catching them — and `blocked` is what the verdict reads as
+  "did the form submit?". Counting a GA4 beacon would accuse a form that sent
+  nothing, on exactly the click that fires one. So `stopped` is everything
+  aborted (the receipt the reader gets) and `submissions` is the subset that
+  looked like this form's data leaving: a navigation, a new window, or a non-GET
+  that is same-origin, form-encoded, or carries a value we typed. A hosted
+  endpoint taking JSON is caught by that last clause on the invalid-email pass
+  and missed on the empty one — the right way round, because a missed detection
+  is a silent pass and a false one calls a working form broken.
+
+- 2026-09-05 — **the cross-origin test passed vacuously the first time.** Its
+  fixture page carried `</scr` + `ipt>` INSIDE a template literal with escaped
+  backticks, so it was literal text, the inline script never ran, the form
+  merely navigated, and the harness stopped that. Green, proving nothing. The
+  fixtures are event attributes now, and every leaking fixture has a CONTROL
+  test that submits it WITHOUT the probe and asserts the third party receives
+  the data. A fixture that cannot leak can no longer pass a test about stopping
+  a leak.
+
+## Calibration candidates — vetted 2026-09-05
+
+Rendered with a real browser and run through `extractPage`, so the shape is what
+the checks will actually see. `robots.txt` read for each.
+
+| site                   | enquiry form                             | tel: | schema         | verdict                                                                           |
+| ---------------------- | ---------------------------------------- | ---- | -------------- | --------------------------------------------------------------------------------- |
+| viget.com/contact      | 10 fields, textarea×2, email, tel, file  | 2    | Organization   | **best coverage** — and no `required`, `method=get`, so Tier 4 would really click |
+| madebymany.com/contact | 6 fields, all required, POST             | 0    | none           | safe: native validation short-circuits, as reddoorla does                         |
+| thoughtbot.com/hire-us | none in the rendered DOM                 | 2    | none           | out                                                                               |
+| tetralogical.com       | /contact is a 404                        | 0    | none           | out                                                                               |
+| torchbox.com/contact   | one form, and it is the dark-mode switch | 0    | BreadcrumbList | out                                                                               |
+| nngroup.com            | —                                        | —    | —              | out: `Crawl-Delay: 60`, so a 20-page crawl is 20 minutes                          |
+| clearleft.com          | newsletter only, `target="popupwindow"`  | 0    | LocalBusiness  | out — and the form that found the first escape                                    |

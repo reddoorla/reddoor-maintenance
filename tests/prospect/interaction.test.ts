@@ -68,6 +68,12 @@ function fake(
       log.push("armed");
       return {
         blocked: () => blocked,
+        // The fake counts every stop as a submission, which is what these
+        // tests are about. The real split between the two — block every
+        // non-GET, count only what carries this form's data — is exercised
+        // against a real browser in interaction-harness.test.ts, because no
+        // fake has a router to tell them apart.
+        stopped: () => blocked,
         reload: async () => {
           log.push("reload");
           return !reloadLosesForm;

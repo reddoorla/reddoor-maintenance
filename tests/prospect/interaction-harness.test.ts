@@ -90,13 +90,64 @@ const CAPTCHA_PAGE =
   `ipt>
 </body></html>`;
 
+/** A form that submits by cross-origin fetch, the way every hosted back end does.
+ *
+ *  WRITTEN AS AN `onsubmit` ATTRIBUTE, not an inline `<script>`, and the reason
+ *  is a bug this file already had: a `</script>` inside a template literal has
+ *  to be escaped, the escape trips `no-useless-escape`, and the workaround for
+ *  THAT — an escaped backtick — lands as literal text rather than closing the
+ *  tag. This page ended up with no script at all, so the form simply navigated,
+ *  the harness stopped the navigation, and the test passed while proving
+ *  nothing. The control test below exists so that cannot happen again. */
+const hostedPage = (third: string) => `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Contact</title></head>
+<body>
+  <h1>Contact us</h1>
+  <form onsubmit="event.preventDefault(); fetch('${third}/enquiry', { method: 'POST', mode: 'cors', body: new URLSearchParams(new FormData(this)) });">
+    <label>Name <input type="text" name="name"></label>
+    <label>Email <input type="text" name="email" placeholder="email address"></label>
+    <label>Message <textarea name="message"></textarea></label>
+    <button type="submit">Send</button>
+  </form>
+</body></html>`;
+
+/** An inert form beside a beacon that POSTs off-origin on any click — the shape
+ *  that must NOT be read as a submission. */
+const beaconPage = (third: string) => `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Contact</title></head>
+<body onclick="fetch('${third}/collect', { method: 'POST', mode: 'cors', headers: { 'content-type': 'text/plain;charset=UTF-8' }, body: JSON.stringify({ event: 'click' }) });">
+  <h1>Contact us</h1>
+  <form onsubmit="event.preventDefault()">
+    <label>Name <input type="text" name="name"></label>
+    <label>Email <input type="text" name="email" placeholder="email address"></label>
+    <label>Message <textarea name="message"></textarea></label>
+    <button type="submit">Send</button>
+  </form>
+</body></html>`;
+
 describe("the Tier 4 abort harness, against a real browser", () => {
   let server: Server;
   let browser: Browser;
   let base = "";
   const received: { method: string; url: string; body: string }[] = [];
 
+  const thirdParty: string[] = [];
+  let thirdServer: Server;
+  let thirdBase = "";
+
   beforeAll(async () => {
+    thirdServer = createServer((req, res) => {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        thirdParty.push(`${req.method} ${req.url} ${body}`);
+        res.writeHead(200, { "access-control-allow-origin": "*" });
+        res.end("ok");
+      });
+    });
+    await new Promise<void>((r) => thirdServer.listen(0, "127.0.0.1", r));
+    thirdBase = `http://127.0.0.1:${(thirdServer.address() as AddressInfo).port}`;
+
     server = createServer((req, res) => {
       if (req.url?.startsWith("/subscribe")) {
         let body = "";
@@ -128,7 +179,11 @@ describe("the Tier 4 abort harness, against a real browser", () => {
               ? CAPTCHA_PAGE
               : req.url === "/challenge"
                 ? "<!doctype html><p>captcha</p>"
-                : FORM_PAGE,
+                : req.url === "/hosted"
+                  ? hostedPage(thirdBase)
+                  : req.url === "/beacon"
+                    ? beaconPage(thirdBase)
+                    : FORM_PAGE,
       );
     });
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -139,6 +194,7 @@ describe("the Tier 4 abort harness, against a real browser", () => {
   afterAll(async () => {
     await browser?.close();
     await new Promise<void>((r) => server?.close(() => r()));
+    await new Promise<void>((r) => thirdServer?.close(() => r()));
   });
 
   it("stops the submission, and the server never hears from it", async () => {
@@ -271,6 +327,73 @@ describe("the Tier 4 abort harness, against a real browser", () => {
     expect(probe!.blocked).toBe(0);
     expect(probe!.emptyHow).toContain("did nothing at all");
     expect(received).toEqual([]);
+    await page.close();
+  }, 90_000);
+
+  it("CONTROL: the hosted-form fixture really does reach the third party", async () => {
+    // Without this, a fixture whose script never runs passes the test below by
+    // doing nothing — which is exactly what happened once already. This proves
+    // the page can leak before the next test proves the harness stops it.
+    received.length = 0;
+    thirdParty.length = 0;
+    const page = await browser.newPage();
+    await page.goto(`${base}hosted`, { waitUntil: "load" });
+    await page.locator("input[name=name]").fill("Audit Test");
+    await page.locator("button[type=submit]").click();
+    await page.waitForTimeout(1200);
+    expect(thirdParty.join(" ")).toContain("POST /enquiry");
+    expect(thirdParty.join(" ")).toContain("Audit+Test");
+    await page.close();
+  }, 90_000);
+
+  it("CONTROL: the beacon fixture really does fire on a click", async () => {
+    received.length = 0;
+    thirdParty.length = 0;
+    const page = await browser.newPage();
+    await page.goto(`${base}beacon`, { waitUntil: "load" });
+    await page.locator("button[type=submit]").click();
+    await page.waitForTimeout(1200);
+    expect(thirdParty.join(" ")).toContain("POST /collect");
+    await page.close();
+  }, 90_000);
+
+  it("stops a cross-origin fetch POST, which is how hosted forms submit", async () => {
+    // The third escape, and the worst: HubSpot, Formspree, Netlify Forms and
+    // Basin all take a cross-origin POST. The rule stopped only SAME-ORIGIN
+    // non-GETs, so a real enquiry — filler text and junk address — reached the
+    // third-party server twice in testing. Measured, not reasoned about.
+    received.length = 0;
+    thirdParty.length = 0;
+    const page = await browser.newPage();
+    await page.goto(`${base}hosted`, { waitUntil: "load" });
+    const probe = await probeForms(pageInteractionDeps(page, `${base}hosted`));
+    await page.waitForTimeout(1500);
+
+    expect(thirdParty).toEqual([]);
+    expect(received).toEqual([]);
+    // And it still reads as a submission: the body carries what we typed.
+    expect(probe!.emptyRefused).toBe(false);
+    await page.close();
+  }, 90_000);
+
+  it("does not read a third-party analytics beacon as a submission", async () => {
+    // The cost of blocking every non-GET is that beacons get caught too, and
+    // most of them are cross-origin POSTs. Counting one as a submission would
+    // accuse a form that never sent anything — the expensive mistake, where a
+    // missed detection is only a silent pass. So the block is generous and the
+    // COUNT is not: a beacon carries none of the values we typed.
+    received.length = 0;
+    thirdParty.length = 0;
+    const page = await browser.newPage();
+    await page.goto(`${base}beacon`, { waitUntil: "load" });
+    const probe = await probeForms(pageInteractionDeps(page, `${base}beacon`));
+    await page.waitForTimeout(1200);
+
+    // Stopped — nothing left the browser ...
+    expect(thirdParty).toEqual([]);
+    expect(probe!.blocked).toBeGreaterThan(0);
+    // ... but not counted, so the inert button reads as inert.
+    expect(probe!.emptyHow).toContain("did nothing at all");
     await page.close();
   }, 90_000);
 

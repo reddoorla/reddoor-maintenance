@@ -43,6 +43,11 @@ const FILLER: Record<string, string> = {
 
 export const INVALID_EMAIL = "not-an-email";
 
+/** The values we type into the form, so a request carrying one of them is
+ *  unmistakably this form's data on its way out — the only signal that
+ *  separates a hosted form's JSON payload from an analytics beacon. */
+const SENTINELS = [INVALID_EMAIL, ...Object.values(FILLER)];
+
 /** Takes our marker back off the page. */
 const REMOVE_MARKER = `() => {
   document.querySelector("[data-audit-form]")?.removeAttribute("data-audit-form");
@@ -204,7 +209,12 @@ export type InteractionDeps = {
   /** Arms the interceptor and returns a handle that reports what it stopped,
    *  can re-fetch the page past its own guard, and puts everything back. */
   intercept: () => Promise<{
+    /** Requests stopped that looked like THIS form's data leaving. Drives the
+     *  "did it submit?" verdict. */
     blocked: () => number;
+    /** Everything stopped, including beacons caught by the wider block rule.
+     *  The receipt, not the measurement. */
+    stopped: () => number;
     /** A clean copy of the page. False when the form did not come back. */
     reload: () => Promise<boolean>;
     release: () => Promise<void>;
@@ -364,7 +374,10 @@ export async function probeForms(deps: InteractionDeps): Promise<FormProbe | nul
     // A click that throws tells us nothing about their form. Everything stays
     // at whatever it had reached, and undefined reads as "not measured".
   } finally {
-    probe.blocked = guard.blocked();
+    // The RECEIPT is everything we stopped, not the subset we attributed to the
+    // form: a reader asking "did you put anything on my server?" is owed the
+    // whole number.
+    probe.blocked = guard.stopped();
     await guard.release();
   }
 
@@ -416,7 +429,22 @@ export function pageInteractionDeps(
       await submit.click({ timeout: 5_000, force: true, noWaitAfter: true });
     },
     async intercept() {
-      let blocked = 0;
+      // TWO COUNTERS, and they must not be one.
+      //
+      // `stopped` is everything the interceptor aborted. `submissions` is the
+      // subset that looked like this form's data leaving, and it is the one the
+      // verdict reads — `attempted` in `probeForms` is "did the submission go
+      // out?", not "did any request go out?".
+      //
+      // They separated when the blocking rule widened to every non-GET. It had
+      // to: a cross-origin POST is how HubSpot, Formspree and Netlify Forms all
+      // work, and the old rule stopped only SAME-ORIGIN non-GETs, so a real
+      // enquiry — filler text, junk address and all — reached a third-party
+      // server in testing. But most analytics beacons are also cross-origin
+      // POSTs, and counting one of those as a submission would accuse a form
+      // that never sent anything. Block generously; count carefully.
+      let stopped = 0;
+      let submissions = 0;
       // Open only while `reload` below is running, and nothing clicks during
       // that window — the sole navigation it lets through is our own GET back
       // to a page we already fetched.
@@ -464,6 +492,7 @@ export function pageInteractionDeps(
           return;
         }
         let stop: boolean;
+        let looksLikeSubmission = false;
         try {
           const req = route.request();
           // MAIN FRAME ONLY. `isNavigationRequest` is also true for an iframe
@@ -506,12 +535,40 @@ export function pageInteractionDeps(
               return false;
             }
           })();
-          // A form submission is either a navigation or a same-origin non-GET.
-          // Third-party GETs — fonts, images, an analytics beacon — are let
-          // through: blocking them changes how the page behaves without making
-          // anyone safer. Our own reload is the one navigation allowed.
-          stop =
-            isPopupNav || (isNavigation && !allowNavigation) || (method !== "GET" && sameOrigin);
+          // BLOCK: every non-GET, wherever it is going. Third-party GETs —
+          // fonts, images, a beacon — still pass, which is all the old comment
+          // here meant to allow; the old rule also let third-party POSTs
+          // through, and that is the shape of nearly every hosted form
+          // back end. Our own reload is the one navigation allowed.
+          stop = isPopupNav || (isNavigation && !allowNavigation) || method !== "GET";
+
+          // COUNT: only what looks like this form's data leaving. A navigation
+          // or a new window is unambiguous. A non-GET counts when it is
+          // same-origin, when it is encoded as a form post, or when its body
+          // carries a value we typed — that last one catches a JSON payload to
+          // a hosted endpoint, which is otherwise indistinguishable from a
+          // beacon. An empty submission to a JSON endpoint is missed, and that
+          // is the right way round: a missed detection is a silent pass, a
+          // false one calls a working form broken.
+          const contentType = (req.headers()["content-type"] ?? "").toLowerCase();
+          const formEncoded =
+            contentType.includes("application/x-www-form-urlencoded") ||
+            contentType.includes("multipart/form-data");
+          const carriesOurs = (() => {
+            try {
+              const body = req.postData() ?? "";
+              if (body === "") return false;
+              return SENTINELS.some(
+                (v) => body.includes(v) || body.includes(encodeURIComponent(v)),
+              );
+            } catch {
+              return false;
+            }
+          })();
+          looksLikeSubmission =
+            isPopupNav ||
+            (isNavigation && !allowNavigation) ||
+            (method !== "GET" && (sameOrigin || formEncoded || carriesOurs));
         } catch {
           // Reaching here means the URL or the method could not be read, which
           // has never been observed. It is NOT the "frame unavailable" case —
@@ -522,12 +579,14 @@ export function pageInteractionDeps(
           // those through delivered a real submission to a real server.
           stop = false;
         }
-        if (stop) blocked++;
+        if (stop) stopped++;
+        if (stop && looksLikeSubmission) submissions++;
         void (stop ? route.abort() : route.continue()).catch(() => {});
       });
 
       return {
-        blocked: () => blocked,
+        blocked: () => submissions,
+        stopped: () => stopped,
         reload: async () => {
           allowNavigation = true;
           try {
