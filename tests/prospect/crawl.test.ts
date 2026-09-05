@@ -7,6 +7,8 @@ import {
   pacedEach,
   sameOriginLinks,
   settledOverflow,
+  robotsAllowsUs,
+  USER_AGENT,
   defaultCrawlDeps,
   MAX_RESPONSE_BYTES,
   ResponseTooLargeError,
@@ -791,5 +793,76 @@ describe("settledOverflow — the mobile measurement waits for the reflow", () =
     const jitter = () => Promise.resolve(100 + n++);
     const wait = () => Promise.resolve();
     expect(await settledOverflow(jitter, wait, -1)).toBe(0);
+  });
+});
+
+describe("robotsAllowsUs — our own crawler obeying the file", () => {
+  // Two different questions live in this module and only one was being asked.
+  // `evaluateAgentAccess` reports whether an owner turns away GPTBot. This is
+  // whether WE may fetch a path — and until now we fetched whatever we liked,
+  // which is not a defensible position for a tool that grades sites on crawler
+  // access.
+  const VIGET = [
+    "User-agent: *",
+    "Disallow: /admin",
+    "Disallow: /exhibit",
+    "Disallow: /login",
+    "Disallow: /search?q=*",
+    "Disallow: /*?*ref=*",
+  ].join("\n");
+
+  it("honours the real disallow list of the first site we pointed this at", () => {
+    const may = (u: string) => robotsAllowsUs(VIGET, u, USER_AGENT);
+    expect(may("https://www.viget.com/")).toBe(true);
+    expect(may("https://www.viget.com/contact/")).toBe(true);
+    expect(may("https://www.viget.com/articles/")).toBe(true);
+    expect(may("https://www.viget.com/admin")).toBe(false);
+    expect(may("https://www.viget.com/exhibit/whatever")).toBe(false);
+    expect(may("https://www.viget.com/login")).toBe(false);
+    expect(may("https://www.viget.com/search?q=roofing")).toBe(false);
+    // `/*?*ref=*` — a wildcard in the middle, matched against path + query.
+    expect(may("https://www.viget.com/articles/x?ref=twitter")).toBe(false);
+  });
+
+  it("treats no robots.txt as permission, because absence is not refusal", () => {
+    expect(robotsAllowsUs(null, "https://acme.example/anything", USER_AGENT)).toBe(true);
+  });
+
+  it("takes the longest match, so an Allow can carve out of a Disallow", () => {
+    const txt = "User-agent: *\nDisallow: /blog\nAllow: /blog/public";
+    expect(robotsAllowsUs(txt, "https://acme.example/blog/secret", USER_AGENT)).toBe(false);
+    expect(robotsAllowsUs(txt, "https://acme.example/blog/public/post", USER_AGENT)).toBe(true);
+  });
+
+  it("prefers a group that names us over the wildcard group", () => {
+    const txt = "User-agent: *\nDisallow: /\n\nUser-agent: ReddoorAudit\nDisallow:";
+    expect(robotsAllowsUs(txt, "https://acme.example/page", USER_AGENT)).toBe(true);
+  });
+
+  it("obeys a site-wide block aimed at everyone", () => {
+    expect(
+      robotsAllowsUs("User-agent: *\nDisallow: /", "https://acme.example/page", USER_AGENT),
+    ).toBe(false);
+  });
+});
+
+describe("the crawl does not fetch a disallowed path", () => {
+  it("skips it and spends the budget elsewhere", async () => {
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: { body: fixture("rich.html") },
+      "https://acme.example/robots.txt": { body: "User-agent: *\nDisallow: /private" },
+      "https://acme.example/sitemap.xml": {
+        body: `<urlset>${["/private/a", "/open-b", "/open-c"]
+          .map((p) => `<url><loc>https://acme.example${p}</loc></url>`)
+          .join("")}</urlset>`,
+      },
+    };
+    for (const p of ["/private/a", "/open-b", "/open-c"])
+      routes[`https://acme.example${p}`] = { body: fixture("rich.html") };
+
+    const result = await crawlSite(HOME, stubDeps(routes, { maxPages: 3 }));
+    const urls = result.pages.map((p) => p.url);
+    expect(urls).not.toContain("https://acme.example/private/a");
+    expect(urls).toContain("https://acme.example/open-b");
   });
 });

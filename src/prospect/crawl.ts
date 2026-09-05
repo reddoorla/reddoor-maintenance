@@ -81,6 +81,70 @@ export function pathCoversRoot(pattern: string): boolean {
   return new RegExp(`^${source}${anchored ? "$" : ""}`).test("/");
 }
 
+/**
+ * Does a robots.txt path pattern match this path? RFC 9309 prefix semantics,
+ * with `*` for any run of characters and `$` anchoring the end.
+ *
+ * `pathCoversRoot` is this function asked about "/", and stays separate because
+ * it answers a different question — "is the whole site blocked?" — which the
+ * report states as a headline.
+ */
+export function robotsPathMatches(pattern: string, path: string): boolean {
+  if (!pattern) return false;
+  const anchored = pattern.endsWith("$");
+  const body = anchored ? pattern.slice(0, -1) : pattern;
+  const source = body
+    .split("*")
+    .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
+    .join(".*");
+  return new RegExp(`^${source}${anchored ? "$" : ""}`).test(path);
+}
+
+/**
+ * WHAT WE MAY FETCH — our own crawler obeying the file, not the matrix of what
+ * other people's crawlers may do.
+ *
+ * These are different questions and only the second one was being asked. We
+ * read robots.txt to report whether an owner turns away GPTBot, and then
+ * fetched whatever we liked. A tool that grades a site on crawler access and
+ * ignores that site's own Disallow has no standing to publish the grade — and
+ * viget.com, the first third party we pointed this at, asks crawlers to leave
+ * `/admin`, `/exhibit`, `/login` and `/search?q=` alone.
+ *
+ * Longest-match-wins between Allow and Disallow, per RFC 9309, so an
+ * `Allow: /blog/public` under a `Disallow: /blog` is honoured. A group naming
+ * us specifically wins over the wildcard group; with no robots.txt at all,
+ * everything is permitted, because absence is not refusal.
+ */
+export function robotsAllowsUs(robotsTxt: string | null, url: string, agent: string): boolean {
+  if (robotsTxt === null) return true;
+  let path: string;
+  try {
+    const u = new URL(url);
+    path = `${u.pathname}${u.search}`;
+  } catch {
+    return true;
+  }
+  const groups = parseRobots(robotsTxt);
+  const lower = agent.toLowerCase();
+  // Our UA string is "ReddoorAudit/1.0 (+https://...)"; a robots group naming
+  // us would write "reddooraudit", so match on containment either way round.
+  const named = groups.filter((g) =>
+    g.agents.some((a) => a !== "*" && (lower.includes(a) || a.includes(lower.split("/")[0] ?? ""))),
+  );
+  const matched = named.length > 0 ? named : groups.filter((g) => g.agents.includes("*"));
+  let best: { type: "allow" | "disallow"; length: number } | null = null;
+  for (const rule of matched.flatMap((g) => g.rules)) {
+    if (!robotsPathMatches(rule.path, path)) continue;
+    // An empty `Disallow:` is the conventional "nothing is disallowed" and
+    // matches nothing, which `robotsPathMatches` already returns false for.
+    if (best === null || rule.path.length > best.length) {
+      best = { type: rule.type, length: rule.path.length };
+    }
+  }
+  return best === null || best.type === "allow";
+}
+
 /** Can each agent fetch the site root? Only rules that cover "/" decide: a
  *  `Disallow: /admin` scopes a section, not the site, and must not read as a
  *  block in the report. An agent-specific group wins over the wildcard group. */
@@ -412,7 +476,12 @@ function samePageKey(u: URL): string {
  * crawled: those URLs simply queue behind the distinct paths instead of
  * crowding them out.
  */
-function normalizeCandidates(urls: string[], origin: string, max: number): string[] {
+function normalizeCandidates(
+  urls: string[],
+  origin: string,
+  max: number,
+  robotsTxt: string | null,
+): string[] {
   const firstOfPath: string[] = [];
   const variants: string[] = [];
   const seen = new Set<string>();
@@ -430,6 +499,9 @@ function normalizeCandidates(urls: string[], origin: string, max: number): strin
     // pages.ts. Following them costs a page of the budget and then invites a
     // finding about a URL the prospect never chose to publish.
     if (isInfraPath(u.toString())) continue;
+    // The site's own Disallow, obeyed. Not the AI-crawler matrix — that reports
+    // what OTHER crawlers may do. This is us.
+    if (!robotsAllowsUs(robotsTxt, u.toString(), USER_AGENT)) continue;
     u.hash = "";
     const key = samePageKey(u);
     if (seen.has(key)) continue;
@@ -600,6 +672,7 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
     [resolvedUrl, ...sidecars.sitemapUrls, ...sameOriginLinks(home.body, resolvedUrl)],
     origin,
     deps.maxPages,
+    sidecars.robotsTxt,
   );
 
   const rendered = await deps
