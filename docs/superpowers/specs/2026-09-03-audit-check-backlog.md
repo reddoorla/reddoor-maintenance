@@ -91,10 +91,15 @@ recognition (T1-26) — read off the same data.
   and we cannot see the handler. Count it separately as a note.
 - **T0-02 KEEP** Links to `localhost` / `127.0.0.1` / `*.local` / a staging host.
 - **T0-03 KEEP** `http://` links on an https site.
-- **T0-04 REWORD** `target="_blank"` without `rel="noopener"`. Greenable and most
-  sites pass — but browsers have implied `noopener` since 2021, so the _why_ must
-  say "tidiness", not "vulnerability". Overstating it is the exact failure mode
-  this codebase exists to avoid.
+- **T0-04 CUT** (built, then removed 2026-09-04) `target="_blank"` without
+  `rel="noopener"`. It was greenable — reddoorla.com passes it 5/5 — and it was
+  already worded as tidiness rather than a vulnerability, so it failed neither of
+  the tests this backlog applies. It was cut on the evidence instead: apple.com
+  fails it 111 out of 111, on links whose `rel` is `nofollow`, and browsers have
+  implied `noopener` since 2021. A check that flags a competently built site a
+  hundred times over a five-year-old non-issue spends the reader's attention on
+  nothing, and a reader who recognises it as nothing discounts the lines that
+  matter. Being _correct_ is not sufficient grounds to occupy a row.
 - **T0-05 CUT** Anchors with no accessible name. `PageAnchor` carries only
   `href`/`text`/`rel` — no `aria-label`, no inner `<img alt>` — so every icon link
   false-positives. axe's `link-name` does it correctly against the rendered DOM.

@@ -48,10 +48,8 @@ and visibility are fine throughout; verified from the served DOM instead.
 - [x] T0-46 analytics present
 - [x] Wired into the pipeline, and into `healthRows` so failures become findings
       and passes fold into What passes
-- [ ] **T0-04 deferred to Tier 1.** `target="_blank"` without `rel="noopener"`
-      needs a `target` on `PageAnchor`, so it is not free — and browsers have
-      implied noopener since 2021, so the finding is tidiness. Do it with
-      Cluster D.
+- [x] ~~**T0-04 deferred to Tier 1.**~~ Built with Cluster D, then **cut on
+      2026-09-04**. `PageAnchor.target` is still captured; nothing reads it.
 
 Landed: maintenance `85d168b` + `d440043`; website `1cc3fd8`.
 
@@ -105,7 +103,7 @@ stubs stay correct — a bare string normalises to `axe: null`, which reads as
 - [x] Cluster A — favicon, canonical self-referencing, canonical on-origin,
       hreflang self-reference (a projection of `<link>`, not a new traversal)
 - [x] Cluster D — field types, autocomplete, POST, action provider, required
-- [x] T0-04 noopener, which is what it was waiting for
+- [x] T0-04 noopener, which is what it was waiting for — since CUT, see below
 - [x] Fixture regenerated: 49 verdicts, 49 passes, 3 not-applicable
 
 Landed: maintenance `7f6c975`; website `31fdcd7`.
@@ -130,8 +128,9 @@ page — is not buried under noise. An unrecognised third-party form endpoint is
 calling a working in-house endpoint broken is the false alarm that costs trust in
 every other line.
 
-**`noopener` is framed as tidiness**, with a test asserting its `why` contains no
-security language. Browsers have implied it since 2021.
+**`noopener` was cut on 2026-09-04** after apple.com failed it 111/111. It was
+correct and greenable and already worded as tidiness — and still not worth a row.
+See the backlog entry for T0-04.
 
 ## 5. Tier 3 instrumentation — DONE (5 checks); screenshots NEED A DECISION
 

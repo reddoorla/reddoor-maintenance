@@ -1844,49 +1844,6 @@ function formChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck[]
   return out;
 }
 
-/** T0-04, which needed the `target` attribute and so waited for this tier. */
-function newTabChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck[] {
-  // Tidiness, NOT a vulnerability. Browsers have implied `noopener` for
-  // `target="_blank"` since 2021, so the honest framing is a lint that shows
-  // care — overstating it as a security hole is the kind of thing that
-  // discredits every other line in the report.
-  const WHY =
-    'Adding rel="noopener" — or "noreferrer", which does the same and more — to links that open a new tab is a one-line habit that keeps older browsers from handing the new page a reference back to yours.';
-  const LABEL = 'New-tab links carrying rel="noopener"';
-  const readable = pages.filter((p) =>
-    (p.extract.anchors ?? []).every((a) => a.target !== undefined),
-  );
-  if (pages.length === 0 || readable.length !== pages.length) {
-    return [unknown("noopener", LABEL, WHY, "quick")];
-  }
-  const blanks = readable.flatMap((p) =>
-    (p.extract.anchors ?? []).filter((a) => a.target === "_blank"),
-  );
-  if (blanks.length === 0) {
-    return [skip("noopener", LABEL, WHY, "quick", "no link on these pages opens a new tab")];
-  }
-  // `noreferrer` COUNTS. The HTML standard gives it the same effect as
-  // `noopener` — it severs `window.opener` and drops the referrer besides — so
-  // a site that chose the stricter keyword has nothing to fix here. Testing for
-  // `noopener` alone failed reddoorla.com's five outbound links, every one of
-  // which already carried `rel="noreferrer"`: the careful choice, marked wrong.
-  const bare = blanks.filter((a) => !/\b(noopener|noreferrer)\b/.test(a.rel));
-  return [
-    check(
-      "noopener",
-      LABEL,
-      WHY,
-      "quick",
-      bare.length === 0,
-      bare.length === 0
-        ? `all ${blanks.length} new-tab ${blanks.length === 1 ? "link carries" : "links carry"} noopener or noreferrer`
-        : `${bare.length} of ${blanks.length} new-tab ${
-            blanks.length === 1 ? "link is" : "links are"
-          } missing it`,
-    ),
-  ];
-}
-
 // ─── What the browser itself reported ────────────────────────────────────────
 
 /**
@@ -2526,7 +2483,6 @@ export const TIER1_CHECK_KEYS = [
   "form-method",
   "form-action",
   "form-required",
-  "noopener",
 ] as const;
 
 export const TIER0_CHECK_KEYS = [
@@ -2622,7 +2578,6 @@ export function runSiteChecks(
       http?.favicon !== undefined && http.favicon.verdict !== "unverified",
     ),
     ...formChecks(pages),
-    ...newTabChecks(pages),
     ...browserChecks(pages),
     ...dnsChecks(dns),
     ...httpChecks(http),

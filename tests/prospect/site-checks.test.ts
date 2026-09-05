@@ -62,8 +62,8 @@ function extract(over: Partial<PageExtract> = {}): PageExtract {
     hasViewportMeta: true,
     text: "We repair commercial roofs across the Treasure Valley. Call us on (310) 555-0142.",
     // `target: ""` on every anchor, because the real extractor always sets it.
-    // A stored report from before it was captured has it undefined on all of
-    // them, which is what makes the noopener check read as unmeasured there.
+    // Nothing reads it any more — the one check that did is gone — but the
+    // fixture keeps the shape the extractor produces rather than a subset of it.
     anchors: [
       { href: "/services", text: "Services", rel: "", target: "" },
       { href: "/contact", text: "Contact", rel: "", target: "" },
@@ -762,53 +762,6 @@ describe("Tier 1 — each check fires on the thing it is named for", () => {
       ],
     });
     expect(byKey(checks, "form-action")?.status).toBe("pass");
-  });
-
-  it('accepts rel="noreferrer", which the standard says does the same and more', () => {
-    // reddoorla.com's own outbound links are all `rel="noreferrer"`. Testing
-    // for `noopener` alone marked the stricter choice as the wrong one.
-    const checks = runSiteChecks(
-      exemplary({
-        pages: [
-          page("https://acme.example/", {
-            anchors: [
-              {
-                href: "https://partner.example",
-                text: "Partner",
-                rel: "noreferrer",
-                target: "_blank",
-              },
-            ],
-            anchorCount: 1,
-          }),
-        ],
-      }),
-      exemplaryChecks(),
-      "Acme Roofing",
-    );
-    expect(byKey(checks, "noopener")?.status).toBe("pass");
-  });
-
-  it("catches a new-tab link with no noopener, and says it is tidiness", () => {
-    const checks = one({
-      anchors: [{ href: "https://elsewhere.example/", text: "Partner", rel: "", target: "_blank" }],
-    });
-    const c = byKey(checks, "noopener");
-    expect(c?.status).toBe("fail");
-    // Browsers have implied noopener since 2021. Overstating this as a security
-    // hole is what discredits every other line in the report.
-    expect(c?.why).not.toMatch(/vulnerab|attack|security|hijack/i);
-  });
-
-  it("skips the noopener check when nothing opens a new tab", () => {
-    expect(byKey(one({}), "noopener")?.status).toBe("not-applicable");
-  });
-
-  it("is unmeasured on a report stored before target was captured", () => {
-    // Every anchor lacking the attribute means we never recorded it — which is
-    // our gap, and must not read as "nothing opens a new tab".
-    const checks = one({ anchors: [{ href: "/x", text: "X", rel: "" }] });
-    expect(byKey(checks, "noopener")?.status).toBe("unmeasured");
   });
 
   it("skips hreflang on a monolingual site rather than passing it", () => {
