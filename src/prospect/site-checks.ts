@@ -679,11 +679,14 @@ function headingChecks(
   pages: { url: string; extract: PageExtract }[],
   businessName: string | null,
 ): SiteCheck[] {
+  const WHY_PRESENT =
+    "The h1 is the page's headline. A page without one gives a reader — and an assistant looking for something to quote — nothing that says what the page is about.";
   const WHY_ONE =
-    "The h1 is the page's headline. None leaves a reader — and an assistant — guessing what the page is about; several means none of them is.";
+    "When everything on the page is marked as the page's headline, none of it is, and whatever gets quoted back is whichever one came first in the markup.";
   if (pages.length === 0) {
     return [
-      unknown("single-h1", "One headline per page", WHY_ONE, "content"),
+      unknown("h1-present", "A headline on every page", WHY_PRESENT, "content"),
+      unknown("h1-one-headline", "One headline, not a list of them", WHY_ONE, "content"),
       unknown(
         "h1-not-name",
         "Headlines that say what the page is about",
@@ -704,24 +707,61 @@ function headingChecks(
     h1s: p.extract.headings.filter((h) => h.level === 1).map((h) => h.text.trim()),
   }));
 
-  // Note: extract.ts only records a heading that HAS text, so an empty <h1>
-  // is invisible to us and lands here as "none" rather than as its own finding.
-  const wrong = h1sPerPage.filter((p) => p.h1s.length !== 1);
+  // Two findings, two rows.
+  //
+  // These were one check, "exactly one h1 per page", and it was the loudest row
+  // in the battery — 24 of the 29 sites in the stored corpus failed it, on one
+  // line of evidence reading "has none, has 2, has 33". Two different faults of
+  // two different sizes, welded together and reported as one.
+  //
+  // NO h1 is a real defect, and 115 of 489 pages had none. SEVERAL is a
+  // different question with a different answer: the HTML spec permits an h1 per
+  // sectioning element and Google has said on the record that more than one is
+  // fine, so "you have two" is not a finding we can defend. Twenty-eight of the
+  // corpus's 44 multi-h1 pages sit at exactly two.
+  //
+  // Note: extract.ts records a heading by its ACCESSIBLE name, so `<h1><img
+  // alt="Acme"></h1>` counts. It did not until this split, and every page using
+  // that very ordinary pattern was arriving here as a page with no headline.
+  const missing = h1sPerPage.filter((p) => p.h1s.length === 0);
   const out: SiteCheck[] = [
     check(
-      "single-h1",
-      "One headline per page",
-      WHY_ONE,
+      "h1-present",
+      "A headline on every page",
+      WHY_PRESENT,
       "content",
-      wrong.length === 0,
-      wrong.length === 0
-        ? `all ${pages.length} pages carry exactly one`
-        : wrong
+      missing.length === 0,
+      missing.length === 0
+        ? `all ${pages.length} pages carry one`
+        : `${missing.length} of ${pages.length}: ${missing
             .slice(0, 3)
-            .map((p) => `${p.url} has ${p.h1s.length === 0 ? "none" : `${p.h1s.length}`}`)
-            .join(", "),
+            .map((p) => p.url)
+            .join(", ")}`,
     ),
   ];
+
+  // Three, not two. Two has a standard and correct cause — a visually-hidden
+  // headline for screen readers alongside the visible one — and the corpus is
+  // full of it. Three has no such pattern behind it; past that the number
+  // climbs fast (5, 6, 8, 27, 33), which is a template marking every card on
+  // the page as the headline.
+  const CROWDED_AT = 3;
+  const crowded = h1sPerPage.filter((p) => p.h1s.length >= CROWDED_AT);
+  out.push(
+    check(
+      "h1-one-headline",
+      "One headline, not a list of them",
+      WHY_ONE,
+      "content",
+      crowded.length === 0,
+      crowded.length === 0
+        ? `no page marks more than two of its lines as the headline, across the ${pages.length} we read`
+        : crowded
+            .slice(0, 3)
+            .map((p) => `${p.url} has ${p.h1s.length}`)
+            .join(", "),
+    ),
+  );
 
   const WHY_NAME = "A headline that is only your company name describes none of the page below it.";
   const LABEL_NAME = "Headlines that say what the page is about";
@@ -3066,7 +3106,8 @@ export const TIER0_CHECK_KEYS = [
   "mojibake",
   "under-construction",
   "name-in-title",
-  "single-h1",
+  "h1-present",
+  "h1-one-headline",
   "h1-not-name",
   "h1-distinct",
   "schema-org-complete",

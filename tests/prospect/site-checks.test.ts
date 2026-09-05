@@ -932,26 +932,38 @@ describe("each check fires on the thing it is named for", () => {
     expect(byKey(older, "sitemap-coverage")?.status).toBe("unmeasured");
   });
 
-  it("catches a page with no h1 and a page with three", () => {
+  it("catches a page with no h1 at all", () => {
     const none = runSiteChecks(
       exemplary({ pages: [page("https://acme.example/", { headings: [] })] }),
       exemplaryChecks(),
       "Acme Roofing",
     );
-    expect(byKey(none, "single-h1")?.status).toBe("fail");
+    expect(byKey(none, "h1-present")?.status).toBe("fail");
+    // And says nothing about crowding, which is a separate question this page
+    // does not raise.
+    expect(byKey(none, "h1-one-headline")?.status).toBe("pass");
+  });
 
-    const three = runSiteChecks(
-      exemplary({
-        pages: [
-          page("https://acme.example/", {
-            headings: [1, 1, 1].map((level, i) => ({ level, text: `Heading ${i}` })),
-          }),
-        ],
-      }),
-      exemplaryChecks(),
-      "Acme Roofing",
-    );
-    expect(byKey(three, "single-h1")?.status).toBe("fail");
+  it("lets a second h1 alone and catches a third", () => {
+    // Two has a standard, correct cause — a visually-hidden headline beside the
+    // visible one — and 28 of the corpus's 44 multi-h1 pages sit at exactly two.
+    const heads = (n: number) =>
+      runSiteChecks(
+        exemplary({
+          pages: [
+            page("https://acme.example/", {
+              headings: Array.from({ length: n }, (_, i) => ({ level: 1, text: `Heading ${i}` })),
+            }),
+          ],
+        }),
+        exemplaryChecks(),
+        "Acme Roofing",
+      );
+    expect(byKey(heads(2), "h1-one-headline")?.status).toBe("pass");
+    expect(byKey(heads(3), "h1-one-headline")?.status).toBe("fail");
+    // A crowded page still HAS a headline, so the other row stays green.
+    expect(byKey(heads(3), "h1-present")?.status).toBe("pass");
+    expect(byKey(heads(33), "h1-one-headline")?.evidence).toContain("has 33");
   });
 
   it("catches each security header individually", () => {

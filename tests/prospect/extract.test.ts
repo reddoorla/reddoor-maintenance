@@ -146,6 +146,26 @@ describe("extractPage — text rendered the way a browser does", () => {
     expect(page.headings).toEqual([{ level: 1, text: "Big Bold Headline" }]);
   });
 
+  it("reads a logo wrapped in the headline by its alt text", () => {
+    // One of the commonest homepage patterns there is. Reading text nodes alone
+    // yielded "", the empty heading was dropped, and the page arrived at the
+    // checks as one with no headline at all — a site with an h1 reported as a
+    // site without one, and invisible in the stored corpus because the extract
+    // only ever kept the headings that survived.
+    const page = extractPage('<h1><img src="/logo.svg" alt="Acme Roofing"></h1>');
+    expect(page.headings).toEqual([{ level: 1, text: "Acme Roofing" }]);
+  });
+
+  it("prefers a heading's own aria-label, exactly as a screen reader does", () => {
+    const page = extractPage('<h1 aria-label="Commercial roof repair"><span>ACME</span></h1>');
+    expect(page.headings).toEqual([{ level: 1, text: "Commercial roof repair" }]);
+  });
+
+  it("still drops a heading that names nothing at all", () => {
+    const page = extractPage('<h1><img src="/spacer.gif" alt=""></h1><h2>Real</h2>');
+    expect(page.headings).toEqual([{ level: 2, text: "Real" }]);
+  });
+
   it("reads a <title> misplaced inside <body> into page.title but keeps it out of text", () => {
     const page = extractPage("<body><title>Sneaky</title><p>Hello</p></body>");
     expect(page.title).toBe("Sneaky");

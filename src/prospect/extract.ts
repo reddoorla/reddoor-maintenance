@@ -135,6 +135,36 @@ const MAX_WALK_DEPTH = 100;
  *  separator, a newline at each block boundary, whitespace collapsed last —
  *  which is what a browser shows. TITLE and SCRIPT are dropped wherever they
  *  appear, since a <title> misplaced in <body> is still invisible. */
+/**
+ * A heading's ACCESSIBLE name, not only its text nodes.
+ *
+ * `<h1><img alt="Acme Roofing"></h1>` — a logo wrapped in the page headline —
+ * is one of the most common homepage patterns there is, and reading text nodes
+ * alone yields "" for it. An empty heading is dropped, so the page arrived at
+ * the checks carrying no h1 at all and we reported a site with a headline as a
+ * site without one.
+ *
+ * That number was invisible in the stored corpus, because the extract only ever
+ * held the headings that survived: 115 pages recorded as having no h1, and no
+ * way to tell how many of them really had one. A gap we cannot even count is
+ * one to close rather than argue about.
+ *
+ * `aria-label` on the heading wins outright, exactly as it does for a screen
+ * reader; otherwise the alt text of the images inside it fills in for text
+ * nodes that are not there.
+ */
+function headingTextOf(el: HTMLElement): string {
+  const label = (el.getAttribute("aria-label") ?? "").trim();
+  if (label) return collapse(label);
+  const text = textOf(el);
+  if (text) return text;
+  const alts = el
+    .querySelectorAll("img")
+    .map((img) => (img.getAttribute("alt") ?? "").trim())
+    .filter((a) => a.length > 0);
+  return collapse(alts.join(" "));
+}
+
 function textOf(el: HTMLElement): string {
   const parts: string[] = [];
   const walk = (node: HTMLElement, depth: number): void => {
@@ -245,7 +275,7 @@ function collect(el: HTMLElement, out: Collected, depth = 0): void {
       case "H4":
       case "H5":
       case "H6": {
-        const text = textOf(e);
+        const text = headingTextOf(e);
         if (text) out.headings.push({ level: Number(tag.slice(1)), text });
         break;
       }
