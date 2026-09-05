@@ -50,7 +50,7 @@ const SCHEMA = JSON.stringify({
 });
 
 function extract(over: Partial<PageExtract> = {}): PageExtract {
-  return {
+  const merged: PageExtract = {
     title: "Acme Roofing — Commercial Roof Repair in Boise",
     metaDescription:
       "Commercial roof repair and replacement across the Treasure Valley, from a Boise crew.",
@@ -97,6 +97,13 @@ function extract(over: Partial<PageExtract> = {}): PageExtract {
     ],
     ...over,
   };
+  // The real extractor sets `ariaLabel` on every anchor, empty when there is
+  // none. A fixture that omits it is a report stored before we captured it, and
+  // `link-text` correctly reads that as unmeasured — so fill it in here and let
+  // the one test that wants the old shape ask for it.
+  return merged.anchors === undefined
+    ? merged
+    : { ...merged, anchors: merged.anchors.map((a) => ({ ariaLabel: "", ...a })) };
 }
 
 /** A page the browser opened and found nothing wrong with. Separate from the
@@ -114,7 +121,13 @@ function page(
   over: Partial<PageExtract> = {},
   vitals: PageCapture["vitals"] = CLEAN_VITALS,
 ): PageCapture {
-  return { url, status: 200, raw: null, rendered: extract(over), error: null, vitals };
+  // Self-canonical unless a test says otherwise. `extract()` carries the home
+  // page's canonical, so before this every ad-hoc second page silently claimed
+  // to BE the home page — which the checks that fold by declared address now
+  // read correctly, and which made two of them skip on fixtures that meant to
+  // exercise them.
+  const rendered = extract({ canonical: url, ...over });
+  return { url, status: 200, raw: null, rendered, error: null, vitals };
 }
 
 function exemplary(over: Partial<CrawlResult> = {}): CrawlResult {
@@ -442,6 +455,384 @@ describe("each check fires on the thing it is named for", () => {
     ).toBe("fail");
   });
 
+  it("does not read a mega-menu as a menu that disagrees with itself", () => {
+    // apple.com's word "Mac" links to /mac/, to two shop pages and to a support
+    // page — the SAME four destinations on all twenty pages. The old rule
+    // unioned the targets, counted four, and reported 18 menu items as leading
+    // somewhere different depending on the page.
+    const megaMenu = ["/mac/", "/shop/buy-mac", "/shop/mac-accessories", "/support/mac"].map(
+      (href) => ({ href, text: "Mac", rel: "" }),
+    );
+    const same: CrawlResult = exemplary({
+      pages: [
+        page("https://acme.example/", { anchors: megaMenu }),
+        page("https://acme.example/services", { anchors: megaMenu }),
+      ],
+    });
+    const c = byKey(runSiteChecks(same, exemplaryChecks(), "Acme Roofing"), "nav-consistency");
+    expect(c?.status).toBe("pass");
+  });
+
+  it("still catches drift when one page shares NO destination with another", () => {
+    // The same four links, except this page's "Mac" reaches none of the four
+    // the other page reaches. That is the finding the union rule was reaching
+    // for and the intersection rule keeps.
+    const drift: CrawlResult = exemplary({
+      pages: [
+        page("https://acme.example/", {
+          anchors: [
+            { href: "/mac/", text: "Mac", rel: "" },
+            { href: "/shop/buy-mac", text: "Mac", rel: "" },
+          ],
+        }),
+        page("https://acme.example/services", {
+          anchors: [{ href: "/computers/apple", text: "Mac", rel: "" }],
+        }),
+      ],
+    });
+    expect(
+      byKey(runSiteChecks(drift, exemplaryChecks(), "Acme Roofing"), "nav-consistency")?.status,
+    ).toBe("fail");
+  });
+
+  it("reads the aria-label, not the visible text, when a link has one", () => {
+    // Every "Learn more" on apple.com is written
+    // `aria-label="Learn more about accessibility"` around a span reading
+    // "Learn more". Sixty labelled links were reported as bare.
+    const labelled = Array.from({ length: 20 }, (_, i) => ({
+      href: `/post-${i}`,
+      text: "Read more",
+      rel: "",
+      ariaLabel: `Read more about roof repair ${i}`,
+    }));
+    const checks = runSiteChecks(
+      exemplary({ pages: [page("https://acme.example/", { anchors: labelled })] }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(checks, "link-text")?.status).toBe("pass");
+  });
+
+  it("counts a link whose aria-label is ALSO vague", () => {
+    const bare = Array.from({ length: 20 }, (_, i) => ({
+      href: `/post-${i}`,
+      text: "A perfectly good label",
+      rel: "",
+      ariaLabel: "Read more",
+    }));
+    const checks = runSiteChecks(
+      exemplary({ pages: [page("https://acme.example/", { anchors: bare })] }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    // The point is the destination, not which attribute carries it.
+    expect(byKey(checks, "link-text")?.status).toBe("fail");
+  });
+
+  it("cannot judge link text on a report stored before aria-labels were captured", () => {
+    // Built past `page()`, which fills the attribute in — the whole point here
+    // is an extract that predates it. Absent is our gap, and must never read as
+    // "this link has no label".
+    const stored = page("https://acme.example/");
+    const rendered = {
+      ...stored.rendered!,
+      anchors: [{ href: "/x", text: "Read more", rel: "", target: "" }],
+    };
+    const old = runSiteChecks(
+      exemplary({ pages: [{ ...stored, rendered }] }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(old, "link-text")?.status).toBe("unmeasured");
+  });
+
+  it("names the true link total beside the capped one", () => {
+    const checks = runSiteChecks(
+      exemplary({
+        pages: [
+          page("https://acme.example/", {
+            anchors: [{ href: "/x", text: "Our services", rel: "", ariaLabel: "" }],
+            anchorCount: 4000,
+          }),
+        ],
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    // Printing "all 1 links we read" as if 1 were the site's link count is the
+    // capped-list mistake this codebase keeps having to fix.
+    expect(byKey(checks, "link-text")?.evidence).toContain("4000");
+  });
+
+  it("folds query-string deep-links into the page they declare themselves to be", () => {
+    // apple.com handed us /accessibility/features/ five times — ?vision,
+    // ?hearing, ?speech, ?cognitive and bare — each declaring the bare URL
+    // canonical. Compared as five pages they read as five sharing a headline
+    // and five sharing a description. They are one page.
+    const tabs = ["", "?vision", "?hearing", "?speech", "?cognitive"].map((q) =>
+      page(`https://acme.example/services${q}`, {
+        canonical: "https://acme.example/services",
+        title: "Roof repair services — Acme Roofing",
+        metaDescription: "What we repair, how long it takes, and what a commercial roof job costs.",
+        headings: [{ level: 1, text: "What we repair" }],
+      }),
+    );
+    const checks = runSiteChecks(
+      exemplary({ pages: [page("https://acme.example/"), ...tabs] }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(checks, "h1-distinct")?.status).toBe("pass");
+    expect(byKey(checks, "duplicate-descriptions")?.status).toBe("pass");
+  });
+
+  it("still catches two genuinely different pages sharing a headline", () => {
+    const checks = runSiteChecks(
+      exemplary({
+        pages: [
+          page("https://acme.example/services", { headings: [{ level: 1, text: "Our work" }] }),
+          page("https://acme.example/about", { headings: [{ level: 1, text: "Our work" }] }),
+        ],
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(checks, "h1-distinct")?.status).toBe("fail");
+  });
+
+  it("does not fail three duplicates for correctly naming the page they duplicate", () => {
+    // apple.com serves one comparison page at /airpods-4/compare/,
+    // /airpods-max/compare/ and /airpods-pro/compare/, all three naming
+    // /airpods/compare/ canonical and all three headlined the same. That is
+    // what a canonical is FOR, and we failed it for doing the right thing.
+    const dup = (path: string) =>
+      page(`https://acme.example/${path}`, {
+        canonical: "https://acme.example/compare",
+        headings: [{ level: 1, text: "Compare our roof systems" }],
+      });
+    const checks = runSiteChecks(
+      exemplary({
+        pages: [
+          page("https://acme.example/"),
+          page("https://acme.example/services", {
+            headings: [{ level: 1, text: "What we repair" }],
+          }),
+          dup("flat/compare"),
+          dup("metal/compare"),
+          dup("tile/compare"),
+        ],
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(checks, "canonical-self")?.status).toBe("pass");
+  });
+
+  it("catches a canonical that contradicts the page it names", () => {
+    // We read both pages, and they carry different headlines. This page has
+    // told search engines to index something it is not.
+    const checks = runSiteChecks(
+      exemplary({
+        pages: [
+          page("https://acme.example/", { headings: [{ level: 1, text: "Roof repair in Boise" }] }),
+          page("https://acme.example/services", {
+            canonical: "https://acme.example/",
+            headings: [{ level: 1, text: "What we repair" }],
+          }),
+        ],
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    const c = byKey(checks, "canonical-self");
+    expect(c?.status).toBe("fail");
+    expect(c?.evidence).toContain("different headlines");
+  });
+
+  it("catches pages that name one target and disagree on their own headlines", () => {
+    // Three different pages cannot all be duplicates of one page — and this
+    // needs no access to the target at all, which we never crawled.
+    const checks = runSiteChecks(
+      exemplary({
+        pages: [
+          // A self-canonical page, so this is the disagreement rule firing and
+          // not the whole-crawl backstop.
+          page("https://acme.example/"),
+          ...["a", "b", "c"].map((n) =>
+            page(`https://acme.example/${n}`, {
+              canonical: "https://acme.example/elsewhere",
+              headings: [{ level: 1, text: `Page ${n}` }],
+            }),
+          ),
+        ],
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    const c = byKey(checks, "canonical-self");
+    expect(c?.status).toBe("fail");
+    expect(c?.evidence).toContain("different headlines");
+  });
+
+  it("catches a whole crawl naming one address, even with one headline everywhere", () => {
+    // The backstop for a template that writes the site name as every h1 AND
+    // canonicalises everything to the home page. A site cannot be one page
+    // served at every address.
+    const checks = runSiteChecks(
+      exemplary({
+        pages: ["a", "b", "c"].map((n) =>
+          page(`https://acme.example/${n}`, {
+            canonical: "https://acme.example/",
+            headings: [{ level: 1, text: "Acme Roofing" }],
+          }),
+        ),
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(checks, "canonical-self")?.status).toBe("fail");
+  });
+
+  it("does not fail a duplicate whose target we never read", () => {
+    // A target we never fetched is not evidence either way, and our gap must
+    // not become their defect.
+    const checks = runSiteChecks(
+      exemplary({
+        pages: [
+          page("https://acme.example/"),
+          page("https://acme.example/services"),
+          page("https://acme.example/roofing", { canonical: "https://acme.example/never-crawled" }),
+        ],
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(checks, "canonical-self")?.status).toBe("pass");
+  });
+
+  it("does not ask a page that canonicalises away to name itself in its alternates", () => {
+    const ALT = [
+      { rel: "alternate", href: "https://acme.example/services", hreflang: "en" },
+      { rel: "alternate", href: "https://acme.example/es/servicios", hreflang: "es" },
+    ];
+    const checks = runSiteChecks(
+      exemplary({
+        pages: [
+          page("https://acme.example/services", { links: ALT }),
+          // A duplicate carrying its canonical's alternate set. Naming ITSELF
+          // in there would be the mistake.
+          page("https://acme.example/roof-repair", {
+            canonical: "https://acme.example/services",
+            links: ALT,
+          }),
+        ],
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(checks, "hreflang-self")?.status).toBe("pass");
+  });
+
+  it("does not fail a description that misses the band by two characters", () => {
+    // apple.com failed twice at 50-170: a 172-character home page and a
+    // 48-character specs page. Truncation is by pixel width; no character count
+    // predicts it, so a tight band manufactures findings.
+    const of = (n: number) => "a".repeat(n);
+    const checks = runSiteChecks(
+      exemplary({
+        pages: [
+          page("https://acme.example/", { metaDescription: of(172) }),
+          page("https://acme.example/services", { metaDescription: of(48) }),
+        ],
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(checks, "description-length")?.status).toBe("pass");
+
+    // A stub and a wall of text are still findings — that is what the band is for.
+    for (const n of [12, 400]) {
+      const bad = runSiteChecks(
+        exemplary({ pages: [page("https://acme.example/", { metaDescription: of(n) })] }),
+        exemplaryChecks(),
+        "Acme Roofing",
+      );
+      expect(byKey(bad, "description-length")?.status).toBe("fail");
+    }
+  });
+
+  it("records a missing llms.txt without counting it against the site", () => {
+    // `checks.ts` already took llms.txt out of the Findability score because no
+    // answer engine has published that it reads one. A red row is a grade-down,
+    // so leaving it failing here contradicted a decision already made.
+    const checks = runSiteChecks(
+      exemplary({ llmsTxt: { present: false, firstLine: null } }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(checks, "llms-txt")?.status).toBe("not-applicable");
+    expect(byKey(checks, "llms-txt")?.why).not.toMatch(/the one file/i);
+    // Having one is still worth saying.
+    expect(byKey(runSiteChecks(exemplary(), exemplaryChecks(), "Acme"), "llms-txt")?.status).toBe(
+      "pass",
+    );
+  });
+
+  it("does not pass a permissions-policy whose every directive is a wildcard", () => {
+    // Measured in a browser: `geolocation=*` behaves identically to sending no
+    // header at all. A check a site can green with a no-op is not a check.
+    const withHeader = (v: string) =>
+      byKey(
+        runSiteChecks(
+          exemplary({ homeHeaders: { ...HEADERS, "permissions-policy": v } }),
+          exemplaryChecks(),
+          "Acme Roofing",
+        ),
+        "header-permissions-policy",
+      );
+    expect(withHeader("camera=*, geolocation=*")?.status).toBe("fail");
+    expect(withHeader("camera=(), geolocation=*")?.status).toBe("pass");
+    expect(withHeader("camera=(self)")?.status).toBe("pass");
+  });
+
+  it("says what permissions-policy actually does, not what browsers already do", () => {
+    const c = byKey(
+      runSiteChecks(exemplary(), exemplaryChecks(), "Acme"),
+      "header-permissions-policy",
+    );
+    // A cross-origin iframe is refused camera and geolocation with no header
+    // set at all, and granted them the moment the SITE writes allow= on the
+    // iframe. Nothing about it is quiet, and claiming otherwise is the shape of
+    // overstatement that discredits every other line.
+    expect(c?.why).not.toMatch(/quietly|embedded third party/i);
+  });
+
+  it("fails only the two referrer policies that leak more than sending nothing", () => {
+    const rp = (v: string | null) => {
+      const headers = { ...HEADERS };
+      if (v === null) delete headers["referrer-policy"];
+      else headers["referrer-policy"] = v;
+      return byKey(
+        runSiteChecks(exemplary({ homeHeaders: headers }), exemplaryChecks(), "Acme Roofing"),
+        "header-referrer-policy",
+      );
+    };
+    // Measured, from a page at /some/deep/path?secret=token123:
+    //   no header / strict-origin-when-cross-origin  ->  Referer: http://host/
+    //   unsafe-url / no-referrer-when-downgrade      ->  the whole address
+    expect(rp("unsafe-url")?.status).toBe("fail");
+    expect(rp("no-referrer-when-downgrade")?.status).toBe("fail");
+    expect(rp("strict-origin-when-cross-origin")?.status).toBe("pass");
+    expect(rp("no-referrer")?.status).toBe("pass");
+    // Absent is neither: the site did nothing, and the browser's own default
+    // does not leak the address. Blaming them for it would be as wrong as
+    // crediting them for it.
+    expect(rp(null)?.status).toBe("not-applicable");
+    // A list: the browser takes the last value it understands.
+    expect(rp("no-referrer, unsafe-url")?.status).toBe("fail");
+    expect(rp("unsafe-url, strict-origin-when-cross-origin")?.status).toBe("pass");
+  });
+
   it("catches a page with no h1 and a page with three", () => {
     const none = runSiteChecks(
       exemplary({ pages: [page("https://acme.example/", { headings: [] })] }),
@@ -611,11 +1002,17 @@ describe("Tier 1 — each check fires on the thing it is named for", () => {
   });
 
   it("catches every page pointing its canonical at the home page", () => {
+    // The headlines are what make these two DIFFERENT pages. Two addresses
+    // serving one page, with one headline between them, is a duplicate handled
+    // properly — and is tested for separately.
     const checks = runSiteChecks(
       exemplary({
         pages: [
-          page("https://acme.example/"),
-          page("https://acme.example/services", { canonical: "https://acme.example/" }),
+          page("https://acme.example/", { headings: [{ level: 1, text: "Roof repair in Boise" }] }),
+          page("https://acme.example/services", {
+            canonical: "https://acme.example/",
+            headings: [{ level: 1, text: "What we repair" }],
+          }),
         ],
       }),
       exemplaryChecks(),

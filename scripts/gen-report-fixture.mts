@@ -69,11 +69,21 @@ function extract(url: string, over: Partial<PageExtract> = {}): PageExtract {
     images: { total: 3, withAlt: 3 },
     hasViewportMeta: true,
     text: "We repair commercial roofs across the Treasure Valley. Call us on (208) 555-0142. Our crew has worked on flat roofs, standing seam and TPO across Boise, Meridian and Nampa since 2004, and we quote in writing before anyone climbs a ladder.",
+    // `ariaLabel: ""` on every anchor, because the real extractor always sets it
+    // — empty when the link has none. Absent means we never captured it, and
+    // `link-text` correctly refuses to judge visible text it knows is only half
+    // the label.
     anchors: [
-      { href: "/services", text: "Services", rel: "", target: "" },
-      { href: "/contact", text: "Contact", rel: "", target: "" },
-      { href: "tel:+12085550142", text: "Call us", rel: "", target: "" },
-      { href: "https://www.facebook.com/acmeroofingboise", text: "Facebook", rel: "", target: "" },
+      { href: "/services", text: "Services", rel: "", target: "", ariaLabel: "" },
+      { href: "/contact", text: "Contact", rel: "", target: "", ariaLabel: "" },
+      { href: "tel:+12085550142", text: "Call us", rel: "", target: "", ariaLabel: "" },
+      {
+        href: "https://www.facebook.com/acmeroofingboise",
+        text: "Facebook",
+        rel: "",
+        target: "",
+        ariaLabel: "",
+      },
     ],
     anchorCount: 4,
     imageSrcs: ["/logo.png", "/hero.jpg"],

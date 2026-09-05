@@ -100,11 +100,16 @@ recognition (T1-26) — read off the same data.
   hundred times over a five-year-old non-issue spends the reader's attention on
   nothing, and a reader who recognises it as nothing discounts the lines that
   matter. Being _correct_ is not sufficient grounds to occupy a row.
-- **T0-05 CUT** Anchors with no accessible name. `PageAnchor` carries only
-  `href`/`text`/`rel` — no `aria-label`, no inner `<img alt>` — so every icon link
-  false-positives. axe's `link-name` does it correctly against the rendered DOM.
-  Moved to T3-14.
-- **T0-06 KEEP** Non-descriptive link text — "click here", "read more", counted.
+- **T0-05 CUT, and still cut.** Anchors with no accessible name. `PageAnchor`
+  gained `aria-label` on 2026-09-05 (for T0-06, below) but still carries no inner
+  `<img alt>`, so an icon link would still false-positive. axe's `link-name` does
+  it correctly against the rendered DOM. Moved to T3-14.
+- **T0-06 KEEP, corrected 2026-09-05** Non-descriptive link text — "click here",
+  "read more", counted. It must read the `aria-label` where there is one: every
+  "Learn more" on apple.com is written `aria-label="Learn more about
+accessibility"` around a span reading "Learn more", and judging the visible
+  text alone reported 60 well-labelled links as bare. A vague `aria-label` still
+  counts — the point is the destination, not which attribute carries it.
 - **T0-07 CUT** Same link text → different URLs. Fires on every blog index on
   earth ("Read more" ×12 is _normal_), which breaks the floor. T0-06 already
   catches the real defect.

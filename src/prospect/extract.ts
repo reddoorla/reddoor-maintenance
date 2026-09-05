@@ -491,6 +491,12 @@ export function extractPage(html: string): PageExtract {
       text: textOf(a).slice(0, 120),
       rel: (a.getAttribute("rel") ?? "").toLowerCase().trim(),
       target: (a.getAttribute("target") ?? "").toLowerCase().trim(),
+      // NOT lower-cased and NOT trimmed to a keyword: this is prose, and the
+      // check that reads it needs to know whether a human wrote a destination
+      // into it. apple.com's “Learn more” links all carry one — `aria-label="Learn
+      // more about accessibility"` — so judging their link text without it
+      // called 60 well-labelled links bare.
+      ariaLabel: (a.getAttribute("aria-label") ?? "").trim().slice(0, 120),
     })),
     // The TRUE total, so a capped list is never mistaken for a complete one.
     anchorCount: out.anchors.length,

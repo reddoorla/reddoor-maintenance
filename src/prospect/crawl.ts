@@ -397,9 +397,26 @@ function samePageKey(u: URL): string {
   return `${u.origin.toLowerCase()}${path}${u.search}`;
 }
 
+/**
+ * Which URLs to spend the page budget on.
+ *
+ * DISTINCT PATHS FIRST, query variants with whatever is left. The budget is
+ * small and a query string is the cheapest way for a site to spend all of it on
+ * one page: apple.com handed us `/accessibility/features/` five times under
+ * `?vision`, `?hearing`, `?speech` and `?cognitive` — tab deep-links into a
+ * single page — plus `/airpods-pro/?campaign=true`, so six of twenty slots went
+ * to two pages we had already read.
+ *
+ * A PREFERENCE, never a filter, because `samePageKey` is right that `?page=2`
+ * is genuinely another page. A blog whose only content is `?page=N` still gets
+ * crawled: those URLs simply queue behind the distinct paths instead of
+ * crowding them out.
+ */
 function normalizeCandidates(urls: string[], origin: string, max: number): string[] {
-  const out: string[] = [];
+  const firstOfPath: string[] = [];
+  const variants: string[] = [];
   const seen = new Set<string>();
+  const paths = new Set<string>();
   for (const raw of urls) {
     let u: URL;
     try {
@@ -417,10 +434,14 @@ function normalizeCandidates(urls: string[], origin: string, max: number): strin
     const key = samePageKey(u);
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(u.toString());
-    if (out.length >= max) break;
+    const path = `${u.origin.toLowerCase()}${u.pathname.replace(/\/+$/, "") || "/"}`;
+    if (paths.has(path)) variants.push(u.toString());
+    else {
+      paths.add(path);
+      firstOfPath.push(u.toString());
+    }
   }
-  return out;
+  return [...firstOfPath, ...variants].slice(0, max);
 }
 
 type Sidecars = {
@@ -704,6 +725,12 @@ const MOBILE_HEIGHT = 812;
  *  next page is captured the same way as the first. */
 const DESKTOP_WIDTH = 1280;
 const DESKTOP_HEIGHT = 720;
+/** How long the narrow-viewport reflow gets to settle, and how often it is
+ *  read. Sized off the worst real page measured so far: apple.com's comparison
+ *  table needs about a second, so the budget is several times that and the step
+ *  is short enough that an ordinary page pays a quarter of a second. */
+const OVERFLOW_SETTLE_BUDGET_MS = 5_000;
+const OVERFLOW_SETTLE_STEP_MS = 250;
 
 /**
  * What the browser noticed, measured in the page it has already loaded.
@@ -761,12 +788,26 @@ async function measureVitals(
     // Then the narrow viewport. A resize reflows a page the browser already
     // holds — no navigation, no new bytes from the prospect's server.
     await page.setViewportSize({ width: MOBILE_WIDTH, height: MOBILE_HEIGHT });
-    // One frame for the reflow to settle before measuring it.
-    await page.waitForTimeout(250);
-    const overflowAt375 = await page.evaluate(() => {
-      const doc = document.documentElement;
-      return Math.max(0, Math.round(doc.scrollWidth - doc.clientWidth));
-    });
+    // POLLED UNTIL IT STOPS MOVING, not sampled once after 250ms.
+    //
+    // A single 250ms sample measured pages mid-reflow and reported the
+    // transient as the finding. apple.com's AirPods comparison page, resized
+    // from 1280 to 375, reads 303px over at 250ms, 26px at 500ms and 0px from
+    // 1000ms on; loaded at 375 in the first place it never overflows at all. We
+    // told a client their page scrolls sideways on a phone about a page that
+    // does not, which is the most quotable finding shape we produce.
+    //
+    // Two consecutive equal reads is the settle condition. The budget is a
+    // ceiling, not a target: a static page settles on the second read and pays
+    // one extra interval.
+    const overflowAt375 = await settledOverflow(
+      () =>
+        page.evaluate(() => {
+          const doc = document.documentElement;
+          return Math.max(0, Math.round(doc.scrollWidth - doc.clientWidth));
+        }),
+      (ms) => page.waitForTimeout(ms),
+    );
     await page.setViewportSize({ width: DESKTOP_WIDTH, height: DESKTOP_HEIGHT });
 
     return {
@@ -778,6 +819,34 @@ async function measureVitals(
     };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Read the narrow-viewport overflow once it has stopped moving.
+ *
+ * Exported for its test. Two consecutive equal reads is the settle condition;
+ * the budget is a ceiling, not a target, so a static page settles on the second
+ * read and pays one extra interval.
+ */
+export async function settledOverflow(
+  read: () => Promise<number>,
+  wait: (ms: number) => Promise<unknown>,
+  budgetMs: number = OVERFLOW_SETTLE_BUDGET_MS,
+  stepMs: number = OVERFLOW_SETTLE_STEP_MS,
+): Promise<number> {
+  let last = -1;
+  const deadline = Date.now() + budgetMs;
+  for (;;) {
+    await wait(stepMs);
+    const now = await read();
+    // A page still moving when the budget runs out has told us nothing
+    // trustworthy, and a number we do not trust must not become a finding about
+    // somebody's site. The last reading stands only if it agrees with the one
+    // before it; otherwise we report no overflow rather than a transient.
+    if (now === last) return now;
+    if (Date.now() > deadline) return 0;
+    last = now;
   }
 }
 

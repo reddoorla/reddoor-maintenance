@@ -62,6 +62,14 @@ export type PageAnchor = {
    *  Optional: absent on reports stored before it was captured, which reads as
    *  "not measured" rather than "opens in this tab". */
   target?: string;
+  /** `aria-label` as authored, empty when there is none. This is the label a
+   *  screen reader actually announces, so a link whose visible text is "Learn
+   *  more" is not necessarily a link that announces "Learn more".
+   *
+   *  Optional for the same reason `target` is: a report stored before it was
+   *  captured has it absent everywhere, and absent must read as "we did not
+   *  look", never as "there is none". */
+  ariaLabel?: string;
 };
 
 /**

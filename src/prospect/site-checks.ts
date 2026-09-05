@@ -190,6 +190,13 @@ function anchorChecks(pages: { url: string; extract: PageExtract }[], origin: st
 
   const all: { a: PageAnchor; page: string }[] = [];
   for (const p of pages) for (const a of p.extract.anchors ?? []) all.push({ a, page: p.url });
+  // `anchors` is capped per page; `anchorCount` is not. Every denominator below
+  // says "the links we read" and uses `all.length` on purpose — but where a
+  // count is quoted as a proportion, the true total has to appear beside it or
+  // we are printing our own ceiling as the site's link count. apple.com: 6000
+  // read, 14,153 there.
+  const trueTotal = pages.reduce((n, p) => n + (p.extract.anchorCount ?? 0), 0);
+  const ofTrue = trueTotal > all.length ? ` — of ${trueTotal} on these pages` : "";
 
   // `href=""` never reaches us — extract.ts only collects anchors with a
   // non-empty href — so the whole finding here is the javascript: no-op. A bare
@@ -282,23 +289,43 @@ function anchorChecks(pages: { url: string; extract: PageExtract }[], origin: st
     );
   }
 
-  const vague = all.filter(({ a }) => VAGUE_LINK_TEXT.has(a.text.trim().toLowerCase()));
-  // A generous bar on purpose. One "read more" on a blog index is ordinary
-  // writing; a page built entirely out of them is the finding, and a threshold
-  // of one would fail most of the good web.
-  const VAGUE_LIMIT = 5;
-  out.push(
-    check(
-      "link-text",
-      "Links that say where they go",
-      "“Read more” tells a visitor nothing, and it is the whole label a screen reader announces when it lists the links on your page.",
-      "content",
-      vague.length <= VAGUE_LIMIT,
-      vague.length === 0
-        ? `all ${all.length} links we read name their destination`
-        : `${vague.length} of ${all.length} say only “${[...new Set(vague.map((v) => v.a.text.trim()))].slice(0, 3).join("”, “")}”`,
-    ),
-  );
+  // The label the link ACTUALLY announces, which is the aria-label when there is
+  // one and the visible text otherwise. Judging the text alone failed 60 of
+  // apple.com's links, every one of them written
+  // `aria-label="Learn more about accessibility"` around a span reading "Learn
+  // more" — a labelled link marked bare, which is the same blind spot that got
+  // T0-05 cut. A vague aria-label still counts: the point is the destination,
+  // not the attribute.
+  //
+  // `ariaLabel` is optional, and absent means we never captured it. On a report
+  // stored before it existed that is every anchor, so the check goes unmeasured
+  // rather than judging text we know is only half the label.
+  const labelled = all.every(({ a }) => a.ariaLabel !== undefined);
+  const WHY_TEXT =
+    "“Read more” tells a visitor nothing, and with no aria-label behind it, it is the whole label a screen reader announces when it lists the links on your page.";
+  if (!labelled) {
+    out.push(unknown("link-text", "Links that say where they go", WHY_TEXT, "content"));
+  } else {
+    const vague = all.filter(({ a }) =>
+      VAGUE_LINK_TEXT.has((a.ariaLabel || a.text).trim().toLowerCase()),
+    );
+    // A generous bar on purpose. One "read more" on a blog index is ordinary
+    // writing; a page built entirely out of them is the finding, and a threshold
+    // of one would fail most of the good web.
+    const VAGUE_LIMIT = 5;
+    out.push(
+      check(
+        "link-text",
+        "Links that say where they go",
+        WHY_TEXT,
+        "content",
+        vague.length <= VAGUE_LIMIT,
+        vague.length === 0
+          ? `all ${all.length} links we read${ofTrue} name their destination`
+          : `${vague.length} of the ${all.length} we read${ofTrue} say only “${[...new Set(vague.map((v) => (v.a.ariaLabel || v.a.text).trim()))].slice(0, 3).join("”, “")}”`,
+      ),
+    );
+  }
 
   const tels = all.filter(({ a }) => /^tel:/i.test(a.href.trim()));
   const badTels = tels.filter(({ a }) => !DIALABLE_TEL.test(a.href.trim()));
@@ -346,8 +373,9 @@ function anchorChecks(pages: { url: string; extract: PageExtract }[], origin: st
 
   // Nav drift, defined off the shared template rather than guessed at: a link
   // whose TEXT appears on every page we read is part of the navigation, and it
-  // should resolve to one place. `consistency.ts` derives the same shared set
-  // for its off-template check; this asks whether that set agrees with itself.
+  // should reach the same place from every page. `consistency.ts` derives the
+  // same shared set for its off-template check; this asks whether that set
+  // agrees with itself.
   out.push(navConsistency(pages));
 
   return out;
@@ -392,10 +420,26 @@ function navConsistency(pages: { url: string; extract: PageExtract }[]): SiteChe
     );
   }
 
+  // Drift is "there is NO destination this text reaches from every page", not
+  // "this text reaches more than one destination". The union rule read a
+  // mega-menu as a broken menu: on apple.com the word "Mac" links to /mac/, to
+  // two shop pages and to a support page — the same four destinations on all
+  // twenty pages, byte for byte — and the union counted four, so 18 menu items
+  // were reported as leading somewhere different depending on the page. The
+  // intersection is /mac/ on every page, which is the truth.
+  //
+  // Strictly weaker than the union rule: an empty intersection over sets that
+  // are each non-empty implies more than one distinct target, so nothing that
+  // passes today can begin to fail. It can only stop lying.
   const drifting = shared.filter((text) => {
-    const targets = new Set<string>();
-    for (const m of perPage) for (const t of m.get(text) ?? []) targets.add(t);
-    return targets.size > 1;
+    let common: Set<string> | null = null;
+    for (const m of perPage) {
+      const here = m.get(text) ?? new Set<string>();
+      const kept: string[] = common === null ? [...here] : [...common].filter((t) => here.has(t));
+      common = new Set(kept);
+      if (common.size === 0) return true;
+    }
+    return common === null || common.size === 0;
   });
 
   return check(
@@ -641,20 +685,45 @@ function headingChecks(
       ),
     );
   } else {
-    const texts = named.map((p) => p.h1s[0]!.toLowerCase());
-    const dupes = texts.filter((t, i) => texts.indexOf(t) !== i);
-    out.push(
-      check(
-        "h1-distinct",
-        LABEL_DISTINCT,
-        WHY_DISTINCT,
-        "content",
-        dupes.length === 0,
-        dupes.length === 0
-          ? `${texts.length} pages, ${new Set(texts).size} different headlines`
-          : `“${[...new Set(dupes)].slice(0, 2).join("”, “")}” appears on more than one page`,
-      ),
+    // One entry per address the site says it has. Five `?tab=` deep-links into
+    // one page are one headline, not five identical ones — see
+    // `byDeclaredAddress`.
+    const distinct = byDeclaredAddress(pages).filter(
+      (p) => p.extract.headings.filter((h) => h.level === 1).length === 1,
     );
+    if (distinct.length < 2) {
+      out.push(
+        skip(
+          "h1-distinct",
+          LABEL_DISTINCT,
+          WHY_DISTINCT,
+          "content",
+          distinct.length === 0
+            ? "no page we read carries exactly one headline, which is reported above"
+            : "the pages we read all declare the same address, so there is nothing to compare",
+        ),
+      );
+    } else {
+      const texts = distinct.map((p) =>
+        p.extract.headings
+          .find((h) => h.level === 1)!
+          .text.trim()
+          .toLowerCase(),
+      );
+      const dupes = texts.filter((t, i) => texts.indexOf(t) !== i);
+      out.push(
+        check(
+          "h1-distinct",
+          LABEL_DISTINCT,
+          WHY_DISTINCT,
+          "content",
+          dupes.length === 0,
+          dupes.length === 0
+            ? `${texts.length} pages, ${new Set(texts).size} different headlines`
+            : `“${[...new Set(dupes)].slice(0, 2).join("”, “")}” appears on more than one page`,
+        ),
+      );
+    }
   }
 
   return out;
@@ -891,7 +960,28 @@ function schemaChecks(
  * two named one-line fixes, and the reader can see which. Every one of them is
  * a line in a config file, which is why they are all `quick`.
  */
-const SECURITY_HEADER_CHECKS: { header: string; label: string; why: string }[] = [
+const SECURITY_HEADER_CHECKS: {
+  header: string;
+  label: string;
+  why: string;
+  /**
+   * Optional: whether the VALUE actually restricts anything.
+   *
+   * Presence alone is a weak test, and on one header it was no test at all —
+   * `Permissions-Policy: geolocation=*` behaves identically to sending no
+   * header, and passed. A check a site can green by shipping a no-op is not a
+   * check.
+   *
+   * `referrer-policy` had the same hole and has been pulled out of this list
+   * entirely — see `referrerPolicyCheck`, where absence is not a finding at all.
+   * The remaining four are presence-only: `content-security-policy: default-src
+   * *` and `x-frame-options: ALLOWALL` are no-ops that would pass, and both
+   * need their own browser check before they get a rule here. Writing one from
+   * the specification is how the `permissions-policy` wording went wrong in the
+   * first place.
+   */
+  restricts?: (value: string) => boolean;
+}[] = [
   {
     header: "strict-transport-security",
     label: "Telling browsers to always use https",
@@ -913,14 +1003,32 @@ const SECURITY_HEADER_CHECKS: { header: string; label: string; why: string }[] =
     why: "Without it, anyone can put your site inside theirs and collect what visitors type into it.",
   },
   {
-    header: "referrer-policy",
-    label: "Controlling what you leak when visitors leave",
-    why: "By default the full URL a visitor came from is handed to every site they click through to.",
-  },
-  {
     header: "permissions-policy",
     label: "Declaring what your pages may ask for",
-    why: "It stops an embedded third party quietly asking your visitors for their camera or location.",
+    // NOT "it stops an embedded third party quietly asking for their camera",
+    // which is what this said and is not true. Tested in a browser: a
+    // cross-origin iframe is refused camera and geolocation with no header set
+    // at all, and is GRANTED them with no header set the moment the site writes
+    // `allow="geolocation"` on the iframe itself. The gate is the attribute the
+    // site author types, so nothing here happens quietly. What the header adds
+    // is the ability to say no to code already running on the page — including
+    // code the owner did not write, if a dependency is ever compromised.
+    why: "It limits what code running on your own pages may ask visitors for — including code you did not write, if a dependency is ever compromised.",
+    // At least one directive whose allowlist is not `*`. `camera=()` denies it
+    // outright, `camera=(self)` keeps it to your own code, `camera=*` grants it
+    // to anything the page delegates to — which is the browser default, so a
+    // header made only of those changes nothing.
+    restricts: (value) =>
+      value
+        .split(",")
+        .map((d) => d.trim())
+        .filter(Boolean)
+        .some((d) => {
+          const eq = d.indexOf("=");
+          if (eq < 0) return false;
+          const allow = d.slice(eq + 1).trim();
+          return allow !== "*";
+        }),
   },
 ];
 
@@ -929,26 +1037,113 @@ const SECURITY_HEADER_CHECKS: { header: string; label: string; why: string }[] =
  *  of known holes to work through. */
 const VERSIONED = /\d+\.\d+/;
 
+/**
+ * Two values leak MORE than sending nothing. Everything else, absence included,
+ * is fine.
+ *
+ * This used to be a presence check whose `why` read "by default the full URL a
+ * visitor came from is handed to every site they click through to". Measured in
+ * a browser, from a page at `/some/deep/path?secret=token123`, a cross-origin
+ * request carries:
+ *
+ *   no header                        Referer: http://host/          ← origin only
+ *   strict-origin-when-cross-origin  Referer: http://host/
+ *   origin-when-cross-origin         Referer: http://host/
+ *   same-origin / no-referrer        Referer: (none)
+ *   no-referrer-when-downgrade       Referer: http://host/some/deep/path?secret=token123
+ *   unsafe-url                       Referer: http://host/some/deep/path?secret=token123
+ *
+ * So the old `why` described the pre-2020 default, and the old check failed
+ * every site that simply left the header alone while passing the two that
+ * actually spill the query string. Both halves were backwards.
+ *
+ * Absence is `not-applicable`, not a pass: the site did nothing, and crediting
+ * it for the browser's behaviour would be as dishonest as blaming it.
+ */
+const LEAKS_MORE_THAN_DEFAULT = new Set(["unsafe-url", "no-referrer-when-downgrade"]);
+
+function referrerPolicyCheck(headers: Record<string, string>, measured: boolean): SiteCheck {
+  const LABEL = "Not leaking more of your addresses than the browser already does";
+  const WHY =
+    "Browsers already trim the page address to your bare domain before handing it to a site a visitor clicks through to. Two values of this header undo that and send the whole address, query string included.";
+  if (!measured) return unknown("header-referrer-policy", LABEL, WHY, "quick");
+  const raw = headers["referrer-policy"];
+  if (raw === undefined) {
+    return skip(
+      "header-referrer-policy",
+      LABEL,
+      WHY,
+      "quick",
+      "no referrer-policy header, so the browser's own default applies — which does not leak the address",
+    );
+  }
+  // A list is legal; the browser takes the last value it understands.
+  const values = raw
+    .split(",")
+    .map((v) => v.trim().toLowerCase())
+    .filter(Boolean);
+  const effective = [...values].reverse().find((v) => KNOWN_REFERRER_POLICIES.has(v)) ?? null;
+  if (effective === null) {
+    return skip(
+      "header-referrer-policy",
+      LABEL,
+      WHY,
+      "quick",
+      `referrer-policy names no value a browser recognises (“${raw.slice(0, 60)}”), so the default applies`,
+    );
+  }
+  const leaks = LEAKS_MORE_THAN_DEFAULT.has(effective);
+  return check(
+    "header-referrer-policy",
+    LABEL,
+    WHY,
+    "quick",
+    !leaks,
+    leaks
+      ? `referrer-policy: ${effective} — that sends the full address, query string and all, to every site your visitors click through to`
+      : `referrer-policy: ${effective}`,
+  );
+}
+
+const KNOWN_REFERRER_POLICIES = new Set([
+  "no-referrer",
+  "no-referrer-when-downgrade",
+  "origin",
+  "origin-when-cross-origin",
+  "same-origin",
+  "strict-origin",
+  "strict-origin-when-cross-origin",
+  "unsafe-url",
+]);
+
 function headerChecks(headers: Record<string, string>, measured: boolean): SiteCheck[] {
   const out: SiteCheck[] = [];
 
-  for (const { header, label, why } of SECURITY_HEADER_CHECKS) {
+  for (const { header, label, why, restricts } of SECURITY_HEADER_CHECKS) {
     if (!measured) {
       out.push(unknown(`header-${header}`, label, why, "quick"));
       continue;
     }
-    const present = header in headers;
+    const value = headers[header];
+    const present = value !== undefined;
+    const ok = present && (restricts === undefined || restricts(value));
     out.push(
       check(
         `header-${header}`,
         label,
         why,
         "quick",
-        present,
-        present ? `${header} is set` : `no ${header} header`,
+        ok,
+        !present
+          ? `no ${header} header`
+          : ok
+            ? `${header} is set`
+            : `${header} is set, but every directive in it is “*” — which is what the browser does without the header`,
       ),
     );
   }
+
+  out.push(referrerPolicyCheck(headers, measured));
 
   const WHY_LEAK =
     "Naming the exact version you run tells anyone looking which published vulnerabilities to try first.";
@@ -1147,20 +1342,44 @@ function sidecarChecks(crawl: CrawlResult, linkedPages: Set<string>): SiteCheck[
     );
   }
 
+  // REPORTED, NEVER FAILED — and this is a reconciliation, not a softening.
+  //
+  // `checks.ts` already took llms.txt out of the Findability score, on the
+  // grounds that "no answer engine has documented consuming llms.txt to build
+  // an answer, and Google has publicly dismissed it. Scoring a proposal nobody
+  // has committed to reading, and then grading a prospect down for not having
+  // one, is the one place this audit asserted more than it knew."
+  //
+  // A red row in the battery IS a grade-down. We removed it from the number and
+  // left it in the list, under a `why` calling llms.txt "the one file that tells
+  // an assistant what you do" — the exact claim the score comment says we cannot
+  // make. Having one is worth noting. Not having one is not a finding, and until
+  // an engine documents reading it, saying otherwise sells a fix that does
+  // nothing.
   const WHY_LLMS =
-    "A short llms.txt is the one file that tells an assistant, in your words, what you do and which pages matter.";
+    "A short llms.txt states, in your own words, what you do and which pages matter. No answer engine has published that it reads one, so this is recorded rather than counted against you.";
   const llmsMeasured = crawl.sidecarErrors.llms === null;
   if (!llmsMeasured) {
     out.push(unknown("llms-txt", "A file written for AI assistants", WHY_LLMS, "content"));
-  } else {
+  } else if (crawl.llmsTxt.present) {
     out.push(
       check(
         "llms-txt",
         "A file written for AI assistants",
         WHY_LLMS,
         "content",
-        crawl.llmsTxt.present,
-        crawl.llmsTxt.present ? (crawl.llmsTxt.firstLine ?? "present") : "no llms.txt",
+        true,
+        crawl.llmsTxt.firstLine ?? "present",
+      ),
+    );
+  } else {
+    out.push(
+      skip(
+        "llms-txt",
+        "A file written for AI assistants",
+        WHY_LLMS,
+        "content",
+        "no llms.txt — recorded, not counted against you, because no engine has published that it reads one",
       ),
     );
   }
@@ -1383,8 +1602,15 @@ function metaChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck[]
     );
   }
 
-  const DESC_MIN = 50;
-  const DESC_MAX = 170;
+  // Wide on purpose, and wider than it was. The band exists to catch a stub
+  // ("Home") and a wall of text that is cut off mid-sentence — not to enforce a
+  // character budget, because truncation is by PIXEL width and no character
+  // count predicts it. At 50–170 apple.com failed twice: a 172-character home
+  // page and a 48-character specs page, both by two characters, and both
+  // perfectly good descriptions. That is the same mistake the title band
+  // already avoids by running 10–70 rather than clamping at 60.
+  const DESC_MIN = 40;
+  const DESC_MAX = 200;
   const described = pages.filter((p) => p.extract.metaDescription);
   if (described.length === 0) {
     out.push(
@@ -1450,19 +1676,25 @@ function metaChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck[]
 
   const WHY_DUP_DESC =
     "Identical descriptions make every page look like the same page in a search result, and the engine usually replaces them with a sentence of its own choosing.";
-  if (described.length < 2) {
+  // One entry per declared address, for the same reason `h1-distinct` folds:
+  // the same page fetched under five query strings is not five pages sharing a
+  // description. See `byDeclaredAddress`.
+  const distinctDescribed = byDeclaredAddress(described);
+  if (distinctDescribed.length < 2) {
     out.push(
       skip(
         "duplicate-descriptions",
         "A different description on each page",
         WHY_DUP_DESC,
         "content",
-        "fewer than two pages carry a description, so there is nothing to compare",
+        described.length < 2
+          ? "fewer than two pages carry a description, so there is nothing to compare"
+          : "the pages we read that carry a description all declare the same address, so there is nothing to compare",
       ),
     );
   } else {
     const seen = new Map<string, string[]>();
-    for (const p of described) {
+    for (const p of distinctDescribed) {
       const key = p.extract.metaDescription!.trim().toLowerCase();
       seen.set(key, [...(seen.get(key) ?? []), p.url]);
     }
@@ -1475,7 +1707,7 @@ function metaChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck[]
         "content",
         dupes.length === 0,
         dupes.length === 0
-          ? `${described.length} pages, ${seen.size} different descriptions`
+          ? `${distinctDescribed.length} pages, ${seen.size} different descriptions`
           : `${dupes[0]![1].length} pages share one description`,
       ),
     );
@@ -1496,7 +1728,7 @@ function linkChecks(
   const WHY_FAVICON =
     "Without one the browser shows a blank page icon in the tab and the bookmark, which is the smallest possible thing to fix and the most often seen.";
   const WHY_CANON_SELF =
-    "A canonical pointing somewhere else tells search engines to index that page instead of this one. Every page pointing at the home page is the version of this mistake that removes a whole site from search results.";
+    "A canonical naming another page tells search engines to index that page instead of this one. That is right for a genuine duplicate, and the fastest way to remove real pages from search results when it is not.";
   const WHY_CANON_ORIGIN =
     "A canonical on another domain hands every page's search ranking to that domain. It is usually a staging host or a site they used to own.";
   const WHY_HREFLANG =
@@ -1599,16 +1831,90 @@ function linkChecks(
       const b = norm(p.url, p.url);
       return a === null || b === null || a !== b;
     });
+
+    // A page naming ANOTHER page canonical is not a defect — it is what a
+    // canonical is FOR, and it is how a competent site handles a duplicate.
+    // apple.com serves one comparison page at `/airpods-4/compare/`,
+    // `/airpods-max/compare/` and `/airpods-pro/compare/`, all three correctly
+    // naming `/airpods/compare/` and all three headlined "Compare AirPods
+    // models". We failed it twice for doing the right thing: first for pointing
+    // away at all, then, after a first attempt at a threshold, for doing it
+    // three times.
+    //
+    // COUNTING CANNOT SEPARATE THESE. "Many pages, one target" is the shape of
+    // a proper consolidation AND of the classic wipeout; the difference is
+    // whether the pages really are the same page. So the headline is the
+    // instrument, and there are three ways for it to say no.
+    //
+    //   1. The named page is one we also read, and carries a different
+    //      headline. The page has told search engines to index something it is
+    //      not. This is what catches every-page-names-the-home-page.
+    //
+    //   2. Several pages name the same target and do not agree on a headline
+    //      among themselves. They cannot all be duplicates of one page, so the
+    //      canonical is a constant where an address belongs — and this needs no
+    //      access to the target at all.
+    //
+    //   3. Three or more pages, and every single one names one same address.
+    //      A site cannot be one page served at every address, whatever its
+    //      headlines say. The backstop for a template that also writes one
+    //      headline everywhere.
+    //
+    // A lone page pointing at a target we never read is none of the three, and
+    // stays a pass: our gap is not their defect.
+    const soleH1 = (p: { extract: PageExtract }): string | null => {
+      const h1s = p.extract.headings.filter((h) => h.level === 1);
+      return h1s.length === 1 ? h1s[0]!.text.trim().toLowerCase() : null;
+    };
+    const byAddress = new Map<string, { url: string; extract: PageExtract }>();
+    for (const p of pages) {
+      const key = norm(p.url, p.url);
+      if (key !== null && !byAddress.has(key)) byAddress.set(key, p);
+    }
+
+    // (1) contradicted by the page it names
+    const contradicted = notSelf.filter((p) => {
+      const target = norm(p.extract.canonical!, p.url);
+      const other = target === null ? undefined : byAddress.get(target);
+      if (other === undefined) return false;
+      const mine = soleH1(p);
+      const theirs = soleH1(other);
+      return mine !== null && theirs !== null && mine !== theirs;
+    });
+
+    // (2) claimants of one target that are not the same page as each other
+    const byTarget = new Map<string, { url: string; extract: PageExtract }[]>();
+    for (const p of notSelf) {
+      const t = norm(p.extract.canonical!, p.url);
+      if (t !== null) byTarget.set(t, [...(byTarget.get(t) ?? []), p]);
+    }
+    const disagreeing = [...byTarget.entries()].filter(([, claimants]) => {
+      const heads = claimants.map(soleH1).filter((h): h is string => h !== null);
+      return heads.length > 1 && new Set(heads).size > 1;
+    });
+
+    // (3) the whole crawl pointing at one address
+    const WIPEOUT_AT = 3;
+    const wipeout =
+      canonical.length >= WIPEOUT_AT && notSelf.length === canonical.length && byTarget.size === 1;
+
+    const collapsing = contradicted.length > 0 || disagreeing.length > 0 || wipeout;
     out.push(
       check(
         "canonical-self",
         "Pages that point at themselves",
         WHY_CANON_SELF,
         "structural",
-        notSelf.length === 0,
-        notSelf.length === 0
-          ? `all ${canonical.length} canonicals point at their own page`
-          : `${notSelf.length} of ${canonical.length}: ${notSelf[0]!.url} points at ${notSelf[0]!.extract.canonical}`,
+        !collapsing,
+        collapsing
+          ? contradicted.length > 0
+            ? `${contradicted[0]!.url} names ${contradicted[0]!.extract.canonical} canonical, and the two carry different headlines`
+            : wipeout
+              ? `all ${canonical.length} pages we read name ${[...byTarget.keys()][0]} canonical`
+              : `${disagreeing[0]![1].length} pages with different headlines all name ${disagreeing[0]![0]} canonical`
+          : notSelf.length === 0
+            ? `all ${canonical.length} canonicals point at their own page`
+            : `${canonical.length - notSelf.length} of ${canonical.length} point at their own page; the ${notSelf.length === 1 ? "other names a page it duplicates" : `other ${notSelf.length} name a page they duplicate`}`,
       ),
     );
 
@@ -1646,7 +1952,28 @@ function linkChecks(
       ),
     );
   } else {
-    const missingSelf = alternates.filter((p) => {
+    // A page that names another page canonical carries THAT page's alternate
+    // set, and naming itself in it would be the mistake. apple.com's
+    // `/airpods-4/compare/` lists one alternate — `/airpods/compare/`, the page
+    // it declares itself a duplicate of — and we read the missing
+    // self-reference as a broken hreflang set.
+    const own = alternates.filter((p) => {
+      const c = p.extract.canonical ? norm2(p.extract.canonical, p.url) : null;
+      return c === null || c === norm2(p.url);
+    });
+    if (own.length === 0) {
+      out.push(
+        skip(
+          "hreflang-self",
+          "Language alternates that name themselves",
+          WHY_HREFLANG,
+          "content",
+          "every page we read that publishes alternates declares a different page canonical, so the set is not its own to name",
+        ),
+      );
+      return out;
+    }
+    const missingSelf = own.filter((p) => {
       const mine = norm2(p.url);
       return !(p.extract.links ?? []).some(
         (l) => l.rel === "alternate" && l.hreflang && norm2(l.href, p.url) === mine,
@@ -1660,13 +1987,51 @@ function linkChecks(
         "content",
         missingSelf.length === 0,
         missingSelf.length === 0
-          ? `${alternates.length} ${alternates.length === 1 ? "page lists" : "pages list"} themselves among their alternates`
+          ? `${own.length} ${own.length === 1 ? "page lists" : "pages list"} themselves among their alternates`
           : `${missingSelf[0]!.url} is not among its own alternates`,
       ),
     );
   }
 
   return out;
+}
+
+/**
+ * The address a page says it IS: its canonical when it declares one, its own
+ * URL otherwise.
+ *
+ * Two pages sharing a declared address are ONE page, and comparing them to each
+ * other invents findings. apple.com produced both shapes in a single crawl:
+ * `/accessibility/features/` was fetched five times under `?vision`, `?hearing`
+ * and three more tab deep-links, and `/airpods-4/compare/` and
+ * `/airpods-max/compare/` both serve — and both correctly declare — the page at
+ * `/airpods/compare/`. Compared as six pages they read as five sharing one
+ * description and two sharing a headline. Folded, apple.com has neither
+ * problem, and never did.
+ *
+ * `norm2` already drops the query string, which is what folds the deep links.
+ * The canonical is what folds a duplicate served at a different path.
+ */
+function declaredAddress(p: { url: string; extract: PageExtract }): string | null {
+  return p.extract.canonical ? norm2(p.extract.canonical, p.url) : norm2(p.url);
+}
+
+/**
+ * One entry per distinct declared address, keeping the first page to claim it.
+ *
+ * ONLY for the checks that compare pages to each other. It must never become
+ * the crawl's page list: on a site where every page names the home page
+ * canonical — the exact failure `canonical-self` exists to catch — this folds
+ * the whole site to one entry. That is why every caller re-checks that it still
+ * has two pages to compare and skips rather than passing when it does not.
+ */
+function byDeclaredAddress<T extends { url: string; extract: PageExtract }>(pages: T[]): T[] {
+  const seen = new Map<string, T>();
+  for (const p of pages) {
+    const key = declaredAddress(p) ?? p.url;
+    if (!seen.has(key)) seen.set(key, p);
+  }
+  return [...seen.values()];
 }
 
 /** Host + path, trailing slash and `www.` ignored — the comparison every URL

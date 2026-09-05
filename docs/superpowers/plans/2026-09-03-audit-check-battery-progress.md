@@ -374,3 +374,50 @@ also surfaced the tappable-phone and top-heading fixes.
   `https://fonts.googleapis.com` and `https://fonts.gstatic.com` to
   `connect-src` — but it is production security config, so NOT changed
   unilaterally. Found by the T3-01 console-error check on its first live run.
+- 2026-09-04 — **apple.com found five faults our own site could not**, all of
+  them ours: `favicon-declared` contradicting `favicon-served` in one report,
+  `net::ERR_ABORTED` media counted as failed requests, two-hop shop redirectors
+  read as redirect chains, an all-first-party bundle read as no analytics, and
+  JSON-LD `@id`/`sameAs` links counted as code the page loads. 17 fails → 13.
+- 2026-09-04 — **`noopener` CUT.** Correct, greenable, already worded as
+  tidiness — and it failed apple.com 111 out of 111. See the T0-04 entry in the
+  backlog. Being right is not sufficient grounds to occupy a row.
+- 2026-09-05 — **nine of the remaining twelve apple.com fails were ours too.**
+  Each was verified against the live site or in a browser before it was
+  believed, and each fix carries the evidence in a comment beside it.
+
+  | check                    | what was wrong                                       | how it was verified                                                                                              |
+  | ------------------------ | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+  | `mobile-overflow`        | measured 250ms after a resize, mid-reflow            | reproduced: 303px at 250ms, 26px at 500ms, 0 from 1000ms; loaded natively at 375 it never overflows              |
+  | `nav-consistency`        | unioned a mega-menu's targets and called it drift    | "Mac" reaches the same four destinations on all 20 pages; union rule flagged 18 items, intersection rule flags 0 |
+  | `link-text`              | judged visible text, ignoring `aria-label`           | every "Learn more" on apple.com carries one; 60 flagged → 16, and the 16 genuinely have none                     |
+  | `link-text` denominator  | printed our 6000 anchor cap as their link count      | true count was 14,153                                                                                            |
+  | `canonical-self`         | failed a duplicate for correctly naming its original | `/airpods-4/compare/` and `/airpods/compare/` serve the same page and share a headline                           |
+  | `hreflang-self`          | asked a page that canonicalises away to name itself  | its one alternate is its canonical, which is right                                                               |
+  | `h1-distinct`            | compared query-string deep-links as separate pages   | folding by declared address, apple.com has zero duplicate headlines                                              |
+  | `duplicate-descriptions` | same                                                 | folding, zero duplicate descriptions                                                                             |
+  | `description-length`     | 50–170 band                                          | apple.com missed it twice by two characters; truncation is by pixel width                                        |
+  | crawl frontier           | spent 6 of 20 slots on 2 pages                       | distinct paths now come first; the same crawl reaches 20 distinct pages and four it never saw                    |
+
+- 2026-09-05 — **`llms-txt` no longer fails.** `checks.ts` had already removed it
+  from the Findability score because no answer engine has published that it
+  reads one. A red row IS a grade-down, so the battery was contradicting a
+  decision already made. Present → pass, absent → not-applicable.
+- 2026-09-05 — **the security-header block was measuring configuration effort,
+  not protection.** Both headers with a false `why` were tested in a browser:
+  - `permissions-policy` — a cross-origin iframe is refused camera and
+    geolocation with NO header set, and granted them the moment the site writes
+    `allow=` on the iframe. The gate is the attribute the author types, so
+    nothing happens "quietly". And `geolocation=*` behaves identically to
+    sending nothing, yet passed. Now needs one directive that is not `*`.
+  - `referrer-policy` — from `/some/deep/path?secret=token123`, no header sends
+    `Referer: http://host/`; `unsafe-url` and `no-referrer-when-downgrade` send
+    the whole address. So the old `why` described the pre-2020 default and the
+    old check failed every site that left the header alone while passing the two
+    that actually spill. Now: those two fail, everything else passes, absence is
+    not-applicable.
+
+  `content-security-policy: default-src *` and `x-frame-options: ALLOWALL` are
+  the same shape and still presence-only. Each needs its own browser check —
+  writing one from the specification is how the `permissions-policy` wording
+  went wrong in the first place.
