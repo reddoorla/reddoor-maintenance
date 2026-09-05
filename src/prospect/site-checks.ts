@@ -97,8 +97,14 @@ function skip(key: string, label: string, why: string, scope: Scope, note: strin
 
 /** WE could not look. Also leaves the denominator, and for the more important
  *  reason: it is our gap, and it must never be printed as their defect. */
-function unknown(key: string, label: string, why: string, scope: Scope): SiteCheck {
-  return { key, label, status: "unmeasured", evidence: null, why, scope };
+function unknown(
+  key: string,
+  label: string,
+  why: string,
+  scope: Scope,
+  note: string | null = null,
+): SiteCheck {
+  return { key, label, status: "unmeasured", evidence: note, why, scope };
 }
 
 // ─── Anchors ─────────────────────────────────────────────────────────────────
@@ -2976,10 +2982,37 @@ function formInteractionChecks(probes: (FormProbe | null | undefined)[]): SiteCh
 
   const probe = probes.find((p) => p) ?? null;
 
+  // Absent on every page means the browser pass never tried a form — probing
+  // was turned off for this run, or the crawl predates the probe entirely.
+  // OURS, so it reads as unmeasured. Saying "we found no enquiry form" instead
+  // would be a false statement about their site covering a choice of ours, and
+  // it was one: all 29 sites in the stored corpus were told exactly that, five
+  // of them while publishing a form we had simply never pressed.
+  const neverTried = probes.every((p) => p === undefined);
+  if (neverTried) {
+    const NOTE = "we did not try a form on this run";
+    return [
+      unknown(
+        "form-rejects-empty",
+        "A form that catches an empty submission",
+        WHY_EMPTY,
+        "quick",
+        NOTE,
+      ),
+      unknown(
+        "form-rejects-bad-email",
+        "A form that catches a mistyped email",
+        WHY_EMAIL,
+        "quick",
+        NOTE,
+      ),
+    ];
+  }
+
   if (!probe) {
-    // No page we read has a form we could identify as an enquiry. That is a
-    // fact about the site, not a gap in the measurement — but the goal battery
-    // owns "is there a way to get in touch", so this says nothing about it.
+    // We looked and no page we read has a form we could identify as an enquiry.
+    // That IS a fact about the site — but the goal battery owns "is there a way
+    // to get in touch", so this says nothing about it.
     return [
       skip(
         "form-rejects-empty",

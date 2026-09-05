@@ -143,12 +143,15 @@ describe("asRendered — the seventeen existing stubs stay honest", () => {
     // violation list would make each of them silently assert a clean scan.
     // Neither the rules, nor the browser measurements, nor the form probe ran
     // — all three must read as "not measured" rather than as a clean result.
-    expect(asRendered("<html></html>")).toEqual({
-      html: "<html></html>",
-      axe: null,
-      vitals: null,
-      formProbe: null,
-    });
+    //
+    // `formProbe` is ABSENT rather than null for exactly that reason: null now
+    // carries a meaning of its own — "we opened the browser, pressed nothing,
+    // because this page has no form we could identify". A caller handing back
+    // raw HTML never opened a browser at all, and must not be recorded as
+    // having looked.
+    const stub = asRendered("<html></html>");
+    expect(stub).toEqual({ html: "<html></html>", axe: null, vitals: null });
+    expect(stub).not.toHaveProperty("formProbe");
   });
 
   it("passes a full result through untouched", () => {

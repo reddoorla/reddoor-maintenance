@@ -1562,6 +1562,31 @@ describe("faults the stored corpus found", () => {
     expect(byKey(checks, "insecure-links")?.status).toBe("pass");
   });
 
+  it("says it did not try a form, rather than that the site has none", () => {
+    // All 29 sites in the stored corpus were told "we found no enquiry form to
+    // try" — five of them while publishing a form we had simply never pressed,
+    // because the probe did not exist when they were crawled. A choice of ours,
+    // stated as a fact about their site.
+    const notTried = runSiteChecks(exemplary(), exemplaryChecks(), "Acme Roofing");
+    for (const key of ["form-rejects-empty", "form-rejects-bad-email"]) {
+      expect(byKey(notTried, key)?.status, key).toBe("unmeasured");
+      expect(byKey(notTried, key)?.evidence, key).toBe("we did not try a form on this run");
+    }
+
+    // And when we DID look and the site has no form, that is its own answer.
+    const looked = runSiteChecks(
+      exemplary({
+        pages: exemplary().pages.map((p) => ({ ...p, formProbe: null })),
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    for (const key of ["form-rejects-empty", "form-rejects-bad-email"]) {
+      expect(byKey(looked, key)?.status, key).toBe("not-applicable");
+      expect(byKey(looked, key)?.evidence, key).toContain("no enquiry form");
+    }
+  });
+
   it("still catches a link back to the site's own http address", () => {
     const checks = runSiteChecks(
       exemplary({

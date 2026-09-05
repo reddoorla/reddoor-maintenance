@@ -329,7 +329,9 @@ export type CrawlDeps = {
  *  accessibility rules, and says so. */
 export function asRendered(v: string | RenderedPage | undefined): RenderedPage | null {
   if (v === undefined) return null;
-  return typeof v === "string" ? { html: v, axe: null, vitals: null, formProbe: null } : v;
+  // No `formProbe` key: a caller handing back raw HTML never opened a browser,
+  // so it did not try a form — which is not the same as trying and finding none.
+  return typeof v === "string" ? { html: v, axe: null, vitals: null } : v;
 }
 
 /** Honest, identified UA — we audit on the prospect's behalf and say so. */
@@ -746,7 +748,12 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
       // report that page's failings as the website's.
       axe: usable ? (renderedPage?.axe ?? null) : null,
       vitals: usable ? (renderedPage?.vitals ?? null) : null,
-      formProbe: usable ? (renderedPage?.formProbe ?? null) : null,
+      // Spread, so an absent probe stays absent: `formProbe: undefined` is
+      // rejected under exactOptionalPropertyTypes, and `?? null` would turn
+      // "we never tried" into "we tried and there was nothing".
+      ...(usable && renderedPage?.formProbe !== undefined
+        ? { formProbe: renderedPage.formProbe }
+        : {}),
     });
   }
 
@@ -995,9 +1002,29 @@ async function runAxe(page: import("@playwright/test").Page): Promise<AxePageRes
 
 /** Real deps: identified sequential fetches + one shared Playwright chromium.
  *  Playwright is imported lazily so unit tests (which inject deps) never load it. */
-export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
+export function defaultCrawlDeps(
+  over: Partial<CrawlDeps> & {
+    /**
+     * Whether to press a form on the first page that has one. Default true —
+     * production behaviour, and the only way `form-rejects-empty` and
+     * `form-rejects-bad-email` can ever answer.
+     *
+     * Turn it OFF for a read-only pass. The abort harness stops the submission
+     * before it leaves the browser and there are real-Chromium tests, control
+     * cases included, that say so — but pressing a stranger's send button is
+     * still an act, and a bulk re-crawl of sites we might approach is not the
+     * place to perform it dozens of times over.
+     *
+     * With it off the two probe checks report `unmeasured` and say we did not
+     * try, rather than "we found no enquiry form" — which would be a false
+     * statement about their site made to cover a choice of ours.
+     */
+    probeForms?: boolean;
+  } = {},
+): CrawlDeps {
   // Resolved up front so the renderPages closure below paces itself on the
   // SAME delay the caller configured, instead of silently ignoring it.
+  const { probeForms: pressForms = true, ...deps } = over;
   const maxPages = over.maxPages ?? 20;
   const delayMs = over.delayMs ?? 500;
   return {
@@ -1139,15 +1166,24 @@ export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
             // twenty pages already fetched, thrown away, for two checks. A
             // probe that runs out of time is abandoned and reads as "not
             // measured", which is the same trade every other stage makes.
-            let formProbe: FormProbe | null = null;
-            if (!formProbed) {
-              formProbe = await withTimeout(
-                probeForms(pageInteractionDeps(page, url)),
-                PROBE_BUDGET_MS,
-              );
-              if (formProbe) formProbed = true;
+            //
+            // `formProbe` is left ABSENT — not null — when probing is off.
+            // Absent means "we never tried"; null means "we tried and this page
+            // had no form we could identify". Only one of those is a fact about
+            // their site, and the checks have to be able to tell them apart.
+            if (!pressForms) {
+              out.set(url, { html, axe, vitals });
+            } else {
+              let formProbe: FormProbe | null = null;
+              if (!formProbed) {
+                formProbe = await withTimeout(
+                  probeForms(pageInteractionDeps(page, url)),
+                  PROBE_BUDGET_MS,
+                );
+                if (formProbe) formProbed = true;
+              }
+              out.set(url, { html, axe, vitals, formProbe });
             }
-            out.set(url, { html, axe, vitals, formProbe });
           } catch {
             // A page that won't render simply has no rendered extract.
           }
@@ -1159,6 +1195,6 @@ export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
     },
     maxPages,
     delayMs,
-    ...over,
+    ...deps,
   };
 }

@@ -19,6 +19,13 @@
  *
  *   pnpm tsx scripts/validate-checks.mts "https://reddoorla.com|Reddoor Creative"
  *
+ * Set PROBE_FORMS=0 for a READ-ONLY pass: the browser still opens every page,
+ * but it presses no send button. The abort harness stops a submission before it
+ * leaves the browser and there are real-Chromium tests that say so, but a bulk
+ * re-crawl of sites we might approach is not the place to press dozens of
+ * strangers' forms. The two probe checks then report "we did not try a form on
+ * this run" rather than claiming the site has none.
+ *
  * Set OUT to also dump the stages as a report-shaped JSON, which is what
  * reddoor-website's /dev/audit-report reads when it is present — the only way
  * to see the renderer handle a REAL site rather than a fixture where nothing
@@ -38,6 +45,9 @@ import { writeFileSync } from "node:fs";
 import type { ChecksResult } from "../src/prospect/types.js";
 
 const ORDER = ["fail", "unmeasured", "not-applicable", "pass"] as const;
+
+/** Read-only unless asked: see PROBE_FORMS above. */
+const PRESS_FORMS = process.env.PROBE_FORMS !== "0";
 const MARK: Record<string, string> = {
   fail: "FAIL",
   unmeasured: "????",
@@ -49,7 +59,7 @@ async function one(url: string, business: string | null): Promise<void> {
   console.log(`\n${"=".repeat(72)}\n${url}\n${"=".repeat(72)}`);
   const started = Date.now();
 
-  const crawl = await crawlSite(url, defaultCrawlDeps());
+  const crawl = await crawlSite(url, defaultCrawlDeps({ probeForms: PRESS_FORMS }));
   console.log(
     `crawled ${crawl.pages.length} pages in ${Math.round((Date.now() - started) / 1000)}s`,
   );
@@ -80,6 +90,7 @@ async function one(url: string, business: string | null): Promise<void> {
 
   const probe = crawl.pages.find((p) => p.formProbe)?.formProbe;
   if (probe) console.log(`form probe on ${probe.url}, ${probe.blocked} request(s) stopped`);
+  else if (!PRESS_FORMS) console.log("form probe: off — nothing on this site was pressed");
 
   const results = runSiteChecks(crawl, checks, business, dns, http);
   const t = tally(results);

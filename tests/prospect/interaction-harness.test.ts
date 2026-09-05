@@ -3,6 +3,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { chromium, type Browser } from "@playwright/test";
 import { probeForms, pageInteractionDeps, INVALID_EMAIL } from "../../src/prospect/interaction.js";
+import { asRendered, defaultCrawlDeps } from "../../src/prospect/crawl.js";
 
 /**
  * THE ABORT HARNESS, PROVED AGAINST A REAL BROWSER AND A REAL SERVER.
@@ -411,4 +412,43 @@ describe("the Tier 4 abort harness, against a real browser", () => {
     expect(INVALID_EMAIL).not.toContain("@");
     await page.close();
   }, 90_000);
+
+  /**
+   * The read-only switch, driven through the PRODUCTION deps rather than a
+   * fake — the whole reason this file exists is that a fake cannot see the seam
+   * it replaces.
+   *
+   * "The server received nothing" is not the assertion that matters here: the
+   * harness makes that true with probing ON as well. What separates the two is
+   * whether a button was pressed at all, and that is what `formProbe` records —
+   * absent for a run that never tried, present for one that did.
+   */
+  describe("probeForms: false", () => {
+    it("opens the page, presses nothing, and says it never tried", async () => {
+      received.length = 0;
+      const quiet = await defaultCrawlDeps({ probeForms: false, delayMs: 0 }).renderPages([base]);
+
+      // It still did the reading half of the job.
+      const page = asRendered(quiet.get(base));
+      expect(page?.html).toContain("Contact us");
+
+      // Absent, not null: "we never tried" and "we tried and found no form" are
+      // different claims, and only the second is about their site.
+      expect(page?.formProbe).toBeUndefined();
+      expect(received).toEqual([]);
+    }, 120_000);
+
+    it("CONTROL: the same page, probing on, really does press the button", async () => {
+      // Without this the test above passes on a page that has no form, on a
+      // browser that failed to launch, or on any other silent nothing.
+      received.length = 0;
+      const pressed = await defaultCrawlDeps({ probeForms: true, delayMs: 0 }).renderPages([base]);
+      const page = asRendered(pressed.get(base));
+
+      expect(page?.formProbe).toBeTruthy();
+      expect(page!.formProbe!.blocked).toBeGreaterThan(0);
+      // And still nothing reached the server, which is the harness doing its job.
+      expect(received).toEqual([]);
+    }, 120_000);
+  });
 });
