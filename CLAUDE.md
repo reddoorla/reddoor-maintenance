@@ -114,6 +114,14 @@ journal is a record of what was believed at the time, and that record is most
 useful precisely where it was wrong. Fixing the past in place destroys the only
 evidence of how the mistake was made.
 
+The one edit an old entry may take is a **forward pointer**: one line directly
+under its heading naming the entry that overturned it — `> Superseded in part by
+2026-10-14 — <that entry's title>.` It asserts nothing new and retracts nothing,
+so the record of what was believed survives whole; it only stops a reader who
+lands on the old paragraph from leaving with the old answer. Without it the rule
+above is half a mechanism: the correction exists at the bottom of the file, and
+nothing points to it from where a reader actually arrives.
+
 If a session produced nothing worth an entry, that is itself worth one line.
 
 ## Discord is the tone reference for client comms
