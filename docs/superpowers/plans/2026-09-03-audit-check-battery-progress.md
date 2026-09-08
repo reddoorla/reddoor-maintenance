@@ -350,12 +350,25 @@ not-applicable saying the absence "is reported separately". It is — 20 of 20
 pages, via `measuredFixes` — but I had only read that in the source. Running it
 also surfaced the tappable-phone and top-heading fixes.
 
-## Before merge
+## Before merge — DONE 2026-09-08
 
-- [ ] Re-run the audit on **reddoorla.com**. Every prior measurement change found
+- [x] Re-run the audit on **reddoorla.com**. Every prior measurement change found
       an instrument bug in one pass, and all of them overstated the client's fault.
-- [ ] Replay new checks over stored audits in `prospect_audits.result_json`
-- [ ] `pnpm test`, `pnpm typecheck`, `pnpm lint` green
+      **Run twice on 09-08 (before and after the fixes below): 11 fails, 0
+      unmeasured, identical both times, every one of them real** — the CSP
+      preconnect logged on 09-03, no SPF record, `/index.html` served without a
+      canonical, a stale internal link to the old UID
+      `/portfolio/strategy-advantage-website` (200, no canonical anywhere on the
+      site), and seven more. The first live run in this log that found no
+      instrument bug.
+- [x] Replay new checks over stored audits — over the 29-site disk corpus, since
+      the database rows predate `metas`/`links`/`scriptSrcs`. 0 new fails on old
+      evidence; 3 reversals and 1 new claim, each read and accepted (see the
+      09-08 log entry).
+- [x] `pnpm test`, `pnpm typecheck`, `pnpm lint` green — 6,259 tests; the 49
+      that fail under the Bash sandbox are `listen EPERM` and pass unsandboxed.
+      `pnpm lint` in a main checkout carrying `.worktrees/` reported 1,771
+      parser errors that were all the other trees; `.worktrees/` is ignored now.
 
 ## Open decisions
 
@@ -528,3 +541,52 @@ https://www.viget.com/contact/, 1 request(s) stopped`. Their form painted an
     the form is sent.
   - **The crawler ignored their robots.txt.** Fixed before the run, not after —
     see `robotsAllowsUs`.
+
+- 2026-09-08 — **The replay caught the fix, and then caught my fix.** Finishing
+  the uncommitted `contentPages` work found three faults in the sitemap and
+  content checks, in this order:
+
+  - **`sitemap-coverage` keyed URLs its own way.** `u.replace(/\/+$/, "").split("#")[0]`
+    keeps scheme, `www.` and percent-encoding, while every other URL comparison
+    in the file goes through `norm2`. richardmacdonald.com's sitemap lists
+    `http://` against an `https://` crawl: 52 of 52 pages "missing", the
+    homepage first. coyote.us lists `%26` where its pages link `&`. Both sides
+    are keyed by `norm2` now, which also decodes percent-escapes; a path that
+    does not decode (a lone `%`) is compared as written rather than dropped.
+  - **The content checks counted aliases twice and hidden pages at all.**
+    preveta.com serves `/` and `/home/`, both declaring `/`: "2 of 20 have no
+    headline", both of them the same page. vascularperfusion.solutions' `/cart`
+    carries noindex, was flagged under meta-noindex, and was then called missing
+    from the sitemap in the same report. `contentPages` folds a confirmed alias
+    once and drops a page the site hides from search; `meta-noindex` still reads
+    every page; a page whose `metas` were never captured is kept.
+  - **The first version folded on the canonical alone, and the corpus replay
+    showed sapidyne.com's `description-length` flipping to "all 1 are between 40
+    and 200 characters".** 19 of their 20 pages declare `/` as canonical, each
+    with its own title and headline — the defect `canonical-self` exists to
+    catch, not aliasing — and the fold had measured the whole site as one page.
+    A page folds only onto a page we read that reads the same (`sameDocument`:
+    title, description, headline). The mis-declared shape has tests that were
+    red before the rule existed.
+
+  Replay after the fix, over the 29-site disk corpus: 0 new fails on old
+  evidence; 3 reversals, each read — icovy.com `h1-present` (17 pages counted:
+  `/old-home-2` is a true alias of `/`, three pages are noindex), revogen.com
+  `sitemap-coverage` (12 → 11 linked: a query variant folded), thepointeburbank.com
+  `sitemap-coverage` (a one-page crawl whose homepage the sitemap listed under
+  another spelling); 1 new claim — sapidyne.com `h1-distinct`, 14 pages sharing
+  one tagline as their headline, never compared before because the fold hid them.
+
+  Two things about the instruments. The replay compares **status only**: an
+  evidence change (46 → 45 missing) is invisible to it, so "nothing changed" is
+  narrower than it sounds. And `pnpm lint` in a main checkout carrying other
+  sessions' `.worktrees/` reported 1,771 parser errors, every one of them another
+  tree's files; on a clean tree it was one, and it was in the untested patch.
+
+  Left open, all found by the same table: sapidyne (37 "missing" → `/uploads/1/…`)
+  and theburbankstudios (90 → `/api/…`) count files and endpoints as pages a
+  sitemap must list — the next false accusation in this check. `title-length`
+  was not scoped into `contentPages` (the note named headline, description and
+  sitemap). `favicon-declared` reaches no verdict on any corpus site, by design:
+  `favicon-served` supersedes it whenever the probe ran. reddoor-website's
+  all-pass fixture was regenerated and diffed: 76 = 76, nothing to commit there.
