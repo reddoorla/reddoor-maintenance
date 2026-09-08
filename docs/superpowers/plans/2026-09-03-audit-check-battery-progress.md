@@ -139,12 +139,13 @@ See the backlog entry for T0-04.
 - [x] T3-05 horizontal overflow at 375px
 - [x] T3-07 text under 12px, T3-09 oversized images
 - [x] Verified against a live page, not assumed
-- [ ] **Screenshots — NOT DONE, and deliberately.** `prospect_audits.result_json`
-      is one TEXT column the DB layer already flags as large. Two base64
-      screenshots per audit is ~100-200KB per row, and quietly tripling every
-      stored report is an infrastructure decision, not a code one. Options:
-      thumbnail-only (~30KB each), a blob store, or skip. **Tucker's call.**
-- [ ] T3-08 still blocked on a definition of "focus is visible"
+- [ ] **Screenshots — NOT BUILT; the storage question is now ANSWERED.** Not
+      base64 in `result_json` (one TEXT column the DB layer already flags as
+      large, and two screenshots is ~100-200KB per row). A Turso BLOB read by
+      its own query, the shape `sites.header_image` already uses. See
+      "Decisions" below.
+- [x] **T3-08 DROPPED** — no pass/fail definition, and axe has no rule for it
+      either, so this is not reported at all rather than reported vaguely
 - [ ] T3-11 CLS — not done. Needs a PerformanceObserver over a settle window,
       and Lighthouse already measures it; the value is surfacing the number the
       score hides, which is smaller than the other four here.
@@ -225,8 +226,9 @@ carried in the findings so the number is reportable rather than hidden.
       not-applicable; the viewport window in `measureVitals` is already there
       for it whenever we want it.
 - [ ] T4-07..10 COND: cookie banner, search, booking slot, cart — not built.
-- [ ] T4-15 still blocked on a decision, and now largely moot: 05/06 get the
-      value without ever sending anything.
+- [x] **T4-15 DECIDED 09-08: a marked test payload behind a per-run operator
+      flag.** Not built. Until it is, the harness stays armed on every run and
+      05/06 keep getting the value without sending anything. See "Decisions".
 
 **The safety argument, because this is the only tier that acts.** A contact form
 with no client-side validation, submitted empty, POSTs to whoever reads that
@@ -370,12 +372,71 @@ also surfaced the tappable-phone and top-heading fixes.
       `pnpm lint` in a main checkout carrying `.worktrees/` reported 1,771
       parser errors that were all the other trees; `.worktrees/` is ignored now.
 
-## Open decisions
+## Decisions — SETTLED 2026-09-08 (operator)
 
-- **T3-08** — what "focus is visible" means precisely enough to pass or fail.
-- **T4-15** — whether we ever submit a real form on a prospect's site.
+- **T3-08 — DROPPED.** No definition of "focus is visible" that a page can pass
+  or fail cleanly, and axe's full rule set already runs in the browser pass. axe
+  has no focus-visibility rule either, so this is not delegated — it is simply
+  not reported. The row leaves the denominator rather than becoming a fuzzy
+  verdict, which is what `not-applicable` is for.
+- **T4-15 — a marked test payload behind an explicit operator flag.** Option (c).
+  Not built yet, and nothing changes until it is: the abort harness stays armed
+  on every run, so today's behaviour is unchanged. When built, the payload must
+  say plainly and in its own body that it is an automated audit test, and the
+  flag must be per-run — the failure mode is one forgotten flag on a batch run
+  mailing every prospect in it, so the flag must never be settable in a batch
+  config or an env var.
+- **Screenshots — a BLOB, not base64 in `result_json`, and not a new bucket.**
+  The operator's pointer was "where we store screen caps for emails". That is
+  `sites.header_image` — a Turso BLOB with its filename and content-type beside
+  it (`src/db/header-images.ts`, #539 design D5), read by an explicit per-site
+  query precisely so 0.6–0.8 MB per site never rides along in an ordinary read.
+  Report header images were on **Airtable attachments** before that, which is
+  the AWS-backed hosting worth remembering — and worth NOT reusing here, because
+  those URLs are signed and expire (`fetchAttachmentBytes` fails loudly when one
+  has). A prospect's report link is opened days or weeks after it is sent, so an
+  expiring URL is the one storage shape this feature cannot use. The website
+  never reads Turso directly — it fetches the report over HTTP from
+  `PROSPECT_REPORT_URL` — so the image needs an endpoint on the maintenance app
+  beside the one already serving the report JSON.
 
 ## Log
+
+- 2026-09-08 (second pass) — **the sitemap check was counting brochures as
+  pages, and the sitemap parser was counting images as URLs.** `sitemap-coverage`
+  demanded a sitemap entry for every address a site's own links point at, which
+  included 33 PDFs and images under sapidyne.com's `/uploads/` and 85 under
+  theburbankstudios.com's `/api/media/file/` and `/images/`. Those were the
+  finding: 37 and 90 "missing pages", almost every one a download. Separately,
+  `parseSitemapLocs` allowed any namespace prefix on `<loc>` — which is right for
+  a sitemap writing `<sitemap:loc>`, and wrong for `<image:loc>`, the image
+  extension Squarespace, Wix and Yoast all emit inside each `<url>`. Eleven of
+  the 29 corpus sites carry them; vascularperfusion.solutions lists 13 pages and
+  60 images and was told "73 URLs listed". A third fault sat between the two:
+  the alias fold ran on the linked side only, so Squarespace serving a homepage
+  at both `/` and `/home` while listing `/home` in the sitemap read as a missing
+  homepage. And `title-length` was still measuring every page we read while
+  `description-length` measured the pages the site publishes — two checks on the
+  same field disagreeing about which pages exist.
+
+  sitemap-coverage went **8 fails → 5** over the corpus, with coyote.us 45 → 1
+  and sapidyne.com 37 → 2. All five survivors were read against their dumps and
+  are real: richardmacdonald.com's `/love`, `/courage` and `/joy` are crawled
+  pages absent from a 32-entry sitemap (48 of them), gallerysonder.com's three
+  `/rsvp/*` pages are linked and unlisted, and reddoorla.com's stale UID is the
+  one we already knew. The replay **cannot** exercise the parser fix — it
+  re-scores checks over stored crawls, and `urlCount` was computed by the old
+  parser at crawl time — so that one was proven against live sitemap bytes
+  instead: vascularperfusion.solutions 73 → 13, thepointeburbank.com 52 → 1, and
+  reddoorla.com 49 → 49, the known-good input that says the parser still reads
+  an ordinary sitemap.
+
+  Left open, and now the whole of the residue in this check:
+  `sapidyne.com/store/checkout` is a Weebly checkout, linked and unlisted, and
+  we call it a missing page. A checkout is a page, so the claim is literally
+  true and arguably useless; the clean fix is the site noindexing it, which is
+  what the well-configured stores in the corpus do. Not worth a heuristic that
+  guesses which paths are functional.
 
 - 2026-09-03 — branch cut from `main`, spec + this checklist committed.
 - 2026-09-03 — **reddoorla.com ships a blocked preconnect.** `src/app.html`

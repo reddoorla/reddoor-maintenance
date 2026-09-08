@@ -246,8 +246,20 @@ function decodeXmlText(s: string): string {
   );
 }
 
+/**
+ * Every URL a sitemap LISTS — and only those.
+ *
+ * The optional namespace prefix is for a sitemap that writes its own elements
+ * as `<sitemap:loc>`, which is legal and does happen. It also matched
+ * `<image:loc>`, the image-sitemap extension Squarespace, Wix and Yoast all
+ * emit inside each `<url>` — so a site's image count was added to its page
+ * count. Eleven of the 29 corpus sites carry them: vascularperfusion.solutions
+ * lists 13 pages and 60 images, and we reported "73 URLs listed" to them. The
+ * image namespace is the only one of the sitemap extensions that defines a
+ * bare `loc`, so excluding it by name is the whole fix.
+ */
 export function parseSitemapLocs(xml: string): string[] {
-  return [...xml.matchAll(/<(?:[\w-]+:)?loc\b[^>]*>([\s\S]*?)<\/(?:[\w-]+:)?loc>/gi)]
+  return [...xml.matchAll(/<(?!image:)(?:[\w-]+:)?loc\b[^>]*>([\s\S]*?)<\/(?:[\w-]+:)?loc>/gi)]
     .map((m) => decodeXmlText(m[1] ?? "").trim())
     .filter(Boolean);
 }
