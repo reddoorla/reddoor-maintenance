@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
@@ -58,5 +58,29 @@ describe("the CI workflow and `pnpm verify` are one gate", () => {
     const steps = verifySteps();
     expect(steps).toContain("pnpm test:coverage");
     expect(steps).not.toContain("pnpm test");
+  });
+});
+
+/**
+ * Every workflow that runs the suite must first install a browser.
+ *
+ * `tests/prospect/interaction-harness.test.ts` drives a real Chromium, and
+ * Playwright ships no browser with the npm package. ci.yml gained the install
+ * step and release.yml did not, so the PR that added the spec went green on its
+ * own check and turned `main` red forty seconds after the merge — the two lists
+ * are one gate in `pnpm verify` and were two in setup. This is the assertion
+ * that would have caught it, and it is deliberately derived (glob the
+ * workflows, look for the run) rather than a hand-kept list of two filenames.
+ */
+describe("a workflow that runs the suite installs the browser it needs", () => {
+  it("holds for every workflow, not just the two we know about", () => {
+    const dir = resolve(root, ".github/workflows");
+    const offenders = readdirSync(dir)
+      .filter((f) => f.endsWith(".yml"))
+      .map((f) => ({ f, body: readFileSync(resolve(dir, f), "utf-8") }))
+      .filter(({ body }) => /^\s*- run: pnpm (test|test:coverage)\b/m.test(body))
+      .filter(({ body }) => !body.includes("playwright install"))
+      .map(({ f }) => f);
+    expect(offenders).toEqual([]);
   });
 });
