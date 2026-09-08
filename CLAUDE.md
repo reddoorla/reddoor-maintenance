@@ -73,6 +73,84 @@ work:
 Individual site repos generally get **one** agent session at a time; the
 worktree rule is mandatory here in the central repo and best practice there.
 
+## Before a fleet sweep, ask which repos can receive a push
+
+```sh
+scripts/fleet-repos.sh            # table: pushable / ARCHIVED / NO-REMOTE / UNKNOWN
+scripts/fleet-repos.sh --pushable # names to iterate
+scripts/fleet-repos.sh --skipped  # what to leave alone, and why
+```
+
+Three of the 39 checkouts on the operator's machine cannot take a commit:
+`reddoor-mailer` and `the-pointe` are **archived** on GitHub, and `rfp-analyze`
+has no `origin` at all. Iterate `--pushable` and **report** the rest in the
+summary; do not discover them at push time.
+
+**An archived repo is invisible from inside its clone.** `git remote -v` shows a
+normal URL, `git ls-remote` succeeds, `git fetch` succeeds — only the push
+fails, and only after every commit has already been written. Three separate
+sessions have run a fleet-wide change to completion and then found the rollout
+short, and at least one of them reported the cause wrongly ("dead remote"),
+because from the inside an archived repo and a deleted one are the same picture.
+
+Do not unarchive a repo to finish a sweep. If a change genuinely must land in
+one, that is a decision for the operator, not a step in a rollout.
+
+Also note the script maps by REMOTE, not by directory name: the checkout
+`welcome-to-the-flower-court` is `tucksravin/invitations`. A sweep that assumes
+the two match will address the wrong repository.
+
+## The work journal
+
+**Every working session appends a dated entry to `docs/workJournal.md`** — what
+was done and **why**, newest at the bottom, never corrected in place. Write it
+as the last act of the session, not the first act of the next one.
+
+The journal is the history of executing the build. Code says what the system
+does now; the journal says what it used to do, what it cost to change, and
+which beliefs turned out to be wrong. Nearly everything expensive to rediscover
+lives there and nowhere else.
+
+An entry is headed with the date, a short title, and where it landed:
+
+```markdown
+## 2026-09-04 — Both runway stages render their final frame without JS (#51, `ce46ae0`)
+```
+
+Then prose — not a bullet list of file names, which the diff already tells you.
+What to put in, in rough order of value:
+
+- **Why, over what.** The reason a thing was done survives; the diff does not
+  need restating.
+- **Measured numbers, exactly.** "The comp's open mask is 2696×2352 on an 860px
+  band — 2.735× the band's height, so a 390×664 phone needs ~534%" is worth
+  keeping. "Fixed the hero on mobile" is not.
+- **Defects, named.** What broke, what it looked like, and what made it
+  invisible until it wasn't.
+- **What was tried and abandoned**, and what it would take to revive it. A dead
+  end nobody wrote down gets walked twice.
+- **Beliefs corrected on contact.** The design assumption that turned out false
+  is usually the most valuable line in the entry.
+- **Honest accounting.** If a win came from somewhere other than the change
+  that claimed it, say so — that is exactly what someone will otherwise
+  over-invest in next.
+
+**History is never edited to be right.** An entry that stops being true is not
+rewritten; a later entry corrects it, and says which one it corrects. The
+journal is a record of what was believed at the time, and that record is most
+useful precisely where it was wrong. Fixing the past in place destroys the only
+evidence of how the mistake was made.
+
+The one edit an old entry may take is a **forward pointer**: one line directly
+under its heading naming the entry that overturned it — `> Superseded in part by
+2026-10-14 — <that entry's title>.` It asserts nothing new and retracts nothing,
+so the record of what was believed survives whole; it only stops a reader who
+lands on the old paragraph from leaving with the old answer. Without it the rule
+above is half a mechanism: the correction exists at the bottom of the file, and
+nothing points to it from where a reader actually arrives.
+
+If a session produced nothing worth an entry, that is itself worth one line.
+
 ## Discord is the tone reference for client comms
 
 When drafting anything client-facing, match how the operator actually writes in
