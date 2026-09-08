@@ -4,7 +4,7 @@
 
 **Goal:** Put the seven fleet Claude Code skills into one private, versioned, tested repo whose `install.sh` symlinks each directory into `~/.claude/skills`, with every machine-specific path and every symlink-fragile entry-point check fixed before the first commit.
 
-**Architecture:** `reddoorla/claude-skills` holds `skills/<name>/` for all seven, plus `install.sh`, a root `package.json` with a zero-dependency `node --test test/` suite, and `docs/workJournal.md`. `matching-a-page` and `rfp-analyze` come in through `git subtree add` so their commit SHAs survive; the other five have no git history anywhere and are imported flat, one commit each. Skills stay discoverable exactly as they are today — `~/.claude/skills/<name>/SKILL.md` — so every `node ~/.claude/skills/<skill>/x.mjs` invocation in a SKILL.md and in Beachfront's `matching/gate.sh` keeps working; the plugin/marketplace layout is deliberately not used because it would namespace and version-path every one of those.
+**Architecture:** `reddoorla/claude-skills` holds `skills/<name>/` for all seven, plus `install.sh`, a root `package.json` with a zero-dependency `node --test test/*.test.mjs` suite, and `docs/workJournal.md`. `matching-a-page` and `rfp-analyze` come in through `git subtree add` so their commit SHAs survive; the other five have no git history anywhere and are imported flat, one commit each. Skills stay discoverable exactly as they are today — `~/.claude/skills/<name>/SKILL.md` — so every `node ~/.claude/skills/<skill>/x.mjs` invocation in a SKILL.md and in Beachfront's `matching/gate.sh` keeps working; the plugin/marketplace layout is deliberately not used because it would namespace and version-path every one of those.
 
 **Tech Stack:** git (incl. `git subtree`, present at `/Library/Developer/CommandLineTools/usr/libexec/git-core/git-subtree`), `gh` CLI (`/opt/homebrew/bin/gh`), Node 24 (`node --test`, zero deps), bash.
 
@@ -27,10 +27,43 @@ No file in `reddoor-starter`, `reddoor-maintenance` or `beachfront-dentistry` is
 - `page-diff --version` reads the version out of the skill's own `package.json` (`"version": "0.1.0"`), so the printed string is `page-diff 0.1.0 report-schema 1`.
 - **The matching-a-page Phase 0 / Workspace rewrite is PLAN E's, not this plan's.** This plan touches `skills/matching-a-page/SKILL.md` at exactly one place — the probe import at lines 166–173. Lines 98–109 (Workspace) and 123–126 / 163–164 (Phase 0 steps 1 and 8) are left alone.
 - The repo gets no CI workflow in v1; `npm test` at the root is the gate, run locally. Adding CI is a follow-up, noted in the README.
-- **Divergence from spec C1, recorded deliberately.** C1's gate says "extend `skill-frontmatter.test.mjs` to run over every skill". That file is `skills/matching-a-page/skill-frontmatter.test.mjs` (one of the 28 imported files); it hard-codes `name:\s*matching-a-page` plus a `page-diff` string check, and it lives **inside a skill directory that the root `node --test test/` suite does not descend into** — it only ever runs under the skill's own `npm test`, which needs that skill's `node_modules`. It therefore cannot be the repo-level gate. The generic frontmatter check (name equals directory, description present, for all seven) is instead in `test/skills.test.mjs`, Task 8. The skill-local test is **retained unchanged**: its `page-diff` assertion is matching-a-page-specific and not generalisable, so deleting it would lose a real check. Two overlapping frontmatter tests is the accepted cost; the spec's intent — every skill's frontmatter parses, in the gate that actually runs — is met.
+- **Divergence from spec C1, recorded deliberately.** C1's gate says "extend `skill-frontmatter.test.mjs` to run over every skill". That file is `skills/matching-a-page/skill-frontmatter.test.mjs` (one of the 28 imported files); it hard-codes `name:\s*matching-a-page` plus a `page-diff` string check, and it lives **inside a skill directory that the root `node --test test/*.test.mjs` suite does not descend into** — it only ever runs under the skill's own `npm test`, which needs that skill's `node_modules`. It therefore cannot be the repo-level gate. The generic frontmatter check (name equals directory, description present, for all seven) is instead in `test/skills.test.mjs`, Task 8. The skill-local test is **retained unchanged**: its `page-diff` assertion is matching-a-page-specific and not generalisable, so deleting it would lose a real check. Two overlapping frontmatter tests is the accepted cost; the spec's intent — every skill's frontmatter parses, in the gate that actually runs — is met.
 - `matching-a-page`'s dependencies are installed into the clone at **Task 6 Step 0**, before any task runs code that imports them. `lib/report.mjs:3` pulls `lib/image.mjs`, which imports `pngjs`; `node_modules/` is gitignored so the subtree import brings none, and there is no `node_modules` anywhere up the tree from `~/Documents/GitHub` (checked). Tasks 5, 7 and 8 are all zero-dependency and unaffected.
 
 ---
+
+## Executed 2026-09-08 — what the plan got wrong
+
+All eleven tasks ran. `reddoorla/claude-skills` is live and this machine is cut
+over. The record of the work is the journal entry in that repo; what belongs
+here is the set of places this plan was wrong, because a re-run would hit them
+again. Four, all now corrected above:
+
+- **`node --test test/` is not a directory scan on Node 22+.** Positional args
+  became glob patterns, so node resolves `test/` to one missing entry module and
+  dies. The scaffolded `npm test` was therefore red on a green tree from the
+  moment Task 1 wrote it, and every verification in Tasks 7, 8 and 9 that used
+  the bare form could never have printed the numbers predicted. Corrected to
+  `node --test test/*.test.mjs`, which also works on Node 20.
+- **Task 5 Step 4 asserted `grep -c pathToFileURL … -> 0`** while Step 3 of the
+  same task mandates a replacement comment containing that word. The intent —
+  no remaining call site — is now spelled `grep -c 'pathToFileURL('`.
+- **The rfp-analyze tombstone said 23 commits through `56d4d25`.** That tip is
+  22; 23 lands at `204444c`, the commit this plan itself instructs Task 3 to
+  make. Off by exactly its own step.
+- **The `markup.mjs` line references were pre-Task-5** and shifted by five once
+  that task inserted its no-guard comment.
+
+Two predictions were merely imprecise and are left as written, since the entry
+in `claude-skills/docs/workJournal.md` records the measured values: the staging
+clone's `.git` came out at 212K against a predicted ~216K, and the
+`~/Documents/GitHub` reference count was 32, not the "~25" estimated here.
+
+One defect escaped the plan's own class. Task 7 swept for an absolute
+`/Users/<name>/`, so a tilde-form path survived in
+`skills/rfp-analyze/templates/estimates-repo/CLAUDE.md` — a file the skill
+_emits into a generated repo_ rather than one it ships. Fixed after the fact in
+`3d03c00`, with the test extended to cover the tilde form under `skills/`.
 
 ## File structure
 
@@ -38,7 +71,7 @@ No file in `reddoor-starter`, `reddoor-maintenance` or `beachfront-dentistry` is
 
 ```
 .gitignore                                    node_modules/, out*/, .claude/, .DS_Store, test-output/
-package.json                                  {"test": "node --test test/"}, NO dependencies
+package.json                                  {"test": "node --test test/*.test.mjs"}, NO dependencies
 README.md                                     what it is, install, REDDOOR_REPOS, the no-squash trap
 install.sh                                    symlinks skills/<name> -> ~/.claude/skills/<name>
 test/skills.test.mjs                          frontmatter (all 7) · no /Users/ · install+readlink · usage through the symlink · isMain adoption (source)
@@ -64,7 +97,7 @@ skills/matching-a-page/lib/report.mjs         REPORT_SCHEMA export + meta.schema
 skills/matching-a-page/lib/report.test.mjs    + writeArtifacts schemaVersion test
 skills/matching-a-page/page-diff.test.mjs     + --version spawn test
 skills/matching-a-page/SKILL.md               :166-173 probe import
-skills/markup-review/markup.mjs               :4-5 comment · :10 comment · :12 ENV_FILE · apiKey() :24-41 · USAGE :224
+skills/markup-review/markup.mjs               :4-5 comment · :10 comment · :17 ENV_FILE · apiKey() :29-46 · USAGE :229 (all +5 after Task 5)
 skills/markup-review/SKILL.md                 :3 description
 skills/rfp-analyze/{SKILL.md,README.md,CLAUDE.md}   $SKILL_DIR / $REDDOOR_REPOS
 skills/new-site/SKILL.md                      :20,:71,:84 $REDDOOR_REPOS + convention line
@@ -107,7 +140,7 @@ cat > package.json <<'EOF'
   "private": true,
   "type": "module",
   "engines": { "node": ">=20" },
-  "scripts": { "test": "node --test test/" }
+  "scripts": { "test": "node --test test/*.test.mjs" }
 }
 EOF
 
@@ -119,7 +152,7 @@ being true is corrected by a later entry, not rewritten.
 EOF
 ```
 
-- [ ] **Step 2: Verify the scaffold** — `ls -a ~/Documents/GitHub/claude-skills && node -e "console.log(require('/Users/tuckerlemos/Documents/GitHub/claude-skills/package.json').scripts.test)"` → prints `node --test test/`.
+- [ ] **Step 2: Verify the scaffold** — `ls -a ~/Documents/GitHub/claude-skills && node -e "console.log(require('/Users/tuckerlemos/Documents/GitHub/claude-skills/package.json').scripts.test)"` → prints `node --test test/*.test.mjs`.
 
 - [ ] **Step 3: Create the private remote and attach it (no push yet)**
 
@@ -508,7 +541,7 @@ node --check skills/matching-a-page/page-diff.mjs
 node --check skills/matching-a-page/style-census.mjs
 node --check skills/matching-a-page/text-diff.mjs
 node --check skills/markup-review/markup.mjs
-grep -c pathToFileURL skills/matching-a-page/page-diff.mjs   # -> 0
+grep -c 'pathToFileURL(' skills/matching-a-page/page-diff.mjs # -> 0
 ```
 
 (`node --check` parses `.mjs` as a module — verified on this machine.)
@@ -730,7 +763,7 @@ test("no tracked file hard-codes one machine's home directory", () => {
 });
 ```
 
-- [ ] **Step 2: Run it and watch it fail** — `cd ~/Documents/GitHub/claude-skills && node --test test/` → one failure listing exactly one offender:
+- [ ] **Step 2: Run it and watch it fail** — `cd ~/Documents/GitHub/claude-skills && node --test test/*.test.mjs` → one failure listing exactly one offender:
 
 ```
 skills/matching-a-page/SKILL.md:173: import { chromium } from "file:///Users/tuckerlemos/.claude/skills/matching-a-page/node_modules/playwright/index.mjs";
@@ -894,7 +927,7 @@ Clone paths below use `$REDDOOR_REPOS` — `REDDOOR_REPOS="${REDDOOR_REPOS:-$HOM
 
 ```bash
 cd ~/Documents/GitHub/claude-skills
-node --test test/            # -> # pass 1  # fail 0
+node --test test/*.test.mjs            # -> # pass 1  # fail 0
 node --check skills/markup-review/markup.mjs   # the whole-function replacement parses
 XDG_CONFIG_HOME=/tmp/xdg-probe node skills/markup-review/markup.mjs --help | grep '^Key:'
 ```
@@ -1063,7 +1096,7 @@ test("the two guarded CLIs use isMain, and the two unguarded ones say why", () =
 });
 ```
 
-- [ ] **Step 2: Run them and watch them fail** — `cd ~/Documents/GitHub/claude-skills && node --test test/` → three failures; the install ones report `bash: .../install.sh: No such file or directory` with `r.status` `127`, e.g. `AssertionError [ERR_ASSERTION]: Expected values to be strictly equal: 127 !== 0`. The frontmatter test and the isMain-adoption test should already pass (7 skills with matching names; Task 5 already made the edits) — the adoption test is proved non-vacuous by mutation in Step 4, not here.
+- [ ] **Step 2: Run them and watch them fail** — `cd ~/Documents/GitHub/claude-skills && node --test test/*.test.mjs` → three failures; the install ones report `bash: .../install.sh: No such file or directory` with `r.status` `127`, e.g. `AssertionError [ERR_ASSERTION]: Expected values to be strictly equal: 127 !== 0`. The frontmatter test and the isMain-adoption test should already pass (7 skills with matching names; Task 5 already made the edits) — the adoption test is proved non-vacuous by mutation in Step 4, not here.
 
 - [ ] **Step 3: Implement** — create `install.sh`:
 
@@ -1116,7 +1149,7 @@ Then `chmod +x install.sh`.
 
 ```bash
 cd ~/Documents/GitHub/claude-skills
-node --test test/            # -> # pass 6  # fail 0
+node --test test/*.test.mjs            # -> # pass 6  # fail 0
 H="$(mktemp -d)"; HOME="$H" bash install.sh
 ```
 
@@ -1128,9 +1161,9 @@ Now mutate, so the adoption test is known to measure the thing it names:
 cd ~/Documents/GitHub/claude-skills
 sed -i '' 's|^import { isMain } from "./lib/is-main.mjs";|import { pathToFileURL } from "node:url";|' \
   skills/matching-a-page/page-diff.mjs
-node --test test/ 2>&1 | grep -E '^# (pass|fail)'
+node --test test/*.test.mjs 2>&1 | grep -E '^# (pass|fail)'
 git checkout -- skills/matching-a-page/page-diff.mjs
-node --test test/ 2>&1 | grep -E '^# (pass|fail)'
+node --test test/*.test.mjs 2>&1 | grep -E '^# (pass|fail)'
 ```
 
 Expected: `# pass 5` / `# fail 1` with `page-diff.mjs: must import isMain`, then `# pass 6` / `# fail 0` again after the restore. If the mutated run stays green the test is measuring nothing — fix it before continuing.
@@ -1249,7 +1282,7 @@ READMEEOF
 cd ~/Documents/GitHub/claude-skills
 grep -c '^## ' README.md      # -> 4   (Install, Conventions, Traps, Open)
 tail -1 README.md
-node --test test/             # -> # pass 6  # fail 0
+node --test test/*.test.mjs             # -> # pass 6  # fail 0
 ```
 
 Expected: `4`; the last line exactly ``- No CI. `npm test` is the whole gate and runs locally.``; and `# pass 6  # fail 0` (the README uses `$HOME`, never `/Users/`, so the machine-path test stays green). A `grep` count below 4 means the heredoc was truncated — rewrite it, do not patch the tail.
@@ -1473,7 +1506,7 @@ git push
 ```markdown
 ## 2026-09-08 — This repo moved into `reddoorla/claude-skills`
 
-All 23 commits through `56d4d25` — including `c7cf716`, the symlink fix every
+All 23 commits through `204444c` — including `c7cf716`, the symlink fix every
 other skill in the fleet has now inherited — went in with `git subtree add
 --prefix=skills/rfp-analyze`, so those SHAs still resolve there.
 `~/.claude/skills/rfp-analyze` now points at `claude-skills/skills/rfp-analyze`.
