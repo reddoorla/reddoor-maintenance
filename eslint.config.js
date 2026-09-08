@@ -26,6 +26,10 @@ export default [
     },
   },
   {
-    ignores: ["dist/", "node_modules/", "coverage/", "tests/fixtures/"],
+    // `.worktrees/` holds other sessions' checkouts (see .gitignore). ESLint
+    // does not read .gitignore, so without this a main checkout with three
+    // worktrees inside it reported 1,771 parser errors — every one of them
+    // typed-linting another tree's files against this tree's tsconfig.
+    ignores: ["dist/", "node_modules/", "coverage/", "tests/fixtures/", ".worktrees/"],
   },
 ];
