@@ -76,6 +76,15 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Same reason as ci.yml: `tests/prospect/interaction-harness.test.ts`
+      # drives a REAL Chromium, Playwright ships no browser with the npm
+      # package, and this job runs the same suite. ci.yml gained this step in
+      # `ec4ec55` and release.yml did not, so the merge that added the spec went
+      # green on the PR and red on main forty seconds later — the two lists were
+      # one gate in `pnpm verify` and two in setup.
+      - name: Install the browser the Tier 4 abort harness drives
+        run: pnpm exec playwright install --with-deps chromium
+
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm build
