@@ -708,7 +708,35 @@ function headingChecks(
     ];
   }
 
-  const h1sPerPage = pages.map((p) => ({
+  // One entry per declared address, minus the pages hidden from search — see
+  // `contentPages`. Pages we read that are ALL hidden are neither our gap nor
+  // their defect: the noindex is reported where it belongs, and a site that
+  // withdraws itself from search owes it no headlines.
+  const counted = contentPages(pages);
+  if (counted.length === 0) {
+    const HIDDEN =
+      "every page we read asks not to be indexed, which is reported under meta-noindex";
+    return [
+      skip("h1-present", "A headline on every page", WHY_PRESENT, "content", HIDDEN),
+      skip("h1-one-headline", "One headline, not a list of them", WHY_ONE, "content", HIDDEN),
+      skip(
+        "h1-not-name",
+        "Headlines that say what the page is about",
+        "A headline that is just your company name on every page describes none of them.",
+        "content",
+        HIDDEN,
+      ),
+      skip(
+        "h1-distinct",
+        "A different headline on each page",
+        "Identical headlines make every page look like the same page, to a reader and to a search engine.",
+        "content",
+        HIDDEN,
+      ),
+    ];
+  }
+
+  const h1sPerPage = counted.map((p) => ({
     url: p.url,
     h1s: p.extract.headings.filter((h) => h.level === 1).map((h) => h.text.trim()),
   }));
@@ -738,8 +766,8 @@ function headingChecks(
       "content",
       missing.length === 0,
       missing.length === 0
-        ? `all ${pages.length} pages carry one`
-        : `${missing.length} of ${pages.length}: ${missing
+        ? `all ${counted.length} pages carry one`
+        : `${missing.length} of ${counted.length}: ${missing
             .slice(0, 3)
             .map((p) => p.url)
             .join(", ")}`,
@@ -761,7 +789,7 @@ function headingChecks(
       "content",
       crowded.length === 0,
       crowded.length === 0
-        ? `no page marks more than two of its lines as the headline, across the ${pages.length} we read`
+        ? `no page marks more than two of its lines as the headline, across the ${counted.length} we read`
         : crowded
             .slice(0, 3)
             .map((p) => `${p.url} has ${p.h1s.length}`)
@@ -797,7 +825,7 @@ function headingChecks(
   const WHY_DISTINCT =
     "Identical headlines make every page look like the same page, to a reader scanning tabs and to a search engine choosing which one to show.";
   const LABEL_DISTINCT = "A different headline on each page";
-  if (pages.length < 2) {
+  if (counted.length < 2) {
     out.push(
       skip(
         "h1-distinct",
@@ -808,10 +836,10 @@ function headingChecks(
       ),
     );
   } else {
-    // One entry per address the site says it has. Five `?tab=` deep-links into
-    // one page are one headline, not five identical ones — see
-    // `byDeclaredAddress`.
-    const distinct = byDeclaredAddress(pages).filter(
+    // `counted` is already one entry per address the site says it has. Five
+    // `?tab=` deep-links into one page are one headline, not five identical
+    // ones — see `contentPages`.
+    const distinct = counted.filter(
       (p) => p.extract.headings.filter((h) => h.level === 1).length === 1,
     );
     if (distinct.length < 2) {
@@ -1528,9 +1556,11 @@ function sidecarChecks(crawl: CrawlResult, linkedPages: Set<string>): SiteCheck[
     // the same check.
     const sample = crawl.sitemap.sample;
     const whole = sample !== undefined && crawl.sitemap.urlCount <= sample.length;
-    const key = (u: string) => u.replace(/\/+$/, "").split("#")[0]!;
-    const listed = new Set(sample?.map(key));
-    const unlisted = whole ? [...linkedPages].filter((u) => !listed.has(key(u))) : [];
+    // Both sides keyed by `norm2`: `linkedPages` already is, and a sitemap that
+    // lists `http://`, `www.` or `%26` where the pages link `https://`, bare or
+    // `&` is the same list. Keying only one side named whole sites as missing.
+    const listed = new Set(sample?.map((u) => norm2(u) ?? u));
+    const unlisted = whole ? [...linkedPages].filter((a) => !listed.has(a)) : [];
     out.push(
       check(
         "sitemap-coverage",
@@ -1814,7 +1844,9 @@ function metaChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck[]
   // already avoids by running 10–70 rather than clamping at 60.
   const DESC_MIN = 40;
   const DESC_MAX = 200;
-  const described = pages.filter((p) => p.extract.metaDescription);
+  // Over the pages the site publishes — one per declared address, none it hides
+  // from search. See `contentPages`.
+  const described = contentPages(pages).filter((p) => p.extract.metaDescription);
   if (described.length === 0) {
     out.push(
       skip(
@@ -2237,14 +2269,112 @@ function byDeclaredAddress<T extends { url: string; extract: PageExtract }>(page
   return [...seen.values()];
 }
 
-/** Host + path, trailing slash and `www.` ignored — the comparison every URL
- *  equality check in this file wants. */
+/** A page the site itself withdraws from search, by `<meta name="robots">`.
+ *  Unknown — `metas` never captured, a report from before the field existed —
+ *  is NOT hidden: dropping a page on a guess would silence a real finding to
+ *  hide our own gap. */
+function hiddenFromSearch(extract: PageExtract): boolean {
+  return /\bnoindex\b/i.test(extract.metas?.["robots"] ?? "");
+}
+
+/** The same document under two addresses: title, description and headline all
+ *  agree. Declaring another page's canonical is not enough on its own — see
+ *  `contentPages`. */
+function sameDocument(a: { extract: PageExtract }, b: { extract: PageExtract }): boolean {
+  const h1s = (e: PageExtract) =>
+    e.headings
+      .filter((h) => h.level === 1)
+      .map((h) => h.text.trim())
+      .join("\n");
+  return (
+    a.extract.title === b.extract.title &&
+    a.extract.metaDescription === b.extract.metaDescription &&
+    h1s(a.extract) === h1s(b.extract)
+  );
+}
+
+/**
+ * The address a page WE READ folds onto: the address it declares, when the
+ * page at that address was also read and is the same document. Null when the
+ * page stands on its own — it declares itself, or it declares a page we never
+ * read, or it declares a page it does not resemble.
+ */
+function aliasAddress<T extends { url: string; extract: PageExtract }>(
+  p: T,
+  read: Map<string, T>,
+): string | null {
+  const declared = declaredAddress(p);
+  if (!declared || declared === norm2(p.url)) return null;
+  const target = read.get(declared);
+  return target !== undefined && sameDocument(target, p) ? declared : null;
+}
+
+/**
+ * The pages a content check may count — and only those: minus the pages the
+ * site hides from search, and minus an alias of a page already counted.
+ *
+ * ALIASES. preveta.com and richardmacdonald.com serve `/home/` beside `/`, and
+ * icovy.com an `/old-home-2`, each declaring `/` and reading exactly like it.
+ * Counted apart they doubled every homepage finding — "2 of 20 have no
+ * headline", both of them the same page.
+ *
+ * BUT ONLY A CONFIRMED ALIAS. sapidyne.com declares `/` as the canonical on 19
+ * of its 20 pages, each with its own title and its own headline. That is the
+ * defect `canonical-self` reports, not aliasing, and folding on the declaration
+ * alone measured the whole site as one page — "all 1 are between 40 and 200
+ * characters". A page folds only onto a page we read that reads the same
+ * (`sameDocument`); otherwise it stands, and owes its own headline. This is
+ * also why `byDeclaredAddress` — which folds on the declaration, for the checks
+ * that compare pages to each other — must never become the crawl's page list.
+ *
+ * NOINDEX. A page the site withdraws from search owes it no headline, no
+ * description and no sitemap entry. vascularperfusion.solutions was told its
+ * `/cart` — which its own robots meta hides, and which the same report flagged
+ * under meta-noindex — was missing from the sitemap. Two rows, opposite
+ * complaints, one page. `meta-noindex` itself still reads every page.
+ */
+function contentPages<T extends { url: string; extract: PageExtract }>(pages: T[]): T[] {
+  const read = new Map<string, T>();
+  for (const p of pages) {
+    const at = norm2(p.url);
+    if (at && !read.has(at)) read.set(at, p);
+  }
+  const counted = new Set<string>();
+  const out: T[] = [];
+  for (const p of pages) {
+    if (hiddenFromSearch(p.extract)) continue;
+    const at = aliasAddress(p, read) ?? norm2(p.url) ?? p.url;
+    if (counted.has(at)) continue;
+    counted.add(at);
+    out.push(p);
+  }
+  return out;
+}
+
+/**
+ * Host + path, trailing slash and `www.` ignored — the comparison every URL
+ * equality check in this file wants. Scheme and query are dropped by
+ * construction: richardmacdonald.com's sitemap lists every URL as `http://`
+ * against an `https://` crawl, and a key that kept the scheme named all 52 of
+ * their pages — the homepage first — as missing from it.
+ *
+ * Percent-escapes are decoded. coyote.us links to `/courses/arts-&-crafts-` and
+ * its sitemap lists `/courses/arts-%26-crafts-`; those are one address to every
+ * browser and every crawler, and comparing the raw strings reported that page
+ * as missing from a sitemap it is in. A path that does not decode (a lone `%`)
+ * is compared as written rather than thrown away.
+ */
 function norm2(u: string, base?: string): string | null {
   try {
     const parsed = new URL(u, base);
-    return `${parsed.hostname.replace(/^www\./i, "").toLowerCase()}${
-      parsed.pathname.replace(/\/+$/, "") || "/"
-    }`;
+    const path = parsed.pathname.replace(/\/+$/, "") || "/";
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(path);
+    } catch {
+      decoded = path;
+    }
+    return `${parsed.hostname.replace(/^www\./i, "").toLowerCase()}${decoded}`;
   } catch {
     return null;
   }
@@ -3183,19 +3313,38 @@ export function runSiteChecks(
     vitals: p.page.vitals,
   }));
 
-  // Distinct same-origin pages the site's own links point at. This is the
-  // honest denominator for sitemap coverage: our crawl is capped, so using the
-  // number of pages we READ would report our own ceiling as their gap.
+  // Distinct same-origin ADDRESSES the site's own links point at, keyed the way
+  // `norm2` keys everything else here. This is the honest denominator for
+  // sitemap coverage: our crawl is capped, so using the number of pages we READ
+  // would report our own ceiling as their gap.
+  //
+  // A link whose target we read is folded onto the address of the page it is a
+  // confirmed alias of, and dropped when it hides itself from search — the same
+  // two exclusions `contentPages` makes, for the same reasons. A link we never
+  // followed keeps its own address: with no canonical and no robots meta behind
+  // it, nothing excuses it, and a page we could not read that the sitemap
+  // leaves out is a real gap.
+  const read = new Map<string, (typeof pages)[number]>();
+  for (const p of pages) {
+    const at = norm2(p.url);
+    if (at && !read.has(at)) read.set(at, p);
+  }
   const linked = new Set<string>();
   for (const { url, extract } of pages) {
     for (const a of extract.anchors ?? []) {
       const abs = resolveNavigable(a.href, url);
       if (!abs) continue;
       try {
-        if (new URL(abs).origin === crawl.origin) linked.add(abs.split("#")[0]!);
+        if (new URL(abs).origin !== crawl.origin) continue;
       } catch {
         // Not a URL we can reason about; it is not evidence either way.
+        continue;
       }
+      const at = norm2(abs);
+      if (!at) continue;
+      const target = read.get(at);
+      if (target && hiddenFromSearch(target.extract)) continue;
+      linked.add(target ? (aliasAddress(target, read) ?? at) : at);
     }
   }
 

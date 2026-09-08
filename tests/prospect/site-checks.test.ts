@@ -1606,3 +1606,229 @@ describe("faults the stored corpus found", () => {
     expect(byKey(checks, "insecure-links")?.evidence).toContain("acme.example/services");
   });
 });
+
+describe("sitemap-coverage compares addresses the way a crawler does", () => {
+  // Every case here is a real site that was told its own pages were missing
+  // from a sitemap they were in. The sitemap is read whole (`urlCount` equals
+  // the sample) so the per-page comparison runs rather than the count shortcut.
+  const site = (sample: string[], pages: PageCapture[]) =>
+    runSiteChecks(
+      exemplary({
+        sitemap: { present: true, urlCount: sample.length, sample, truncated: false },
+        pages,
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+  const home = (hrefs: string[], over: Partial<PageExtract> = {}) =>
+    page("https://acme.example/", {
+      anchors: hrefs.map((href) => ({ href, text: href, rel: "" })),
+      ...over,
+    });
+
+  it("does not fail a sitemap that lists http:// while the site serves https://", () => {
+    // richardmacdonald.com: every sitemap URL is http://, the crawl ran over
+    // https://, and a key that kept the scheme named all 52 pages as missing.
+    const checks = site(["http://acme.example/", "http://acme.example/a"], [home(["/a"])]);
+    expect(byKey(checks, "sitemap-coverage")?.status).toBe("pass");
+  });
+
+  it("does not fail a sitemap that percent-encodes what the page links raw", () => {
+    // coyote.us links to `/courses/arts-&-crafts-`; its sitemap lists
+    // `/courses/arts-%26-crafts-`. One address to every browser and crawler.
+    const checks = site(
+      ["https://acme.example/", "https://acme.example/courses/arts-%26-crafts-"],
+      [home(["/courses/arts-&-crafts-"])],
+    );
+    expect(byKey(checks, "sitemap-coverage")?.status).toBe("pass");
+  });
+
+  it("does not fail a sitemap that lists www. while the site links bare", () => {
+    const checks = site(
+      ["https://www.acme.example/", "https://www.acme.example/a"],
+      [home(["/a"])],
+    );
+    expect(byKey(checks, "sitemap-coverage")?.status).toBe("pass");
+  });
+
+  it("does not demand a page the site itself hides from search", () => {
+    // vascularperfusion.solutions: `/cart` carries robots noindex, the same
+    // report flagged it under meta-noindex, and then called it missing from
+    // the sitemap. Two rows, opposite complaints, one page.
+    const checks = site(
+      ["https://acme.example/", "https://acme.example/a"],
+      [
+        home(["/cart", "/a"]),
+        page("https://acme.example/cart", {
+          anchors: [],
+          metas: { charset: "utf-8", robots: "noindex" },
+        }),
+        page("https://acme.example/a", { anchors: [] }),
+      ],
+    );
+    expect(byKey(checks, "sitemap-coverage")?.status).toBe("pass");
+  });
+
+  it("does not demand an alias whose canonical the sitemap already lists", () => {
+    // preveta.com, richardmacdonald.com and sapidyne.com all serve `/home/`
+    // beside `/`, each declaring the canonical `/`. The sitemap lists `/`.
+    const checks = site(
+      ["https://acme.example/", "https://acme.example/a"],
+      [
+        home(["/home/", "/a"]),
+        page("https://acme.example/home/", { anchors: [], canonical: "https://acme.example/" }),
+        page("https://acme.example/a", { anchors: [] }),
+      ],
+    );
+    expect(byKey(checks, "sitemap-coverage")?.status).toBe("pass");
+  });
+
+  it("still reports a linked page we never read that the sitemap omits", () => {
+    // GUARD for the exclusions above: a link with no crawled page behind it has
+    // no canonical and no robots meta to excuse it. That is a real gap.
+    const checks = site(["https://acme.example/"], [home(["/secret"])]);
+    expect(byKey(checks, "sitemap-coverage")?.status).toBe("fail");
+    expect(byKey(checks, "sitemap-coverage")?.evidence).toContain("/secret");
+  });
+
+  it("compares a path that does not decode as written rather than dropping it", () => {
+    // GUARD: a lone `%` throws in decodeURIComponent. The address must survive
+    // the comparison, not vanish from it.
+    const checks = site(["https://acme.example/", "https://acme.example/100%"], [home(["/100%"])]);
+    expect(byKey(checks, "sitemap-coverage")?.status).toBe("pass");
+  });
+});
+
+describe("content checks count the pages a site actually publishes", () => {
+  const run = (pages: PageCapture[]) =>
+    runSiteChecks(exemplary({ pages }), exemplaryChecks(), "Acme Roofing");
+
+  it("counts an alias and its canonical as one page without a headline", () => {
+    // preveta.com serves `/` and `/home/`, both declaring `/`. Counted apart
+    // they doubled every homepage finding: "2 of 20 have no headline", both
+    // of them the same page.
+    const checks = run([
+      page("https://acme.example/", { headings: [] }),
+      page("https://acme.example/home/", { headings: [], canonical: "https://acme.example/" }),
+      page("https://acme.example/services", { headings: [{ level: 1, text: "What we repair" }] }),
+    ]);
+    const c = byKey(checks, "h1-present");
+    expect(c?.status).toBe("fail");
+    expect(c?.evidence).toMatch(/^1 of 2\b/);
+  });
+
+  it("does not fail a headline missing from a page the site hides from search", () => {
+    const checks = run([
+      page("https://acme.example/"),
+      page("https://acme.example/cart", {
+        headings: [],
+        metas: { charset: "utf-8", robots: "noindex" },
+      }),
+    ]);
+    expect(byKey(checks, "h1-present")?.status).toBe("pass");
+  });
+
+  it("does not fail a description on a page the site hides from search", () => {
+    const checks = run([
+      page("https://acme.example/"),
+      page("https://acme.example/cart", {
+        metaDescription: "Your cart",
+        metas: { charset: "utf-8", robots: "noindex" },
+      }),
+    ]);
+    expect(byKey(checks, "description-length")?.status).toBe("pass");
+  });
+
+  it("still reports the noindex on the page it just excused", () => {
+    // GUARD: excusing a hidden page from the content checks must not hide the
+    // page from the check that exists to report it.
+    const checks = run([
+      page("https://acme.example/"),
+      page("https://acme.example/cart", {
+        headings: [],
+        metas: { charset: "utf-8", robots: "noindex" },
+      }),
+    ]);
+    expect(byKey(checks, "meta-noindex")?.status).toBe("fail");
+  });
+
+  it("keeps a page whose robots meta was never captured", () => {
+    // GUARD: a stored report from before `metas` existed does not know whether
+    // its pages are noindexed. Dropping them on a guess would silence a real
+    // finding to hide our gap.
+    const old = page("https://acme.example/old", { headings: [] });
+    delete old.rendered!.metas;
+    const checks = run([page("https://acme.example/"), old]);
+    expect(byKey(checks, "h1-present")?.status).toBe("fail");
+  });
+
+  it("marks the headline checks not-applicable when every page is hidden from search", () => {
+    // Not `unmeasured` — we read the pages fine. Not `fail` — a site that
+    // withdraws itself from search owes it no headlines. The noindex itself
+    // is reported where it belongs.
+    const checks = run([
+      page("https://acme.example/", {
+        headings: [],
+        metas: { charset: "utf-8", robots: "noindex" },
+      }),
+    ]);
+    expect(byKey(checks, "h1-present")?.status).toBe("not-applicable");
+    expect(byKey(checks, "meta-noindex")?.status).toBe("fail");
+  });
+});
+
+describe("a page that mis-declares another page's canonical is not an alias of it", () => {
+  // sapidyne.com: 19 of 20 pages declare the canonical `/`, each with its own
+  // title and its own headline. That is the defect `canonical-self` reports.
+  // Folding them onto the homepage measured the whole site as one page and
+  // read "all 1 are between 40 and 200 characters" — a real finding, hidden
+  // behind a misconfiguration. Only a page that READS as the same document
+  // (title, description, headline) is an alias.
+  const misdeclared = [
+    page("https://acme.example/", {
+      anchors: ["/about", "/contact"].map((href) => ({ href, text: href, rel: "" })),
+    }),
+    page("https://acme.example/about", {
+      anchors: [],
+      title: "About Acme Roofing",
+      headings: [],
+      canonical: "https://acme.example/",
+    }),
+    page("https://acme.example/contact", {
+      anchors: [],
+      title: "Contact Acme Roofing",
+      headings: [{ level: 1, text: "Get in touch" }],
+      canonical: "https://acme.example/",
+    }),
+  ];
+
+  it("still counts every mis-declared page when looking for headlines", () => {
+    const checks = runSiteChecks(
+      exemplary({ pages: misdeclared }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    const c = byKey(checks, "h1-present");
+    expect(c?.status).toBe("fail");
+    expect(c?.evidence).toMatch(/^1 of 3\b/);
+  });
+
+  it("still expects the sitemap to list every mis-declared page", () => {
+    const checks = runSiteChecks(
+      exemplary({
+        sitemap: {
+          present: true,
+          urlCount: 1,
+          sample: ["https://acme.example/"],
+          truncated: false,
+        },
+        pages: misdeclared,
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    const c = byKey(checks, "sitemap-coverage");
+    expect(c?.status).toBe("fail");
+    expect(c?.evidence).toMatch(/acme\.example\/(about|contact)/);
+  });
+});

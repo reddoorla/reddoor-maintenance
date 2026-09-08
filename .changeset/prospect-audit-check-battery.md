@@ -1,0 +1,9 @@
+---
+"@reddoorla/maintenance": minor
+---
+
+The prospect audit's check battery: 46 site checks where the report carried 12, each with four states (`pass` / `fail` / `unmeasured` / `not-applicable`) so that our own gaps and a site's genuine not-applicables leave the denominator instead of being printed as their defects.
+
+Tier 0 runs free over the stored crawl (anchors, text, headings, JSON-LD, headers, robots and sitemap, analytics presence); Tier 1 adds 17 checks over three new extract fields (`metas`, `links`, `scriptSrcs`); Tier 2 asks the domain (5 DNS) and the server (12 HTTP) what the website cannot; Tier 3 adds five browser-only findings and runs the full axe-core rule set in the browser the crawl already opened; Tier 4 presses the enquiry form's button behind an abort harness that stops the request before it leaves the browser, and reports what the form did about an empty and a mis-typed submission. A stack readout names the site's platform, CMS, framework, fonts, analytics and hosting back to them, as a receipt, outside every count.
+
+Every check was replayed over the stored corpus before it counted, and several were retracted or reworded by that replay — the habit this battery exists to keep. Three fixes from the last replay ship here: `sitemap-coverage` keys both sides the way every other URL comparison in the file does (scheme, `www.` and percent-encoding ignored — a sitemap listing `http://` against an `https://` crawl had named all 52 of one site's pages as missing); the content checks count a confirmed alias (`/home/` beside `/`, reading the same) once and a page the site hides from search not at all, while a page that merely _declares_ another page's canonical still counts on its own; and `replay-checks.mts --dir` replays a freshly re-crawled corpus from disk before anything is persisted.
