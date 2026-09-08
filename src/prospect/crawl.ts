@@ -1,5 +1,19 @@
 import { parse, HTMLElement, NodeType } from "node-html-parser";
 import { isInfraPath } from "./pages.js";
+import {
+  MAX_CONSOLE_ERRORS,
+  MAX_FAILED_REQUESTS,
+  MAX_OVERSIZED_IMAGES,
+  type AxePageResult,
+  type PageVitals,
+} from "./accessibility.js";
+import {
+  pageInteractionDeps,
+  probeForms,
+  withTimeout,
+  PROBE_BUDGET_MS,
+  type FormProbe,
+} from "./interaction.js";
 import type { CrawlResult, PageCapture, RobotsAgentAccess } from "./types.js";
 import { extractPage, UNRENDERED_TAGS } from "./extract.js";
 import { isPrivateOrLoopbackHost } from "../util/url.js";
@@ -65,6 +79,70 @@ export function pathCoversRoot(pattern: string): boolean {
     .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
     .join(".*");
   return new RegExp(`^${source}${anchored ? "$" : ""}`).test("/");
+}
+
+/**
+ * Does a robots.txt path pattern match this path? RFC 9309 prefix semantics,
+ * with `*` for any run of characters and `$` anchoring the end.
+ *
+ * `pathCoversRoot` is this function asked about "/", and stays separate because
+ * it answers a different question — "is the whole site blocked?" — which the
+ * report states as a headline.
+ */
+export function robotsPathMatches(pattern: string, path: string): boolean {
+  if (!pattern) return false;
+  const anchored = pattern.endsWith("$");
+  const body = anchored ? pattern.slice(0, -1) : pattern;
+  const source = body
+    .split("*")
+    .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
+    .join(".*");
+  return new RegExp(`^${source}${anchored ? "$" : ""}`).test(path);
+}
+
+/**
+ * WHAT WE MAY FETCH — our own crawler obeying the file, not the matrix of what
+ * other people's crawlers may do.
+ *
+ * These are different questions and only the second one was being asked. We
+ * read robots.txt to report whether an owner turns away GPTBot, and then
+ * fetched whatever we liked. A tool that grades a site on crawler access and
+ * ignores that site's own Disallow has no standing to publish the grade — and
+ * viget.com, the first third party we pointed this at, asks crawlers to leave
+ * `/admin`, `/exhibit`, `/login` and `/search?q=` alone.
+ *
+ * Longest-match-wins between Allow and Disallow, per RFC 9309, so an
+ * `Allow: /blog/public` under a `Disallow: /blog` is honoured. A group naming
+ * us specifically wins over the wildcard group; with no robots.txt at all,
+ * everything is permitted, because absence is not refusal.
+ */
+export function robotsAllowsUs(robotsTxt: string | null, url: string, agent: string): boolean {
+  if (robotsTxt === null) return true;
+  let path: string;
+  try {
+    const u = new URL(url);
+    path = `${u.pathname}${u.search}`;
+  } catch {
+    return true;
+  }
+  const groups = parseRobots(robotsTxt);
+  const lower = agent.toLowerCase();
+  // Our UA string is "ReddoorAudit/1.0 (+https://...)"; a robots group naming
+  // us would write "reddooraudit", so match on containment either way round.
+  const named = groups.filter((g) =>
+    g.agents.some((a) => a !== "*" && (lower.includes(a) || a.includes(lower.split("/")[0] ?? ""))),
+  );
+  const matched = named.length > 0 ? named : groups.filter((g) => g.agents.includes("*"));
+  let best: { type: "allow" | "disallow"; length: number } | null = null;
+  for (const rule of matched.flatMap((g) => g.rules)) {
+    if (!robotsPathMatches(rule.path, path)) continue;
+    // An empty `Disallow:` is the conventional "nothing is disallowed" and
+    // matches nothing, which `robotsPathMatches` already returns false for.
+    if (best === null || rule.path.length > best.length) {
+      best = { type: rule.type, length: rule.path.length };
+    }
+  }
+  return best === null || best.type === "allow";
 }
 
 /** Can each agent fetch the site root? Only rules that cover "/" decide: a
@@ -213,13 +291,48 @@ export type FetchResponse = {
   url?: string;
 };
 
+/**
+ * What one browser pass produced for a page.
+ *
+ * A bare string is still accepted, and every injected test stub returns one —
+ * which normalises to `axe: null`, meaning "we ran no accessibility rules here".
+ * That is the honest reading: absence of results must never render as absence
+ * of violations, and widening the type this way keeps the seventeen existing
+ * stubs correct rather than making them lie by omission.
+ */
+export type RenderedPage = {
+  html: string;
+  axe: AxePageResult | null;
+  vitals?: PageVitals | null;
+  /** Present only on the one page we interacted with. */
+  formProbe?: FormProbe | null;
+};
+
 export type CrawlDeps = {
   fetchUrl: (url: string) => Promise<FetchResponse>;
-  /** Rendered DOM per URL. A URL absent from the map has no rendered extract. */
-  renderPages: (urls: string[]) => Promise<Map<string, string>>;
+  /**
+   * Rendered DOM per URL, and whatever else the one browser pass collected. A
+   * URL absent from the map has no rendered extract.
+   *
+   * The accessibility rules run HERE rather than in a stage of their own,
+   * because a stage of their own would mean opening a second browser and
+   * navigating every page a second time — doubling the heaviest traffic we put
+   * on a stranger's server to learn something the first visit could have told
+   * us.
+   */
+  renderPages: (urls: string[]) => Promise<Map<string, string | RenderedPage>>;
   maxPages: number;
   delayMs: number;
 };
+
+/** Normalises the union above. A stub that returns plain HTML has measured no
+ *  accessibility rules, and says so. */
+export function asRendered(v: string | RenderedPage | undefined): RenderedPage | null {
+  if (v === undefined) return null;
+  // No `formProbe` key: a caller handing back raw HTML never opened a browser,
+  // so it did not try a form — which is not the same as trying and finding none.
+  return typeof v === "string" ? { html: v, axe: null, vitals: null } : v;
+}
 
 /** Honest, identified UA — we audit on the prospect's behalf and say so. */
 export const USER_AGENT = "ReddoorAudit/1.0 (+https://reddoorla.com/; operator-run site audit)";
@@ -259,6 +372,25 @@ export class ResponseTooLargeError extends Error {
 /** Exported so probes.ts (which paces calls to metered AI-visibility APIs
  *  with the same `pacedEach`) doesn't need its own identical copy. */
 export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/** How many sitemap URLs are carried forward for probing. Ten times the number
+ *  Tier 2 samples, so the sample is drawn from a spread of the sitemap rather
+ *  than its first twelve entries — which on most CMSes are the newest posts. */
+export const MAX_SITEMAP_SAMPLE = 120;
+
+/** How many children of a sitemap index we follow. Was 3, which read 66 of
+ *  viget.com's 1,636 URLs and turned our own ceiling into a finding about their
+ *  sitemap. Each child is still filtered by `isSafeNestedSitemap` BEFORE the cap
+ *  applies, so raising it does not widen what a hostile index can reach — it
+ *  only stops a real one being cut off. Whatever the number, going over it now
+ *  sets `truncated`, and a truncated read may not become a finding. */
+export const MAX_SITEMAP_CHILDREN = 25;
+
+/** Ceilings on the per-page browser work. Generous — a slow page should still
+ *  be measured — but finite, because the alternative is losing the crawl. */
+export const CONTENT_BUDGET_MS = 20_000;
+export const AXE_BUDGET_MS = 45_000;
+export const VITALS_BUDGET_MS = 30_000;
 
 /** Runs `fn` once per item, waiting `delayMs` between calls but never before
  *  the first — the same courtesy pacing the raw-fetch loop already applies to
@@ -339,9 +471,31 @@ function samePageKey(u: URL): string {
   return `${u.origin.toLowerCase()}${path}${u.search}`;
 }
 
-function normalizeCandidates(urls: string[], origin: string, max: number): string[] {
-  const out: string[] = [];
+/**
+ * Which URLs to spend the page budget on.
+ *
+ * DISTINCT PATHS FIRST, query variants with whatever is left. The budget is
+ * small and a query string is the cheapest way for a site to spend all of it on
+ * one page: apple.com handed us `/accessibility/features/` five times under
+ * `?vision`, `?hearing`, `?speech` and `?cognitive` — tab deep-links into a
+ * single page — plus `/airpods-pro/?campaign=true`, so six of twenty slots went
+ * to two pages we had already read.
+ *
+ * A PREFERENCE, never a filter, because `samePageKey` is right that `?page=2`
+ * is genuinely another page. A blog whose only content is `?page=N` still gets
+ * crawled: those URLs simply queue behind the distinct paths instead of
+ * crowding them out.
+ */
+function normalizeCandidates(
+  urls: string[],
+  origin: string,
+  max: number,
+  robotsTxt: string | null,
+): string[] {
+  const firstOfPath: string[] = [];
+  const variants: string[] = [];
   const seen = new Set<string>();
+  const paths = new Set<string>();
   for (const raw of urls) {
     let u: URL;
     try {
@@ -355,14 +509,21 @@ function normalizeCandidates(urls: string[], origin: string, max: number): strin
     // pages.ts. Following them costs a page of the budget and then invites a
     // finding about a URL the prospect never chose to publish.
     if (isInfraPath(u.toString())) continue;
+    // The site's own Disallow, obeyed. Not the AI-crawler matrix — that reports
+    // what OTHER crawlers may do. This is us.
+    if (!robotsAllowsUs(robotsTxt, u.toString(), USER_AGENT)) continue;
     u.hash = "";
     const key = samePageKey(u);
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(u.toString());
-    if (out.length >= max) break;
+    const path = `${u.origin.toLowerCase()}${u.pathname.replace(/\/+$/, "") || "/"}`;
+    if (paths.has(path)) variants.push(u.toString());
+    else {
+      paths.add(path);
+      firstOfPath.push(u.toString());
+    }
   }
-  return out;
+  return [...firstOfPath, ...variants].slice(0, max);
 }
 
 type Sidecars = {
@@ -371,8 +532,16 @@ type Sidecars = {
   llmsTxt: { present: boolean; firstLine: string | null };
   sitemapUrls: string[];
   sitemapPresent: boolean;
+  sitemapTruncated: boolean;
   sidecarErrors: { robots: string | null; llms: string | null; sitemap: string | null };
 };
+
+/** Kept as a function so the field is written from one place, and so a future
+ *  sidecar shape that cannot answer the question returns `true` rather than
+ *  silently claiming a complete read. */
+function sitemapTruncatedOf(s: Sidecars): boolean {
+  return s.sitemapTruncated;
+}
 
 /** robots.txt, llms.txt and sitemap.xml — every one degrades instead of
  *  failing the crawl, but a transport failure must stay visible in the result
@@ -401,6 +570,7 @@ async function fetchSidecars(origin: string, deps: CrawlDeps): Promise<Sidecars>
   const sitemap = await optional(deps, `${origin}/sitemap.xml`);
   let sitemapUrls: string[] = [];
   let sitemapPresent = false;
+  let sitemapTruncated = false;
   if (sitemap.res && /<(urlset|sitemapindex)[\s>]/i.test(sitemap.res.body)) {
     sitemapPresent = true;
     if (isSitemapIndex(sitemap.res.body)) {
@@ -417,12 +587,17 @@ async function fetchSidecars(origin: string, deps: CrawlDeps): Promise<Sidecars>
       // real sitemaps — the crawl then silently sees fewer pages, which is a
       // quieter failure than the SSRF itself. Caught by the positive control in
       // the SSRF test, not by reading the loop.
-      const children = parseSitemapLocs(sitemap.res.body)
-        .filter((child) => isSafeNestedSitemap(child, origin))
-        .slice(0, 3);
+      const safe = parseSitemapLocs(sitemap.res.body).filter((child) =>
+        isSafeNestedSitemap(child, origin),
+      );
+      const children = safe.slice(0, MAX_SITEMAP_CHILDREN);
+      sitemapTruncated = safe.length > children.length;
       for (const child of children) {
         const nested = await optional(deps, child);
+        // A child we could not fetch is a piece of their sitemap we did not
+        // read, and the count that comes out is short by however much it held.
         if (nested.res) sitemapUrls.push(...parseSitemapLocs(nested.res.body));
+        else sitemapTruncated = true;
       }
     } else {
       sitemapUrls = parseSitemapLocs(sitemap.res.body);
@@ -435,6 +610,7 @@ async function fetchSidecars(origin: string, deps: CrawlDeps): Promise<Sidecars>
     llmsTxt,
     sitemapUrls,
     sitemapPresent,
+    sitemapTruncated,
     sidecarErrors: { robots: robots.error, llms: llms.error, sitemap: sitemap.error },
   };
 }
@@ -521,9 +697,12 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
     [resolvedUrl, ...sidecars.sitemapUrls, ...sameOriginLinks(home.body, resolvedUrl)],
     origin,
     deps.maxPages,
+    sidecars.robotsTxt,
   );
 
-  const rendered = await deps.renderPages(pageUrls).catch(() => new Map<string, string>());
+  const rendered = await deps
+    .renderPages(pageUrls)
+    .catch(() => new Map<string, string | RenderedPage>());
 
   const pages: PageCapture[] = [];
   for (const url of pageUrls) {
@@ -539,7 +718,8 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
         error = err instanceof Error ? err.message : String(err);
       }
     }
-    const renderedHtml = rendered.get(url) ?? null;
+    const renderedPage = asRendered(rendered.get(url));
+    const renderedHtml = renderedPage?.html ?? null;
     // A sitemap or nav link can point at a non-HTML resource (a linked PDF
     // brochure, say). Decoding that as HTML produces raw/rendered divergence
     // that has nothing to do with the prospect's JavaScript, so it must not
@@ -563,6 +743,17 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
       // found in the entire stored corpus.
       rendered: usable && renderedHtml ? extractPage(renderedHtml) : null,
       error: error ?? (res && res.status >= 400 ? `HTTP ${res.status}` : notHtmlReason),
+      // Gated on `usable` for the same reason as `rendered`: a browser paints
+      // something for a 404, and running the rule set over an error page would
+      // report that page's failings as the website's.
+      axe: usable ? (renderedPage?.axe ?? null) : null,
+      vitals: usable ? (renderedPage?.vitals ?? null) : null,
+      // Spread, so an absent probe stays absent: `formProbe: undefined` is
+      // rejected under exactOptionalPropertyTypes, and `?? null` would turn
+      // "we never tried" into "we tried and there was nothing".
+      ...(usable && renderedPage?.formProbe !== undefined
+        ? { formProbe: renderedPage.formProbe }
+        : {}),
     });
   }
 
@@ -573,7 +764,16 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
     origin,
     robotsTxt: sidecars.robotsTxt,
     agentAccess: sidecars.agentAccess,
-    sitemap: { present: sidecars.sitemapPresent, urlCount: sidecars.sitemapUrls.length },
+    sitemap: {
+      present: sidecars.sitemapPresent,
+      urlCount: sidecars.sitemapUrls.length,
+      // A capped sample, kept so Tier 2 can ask whether the URLs a sitemap
+      // advertises actually answer — `urlCount` alone cannot be probed. Capped
+      // because this lands in `result_json`, and a 4,000-URL sitemap has no
+      // business being stored whole for the sake of sampling twelve of them.
+      sample: sidecars.sitemapUrls.slice(0, MAX_SITEMAP_SAMPLE),
+      truncated: sitemapTruncatedOf(sidecars),
+    },
     llmsTxt: sidecars.llmsTxt,
     sidecarErrors: sidecars.sidecarErrors,
     homeHeaders,
@@ -621,11 +821,210 @@ export async function readCapped(res: Response, url: string): Promise<string> {
   return new TextDecoder("utf-8").decode(merged);
 }
 
+/** The viewport the overflow check is named for — an iPhone SE, the narrowest
+ *  screen still worth designing for and the one that finds the bug. */
+const MOBILE_WIDTH = 375;
+const MOBILE_HEIGHT = 812;
+/** What the crawl renders at otherwise. Restored after each measurement so the
+ *  next page is captured the same way as the first. */
+const DESKTOP_WIDTH = 1280;
+const DESKTOP_HEIGHT = 720;
+/** How long the narrow-viewport reflow gets to settle, and how often it is
+ *  read. Sized off the worst real page measured so far: apple.com's comparison
+ *  table needs about a second, so the budget is several times that and the step
+ *  is short enough that an ordinary page pays a quarter of a second. */
+const OVERFLOW_SETTLE_BUDGET_MS = 5_000;
+const OVERFLOW_SETTLE_STEP_MS = 250;
+
+/**
+ * What the browser noticed, measured in the page it has already loaded.
+ *
+ * Every measurement here is a reflow or a DOM read — no navigation, no request.
+ * Returns null on any failure, for the same reason `runAxe` does: a measurement
+ * that fell over is ours, and reporting a page as clean because the measuring
+ * threw would be a false all-clear.
+ */
+async function measureVitals(
+  page: import("@playwright/test").Page,
+  collected: { consoleErrors: string[]; failed: PageVitals["failedRequests"] },
+): Promise<PageVitals | null> {
+  try {
+    // Desktop first, because that is how the page was rendered and captured.
+    const desktop = await page.evaluate(
+      ({ maxImages }) => {
+        const tiny: { count: number; sample: string | null } = { count: 0, sample: null };
+        for (const el of Array.from(document.body.querySelectorAll("*"))) {
+          // Only elements with their own text, so a wrapper does not inherit
+          // the blame for its child's font size.
+          const ownText = Array.from(el.childNodes)
+            .filter((n) => n.nodeType === 3)
+            .map((n) => n.textContent ?? "")
+            .join("")
+            .trim();
+          if (ownText.length < 12) continue;
+          const size = parseFloat(getComputedStyle(el).fontSize);
+          if (Number.isFinite(size) && size > 0 && size < 12) {
+            tiny.count += 1;
+            tiny.sample ??= ownText.slice(0, 80);
+          }
+        }
+
+        const oversized: { src: string; naturalWidth: number; renderedWidth: number }[] = [];
+        for (const img of Array.from(document.images)) {
+          const rendered = img.clientWidth;
+          // Twice the drawn width in each direction is four times the pixels,
+          // which is where the waste becomes worth a sentence. A 2x retina
+          // asset is deliberately under that bar.
+          if (rendered > 0 && img.naturalWidth > rendered * 2.5) {
+            oversized.push({
+              src: img.currentSrc || img.src,
+              naturalWidth: img.naturalWidth,
+              renderedWidth: rendered,
+            });
+          }
+        }
+        oversized.sort((a, b) => b.naturalWidth - a.naturalWidth);
+        return { tiny, oversized: oversized.slice(0, maxImages) };
+      },
+      { maxImages: MAX_OVERSIZED_IMAGES },
+    );
+
+    // Then the narrow viewport. A resize reflows a page the browser already
+    // holds — no navigation, no new bytes from the prospect's server.
+    await page.setViewportSize({ width: MOBILE_WIDTH, height: MOBILE_HEIGHT });
+    // POLLED UNTIL IT STOPS MOVING, not sampled once after 250ms.
+    //
+    // A single 250ms sample measured pages mid-reflow and reported the
+    // transient as the finding. apple.com's AirPods comparison page, resized
+    // from 1280 to 375, reads 303px over at 250ms, 26px at 500ms and 0px from
+    // 1000ms on; loaded at 375 in the first place it never overflows at all. We
+    // told a client their page scrolls sideways on a phone about a page that
+    // does not, which is the most quotable finding shape we produce.
+    //
+    // Two consecutive equal reads is the settle condition. The budget is a
+    // ceiling, not a target: a static page settles on the second read and pays
+    // one extra interval.
+    const overflowAt375 = await settledOverflow(
+      () =>
+        page.evaluate(() => {
+          const doc = document.documentElement;
+          return Math.max(0, Math.round(doc.scrollWidth - doc.clientWidth));
+        }),
+      (ms) => page.waitForTimeout(ms),
+    );
+    await page.setViewportSize({ width: DESKTOP_WIDTH, height: DESKTOP_HEIGHT });
+
+    return {
+      consoleErrors: collected.consoleErrors.slice(0, MAX_CONSOLE_ERRORS),
+      failedRequests: collected.failed.slice(0, MAX_FAILED_REQUESTS),
+      overflowAt375,
+      tinyText: desktop.tiny,
+      oversizedImages: desktop.oversized,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read the narrow-viewport overflow once it has stopped moving.
+ *
+ * Exported for its test. Two consecutive equal reads is the settle condition;
+ * the budget is a ceiling, not a target, so a static page settles on the second
+ * read and pays one extra interval.
+ */
+export async function settledOverflow(
+  read: () => Promise<number>,
+  wait: (ms: number) => Promise<unknown>,
+  budgetMs: number = OVERFLOW_SETTLE_BUDGET_MS,
+  stepMs: number = OVERFLOW_SETTLE_STEP_MS,
+): Promise<number> {
+  let last = -1;
+  const deadline = Date.now() + budgetMs;
+  for (;;) {
+    await wait(stepMs);
+    const now = await read();
+    // A page still moving when the budget runs out has told us nothing
+    // trustworthy, and a number we do not trust must not become a finding about
+    // somebody's site. The last reading stands only if it agrees with the one
+    // before it; otherwise we report no overflow rather than a transient.
+    if (now === last) return now;
+    if (Date.now() > deadline) return 0;
+    last = now;
+  }
+}
+
+/**
+ * Run the whole axe rule set against the page already loaded in this tab.
+ *
+ * No `withTags` call, deliberately. Restricting to `wcag2a`/`wcag2aa`/`wcag21a`/
+ * `wcag21aa` — which is what our own fleet audit does — silently drops every
+ * landmark and heading-order rule, because those are tagged `best-practice`.
+ * The default set is all of them, and the structural rules are the ones most
+ * worth having.
+ *
+ * Returns null rather than throwing on any failure. An accessibility scan that
+ * fell over is OUR missing measurement, and a page reported with no violations
+ * because the scanner crashed would be the worst kind of false all-clear.
+ */
+async function runAxe(page: import("@playwright/test").Page): Promise<AxePageResult | null> {
+  try {
+    // The NAMED export, not the default. The package publishes both, and under
+    // Node's CJS interop the `default` binding resolves to the whole module
+    // namespace rather than the class — which type-checks as "not
+    // constructable" and would have thrown at runtime.
+    const { AxeBuilder } = await import("@axe-core/playwright");
+    const results = await new AxeBuilder({ page }).analyze();
+    return {
+      violations: results.violations.map((v) => ({
+        id: v.id,
+        impact: (v.impact ?? null) as AxePageResult["violations"][number]["impact"],
+        help: v.help,
+        helpUrl: v.helpUrl,
+        nodes: v.nodes.length,
+        // One element, truncated: enough for a reader to find it on the page,
+        // not enough to bloat a stored report with a page of markup.
+        sample: v.nodes[0]?.html?.slice(0, 200) ?? null,
+      })),
+      passes: results.passes.length,
+      incomplete: results.incomplete.length,
+      // The ids as well as the count: "three rules need a human" is a worry,
+      // "colour contrast over an image needs a human" is something to look at.
+      incompleteIds: results.incomplete.map((r) => r.id),
+      // Carried so the report can say how many rules had something to check
+      // rather than implying we checked all ninety.
+      inapplicable: results.inapplicable.length,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Real deps: identified sequential fetches + one shared Playwright chromium.
  *  Playwright is imported lazily so unit tests (which inject deps) never load it. */
-export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
+export function defaultCrawlDeps(
+  over: Partial<CrawlDeps> & {
+    /**
+     * Whether to press a form on the first page that has one. Default true —
+     * production behaviour, and the only way `form-rejects-empty` and
+     * `form-rejects-bad-email` can ever answer.
+     *
+     * Turn it OFF for a read-only pass. The abort harness stops the submission
+     * before it leaves the browser and there are real-Chromium tests, control
+     * cases included, that say so — but pressing a stranger's send button is
+     * still an act, and a bulk re-crawl of sites we might approach is not the
+     * place to perform it dozens of times over.
+     *
+     * With it off the two probe checks report `unmeasured` and say we did not
+     * try, rather than "we found no enquiry form" — which would be a false
+     * statement about their site made to cover a choice of ours.
+     */
+    probeForms?: boolean;
+  } = {},
+): CrawlDeps {
   // Resolved up front so the renderPages closure below paces itself on the
   // SAME delay the caller configured, instead of silently ignoring it.
+  const { probeForms: pressForms = true, ...deps } = over;
   const maxPages = over.maxPages ?? 20;
   const delayMs = over.delayMs ?? 500;
   return {
@@ -646,14 +1045,72 @@ export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
     },
     async renderPages(urls) {
       const { chromium } = await import("@playwright/test");
-      const out = new Map<string, string>();
+      const out = new Map<string, string | RenderedPage>();
       const browser = await chromium.launch();
       try {
-        const ctx = await browser.newContext({ userAgent: USER_AGENT });
+        const ctx = await browser.newContext({
+          userAgent: USER_AGENT,
+          viewport: { width: DESKTOP_WIDTH, height: DESKTOP_HEIGHT },
+        });
         const page = await ctx.newPage();
+
+        // Listeners are attached ONCE and buffer into `collected`, which is
+        // cleared per URL. Attaching them per navigation would miss everything
+        // the page reports during load, which is most of it.
+        const collected = {
+          consoleErrors: [] as string[],
+          failed: [] as PageVitals["failedRequests"],
+        };
+        let currentOrigin = "";
+        const noteError = (message: string): void => {
+          const trimmed = message.trim().slice(0, 300);
+          // Deduped: one broken component in a loop can report the same line a
+          // thousand times, and a thousand copies is not a thousand problems.
+          if (trimmed && !collected.consoleErrors.includes(trimmed)) {
+            collected.consoleErrors.push(trimmed);
+          }
+        };
+        page.on("pageerror", (err) => noteError(err.message));
+        page.on("console", (msg) => {
+          if (msg.type() === "error") noteError(msg.text());
+        });
+        const noteFailed = (url: string, status: number | null): void => {
+          // A URL we cannot parse is not evidence that it belongs to this site,
+          // so it counts as third-party — the direction that cannot manufacture
+          // a finding against the prospect.
+          const firstParty = ((): boolean => {
+            try {
+              return new URL(url).origin === currentOrigin;
+            } catch {
+              return false;
+            }
+          })();
+          if (collected.failed.length < MAX_FAILED_REQUESTS * 4) {
+            collected.failed.push({ url: url.slice(0, 200), status, firstParty });
+          }
+        };
+        // ABORTED IS NOT FAILED.
+        //
+        // A browser cancels partial media loads as a matter of routine — it
+        // asks for the first bytes of a hero video, decides it has enough, and
+        // drops the rest. Playwright reports that as `requestfailed` with
+        // `net::ERR_ABORTED`, and so does every request cut short by a
+        // navigation. apple.com came back with nine "failed" requests, every
+        // one of them a .webm the browser had deliberately stopped fetching.
+        // Printing those as broken files is our misreading of the browser, on
+        // a site whose videos play perfectly.
+        page.on("requestfailed", (req) => {
+          const why = req.failure()?.errorText ?? "";
+          if (/ERR_ABORTED/i.test(why)) return;
+          noteFailed(req.url(), null);
+        });
+        page.on("response", (res) => {
+          if (res.status() >= 400) noteFailed(res.url(), res.status());
+        });
         // Playwright navigations are the heavier half of the traffic we put on
         // a stranger's server (each pulls images, fonts, third-party scripts),
         // so they get the same courtesy pacing as the raw fetches.
+        let formProbed = false;
         await pacedEach(urls, delayMs, async (url) => {
           try {
             // `load`, NOT `networkidle`.
@@ -675,9 +1132,58 @@ export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
             // reason. `load` fires once resources are in; the settle below
             // gives client-side frameworks room to hydrate, which is what the
             // rendered extract is actually for.
+            collected.consoleErrors.length = 0;
+            collected.failed.length = 0;
+            try {
+              currentOrigin = new URL(url).origin;
+            } catch {
+              currentOrigin = "";
+            }
             await page.goto(url, { waitUntil: "load", timeout: 20_000 });
             await page.waitForTimeout(RENDER_SETTLE_MS);
-            out.set(url, await page.content());
+            // EVERY ONE OF THESE IS BUDGETED, and the reason is a bug that
+            // already happened: an unbounded await in this loop does not fail
+            // the page it is on, it stalls the whole crawl, and twenty pages
+            // already fetched are lost for one that would not answer. The form
+            // probe was the one that actually deadlocked; these three are the
+            // same shape and were one slow page away from the same outcome.
+            //
+            // Each null is already a state downstream understands — no rendered
+            // extract, no rules run, no browser measurements — so a timeout
+            // costs that page's browser findings and nothing else.
+            const html = await withTimeout(page.content(), CONTENT_BUDGET_MS);
+            if (html === null) return;
+            const axe = await withTimeout(runAxe(page), AXE_BUDGET_MS);
+            const vitals = await withTimeout(measureVitals(page, collected), VITALS_BUDGET_MS);
+            // LAST, and once per crawl. Everything above reads the page as it
+            // was served; this one presses a button, so it cannot run before
+            // the extract and the rules that describe the untouched document.
+            // Once, because a site has one enquiry form, and probing the same
+            // form on five pages is five sets of aborted requests for one
+            // answer.
+            //
+            // BUDGETED, because a stall here used to cost the whole crawl:
+            // twenty pages already fetched, thrown away, for two checks. A
+            // probe that runs out of time is abandoned and reads as "not
+            // measured", which is the same trade every other stage makes.
+            //
+            // `formProbe` is left ABSENT — not null — when probing is off.
+            // Absent means "we never tried"; null means "we tried and this page
+            // had no form we could identify". Only one of those is a fact about
+            // their site, and the checks have to be able to tell them apart.
+            if (!pressForms) {
+              out.set(url, { html, axe, vitals });
+            } else {
+              let formProbe: FormProbe | null = null;
+              if (!formProbed) {
+                formProbe = await withTimeout(
+                  probeForms(pageInteractionDeps(page, url)),
+                  PROBE_BUDGET_MS,
+                );
+                if (formProbe) formProbed = true;
+              }
+              out.set(url, { html, axe, vitals, formProbe });
+            }
           } catch {
             // A page that won't render simply has no rendered extract.
           }
@@ -689,6 +1195,6 @@ export function defaultCrawlDeps(over: Partial<CrawlDeps> = {}): CrawlDeps {
     },
     maxPages,
     delayMs,
-    ...over,
+    ...deps,
   };
 }

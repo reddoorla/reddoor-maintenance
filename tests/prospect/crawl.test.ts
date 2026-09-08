@@ -6,6 +6,9 @@ import {
   crawlSite,
   pacedEach,
   sameOriginLinks,
+  settledOverflow,
+  robotsAllowsUs,
+  USER_AGENT,
   defaultCrawlDeps,
   MAX_RESPONSE_BYTES,
   ResponseTooLargeError,
@@ -72,7 +75,68 @@ describe("crawlSite", () => {
       "https://acme.example/services",
       "https://acme.example/about",
     ]);
-    expect(result.sitemap).toEqual({ present: false, urlCount: 0 });
+    expect(result.sitemap).toEqual({
+      present: false,
+      urlCount: 0,
+      sample: [],
+      // No sitemap at all is not a truncated read of one.
+      truncated: false,
+    });
+  });
+
+  it("spends the page budget on distinct paths before query variants", async () => {
+    // apple.com handed us /accessibility/features/ five times under ?vision,
+    // ?hearing, ?speech and ?cognitive — tab deep-links into one page — plus
+    // /airpods-pro/?campaign=true. Six of twenty slots went to two pages.
+    const variants = ["?vision", "?hearing", "?speech", "?cognitive"].map(
+      (q) => `<url><loc>https://acme.example/features${q}</loc></url>`,
+    );
+    const others = ["a", "b", "c"].map((n) => `<url><loc>https://acme.example/${n}</loc></url>`);
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: { body: fixture("rich.html") },
+      "https://acme.example/sitemap.xml": {
+        body: `<urlset><url><loc>https://acme.example/features</loc></url>${variants.join("")}${others.join("")}</urlset>`,
+      },
+    };
+    for (const u of [
+      "features",
+      "features?vision",
+      "features?hearing",
+      "features?speech",
+      "features?cognitive",
+      "a",
+      "b",
+      "c",
+    ])
+      routes[`https://acme.example/${u}`] = { body: fixture("rich.html") };
+
+    const result = await crawlSite(HOME, stubDeps(routes, { maxPages: 4 }));
+    expect(result.pages.map((p) => p.url)).toEqual([
+      HOME,
+      "https://acme.example/features",
+      "https://acme.example/a",
+      "https://acme.example/b",
+    ]);
+  });
+
+  it("still crawls a site whose only pages ARE query variants", async () => {
+    // A PREFERENCE, never a filter: `?page=2` genuinely is another page, and
+    // dropping it would silently remove paginated content from the crawl.
+    const locs = [2, 3, 4].map((n) => `<url><loc>https://acme.example/?page=${n}</loc></url>`);
+    // A body with no internal links of its own, so the sitemap's query variants
+    // are the only candidates left. With a richer home page the distinct paths
+    // it links to would rightly take the budget first — that is the preference
+    // working, not a variant being dropped.
+    const BARE = "<html><head><title>Acme</title></head><body><h1>Acme</h1></body></html>";
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: { body: BARE },
+      "https://acme.example/sitemap.xml": { body: `<urlset>${locs.join("")}</urlset>` },
+    };
+    for (const n of [2, 3, 4]) routes[`https://acme.example/?page=${n}`] = { body: BARE };
+
+    const result = await crawlSite(HOME, stubDeps(routes, { maxPages: 4 }));
+    expect(result.pages).toHaveLength(4);
+    expect(result.pages.map((p) => p.url)).toContain("https://acme.example/?page=3");
   });
 
   it("prefers sitemap URLs and honours maxPages", async () => {
@@ -88,7 +152,10 @@ describe("crawlSite", () => {
       routes[`https://acme.example/p${i}`] = { body: fixture("rich.html") };
     const result = await crawlSite(HOME, stubDeps(routes, { maxPages: 3 }));
 
-    expect(result.sitemap).toEqual({ present: true, urlCount: 5 });
+    expect(result.sitemap).toMatchObject({ present: true, urlCount: 5 });
+    // The sample is what Tier 2 probes: five URLs is under the cap, so it is
+    // the whole sitemap and `sitemap-coverage` may name a page it omits.
+    expect(result.sitemap.sample).toHaveLength(5);
     expect(result.pages).toHaveLength(3);
     expect(result.pages.map((p) => p.url)).toEqual([
       HOME,
@@ -692,5 +759,116 @@ describe("a URL the server refused is not a page of the site", () => {
       const services = crawl.pages.filter((p) => /\/services\/?$/.test(p.url));
       expect(services).toHaveLength(1);
     });
+  });
+});
+
+describe("settledOverflow — the mobile measurement waits for the reflow", () => {
+  /** A page whose overflow reads down a scripted sequence, then holds. */
+  const scripted = (values: number[]) => {
+    let i = 0;
+    return () => Promise.resolve(values[Math.min(i++, values.length - 1)]!);
+  };
+  const noWait = () => Promise.resolve();
+
+  it("reports the settled number, not the transient", async () => {
+    // Reproduced against apple.com's AirPods comparison page, resized from 1280
+    // to 375: 303px at 250ms, 26px at 500ms, 0px from 1000ms on. Loaded at 375
+    // it never overflows at all. The old code sampled once at 250ms and
+    // reported 303 — "your page scrolls sideways on a phone" about a page that
+    // does not.
+    expect(await settledOverflow(scripted([303, 26, 0, 0]), noWait)).toBe(0);
+  });
+
+  it("reports a real overflow that holds still", async () => {
+    expect(await settledOverflow(scripted([287, 287]), noWait)).toBe(287);
+  });
+
+  it("costs a settled page one extra read and no more", async () => {
+    let reads = 0;
+    const read = () => {
+      reads += 1;
+      return Promise.resolve(0);
+    };
+    await settledOverflow(read, noWait);
+    expect(reads).toBe(2);
+  });
+
+  it("reports nothing rather than a transient when the page never settles", async () => {
+    // A number we do not trust must not become a finding about somebody's site.
+    let n = 0;
+    const jitter = () => Promise.resolve(100 + n++);
+    const wait = () => Promise.resolve();
+    expect(await settledOverflow(jitter, wait, -1)).toBe(0);
+  });
+});
+
+describe("robotsAllowsUs — our own crawler obeying the file", () => {
+  // Two different questions live in this module and only one was being asked.
+  // `evaluateAgentAccess` reports whether an owner turns away GPTBot. This is
+  // whether WE may fetch a path — and until now we fetched whatever we liked,
+  // which is not a defensible position for a tool that grades sites on crawler
+  // access.
+  const VIGET = [
+    "User-agent: *",
+    "Disallow: /admin",
+    "Disallow: /exhibit",
+    "Disallow: /login",
+    "Disallow: /search?q=*",
+    "Disallow: /*?*ref=*",
+  ].join("\n");
+
+  it("honours the real disallow list of the first site we pointed this at", () => {
+    const may = (u: string) => robotsAllowsUs(VIGET, u, USER_AGENT);
+    expect(may("https://www.viget.com/")).toBe(true);
+    expect(may("https://www.viget.com/contact/")).toBe(true);
+    expect(may("https://www.viget.com/articles/")).toBe(true);
+    expect(may("https://www.viget.com/admin")).toBe(false);
+    expect(may("https://www.viget.com/exhibit/whatever")).toBe(false);
+    expect(may("https://www.viget.com/login")).toBe(false);
+    expect(may("https://www.viget.com/search?q=roofing")).toBe(false);
+    // `/*?*ref=*` — a wildcard in the middle, matched against path + query.
+    expect(may("https://www.viget.com/articles/x?ref=twitter")).toBe(false);
+  });
+
+  it("treats no robots.txt as permission, because absence is not refusal", () => {
+    expect(robotsAllowsUs(null, "https://acme.example/anything", USER_AGENT)).toBe(true);
+  });
+
+  it("takes the longest match, so an Allow can carve out of a Disallow", () => {
+    const txt = "User-agent: *\nDisallow: /blog\nAllow: /blog/public";
+    expect(robotsAllowsUs(txt, "https://acme.example/blog/secret", USER_AGENT)).toBe(false);
+    expect(robotsAllowsUs(txt, "https://acme.example/blog/public/post", USER_AGENT)).toBe(true);
+  });
+
+  it("prefers a group that names us over the wildcard group", () => {
+    const txt = "User-agent: *\nDisallow: /\n\nUser-agent: ReddoorAudit\nDisallow:";
+    expect(robotsAllowsUs(txt, "https://acme.example/page", USER_AGENT)).toBe(true);
+  });
+
+  it("obeys a site-wide block aimed at everyone", () => {
+    expect(
+      robotsAllowsUs("User-agent: *\nDisallow: /", "https://acme.example/page", USER_AGENT),
+    ).toBe(false);
+  });
+});
+
+describe("the crawl does not fetch a disallowed path", () => {
+  it("skips it and spends the budget elsewhere", async () => {
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: { body: fixture("rich.html") },
+      "https://acme.example/robots.txt": { body: "User-agent: *\nDisallow: /private" },
+      "https://acme.example/sitemap.xml": {
+        body: `<urlset>${["/private/a", "/open-b", "/open-c"]
+          .map((p) => `<url><loc>https://acme.example${p}</loc></url>`)
+          .join("")}</urlset>`,
+      },
+    };
+    for (const p of ["/private/a", "/open-b", "/open-c"])
+      routes[`https://acme.example${p}`] = { body: fixture("rich.html") };
+
+    const result = await crawlSite(HOME, stubDeps(routes, { maxPages: 3 }));
+    const urls = result.pages.map((p) => p.url);
+    expect(urls).not.toContain("https://acme.example/private/a");
+    expect(urls).toContain("https://acme.example/open-b");
   });
 });

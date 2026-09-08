@@ -28,6 +28,22 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # SETUP, not a gate — which is why it takes the `- name:`/`run:` form that
+      # keeps it out of `tests/ci-gate.test.ts`'s drift check, alongside
+      # `pnpm install` for the same reason.
+      #
+      # `tests/prospect/interaction-harness.test.ts` drives a REAL Chromium
+      # against a local server: it is the test that proves the Tier 4 form probe
+      # aborts a submission before it leaves the browser, so a prospect's form
+      # is never actually sent. Playwright ships no browser with the npm
+      # package, so without this the suite failed with "Executable doesn't
+      # exist" — and the alternative, letting that spec skip when no browser is
+      # present, would retire the one instrument standing between us and posting
+      # a stranger's contact form. A test that guards a side effect has to run
+      # where the merge is decided.
+      - name: Install the browser the Tier 4 abort harness drives
+        run: pnpm exec playwright install --with-deps chromium
+
       # These steps ARE `pnpm verify`, listed individually so a failure is
       # attributable at a glance in the Actions UI. They are not a second,
       # hand-maintained list: tests/ci-gate.test.ts derives the expected

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { extractPage } from "../../src/prospect/extract.js";
+import { extractPage, MAX_SCRIPTS } from "../../src/prospect/extract.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name: string): string =>
@@ -144,6 +144,26 @@ describe("extractPage — text rendered the way a browser does", () => {
   it("breaks a heading at a <br> instead of jamming the two lines together", () => {
     const page = extractPage("<h1>Big Bold<br>Headline</h1>");
     expect(page.headings).toEqual([{ level: 1, text: "Big Bold Headline" }]);
+  });
+
+  it("reads a logo wrapped in the headline by its alt text", () => {
+    // One of the commonest homepage patterns there is. Reading text nodes alone
+    // yielded "", the empty heading was dropped, and the page arrived at the
+    // checks as one with no headline at all — a site with an h1 reported as a
+    // site without one, and invisible in the stored corpus because the extract
+    // only ever kept the headings that survived.
+    const page = extractPage('<h1><img src="/logo.svg" alt="Acme Roofing"></h1>');
+    expect(page.headings).toEqual([{ level: 1, text: "Acme Roofing" }]);
+  });
+
+  it("prefers a heading's own aria-label, exactly as a screen reader does", () => {
+    const page = extractPage('<h1 aria-label="Commercial roof repair"><span>ACME</span></h1>');
+    expect(page.headings).toEqual([{ level: 1, text: "Commercial roof repair" }]);
+  });
+
+  it("still drops a heading that names nothing at all", () => {
+    const page = extractPage('<h1><img src="/spacer.gif" alt=""></h1><h2>Real</h2>');
+    expect(page.headings).toEqual([{ level: 2, text: "Real" }]);
   });
 
   it("reads a <title> misplaced inside <body> into page.title but keeps it out of text", () => {
@@ -429,5 +449,63 @@ describe("formShape — telling an enquiry form from a two-field newsletter box"
         <input name="first_name"><input type="email" name="email"><button>Subscribe</button>
       </form>`),
     ).toBe("subscribe");
+  });
+});
+
+describe("extractPage — metas and script sources", () => {
+  it("keys every non-social meta by its name, and og:/twitter: stay in social", () => {
+    const page = extractPage(fixture("rich.html"));
+    expect(page.metas?.["description"]).toContain("Treasure Valley");
+    expect(page.metas?.["viewport"]).toBe("width=device-width, initial-scale=1");
+    // The two prefixes `social` owns must not be stored a second time — that
+    // would double the biggest part of a persisted extract.
+    expect(page.metas?.["og:title"]).toBeUndefined();
+    expect(page.metas?.["twitter:card"]).toBeUndefined();
+  });
+
+  it("reads a bare charset attribute, which has no name/content pair at all", () => {
+    // `<meta charset="utf-8">` is how essentially every page declares its
+    // encoding, and it carries neither `name` nor `content`. Keyed off those
+    // alone it was invisible, so the charset check could never have gone green.
+    expect(extractPage(fixture("rich.html")).metas?.["charset"]).toBe("utf-8");
+  });
+
+  it("reads the older http-equiv spelling of the same declaration", () => {
+    const html = `<html><head><meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1"></head><body>x</body></html>`;
+    expect(extractPage(html).metas?.["charset"]).toBe("ISO-8859-1");
+  });
+
+  it("collects script srcs and ignores inline scripts", () => {
+    const html = `<html><head>
+      <script src="/wp-content/plugins/gravityforms/js/form.js"></script>
+      <script>window.dataLayer = [];</script>
+      <script src="https://www.googletagmanager.com/gtag/js?id=G-ABC"></script>
+    </head><body>x</body></html>`;
+    const page = extractPage(html);
+    // An inline blob has no address a reader can go and check, so it is not a
+    // receipt and is not collected.
+    expect(page.scriptSrcs).toEqual([
+      "/wp-content/plugins/gravityforms/js/form.js",
+      "https://www.googletagmanager.com/gtag/js?id=G-ABC",
+    ]);
+    expect(page.scriptCount).toBe(2);
+  });
+
+  it("caps the list but reports the true total", () => {
+    const many = Array.from(
+      { length: MAX_SCRIPTS + 25 },
+      (_, i) => `<script src="/s/${i}.js"></script>`,
+    ).join("");
+    const page = extractPage(`<html><head>${many}</head><body>x</body></html>`);
+    expect(page.scriptSrcs).toHaveLength(MAX_SCRIPTS);
+    // A capped list must never be mistaken for a complete one.
+    expect(page.scriptCount).toBe(MAX_SCRIPTS + 25);
+  });
+
+  it("still finds ld+json on a script that also has a src", () => {
+    const html = `<html><head><script type="application/ld+json" src="/x.js">{"@type":"Organization"}</script></head><body>x</body></html>`;
+    const page = extractPage(html);
+    expect(page.jsonLd).toHaveLength(1);
+    expect(page.scriptSrcs).toEqual(["/x.js"]);
   });
 });

@@ -24,6 +24,16 @@ import { runLighthouse } from "./lighthouse.js";
 import { checkAssets, type AssetCheck, type AssetCheckDeps } from "./assets.js";
 import { checkBasics, type BasicsCheck, type BasicsDeps, type BasicsProbe } from "./basics.js";
 import { checkGoal, type GoalFit, type SiteGoal } from "./goals.js";
+import { readStack, type StackReadout } from "./stack.js";
+import { runSiteChecks, type SiteCheck } from "./site-checks.js";
+import { summarizeAccessibility, type AccessibilityResult } from "./accessibility.js";
+import { defaultDnsDeps, lookupDns, type DnsDeps, type DnsFindings } from "./dns.js";
+import {
+  defaultHttpProbeDeps,
+  probeHttp,
+  type HttpFindings,
+  type HttpProbeDeps,
+} from "./http-probes.js";
 import { measuredFixes } from "./measured-fixes.js";
 import type {
   AnalyzeResult,
@@ -37,7 +47,19 @@ import type {
 } from "./types.js";
 
 export type StageName =
-  "crawl" | "checks" | "lighthouse" | "analyze" | "probes" | "assets" | "basics" | "accuracy";
+  | "crawl"
+  | "checks"
+  | "lighthouse"
+  | "analyze"
+  | "probes"
+  | "assets"
+  | "basics"
+  | "stack"
+  | "siteChecks"
+  | "dns"
+  | "http"
+  | "accessibility"
+  | "accuracy";
 
 /** The two ways an audit can pay for its model calls. Which one runs is
  *  decided here, once, off PROSPECT_LLM_AUTH (see claude-code.ts) — the
@@ -182,6 +204,10 @@ export type PipelineDeps = {
    *  someone else's server, and a courteous audit is worth more than an
    *  exhaustive one. A test passes its own `probe` to avoid a network. */
   assets?: Partial<AssetCheckDeps>;
+  /** Overrides the DNS/RDAP lookups, so a test never touches a resolver. */
+  dns?: DnsDeps;
+  /** Overrides the Tier 2 HTTP probes, so a test makes no requests. */
+  http?: Partial<HttpProbeDeps>;
   /** Overrides the accuracy stage's model call and domain-ownership probes. */
   accuracy?: Partial<AccuracyDeps>;
   /**
@@ -311,6 +337,22 @@ export async function runProspectAudit(
     }),
   );
 
+  // Reads only the crawl, like `basics`, and cannot fail in a way worth
+  // isolating — but it goes through `stage` anyway so that a throw here degrades
+  // one section instead of losing the run. Nothing in it passes or fails: it is
+  // a readout, and it stays out of every denominator on purpose.
+  const stack: StageResult<StackReadout> = await stage("stack", deps, async () =>
+    readStack(crawlData),
+  );
+
+  // Reads results the crawl's own browser pass already collected — no second
+  // navigation, and nothing here touches the network at all.
+  const accessibility: StageResult<AccessibilityResult> = await stage(
+    "accessibility",
+    deps,
+    async () => summarizeAccessibility(crawlData.pages),
+  );
+
   const lighthouse: StageResult<LighthouseScores> = await stage("lighthouse", deps, async () =>
     (deps.lighthouse ?? runLighthouse)(url),
   );
@@ -350,6 +392,39 @@ export async function runProspectAudit(
   // so it too only ever queries the name.
   const businessName =
     opts.business?.trim() || (analyze.ok ? analyze.data.businessName : "") || null;
+
+  // Five lookups that never touch their web server, so this is the cheapest
+  // section of the audit and the one nobody else sends. Its own stage because
+  // a resolver outage must degrade these five findings and nothing else.
+  const dns: StageResult<DnsFindings> = await stage("dns", deps, async () =>
+    lookupDns(
+      crawlData.origin,
+      checks.ok ? (checks.data.consistency?.emails ?? []).map((e) => e.normalized) : [],
+      deps.dns ?? defaultDnsDeps(),
+    ),
+  );
+
+  // The only stage that makes NEW requests to the prospect's server for the
+  // sake of the check battery. Capped, paced and counted; its own stage so a
+  // rate limit or a firewall degrades these thirteen findings and nothing else.
+  const http: StageResult<HttpFindings> = await stage("http", deps, async () =>
+    probeHttp(crawlData, { ...defaultHttpProbeDeps(USER_AGENT), ...deps.http }),
+  );
+
+  // After `businessName`, because two of these read it — a headline that is
+  // only the company name, and a title that never mentions it — and grading a
+  // site against a name we guessed at would be worse than not asking. Pure
+  // functions over what the crawl already stored: no request is made here, so
+  // this stage cannot slow a run down or annoy a prospect's server.
+  const siteChecks: StageResult<SiteCheck[]> = await stage("siteChecks", deps, async () =>
+    runSiteChecks(
+      crawlData,
+      checks.ok ? checks.data : null,
+      businessName,
+      dns.ok ? dns.data : null,
+      http.ok ? http.data : null,
+    ),
+  );
 
   const probeOpts: ProbeRunOptions = {
     ...(deps.probeDelayMs !== undefined ? { delayMs: deps.probeDelayMs } : {}),
@@ -486,6 +561,11 @@ export async function runProspectAudit(
     probes,
     assets,
     basics,
+    stack,
+    siteChecks,
+    accessibility,
+    dns,
+    http,
     goalFit,
     accuracy,
   };

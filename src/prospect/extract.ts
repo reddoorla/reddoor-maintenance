@@ -1,11 +1,46 @@
 import { parse, HTMLElement, NodeType } from "node-html-parser";
-import type { FormShape, PageAnchor, PageExtract } from "./types.js";
+import type { FormField, FormShape, PageAnchor, PageExtract } from "./types.js";
 
 /** See `PageExtract.anchors`: the extract is persisted once per page per audit,
  *  and a navigation-heavy page can carry several hundred anchors. Generous
  *  enough that no ordinary page reaches it; `anchorCount` always reports the
  *  true total so a capped list is never mistaken for a complete one. */
 export const MAX_ANCHORS = 300;
+
+/** Same discipline as `MAX_ANCHORS`, for `PageExtract.scriptSrcs`. A tag-manager
+ *  page can inject a hundred of these; `scriptCount` reports the true total. */
+export const MAX_SCRIPTS = 120;
+
+/** Same discipline again, for `PageExtract.inlineScriptUrls`. A tag manager
+ *  bootstrap names a handful of URLs; nothing legitimate names forty. */
+export const MAX_INLINE_URLS = 40;
+
+/**
+ * URLs appearing in a string of JavaScript. Blunt on purpose: this answers
+ * "does this script mention googletagmanager.com/gtag/js", not "what will it
+ * load", and the distinction is carried in the field's name.
+ *
+ * The WHOLE url, not just the host, because every signature in `stack.ts` keys
+ * on a path — `googletagmanager.com/gtag/js` distinguishes GA4 from Tag
+ * Manager, and a bare hostname matches neither. A deferred loader usually
+ * builds its src by concatenation, so the literal ends at the quote; capturing
+ * up to there still yields the path that identifies the tool.
+ */
+/** URLs that identify a vocabulary rather than something to fetch. An SVG or
+ *  XHTML namespace appears in any inline script that builds markup, and nothing
+ *  ever requests it — counting it as a URL this page references makes every
+ *  templating site look like it reaches out to w3.org. */
+const NAMESPACE_URLS = /^https?:\/\/(www\.)?w3\.org\//i;
+
+function urlsIn(code: string): string[] {
+  const found = new Set<string>();
+  for (const m of code.matchAll(/https?:\/\/[^\s"'`\\)<>]{4,200}/gi)) {
+    if (NAMESPACE_URLS.test(m[0])) continue;
+    found.add(m[0]);
+    if (found.size >= MAX_INLINE_URLS) break;
+  }
+  return [...found];
+}
 
 /** Input types that are not a field a visitor fills in. `hidden` carries CSRF
  *  tokens and form ids; the button types are the control, not the question.
@@ -100,6 +135,36 @@ const MAX_WALK_DEPTH = 100;
  *  separator, a newline at each block boundary, whitespace collapsed last —
  *  which is what a browser shows. TITLE and SCRIPT are dropped wherever they
  *  appear, since a <title> misplaced in <body> is still invisible. */
+/**
+ * A heading's ACCESSIBLE name, not only its text nodes.
+ *
+ * `<h1><img alt="Acme Roofing"></h1>` — a logo wrapped in the page headline —
+ * is one of the most common homepage patterns there is, and reading text nodes
+ * alone yields "" for it. An empty heading is dropped, so the page arrived at
+ * the checks carrying no h1 at all and we reported a site with a headline as a
+ * site without one.
+ *
+ * That number was invisible in the stored corpus, because the extract only ever
+ * held the headings that survived: 115 pages recorded as having no h1, and no
+ * way to tell how many of them really had one. A gap we cannot even count is
+ * one to close rather than argue about.
+ *
+ * `aria-label` on the heading wins outright, exactly as it does for a screen
+ * reader; otherwise the alt text of the images inside it fills in for text
+ * nodes that are not there.
+ */
+function headingTextOf(el: HTMLElement): string {
+  const label = (el.getAttribute("aria-label") ?? "").trim();
+  if (label) return collapse(label);
+  const text = textOf(el);
+  if (text) return text;
+  const alts = el
+    .querySelectorAll("img")
+    .map((img) => (img.getAttribute("alt") ?? "").trim())
+    .filter((a) => a.length > 0);
+  return collapse(alts.join(" "));
+}
+
 function textOf(el: HTMLElement): string {
   const parts: string[] = [];
   const walk = (node: HTMLElement, depth: number): void => {
@@ -134,6 +199,10 @@ type Collected = {
   /** `<a href>` elements, in document order. */
   anchors: HTMLElement[];
   forms: HTMLElement[];
+  /** `src` of each `<script src>`, in document order. Inline scripts are not
+   *  collected — see `PageExtract.scriptSrcs`. */
+  scriptSrcs: string[];
+  inlineScriptUrls: string[];
 };
 
 /** One ordered pass for the element-level signals. Document order matters: the
@@ -168,19 +237,45 @@ function collect(el: HTMLElement, out: Collected, depth = 0): void {
       case "TITLE":
         if (out.title === null) out.title = collapse(e.text) || null;
         break;
-      case "SCRIPT":
-        if ((e.getAttribute("type") ?? "").toLowerCase().trim() === "application/ld+json") {
-          out.jsonLd.push(e.text);
+      case "SCRIPT": {
+        const isJsonLd =
+          (e.getAttribute("type") ?? "").toLowerCase().trim() === "application/ld+json";
+        if (isJsonLd) out.jsonLd.push(e.text);
+        const src = (e.getAttribute("src") ?? "").trim();
+        if (src) {
+          // Collected even for ld+json, which may legitimately be loaded from
+          // a file rather than written inline.
+          out.scriptSrcs.push(src);
+        } else if (isJsonLd) {
+          // Its BODY is data, not code. The URLs in there are `@id`s, `sameAs`
+          // links and vocabulary references, and none of them is evidence that
+          // this page loads anything. Letting them through gave apple.com 293
+          // "inline script URLs" — schema.org, wikidata.org, its own support
+          // site — a meaningless number that also silently satisfied a
+          // downstream test for "does this page reference anything external".
+        } else {
+          // Hosts NAMED inside an inline script, which is a different claim
+          // from a script that is loaded — and the one that matters for any
+          // site which defers its tags.
+          //
+          // reddoorla.com is the case that found this: it injects gtag.js only
+          // after the first pointer or scroll, for privacy, so at crawl time
+          // there is no analytics `src` anywhere in the DOM. Reading that as
+          // "this site has no analytics" is our missing measurement printed as
+          // their defect, and it would land on every consent-gated site there
+          // is — which is a growing share of the careful ones.
+          for (const url of urlsIn(e.text)) out.inlineScriptUrls.push(url);
         }
         // Raw-text element — nothing inside to walk.
         continue;
+      }
       case "H1":
       case "H2":
       case "H3":
       case "H4":
       case "H5":
       case "H6": {
-        const text = textOf(e);
+        const text = headingTextOf(e);
         if (text) out.headings.push({ level: Number(tag.slice(1)), text });
         break;
       }
@@ -265,6 +360,12 @@ export function formShape(form: HTMLElement): FormShape {
   let hasTextarea = false;
   let hasSubmit = form.querySelectorAll("button").length > 0;
 
+  // The three attributes that decide whether a field is easy to fill in on a
+  // phone, collected here rather than re-walked later: the mobile keyboard
+  // switches on `type`, one-tap fill needs `autocomplete`, and `required` is
+  // the only machine-readable way a form says a field is compulsory.
+  const fields: FormField[] = [];
+
   for (const control of controls) {
     const type = (control.getAttribute("type") ?? "").toLowerCase().trim();
     if (control.tagName === "INPUT" && NON_FIELD_INPUTS.has(type)) {
@@ -274,6 +375,14 @@ export function formShape(form: HTMLElement): FormShape {
     if (control.tagName === "TEXTAREA") hasTextarea = true;
     if (control.tagName === "INPUT" && type === "password") hasPassword = true;
     fieldCount += 1;
+    fields.push({
+      // A bare <input> defaults to text, exactly as a browser treats it, so an
+      // author who wrote nothing reads the same as one who wrote type="text".
+      type: control.tagName === "INPUT" ? type || "text" : control.tagName.toLowerCase(),
+      name: (control.getAttribute("name") ?? "").toLowerCase().trim() || null,
+      autocomplete: (control.getAttribute("autocomplete") ?? "").toLowerCase().trim() || null,
+      required: control.hasAttribute("required"),
+    });
     // Any of the attributes an author might carry the meaning in. Checked
     // together rather than in priority order: a field is a contact field if
     // ANY of them says so, and sites disagree about which one to use.
@@ -328,6 +437,7 @@ export function formShape(form: HTMLElement): FormShape {
     fieldCount,
     hasContactField,
     hasSubmit,
+    fields,
   };
 }
 
@@ -347,19 +457,41 @@ export function extractPage(html: string): PageExtract {
     title: null,
     anchors: [],
     forms: [],
+    scriptSrcs: [],
+    inlineScriptUrls: [],
   };
   collect(documentEl, out);
 
   const social: Record<string, string> = {};
+  const metas: Record<string, string> = {};
   let metaDescription: string | null = null;
   let hasViewportMeta = false;
   for (const m of out.metas) {
+    // `charset` is written as a bare attribute (`<meta charset="utf-8">`), not
+    // as name/content, so it never had a key here and the charset check could
+    // not see it. Normalising it to `charset` gives it the same shape as every
+    // other meta; a `<meta http-equiv="content-type">` declaration lands there
+    // too, since both are a page declaring its encoding.
+    const charset = (m.getAttribute("charset") ?? "").trim();
+    if (charset) {
+      metas["charset"] = charset;
+      continue;
+    }
     const key = (m.getAttribute("property") ?? m.getAttribute("name") ?? "").toLowerCase().trim();
-    if (!key) continue;
     const content = (m.getAttribute("content") ?? "").trim();
+    if (!key) {
+      const equiv = (m.getAttribute("http-equiv") ?? "").toLowerCase().trim();
+      if (equiv === "content-type" && /charset=/i.test(content)) {
+        metas["charset"] = content.replace(/^.*charset=/i, "").trim();
+      }
+      continue;
+    }
     if (key === "description") metaDescription = content || null;
     else if (key === "viewport") hasViewportMeta = content.length > 0;
-    else if (key.startsWith("og:") || key.startsWith("twitter:")) social[key] = content;
+    if (key.startsWith("og:") || key.startsWith("twitter:")) social[key] = content;
+    // Everything else, including description and viewport: `social` owns the
+    // two prefixes and `metas` owns the rest, so nothing is stored twice.
+    else metas[key] = content;
   }
 
   const canonicalEl = out.links.find(
@@ -388,6 +520,13 @@ export function extractPage(html: string): PageExtract {
       // subtrees an icon sprite lives in.
       text: textOf(a).slice(0, 120),
       rel: (a.getAttribute("rel") ?? "").toLowerCase().trim(),
+      target: (a.getAttribute("target") ?? "").toLowerCase().trim(),
+      // NOT lower-cased and NOT trimmed to a keyword: this is prose, and the
+      // check that reads it needs to know whether a human wrote a destination
+      // into it. apple.com's “Learn more” links all carry one — `aria-label="Learn
+      // more about accessibility"` — so judging their link text without it
+      // called 60 well-labelled links bare.
+      ariaLabel: (a.getAttribute("aria-label") ?? "").trim().slice(0, 120),
     })),
     // The TRUE total, so a capped list is never mistaken for a complete one.
     anchorCount: out.anchors.length,
@@ -395,5 +534,19 @@ export function extractPage(html: string): PageExtract {
       .map((i) => (i.getAttribute("src") ?? "").trim())
       .filter((src) => src.length > 0),
     forms: out.forms.map(formShape),
+    metas,
+    // A projection of elements `collect` was already gathering — until now only
+    // the canonical one was ever read off them.
+    links: out.links.map((l) => ({
+      rel: (l.getAttribute("rel") ?? "").toLowerCase().trim(),
+      href: (l.getAttribute("href") ?? "").trim(),
+      hreflang: (l.getAttribute("hreflang") ?? "").trim(),
+      type: (l.getAttribute("type") ?? "").toLowerCase().trim(),
+    })),
+    scriptSrcs: out.scriptSrcs.slice(0, MAX_SCRIPTS),
+    inlineScriptUrls: [...new Set(out.inlineScriptUrls)].slice(0, MAX_INLINE_URLS),
+    // The TRUE total, for the same reason `anchorCount` exists: a capped list
+    // must never be mistaken for a complete one.
+    scriptCount: out.scriptSrcs.length,
   };
 }

@@ -124,3 +124,98 @@ The rule is in CLAUDE.md under "Before a fleet sweep, ask which repos can
 receive a push", including the one thing a session must not do about it:
 unarchiving a repository to finish a rollout is the operator's decision, not a
 step.
+
+## 2026-09-08 — The replay caught the fix, and then caught my fix (`feat/audit-check-battery`, `22e5101`)
+
+The battery branch had been sitting at forty commits with no PR, and the main
+checkout carried a 51-line uncommitted patch to `site-checks.ts` whose comment
+said it fixed two things: coyote.us and richardmacdonald.com being told their
+own pages were missing from sitemaps they were in, and preveta.com's homepage
+being counted twice. The question was whether the battery was ready to land.
+Answering it meant running the three gates the progress doc had left unticked,
+and the gates said something the comment did not.
+
+Running `pnpm lint` in the main checkout reported 1,771 errors. Every one of
+them was the same typescript-eslint parser error, and every one named a file
+under `.worktrees/` — other sessions' checkouts, which ESLint walks because it
+does not read `.gitignore`. In a clean worktree the count was one, and the one
+was real: the patch defined a `contentPages` helper that nothing called. The
+full suite reported 49 failures, all `listen EPERM` — the Bash sandbox refusing
+sockets — and the same eight files passed 96/96 outside it. Neither number was
+a finding about the code. Both were findings about the instrument, and the rule
+at the top of CLAUDE.md is that the instrument is the suspect until it has
+passed once.
+
+The corpus replay then reported zero verdict changes from the patch. That would
+have been the end of it, except the dumps on disk showed coyote.us still at 46
+missing and richardmacdonald.com still at 52 of 52 — the very numbers the
+comment claimed to fix. The reason was one function. `sitemap-coverage` never
+called `norm2`; it keyed URLs with its own `u.replace(/\/+$/, "").split("#")[0]`,
+which keeps scheme, `www.` and percent-encoding, so a sitemap listing `http://`
+against an `https://` crawl matched nothing. The patch had changed `norm2` to
+decode percent-escapes and written a correct comment about scheme being ignored
+"by construction" — of a function the check did not use. The fix described was
+right; the diff had never reached the place it needed to be.
+
+So the patch came out and the work went in test-first: five sitemap cases
+(scheme, `%26` against `&`, `www.`, a noindex link, a canonical alias), four
+content-page cases (an alias counted once, noindex excused from headline and
+description, an all-noindex site reading not-applicable), and four guards for
+what must not change. Nine red, four green, then the implementation. Every
+check that compares URLs now goes through `norm2`; `contentPages` folds an
+alias and drops a page the site hides from search; `meta-noindex` still reads
+every page; a page whose `metas` were never captured is kept, because dropping
+it on a guess would silence a real finding to hide our gap.
+
+Then the replay caught that version too. It reported four reversals, and one of
+them was sapidyne.com's `description-length` flipping to "all 1 are between 40
+and 200 characters". Sapidyne declares `/` as the canonical on 19 of its 20
+pages — each with its own title and its own headline. That is the defect
+`canonical-self` exists to report, not aliasing, and folding on the declaration
+alone had measured the whole site as one page. The belief that went wrong was
+simple to state once it had failed: a page that says it is another page is not
+therefore that page. Two more red tests for the mis-declared shape, and the
+rule became `sameDocument` — a page folds only onto a page we read that reads
+the same, title, description and headline all agreeing. `byDeclaredAddress`,
+which folds on the declaration, is still right for the checks that compare
+pages to each other, because those guard with "skip if fewer than two remain";
+it must never feed a per-page check, and now nothing per-page calls it.
+
+The replay after that: zero new fails on old evidence, three reversals — icovy
+`h1-present` (17 pages counted: `/old-home-2` is a true alias of `/`, three
+pages are noindex), revogen `sitemap-coverage` (12 linked became 11, a query
+variant folded), thepointeburbank `sitemap-coverage` (a one-page crawl whose
+homepage the sitemap listed under another spelling) — and one new claim,
+sapidyne `h1-distinct`: fourteen pages carry one tagline as their headline, and
+had never been compared because the fold hid them. Each was read against the
+dump before it was accepted. reddoorla.com live, before and after: the same
+eleven fails, zero unmeasured, all real — the first live run in this branch's
+log that found no instrument bug. The website's all-pass fixture, regenerated
+and diffed: 76 = 76.
+
+Two things about the instruments are worth carrying. The replay compares
+status only, so "nothing changed" means no verdict flipped, not that a change
+did nothing — read `--key <check> --fails` for evidence. And the disk corpus is
+the one to replay: the database rows predate `metas`, `links` and `scriptSrcs`,
+so a replay over the database exercises half the battery.
+
+Honest accounting. Earlier the same session, two fleet repos had sat red for
+five days on Dependabot alerts filed against a `package-lock.json` deleted in
+June — GitHub's dependency graph keeps a manifest after the file is gone. Both
+were dismissed as inaccurate and #702 asks the security audit to tell the two
+apart. The reddoorla.com run also surfaced a real content bug on our own site:
+an internal link to the old UID `/portfolio/strategy-advantage-website`, which
+serves 200 beside `/portfolio/strategy-advantage1` with no canonical on either,
+and no canonical anywhere on the site. The CSP preconnect logged on 09-03 is
+still unfixed. Left open from the same replay table: sapidyne (37 "missing" →
+`/uploads/1/…`) and theburbankstudios (90 → `/api/…`) count files and endpoints
+as pages a sitemap must list — the next false accusation in this check.
+`title-length` was not scoped into `contentPages`. `favicon-declared` reaches
+no verdict on any corpus site, by design. T3-08, T4-15 and screenshots remain
+the operator's calls.
+
+Landed as three commits on the branch (the fix with its tests and changeset,
+the `.worktrees/` eslint ignore, the progress doc), `origin/main` merged in
+taking main's `CLAUDE.md` over the branch's stale copy, and PRs opened on both
+sides — the website's renderer into `staging` as reddoor-website#167. The
+patch in the main checkout is superseded and can be discarded.

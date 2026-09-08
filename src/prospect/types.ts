@@ -5,6 +5,12 @@ import type { BasicsCheck } from "./basics.js";
 import type { ConsistencyResult } from "./consistency.js";
 import type { AccuracyResult } from "./accuracy.js";
 import type { GoalFit, SiteGoal } from "./goals.js";
+import type { StackReadout } from "./stack.js";
+import type { DnsFindings } from "./dns.js";
+import type { HttpFindings } from "./http-probes.js";
+import type { FormProbe } from "./interaction.js";
+import type { AccessibilityResult, AxePageResult, PageVitals } from "./accessibility.js";
+import type { SiteCheck } from "./site-checks.js";
 import type { JourneyMap } from "./journey.js";
 
 // Re-exported so a consumer reading `probes.answerSpace` off the `./audit`
@@ -14,6 +20,19 @@ export type { AnswerSpace, SourceCount } from "./answer-space.js";
 export type { AssetCheck, ProbedUrl } from "./assets.js";
 export type { BasicsCheck, Reachability } from "./basics.js";
 export type { ConsistencyResult, ContactVariant } from "./consistency.js";
+export type { StackItem, StackLayer, StackReadout } from "./stack.js";
+export type { CheckStatus, SiteCheck } from "./site-checks.js";
+export type { DnsFindings } from "./dns.js";
+export type { HttpFindings } from "./http-probes.js";
+export type { FormProbe } from "./interaction.js";
+export type {
+  AccessibilityResult,
+  AxeImpact,
+  AxePageResult,
+  AxeViolation,
+} from "./accessibility.js";
+export { tally } from "./site-checks.js";
+export { LAYER_LABELS, LAYER_ORDER } from "./stack.js";
 export type { GoalFit, GoalRequirement, Scope, SiteGoal } from "./goals.js";
 export { GOAL_LABELS, orderRequirements } from "./goals.js";
 export type { ContactAffordance, JourneyMap, PageJourney } from "./journey.js";
@@ -35,7 +54,23 @@ export type RobotsAgentAccess = {
  *  an absolute one. Resolving here would discard the distinction between a
  *  genuinely absolute link and a relative one, which is itself a finding when a
  *  site hardcodes a staging host. */
-export type PageAnchor = { href: string; text: string; rel: string };
+export type PageAnchor = {
+  href: string;
+  text: string;
+  rel: string;
+  /** As authored, lower-cased — `_blank` on a link that opens a new tab.
+   *  Optional: absent on reports stored before it was captured, which reads as
+   *  "not measured" rather than "opens in this tab". */
+  target?: string;
+  /** `aria-label` as authored, empty when there is none. This is the label a
+   *  screen reader actually announces, so a link whose visible text is "Learn
+   *  more" is not necessarily a link that announces "Learn more".
+   *
+   *  Optional for the same reason `target` is: a report stored before it was
+   *  captured has it absent everywhere, and absent must read as "we did not
+   *  look", never as "there is none". */
+  ariaLabel?: string;
+};
 
 /**
  * What a form is FOR, inferred from its shape.
@@ -61,6 +96,17 @@ export type FormKind = "enquiry" | "subscribe" | "other";
 /** One `<form>`, in enough detail to tell an enquiry form from a newsletter box
  *  or a search field. That distinction is the whole point: a site nobody can
  *  actually reach must not score as though it has a conversion path. */
+/** One control a visitor fills in. Just the three attributes that decide
+ *  whether the form is easy to complete on a phone. */
+export type FormField = {
+  /** Lower-cased, defaulting to "text" for a bare `<input>` exactly as a
+   *  browser does; `textarea` and `select` carry their tag name. */
+  type: string;
+  name: string | null;
+  autocomplete: string | null;
+  required: boolean;
+};
+
 export type FormShape = {
   kind: FormKind;
   /** As authored, or null for a form that posts to its own URL. */
@@ -74,6 +120,9 @@ export type FormShape = {
    *  and this is what separates "can be contacted" from "can be searched". */
   hasContactField: boolean;
   hasSubmit: boolean;
+  /** Per-field detail. Optional: absent on reports stored before it existed,
+   *  and absence must read as "not measured", never as "no fields". */
+  fields?: FormField[];
 };
 
 export type PageExtract = {
@@ -112,6 +161,53 @@ export type PageExtract = {
   /** `src` of each `<img>`, as authored. Same resolution note as `anchors`. */
   imageSrcs?: string[];
   forms?: FormShape[];
+  /**
+   * Every `<meta>` that is not `og:`/`twitter:` — those are in `social`, and
+   * carrying them twice would double the biggest part of a persisted extract.
+   * Keyed by lower-cased `name` or `property`, so `robots`, `generator`,
+   * `charset` and `viewport` are all reachable by the name they are written by.
+   *
+   * `metaDescription` and `hasViewportMeta` remain projected separately because
+   * older stored reports have them and nothing should have to know that
+   * `metas.description` is the same string.
+   *
+   * Optional: absent on reports stored before it existed, and absence must read
+   * as "not measured", never as "this page declares no metas".
+   */
+  metas?: Record<string, string>;
+  /**
+   * Every `<link>` in the document, as authored.
+   *
+   * The elements were ALREADY collected by the extractor — only the canonical
+   * one was ever projected onto this type — so this is a projection change
+   * rather than a new traversal.
+   *
+   * Optional: absent on reports stored before it existed. Absence means "not
+   * measured", never "this page declares no favicon".
+   */
+  links?: { rel: string; href: string; hreflang?: string; type?: string }[];
+  /**
+   * `src` of each `<script src>`, as authored, CAPPED — see `scriptCount` for
+   * the true total, exactly as `anchors`/`anchorCount` do.
+   *
+   * These are the receipts the stack readout is built from: `/wp-content/
+   * plugins/<name>/`, `/_next/`, `hs-scripts.com`. Inline scripts are not
+   * collected — only ones with a `src`, because a src is an address a reader
+   * can go and check and an inline blob is not.
+   */
+  scriptSrcs?: string[];
+  /**
+   * URLs NAMED inside inline scripts — a different claim from a script that
+   * is loaded, and the one that matters for a site which defers its tags.
+   *
+   * A page that injects `googletagmanager.com` only after the first scroll has
+   * no analytics `src` in the DOM at crawl time. Reading that as "no analytics"
+   * is our missing measurement reported as their defect. Absent on reports
+   * stored before this existed, which reads as "not measured".
+   */
+  inlineScriptUrls?: string[];
+  /** True number of `<script src>` on the page, before `scriptSrcs` was capped. */
+  scriptCount?: number;
 };
 
 export type PageCapture = {
@@ -123,6 +219,31 @@ export type PageCapture = {
   /** Extract of the Playwright-rendered DOM (what a browser sees). */
   rendered: PageExtract | null;
   error: string | null;
+  /**
+   * What the axe rule set found on this page, collected in the SAME browser
+   * pass that produced `rendered` — never a second navigation.
+   *
+   * Null means the rules did not run: an older stored report, a page that
+   * failed to render, or a scan that threw. It must never read as "no
+   * violations", which is the opposite claim.
+   */
+  axe?: AxePageResult | null;
+  /**
+   * What the browser itself reported while this page was open — console errors,
+   * failed requests, mobile overflow. Same pass as `rendered` and `axe`.
+   *
+   * Null means nothing was measured. It must never read as "nothing went
+   * wrong", which is the opposite claim.
+   */
+  vitals?: PageVitals | null;
+  /**
+   * What happened when we pressed this page's enquiry-form submit button.
+   *
+   * Present on at most ONE page per crawl, and null everywhere else — absence
+   * means "we did not interact here", never "the form is fine". Optional for
+   * reports stored before any of this existed.
+   */
+  formProbe?: FormProbe | null;
 };
 
 export type CrawlResult = {
@@ -131,7 +252,28 @@ export type CrawlResult = {
   robotsTxt: string | null;
   /** One entry per agent in crawl.ts's ALL_AGENTS (6 AI + 2 classical). */
   agentAccess: RobotsAgentAccess[];
-  sitemap: { present: boolean; urlCount: number };
+  /** `sample` is a capped slice of the URLs, absent on reports stored before
+   *  it existed — read absence as "not measured", never as "the sitemap is
+   *  empty". `urlCount` is the true total either way. */
+  sitemap: {
+    present: boolean;
+    urlCount: number;
+    sample?: string[];
+    /**
+     * True when we stopped reading before the sitemap ended, which makes
+     * `urlCount` a FLOOR rather than a count.
+     *
+     * A sitemap index is followed only so far — see `MAX_SITEMAP_CHILDREN` —
+     * and viget.com publishes 35 children holding 1,636 URLs between them. We
+     * read the first few, counted 66, and told them 179 of their own pages were
+     * missing from their sitemap. Our ceiling, reported as their gap, which is
+     * the one mistake this report keeps having to be stopped from making.
+     *
+     * Optional: absent on reports stored before it was tracked, and absent must
+     * read as "we do not know", never as "we read the whole thing".
+     */
+    truncated?: boolean;
+  };
   llmsTxt: { present: boolean; firstLine: string | null };
   /** Per sidecar, the error that stopped us fetching it, or null. A fetch that
    *  FAILED must never be reported as "the site has no robots.txt" — that would
@@ -435,6 +577,51 @@ export type ProspectAuditResult = {
    *  single named goal rather than a generic template — see goals.ts. Optional
    *  for reports stored before it existed. */
   goalFit?: StageResult<GoalFit>;
+  /**
+   * What they are running — platform, theme, plugins, host, forms, analytics.
+   *
+   * NOT a check and never part of any denominator: nothing in it passes or
+   * fails. It opens the report because naming a reader's own stack back to them
+   * answers "do these people know what they are talking about" before the first
+   * finding. Optional for reports stored before the stage existed.
+   */
+  stack?: StageResult<StackReadout>;
+  /**
+   * The Tier 0 battery — the things a careful person would check with a
+   * browser and ten minutes, every one of them a pure function of the crawl.
+   *
+   * Four states per check, and only `pass`/`fail` count toward the denominator:
+   * a site with no schema has not failed the schema checks, and printing
+   * "34 of 40" where six were never applicable would be a number inflated on
+   * our own behalf. Optional for reports stored before the stage existed.
+   */
+  siteChecks?: StageResult<SiteCheck[]>;
+  /**
+   * The axe rule set, run against the rendered DOM.
+   *
+   * Named rules with named fixes, where the Lighthouse accessibility score is
+   * one opaque number over a subset of the same rules. Optional for reports
+   * stored before it existed — and absence means the rules did not run, never
+   * that nothing was found.
+   */
+  accessibility?: StageResult<AccessibilityResult>;
+  /**
+   * What the DOMAIN says — SPF, DMARC, mail servers, registration expiry.
+   *
+   * None of it touches their web server, and none of it is visible from any
+   * amount of reading their HTML. Optional for reports stored before it
+   * existed.
+   */
+  dns?: StageResult<DnsFindings>;
+  /**
+   * What the server SERVED, as opposed to what the markup declared — the icon,
+   * the share image, the sitemap's own URLs, and how many hops a link takes.
+   *
+   * The only part of the check battery that costs the prospect requests, which
+   * is why it is capped, paced, and reports the count it made. Optional for
+   * reports stored before it existed.
+   */
+  http?: StageResult<HttpFindings>;
   /** When an engine describes this business, where is it getting that from —
    *  each statement sorted by SOURCE, never by truth. See accuracy.ts. Optional
    *  for reports stored before the stage was wired in. */
