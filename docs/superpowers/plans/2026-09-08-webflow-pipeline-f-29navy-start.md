@@ -133,7 +133,7 @@ Expected: `vite build` succeeds, and neither that listing nor `build/` contains 
 cd ~/Documents/GitHub/29-navy && pnpm build; echo exit=$?
 ```
 
-Expected: non-zero, with `404 /: Page not found` in the output. That is the whole chain working — `entries()` now returns `[{}]`, the load calls `loadPage(client, "home")`, `src/lib/page-load.ts:30-31` turns Prismic's `NotFoundError` (empty repository) into a 404, and `svelte.config.js:34-36` rethrows it because `isPlaceholderRepo` is now false. A `RepositoryNotFoundError` instead means the repository NAME is wrong, not that the document is missing — it extends `NotFoundError` and `page-load.ts:30` deliberately lets it through.
+Expected: non-zero. **Measured 2026-09-08: it is a 500, not a 404** — `Error: [function at(..)] unexpected field 'my.page.uid'`, because an empty Prismic repository has no custom types, so the Content API rejects the PREDICATE rather than returning no document. `page-load.ts:30-31` maps only `NotFoundError` to 404, so this rethrows unmapped and `svelte.config.js:34` rethrows again because its escape clause is `status === 404`. That is still the chain working — `entries()` now returns `[{}]`, the load calls `loadPage(client, "home")`, `src/lib/page-load.ts:30-31` turns Prismic's `NotFoundError` (empty repository) into a 404, and `svelte.config.js:34-36` rethrows it because `isPlaceholderRepo` is now false. A `RepositoryNotFoundError` instead means the repository NAME is wrong, not that the document is missing — it extends `NotFoundError` and `page-load.ts:30` deliberately lets it through. And an `unexpected field 'my.page.uid'` error is a THIRD outcome the first draft of this plan missed: the repository name is RIGHT and the `page` custom type has never been pushed to it.
 **Do not commit yet.** From this edit until a `page` document with uid `home` is published, `pnpm build` fails and so does CI. The only build that still works without content is the placeholder override, which both `svelte.config.js:8-10` and `tests/smoke/routes.ts:34` honour — `VITE_PRISMIC_ENVIRONMENT=your-prismic-repo-name pnpm build` — and it is an emergency hatch, not a substitute for Step 7.
 
 - [ ] **Step 7: OPERATOR (RED tier): push the `page` type and publish a stub `home` document.** Two writes into Prismic `29-navy`, both by the operator:
@@ -199,10 +199,10 @@ The first names the canonical ruleset; the second prints `ci / ci` or nothing. T
 
 ```bash
 cd ~/Documents/GitHub/reddoor-maintenance
-node dist/cli/bin.js ensure-site 29-navy --url https://29-navy.netlify.app
+node dist/cli/bin.js ensure-site 29-navy --name "29 Navy" --url https://29-navy.netlify.app
 ```
 
-Registered at `src/cli/bin.ts:571`. `--contact` needs the client's email — ask the operator rather than guessing. The row's Git repo defaults to `reddoorla/29-navy` (`src/reports/airtable/ensure-site.ts:76`).
+Registered at `src/cli/bin.ts:571`. **`--name` is required here and is CREATE-ONLY** — it is set at `src/reports/airtable/ensure-site.ts:76` and `consider()` at :102-104 re-checks only url, pointOfContact and gitRepo, so a re-run cannot fix it. Omitting it writes the slug `29-navy` as the client-facing row title and the CLI says so in a warning. `--contact` needs the client's email — ask the operator rather than guessing. The row's Git repo defaults to `reddoorla/29-navy` (`src/reports/airtable/ensure-site.ts:76`).
 
 - [ ] **Step 4: Verify the row** — re-run the same command; it reports `exists`. That re-run is the positive artefact.
 
