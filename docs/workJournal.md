@@ -219,3 +219,80 @@ the `.worktrees/` eslint ignore, the progress doc), `origin/main` merged in
 taking main's `CLAUDE.md` over the branch's stale copy, and PRs opened on both
 sides — the website's renderer into `staging` as reddoor-website#167. The
 patch in the main checkout is superseded and can be discarded.
+
+## 2026-09-08 (later) — the next false accusation, and the two behind it (`fix/sitemap-counts-files`)
+
+The previous entry closed by naming what to fix next: sapidyne.com told its own
+37 pages were missing from its sitemap, theburbankstudios.com told 90, and both
+lists made mostly of files. That was right about the symptom and short by two
+faults.
+
+Reading the lists rather than the counts is what found them. Sapidyne's 37 are
+`/uploads/1/1/8/8/118887362/…` — technical notes, handling guides, a price
+list, product photographs — and theburbankstudios' 90 are `/api/media/file/…`
+and `/images/floorplans/…`, stage plans and building photographs. A sitemap
+lists pages. The rule that replaced "every address a link points at" is an
+allow-list of page extensions rather than a deny-list of file ones, because the
+two fail in opposite directions: an extension we did not think of reads as a
+file and is quietly excused, which costs a finding, where a deny-list would
+read it as a page and demand a stranger list their `.dwg`. Missing our own gap
+beats printing their fault.
+
+The second fault was one level up, in the crawl. `parseSitemapLocs` allows an
+optional namespace prefix on `<loc>`, which is correct for a sitemap that
+writes `<sitemap:loc>` and wrong for `<image:loc>` — the image extension that
+Squarespace, Wix and Yoast all emit inside each `<url>`. Eleven of the 29
+corpus sites carry them. vascularperfusion.solutions lists thirteen pages and
+sixty images, and the row we would have shown them read "73 URLs listed". The
+count is the evidence in that sentence, so the sentence was false. The image
+namespace is the only sitemap extension that defines a bare `loc`, so excluding
+it by name is the whole fix.
+
+The third sat between the two. The alias fold added last week runs on the
+linked side, folding a page onto the one it is a confirmed alias of — but the
+sitemap side was still keyed raw. Squarespace serves a homepage at `/` and at
+`/home`, both declaring one canonical, and lists `/home`. So the entry that
+lists their homepage never met the address their own links point at, and we
+told them their homepage was missing from their own sitemap. Both sides fold
+through one map now. And `title-length` was still measuring every page we read
+while `description-length` measured the pages the site publishes: two checks
+reading the same field, disagreeing about which pages exist.
+
+Seven tests, five of them red first — a linked file, a sitemap-listed alias, a
+noindexed title, an alias counted once, an `<image:loc>` — and two guards
+written to stay green: a page served under `.html` is still demanded, and a
+title too short on a page the site publishes still fails. The three guards
+already in the file kept holding.
+
+What the instruments said. The corpus replay: **0 new fails on old evidence**,
+six reversals, one new claim — three of the reversals and the claim carried
+over from the previous pass, three of them this change, all fail→pass.
+sitemap-coverage went eight fails to five, coyote.us 45 → 1 and sapidyne.com
+37 → 2. Each survivor was read against its dump: richardmacdonald.com's
+`/love`, `/courage` and `/joy` are crawled pages absent from a 32-entry sitemap,
+gallerysonder.com's three `/rsvp/*` are linked and unlisted, reddoorla.com's is
+the stale UID we already knew. All real.
+
+The replay could not judge the parser, and saying so is the point. It re-scores
+checks over stored crawls, and `urlCount` in those crawls was computed by the
+old parser at crawl time — a crawl-layer fix is invisible to it, and a green
+replay would have meant nothing. Proven on live sitemap bytes instead:
+vascularperfusion.solutions 73 → 13, thepointeburbank.com 52 → 1, and
+reddoorla.com 49 → 49. That last one is the one that matters, because an
+instrument that only ever changes numbers has not been shown to leave a good
+sitemap alone.
+
+reddoorla.com live: the same eleven fails, zero unmeasured, `title-length`
+reading "all 20". The website's all-pass fixture regenerated to 76 checks with
+nothing failing and no key drift, so it needs no change.
+
+Left open. `sapidyne.com/store/checkout` is a Weebly checkout, linked and
+unlisted, and we call it a missing page — literally true and close to useless.
+The clean fix belongs to the site, which should noindex it, and that is what
+the well-configured stores in the corpus do; a heuristic guessing which paths
+are functional would be a worse instrument than the one it replaced. The three
+decisions that had been the operator's are now settled and recorded in the
+progress doc: T3-08 dropped, T4-15 to be a marked test payload behind a per-run
+flag when it is built, and screenshots to be a Turso BLOB rather than base64 in
+`result_json` — Airtable's attachment URLs, the other candidate, are signed and
+expire, and a prospect opens their report weeks after we send it.

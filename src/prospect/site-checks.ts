@@ -1436,7 +1436,14 @@ function headerChecks(headers: Record<string, string>, measured: boolean): SiteC
 
 // ─── robots.txt and the sitemap ──────────────────────────────────────────────
 
-function sidecarChecks(crawl: CrawlResult, linkedPages: Set<string>): SiteCheck[] {
+function sidecarChecks(
+  crawl: CrawlResult,
+  linkedPages: Set<string>,
+  /** Address → the address of the page it is a CONFIRMED alias of. Built once
+   *  in `runSiteChecks` so the sitemap's side of this comparison folds the same
+   *  way the linked side already does. */
+  aliasOf: ReadonlyMap<string, string>,
+): SiteCheck[] {
   const discoveredLinks = linkedPages.size;
   const out: SiteCheck[] = [];
   const robotsMeasured = crawl.sidecarErrors.robots === null;
@@ -1559,7 +1566,17 @@ function sidecarChecks(crawl: CrawlResult, linkedPages: Set<string>): SiteCheck[
     // Both sides keyed by `norm2`: `linkedPages` already is, and a sitemap that
     // lists `http://`, `www.` or `%26` where the pages link `https://`, bare or
     // `&` is the same list. Keying only one side named whole sites as missing.
-    const listed = new Set(sample?.map((u) => norm2(u) ?? u));
+    // Folded through the same alias map as the linked side. Squarespace serves
+    // vascularperfusion.solutions' homepage at `/` and `/home`, both declaring
+    // one canonical, and lists `/home` in the sitemap — so the entry that lists
+    // their homepage never met the address their own links point at, and they
+    // were told their homepage was missing.
+    const listed = new Set(
+      sample?.map((u) => {
+        const at = norm2(u) ?? u;
+        return aliasOf.get(at) ?? at;
+      }),
+    );
     const unlisted = whole ? [...linkedPages].filter((a) => !listed.has(a)) : [];
     out.push(
       check(
@@ -1803,7 +1820,10 @@ function metaChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck[]
   // perfectly good titles. Only the genuinely broken ends are flagged.
   const TITLE_MIN = 10;
   const TITLE_MAX = 70;
-  const titled = pages.filter((p) => p.extract.title);
+  // Over the pages the site publishes, the same list `description-length` uses.
+  // The two checks read the same field on the same pages and must not disagree
+  // about which pages those are. See `contentPages`.
+  const titled = contentPages(pages).filter((p) => p.extract.title);
   if (titled.length === 0) {
     out.push(
       skip(
@@ -2273,6 +2293,47 @@ function byDeclaredAddress<T extends { url: string; extract: PageExtract }>(page
  *  Unknown — `metas` never captured, a report from before the field existed —
  *  is NOT hidden: dropping a page on a guess would silence a real finding to
  *  hide our own gap. */
+/**
+ * Is this address a PAGE, or a file the site happens to link to?
+ *
+ * `sitemap-coverage` asks whether a site's own links point at anything its
+ * sitemap leaves out. Every anchor counted, that question also demanded a
+ * sitemap entry for every brochure: sapidyne.com links 33 PDFs and images under
+ * `/uploads/`, theburbankstudios.com 85 under `/api/media/file/` and
+ * `/images/`, and those WERE the findings — 37 and 90 "missing pages", almost
+ * every one a download. A sitemap lists pages. A PDF is not one.
+ *
+ * An ALLOW-list of page extensions, not a deny-list of file ones, because the
+ * two fail in opposite directions and only one of them is acceptable here. An
+ * unknown extension we have not thought of reads as a file and is excused: a
+ * finding we miss. A deny-list would read it as a page and demand it: a
+ * stranger told to list their `.dwg` in a sitemap. Missing our own gap beats
+ * printing their fault.
+ *
+ * No extension at all is a page — that is what most of the web looks like.
+ */
+function isPageAddress(address: string): boolean {
+  const last = address.split("/").pop() ?? "";
+  const ext = /\.([A-Za-z0-9]{1,5})$/.exec(last);
+  return ext === null || PAGE_EXTENSIONS.has(ext[1]!.toLowerCase());
+}
+
+/** Extensions a PAGE is served under. sapidyne.com's store is `.html` and
+ *  theburbankstudios.com's whole site is; `.php` and the classic-ASP spellings
+ *  still turn up on the sites this audit is aimed at. */
+const PAGE_EXTENSIONS = new Set([
+  "html",
+  "htm",
+  "xhtml",
+  "shtml",
+  "php",
+  "asp",
+  "aspx",
+  "jsp",
+  "jspx",
+  "cfm",
+]);
+
 function hiddenFromSearch(extract: PageExtract): boolean {
   return /\bnoindex\b/i.test(extract.metas?.["robots"] ?? "");
 }
@@ -3342,10 +3403,20 @@ export function runSiteChecks(
       }
       const at = norm2(abs);
       if (!at) continue;
+      // A file the site links to is not a page its sitemap owes an entry for.
+      if (!isPageAddress(at)) continue;
       const target = read.get(at);
       if (target && hiddenFromSearch(target.extract)) continue;
       linked.add(target ? (aliasAddress(target, read) ?? at) : at);
     }
+  }
+
+  // Every confirmed alias, once, so both sides of the sitemap comparison can
+  // be read in the same addresses.
+  const aliasOf = new Map<string, string>();
+  for (const [at, p] of read) {
+    const to = aliasAddress(p, read);
+    if (to) aliasOf.set(at, to);
   }
 
   // Phone numbers as the page writes them, for the schema comparison. Read off
@@ -3376,7 +3447,7 @@ export function runSiteChecks(
     ...httpChecks(http),
     ...formInteractionChecks(crawl.pages.map((p) => p.formProbe)),
     ...headerChecks(crawl.homeHeaders ?? {}, headersMeasured),
-    ...sidecarChecks(crawl, linked),
+    ...sidecarChecks(crawl, linked, aliasOf),
     analyticsCheck(pages),
   ];
 }

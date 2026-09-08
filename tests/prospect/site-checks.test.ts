@@ -1691,6 +1691,45 @@ describe("sitemap-coverage compares addresses the way a crawler does", () => {
     expect(byKey(checks, "sitemap-coverage")?.evidence).toContain("/secret");
   });
 
+  it("does not demand a sitemap entry for a file the site links to", () => {
+    // sapidyne.com links 33 PDFs and images under /uploads/; theburbankstudios.com
+    // links 85 more under /api/media/file/ and /images/. Those WERE the finding:
+    // 37 and 90 "missing pages", almost every one of them a download. A sitemap
+    // lists pages, and a brochure is not one.
+    const checks = site(
+      ["https://acme.example/", "https://acme.example/a"],
+      [
+        home(["/a", "/brochure.pdf", "/uploads/hero_orig.png", "/api/media/file/plan.jpg"]),
+        page("https://acme.example/a", { anchors: [] }),
+      ],
+    );
+    expect(byKey(checks, "sitemap-coverage")?.status).toBe("pass");
+  });
+
+  it("still demands a sitemap entry for a page served under a page extension", () => {
+    // GUARD for the exclusion above. sapidyne.com serves its store under .html
+    // and theburbankstudios.com serves its whole site that way; excusing every
+    // dotted address would excuse those real pages with the downloads.
+    const checks = site(["https://acme.example/"], [home(["/store/rack-set.html"])]);
+    expect(byKey(checks, "sitemap-coverage")?.status).toBe("fail");
+    expect(byKey(checks, "sitemap-coverage")?.evidence).toContain("/store/rack-set.html");
+  });
+
+  it("counts a sitemap entry that is a confirmed alias of the page linked", () => {
+    // vascularperfusion.solutions: Squarespace serves the homepage at `/` and at
+    // `/home`, both declaring one canonical, and its sitemap lists `/home`. The
+    // fold ran on the LINKED side only, so the sitemap entry never met the
+    // address it lists and the site was told its homepage was missing.
+    const checks = site(
+      ["https://acme.example/home"],
+      [
+        home(["/"]),
+        page("https://acme.example/home", { anchors: [], canonical: "https://acme.example/" }),
+      ],
+    );
+    expect(byKey(checks, "sitemap-coverage")?.status).toBe("pass");
+  });
+
   it("compares a path that does not decode as written rather than dropping it", () => {
     // GUARD: a lone `%` throws in decodeURIComponent. The address must survive
     // the comparison, not vanish from it.
@@ -1737,6 +1776,39 @@ describe("content checks count the pages a site actually publishes", () => {
       }),
     ]);
     expect(byKey(checks, "description-length")?.status).toBe("pass");
+  });
+
+  it("does not fail a title on a page the site hides from search", () => {
+    // `description-length` was scoped to the published pages when the fold
+    // landed and `title-length` was left on the raw list, so the two checks
+    // disagreed about which pages the site has.
+    const checks = run([
+      page("https://acme.example/"),
+      page("https://acme.example/cart", {
+        title: "Cart",
+        metas: { charset: "utf-8", robots: "noindex" },
+      }),
+    ]);
+    expect(byKey(checks, "title-length")?.status).toBe("pass");
+  });
+
+  it("counts an alias and its canonical as one title", () => {
+    const checks = run([
+      page("https://acme.example/"),
+      page("https://acme.example/home/", { canonical: "https://acme.example/" }),
+      page("https://acme.example/services", { title: "Roof repair services — Acme Roofing" }),
+    ]);
+    expect(byKey(checks, "title-length")?.evidence).toMatch(/^all 2\b/);
+  });
+
+  it("still fails a title too short on a page the site publishes", () => {
+    // GUARD: the scoping must narrow which pages are measured, not which
+    // verdicts can be reached.
+    const checks = run([
+      page("https://acme.example/"),
+      page("https://acme.example/a", { title: "Cart" }),
+    ]);
+    expect(byKey(checks, "title-length")?.status).toBe("fail");
   });
 
   it("still reports the noindex on the page it just excused", () => {

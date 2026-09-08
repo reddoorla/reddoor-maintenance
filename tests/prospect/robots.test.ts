@@ -153,6 +153,16 @@ describe("sitemap parsing", () => {
     expect(parseSitemapLocs(xml)).toEqual(["https://acme.example/sitemap-1.xml"]);
   });
 
+  it("does not count an <image:loc> as a URL the sitemap lists", () => {
+    // Squarespace publishes an image entry inside each <url>. Eleven of the 29
+    // corpus sites carry them, and the prefix allowance below swallowed every
+    // one: vascularperfusion.solutions lists 13 pages and 60 images, and we
+    // told them "73 URLs listed". The count IS the evidence in that row.
+    const xml = `<urlset><url><loc>https://acme.example/</loc>
+      <image:image><image:loc>https://cdn.example/a.png</image:loc></image:image></url></urlset>`;
+    expect(parseSitemapLocs(xml)).toEqual(["https://acme.example/"]);
+  });
+
   it("decodes &amp; in a query string", () => {
     const xml = `<urlset><url><loc>https://acme.example/search?q=a&amp;b=2</loc></url></urlset>`;
     expect(parseSitemapLocs(xml)).toEqual(["https://acme.example/search?q=a&b=2"]);
