@@ -118,12 +118,24 @@ const MATCH_GUARD_FILES = [
   "src/routes/dev/match/[uid]/+page.server.ts",
 ] as const;
 
-/** Strip line and block comments so a COMMENTED-OUT guard cannot satisfy the
- *  match — an import left in place above `// if (!dev) error(404);` is the
- *  likeliest real-world state, and it used to pass. String and template literals
- *  are skipped so a `//` inside a URL is not read as a comment; the residual
- *  edge cases (a regex literal) can only over-strip, which denies rather than
- *  grants. */
+/** Strip line and block comments, so the COMMON commented-out guard cannot
+ *  satisfy the match — an import left in place above `// if (!dev) error(404);`
+ *  is the likeliest real-world state, and it used to pass. String and template
+ *  literals are skipped so a `//` inside a URL is not read as a comment.
+ *
+ *  This is a scanner, not a parser, and a REGEX LITERAL DEFEATS IT: a quote
+ *  character inside one — `/[a-z0-9']+/` — opens a string that never closes, and
+ *  everything to the next matching quote, comment text included, is preserved.
+ *  The residual direction is therefore UNDER-strip, not over-strip; an earlier
+ *  version of this comment asserted the opposite, and "can only deny" was not
+ *  something it could back.
+ *
+ *  What stops that under-strip granting a pass today is `maskLiterals`, which
+ *  `carriesGuard` runs over this output and which misreads the same region the
+ *  same way — so the region is blanked rather than believed, and the observed
+ *  failure on such a file is a REFUSED real guard, not an accepted absent one.
+ *  Read that as one scanner's bug cancelling another's, not as a property
+ *  either function guarantees. */
 function stripComments(source: string): string {
   let out = "";
   for (let i = 0; i < source.length;) {
@@ -321,9 +333,18 @@ export async function matchingDisposition(
 
 /** Undici's defaults are 300s headers + 300s body, and the body timeout is an
  *  INACTIVITY timer — so a trickling origin can hold this open for ~10 minutes,
- *  AFTER the GitHub writes and a full Lighthouse audit have already run. Matches
- *  the house idiom (audits/function-health.ts, audits/netlify-deploy.ts). An
- *  abort rejects, and dev-guard treats a rejection as a refusal, which is the
+ *  AFTER the GitHub writes and a full Lighthouse audit have already run.
+ *
+ *  15s is NOT the house number, and this comment used to imply it was by citing
+ *  `audits/function-health.ts`, which is 10s. The 15s call sites are
+ *  `audits/netlify-deploy.ts`, `github/gh-rest.ts`, `prismic/models/remote.ts`
+ *  and the inline ones in `prospect/pipeline.ts` and `prospect/http-probes.ts`;
+ *  `audits/function-health.ts`, `audits/form-e2e.ts`, `audits/browser.ts` and
+ *  `prospect/dns.ts` are 10s, `prospect/ownership.ts` 12s, `prospect/crawl.ts`
+ *  20s. Each is set for its own workload — see the note on PRISMIC_TIMEOUT_MS.
+ *  15s here is a bound on a two-request pre-send check, not a convention.
+ *
+ *  An abort rejects, and dev-guard treats a rejection as a refusal, which is the
  *  correct reading: an origin that will not answer has proved nothing. */
 const PROBE_TIMEOUT_MS = 15_000;
 
